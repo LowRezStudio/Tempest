@@ -144,7 +144,6 @@
 	.header-buttons {
 		display: flex;
 		justify-content: space-between;
-		padding-right: 1.9rem;
 	}
 	table, tbody {
 		border-collapse: separate;
