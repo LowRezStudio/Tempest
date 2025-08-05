@@ -6,27 +6,30 @@ import "lobby_player.proto";
 option csharp_namespace = "Tempest.Protocol";
 
 service LobbyHostService {
-  rpc CreateLobby(CreateLobbyRequest) returns (CreateLobbyResponse);
-  rpc ReceiveLobbyUpdates(ReceiveLobbyUpdatesRequest) returns (stream LobbyUpdate);
+  rpc CreateLobby(stream LobbyRequest) returns (stream LobbyUpdate);
 }
 
-message CreateLobbyRequest {
+message LobbyRequest {
+  uint64 message_id = 1;
+  oneof message {
+      InitLobbyRequest init = 2;
+  }
+}
+
+message InitLobbyRequest {
   string private_id = 1;
   Server server = 2;
 }
 
-message CreateLobbyResponse {
-  string ticket = 1;
-  uint64 id = 2;
-}
-
-message ReceiveLobbyUpdatesRequest {
-  
-}
-
 message LobbyUpdate {
-  oneof update {
-    LobbyPlayer player_join = 2;
-    uint64 player_leave = 3;
+  uint64 message_id = 1;
+  oneof message {
+    InitLobbyUpdate init = 2;
+    LobbyPlayer player_join = 3;
+    uint64 player_leave = 4;
   }
+}
+
+message InitLobbyUpdate {
+  uint64 id = 1;
 }
