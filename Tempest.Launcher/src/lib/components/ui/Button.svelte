@@ -8,6 +8,7 @@
 		kind?: "normal" | "icon";
 		icon?: IconifyIcon | string;
 		href?: string;
+		selected?: boolean
 	}
 
 	let {
@@ -15,12 +16,13 @@
 		kind = "normal",
 		href,
 		icon,
+		selected,
 		...props
 	}: Props = $props();
 </script>
 
 <button
-	class:icon={kind === "icon"}
+	class:icon={kind === "icon"} class:selected={selected ? "selected" : ""}
 	onclick={href ? () => goto(href) : undefined}
 	{...props}
 >
@@ -70,7 +72,7 @@
 
 	button:disabled {
 		opacity: 0.5;
-		cursor: auto;
+		cursor: not-allowed;
 		background: linear-gradient(#666666cc, #555555cc, #444444cc);
 		border-color: #666666;
 		box-shadow: none;
@@ -84,6 +86,12 @@
 		width: 2.4rem;
 		height: 2.4rem;
 		padding: 0;
+	}
+
+	.selected {
+		background: linear-gradient(#1cc6fbcc, #0194d4cc, #00a2dacc);
+		box-shadow: #1cc6fb 0px 0px 1rem 0.2rem;
+		border-color: #1cc6fb;
 	}
 
 	button > :global(svg) {

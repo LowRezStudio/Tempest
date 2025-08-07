@@ -1,7 +1,7 @@
 <script lang="ts">
 import Input from "$lib/components/ui/Input.svelte";
 import Button from "$lib/components/ui/Button.svelte";
-import Dropdown from "$lib/components/ui/Dropdown.svelte";
+import Dropdown from "$lib/components/ui/DropdownChampions.svelte";
 import championsData from '$lib/assets/champions/champions.json';
 
 let selectedChampion = $state(championsData[0]);
