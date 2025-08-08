@@ -13,8 +13,8 @@
 		"windows": [
 			{
 				"title": "Tempest",
-				"width": 1090,
-				"height": 728,
+				"width": 1024,
+				"height": 690,
 				"minWidth": 800,
 				"minHeight": 600
 			}

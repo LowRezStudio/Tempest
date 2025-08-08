@@ -1,84 +1,23 @@
-html, body {
-	height: 100%;
-	overflow: hidden;
+@import "tailwindcss";
+
+@theme {
+	--font-sans: "Montserrat Variable", sans-serif;
 }
 
+html,
 body {
-	background-color: var(--bg-base);
-	color: var(--text-primary);
-	font-family: "Montserrat Variable";
-	line-height: 1.5;
-	-webkit-font-smoothing: antialiased;
-}
-
-*, *::before, *::after {
-	box-sizing: border-box;
-}
-
-* {
-	margin: 0;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-	html {
-		interpolate-size: allow-keywords;
-	}
-}
-
-img, picture, video, canvas, svg {
-	display: block;
-	max-width: 100%;
-}
-
-input, button, textarea, select {
-	font: inherit;
-}
-
-p, h1, h2, h3, h4, h5, h6 {
-	overflow-wrap: break-word;
+	@apply bg-[#0e0e0e] text-neutral-50 h-full overflow-hidden;
 }
 
 p {
-	text-wrap: pretty;
+	@apply text-pretty;
 }
 
-h1, h2, h3, h4, h5, h6 {
-	text-wrap: balance;
-}
-
-#root {
-	isolation: isolate;
-}
-
-::-webkit-scrollbar {
-	width: 12px;
-	height: 12px;
-}
-
-::-webkit-scrollbar-track {
-	background: var(--bg-surface);
-	border-radius: var(--border-radius);
-}
-
-::-webkit-scrollbar-thumb {
-	background: var(--bg-elevated);
-	border-radius: var(--border-radius);
-	border: 2px solid var(--bg-surface);
-}
-
-::-webkit-scrollbar-thumb:hover {
-	background: var(--text-muted);
-}
-
-::-webkit-scrollbar-thumb:active {
-	background: var(--text-secondary);
-}
-
-::-webkit-scrollbar-corner {
-	background: var(--bg-surface);
-}
-
-* {
-	scrollbar-width: thin;
-	scrollbar-color: var(--bg-elevated) var(--bg-surface);
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	@apply text-balance;
 }

@@ -1,3 +1,5 @@
 {
-	"css.styleSheets": ["src/**/*.css", "src/**/*.svelte"]
+	"css.styleSheets": ["src/**/*.css", "src/**/*.svelte"],
+	"css.customData": [".vscode/tailwind.json"],
+	"css.lint.unknownAtRules": "ignore"
 }

@@ -1,41 +1,191 @@
 <script lang="ts">
-	import BackgroundBlur from "./BackgroundBlur.svelte";
-	import Header from "./Header.svelte";
-	import Sidebar from "./Sidebar.svelte";
+	import { page } from "$app/state";
+	import { instances } from "$lib/state/instances.svelte";
+	import { House, type Icon, Library, Minus, Plus, Settings, Swords, Users } from "@lucide/svelte";
+	import { cubicOut } from "svelte/easing";
+	import { fade, fly } from "svelte/transition";
+
+	let isTransitioning = false;
+
+	type Page = {
+		name: string;
+		path: string;
+		icon: typeof Icon;
+	};
+
+	const pageItems: Page[] = [
+		{ name: "Home", path: "/", icon: House },
+		{ name: "Library", path: "/library", icon: Library },
+		{ name: "Champions", path: "/champions", icon: Swords },
+		{ name: "Servers", path: "/servers", icon: Users },
+	];
+
+	const isActive = (item: { path: string }) => page.url.pathname == item.path;
 </script>
 
-<div class="app-shell">
-	<Header />
-	<BackgroundBlur />
-	<div class="main-area">
-		<Sidebar />
-		<div class="main-content">
-			<slot />
+<main class="app-shell">
+	{#if isTransitioning}
+		<div class="transition-indicator" in:fade={{ duration: 200 }} out:fade={{ duration: 200 }}></div>
+	{/if}
+
+	<div class="sidebar">
+		<div class="sidebar-section">
+			{#each pageItems as item}
+				{@const Icon = item.icon}
+				<a class="sidebar-item" class:active={isActive(item)} href={item.path}>
+					<Icon class="sidebar-item-icon" />
+				</a>
+			{/each}
+			<div class="sidebar-section instance-list">
+				{#if instances.current.length > 0}
+					<div class="sidebar-seperator">
+						<Minus preserveAspectRatio="none" />
+					</div>
+
+					{#each instances.current as instance, i}
+						{#if i < 4}
+							{@const path = `/library/${instance.id}`}
+							<a class="sidebar-instance" class:active={isActive({ path })} href={path}>
+								{"P"}
+							</a>
+						{/if}
+					{/each}
+				{/if}
+			</div>
+			<div class="sidebar-seperator">
+				<Minus preserveAspectRatio="none" />
+			</div>
+			<button class="sidebar-item add-instance">
+				<Plus />
+			</button>
+		</div>
+		<div class="sidebar-section">
+			<a class="sidebar-item" class:active={isActive({ path: "/settings" })} href="/settings">
+				<Settings class="sidebar-item-icon" />
+			</a>
 		</div>
 	</div>
-</div>
+	<div class="content" class:transitioning={isTransitioning}>
+		{#key page.url.pathname}
+			<div
+				class="page-content"
+				in:fly={{
+					x: 50,
+					duration: 400,
+					delay: 200,
+					easing: cubicOut,
+				}}
+				out:fly={{
+					x: -50,
+					duration: 300,
+					easing: cubicOut,
+				}}
+				on:introstart={() => isTransitioning = true}
+				on:introend={() => isTransitioning = false}
+				on:outrostart={() => isTransitioning = true}
+				on:outroend={() => isTransitioning = false}
+			>
+				<slot />
+			</div>
+		{/key}
+	</div>
+</main>
 
 <style>
+	@reference "tailwindcss";
+
 	.app-shell {
-		display: flex;
-		flex-direction: column;
-		height: 100vh;
+		@apply flex flex-row h-full overflow-hidden relative;
 	}
 
-	.main-area {
-		display: flex;
-		flex: 1;
-		min-height: 0;
+	.transition-indicator {
+		@apply absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-[#d2e2e8] to-transparent z-50;
+		animation: shimmer 1s ease-in-out infinite;
 	}
 
-	.main-content {
-		border: 2px solid var(--border-primary);
-		border-right: 0;
-		border-bottom: 0;
-		overflow-y: auto;
-		overflow-x: hidden;
-		flex: 1;
-		min-height: 0;
-		padding: var(--spacing-sm);
+	@keyframes shimmer {
+		0%, 100% {
+			opacity: 0.3;
+		}
+		50% {
+			opacity: 0.8;
+		}
+	}
+
+	.sidebar {
+		@apply flex flex-col items-center justify-between border-r-2 bg-[#101013] border-[#222329];
+	}
+
+	.sidebar-section {
+		@apply flex flex-col items-center gap-2 p-2;
+
+		&.instance-list {
+			@apply gap-4;
+		}
+	}
+
+	.content {
+		@apply flex-auto w-full h-screen overflow-hidden relative;
+		transition: backdrop-filter 300ms ease-in-out;
+
+		&.transitioning {
+			backdrop-filter: blur(1px) brightness(0.98);
+		}
+	}
+
+	.page-content {
+		@apply w-full h-full overflow-auto;
+		backface-visibility: hidden;
+		transform: translateZ(0);
+	}
+
+	.sidebar-item {
+		@apply grid place-items-center size-10 rounded-xl text-[#a1a5a9] transition-all duration-300 ease-in-out;
+		transform: translateZ(0);
+
+		&.active {
+			@apply bg-[#1d2325] text-[#b1d1e4];
+			transform: scale(1.05);
+			box-shadow: 0 2px 8px rgba(210, 223, 232, 0.1);
+		}
+
+		&:hover {
+			@apply text-[#b1d1e4];
+			transform: scale(1.02);
+		}
+
+		&:active {
+			transform: scale(0.98);
+		}
+
+		& :global(svg) {
+			@apply size-5;
+			transition: transform 200ms ease-in-out;
+		}
+
+		&.active :global(svg) {
+			transform: scale(1.1);
+		}
+
+		&.add-instance {
+			cursor: pointer;
+		}
+	}
+
+	.sidebar-seperator {
+		@apply grid place-items-center w-8 h-2 text-[#4e4b4b];
+
+		& :global(svg) {
+			height: 100%;
+			width: 100%;
+		}
+	}
+
+	.sidebar-instance {
+		@apply grid place-items-center size-6 bg-purple-400 rounded-md text-[#a9a1a1];
+
+		&.active {
+			@apply bg-blue-400;
+		}
 	}
 </style>
