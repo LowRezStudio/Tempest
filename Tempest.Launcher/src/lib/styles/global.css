@@ -3,6 +3,7 @@
 :root {
 	--color-primary: #428eb1;
 	--color-secondary: #7fa7be;
+	--color-background: #101013;
 }
 
 @theme {
@@ -31,6 +32,18 @@
 	--color-secondary-800: oklch(from var(--color-secondary) calc(l - 0.3) c h);
 	--color-secondary-900: oklch(from var(--color-secondary) calc(l - 0.4) c h);
 	--color-secondary-950: oklch(from var(--color-secondary) calc(l - 0.5) c h);
+
+	--color-background-50: oklch(from var(--color-background) calc(l + 0.85) calc(c * 0.3) h);
+	--color-background-100: oklch(from var(--color-background) calc(l + 0.75) calc(c * 0.4) h);
+	--color-background-200: oklch(from var(--color-background) calc(l + 0.65) calc(c * 0.5) h);
+	--color-background-300: oklch(from var(--color-background) calc(l + 0.55) calc(c * 0.6) h);
+	--color-background-400: oklch(from var(--color-background) calc(l + 0.45) calc(c * 0.7) h);
+	--color-background-500: oklch(from var(--color-background) calc(l + 0.35) calc(c * 0.8) h);
+	--color-background-600: oklch(from var(--color-background) calc(l + 0.25) calc(c * 0.9) h);
+	--color-background-700: oklch(from var(--color-background) calc(l + 0.15) c h);
+	--color-background-800: oklch(from var(--color-background) calc(l + 0.08) c h);
+	--color-background-900: oklch(from var(--color-background) calc(l + 0.03) c h);
+	--color-background-950: oklch(from var(--color-background) l c h);
 }
 
 html,

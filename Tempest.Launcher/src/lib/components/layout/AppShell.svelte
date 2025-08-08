@@ -92,14 +92,14 @@
 </main>
 
 <style>
-	@reference "tailwindcss";
+	@reference "../../styles/global.css";
 
 	.app-shell {
 		@apply flex flex-row h-full overflow-hidden relative;
 	}
 
 	.transition-indicator {
-		@apply absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-[#d2e2e8] to-transparent z-50;
+		@apply absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-background-200 to-transparent z-50;
 		animation: shimmer 1s ease-in-out infinite;
 	}
 
@@ -113,7 +113,7 @@
 	}
 
 	.sidebar {
-		@apply flex flex-col items-center justify-between border-r-2 bg-[#101013] border-[#222329];
+		@apply flex flex-col items-center justify-between border-r-2 bg-background-950 border-background-800;
 	}
 
 	.sidebar-section {
@@ -140,17 +140,17 @@
 	}
 
 	.sidebar-item {
-		@apply grid place-items-center size-10 rounded-xl text-[#a1a5a9] transition-all duration-300 ease-in-out;
+		@apply grid place-items-center size-10 rounded-xl text-gray-400 transition-all duration-300 ease-in-out;
 		transform: translateZ(0);
 
 		&.active {
-			@apply bg-[#1d2325] text-[#b1d1e4];
+			@apply bg-secondary-800 text-primary-300;
 			transform: scale(1.05);
 			box-shadow: 0 2px 8px rgba(210, 223, 232, 0.1);
 		}
 
 		&:hover {
-			@apply text-[#b1d1e4];
+			@apply text-primary-300;
 			transform: scale(1.02);
 		}
 
@@ -173,7 +173,7 @@
 	}
 
 	.sidebar-seperator {
-		@apply grid place-items-center w-8 h-2 text-[#4e4b4b];
+		@apply grid place-items-center w-8 h-2 text-background-500;
 
 		& :global(svg) {
 			height: 100%;
@@ -182,7 +182,7 @@
 	}
 
 	.sidebar-instance {
-		@apply grid place-items-center size-6 bg-purple-400 rounded-md text-[#a9a1a1];
+		@apply grid place-items-center size-6 bg-purple-400 rounded-md text-background-100;
 
 		&.active {
 			@apply bg-blue-400;
