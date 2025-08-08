@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { goto } from "$app/navigation";
-	import type { Icon } from "@lucide/svelte";
+    import type { Icon } from "@lucide/svelte";
 	import type { HTMLButtonAttributes } from "svelte/elements";
-
+	import { goto } from "$app/navigation";
+    
 	interface Props extends HTMLButtonAttributes {
 		icon?: typeof Icon;
 		href?: string;
@@ -42,7 +42,7 @@
 	@reference "../../styles/global.css";
 
 	button {
-		@apply bg-[#222329] px-4 py-1.5 rounded-xl flex items-center border-2 border-transparent;
+		@apply bg-[#222329] px-4 py-1.5 rounded-xl flex items-center border-2 border-transparent transition duration-150;
 	}
 
 	button:hover {

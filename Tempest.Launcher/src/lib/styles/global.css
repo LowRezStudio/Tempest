@@ -2,10 +2,11 @@
 
 :root {
 	--color-primary: #428eb1;
-	--color-primary-highlight: rgba(66, 142, 177, 0.25);
+	--color-primary-highlight: #428eb140;
 	--color-secondary: #7fa7be;
-	--color-secondary-highlight: rgba(127, 167, 190, 0.25);
+	--color-secondary-highlight: #7fa7be40;
 	--color-background: #101013;
+	--component-background: #222329;
 }
 
 @theme {
