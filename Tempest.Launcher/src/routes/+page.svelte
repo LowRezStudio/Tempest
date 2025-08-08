@@ -1,7 +1,14 @@
+<script lang="ts">
+	const backgrounds = Object.keys(import.meta.glob("/static/img/loading-screens/*.webp"))
+		.map(img => img.slice("/static".length));
+
+	const background = backgrounds[Math.floor(Math.random() * backgrounds.length)];
+</script>
+
 <div class="relative left-0 top-0 h-0 pointer-events-none">
 	<img
 		class="brightness-75 h-screen w-full object-cover object-center"
-		src="https://github.com/PaladinsDev/Assets/blob/master/loading-screens/Loading_Village.png?raw=true"
+		src={background}
 		alt="background"
 	/>
 </div>
