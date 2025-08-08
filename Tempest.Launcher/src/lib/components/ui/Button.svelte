@@ -4,25 +4,22 @@
 	import type { HTMLButtonAttributes } from "svelte/elements";
 
 	interface Props extends HTMLButtonAttributes {
-		kind?: "normal" | "icon";
 		icon?: typeof Icon;
 		href?: string;
-		selected?: boolean;
+		kind?: "accented" | "normal";
 	}
 
 	let {
 		children,
-		kind = "normal",
 		href,
 		icon,
-		selected,
+		kind,
 		...props
 	}: Props = $props();
 </script>
 
 <button
-	class:icon={kind === "icon"}
-	class:selected={selected ? "selected" : ""}
+	class:accented={kind == "accented"}
 	onclick={href ? () => goto(href) : undefined}
 	{...props}
 >
@@ -47,13 +44,16 @@
 	button {
 		@apply bg-[#222329] px-4 py-1.5 rounded-xl flex items-center border-2 border-transparent;
 	}
+
 	button:hover {
 		@apply cursor-pointer border-transparent border-2 brightness-90;
 	}
-    .selected {
+
+    .accented {
 		@apply ring-2 ring-[var(--color-primary)] bg-[var(--color-primary-highlight)] shadow-lg;
     }
-    .selected:hover {
+
+    .accented:hover {
 		@apply ring-2 ring-[var(--color-primary)]  shadow-lg;
     }
     

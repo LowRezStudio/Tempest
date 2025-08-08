@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/state";
+	import Button from "$lib/components/ui/Button.svelte";
 	import { getInstance } from "$lib/state/instances.svelte";
 	import { Bot, ChevronDown, Clock, Gamepad2, Box } from "@lucide/svelte";
 
@@ -32,13 +33,7 @@
 					</div>
 				</div>
 
-				<button class="inline-flex items-center gap-2 rounded-xl border border-green-600/40 bg-green-700/30 px-4 py-2 text-green-300 hover:bg-green-700/40 transition">
-					<span class="relative flex size-2">
-						<span class="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75"></span>
-						<span class="relative inline-flex size-2 rounded-full bg-green-400"></span>
-					</span>
-					Installing...
-				</button>
+				<Button kind="accented">Play</Button>
 			</div>
 
 			<div class="mt-6 border-b border-background-800">
