@@ -1,7 +1,36 @@
 @import "tailwindcss";
 
+:root {
+	--color-primary: #428eb1;
+	--color-secondary: #7fa7be;
+}
+
 @theme {
 	--font-sans: "Montserrat Variable", sans-serif;
+
+	--color-primary-50: oklch(from var(--color-primary) calc(l + 0.4) c h);
+	--color-primary-100: oklch(from var(--color-primary) calc(l + 0.35) c h);
+	--color-primary-200: oklch(from var(--color-primary) calc(l + 0.3) c h);
+	--color-primary-300: oklch(from var(--color-primary) calc(l + 0.2) c h);
+	--color-primary-400: oklch(from var(--color-primary) calc(l + 0.1) c h);
+	--color-primary-500: oklch(from var(--color-primary) l c h);
+	--color-primary-600: oklch(from var(--color-primary) calc(l - 0.1) c h);
+	--color-primary-700: oklch(from var(--color-primary) calc(l - 0.2) c h);
+	--color-primary-800: oklch(from var(--color-primary) calc(l - 0.3) c h);
+	--color-primary-900: oklch(from var(--color-primary) calc(l - 0.4) c h);
+	--color-primary-950: oklch(from var(--color-primary) calc(l - 0.5) c h);
+
+	--color-secondary-50: oklch(from var(--color-secondary) calc(l + 0.4) c h);
+	--color-secondary-100: oklch(from var(--color-secondary) calc(l + 0.35) c h);
+	--color-secondary-200: oklch(from var(--color-secondary) calc(l + 0.3) c h);
+	--color-secondary-300: oklch(from var(--color-secondary) calc(l + 0.2) c h);
+	--color-secondary-400: oklch(from var(--color-secondary) calc(l + 0.1) c h);
+	--color-secondary-500: oklch(from var(--color-secondary) l c h);
+	--color-secondary-600: oklch(from var(--color-secondary) calc(l - 0.1) c h);
+	--color-secondary-700: oklch(from var(--color-secondary) calc(l - 0.2) c h);
+	--color-secondary-800: oklch(from var(--color-secondary) calc(l - 0.3) c h);
+	--color-secondary-900: oklch(from var(--color-secondary) calc(l - 0.4) c h);
+	--color-secondary-950: oklch(from var(--color-secondary) calc(l - 0.5) c h);
 }
 
 html,
