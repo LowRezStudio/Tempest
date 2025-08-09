@@ -49,6 +49,10 @@
 		@apply cursor-pointer border-transparent border-2 brightness-90;
 	}
 
+    button:disabled {
+        @apply cursor-not-allowed brightness-75;
+    }
+
     .accented {
 		@apply ring-2 ring-[var(--color-primary)] bg-[var(--color-primary-highlight)] shadow-lg;
     }

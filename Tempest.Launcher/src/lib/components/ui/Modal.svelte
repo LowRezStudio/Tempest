@@ -1,83 +1,59 @@
 <script>
-    import { createDialog, melt } from '@melt-ui/svelte';
-    import { fade, fly } from 'svelte/transition';
-	import { X } from "@lucide/svelte";
-  
-    // Props
-    let {
-      open = $bindable(false),
-      title = 'Dialog',
-      description = '',
-      children,
-      ...restProps
-    } = $props();
-  
-    // Create dialog builder
-    const {
-      elements: { trigger, overlay, content, title: titleEl, description: descEl, close },
-      states: { open: dialogOpen }
-    } = createDialog({
-      forceVisible: true,
-      open: open,
-      onOpenChange: ({ next }) => {
-        open = next;
-        return next;
-      }
-    });
-  
-    // Sync internal state with prop
-    $effect(() => {
-      dialogOpen.set(open);
-    });
+  import { createDialog, melt } from '@melt-ui/svelte';
+  import { fade, fly } from 'svelte/transition';
+  import { X } from "@lucide/svelte";
+  import { untrack } from 'svelte';
+
+  let { showModal = $bindable(), children } = $props();
+
+	const {
+		elements: {
+			trigger,
+			overlay,
+			content,
+			title,
+			description,
+			close,
+			portalled,
+		},
+		states: { open },
+	} = createDialog({
+		forceVisible: true,
+	});
+
   </script>
   
-  <!-- Trigger slot -->
-  {#if children?.trigger}
-    <button use:melt={$trigger} {...restProps}>
-      {@render children.trigger()}
-    </button>
-  {/if}
-  
-  <!-- Dialog overlay and content -->
-  {#if $dialogOpen}
-    <div use:melt={$overlay} class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" transition:fade={{ duration: 150 }}>
-      <div
-        use:melt={$content}
-        class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto relative"
-        transition:fly={{ duration: 150, y: 8, opacity: 0 }}
-      >
-        <!-- Close button -->
-        <button use:melt={$close} class="absolute right-4 top-4 p-1 rounded-sm hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex items-center justify-center">
-          <X size={16} />
-        </button>
-  
-        <!-- Title -->
-        {#if title}
-          <h2 use:melt={$titleEl} class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2 pr-8">
-            {title}
-          </h2>
-        {/if}
-  
-        <!-- Description -->
-        {#if description}
-          <p use:melt={$descEl} class="text-gray-600 dark:text-gray-300 mb-4 leading-relaxed">
-            {description}
-          </p>
-        {/if}
-  
-        <!-- Main content slot -->
-        {#if children?.default}
-          <div class="my-4">
-            {@render children.default()}
-          </div>
-        {/if}
-  
-        <!-- Actions slot -->
-        {#if children?.actions}
-          <div class="flex gap-2 justify-end mt-6 pt-4 border-t border-gray-200 dark:border-gray-600">
-            {@render children.actions({ close })}
-          </div>
-        {/if}
-      </div>
-    </div>
-  {/if}
+  {#if $open || showModal}
+	<div class="" use:melt={$portalled} onclose={showModal = false}>
+		<div
+			use:melt={$overlay}
+			class="fixed inset-0 z-50 bg-black/50"
+			transition:fade={{ duration: 150 }}
+		></div>
+		<div
+			class="
+				fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[90vw]
+				max-w-[550px] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#101013] shadow-lg
+			"
+			use:melt={$content}
+		>
+			<div class="modal-header p-5 flex justify-between items-center">
+				<h2 use:melt={$title} class="m-0 text-lg font-semibold text-white">
+					Adding an instance
+				</h2>
+
+				<button
+					use:melt={$close}
+					aria-label="close"
+					class=" rounded-full p-2 cursor-pointer text-text-color bg-component-background transition duration-150 hover:brightness-90 focus:shadow-white"
+				>
+					<X class="size-6" />
+				</button>
+			</div>
+			<hr class="border-[#222329]" />
+			<div class="modal-body p-5">
+        {@render children?.()}
+			</div>
+		</div>
+	</div>
+{/if}

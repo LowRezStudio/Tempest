@@ -7,6 +7,7 @@
 	--color-secondary-highlight: #7fa7be40;
 	--color-background: #101013;
 	--component-background: #222329;
+	--text-color: #b0bac5;
 }
 
 @theme {
@@ -47,6 +48,14 @@
 	--color-background-800: oklch(from var(--color-background) calc(l + 0.08) c h);
 	--color-background-900: oklch(from var(--color-background) calc(l + 0.03) c h);
 	--color-background-950: oklch(from var(--color-background) l c h);
+
+	--color-primary: #428eb1;
+	--color-primary-highlight: #428eb140;
+	--color-secondary: #7fa7be;
+	--color-secondary-highlight: #7fa7be40;
+	--color-background: #101013;
+	--color-component-background: #222329;
+	--color-text-color: #b0bac5;
 }
 
 html,

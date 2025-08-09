@@ -2,12 +2,15 @@
 	import { page } from "$app/state";
 	import Button from "../ui/Button.svelte";
 	import Input from "../ui/Input.svelte";
+	import Select from "../ui/Select.svelte";
+	import Selector from "../ui/Selector.svelte";
 	import { addInstance, instances } from "$lib/state/instances.svelte";
-	import { X } from "@lucide/svelte";
 	import { createDialog, melt } from "@melt-ui/svelte";
 	import {
-		House,
 		type Icon,
+		House,
+		X,
+		Code,
 		Library,
 		Minus,
 		Plus,
@@ -15,8 +18,10 @@
 		Swords,
 		Users,
 		Check,
-		FolderCheck,
-		CloudCheck,
+		Info,
+		Folder,
+		CloudDownload,
+		FolderPlus,
 	} from "@lucide/svelte";
 	import { cubicOut } from "svelte/easing";
 	import { fade, fly } from "svelte/transition";
@@ -60,8 +65,12 @@
 	});
 
 	let showAdvancedSettings: boolean = $state(false);
-	let canCreateInstance: boolean = $state(false);
 	let selectedImportType: string = $state("download");
+
+	let instanceName = $state("");
+	let selectedGameVersion = $state("");
+	// TODO: SET chosenPath DEFAULT VALUE TO THE DEFAULT INSTALL LOCATION
+	let chosenPath = $state("");
 
 	const setImportType = (importType: string) => {
 		selectedImportType = importType;
@@ -69,6 +78,10 @@
 
 	const toggleAdvancedSettings = () => {
 		showAdvancedSettings = !showAdvancedSettings;
+	};
+
+	const canAddInstance = (): boolean => {
+		return instanceName.length > 0 && selectedGameVersion.length > 0;
 	};
 
 	const isActive = (item: { path: string }) => page.url.pathname == item.path;
@@ -84,55 +97,189 @@
 		<div
 			class="
 				fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[90vw]
-				max-w-[450px] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#101013] shadow-lg
+				max-w-[550px] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#101013] shadow-lg
 			"
 			use:melt={$content}
 		>
-			<div class="modal-header p-5">
+			<div class="modal-header p-5 flex justify-between items-center">
 				<h2 use:melt={$title} class="m-0 text-lg font-semibold text-white">
 					Adding an instance
 				</h2>
+
+				<button
+					use:melt={$close}
+					aria-label="close"
+					class=" rounded-full p-2 cursor-pointer text-text-color bg-component-background transition duration-150 hover:brightness-90 focus:shadow-white"
+				>
+					<X class="size-6" />
+				</button>
 			</div>
-			<hr />
+			<hr class="border-[#222329]" />
 			<div class="modal-body p-5">
 				<div class="instance-type flex flex-col gap-4 items-center pt-2 pb-5">
 					<div
-						class="instance-type-button flex items-center justify-center gap-4"
+						class="instance-type-buttons flex items-center justify-center gap-2"
 					>
 						<Button
 							onclick={() => setImportType("download")}
 							kind={selectedImportType == "download" ? "accented" : "normal"}
-							icon={selectedImportType == "download" ? CloudCheck : undefined}
-							class="text-[#b0bac5] font-semibold">Download</Button
+							icon={selectedImportType == "download"
+								? CloudDownload
+								: undefined}
+							class="text-text-color font-semibold">Download</Button
 						>
 						<Button
 							onclick={() => setImportType("disk")}
 							kind={selectedImportType == "disk" ? "accented" : "normal"}
-							icon={selectedImportType == "disk" ? FolderCheck : undefined}
-							>From Disk</Button
+							icon={selectedImportType == "disk" ? Folder : undefined}
+							class="text-text-color font-semibold">From Folder</Button
 						>
 					</div>
-					<hr class="w-2xs" />
+					<hr class="border-[#222329] w-2xs" />
 				</div>
-				<div class="instance-settings">
-					<div class="instance-setting flex flex-col gap-2">
-						<label for="instance-name">Name</label>
-						<Input id="instance-name"></Input>
+				{#if selectedImportType == "download"}
+					<div class="instance-settings flex flex-col gap-6 w-[70%]">
+						<div class="instance-setting flex flex-col gap-1">
+							Name
+							<Input bind:value={instanceName} id="instance-name"></Input>
+						</div>
+						<div class="instance-setting flex flex-col gap-1">
+							Game version
+							<Select
+								choices={{
+									"Open Beta": [
+										"OB 34",
+										"OB 35",
+										"OB 36",
+										"OB 37",
+										"OB 38",
+										"OB 39",
+										"OB 41",
+										"OB 42",
+										"OB 43",
+										"OB 44",
+										"OB 46",
+										"OB 48",
+										"OB 49",
+										"OB 50",
+										"OB 51",
+										"OB 52",
+										"OB 53",
+										"OB 54",
+										"OB 55",
+										"OB 56",
+										"OB 57",
+										"OB 58",
+										"OB 60",
+										"OB 61",
+										"OB 63",
+										"OB 64",
+										"OB 65",
+										"OB 66",
+										"OB 67",
+										"OB 68",
+										"OB 69",
+										"OB 70",
+									],
+									"Season 1": [
+										"1.0",
+										"1.1",
+										"1.2",
+										"1.3",
+										"1.4",
+										"1.5",
+										"1.6",
+										"1.7",
+										"1.8",
+										"1.9",
+									],
+									"Season 2": [
+										"2.1",
+										"2.2",
+										"2.3",
+										"2.4",
+										"2.5",
+										"2.6",
+										"2.7",
+										"2.8",
+									],
+									"Season 3": ["3.1", "3.2", "3.3", "3.4", "3.5"],
+									"Season 4": ["4.1", "4.2", "4.3", "4.4", "4.5", "4.6", "4.7"],
+									"Season 5": ["5.1", "5.2", "5.3", "5.4", "5.5", "5.6", "5.7"],
+									"Season 6": [
+										"6.1",
+										"6.2",
+										"6.3",
+										"6.4",
+										"6.5",
+										"6.6",
+										"6.6b",
+									],
+									"Season 7": ["7.1", "7.2", "7.3", "7.4", "7.5", "7.6", "7.7"],
+									"Season 8": ["8.1"],
+								}}
+								placeholder="Select game version"
+								fitViewport={false}
+								direction="top"
+								bind:value={selectedGameVersion}
+							></Select>
+						</div>
+						{#if showAdvancedSettings}
+							<div class="instance-setting flex flex-col gap-1">
+								Installation path
+								<Selector
+									placeholder={chosenPath == ""
+										? "Choose a directory"
+										: chosenPath.length > 33
+											? chosenPath.substring(0, 33) + "..."
+											: chosenPath}
+									bind:selected={chosenPath}
+									type="folder"
+									multiple={false}
+								></Selector>
+							</div>
+						{/if}
 					</div>
-				</div>
+					<div class="add-instance">
+						<div
+							class="add-instace-buttons flex items-center justify-end pt-3 gap-2"
+						>
+							<Button
+								onclick={toggleAdvancedSettings}
+								icon={Code}
+								class="text-text-color font-semibold"
+								>{showAdvancedSettings
+									? "Hide advanced"
+									: "Show advanced"}
+							</Button>
+							<Button class="text-text-color font-semibold" icon={X}
+								>Cancel</Button
+							>
+							<!-- TODO: SET chosenPath DEFAULT VALUE TO THE DEFAULT INSTALL LOCATION -->
+							<Button
+								class="text-text-color font-semibold"
+								onclick={() =>
+									addInstance({ label: instanceName, path: chosenPath })}
+								icon={Plus}
+								kind="accented"
+								disabled={!canAddInstance()}>Add</Button
+							>
+						</div>
+					</div>
+				{:else}
+					<div class="import-folder flex flex-col gap-2">
+						<div class="zebi">
+							<Button class="text-text-color font-semibold" icon={FolderPlus}>
+								Import from folder</Button
+							>
+						</div>
+						<div class="import-text flex gap-2 justify-start items-center">
+							<Info class="text-xs"></Info>
+							Or drag and drop your folder.
+						</div>
+					</div>
+				{/if}
 			</div>
-
-			<button
-				use:melt={$close}
-				aria-label="close"
-				class="
-					absolute right-4 top-4 inline-flex h-6 w-6 appearance-none
-					items-center justify-center rounded-full p-1 text-blue-800
-					hover:bg-blue-100 focus:shadow-blue-400
-				"
-			>
-				<X class="size-4" />
-			</button>
 		</div>
 	</div>
 {/if}
