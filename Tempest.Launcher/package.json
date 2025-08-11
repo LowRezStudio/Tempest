@@ -26,11 +26,10 @@
 		"@tauri-apps/plugin-http": "~2.5.1",
 		"@tauri-apps/plugin-opener": "^2",
 		"@tauri-apps/plugin-shell": "~2.3.0",
+		"bits-ui": "^2.9.2",
 		"runed": "^0.31.1"
 	},
 	"devDependencies": {
-		"@melt-ui/pp": "^0.3.2",
-		"@melt-ui/svelte": "^0.86.6",
 		"@protobuf-ts/plugin": "^2.11.1",
 		"@sveltejs/adapter-static": "^3.0.8",
 		"@sveltejs/kit": "^2.22.0",

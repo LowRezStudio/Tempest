@@ -27,7 +27,8 @@
 	@reference "../../styles/global.css";
 
 	input {
-		@apply bg-[var(--component-background)] rounded-xl h-[2.3rem] p-4 text-[var(--text-color)] font-[550] transition duration-150;
+		@apply bg-[var(--component-background)] rounded-xl h-[2.3rem] p-4 text-[var(--text-color)] font-[550] transition
+			duration-150;
 	}
 	input:focus {
 		@apply ring-4 ring-[var(--color-primary)] outline-none;
