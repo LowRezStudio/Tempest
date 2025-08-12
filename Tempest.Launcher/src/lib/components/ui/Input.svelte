@@ -27,10 +27,11 @@
 	@reference "../../styles/global.css";
 
 	input {
-		@apply bg-[var(--component-background)] rounded-xl h-[2.3rem] p-4 text-[var(--text-color)] font-[550] transition
-			duration-150;
+		@apply h-10 rounded-lg bg-background-800 w-full min-w-[220px] px-3 text-sm transition-colors
+			focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/60 gap-2 ring-0 ring-transparent;
 	}
+
 	input:focus {
-		@apply ring-4 ring-[var(--color-primary)] outline-none;
+		@apply ring-2 ring-primary-500 outline-none;
 	}
 </style>

@@ -38,7 +38,7 @@
 
 					<Dialog.Close
 						aria-label="close"
-						class="rounded-full p-2 cursor-pointer text-text-color bg-component-background transition duration-150 hover:brightness-90 focus:shadow-white"
+						class="rounded-full p-2 cursor-pointer bg-background-800 transition duration-150 hover:brightness-90 focus:shadow-white"
 					>
 						<X class="size-6" />
 					</Dialog.Close>

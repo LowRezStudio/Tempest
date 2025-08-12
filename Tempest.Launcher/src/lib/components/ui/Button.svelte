@@ -42,11 +42,12 @@
 	@reference "../../styles/global.css";
 
 	button {
-		@apply bg-[#222329] px-4 py-1.5 rounded-xl flex items-center border-2 border-transparent transition duration-150;
+		@apply text-[14px] h-10 bg-background-800 px-3 rounded-xl flex items-center border-2 border-transparent transition
+			duration-150;
 	}
 
 	button:hover {
-		@apply cursor-pointer border-transparent border-2 brightness-90;
+		@apply cursor-pointer border-transparent brightness-90;
 	}
 
 	button:disabled {
@@ -54,10 +55,10 @@
 	}
 
 	.accented {
-		@apply ring-2 ring-[var(--color-primary)] bg-[var(--color-primary-highlight)] shadow-lg;
+		@apply ring-2 ring-primary-500 bg-secondary-800 text-primary-300 shadow-lg;
 	}
 
 	.accented:hover {
-		@apply ring-2 ring-[var(--color-primary)] shadow-lg;
+		@apply ring-2 ring-primary-500 shadow-lg;
 	}
 </style>

@@ -38,7 +38,7 @@
 	{...restProps}
 >
 	<Select.Trigger
-		class="h-10 rounded-lg bg-component-background data-placeholder:text-foreground-alt/50 flex w-full min-w-[220px] items-center px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 gap-2 select-trigger"
+		class="hover:cursor-pointer hover:border-transparent hover:brightness-90 transition duration-150 h-10 rounded-lg bg-background-800 flex w-full min-w-[220px] items-center px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 gap-2 select-trigger"
 	>
 		<span class="truncate text-text-color" class:list={[!selectedLabel && "opacity-60"]}>
 			{selectedLabel || placeholder}
@@ -47,7 +47,9 @@
 			class="ml-auto text-text-color transition-transform duration-150"
 			class:list={[open && "rotate-180"]}
 		>
-			<ChevronDown class={open ? "size-4 shrink-0 rotate-180 transition duration-150": "size-4 shrink-0 transition duration-150"} />
+			<ChevronDown
+				class={open ? "size-4 shrink-0 rotate-180 transition duration-150" : "size-4 shrink-0 transition duration-150"}
+			/>
 		</span>
 	</Select.Trigger>
 
@@ -55,7 +57,7 @@
 		<Select.Portal>
 			<Select.Content
 				side={contentProps?.side ?? "bottom"}
-				class="focus-override bg-component-background data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 outline-hidden z-50 max-h-[var(--bits-select-content-available-height)] w-[var(--bits-select-anchor-width)] min-w-[var(--bits-select-anchor-width)] select-none rounded-xl px-1 py-2"
+				class="bg-background-800 data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 outline-hidden z-50 max-h-[var(--bits-select-content-available-height)] w-[var(--bits-select-anchor-width)] min-w-[var(--bits-select-anchor-width)] select-none rounded-xl px-1 py-2"
 				{...contentProps}
 			>
 				<Select.ScrollUpButton class="flex items-center justify-center py-1 text-xs opacity-60">
@@ -77,7 +79,7 @@
 										{#snippet child({ props, selected, highlighted })}
 											<div
 												{...props}
-												class={`relative flex h-10 w-full select-none items-center rounded-md pl-5 pr-2 text-sm capitalize outline-none transition-colors
+												class={`hover:cursor-pointer relative flex h-10 w-full select-none items-center rounded-md pl-5 pr-2 text-sm capitalize outline-none transition-colors
 												${
 													highlighted
 														? "bg-secondary-800 text-primary-300"

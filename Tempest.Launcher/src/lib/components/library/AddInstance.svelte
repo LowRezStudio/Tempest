@@ -1,21 +1,12 @@
 <script lang="ts">
 	import Button from "$lib/components/ui/Button.svelte";
 	import Dialog from "$lib/components/ui/Dialog.svelte";
-	import Select from "$lib/components/ui/Select.svelte";
 	import Input from "$lib/components/ui/Input.svelte";
 	import PathPicker from "$lib/components/ui/PathPicker.svelte";
+	import Select from "$lib/components/ui/Select.svelte";
 	import versions from "$lib/data/versions.json";
-	import {
-		Plus,
-		CloudDownload,
-		Folder,
-		Code,
-		X,
-		FolderPlus,
-		Info,
-		Icon,
-	} from "@lucide/svelte";
 	import { addInstance } from "$lib/state/instances.svelte";
+	import { CloudDownload, Code, Folder, FolderPlus, Info, Plus, X } from "@lucide/svelte";
 
 	let open = $state(false);
 
@@ -24,7 +15,7 @@
 			value: item.id,
 			label: `${item.version} - ${item.date}`,
 			group: group,
-		})),
+		}))
 	);
 
 	let selectedImportType = $state("download");
@@ -35,15 +26,15 @@
 
 	const canAddInstance = (): boolean => {
 		return (
-			selectedName.length > 0 &&
-			selectedVersion != undefined &&
-			selectedPath.length > 0
-		)
-	}
+			selectedName.length > 0
+			&& selectedVersion != undefined
+			&& selectedPath.length > 0
+		);
+	};
 
 	const getSelectedVersionObject = () => {
 		return Object.entries(versions).flatMap(([group, list]) => list).find((item) => item.id === selectedVersion);
-	}
+	};
 
 	// TODO: Implement
 	const addInstanceFromFolder = (path: string) => {};
@@ -53,8 +44,7 @@
 		const versionObject = getSelectedVersionObject();
 		addInstance({ label: selectedName, path: selectedPath, version: versionObject?.version });
 		open = false;
-	}
-
+	};
 </script>
 
 <button
@@ -71,19 +61,17 @@
 				onclick={() => (selectedImportType = "download")}
 				kind={selectedImportType == "download" ? "accented" : "normal"}
 				icon={selectedImportType == "download" ? CloudDownload : undefined}
-				class="text-text-color font-semibold">Download</Button
-			>
+			>Download</Button>
 			<Button
 				onclick={() => (selectedImportType = "folder")}
 				kind={selectedImportType == "folder" ? "accented" : "normal"}
 				icon={selectedImportType == "folder" ? Folder : undefined}
-				class="text-text-color font-semibold">From Folder</Button
-			>
+			>From Folder</Button>
 		</div>
-		<hr class="border-background-700 w-72" />
+		<hr class="border-background-700 w-full" />
 	</div>
 	{#if selectedImportType == "download"}
-		<div class="flex flex-col gap-6">
+		<div class="flex flex-col gap-4 py-4">
 			<div class="flex flex-col gap-2">
 				<p>Name</p>
 				<Input bind:value={selectedName}></Input>
@@ -110,30 +98,25 @@
 				</div>
 			{/if}
 		</div>
-		<div class="flex items-center justify-end gap-2 pt-4">
+		<div class="flex items-center justify-end gap-2">
 			<Button
 				onclick={() => (showAdvanced = !showAdvanced)}
 				icon={Code}
-				class="text-text-color font-semibold"
-				>{showAdvanced ? "Hide advanced" : "Show advanced"}</Button
-			>
+			>{showAdvanced ? "Hide advanced" : "Show advanced"}</Button>
 			<Button
 				onclick={() => (open = false)}
 				icon={X}
-				class="text-text-color font-semibold">Cancel</Button
-			>
+			>Cancel</Button>
 			<Button
 				onclick={addInstanceFromDepot}
 				kind="accented"
 				icon={Plus}
 				disabled={!canAddInstance()}
-				class="text-text-color font-semibold">Add</Button
-			>
+			>Add</Button>
 		</div>
 	{:else}
 		<div class="flex flex-col gap-4 pt-4">
 			<div class="">
-				<!-- TODO: Implement adding instance from local folder -->
 				<PathPicker
 					icon={FolderPlus}
 					bind:value={selectedPath}
