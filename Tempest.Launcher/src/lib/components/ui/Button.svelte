@@ -26,7 +26,7 @@
 	<div class="wrapper flex justify-center items-center gap-3">
 		{#if icon}
 			{@const IconComponent = icon}
-			<div class="icon text-white">
+			<div class="icon">
 				<IconComponent />
 			</div>
 		{/if}
@@ -42,8 +42,8 @@
 	@reference "../../styles/global.css";
 
 	button {
-		@apply text-[14px] h-10 bg-background-800 px-3 rounded-xl flex items-center border-2 border-transparent transition
-			duration-150;
+		@apply text-[14px] font-semibold h-10 bg-background-800 px-3 rounded-xl flex items-center border-2
+			border-transparent transition duration-150;
 	}
 
 	button:hover {

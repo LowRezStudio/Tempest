@@ -5,8 +5,9 @@
 	import PathPicker from "$lib/components/ui/PathPicker.svelte";
 	import Select from "$lib/components/ui/Select.svelte";
 	import versions from "$lib/data/versions.json";
-	import { addInstance } from "$lib/state/instances.svelte";
+	import { addInstance, defaultInstancePath } from "$lib/state/instances.svelte";
 	import { CloudDownload, Code, Folder, FolderPlus, Info, Plus, X } from "@lucide/svelte";
+	import { path } from "@tauri-apps/api";
 
 	let open = $state(false);
 
@@ -20,31 +21,31 @@
 
 	let selectedImportType = $state("download");
 	let selectedName = $state("");
-	let selectedVersion = $state<string | undefined>();
+	let selectedVersionValue = $state<string | undefined>();
 	let showAdvanced = $state(false);
-	let selectedPath = $state(""); // SET THAT TO THE DEFAULT PATH PLS KYIRO
+	let selectedPath = $state("");
+	let defaultPath = $state("");
 
-	const canAddInstance = (): boolean => {
-		return (
-			selectedName.length > 0
-			&& selectedVersion != undefined
-			&& selectedPath.length > 0
-		);
-	};
+	const canAddInstance = $derived(
+		selectedName.length > 0
+			&& selectedVersionValue != undefined,
+	);
+	const selectedVersion = $derived(Object.values(versions).flat().find((item) => item.id === selectedVersionValue));
 
-	const getSelectedVersionObject = () => {
-		return Object.entries(versions).flatMap(([group, list]) => list).find((item) => item.id === selectedVersion);
-	};
-
-	// TODO: Implement
 	const addInstanceFromFolder = (path: string) => {};
 
-	// TODO: Implement depot downloader
 	const addInstanceFromDepot = () => {
-		const versionObject = getSelectedVersionObject();
-		addInstance({ label: selectedName, path: selectedPath, version: versionObject?.version });
+		addInstance({ label: selectedName, path: selectedPath, version: selectedVersion?.version });
 		open = false;
 	};
+
+	$effect(() => {
+		path.join(
+			defaultInstancePath.current,
+			selectedName.length == 0 ? selectedVersion?.version ?? "Paladins" : selectedName,
+		)
+			.then((res) => defaultPath = res);
+	});
 </script>
 
 <button
@@ -74,14 +75,14 @@
 		<div class="flex flex-col gap-4 py-4">
 			<div class="flex flex-col gap-2">
 				<p>Name</p>
-				<Input bind:value={selectedName}></Input>
+				<Input bind:value={selectedName} placeholder={selectedVersion?.version}></Input>
 			</div>
 			<div class="flex flex-col gap-2">
 				<p>Game version</p>
 				<Select
 					type="single"
 					items={versionItems}
-					bind:value={selectedVersion}
+					bind:value={selectedVersionValue}
 					placeholder="Choose a version"
 				/>
 			</div>
@@ -93,7 +94,7 @@
 						bind:value={selectedPath}
 						type="folder"
 						multiple={false}
-						placeholder={selectedPath || "Choose a directory"}
+						placeholder={defaultPath}
 					></PathPicker>
 				</div>
 			{/if}
@@ -111,14 +112,13 @@
 				onclick={addInstanceFromDepot}
 				kind="accented"
 				icon={Plus}
-				disabled={!canAddInstance()}
-			>Add</Button>
+				disabled={!canAddInstance}
+			>Download</Button>
 		</div>
 	{:else}
 		<div class="flex flex-col gap-4 pt-4">
 			<div class="">
 				<PathPicker
-					icon={FolderPlus}
 					bind:value={selectedPath}
 					type="folder"
 					multiple={false}

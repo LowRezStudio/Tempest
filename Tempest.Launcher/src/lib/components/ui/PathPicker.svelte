@@ -37,7 +37,6 @@
 		return text;
 	}
 
-	// Local text shown in the input, derived from the external `value`.
 	const inputText = $derived(formatDisplay(value));
 
 	const openSelector = async () => {

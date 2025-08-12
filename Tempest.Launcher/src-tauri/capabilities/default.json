@@ -29,6 +29,8 @@
 				}
 			]
 		},
-		"dialog:default"
+		"dialog:default",
+		"os:default",
+		"os:default"
 	]
 }
