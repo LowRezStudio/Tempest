@@ -2,7 +2,7 @@
 	import { Check, ChevronDown, ChevronUp } from "@lucide/svelte";
 	import { Select, type WithoutChildren } from "bits-ui";
 
-	type Item = { value: string; label: string; disabled?: boolean; group?: string };
+	type Item = { value: any; label: string; disabled?: boolean; group?: string; data?: any };
 
 	type Props = WithoutChildren<Select.RootProps> & {
 		placeholder?: string;
@@ -47,7 +47,7 @@
 			class="ml-auto text-text-color transition-transform duration-150"
 			class:list={[open && "rotate-180"]}
 		>
-			<ChevronDown class="size-4 shrink-0" />
+			<ChevronDown class={open ? "size-4 shrink-0 rotate-180 transition duration-150": "size-4 shrink-0 transition duration-150"} />
 		</span>
 	</Select.Trigger>
 
