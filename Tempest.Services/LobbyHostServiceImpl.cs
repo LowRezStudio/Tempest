@@ -8,7 +8,9 @@ namespace Tempest.Services;
 public class LobbyHostServiceImpl(HostService hostService) : LobbyHostService.LobbyHostServiceBase
 {
     public override async Task CreateLobby(IAsyncStreamReader<LobbyRequest> requestStream, IServerStreamWriter<LobbyUpdate> responseStream, ServerCallContext context)
-    { 
+    {
+        LobbyHost? lobbyHost = null;
+        
         await foreach (var request in requestStream.ReadAllAsync())
         {
             switch (request.MessageCase)
@@ -19,15 +21,20 @@ public class LobbyHostServiceImpl(HostService hostService) : LobbyHostService.Lo
                     var publicId = BitConverter.ToUInt64(SHA256.HashData(Encoding.UTF8.GetBytes(init.PrivateId)));
 
                     init.Server.Id = publicId;
-        
-                    hostService.List.Add(new LobbyHost()
+
+                    lobbyHost = new LobbyHost()
                     {
                         Stream = responseStream,
                         Lobby = new Lobby()
                         {
                             Server = init.Server
                         }
-                    });
+                    };
+
+                    lock (hostService.List)
+                    {
+                        hostService.List.Add(lobbyHost);
+                    }
 
                     await responseStream.WriteAsync(new LobbyUpdate()
                     {
@@ -41,6 +48,11 @@ public class LobbyHostServiceImpl(HostService hostService) : LobbyHostService.Lo
                     break;
                 }
             }
+        }
+        
+        if (lobbyHost != null) lock (hostService.List)
+        {
+            hostService.List.Remove(lobbyHost);
         }
     }
 }

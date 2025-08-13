@@ -5,5 +5,5 @@ namespace Tempest.Services;
 
 public class HostService
 {
-    public ConcurrentBag<LobbyHost> List = new();
+    public List<LobbyHost> List = new();
 }
