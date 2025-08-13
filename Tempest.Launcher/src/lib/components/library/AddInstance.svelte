@@ -26,10 +26,7 @@
 	let selectedPath = $state("");
 	let defaultPath = $state("");
 
-	const canAddInstance = $derived(
-		selectedName.length > 0
-			&& selectedVersionValue != undefined,
-	);
+	const canAddInstance = $derived(selectedVersionValue != undefined);
 	const selectedVersion = $derived(Object.values(versions).flat().find((item) => item.id === selectedVersionValue));
 
 	const addInstanceFromFolder = (path: string) => {};
