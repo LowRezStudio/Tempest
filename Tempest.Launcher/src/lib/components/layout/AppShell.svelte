@@ -5,7 +5,10 @@
 	import type { Snippet } from "svelte";
 	import { cubicOut } from "svelte/easing";
 	import { fade, fly } from "svelte/transition";
-	import AddInstance from "../library/AddInstance.svelte";
+	import { Plus } from "@lucide/svelte";
+	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
+
+	let showInstanceWizard = $state(false);
 
 	interface Props {
 		children?: Snippet;
@@ -72,7 +75,15 @@
 			<div class="sidebar-seperator">
 				<Minus preserveAspectRatio="none" />
 			</div>
-			<AddInstance />
+			<button
+				onclick={() => showInstanceWizard = true}
+				class="sidebar-item"
+			>
+				<Plus class="size-5 transition-transform duration-200 ease-in-out" />
+			</button>
+				{#if showInstanceWizard}
+					<InstanceWizard bind:open={showInstanceWizard} />
+				{/if}
 		</div>
 		<div class="sidebar-section">
 			<a
@@ -160,7 +171,7 @@
 	}
 
 	.sidebar-item {
-		@apply grid place-items-center size-10 rounded-xl text-gray-400 transition-all duration-300 ease-in-out;
+		@apply grid place-items-center size-10 rounded-xl text-gray-400 transition-all duration-300 ease-in-out cursor-pointer;
 		transform: translateZ(0);
 
 		&.active {

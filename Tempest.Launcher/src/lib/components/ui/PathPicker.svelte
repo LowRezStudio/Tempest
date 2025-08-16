@@ -6,7 +6,7 @@
 	import Input from "./Input.svelte";
 
 	interface Props extends HTMLInputAttributes {
-		placeholder: string;
+		placeholder?: string;
 		icon?: typeof Icon;
 		type: "file" | "folder";
 		multiple?: boolean;
