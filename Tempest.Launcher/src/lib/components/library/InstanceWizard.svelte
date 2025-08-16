@@ -9,7 +9,9 @@
 	import { CloudDownload, Code, Download, Folder, Plus, X } from "@lucide/svelte";
 	import { path } from "@tauri-apps/api";
 
-	interface Props { open?: boolean }
+	interface Props {
+		open?: boolean;
+	}
 	let { open = $bindable(false) }: Props = $props();
 
 	const versionItems = Object.entries(versions).flatMap(([group, list]) =>
@@ -35,7 +37,7 @@
 		addInstance({
 			label: selectedName.length == 0 ? defaultName : selectedName,
 			path: selectedPath,
-			version: selectedVersion?.version
+			version: selectedVersion?.version,
 		});
 
 		open = false;
@@ -46,7 +48,7 @@
 		addInstance({
 			label: selectedName.length == 0 ? defaultName : selectedName,
 			path: selectedPath.length == 0 ? defaultPath : selectedPath,
-			version: selectedVersion?.version
+			version: selectedVersion?.version,
 		});
 
 		open = false;
@@ -54,10 +56,10 @@
 
 	const switchTab = (importType: string) => {
 		if (selectedImportType == importType) return;
-		
+
 		reset();
 		selectedImportType = importType;
-	}
+	};
 
 	const reset = () => {
 		selectedImportType = "download";
@@ -172,7 +174,8 @@
 					bind:value={selectedPath}
 					type="folder"
 					multiple={false}
-					placeholder="Select path" />
+					placeholder="Select path"
+				/>
 			</div>
 		</div>
 		<div class="flex items-center justify-end gap-2">

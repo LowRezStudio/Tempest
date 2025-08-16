@@ -2,7 +2,7 @@
 	import { page } from "$app/state";
 	import Button from "$lib/components/ui/Button.svelte";
 	import { getInstance } from "$lib/state/instances.svelte";
-	import { Bot, Box, ChevronDown, Clock, Gamepad2 } from "@lucide/svelte";
+	import { Box, Gamepad2, Package } from "@lucide/svelte";
 
 	const id = page.params.id;
 	const instance = getInstance(id);
@@ -53,23 +53,14 @@
 				<div
 					class="mt-8 grid place-items-center rounded-2xl border border-background-800 bg-gradient-to-b from-background-950 to-background-900/60 p-10"
 				>
-					<!-- <div class="text-center max-w-xl">
+					<div class="text-center max-w-xl">
 						<div class="mx-auto grid place-items-center size-14 rounded-full bg-background-800 text-background-300">
-							<Bot class="size-7" />
+							<Package class="size-7" />
 						</div>
-						<p class="mt-4 text-background-200 text-base font-medium">You haven't added any content to this instance yet.</p>
-						<div class="mt-6 flex justify-center">
-							<div class="inline-flex overflow-hidden rounded-xl border border-background-700">
-								<button class="inline-flex items-center gap-2 bg-secondary-800/40 px-4 py-2 text-primary-200 hover:bg-secondary-700/40 transition">
-									<span class="text-lg leading-none">+</span>
-									<span>Install content</span>
-								</button>
-								<button class="grid place-items-center border-l border-background-700 bg-secondary-800/40 px-3 py-2 hover:bg-secondary-700/40 transition" aria-label="More options">
-									<ChevronDown class="size-4 text-background-200" />
-								</button>
-							</div>
-						</div>
-					</div> -->
+						<p class="mt-4 text-background-200 text-base font-medium">
+							You haven't added any content to this instance yet.
+						</p>
+					</div>
 				</div>
 			{:else if activeTab === "logs"}
 				<div class="mt-8 rounded-2xl border border-background-800 bg-background-950/60 p-8 text-background-300">

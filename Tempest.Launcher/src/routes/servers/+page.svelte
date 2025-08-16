@@ -1,9 +1,15 @@
 <script lang="ts">
-	import { onMount } from "svelte";
 	import Button from "$lib/components/ui/Button.svelte";
 	import Input from "$lib/components/ui/Input.svelte";
-	import { list as serverList, refresh as refreshServers, ensureLoaded, searchFilters, type SearchFilters } from "$lib/state/servers.svelte";
+	import {
+		ensureLoaded,
+		list as serverList,
+		refresh as refreshServers,
+		type SearchFilters,
+		searchFilters,
+	} from "$lib/state/servers.svelte";
 	import { Box, Map, RefreshCcw, Server as ServerIcon, Users } from "@lucide/svelte";
+	import { onMount } from "svelte";
 
 	let refreshing = $state(false);
 
@@ -22,7 +28,7 @@
 
 	const filtered = $derived(
 		serverList
-			.filter(s => s.name.toUpperCase().includes(searchFilters.name.toUpperCase()))
+			.filter(s => s.name.toUpperCase().includes(searchFilters.name.toUpperCase())),
 	);
 
 	async function refresh() {
@@ -61,7 +67,9 @@
 		</div>
 
 		{#if filtered.length === 0}
-			<div class="mt-8 grid place-items-center rounded-2xl border border-background-800 bg-gradient-to-b from-background-950 to-background-900/60 p-10">
+			<div
+				class="mt-8 grid place-items-center rounded-2xl border border-background-800 bg-gradient-to-b from-background-950 to-background-900/60 p-10"
+			>
 				<div class="text-center max-w-xl">
 					<div class="mx-auto grid place-items-center size-14 rounded-full bg-background-800 text-background-300">
 						<Box class="size-7" />
@@ -72,9 +80,13 @@
 		{:else}
 			<div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
 				{#each filtered as s (s.id)}
-					<div class="group rounded-2xl border border-background-800 bg-background-950 p-4 transition-colors hover:bg-background-900">
+					<div
+						class="group rounded-2xl border border-background-800 bg-background-950 p-4 transition-colors hover:bg-background-900"
+					>
 						<div class="flex items-start gap-4">
-							<div class="grid place-items-center size-12 rounded-xl bg-background-900 border-2 border-background-700 text-primary-300 shadow-inner">
+							<div
+								class="grid place-items-center size-12 rounded-xl bg-background-900 border-2 border-background-700 text-primary-300 shadow-inner"
+							>
 								<ServerIcon class="size-6" />
 							</div>
 							<div class="min-w-0 flex-auto">
@@ -113,7 +125,6 @@
 			</div>
 		{/if}
 	</div>
-  
 </section>
 
 <style>

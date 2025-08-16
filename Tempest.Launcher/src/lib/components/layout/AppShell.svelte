@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { page } from "$app/state";
+	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 	import { instances } from "$lib/state/instances.svelte";
 	import { House, type Icon, Library, Minus, Settings, Swords, Users } from "@lucide/svelte";
+	import { Plus } from "@lucide/svelte";
 	import type { Snippet } from "svelte";
 	import { cubicOut } from "svelte/easing";
 	import { fade, fly } from "svelte/transition";
-	import { Plus } from "@lucide/svelte";
-	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 
 	let showInstanceWizard = $state(false);
 
@@ -81,9 +81,9 @@
 			>
 				<Plus class="size-5 transition-transform duration-200 ease-in-out" />
 			</button>
-				{#if showInstanceWizard}
-					<InstanceWizard bind:open={showInstanceWizard} />
-				{/if}
+			{#if showInstanceWizard}
+				<InstanceWizard bind:open={showInstanceWizard} />
+			{/if}
 		</div>
 		<div class="sidebar-section">
 			<a
@@ -171,7 +171,8 @@
 	}
 
 	.sidebar-item {
-		@apply grid place-items-center size-10 rounded-xl text-gray-400 transition-all duration-300 ease-in-out cursor-pointer;
+		@apply grid place-items-center size-10 rounded-xl text-gray-400 transition-all duration-300 ease-in-out
+			cursor-pointer;
 		transform: translateZ(0);
 
 		&.active {
