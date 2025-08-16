@@ -39,8 +39,8 @@
 			path: selectedPath,
 			version: selectedVersion?.version,
 			state: {
-				type: "prepared"
-			}
+				type: "prepared",
+			},
 		});
 
 		open = false;
@@ -55,8 +55,8 @@
 			state: {
 				type: "unprepared",
 				status: "paused",
-				percentage: 0
-			}
+				percentage: 0,
+			},
 		});
 
 		open = false;

@@ -10,12 +10,12 @@ export type Instance = {
 	path: string;
 	state:
 		| {
-			type: "unprepared"
+			type: "unprepared";
 			status: "downloading" | "paused";
 			percentage: number;
 		}
 		| {
-			type: "prepared"
+			type: "prepared";
 		};
 };
 
