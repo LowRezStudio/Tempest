@@ -38,6 +38,9 @@
 			label: selectedName.length == 0 ? defaultName : selectedName,
 			path: selectedPath,
 			version: selectedVersion?.version,
+			state: {
+				type: "prepared"
+			}
 		});
 
 		open = false;
@@ -49,6 +52,11 @@
 			label: selectedName.length == 0 ? defaultName : selectedName,
 			path: selectedPath.length == 0 ? defaultPath : selectedPath,
 			version: selectedVersion?.version,
+			state: {
+				type: "unprepared",
+				status: "paused",
+				percentage: 0
+			}
 		});
 
 		open = false;

@@ -8,6 +8,15 @@ export type Instance = {
 	label: string;
 	version?: string;
 	path: string;
+	state:
+		| {
+			type: "unprepared"
+			status: "downloading" | "paused";
+			percentage: number;
+		}
+		| {
+			type: "prepared"
+		};
 };
 
 const getDefaultInstancePath = async () => {
@@ -28,4 +37,12 @@ if (defaultInstancePath.current == "") {
 	getDefaultInstancePath().then((result) => {
 		defaultInstancePath.current = result;
 	});
+}
+
+// little migration for use in development
+// to-do: remove for release
+for (const instance of instances.current) {
+	if (!Object.hasOwn(instance, "state")) {
+		instance.state = { type: "prepared" };
+	}
 }
