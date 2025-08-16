@@ -6,13 +6,15 @@
 	interface Props extends HTMLButtonAttributes {
 		icon?: typeof Icon;
 		href?: string;
-		kind?: "accented" | "normal";
+		kind?: "accented" | "danger" | "normal";
+		size?: "square" | "normal";
 	}
 
 	let {
 		children,
 		href,
 		icon,
+		size,
 		kind,
 		...props
 	}: Props = $props();
@@ -20,6 +22,8 @@
 
 <button
 	class:accented={kind == "accented"}
+	class:danger={kind == "danger"}
+	class:square={size == "square"}
 	onclick={href ? () => goto(href) : undefined}
 	{...props}
 >
@@ -42,12 +46,12 @@
 	@reference "../../styles/global.css";
 
 	button {
-		@apply text-[14px] font-semibold h-10 bg-background-800 px-3 rounded-xl flex items-center border-2
-			border-transparent transition duration-150;
+		@apply text-[14px] font-semibold h-11 bg-background-800 px-3 rounded-xl flex items-center transition duration-150
+			border-2 border-transparent;
 	}
 
 	button:hover {
-		@apply cursor-pointer border-transparent brightness-90;
+		@apply cursor-pointer brightness-90;
 	}
 
 	button:disabled {
@@ -55,10 +59,18 @@
 	}
 
 	.accented {
-		@apply ring-2 ring-primary-500 bg-secondary-800 text-primary-300 shadow-lg;
+		@apply border-primary-500 bg-secondary-800 text-primary-300;
 	}
 
-	.accented:hover {
-		@apply ring-2 ring-primary-500 shadow-lg;
+	.danger {
+		@apply border-red-900 bg-red-700 text-white;
+	}
+
+	.square {
+		@apply grid place-items-center size-11 px-0 py-0;
+	}
+
+	.square :global(svg) {
+		@apply size-5;
 	}
 </style>

@@ -5,6 +5,18 @@
 
 <section class="w-full h-full overflow-auto">
 	<div class="mx-auto max-w-6xl px-6 py-6">
+		{#if instances.current.length == 0}
+			<div
+				class="grid place-items-center rounded-2xl border border-background-800 bg-gradient-to-b from-background-950 to-background-900/60 p-10"
+			>
+				<div class="text-center max-w-xl">
+					<div class="mx-auto grid place-items-center size-14 rounded-full bg-background-800 text-background-300">
+						<Box class="size-7" />
+					</div>
+					<p class="mt-4 text-background-200 text-base font-medium">Your library is empty.</p>
+				</div>
+			</div>
+		{/if}
 		<div class="grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-4">
 			{#each instances.current as instance}
 				<a

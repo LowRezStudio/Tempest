@@ -8,7 +8,7 @@
 		type SearchFilters,
 		searchFilters,
 	} from "$lib/state/servers.svelte";
-	import { Box, Map, RefreshCcw, Server as ServerIcon, Users } from "@lucide/svelte";
+	import { Box, Map, RefreshCcw, Server, ServerOff, Users } from "@lucide/svelte";
 	import { onMount } from "svelte";
 
 	let refreshing = $state(false);
@@ -72,7 +72,7 @@
 			>
 				<div class="text-center max-w-xl">
 					<div class="mx-auto grid place-items-center size-14 rounded-full bg-background-800 text-background-300">
-						<Box class="size-7" />
+						<ServerOff class="size-7" />
 					</div>
 					<p class="mt-4 text-background-200 text-base font-medium">No servers match your filters.</p>
 				</div>
@@ -87,7 +87,7 @@
 							<div
 								class="grid place-items-center size-12 rounded-xl bg-background-900 border-2 border-background-700 text-primary-300 shadow-inner"
 							>
-								<ServerIcon class="size-6" />
+								<Server class="size-6" />
 							</div>
 							<div class="min-w-0 flex-auto">
 								<div class="flex items-center gap-2">
