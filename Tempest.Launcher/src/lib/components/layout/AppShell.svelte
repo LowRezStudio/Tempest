@@ -27,7 +27,7 @@
 	const pageItems: Page[] = [
 		{ name: "Home", path: "/", icon: House },
 		{ name: "Library", path: "/library", icon: Library },
-		{ name: "Champions", path: "/champions", icon: Swords },
+		// { name: "Champions", path: "/champions", icon: Swords },
 		{ name: "Servers", path: "/servers", icon: Users },
 	];
 
@@ -71,9 +71,9 @@
 						{/if}
 					{/each}
 				{/if}
-			</div>
-			<div class="sidebar-seperator">
-				<Minus preserveAspectRatio="none" />
+				<div class="sidebar-seperator">
+					<Minus preserveAspectRatio="none" />
+				</div>
 			</div>
 			<button
 				onclick={() => showInstanceWizard = true}
@@ -151,7 +151,7 @@
 		@apply flex flex-col items-center gap-2 p-2;
 
 		&.instance-list {
-			@apply gap-4;
+			@apply gap-4 p-0;
 		}
 	}
 
