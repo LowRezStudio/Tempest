@@ -11,6 +11,16 @@
 		"shell:allow-kill",
 		"shell:allow-open",
 		{
+			"identifier": "shell:allow-spawn",
+			"allow": [
+				{
+					"name": "dotnet",
+					"cmd": "dotnet",
+					"args": true
+				}
+			]
+		},
+		{
 			"identifier": "shell:allow-execute",
 			"allow": [
 				{
@@ -30,7 +40,6 @@
 			]
 		},
 		"dialog:default",
-		"os:default",
 		"os:default"
 	]
 }

@@ -3,6 +3,7 @@
 	import { page } from "$app/state";
 	import Button from "$lib/components/ui/Button.svelte";
 	import Dialog from "$lib/components/ui/Dialog.svelte";
+	import * as core from "$lib/core";
 	import { getInstance, removeInstance } from "$lib/state/instances.svelte";
 	import { Box, Gamepad2, Package, Settings } from "@lucide/svelte";
 
@@ -18,6 +19,24 @@
 	const deleteInstance = () => {
 		removeInstance(id);
 		goto("/library");
+	};
+
+	core.getVersion().then((res) => console.log(res));
+
+	const playGame = async () => {
+		const cli = core.launchGame({
+			path: instance.path
+		});
+
+		cli.stdout.addListener("data", (arg) => {
+			console.log(arg);
+		})
+
+		cli.stderr.addListener("data", (arg) => {
+			console.log(arg);
+		})
+
+		await cli.spawn();
 	};
 </script>
 
@@ -52,7 +71,7 @@
 			</div>
 
 			<div class="flex gap-4">
-				<Button kind="accented">Play</Button>
+				<Button kind="accented" onclick={playGame}>Play</Button>
 				<Button size="square" icon={Settings} onclick={() => settingsOpen = true} />
 			</div>
 		</div>
