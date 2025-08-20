@@ -13,7 +13,7 @@ internal static class ProcessUtility
         inject.StartInfo.FileName = executable;
         inject.StartInfo.Arguments = $"{process.Id} \"{path}\"";
 
-        inject.Start();
+        inject.UseWine().Start();
         inject.WaitForExit();
 
         return inject.ExitCode == 0;
@@ -28,7 +28,7 @@ internal static class ProcessUtility
         inject.StartInfo.FileName = executable;
         inject.StartInfo.Arguments = $"{process.Id} \"{path}\"";
 
-        inject.Start();
+        inject.UseWine().Start();
         await inject.WaitForExitAsync();
 
         return inject.ExitCode == 0;

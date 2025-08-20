@@ -8,12 +8,6 @@ internal class LauncherCommands
 {
     public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string[]? dll = null)
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            Console.Error.WriteLine("The \"launch\" command only works on Windows or under Wine!");
-            return;
-        }
-
         var exePath = Path.GetFullPath(path);
         var defaultArgs = !noDefaultArgs;
         var is64Bit = true;
@@ -78,7 +72,7 @@ internal class LauncherCommands
             process.StartInfo.ArgumentList.Add("-homedir=Tempest");
         }
 
-        process.Start();
+        process.UseWine().Start();
 
         await Task.Delay(TimeSpan.FromSeconds(1));
 

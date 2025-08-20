@@ -5,13 +5,10 @@
         <TargetFramework>net9.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-    </PropertyGroup>
-
-    <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
         <PublishAot>true</PublishAot>
     </PropertyGroup>
 
-    <ItemGroup Condition="$([MSBuild]::IsOSUnixLike())">
+    <ItemGroup Condition="$([MSBuild]::IsOSUnixLike()) And '$(PublishAot)' != 'true'">
         <None Include="tempest-cli.sh">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
