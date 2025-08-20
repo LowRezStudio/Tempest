@@ -25,16 +25,16 @@
 
 	const playGame = async () => {
 		const cli = core.launchGame({
-			path: instance.path
+			path: instance.path,
 		});
 
 		cli.stdout.addListener("data", (arg) => {
 			console.log(arg);
-		})
+		});
 
 		cli.stderr.addListener("data", (arg) => {
 			console.log(arg);
-		})
+		});
 
 		await cli.spawn();
 	};
