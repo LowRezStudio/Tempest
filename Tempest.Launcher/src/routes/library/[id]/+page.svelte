@@ -4,7 +4,7 @@
 	import Button from "$lib/components/ui/Button.svelte";
 	import Dialog from "$lib/components/ui/Dialog.svelte";
 	import * as core from "$lib/core";
-	import { getInstance, removeInstance } from "$lib/state/instances.svelte";
+	import { getInstance, processes, removeInstance } from "$lib/state/instances.svelte";
 	import { Box, Gamepad2, Package, Settings } from "@lucide/svelte";
 
 	const id = page.params.id;
@@ -14,6 +14,8 @@
 
 	let activeTab = $state<"content" | "logs">("content");
 	let settingsOpen = $state(false);
+
+	const process = $derived(processes.value.find(p => p.instance.id == id && p.mode == "client"));
 
 	// to-do: add confirmation prompt and ask if you should delete files
 	const deleteInstance = () => {
@@ -26,17 +28,24 @@
 	const playGame = async () => {
 		const cli = core.launchGame({
 			path: instance.path,
+			args: [...instance.launchOptions.args, { "-log": instance.launchOptions.log }],
+			dllList: instance.launchOptions.dllList,
+			noDefaultArgs: instance.launchOptions.noDefaultArgs,
 		});
 
-		cli.stdout.addListener("data", (arg) => {
-			console.log(arg);
+		cli.once("close", () => {
+			processes.value = processes.value.filter(p => !(p.instance.id == id && p.mode == "client"));
 		});
 
-		cli.stderr.addListener("data", (arg) => {
-			console.log(arg);
-		});
-
-		await cli.spawn();
+		processes.value = [
+			...processes.value,
+			{
+				instance,
+				child: await cli.spawn(),
+				mode: "client",
+				start: new Date(),
+			},
+		];
 	};
 </script>
 
@@ -71,7 +80,7 @@
 			</div>
 
 			<div class="flex gap-4">
-				<Button kind="accented" onclick={playGame}>Play</Button>
+				<Button kind="accented" disabled={!!process} onclick={playGame}>{process ? "Playing..." : "Play"}</Button>
 				<Button size="square" icon={Settings} onclick={() => settingsOpen = true} />
 			</div>
 		</div>

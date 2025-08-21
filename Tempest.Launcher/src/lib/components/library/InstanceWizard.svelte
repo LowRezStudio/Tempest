@@ -38,6 +38,12 @@
 			label: selectedName.length == 0 ? defaultName : selectedName,
 			path: selectedPath,
 			version: selectedVersion?.version,
+			launchOptions: {
+				args: [],
+				dllList: [],
+				noDefaultArgs: false,
+				log: false,
+			},
 			state: {
 				type: "prepared",
 			},
@@ -52,6 +58,12 @@
 			label: selectedName.length == 0 ? defaultName : selectedName,
 			path: selectedPath.length == 0 ? defaultPath : selectedPath,
 			version: selectedVersion?.version,
+			launchOptions: {
+				args: [],
+				dllList: [],
+				noDefaultArgs: false,
+				log: false,
+			},
 			state: {
 				type: "unprepared",
 				status: "paused",
@@ -199,7 +211,7 @@
 				onclick={addInstanceFromFolder}
 				kind="accented"
 				icon={Plus}
-				disabled={!selectedVersionValue || !selectedPath}
+				disabled={!selectedPath}
 			>Import</Button>
 		</div>
 	{/if}
