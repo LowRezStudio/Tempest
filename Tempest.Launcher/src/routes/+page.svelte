@@ -1,5 +1,5 @@
 <script lang="ts">
-	const backgrounds = Object.keys(import.meta.glob("/static/img/loading-screens/*.webp"))
+	const backgrounds = Object.keys(import.meta.glob("/static/loading-screens/*.webp"))
 		.map(img => img.slice("/static".length));
 
 	const background = backgrounds[Math.floor(Math.random() * backgrounds.length)];
