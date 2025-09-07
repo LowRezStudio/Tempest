@@ -17,6 +17,11 @@
 					"name": "dotnet",
 					"cmd": "dotnet",
 					"args": true
+				},
+				{
+					"name": "binaries/tempest-cli",
+					"args": true,
+					"sidecar": true
 				}
 			]
 		},
@@ -27,6 +32,11 @@
 					"name": "dotnet",
 					"cmd": "dotnet",
 					"args": true
+				},
+				{
+					"name": "binaries/tempest-cli",
+					"args": true,
+					"sidecar": true
 				}
 			]
 		},
