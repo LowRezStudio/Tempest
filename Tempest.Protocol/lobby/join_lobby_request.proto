@@ -5,6 +5,5 @@ option csharp_namespace = "Tempest.Protocol.Lobby";
 message JoinLobbyRequest {
   string player_id = 1;
   string player_display_name = 2;
-  string lobby_id = 4;
   optional string password = 5;
 }

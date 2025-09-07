@@ -23,10 +23,6 @@ export interface JoinLobbyRequest {
 	 */
 	playerDisplayName: string;
 	/**
-	 * @generated from protobuf field: string lobby_id = 4
-	 */
-	lobbyId: string;
-	/**
 	 * @generated from protobuf field: optional string password = 5
 	 */
 	password?: string;
@@ -37,7 +33,6 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 		super("tempest.lobby.JoinLobbyRequest", [
 			{ no: 1, name: "player_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 2, name: "player_display_name", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
-			{ no: 4, name: "lobby_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 5, name: "password", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
 		]);
 	}
@@ -45,7 +40,6 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.playerId = "";
 		message.playerDisplayName = "";
-		message.lobbyId = "";
 		if (value !== undefined) {
 			reflectionMergePartial<JoinLobbyRequest>(this, message, value);
 		}
@@ -66,9 +60,6 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 					break;
 				case /* string player_display_name */ 2:
 					message.playerDisplayName = reader.string();
-					break;
-				case /* string lobby_id */ 4:
-					message.lobbyId = reader.string();
 					break;
 				case /* optional string password */ 5:
 					message.password = reader.string();
@@ -94,10 +85,6 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 		/* string player_display_name = 2; */
 		if (message.playerDisplayName !== "") {
 			writer.tag(2, WireType.LengthDelimited).string(message.playerDisplayName);
-		}
-		/* string lobby_id = 4; */
-		if (message.lobbyId !== "") {
-			writer.tag(4, WireType.LengthDelimited).string(message.lobbyId);
 		}
 		/* optional string password = 5; */
 		if (message.password !== undefined) {

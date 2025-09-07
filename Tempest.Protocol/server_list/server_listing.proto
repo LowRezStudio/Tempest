@@ -13,6 +13,7 @@ message ServerListing {
   string version = 6;
   repeated string tags = 7;
   optional string map = 8;
+  optional string map_id = 18;
   uint32 players = 9;
   uint32 max_players = 10;
   uint32 bots = 11;

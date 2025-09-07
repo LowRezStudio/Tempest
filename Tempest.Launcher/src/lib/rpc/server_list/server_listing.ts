@@ -48,6 +48,10 @@ export interface ServerListing {
 	 */
 	map?: string;
 	/**
+	 * @generated from protobuf field: optional string map_id = 18
+	 */
+	mapId?: string;
+	/**
 	 * @generated from protobuf field: uint32 players = 9
 	 */
 	players: number;
@@ -96,6 +100,7 @@ class ServerListing$Type extends MessageType<ServerListing> {
 			{ no: 6, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 7, name: "tags", kind: "scalar", repeat: 2, /*RepeatType.UNPACKED*/ T: 9 /*ScalarType.STRING*/ },
 			{ no: 8, name: "map", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+			{ no: 18, name: "map_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
 			{ no: 9, name: "players", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 			{ no: 10, name: "max_players", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 			{ no: 11, name: "bots", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
@@ -163,6 +168,9 @@ class ServerListing$Type extends MessageType<ServerListing> {
 					break;
 				case /* optional string map */ 8:
 					message.map = reader.string();
+					break;
+				case /* optional string map_id */ 18:
+					message.mapId = reader.string();
 					break;
 				case /* uint32 players */ 9:
 					message.players = reader.uint32();
@@ -272,6 +280,10 @@ class ServerListing$Type extends MessageType<ServerListing> {
 		/* tempest.common.CountryCode country = 17; */
 		if (message.country !== 0) {
 			writer.tag(17, WireType.Varint).int32(message.country);
+		}
+		/* optional string map_id = 18; */
+		if (message.mapId !== undefined) {
+			writer.tag(18, WireType.LengthDelimited).string(message.mapId);
 		}
 		let u = options.writeUnknownFields;
 		if (u !== false) {

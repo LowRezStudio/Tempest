@@ -31,7 +31,7 @@ internal static class BinaryExtensions
 
         return -1;
     }
-    
+
     public static long IndexOfBytes(this byte[] source, byte[] bytes)
     {
         var position = 0;
@@ -40,7 +40,7 @@ internal static class BinaryExtensions
         while (position < source.Length)
         {
             var currentByte = source[position];
-            
+
             if (currentByte == bytes[headerMatchCount])
             {
                 headerMatchCount++;

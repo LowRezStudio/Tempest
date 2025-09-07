@@ -6,14 +6,6 @@ namespace Tempest.CLI.Marshal;
 
 internal partial class MarshalCommands
 {
-    public static JsonSerializerOptions JsonSerializerOptions = new()
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true,
-        TypeInfoResolver = MarshalSourceGenerationContext.Default
-    };
-    
     /// <summary>Exports a marshal binary into another format</summary>
     /// <param name="fields">Path of the exported fields.dat file</param>
     /// <param name="functions">Path of the exported functions.dat file</param>
@@ -54,15 +46,15 @@ internal partial class MarshalCommands
         if (output != null)
         {
             using var outputStream = File.OpenWrite(output);
-            
-            JsonSerializer.Serialize(outputStream, result, JsonSerializerOptions);
+
+            JsonSerializer.Serialize(outputStream, result, MarshalSourceGenerationContext.Default.MarshalFunction);
         }
         else
         {
-            JsonSerializer.Serialize(Console.OpenStandardOutput(), result, JsonSerializerOptions);
+            JsonSerializer.Serialize(Console.OpenStandardOutput(), result, MarshalSourceGenerationContext.Default.MarshalFunction);
         }
-        
-        
+
+
         stream.Close();
     }
 }

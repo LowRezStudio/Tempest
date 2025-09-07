@@ -85,7 +85,7 @@ internal static class WineExtensions
         await process.WaitForExitAsync();
 
         int newestPid = 0;
-    
+
         foreach (var line in output.Split('\n'))
         {
             if (line.Contains($"\"{processName}\"", StringComparison.OrdinalIgnoreCase))

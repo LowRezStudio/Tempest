@@ -5,7 +5,7 @@ public static class LauncherUtility
     public static string GetExecutablePath(string path, string? overridePlatform)
     {
         var exePath = Path.GetFullPath(path);
-        
+
         if (!Path.GetExtension(exePath).Equals(".exe", StringComparison.OrdinalIgnoreCase))
         {
             var gameFolder = new DirectoryInfo(exePath);

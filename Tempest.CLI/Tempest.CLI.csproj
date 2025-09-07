@@ -21,6 +21,7 @@
         <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       </PackageReference>
       <PackageReference Include="Grpc.Net.Client" Version="2.71.0" />
+    <PackageReference Include="Grpc.AspNetCore" Version="2.71.0" />
     </ItemGroup>
 
     <ItemGroup>
