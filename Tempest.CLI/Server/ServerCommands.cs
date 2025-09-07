@@ -18,7 +18,5 @@ internal class ServerCommands
         string? privateId = null,
         string servicesUrl = "https://localhost:7165")
     {
-        var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
-        
     }
 }
