@@ -1,0 +1,15 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+import "lobby/lobby_state_champion_select.proto";
+import "lobby/lobby_state_map_vote.proto";
+import "lobby/lobby_state_in_game.proto";
+import "lobby/lobby_state_waiting.proto";
+
+message LobbyState {
+  optional LobbyStateWaiting waiting = 1;
+  optional LobbyStateMapVote map_vote = 2;
+  optional LobbyStateChampionSelect champion_select = 3;
+  optional LobbyStateInGame in_game = 4;
+}

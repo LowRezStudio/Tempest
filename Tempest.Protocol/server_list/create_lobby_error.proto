@@ -1,0 +1,10 @@
+syntax = "proto3";
+package tempest.server_list;
+option csharp_namespace = "Tempest.Protocol.ServerList";
+
+import "server_list/create_lobby_error_code.proto";
+
+message CreateLobbyError {
+  CreateLobbyErrorCode code = 1;
+  string message = 2;
+}

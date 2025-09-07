@@ -10,7 +10,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"proto-generate": "protoc --ts_out src/lib/rpc --proto_path ../Tempest.Protocol ../Tempest.Protocol/*.proto && dprint fmt src/lib/rpc/*.ts",
+		"proto-generate": "rimraf src/lib/rpc/* && protoc --ts_out src/lib/rpc --ts_opt server_none --proto_path ../Tempest.Protocol ../Tempest.Protocol/**/*.proto && dprint fmt src/lib/rpc/**/*.ts",
 		"tauri": "tauri",
 		"dprint": "dprint",
 		"fmt": "dprint fmt"
@@ -39,6 +39,7 @@
 		"@tailwindcss/vite": "^4.1.11",
 		"@tauri-apps/cli": "^2",
 		"dprint": "^0.50.1",
+		"rimraf": "^6.0.1",
 		"svelte": "^5.0.0",
 		"svelte-check": "^4.0.0",
 		"tailwindcss": "^4.1.11",

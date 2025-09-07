@@ -1,6 +1,6 @@
 import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
 import { fetch } from "@tauri-apps/plugin-http";
-import { ServerListServiceClient } from "./rpc/server_list_service.client";
+import { ServerListClient } from "./rpc/server_list/server_list_service.client";
 
 const transport = new GrpcWebFetchTransport({
 	baseUrl: "http://localhost:5197",
@@ -8,6 +8,8 @@ const transport = new GrpcWebFetchTransport({
 	fetch,
 });
 
-export const serverList = new ServerListServiceClient(transport);
+export const serverList = new ServerListClient(transport);
 
-export * from "./rpc/server";
+export * from "./rpc/lobby/lobby_event";
+export * from "./rpc/lobby/lobby_info";
+export * from "./rpc/server_list/server_listing";

@@ -1,0 +1,12 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+import "lobby/lobby_player.proto";
+import "lobby/lobby_state.proto";
+
+message LobbyInfo {
+  string name = 1;
+  LobbyState state = 2;
+  repeated LobbyPlayer players = 3;
+}

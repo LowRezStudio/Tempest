@@ -1,0 +1,13 @@
+syntax = "proto3";
+package tempest.server_list;
+option csharp_namespace = "Tempest.Protocol.ServerList";
+
+import "server_list/create_lobby_success.proto";
+import "server_list/create_lobby_error.proto";
+
+message CreateLobbyResponse {
+  oneof result {
+    CreateLobbySuccess success = 1;
+    CreateLobbyError error = 2;
+  }
+}

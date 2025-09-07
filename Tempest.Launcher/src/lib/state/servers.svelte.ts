@@ -1,4 +1,4 @@
-import { Server, serverList } from "$lib/rpc";
+import { serverList, ServerListing } from "$lib/rpc";
 
 let loaded = false;
 
@@ -8,7 +8,7 @@ export type SearchFilters = {
 	// sort: "players" | "alphabet";
 };
 
-export const list = $state<Server[]>([]);
+export const list = $state<ServerListing[]>([]);
 export const searchFilters = $state<SearchFilters>({
 	name: "",
 	// region: "any",

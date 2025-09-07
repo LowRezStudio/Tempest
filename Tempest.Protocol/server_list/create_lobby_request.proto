@@ -1,0 +1,6 @@
+syntax = "proto3";
+package tempest.server_list;
+option csharp_namespace = "Tempest.Protocol.ServerList";
+
+message CreateLobbyRequest {
+}

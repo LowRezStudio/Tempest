@@ -7,7 +7,70 @@
     </PropertyGroup>
     
     <ItemGroup>
-        <Protobuf Include="*.proto" ProtoRoot="." />
+        <Protobuf Include="**/*.proto" ProtoRoot="." />
+        <Protobuf Update="lobby\map_vote_response.proto">
+          <GrpcServices>Both</GrpcServices>
+          <Access>Public</Access>
+          <ProtoCompile>True</ProtoCompile>
+          <CompileOutputs>True</CompileOutputs>
+          <OutputDir>obj\Debug/net9.0/</OutputDir>
+        </Protobuf>
+        <Protobuf Update="lobby\host\create_lobby_success.proto">
+          <GrpcServices>Both</GrpcServices>
+          <Access>Public</Access>
+          <ProtoCompile>True</ProtoCompile>
+          <CompileOutputs>True</CompileOutputs>
+          <OutputDir>obj\Debug/net9.0/</OutputDir>
+        </Protobuf>
+        <Protobuf Update="lobby\host\create_lobby_error.proto">
+          <GrpcServices>Both</GrpcServices>
+          <Access>Public</Access>
+          <ProtoCompile>True</ProtoCompile>
+          <CompileOutputs>True</CompileOutputs>
+          <OutputDir>obj/Debug/net9.0/</OutputDir>
+        </Protobuf>
+        <Protobuf Update="lobby\host\create_lobby_error_code.proto">
+          <GrpcServices>Both</GrpcServices>
+          <Access>Public</Access>
+          <ProtoCompile>True</ProtoCompile>
+          <CompileOutputs>True</CompileOutputs>
+          <OutputDir>obj/Debug/net9.0/</OutputDir>
+        </Protobuf>
+        <Protobuf Update="server_list\create_lobby_error.proto">
+          <GrpcServices>Both</GrpcServices>
+          <Access>Public</Access>
+          <ProtoCompile>True</ProtoCompile>
+          <CompileOutputs>True</CompileOutputs>
+          <OutputDir>obj/Debug/net9.0/</OutputDir>
+        </Protobuf>
+        <Protobuf Update="server_list\create_lobby_error_code.proto">
+          <GrpcServices>Both</GrpcServices>
+          <Access>Public</Access>
+          <ProtoCompile>True</ProtoCompile>
+          <CompileOutputs>True</CompileOutputs>
+          <OutputDir>obj/Debug/net9.0/</OutputDir>
+        </Protobuf>
+        <Protobuf Update="server_list\create_lobby_request.proto">
+          <GrpcServices>Both</GrpcServices>
+          <Access>Public</Access>
+          <ProtoCompile>True</ProtoCompile>
+          <CompileOutputs>True</CompileOutputs>
+          <OutputDir>obj\Debug/net9.0/</OutputDir>
+        </Protobuf>
+        <Protobuf Update="server_list\create_lobby_response.proto">
+          <GrpcServices>Both</GrpcServices>
+          <Access>Public</Access>
+          <ProtoCompile>True</ProtoCompile>
+          <CompileOutputs>True</CompileOutputs>
+          <OutputDir>obj\Debug/net9.0/</OutputDir>
+        </Protobuf>
+        <Protobuf Update="server_list\create_lobby_success.proto">
+          <GrpcServices>Both</GrpcServices>
+          <Access>Public</Access>
+          <ProtoCompile>True</ProtoCompile>
+          <CompileOutputs>True</CompileOutputs>
+          <OutputDir>obj/Debug/net9.0/</OutputDir>
+        </Protobuf>
     </ItemGroup>
     
     <ItemGroup>

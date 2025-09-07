@@ -1,0 +1,9 @@
+syntax = "proto3";
+package tempest.server_list;
+option csharp_namespace = "Tempest.Protocol.ServerList";
+
+enum CreateLobbyErrorCode {
+  CREATE_LOBBY_ERROR_CODE_UNSPECIFIED = 0;
+  LOBBY_ALREADY_EXISTS = 1;
+  KEY_NOT_ALLOWED = 2;
+}

@@ -1,0 +1,9 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+import "lobby/lobby_chat_message.proto";
+
+message LobbyEventChatMessage {
+  LobbyChatMessage chat_message = 1;
+}

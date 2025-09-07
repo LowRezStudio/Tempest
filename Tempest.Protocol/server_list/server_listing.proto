@@ -1,0 +1,25 @@
+syntax = "proto3";
+package tempest.server_list;
+option csharp_namespace = "Tempest.Protocol.ServerList";
+
+import "common/country.proto";
+
+message ServerListing {
+  uint64 id = 1;
+  string ip = 2;
+  uint32 lobby_port = 3;
+  string name = 4;
+  string game = 5;
+  string version = 6;
+  repeated string tags = 7;
+  optional string map = 8;
+  uint32 players = 9;
+  uint32 max_players = 10;
+  uint32 bots = 11;
+  uint32 max_spectators = 12;
+  uint32 spectators = 13;
+  bool join_in_progress = 14;
+  bool joinable = 15;
+  bool has_password = 16;
+  common.CountryCode country = 17;
+}

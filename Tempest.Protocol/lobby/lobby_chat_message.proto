@@ -1,0 +1,11 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+import "google/protobuf/timestamp.proto";
+
+message LobbyChatMessage {
+  string content = 1;
+  string author_id = 2;
+  google.protobuf.Timestamp sent_at = 3;
+}

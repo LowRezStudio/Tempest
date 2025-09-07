@@ -1,0 +1,13 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+import "lobby/join_lobby_error.proto";
+import "lobby/join_lobby_success.proto";
+
+message JoinLobbyResponse {
+  oneof result {
+    JoinLobbySuccess success = 1;
+    JoinLobbyError error = 2;
+  }
+}

@@ -1,0 +1,25 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+import "lobby/champion_select_request.proto";
+import "lobby/champion_select_response.proto";
+import "lobby/join_lobby_request.proto";
+import "lobby/join_lobby_response.proto";
+import "lobby/leave_lobby_request.proto";
+import "lobby/leave_lobby_response.proto";
+import "lobby/lobby_event.proto";
+import "lobby/map_vote_request.proto";
+import "lobby/map_vote_response.proto";
+import "lobby/receive_lobby_events_request.proto";
+import "lobby/send_chat_message_request.proto";
+import "lobby/send_chat_message_response.proto";
+
+service Lobby {
+  rpc JoinLobby(JoinLobbyRequest) returns (JoinLobbyResponse);
+  rpc LeaveLobby(LeaveLobbyRequest) returns (LeaveLobbyResponse);
+  rpc ReceiveLobbyEvents(ReceiveLobbyEventsRequest) returns (stream LobbyEvent);
+  rpc ChampionSelect(ChampionSelectRequest) returns (ChampionSelectResponse);
+  rpc MapVote(MapVoteRequest) returns (MapVoteResponse);
+  rpc SendChatMessage(SendChatMessageRequest) returns (SendChatMessageResponse);
+}

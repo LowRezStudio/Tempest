@@ -1,0 +1,9 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+import "lobby/lobby_player.proto";
+
+message LobbyEventPlayerJoin {
+  LobbyPlayer player = 1;
+}

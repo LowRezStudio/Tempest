@@ -1,0 +1,11 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+enum JoinLobbyErrorCode {
+  JOIN_LOBBY_ERROR_CODE_UNSPECIFIED = 0;
+  INVALID_PASSWORD = 1;
+  LOBBY_FULL = 2;
+  LOBBY_INVALID = 3;
+  BANNED = 4;
+}

@@ -1,0 +1,23 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+import "google/protobuf/timestamp.proto";
+import "lobby/lobby_event_chat_message.proto";
+import "lobby/lobby_event_countdown.proto";
+import "lobby/lobby_event_player_join.proto";
+import "lobby/lobby_event_player_leave.proto";
+import "lobby/lobby_event_player_update.proto";
+import "lobby/lobby_event_state_update.proto";
+
+message LobbyEvent {
+  google.protobuf.Timestamp timestamp = 1;
+  oneof event {
+    LobbyEventChatMessage chat_message = 2;
+    LobbyEventCountdown countdown = 3;
+    LobbyEventPlayerJoin player_join = 4;
+    LobbyEventPlayerLeave player_leave = 5;
+    LobbyEventPlayerUpdate player_update = 6;
+    LobbyEventStateUpdate state_update = 7;
+  }
+}
