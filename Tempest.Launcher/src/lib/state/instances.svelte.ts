@@ -17,13 +17,13 @@ export type Instance = {
 	};
 	state:
 		| {
-			type: "unprepared";
-			status: "downloading" | "paused";
-			percentage: number;
-		}
+				type: "unprepared";
+				status: "downloading" | "paused";
+				percentage: number;
+		  }
 		| {
-			type: "prepared";
-		};
+				type: "prepared";
+		  };
 };
 
 export type Process = {
@@ -42,8 +42,9 @@ const getDefaultInstancePath = async () => {
 export const instances = new PersistedState<Instance[]>("instances", []);
 export const addInstance = (build: Omit<Instance, "id">) =>
 	instances.current.push({ id: crypto.randomUUID(), ...build });
-export const getInstance = (id: string) => instances.current.find(i => i.id == id);
-export const removeInstance = (id: string) => instances.current = instances.current.filter(i => i.id != id);
+export const getInstance = (id: string) => instances.current.find((i) => i.id == id);
+export const removeInstance = (id: string) =>
+	(instances.current = instances.current.filter((i) => i.id != id));
 
 let _processes = $state<Process[]>([]);
 

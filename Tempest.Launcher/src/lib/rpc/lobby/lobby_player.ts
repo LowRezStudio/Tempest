@@ -47,9 +47,7 @@ class LobbyPlayer$Type extends MessageType<LobbyPlayer> {
 		message.displayName = "";
 		message.taskForce = 0;
 		message.champion = "";
-		if (value !== undefined) {
-			reflectionMergePartial<LobbyPlayer>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<LobbyPlayer>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -58,7 +56,8 @@ class LobbyPlayer$Type extends MessageType<LobbyPlayer> {
 		options: BinaryReadOptions,
 		target?: LobbyPlayer,
 	): LobbyPlayer {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -76,38 +75,41 @@ class LobbyPlayer$Type extends MessageType<LobbyPlayer> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: LobbyPlayer, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: LobbyPlayer,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* string id = 1; */
-		if (message.id !== "") {
-			writer.tag(1, WireType.LengthDelimited).string(message.id);
-		}
+		if (message.id !== "") writer.tag(1, WireType.LengthDelimited).string(message.id);
 		/* string display_name = 2; */
-		if (message.displayName !== "") {
+		if (message.displayName !== "")
 			writer.tag(2, WireType.LengthDelimited).string(message.displayName);
-		}
 		/* int32 task_force = 3; */
-		if (message.taskForce !== 0) {
-			writer.tag(3, WireType.Varint).int32(message.taskForce);
-		}
+		if (message.taskForce !== 0) writer.tag(3, WireType.Varint).int32(message.taskForce);
 		/* string champion = 4; */
-		if (message.champion !== "") {
+		if (message.champion !== "")
 			writer.tag(4, WireType.LengthDelimited).string(message.champion);
-		}
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

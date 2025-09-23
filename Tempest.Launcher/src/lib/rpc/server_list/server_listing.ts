@@ -92,13 +92,25 @@ export interface ServerListing {
 class ServerListing$Type extends MessageType<ServerListing> {
 	constructor() {
 		super("tempest.server_list.ServerListing", [
-			{ no: 1, name: "id", kind: "scalar", T: 4, /*ScalarType.UINT64*/ L: 0 /*LongType.BIGINT*/ },
+			{
+				no: 1,
+				name: "id",
+				kind: "scalar",
+				T: 4 /*ScalarType.UINT64*/,
+				L: 0 /*LongType.BIGINT*/,
+			},
 			{ no: 2, name: "ip", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 3, name: "lobby_port", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 			{ no: 4, name: "name", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 5, name: "game", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 6, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
-			{ no: 7, name: "tags", kind: "scalar", repeat: 2, /*RepeatType.UNPACKED*/ T: 9 /*ScalarType.STRING*/ },
+			{
+				no: 7,
+				name: "tags",
+				kind: "scalar",
+				repeat: 2 /*RepeatType.UNPACKED*/,
+				T: 9 /*ScalarType.STRING*/,
+			},
 			{ no: 8, name: "map", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
 			{ no: 18, name: "map_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
 			{ no: 9, name: "players", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
@@ -109,7 +121,12 @@ class ServerListing$Type extends MessageType<ServerListing> {
 			{ no: 14, name: "join_in_progress", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
 			{ no: 15, name: "joinable", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
 			{ no: 16, name: "has_password", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
-			{ no: 17, name: "country", kind: "enum", T: () => ["tempest.common.CountryCode", CountryCode] },
+			{
+				no: 17,
+				name: "country",
+				kind: "enum",
+				T: () => ["tempest.common.CountryCode", CountryCode],
+			},
 		]);
 	}
 	create(value?: PartialMessage<ServerListing>): ServerListing {
@@ -130,9 +147,7 @@ class ServerListing$Type extends MessageType<ServerListing> {
 		message.joinable = false;
 		message.hasPassword = false;
 		message.country = 0;
-		if (value !== undefined) {
-			reflectionMergePartial<ServerListing>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<ServerListing>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -141,7 +156,8 @@ class ServerListing$Type extends MessageType<ServerListing> {
 		options: BinaryReadOptions,
 		target?: ServerListing,
 	): ServerListing {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -201,94 +217,72 @@ class ServerListing$Type extends MessageType<ServerListing> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: ServerListing, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: ServerListing,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* uint64 id = 1; */
-		if (message.id !== 0n) {
-			writer.tag(1, WireType.Varint).uint64(message.id);
-		}
+		if (message.id !== 0n) writer.tag(1, WireType.Varint).uint64(message.id);
 		/* string ip = 2; */
-		if (message.ip !== "") {
-			writer.tag(2, WireType.LengthDelimited).string(message.ip);
-		}
+		if (message.ip !== "") writer.tag(2, WireType.LengthDelimited).string(message.ip);
 		/* uint32 lobby_port = 3; */
-		if (message.lobbyPort !== 0) {
-			writer.tag(3, WireType.Varint).uint32(message.lobbyPort);
-		}
+		if (message.lobbyPort !== 0) writer.tag(3, WireType.Varint).uint32(message.lobbyPort);
 		/* string name = 4; */
-		if (message.name !== "") {
-			writer.tag(4, WireType.LengthDelimited).string(message.name);
-		}
+		if (message.name !== "") writer.tag(4, WireType.LengthDelimited).string(message.name);
 		/* string game = 5; */
-		if (message.game !== "") {
-			writer.tag(5, WireType.LengthDelimited).string(message.game);
-		}
+		if (message.game !== "") writer.tag(5, WireType.LengthDelimited).string(message.game);
 		/* string version = 6; */
-		if (message.version !== "") {
-			writer.tag(6, WireType.LengthDelimited).string(message.version);
-		}
+		if (message.version !== "") writer.tag(6, WireType.LengthDelimited).string(message.version);
 		/* repeated string tags = 7; */
-		for (let i = 0; i < message.tags.length; i++) {
+		for (let i = 0; i < message.tags.length; i++)
 			writer.tag(7, WireType.LengthDelimited).string(message.tags[i]);
-		}
 		/* optional string map = 8; */
-		if (message.map !== undefined) {
-			writer.tag(8, WireType.LengthDelimited).string(message.map);
-		}
+		if (message.map !== undefined) writer.tag(8, WireType.LengthDelimited).string(message.map);
 		/* uint32 players = 9; */
-		if (message.players !== 0) {
-			writer.tag(9, WireType.Varint).uint32(message.players);
-		}
+		if (message.players !== 0) writer.tag(9, WireType.Varint).uint32(message.players);
 		/* uint32 max_players = 10; */
-		if (message.maxPlayers !== 0) {
-			writer.tag(10, WireType.Varint).uint32(message.maxPlayers);
-		}
+		if (message.maxPlayers !== 0) writer.tag(10, WireType.Varint).uint32(message.maxPlayers);
 		/* uint32 bots = 11; */
-		if (message.bots !== 0) {
-			writer.tag(11, WireType.Varint).uint32(message.bots);
-		}
+		if (message.bots !== 0) writer.tag(11, WireType.Varint).uint32(message.bots);
 		/* uint32 max_spectators = 12; */
-		if (message.maxSpectators !== 0) {
+		if (message.maxSpectators !== 0)
 			writer.tag(12, WireType.Varint).uint32(message.maxSpectators);
-		}
 		/* uint32 spectators = 13; */
-		if (message.spectators !== 0) {
-			writer.tag(13, WireType.Varint).uint32(message.spectators);
-		}
+		if (message.spectators !== 0) writer.tag(13, WireType.Varint).uint32(message.spectators);
 		/* bool join_in_progress = 14; */
-		if (message.joinInProgress !== false) {
+		if (message.joinInProgress !== false)
 			writer.tag(14, WireType.Varint).bool(message.joinInProgress);
-		}
 		/* bool joinable = 15; */
-		if (message.joinable !== false) {
-			writer.tag(15, WireType.Varint).bool(message.joinable);
-		}
+		if (message.joinable !== false) writer.tag(15, WireType.Varint).bool(message.joinable);
 		/* bool has_password = 16; */
-		if (message.hasPassword !== false) {
+		if (message.hasPassword !== false)
 			writer.tag(16, WireType.Varint).bool(message.hasPassword);
-		}
 		/* tempest.common.CountryCode country = 17; */
-		if (message.country !== 0) {
-			writer.tag(17, WireType.Varint).int32(message.country);
-		}
+		if (message.country !== 0) writer.tag(17, WireType.Varint).int32(message.country);
 		/* optional string map_id = 18; */
-		if (message.mapId !== undefined) {
+		if (message.mapId !== undefined)
 			writer.tag(18, WireType.LengthDelimited).string(message.mapId);
-		}
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

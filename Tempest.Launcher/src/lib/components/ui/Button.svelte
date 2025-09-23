@@ -10,14 +10,7 @@
 		size?: "square" | "normal";
 	}
 
-	let {
-		children,
-		href,
-		icon,
-		size,
-		kind,
-		...props
-	}: Props = $props();
+	let { children, href, icon, size, kind, ...props }: Props = $props();
 </script>
 
 <button
@@ -27,7 +20,7 @@
 	onclick={href ? () => goto(href) : undefined}
 	{...props}
 >
-	<div class="wrapper flex justify-center items-center gap-3">
+	<div class="wrapper flex items-center justify-center gap-3">
 		{#if icon}
 			{@const IconComponent = icon}
 			<div class="icon">
@@ -43,11 +36,10 @@
 </button>
 
 <style>
-	@reference "../../styles/global.css";
+	@reference "$lib/styles/global.css";
 
 	button {
-		@apply text-[14px] font-semibold h-11 bg-background-800 px-3 rounded-xl flex items-center transition duration-150
-			border-2 border-transparent;
+		@apply bg-background-800 flex h-11 items-center rounded-xl border-2 border-transparent px-3 text-[14px] font-semibold transition duration-150;
 	}
 
 	button:hover {
@@ -67,7 +59,7 @@
 	}
 
 	.square {
-		@apply grid place-items-center size-11 px-0 py-0;
+		@apply grid size-11 place-items-center px-0 py-0;
 	}
 
 	.square :global(svg) {

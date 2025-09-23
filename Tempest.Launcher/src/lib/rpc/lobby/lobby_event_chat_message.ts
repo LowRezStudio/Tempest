@@ -29,9 +29,8 @@ class LobbyEventChatMessage$Type extends MessageType<LobbyEventChatMessage> {
 	}
 	create(value?: PartialMessage<LobbyEventChatMessage>): LobbyEventChatMessage {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		if (value !== undefined) {
+		if (value !== undefined)
 			reflectionMergePartial<LobbyEventChatMessage>(this, message, value);
-		}
 		return message;
 	}
 	internalBinaryRead(
@@ -40,7 +39,8 @@ class LobbyEventChatMessage$Type extends MessageType<LobbyEventChatMessage> {
 		options: BinaryReadOptions,
 		target?: LobbyEventChatMessage,
 	): LobbyEventChatMessage {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -54,13 +54,19 @@ class LobbyEventChatMessage$Type extends MessageType<LobbyEventChatMessage> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
@@ -71,14 +77,15 @@ class LobbyEventChatMessage$Type extends MessageType<LobbyEventChatMessage> {
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
 		/* tempest.lobby.LobbyChatMessage chat_message = 1; */
-		if (message.chatMessage) {
-			LobbyChatMessage.internalBinaryWrite(message.chatMessage, writer.tag(1, WireType.LengthDelimited).fork(), options)
-				.join();
-		}
+		if (message.chatMessage)
+			LobbyChatMessage.internalBinaryWrite(
+				message.chatMessage,
+				writer.tag(1, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

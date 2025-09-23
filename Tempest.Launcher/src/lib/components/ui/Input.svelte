@@ -21,17 +21,16 @@
 	}: Props = $props();
 </script>
 
-<input bind:value={value} {type} {placeholder} autocomplete="off" autocorrect="off" {...props} />
+<input bind:value {type} {placeholder} autocomplete="off" autocorrect="off" {...props} />
 
 <style>
-	@reference "../../styles/global.css";
+	@reference "$lib/styles/global.css";
 
 	input {
-		@apply h-10 rounded-lg bg-background-800 w-full min-w-[220px] px-3 text-sm transition-colors
-			focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/60 gap-2 ring-0 ring-transparent;
+		@apply bg-background-800 focus-visible:ring-primary-500/60 h-10 w-full min-w-[220px] gap-2 rounded-lg px-3 text-sm ring-0 ring-transparent transition-colors focus-visible:ring-2 focus-visible:outline-none;
 	}
 
 	input:focus {
-		@apply ring-2 ring-primary-500 outline-none;
+		@apply ring-primary-500 ring-2 outline-none;
 	}
 </style>

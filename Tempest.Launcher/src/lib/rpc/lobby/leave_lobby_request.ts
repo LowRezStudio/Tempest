@@ -12,8 +12,7 @@ import { MessageType } from "@protobuf-ts/runtime";
 /**
  * @generated from protobuf message tempest.lobby.LeaveLobbyRequest
  */
-export interface LeaveLobbyRequest {
-}
+export interface LeaveLobbyRequest {}
 // @generated message type with reflection information, may provide speed optimized methods
 class LeaveLobbyRequest$Type extends MessageType<LeaveLobbyRequest> {
 	constructor() {
@@ -21,9 +20,7 @@ class LeaveLobbyRequest$Type extends MessageType<LeaveLobbyRequest> {
 	}
 	create(value?: PartialMessage<LeaveLobbyRequest>): LeaveLobbyRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		if (value !== undefined) {
-			reflectionMergePartial<LeaveLobbyRequest>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<LeaveLobbyRequest>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -32,28 +29,38 @@ class LeaveLobbyRequest$Type extends MessageType<LeaveLobbyRequest> {
 		options: BinaryReadOptions,
 		target?: LeaveLobbyRequest,
 	): LeaveLobbyRequest {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: LeaveLobbyRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: LeaveLobbyRequest,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

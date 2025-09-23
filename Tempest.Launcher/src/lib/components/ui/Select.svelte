@@ -20,7 +20,7 @@
 
 	let open = $state(false);
 
-	const selectedLabel = $derived(items.find(i => i.value === value)?.label ?? "");
+	const selectedLabel = $derived(items.find((i) => i.value === value)?.label ?? "");
 
 	const grouped = $derived.by(() => {
 		const map: Record<string, Item[]> = {};
@@ -32,23 +32,21 @@
 	});
 </script>
 
-<Select.Root
-	bind:value={value as never}
-	bind:open={open}
-	{...restProps}
->
+<Select.Root bind:value={value as never} bind:open {...restProps}>
 	<Select.Trigger
-		class="hover:cursor-pointer hover:border-transparent hover:brightness-90 transition duration-150 h-10 rounded-lg bg-background-800 flex w-full min-w-[220px] items-center px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 gap-2 select-trigger"
+		class="bg-background-800 focus-visible:ring-primary-500 select-trigger flex h-10 w-full min-w-[220px] items-center gap-2 rounded-lg px-3 text-sm transition duration-150 hover:cursor-pointer hover:border-transparent hover:brightness-90 focus-visible:ring-2 focus-visible:outline-none"
 	>
-		<span class="truncate text-text-color" class:list={[!selectedLabel && "opacity-60"]}>
+		<span class="text-text-color truncate" class:list={[!selectedLabel && "opacity-60"]}>
 			{selectedLabel || placeholder}
 		</span>
 		<span
-			class="ml-auto text-text-color transition-transform duration-150"
+			class="text-text-color ml-auto transition-transform duration-150"
 			class:list={[open && "rotate-180"]}
 		>
 			<ChevronDown
-				class={open ? "size-4 shrink-0 rotate-180 transition duration-150" : "size-4 shrink-0 transition duration-150"}
+				class={open ?
+					"size-4 shrink-0 rotate-180 transition duration-150"
+				:	"size-4 shrink-0 transition duration-150"}
 			/>
 		</span>
 	</Select.Trigger>
@@ -57,40 +55,48 @@
 		<Select.Portal>
 			<Select.Content
 				side={contentProps?.side ?? "bottom"}
-				class="bg-background-800 data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 outline-hidden z-50 max-h-[var(--bits-select-content-available-height)] w-[var(--bits-select-anchor-width)] min-w-[var(--bits-select-anchor-width)] select-none rounded-xl px-1 py-2"
+				class="bg-background-800 z-50 max-h-[var(--bits-select-content-available-height)] w-[var(--bits-select-anchor-width)] min-w-[var(--bits-select-anchor-width)] rounded-xl px-1 py-2 outline-hidden select-none data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1"
 				{...contentProps}
 			>
-				<Select.ScrollUpButton class="flex items-center justify-center py-1 text-xs opacity-60">
+				<Select.ScrollUpButton
+					class="flex items-center justify-center py-1 text-xs opacity-60"
+				>
 					<ChevronUp class="size-4" />
 				</Select.ScrollUpButton>
 				<Select.Viewport>
 					{#if grouped.length === 0}
-						<div class="py-2 px-4 text-text-color opacity-50">No options</div>
+						<div class="text-text-color px-4 py-2 opacity-50">No options</div>
 					{:else}
 						{#each grouped as [groupName, groupItems]}
 							<Select.Group>
 								{#if groupName !== "__ungrouped"}
-									<Select.GroupHeading class="py-1 pl-4 pr-4 font-semibold capitalize text-text-color">{
-										groupName
-									}</Select.GroupHeading>
+									<Select.GroupHeading
+										class="text-text-color py-1 pr-4 pl-4 font-semibold capitalize"
+										>{groupName}</Select.GroupHeading
+									>
 								{/if}
 								{#each groupItems as item (item.value)}
-									<Select.Item value={item.value} label={item.label} disabled={item.disabled}>
+									<Select.Item
+										value={item.value}
+										label={item.label}
+										disabled={item.disabled}
+									>
 										{#snippet child({ props, selected, highlighted })}
 											<div
 												{...props}
-												class={`hover:cursor-pointer relative flex h-10 w-full select-none items-center rounded-md pl-5 pr-2 text-sm capitalize outline-none transition-colors
+												class={`relative flex h-10 w-full items-center rounded-md pr-2 pl-5 text-sm capitalize transition-colors outline-none select-none hover:cursor-pointer
 												${
-													highlighted
-														? "bg-secondary-800 text-primary-300"
-														: selected
-														? "bg-secondary-800 text-primary-300"
-														: "text-text-color"
+													highlighted ?
+														"bg-secondary-800 text-primary-300"
+													: selected ? "bg-secondary-800 text-primary-300"
+													: "text-text-color"
 												}`}
 											>
 												<span>{item.label}</span>
 												{#if selected}
-													<span class="ml-auto text-primary"><Check class="size-4" /></span>
+													<span class="text-primary ml-auto"
+														><Check class="size-4" /></span
+													>
 												{/if}
 											</div>
 										{/snippet}
@@ -100,7 +106,9 @@
 						{/each}
 					{/if}
 				</Select.Viewport>
-				<Select.ScrollDownButton class="flex items-center justify-center py-1 text-xs opacity-60">
+				<Select.ScrollDownButton
+					class="flex items-center justify-center py-1 text-xs opacity-60"
+				>
 					<ChevronDown class="size-4" />
 				</Select.ScrollDownButton>
 			</Select.Content>

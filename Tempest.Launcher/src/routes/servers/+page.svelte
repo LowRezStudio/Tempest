@@ -27,8 +27,7 @@
 	// 	.map(([value, label]) => ({ value, label }));
 
 	const filtered = $derived(
-		serverList
-			.filter(s => s.name.toUpperCase().includes(searchFilters.name.toUpperCase())),
+		serverList.filter((s) => s.name.toUpperCase().includes(searchFilters.name.toUpperCase())),
 	);
 
 	async function refresh() {
@@ -45,79 +44,107 @@
 	});
 </script>
 
-<section class="w-full h-full overflow-auto">
+<section class="h-full w-full overflow-auto">
 	<div class="mx-auto max-w-6xl px-6 py-6">
 		<div class="flex items-center justify-between gap-4">
 			<div>
 				<h1 class="text-2xl font-semibold tracking-tight">Servers</h1>
-				<p class="mt-1 text-sm text-background-300">Browse and join community and official servers.</p>
+				<p class="text-background-300 mt-1 text-sm">
+					Browse and join community and official servers.
+				</p>
 			</div>
-			<Button kind="accented" icon={RefreshCcw} disabled={refreshing} onclick={refresh} aria-label="Refresh servers">
+			<Button
+				kind="accented"
+				icon={RefreshCcw}
+				disabled={refreshing}
+				onclick={refresh}
+				aria-label="Refresh servers"
+			>
 				{refreshing ? "Refreshing" : "Refresh"}
 			</Button>
 		</div>
 
-		<div class="mt-6 rounded-2xl border border-background-800 bg-background-950/60 p-4">
+		<div class="border-background-800 bg-background-950/60 mt-6 rounded-2xl border p-4">
 			<div class="grid grid-cols-1 gap-3 md:grid-cols-[1fr,auto,auto]">
-				<div class="flex flex-col gap-1 min-w-0">
+				<div class="flex min-w-0 flex-col gap-1">
 					<label class="text-sm" for="server-name">Server Name</label>
-					<Input id="server-name" placeholder="Search by name" bind:value={searchFilters.name} class="w-full" />
+					<Input
+						id="server-name"
+						placeholder="Search by name"
+						bind:value={searchFilters.name}
+						class="w-full"
+					/>
 				</div>
 			</div>
 		</div>
 
 		{#if filtered.length === 0}
 			<div
-				class="mt-8 grid place-items-center rounded-2xl border border-background-800 bg-gradient-to-b from-background-950 to-background-900/60 p-10"
+				class="border-background-800 from-background-950 to-background-900/60 mt-8 grid place-items-center rounded-2xl border bg-gradient-to-b p-10"
 			>
-				<div class="text-center max-w-xl">
-					<div class="mx-auto grid place-items-center size-14 rounded-full bg-background-800 text-background-300">
+				<div class="max-w-xl text-center">
+					<div
+						class="bg-background-800 text-background-300 mx-auto grid size-14 place-items-center rounded-full"
+					>
 						<ServerOff class="size-7" />
 					</div>
-					<p class="mt-4 text-background-200 text-base font-medium">No servers match your filters.</p>
+					<p class="text-background-200 mt-4 text-base font-medium">
+						No servers match your filters.
+					</p>
 				</div>
 			</div>
 		{:else}
 			<div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
 				{#each filtered as s (s.id)}
 					<div
-						class="group rounded-2xl border border-background-800 bg-background-950 p-4 transition-colors hover:bg-background-900"
+						class="group border-background-800 bg-background-950 hover:bg-background-900 rounded-2xl border p-4 transition-colors"
 					>
 						<div class="flex items-start gap-4">
 							<div
-								class="grid place-items-center size-12 rounded-xl bg-background-900 border-2 border-background-700 text-primary-300 shadow-inner"
+								class="bg-background-900 border-background-700 text-primary-300 grid size-12 place-items-center rounded-xl border-2 shadow-inner"
 							>
 								<Server class="size-6" />
 							</div>
 							<div class="min-w-0 flex-auto">
 								<div class="flex items-center gap-2">
-									<p class="font-semibold tracking-tight truncate">{s.name}</p>
+									<p class="truncate font-semibold tracking-tight">{s.name}</p>
 								</div>
-								<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-background-300">
+								<div
+									class="text-background-300 mt-1 flex flex-wrap items-center gap-2 text-xs"
+								>
 									<!-- <span class="inline-flex items-center gap-1">
 										<Globe class="size-3.5 text-secondary-300" /> {s.region}
 									</span> -->
 									<span class="inline-flex items-center gap-1">
-										<Box class="size-3.5 text-secondary-300" /> {s.version}
+										<Box class="text-secondary-300 size-3.5" />
+										{s.version}
 									</span>
-									{#if s.map.length != 0}
+									{#if s.map?.length != 0}
 										<span class="inline-flex items-center gap-1">
-											<Map class="size-3.5 text-secondary-300" /> {s.map}
+											<Map class="text-secondary-300 size-3.5" />
+											{s.map}
 										</span>
 									{/if}
 									<span class="inline-flex items-center gap-1">
-										<Users class="size-3.5 text-secondary-300" /> {s.players} / {s.maxPlayers}
+										<Users class="text-secondary-300 size-3.5" />
+										{s.players} / {s.maxPlayers}
 									</span>
 								</div>
 							</div>
 						</div>
 						<div class="mt-4 flex items-center justify-between gap-3">
-							<div class="text-sm text-background-300">{s.joinable ? "Joinable" : "Not joinable"}</div>
+							<div class="text-background-300 text-sm">
+								{s.joinable ? "Joinable" : "Not joinable"}
+							</div>
 							<Button
 								disabled={!s.joinable || s.players >= s.maxPlayers}
-								kind={!s.joinable || s.players >= s.maxPlayers ? undefined : "accented"}
+								kind={!s.joinable || s.players >= s.maxPlayers ?
+									undefined
+								:	"accented"}
 							>
-								{s.players >= s.maxPlayers ? "Full" : s.joinable ? "Join" : "Unavailable"}
+								{s.players >= s.maxPlayers ? "Full"
+								: s.joinable ? "Join"
+								: "Unavailable"}
 							</Button>
 						</div>
 					</div>
@@ -128,5 +155,5 @@
 </section>
 
 <style>
-	@reference "../../lib/styles/global.css";
+	@reference "$lib/styles/global.css";
 </style>

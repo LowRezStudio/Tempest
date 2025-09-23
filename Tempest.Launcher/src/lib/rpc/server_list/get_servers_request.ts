@@ -12,8 +12,7 @@ import { MessageType } from "@protobuf-ts/runtime";
 /**
  * @generated from protobuf message tempest.server_list.GetServersRequest
  */
-export interface GetServersRequest {
-}
+export interface GetServersRequest {}
 // @generated message type with reflection information, may provide speed optimized methods
 class GetServersRequest$Type extends MessageType<GetServersRequest> {
 	constructor() {
@@ -21,9 +20,7 @@ class GetServersRequest$Type extends MessageType<GetServersRequest> {
 	}
 	create(value?: PartialMessage<GetServersRequest>): GetServersRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		if (value !== undefined) {
-			reflectionMergePartial<GetServersRequest>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<GetServersRequest>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -32,28 +29,38 @@ class GetServersRequest$Type extends MessageType<GetServersRequest> {
 		options: BinaryReadOptions,
 		target?: GetServersRequest,
 	): GetServersRequest {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: GetServersRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: GetServersRequest,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

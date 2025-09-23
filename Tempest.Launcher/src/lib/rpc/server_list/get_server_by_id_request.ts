@@ -29,9 +29,7 @@ class GetServerByIdRequest$Type extends MessageType<GetServerByIdRequest> {
 	create(value?: PartialMessage<GetServerByIdRequest>): GetServerByIdRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.id = "";
-		if (value !== undefined) {
-			reflectionMergePartial<GetServerByIdRequest>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<GetServerByIdRequest>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -40,7 +38,8 @@ class GetServerByIdRequest$Type extends MessageType<GetServerByIdRequest> {
 		options: BinaryReadOptions,
 		target?: GetServerByIdRequest,
 	): GetServerByIdRequest {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -49,13 +48,19 @@ class GetServerByIdRequest$Type extends MessageType<GetServerByIdRequest> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
@@ -66,13 +71,10 @@ class GetServerByIdRequest$Type extends MessageType<GetServerByIdRequest> {
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
 		/* string id = 1; */
-		if (message.id !== "") {
-			writer.tag(1, WireType.LengthDelimited).string(message.id);
-		}
+		if (message.id !== "") writer.tag(1, WireType.LengthDelimited).string(message.id);
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

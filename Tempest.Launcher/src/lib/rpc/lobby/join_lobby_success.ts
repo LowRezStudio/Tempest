@@ -29,9 +29,7 @@ class JoinLobbySuccess$Type extends MessageType<JoinLobbySuccess> {
 	create(value?: PartialMessage<JoinLobbySuccess>): JoinLobbySuccess {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.ticket = "";
-		if (value !== undefined) {
-			reflectionMergePartial<JoinLobbySuccess>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<JoinLobbySuccess>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -40,7 +38,8 @@ class JoinLobbySuccess$Type extends MessageType<JoinLobbySuccess> {
 		options: BinaryReadOptions,
 		target?: JoinLobbySuccess,
 	): JoinLobbySuccess {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -49,26 +48,33 @@ class JoinLobbySuccess$Type extends MessageType<JoinLobbySuccess> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: JoinLobbySuccess, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: JoinLobbySuccess,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* string ticket = 1; */
-		if (message.ticket !== "") {
-			writer.tag(1, WireType.LengthDelimited).string(message.ticket);
-		}
+		if (message.ticket !== "") writer.tag(1, WireType.LengthDelimited).string(message.ticket);
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

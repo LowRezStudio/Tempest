@@ -29,9 +29,7 @@ class LobbyEventCountdown$Type extends MessageType<LobbyEventCountdown> {
 	create(value?: PartialMessage<LobbyEventCountdown>): LobbyEventCountdown {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.seconds = 0;
-		if (value !== undefined) {
-			reflectionMergePartial<LobbyEventCountdown>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<LobbyEventCountdown>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -40,7 +38,8 @@ class LobbyEventCountdown$Type extends MessageType<LobbyEventCountdown> {
 		options: BinaryReadOptions,
 		target?: LobbyEventCountdown,
 	): LobbyEventCountdown {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -49,26 +48,33 @@ class LobbyEventCountdown$Type extends MessageType<LobbyEventCountdown> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: LobbyEventCountdown, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: LobbyEventCountdown,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* uint32 seconds = 1; */
-		if (message.seconds !== 0) {
-			writer.tag(1, WireType.Varint).uint32(message.seconds);
-		}
+		if (message.seconds !== 0) writer.tag(1, WireType.Varint).uint32(message.seconds);
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

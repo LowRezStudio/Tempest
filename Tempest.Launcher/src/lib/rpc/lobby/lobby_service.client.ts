@@ -3,23 +3,23 @@
 // tslint:disable
 import type { RpcTransport } from "@protobuf-ts/runtime-rpc";
 import type { ServiceInfo } from "@protobuf-ts/runtime-rpc";
+import { Lobby } from "./lobby_service";
+import type { SendChatMessageResponse } from "./send_chat_message_response";
+import type { SendChatMessageRequest } from "./send_chat_message_request";
+import type { MapVoteResponse } from "./map_vote_response";
+import type { MapVoteRequest } from "./map_vote_request";
+import type { ChampionSelectResponse } from "./champion_select_response";
+import type { ChampionSelectRequest } from "./champion_select_request";
+import type { LobbyEvent } from "./lobby_event";
+import type { ReceiveLobbyEventsRequest } from "./receive_lobby_events_request";
 import type { ServerStreamingCall } from "@protobuf-ts/runtime-rpc";
+import type { LeaveLobbyResponse } from "./leave_lobby_response";
+import type { LeaveLobbyRequest } from "./leave_lobby_request";
 import { stackIntercept } from "@protobuf-ts/runtime-rpc";
+import type { JoinLobbyResponse } from "./join_lobby_response";
+import type { JoinLobbyRequest } from "./join_lobby_request";
 import type { UnaryCall } from "@protobuf-ts/runtime-rpc";
 import type { RpcOptions } from "@protobuf-ts/runtime-rpc";
-import type { ChampionSelectRequest } from "./champion_select_request";
-import type { ChampionSelectResponse } from "./champion_select_response";
-import type { JoinLobbyRequest } from "./join_lobby_request";
-import type { JoinLobbyResponse } from "./join_lobby_response";
-import type { LeaveLobbyRequest } from "./leave_lobby_request";
-import type { LeaveLobbyResponse } from "./leave_lobby_response";
-import type { LobbyEvent } from "./lobby_event";
-import { Lobby } from "./lobby_service";
-import type { MapVoteRequest } from "./map_vote_request";
-import type { MapVoteResponse } from "./map_vote_response";
-import type { ReceiveLobbyEventsRequest } from "./receive_lobby_events_request";
-import type { SendChatMessageRequest } from "./send_chat_message_request";
-import type { SendChatMessageResponse } from "./send_chat_message_response";
 /**
  * @generated from protobuf service tempest.lobby.Lobby
  */
@@ -27,11 +27,17 @@ export interface ILobbyClient {
 	/**
 	 * @generated from protobuf rpc: JoinLobby
 	 */
-	joinLobby(input: JoinLobbyRequest, options?: RpcOptions): UnaryCall<JoinLobbyRequest, JoinLobbyResponse>;
+	joinLobby(
+		input: JoinLobbyRequest,
+		options?: RpcOptions,
+	): UnaryCall<JoinLobbyRequest, JoinLobbyResponse>;
 	/**
 	 * @generated from protobuf rpc: LeaveLobby
 	 */
-	leaveLobby(input: LeaveLobbyRequest, options?: RpcOptions): UnaryCall<LeaveLobbyRequest, LeaveLobbyResponse>;
+	leaveLobby(
+		input: LeaveLobbyRequest,
+		options?: RpcOptions,
+	): UnaryCall<LeaveLobbyRequest, LeaveLobbyResponse>;
 	/**
 	 * @generated from protobuf rpc: ReceiveLobbyEvents
 	 */
@@ -49,7 +55,10 @@ export interface ILobbyClient {
 	/**
 	 * @generated from protobuf rpc: MapVote
 	 */
-	mapVote(input: MapVoteRequest, options?: RpcOptions): UnaryCall<MapVoteRequest, MapVoteResponse>;
+	mapVote(
+		input: MapVoteRequest,
+		options?: RpcOptions,
+	): UnaryCall<MapVoteRequest, MapVoteResponse>;
 	/**
 	 * @generated from protobuf rpc: SendChatMessage
 	 */
@@ -65,21 +74,40 @@ export class LobbyClient implements ILobbyClient, ServiceInfo {
 	typeName = Lobby.typeName;
 	methods = Lobby.methods;
 	options = Lobby.options;
-	constructor(private readonly _transport: RpcTransport) {
-	}
+	constructor(private readonly _transport: RpcTransport) {}
 	/**
 	 * @generated from protobuf rpc: JoinLobby
 	 */
-	joinLobby(input: JoinLobbyRequest, options?: RpcOptions): UnaryCall<JoinLobbyRequest, JoinLobbyResponse> {
-		const method = this.methods[0], opt = this._transport.mergeOptions(options);
-		return stackIntercept<JoinLobbyRequest, JoinLobbyResponse>("unary", this._transport, method, opt, input);
+	joinLobby(
+		input: JoinLobbyRequest,
+		options?: RpcOptions,
+	): UnaryCall<JoinLobbyRequest, JoinLobbyResponse> {
+		const method = this.methods[0],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<JoinLobbyRequest, JoinLobbyResponse>(
+			"unary",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
 	}
 	/**
 	 * @generated from protobuf rpc: LeaveLobby
 	 */
-	leaveLobby(input: LeaveLobbyRequest, options?: RpcOptions): UnaryCall<LeaveLobbyRequest, LeaveLobbyResponse> {
-		const method = this.methods[1], opt = this._transport.mergeOptions(options);
-		return stackIntercept<LeaveLobbyRequest, LeaveLobbyResponse>("unary", this._transport, method, opt, input);
+	leaveLobby(
+		input: LeaveLobbyRequest,
+		options?: RpcOptions,
+	): UnaryCall<LeaveLobbyRequest, LeaveLobbyResponse> {
+		const method = this.methods[1],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<LeaveLobbyRequest, LeaveLobbyResponse>(
+			"unary",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
 	}
 	/**
 	 * @generated from protobuf rpc: ReceiveLobbyEvents
@@ -88,7 +116,8 @@ export class LobbyClient implements ILobbyClient, ServiceInfo {
 		input: ReceiveLobbyEventsRequest,
 		options?: RpcOptions,
 	): ServerStreamingCall<ReceiveLobbyEventsRequest, LobbyEvent> {
-		const method = this.methods[2], opt = this._transport.mergeOptions(options);
+		const method = this.methods[2],
+			opt = this._transport.mergeOptions(options);
 		return stackIntercept<ReceiveLobbyEventsRequest, LobbyEvent>(
 			"serverStreaming",
 			this._transport,
@@ -104,15 +133,32 @@ export class LobbyClient implements ILobbyClient, ServiceInfo {
 		input: ChampionSelectRequest,
 		options?: RpcOptions,
 	): UnaryCall<ChampionSelectRequest, ChampionSelectResponse> {
-		const method = this.methods[3], opt = this._transport.mergeOptions(options);
-		return stackIntercept<ChampionSelectRequest, ChampionSelectResponse>("unary", this._transport, method, opt, input);
+		const method = this.methods[3],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<ChampionSelectRequest, ChampionSelectResponse>(
+			"unary",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
 	}
 	/**
 	 * @generated from protobuf rpc: MapVote
 	 */
-	mapVote(input: MapVoteRequest, options?: RpcOptions): UnaryCall<MapVoteRequest, MapVoteResponse> {
-		const method = this.methods[4], opt = this._transport.mergeOptions(options);
-		return stackIntercept<MapVoteRequest, MapVoteResponse>("unary", this._transport, method, opt, input);
+	mapVote(
+		input: MapVoteRequest,
+		options?: RpcOptions,
+	): UnaryCall<MapVoteRequest, MapVoteResponse> {
+		const method = this.methods[4],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<MapVoteRequest, MapVoteResponse>(
+			"unary",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
 	}
 	/**
 	 * @generated from protobuf rpc: SendChatMessage
@@ -121,7 +167,8 @@ export class LobbyClient implements ILobbyClient, ServiceInfo {
 		input: SendChatMessageRequest,
 		options?: RpcOptions,
 	): UnaryCall<SendChatMessageRequest, SendChatMessageResponse> {
-		const method = this.methods[5], opt = this._transport.mergeOptions(options);
+		const method = this.methods[5],
+			opt = this._transport.mergeOptions(options);
 		return stackIntercept<SendChatMessageRequest, SendChatMessageResponse>(
 			"unary",
 			this._transport,

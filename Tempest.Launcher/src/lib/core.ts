@@ -16,13 +16,13 @@ export type ArgumentType =
 	| null;
 
 export const processArgs = (args: ArgumentType[]): string[] =>
-	args.flatMap(arg => {
+	args.flatMap((arg) => {
 		if (arg == null) return [];
 		if (Array.isArray(arg)) return processArgs(arg);
 		if (typeof arg === "object") {
 			return Object.entries(arg)
 				.filter(([, val]) => !!val)
-				.flatMap(([key, val]) => typeof val === "string" ? [key, val] : [key]);
+				.flatMap(([key, val]) => (typeof val === "string" ? [key, val] : [key]));
 		}
 		if (typeof arg === "string") return [arg];
 
@@ -40,17 +40,21 @@ const createDevCommand = (args: ArgumentType[]) =>
 		...processArgs(args),
 	]);
 
-const createProdCommand = (args: ArgumentType[]) => Command.sidecar("binaries/tempest-cli", processArgs(args));
+const createProdCommand = (args: ArgumentType[]) =>
+	Command.sidecar("binaries/tempest-cli", processArgs(args));
 
 export const createCommand = import.meta.env.DEV ? createDevCommand : createProdCommand;
 
-export const getVersion = () => createCommand(["--version"]).execute().then(res => res.stdout);
+export const getVersion = () =>
+	createCommand(["--version"])
+		.execute()
+		.then((res) => res.stdout);
 
 export const launchGame = (options: LaunchGameOptions) =>
 	createCommand([
 		"launch",
 		options.path,
 		{ "--no-default-args": options.noDefaultArgs },
-		...(options.dllList ? options.dllList.map(dll => ({ "--dll": dll })) : []),
+		...(options.dllList ? options.dllList.map((dll) => ({ "--dll": dll })) : []),
 		...(options.args ? ["--", ...processArgs(options.args)] : []),
 	]);

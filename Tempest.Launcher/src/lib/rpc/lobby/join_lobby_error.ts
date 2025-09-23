@@ -28,7 +28,12 @@ export interface JoinLobbyError {
 class JoinLobbyError$Type extends MessageType<JoinLobbyError> {
 	constructor() {
 		super("tempest.lobby.JoinLobbyError", [
-			{ no: 1, name: "code", kind: "enum", T: () => ["tempest.lobby.JoinLobbyErrorCode", JoinLobbyErrorCode] },
+			{
+				no: 1,
+				name: "code",
+				kind: "enum",
+				T: () => ["tempest.lobby.JoinLobbyErrorCode", JoinLobbyErrorCode],
+			},
 			{ no: 2, name: "message", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 		]);
 	}
@@ -36,9 +41,7 @@ class JoinLobbyError$Type extends MessageType<JoinLobbyError> {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.code = 0;
 		message.message = "";
-		if (value !== undefined) {
-			reflectionMergePartial<JoinLobbyError>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<JoinLobbyError>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -47,7 +50,8 @@ class JoinLobbyError$Type extends MessageType<JoinLobbyError> {
 		options: BinaryReadOptions,
 		target?: JoinLobbyError,
 	): JoinLobbyError {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -59,30 +63,35 @@ class JoinLobbyError$Type extends MessageType<JoinLobbyError> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: JoinLobbyError, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: JoinLobbyError,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* tempest.lobby.JoinLobbyErrorCode code = 1; */
-		if (message.code !== 0) {
-			writer.tag(1, WireType.Varint).int32(message.code);
-		}
+		if (message.code !== 0) writer.tag(1, WireType.Varint).int32(message.code);
 		/* string message = 2; */
-		if (message.message !== "") {
-			writer.tag(2, WireType.LengthDelimited).string(message.message);
-		}
+		if (message.message !== "") writer.tag(2, WireType.LengthDelimited).string(message.message);
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

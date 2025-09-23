@@ -3,18 +3,18 @@
 // tslint:disable
 import type { RpcTransport } from "@protobuf-ts/runtime-rpc";
 import type { ServiceInfo } from "@protobuf-ts/runtime-rpc";
+import { ServerList } from "./server_list_service";
+import type { HeartbeatLobbyResponse } from "./heartbeat_lobby_response";
+import type { HeartbeatLobbyRequest } from "./heartbeat_lobby_request";
+import type { GetServerByIdRequest } from "./get_server_by_id_request";
+import type { ServerListing } from "./server_listing";
+import type { GetServersRequest } from "./get_servers_request";
 import type { ServerStreamingCall } from "@protobuf-ts/runtime-rpc";
 import { stackIntercept } from "@protobuf-ts/runtime-rpc";
+import type { CreateLobbyResponse } from "./create_lobby_response";
+import type { CreateLobbyRequest } from "./create_lobby_request";
 import type { UnaryCall } from "@protobuf-ts/runtime-rpc";
 import type { RpcOptions } from "@protobuf-ts/runtime-rpc";
-import type { CreateLobbyRequest } from "./create_lobby_request";
-import type { CreateLobbyResponse } from "./create_lobby_response";
-import type { GetServerByIdRequest } from "./get_server_by_id_request";
-import type { GetServersRequest } from "./get_servers_request";
-import type { HeartbeatLobbyRequest } from "./heartbeat_lobby_request";
-import type { HeartbeatLobbyResponse } from "./heartbeat_lobby_response";
-import { ServerList } from "./server_list_service";
-import type { ServerListing } from "./server_listing";
 /**
  * @generated from protobuf service tempest.server_list.ServerList
  */
@@ -22,15 +22,24 @@ export interface IServerListClient {
 	/**
 	 * @generated from protobuf rpc: CreateLobby
 	 */
-	createLobby(input: CreateLobbyRequest, options?: RpcOptions): UnaryCall<CreateLobbyRequest, CreateLobbyResponse>;
+	createLobby(
+		input: CreateLobbyRequest,
+		options?: RpcOptions,
+	): UnaryCall<CreateLobbyRequest, CreateLobbyResponse>;
 	/**
 	 * @generated from protobuf rpc: GetServers
 	 */
-	getServers(input: GetServersRequest, options?: RpcOptions): ServerStreamingCall<GetServersRequest, ServerListing>;
+	getServers(
+		input: GetServersRequest,
+		options?: RpcOptions,
+	): ServerStreamingCall<GetServersRequest, ServerListing>;
 	/**
 	 * @generated from protobuf rpc: GetServerById
 	 */
-	getServerById(input: GetServerByIdRequest, options?: RpcOptions): UnaryCall<GetServerByIdRequest, ServerListing>;
+	getServerById(
+		input: GetServerByIdRequest,
+		options?: RpcOptions,
+	): UnaryCall<GetServerByIdRequest, ServerListing>;
 	/**
 	 * @generated from protobuf rpc: HeartbeatLobby
 	 */
@@ -46,28 +55,57 @@ export class ServerListClient implements IServerListClient, ServiceInfo {
 	typeName = ServerList.typeName;
 	methods = ServerList.methods;
 	options = ServerList.options;
-	constructor(private readonly _transport: RpcTransport) {
-	}
+	constructor(private readonly _transport: RpcTransport) {}
 	/**
 	 * @generated from protobuf rpc: CreateLobby
 	 */
-	createLobby(input: CreateLobbyRequest, options?: RpcOptions): UnaryCall<CreateLobbyRequest, CreateLobbyResponse> {
-		const method = this.methods[0], opt = this._transport.mergeOptions(options);
-		return stackIntercept<CreateLobbyRequest, CreateLobbyResponse>("unary", this._transport, method, opt, input);
+	createLobby(
+		input: CreateLobbyRequest,
+		options?: RpcOptions,
+	): UnaryCall<CreateLobbyRequest, CreateLobbyResponse> {
+		const method = this.methods[0],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<CreateLobbyRequest, CreateLobbyResponse>(
+			"unary",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
 	}
 	/**
 	 * @generated from protobuf rpc: GetServers
 	 */
-	getServers(input: GetServersRequest, options?: RpcOptions): ServerStreamingCall<GetServersRequest, ServerListing> {
-		const method = this.methods[1], opt = this._transport.mergeOptions(options);
-		return stackIntercept<GetServersRequest, ServerListing>("serverStreaming", this._transport, method, opt, input);
+	getServers(
+		input: GetServersRequest,
+		options?: RpcOptions,
+	): ServerStreamingCall<GetServersRequest, ServerListing> {
+		const method = this.methods[1],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<GetServersRequest, ServerListing>(
+			"serverStreaming",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
 	}
 	/**
 	 * @generated from protobuf rpc: GetServerById
 	 */
-	getServerById(input: GetServerByIdRequest, options?: RpcOptions): UnaryCall<GetServerByIdRequest, ServerListing> {
-		const method = this.methods[2], opt = this._transport.mergeOptions(options);
-		return stackIntercept<GetServerByIdRequest, ServerListing>("unary", this._transport, method, opt, input);
+	getServerById(
+		input: GetServerByIdRequest,
+		options?: RpcOptions,
+	): UnaryCall<GetServerByIdRequest, ServerListing> {
+		const method = this.methods[2],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<GetServerByIdRequest, ServerListing>(
+			"unary",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
 	}
 	/**
 	 * @generated from protobuf rpc: HeartbeatLobby
@@ -76,7 +114,14 @@ export class ServerListClient implements IServerListClient, ServiceInfo {
 		input: HeartbeatLobbyRequest,
 		options?: RpcOptions,
 	): UnaryCall<HeartbeatLobbyRequest, HeartbeatLobbyResponse> {
-		const method = this.methods[3], opt = this._transport.mergeOptions(options);
-		return stackIntercept<HeartbeatLobbyRequest, HeartbeatLobbyResponse>("unary", this._transport, method, opt, input);
+		const method = this.methods[3],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<HeartbeatLobbyRequest, HeartbeatLobbyResponse>(
+			"unary",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
 	}
 }

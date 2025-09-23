@@ -19,7 +19,7 @@
 			value: item.id,
 			label: `${item.version} - ${item.date}`,
 			group: group,
-		}))
+		})),
 	);
 
 	let selectedImportType = $state("download");
@@ -91,46 +91,46 @@
 
 	// tauri path apis are async so yeah, sorry
 	$effect(() => {
-		path
-			.join(
-				defaultInstancePath.current,
-				selectedName.length == 0 ? selectedVersion?.version ?? "Paladins" : selectedName,
-			)
-			.then((res) => (defaultPath = res));
+		path.join(
+			defaultInstancePath.current,
+			selectedName.length == 0 ? (selectedVersion?.version ?? "Paladins") : selectedName,
+		).then((res) => (defaultPath = res));
 
-		path.basename(selectedPath.length == 0 ? defaultPath : selectedPath)
-			.then((res) => (defaultName = res));
+		path.basename(selectedPath.length == 0 ? defaultPath : selectedPath).then(
+			(res) => (defaultName = res),
+		);
 	});
 
 	// reset state when reopening the modal
-	$effect(() => open ? reset() : undefined);
+	$effect(() => (open ? reset() : undefined));
 </script>
 
 <Dialog bind:open title="Adding an instance">
-	<div class="flex flex-col gap-4 items-center">
+	<div class="flex flex-col items-center gap-4">
 		<div class="flex items-center justify-center gap-2">
 			<Button
 				onclick={() => switchTab("download")}
 				kind={selectedImportType == "download" ? "accented" : "normal"}
-				icon={selectedImportType == "download" ? CloudDownload : undefined}
-			>Download</Button>
+				icon={selectedImportType == "download" ? CloudDownload : undefined}>Download</Button
+			>
 			<Button
 				onclick={() => switchTab("folder")}
 				kind={selectedImportType == "folder" ? "accented" : "normal"}
-				icon={selectedImportType == "folder" ? Folder : undefined}
-			>From Folder</Button>
+				icon={selectedImportType == "folder" ? Folder : undefined}>From Folder</Button
+			>
 		</div>
 		<hr class="border-background-700 w-full" />
 	</div>
 	{#if selectedImportType == "download"}
 		<div class="flex flex-col gap-4 py-4">
 			{#if showAdvanced}
-				<div class="flex flex-col gap-1 min-w-0">
+				<div class="flex min-w-0 flex-col gap-1">
 					<label class="text-sm" for="name-advanced">Name</label>
-					<Input bind:value={selectedName} id="name-advanced" placeholder={defaultName}></Input>
+					<Input bind:value={selectedName} id="name-advanced" placeholder={defaultName}
+					></Input>
 				</div>
 			{/if}
-			<div class="flex flex-col gap-1 min-w-0">
+			<div class="flex min-w-0 flex-col gap-1">
 				<!-- svelte-ignore a11y_label_has_associated_control -->
 				<label class="text-sm">Game version</label>
 				<Select
@@ -141,7 +141,7 @@
 				/>
 			</div>
 			{#if showAdvanced}
-				<div class="flex flex-col gap-1 min-w-0">
+				<div class="flex min-w-0 flex-col gap-1">
 					<label class="text-sm" for="path-install">Installation path</label>
 					<PathPicker
 						id="path-install"
@@ -154,30 +154,26 @@
 			{/if}
 		</div>
 		<div class="flex items-center justify-end gap-2">
-			<Button
-				onclick={() => (showAdvanced = !showAdvanced)}
-				icon={Code}
-			>{showAdvanced ? "Hide advanced" : "Show advanced"}</Button>
-			<Button
-				onclick={() => (open = false)}
-				icon={X}
-			>Cancel</Button>
+			<Button onclick={() => (showAdvanced = !showAdvanced)} icon={Code}
+				>{showAdvanced ? "Hide advanced" : "Show advanced"}</Button
+			>
+			<Button onclick={() => (open = false)} icon={X}>Cancel</Button>
 			<Button
 				onclick={addInstanceFromDepot}
 				kind="accented"
 				icon={Download}
-				disabled={!selectedVersionValue}
-			>Download</Button>
+				disabled={!selectedVersionValue}>Download</Button
+			>
 		</div>
 	{:else}
 		<div class="flex flex-col gap-4 py-4">
 			{#if showAdvanced}
-				<div class="flex flex-col gap-1 min-w-0">
+				<div class="flex min-w-0 flex-col gap-1">
 					<label class="text-sm" for="name">Name</label>
 					<Input bind:value={selectedName} id="name" placeholder={defaultName}></Input>
 				</div>
 			{/if}
-			<div class="flex flex-col gap-1 min-w-0">
+			<div class="flex min-w-0 flex-col gap-1">
 				<!-- svelte-ignore a11y_label_has_associated_control -->
 				<label class="text-sm">Game version</label>
 				<Select
@@ -187,7 +183,7 @@
 					placeholder="Choose a version"
 				/>
 			</div>
-			<div class="flex flex-col gap-1 min-w-0">
+			<div class="flex min-w-0 flex-col gap-1">
 				<label class="text-sm" for="path-import">Path</label>
 				<PathPicker
 					id="path-import"
@@ -199,20 +195,16 @@
 			</div>
 		</div>
 		<div class="flex items-center justify-end gap-2">
-			<Button
-				onclick={() => (showAdvanced = !showAdvanced)}
-				icon={Code}
-			>{showAdvanced ? "Hide advanced" : "Show advanced"}</Button>
-			<Button
-				onclick={() => (open = false)}
-				icon={X}
-			>Cancel</Button>
+			<Button onclick={() => (showAdvanced = !showAdvanced)} icon={Code}
+				>{showAdvanced ? "Hide advanced" : "Show advanced"}</Button
+			>
+			<Button onclick={() => (open = false)} icon={X}>Cancel</Button>
 			<Button
 				onclick={addInstanceFromFolder}
 				kind="accented"
 				icon={Plus}
-				disabled={!selectedPath}
-			>Import</Button>
+				disabled={!selectedPath}>Import</Button
+			>
 		</div>
 	{/if}
 </Dialog>

@@ -25,9 +25,7 @@
 	},
 	"bundle": {
 		"active": true,
-		 "externalBin": [
-        	"binaries/tempest-cli"
-      	],
+		"externalBin": ["binaries/tempest-cli"],
 		"targets": "all",
 		"icon": [
 			"icons/32x32.png",

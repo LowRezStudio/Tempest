@@ -29,9 +29,8 @@ class ChampionSelectRequest$Type extends MessageType<ChampionSelectRequest> {
 	create(value?: PartialMessage<ChampionSelectRequest>): ChampionSelectRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.name = "";
-		if (value !== undefined) {
+		if (value !== undefined)
 			reflectionMergePartial<ChampionSelectRequest>(this, message, value);
-		}
 		return message;
 	}
 	internalBinaryRead(
@@ -40,7 +39,8 @@ class ChampionSelectRequest$Type extends MessageType<ChampionSelectRequest> {
 		options: BinaryReadOptions,
 		target?: ChampionSelectRequest,
 	): ChampionSelectRequest {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -49,13 +49,19 @@ class ChampionSelectRequest$Type extends MessageType<ChampionSelectRequest> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
@@ -66,13 +72,10 @@ class ChampionSelectRequest$Type extends MessageType<ChampionSelectRequest> {
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
 		/* string name = 1; */
-		if (message.name !== "") {
-			writer.tag(1, WireType.LengthDelimited).string(message.name);
-		}
+		if (message.name !== "") writer.tag(1, WireType.LengthDelimited).string(message.name);
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

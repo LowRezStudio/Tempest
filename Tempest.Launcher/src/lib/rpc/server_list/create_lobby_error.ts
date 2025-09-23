@@ -41,9 +41,7 @@ class CreateLobbyError$Type extends MessageType<CreateLobbyError> {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.code = 0;
 		message.message = "";
-		if (value !== undefined) {
-			reflectionMergePartial<CreateLobbyError>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<CreateLobbyError>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -52,7 +50,8 @@ class CreateLobbyError$Type extends MessageType<CreateLobbyError> {
 		options: BinaryReadOptions,
 		target?: CreateLobbyError,
 	): CreateLobbyError {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -64,30 +63,35 @@ class CreateLobbyError$Type extends MessageType<CreateLobbyError> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: CreateLobbyError, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: CreateLobbyError,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* tempest.server_list.CreateLobbyErrorCode code = 1; */
-		if (message.code !== 0) {
-			writer.tag(1, WireType.Varint).int32(message.code);
-		}
+		if (message.code !== 0) writer.tag(1, WireType.Varint).int32(message.code);
 		/* string message = 2; */
-		if (message.message !== "") {
-			writer.tag(2, WireType.LengthDelimited).string(message.message);
-		}
+		if (message.message !== "") writer.tag(2, WireType.LengthDelimited).string(message.message);
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

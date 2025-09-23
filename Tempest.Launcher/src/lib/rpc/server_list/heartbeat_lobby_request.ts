@@ -12,8 +12,7 @@ import { MessageType } from "@protobuf-ts/runtime";
 /**
  * @generated from protobuf message tempest.server_list.HeartbeatLobbyRequest
  */
-export interface HeartbeatLobbyRequest {
-}
+export interface HeartbeatLobbyRequest {}
 // @generated message type with reflection information, may provide speed optimized methods
 class HeartbeatLobbyRequest$Type extends MessageType<HeartbeatLobbyRequest> {
 	constructor() {
@@ -21,9 +20,8 @@ class HeartbeatLobbyRequest$Type extends MessageType<HeartbeatLobbyRequest> {
 	}
 	create(value?: PartialMessage<HeartbeatLobbyRequest>): HeartbeatLobbyRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		if (value !== undefined) {
+		if (value !== undefined)
 			reflectionMergePartial<HeartbeatLobbyRequest>(this, message, value);
-		}
 		return message;
 	}
 	internalBinaryRead(
@@ -32,19 +30,26 @@ class HeartbeatLobbyRequest$Type extends MessageType<HeartbeatLobbyRequest> {
 		options: BinaryReadOptions,
 		target?: HeartbeatLobbyRequest,
 	): HeartbeatLobbyRequest {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
@@ -55,9 +60,8 @@ class HeartbeatLobbyRequest$Type extends MessageType<HeartbeatLobbyRequest> {
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

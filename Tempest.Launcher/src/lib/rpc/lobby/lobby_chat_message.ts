@@ -41,9 +41,7 @@ class LobbyChatMessage$Type extends MessageType<LobbyChatMessage> {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.content = "";
 		message.authorId = "";
-		if (value !== undefined) {
-			reflectionMergePartial<LobbyChatMessage>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<LobbyChatMessage>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -52,7 +50,8 @@ class LobbyChatMessage$Type extends MessageType<LobbyChatMessage> {
 		options: BinaryReadOptions,
 		target?: LobbyChatMessage,
 	): LobbyChatMessage {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -63,38 +62,52 @@ class LobbyChatMessage$Type extends MessageType<LobbyChatMessage> {
 					message.authorId = reader.string();
 					break;
 				case /* google.protobuf.Timestamp sent_at */ 3:
-					message.sentAt = Timestamp.internalBinaryRead(reader, reader.uint32(), options, message.sentAt);
+					message.sentAt = Timestamp.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.sentAt,
+					);
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: LobbyChatMessage, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: LobbyChatMessage,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* string content = 1; */
-		if (message.content !== "") {
-			writer.tag(1, WireType.LengthDelimited).string(message.content);
-		}
+		if (message.content !== "") writer.tag(1, WireType.LengthDelimited).string(message.content);
 		/* string author_id = 2; */
-		if (message.authorId !== "") {
+		if (message.authorId !== "")
 			writer.tag(2, WireType.LengthDelimited).string(message.authorId);
-		}
 		/* google.protobuf.Timestamp sent_at = 3; */
-		if (message.sentAt) {
-			Timestamp.internalBinaryWrite(message.sentAt, writer.tag(3, WireType.LengthDelimited).fork(), options).join();
-		}
+		if (message.sentAt)
+			Timestamp.internalBinaryWrite(
+				message.sentAt,
+				writer.tag(3, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

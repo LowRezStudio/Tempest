@@ -10,8 +10,8 @@ import { UnknownFieldHandler } from "@protobuf-ts/runtime";
 import type { PartialMessage } from "@protobuf-ts/runtime";
 import { reflectionMergePartial } from "@protobuf-ts/runtime";
 import { MessageType } from "@protobuf-ts/runtime";
-import { LobbyStateChampionSelect } from "./lobby_state_champion_select";
 import { LobbyStateInGame } from "./lobby_state_in_game";
+import { LobbyStateChampionSelect } from "./lobby_state_champion_select";
 import { LobbyStateMapVote } from "./lobby_state_map_vote";
 import { LobbyStateWaiting } from "./lobby_state_waiting";
 /**
@@ -47,9 +47,7 @@ class LobbyState$Type extends MessageType<LobbyState> {
 	}
 	create(value?: PartialMessage<LobbyState>): LobbyState {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		if (value !== undefined) {
-			reflectionMergePartial<LobbyState>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<LobbyState>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -58,15 +56,26 @@ class LobbyState$Type extends MessageType<LobbyState> {
 		options: BinaryReadOptions,
 		target?: LobbyState,
 	): LobbyState {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
 				case /* optional tempest.lobby.LobbyStateWaiting waiting */ 1:
-					message.waiting = LobbyStateWaiting.internalBinaryRead(reader, reader.uint32(), options, message.waiting);
+					message.waiting = LobbyStateWaiting.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.waiting,
+					);
 					break;
 				case /* optional tempest.lobby.LobbyStateMapVote map_vote */ 2:
-					message.mapVote = LobbyStateMapVote.internalBinaryRead(reader, reader.uint32(), options, message.mapVote);
+					message.mapVote = LobbyStateMapVote.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.mapVote,
+					);
 					break;
 				case /* optional tempest.lobby.LobbyStateChampionSelect champion_select */ 3:
 					message.championSelect = LobbyStateChampionSelect.internalBinaryRead(
@@ -77,49 +86,68 @@ class LobbyState$Type extends MessageType<LobbyState> {
 					);
 					break;
 				case /* optional tempest.lobby.LobbyStateInGame in_game */ 4:
-					message.inGame = LobbyStateInGame.internalBinaryRead(reader, reader.uint32(), options, message.inGame);
+					message.inGame = LobbyStateInGame.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.inGame,
+					);
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: LobbyState, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: LobbyState,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* optional tempest.lobby.LobbyStateWaiting waiting = 1; */
-		if (message.waiting) {
-			LobbyStateWaiting.internalBinaryWrite(message.waiting, writer.tag(1, WireType.LengthDelimited).fork(), options)
-				.join();
-		}
+		if (message.waiting)
+			LobbyStateWaiting.internalBinaryWrite(
+				message.waiting,
+				writer.tag(1, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		/* optional tempest.lobby.LobbyStateMapVote map_vote = 2; */
-		if (message.mapVote) {
-			LobbyStateMapVote.internalBinaryWrite(message.mapVote, writer.tag(2, WireType.LengthDelimited).fork(), options)
-				.join();
-		}
+		if (message.mapVote)
+			LobbyStateMapVote.internalBinaryWrite(
+				message.mapVote,
+				writer.tag(2, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		/* optional tempest.lobby.LobbyStateChampionSelect champion_select = 3; */
-		if (message.championSelect) {
+		if (message.championSelect)
 			LobbyStateChampionSelect.internalBinaryWrite(
 				message.championSelect,
 				writer.tag(3, WireType.LengthDelimited).fork(),
 				options,
 			).join();
-		}
 		/* optional tempest.lobby.LobbyStateInGame in_game = 4; */
-		if (message.inGame) {
-			LobbyStateInGame.internalBinaryWrite(message.inGame, writer.tag(4, WireType.LengthDelimited).fork(), options)
-				.join();
-		}
+		if (message.inGame)
+			LobbyStateInGame.internalBinaryWrite(
+				message.inGame,
+				writer.tag(4, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

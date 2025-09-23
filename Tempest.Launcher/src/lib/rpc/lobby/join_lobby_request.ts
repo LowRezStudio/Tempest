@@ -40,9 +40,7 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.playerId = "";
 		message.playerDisplayName = "";
-		if (value !== undefined) {
-			reflectionMergePartial<JoinLobbyRequest>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<JoinLobbyRequest>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -51,7 +49,8 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 		options: BinaryReadOptions,
 		target?: JoinLobbyRequest,
 	): JoinLobbyRequest {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -66,34 +65,40 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: JoinLobbyRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: JoinLobbyRequest,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* string player_id = 1; */
-		if (message.playerId !== "") {
+		if (message.playerId !== "")
 			writer.tag(1, WireType.LengthDelimited).string(message.playerId);
-		}
 		/* string player_display_name = 2; */
-		if (message.playerDisplayName !== "") {
+		if (message.playerDisplayName !== "")
 			writer.tag(2, WireType.LengthDelimited).string(message.playerDisplayName);
-		}
 		/* optional string password = 5; */
-		if (message.password !== undefined) {
+		if (message.password !== undefined)
 			writer.tag(5, WireType.LengthDelimited).string(message.password);
-		}
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

@@ -29,16 +29,16 @@
 		</Dialog.Overlay>
 		<Dialog.Content {...contentProps}>
 			<div
-				class="fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[90vw] max-w-[550px] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-background-950 shadow-lg"
+				class="bg-background-950 fixed top-1/2 left-1/2 z-50 max-h-[85vh] w-[90vw] max-w-[550px] -translate-x-1/2 -translate-y-1/2 rounded-xl shadow-lg"
 			>
-				<Dialog.Title class="p-5 flex justify-between items-center">
+				<Dialog.Title class="flex items-center justify-between p-5">
 					<h2 class="m-0 text-lg font-semibold text-white">
 						{title}
 					</h2>
 
 					<Dialog.Close
 						aria-label="close"
-						class="rounded-full p-2 cursor-pointer bg-background-800 transition duration-150 hover:brightness-90 focus:shadow-white"
+						class="bg-background-800 cursor-pointer rounded-full p-2 transition duration-150 hover:brightness-90 focus:shadow-white"
 					>
 						<X class="size-6" />
 					</Dialog.Close>

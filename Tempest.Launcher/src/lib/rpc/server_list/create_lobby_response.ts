@@ -19,36 +19,43 @@ export interface CreateLobbyResponse {
 	/**
 	 * @generated from protobuf oneof: result
 	 */
-	result: {
-		oneofKind: "success";
-		/**
-		 * @generated from protobuf field: tempest.server_list.CreateLobbySuccess success = 1
-		 */
-		success: CreateLobbySuccess;
-	} | {
-		oneofKind: "error";
-		/**
-		 * @generated from protobuf field: tempest.server_list.CreateLobbyError error = 2
-		 */
-		error: CreateLobbyError;
-	} | {
-		oneofKind: undefined;
-	};
+	result:
+		| {
+				oneofKind: "success";
+				/**
+				 * @generated from protobuf field: tempest.server_list.CreateLobbySuccess success = 1
+				 */
+				success: CreateLobbySuccess;
+		  }
+		| {
+				oneofKind: "error";
+				/**
+				 * @generated from protobuf field: tempest.server_list.CreateLobbyError error = 2
+				 */
+				error: CreateLobbyError;
+		  }
+		| {
+				oneofKind: undefined;
+		  };
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class CreateLobbyResponse$Type extends MessageType<CreateLobbyResponse> {
 	constructor() {
 		super("tempest.server_list.CreateLobbyResponse", [
-			{ no: 1, name: "success", kind: "message", oneof: "result", T: () => CreateLobbySuccess },
+			{
+				no: 1,
+				name: "success",
+				kind: "message",
+				oneof: "result",
+				T: () => CreateLobbySuccess,
+			},
 			{ no: 2, name: "error", kind: "message", oneof: "result", T: () => CreateLobbyError },
 		]);
 	}
 	create(value?: PartialMessage<CreateLobbyResponse>): CreateLobbyResponse {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.result = { oneofKind: undefined };
-		if (value !== undefined) {
-			reflectionMergePartial<CreateLobbyResponse>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<CreateLobbyResponse>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -57,7 +64,8 @@ class CreateLobbyResponse$Type extends MessageType<CreateLobbyResponse> {
 		options: BinaryReadOptions,
 		target?: CreateLobbyResponse,
 	): CreateLobbyResponse {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -75,43 +83,55 @@ class CreateLobbyResponse$Type extends MessageType<CreateLobbyResponse> {
 				case /* tempest.server_list.CreateLobbyError error */ 2:
 					message.result = {
 						oneofKind: "error",
-						error: CreateLobbyError.internalBinaryRead(reader, reader.uint32(), options, (message.result as any).error),
+						error: CreateLobbyError.internalBinaryRead(
+							reader,
+							reader.uint32(),
+							options,
+							(message.result as any).error,
+						),
 					};
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: CreateLobbyResponse, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: CreateLobbyResponse,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* tempest.server_list.CreateLobbySuccess success = 1; */
-		if (message.result.oneofKind === "success") {
+		if (message.result.oneofKind === "success")
 			CreateLobbySuccess.internalBinaryWrite(
 				message.result.success,
 				writer.tag(1, WireType.LengthDelimited).fork(),
 				options,
 			).join();
-		}
 		/* tempest.server_list.CreateLobbyError error = 2; */
-		if (message.result.oneofKind === "error") {
+		if (message.result.oneofKind === "error")
 			CreateLobbyError.internalBinaryWrite(
 				message.result.error,
 				writer.tag(2, WireType.LengthDelimited).fork(),
 				options,
 			).join();
-		}
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

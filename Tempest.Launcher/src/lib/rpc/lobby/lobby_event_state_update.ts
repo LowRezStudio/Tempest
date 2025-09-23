@@ -29,9 +29,8 @@ class LobbyEventStateUpdate$Type extends MessageType<LobbyEventStateUpdate> {
 	}
 	create(value?: PartialMessage<LobbyEventStateUpdate>): LobbyEventStateUpdate {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		if (value !== undefined) {
+		if (value !== undefined)
 			reflectionMergePartial<LobbyEventStateUpdate>(this, message, value);
-		}
 		return message;
 	}
 	internalBinaryRead(
@@ -40,22 +39,34 @@ class LobbyEventStateUpdate$Type extends MessageType<LobbyEventStateUpdate> {
 		options: BinaryReadOptions,
 		target?: LobbyEventStateUpdate,
 	): LobbyEventStateUpdate {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
 				case /* tempest.lobby.LobbyState state */ 1:
-					message.state = LobbyState.internalBinaryRead(reader, reader.uint32(), options, message.state);
+					message.state = LobbyState.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.state,
+					);
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
@@ -66,13 +77,15 @@ class LobbyEventStateUpdate$Type extends MessageType<LobbyEventStateUpdate> {
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
 		/* tempest.lobby.LobbyState state = 1; */
-		if (message.state) {
-			LobbyState.internalBinaryWrite(message.state, writer.tag(1, WireType.LengthDelimited).fork(), options).join();
-		}
+		if (message.state)
+			LobbyState.internalBinaryWrite(
+				message.state,
+				writer.tag(1, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

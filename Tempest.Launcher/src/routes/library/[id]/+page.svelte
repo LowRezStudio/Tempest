@@ -7,7 +7,7 @@
 	import { getInstance, processes, removeInstance } from "$lib/state/instances.svelte";
 	import { Box, Gamepad2, Package, Settings } from "@lucide/svelte";
 
-	const id = page.params.id;
+	const id = page.params.id ?? "";
 	const instance = getInstance(id);
 
 	if (!instance) throw new Error("how did we get here?");
@@ -15,7 +15,9 @@
 	let activeTab = $state<"content" | "logs">("content");
 	let settingsOpen = $state(false);
 
-	const process = $derived(processes.value.find(p => p.instance.id == id && p.mode == "client"));
+	const process = $derived(
+		processes.value.find((p) => p.instance.id == id && p.mode == "client"),
+	);
 
 	// to-do: add confirmation prompt and ask if you should delete files
 	const deleteInstance = () => {
@@ -34,7 +36,9 @@
 		});
 
 		cli.once("close", () => {
-			processes.value = processes.value.filter(p => !(p.instance.id == id && p.mode == "client"));
+			processes.value = processes.value.filter(
+				(p) => !(p.instance.id == id && p.mode == "client"),
+			);
 		});
 
 		processes.value = [
@@ -53,12 +57,12 @@
 	<Button kind="danger" onclick={deleteInstance}>Delete instance</Button>
 </Dialog>
 
-<section class="w-full h-full overflow-auto">
+<section class="h-full w-full overflow-auto">
 	<div class="mx-auto max-w-6xl px-6 py-6">
 		<div class="flex items-center justify-between gap-4">
 			<div class="flex items-center gap-4">
 				<div
-					class="grid place-items-center size-16 rounded-2xl bg-background-900 border-2 border-background-700 text-primary-300 shadow-inner"
+					class="bg-background-900 border-background-700 text-primary-300 grid size-16 place-items-center rounded-2xl border-2 shadow-inner"
 				>
 					<Box class="size-8" />
 				</div>
@@ -66,9 +70,9 @@
 					<h1 class="text-2xl font-semibold tracking-tight">{instance.label}</h1>
 					<div class="mt-1 flex flex-wrap items-center gap-3 text-sm">
 						<span
-							class="inline-flex items-center gap-2 rounded-lg border border-background-700 bg-background-900 px-2 py-1 text-background-200"
+							class="border-background-700 bg-background-900 text-background-200 inline-flex items-center gap-2 rounded-lg border px-2 py-1"
 						>
-							<Gamepad2 class="size-4 text-secondary-300" />
+							<Gamepad2 class="text-secondary-300 size-4" />
 							<span>{instance.version ?? "Unknown"}</span>
 						</span>
 						<!-- <span class="inline-flex items-center gap-2 rounded-lg border border-background-700 bg-background-900 px-2 py-1 text-background-200">
@@ -80,35 +84,49 @@
 			</div>
 
 			<div class="flex gap-4">
-				<Button kind="accented" disabled={!!process} onclick={playGame}>{process ? "Playing..." : "Play"}</Button>
-				<Button size="square" icon={Settings} onclick={() => settingsOpen = true} />
+				<Button kind="accented" disabled={!!process} onclick={playGame}
+					>{process ? "Playing..." : "Play"}</Button
+				>
+				<Button size="square" icon={Settings} onclick={() => (settingsOpen = true)} />
 			</div>
 		</div>
 
-		<div class="mt-6 border-b border-background-800">
+		<div class="border-background-800 mt-6 border-b">
 			<nav class="flex gap-6">
-				<button class="tab-btn" class:active={activeTab === "content"} onclick={() => activeTab = "content"}>
+				<button
+					class="tab-btn"
+					class:active={activeTab === "content"}
+					onclick={() => (activeTab = "content")}
+				>
 					Content
 				</button>
-				<button class="tab-btn" class:active={activeTab === "logs"} onclick={() => activeTab = "logs"}>Logs</button>
+				<button
+					class="tab-btn"
+					class:active={activeTab === "logs"}
+					onclick={() => (activeTab = "logs")}>Logs</button
+				>
 			</nav>
 		</div>
 
 		{#if activeTab === "content"}
 			<div
-				class="mt-8 grid place-items-center rounded-2xl border border-background-800 bg-gradient-to-b from-background-950 to-background-900/60 p-10"
+				class="border-background-800 from-background-950 to-background-900/60 mt-8 grid place-items-center rounded-2xl border bg-gradient-to-b p-10"
 			>
-				<div class="text-center max-w-xl">
-					<div class="mx-auto grid place-items-center size-14 rounded-full bg-background-800 text-background-300">
+				<div class="max-w-xl text-center">
+					<div
+						class="bg-background-800 text-background-300 mx-auto grid size-14 place-items-center rounded-full"
+					>
 						<Package class="size-7" />
 					</div>
-					<p class="mt-4 text-background-200 text-base font-medium">
+					<p class="text-background-200 mt-4 text-base font-medium">
 						You haven't added any content to this instance yet.
 					</p>
 				</div>
 			</div>
 		{:else if activeTab === "logs"}
-			<div class="mt-8 rounded-2xl border border-background-800 bg-background-950/60 p-8 text-background-300">
+			<div
+				class="border-background-800 bg-background-950/60 text-background-300 mt-8 rounded-2xl border p-8"
+			>
 				TO-DO
 			</div>
 		{/if}
@@ -116,11 +134,10 @@
 </section>
 
 <style>
-	@reference "../../../lib/styles/global.css";
+	@reference "$lib/styles/global.css";
 
 	.tab-btn {
-		@apply relative -mb-px px-1 py-3 text-sm font-medium border-b-2 transition-colors border-transparent
-			text-background-300 cursor-pointer hover:text-background-200 hover:border-background-600;
+		@apply text-background-300 hover:text-background-200 hover:border-background-600 relative -mb-px cursor-pointer border-b-2 border-transparent px-1 py-3 text-sm font-medium transition-colors;
 	}
 	.tab-btn.active {
 		@apply border-primary-400 text-primary-300;

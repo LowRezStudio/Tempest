@@ -29,9 +29,8 @@ class SendChatMessageRequest$Type extends MessageType<SendChatMessageRequest> {
 	create(value?: PartialMessage<SendChatMessageRequest>): SendChatMessageRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.content = "";
-		if (value !== undefined) {
+		if (value !== undefined)
 			reflectionMergePartial<SendChatMessageRequest>(this, message, value);
-		}
 		return message;
 	}
 	internalBinaryRead(
@@ -40,7 +39,8 @@ class SendChatMessageRequest$Type extends MessageType<SendChatMessageRequest> {
 		options: BinaryReadOptions,
 		target?: SendChatMessageRequest,
 	): SendChatMessageRequest {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -49,13 +49,19 @@ class SendChatMessageRequest$Type extends MessageType<SendChatMessageRequest> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
@@ -66,13 +72,10 @@ class SendChatMessageRequest$Type extends MessageType<SendChatMessageRequest> {
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
 		/* string content = 1; */
-		if (message.content !== "") {
-			writer.tag(1, WireType.LengthDelimited).string(message.content);
-		}
+		if (message.content !== "") writer.tag(1, WireType.LengthDelimited).string(message.content);
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

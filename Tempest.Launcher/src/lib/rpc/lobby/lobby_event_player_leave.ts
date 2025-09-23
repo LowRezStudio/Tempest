@@ -29,9 +29,8 @@ class LobbyEventPlayerLeave$Type extends MessageType<LobbyEventPlayerLeave> {
 	create(value?: PartialMessage<LobbyEventPlayerLeave>): LobbyEventPlayerLeave {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.playerId = "";
-		if (value !== undefined) {
+		if (value !== undefined)
 			reflectionMergePartial<LobbyEventPlayerLeave>(this, message, value);
-		}
 		return message;
 	}
 	internalBinaryRead(
@@ -40,7 +39,8 @@ class LobbyEventPlayerLeave$Type extends MessageType<LobbyEventPlayerLeave> {
 		options: BinaryReadOptions,
 		target?: LobbyEventPlayerLeave,
 	): LobbyEventPlayerLeave {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -49,13 +49,19 @@ class LobbyEventPlayerLeave$Type extends MessageType<LobbyEventPlayerLeave> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
@@ -66,13 +72,11 @@ class LobbyEventPlayerLeave$Type extends MessageType<LobbyEventPlayerLeave> {
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
 		/* string player_id = 1; */
-		if (message.playerId !== "") {
+		if (message.playerId !== "")
 			writer.tag(1, WireType.LengthDelimited).string(message.playerId);
-		}
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

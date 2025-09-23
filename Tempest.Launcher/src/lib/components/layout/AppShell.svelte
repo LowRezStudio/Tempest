@@ -2,8 +2,7 @@
 	import { page } from "$app/state";
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 	import { instances } from "$lib/state/instances.svelte";
-	import { House, type Icon, Library, Minus, Settings, Swords, Users } from "@lucide/svelte";
-	import { Plus } from "@lucide/svelte";
+	import { House, type Icon, Library, Minus, Settings, Plus, Users } from "@lucide/svelte";
 	import type { Snippet } from "svelte";
 	import { cubicOut } from "svelte/easing";
 	import { fade, fly } from "svelte/transition";
@@ -40,8 +39,7 @@
 			class="transition-indicator"
 			in:fade={{ duration: 200 }}
 			out:fade={{ duration: 200 }}
-		>
-		</div>
+		></div>
 	{/if}
 
 	<div class="sidebar">
@@ -75,10 +73,7 @@
 					<Minus preserveAspectRatio="none" />
 				</div>
 			</div>
-			<button
-				onclick={() => showInstanceWizard = true}
-				class="sidebar-item"
-			>
+			<button onclick={() => (showInstanceWizard = true)} class="sidebar-item">
 				<Plus class="size-5 transition-transform duration-200 ease-in-out" />
 			</button>
 			{#if showInstanceWizard}
@@ -86,11 +81,7 @@
 			{/if}
 		</div>
 		<div class="sidebar-section">
-			<a
-				class="sidebar-item"
-				class:active={isActive({ path: "/settings" })}
-				href="/settings"
-			>
+			<a class="sidebar-item" class:active={isActive({ path: "/settings" })} href="/settings">
 				<Settings class="sidebar-item-icon" />
 			</a>
 		</div>
@@ -122,14 +113,14 @@
 </main>
 
 <style>
-	@reference "../../styles/global.css";
+	@reference "$lib/styles/global.css";
 
 	.app-shell {
-		@apply flex flex-row h-full overflow-hidden relative;
+		@apply relative flex h-full flex-row overflow-hidden;
 	}
 
 	.transition-indicator {
-		@apply absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-background-200 to-transparent z-50;
+		@apply via-background-200 absolute top-0 right-0 left-0 z-50 h-0.5 bg-gradient-to-r from-transparent to-transparent;
 		animation: shimmer 1s ease-in-out infinite;
 	}
 
@@ -144,7 +135,7 @@
 	}
 
 	.sidebar {
-		@apply flex flex-col items-center justify-between border-r-2 bg-background-950 border-background-800;
+		@apply bg-background-950 border-background-800 flex flex-col items-center justify-between border-r-2;
 	}
 
 	.sidebar-section {
@@ -156,7 +147,7 @@
 	}
 
 	.content {
-		@apply flex-auto w-full h-screen overflow-hidden relative;
+		@apply relative h-screen w-full flex-auto overflow-hidden;
 		transition: backdrop-filter 300ms ease-in-out;
 
 		&.transitioning {
@@ -165,14 +156,13 @@
 	}
 
 	.page-content {
-		@apply w-full h-full overflow-auto;
+		@apply h-full w-full overflow-auto;
 		backface-visibility: hidden;
 		transform: translateZ(0);
 	}
 
 	.sidebar-item {
-		@apply grid place-items-center size-10 rounded-xl text-gray-400 transition-all duration-300 ease-in-out
-			cursor-pointer;
+		@apply grid size-10 cursor-pointer place-items-center rounded-xl text-gray-400 transition-all duration-300 ease-in-out;
 		transform: translateZ(0);
 
 		&.active {
@@ -201,7 +191,7 @@
 	}
 
 	.sidebar-seperator {
-		@apply grid place-items-center w-8 h-2 text-background-500;
+		@apply text-background-500 grid h-2 w-8 place-items-center;
 
 		& :global(svg) {
 			height: 100%;
@@ -210,7 +200,7 @@
 	}
 
 	.sidebar-instance {
-		@apply grid place-items-center size-6 bg-purple-400 rounded-md text-background-100;
+		@apply text-background-100 grid size-6 place-items-center rounded-md bg-purple-400;
 
 		&.active {
 			@apply bg-blue-400;

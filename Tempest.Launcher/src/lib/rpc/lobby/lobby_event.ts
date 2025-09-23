@@ -10,13 +10,13 @@ import { UnknownFieldHandler } from "@protobuf-ts/runtime";
 import type { PartialMessage } from "@protobuf-ts/runtime";
 import { reflectionMergePartial } from "@protobuf-ts/runtime";
 import { MessageType } from "@protobuf-ts/runtime";
-import { Timestamp } from "../google/protobuf/timestamp";
-import { LobbyEventChatMessage } from "./lobby_event_chat_message";
-import { LobbyEventCountdown } from "./lobby_event_countdown";
-import { LobbyEventPlayerJoin } from "./lobby_event_player_join";
-import { LobbyEventPlayerLeave } from "./lobby_event_player_leave";
-import { LobbyEventPlayerUpdate } from "./lobby_event_player_update";
 import { LobbyEventStateUpdate } from "./lobby_event_state_update";
+import { LobbyEventPlayerUpdate } from "./lobby_event_player_update";
+import { LobbyEventPlayerLeave } from "./lobby_event_player_leave";
+import { LobbyEventPlayerJoin } from "./lobby_event_player_join";
+import { LobbyEventCountdown } from "./lobby_event_countdown";
+import { LobbyEventChatMessage } from "./lobby_event_chat_message";
+import { Timestamp } from "../google/protobuf/timestamp";
 /**
  * @generated from protobuf message tempest.lobby.LobbyEvent
  */
@@ -28,65 +28,106 @@ export interface LobbyEvent {
 	/**
 	 * @generated from protobuf oneof: event
 	 */
-	event: {
-		oneofKind: "chatMessage";
-		/**
-		 * @generated from protobuf field: tempest.lobby.LobbyEventChatMessage chat_message = 2
-		 */
-		chatMessage: LobbyEventChatMessage;
-	} | {
-		oneofKind: "countdown";
-		/**
-		 * @generated from protobuf field: tempest.lobby.LobbyEventCountdown countdown = 3
-		 */
-		countdown: LobbyEventCountdown;
-	} | {
-		oneofKind: "playerJoin";
-		/**
-		 * @generated from protobuf field: tempest.lobby.LobbyEventPlayerJoin player_join = 4
-		 */
-		playerJoin: LobbyEventPlayerJoin;
-	} | {
-		oneofKind: "playerLeave";
-		/**
-		 * @generated from protobuf field: tempest.lobby.LobbyEventPlayerLeave player_leave = 5
-		 */
-		playerLeave: LobbyEventPlayerLeave;
-	} | {
-		oneofKind: "playerUpdate";
-		/**
-		 * @generated from protobuf field: tempest.lobby.LobbyEventPlayerUpdate player_update = 6
-		 */
-		playerUpdate: LobbyEventPlayerUpdate;
-	} | {
-		oneofKind: "stateUpdate";
-		/**
-		 * @generated from protobuf field: tempest.lobby.LobbyEventStateUpdate state_update = 7
-		 */
-		stateUpdate: LobbyEventStateUpdate;
-	} | {
-		oneofKind: undefined;
-	};
+	event:
+		| {
+				oneofKind: "chatMessage";
+				/**
+				 * @generated from protobuf field: tempest.lobby.LobbyEventChatMessage chat_message = 2
+				 */
+				chatMessage: LobbyEventChatMessage;
+		  }
+		| {
+				oneofKind: "countdown";
+				/**
+				 * @generated from protobuf field: tempest.lobby.LobbyEventCountdown countdown = 3
+				 */
+				countdown: LobbyEventCountdown;
+		  }
+		| {
+				oneofKind: "playerJoin";
+				/**
+				 * @generated from protobuf field: tempest.lobby.LobbyEventPlayerJoin player_join = 4
+				 */
+				playerJoin: LobbyEventPlayerJoin;
+		  }
+		| {
+				oneofKind: "playerLeave";
+				/**
+				 * @generated from protobuf field: tempest.lobby.LobbyEventPlayerLeave player_leave = 5
+				 */
+				playerLeave: LobbyEventPlayerLeave;
+		  }
+		| {
+				oneofKind: "playerUpdate";
+				/**
+				 * @generated from protobuf field: tempest.lobby.LobbyEventPlayerUpdate player_update = 6
+				 */
+				playerUpdate: LobbyEventPlayerUpdate;
+		  }
+		| {
+				oneofKind: "stateUpdate";
+				/**
+				 * @generated from protobuf field: tempest.lobby.LobbyEventStateUpdate state_update = 7
+				 */
+				stateUpdate: LobbyEventStateUpdate;
+		  }
+		| {
+				oneofKind: undefined;
+		  };
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class LobbyEvent$Type extends MessageType<LobbyEvent> {
 	constructor() {
 		super("tempest.lobby.LobbyEvent", [
 			{ no: 1, name: "timestamp", kind: "message", T: () => Timestamp },
-			{ no: 2, name: "chat_message", kind: "message", oneof: "event", T: () => LobbyEventChatMessage },
-			{ no: 3, name: "countdown", kind: "message", oneof: "event", T: () => LobbyEventCountdown },
-			{ no: 4, name: "player_join", kind: "message", oneof: "event", T: () => LobbyEventPlayerJoin },
-			{ no: 5, name: "player_leave", kind: "message", oneof: "event", T: () => LobbyEventPlayerLeave },
-			{ no: 6, name: "player_update", kind: "message", oneof: "event", T: () => LobbyEventPlayerUpdate },
-			{ no: 7, name: "state_update", kind: "message", oneof: "event", T: () => LobbyEventStateUpdate },
+			{
+				no: 2,
+				name: "chat_message",
+				kind: "message",
+				oneof: "event",
+				T: () => LobbyEventChatMessage,
+			},
+			{
+				no: 3,
+				name: "countdown",
+				kind: "message",
+				oneof: "event",
+				T: () => LobbyEventCountdown,
+			},
+			{
+				no: 4,
+				name: "player_join",
+				kind: "message",
+				oneof: "event",
+				T: () => LobbyEventPlayerJoin,
+			},
+			{
+				no: 5,
+				name: "player_leave",
+				kind: "message",
+				oneof: "event",
+				T: () => LobbyEventPlayerLeave,
+			},
+			{
+				no: 6,
+				name: "player_update",
+				kind: "message",
+				oneof: "event",
+				T: () => LobbyEventPlayerUpdate,
+			},
+			{
+				no: 7,
+				name: "state_update",
+				kind: "message",
+				oneof: "event",
+				T: () => LobbyEventStateUpdate,
+			},
 		]);
 	}
 	create(value?: PartialMessage<LobbyEvent>): LobbyEvent {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.event = { oneofKind: undefined };
-		if (value !== undefined) {
-			reflectionMergePartial<LobbyEvent>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<LobbyEvent>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -95,12 +136,18 @@ class LobbyEvent$Type extends MessageType<LobbyEvent> {
 		options: BinaryReadOptions,
 		target?: LobbyEvent,
 	): LobbyEvent {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
 				case /* google.protobuf.Timestamp timestamp */ 1:
-					message.timestamp = Timestamp.internalBinaryRead(reader, reader.uint32(), options, message.timestamp);
+					message.timestamp = Timestamp.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.timestamp,
+					);
 					break;
 				case /* tempest.lobby.LobbyEventChatMessage chat_message */ 2:
 					message.event = {
@@ -170,74 +217,80 @@ class LobbyEvent$Type extends MessageType<LobbyEvent> {
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: LobbyEvent, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: LobbyEvent,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* google.protobuf.Timestamp timestamp = 1; */
-		if (message.timestamp) {
-			Timestamp.internalBinaryWrite(message.timestamp, writer.tag(1, WireType.LengthDelimited).fork(), options).join();
-		}
+		if (message.timestamp)
+			Timestamp.internalBinaryWrite(
+				message.timestamp,
+				writer.tag(1, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		/* tempest.lobby.LobbyEventChatMessage chat_message = 2; */
-		if (message.event.oneofKind === "chatMessage") {
+		if (message.event.oneofKind === "chatMessage")
 			LobbyEventChatMessage.internalBinaryWrite(
 				message.event.chatMessage,
 				writer.tag(2, WireType.LengthDelimited).fork(),
 				options,
 			).join();
-		}
 		/* tempest.lobby.LobbyEventCountdown countdown = 3; */
-		if (message.event.oneofKind === "countdown") {
+		if (message.event.oneofKind === "countdown")
 			LobbyEventCountdown.internalBinaryWrite(
 				message.event.countdown,
 				writer.tag(3, WireType.LengthDelimited).fork(),
 				options,
 			).join();
-		}
 		/* tempest.lobby.LobbyEventPlayerJoin player_join = 4; */
-		if (message.event.oneofKind === "playerJoin") {
+		if (message.event.oneofKind === "playerJoin")
 			LobbyEventPlayerJoin.internalBinaryWrite(
 				message.event.playerJoin,
 				writer.tag(4, WireType.LengthDelimited).fork(),
 				options,
 			).join();
-		}
 		/* tempest.lobby.LobbyEventPlayerLeave player_leave = 5; */
-		if (message.event.oneofKind === "playerLeave") {
+		if (message.event.oneofKind === "playerLeave")
 			LobbyEventPlayerLeave.internalBinaryWrite(
 				message.event.playerLeave,
 				writer.tag(5, WireType.LengthDelimited).fork(),
 				options,
 			).join();
-		}
 		/* tempest.lobby.LobbyEventPlayerUpdate player_update = 6; */
-		if (message.event.oneofKind === "playerUpdate") {
+		if (message.event.oneofKind === "playerUpdate")
 			LobbyEventPlayerUpdate.internalBinaryWrite(
 				message.event.playerUpdate,
 				writer.tag(6, WireType.LengthDelimited).fork(),
 				options,
 			).join();
-		}
 		/* tempest.lobby.LobbyEventStateUpdate state_update = 7; */
-		if (message.event.oneofKind === "stateUpdate") {
+		if (message.event.oneofKind === "stateUpdate")
 			LobbyEventStateUpdate.internalBinaryWrite(
 				message.event.stateUpdate,
 				writer.tag(7, WireType.LengthDelimited).fork(),
 				options,
 			).join();
-		}
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

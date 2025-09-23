@@ -1,0 +1,77 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"plugins": ["import", "jsdoc", "jsx-a11y", "react", "unicorn"],
+	"env": {
+		"browser": true,
+		"es2022": true,
+		"node": true
+	},
+	"globals": {
+		"App": "readonly",
+		"NodeJS": "readonly"
+	},
+	"rules": {
+		// TypeScript/JavaScript Best Practices
+		"no-unused-vars": "error",
+		"prefer-const": "error",
+		"no-var": "error",
+		"no-debugger": "warn",
+
+		// Import/Export
+		"import/no-unresolved": "off", // SvelteKit handles this
+		"import/order": [
+			"error",
+			{
+				"groups": ["builtin", "external", "internal", "parent", "sibling", "index"],
+				"newlines-between": "always"
+			}
+		],
+		"import/no-duplicates": "error",
+
+		// Unicorn rules for modern JavaScript
+		"unicorn/better-regex": "error",
+		"unicorn/catch-error-name": "error",
+		"unicorn/consistent-destructuring": "error",
+		"unicorn/prefer-includes": "error",
+		"unicorn/prefer-string-starts-ends-with": "error",
+		"unicorn/prefer-type-error": "error",
+		"unicorn/throw-new-error": "error",
+
+		// Accessibility (for Svelte components)
+		"jsx-a11y/alt-text": "error",
+		"jsx-a11y/anchor-has-content": "error",
+		"jsx-a11y/click-events-have-key-events": "warn",
+		"jsx-a11y/no-static-element-interactions": "warn",
+
+		// JSDoc
+		"jsdoc/check-alignment": "warn",
+		"jsdoc/check-param-names": "warn",
+		"jsdoc/check-tag-names": "warn"
+	},
+	"overrides": [
+		{
+			"files": ["*.svelte"],
+			"rules": {
+				// Svelte-specific adjustments
+				"no-undef": "off", // Svelte compiler handles this
+				"no-unused-vars": "off" // Svelte compiler handles this
+			}
+		},
+		{
+			"files": ["src/routes/**/*.js", "src/routes/**/*.ts"],
+			"rules": {
+				// SvelteKit route files
+				"no-unused-vars": "off" // Route exports are used by SvelteKit
+			}
+		}
+	],
+	"ignorePatterns": [
+		".svelte-kit/**",
+		"src/lib/rpc/**/*",
+		"build/**",
+		"dist/**",
+		"node_modules/**",
+		"*.d.ts",
+		".env*"
+	]
+}

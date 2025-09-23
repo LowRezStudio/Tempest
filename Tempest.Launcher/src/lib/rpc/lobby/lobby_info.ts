@@ -35,20 +35,30 @@ class LobbyInfo$Type extends MessageType<LobbyInfo> {
 		super("tempest.lobby.LobbyInfo", [
 			{ no: 1, name: "name", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 2, name: "state", kind: "message", T: () => LobbyState },
-			{ no: 3, name: "players", kind: "message", repeat: 2, /*RepeatType.UNPACKED*/ T: () => LobbyPlayer },
+			{
+				no: 3,
+				name: "players",
+				kind: "message",
+				repeat: 2 /*RepeatType.UNPACKED*/,
+				T: () => LobbyPlayer,
+			},
 		]);
 	}
 	create(value?: PartialMessage<LobbyInfo>): LobbyInfo {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.name = "";
 		message.players = [];
-		if (value !== undefined) {
-			reflectionMergePartial<LobbyInfo>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<LobbyInfo>(this, message, value);
 		return message;
 	}
-	internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: LobbyInfo): LobbyInfo {
-		let message = target ?? this.create(), end = reader.pos + length;
+	internalBinaryRead(
+		reader: IBinaryReader,
+		length: number,
+		options: BinaryReadOptions,
+		target?: LobbyInfo,
+	): LobbyInfo {
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -56,42 +66,61 @@ class LobbyInfo$Type extends MessageType<LobbyInfo> {
 					message.name = reader.string();
 					break;
 				case /* tempest.lobby.LobbyState state */ 2:
-					message.state = LobbyState.internalBinaryRead(reader, reader.uint32(), options, message.state);
+					message.state = LobbyState.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.state,
+					);
 					break;
 				case /* repeated tempest.lobby.LobbyPlayer players */ 3:
-					message.players.push(LobbyPlayer.internalBinaryRead(reader, reader.uint32(), options));
+					message.players.push(
+						LobbyPlayer.internalBinaryRead(reader, reader.uint32(), options),
+					);
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: LobbyInfo, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: LobbyInfo,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* string name = 1; */
-		if (message.name !== "") {
-			writer.tag(1, WireType.LengthDelimited).string(message.name);
-		}
+		if (message.name !== "") writer.tag(1, WireType.LengthDelimited).string(message.name);
 		/* tempest.lobby.LobbyState state = 2; */
-		if (message.state) {
-			LobbyState.internalBinaryWrite(message.state, writer.tag(2, WireType.LengthDelimited).fork(), options).join();
-		}
+		if (message.state)
+			LobbyState.internalBinaryWrite(
+				message.state,
+				writer.tag(2, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		/* repeated tempest.lobby.LobbyPlayer players = 3; */
-		for (let i = 0; i < message.players.length; i++) {
-			LobbyPlayer.internalBinaryWrite(message.players[i], writer.tag(3, WireType.LengthDelimited).fork(), options)
-				.join();
-		}
+		for (let i = 0; i < message.players.length; i++)
+			LobbyPlayer.internalBinaryWrite(
+				message.players[i],
+				writer.tag(3, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

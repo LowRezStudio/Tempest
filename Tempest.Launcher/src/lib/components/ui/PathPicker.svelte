@@ -13,13 +13,7 @@
 		value?: string | string[] | null;
 	}
 
-	let {
-		placeholder,
-		icon,
-		type = "file",
-		multiple,
-		value = $bindable(),
-	}: Props = $props();
+	let { placeholder, icon, type = "file", multiple, value = $bindable() }: Props = $props();
 
 	function formatDisplay(v: string | string[] | null | undefined) {
 		if (Array.isArray(v)) return v.join(", ");
@@ -30,7 +24,7 @@
 		if (multiple) {
 			// split by commas or newlines, trim, and remove empties
 			return text
-				.split(/[\,\n]/)
+				.split(/[,\n]/)
 				.map((s) => s.trim())
 				.filter(Boolean);
 		}
@@ -57,8 +51,8 @@
 </script>
 
 <div class="path-picker">
-	<Input placeholder={placeholder} value={inputText} oninput={handleInput} />
-	<Button icon={icon} onclick={openSelector}>Browse</Button>
+	<Input {placeholder} value={inputText} oninput={handleInput} />
+	<Button {icon} onclick={openSelector}>Browse</Button>
 </div>
 
 <style>

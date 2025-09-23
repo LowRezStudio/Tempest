@@ -29,9 +29,7 @@ class LobbyEventPlayerJoin$Type extends MessageType<LobbyEventPlayerJoin> {
 	}
 	create(value?: PartialMessage<LobbyEventPlayerJoin>): LobbyEventPlayerJoin {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		if (value !== undefined) {
-			reflectionMergePartial<LobbyEventPlayerJoin>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<LobbyEventPlayerJoin>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -40,22 +38,34 @@ class LobbyEventPlayerJoin$Type extends MessageType<LobbyEventPlayerJoin> {
 		options: BinaryReadOptions,
 		target?: LobbyEventPlayerJoin,
 	): LobbyEventPlayerJoin {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
 				case /* tempest.lobby.LobbyPlayer player */ 1:
-					message.player = LobbyPlayer.internalBinaryRead(reader, reader.uint32(), options, message.player);
+					message.player = LobbyPlayer.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.player,
+					);
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
@@ -66,13 +76,15 @@ class LobbyEventPlayerJoin$Type extends MessageType<LobbyEventPlayerJoin> {
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
 		/* tempest.lobby.LobbyPlayer player = 1; */
-		if (message.player) {
-			LobbyPlayer.internalBinaryWrite(message.player, writer.tag(1, WireType.LengthDelimited).fork(), options).join();
-		}
+		if (message.player)
+			LobbyPlayer.internalBinaryWrite(
+				message.player,
+				writer.tag(1, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }

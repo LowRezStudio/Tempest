@@ -19,21 +19,24 @@ export interface JoinLobbyResponse {
 	/**
 	 * @generated from protobuf oneof: result
 	 */
-	result: {
-		oneofKind: "success";
-		/**
-		 * @generated from protobuf field: tempest.lobby.JoinLobbySuccess success = 1
-		 */
-		success: JoinLobbySuccess;
-	} | {
-		oneofKind: "error";
-		/**
-		 * @generated from protobuf field: tempest.lobby.JoinLobbyError error = 2
-		 */
-		error: JoinLobbyError;
-	} | {
-		oneofKind: undefined;
-	};
+	result:
+		| {
+				oneofKind: "success";
+				/**
+				 * @generated from protobuf field: tempest.lobby.JoinLobbySuccess success = 1
+				 */
+				success: JoinLobbySuccess;
+		  }
+		| {
+				oneofKind: "error";
+				/**
+				 * @generated from protobuf field: tempest.lobby.JoinLobbyError error = 2
+				 */
+				error: JoinLobbyError;
+		  }
+		| {
+				oneofKind: undefined;
+		  };
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class JoinLobbyResponse$Type extends MessageType<JoinLobbyResponse> {
@@ -46,9 +49,7 @@ class JoinLobbyResponse$Type extends MessageType<JoinLobbyResponse> {
 	create(value?: PartialMessage<JoinLobbyResponse>): JoinLobbyResponse {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.result = { oneofKind: undefined };
-		if (value !== undefined) {
-			reflectionMergePartial<JoinLobbyResponse>(this, message, value);
-		}
+		if (value !== undefined) reflectionMergePartial<JoinLobbyResponse>(this, message, value);
 		return message;
 	}
 	internalBinaryRead(
@@ -57,7 +58,8 @@ class JoinLobbyResponse$Type extends MessageType<JoinLobbyResponse> {
 		options: BinaryReadOptions,
 		target?: JoinLobbyResponse,
 	): JoinLobbyResponse {
-		let message = target ?? this.create(), end = reader.pos + length;
+		let message = target ?? this.create(),
+			end = reader.pos + length;
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
@@ -75,40 +77,55 @@ class JoinLobbyResponse$Type extends MessageType<JoinLobbyResponse> {
 				case /* tempest.lobby.JoinLobbyError error */ 2:
 					message.result = {
 						oneofKind: "error",
-						error: JoinLobbyError.internalBinaryRead(reader, reader.uint32(), options, (message.result as any).error),
+						error: JoinLobbyError.internalBinaryRead(
+							reader,
+							reader.uint32(),
+							options,
+							(message.result as any).error,
+						),
 					};
 					break;
 				default:
 					let u = options.readUnknownField;
-					if (u === "throw") {
-						throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-					}
+					if (u === "throw")
+						throw new globalThis.Error(
+							`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`,
+						);
 					let d = reader.skip(wireType);
-					if (u !== false) {
-						(u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-					}
+					if (u !== false)
+						(u === true ? UnknownFieldHandler.onRead : u)(
+							this.typeName,
+							message,
+							fieldNo,
+							wireType,
+							d,
+						);
 			}
 		}
 		return message;
 	}
-	internalBinaryWrite(message: JoinLobbyResponse, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+	internalBinaryWrite(
+		message: JoinLobbyResponse,
+		writer: IBinaryWriter,
+		options: BinaryWriteOptions,
+	): IBinaryWriter {
 		/* tempest.lobby.JoinLobbySuccess success = 1; */
-		if (message.result.oneofKind === "success") {
+		if (message.result.oneofKind === "success")
 			JoinLobbySuccess.internalBinaryWrite(
 				message.result.success,
 				writer.tag(1, WireType.LengthDelimited).fork(),
 				options,
 			).join();
-		}
 		/* tempest.lobby.JoinLobbyError error = 2; */
-		if (message.result.oneofKind === "error") {
-			JoinLobbyError.internalBinaryWrite(message.result.error, writer.tag(2, WireType.LengthDelimited).fork(), options)
-				.join();
-		}
+		if (message.result.oneofKind === "error")
+			JoinLobbyError.internalBinaryWrite(
+				message.result.error,
+				writer.tag(2, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		let u = options.writeUnknownFields;
-		if (u !== false) {
+		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-		}
 		return writer;
 	}
 }
