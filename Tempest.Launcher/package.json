@@ -32,6 +32,7 @@
 		"runed": "^0.34.0"
 	},
 	"devDependencies": {
+		"@prettier/plugin-oxc": "^0.0.4",
 		"@protobuf-ts/plugin": "^2.11.1",
 		"@protobuf-ts/protoc": "^2.11.1",
 		"@sveltejs/adapter-static": "^3.0.9",

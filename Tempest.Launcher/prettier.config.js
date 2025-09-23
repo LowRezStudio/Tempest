@@ -5,7 +5,7 @@
  * @type {import("prettier").Config}
  */
 const prettierConfig = {
-	plugins: ["prettier-plugin-svelte", "prettier-plugin-tailwindcss"],
+	plugins: ["@prettier/plugin-oxc", "prettier-plugin-tailwindcss", "prettier-plugin-svelte"],
 	useTabs: true,
 	tabWidth: 4,
 	printWidth: 100,
