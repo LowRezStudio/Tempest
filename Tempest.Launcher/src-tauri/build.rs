@@ -5,6 +5,50 @@ use std::process::Command;
 fn main() {
     let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
     if profile != "release" {
+        // In dev builds we still want a placeholder sidecar so that Tauri's
+        // sidecar resolution (and any runtime path assumptions) don't fail.
+        println!("cargo:warning=Dev profile detected - ensuring dummy sidecar binary exists");
+
+        let current_dir = env::current_dir().expect("Failed to get current directory");
+        let binaries_dir = current_dir.join("binaries");
+        if let Err(e) = fs::create_dir_all(&binaries_dir) {
+            panic!("Failed to create binaries directory: {e}");
+        }
+
+        // Reuse the same target triple logic as release builds so the name matches.
+        let target_triple = env::var("TARGET").unwrap_or_else(|_| {
+            if cfg!(target_os = "windows") {
+                "x86_64-pc-windows-msvc".to_string()
+            } else if cfg!(target_os = "macos") {
+                "x86_64-apple-darwin".to_string()
+            } else {
+                "x86_64-unknown-linux-gnu".to_string()
+            }
+        });
+
+        let exe_extension = if target_triple.contains("windows") { ".exe" } else { "" };
+        let sidecar_name = format!("tempest-cli-{}{}", target_triple, exe_extension);
+        let sidecar_path = binaries_dir.join(&sidecar_name);
+
+        if !sidecar_path.exists() {
+            // Create a zero-length file. Make it executable on Unix so any spawn attempts won't immediately fail due to permission.
+            if let Err(e) = fs::File::create(&sidecar_path) {
+                panic!("Failed to create dummy sidecar file: {e}");
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = fs::metadata(&sidecar_path) {
+                    let mut perms = meta.permissions();
+                    perms.set_mode(0o755);
+                    let _ = fs::set_permissions(&sidecar_path, perms);
+                }
+            }
+            println!("cargo:warning=Created dummy sidecar binary: {}", sidecar_name);
+        } else {
+            println!("cargo:warning=Dummy sidecar already present: {}", sidecar_name);
+        }
+
         return tauri_build::build();
     }
     
