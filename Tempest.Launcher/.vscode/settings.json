@@ -22,6 +22,9 @@
 	"[yaml]": {
 		"editor.defaultFormatter": "esbenp.prettier-vscode"
 	},
+	"[svelte]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
 	"css.styleSheets": ["src/**/*.css", "src/**/*.svelte"],
 	"css.customData": [".vscode/tailwind.json"],
 	"css.lint.unknownAtRules": "ignore"
