@@ -1,5 +1,8 @@
 const std = @import("std");
 const windows = std.os.windows;
+const builtin = @import("builtin");
+
+const WINAPI: std.builtin.CallingConvention = if (builtin.cpu.arch == .x86) .{ .x86_stdcall = .{} } else .c;
 
 const PROCESS_CREATE_THREAD = 0x0002;
 const PROCESS_QUERY_INFORMATION = 0x0400;
@@ -12,14 +15,14 @@ const MEM_RESERVE = 0x2000;
 const PAGE_READWRITE = 0x04;
 const MEM_RELEASE = 0x8000;
 
-extern "kernel32" fn OpenProcess(dwDesiredAccess: windows.DWORD, bInheritHandle: windows.BOOL, dwProcessId: windows.DWORD) callconv(windows.WINAPI) ?windows.HANDLE;
-extern "kernel32" fn VirtualAllocEx(hProcess: windows.HANDLE, lpAddress: ?*anyopaque, dwSize: windows.SIZE_T, flAllocationType: windows.DWORD, flProtect: windows.DWORD) callconv(windows.WINAPI) ?*anyopaque;
-extern "kernel32" fn WriteProcessMemory(hProcess: windows.HANDLE, lpBaseAddress: *anyopaque, lpBuffer: *const anyopaque, nSize: windows.SIZE_T, lpNumberOfBytesWritten: ?*windows.SIZE_T) callconv(windows.WINAPI) windows.BOOL;
-extern "kernel32" fn GetProcAddress(hModule: windows.HMODULE, lpProcName: [*:0]const u8) callconv(windows.WINAPI) ?*anyopaque;
-extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(windows.WINAPI) ?windows.HMODULE;
-extern "kernel32" fn CreateRemoteThread(hProcess: windows.HANDLE, lpThreadAttributes: ?*anyopaque, dwStackSize: windows.SIZE_T, lpStartAddress: *anyopaque, lpParameter: ?*anyopaque, dwCreationFlags: windows.DWORD, lpThreadId: ?*windows.DWORD) callconv(windows.WINAPI) ?windows.HANDLE;
-extern "kernel32" fn VirtualFreeEx(hProcess: windows.HANDLE, lpAddress: *anyopaque, dwSize: windows.SIZE_T, dwFreeType: windows.DWORD) callconv(windows.WINAPI) windows.BOOL;
-extern "kernel32" fn GetLastError() callconv(windows.WINAPI) windows.DWORD;
+extern "kernel32" fn OpenProcess(dwDesiredAccess: windows.DWORD, bInheritHandle: windows.BOOL, dwProcessId: windows.DWORD) callconv(WINAPI) ?windows.HANDLE;
+extern "kernel32" fn VirtualAllocEx(hProcess: windows.HANDLE, lpAddress: ?*anyopaque, dwSize: windows.SIZE_T, flAllocationType: windows.DWORD, flProtect: windows.DWORD) callconv(WINAPI) ?*anyopaque;
+extern "kernel32" fn WriteProcessMemory(hProcess: windows.HANDLE, lpBaseAddress: *anyopaque, lpBuffer: *const anyopaque, nSize: windows.SIZE_T, lpNumberOfBytesWritten: ?*windows.SIZE_T) callconv(WINAPI) windows.BOOL;
+extern "kernel32" fn GetProcAddress(hModule: windows.HMODULE, lpProcName: [*:0]const u8) callconv(WINAPI) ?*anyopaque;
+extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(WINAPI) ?windows.HMODULE;
+extern "kernel32" fn CreateRemoteThread(hProcess: windows.HANDLE, lpThreadAttributes: ?*anyopaque, dwStackSize: windows.SIZE_T, lpStartAddress: *anyopaque, lpParameter: ?*anyopaque, dwCreationFlags: windows.DWORD, lpThreadId: ?*windows.DWORD) callconv(WINAPI) ?windows.HANDLE;
+extern "kernel32" fn VirtualFreeEx(hProcess: windows.HANDLE, lpAddress: *anyopaque, dwSize: windows.SIZE_T, dwFreeType: windows.DWORD) callconv(WINAPI) windows.BOOL;
+extern "kernel32" fn GetLastError() callconv(WINAPI) windows.DWORD;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
