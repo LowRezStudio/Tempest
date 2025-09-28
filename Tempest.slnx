@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="MarshalLib/MarshalLib.csproj" />
+  <Project Path="Tempest.CLI/Tempest.CLI.csproj" />
+  <Project Path="Tempest.Protocol/Tempest.Protocol.csproj" />
+  <Project Path="Tempest.Services/Tempest.Services.csproj" />
+</Solution>

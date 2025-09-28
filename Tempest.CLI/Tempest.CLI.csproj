@@ -42,11 +42,10 @@
     <Target Name="BuildZigInject" BeforeTargets="CoreCompile" Inputs="@(ZigReference)" Outputs="@(ZigOutput)">
         <Message Text="Building the zig inject project..." />
         <Exec Command="zig build -Doptimize=ReleaseSmall" WorkingDirectory="inject" />
-
-        <ItemGroup>
-            <EmbeddedResource Include="inject\zig-out\bin\inject32.exe" Condition="Exists('inject\\zig-out\\bin\\inject32.exe')" />
-            <EmbeddedResource Include="inject\zig-out\bin\inject64.exe" Condition="Exists('inject\\zig-out\\bin\\inject64.exe')" />
-        </ItemGroup>
     </Target>
+
+    <ItemGroup>
+        <EmbeddedResource Include="@(ZigOutput)" />
+    </ItemGroup>
 
 </Project>

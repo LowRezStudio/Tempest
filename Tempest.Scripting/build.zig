@@ -1,0 +1,45 @@
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
+
+    // const win32_target = b.resolveTargetQuery(.{
+    //     .cpu_arch = .x86,
+    //     .os_tag = .windows,
+    //     .abi = .gnu,
+    // });
+
+    const win64_target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .windows,
+        .abi = .gnu,
+    });
+
+    // buildForTarget(b, win32_target, optimize, "Tempest.Scripting32");
+    buildForTarget(b, win64_target, optimize, "Tempest.Scripting64");
+}
+
+fn buildForTarget(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, name: []const u8) void {
+    const luajit_dep = b.dependency("luajit", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const luajit = luajit_dep.module("luajit");
+
+    const lib_mod = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const lib = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = name,
+        .root_module = lib_mod,
+    });
+
+    lib.root_module.addImport("luajit", luajit);
+
+    b.installArtifact(lib);
+}
