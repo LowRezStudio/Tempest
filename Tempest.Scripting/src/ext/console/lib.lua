@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 
 ffi.cdef[[
-    void op_console_print(const char* bytes);
+void op_console_print(const char* bytes);
 ]]
 
 function print(...)
