@@ -22,6 +22,7 @@ export const refresh = async () => {
 		list.length = 0;
 
 		for await (const server of serverStream.responses) {
+			console.log(server);
 			list.push(server);
 		}
 

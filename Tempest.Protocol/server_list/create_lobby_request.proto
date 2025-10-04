@@ -2,5 +2,21 @@ syntax = "proto3";
 package tempest.server_list;
 option csharp_namespace = "Tempest.Protocol.ServerList";
 
+import "common/country.proto";
+
 message CreateLobbyRequest {
+  string ip = 1;
+  uint32 lobby_port = 2;
+  string name = 3;
+  string game = 4;
+  string version = 5;
+  repeated string tags = 6;
+  optional string map = 7;
+  optional string map_id = 8;
+  uint32 max_players = 9;
+  uint32 max_spectators = 10;
+  bool join_in_progress = 11;
+  bool joinable = 12;
+  bool has_password = 13;
+  common.CountryCode country = 14;
 }

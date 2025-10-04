@@ -3,23 +3,120 @@
 // tslint:disable
 import type { BinaryWriteOptions } from "@protobuf-ts/runtime";
 import type { IBinaryWriter } from "@protobuf-ts/runtime";
+import { WireType } from "@protobuf-ts/runtime";
 import type { BinaryReadOptions } from "@protobuf-ts/runtime";
 import type { IBinaryReader } from "@protobuf-ts/runtime";
 import { UnknownFieldHandler } from "@protobuf-ts/runtime";
 import type { PartialMessage } from "@protobuf-ts/runtime";
 import { reflectionMergePartial } from "@protobuf-ts/runtime";
 import { MessageType } from "@protobuf-ts/runtime";
+import { CountryCode } from "../common/country";
 /**
  * @generated from protobuf message tempest.server_list.CreateLobbyRequest
  */
-export interface CreateLobbyRequest {}
+export interface CreateLobbyRequest {
+	/**
+	 * @generated from protobuf field: string ip = 1
+	 */
+	ip: string;
+	/**
+	 * @generated from protobuf field: uint32 lobby_port = 2
+	 */
+	lobbyPort: number;
+	/**
+	 * @generated from protobuf field: string name = 3
+	 */
+	name: string;
+	/**
+	 * @generated from protobuf field: string game = 4
+	 */
+	game: string;
+	/**
+	 * @generated from protobuf field: string version = 5
+	 */
+	version: string;
+	/**
+	 * @generated from protobuf field: repeated string tags = 6
+	 */
+	tags: string[];
+	/**
+	 * @generated from protobuf field: optional string map = 7
+	 */
+	map?: string;
+	/**
+	 * @generated from protobuf field: optional string map_id = 8
+	 */
+	mapId?: string;
+	/**
+	 * @generated from protobuf field: uint32 max_players = 9
+	 */
+	maxPlayers: number;
+	/**
+	 * @generated from protobuf field: uint32 max_spectators = 10
+	 */
+	maxSpectators: number;
+	/**
+	 * @generated from protobuf field: bool join_in_progress = 11
+	 */
+	joinInProgress: boolean;
+	/**
+	 * @generated from protobuf field: bool joinable = 12
+	 */
+	joinable: boolean;
+	/**
+	 * @generated from protobuf field: bool has_password = 13
+	 */
+	hasPassword: boolean;
+	/**
+	 * @generated from protobuf field: tempest.common.CountryCode country = 14
+	 */
+	country: CountryCode;
+}
 // @generated message type with reflection information, may provide speed optimized methods
 class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 	constructor() {
-		super("tempest.server_list.CreateLobbyRequest", []);
+		super("tempest.server_list.CreateLobbyRequest", [
+			{ no: 1, name: "ip", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 2, name: "lobby_port", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
+			{ no: 3, name: "name", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 4, name: "game", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 5, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{
+				no: 6,
+				name: "tags",
+				kind: "scalar",
+				repeat: 2 /*RepeatType.UNPACKED*/,
+				T: 9 /*ScalarType.STRING*/,
+			},
+			{ no: 7, name: "map", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+			{ no: 8, name: "map_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+			{ no: 9, name: "max_players", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
+			{ no: 10, name: "max_spectators", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
+			{ no: 11, name: "join_in_progress", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
+			{ no: 12, name: "joinable", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
+			{ no: 13, name: "has_password", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
+			{
+				no: 14,
+				name: "country",
+				kind: "enum",
+				T: () => ["tempest.common.CountryCode", CountryCode],
+			},
+		]);
 	}
 	create(value?: PartialMessage<CreateLobbyRequest>): CreateLobbyRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
+		message.ip = "";
+		message.lobbyPort = 0;
+		message.name = "";
+		message.game = "";
+		message.version = "";
+		message.tags = [];
+		message.maxPlayers = 0;
+		message.maxSpectators = 0;
+		message.joinInProgress = false;
+		message.joinable = false;
+		message.hasPassword = false;
+		message.country = 0;
 		if (value !== undefined) reflectionMergePartial<CreateLobbyRequest>(this, message, value);
 		return message;
 	}
@@ -34,6 +131,48 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
+				case /* string ip */ 1:
+					message.ip = reader.string();
+					break;
+				case /* uint32 lobby_port */ 2:
+					message.lobbyPort = reader.uint32();
+					break;
+				case /* string name */ 3:
+					message.name = reader.string();
+					break;
+				case /* string game */ 4:
+					message.game = reader.string();
+					break;
+				case /* string version */ 5:
+					message.version = reader.string();
+					break;
+				case /* repeated string tags */ 6:
+					message.tags.push(reader.string());
+					break;
+				case /* optional string map */ 7:
+					message.map = reader.string();
+					break;
+				case /* optional string map_id */ 8:
+					message.mapId = reader.string();
+					break;
+				case /* uint32 max_players */ 9:
+					message.maxPlayers = reader.uint32();
+					break;
+				case /* uint32 max_spectators */ 10:
+					message.maxSpectators = reader.uint32();
+					break;
+				case /* bool join_in_progress */ 11:
+					message.joinInProgress = reader.bool();
+					break;
+				case /* bool joinable */ 12:
+					message.joinable = reader.bool();
+					break;
+				case /* bool has_password */ 13:
+					message.hasPassword = reader.bool();
+					break;
+				case /* tempest.common.CountryCode country */ 14:
+					message.country = reader.int32();
+					break;
 				default:
 					let u = options.readUnknownField;
 					if (u === "throw")
@@ -58,6 +197,39 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
+		/* string ip = 1; */
+		if (message.ip !== "") writer.tag(1, WireType.LengthDelimited).string(message.ip);
+		/* uint32 lobby_port = 2; */
+		if (message.lobbyPort !== 0) writer.tag(2, WireType.Varint).uint32(message.lobbyPort);
+		/* string name = 3; */
+		if (message.name !== "") writer.tag(3, WireType.LengthDelimited).string(message.name);
+		/* string game = 4; */
+		if (message.game !== "") writer.tag(4, WireType.LengthDelimited).string(message.game);
+		/* string version = 5; */
+		if (message.version !== "") writer.tag(5, WireType.LengthDelimited).string(message.version);
+		/* repeated string tags = 6; */
+		for (let i = 0; i < message.tags.length; i++)
+			writer.tag(6, WireType.LengthDelimited).string(message.tags[i]);
+		/* optional string map = 7; */
+		if (message.map !== undefined) writer.tag(7, WireType.LengthDelimited).string(message.map);
+		/* optional string map_id = 8; */
+		if (message.mapId !== undefined)
+			writer.tag(8, WireType.LengthDelimited).string(message.mapId);
+		/* uint32 max_players = 9; */
+		if (message.maxPlayers !== 0) writer.tag(9, WireType.Varint).uint32(message.maxPlayers);
+		/* uint32 max_spectators = 10; */
+		if (message.maxSpectators !== 0)
+			writer.tag(10, WireType.Varint).uint32(message.maxSpectators);
+		/* bool join_in_progress = 11; */
+		if (message.joinInProgress !== false)
+			writer.tag(11, WireType.Varint).bool(message.joinInProgress);
+		/* bool joinable = 12; */
+		if (message.joinable !== false) writer.tag(12, WireType.Varint).bool(message.joinable);
+		/* bool has_password = 13; */
+		if (message.hasPassword !== false)
+			writer.tag(13, WireType.Varint).bool(message.hasPassword);
+		/* tempest.common.CountryCode country = 14; */
+		if (message.country !== 0) writer.tag(14, WireType.Varint).int32(message.country);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

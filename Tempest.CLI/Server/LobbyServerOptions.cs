@@ -12,4 +12,5 @@ internal sealed class LobbyServerOptions
     public bool PublicServer { get; init; }
     public string? GameMode { get; init; }
     public int Port { get; init; } = 50051;
+    public string? ServicesUrl { get; init; }
 }

@@ -33,7 +33,8 @@ internal class ServerCommands
             JoinInProgress = joinInProgress,
             PublicServer = publicServer,
             GameMode = gamemode,
-            Port = port
+            Port = port,
+            ServicesUrl = servicesUrl
         };
 
         var server = new EmbeddedServer(options);
@@ -56,7 +57,66 @@ internal class ServerCommands
                 tcs.SetResult();
         };
 
-        await tcs.Task; // Wait until cancellation (Ctrl+C)
+        await tcs.Task;
         await server.StopAsync();
+    }
+
+    public async Task List(string servicesUrl = "https://localhost:7165")
+    {
+        using var client = new ServerListClient(servicesUrl);
+        var servers = await client.GetServersAsync();
+
+        if (servers.Count == 0)
+        {
+            Console.WriteLine("No servers found.");
+            return;
+        }
+
+        Console.WriteLine($"Found {servers.Count} server(s):\n");
+
+        foreach (var server in servers)
+        {
+            Console.WriteLine($"ID: {server.Id}");
+            Console.WriteLine($"Name: {server.Name}");
+            Console.WriteLine($"IP: {server.Ip}:{server.LobbyPort}");
+            Console.WriteLine($"Game: {server.Game} v{server.Version}");
+            Console.WriteLine($"Players: {server.Players}/{server.MaxPlayers}");
+            Console.WriteLine($"Map: {server.Map ?? "N/A"}");
+            Console.WriteLine($"Joinable: {server.Joinable}");
+            Console.WriteLine($"Password: {(server.HasPassword ? "Yes" : "No")}");
+            if (server.Tags.Count > 0)
+                Console.WriteLine($"Tags: {string.Join(", ", server.Tags)}");
+            Console.WriteLine();
+        }
+    }
+
+    public async Task Get(string id, string servicesUrl = "https://localhost:7165")
+    {
+        using var client = new ServerListClient(servicesUrl);
+        
+        try
+        {
+            var server = await client.GetServerByIdAsync(id);
+            
+            Console.WriteLine($"ID: {server.Id}");
+            Console.WriteLine($"Name: {server.Name}");
+            Console.WriteLine($"IP: {server.Ip}:{server.LobbyPort}");
+            Console.WriteLine($"Game: {server.Game} v{server.Version}");
+            Console.WriteLine($"Players: {server.Players}/{server.MaxPlayers}");
+            Console.WriteLine($"Bots: {server.Bots}");
+            Console.WriteLine($"Spectators: {server.Spectators}/{server.MaxSpectators}");
+            Console.WriteLine($"Map: {server.Map ?? "N/A"}");
+            Console.WriteLine($"Map ID: {server.MapId ?? "N/A"}");
+            Console.WriteLine($"Joinable: {server.Joinable}");
+            Console.WriteLine($"Join in Progress: {server.JoinInProgress}");
+            Console.WriteLine($"Password: {(server.HasPassword ? "Yes" : "No")}");
+            Console.WriteLine($"Country: {server.Country}");
+            if (server.Tags.Count > 0)
+                Console.WriteLine($"Tags: {string.Join(", ", server.Tags)}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
     }
 }
