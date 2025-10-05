@@ -3,8 +3,8 @@
     .version = "0.15.1",
     .dependencies = .{
         .luajit = .{
-            .url = "git+https://github.com/sackosoft/zig-luajit#4323070920147202a4f74f03fb67cd42d794a390",
-            .hash = "luajit-2.1.0-nMGF0kPDAwCHuZVz5A5rFIuxewhLyhCBaar1YJbtICyi",
+            .url = "git+https://github.com/LowRezStudio/zig-luajit#37a4779450634199031fea2732cf426374b70f3c",
+            .hash = "luajit-2.1.0-nMGF0oCwiwAvW7DL6NMOrpZDfuPKNbJLyBJ5BGWdG-fI",
         },
     },
     .paths = .{""},

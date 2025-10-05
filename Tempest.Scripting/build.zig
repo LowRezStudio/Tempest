@@ -3,11 +3,11 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
-    // const win32_target = b.resolveTargetQuery(.{
-    //     .cpu_arch = .x86,
-    //     .os_tag = .windows,
-    //     .abi = .gnu,
-    // });
+    const win32_target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86,
+        .os_tag = .windows,
+        .abi = .gnu,
+    });
 
     const win64_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
         .abi = .gnu,
     });
 
-    // buildForTarget(b, win32_target, optimize, "Tempest.Scripting32");
+    buildForTarget(b, win32_target, optimize, "Tempest.Scripting32");
     buildForTarget(b, win64_target, optimize, "Tempest.Scripting64");
 }
 
