@@ -1,6 +1,7 @@
 .{
     .name = .Tempest_Scripting,
-    .version = "0.15.1",
+    .version = "0.0.1",
+    .minimum_zig_version = "0.15.1",
     .dependencies = .{
         .luajit = .{
             .url = "git+https://github.com/LowRezStudio/zig-luajit#37a4779450634199031fea2732cf426374b70f3c",
