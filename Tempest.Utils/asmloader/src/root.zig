@@ -8,7 +8,7 @@ const detourz = @import("detourz");
 
 pub const THISCALL: std.builtin.CallingConvention =
     if (arch == .x86)
-        .{ .x86_fastcall = .{} }
+        .{ .x86_thiscall = .{} }
     else
         .c;
 
@@ -19,96 +19,75 @@ extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.wi
 extern "kernel32" fn GetCurrentThread() callconv(.winapi) windows.HANDLE;
 extern "kernel32" fn Sleep(dwMilliseconds: u32) callconv(.winapi) void;
 
-const AddNetObject = *const fn (self: ?*anyopaque, edx: ?*anyopaque, a2: ?*anyopaque) callconv(THISCALL) ?*anyopaque;
-// const AddNetObject = if (arch == .x86)
-//     *const fn (self: ?*anyopaque, edx: ?*anyopaque, a2: ?*anyopaque) callconv(THISCALL) void
-// else
-//     *const fn (self: ?*anyopaque, a2: ?*anyopaque) callconv(THISCALL) void;
+// void __thiscall sub_64930(_DWORD *this, _DWORD *a2)
+const AddNetworkPackage = *const fn (pThis: ?*anyopaque, a2: u32) callconv(THISCALL) void;
 
-const AssemblyLoad = *const fn (self: ?*anyopaque, edx: ?*anyopaque, bFullLoad: windows.CHAR) callconv(THISCALL) ?*anyopaque;
-// const AssemblyLoad = if (arch == .x86)
-//     *const fn (self: ?*anyopaque, edx: ?*anyopaque, bFullLoad: windows.CHAR) callconv(THISCALL) c_int
-// else
-//     *const fn (self: ?*anyopaque, bFullLoad: windows.CHAR) callconv(THISCALL) c_int;
+//int __thiscall sub_C732D0(_DWORD *this, char a2)
+const LoadFile = *const fn (pThis: ?*anyopaque, a2: u8) callconv(THISCALL) c_int;
 
-var oAddNetObject: AddNetObject = undefined;
-var oAssemblyLoad: AssemblyLoad = undefined;
-var AssemblyManager: ?*anyopaque = undefined;
-var bLoadedAssembly: bool = false;
+var addNetworkPackage: AddNetworkPackage = undefined;
+var gAssemblyManager: ?*anyopaque = undefined;
+var loadFile: LoadFile = undefined;
+var isLoaded: bool = false;
 
-fn hAddNetObject(self: ?*anyopaque, edx: ?*anyopaque, a2: ?*anyopaque) callconv(THISCALL) void {
-    std.debug.print("AddNetObject: called\n", .{});
+fn hookAddNetworkPackage(pThis: ?*anyopaque, a2: u32) callconv(THISCALL) void {
+    if (!isLoaded) {
+        const result = loadFile(gAssemblyManager, 1);
+        if (result != 0) {
+            isLoaded = true;
+            std.debug.print("[AsmLoader] Loaded assembly!\n", .{});
+        } else {
+            std.debug.print("[AsmLoader] Failed to load assembly!\n", .{});
+        }
+    }
 
-    const fmt =
-        \\ this: 0x{x}
-        \\ edx: 0x{x}
-        \\ a2: 0x{x}
-        \\
-    ;
-
-    std.debug.print(fmt, .{
-        @intFromPtr(self),
-        @intFromPtr(edx),
-        @intFromPtr(a2),
-    });
-
-    // if (!bLoadedAssembly) {
-    //     std.debug.print("Calling AssemblyLoad\n", .{});
-    //         if (oAssemblyLoad(AssemblyManager, 1) != 0) {
-    //             bLoadedAssembly = true;
-    //         }
-    //     }
-    // }
-
-    Sleep(5000);
-
-    _ = oAddNetObject(self, edx, a2);
+    _ = addNetworkPackage(pThis, a2);
 }
 
 fn main(hinstDLL: windows.HINSTANCE) !void {
     _ = AllocConsole();
 
-    std.debug.print("[Zig] Hello from ASM Loader!\n", .{});
+    std.debug.print("[AsmLoader] Hello from Zig!\n", .{});
 
     const module_base = GetModuleHandleA(null);
     const base_addr = @intFromPtr(module_base);
 
-    oAddNetObject = @ptrFromInt(base_addr + 0x64930);
-    oAssemblyLoad = @ptrFromInt(base_addr + 0xC732D0);
-    AssemblyManager = @ptrFromInt(base_addr + 0x21B8F98);
+    addNetworkPackage = @ptrFromInt(base_addr + 0x64930);
+    gAssemblyManager = @ptrFromInt(base_addr + 0x21B8F98);
+    loadFile = @ptrFromInt(base_addr + 0xC732D0);
 
     const fmt =
         \\ Base address: 0x{x}
-        \\ AddNetObject: 0x{x} (0x{x})
-        \\ AssemblyLoad: 0x{x} (0x{x})
-        \\ AssemblyManager: 0x{x} (0x{x})
+        \\ addNetworkPackage: 0x{x} (0x{x})
+        \\ gAssemblyManager: 0x{x} (0x{x})
+        \\ loadFile: 0x{x} (0x{x})
         \\
     ;
 
     std.debug.print(fmt, .{
         base_addr,
-        @intFromPtr(oAddNetObject),
-        @intFromPtr(oAddNetObject) - base_addr,
+        @intFromPtr(addNetworkPackage),
+        @intFromPtr(addNetworkPackage) - base_addr,
 
-        @intFromPtr(oAssemblyLoad),
-        @intFromPtr(oAssemblyLoad) - base_addr,
+        @intFromPtr(gAssemblyManager),
+        @intFromPtr(gAssemblyManager) - base_addr,
 
-        @intFromPtr(AssemblyManager),
-        @intFromPtr(AssemblyManager) - base_addr,
+        @intFromPtr(loadFile),
+        @intFromPtr(loadFile) - base_addr,
     });
 
     // Detour transaction
     try detourz.transactionBegin();
     try detourz.updateThread(GetCurrentThread());
 
-    try detourz.attach(@ptrCast(&oAddNetObject), @constCast(&hAddNetObject));
+    try detourz.attach(@ptrCast(&addNetworkPackage), @constCast(&hookAddNetworkPackage));
 
     try detourz.transactionCommit();
 
-    _ = FreeConsole();
-    FreeLibraryAndExitThread(@ptrCast(hinstDLL), 0);
+    // _ = FreeConsole();
+    // FreeLibraryAndExitThread(@ptrCast(hinstDLL), 0);
 
-    // _ = hinstDLL;
+    _ = hinstDLL;
 }
 
 pub export fn DllMain(
@@ -119,7 +98,8 @@ pub export fn DllMain(
     _ = lpvReserved;
 
     if (fdwReason == 1) {
-        _ = std.Thread.spawn(.{}, main, .{hinstDLL}) catch return windows.FALSE;
+        // _ = std.Thread.spawn(.{}, main, .{hinstDLL}) catch return windows.FALSE;
+        _ = main(hinstDLL) catch return windows.FALSE;
     }
 
     return windows.TRUE;
