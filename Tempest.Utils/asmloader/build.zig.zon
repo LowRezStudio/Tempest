@@ -6,6 +6,9 @@
             .url = "git+https://github.com/lowrezstudio/detourz#21d49c31fb7587822297428c4a221ffd5950cc3f",
             .hash = "detourz-0.0.0-Ywo1d8sRAgD1axHXzoDhBTmd-Xl3aokPs77_zykUPZtU",
         },
+        .memory = .{
+            .path = "../memory",
+        },
     },
     .minimum_zig_version = "0.15.1",
     .paths = .{""},

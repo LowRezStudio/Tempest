@@ -5,6 +5,7 @@ const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 
 const detourz = @import("detourz");
+const memory = @import("memory");
 
 pub const THISCALL: std.builtin.CallingConvention =
     if (arch == .x86)
@@ -15,15 +16,14 @@ pub const THISCALL: std.builtin.CallingConvention =
 extern "kernel32" fn AllocConsole() callconv(.winapi) windows.BOOL;
 extern "kernel32" fn FreeConsole() callconv(.winapi) windows.BOOL;
 extern "kernel32" fn FreeLibraryAndExitThread(hLibModule: windows.HMODULE, dwExitCode: u32) callconv(.winapi) noreturn;
-extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.winapi) ?windows.HMODULE;
 extern "kernel32" fn GetCurrentThread() callconv(.winapi) windows.HANDLE;
 extern "kernel32" fn Sleep(dwMilliseconds: u32) callconv(.winapi) void;
 
 // void __thiscall sub_64930(_DWORD *this, _DWORD *a2)
 const AddNetworkPackage = *const fn (pThis: ?*anyopaque, a2: u32) callconv(THISCALL) void;
 
-//int __thiscall sub_C732D0(_DWORD *this, char a2)
-const LoadFile = *const fn (pThis: ?*anyopaque, a2: u8) callconv(THISCALL) c_int;
+// int __thiscall sub_C732D0(_DWORD *this, char a2)
+const LoadFile = *const fn (pThis: ?*anyopaque, fullLoad: u8) callconv(THISCALL) c_int;
 
 var addNetworkPackage: AddNetworkPackage = undefined;
 var gAssemblyManager: ?*anyopaque = undefined;
@@ -49,8 +49,20 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
 
     std.debug.print("[AsmLoader] Hello from Zig!\n", .{});
 
-    const module_base = GetModuleHandleA(null);
-    const base_addr = @intFromPtr(module_base);
+    const module = try memory.Module.init(null);
+    const base_addr = module.getHandle().get();
+
+    if (module.scanner().pattern(std.heap.page_allocator, "50 8D ? ? ? ? A3 00 00 00 00 8B F9 33")) |foo| {
+        defer std.heap.page_allocator.free(foo);
+
+        std.debug.print("[AsmLoader] Found {d} pattern(s)!\n", .{foo.len});
+        for (foo, 0..) |address, i| {
+            std.debug.print("Scan result[{d}]: 0x{x} (0x{x})\n", .{ i, address.get(), address.get() - base_addr });
+        }
+        std.debug.print("\n", .{});
+    } else |err| {
+        std.debug.print("[AsmLoader] Failed to find pattern! err:{}\n", .{err});
+    }
 
     addNetworkPackage = @ptrFromInt(base_addr + 0x64930);
     gAssemblyManager = @ptrFromInt(base_addr + 0x21B8F98);
@@ -76,7 +88,6 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
         @intFromPtr(loadFile) - base_addr,
     });
 
-    // Detour transaction
     try detourz.transactionBegin();
     try detourz.updateThread(GetCurrentThread());
 
@@ -86,7 +97,6 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
 
     // _ = FreeConsole();
     // FreeLibraryAndExitThread(@ptrCast(hinstDLL), 0);
-
     _ = hinstDLL;
 }
 
@@ -98,8 +108,8 @@ pub export fn DllMain(
     _ = lpvReserved;
 
     if (fdwReason == 1) {
-        // _ = std.Thread.spawn(.{}, main, .{hinstDLL}) catch return windows.FALSE;
-        _ = main(hinstDLL) catch return windows.FALSE;
+        _ = std.Thread.spawn(.{}, main, .{hinstDLL}) catch return windows.FALSE;
+        // _ = main(hinstDLL) catch return windows.FALSE;
     }
 
     return windows.TRUE;

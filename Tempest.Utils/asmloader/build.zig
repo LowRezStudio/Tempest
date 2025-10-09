@@ -27,6 +27,13 @@ fn buildForTarget(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std
 
     const detourz = detourz_dep.module("detourz");
 
+    const memory_dep = b.dependency("memory", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const memory = memory_dep.module("memory");
+
     const lib_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -40,6 +47,7 @@ fn buildForTarget(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std
     });
 
     lib.root_module.addImport("detourz", detourz);
+    lib.root_module.addImport("memory", memory);
 
     b.installArtifact(lib);
 }
