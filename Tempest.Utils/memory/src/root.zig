@@ -15,32 +15,36 @@ const MemError = error{
 };
 
 pub const Utils = struct {
-    pub fn patternToBytes(allocator: std.mem.Allocator, patternStr: [*:0]const u8) ![]i16 {
-        var bytes = std.ArrayList(i16).empty;
-        errdefer bytes.deinit(allocator);
-
+    pub inline fn patternToBytes(comptime patternStr: []const u8) []const i16 {
+        var bytes: [patternStr.len]i16 = undefined;
+        var count: usize = 0;
         var i: usize = 0;
-        const len = std.mem.len(patternStr);
 
-        while (i < len) {
-            if (patternStr[i] == '?') {
+        while (i < patternStr.len) : (i += 1) {
+            const c = patternStr[i];
+
+            if (c == '?') {
                 i += 1;
-                if (i < len and patternStr[i] == '?') i += 1;
-                try bytes.append(allocator, -1);
-            } else if (patternStr[i] != ' ') {
-                const remaining = patternStr[i..len];
-                const byte = std.fmt.parseInt(u8, remaining[0..@min(2, remaining.len)], 16) catch {
-                    i += 1;
+                if (i < patternStr.len and patternStr[i] == '?') i += 1;
+                bytes[count] = -1;
+                count += 1;
+            } else if (c != ' ') {
+                const remaining = patternStr[i..];
+                const len = @min(2, remaining.len);
+                const hex = remaining[0..len];
+
+                const byte = std.fmt.parseInt(u8, hex, 16) catch {
                     continue;
                 };
-                try bytes.append(allocator, @as(i16, byte));
-                i += if (byte > 0xF) @as(usize, 2) else 1;
-            } else {
-                i += 1;
+
+                bytes[count] = @as(i16, byte);
+                count += 1;
+
+                i += if (byte > 0xF) 1 else 0;
             }
         }
 
-        return bytes.toOwnedSlice(allocator);
+        return bytes[0..count];
     }
 };
 
@@ -51,7 +55,7 @@ pub const Address = struct {
         return .{ .address = addr };
     }
 
-    pub inline fn offset(self: *const Address, off: i32) Address {
+    pub inline fn offset(self: *const Address, off: i32) !Address {
         const newAddress = self.address +% @as(usize, @intCast(off));
         if (newAddress == 0)
             return MemError.InvalidAddress;
@@ -59,7 +63,7 @@ pub const Address = struct {
         return Address.init(newAddress);
     }
 
-    pub inline fn relOffset(self: *const Address, off: i32) Address {
+    pub inline fn relOffset(self: *const Address, off: i32) !Address {
         const base = self.address +% @as(usize, @intCast(off));
         if (base == 0)
             return MemError.InvalidAddress;
@@ -83,7 +87,6 @@ pub const Module = struct {
 
     pub fn init(name: ?[*:0]const u8) !Module {
         const handle = GetModuleHandleA(name);
-
         return try Module.initFromHandle(handle);
     }
 
@@ -140,12 +143,9 @@ pub const Module = struct {
             return .{ .module = module };
         }
 
-        pub fn pattern(self: Scanner, allocator: std.mem.Allocator, patternStr: [*:0]const u8) ![]Address {
-            if (std.mem.len(patternStr) == 0)
-                return MemError.InvalidPattern;
-
-            const patternBytes = try Utils.patternToBytes(allocator, patternStr);
-            defer allocator.free(patternBytes);
+        pub fn pattern(self: Scanner, allocator: std.mem.Allocator, comptime patternStr: []const u8) ![]Address {
+            if (patternStr.len == 0) @compileError("Pattern string must not be empty");
+            const patternBytes = Utils.patternToBytes(patternStr);
 
             if (patternBytes.len == 0)
                 return MemError.InvalidPattern;

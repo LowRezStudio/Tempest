@@ -7,3 +7,4 @@ riderModule.iml
 /.idea
 zig-out
 .zig-cache
+.DS_Store
