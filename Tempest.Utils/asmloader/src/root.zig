@@ -52,6 +52,7 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
     const module = try memory.Module.init(null);
     const base_addr = module.getHandle().get();
 
+    // TEST STUFF /////////////////////////////////////////////////////////////
     if (module.scanner().pattern(std.heap.page_allocator, "50 8D ? ? ? ? A3 00 00 00 00 8B F9 33")) |foo| {
         defer std.heap.page_allocator.free(foo);
 
@@ -63,6 +64,12 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
     } else |err| {
         std.debug.print("[AsmLoader] Failed to find pattern! err:{}\n", .{err});
     }
+
+    const sections = module.section(".text").getNumberOfSections();
+    std.debug.print("Sections: {d}\n", .{sections});
+
+    _ = module.section(".text").debugPrintSections();
+    ///////////////////////////////////////////////////////////////////////////
 
     addNetworkPackage = @ptrFromInt(base_addr + 0x64930);
     gAssemblyManager = @ptrFromInt(base_addr + 0x21B8F98);

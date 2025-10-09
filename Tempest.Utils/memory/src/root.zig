@@ -2,6 +2,8 @@ const std = @import("std");
 const windows = std.os.windows;
 const builtin = @import("builtin");
 
+const ntapi = @import("ntapi.zig");
+
 extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.winapi) windows.HMODULE;
 
 const MemError = error{
@@ -108,20 +110,25 @@ pub const Module = struct {
         return module;
     }
 
+    fn getDosHeader(self: *const Module) *const ntapi.IMAGE_DOS_HEADER {
+        return @as(*const ntapi.IMAGE_DOS_HEADER, @ptrCast(@alignCast(self.handle)));
+    }
+
+    const NtHeaderType = switch (builtin.cpu.arch) {
+        .x86 => ntapi.IMAGE_NT_HEADERS32,
+        .x86_64 => ntapi.IMAGE_NT_HEADERS64,
+        else => @compileError("Unsupported architecture"),
+    };
+
+    fn getNtHeader(self: *const Module) *const NtHeaderType {
+        const dos_header = self.getDosHeader();
+        const nt_headers_addr = @intFromPtr(dos_header) + @as(usize, @intCast(dos_header.e_lfanew));
+        return @ptrFromInt(nt_headers_addr);
+    }
+
     fn getSizeOfImage(self: *const Module) usize {
-        const dos_header = self.handle;
-
-        // dos_header->e_lfanew
-        const e_lfanew = @as(*u32, @ptrFromInt(@intFromPtr(dos_header) + 0x3C)).*;
-        const nt_headers = @intFromPtr(dos_header) + e_lfanew;
-
-        const offset = switch (builtin.cpu.arch) {
-            .x86 => 0x50,
-            .x86_64 => 0x60,
-            else => @compileError("Unsupported architecture"),
-        };
-
-        return @as(*u32, @ptrFromInt(nt_headers + offset)).*;
+        const nt_headers = self.getNtHeader();
+        return nt_headers.OptionalHeader.SizeOfImage;
     }
 
     pub fn isAddressValid(self: *const Module, addr: usize) bool {
@@ -131,6 +138,44 @@ pub const Module = struct {
     pub fn getHandle(self: *const Module) Address {
         return .init(@intFromPtr(self.handle));
     }
+
+    pub fn section(self: *const Module, name: []const u8) Section {
+        return Section.init(self, name);
+    }
+
+    pub const Section = struct {
+        module: *const Module,
+        name: []const u8,
+
+        pub fn init(module: *const Module, name: []const u8) Section {
+            return .{ .module = module, .name = name };
+        }
+
+        pub fn getNumberOfSections(self: *const Section) usize {
+            return self.module.getNtHeader().FileHeader.NumberOfSections;
+        }
+
+        pub fn debugPrintSections(self: *const Section) void {
+            const nt_headers = self.module.getNtHeader();
+            const num_sections = nt_headers.FileHeader.NumberOfSections;
+
+            // Get the first section header (immediately after NT headers)
+            const nt_headers_addr = @intFromPtr(nt_headers);
+            const optional_header_size = nt_headers.FileHeader.SizeOfOptionalHeader;
+
+            // Section headers start after: Signature (4) + FileHeader (20) + OptionalHeader (variable)
+            const first_section_addr = nt_headers_addr + 4 + 20 + optional_header_size;
+            const section_headers = @as([*]const ntapi.IMAGE_SECTION_HEADER, @ptrFromInt(first_section_addr));
+
+            std.debug.print("Sections ({d}):\n", .{num_sections});
+
+            for (0..num_sections) |i| {
+                const sectione = &section_headers[i];
+                const name = sectione.getName();
+                std.debug.print("  [{d}] {s}\n", .{ i, name });
+            }
+        }
+    };
 
     pub fn scanner(self: *const Module) Scanner {
         return Scanner.init(self);
@@ -190,6 +235,7 @@ pub const Module = struct {
             return results.toOwnedSlice(allocator);
         }
 
+        // TODO: implement
         pub fn string(self: *const Scanner, stringRef: []const u8) !Scanner {
             _ = self;
             _ = stringRef;
