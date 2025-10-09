@@ -33,6 +33,7 @@ pub const Utils = struct {
                 const len = @min(2, remaining.len);
                 const hex = remaining[0..len];
 
+                // TODO: make this a compile time error
                 const byte = std.fmt.parseInt(u8, hex, 16) catch {
                     continue;
                 };
@@ -40,7 +41,7 @@ pub const Utils = struct {
                 bytes[count] = @as(i16, byte);
                 count += 1;
 
-                i += if (byte > 0xF) 1 else 0;
+                i += len - 1;
             }
         }
 
