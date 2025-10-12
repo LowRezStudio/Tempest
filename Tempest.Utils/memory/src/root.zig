@@ -16,6 +16,12 @@ const MemError = error{
     OutOfBounds,
 };
 
+const NtHeaderType = switch (builtin.cpu.arch) {
+    .x86 => ntapi.IMAGE_NT_HEADERS32,
+    .x86_64 => ntapi.IMAGE_NT_HEADERS64,
+    else => @compileError("Unsupported architecture"),
+};
+
 pub const Utils = struct {
     pub inline fn patternToBytes(comptime patternStr: []const u8) []const i16 {
         var bytes: [patternStr.len]i16 = undefined;
@@ -114,12 +120,6 @@ pub const Module = struct {
         return @as(*const ntapi.IMAGE_DOS_HEADER, @ptrCast(@alignCast(self.handle)));
     }
 
-    const NtHeaderType = switch (builtin.cpu.arch) {
-        .x86 => ntapi.IMAGE_NT_HEADERS32,
-        .x86_64 => ntapi.IMAGE_NT_HEADERS64,
-        else => @compileError("Unsupported architecture"),
-    };
-
     fn getNtHeader(self: *const Module) *const NtHeaderType {
         const dos_header = self.getDosHeader();
         const nt_headers_addr = @intFromPtr(dos_header) + @as(usize, @intCast(dos_header.e_lfanew));
@@ -139,41 +139,58 @@ pub const Module = struct {
         return .init(@intFromPtr(self.handle));
     }
 
-    pub fn section(self: *const Module, name: []const u8) Section {
-        return Section.init(self, name);
+    pub fn section(self: *const Module, allocator: std.mem.Allocator, name: []const u8) !Section {
+        const sec = Section{
+            .module = self,
+            .name = "",
+        };
+        return try .init(sec, allocator, name);
     }
 
     pub const Section = struct {
         module: *const Module,
         name: []const u8,
 
-        pub fn init(module: *const Module, name: []const u8) Section {
-            return .{ .module = module, .name = name };
+        pub fn init(sec: Section, allocator: std.mem.Allocator, name: []const u8) !Section {
+            _ = try sec.getSection(allocator, name);
+
+            return .{
+                .module = sec.module,
+                .name = name,
+            };
         }
 
-        pub fn getNumberOfSections(self: *const Section) usize {
-            return self.module.getNtHeader().FileHeader.NumberOfSections;
-        }
-
-        pub fn debugPrintSections(self: *const Section) void {
+        pub fn getAllSections(self: Section, allocator: std.mem.Allocator) ![]ntapi.IMAGE_SECTION_HEADER {
             const nt_headers = self.module.getNtHeader();
             const num_sections = nt_headers.FileHeader.NumberOfSections;
 
-            // Get the first section header (immediately after NT headers)
+            var sections = std.ArrayList(ntapi.IMAGE_SECTION_HEADER).empty;
+            errdefer sections.deinit(allocator);
+
             const nt_headers_addr = @intFromPtr(nt_headers);
             const optional_header_size = nt_headers.FileHeader.SizeOfOptionalHeader;
 
-            // Section headers start after: Signature (4) + FileHeader (20) + OptionalHeader (variable)
             const first_section_addr = nt_headers_addr + 4 + 20 + optional_header_size;
             const section_headers = @as([*]const ntapi.IMAGE_SECTION_HEADER, @ptrFromInt(first_section_addr));
 
-            std.debug.print("Sections ({d}):\n", .{num_sections});
-
             for (0..num_sections) |i| {
-                const sectione = &section_headers[i];
-                const name = sectione.getName();
-                std.debug.print("  [{d}] {s}\n", .{ i, name });
+                try sections.append(allocator, section_headers[i]);
             }
+
+            return sections.toOwnedSlice(allocator);
+        }
+
+        pub fn getSection(self: Section, allocator: std.mem.Allocator, name: []const u8) !ntapi.IMAGE_SECTION_HEADER {
+            const sections = try self.getAllSections(allocator);
+            defer allocator.free(sections);
+
+            for (sections) |s| {
+                if (std.mem.eql(u8, s.getName(), name)) {
+                    return s;
+                }
+            }
+
+            return MemError.NoResult;
         }
     };
 

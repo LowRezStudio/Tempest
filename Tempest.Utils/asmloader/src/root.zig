@@ -52,7 +52,7 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
     const module = try memory.Module.init(null);
     const base_addr = module.getHandle().get();
 
-    // TEST STUFF /////////////////////////////////////////////////////////////
+    // TESTS //////////////////////////////////////////////////////////////////
     if (module.scanner().pattern(std.heap.page_allocator, "50 8D ? ? ? ? A3 00 00 00 00 8B F9 33")) |foo| {
         defer std.heap.page_allocator.free(foo);
 
@@ -65,10 +65,23 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
         std.debug.print("[AsmLoader] Failed to find pattern! err:{}\n", .{err});
     }
 
-    const sections = module.section(".text").getNumberOfSections();
-    std.debug.print("Sections: {d}\n", .{sections});
+    const section = try module.section(std.heap.page_allocator, ".text");
+    std.debug.print("Section: {any}\n", .{section});
+    std.debug.print("Section: {s}\n", .{section.name});
 
-    _ = module.section(".text").debugPrintSections();
+    const sections = try section.getAllSections(std.heap.page_allocator);
+    defer std.heap.page_allocator.free(sections);
+
+    for (sections, 0..) |s, i| {
+        std.debug.print("Section [{d}]: {s}\n", .{ i, s.getName() });
+    }
+
+    const text_section = try section.getSection(std.heap.page_allocator, ".text");
+
+    std.debug.print("Virtual Address: 0x{x}\n", .{text_section.VirtualAddress});
+    std.debug.print("Size: 0x{x}\n", .{text_section.VirtualSize});
+    std.debug.print("Name: {s}\n", .{text_section.getName()});
+
     ///////////////////////////////////////////////////////////////////////////
 
     addNetworkPackage = @ptrFromInt(base_addr + 0x64930);
