@@ -65,6 +65,13 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
         std.debug.print("[AsmLoader] Failed to find pattern! err:{}\n", .{err});
     }
 
+    if (module.scanner().string(std.heap.page_allocator, "ASSEMBLY", false)) |ref| {
+        defer std.heap.page_allocator.free(ref);
+        std.debug.print("Found string ref: {any}\n", .{ref});
+    } else |err| {
+        std.debug.print("Failed to find string! err:{}\n", .{err});
+    }
+
     const section = try module.section(std.heap.page_allocator, ".text");
     std.debug.print("Section: {any}\n", .{section});
     std.debug.print("Section: {s}\n", .{section.name});
@@ -84,6 +91,7 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
 
     ///////////////////////////////////////////////////////////////////////////
 
+    // string ref "Assembly load started"
     addNetworkPackage = @ptrFromInt(base_addr + 0x64930);
     gAssemblyManager = @ptrFromInt(base_addr + 0x21B8F98);
     loadFile = @ptrFromInt(base_addr + 0xC732D0);

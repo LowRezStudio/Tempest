@@ -16,10 +16,36 @@ const MemError = error{
     OutOfBounds,
 };
 
+const StringEncoding = enum {
+    utf8,
+    utf16le,
+    utf16be,
+    utf32le,
+    utf32be,
+};
+
 const NtHeaderType = switch (builtin.cpu.arch) {
     .x86 => ntapi.IMAGE_NT_HEADERS32,
     .x86_64 => ntapi.IMAGE_NT_HEADERS64,
     else => @compileError("Unsupported architecture"),
+};
+
+const Mnemonic = enum(u8) {
+    PUSH = 0x68,
+    JMP_REL8 = 0xEB,
+    JMP_REL32 = 0xE9,
+    JMP_EAX = 0xE0,
+    CALL = 0xE8,
+    LEA = 0x8D,
+    CDQ = 0x99,
+    CMOVL = 0x4C,
+    CMOVS = 0x48,
+    CMOVNS = 0x49,
+    NOP = 0x90,
+    INT3 = 0xCC,
+    RETN_REL8 = 0xC2,
+    RETN = 0xC3,
+    NONE = 0x00,
 };
 
 pub const Utils = struct {
@@ -55,6 +81,165 @@ pub const Utils = struct {
 
         return bytes[0..count];
     }
+
+    // NOTE: got lazy so claude did this, there might be a better way to do this
+    fn matchString(stringBytes: [*]align(1) const u8, needle: []const u8, section: anytype) !bool {
+        if (matchUtf8(stringBytes, needle, section)) {
+            return true;
+        }
+
+        if (matchUtf16Le(stringBytes, needle, section)) {
+            return true;
+        }
+
+        if (matchUtf16Be(stringBytes, needle, section)) {
+            return true;
+        }
+
+        if (matchUtf32Le(stringBytes, needle, section)) {
+            return true;
+        }
+
+        if (matchUtf32Be(stringBytes, needle, section)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    fn matchUtf8(stringBytes: [*]align(1) const u8, needle: []const u8, section: anytype) bool {
+        const firstByte = stringBytes[0];
+        if (firstByte == 0 or firstByte > 0x7F) {
+            if (firstByte == 0) return false;
+        }
+
+        var len: usize = 0;
+        const maxLen = section.size;
+        while (len < maxLen and len < 4096) : (len += 1) {
+            if (stringBytes[len] == 0) break;
+        }
+
+        if (len == 0 or len >= 4096) return false;
+        if (len != needle.len) return false;
+
+        for (needle, 0..) |byte, idx| {
+            if (stringBytes[idx] != byte) return false;
+        }
+
+        return true;
+    }
+
+    fn matchUtf16Le(stringBytes: [*]align(1) const u8, needle: []const u8, section: anytype) bool {
+        const firstChar = stringBytes[0];
+        const secondByte = stringBytes[1];
+
+        if (firstChar == 0 or (firstChar > 0x7F and secondByte != 0)) {
+            return false;
+        }
+
+        var len: usize = 0;
+        const maxLen = section.size / 2;
+        while (len < maxLen and len < 2048) : (len += 1) {
+            const idx = len * 2;
+            if (stringBytes[idx] == 0 and stringBytes[idx + 1] == 0) break;
+        }
+
+        if (len == 0 or len >= 2048) return false;
+        if (len != needle.len) return false;
+
+        for (needle, 0..) |byte, idx| {
+            const charIdx = idx * 2;
+            const char = stringBytes[charIdx];
+            const highByte = stringBytes[charIdx + 1];
+
+            if (char != byte or highByte != 0) return false;
+        }
+
+        return true;
+    }
+
+    fn matchUtf16Be(stringBytes: [*]align(1) const u8, needle: []const u8, section: anytype) bool {
+        const firstByte = stringBytes[0];
+        const secondByte = stringBytes[1];
+
+        if (firstByte != 0 or secondByte == 0) {
+            return false;
+        }
+
+        var len: usize = 0;
+        const maxLen = section.size / 2;
+        while (len < maxLen and len < 2048) : (len += 1) {
+            const idx = len * 2;
+            if (stringBytes[idx] == 0 and stringBytes[idx + 1] == 0) break;
+        }
+
+        if (len == 0 or len >= 2048) return false;
+        if (len != needle.len) return false;
+
+        for (needle, 0..) |byte, idx| {
+            const charIdx = idx * 2;
+            const highByte = stringBytes[charIdx];
+            const char = stringBytes[charIdx + 1];
+
+            if (char != byte or highByte != 0) return false;
+        }
+
+        return true;
+    }
+
+    fn matchUtf32Le(stringBytes: [*]align(1) const u8, needle: []const u8, section: anytype) bool {
+        if (stringBytes[1] != 0 or stringBytes[2] != 0 or stringBytes[3] != 0) {
+            return false;
+        }
+
+        var len: usize = 0;
+        const maxLen = section.size / 4;
+        while (len < maxLen and len < 1024) : (len += 1) {
+            const idx = len * 4;
+            if (stringBytes[idx] == 0 and stringBytes[idx + 1] == 0 and
+                stringBytes[idx + 2] == 0 and stringBytes[idx + 3] == 0) break;
+        }
+
+        if (len == 0 or len >= 1024) return false;
+        if (len != needle.len) return false;
+
+        for (needle, 0..) |byte, idx| {
+            const charIdx = idx * 4;
+            if (stringBytes[charIdx] != byte or
+                stringBytes[charIdx + 1] != 0 or
+                stringBytes[charIdx + 2] != 0 or
+                stringBytes[charIdx + 3] != 0) return false;
+        }
+
+        return true;
+    }
+
+    fn matchUtf32Be(stringBytes: [*]align(1) const u8, needle: []const u8, section: anytype) bool {
+        if (stringBytes[0] != 0 or stringBytes[1] != 0 or stringBytes[2] != 0) {
+            return false;
+        }
+
+        var len: usize = 0;
+        const maxLen = section.size / 4;
+        while (len < maxLen and len < 1024) : (len += 1) {
+            const idx = len * 4;
+            if (stringBytes[idx] == 0 and stringBytes[idx + 1] == 0 and
+                stringBytes[idx + 2] == 0 and stringBytes[idx + 3] == 0) break;
+        }
+
+        if (len == 0 or len >= 1024) return false;
+        if (len != needle.len) return false;
+
+        for (needle, 0..) |byte, idx| {
+            const charIdx = idx * 4;
+            if (stringBytes[charIdx] != 0 or
+                stringBytes[charIdx + 1] != 0 or
+                stringBytes[charIdx + 2] != 0 or
+                stringBytes[charIdx + 3] != byte) return false;
+        }
+
+        return true;
+    }
 };
 
 pub const Address = struct {
@@ -64,20 +249,25 @@ pub const Address = struct {
         return .{ .address = addr };
     }
 
-    pub inline fn offset(self: *const Address, off: i32) !Address {
-        const newAddress = self.address +% @as(usize, @intCast(off));
-        if (newAddress == 0)
-            return MemError.InvalidAddress;
-
-        return Address.init(newAddress);
-    }
-
-    pub inline fn relOffset(self: *const Address, off: i32) !Address {
-        const base = self.address +% @as(usize, @intCast(off));
+    pub inline fn absoluteOffset(self: *const Address, off: usize) !Address {
+        const base = self.address +% off;
         if (base == 0)
             return MemError.InvalidAddress;
 
-        const displacement = @as(*const i32, @ptrFromInt(base)).*;
+        const address = @as(*align(1) const u32, @ptrFromInt(base)).*;
+        // const address = @as(*const u32, @ptrFromInt(base)).*;
+        if (address == 0)
+            return MemError.InvalidAddress;
+
+        return Address.init(address);
+    }
+
+    pub inline fn relativeOffset(self: *const Address, off: usize) !Address {
+        const base = self.address +% off;
+        if (base == 0)
+            return MemError.InvalidAddress;
+
+        const displacement = @as(*const u32, @ptrFromInt(base)).*;
         return Address.init(base +% 4 +% @as(usize, @intCast(displacement)));
     }
 
@@ -132,7 +322,7 @@ pub const Module = struct {
     }
 
     pub fn isAddressValid(self: *const Module, addr: usize) bool {
-        return addr > self.handle and addr < self.handle + self.sizeOfImage;
+        return addr > @as(usize, @intFromPtr(self.handle)) and addr < @as(usize, @intFromPtr(self.handle)) + self.sizeOfImage;
     }
 
     pub fn getHandle(self: *const Module) Address {
@@ -142,21 +332,27 @@ pub const Module = struct {
     pub fn section(self: *const Module, allocator: std.mem.Allocator, name: []const u8) !Section {
         const sec = Section{
             .module = self,
-            .name = "",
         };
         return try .init(sec, allocator, name);
     }
 
     pub const Section = struct {
         module: *const Module,
-        name: []const u8,
+        name: []const u8 = "",
+        size: usize = 0,
+        start: ?Address = null,
+        end: ?Address = null,
 
         pub fn init(sec: Section, allocator: std.mem.Allocator, name: []const u8) !Section {
-            _ = try sec.getSection(allocator, name);
+            const s = try sec.getSection(allocator, name);
+            const start = sec.module.getHandle().get() + s.VirtualAddress;
 
             return .{
                 .module = sec.module,
                 .name = name,
+                .size = s.VirtualSize,
+                .start = Address{ .address = start },
+                .end = Address{ .address = start + s.VirtualSize },
             };
         }
 
@@ -192,6 +388,16 @@ pub const Module = struct {
 
             return MemError.NoResult;
         }
+
+        pub fn isInSection(self: Section, address: Address) bool {
+            return address.get() >= self.start.?.get() and address.get() < self.end.?.get();
+        }
+    };
+
+    const StringRef = struct {
+        address: Address,
+        dataAddress: Address,
+        encoding: StringEncoding,
     };
 
     pub fn scanner(self: *const Module) Scanner {
@@ -252,11 +458,62 @@ pub const Module = struct {
             return results.toOwnedSlice(allocator);
         }
 
-        // TODO: implement
-        pub fn string(self: *const Scanner, stringRef: []const u8) !Scanner {
-            _ = self;
-            _ = stringRef;
-            return Scanner{};
+        // TODO: add x64 support, fuzzy matching
+        pub fn string(self: Scanner, allocator: std.mem.Allocator, comptime str: []const u8, findFirst: bool) ![]StringRef {
+            var addresses = std.ArrayList(StringRef).empty;
+            errdefer addresses.deinit(allocator);
+
+            const textSection = try self.module.section(std.heap.page_allocator, ".text");
+            const rdataSection = try self.module.section(std.heap.page_allocator, ".rdata");
+
+            const scanBytes = textSection.start.?.ptr([*]const u8);
+
+            // NOTE: comments are for x64, need to implement later
+            var i: usize = 0;
+            while (i < textSection.size) : (i += 1) {
+                // if ((scanBytes[i] == @intFromEnum(Mnemonic.CMOVL) or
+                //     scanBytes[i] == @intFromEnum(Mnemonic.CMOVS) or
+                //     scanBytes[i] == @intFromEnum(Mnemonic.CMOVNS)) and
+                //     scanBytes[i + 1] == @intFromEnum(Mnemonic.LEA))
+                // {
+                if (scanBytes[i] == @intFromEnum(Mnemonic.PUSH)) {
+                    // const stringAddress = try Address.init(@intFromPtr(&scanBytes[i])).relativeOffset(3);
+                    const stringAddress = Address.init(@intFromPtr(&scanBytes[i])).absoluteOffset(1) catch {
+                        continue;
+                    };
+
+                    if (!self.module.isAddressValid(stringAddress.address)) {
+                        continue;
+                    }
+
+                    if (rdataSection.isInSection(stringAddress)) {
+                        const stringBytes = @as([*]align(1) const u8, @ptrFromInt(stringAddress.address));
+
+                        if (try Utils.matchString(stringBytes, str, rdataSection)) {
+                            if (findFirst) {
+                                try addresses.append(allocator, .{
+                                    .address = Address.init(@intFromPtr(&scanBytes[i])),
+                                    .dataAddress = stringAddress,
+                                    .encoding = .utf8, // TODO: don't hardcode this
+                                });
+                                return addresses.toOwnedSlice(allocator);
+                            } else {
+                                try addresses.append(allocator, .{
+                                    .address = Address.init(@intFromPtr(&scanBytes[i])),
+                                    .dataAddress = stringAddress,
+                                    .encoding = .utf8, // TODO: don't hardcode this either
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (addresses.items.len > 0) {
+                return addresses.toOwnedSlice(allocator);
+            }
+
+            return MemError.NoResult;
         }
     };
 };
