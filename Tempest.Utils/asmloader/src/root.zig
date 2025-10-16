@@ -65,7 +65,7 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
         std.debug.print("[AsmLoader] Failed to find pattern! err:{}\n", .{err});
     }
 
-    if (module.scanner().string(std.heap.page_allocator, "ASSEMBLY", false)) |ref| {
+    if (module.scanner().string(std.heap.page_allocator, "Assembly load started", true)) |ref| {
         defer std.heap.page_allocator.free(ref);
         std.debug.print("Found string ref: {any}\n", .{ref});
     } else |err| {
@@ -119,9 +119,12 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
     try detourz.transactionBegin();
     try detourz.updateThread(GetCurrentThread());
 
-    try detourz.attach(@ptrCast(&addNetworkPackage), @constCast(&hookAddNetworkPackage));
+    // try detourz.attach(@ptrCast(&addNetworkPackage), @constCast(&hookAddNetworkPackage));
 
     try detourz.transactionCommit();
+
+    // HACK: remove this
+    _ = Sleep(100000);
 
     // _ = FreeConsole();
     // FreeLibraryAndExitThread(@ptrCast(hinstDLL), 0);
@@ -136,8 +139,8 @@ pub export fn DllMain(
     _ = lpvReserved;
 
     if (fdwReason == 1) {
-        _ = std.Thread.spawn(.{}, main, .{hinstDLL}) catch return windows.FALSE;
-        // _ = main(hinstDLL) catch return windows.FALSE;
+        // _ = std.Thread.spawn(.{}, main, .{hinstDLL}) catch return windows.FALSE;
+        _ = main(hinstDLL) catch return windows.FALSE;
     }
 
     return windows.TRUE;

@@ -267,7 +267,7 @@ pub const Address = struct {
         if (base == 0)
             return MemError.InvalidAddress;
 
-        const displacement = @as(*const u32, @ptrFromInt(base)).*;
+        const displacement = @as(*align(1) const u32, @ptrFromInt(base)).*;
         return Address.init(base +% 4 +% @as(usize, @intCast(displacement)));
     }
 
@@ -458,7 +458,7 @@ pub const Module = struct {
             return results.toOwnedSlice(allocator);
         }
 
-        // TODO: add x64 support, fuzzy matching
+        // TODO: add fuzzy matching support
         pub fn string(self: Scanner, allocator: std.mem.Allocator, comptime str: []const u8, findFirst: bool) ![]StringRef {
             var addresses = std.ArrayList(StringRef).empty;
             errdefer addresses.deinit(allocator);
@@ -468,19 +468,25 @@ pub const Module = struct {
 
             const scanBytes = textSection.start.?.ptr([*]const u8);
 
-            // NOTE: comments are for x64, need to implement later
             var i: usize = 0;
             while (i < textSection.size) : (i += 1) {
-                // if ((scanBytes[i] == @intFromEnum(Mnemonic.CMOVL) or
-                //     scanBytes[i] == @intFromEnum(Mnemonic.CMOVS) or
-                //     scanBytes[i] == @intFromEnum(Mnemonic.CMOVNS)) and
-                //     scanBytes[i + 1] == @intFromEnum(Mnemonic.LEA))
-                // {
-                if (scanBytes[i] == @intFromEnum(Mnemonic.PUSH)) {
-                    // const stringAddress = try Address.init(@intFromPtr(&scanBytes[i])).relativeOffset(3);
-                    const stringAddress = Address.init(@intFromPtr(&scanBytes[i])).absoluteOffset(1) catch {
-                        continue;
-                    };
+                const condition = if (builtin.cpu.arch == .x86)
+                    scanBytes[i] == @intFromEnum(Mnemonic.PUSH)
+                else
+                    (scanBytes[i] == @intFromEnum(Mnemonic.CMOVL) or
+                        scanBytes[i] == @intFromEnum(Mnemonic.CMOVS) or
+                        scanBytes[i] == @intFromEnum(Mnemonic.CMOVNS)) and
+                        scanBytes[i + 1] == @intFromEnum(Mnemonic.LEA);
+
+                if (condition) {
+                    const stringAddress = if (builtin.cpu.arch == .x86)
+                        Address.init(@intFromPtr(&scanBytes[i])).absoluteOffset(1) catch {
+                            continue;
+                        }
+                    else
+                        Address.init(@intFromPtr(&scanBytes[i])).relativeOffset(3) catch {
+                            continue;
+                        };
 
                     if (!self.module.isAddressValid(stringAddress.address)) {
                         continue;
@@ -513,6 +519,42 @@ pub const Module = struct {
                 return addresses.toOwnedSlice(allocator);
             }
 
+            return MemError.NoResult;
+        }
+
+        pub fn scanFor(self: Scanner, opcodesToFind: []const u8, forward: bool, toSkip: usize) !Address {
+            const scanBytes = @as([*]const u8, @ptrCast(self.address.?.address));
+
+            const start: i32 = if (forward) 1 else -1;
+            const end: i32 = if (forward) 2048 else -2048;
+            const increment: i32 = if (forward) 1 else -1;
+
+            var i = start;
+            while (if (forward) i < end else i > end) : (i += increment) {
+                var found = true;
+
+                for (opcodesToFind, 0..) |opcode, j| {
+                    if (opcode == 0xFF) continue; // Wildcard byte
+
+                    const idx = @as(usize, @intCast(i + @as(i32, @intCast(j))));
+                    if (opcode != scanBytes[idx]) {
+                        found = false;
+                        break;
+                    }
+                }
+
+                if (found) {
+                    const result = Address{
+                        .address = @intFromPtr(&scanBytes[@intCast(i)]),
+                    };
+
+                    if (toSkip != 0) {
+                        return result.scanFor(opcodesToFind, forward, toSkip - 1);
+                    }
+
+                    return result;
+                }
+            }
             return MemError.NoResult;
         }
     };
