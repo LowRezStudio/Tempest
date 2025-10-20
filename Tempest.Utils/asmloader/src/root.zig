@@ -53,10 +53,10 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
     const scanner = module.scanner();
     if (scanner.string("Assembly load started")) |ref| {
         const gAssemblyManagerRef = if (builtin.cpu.arch == .x86) blk: {
-            const call = try ref.scanFor(&.{memory.Mnemonic.MOV_ECX}, true, 0);
+            const call = try ref.scanFor(&.{.{ .byte = 0xB9 }}, true, 0);
             break :blk call;
         } else blk: {
-            break :blk try ref.scanFor(&.{memory.Mnemonic.LEA}, true, 1);
+            break :blk try ref.scanFor(&.{.{ .mnemonic = memory.Mnemonic.LEA }}, true, 1);
         };
 
         gAssemblyManager = if (builtin.cpu.arch == .x86) blk: {
@@ -67,17 +67,35 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
             break :blk @ptrFromInt(address.get());
         };
 
-        const loadFileRef = try ref.scanFor(&.{memory.Mnemonic.CALL}, true, 1);
+        const loadFileRef = try ref.scanFor(&.{
+            .{ .mnemonic = memory.Mnemonic.CALL },
+            .wildcard,
+            .wildcard,
+            .wildcard,
+            .wildcard,
+            .{ .byte = 0x84 },
+            .{ .byte = 0xC0 },
+        }, true, 0);
         loadFile = blk: {
             const address = try loadFileRef.address.?.relativeOffset(1);
             break :blk @ptrFromInt(address.get());
         };
+
+        // loadFile = blk: {
+        //     const loadFileRef = try ref.scanFor(&.{
+        //         .{ .mnemonic = memory.Mnemonic.CALL },
+        //         .{ .byte = 0x87 },
+        //         .{ .byte = 0xC0 },
+        //     }, true, 0);
+        //     const address = try loadFileRef.address.?.relativeOffset(1);
+        //     break :blk @ptrFromInt(address.get());
+        // };
     } else |err| {
         std.debug.print("Failed to find string! err:{}\n", .{err});
     }
 
     if (scanner.string("Skipping adding %s to NetPackages")) |ref| {
-        const addNetPackageRef = try ref.scanFor(&.{ memory.Mnemonic.INT3, memory.Mnemonic.INT3 }, false, 0);
+        const addNetPackageRef = try ref.scanFor(&.{ .{ .mnemonic = memory.Mnemonic.INT3 }, .{ .mnemonic = memory.Mnemonic.INT3 } }, false, 0);
         addNetPackage = @ptrFromInt(addNetPackageRef.address.?.get() + 2);
     } else |err| {
         std.debug.print("Failed to find string! err:{}\n", .{err});

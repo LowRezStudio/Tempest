@@ -32,8 +32,6 @@ const NtHeaderType = switch (builtin.cpu.arch) {
 
 pub const Mnemonic = enum(u8) {
     PUSH = 0x68,
-    PUSH_REX = 0x40,
-    PUSH_RDI = 0x57,
     JMP_REL8 = 0xEB,
     JMP_REL32 = 0xE9,
     JMP_EAX = 0xE0,
@@ -43,7 +41,6 @@ pub const Mnemonic = enum(u8) {
     CMOVL = 0x4C,
     CMOVS = 0x48,
     CMOVNS = 0x49,
-    MOV_ECX = 0xB9,
     NOP = 0x90,
     INT3 = 0xCC,
     RETN_REL8 = 0xC2,
@@ -498,7 +495,21 @@ pub const Module = struct {
             return MemError.NoResult;
         }
 
-        pub fn scanFor(self: Scanner, comptime opcodesToFind: []const Mnemonic, forward: bool, toSkip: usize) !Scanner {
+        pub const PatternByte = union(enum) {
+            mnemonic: Mnemonic,
+            byte: u8,
+            wildcard,
+
+            pub fn toByte(self: PatternByte) u8 {
+                return switch (self) {
+                    .mnemonic => |m| @intFromEnum(m),
+                    .byte => |b| b,
+                    .wildcard => 0xFF,
+                };
+            }
+        };
+
+        pub fn scanFor(self: Scanner, comptime opcodesToFind: []const PatternByte, forward: bool, toSkip: usize) !Scanner {
             const scanBytes = @as([*]const u8, @ptrCast(self.address.?.asPtr(*anyopaque)));
 
             const start: isize = if (forward) 1 else -1;
@@ -506,11 +517,11 @@ pub const Module = struct {
             const increment: isize = if (forward) 1 else -1;
 
             const opcodesToFindBytes = comptime blk: {
-                var opcodesToFind_bytes: [opcodesToFind.len]u8 = undefined;
-                for (opcodesToFind, 0..) |opcode, i| {
-                    opcodesToFind_bytes[i] = @intFromEnum(opcode);
+                var pattern_bytes: [opcodesToFind.len]u8 = undefined;
+                for (opcodesToFind, 0..) |item, i| {
+                    pattern_bytes[i] = item.toByte();
                 }
-                break :blk opcodesToFind_bytes;
+                break :blk pattern_bytes;
             };
 
             var i = start;
