@@ -30,8 +30,10 @@ const NtHeaderType = switch (builtin.cpu.arch) {
     else => @compileError("Unsupported architecture"),
 };
 
-const Mnemonic = enum(u8) {
+pub const Mnemonic = enum(u8) {
     PUSH = 0x68,
+    PUSH_REX = 0x40,
+    PUSH_RDI = 0x57,
     JMP_REL8 = 0xEB,
     JMP_REL32 = 0xE9,
     JMP_EAX = 0xE0,
@@ -41,11 +43,13 @@ const Mnemonic = enum(u8) {
     CMOVL = 0x4C,
     CMOVS = 0x48,
     CMOVNS = 0x49,
+    MOV_ECX = 0xB9,
     NOP = 0x90,
     INT3 = 0xCC,
     RETN_REL8 = 0xC2,
     RETN = 0xC3,
     NONE = 0x00,
+    WILDCARD = 0xFF,
 };
 
 pub const Utils = struct {
@@ -245,24 +249,23 @@ pub const Utils = struct {
 pub const Address = struct {
     address: usize,
 
-    pub inline fn init(addr: usize) Address {
+    pub fn init(addr: usize) Address {
         return .{ .address = addr };
     }
 
-    pub inline fn absoluteOffset(self: *const Address, off: usize) !Address {
+    pub fn absoluteOffset(self: Address, off: usize) !Address {
         const base = self.address +% off;
         if (base == 0)
             return MemError.InvalidAddress;
 
         const address = @as(*align(1) const u32, @ptrFromInt(base)).*;
-        // const address = @as(*const u32, @ptrFromInt(base)).*;
         if (address == 0)
             return MemError.InvalidAddress;
 
         return Address.init(address);
     }
 
-    pub inline fn relativeOffset(self: *const Address, off: usize) !Address {
+    pub fn relativeOffset(self: Address, off: usize) !Address {
         const base = self.address +% off;
         if (base == 0)
             return MemError.InvalidAddress;
@@ -271,11 +274,11 @@ pub const Address = struct {
         return Address.init(base +% 4 +% @as(usize, @intCast(displacement)));
     }
 
-    pub fn ptr(self: *const Address, comptime T: type) T {
+    pub fn asPtr(self: Address, comptime T: type) T {
         return @ptrFromInt(self.address);
     }
 
-    pub inline fn get(self: *const Address) usize {
+    pub fn get(self: Address) usize {
         return self.address;
     }
 };
@@ -329,11 +332,11 @@ pub const Module = struct {
         return .init(@intFromPtr(self.handle));
     }
 
-    pub fn section(self: *const Module, allocator: std.mem.Allocator, name: []const u8) !Section {
+    pub fn section(self: *const Module, name: []const u8) !Section {
         const sec = Section{
             .module = self,
         };
-        return try .init(sec, allocator, name);
+        return try .init(sec, name);
     }
 
     pub const Section = struct {
@@ -343,8 +346,8 @@ pub const Module = struct {
         start: ?Address = null,
         end: ?Address = null,
 
-        pub fn init(sec: Section, allocator: std.mem.Allocator, name: []const u8) !Section {
-            const s = try sec.getSection(allocator, name);
+        pub fn init(sec: Section, name: []const u8) !Section {
+            const s = try sec.getSection(name);
             const start = sec.module.getHandle().get() + s.VirtualAddress;
 
             return .{
@@ -356,33 +359,26 @@ pub const Module = struct {
             };
         }
 
-        pub fn getAllSections(self: Section, allocator: std.mem.Allocator) ![]ntapi.IMAGE_SECTION_HEADER {
+        fn getSectionHeadersPtr(self: Section) [*]const ntapi.IMAGE_SECTION_HEADER {
             const nt_headers = self.module.getNtHeader();
-            const num_sections = nt_headers.FileHeader.NumberOfSections;
-
-            var sections = std.ArrayList(ntapi.IMAGE_SECTION_HEADER).empty;
-            errdefer sections.deinit(allocator);
-
             const nt_headers_addr = @intFromPtr(nt_headers);
             const optional_header_size = nt_headers.FileHeader.SizeOfOptionalHeader;
 
             const first_section_addr = nt_headers_addr + 4 + 20 + optional_header_size;
-            const section_headers = @as([*]const ntapi.IMAGE_SECTION_HEADER, @ptrFromInt(first_section_addr));
-
-            for (0..num_sections) |i| {
-                try sections.append(allocator, section_headers[i]);
-            }
-
-            return sections.toOwnedSlice(allocator);
+            return @as([*]const ntapi.IMAGE_SECTION_HEADER, @ptrFromInt(first_section_addr));
         }
 
-        pub fn getSection(self: Section, allocator: std.mem.Allocator, name: []const u8) !ntapi.IMAGE_SECTION_HEADER {
-            const sections = try self.getAllSections(allocator);
-            defer allocator.free(sections);
+        fn getNumSections(self: Section) u16 {
+            return self.module.getNtHeader().FileHeader.NumberOfSections;
+        }
 
-            for (sections) |s| {
-                if (std.mem.eql(u8, s.getName(), name)) {
-                    return s;
+        pub fn getSection(self: Section, name: []const u8) !ntapi.IMAGE_SECTION_HEADER {
+            const section_headers = self.getSectionHeadersPtr();
+            const num_sections = self.getNumSections();
+
+            for (0..num_sections) |i| {
+                if (std.mem.eql(u8, section_headers[i].getName(), name)) {
+                    return section_headers[i];
                 }
             }
 
@@ -394,12 +390,6 @@ pub const Module = struct {
         }
     };
 
-    const StringRef = struct {
-        address: Address,
-        dataAddress: Address,
-        encoding: StringEncoding,
-    };
-
     pub fn scanner(self: *const Module) Scanner {
         return Scanner.init(self);
     }
@@ -407,11 +397,13 @@ pub const Module = struct {
     pub const Scanner = struct {
         module: *const Module,
         address: ?Address = null,
+        dataAddress: ?Address = null,
 
         pub fn init(module: *const Module) Scanner {
             return .{ .module = module };
         }
 
+        // TODO: return scanners
         pub fn pattern(self: Scanner, allocator: std.mem.Allocator, comptime patternStr: []const u8) ![]Address {
             if (patternStr.len == 0) @compileError("Pattern string must not be empty");
             const patternBytes = Utils.patternToBytes(patternStr);
@@ -458,15 +450,12 @@ pub const Module = struct {
             return results.toOwnedSlice(allocator);
         }
 
-        // TODO: add fuzzy matching support
-        pub fn string(self: Scanner, allocator: std.mem.Allocator, comptime str: []const u8, findFirst: bool) ![]StringRef {
-            var addresses = std.ArrayList(StringRef).empty;
-            errdefer addresses.deinit(allocator);
+        // TODO: add fuzzy matching and multi restult
+        pub fn string(self: Scanner, comptime str: []const u8) !Scanner {
+            const textSection = try self.module.section(".text");
+            const rdataSection = try self.module.section(".rdata");
 
-            const textSection = try self.module.section(std.heap.page_allocator, ".text");
-            const rdataSection = try self.module.section(std.heap.page_allocator, ".rdata");
-
-            const scanBytes = textSection.start.?.ptr([*]const u8);
+            const scanBytes = textSection.start.?.asPtr([*]const u8);
 
             var i: usize = 0;
             while (i < textSection.size) : (i += 1) {
@@ -496,62 +485,63 @@ pub const Module = struct {
                         const stringBytes = @as([*]align(1) const u8, @ptrFromInt(stringAddress.address));
 
                         if (try Utils.matchString(stringBytes, str, rdataSection)) {
-                            if (findFirst) {
-                                try addresses.append(allocator, .{
-                                    .address = Address.init(@intFromPtr(&scanBytes[i])),
-                                    .dataAddress = stringAddress,
-                                    .encoding = .utf8, // TODO: don't hardcode this
-                                });
-                                return addresses.toOwnedSlice(allocator);
-                            } else {
-                                try addresses.append(allocator, .{
-                                    .address = Address.init(@intFromPtr(&scanBytes[i])),
-                                    .dataAddress = stringAddress,
-                                    .encoding = .utf8, // TODO: don't hardcode this either
-                                });
-                            }
+                            return Scanner{
+                                .module = self.module,
+                                .address = Address.init(@intFromPtr(&scanBytes[i])),
+                                .dataAddress = stringAddress,
+                            };
                         }
                     }
                 }
             }
 
-            if (addresses.items.len > 0) {
-                return addresses.toOwnedSlice(allocator);
-            }
-
             return MemError.NoResult;
         }
 
-        pub fn scanFor(self: Scanner, opcodesToFind: []const u8, forward: bool, toSkip: usize) !Address {
-            const scanBytes = @as([*]const u8, @ptrCast(self.address.?.address));
+        pub fn scanFor(self: Scanner, comptime opcodesToFind: []const Mnemonic, forward: bool, toSkip: usize) !Scanner {
+            const scanBytes = @as([*]const u8, @ptrCast(self.address.?.asPtr(*anyopaque)));
 
-            const start: i32 = if (forward) 1 else -1;
-            const end: i32 = if (forward) 2048 else -2048;
-            const increment: i32 = if (forward) 1 else -1;
+            const start: isize = if (forward) 1 else -1;
+            const end: isize = if (forward) 2048 else -2048;
+            const increment: isize = if (forward) 1 else -1;
+
+            const opcodesToFindBytes = comptime blk: {
+                var opcodesToFind_bytes: [opcodesToFind.len]u8 = undefined;
+                for (opcodesToFind, 0..) |opcode, i| {
+                    opcodesToFind_bytes[i] = @intFromEnum(opcode);
+                }
+                break :blk opcodesToFind_bytes;
+            };
 
             var i = start;
             while (if (forward) i < end else i > end) : (i += increment) {
                 var found = true;
 
-                for (opcodesToFind, 0..) |opcode, j| {
+                for (opcodesToFindBytes, 0..) |opcode, j| {
                     if (opcode == 0xFF) continue; // Wildcard byte
 
-                    const idx = @as(usize, @intCast(i + @as(i32, @intCast(j))));
-                    if (opcode != scanBytes[idx]) {
+                    const offset: isize = i + @as(isize, @intCast(j));
+                    const idx: usize = @bitCast(offset);
+                    const byteAtOffset = scanBytes[idx];
+
+                    if (opcode != byteAtOffset) {
                         found = false;
                         break;
                     }
                 }
 
                 if (found) {
-                    const result = Address{
-                        .address = @intFromPtr(&scanBytes[@intCast(i)]),
+                    const idx: usize = @bitCast(i);
+                    const match_address = @intFromPtr(&scanBytes[idx]);
+                    const result = Scanner{
+                        .module = self.module,
+                        .address = Address{ .address = match_address },
+                        .dataAddress = self.dataAddress,
                     };
 
                     if (toSkip != 0) {
                         return result.scanFor(opcodesToFind, forward, toSkip - 1);
                     }
-
                     return result;
                 }
             }
