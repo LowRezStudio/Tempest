@@ -19,10 +19,10 @@ extern "kernel32" fn FreeLibraryAndExitThread(hLibModule: windows.HMODULE, dwExi
 extern "kernel32" fn GetCurrentThread() callconv(.winapi) windows.HANDLE;
 extern "kernel32" fn Sleep(dwMilliseconds: u32) callconv(.winapi) void;
 
-// void __thiscall sub_64930(_DWORD *this, _DWORD *a2)
+// void __thiscall UPackage::AddNetPackage(_DWORD *this, _DWORD *a2)
 const AddNetPackage = *const fn (pThis: ?*anyopaque, a2: u32) callconv(THISCALL) void;
 
-// int __thiscall sub_C732D0(_DWORD *this, char a2)
+// int __thiscall AssemblyManager::LoadFile(_DWORD *this, char a2)
 const LoadFile = *const fn (pThis: ?*anyopaque, fullLoad: u8) callconv(THISCALL) c_int;
 
 var addNetPackage: AddNetPackage = undefined;
@@ -80,16 +80,6 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
             const address = try loadFileRef.address.?.relativeOffset(1);
             break :blk @ptrFromInt(address.get());
         };
-
-        // loadFile = blk: {
-        //     const loadFileRef = try ref.scanFor(&.{
-        //         .{ .mnemonic = memory.Mnemonic.CALL },
-        //         .{ .byte = 0x87 },
-        //         .{ .byte = 0xC0 },
-        //     }, true, 0);
-        //     const address = try loadFileRef.address.?.relativeOffset(1);
-        //     break :blk @ptrFromInt(address.get());
-        // };
     } else |err| {
         std.debug.print("Failed to find string! err:{}\n", .{err});
     }
