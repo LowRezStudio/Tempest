@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 
-const structs = @import("structs.zig");
+const ue = @import("ue.zig");
 
 const Parser = struct {
     file: fs.File,
@@ -20,13 +20,13 @@ const Parser = struct {
         var fr = self.file.reader(&buffer);
         const r: *std.Io.Reader = &fr.interface;
 
-        const summary: structs.FPackageFileSummary = .{
+        const summary: ue.FPackageFileSummary = .{
             .tag = try r.takeInt(u32, .little),
             .file_version = try r.takeInt(u16, .little),
             .licensee_version = try r.takeInt(u16, .little),
             .total_header_size = try r.takeInt(u32, .little),
-            .folder_name = try structs.FName.read(r),
-            .package_flags = try r.takeInt(u32, .little) & ~@intFromEnum(structs.PackageFlags.FilterEditorOnly),
+            .folder_name = try ue.FName.read(r),
+            .package_flags = try r.takeInt(u32, .little) & ~@intFromEnum(ue.PackageFlags.FilterEditorOnly),
             .name_count = try r.takeInt(u32, .little),
             .name_offset = try r.takeInt(u32, .little),
             .export_count = try r.takeInt(u32, .little),
@@ -38,8 +38,8 @@ const Parser = struct {
             .unk2 = try r.takeInt(u32, .little),
             .unk3 = try r.takeInt(u32, .little),
             .unk4 = try r.takeInt(u32, .little),
-            .guid = try r.takeStruct(structs.FGuid, .little),
-            .generations = try structs.FGenerationInfo.read(r, self.allocator),
+            .guid = try r.takeStruct(ue.FGuid, .little),
+            .generations = try ue.FGenerationInfo.read(r, self.allocator),
             .engine_version = try r.takeInt(u32, .little),
             .cooker_version_upper = try r.takeInt(u16, .little),
             .cooker_version_lower = try r.takeInt(u16, .little),
@@ -96,7 +96,7 @@ const Parser = struct {
             summary.compression_flags,
         });
 
-        structs.PackageFlags.print(summary.package_flags);
+        ue.PackageFlags.print(summary.package_flags);
 
         // print the generations
         std.log.info("Generations", .{});
@@ -117,7 +117,7 @@ const Parser = struct {
         r.seek = summary.name_offset;
         var i: u32 = 0;
         while (i < summary.name_count) : (i += 1) {
-            const n = try structs.FName.read(r);
+            const n = try ue.FName.read(r);
             std.log.info("name: {s}", .{n.toString()});
             r.toss(8);
         }
