@@ -125,7 +125,7 @@ const Parser = struct {
     }
 
     pub fn parse(self: Parser) !void {
-        var buffer: [4096]u8 = undefined;
+        var buffer: [32 * 1024]u8 = undefined;
         var fr = self.file.reader(&buffer);
         const r: *std.Io.Reader = &fr.interface;
 
@@ -221,6 +221,14 @@ const Parser = struct {
                 generation.name_count,
                 generation.net_object_count,
             });
+        }
+
+        r.seek = summary.name_offset;
+        var i: u32 = 0;
+        while (i < summary.name_count) : (i += 1) {
+            const n = try FName.read(r);
+            std.log.info("name: {s}", .{n.toString()});
+            r.toss(8);
         }
     }
 };
