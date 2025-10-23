@@ -20,22 +20,31 @@ const Parser = struct {
         };
     }
 
-    pub fn patchSFSC(self: *Parser) !void {
-        var sfsc_exports = std.ArrayList(ue.FObjectExport).empty;
+    pub fn patchSFSC(self: *Parser, filepath: []const u8) !void {
+        const SFSCExport = struct {
+            object: ue.FObjectExport,
+            index: usize,
+        };
+
+        var sfsc_exports = std.ArrayList(SFSCExport).empty;
         defer sfsc_exports.deinit(self.allocator);
 
-        for (self.exports_table) |@"export"| {
+        for (self.exports_table, 0..) |@"export", i| {
             if (std.mem.eql(u8, self.names_table[@"export".NameTableIndex].name.toString(), "SeekFreeShaderCache\x00")) {
-                try sfsc_exports.append(self.allocator, @"export");
+                std.debug.print("Found SeekFreeShaderCache export at index {d}\n", .{i});
+                try sfsc_exports.append(self.allocator, .{
+                    .object = @"export",
+                    .index = i,
+                });
             }
         }
 
         std.debug.print("SFSC Exports:\n", .{});
         for (sfsc_exports.items) |@"export"| {
-            const obj_type_name = if (@"export".ClassIndex < 0)
-                self.names_table[self.imports_table[@abs(@"export".ClassIndex)].NameTableIndex].name.toString()
+            const obj_type_name = if (@"export".object.ClassIndex < 0)
+                self.names_table[self.imports_table[@abs(@"export".object.ClassIndex)].NameTableIndex].name.toString()
             else
-                self.names_table[@abs(@"export".ClassIndex)].name.toString();
+                self.names_table[@abs(@"export".object.ClassIndex)].name.toString();
 
             std.debug.print(
                 \\
@@ -48,18 +57,98 @@ const Parser = struct {
                 \\
                 \\
             , .{
-                self.names_table[@abs(@"export".NameTableIndex)].name.toString(),
-                @"export".NameCount,
-                @"export".NameCount,
-                @"export".SerialSize,
+                self.names_table[@abs(@"export".object.NameTableIndex)].name.toString(),
+                @"export".object.NameCount,
+                @"export".object.NameCount,
+                @"export".object.SerialSize,
                 obj_type_name,
-                @"export".SuperIndex,
-                self.names_table[self.exports_table[@abs(@"export".SuperIndex)].NameTableIndex].name.toString(),
-                self.exports_table[@abs(@"export".SuperIndex)].NameCount,
-                @"export".ArchetypeIndex,
-                self.names_table[self.exports_table[@abs(@"export".ArchetypeIndex)].NameTableIndex].name.toString(),
-                self.exports_table[@abs(@"export".ArchetypeIndex)].NameCount,
+                @"export".object.SuperIndex,
+                self.names_table[self.exports_table[@abs(@"export".object.SuperIndex)].NameTableIndex].name.toString(),
+                self.exports_table[@abs(@"export".object.SuperIndex)].NameCount,
+                @"export".object.ArchetypeIndex,
+                self.names_table[self.exports_table[@abs(@"export".object.ArchetypeIndex)].NameTableIndex].name.toString(),
+                self.exports_table[@abs(@"export".object.ArchetypeIndex)].NameCount,
             });
+
+            // Patch the SFSC export
+            // var name_index: u32 = 0;
+            // for (self.names_table, 0..) |name, i| {
+            //     if (mem.eql(u8, name.name.toString(), "Package\x00")) {
+            //         name_index = @intCast(i);
+            //         break;
+            //     }
+            // }
+            //
+
+            // Find the object with name "Package\x00" in the import table
+            var obj_index: i32 = 0;
+            for (self.imports_table[1..], 1..) |import, i| {
+                if (mem.eql(u8, self.names_table[import.NameTableIndex].name.toString(), "Package\x00")) {
+                    obj_index = @intCast(i);
+                    break;
+                }
+            }
+
+            std.debug.print("Patching SFSC export at index {d}\n", .{@"export".index});
+            std.debug.print("  package name index: {d}\n", .{-obj_index});
+
+            self.exports_table[@"export".index].ClassIndex = -obj_index;
+            self.exports_table[@"export".index].SerialSize = 12;
+        }
+
+        if (sfsc_exports.items.len == 0) {
+            std.log.info("No SFSC exports found, skipping patching", .{});
+            return;
+        }
+        try self.writePatchedFile(filepath);
+    }
+
+    pub fn writePatchedFile(self: *Parser, original_filepath: []const u8) !void {
+        const patched_filename = original_filepath; //try generatePatchedFilename(self.allocator, original_filepath);
+        //defer self.allocator.free(patched_filename);
+
+        std.log.info("Creating patched file: {s}", .{patched_filename});
+
+        const cwd = fs.cwd();
+
+        try cwd.copyFile(original_filepath, cwd, patched_filename, .{});
+
+        const patched_file = try cwd.openFile(patched_filename, .{ .mode = .read_write });
+        defer patched_file.close();
+
+        var buffer: [4096]u8 = undefined;
+        var fw = patched_file.writer(&buffer);
+        const w = &fw.interface;
+
+        try fw.seekTo(self.summary.export_offset);
+
+        // Skip the first dummy export (index 0)
+        for (self.exports_table[1..], 1..) |@"export", i| {
+            if (i == 197 or i == 198) {
+                std.debug.print("Currently at offset 0x{X}\n", .{fw.pos});
+            }
+
+            try @"export".write(w);
+        }
+
+        // try w.writeInt(u32, 0x69696969, .little);
+
+        // Flush any remaining buffered data
+        try fw.interface.flush();
+
+        std.log.info("Successfully patched file!", .{});
+    }
+
+    fn generatePatchedFilename(allocator: mem.Allocator, original_filepath: []const u8) ![]u8 {
+        // Find the last dot for the extension
+        if (mem.lastIndexOf(u8, original_filepath, ".")) |dot_index| {
+            const basename = original_filepath[0..dot_index];
+            const extension = original_filepath[dot_index..];
+
+            return try std.fmt.allocPrint(allocator, "{s}_patched{s}", .{ basename, extension });
+        } else {
+            // No extension found, just append _patched
+            return try std.fmt.allocPrint(allocator, "{s}_patched", .{original_filepath});
         }
     }
 
@@ -148,5 +237,5 @@ pub fn main() !void {
     defer parser.deinit();
 
     try parser.parse();
-    try parser.patchSFSC();
+    try parser.patchSFSC(filepath);
 }

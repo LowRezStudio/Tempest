@@ -308,6 +308,31 @@ pub const FObjectExport = extern struct {
 
         return @"export";
     }
+
+    pub fn write(self: *const FObjectExport, w: *std.Io.Writer) !void {
+        try w.writeInt(i32, self.ClassIndex, .little);
+        try w.writeInt(i32, self.SuperIndex, .little);
+        try w.writeInt(i32, self.ArchetypeIndex, .little);
+        try w.writeInt(u32, self.NameTableIndex, .little);
+        try w.writeInt(u32, self.NameCount, .little);
+        try w.writeInt(u32, self.Field6, .little);
+        try w.writeInt(u64, self.ObjectFlags, .little);
+        try w.writeInt(u32, self.SerialSize, .little);
+        try w.writeInt(u32, self.SerialOffset, .little);
+        try w.writeInt(u32, self.Field11, .little);
+        try w.writeInt(u32, self.NumAdditionalFields, .little);
+        try w.writeInt(u32, self.Field13, .little);
+        try w.writeInt(u32, self.Field14, .little);
+        try w.writeInt(u32, self.Field15, .little);
+        try w.writeInt(u32, self.Field16, .little);
+        try w.writeInt(u32, self.Field17, .little);
+
+        // TODO: write the correct fields instead of zeroing them
+        var i: u32 = 0;
+        while (i < self.NumAdditionalFields) : (i += 1) {
+            try w.writeInt(u32, 0, .little);
+        }
+    }
 };
 
 pub const FGenerationInfo = extern struct {
