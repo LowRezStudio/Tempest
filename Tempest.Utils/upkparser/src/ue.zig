@@ -237,11 +237,52 @@ pub const FName = extern struct {
 // TODO: find the actual structs in the engine
 // this is currently using the XCOM:EU 2012 reversed names
 pub const FObjectImport = extern struct {
-    ObjTypeRef: u32,
+    //
 };
 
 pub const FObjectExport = extern struct {
-    //
+    ObjTypeRef: u32,
+    ParentClassRef: u32,
+    OwnerRef: u32,
+    NameTableIndex: u32,
+    NameCount: u32,
+    Field6: u32,
+    ObjectFlags: u64,
+    ObjectFileSize: u32,
+    DataOffset: u32,
+    Field11: u32,
+    NumAdditionalFields: u32,
+    Field13: u32,
+    Field14: u32,
+    Field15: u32,
+    Field16: u32,
+    Field17: u32,
+
+    pub fn read(r: *std.Io.Reader) !FObjectExport {
+        const import: FObjectExport = .{
+            .ObjTypeRef = try r.takeInt(u32, .little),
+            .ParentClassRef = try r.takeInt(u32, .little),
+            .OwnerRef = try r.takeInt(u32, .little),
+            .NameTableIndex = try r.takeInt(u32, .little),
+            .NameCount = try r.takeInt(u32, .little),
+            .Field6 = try r.takeInt(u32, .little),
+            .ObjectFlags = try r.takeInt(u64, .little),
+            .ObjectFileSize = try r.takeInt(u32, .little),
+            .DataOffset = try r.takeInt(u32, .little),
+            .Field11 = try r.takeInt(u32, .little),
+            .NumAdditionalFields = try r.takeInt(u32, .little),
+            .Field13 = try r.takeInt(u32, .little),
+            .Field14 = try r.takeInt(u32, .little),
+            .Field15 = try r.takeInt(u32, .little),
+            .Field16 = try r.takeInt(u32, .little),
+            .Field17 = try r.takeInt(u32, .little),
+        };
+
+        // TODO: figure out what these are
+        r.toss(4 * import.NumAdditionalFields);
+
+        return import;
+    }
 };
 
 pub const FGenerationInfo = extern struct {
@@ -288,4 +329,85 @@ pub const FPackageFileSummary = struct {
     cooker_version_upper: u16,
     cooker_version_lower: u16,
     compression_flags: u32,
+
+    pub fn read(r: *std.Io.Reader, allocator: mem.Allocator) !FPackageFileSummary {
+        const summary: FPackageFileSummary = .{
+            .tag = try r.takeInt(u32, .little),
+            .file_version = try r.takeInt(u16, .little),
+            .licensee_version = try r.takeInt(u16, .little),
+            .total_header_size = try r.takeInt(u32, .little),
+            .folder_name = try FName.read(r),
+            .package_flags = try r.takeInt(u32, .little) & ~@intFromEnum(EPackageFlags.PKG_FilterEditorOnly),
+            .name_count = try r.takeInt(u32, .little),
+            .name_offset = try r.takeInt(u32, .little),
+            .export_count = try r.takeInt(u32, .little),
+            .export_offset = try r.takeInt(u32, .little),
+            .import_count = try r.takeInt(u32, .little),
+            .import_offset = try r.takeInt(u32, .little),
+            .depends_offset = try r.takeInt(u32, .little),
+            .unk1 = try r.takeInt(u32, .little),
+            .unk2 = try r.takeInt(u32, .little),
+            .unk3 = try r.takeInt(u32, .little),
+            .unk4 = try r.takeInt(u32, .little),
+            .guid = try r.takeStruct(FGuid, .little),
+            .generations = try FGenerationInfo.read(r, allocator),
+            .engine_version = try r.takeInt(u32, .little),
+            .cooker_version_upper = try r.takeInt(u16, .little),
+            .cooker_version_lower = try r.takeInt(u16, .little),
+            .compression_flags = try r.takeInt(u32, .little),
+        };
+        return summary;
+    }
+
+    pub fn print(self: FPackageFileSummary) void {
+        std.log.info("Package File Summary", .{});
+        std.log.info(
+            \\
+            \\  tag:               0x{X}
+            \\  file_version:      {d}/{d}
+            \\  total_header_size: {d}
+            \\  folder_name:       {s}
+            \\  package_flags:     0x{X}
+            \\  name_count:        {d}
+            \\  name_offset:       {d}
+            \\  export_count:      {d}
+            \\  export_offset:     {d}
+            \\  import_count:      {d}
+            \\  import_offset:     {d}
+            \\  depends_offset:    {d}
+            \\  unk1:              {d}
+            \\  unk2:              {d}
+            \\  unk3:              {d}
+            \\  unk4:              {d}
+            \\  guid:              {d}
+            \\  engine_version:    {d}
+            \\  cooker_version:    {d}/{d}
+            \\  compression_flags: {d}
+            \\
+            \\
+        , .{
+            self.tag,
+            self.file_version,
+            self.licensee_version,
+            self.total_header_size,
+            self.folder_name.toString(),
+            self.package_flags,
+            self.name_count,
+            self.name_offset,
+            self.export_count,
+            self.export_offset,
+            self.import_count,
+            self.import_offset,
+            self.depends_offset,
+            self.unk1,
+            self.unk2,
+            self.unk3,
+            self.unk4,
+            self.guid,
+            self.engine_version,
+            self.cooker_version_upper,
+            self.cooker_version_lower,
+            self.compression_flags,
+        });
+    }
 };
