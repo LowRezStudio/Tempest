@@ -212,8 +212,8 @@ pub const FNameEntry = extern struct {
     name: FName,
     flags: u64,
 
-    pub fn read(reader: *std.Io.Reader) !FNameEntry {
-        const name = try FName.read(reader);
+    pub fn read(reader: *std.Io.Reader, allocator: mem.Allocator) !FNameEntry {
+        const name = try FName.read(reader, allocator);
         const flags = try reader.takeInt(u64, .little);
         return FNameEntry{ .name = name, .flags = flags };
     }
@@ -223,10 +223,16 @@ pub const FName = extern struct {
     len: u32,
     name: [*:0]u8,
 
-    pub fn read(reader: *std.Io.Reader) !FName {
+    pub fn read(reader: *std.Io.Reader, allocator: mem.Allocator) !FName {
         const len: u32 = try reader.takeInt(u32, .little);
-        const name = try reader.take(@intCast(len));
-        return FName{ .len = len, .name = @ptrCast(name.ptr) };
+        const name = try reader.readAlloc(allocator, @intCast(len));
+        errdefer allocator.free(name);
+
+        return FName{ .len = len, .name = @ptrCast(name) };
+    }
+
+    pub fn deinit(self: FName, allocator: mem.Allocator) void {
+        allocator.free(self.name[0..self.len]);
     }
 
     pub fn toString(self: FName) []const u8 {
@@ -259,7 +265,7 @@ pub const FObjectExport = extern struct {
     Field17: u32,
 
     pub fn read(r: *std.Io.Reader) !FObjectExport {
-        const import: FObjectExport = .{
+        const @"export": FObjectExport = .{
             .ObjTypeRef = try r.takeInt(u32, .little),
             .ParentClassRef = try r.takeInt(u32, .little),
             .OwnerRef = try r.takeInt(u32, .little),
@@ -279,9 +285,9 @@ pub const FObjectExport = extern struct {
         };
 
         // TODO: figure out what these are
-        r.toss(4 * import.NumAdditionalFields);
+        r.toss(4 * @"export".NumAdditionalFields);
 
-        return import;
+        return @"export";
     }
 };
 
@@ -336,7 +342,7 @@ pub const FPackageFileSummary = struct {
             .file_version = try r.takeInt(u16, .little),
             .licensee_version = try r.takeInt(u16, .little),
             .total_header_size = try r.takeInt(u32, .little),
-            .folder_name = try FName.read(r),
+            .folder_name = try FName.read(r, allocator),
             .package_flags = try r.takeInt(u32, .little) & ~@intFromEnum(EPackageFlags.PKG_FilterEditorOnly),
             .name_count = try r.takeInt(u32, .little),
             .name_offset = try r.takeInt(u32, .little),

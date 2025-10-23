@@ -21,7 +21,7 @@ const Parser = struct {
     }
 
     pub fn parse(self: *Parser) !void {
-        var buffer: [32 * 1024]u8 = undefined;
+        var buffer: [4096]u8 = undefined;
         var fr = self.file.reader(&buffer);
         const r: *std.Io.Reader = &fr.interface;
 
@@ -29,27 +29,22 @@ const Parser = struct {
         self.summary.print();
 
         // Read the names table
-        r.seek = self.summary.name_offset;
+        try fr.seekTo(self.summary.name_offset);
         self.names_table = try self.allocator.alloc(ue.FNameEntry, self.summary.name_count);
 
         for (self.names_table) |*name_entry| {
-            name_entry.* = try ue.FNameEntry.read(r);
+            name_entry.* = try ue.FNameEntry.read(r, self.allocator);
         }
 
         std.debug.print("Names Table:\n", .{});
         for (self.names_table) |name_entry| {
-            std.debug.print("  {s}\n", .{name_entry.name.toString()});
-        }
-
-        std.debug.print("Names Table:\n", .{});
-        for (self.names_table) |name_entry| {
-            std.debug.print("  {s}\n", .{name_entry.name.toString()});
+            std.debug.print("  Name: {s}\n", .{name_entry.name.toString()});
         }
 
         // TODO: read the imports table
 
         // Read the exports table
-        r.seek = self.summary.export_offset;
+        try fr.seekTo(self.summary.export_offset);
         self.exports_table = try self.allocator.alloc(ue.FObjectExport, self.summary.export_count);
 
         for (self.exports_table) |*@"export"| {
@@ -58,15 +53,24 @@ const Parser = struct {
 
         std.debug.print("Exports Table:\n", .{});
         for (self.exports_table) |@"export"| {
-            std.debug.print("  {s}\n", .{self.names_table[@"export".NameTableIndex].name.toString()});
+            std.debug.print("  Export: {s}\n", .{self.names_table[@"export".NameTableIndex].name.toString()});
         }
 
         // TODO: read the depends table
     }
 
     pub fn deinit(self: *Parser) void {
+        // Free the generations and folder name
         self.allocator.free(self.summary.generations);
+        self.summary.folder_name.deinit(self.allocator);
+
+        // Free all the names from the names table
+        for (self.names_table) |name_entry| {
+            name_entry.name.deinit(self.allocator);
+        }
         self.allocator.free(self.names_table);
+
+        // Free the rest
         // self.allocator.free(self.imports_table);
         self.allocator.free(self.exports_table);
         // self.allocator.free(self.depends_table);
