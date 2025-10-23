@@ -20,6 +20,49 @@ const Parser = struct {
         };
     }
 
+    pub fn patchSFSC(self: *Parser) !void {
+        var sfsc_exports = std.ArrayList(ue.FObjectExport).empty;
+        defer sfsc_exports.deinit(self.allocator);
+
+        for (self.exports_table) |@"export"| {
+            if (std.mem.eql(u8, self.names_table[@"export".NameTableIndex].name.toString(), "SeekFreeShaderCache\x00")) {
+                try sfsc_exports.append(self.allocator, @"export");
+            }
+        }
+
+        std.debug.print("SFSC Exports:\n", .{});
+        for (sfsc_exports.items) |@"export"| {
+            const obj_type_name = if (@"export".ClassIndex < 0)
+                self.names_table[self.imports_table[@abs(@"export".ClassIndex)].NameTableIndex].name.toString()
+            else
+                self.names_table[@abs(@"export".ClassIndex)].name.toString();
+
+            std.debug.print(
+                \\
+                \\  Name:          {s}_{d}
+                \\  UniqueId:      {d}
+                \\  SerialSize:    {d}
+                \\  Type:          {s}
+                \\  Parent:        {d} ({s}_{d})
+                \\  Owner:         {d} ({s}_{d})
+                \\
+                \\
+            , .{
+                self.names_table[@abs(@"export".NameTableIndex)].name.toString(),
+                @"export".NameCount,
+                @"export".NameCount,
+                @"export".SerialSize,
+                obj_type_name,
+                @"export".SuperIndex,
+                self.names_table[self.exports_table[@abs(@"export".SuperIndex)].NameTableIndex].name.toString(),
+                self.exports_table[@abs(@"export".SuperIndex)].NameCount,
+                @"export".ArchetypeIndex,
+                self.names_table[self.exports_table[@abs(@"export".ArchetypeIndex)].NameTableIndex].name.toString(),
+                self.exports_table[@abs(@"export".ArchetypeIndex)].NameCount,
+            });
+        }
+    }
+
     pub fn parse(self: *Parser) !void {
         var buffer: [4096]u8 = undefined;
         var fr = self.file.reader(&buffer);
@@ -36,27 +79,26 @@ const Parser = struct {
             name_entry.* = try ue.FNameEntry.read(r, self.allocator);
         }
 
-        std.debug.print("Names Table:\n", .{});
-        for (self.names_table) |name_entry| {
-            std.debug.print("  Name: {s}\n", .{name_entry.name.toString()});
-        }
+        // Read the imports table
+        try fr.seekTo(self.summary.import_offset);
+        self.imports_table = try self.allocator.alloc(ue.FObjectImport, self.summary.import_count + 1);
 
-        // TODO: read the imports table
+        self.imports_table[0] = ue.FObjectImport{};
+        for (self.imports_table[1..]) |*import| {
+            import.* = try ue.FObjectImport.read(r);
+        }
 
         // Read the exports table
         try fr.seekTo(self.summary.export_offset);
-        self.exports_table = try self.allocator.alloc(ue.FObjectExport, self.summary.export_count);
+        self.exports_table = try self.allocator.alloc(ue.FObjectExport, self.summary.export_count + 1);
 
-        for (self.exports_table) |*@"export"| {
+        self.exports_table[0] = ue.FObjectExport{};
+        for (self.exports_table[1..]) |*@"export"| {
             @"export".* = try ue.FObjectExport.read(r);
         }
 
-        std.debug.print("Exports Table:\n", .{});
-        for (self.exports_table) |@"export"| {
-            std.debug.print("  Export: {s}\n", .{self.names_table[@"export".NameTableIndex].name.toString()});
-        }
-
         // TODO: read the depends table
+
     }
 
     pub fn deinit(self: *Parser) void {
@@ -71,7 +113,7 @@ const Parser = struct {
         self.allocator.free(self.names_table);
 
         // Free the rest
-        // self.allocator.free(self.imports_table);
+        self.allocator.free(self.imports_table);
         self.allocator.free(self.exports_table);
         // self.allocator.free(self.depends_table);
     }
@@ -106,4 +148,5 @@ pub fn main() !void {
     defer parser.deinit();
 
     try parser.parse();
+    try parser.patchSFSC();
 }

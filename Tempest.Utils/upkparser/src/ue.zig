@@ -243,38 +243,57 @@ pub const FName = extern struct {
 // TODO: find the actual structs in the engine
 // this is currently using the XCOM:EU 2012 reversed names
 pub const FObjectImport = extern struct {
-    //
+    PackageIdIndex: u32 = 0,
+    Field1: u32 = 0,
+    ObjTypeIndex: u32 = 0,
+    Field2: u32 = 0,
+    OwnerRef: i32 = 0,
+    NameTableIndex: u32 = 0,
+    Field3: u32 = 0,
+
+    pub fn read(r: *std.Io.Reader) !FObjectImport {
+        const import: FObjectImport = .{
+            .PackageIdIndex = try r.takeInt(u32, .little),
+            .Field1 = try r.takeInt(u32, .little),
+            .ObjTypeIndex = try r.takeInt(u32, .little),
+            .Field2 = try r.takeInt(u32, .little),
+            .OwnerRef = try r.takeInt(i32, .little),
+            .NameTableIndex = try r.takeInt(u32, .little),
+            .Field3 = try r.takeInt(u32, .little),
+        };
+        return import;
+    }
 };
 
 pub const FObjectExport = extern struct {
-    ObjTypeRef: u32,
-    ParentClassRef: u32,
-    OwnerRef: u32,
-    NameTableIndex: u32,
-    NameCount: u32,
-    Field6: u32,
-    ObjectFlags: u64,
-    ObjectFileSize: u32,
-    DataOffset: u32,
-    Field11: u32,
-    NumAdditionalFields: u32,
-    Field13: u32,
-    Field14: u32,
-    Field15: u32,
-    Field16: u32,
-    Field17: u32,
+    ClassIndex: i32 = 0,
+    SuperIndex: i32 = 0,
+    ArchetypeIndex: i32 = 0,
+    NameTableIndex: u32 = 0,
+    NameCount: u32 = 0,
+    Field6: u32 = 0,
+    ObjectFlags: u64 = 0,
+    SerialSize: u32 = 0,
+    SerialOffset: u32 = 0,
+    Field11: u32 = 0,
+    NumAdditionalFields: u32 = 0,
+    Field13: u32 = 0,
+    Field14: u32 = 0,
+    Field15: u32 = 0,
+    Field16: u32 = 0,
+    Field17: u32 = 0,
 
     pub fn read(r: *std.Io.Reader) !FObjectExport {
         const @"export": FObjectExport = .{
-            .ObjTypeRef = try r.takeInt(u32, .little),
-            .ParentClassRef = try r.takeInt(u32, .little),
-            .OwnerRef = try r.takeInt(u32, .little),
+            .ClassIndex = try r.takeInt(i32, .little),
+            .SuperIndex = try r.takeInt(i32, .little),
+            .ArchetypeIndex = try r.takeInt(i32, .little),
             .NameTableIndex = try r.takeInt(u32, .little),
             .NameCount = try r.takeInt(u32, .little),
             .Field6 = try r.takeInt(u32, .little),
             .ObjectFlags = try r.takeInt(u64, .little),
-            .ObjectFileSize = try r.takeInt(u32, .little),
-            .DataOffset = try r.takeInt(u32, .little),
+            .SerialSize = try r.takeInt(u32, .little),
+            .SerialOffset = try r.takeInt(u32, .little),
             .Field11 = try r.takeInt(u32, .little),
             .NumAdditionalFields = try r.takeInt(u32, .little),
             .Field13 = try r.takeInt(u32, .little),
