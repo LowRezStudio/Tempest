@@ -7,6 +7,10 @@ const ue = @import("ue.zig");
 const Parser = struct {
     file: fs.File,
     allocator: mem.Allocator,
+    names_table: []ue.FNameEntry = undefined,
+    imports_table: []ue.FObjectImport = undefined,
+    exports_table: []ue.FObjectExport = undefined,
+    depends_table: [][]u8 = undefined,
 
     pub fn init(allocator: mem.Allocator, file: fs.File) !Parser {
         return Parser{
@@ -26,7 +30,7 @@ const Parser = struct {
             .licensee_version = try r.takeInt(u16, .little),
             .total_header_size = try r.takeInt(u32, .little),
             .folder_name = try ue.FName.read(r),
-            .package_flags = try r.takeInt(u32, .little) & ~@intFromEnum(ue.PackageFlags.FilterEditorOnly),
+            .package_flags = try r.takeInt(u32, .little) & ~@intFromEnum(ue.EPackageFlags.PKG_FilterEditorOnly),
             .name_count = try r.takeInt(u32, .little),
             .name_offset = try r.takeInt(u32, .little),
             .export_count = try r.takeInt(u32, .little),
@@ -96,7 +100,7 @@ const Parser = struct {
             summary.compression_flags,
         });
 
-        ue.PackageFlags.print(summary.package_flags);
+        ue.EPackageFlags.print(summary.package_flags);
 
         // print the generations
         std.log.info("Generations", .{});
@@ -117,9 +121,18 @@ const Parser = struct {
         r.seek = summary.name_offset;
         var i: u32 = 0;
         while (i < summary.name_count) : (i += 1) {
-            const n = try ue.FName.read(r);
-            std.log.info("name: {s}", .{n.toString()});
-            r.toss(8);
+            const n = try ue.FNameEntry.read(r);
+            std.log.info(
+                \\
+                \\ NameEntry:
+                \\   name:       {s}
+                \\   flags:      0x{X}
+            , .{
+                n.name.toString(),
+                n.flags,
+            });
+
+            ue.EObjectFlags.print(n.flags);
         }
     }
 };
