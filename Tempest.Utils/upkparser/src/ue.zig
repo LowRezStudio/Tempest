@@ -217,6 +217,11 @@ pub const FNameEntry = extern struct {
         const flags = try reader.takeInt(u64, .little);
         return FNameEntry{ .name = name, .flags = flags };
     }
+
+    pub fn write(self: FNameEntry, w: *std.io.Writer) !void {
+        try self.name.write(w);
+        try w.writeInt(u64, self.flags, .little);
+    }
 };
 
 pub const FName = extern struct {
@@ -231,6 +236,32 @@ pub const FName = extern struct {
         return FName{ .len = len, .name = @ptrCast(name) };
     }
 
+    pub fn readArray(reader: *std.Io.Reader, allocator: mem.Allocator) ![]FName {
+        var len: u32 = try reader.takeInt(u32, .little);
+        var names = try std.ArrayList(FName).initCapacity(allocator, len);
+        errdefer names.deinit(allocator);
+
+        while (len != 0) {
+            const name = try FName.read(reader, allocator);
+            try names.append(allocator, name);
+            len -= 1;
+        }
+
+        return try names.toOwnedSlice(allocator);
+    }
+
+    pub fn write(self: FName, w: *std.io.Writer) !void {
+        try w.writeInt(u32, self.len, .little);
+        try w.writeAll(self.name[0..self.len]);
+    }
+
+    pub fn writeArray(self: []const FName, w: *std.io.Writer, len: u32) !void {
+        try w.writeInt(u32, len, .little);
+        for (self) |name| {
+            try name.write(w);
+        }
+    }
+
     pub fn deinit(self: FName, allocator: mem.Allocator) void {
         allocator.free(self.name[0..self.len]);
     }
@@ -240,12 +271,10 @@ pub const FName = extern struct {
     }
 };
 
-// TODO: find the actual structs in the engine
-// this is currently using the XCOM:EU 2012 reversed names
 pub const FObjectImport = extern struct {
-    PackageIdIndex: u32 = 0,
-    Field1: u32 = 0,
-    ObjTypeIndex: u32 = 0,
+    ClassPackage: u32 = 0,
+    ClassName: u32 = 0,
+    OuterIndex: u32 = 0,
     Field2: u32 = 0,
     OwnerRef: i32 = 0,
     NameTableIndex: u32 = 0,
@@ -253,9 +282,9 @@ pub const FObjectImport = extern struct {
 
     pub fn read(r: *std.Io.Reader) !FObjectImport {
         const import: FObjectImport = .{
-            .PackageIdIndex = try r.takeInt(u32, .little),
-            .Field1 = try r.takeInt(u32, .little),
-            .ObjTypeIndex = try r.takeInt(u32, .little),
+            .ClassPackage = try r.takeInt(u32, .little),
+            .ClassName = try r.takeInt(u32, .little),
+            .OuterIndex = try r.takeInt(u32, .little),
             .Field2 = try r.takeInt(u32, .little),
             .OwnerRef = try r.takeInt(i32, .little),
             .NameTableIndex = try r.takeInt(u32, .little),
@@ -263,75 +292,149 @@ pub const FObjectImport = extern struct {
         };
         return import;
     }
+
+    pub fn write(self: FObjectImport, w: *std.io.Writer) !void {
+        try w.writeInt(u32, self.ClassPackage, .little);
+        try w.writeInt(u32, self.ClassName, .little);
+        try w.writeInt(u32, self.OuterIndex, .little);
+        try w.writeInt(u32, self.Field2, .little);
+        try w.writeInt(i32, self.OwnerRef, .little);
+        try w.writeInt(u32, self.NameTableIndex, .little);
+        try w.writeInt(u32, self.Field3, .little);
+    }
+};
+
+pub const FCompressedChunk = struct {
+    count: u32,
+};
+
+pub const FTextureAllocation = struct {
+    size_x: u32,
+    size_y: u32,
+    num_mips: u32,
+    format: u32,
+    tex_create_flags: u32,
+    export_indices_count: u32,
+    export_indices: [*]u32,
+
+    pub fn read(r: *std.io.Reader, allocator: mem.Allocator) ![]FTextureAllocation {
+        const count = try r.takeInt(u32, .little);
+        const allocations = try allocator.alloc(FTextureAllocation, count);
+        errdefer allocator.free(allocations);
+
+        for (allocations) |*allocation| {
+            allocation.* = .{
+                .size_x = try r.takeInt(u32, .little),
+                .size_y = try r.takeInt(u32, .little),
+                .num_mips = try r.takeInt(u32, .little),
+                .format = try r.takeInt(u32, .little),
+                .tex_create_flags = try r.takeInt(u32, .little),
+                .export_indices_count = try r.takeInt(u32, .little),
+                .export_indices = &.{},
+            };
+
+            if (allocation.export_indices_count > 0) {
+                var indices = try std.ArrayList(u32).initCapacity(allocator, allocation.export_indices_count);
+                errdefer indices.deinit(allocator);
+
+                var i: u32 = 0;
+                while (i < allocation.export_indices_count) : (i += 1) {
+                    try indices.append(allocator, try r.takeInt(u32, .little));
+                }
+
+                allocation.export_indices = (try indices.toOwnedSlice(allocator)).ptr;
+            }
+        }
+
+        return allocations;
+    }
+
+    pub fn write(self: FTextureAllocation, w: *std.io.Writer) !void {
+        try w.writeInt(u32, self.size_x, .little);
+        try w.writeInt(u32, self.size_y, .little);
+        try w.writeInt(u32, self.num_mips, .little);
+        try w.writeInt(u32, self.format, .little);
+        try w.writeInt(u32, self.tex_create_flags, .little);
+        try w.writeInt(u32, self.export_indices_count, .little);
+
+        if (self.export_indices_count > 0) {
+            for (self.export_indices[0..self.export_indices_count]) |index| {
+                try w.writeInt(u32, index, .little);
+            }
+        }
+    }
 };
 
 pub const FObjectExport = extern struct {
     ClassIndex: i32 = 0,
     SuperIndex: i32 = 0,
-    ArchetypeIndex: i32 = 0,
-    NameTableIndex: u32 = 0,
-    NameCount: u32 = 0,
-    Field6: u32 = 0,
+    OuterIndex: i32 = 0,
+    ObjectName: u32 = 0,
+    ArchetypeIndex: u32 = 0,
+    Archetype: u32 = 0,
     ObjectFlags: u64 = 0,
     SerialSize: u32 = 0,
     SerialOffset: u32 = 0,
-    Field11: u32 = 0,
-    NumAdditionalFields: u32 = 0,
-    Field13: u32 = 0,
-    Field14: u32 = 0,
-    Field15: u32 = 0,
-    Field16: u32 = 0,
-    Field17: u32 = 0,
+    ExportFlags: u32 = 0,
+    GenerationNetObjectCount: u32 = 0,
+    GenerationNetObjects: [*]u32 = &.{},
+    PackageGuid: FGuid = .{ .a = 0, .b = 0, .c = 0, .d = 0 },
+    PackageFlags: u32 = 0,
 
-    pub fn read(r: *std.Io.Reader) !FObjectExport {
-        const @"export": FObjectExport = .{
+    pub fn read(r: *std.Io.Reader, allocator: mem.Allocator) !FObjectExport {
+        var @"export": FObjectExport = .{
             .ClassIndex = try r.takeInt(i32, .little),
             .SuperIndex = try r.takeInt(i32, .little),
-            .ArchetypeIndex = try r.takeInt(i32, .little),
-            .NameTableIndex = try r.takeInt(u32, .little),
-            .NameCount = try r.takeInt(u32, .little),
-            .Field6 = try r.takeInt(u32, .little),
+            .OuterIndex = try r.takeInt(i32, .little),
+            .ObjectName = try r.takeInt(u32, .little),
+            .ArchetypeIndex = try r.takeInt(u32, .little),
+            .Archetype = try r.takeInt(u32, .little),
             .ObjectFlags = try r.takeInt(u64, .little),
             .SerialSize = try r.takeInt(u32, .little),
             .SerialOffset = try r.takeInt(u32, .little),
-            .Field11 = try r.takeInt(u32, .little),
-            .NumAdditionalFields = try r.takeInt(u32, .little),
-            .Field13 = try r.takeInt(u32, .little),
-            .Field14 = try r.takeInt(u32, .little),
-            .Field15 = try r.takeInt(u32, .little),
-            .Field16 = try r.takeInt(u32, .little),
-            .Field17 = try r.takeInt(u32, .little),
+            .ExportFlags = try r.takeInt(u32, .little),
+            .GenerationNetObjectCount = try r.takeInt(u32, .little),
+            .PackageGuid = try r.takeStruct(FGuid, .little),
+            .PackageFlags = try r.takeInt(u32, .little),
         };
 
-        // TODO: figure out what these are
-        r.toss(4 * @"export".NumAdditionalFields);
+        if (@"export".GenerationNetObjectCount > 0) {
+            var net_objects = try std.ArrayList(u32).initCapacity(allocator, @"export".GenerationNetObjectCount);
+            errdefer net_objects.deinit(allocator);
+
+            var i: u32 = 0;
+            while (i < @"export".GenerationNetObjectCount) : (i += 1) {
+                try net_objects.append(allocator, try r.takeInt(u32, .little));
+            }
+
+            @"export".GenerationNetObjects = (try net_objects.toOwnedSlice(allocator)).ptr;
+        }
 
         return @"export";
     }
 
-    pub fn write(self: *const FObjectExport, w: *std.Io.Writer) !void {
+    pub fn write(self: FObjectExport, w: *std.io.Writer) !void {
         try w.writeInt(i32, self.ClassIndex, .little);
         try w.writeInt(i32, self.SuperIndex, .little);
-        try w.writeInt(i32, self.ArchetypeIndex, .little);
-        try w.writeInt(u32, self.NameTableIndex, .little);
-        try w.writeInt(u32, self.NameCount, .little);
-        try w.writeInt(u32, self.Field6, .little);
+        try w.writeInt(i32, self.OuterIndex, .little);
+        try w.writeInt(u32, self.ObjectName, .little);
+        try w.writeInt(u32, self.ArchetypeIndex, .little);
+        try w.writeInt(u32, self.Archetype, .little);
         try w.writeInt(u64, self.ObjectFlags, .little);
         try w.writeInt(u32, self.SerialSize, .little);
         try w.writeInt(u32, self.SerialOffset, .little);
-        try w.writeInt(u32, self.Field11, .little);
-        try w.writeInt(u32, self.NumAdditionalFields, .little);
-        try w.writeInt(u32, self.Field13, .little);
-        try w.writeInt(u32, self.Field14, .little);
-        try w.writeInt(u32, self.Field15, .little);
-        try w.writeInt(u32, self.Field16, .little);
-        try w.writeInt(u32, self.Field17, .little);
-
-        // TODO: write the correct fields instead of zeroing them
-        var i: u32 = 0;
-        while (i < self.NumAdditionalFields) : (i += 1) {
-            try w.writeInt(u32, 0, .little);
+        try w.writeInt(u32, self.ExportFlags, .little);
+        try w.writeInt(u32, self.GenerationNetObjectCount, .little);
+        try w.writeInt(u32, self.PackageGuid.a, .little);
+        try w.writeInt(u32, self.PackageGuid.b, .little);
+        try w.writeInt(u32, self.PackageGuid.c, .little);
+        try w.writeInt(u32, self.PackageGuid.d, .little);
+        if (self.GenerationNetObjectCount > 0) {
+            for (self.GenerationNetObjects[0..self.GenerationNetObjectCount]) |net_object| {
+                try w.writeInt(u32, net_object, .little);
+            }
         }
+        try w.writeInt(u32, self.PackageFlags, .little);
     }
 };
 
@@ -354,7 +457,6 @@ pub const FGenerationInfo = extern struct {
         return generations;
     }
 };
-
 pub const FPackageFileSummary = struct {
     tag: u32,
     file_version: u16,
@@ -369,16 +471,20 @@ pub const FPackageFileSummary = struct {
     import_count: u32,
     import_offset: u32,
     depends_offset: u32,
-    unk1: u32,
-    unk2: u32,
-    unk3: u32,
-    unk4: u32,
+    import_export_guids_offset: u32,
+    import_guids_count: u32,
+    export_guids_count: u32,
+    thumbnail_table_offset: u32,
     guid: FGuid,
     generations: []FGenerationInfo,
     engine_version: u32,
     cooker_version_upper: u16,
     cooker_version_lower: u16,
     compression_flags: u32,
+    compressed_chunks: u32, //[]FCompressedChunk,
+    package_source: u32,
+    additional_packages: []FName,
+    texture_allocations: []FTextureAllocation, //FTextureAllocation,
 
     pub fn read(r: *std.Io.Reader, allocator: mem.Allocator) !FPackageFileSummary {
         const summary: FPackageFileSummary = .{
@@ -395,44 +501,96 @@ pub const FPackageFileSummary = struct {
             .import_count = try r.takeInt(u32, .little),
             .import_offset = try r.takeInt(u32, .little),
             .depends_offset = try r.takeInt(u32, .little),
-            .unk1 = try r.takeInt(u32, .little),
-            .unk2 = try r.takeInt(u32, .little),
-            .unk3 = try r.takeInt(u32, .little),
-            .unk4 = try r.takeInt(u32, .little),
+            .import_export_guids_offset = try r.takeInt(u32, .little),
+            .import_guids_count = try r.takeInt(u32, .little),
+            .export_guids_count = try r.takeInt(u32, .little),
+            .thumbnail_table_offset = try r.takeInt(u32, .little),
             .guid = try r.takeStruct(FGuid, .little),
             .generations = try FGenerationInfo.read(r, allocator),
             .engine_version = try r.takeInt(u32, .little),
             .cooker_version_upper = try r.takeInt(u16, .little),
             .cooker_version_lower = try r.takeInt(u16, .little),
             .compression_flags = try r.takeInt(u32, .little),
+            .compressed_chunks = try r.takeInt(u32, .little),
+            .package_source = try r.takeInt(u32, .little),
+            .additional_packages = try FName.readArray(r, allocator),
+            .texture_allocations = try FTextureAllocation.read(r, allocator),
         };
         return summary;
+    }
+
+    pub fn write(self: FPackageFileSummary, w: *std.io.Writer) !void {
+        try w.writeInt(u32, self.tag, .little);
+        try w.writeInt(u16, self.file_version, .little);
+        try w.writeInt(u16, self.licensee_version, .little);
+        try w.writeInt(u32, self.total_header_size, .little);
+        try self.folder_name.write(w);
+        try w.writeInt(u32, self.package_flags | @intFromEnum(EPackageFlags.PKG_FilterEditorOnly), .little);
+        try w.writeInt(u32, self.name_count, .little);
+        try w.writeInt(u32, self.name_offset, .little);
+        try w.writeInt(u32, self.export_count, .little);
+        try w.writeInt(u32, self.export_offset, .little);
+        try w.writeInt(u32, self.import_count, .little);
+        try w.writeInt(u32, self.import_offset, .little);
+        try w.writeInt(u32, self.depends_offset, .little);
+        try w.writeInt(u32, self.import_export_guids_offset, .little);
+        try w.writeInt(u32, self.import_guids_count, .little);
+        try w.writeInt(u32, self.export_guids_count, .little);
+        try w.writeInt(u32, self.thumbnail_table_offset, .little);
+        try w.writeInt(u32, self.guid.a, .little);
+        try w.writeInt(u32, self.guid.b, .little);
+        try w.writeInt(u32, self.guid.c, .little);
+        try w.writeInt(u32, self.guid.d, .little);
+        try w.writeInt(u32, @intCast(self.generations.len), .little);
+        for (self.generations) |generation| {
+            try w.writeInt(i32, generation.export_count, .little);
+            try w.writeInt(i32, generation.name_count, .little);
+            try w.writeInt(i32, generation.net_object_count, .little);
+        }
+        try w.writeInt(u32, self.engine_version, .little);
+        try w.writeInt(u16, self.cooker_version_upper, .little);
+        try w.writeInt(u16, self.cooker_version_lower, .little);
+        try w.writeInt(u32, self.compression_flags, .little);
+        try w.writeInt(u32, self.compressed_chunks, .little);
+        try w.writeInt(u32, self.package_source, .little);
+        try w.writeInt(u32, @intCast(self.additional_packages.len), .little);
+        for (self.additional_packages) |pkg| {
+            try pkg.write(w);
+        }
+        try w.writeInt(u32, @intCast(self.texture_allocations.len), .little);
+        for (self.texture_allocations) |allocation| {
+            try allocation.write(w);
+        }
     }
 
     pub fn print(self: FPackageFileSummary) void {
         std.log.info("Package File Summary", .{});
         std.log.info(
             \\
-            \\  tag:               0x{X}
-            \\  file_version:      {d}/{d}
-            \\  total_header_size: {d}
-            \\  folder_name:       {s}
-            \\  package_flags:     0x{X}
-            \\  name_count:        {d}
-            \\  name_offset:       {d}
-            \\  export_count:      {d}
-            \\  export_offset:     {d}
-            \\  import_count:      {d}
-            \\  import_offset:     {d}
-            \\  depends_offset:    {d}
-            \\  unk1:              {d}
-            \\  unk2:              {d}
-            \\  unk3:              {d}
-            \\  unk4:              {d}
-            \\  guid:              {d}
-            \\  engine_version:    {d}
-            \\  cooker_version:    {d}/{d}
-            \\  compression_flags: {d}
+            \\  tag:                        0x{X}
+            \\  file_version:               {d}/{d}
+            \\  total_header_size:          {d}
+            \\  folder_name:                {s}
+            \\  package_flags:              0x{X}
+            \\  name_count:                 {d}
+            \\  name_offset:                {d}
+            \\  export_count:               {d}
+            \\  export_offset:              {d}
+            \\  import_count:               {d}
+            \\  import_offset:              {d}
+            \\  depends_offset:             {d}
+            \\  import_export_guids_offset: {d}
+            \\  import_guids_count:         {d}
+            \\  export_guids_count:         {d}
+            \\  thumbnail_table_offset:     {d}
+            \\  guid:                       {d}
+            \\  engine_version:             {d}
+            \\  cooker_version:             {d}/{d}
+            \\  compression_flags:          {d}
+            \\  compressed_chunks:          {d}
+            \\  package_source:             0x{X}
+            \\  additional_packages_count:  {d}
+            \\  texture_allocations:        {d}
             \\
             \\
         , .{
@@ -449,15 +607,30 @@ pub const FPackageFileSummary = struct {
             self.import_count,
             self.import_offset,
             self.depends_offset,
-            self.unk1,
-            self.unk2,
-            self.unk3,
-            self.unk4,
+            self.import_export_guids_offset,
+            self.import_guids_count,
+            self.export_guids_count,
+            self.thumbnail_table_offset,
             self.guid,
             self.engine_version,
             self.cooker_version_upper,
             self.cooker_version_lower,
             self.compression_flags,
+            self.compressed_chunks,
+            self.package_source,
+            self.additional_packages.len,
+            self.texture_allocations.len,
         });
+
+        for (self.additional_packages, 0..) |pkg, i| {
+            std.log.info("additional_package {d}: {s}", .{ i, pkg.toString() });
+        }
+
+        for (self.generations, 0..) |generation, i| {
+            std.log.info("generation: {d}", .{i});
+            std.log.info("  export_count: {d}", .{generation.export_count});
+            std.log.info("  name_count: {d}", .{generation.name_count});
+            std.log.info("  net_object_count: {d}", .{generation.net_object_count});
+        }
     }
 };
