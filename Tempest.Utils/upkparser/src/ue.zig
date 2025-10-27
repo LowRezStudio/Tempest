@@ -425,10 +425,7 @@ pub const FObjectExport = extern struct {
         try w.writeInt(u32, self.SerialOffset, .little);
         try w.writeInt(u32, self.ExportFlags, .little);
         try w.writeInt(u32, self.GenerationNetObjectCount, .little);
-        try w.writeInt(u32, self.PackageGuid.a, .little);
-        try w.writeInt(u32, self.PackageGuid.b, .little);
-        try w.writeInt(u32, self.PackageGuid.c, .little);
-        try w.writeInt(u32, self.PackageGuid.d, .little);
+        try w.writeStruct(self.PackageGuid, .little);
         if (self.GenerationNetObjectCount > 0) {
             for (self.GenerationNetObjects[0..self.GenerationNetObjectCount]) |net_object| {
                 try w.writeInt(u32, net_object, .little);
@@ -537,10 +534,7 @@ pub const FPackageFileSummary = struct {
         try w.writeInt(u32, self.import_guids_count, .little);
         try w.writeInt(u32, self.export_guids_count, .little);
         try w.writeInt(u32, self.thumbnail_table_offset, .little);
-        try w.writeInt(u32, self.guid.a, .little);
-        try w.writeInt(u32, self.guid.b, .little);
-        try w.writeInt(u32, self.guid.c, .little);
-        try w.writeInt(u32, self.guid.d, .little);
+        try w.writeStruct(self.guid, .little);
         try w.writeInt(u32, @intCast(self.generations.len), .little);
         for (self.generations) |generation| {
             try w.writeInt(i32, generation.export_count, .little);
@@ -631,6 +625,16 @@ pub const FPackageFileSummary = struct {
             std.log.info("  export_count: {d}", .{generation.export_count});
             std.log.info("  name_count: {d}", .{generation.name_count});
             std.log.info("  net_object_count: {d}", .{generation.net_object_count});
+        }
+
+        for (self.texture_allocations, 0..) |allocation, i| {
+            std.log.info("texture_allocation {d}", .{i});
+            std.log.info("  size_x: {d}", .{allocation.size_x});
+            std.log.info("  size_y: {d}", .{allocation.size_y});
+            std.log.info("  num_mips: {d}", .{allocation.num_mips});
+            std.log.info("  format: {d}", .{allocation.format});
+            std.log.info("  tex_create_flags: {d}", .{allocation.tex_create_flags});
+            std.log.info("  export_indices_count: {d}", .{allocation.export_indices_count});
         }
     }
 };
