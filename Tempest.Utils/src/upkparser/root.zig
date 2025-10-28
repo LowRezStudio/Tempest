@@ -2,8 +2,9 @@ const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 
+const minilzo = @import("utils").minilzo;
+
 const ue = @import("ue.zig");
-const minilzo = @import("minilzo");
 
 pub const Parser = struct {
     file: fs.File,

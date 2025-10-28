@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 
 const detourz = @import("detourz");
-const memory = @import("memory");
+const memory = @import("utils").memory;
 
 pub const THISCALL: std.builtin.CallingConvention =
     if (arch == .x86)

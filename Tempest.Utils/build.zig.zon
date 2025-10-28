@@ -1,0 +1,17 @@
+.{
+    .name = .utils,
+    .version = "1.0.0",
+    .fingerprint = 0x540f5beba3ddf47d, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{
+        .detourz = .{
+            .url = "git+https://github.com/lowrezstudio/detourz#21d49c31fb7587822297428c4a221ffd5950cc3f",
+            .hash = "detourz-0.0.0-Ywo1d8sRAgD1axHXzoDhBTmd-Xl3aokPs77_zykUPZtU",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
