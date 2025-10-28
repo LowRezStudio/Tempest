@@ -1,0 +1,13 @@
+.{
+    .name = .minilzo,
+    .version = "0.0.0",
+    .fingerprint = 0x71ca029d0d5d9735,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "vendor",
+        "src",
+    },
+}

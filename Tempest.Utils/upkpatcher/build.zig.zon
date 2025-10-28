@@ -1,11 +1,11 @@
 .{
-    .name = .upkparser,
+    .name = .upkpatcher,
     .version = "0.0.0",
-    .fingerprint = 0xe7ac796bfeabd49e,
+    .fingerprint = 0x648c5ece5e2e7dbe,
     .minimum_zig_version = "0.15.1",
     .dependencies = .{
-        .minilzo = .{
-            .path = "../minilzo",
+        .upkparser = .{
+            .path = "../upkparser",
         },
     },
     .paths = .{

@@ -3,8 +3,9 @@ const mem = std.mem;
 const fs = std.fs;
 
 const ue = @import("ue.zig");
+const minilzo = @import("minilzo");
 
-const Parser = struct {
+pub const Parser = struct {
     file: fs.File,
     allocator: mem.Allocator,
     summary: ue.FPackageFileSummary = undefined,
@@ -21,150 +22,25 @@ const Parser = struct {
         };
     }
 
-    pub fn patchSFSC(self: *Parser, filepath: []const u8) !void {
-        const SFSCExport = struct {
-            object: ue.FObjectExport,
-            index: usize,
-        };
+    pub fn decompress(self: *Parser, r: *std.Io.Reader) !void {
+        try minilzo.init();
 
-        var sfsc_exports = std.ArrayList(SFSCExport).empty;
-        defer sfsc_exports.deinit(self.allocator);
+        _ = self;
+        _ = r;
 
-        for (self.exports_table, 0..) |@"export", i| {
-            if (std.mem.eql(u8, self.names_table[@"export".ObjectName].name.toString(), "SeekFreeShaderCache\x00")) {
-                std.debug.print("Found SeekFreeShaderCache export at index {d}\n", .{i});
-                try sfsc_exports.append(self.allocator, .{
-                    .object = @"export",
-                    .index = i,
-                });
-            }
-        }
-
-        if (sfsc_exports.items.len == 0) {
-            return std.debug.print("No SeekFreeShaderCache exports found! skipping\n", .{});
-        }
-
-        for (sfsc_exports.items) |@"export"| {
-            const obj_type_name = if (@"export".object.ClassIndex < 0)
-                self.names_table[self.imports_table[@abs(@"export".object.ClassIndex)].NameTableIndex].name.toString()
-            else
-                self.names_table[@abs(@"export".object.ClassIndex)].name.toString();
-
-            std.debug.print(
-                \\
-                \\  Name:           {s}_{d}
-                \\  ArchetypeIndex: {d}
-                \\  SerialSize:     {d}
-                \\  SerialOffset:   {d}
-                \\  Class:          {s}
-                \\  Super:          {d} ({s}_{d})
-                \\  Outer:          {d} ({s}_{d})
-                \\
-                \\
-            , .{
-                self.names_table[@abs(@"export".object.ObjectName)].name.toString(),
-                @"export".object.ArchetypeIndex,
-                @"export".object.ArchetypeIndex,
-                @"export".object.SerialSize,
-                @"export".object.SerialOffset,
-                obj_type_name,
-                @"export".object.SuperIndex,
-                self.names_table[self.exports_table[@abs(@"export".object.SuperIndex)].ObjectName].name.toString(),
-                self.exports_table[@abs(@"export".object.SuperIndex)].ArchetypeIndex,
-                @"export".object.OuterIndex,
-                self.names_table[self.exports_table[@abs(@"export".object.OuterIndex)].ObjectName].name.toString(),
-                self.exports_table[@abs(@"export".object.OuterIndex)].ArchetypeIndex,
-            });
-        }
-
-        var none_name_index: usize = 0;
-        for (self.names_table, 0..) |name_entry, i| {
-            if (std.mem.eql(u8, name_entry.name.toString(), "None\x00")) {
-                none_name_index = i;
-                break;
-            }
-        }
-
-        var sfsc_offsets = std.ArrayList(u32).empty;
-        defer sfsc_offsets.deinit(self.allocator);
-
-        var sfsc_sizes = std.ArrayList(u32).empty;
-        defer sfsc_sizes.deinit(self.allocator);
-
-        for (self.exports_table[1..], 1..) |@"export", i| {
-            _ = @"export";
-
-            for (sfsc_exports.items) |sfsc_export| {
-                if (i == sfsc_export.index) {
-                    try sfsc_offsets.append(self.allocator, self.exports_table[i].SerialOffset);
-                    try sfsc_sizes.append(self.allocator, self.exports_table[i].SerialSize);
-
-                    self.exports_table[i].ClassIndex = 0;
-                    self.exports_table[i].SuperIndex = 0;
-                    self.exports_table[i].OuterIndex = 0;
-                    self.exports_table[i].ObjectName = @intCast(none_name_index);
-                    self.exports_table[i].ArchetypeIndex = 0;
-                    self.exports_table[i].Archetype = 0;
-                    self.exports_table[i].ObjectFlags = 0;
-                    self.exports_table[i].SerialSize = 0;
-                    self.exports_table[i].ExportFlags = 0;
-                    self.exports_table[i].GenerationNetObjectCount = 0;
-                    self.exports_table[i].PackageGuid = .{ .a = 0, .b = 0, .c = 0, .d = 0 };
-                    self.exports_table[i].PackageFlags = 0;
-                    break;
-                }
-            }
-        }
-
-        try self.writePatchedFile(filepath, sfsc_offsets.items, sfsc_sizes.items);
-    }
-
-    pub fn writePatchedFile(self: *Parser, filepath: []const u8, sfsc_offsets: []u32, sfsc_sizes: []u32) !void {
-        const patched_filename = filepath; //try generatePatchedFilename(self.allocator, filepath);
-        // defer self.allocator.free(patched_filename);
-
-        std.log.info("Creating patched file: {s}", .{patched_filename});
-
-        const cwd = fs.cwd();
-
-        try cwd.copyFile(filepath, cwd, patched_filename, .{});
-
-        const patched_file = try cwd.openFile(patched_filename, .{ .mode = .read_write });
-        defer patched_file.close();
-
-        var buffer: [4096]u8 = undefined;
-        var fw = patched_file.writer(&buffer);
-        const w = &fw.interface;
-
-        try fw.seekTo(self.summary.export_offset);
-        for (self.exports_table[1..]) |@"export"| {
-            try @"export".write(w);
-        }
-        try w.flush();
-
-        for (sfsc_offsets, sfsc_sizes) |offset, size| {
-            try fw.seekTo(offset);
-
-            const zeros = try self.allocator.alloc(u8, size);
-            defer self.allocator.free(zeros);
-            @memset(zeros, 0);
-
-            try w.writeAll(zeros);
-            try w.flush();
-        }
-
-        std.log.info("Successfully patched file!", .{});
-    }
-
-    fn generatePatchedFilename(allocator: mem.Allocator, original_filepath: []const u8) ![]u8 {
-        if (mem.lastIndexOf(u8, original_filepath, ".")) |dot_index| {
-            const basename = original_filepath[0..dot_index];
-            const extension = original_filepath[dot_index..];
-
-            return try std.fmt.allocPrint(allocator, "{s}_patched{s}", .{ basename, extension });
-        } else {
-            return try std.fmt.allocPrint(allocator, "{s}_patched", .{original_filepath});
-        }
+        // for (self.summary.compressed_chunks) |chunk| {
+        //     const decompressed_size = chunk.UncompressedSize;
+        //
+        //     try self.file.seekTo(chunk.UncompressedOffset);
+        //     const data = try r.readAlloc(self.allocator, decompressed_size);
+        //     defer self.allocator.free(data);
+        //
+        //     const decompressed_data = try minilzo.decompress(self.allocator, data, decompressed_size);
+        //
+        //     var fw = try fs.cwd().createFile("test.bin", .{});
+        //     defer fw.close();
+        //     try fw.writeAll(decompressed_data);
+        // }
     }
 
     pub fn parse(self: *Parser) !void {
@@ -173,7 +49,12 @@ const Parser = struct {
         const r: *std.Io.Reader = &fr.interface;
 
         self.summary = try ue.FPackageFileSummary.read(r, self.allocator);
-        self.summary.print();
+        self.summary.debugPrint();
+
+        // TODO: implement [de]compression
+        if (self.summary.compressed_chunks.len > 0) {
+            try self.decompress(r);
+        }
 
         // Read the names table
         self.names_table = try self.allocator.alloc(ue.FNameEntry, self.summary.name_count);
@@ -217,6 +98,9 @@ const Parser = struct {
         // Free additional packages
         self.allocator.free(self.summary.additional_packages);
 
+        // Free compressed chunks
+        self.allocator.free(self.summary.compressed_chunks);
+
         // Free texture allocations
         for (self.summary.texture_allocations) |allocation| {
             if (allocation.export_indices_count > 0) {
@@ -236,8 +120,8 @@ const Parser = struct {
 
         // Free the exports table
         for (self.exports_table[1..]) |@"export"| {
-            if (@"export".GenerationNetObjectCount > 0) {
-                self.allocator.free(@"export".GenerationNetObjects[0..@"export".GenerationNetObjectCount]);
+            if (@"export".generation_net_object_count > 0) {
+                self.allocator.free(@"export".generation_net_objects[0..@"export".generation_net_object_count]);
             }
         }
         self.allocator.free(self.exports_table);
@@ -247,35 +131,3 @@ const Parser = struct {
         self.allocator.free(self.rest_of_file);
     }
 };
-
-pub fn main() !void {
-    var allocator = std.heap.DebugAllocator(.{}).init;
-    const gpa = allocator.allocator();
-    defer _ = allocator.deinit();
-
-    const args = try std.process.argsAlloc(gpa);
-    defer std.process.argsFree(gpa, args);
-
-    if (args.len < 2) {
-        std.log.err("Usage: {s} <file.upk>", .{args[0]});
-        return;
-    }
-
-    const filepath = args[1];
-    std.log.info("filepath: {s}", .{filepath});
-
-    const cwd = fs.cwd();
-    const file = cwd.openFile(filepath, .{}) catch |e| {
-        return switch (e) {
-            error.FileNotFound => std.log.err("File not found!", .{}),
-            else => std.log.err("Error: {}", .{e}),
-        };
-    };
-    errdefer file.close();
-
-    var parser = try Parser.init(gpa, file);
-    defer parser.deinit();
-
-    try parser.parse();
-    try parser.patchSFSC(filepath);
-}

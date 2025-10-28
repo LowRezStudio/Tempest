@@ -1,6 +1,58 @@
 const std = @import("std");
 const mem = std.mem;
 
+pub const ECompressionFlags = enum(u32) {
+    COMPRESS_None = 0x00,
+    COMPRESS_ZLIB = 0x01,
+    COMPRESS_LZO = 0x02,
+    COMPRESS_LZX = 0x04,
+    COMPRESS_BiasMemory = 0x10,
+    COMPRESS_BiasSpeed = 0x20,
+    COMPRESS_ForcePPUDecompressZLib = 0x80,
+    COMPRESS_NoStats = 0x100,
+    COMPRESS_Obscured = 0x200,
+
+    pub fn bit(self: ECompressionFlags) u32 {
+        return @intFromEnum(self);
+    }
+
+    pub fn combine(comptime list: []const ECompressionFlags) u32 {
+        var mask: u32 = 0;
+        for (list) |flag| mask |= flag.bit();
+        return mask;
+    }
+
+    pub fn has(mask: u32, flag: ECompressionFlags) bool {
+        return (mask & flag.bit()) != 0;
+    }
+
+    pub fn hasAll(mask: u32, comptime list: []const ECompressionFlags) bool {
+        const combined = ECompressionFlags.combine(list);
+        return (mask & combined) == combined;
+    }
+
+    pub fn hasAny(mask: u32, comptime list: []const ECompressionFlags) bool {
+        const combined = ECompressionFlags.combine(list);
+        return (mask & combined) != 0;
+    }
+
+    pub fn add(mask: u32, comptime list: []const ECompressionFlags) u32 {
+        return mask | ECompressionFlags.combine(list);
+    }
+
+    pub fn remove(mask: u32, comptime list: []const ECompressionFlags) u32 {
+        return mask & ~ECompressionFlags.combine(list);
+    }
+
+    pub fn print(mask: u32) void {
+        std.debug.print("ECompressionFlags set:\n", .{});
+        inline for (@typeInfo(ECompressionFlags).@"enum".fields) |field| {
+            if (mask & field.value != 0)
+                std.debug.print("  - {s}\n", .{field.name});
+        }
+    }
+};
+
 pub const EPackageFlags = enum(u32) {
     PKG_AllowDownload = 0x00000001, // Allow downloading package.
     PKG_ClientOptional = 0x00000002, // Purely optional for clients.
@@ -24,35 +76,35 @@ pub const EPackageFlags = enum(u32) {
     PKG_StrippedSource = 0x40000000, // Source has been removed to compress the package size
     PKG_FilterEditorOnly = 0x80000000, // Package has editor-only data filtered
 
-    pub inline fn bit(self: EPackageFlags) u32 {
+    pub fn bit(self: EPackageFlags) u32 {
         return @intFromEnum(self);
     }
 
-    pub inline fn combine(comptime list: []const EPackageFlags) u32 {
+    pub fn combine(comptime list: []const EPackageFlags) u32 {
         var mask: u32 = 0;
         for (list) |flag| mask |= flag.bit();
         return mask;
     }
 
-    pub inline fn has(mask: u32, flag: EPackageFlags) bool {
+    pub fn has(mask: u32, flag: EPackageFlags) bool {
         return (mask & flag.bit()) != 0;
     }
 
-    pub inline fn hasAll(mask: u32, comptime list: []const EPackageFlags) bool {
+    pub fn hasAll(mask: u32, comptime list: []const EPackageFlags) bool {
         const combined = EPackageFlags.combine(list);
         return (mask & combined) == combined;
     }
 
-    pub inline fn hasAny(mask: u32, comptime list: []const EPackageFlags) bool {
+    pub fn hasAny(mask: u32, comptime list: []const EPackageFlags) bool {
         const combined = EPackageFlags.combine(list);
         return (mask & combined) != 0;
     }
 
-    pub inline fn add(mask: u32, comptime list: []const EPackageFlags) u32 {
+    pub fn add(mask: u32, comptime list: []const EPackageFlags) u32 {
         return mask | EPackageFlags.combine(list);
     }
 
-    pub inline fn remove(mask: u32, comptime list: []const EPackageFlags) u32 {
+    pub fn remove(mask: u32, comptime list: []const EPackageFlags) u32 {
         return mask & ~EPackageFlags.combine(list);
     }
 
@@ -122,35 +174,35 @@ pub const EObjectFlags = enum(u64) {
     RF_CookedStartupObject = 0x8000000000000000, // This object was cooked into a startup package.
     RF_AllFlags = 0xFFFFFFFFFFFFFFFF,
 
-    pub inline fn bit(self: EObjectFlags) u64 {
+    pub fn bit(self: EObjectFlags) u64 {
         return @intFromEnum(self);
     }
 
-    pub inline fn combine(comptime list: []const EObjectFlags) u64 {
+    pub fn combine(comptime list: []const EObjectFlags) u64 {
         var mask: u64 = 0;
         for (list) |flag| mask |= flag.bit();
         return mask;
     }
 
-    pub inline fn has(mask: u64, flag: EObjectFlags) bool {
+    pub fn has(mask: u64, flag: EObjectFlags) bool {
         return (mask & flag.bit()) != 0;
     }
 
-    pub inline fn hasAll(mask: u64, comptime list: []const EObjectFlags) bool {
+    pub fn hasAll(mask: u64, comptime list: []const EObjectFlags) bool {
         const combined = EObjectFlags.combine(list);
         return (mask & combined) == combined;
     }
 
-    pub inline fn hasAny(mask: u64, comptime list: []const EObjectFlags) bool {
+    pub fn hasAny(mask: u64, comptime list: []const EObjectFlags) bool {
         const combined = EObjectFlags.combine(list);
         return (mask & combined) != 0;
     }
 
-    pub inline fn add(mask: u64, comptime list: []const EObjectFlags) u64 {
+    pub fn add(mask: u64, comptime list: []const EObjectFlags) u64 {
         return mask | EObjectFlags.combine(list);
     }
 
-    pub inline fn remove(mask: u64, comptime list: []const EObjectFlags) u64 {
+    pub fn remove(mask: u64, comptime list: []const EObjectFlags) u64 {
         return mask & ~EObjectFlags.combine(list);
     }
 
@@ -226,14 +278,14 @@ pub const FNameEntry = extern struct {
 
 pub const FName = extern struct {
     len: u32,
-    name: [*:0]u8,
+    data: [*:0]u8,
 
     pub fn read(reader: *std.Io.Reader, allocator: mem.Allocator) !FName {
         const len: u32 = try reader.takeInt(u32, .little);
         const name = try reader.readAlloc(allocator, @intCast(len));
         errdefer allocator.free(name);
 
-        return FName{ .len = len, .name = @ptrCast(name) };
+        return FName{ .len = len, .data = @ptrCast(name) };
     }
 
     pub fn readArray(reader: *std.Io.Reader, allocator: mem.Allocator) ![]FName {
@@ -252,7 +304,7 @@ pub const FName = extern struct {
 
     pub fn write(self: FName, w: *std.io.Writer) !void {
         try w.writeInt(u32, self.len, .little);
-        try w.writeAll(self.name[0..self.len]);
+        try w.writeAll(self.data[0..self.len]);
     }
 
     pub fn writeArray(self: []const FName, w: *std.io.Writer, len: u32) !void {
@@ -263,49 +315,111 @@ pub const FName = extern struct {
     }
 
     pub fn deinit(self: FName, allocator: mem.Allocator) void {
-        allocator.free(self.name[0..self.len]);
+        allocator.free(self.data[0..self.len]);
     }
 
     pub fn toString(self: FName) []const u8 {
-        return self.name[0..self.len];
+        return self.data[0..self.len];
     }
 };
 
 pub const FObjectImport = extern struct {
-    ClassPackage: u32 = 0,
-    ClassName: u32 = 0,
-    OuterIndex: u32 = 0,
-    Field2: u32 = 0,
-    OwnerRef: i32 = 0,
-    NameTableIndex: u32 = 0,
-    Field3: u32 = 0,
+    class_package: u32 = 0,
+    class_name: u32 = 0,
+    outer_index: u32 = 0,
+    unk1: u32 = 0,
+    owner_ref: i32 = 0,
+    object_name: u32 = 0,
+    unk2: u32 = 0,
 
     pub fn read(r: *std.Io.Reader) !FObjectImport {
         const import: FObjectImport = .{
-            .ClassPackage = try r.takeInt(u32, .little),
-            .ClassName = try r.takeInt(u32, .little),
-            .OuterIndex = try r.takeInt(u32, .little),
-            .Field2 = try r.takeInt(u32, .little),
-            .OwnerRef = try r.takeInt(i32, .little),
-            .NameTableIndex = try r.takeInt(u32, .little),
-            .Field3 = try r.takeInt(u32, .little),
+            .class_package = try r.takeInt(u32, .little),
+            .class_name = try r.takeInt(u32, .little),
+            .outer_index = try r.takeInt(u32, .little),
+            .unk1 = try r.takeInt(u32, .little),
+            .owner_ref = try r.takeInt(i32, .little),
+            .object_name = try r.takeInt(u32, .little),
+            .unk2 = try r.takeInt(u32, .little),
         };
         return import;
     }
 
     pub fn write(self: FObjectImport, w: *std.io.Writer) !void {
-        try w.writeInt(u32, self.ClassPackage, .little);
-        try w.writeInt(u32, self.ClassName, .little);
-        try w.writeInt(u32, self.OuterIndex, .little);
-        try w.writeInt(u32, self.Field2, .little);
-        try w.writeInt(i32, self.OwnerRef, .little);
-        try w.writeInt(u32, self.NameTableIndex, .little);
-        try w.writeInt(u32, self.Field3, .little);
+        try w.writeInt(u32, self.class_package, .little);
+        try w.writeInt(u32, self.class_name, .little);
+        try w.writeInt(u32, self.outer_index, .little);
+        try w.writeInt(u32, self.unk1, .little);
+        try w.writeInt(i32, self.owner_ref, .little);
+        try w.writeInt(u32, self.object_name, .little);
+        try w.writeInt(u32, self.unk2, .little);
+    }
+
+    pub fn debugPrint(self: FObjectImport) void {
+        std.debug.print(
+            \\FObjectImport:
+            \\  class_package: {d}
+            \\  class_name: {d}
+            \\  outer_index: {d}
+            \\  unk1: {d}
+            \\  owner_ref: {d}
+            \\  object_name: {d}
+            \\  unk2: {d}
+            \\
+            \\
+        , .{
+            self.class_package,
+            self.class_name,
+            self.outer_index,
+            self.unk1,
+            self.owner_ref,
+            self.object_name,
+            self.unk2,
+        });
     }
 };
 
-pub const FCompressedChunk = struct {
-    count: u32,
+pub const FCompressedChunk = extern struct {
+    UncompressedOffset: u32,
+    UncompressedSize: u32,
+    CompressedOffset: u32,
+    CompressedSize: u32,
+
+    pub fn read(r: *std.io.Reader, allocator: mem.Allocator) ![]FCompressedChunk {
+        const count = try r.takeInt(u32, .little);
+        const chunks = try allocator.alloc(FCompressedChunk, count);
+        errdefer allocator.free(chunks);
+
+        for (chunks) |*chunk| {
+            chunk.* = try r.takeStruct(FCompressedChunk, .little);
+        }
+
+        return chunks;
+    }
+
+    pub fn write(self: FCompressedChunk, w: *std.io.Writer, count: u32) !void {
+        try w.writeInt(u32, count, .little);
+        for (self) |chunk| {
+            try w.writeStruct(chunk, .little);
+        }
+    }
+
+    pub fn debugPrint(self: FCompressedChunk) void {
+        std.debug.print(
+            \\FCompressedChunk:
+            \\  UncompressedOffset: {d}
+            \\  UncompressedSize:   {d}
+            \\  CompressedOffset:   {d}
+            \\  CompressedSize:     {d}
+            \\
+            \\
+        , .{
+            self.UncompressedOffset,
+            self.UncompressedSize,
+            self.CompressedOffset,
+            self.CompressedSize,
+        });
+    }
 };
 
 pub const FTextureAllocation = struct {
@@ -363,75 +477,131 @@ pub const FTextureAllocation = struct {
             }
         }
     }
+
+    pub fn debugPrint(self: FTextureAllocation) void {
+        std.debug.print(
+            \\FTextureAllocation:
+            \\  size_x: {d}
+            \\  size_y: {d}
+            \\  num_mips: {d}
+            \\  format: {d}
+            \\  tex_create_flags: {d}
+            \\  export_indices_count: {d}
+            \\
+            \\
+        , .{
+            self.size_x,
+            self.size_y,
+            self.num_mips,
+            self.format,
+            self.tex_create_flags,
+            self.export_indices_count,
+        });
+    }
 };
 
 pub const FObjectExport = extern struct {
-    ClassIndex: i32 = 0,
-    SuperIndex: i32 = 0,
-    OuterIndex: i32 = 0,
-    ObjectName: u32 = 0,
-    ArchetypeIndex: u32 = 0,
-    Archetype: u32 = 0,
-    ObjectFlags: u64 = 0,
-    SerialSize: u32 = 0,
-    SerialOffset: u32 = 0,
-    ExportFlags: u32 = 0,
-    GenerationNetObjectCount: u32 = 0,
-    GenerationNetObjects: [*]u32 = &.{},
-    PackageGuid: FGuid = .{ .a = 0, .b = 0, .c = 0, .d = 0 },
-    PackageFlags: u32 = 0,
+    class_index: i32 = 0,
+    super_index: i32 = 0,
+    outer_index: i32 = 0,
+    object_name: u32 = 0,
+    archetype_index: u32 = 0,
+    archetype: u32 = 0,
+    object_flags: u64 = 0,
+    serial_size: u32 = 0,
+    serial_offset: u32 = 0,
+    export_flags: u32 = 0,
+    generation_net_object_count: u32 = 0,
+    generation_net_objects: [*]u32 = &.{},
+    package_guid: FGuid = .{ .a = 0, .b = 0, .c = 0, .d = 0 },
+    package_flags: u32 = 0,
 
     pub fn read(r: *std.Io.Reader, allocator: mem.Allocator) !FObjectExport {
         var @"export": FObjectExport = .{
-            .ClassIndex = try r.takeInt(i32, .little),
-            .SuperIndex = try r.takeInt(i32, .little),
-            .OuterIndex = try r.takeInt(i32, .little),
-            .ObjectName = try r.takeInt(u32, .little),
-            .ArchetypeIndex = try r.takeInt(u32, .little),
-            .Archetype = try r.takeInt(u32, .little),
-            .ObjectFlags = try r.takeInt(u64, .little),
-            .SerialSize = try r.takeInt(u32, .little),
-            .SerialOffset = try r.takeInt(u32, .little),
-            .ExportFlags = try r.takeInt(u32, .little),
-            .GenerationNetObjectCount = try r.takeInt(u32, .little),
-            .PackageGuid = try r.takeStruct(FGuid, .little),
-            .PackageFlags = try r.takeInt(u32, .little),
+            .class_index = try r.takeInt(i32, .little),
+            .super_index = try r.takeInt(i32, .little),
+            .outer_index = try r.takeInt(i32, .little),
+            .object_name = try r.takeInt(u32, .little),
+            .archetype_index = try r.takeInt(u32, .little),
+            .archetype = try r.takeInt(u32, .little),
+            .object_flags = try r.takeInt(u64, .little),
+            .serial_size = try r.takeInt(u32, .little),
+            .serial_offset = try r.takeInt(u32, .little),
+            .export_flags = try r.takeInt(u32, .little),
+            .generation_net_object_count = try r.takeInt(u32, .little),
+            .package_guid = try r.takeStruct(FGuid, .little),
+            .package_flags = try r.takeInt(u32, .little),
         };
 
-        if (@"export".GenerationNetObjectCount > 0) {
-            var net_objects = try std.ArrayList(u32).initCapacity(allocator, @"export".GenerationNetObjectCount);
+        if (@"export".generation_net_object_count > 0) {
+            var net_objects = try std.ArrayList(u32).initCapacity(allocator, @"export".generation_net_object_count);
             errdefer net_objects.deinit(allocator);
 
             var i: u32 = 0;
-            while (i < @"export".GenerationNetObjectCount) : (i += 1) {
+            while (i < @"export".generation_net_object_count) : (i += 1) {
                 try net_objects.append(allocator, try r.takeInt(u32, .little));
             }
 
-            @"export".GenerationNetObjects = (try net_objects.toOwnedSlice(allocator)).ptr;
+            @"export".generation_net_objects = (try net_objects.toOwnedSlice(allocator)).ptr;
         }
 
         return @"export";
     }
 
     pub fn write(self: FObjectExport, w: *std.io.Writer) !void {
-        try w.writeInt(i32, self.ClassIndex, .little);
-        try w.writeInt(i32, self.SuperIndex, .little);
-        try w.writeInt(i32, self.OuterIndex, .little);
-        try w.writeInt(u32, self.ObjectName, .little);
-        try w.writeInt(u32, self.ArchetypeIndex, .little);
-        try w.writeInt(u32, self.Archetype, .little);
-        try w.writeInt(u64, self.ObjectFlags, .little);
-        try w.writeInt(u32, self.SerialSize, .little);
-        try w.writeInt(u32, self.SerialOffset, .little);
-        try w.writeInt(u32, self.ExportFlags, .little);
-        try w.writeInt(u32, self.GenerationNetObjectCount, .little);
-        try w.writeStruct(self.PackageGuid, .little);
-        if (self.GenerationNetObjectCount > 0) {
-            for (self.GenerationNetObjects[0..self.GenerationNetObjectCount]) |net_object| {
+        try w.writeInt(i32, self.class_index, .little);
+        try w.writeInt(i32, self.super_index, .little);
+        try w.writeInt(i32, self.outer_index, .little);
+        try w.writeInt(u32, self.object_name, .little);
+        try w.writeInt(u32, self.archetype_index, .little);
+        try w.writeInt(u32, self.archetype, .little);
+        try w.writeInt(u64, self.object_flags, .little);
+        try w.writeInt(u32, self.serial_size, .little);
+        try w.writeInt(u32, self.serial_offset, .little);
+        try w.writeInt(u32, self.export_flags, .little);
+        try w.writeInt(u32, self.generation_net_object_count, .little);
+        try w.writeStruct(self.package_guid, .little);
+        if (self.generation_net_object_count > 0) {
+            for (self.generation_net_objects[0..self.generation_net_object_count]) |net_object| {
                 try w.writeInt(u32, net_object, .little);
             }
         }
-        try w.writeInt(u32, self.PackageFlags, .little);
+        try w.writeInt(u32, self.package_flags, .little);
+    }
+
+    pub fn debugPrint(self: FObjectExport) void {
+        std.debug.print(
+            \\FObjectExport:
+            \\  class_index: {d}
+            \\  super_index: {d}
+            \\  outer_index: {d}
+            \\  object_name: {d}
+            \\  archetype_index: {d}
+            \\  archetype: {d}
+            \\  object_flags: {d}
+            \\  serial_size: {d}
+            \\  serial_offset: {d}
+            \\  export_flags: {d}
+            \\  generation_net_object_count: {d}
+            \\  package_guid: {d}
+            \\  package_flags: {d}
+            \\
+            \\
+        , .{
+            self.class_index,
+            self.super_index,
+            self.outer_index,
+            self.object_name,
+            self.archetype_index,
+            self.archetype,
+            self.object_flags,
+            self.serial_size,
+            self.serial_offset,
+            self.export_flags,
+            self.generation_net_object_count,
+            self.package_guid,
+            self.package_flags,
+        });
     }
 };
 
@@ -452,6 +622,27 @@ pub const FGenerationInfo = extern struct {
             };
         }
         return generations;
+    }
+
+    pub fn write(self: FGenerationInfo, w: *std.io.Writer) !void {
+        try w.writeInt(i32, self.export_count, .little);
+        try w.writeInt(i32, self.name_count, .little);
+        try w.writeInt(i32, self.net_object_count, .little);
+    }
+
+    pub fn debugPrint(self: FGenerationInfo) void {
+        std.debug.print(
+            \\FGenerationInfo:
+            \\  export_count: {d}
+            \\  name_count: {d}
+            \\  net_object_count: {d}
+            \\
+            \\
+        , .{
+            self.export_count,
+            self.name_count,
+            self.net_object_count,
+        });
     }
 };
 pub const FPackageFileSummary = struct {
@@ -478,10 +669,10 @@ pub const FPackageFileSummary = struct {
     cooker_version_upper: u16,
     cooker_version_lower: u16,
     compression_flags: u32,
-    compressed_chunks: u32, //[]FCompressedChunk,
+    compressed_chunks: []FCompressedChunk,
     package_source: u32,
     additional_packages: []FName,
-    texture_allocations: []FTextureAllocation, //FTextureAllocation,
+    texture_allocations: []FTextureAllocation,
 
     pub fn read(r: *std.Io.Reader, allocator: mem.Allocator) !FPackageFileSummary {
         const summary: FPackageFileSummary = .{
@@ -508,7 +699,7 @@ pub const FPackageFileSummary = struct {
             .cooker_version_upper = try r.takeInt(u16, .little),
             .cooker_version_lower = try r.takeInt(u16, .little),
             .compression_flags = try r.takeInt(u32, .little),
-            .compressed_chunks = try r.takeInt(u32, .little),
+            .compressed_chunks = try FCompressedChunk.read(r, allocator),
             .package_source = try r.takeInt(u32, .little),
             .additional_packages = try FName.readArray(r, allocator),
             .texture_allocations = try FTextureAllocation.read(r, allocator),
@@ -537,15 +728,15 @@ pub const FPackageFileSummary = struct {
         try w.writeStruct(self.guid, .little);
         try w.writeInt(u32, @intCast(self.generations.len), .little);
         for (self.generations) |generation| {
-            try w.writeInt(i32, generation.export_count, .little);
-            try w.writeInt(i32, generation.name_count, .little);
-            try w.writeInt(i32, generation.net_object_count, .little);
+            try generation.write(w);
         }
         try w.writeInt(u32, self.engine_version, .little);
         try w.writeInt(u16, self.cooker_version_upper, .little);
         try w.writeInt(u16, self.cooker_version_lower, .little);
         try w.writeInt(u32, self.compression_flags, .little);
-        try w.writeInt(u32, self.compressed_chunks, .little);
+        for (self.compressed_chunks) |chunk| {
+            try chunk.write(w, self.compressed_chunks.len);
+        }
         try w.writeInt(u32, self.package_source, .little);
         try w.writeInt(u32, @intCast(self.additional_packages.len), .little);
         for (self.additional_packages) |pkg| {
@@ -557,10 +748,9 @@ pub const FPackageFileSummary = struct {
         }
     }
 
-    pub fn print(self: FPackageFileSummary) void {
-        std.log.info("Package File Summary", .{});
-        std.log.info(
-            \\
+    pub fn debugPrint(self: FPackageFileSummary) void {
+        std.debug.print(
+            \\FPackageFileSummary:
             \\  tag:                        0x{X}
             \\  file_version:               {d}/{d}
             \\  total_header_size:          {d}
@@ -610,31 +800,39 @@ pub const FPackageFileSummary = struct {
             self.cooker_version_upper,
             self.cooker_version_lower,
             self.compression_flags,
-            self.compressed_chunks,
+            self.compressed_chunks.len,
             self.package_source,
             self.additional_packages.len,
             self.texture_allocations.len,
         });
 
-        for (self.additional_packages, 0..) |pkg, i| {
-            std.log.info("additional_package {d}: {s}", .{ i, pkg.toString() });
+        std.debug.print("Flags:\n", .{});
+        EPackageFlags.print(self.package_flags);
+
+        if (self.additional_packages.len > 0) {
+            std.debug.print("\nAdditional packages:\n", .{});
+            for (self.additional_packages, 0..) |pkg, i| {
+                std.debug.print("  {d}: {s}\n", .{ i, pkg.toString() });
+            }
         }
 
-        for (self.generations, 0..) |generation, i| {
-            std.log.info("generation: {d}", .{i});
-            std.log.info("  export_count: {d}", .{generation.export_count});
-            std.log.info("  name_count: {d}", .{generation.name_count});
-            std.log.info("  net_object_count: {d}", .{generation.net_object_count});
+        std.debug.print("\nGenerations:\n", .{});
+        for (self.generations) |generation| {
+            generation.debugPrint();
         }
 
-        for (self.texture_allocations, 0..) |allocation, i| {
-            std.log.info("texture_allocation {d}", .{i});
-            std.log.info("  size_x: {d}", .{allocation.size_x});
-            std.log.info("  size_y: {d}", .{allocation.size_y});
-            std.log.info("  num_mips: {d}", .{allocation.num_mips});
-            std.log.info("  format: {d}", .{allocation.format});
-            std.log.info("  tex_create_flags: {d}", .{allocation.tex_create_flags});
-            std.log.info("  export_indices_count: {d}", .{allocation.export_indices_count});
+        if (self.texture_allocations.len > 0) {
+            std.debug.print("\nTexture allocations:\n", .{});
+            for (self.texture_allocations) |allocation| {
+                allocation.debugPrint();
+            }
+        }
+
+        if (self.compressed_chunks.len > 0) {
+            std.debug.print("\nCompressed chunks:\n", .{});
+            for (self.compressed_chunks) |chunk| {
+                chunk.debugPrint();
+            }
         }
     }
 };
