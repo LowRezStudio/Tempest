@@ -16,7 +16,7 @@ pub const LZOError = error{
 
 var lzo_inititalized: bool = false;
 
-pub fn init() !void {
+pub fn init() LZOError!void {
     if (lzo_inititalized) return;
 
     if (minilzo.lzo_init() != minilzo.LZO_E_OK) {

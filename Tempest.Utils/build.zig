@@ -11,7 +11,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
-    utils_mod.addImport("utils", utils_mod);
 
     // Add minilzo C translation
     const minilzo_c = b.addTranslateC(.{
@@ -19,23 +18,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
         .root_source_file = b.path("src/minilzo/vendor/minilzo.h"),
-    }).addModule("minilzo_c");
+    }).createModule();
     utils_mod.addImport("minilzo_c", minilzo_c);
 
-    // Build artifacts
-    buildMinilzo(b, target, optimize, utils_mod, minilzo_c);
-    buildAsmloader(b, optimize, utils_mod);
-    buildUpkPatcher(b, target, optimize, utils_mod);
-}
-
-fn buildMinilzo(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    utils_mod: *std.Build.Module,
-    minilzo_c: *std.Build.Module,
-) void {
-    const lib = b.addLibrary(.{
+    // Build minilzo
+    const minilzo_lib = b.addLibrary(.{
         .name = b.fmt("minilzo-{s}-{s}", .{ @tagName(target.result.os.tag), @tagName(target.result.cpu.arch) }),
         .root_module = b.createModule(.{
             .target = target,
@@ -45,38 +32,33 @@ fn buildMinilzo(
         }),
     });
 
-    lib.root_module.addImport("utils", utils_mod);
-    lib.root_module.addImport("minilzo_c", minilzo_c);
-    lib.root_module.addCSourceFile(.{
+    minilzo_lib.root_module.addImport("utils", utils_mod);
+    minilzo_lib.root_module.addImport("minilzo_c", minilzo_c);
+    minilzo_lib.root_module.addCSourceFile(.{
         .file = b.path("src/minilzo/vendor/minilzo.c"),
         .flags = &.{"-O3"},
     });
-    lib.installHeader(b.path("src/minilzo/vendor/minilzo.h"), "minilzo.h");
+    minilzo_lib.installHeader(b.path("src/minilzo/vendor/minilzo.h"), "minilzo.h");
 
-    b.installArtifact(lib);
-}
+    b.installArtifact(minilzo_lib);
 
-fn buildAsmloader(
-    b: *std.Build,
-    optimize: std.builtin.OptimizeMode,
-    utils_mod: *std.Build.Module,
-) void {
-    const targets: []const std.Build.ResolvedTarget = &.{
+    // Build asmloader
+    const asmloader_targets: []const std.Build.ResolvedTarget = &.{
         b.resolveTargetQuery(.{ .cpu_arch = .x86, .os_tag = .windows, .abi = .gnu }),
         b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu }),
     };
 
-    for (targets) |target| {
+    for (asmloader_targets) |t| {
         const detourz = b.dependency("detourz", .{
-            .target = target,
+            .target = t,
             .optimize = optimize,
         }).module("detourz");
 
         const lib = b.addLibrary(.{
             .linkage = .dynamic,
-            .name = b.fmt("asmloader-{s}_{s}", .{ @tagName(target.result.os.tag), @tagName(target.result.cpu.arch) }),
+            .name = b.fmt("asmloader-{s}_{s}", .{ @tagName(t.result.os.tag), @tagName(t.result.cpu.arch) }),
             .root_module = b.createModule(.{
-                .target = target,
+                .target = t,
                 .optimize = optimize,
                 .root_source_file = b.path("src/asmloader.zig"),
                 .link_libc = true,
@@ -88,15 +70,8 @@ fn buildAsmloader(
 
         b.installArtifact(lib);
     }
-}
 
-fn buildUpkPatcher(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    utils_mod: *std.Build.Module,
-) void {
-    const exe = b.addExecutable(.{
+    const upkpatcher_exe = b.addExecutable(.{
         .name = b.fmt("upkpatcher-{s}-{s}", .{ @tagName(target.result.os.tag), @tagName(target.result.cpu.arch) }),
         .root_module = b.createModule(.{
             .target = target,
@@ -106,11 +81,12 @@ fn buildUpkPatcher(
         }),
     });
 
-    exe.root_module.addImport("utils", utils_mod);
-    exe.root_module.addCSourceFile(.{
+    upkpatcher_exe.root_module.addImport("utils", utils_mod);
+    upkpatcher_exe.root_module.addImport("minilzo_c", minilzo_c);
+    upkpatcher_exe.root_module.addCSourceFile(.{
         .file = b.path("src/minilzo/vendor/minilzo.c"),
         .flags = &.{"-O3"},
     });
 
-    b.installArtifact(exe);
+    b.installArtifact(upkpatcher_exe);
 }

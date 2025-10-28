@@ -1,7 +1,7 @@
 const std = @import("std");
 const fs = std.fs;
 
-const upkparser = @import("utils").upkparser;
+const upkparser = @import("root.zig").upkparser;
 
 pub fn main() !void {
     var allocator = std.heap.DebugAllocator(.{}).init;
