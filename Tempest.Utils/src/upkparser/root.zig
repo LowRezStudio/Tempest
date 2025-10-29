@@ -95,7 +95,9 @@ pub const Parser = struct {
         }
 
         // fix summary
-        self.summary.compression_flags = .{};
+        // NOTE: we want to keep that information to skip those files in the patcher
+        const obscured = self.summary.compression_flags.obscured;
+        self.summary.compression_flags = .{ .obscured = obscured };
         self.summary.package_flags.store_compressed = false;
         self.summary.compressed_chunks = &.{};
 
@@ -203,6 +205,8 @@ pub const Parser = struct {
         const w = &fw.interface;
 
         // Write the summary
+        // NOTE: if obscured, and we still want to save, remove the flag
+        self.summary.compression_flags.obscured = false;
         try self.summary.write(w);
 
         // Write the names table

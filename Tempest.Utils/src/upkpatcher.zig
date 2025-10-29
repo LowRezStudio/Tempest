@@ -186,6 +186,12 @@ fn processFile(allocator: std.mem.Allocator, filepath: []const u8, config: Confi
     var parser = try UpkParser.Parser.init(allocator, file, .{});
     try parser.parse();
 
+    // Skip encrypted upks, we don't want to modify them else SHA1 will be different
+    if (parser.summary.compression_flags.obscured) {
+        std.log.info("Skipping encrypted upk '{s}'", .{filepath});
+        return;
+    }
+
     const output_path = if (config.output_file) |output|
         output
     else
