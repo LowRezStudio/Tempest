@@ -148,11 +148,6 @@ pub const Parser = struct {
             name_entry.* = try Archive.FNameEntry.take(reader, self.allocator);
         }
 
-        // debug print names table
-        for (self.names_table) |name_entry| {
-            std.debug.print("{f}\n", .{name_entry.name});
-        }
-
         // Read the imports table
         self.imports_table = try self.allocator.alloc(Archive.FObjectImport, self.summary.import_count + 1);
 
@@ -203,7 +198,7 @@ pub const Parser = struct {
         self.rest_of_file = try reader.readAlloc(self.allocator, @intCast(file_size));
     }
 
-    pub fn testWrite(self: *Parser, path: []const u8) !void {
+    pub fn save(self: *Parser, path: []const u8) !void {
         const file = try fs.cwd().createFile(path, .{});
         defer file.close();
 
@@ -231,8 +226,6 @@ pub const Parser = struct {
 
         // Write the rest of the file
         try w.writeAll(self.rest_of_file);
-
-        // Flush the buffered writer
         try w.flush();
     }
 };
