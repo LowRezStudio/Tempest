@@ -1,13 +1,17 @@
 const std = @import("std");
 const mem = std.mem;
 
+pub const Constants = @import("constants.zig");
 pub const ECompressionFlags = @import("flags.zig").ECompressionFlags;
 pub const EObjectFlags = @import("flags.zig").EObjectFlags;
 pub const EPackageFlags = @import("flags.zig").EPackageFlags;
-
 pub const FGuid = @import("core.zig").FGuid;
-pub const FNameEntry = @import("core.zig").FNameEntry;
 pub const FName = @import("core.zig").FName;
+pub const FNameEntry = @import("core.zig").FNameEntry;
+
+pub const ArchiveError = error{
+    InvalidPackageFileTag,
+};
 
 pub const FObjectImport = extern struct {
     class_package: u32,
@@ -64,6 +68,50 @@ pub const FObjectImport = extern struct {
             self.owner_ref,
             self.object_name,
             self.unk2,
+        });
+    }
+};
+
+pub const FCompressedChunkInfo = extern struct {
+    compressed_size: u32,
+    uncompressed_size: u32,
+
+    pub fn take(r: *std.io.Reader) !FCompressedChunkInfo {
+        return try r.takeStruct(FCompressedChunkInfo, .little);
+    }
+
+    pub fn takeArray(r: *std.io.Reader, allocator: mem.Allocator) ![]FCompressedChunkInfo {
+        const count = try r.takeInt(u32, .little);
+        const chunks = try allocator.alloc(FCompressedChunkInfo, count);
+        errdefer allocator.free(chunks);
+
+        for (chunks) |*chunk| {
+            chunk.* = try FCompressedChunkInfo.take(r);
+        }
+        return chunks;
+    }
+
+    pub fn write(self: FCompressedChunkInfo, w: *std.io.Writer) !void {
+        try w.writeStruct(self, .little);
+    }
+
+    pub fn writeArray(self: []const FCompressedChunkInfo, w: *std.io.Writer) !void {
+        try w.writeInt(u32, @intCast(self.len), .little);
+        for (self) |chunk| {
+            try chunk.write(w);
+        }
+    }
+
+    pub fn format(self: FCompressedChunkInfo, writer: *std.io.Writer) !void {
+        try writer.print(
+            \\FCompressedChunkInfo:
+            \\  compressed_size:   {d}
+            \\  uncompressed_size: {d}
+            \\
+            \\
+        , .{
+            self.compressed_size,
+            self.uncompressed_size,
         });
     }
 };
@@ -381,37 +429,42 @@ pub const FGenerationInfo = extern struct {
 };
 
 pub const FPackageFileSummary = struct {
-    tag: u32,
-    file_version: u16,
-    licensee_version: u16,
-    total_header_size: u32,
-    folder_name: FName,
-    package_flags: EPackageFlags,
-    name_count: u32,
-    name_offset: u32,
-    export_count: u32,
-    export_offset: u32,
-    import_count: u32,
-    import_offset: u32,
-    depends_offset: u32,
-    import_export_guids_offset: u32,
-    import_guids_count: u32,
-    export_guids_count: u32,
-    thumbnail_table_offset: u32,
-    guid: FGuid,
-    generations: []FGenerationInfo,
-    engine_version: u32,
-    cooker_version_upper: u16,
-    cooker_version_lower: u16,
-    compression_flags: ECompressionFlags,
-    compressed_chunks: []FCompressedChunk,
-    package_source: u32,
-    additional_packages: []FName,
-    texture_allocations: []FTextureAllocation,
+    tag: u32 = 0,
+    file_version: u16 = 0,
+    licensee_version: u16 = 0,
+    total_header_size: u32 = 0,
+    folder_name: FName = .{ .len = 0, .data = undefined },
+    package_flags: EPackageFlags = .{},
+    name_count: u32 = 0,
+    name_offset: u32 = 0,
+    export_count: u32 = 0,
+    export_offset: u32 = 0,
+    import_count: u32 = 0,
+    import_offset: u32 = 0,
+    depends_offset: u32 = 0,
+    import_export_guids_offset: u32 = 0,
+    import_guids_count: u32 = 0,
+    export_guids_count: u32 = 0,
+    thumbnail_table_offset: u32 = 0,
+    guid: FGuid = .{ .a = 0, .b = 0, .c = 0, .d = 0 },
+    generations: []FGenerationInfo = &.{},
+    engine_version: u32 = 0,
+    cooker_version_upper: u16 = 0,
+    cooker_version_lower: u16 = 0,
+    compression_flags: ECompressionFlags = .{},
+    compressed_chunks: []FCompressedChunk = &.{},
+    package_source: u32 = 0,
+    additional_packages: []FName = &.{},
+    texture_allocations: []FTextureAllocation = &.{},
 
     pub fn take(r: *std.Io.Reader, allocator: mem.Allocator) !FPackageFileSummary {
+        const tag = try r.takeInt(u32, .little);
+        if (tag != Constants.file_tag and tag != Constants.swapped_file_tag) {
+            return error.InvalidPackageFileTag;
+        }
+
         var summary: FPackageFileSummary = .{
-            .tag = try r.takeInt(u32, .little),
+            .tag = tag,
             .file_version = try r.takeInt(u16, .little),
             .licensee_version = try r.takeInt(u16, .little),
             .total_header_size = try r.takeInt(u32, .little),
