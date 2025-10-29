@@ -2,10 +2,10 @@ const std = @import("std");
 const mem = std.mem;
 
 pub const FGuid = extern struct {
-    a: u32,
-    b: u32,
-    c: u32,
-    d: u32,
+    a: u32 = 0,
+    b: u32 = 0,
+    c: u32 = 0,
+    d: u32 = 0,
 
     pub fn take(reader: *std.Io.Reader) !FGuid {
         return try reader.takeStruct(FGuid, .little);

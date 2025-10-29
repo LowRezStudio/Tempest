@@ -2,9 +2,11 @@ const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 
-const Constants = @import("constants.zig");
 const Minilzo = @import("../root.zig").minilzo;
-const Archive = @import("archive.zig");
+const Constants = @import("constants.zig");
+
+pub const Archive = @import("archive.zig");
+pub const Core = @import("core.zig");
 
 pub const Parser = struct {
     allocator: mem.Allocator = undefined,
@@ -15,14 +17,20 @@ pub const Parser = struct {
     exports_table: []Archive.FObjectExport = &.{},
     depends_table: [][]u8 = &.{},
     rest_of_file: []u8 = &.{},
+    options: ParserOptions = .{},
 
-    pub fn init(allocator: mem.Allocator, file: fs.File) !Parser {
+    pub const ParserOptions = struct {
+        print_summary: bool = false,
+    };
+
+    pub fn init(allocator: mem.Allocator, file: fs.File, options: ParserOptions) !Parser {
         const file_stats = try file.stat();
         const file_buffer = try file.readToEndAlloc(allocator, file_stats.size);
 
         return Parser{
             .allocator = allocator,
             .file_buffer = file_buffer,
+            .options = options,
         };
     }
 
@@ -62,7 +70,7 @@ pub const Parser = struct {
             var offset: usize = 0;
 
             // Read and decompress each block
-            for (blocks, 0..) |block, block_idx| {
+            for (blocks) |block| {
                 // Read compressed block data
                 var compressed_data = try self.allocator.alloc(u8, block.compressed_size);
                 defer self.allocator.free(compressed_data);
@@ -81,15 +89,8 @@ pub const Parser = struct {
                 // Copy decompressed data into the chunk buffer
                 @memcpy(decompressed_chunk[offset .. offset + decompressed_block.len], decompressed_block);
                 offset += decompressed_block.len;
-
-                std.debug.print("Decompressed block {d}: {d} -> {d} bytes\n", .{
-                    block_idx,
-                    block.compressed_size,
-                    block.uncompressed_size,
-                });
             }
 
-            std.debug.print("Chunk fully decompressed: {d} bytes total\n", .{offset});
             try decompressed_data.append(self.allocator, decompressed_chunk);
         }
 
@@ -128,7 +129,7 @@ pub const Parser = struct {
         var reader = &fr;
 
         self.summary = try Archive.FPackageFileSummary.take(reader, self.allocator);
-        std.debug.print("{f}", .{self.summary});
+        if (self.options.print_summary) std.debug.print("{f}", .{self.summary});
 
         if (self.summary.compressed_chunks.len > 0) {
             try self.decompress(reader);
@@ -179,12 +180,7 @@ pub const Parser = struct {
             .serial_offset = 0,
             .export_flags = 0,
             .generation_net_object_count = 0,
-            .package_guid = Archive.FGuid{
-                .a = 0,
-                .b = 0,
-                .c = 0,
-                .d = 0,
-            },
+            .package_guid = Archive.FGuid{},
             .package_flags = 0,
         };
         for (self.exports_table[1..]) |*@"export"| {

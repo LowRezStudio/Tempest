@@ -269,7 +269,7 @@ pub const FObjectExport = extern struct {
     export_flags: u32 = 0,
     generation_net_object_count: u32 = 0,
     generation_net_objects: [*]u32 = &.{},
-    package_guid: FGuid = .{ .a = 0, .b = 0, .c = 0, .d = 0 },
+    package_guid: FGuid = .{},
     package_flags: u32 = 0,
 
     pub fn take(r: *std.Io.Reader, allocator: mem.Allocator) !FObjectExport {
@@ -446,7 +446,7 @@ pub const FPackageFileSummary = struct {
     import_guids_count: u32 = 0,
     export_guids_count: u32 = 0,
     thumbnail_table_offset: u32 = 0,
-    guid: FGuid = .{ .a = 0, .b = 0, .c = 0, .d = 0 },
+    guid: FGuid = .{},
     generations: []FGenerationInfo = &.{},
     engine_version: u32 = 0,
     cooker_version_upper: u16 = 0,
