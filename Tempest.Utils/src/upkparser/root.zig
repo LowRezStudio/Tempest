@@ -35,6 +35,11 @@ pub const Parser = struct {
         //     try self.decompress(r);
         // }
 
+        if (self.summary.compression_flags.type != .none) {
+            std.debug.print("File compressed with {f} skipping\n", .{self.summary.compression_flags});
+            std.process.exit(1);
+        }
+
         // Read the names table
         self.names_table = try self.allocator.alloc(archive.FNameEntry, self.summary.name_count);
 

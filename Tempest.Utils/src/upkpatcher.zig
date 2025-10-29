@@ -31,5 +31,5 @@ pub fn main() !void {
     var parser = try upkparser.Parser.init(arena, file);
     try parser.parse();
 
-    try parser.testWrite("./test.upk");
+    // try parser.testWrite("./test.upk");
 }
