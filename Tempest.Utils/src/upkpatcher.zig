@@ -4,12 +4,12 @@ const fs = std.fs;
 const upkparser = @import("root.zig").upkparser;
 
 pub fn main() !void {
-    var allocator = std.heap.DebugAllocator(.{}).init;
-    const gpa = allocator.allocator();
+    var allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const arena = allocator.allocator();
     defer _ = allocator.deinit();
 
-    const args = try std.process.argsAlloc(gpa);
-    defer std.process.argsFree(gpa, args);
+    const args = try std.process.argsAlloc(arena);
+    defer std.process.argsFree(arena, args);
 
     if (args.len < 2) {
         std.log.err("Usage: {s} <file.upk>", .{args[0]});
@@ -28,8 +28,8 @@ pub fn main() !void {
     };
     errdefer file.close();
 
-    var parser = try upkparser.Parser.init(gpa, file);
-    defer parser.deinit();
-
+    var parser = try upkparser.Parser.init(arena, file);
     try parser.parse();
+
+    try parser.testWrite("./test.upk");
 }
