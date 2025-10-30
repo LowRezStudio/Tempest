@@ -6,6 +6,7 @@ const Minilzo = @import("../root.zig").minilzo;
 const Constants = @import("constants.zig");
 
 pub const Archive = @import("archive.zig");
+pub const Objects = @import("objects.zig");
 pub const Core = @import("core.zig");
 
 pub const Parser = struct {
@@ -15,8 +16,8 @@ pub const Parser = struct {
     names_table: []Archive.FNameEntry = &.{},
     imports_table: []Archive.FObjectImport = &.{},
     exports_table: []Archive.FObjectExport = &.{},
-    depends_table: [][]u8 = &.{},
-    rest_of_file: []u8 = &.{},
+    depends_table: [][]u32 = &.{},
+    data_buffer: []u8 = &.{},
     options: ParserOptions = .{},
 
     pub const ParserOptions = struct {
@@ -148,7 +149,7 @@ pub const Parser = struct {
         self.names_table = try self.allocator.alloc(Archive.FNameEntry, self.summary.name_count);
 
         for (self.names_table) |*name_entry| {
-            name_entry.* = try Archive.FNameEntry.take(reader, self.allocator);
+            name_entry.* = try Archive.FNameEntry.take(reader, self.allocator, true);
         }
 
         // Read the imports table
@@ -189,11 +190,21 @@ pub const Parser = struct {
             @"export".* = try Archive.FObjectExport.take(reader, self.allocator);
         }
 
-        // TODO: read the depends table
+        // Read the depends table TArray<TArray<INT>>
+        const depends_count = try reader.takeInt(u32, .little);
+        self.depends_table = try self.allocator.alloc([]u32, depends_count);
+        for (self.depends_table) |*depends| {
+            const count = try reader.takeInt(u32, .little);
+            const depends_array = try self.allocator.alloc(u32, count);
+            for (depends_array) |*d| {
+                d.* = try reader.takeInt(u32, .little);
+            }
+            depends.* = depends_array;
+        }
 
-        // For now read the rest of the file for reconstruction later
+        // Read the data
         const file_size = self.file_buffer.len - reader.seek;
-        self.rest_of_file = try reader.readAlloc(self.allocator, @intCast(file_size));
+        self.data_buffer = try reader.readAlloc(self.allocator, @intCast(file_size));
     }
 
     pub fn save(self: *Parser, path: []const u8) !void {
@@ -211,7 +222,7 @@ pub const Parser = struct {
 
         // Write the names table
         for (self.names_table) |*name_entry| {
-            try name_entry.write(w);
+            try name_entry.write(w, true);
         }
 
         // Write the imports table (skip the first dummy entry)
@@ -224,8 +235,17 @@ pub const Parser = struct {
             try @"export".write(w);
         }
 
-        // Write the rest of the file
-        try w.writeAll(self.rest_of_file);
+        // Write the depends table
+        try w.writeInt(u32, @intCast(self.depends_table.len), .little);
+        for (self.depends_table) |depends| {
+            try w.writeInt(u32, @intCast(depends.len), .little);
+            for (depends) |d| {
+                try w.writeInt(u32, d, .little);
+            }
+        }
+
+        // Write the data
+        try w.writeAll(self.data_buffer);
         try w.flush();
     }
 };

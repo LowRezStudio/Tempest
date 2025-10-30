@@ -7,6 +7,7 @@ pub const EObjectFlags = @import("flags.zig").EObjectFlags;
 pub const EPackageFlags = @import("flags.zig").EPackageFlags;
 pub const FGuid = @import("core.zig").FGuid;
 pub const FName = @import("core.zig").FName;
+pub const FString = @import("core.zig").FString;
 pub const FNameEntry = @import("core.zig").FNameEntry;
 
 pub const ArchiveError = error{
@@ -358,7 +359,7 @@ pub const FObjectExport = extern struct {
             \\  serial_offset: {d}
             \\  export_flags: {d}
             \\  generation_net_object_count: {d}
-            \\  package_guid: {d}
+            \\  package_guid: {f}
             \\  package_flags: {d}
             \\
             \\
@@ -433,7 +434,7 @@ pub const FPackageFileSummary = struct {
     file_version: u16 = 0,
     licensee_version: u16 = 0,
     total_header_size: u32 = 0,
-    folder_name: FName = .{ .len = 0, .data = undefined },
+    folder_name: FString = .{},
     package_flags: EPackageFlags = .{},
     name_count: u32 = 0,
     name_offset: u32 = 0,
@@ -468,7 +469,7 @@ pub const FPackageFileSummary = struct {
             .file_version = try r.takeInt(u16, .little),
             .licensee_version = try r.takeInt(u16, .little),
             .total_header_size = try r.takeInt(u32, .little),
-            .folder_name = try FName.take(r, allocator),
+            .folder_name = try FString.take(r, allocator),
             .package_flags = try r.takeStruct(EPackageFlags, .little),
             .name_count = try r.takeInt(u32, .little),
             .name_offset = try r.takeInt(u32, .little),
@@ -489,7 +490,7 @@ pub const FPackageFileSummary = struct {
             .compression_flags = try r.takeStruct(ECompressionFlags, .little),
             .compressed_chunks = try FCompressedChunk.takeArray(r, allocator),
             .package_source = try r.takeInt(u32, .little),
-            .additional_packages = try FName.takeArray(r, allocator),
+            .additional_packages = try FName.takeArray(r, allocator, true),
             .texture_allocations = try FTextureAllocation.takeArray(r, allocator),
         };
         summary.package_flags.filter_editor_only = true;
@@ -523,7 +524,7 @@ pub const FPackageFileSummary = struct {
         try w.writeInt(u32, @bitCast(self.compression_flags), .little);
         try FCompressedChunk.writeArray(self.compressed_chunks, w);
         try w.writeInt(u32, self.package_source, .little);
-        try FName.writeArray(self.additional_packages, w);
+        try FName.writeArray(self.additional_packages, w, true);
         try FTextureAllocation.writeArray(self.texture_allocations, w);
     }
 
