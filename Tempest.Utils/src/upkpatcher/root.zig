@@ -40,51 +40,47 @@ const ArgError = error{
 };
 
 fn parseArgs(arena_allocator: std.mem.Allocator) !Config {
-    var args_iter = try std.process.argsWithAllocator(arena_allocator);
-    defer args_iter.deinit();
-
-    // Skip program name
-    _ = args_iter.next();
+    const args = try std.process.argsAlloc(arena_allocator);
 
     var config = Config{};
+    var i: usize = 1; // Skip program name
 
-    while (args_iter.next()) |arg| {
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
         if (std.mem.eql(u8, arg, "-sfsc")) {
             config.patch_sfsc = true;
         } else if (std.mem.eql(u8, arg, "-guid")) {
             config.patch_guid = true;
         } else if (std.mem.eql(u8, arg, "-file")) {
-            if (args_iter.next()) |path| {
-                config.input_file = path;
-            } else {
+            i += 1;
+            if (i >= args.len) {
                 std.log.err("-file requires a path argument", .{});
                 return error.InvalidArguments;
             }
+            config.input_file = args[i];
         } else if (std.mem.eql(u8, arg, "-folder")) {
-            if (args_iter.next()) |path| {
-                config.input_folder = path;
-            } else {
+            i += 1;
+            if (i >= args.len) {
                 std.log.err("-folder requires a path argument", .{});
                 return error.InvalidArguments;
             }
+            config.input_folder = args[i];
         } else if (std.mem.eql(u8, arg, "-output")) {
-            if (args_iter.next()) |path| {
-                config.output_file = path;
-            } else {
+            i += 1;
+            if (i >= args.len) {
                 std.log.err("-output requires a path argument", .{});
                 return error.InvalidArguments;
             }
+            config.output_file = args[i];
         } else if (std.mem.eql(u8, arg, "-suffix")) {
-            if (args_iter.next()) |suffix| {
-                config.suffix = suffix;
-            } else {
+            i += 1;
+            if (i >= args.len) {
                 std.log.err("-suffix requires a text argument", .{});
                 return error.InvalidArguments;
             }
+            config.suffix = args[i];
         } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            const args_for_name = try std.process.argsAlloc(arena_allocator);
-            defer std.process.argsFree(arena_allocator, args_for_name);
-            printUsage(args_for_name[0]);
+            printUsage(args[0]);
             std.process.exit(0);
         } else {
             std.log.err("Unknown argument: {s}", .{arg});
@@ -172,7 +168,7 @@ pub fn main() !void {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".upk")) continue;
 
-        const full = try std.fmt.allocPrint(arena, "{s}/{s}", .{ folder, entry.name });
+        const full = try std.fs.path.join(arena, &.{ folder, entry.name });
         try upk_files.append(arena, full);
 
         if (config.patch_guid) continue;
