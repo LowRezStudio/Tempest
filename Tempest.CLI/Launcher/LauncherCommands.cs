@@ -6,9 +6,9 @@ namespace Tempest.CLI.Launcher;
 
 internal class LauncherCommands
 {
-    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string[]? dll = null)
+    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null)
     {
-        var exePath = LauncherUtility.GetExecutablePath(path, platform);
+        var exePath = LauncherUtility.GetExecutablePath(path, platform, game);
         var defaultArgs = !noDefaultArgs;
         var is64Bit = Directory.GetParent(exePath)?.Name == "Win64";
 

@@ -2,7 +2,7 @@ namespace Tempest.CLI.Launcher;
 
 public static class LauncherUtility
 {
-    public static string GetExecutablePath(string path, string? overridePlatform)
+    public static string GetExecutablePath(string path, string? overridePlatform, string? overrideGame)
     {
         var exePath = Path.GetFullPath(path);
 
@@ -28,11 +28,11 @@ public static class LauncherUtility
                 throw new Exception("Couldn't find the Paladins game folder (containing Binaries and Engine folders)");
             }
 
-            exePath = Path.Join(gameFolder.FullName, "Binaries", overridePlatform ?? "Win64", "Paladins.exe");
+            exePath = Path.Join(gameFolder.FullName, "Binaries", overridePlatform ?? "Win64", overrideGame ?? "Paladins.exe");
 
             if (overridePlatform == "Win32" || !Environment.Is64BitProcess || !File.Exists(exePath))
             {
-                exePath = Path.Join(gameFolder.FullName, "Binaries", "Win32", "Paladins.exe");
+                exePath = Path.Join(gameFolder.FullName, "Binaries", "Win32", overrideGame ?? "Paladins.exe");
             }
 
             if (!File.Exists(exePath))
