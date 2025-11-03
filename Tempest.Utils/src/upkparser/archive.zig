@@ -38,18 +38,18 @@ pub const FObjectImport = extern struct {
         return imports.toOwnedSlice();
     }
 
-    pub fn write(self: FObjectImport, w: *std.io.Writer) !void {
+    pub fn write(self: FObjectImport, w: *std.Io.Writer) !void {
         try w.writeStruct(self, .little);
     }
 
-    pub fn writeArray(self: []const FObjectImport, w: *std.io.Writer) !void {
+    pub fn writeArray(self: []const FObjectImport, w: *std.Io.Writer) !void {
         try w.writeInt(u32, @intCast(self.len), .little);
         for (self) |import| {
             try import.write(w);
         }
     }
 
-    pub fn format(self: FObjectImport, writer: *std.io.Writer) !void {
+    pub fn format(self: FObjectImport, writer: *std.Io.Writer) !void {
         try writer.print(
             \\FObjectImport:
             \\  class_package: {d}
@@ -77,11 +77,11 @@ pub const FCompressedChunkInfo = extern struct {
     compressed_size: u32,
     uncompressed_size: u32,
 
-    pub fn take(r: *std.io.Reader) !FCompressedChunkInfo {
+    pub fn take(r: *std.Io.Reader) !FCompressedChunkInfo {
         return try r.takeStruct(FCompressedChunkInfo, .little);
     }
 
-    pub fn takeArray(r: *std.io.Reader, allocator: mem.Allocator) ![]FCompressedChunkInfo {
+    pub fn takeArray(r: *std.Io.Reader, allocator: mem.Allocator) ![]FCompressedChunkInfo {
         const count = try r.takeInt(u32, .little);
         const chunks = try allocator.alloc(FCompressedChunkInfo, count);
         errdefer allocator.free(chunks);
@@ -92,18 +92,18 @@ pub const FCompressedChunkInfo = extern struct {
         return chunks;
     }
 
-    pub fn write(self: FCompressedChunkInfo, w: *std.io.Writer) !void {
+    pub fn write(self: FCompressedChunkInfo, w: *std.Io.Writer) !void {
         try w.writeStruct(self, .little);
     }
 
-    pub fn writeArray(self: []const FCompressedChunkInfo, w: *std.io.Writer) !void {
+    pub fn writeArray(self: []const FCompressedChunkInfo, w: *std.Io.Writer) !void {
         try w.writeInt(u32, @intCast(self.len), .little);
         for (self) |chunk| {
             try chunk.write(w);
         }
     }
 
-    pub fn format(self: FCompressedChunkInfo, writer: *std.io.Writer) !void {
+    pub fn format(self: FCompressedChunkInfo, writer: *std.Io.Writer) !void {
         try writer.print(
             \\FCompressedChunkInfo:
             \\  compressed_size:   {d}
@@ -123,11 +123,11 @@ pub const FCompressedChunk = extern struct {
     CompressedOffset: u32,
     CompressedSize: u32,
 
-    pub fn take(r: *std.io.Reader) !FCompressedChunk {
+    pub fn take(r: *std.Io.Reader) !FCompressedChunk {
         return try r.takeStruct(FCompressedChunk, .little);
     }
 
-    pub fn takeArray(r: *std.io.Reader, allocator: mem.Allocator) ![]FCompressedChunk {
+    pub fn takeArray(r: *std.Io.Reader, allocator: mem.Allocator) ![]FCompressedChunk {
         const count = try r.takeInt(u32, .little);
         const chunks = try allocator.alloc(FCompressedChunk, count);
         errdefer allocator.free(chunks);
@@ -138,18 +138,18 @@ pub const FCompressedChunk = extern struct {
         return chunks;
     }
 
-    pub fn write(self: FCompressedChunk, w: *std.io.Writer) !void {
+    pub fn write(self: FCompressedChunk, w: *std.Io.Writer) !void {
         try w.writeStruct(self, .little);
     }
 
-    pub fn writeArray(self: []const FCompressedChunk, w: *std.io.Writer) !void {
+    pub fn writeArray(self: []const FCompressedChunk, w: *std.Io.Writer) !void {
         try w.writeInt(u32, @intCast(self.len), .little);
         for (self) |chunk| {
             try chunk.write(w);
         }
     }
 
-    pub fn format(self: FCompressedChunk, writer: *std.io.Writer) !void {
+    pub fn format(self: FCompressedChunk, writer: *std.Io.Writer) !void {
         try writer.print(
             \\FCompressedChunk:
             \\  UncompressedOffset: {d}
@@ -176,7 +176,7 @@ pub const FTextureAllocation = struct {
     export_indices_count: u32,
     export_indices: [*]u32,
 
-    pub fn take(r: *std.io.Reader, allocator: mem.Allocator) !FTextureAllocation {
+    pub fn take(r: *std.Io.Reader, allocator: mem.Allocator) !FTextureAllocation {
         var allocation: FTextureAllocation = .{
             .size_x = try r.takeInt(u32, .little),
             .size_y = try r.takeInt(u32, .little),
@@ -201,7 +201,7 @@ pub const FTextureAllocation = struct {
         return allocation;
     }
 
-    pub fn takeArray(r: *std.io.Reader, allocator: mem.Allocator) ![]FTextureAllocation {
+    pub fn takeArray(r: *std.Io.Reader, allocator: mem.Allocator) ![]FTextureAllocation {
         const count = try r.takeInt(u32, .little);
         const allocations = try allocator.alloc(FTextureAllocation, count);
         errdefer allocator.free(allocations);
@@ -213,7 +213,7 @@ pub const FTextureAllocation = struct {
         return allocations;
     }
 
-    pub fn write(self: FTextureAllocation, w: *std.io.Writer) !void {
+    pub fn write(self: FTextureAllocation, w: *std.Io.Writer) !void {
         try w.writeInt(u32, self.size_x, .little);
         try w.writeInt(u32, self.size_y, .little);
         try w.writeInt(u32, self.num_mips, .little);
@@ -228,14 +228,14 @@ pub const FTextureAllocation = struct {
         }
     }
 
-    pub fn writeArray(self: []const FTextureAllocation, w: *std.io.Writer) !void {
+    pub fn writeArray(self: []const FTextureAllocation, w: *std.Io.Writer) !void {
         try w.writeInt(u32, @intCast(self.len), .little);
         for (self) |allocation| {
             try allocation.write(w);
         }
     }
 
-    pub fn format(self: FTextureAllocation, writer: *std.io.Writer) !void {
+    pub fn format(self: FTextureAllocation, writer: *std.Io.Writer) !void {
         try writer.print(
             \\FTextureAllocation:
             \\  size_x:               {d}
@@ -317,7 +317,7 @@ pub const FObjectExport = extern struct {
         return exports;
     }
 
-    pub fn write(self: FObjectExport, w: *std.io.Writer) !void {
+    pub fn write(self: FObjectExport, w: *std.Io.Writer) !void {
         try w.writeInt(i32, self.class_index, .little);
         try w.writeInt(i32, self.super_index, .little);
         try w.writeInt(i32, self.outer_index, .little);
@@ -338,14 +338,14 @@ pub const FObjectExport = extern struct {
         try w.writeInt(u32, self.package_flags, .little);
     }
 
-    pub fn writeArray(self: []const FObjectExport, w: *std.io.Writer) !void {
+    pub fn writeArray(self: []const FObjectExport, w: *std.Io.Writer) !void {
         try w.writeInt(u32, @intCast(self.len), .little);
         for (self) |@"export"| {
             try @"export".write(w);
         }
     }
 
-    pub fn format(self: FObjectExport, writer: *std.io.Writer) !void {
+    pub fn format(self: FObjectExport, writer: *std.Io.Writer) !void {
         try writer.print(
             \\FObjectExport:
             \\  class_index: {d}
@@ -402,18 +402,18 @@ pub const FGenerationInfo = extern struct {
         return generations;
     }
 
-    pub fn write(self: FGenerationInfo, w: *std.io.Writer) !void {
+    pub fn write(self: FGenerationInfo, w: *std.Io.Writer) !void {
         try w.writeStruct(self, .little);
     }
 
-    pub fn writeArray(self: []const FGenerationInfo, w: *std.io.Writer) !void {
+    pub fn writeArray(self: []const FGenerationInfo, w: *std.Io.Writer) !void {
         try w.writeInt(u32, @intCast(self.len), .little);
         for (self) |generation| {
             try generation.write(w);
         }
     }
 
-    pub fn format(self: FGenerationInfo, writer: *std.io.Writer) !void {
+    pub fn format(self: FGenerationInfo, writer: *std.Io.Writer) !void {
         try writer.print(
             \\FGenerationInfo:
             \\  export_count: {d}
@@ -497,7 +497,7 @@ pub const FPackageFileSummary = struct {
         return summary;
     }
 
-    pub fn write(self: *FPackageFileSummary, w: *std.io.Writer) !void {
+    pub fn write(self: *FPackageFileSummary, w: *std.Io.Writer) !void {
         try w.writeInt(u32, self.tag, .little);
         try w.writeInt(u16, self.file_version, .little);
         try w.writeInt(u16, self.licensee_version, .little);
@@ -528,7 +528,7 @@ pub const FPackageFileSummary = struct {
         try FTextureAllocation.writeArray(self.texture_allocations, w);
     }
 
-    pub fn format(self: FPackageFileSummary, writer: *std.io.Writer) !void {
+    pub fn format(self: FPackageFileSummary, writer: *std.Io.Writer) !void {
         try writer.print(
             \\FPackageFileSummary:
             \\  tag:                        0x{X}

@@ -26,11 +26,11 @@ pub const FGuid = extern struct {
         return guids;
     }
 
-    pub fn write(self: FGuid, writer: *std.io.Writer) !void {
+    pub fn write(self: FGuid, writer: *std.Io.Writer) !void {
         try writer.writeStruct(self, .little);
     }
 
-    pub fn writeArray(self: []const FGuid, writer: *std.io.Writer, count: u32) !void {
+    pub fn writeArray(self: []const FGuid, writer: *std.Io.Writer, count: u32) !void {
         try writer.writeInt(u32, count, .little);
         for (self) |guid| {
             try guid.write(writer);
@@ -57,7 +57,7 @@ pub const FNameEntry = extern struct {
         return FNameEntry{ .name = name, .flags = flags };
     }
 
-    pub fn write(self: FNameEntry, w: *std.io.Writer, header: bool) !void {
+    pub fn write(self: FNameEntry, w: *std.Io.Writer, header: bool) !void {
         try self.name.write(w, header);
         try w.writeInt(u64, self.flags, .little);
     }
@@ -100,7 +100,7 @@ pub const FName = extern struct {
         return names;
     }
 
-    pub fn write(self: FName, w: *std.io.Writer, header: bool) !void {
+    pub fn write(self: FName, w: *std.Io.Writer, header: bool) !void {
         if (header) {
             try w.writeInt(u32, self.len, .little);
             try w.writeAll(self.data.?[0..self.len]);
@@ -110,7 +110,7 @@ pub const FName = extern struct {
         }
     }
 
-    pub fn writeArray(self: []const FName, w: *std.io.Writer, header: bool) !void {
+    pub fn writeArray(self: []const FName, w: *std.Io.Writer, header: bool) !void {
         try w.writeInt(u32, @intCast(self.len), .little);
         for (self) |name| {
             try name.write(w, header);
@@ -121,7 +121,7 @@ pub const FName = extern struct {
         return self.data.?[0..self.len];
     }
 
-    pub fn format(self: FName, writer: *std.io.Writer) !void {
+    pub fn format(self: FName, writer: *std.Io.Writer) !void {
         if (self.len != 0) {
             try writer.print("{s}", .{self.toString()});
         } else {
@@ -154,12 +154,12 @@ pub const FString = extern struct {
         return names;
     }
 
-    pub fn write(self: FString, w: *std.io.Writer) !void {
+    pub fn write(self: FString, w: *std.Io.Writer) !void {
         try w.writeInt(u32, self.len, .little);
         try w.writeAll(self.data[0..self.len]);
     }
 
-    pub fn writeArray(self: []const FString, w: *std.io.Writer) !void {
+    pub fn writeArray(self: []const FString, w: *std.Io.Writer) !void {
         try w.writeInt(u32, @intCast(self.len), .little);
         for (self) |name| {
             try name.write(w);
@@ -170,7 +170,7 @@ pub const FString = extern struct {
         return self.data[0..self.len];
     }
 
-    pub fn format(self: FString, writer: *std.io.Writer) !void {
+    pub fn format(self: FString, writer: *std.Io.Writer) !void {
         try writer.print("{s}", .{self.toString()});
     }
 };

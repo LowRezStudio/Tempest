@@ -53,7 +53,7 @@ pub const EPackageFlags = packed struct(u32) {
     stripped_source: bool = false,
     filter_editor_only: bool = false,
 
-    pub fn format(self: EPackageFlags, writer: *std.io.Writer) !void {
+    pub fn format(self: EPackageFlags, writer: *std.Io.Writer) !void {
         inline for (@typeInfo(EPackageFlags).@"struct".fields, 0..) |field, i| {
             if (comptime std.mem.startsWith(u8, field.name, "_pad")) continue;
 
@@ -128,7 +128,7 @@ pub const EObjectFlags = packed struct(u64) {
     marked_by_cooker_temp: bool,
     cooked_startup_object: bool,
 
-    pub fn format(self: EPackageFlags, writer: *std.io.Writer) !void {
+    pub fn format(self: EPackageFlags, writer: *std.Io.Writer) !void {
         inline for (@typeInfo(EPackageFlags).@"struct".fields, 0..) |field, i| {
             if (comptime std.mem.startsWith(u8, field.name, "_pad")) continue;
 

@@ -26,19 +26,19 @@ pub const UGuidCache = extern struct {
         return caches;
     }
 
-    pub fn write(self: UGuidCache, w: *std.io.Writer) !void {
+    pub fn write(self: UGuidCache, w: *std.Io.Writer) !void {
         try FName.write(self.name, w, false);
         try w.writeStruct(self.guid, .little);
     }
 
-    pub fn writeArray(self: []const UGuidCache, w: *std.io.Writer) !void {
+    pub fn writeArray(self: []const UGuidCache, w: *std.Io.Writer) !void {
         try w.writeInt(u32, @intCast(self.len), .little);
         for (self) |cache| {
             try cache.write(w);
         }
     }
 
-    pub fn format(self: UGuidCache, writer: *std.io.Writer) !void {
+    pub fn format(self: UGuidCache, writer: *std.Io.Writer) !void {
         try writer.print(
             \\UGuidCache:
             \\  name: {d}

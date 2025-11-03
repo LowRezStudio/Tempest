@@ -26,7 +26,17 @@ pub const Parser = struct {
 
     pub fn init(allocator: mem.Allocator, file: fs.File, options: ParserOptions) !Parser {
         const file_stats = try file.stat();
-        const file_buffer = try file.readToEndAlloc(allocator, file_stats.size);
+
+        // var threaded: std.Io.Threaded = .init(allocator);
+        // defer threaded.deinit();
+        //
+        // const io = threaded.io();
+
+        var buffer: [4096]u8 = undefined;
+        var fr = file.reader(&buffer);
+        const reader = &fr.interface;
+
+        const file_buffer = try reader.readAlloc(allocator, file_stats.size);
 
         return Parser{
             .allocator = allocator,
@@ -138,7 +148,7 @@ pub const Parser = struct {
             try self.decompress(reader);
 
             // Reset reader to point to new buffer
-            fr = std.io.Reader.fixed(self.file_buffer);
+            fr = std.Io.Reader.fixed(self.file_buffer);
             reader = &fr;
 
             // Seek to name_offset to continue reading
