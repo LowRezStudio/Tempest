@@ -20,9 +20,9 @@ extern "kernel32" fn GetCurrentThread() callconv(.winapi) windows.HANDLE;
 extern "kernel32" fn Sleep(dwMilliseconds: u32) callconv(.winapi) void;
 
 // void __thiscall UPackage::AddNetPackage(_DWORD *this, _DWORD *a2)
-const AddNetPackage = *const fn (pThis: ?*anyopaque, a2: u32) callconv(THISCALL) void;
+const AddNetPackage = *const fn (This: ?*anyopaque, a2: usize) callconv(THISCALL) void;
 
-// int __thiscall AssemblyManager::LoadFile(_DWORD *this, char a2)
+// int __thiscall CTgAssemblyManager::LoadFile(_DWORD *this, char a2)
 const LoadFile = *const fn (pThis: ?*anyopaque, fullLoad: u8) callconv(THISCALL) c_int;
 
 var addNetPackage: AddNetPackage = undefined;
@@ -30,12 +30,13 @@ var gAssemblyManager: ?*anyopaque = undefined;
 var loadFile: LoadFile = undefined;
 var isLoaded: bool = false;
 
-fn hookAddNetPackage(pThis: ?*anyopaque, a2: u32) callconv(THISCALL) void {
+fn hookAddNetPackage(pThis: ?*anyopaque, a2: usize) callconv(THISCALL) void {
     if (!isLoaded) {
-        const result = loadFile(gAssemblyManager, 1);
+        // const result = loadFile(gAssemblyManager, 1);
+        const result = @call(.auto, loadFile, .{ gAssemblyManager, 1 });
         if (result != 0) {
-            isLoaded = true;
             std.debug.print("[AsmLoader] Loaded assembly!\n", .{});
+            isLoaded = true;
         } else {
             std.debug.print("[AsmLoader] Failed to load assembly!\n", .{});
         }
@@ -90,6 +91,10 @@ fn main(hinstDLL: windows.HINSTANCE) !void {
     } else |err| {
         std.debug.print("Failed to find string! err:{}\n", .{err});
     }
+
+    // addNetPackage = @ptrFromInt(base_addr + 0x6A1C0);
+    // gAssemblyManager = @ptrFromInt(base_addr + 0x3204BD4);
+    // loadFile = @ptrFromInt(base_addr + 0xD285A0);
 
     std.debug.print("Base address: 0x{x}\n", .{base_addr});
     std.debug.print("Found addNetworkPackage: 0x{x}\n", .{@intFromPtr(addNetPackage)});
