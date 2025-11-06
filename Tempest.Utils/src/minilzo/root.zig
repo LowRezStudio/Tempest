@@ -24,7 +24,7 @@ pub fn init() LZOError!void {
     }
 
     lzo_inititalized = true;
-    std.log.info("minilzo initialized", .{});
+    // std.log.info("minilzo initialized", .{});
 }
 
 fn decryptBuffer(allocator: std.mem.Allocator, buffer: []const u8) ![]u8 {

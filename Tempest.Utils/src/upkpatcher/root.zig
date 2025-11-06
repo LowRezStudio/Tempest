@@ -4,92 +4,7 @@ const fs = std.fs;
 const UpkParser = @import("utils").upkparser;
 const Archive = @import("utils").upkparser.Archive;
 const Patches = @import("patches.zig");
-
-const Config = struct {
-    patch_sfsc: bool = false,
-    patch_guid: bool = false,
-    input_file: ?[]const u8 = null,
-    input_folder: ?[]const u8 = null,
-    output_file: ?[]const u8 = null,
-    suffix: []const u8 = "",
-};
-
-fn printUsage(program_name: []const u8) void {
-    std.debug.print(
-        \\Usage: {s} [options]
-        \\
-        \\Options:
-        \\  -sfsc              Patch SeekFreeShaderCache
-        \\  -guid              Patch GUID cache
-        \\  -file <path>       Input file path
-        \\  -folder <path>     Input folder path (process all .upk files)
-        \\  -output <path>     Output file path (only for single file mode)
-        \\  -suffix <text>     Suffix to add before extension (default: "")
-        \\  -h, --help         Show this help message
-        \\
-        \\Examples:
-        \\  {s} -sfsc -file input.upk
-        \\  {s} -sfsc -guid -folder ./upk_files/ -suffix _modified
-        \\  {s} -sfsc -file input.upk -output custom.upk
-        \\
-    , .{ program_name, program_name, program_name, program_name });
-}
-
-const ArgError = error{
-    InvalidArguments,
-};
-
-fn parseArgs(arena_allocator: std.mem.Allocator) !Config {
-    const args = try std.process.argsAlloc(arena_allocator);
-
-    var config = Config{};
-    var i: usize = 1; // Skip program name
-
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
-        if (std.mem.eql(u8, arg, "-sfsc")) {
-            config.patch_sfsc = true;
-        } else if (std.mem.eql(u8, arg, "-guid")) {
-            config.patch_guid = true;
-        } else if (std.mem.eql(u8, arg, "-file")) {
-            i += 1;
-            if (i >= args.len) {
-                std.log.err("-file requires a path argument", .{});
-                return error.InvalidArguments;
-            }
-            config.input_file = args[i];
-        } else if (std.mem.eql(u8, arg, "-folder")) {
-            i += 1;
-            if (i >= args.len) {
-                std.log.err("-folder requires a path argument", .{});
-                return error.InvalidArguments;
-            }
-            config.input_folder = args[i];
-        } else if (std.mem.eql(u8, arg, "-output")) {
-            i += 1;
-            if (i >= args.len) {
-                std.log.err("-output requires a path argument", .{});
-                return error.InvalidArguments;
-            }
-            config.output_file = args[i];
-        } else if (std.mem.eql(u8, arg, "-suffix")) {
-            i += 1;
-            if (i >= args.len) {
-                std.log.err("-suffix requires a text argument", .{});
-                return error.InvalidArguments;
-            }
-            config.suffix = args[i];
-        } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            printUsage(args[0]);
-            std.process.exit(0);
-        } else {
-            std.log.err("Unknown argument: {s}", .{arg});
-            return error.InvalidArguments;
-        }
-    }
-
-    return config;
-}
+const Clap = @import("clap");
 
 fn generateOutputPath(a: std.mem.Allocator, path: []const u8, suffix: []const u8) ![]const u8 {
     if (std.mem.lastIndexOf(u8, path, ".")) |dot| {
@@ -101,68 +16,51 @@ fn generateOutputPath(a: std.mem.Allocator, path: []const u8, suffix: []const u8
     return try std.fmt.allocPrint(a, "{s}{s}", .{ path, suffix });
 }
 
-fn processFile(a: std.mem.Allocator, filepath: []const u8, config: Config) !void {
+fn processFile(allocator: std.mem.Allocator, filepath: []const u8) !UpkParser.Parser {
     const file = try fs.cwd().openFile(filepath, .{});
     defer file.close();
 
-    var parser = try UpkParser.Parser.init(a, file, .{});
+    var parser: UpkParser.Parser = try .init(allocator, file, .{});
     try parser.parse();
 
     if (parser.summary.compression_flags.obscured) {
-        std.log.info("Skipping encrypted UPK: {s}", .{filepath});
-        return;
+        return error.Obscured;
     }
 
-    if (config.patch_sfsc) {
-        if (try Patches.patchSFSC(&parser)) {
-            const out = config.output_file orelse try generateOutputPath(a, filepath, config.suffix);
-            try parser.save(out);
-        }
+    return parser;
+}
+
+fn processSingleFile(
+    arena: std.mem.Allocator,
+    path: []const u8,
+    suffix: []const u8,
+    patch_fn: anytype,
+) !void {
+    var parser = try processFile(arena, path);
+
+    const success = try patch_fn(&parser);
+    if (success) {
+        const out = try generateOutputPath(arena, path, suffix);
+        try parser.save(out);
+        std.log.info("Patched file!", .{});
+    } else {
+        std.log.err("Skipped file", .{});
     }
 }
 
-pub fn main() !void {
-    var arena_alloc = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const arena = arena_alloc.allocator();
-    defer _ = arena_alloc.deinit();
-
-    const config = parseArgs(arena) catch |err| {
-        const args = try std.process.argsAlloc(arena);
-        defer std.process.argsFree(arena, args);
-        printUsage(args[0]);
-        return err;
-    };
-
-    if (config.input_file == null and config.input_folder == null) {
-        std.log.err("Specify -file or -folder", .{});
-        return error.InvalidArguments;
-    }
-
-    if (config.input_file != null and config.input_folder != null) {
-        std.log.err("Cannot use -file and -folder together", .{});
-        return error.InvalidArguments;
-    }
-
-    if (!config.patch_sfsc and !config.patch_guid) {
-        std.log.err("Specify at least one patch: -sfsc or -guid", .{});
-        return error.InvalidArguments;
-    }
-
-    if (config.input_file) |path| {
-        if (config.patch_guid) {
-            std.log.err("-guid cannot be used with -file. Use -folder.", .{});
-            return error.InvalidArguments;
-        }
-        return try processFile(arena, path, config);
-    }
-
-    const folder = config.input_folder.?;
+fn processFolder(
+    arena: std.mem.Allocator,
+    folder: []const u8,
+    suffix: []const u8,
+    patch_fn: anytype,
+    all_paths: ?*std.ArrayList([]const u8),
+) !void {
     var dir = try fs.cwd().openDir(folder, .{ .iterate = true });
     defer dir.close();
 
     var iter = dir.iterate();
     var upk_files = std.ArrayList([]const u8).empty;
-    errdefer upk_files.deinit(arena);
+    defer upk_files.deinit(arena);
 
     while (try iter.next()) |entry| {
         if (entry.kind != .file) continue;
@@ -170,18 +68,164 @@ pub fn main() !void {
 
         const full = try std.fs.path.join(arena, &.{ folder, entry.name });
         try upk_files.append(arena, full);
-
-        if (config.patch_guid) continue;
-        try processFile(arena, full, config);
     }
 
-    if (config.patch_guid) {
-        const list = upk_files.items;
-        std.log.info("Running GUID patch on {} files...", .{list.len});
-        if (try Patches.patchGuidCache(arena, list)) {
-            std.log.info("Patched successfully!", .{});
+    if (upk_files.items.len == 0) {
+        std.log.err("No UPK files found in folder!", .{});
+        return error.NoFilesFound;
+    }
+
+    // If all_paths is provided, collect all paths for batch processing
+    if (all_paths) |paths_list| {
+        try paths_list.appendSlice(arena, upk_files.items);
+        return;
+    }
+
+    // Only process files if patch_fn is actually a function
+    const PatchFnType = @TypeOf(patch_fn);
+    const is_undefined = PatchFnType == @TypeOf(undefined);
+    if (is_undefined) return;
+
+    std.debug.print("\n", .{});
+
+    var skipped: usize = 0;
+    var patched: usize = 0;
+
+    for (upk_files.items, 1..) |upk_file, i| {
+        std.debug.print("\rProcessing: {d}/{d} (Patched: {d}, Skipped: {d})", .{
+            i, upk_files.items.len, patched, skipped,
+        });
+
+        var parser = processFile(arena, upk_file) catch {
+            skipped += 1;
+            continue;
+        };
+
+        const success = patch_fn(&parser) catch |e| {
+            std.debug.print("\n", .{});
+            std.log.err("Failed to patch file: {}", .{e});
+            skipped += 1;
+            continue;
+        };
+
+        if (success) {
+            const out = try generateOutputPath(arena, upk_file, suffix);
+            try parser.save(out);
+            patched += 1;
         } else {
-            std.log.err("Patch failed!", .{});
+            skipped += 1;
+        }
+    }
+
+    std.debug.print("\n", .{});
+    std.log.info("Completed: {d} patched, {d} skipped out of {d} files", .{
+        patched, skipped, upk_files.items.len,
+    });
+}
+
+pub fn main() !void {
+    var arena_alloc = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const arena = arena_alloc.allocator();
+    defer _ = arena_alloc.deinit();
+
+    const params = comptime Clap.parseParamsComptime(
+        \\-h, --help             Display this help and exit.
+        \\-s, --sfsc             Patches SeekFreeShaderCache objects.
+        \\-g, --guid             Patches the GuidCache object.
+        \\-f, --file <str>       Input file path.
+        \\-o, --output <str>     Output file path.
+        \\-d, --folder <str>     Input folder path.
+        \\-S, --suffix <str>     Suffix to add before extension.
+        \\-v, --verbose          Print verbose output.
+        \\
+    );
+
+    var diag = Clap.Diagnostic{};
+    var res = Clap.parse(Clap.Help, &params, Clap.parsers.default, .{
+        .diagnostic = &diag,
+        .allocator = arena,
+        .assignment_separators = "=:",
+    }) catch |err| {
+        try diag.reportToFile(.stderr(), err);
+        return err;
+    };
+    defer res.deinit();
+
+    const has_file = res.args.file != null;
+    const has_folder = res.args.folder != null;
+    const has_sfsc = res.args.sfsc != 0;
+    const has_guid = res.args.guid != 0;
+
+    if (res.args.help != 0)
+        return Clap.helpToFile(.stderr(), Clap.Help, &params, .{});
+
+    if (res.args.verbose != 0)
+        std.log.info("TODO: implement", .{});
+
+    if (!has_file and !has_folder) {
+        std.log.err("Must specify either --file or --folder", .{});
+        return error.InvalidArguments;
+    }
+
+    if (has_file and has_folder) {
+        std.log.err("Cannot use --file and --folder together", .{});
+        return error.InvalidArguments;
+    }
+
+    if (!has_sfsc and !has_guid) {
+        std.log.err("Specify at least one patch: --sfsc or --guid", .{});
+        return error.InvalidArguments;
+    }
+
+    if (has_sfsc and has_guid) {
+        std.log.err("Cannot use --sfsc and --guid together", .{});
+        return error.InvalidArguments;
+    }
+
+    const suffix = res.args.suffix orelse "";
+
+    if (has_sfsc) {
+        std.log.info("Patching SeekFreeShaderCache...", .{});
+
+        if (res.args.file) |path| {
+            try processSingleFile(arena, path, suffix, Patches.patchSFSC);
+        } else if (res.args.folder) |folder| {
+            try processFolder(arena, folder, suffix, Patches.patchSFSC, null);
+        }
+    } else if (has_guid) {
+        std.log.info("Patching GuidCache...", .{});
+
+        if (res.args.file) |path| {
+            var paths = std.ArrayList([]const u8).empty;
+            defer paths.deinit(arena);
+            try paths.append(arena, path);
+
+            const success = try Patches.patchGuidCache(arena, paths.items);
+
+            if (success) {
+                std.log.info("Patched file!", .{});
+            } else {
+                std.log.err("Skipped file", .{});
+            }
+        } else if (res.args.folder) |folder| {
+            var all_paths = std.ArrayList([]const u8).empty;
+            defer all_paths.deinit(arena);
+
+            try processFolder(arena, folder, suffix, undefined, &all_paths);
+
+            std.debug.print("\n", .{});
+
+            const success = Patches.patchGuidCache(arena, all_paths.items) catch |e| {
+                std.debug.print("\n", .{});
+                std.log.err("Failed to patch GuidCache: {}", .{e});
+                return e;
+            };
+
+            if (success) {
+                std.log.info("Completed patching GuidCache", .{});
+            } else {
+                std.log.err("Failed to patch GuidCache", .{});
+            }
         }
     }
 }

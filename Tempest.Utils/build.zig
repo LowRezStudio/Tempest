@@ -71,6 +71,8 @@ pub fn build(b: *std.Build) void {
         b.installArtifact(lib);
     }
 
+    // Build upkpatcher
+    const clap = b.dependency("clap", .{});
     const upkpatcher_exe = b.addExecutable(.{
         .name = b.fmt("upkpatcher-{s}-{s}", .{ @tagName(target.result.os.tag), @tagName(target.result.cpu.arch) }),
         .root_module = b.createModule(.{
@@ -82,6 +84,7 @@ pub fn build(b: *std.Build) void {
     });
 
     upkpatcher_exe.root_module.addImport("utils", utils_mod);
+    upkpatcher_exe.root_module.addImport("clap", clap.module("clap"));
     upkpatcher_exe.root_module.addImport("minilzo_c", minilzo_c);
     upkpatcher_exe.root_module.addCSourceFile(.{
         .file = b.path("src/minilzo/vendor/minilzo.c"),

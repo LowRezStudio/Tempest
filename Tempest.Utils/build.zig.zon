@@ -8,6 +8,10 @@
             .url = "git+https://github.com/lowrezstudio/detourz#21d49c31fb7587822297428c4a221ffd5950cc3f",
             .hash = "detourz-0.0.0-Ywo1d8sRAgD1axHXzoDhBTmd-Xl3aokPs77_zykUPZtU",
         },
+        .clap = .{
+            .url = "git+https://github.com/Hejsil/zig-clap#b7e3348ed60f99ba32c75aa707ff7c87adc31b36",
+            .hash = "clap-0.11.0-oBajB-TnAQC7yPLnZRT5WzHZ_4Ly4dX2OILskli74b9H",
+        },
     },
     .paths = .{
         "build.zig",

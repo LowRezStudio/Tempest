@@ -25,7 +25,7 @@ pub fn patchSFSC(parser: *UpkParser.Parser) !bool {
 
     for (parser.exports_table, 0..) |exp, i| {
         if (std.mem.eql(u8, parser.names_table[exp.object_name].name.toString(), "SeekFreeShaderCache\x00")) {
-            std.log.info("Found SeekFreeShaderCache export at index {d}", .{i});
+            // std.log.info("Found SeekFreeShaderCache export at index {d}", .{i});
             try sfsc_exports.append(parser.allocator, .{
                 .index = @intCast(i),
                 .object = exp,
@@ -34,7 +34,7 @@ pub fn patchSFSC(parser: *UpkParser.Parser) !bool {
     }
 
     if (sfsc_exports.items.len == 0) {
-        std.log.err("No SeekFreeShaderCache exports found! skipping", .{});
+        // std.log.err("No SeekFreeShaderCache exports found! skipping", .{});
         return false;
     }
 
