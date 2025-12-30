@@ -4,18 +4,11 @@
 	import { instanceMap } from "$lib/stores/instance";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import { page } from "$app/state";
-
-	const navigation = [
-		{ href: "/", icon: House, label: "Home" },
-		{ href: "/explore", icon: Compass, label: "Explore" },
-		{ href: "/library", icon: Library, label: "Library" },
-	];
 </script>
 
 <aside class="flex h-screen w-16 flex-none flex-col items-center bg-base-300 py-4">
 	<nav class="flex flex-col gap-2">
 		<SidebarItem href="/" icon={House} label="Home" />
-		<SidebarItem href="/explore" icon={Compass} label="Explore" />
 		<SidebarItem href="/library" icon={Library} label="Library" />
 	</nav>
 
