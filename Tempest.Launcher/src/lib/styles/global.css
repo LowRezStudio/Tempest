@@ -1,65 +1,24 @@
 @import "tailwindcss";
-
-:root {
-	--color-primary: #428eb1;
-	--color-secondary: #7fa7be;
-	--color-background: #101013;
+@plugin "daisyui" {
+	themes: false;
 }
+@plugin "./theme.ts";
 
 @theme {
-	--font-sans: "Montserrat Variable", sans-serif;
-
-	--color-primary-50: oklch(from var(--color-primary) calc(l + 0.4) c h);
-	--color-primary-100: oklch(from var(--color-primary) calc(l + 0.35) c h);
-	--color-primary-200: oklch(from var(--color-primary) calc(l + 0.3) c h);
-	--color-primary-300: oklch(from var(--color-primary) calc(l + 0.2) c h);
-	--color-primary-400: oklch(from var(--color-primary) calc(l + 0.1) c h);
-	--color-primary-500: oklch(from var(--color-primary) l c h);
-	--color-primary-600: oklch(from var(--color-primary) calc(l - 0.1) c h);
-	--color-primary-700: oklch(from var(--color-primary) calc(l - 0.2) c h);
-	--color-primary-800: oklch(from var(--color-primary) calc(l - 0.3) c h);
-	--color-primary-900: oklch(from var(--color-primary) calc(l - 0.4) c h);
-	--color-primary-950: oklch(from var(--color-primary) calc(l - 0.5) c h);
-
-	--color-secondary-50: oklch(from var(--color-secondary) calc(l + 0.4) c h);
-	--color-secondary-100: oklch(from var(--color-secondary) calc(l + 0.35) c h);
-	--color-secondary-200: oklch(from var(--color-secondary) calc(l + 0.3) c h);
-	--color-secondary-300: oklch(from var(--color-secondary) calc(l + 0.2) c h);
-	--color-secondary-400: oklch(from var(--color-secondary) calc(l + 0.1) c h);
-	--color-secondary-500: oklch(from var(--color-secondary) l c h);
-	--color-secondary-600: oklch(from var(--color-secondary) calc(l - 0.1) c h);
-	--color-secondary-700: oklch(from var(--color-secondary) calc(l - 0.2) c h);
-	--color-secondary-800: oklch(from var(--color-secondary) calc(l - 0.3) c h);
-	--color-secondary-900: oklch(from var(--color-secondary) calc(l - 0.4) c h);
-	--color-secondary-950: oklch(from var(--color-secondary) calc(l - 0.5) c h);
-
-	--color-background-50: oklch(from var(--color-background) calc(l + 0.85) calc(c * 0.3) h);
-	--color-background-100: oklch(from var(--color-background) calc(l + 0.75) calc(c * 0.4) h);
-	--color-background-200: oklch(from var(--color-background) calc(l + 0.65) calc(c * 0.5) h);
-	--color-background-300: oklch(from var(--color-background) calc(l + 0.55) calc(c * 0.6) h);
-	--color-background-400: oklch(from var(--color-background) calc(l + 0.45) calc(c * 0.7) h);
-	--color-background-500: oklch(from var(--color-background) calc(l + 0.35) calc(c * 0.8) h);
-	--color-background-600: oklch(from var(--color-background) calc(l + 0.25) calc(c * 0.9) h);
-	--color-background-700: oklch(from var(--color-background) calc(l + 0.15) c h);
-	--color-background-800: oklch(from var(--color-background) calc(l + 0.08) c h);
-	--color-background-900: oklch(from var(--color-background) calc(l + 0.03) c h);
-	--color-background-950: oklch(from var(--color-background) l c h);
+	--font-sans:
+		"Montserrat Variable", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+		"Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif;
+	--font-mono:
+		"Ubuntu Sans Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+		"Liberation Mono", "Courier New", monospace;
 }
 
-html,
-body {
-	@apply h-full overflow-hidden bg-[#0e0e0e] text-[#b0bac5];
+@utility link {
+	@apply text-primary;
 }
 
-p {
-	@apply text-pretty;
-}
-
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-	@apply text-balance;
+@utility input {
+	&:has(input:focus) {
+		@apply border-accent outline-0;
+	}
 }
