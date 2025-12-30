@@ -361,6 +361,13 @@ Do NOT create:
 
 This project uses **daisyUI 5** for UI components. You MUST follow the daisyUI 5 guidelines.
 
+**CRITICAL RULES:**
+
+1. **NEVER make up components.** Always check `docs/daisyui.md` or the official daisyUI documentation for available component class names.
+2. **NEVER use `bg-*` or `text-*` utilities on a button.** ALWAYS use daisyUI `btn` variants (e.g., `btn-primary`, `btn-neutral`, `btn-ghost`).
+3. **ALWAYS follow daisyUI design guidelines.** Use the semantic classes provided by the library instead of custom utility styling.
+4. **Use accent styles for highlighting.** Use `btn-accent`, `text-accent`, or other `*-accent` utilities to show highlighted or active elements.
+
 **See [docs/daisyui.md](docs/daisyui.md) for complete daisyUI 5 documentation including:**
 
 - Installation and configuration
