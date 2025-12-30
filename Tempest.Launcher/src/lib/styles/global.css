@@ -22,7 +22,7 @@
 }
 
 @utility input {
-	@apply focus:border-accent outline-none;
+	@apply has-focus:border-accent focus:border-accent outline-none;
 }
 
 @utility select {

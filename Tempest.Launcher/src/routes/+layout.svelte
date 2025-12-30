@@ -3,6 +3,8 @@
 	import "@fontsource-variable/montserrat";
 	import "@fontsource-variable/ubuntu-sans-mono";
 	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
+	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
+	import { instanceWizardOpen } from "$lib/stores/ui";
 	import { onMount } from "svelte";
 
 	const { children } = $props();
@@ -27,4 +29,5 @@
 	<main class="flex-1 overflow-y-auto min-w-0">
 		{@render children?.()}
 	</main>
+	<InstanceWizard bind:open={$instanceWizardOpen} />
 </div>
