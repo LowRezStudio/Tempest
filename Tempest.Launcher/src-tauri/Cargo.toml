@@ -7,7 +7,7 @@ edition = "2021"
 [profile.dev]
 incremental = true
 opt-level = 0
-debug = true
+debug = 0
 
 [profile.dev.package."*"]
 opt-level = 1
