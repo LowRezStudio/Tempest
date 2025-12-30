@@ -69,10 +69,10 @@
 						<Play size={16} />
 						Play
 					</button>
-					<button class="btn btn-secondary btn-square">
+					<button class="btn btn-square">
 						<Settings size={16} />
 					</button>
-					<button class="btn btn-secondary btn-square">
+					<button class="btn btn-square">
 						<EllipsisVertical size={16} />
 					</button>
 				</div>
@@ -112,9 +112,7 @@
 								</th>
 								<th class="w-48">Version</th>
 								<th class="w-auto text-right">
-									<button
-										class="btn btn-ghost gap-1.5 h-8 min-h-8 px-2.5 text-sm"
-									>
+									<button class="btn btn-ghost btn-sm">
 										<RefreshCw size={14} />
 										Refresh
 									</button>
@@ -147,10 +145,10 @@
 									</td>
 									<td>
 										<div class="flex items-center justify-end gap-1">
-											<button class="btn btn-ghost btn-square">
+											<button class="btn btn-error btn-sm btn-square">
 												<Trash2 size={14} />
 											</button>
-											<button class="btn btn-ghost btn-square">
+											<button class="btn btn-sm btn-square">
 												<EllipsisVertical size={14} />
 											</button>
 										</div>
