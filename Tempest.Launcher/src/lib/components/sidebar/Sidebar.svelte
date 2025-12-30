@@ -1,33 +1,35 @@
 <script lang="ts">
 	import { House, Compass, Library, Plus, Settings, User, Box } from "@lucide/svelte";
 	import SidebarItem from "./SidebarItem.svelte";
+	import { instanceMap } from "$lib/stores/instance";
+	import { page } from "$app/state";
 
 	const navigation = [
 		{ href: "/", icon: House, label: "Home" },
 		{ href: "/explore", icon: Compass, label: "Explore" },
 		{ href: "/library", icon: Library, label: "Library" },
 	];
-
-	const instances = [
-		{ href: "/instance/ob57", icon: Box, label: "OB 57", circle: true },
-		{ href: "/instance/ob58", icon: Box, label: "OB 58", circle: true },
-	];
 </script>
 
 <aside class="flex h-screen w-16 flex-none flex-col items-center bg-base-200 py-4">
 	<!-- Main Navigation -->
 	<nav class="flex flex-col gap-2">
-		{#each navigation as item}
-			<SidebarItem {...item} />
-		{/each}
+		<SidebarItem href="/" icon={House} label="Home" />
+		<SidebarItem href="/explore" icon={Compass} label="Explore" />
+		<SidebarItem href="/library" icon={Library} label="Library" />
 	</nav>
 
 	<div class="divider mx-4 my-4 opacity-50"></div>
 
 	<!-- Instances -->
 	<div class="flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden px-2 scrollbar-none">
-		{#each instances as instance}
-			<SidebarItem {...instance} />
+		{#each Object.values($instanceMap) as instance}
+			<SidebarItem
+				icon={Box}
+				label={instance.label}
+				active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
+				href={`/instance/${instance.id}`}
+			/>
 		{/each}
 
 		<button class="btn btn-ghost btn-square rounded-xl">

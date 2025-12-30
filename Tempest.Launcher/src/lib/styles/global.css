@@ -22,3 +22,7 @@
 		@apply border-accent outline-0;
 	}
 }
+
+* {
+	@apply select-none;
+}
