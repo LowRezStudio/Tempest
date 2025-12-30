@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { House, Compass, Library, Plus, Settings, User, Box } from "@lucide/svelte";
 	import SidebarItem from "./SidebarItem.svelte";
+	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 	import { instanceMap } from "$lib/stores/instance";
 	import { page } from "$app/state";
+
+	let isModalOpen = $state(false);
 
 	const navigation = [
 		{ href: "/", icon: House, label: "Home" },
@@ -32,7 +35,7 @@
 			/>
 		{/each}
 
-		<button class="btn btn-ghost btn-square rounded-xl">
+		<button class="btn btn-ghost btn-square outline-none" onclick={() => (isModalOpen = true)}>
 			<Plus size={20} />
 		</button>
 	</div>
@@ -42,4 +45,6 @@
 		<SidebarItem href="/settings" icon={Settings} label="Settings" />
 		<SidebarItem href="/profile" icon={User} label="Profile" />
 	</div>
+
+	<InstanceWizard bind:open={isModalOpen} />
 </aside>

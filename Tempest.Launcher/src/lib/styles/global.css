@@ -13,16 +13,57 @@
 		"Liberation Mono", "Courier New", monospace;
 }
 
+* {
+	@apply select-none;
+}
+
 @utility link {
 	@apply text-primary;
 }
 
 @utility input {
-	&:has(input:focus) {
-		@apply border-accent outline-0;
+	@apply focus:border-accent outline-none;
+}
+
+@utility select {
+	@apply focus:border-accent outline-none;
+}
+
+/* Modern animation utilities - reusable everywhere */
+@keyframes pop-in {
+	0% {
+		opacity: 0;
+		transform: scale(0.96) translateY(8px);
+	}
+	100% {
+		opacity: 1;
+		transform: scale(1) translateY(0);
 	}
 }
 
-* {
-	@apply select-none;
+@keyframes slide-in {
+	0% {
+		opacity: 0;
+		transform: translateY(12px);
+	}
+	100% {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes fade-in {
+	0% {
+		opacity: 0;
+	}
+	100% {
+		opacity: 1;
+	}
+}
+
+/* Reusable easing curves */
+:root {
+	--ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+	--ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+	--ease-snappy: cubic-bezier(0.19, 1, 0.22, 1);
 }
