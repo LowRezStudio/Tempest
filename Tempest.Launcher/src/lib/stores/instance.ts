@@ -3,14 +3,14 @@ import { persistentAtom, persistentMap } from "@nanostores/persistent";
 import { jsonSerializer } from "./common";
 import { computed } from "nanostores";
 
-export const activeInstanceId = persistentAtom<string>("activeInstanceId", undefined);
+export const lastLaunchedInstanceId = persistentAtom<string>("lastLaunchedInstanceId", undefined);
 export const instanceMap = persistentMap<Record<string, Instance>>(
 	"instances:",
 	{},
 	jsonSerializer,
 );
 
-export const activeInstance = computed([instanceMap, activeInstanceId], (instanceMap, id) =>
+export const lastLaunchedInstance = computed([instanceMap, lastLaunchedInstanceId], (instanceMap, id) =>
 	id ? instanceMap[id] : undefined,
 );
 

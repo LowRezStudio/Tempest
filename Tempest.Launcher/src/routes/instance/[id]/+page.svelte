@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/state";
-	import { instanceMap } from "$lib/stores/instance";
+	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { launchGame } from "$lib/core";
 	import {
 		Play,
@@ -39,6 +39,8 @@
 	if (!instance) throw new Error("how did we get here?");
 
 	const handlePlayClick = async () => {
+		lastLaunchedInstanceId.set(instance.id);
+
 		const command = launchGame({
 			path: instance.path,
 			noDefaultArgs: instance.launchOptions.noDefaultArgs,

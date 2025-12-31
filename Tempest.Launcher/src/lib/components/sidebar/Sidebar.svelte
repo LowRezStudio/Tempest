@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { House, Compass, Library, Plus, Settings, User, Box } from "@lucide/svelte";
 	import SidebarItem from "./SidebarItem.svelte";
-	import { instanceMap } from "$lib/stores/instance";
+	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import { page } from "$app/state";
 </script>
