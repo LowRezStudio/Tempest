@@ -54,7 +54,8 @@ jobs:
         with:
           workspaces: Tempest.Launcher/src-tauri
           cache-on-failure: true
-          shared-key: ${{ matrix.target }}
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -80,15 +81,18 @@ jobs:
       - name: Install dependencies (Ubuntu)
         if: matrix.platform == 'ubuntu-latest'
         run: |
-          sudo apt update;
-          sudo apt-get install -y libappindicator3-dev librsvg2-dev libudev-dev patchelf \
+          sudo apt update
+          sudo apt-get install -y \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libudev-dev \
+            patchelf \
             libwebkit2gtk-4.1-0=2.44.0-2 \
             libwebkit2gtk-4.1-dev=2.44.0-2 \
             libjavascriptcoregtk-4.1-0=2.44.0-2 \
             libjavascriptcoregtk-4.1-dev=2.44.0-2 \
             gir1.2-javascriptcoregtk-4.1=2.44.0-2 \
-            gir1.2-webkit2-4.1=2.44.0-2
-            patchelf \
+            gir1.2-webkit2-4.1=2.44.0-2 \
             libssl-dev \
             pkg-config \
             curl \
