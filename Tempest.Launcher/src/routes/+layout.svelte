@@ -6,6 +6,7 @@
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import { onMount } from "svelte";
+	import { page } from "$app/state";
 
 	const { children } = $props();
 
@@ -26,8 +27,25 @@
 
 <div class="flex h-screen w-full overflow-hidden">
 	<Sidebar />
-	<main class="flex-1 overflow-y-auto min-w-0">
-		{@render children?.()}
+	<main class="flex-1 min-w-0 relative overflow-hidden">
+		{#key page.url.pathname}
+			<div class="page-transition">
+				{@render children?.()}
+			</div>
+		{/key}
 	</main>
 	<InstanceWizard bind:open={$instanceWizardOpen} />
 </div>
+
+<style>
+	.page-transition {
+		position: absolute;
+		inset: 0;
+		overflow-y: auto;
+		animation: page-enter 250ms var(--ease-snappy) both;
+	}
+
+	:global(.page-transition:has(~ .page-transition)) {
+		animation: page-exit 250ms var(--ease-smooth) both;
+	}
+</style>

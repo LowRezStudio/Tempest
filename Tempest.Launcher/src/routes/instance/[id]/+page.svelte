@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from "$app/state";
 	import { instanceMap } from "$lib/stores/instance";
+	import { launchGame } from "$lib/core";
 	import {
 		Play,
 		Settings,
@@ -36,6 +37,17 @@
 	const instance = instanceMap.get()[page.params.id!];
 
 	if (!instance) throw new Error("how did we get here?");
+
+	const handlePlayClick = async () => {
+		const command = launchGame({
+			path: instance.path,
+			noDefaultArgs: instance.launchOptions.noDefaultArgs,
+			dllList: instance.launchOptions.dllList,
+			args: ["Shootingrange_P?game=ShootingRange", ...instance.launchOptions.args],
+		});
+
+		await command.execute();
+	};
 </script>
 
 <div class="flex flex-col h-full bg-base-100">
@@ -65,7 +77,7 @@
 
 				<!-- Right: Action Buttons -->
 				<div class="flex items-center gap-2">
-					<button class="btn btn-accent text-sm">
+					<button class="btn btn-accent text-sm" onclick={handlePlayClick}>
 						<Play size={16} />
 						Play
 					</button>

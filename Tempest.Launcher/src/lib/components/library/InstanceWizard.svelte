@@ -4,7 +4,7 @@
 	import { addInstance } from "$lib/stores/instance";
 	import { CloudDownload, Folder, Code } from "@lucide/svelte";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
-	import { defaultInstancePath } from "$lib/stores/settings/paths";
+	import { defaultInstancePath } from "$lib/stores/settings";
 	import { path } from "@tauri-apps/api";
 
 	interface Props {

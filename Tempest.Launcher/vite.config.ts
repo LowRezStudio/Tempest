@@ -9,6 +9,10 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
 
+	define: {
+		__BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+	},
+
 	// Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
 	//
 	// 1. prevent vite from obscuring rust errors
