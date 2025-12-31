@@ -10,7 +10,7 @@
 </script>
 
 <a
-	class="bg-base-300 hover:brightness-90 rounded-lg transition-all duration-200 cursor-pointer p-4 text-left"
+	class="bg-base-200 hover:bg-base-300 rounded-lg transition-all duration-200 cursor-pointer p-4 text-left"
 	href={`/instance/${instance.id}`}
 >
 	<div class="flex items-center gap-3">

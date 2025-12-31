@@ -59,12 +59,12 @@
 </script>
 
 <div class="flex flex-col h-full bg-base-100">
-	<div>
+	<div class="bg-base-200">
 		<div class="px-4 py-3">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-3">
 					<div
-						class="w-16 h-16 rounded-xl bg-base-200 flex items-center justify-center shrink-0"
+						class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
 					>
 						<Settings size={32} class="opacity-60" />
 					</div>
@@ -98,7 +98,7 @@
 		</div>
 	</div>
 
-	<div class="flex-1 flex flex-col overflow-hidden bg-base-200">
+	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
 		<div class="flex-1 overflow-y-auto">
 			<div class="p-6">
 				{#if activeTab === "general"}

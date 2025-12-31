@@ -52,13 +52,13 @@
 
 <div class="flex flex-col h-full bg-base-100">
 	<!-- Header -->
-	<div>
+	<div class="bg-base-200">
 		<div class="px-4 py-3">
 			<div class="flex items-center justify-between">
 				<!-- Left: Icon and Info -->
 				<div class="flex items-center gap-3">
 					<div
-						class="w-16 h-16 rounded-xl bg-base-200 flex items-center justify-center shrink-0"
+						class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
 					>
 						<Box size={32} class="opacity-60" />
 					</div>
@@ -106,7 +106,7 @@
 	</div>
 
 	<!-- Content Area -->
-	<div class="flex-1 flex flex-col overflow-hidden bg-base-200">
+	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
 		{#if activeTab === "content"}
 			<!-- Mod List -->
 			<div class="flex-1 overflow-y-auto">
@@ -140,7 +140,7 @@
 									<td>
 										<div class="flex items-center gap-3">
 											<div
-												class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center shrink-0"
+												class="w-10 h-10 rounded-lg bg-base-200 flex items-center justify-center shrink-0"
 											>
 												<Box size={20} class="opacity-60" />
 											</div>
