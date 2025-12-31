@@ -10,6 +10,7 @@
 	<nav class="flex flex-col gap-2">
 		<SidebarItem href="/" icon={House} label="Home" />
 		<SidebarItem href="/library" icon={Library} label="Library" />
+		<SidebarItem href="/character-select" icon={Compass} label="Champions" />
 	</nav>
 
 	<div class="divider mx-4 my-4 opacity-50"></div>
