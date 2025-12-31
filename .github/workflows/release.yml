@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -50,6 +53,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: Tempest.Launcher/src-tauri
+          cache-on-failure: true
+          shared-key: ${{ matrix.target }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -59,13 +64,18 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
       - name: Setup pnpm cache
         uses: actions/cache@v4
         with:
-          path: ~/.local/share/pnpm/store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('Tempest.Launcher/pnpm-lock.yaml') }}
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('Tempest.Launcher/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-
+            ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies (Ubuntu)
         if: matrix.platform == 'ubuntu-latest'
@@ -80,7 +90,9 @@ jobs:
             pkg-config \
             curl \
             wget \
-            file
+            file \
+            libegl1-mesa-dev \
+            libgles2-mesa-dev
 
       - name: Install WiX (Windows)
         if: matrix.platform == 'windows-latest'
