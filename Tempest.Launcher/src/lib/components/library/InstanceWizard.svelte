@@ -252,13 +252,13 @@
 
 	{#snippet actions()}
 		<div class="flex items-center justify-between w-full">
-			<button class="btn btn-ghost gap-2" onclick={() => (showAdvanced = !showAdvanced)}>
+			<button class="btn btn-ghost" onclick={() => (showAdvanced = !showAdvanced)}>
 				<Code size={16} />
 				{showAdvanced ? "Hide Advanced" : "Advanced Options"}
 			</button>
 			<div class="flex gap-2">
 				<button class="btn btn-ghost" onclick={() => (open = false)}>Cancel</button>
-				<button class="btn btn-accent gap-2" disabled={!isValid} onclick={handleCreate}>
+				<button class="btn btn-accent" disabled={!isValid} onclick={handleCreate}>
 					{#if selectedTab === "download"}
 						<CloudDownload size={16} />
 						Download & Create

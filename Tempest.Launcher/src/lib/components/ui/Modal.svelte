@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { X } from "@lucide/svelte";
 	import type { Snippet } from "svelte";
 
 	interface Props {
@@ -48,7 +49,9 @@
 		{/if}
 
 		<form method="dialog">
-			<button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+			<button class="btn btn-circle btn-ghost absolute right-4 top-4">
+				<X size={16} />
+			</button>
 		</form>
 
 		{@render children()}
