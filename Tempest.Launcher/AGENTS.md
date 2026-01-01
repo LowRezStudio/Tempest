@@ -364,9 +364,11 @@ This project uses **daisyUI 5** for UI components. You MUST follow the daisyUI 5
 **CRITICAL RULES:**
 
 1. **NEVER make up components.** Always check `docs/daisyui.md` or the official daisyUI documentation for available component class names.
-2. **NEVER use `bg-*` or `text-*` utilities on a button.** ALWAYS use daisyUI `btn` variants (e.g., `btn-primary`, `btn-neutral`, `btn-ghost`).
-3. **ALWAYS follow daisyUI design guidelines.** Use the semantic classes provided by the library instead of custom utility styling.
-4. **Use accent styles for highlighting.** Use `btn-accent`, `text-accent`, or other `*-accent` utilities to show highlighted or active elements.
+2. **NEVER use `bg-*` or `text-*` utilities on a button.** ALWAYS use daisyUI `btn` variants (e.g., `btn-accent`, `btn-neutral`, `btn-ghost`).
+3. **NEVER use `gap`, spacing, or other utility classes on buttons** unless strictly necessary for sizing (e.g., `btn-xs`, `btn-sm`, `btn-lg`). daisyUI buttons come with proper built-in spacing and styling.
+4. **ALWAYS use accent styles instead of primary or secondary.** Use `btn-accent`, `text-accent`, `badge-accent`, or other `*-accent` utilities to show highlighted or active elements.
+5. **ALWAYS use `bg-base-*` for backgrounds.** Use `bg-base-100`, `bg-base-200`, `bg-base-300` for background colors instead of arbitrary color utilities.
+6. **ALWAYS follow daisyUI design guidelines.** Use the semantic classes provided by the library instead of custom utility styling.
 
 **See [docs/daisyui.md](docs/daisyui.md) for complete daisyUI 5 documentation including:**
 

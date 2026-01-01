@@ -57,6 +57,28 @@
 	let hoveredChampion = $state<Champion | null>(null);
 	let videoElement = $state<HTMLVideoElement | null>(null);
 	let isVideoLoaded = $state(false);
+	let scrollContainer = $state<HTMLDivElement | null>(null);
+	let hasOverflow = $state(false);
+	let canScrollDown = $state(false);
+
+	// Check if content overflows
+	$effect(() => {
+		if (scrollContainer) {
+			const container = scrollContainer;
+			const checkOverflow = () => {
+				const overflow = container.scrollHeight > container.clientHeight;
+				hasOverflow = overflow;
+				canScrollDown =
+					overflow &&
+					container.scrollTop < container.scrollHeight - container.clientHeight - 5;
+			};
+
+			checkOverflow();
+			container.addEventListener("scroll", checkOverflow);
+
+			return () => container.removeEventListener("scroll", checkOverflow);
+		}
+	});
 
 	function handleChampionClick(champion: Champion) {
 		selectedChampion = champion;
@@ -116,14 +138,14 @@
 			<img
 				src={backgroundChampion.fallbackPath}
 				alt={backgroundChampion.name}
-				class="h-full w-full object-cover"
+				class="h-full w-full object-cover object-[75%_center]"
 			/>
 
 			<!-- Video Layer (fades in when loaded) -->
 			<video
 				bind:this={videoElement}
 				poster={backgroundChampion.fallbackPath}
-				class="absolute inset-0 !h-full !w-full object-cover transition-opacity duration-500"
+				class="absolute inset-0 !h-full !w-full object-cover object-[75%_center] transition-opacity duration-500"
 				class:opacity-0={!isVideoLoaded}
 				class:opacity-100={isVideoLoaded}
 				loop
@@ -132,40 +154,35 @@
 				preload="metadata"
 				onloadeddata={handleVideoLoaded}
 			></video>
-
-			<!-- Dark overlay for better text visibility -->
-			<div class="absolute inset-0 bg-black/60"></div>
 		</div>
 	{/if}
 
 	<!-- Content Layer -->
 	<div class="relative z-10 flex h-full flex-col">
 		<!-- Header -->
-		<div class="p-8">
-			<h1 class="text-4xl font-bold text-white drop-shadow-lg">Select Your Champion</h1>
-			<div class="mt-2 h-7">
-				{#if selectedChampion}
-					<p class="text-lg text-white/90 drop-shadow-md">
-						Selected: <span class="font-semibold text-accent"
-							>{selectedChampion.name}</span
-						>
-					</p>
-				{/if}
-			</div>
+		<div class="p-8 text-center">
+			<h1
+				class="text-4xl font-bold text-white"
+				style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
+			>
+				Select Your Champion
+			</h1>
+			{#if selectedChampion}
+				<h2
+					class="mt-4 text-6xl font-bold text-white"
+					style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
+				>
+					{selectedChampion.name}
+				</h2>
+			{/if}
 		</div>
 
-		<!-- Champion Name Display -->
-		{#if backgroundChampion}
-			<div class="absolute bottom-8 left-8">
-				<h2 class="text-6xl font-bold text-white drop-shadow-lg">
-					{backgroundChampion.name}
-				</h2>
-			</div>
-		{/if}
-
 		<!-- Floating Champion Portraits -->
-		<div class="flex flex-1 items-center justify-center p-8">
-			<div class="grid max-w-6xl grid-cols-6 gap-4 md:grid-cols-8 lg:grid-cols-11">
+		<div class="relative flex flex-1 flex-col items-center justify-end">
+			<div
+				bind:this={scrollContainer}
+				class="grid max-h-[304px] max-w-6xl grid-cols-6 gap-4 overflow-y-auto p-4 scrollbar-hide md:grid-cols-8 lg:grid-cols-11"
+			>
 				{#each champions as champion (champion.name)}
 					<button
 						type="button"
@@ -191,15 +208,41 @@
 					</button>
 				{/each}
 			</div>
+
+			<!-- Scroll indicator -->
+			{#if canScrollDown}
+				<div
+					class="pointer-events-none absolute bottom-0 flex justify-center"
+					style="text-shadow: 0 2px 8px rgba(0,0,0,0.8);"
+				>
+					<svg
+						class="h-8 w-8 animate-bounce text-white"
+						fill="none"
+						stroke="currentColor"
+						viewBox="0 0 24 24"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="2"
+							d="M19 9l-7 7-7-7"
+						></path>
+					</svg>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Confirm Button -->
-		<div class="absolute bottom-8 right-8 h-12">
-			{#if selectedChampion}
-				<button type="button" class="btn btn-accent btn-lg shadow-xl">
-					Confirm Selection
-				</button>
-			{/if}
+		<div class="w-full pb-8 pt-4 text-center">
+			<button
+				type="button"
+				class="btn btn-lg shadow-xl"
+				class:btn-accent={selectedChampion}
+				class:btn-disabled={!selectedChampion}
+				disabled={!selectedChampion}
+			>
+				Confirm Selection
+			</button>
 		</div>
 	</div>
 </div>
