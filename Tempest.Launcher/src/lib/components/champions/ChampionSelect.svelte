@@ -56,10 +56,10 @@
 	let selectedChampion = $state<Champion | null>(null);
 	let hoveredChampion = $state<Champion | null>(null);
 	let videoElement = $state<HTMLVideoElement | null>(null);
-	let isVideoLoaded = $state(false);
 	let scrollContainer = $state<HTMLDivElement | null>(null);
 	let hasOverflow = $state(false);
 	let canScrollDown = $state(false);
+	let previousChampion = $state<Champion | null>(null);
 
 	// Check if content overflows
 	$effect(() => {
@@ -95,9 +95,6 @@
 	// Load video when background champion changes
 	$effect(() => {
 		if (videoElement && backgroundChampion) {
-			// Hide video immediately when champion changes
-			isVideoLoaded = false;
-
 			// Force dimensions before loading (WebKit fix)
 			videoElement.style.width = "100%";
 			videoElement.style.height = "100%";
@@ -108,54 +105,62 @@
 
 			// Wait for metadata to be loaded before playing (WebKit fix)
 			const handleMetadata = () => {
-				// Start playing but keep hidden until first frame is rendered
+				// Start playing
 				videoElement?.play().catch(() => {
 					// Ignore autoplay errors
 				});
 			};
 
 			videoElement.addEventListener("loadedmetadata", handleMetadata, { once: true });
-		} else {
-			isVideoLoaded = false;
+
+			// Update previous champion after current one starts loading
+			previousChampion = backgroundChampion;
 		}
 	});
-
-	function handleVideoLoaded() {
-		// Wait for video to have proper dimensions and first frame rendered (WebKit fix)
-		if (videoElement && videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
-			setTimeout(() => {
-				isVideoLoaded = true;
-			}, 150);
-		}
-	}
 </script>
 
 <div class="relative h-full w-full overflow-hidden bg-base-200">
 	<!-- Fullscreen Background -->
-	{#if backgroundChampion}
-		<div class="absolute inset-0">
-			<!-- Fallback Image (always visible) -->
+	<div class="absolute inset-0">
+		{#if backgroundChampion}
+			<!-- Previous champion fallback (to prevent flash) -->
+			{#if previousChampion && previousChampion.name !== backgroundChampion.name}
+				<img
+					src={previousChampion.fallbackPath}
+					alt={previousChampion.name}
+					class="absolute inset-0 h-full w-full object-cover object-[75%_center]"
+				/>
+			{/if}
+
+			<!-- Current champion fallback (always visible below video) -->
 			<img
 				src={backgroundChampion.fallbackPath}
 				alt={backgroundChampion.name}
-				class="h-full w-full object-cover object-[75%_center]"
+				class="absolute inset-0 h-full w-full object-cover object-[75%_center]"
 			/>
 
-			<!-- Video Layer (fades in when loaded) -->
+			<!-- Video Layer -->
 			<video
 				bind:this={videoElement}
 				poster={backgroundChampion.fallbackPath}
-				class="absolute inset-0 !h-full !w-full object-cover object-[75%_center] transition-opacity duration-500"
-				class:opacity-0={!isVideoLoaded}
-				class:opacity-100={isVideoLoaded}
+				class="absolute inset-0 !h-full !w-full object-cover object-[75%_center]"
 				loop
 				muted
 				playsinline
 				preload="metadata"
-				onloadeddata={handleVideoLoaded}
 			></video>
-		</div>
-	{/if}
+		{:else}
+			<!-- Default empty background video with blur -->
+			<video
+				src="/champions/empty.webm"
+				class="h-full w-full object-cover blur-xs"
+				loop
+				muted
+				playsinline
+				autoplay
+			></video>
+		{/if}
+	</div>
 
 	<!-- Content Layer -->
 	<div class="relative z-10 flex h-full flex-col">
@@ -181,18 +186,18 @@
 		<div class="relative flex flex-1 flex-col items-center justify-end">
 			<div
 				bind:this={scrollContainer}
-				class="grid max-h-[304px] max-w-6xl grid-cols-6 gap-4 overflow-y-auto p-4 scrollbar-hide md:grid-cols-8 lg:grid-cols-11"
+				class="relative z-10 grid max-h-[304px] max-w-6xl grid-cols-6 gap-3 overflow-y-auto p-4 scrollbar-hide md:grid-cols-8 lg:grid-cols-11"
 			>
 				{#each champions as champion (champion.name)}
 					<button
 						type="button"
 						class={[
-							"h-20 w-20 overflow-hidden rounded-full border-2 p-0 transition-all duration-200",
+							"h-18 w-18 overflow-hidden rounded-full border-2 p-0 transition-all duration-200",
 							"hover:scale-110 hover:shadow-xl",
 							selectedChampion?.name === champion.name ?
-								"border-accent ring-4 ring-accent shadow-xl"
+								"border-accent ring-3 ring-accent shadow-xl"
 							: hoveredChampion?.name === champion.name ?
-								"border-white/50 ring-4 ring-white/50"
+								"border-white/50 ring-3 ring-white/50"
 							:	"border-base-300",
 						]}
 						onclick={() => handleChampionClick(champion)}
@@ -212,14 +217,15 @@
 			<!-- Scroll indicator -->
 			{#if canScrollDown}
 				<div
-					class="pointer-events-none absolute bottom-0 flex justify-center"
+					class="pointer-events-none absolute bottom-0 z-20 flex justify-center"
 					style="text-shadow: 0 2px 8px rgba(0,0,0,0.8);"
 				>
 					<svg
-						class="h-8 w-8 animate-bounce text-white"
+						class="h-8 w-8 animate-bounce text-white drop-shadow-lg"
 						fill="none"
 						stroke="currentColor"
 						viewBox="0 0 24 24"
+						style="filter: drop-shadow(0 0 8px rgba(255,255,255,0.5));"
 					>
 						<path
 							stroke-linecap="round"
@@ -233,10 +239,21 @@
 		</div>
 
 		<!-- Confirm Button -->
-		<div class="w-full pb-8 pt-4 text-center">
+		<div class="relative w-full pb-8 pt-4 text-center">
+			<!-- Bottom gradient blur -->
+			<div class="pointer-events-none absolute bottom-0 left-0 right-0 h-64">
+				<div
+					class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"
+				></div>
+				<div
+					class="absolute inset-0"
+					style="backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); mask-image: linear-gradient(to top, black, transparent); -webkit-mask-image: linear-gradient(to top, black, transparent);"
+				></div>
+			</div>
+
 			<button
 				type="button"
-				class="btn btn-lg shadow-xl"
+				class="btn btn-lg relative z-10 shadow-xl"
 				class:btn-accent={selectedChampion}
 				class:btn-disabled={!selectedChampion}
 				disabled={!selectedChampion}

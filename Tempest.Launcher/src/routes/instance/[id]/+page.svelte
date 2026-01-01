@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { page } from "$app/state";
 	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
-	import { launchGame } from "$lib/core";
+	import { processesList } from "$lib/stores/processes";
+	import { launchGame, killGame } from "$lib/core";
 	import {
 		Play,
 		Settings,
@@ -10,6 +11,7 @@
 		RefreshCw,
 		Trash2,
 		Box,
+		Square,
 	} from "@lucide/svelte";
 
 	type ModItem = {
@@ -38,18 +40,8 @@
 
 	if (!instance) throw new Error("how did we get here?");
 
-	const handlePlayClick = async () => {
-		lastLaunchedInstanceId.set(instance.id);
-
-		const command = launchGame({
-			path: instance.path,
-			noDefaultArgs: instance.launchOptions.noDefaultArgs,
-			dllList: instance.launchOptions.dllList,
-			args: ["Shootingrange_P?game=ShootingRange", ...instance.launchOptions.args],
-		});
-
-		await command.execute();
-	};
+	// Check if this instance is currently running
+	let isRunning = $derived($processesList.some((p) => p.instance.id === instance.id));
 </script>
 
 <div class="flex flex-col h-full bg-base-100">
@@ -79,9 +71,19 @@
 
 				<!-- Right: Action Buttons -->
 				<div class="flex items-center gap-2">
-					<button class="btn btn-accent text-sm" onclick={handlePlayClick}>
-						<Play size={16} />
-						Play
+					<button
+						class="btn text-sm"
+						class:btn-accent={!isRunning}
+						class:btn-error={isRunning}
+						onclick={() => (isRunning ? killGame(instance) : launchGame(instance))}
+					>
+						{#if isRunning}
+							<Square size={16} />
+							Stop
+						{:else}
+							<Play size={16} />
+							Play
+						{/if}
 					</button>
 					<button class="btn btn-square">
 						<Settings size={16} />

@@ -13,10 +13,10 @@
 		"windows": [
 			{
 				"title": "Tempest",
-				"width": 1024,
-				"height": 690,
-				"minWidth": 800,
-				"minHeight": 600
+				"width": 1280,
+				"height": 900,
+				"minWidth": 1024,
+				"minHeight": 800
 			}
 		],
 		"security": {

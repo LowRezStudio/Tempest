@@ -35,7 +35,22 @@ internal class LauncherCommands
         }
 
         process.UseWine().Start();
-
+        
+        _ = Task.Run(async () =>
+        {
+            using var reader = new StreamReader(Console.OpenStandardInput());
+            while (!process.HasExited)
+            {
+                var input = await reader.ReadLineAsync();
+                
+                if (input == null || !input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase)) continue;
+                
+                process.Kill(true);
+                Environment.Exit(0);
+                break;
+            }
+        });
+        
         await Task.Delay(TimeSpan.FromSeconds(1));
 
         if (dll != null)

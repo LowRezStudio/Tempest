@@ -1,5 +1,5 @@
 <script lang="ts">
-	import CharacterSelect from "$lib/components/CharacterSelect.svelte";
+	import ChampionSelect from "$lib/components/champions/ChampionSelect.svelte";
 
 	interface Champion {
 		name: string;
@@ -21,5 +21,5 @@
 </svelte:head>
 
 <div class="h-screen">
-	<CharacterSelect onselect={handleChampionSelect} />
+	<ChampionSelect onselect={handleChampionSelect} />
 </div>
