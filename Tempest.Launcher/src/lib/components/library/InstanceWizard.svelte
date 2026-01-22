@@ -13,16 +13,13 @@
 
 	let { open = $bindable(false) }: Props = $props();
 
-	const versionGroups = Object.entries(versions).map(([group, list]) => ({
-		group,
-		versions: list.map((item) => ({
-			value: item.id,
-			label: `${item.version} - ${item.date}`,
-			version: item.version,
-		})),
-	}));
+	const flatVersions = versions;
 
-	const flatVersions = Object.values(versions).flat();
+	const versionOptions = flatVersions.map((item) => ({
+		value: item.id,
+		label: `${item.version} - ${item.name} (${item.date.split("T")[0]})`,
+		version: item.version,
+	}));
 
 	let selectedTab = $state<"download" | "folder">("download");
 	let selectedName = $state("");
@@ -62,7 +59,11 @@
 
 		addInstance({
 			id: crypto.randomUUID(),
-			label: selectedName || selectedVersion?.version || "Paladins Instance",
+			label:
+				selectedName ||
+				selectedVersion?.name ||
+				selectedVersion?.version ||
+				"Paladins Instance",
 			version: selectedVersion?.version,
 			path: instancePath,
 			launchOptions: {
@@ -171,12 +172,8 @@
 					bind:value={selectedVersionId}
 				>
 					<option value="" disabled>Select a version...</option>
-					{#each versionGroups as group (group.group)}
-						<optgroup label={group.group}>
-							{#each group.versions as version (version.value)}
-								<option value={version.value}>{version.label}</option>
-							{/each}
-						</optgroup>
+					{#each versionOptions as version (version.value)}
+						<option value={version.value}>{version.label}</option>
 					{/each}
 				</select>
 			</div>
@@ -213,7 +210,9 @@
 					<input
 						id="instance-name"
 						type="text"
-						placeholder={selectedVersion?.version || "My Custom Instance"}
+						placeholder={selectedVersion?.name ||
+							selectedVersion?.version ||
+							"My Custom Instance"}
 						class="input input-bordered w-full"
 						bind:value={selectedName}
 					/>
