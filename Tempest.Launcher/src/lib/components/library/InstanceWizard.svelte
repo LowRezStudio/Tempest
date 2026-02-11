@@ -36,7 +36,9 @@
 	const selectedVersion = $derived(flatVersions.find((v) => v.id === selectedVersionId));
 
 	const isValid = $derived(
-		selectedTab === "download" ? !!selectedVersionId : !!(hasDetected && selectedVersionId && selectedPath),
+		selectedTab === "download" ? !!selectedVersionId : (
+			!!(hasDetected && selectedVersionId && selectedPath)
+		),
 	);
 
 	async function handleBrowse() {
@@ -64,7 +66,7 @@
 				if (version) {
 					selectedVersionId = version.id;
 					if (!selectedName) {
-						selectedName = info.PatchName;
+						selectedName = info.VersionGroup;
 					}
 					hasDetected = true;
 				} else {
@@ -318,14 +320,12 @@
 					{#if selectedTab === "download"}
 						<CloudDownload size={16} />
 						Download & Create
+					{:else if isDetecting}
+						<Loader2 size={16} class="animate-spin" />
+						Identifying...
 					{:else}
-						{#if isDetecting}
-							<Loader2 size={16} class="animate-spin" />
-							Identifying...
-						{:else}
-							<Folder size={16} />
-							Import Instance
-						{/if}
+						<Folder size={16} />
+						Import Instance
 					{/if}
 				</button>
 			</div>
