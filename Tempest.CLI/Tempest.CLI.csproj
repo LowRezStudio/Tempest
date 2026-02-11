@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
@@ -45,6 +45,7 @@
     </Target>
 
     <ItemGroup>
+        <EmbeddedResource Include="Resources/manifests.csv" />
         <EmbeddedResource Include="@(ZigOutput)" />
     </ItemGroup>
 

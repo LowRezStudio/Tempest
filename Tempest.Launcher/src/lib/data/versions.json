@@ -3,528 +3,616 @@
 		"id": "7197949561537914963",
 		"date": "2016-09-22T19:21:26Z",
 		"name": "Fierce Competition",
-		"version": "0.33"
+		"version": "0.33",
+		"wikiReference": "Paladins_Beta_Version_0.33.1275.4"
 	},
 	{
 		"id": "1191425859707082808",
 		"date": "2016-09-29T18:50:14Z",
 		"name": "Troublemaker",
-		"version": "0.34"
+		"version": "0.34",
+		"wikiReference": "Paladins_Beta_Version_0.34.1311.2"
 	},
 	{
 		"id": "8097346015081473043",
 		"date": "2016-10-17T15:25:40Z",
 		"name": "Feast of the Serpent",
-		"version": "0.35"
+		"version": "0.35",
+		"wikiReference": "Paladins_Beta_Version_0.35.1340.8"
 	},
 	{
 		"id": "1180335844094554799",
 		"date": "2016-10-28T17:16:35Z",
 		"name": "The Pumpkin Patch",
-		"version": "0.36"
+		"version": "0.36",
+		"wikiReference": "Paladins_Beta_Version_0.36.1375.5"
 	},
 	{
 		"id": "6339334034048739983",
 		"date": "2016-11-18T22:44:27Z",
 		"name": "The Desert Wind",
-		"version": "0.37"
+		"version": "0.37",
+		"wikiReference": "Paladins_Beta_Version_0.37.1400.5"
 	},
 	{
 		"id": "7843912709491140382",
 		"date": "2016-12-01T14:05:55Z",
 		"name": "Reach for the Stars",
-		"version": "0.38"
+		"version": "0.38",
+		"wikiReference": "Paladins_Beta_Version_0.38.1421.3"
 	},
 	{
 		"id": "300831862270525320",
 		"date": "2016-12-12T22:41:54Z",
 		"name": "Merry Maker",
-		"version": "0.39"
+		"version": "0.39",
+		"wikiReference": "Paladins_Beta_Version_0.39.1451.1"
 	},
 	{
 		"id": "2018777761324781120",
 		"date": "2016-12-20T15:54:07Z",
 		"name": "The Untamed",
-		"version": "0.40"
+		"version": "0.40",
+		"wikiReference": "Paladins_Beta_Version_0.40.1478.3"
 	},
 	{
 		"id": "2318305720603123901",
 		"date": "2017-01-17T20:22:17Z",
 		"name": "Storm the Keep",
-		"version": "0.41"
+		"version": "0.41",
+		"wikiReference": "Paladins_Beta_Version_0.41.1527"
 	},
 	{
 		"id": "6366521348771695142",
 		"date": "2017-01-26T23:17:30Z",
 		"name": "The Keeper of Knowledge",
-		"version": "0.42"
+		"version": "0.42",
+		"wikiReference": "Paladins_Beta_Version_0.42.1552"
 	},
 	{
 		"id": "420401228801764749",
 		"date": "2017-02-10T03:18:36Z",
 		"name": "Nightfall",
-		"version": "0.43"
+		"version": "0.43",
+		"wikiReference": "Paladins_Beta_Version_0.43.1586.1"
 	},
 	{
 		"id": "240245378420188828",
 		"date": "2017-02-23T22:16:59Z",
 		"name": "Legends of the Realm",
-		"version": "0.44"
+		"version": "0.44",
+		"wikiReference": "Paladins_Beta_Version_0.44.1636"
 	},
 	{
 		"id": "1413381586005187765",
 		"date": "2017-03-08T20:10:06Z",
 		"name": "The Stone Warden",
-		"version": "0.45"
+		"version": "0.45",
+		"wikiReference": "Paladins_Beta_Version_0.45.1674.2"
 	},
 	{
 		"id": "2572069752773849326",
 		"date": "2017-03-27T01:51:36Z",
 		"name": "The Hand of Justice",
-		"version": "0.46"
+		"version": "0.46",
+		"wikiReference": "Paladins_Beta_Version_0.46.1707.2"
 	},
 	{
 		"id": "9024379833061078606",
 		"date": "2017-04-04T20:55:08Z",
 		"name": "Volcanic Eruption",
-		"version": "0.47"
+		"version": "0.47",
+		"wikiReference": "Paladins_Beta_Version_0.47.1740"
 	},
 	{
 		"id": "2176975843696477977",
 		"date": "2017-04-25T18:27:22Z",
 		"name": "Souls and Shadows",
-		"version": "0.48"
+		"version": "0.48",
+		"wikiReference": "Paladins_Beta_Version_0.48.1769"
 	},
 	{
 		"id": "1697373541284992682",
 		"date": "2017-05-03T12:18:29Z",
 		"name": "Forest\u2019s Call",
-		"version": "0.49"
+		"version": "0.49",
+		"wikiReference": "Paladins_Beta_Version_0.49.1796.3"
 	},
 	{
 		"id": "6657755905638799015",
 		"date": "2017-05-18T16:15:27Z",
 		"name": "Get Rekt",
-		"version": "0.50"
+		"version": "0.50",
+		"wikiReference": "Paladins_Beta_Version_0.50.1832.3"
 	},
 	{
 		"id": "2368643873493860773",
 		"date": "2017-06-05T22:16:30Z",
 		"name": "To War!",
-		"version": "0.51"
+		"version": "0.51",
+		"wikiReference": "Paladins_Beta_Version_0.51.1874"
 	},
 	{
 		"id": "698951256254392104",
 		"date": "2017-06-21T21:00:18Z",
 		"name": "Tyrant's Onslaught",
-		"version": "0.52"
+		"version": "0.52",
+		"wikiReference": "Paladins_Beta_Version_0.52.1907"
 	},
 	{
 		"id": "7226751078680314946",
 		"date": "2017-06-28T16:09:49Z",
 		"name": "Sunsational!",
-		"version": "0.53"
+		"version": "0.53",
+		"wikiReference": "Paladins_Beta_Version_0.53.1938.4"
 	},
 	{
 		"id": "8712224638132386068",
 		"date": "2017-07-18T15:05:46Z",
 		"name": "Ice and Gunfire",
-		"version": "0.54"
+		"version": "0.54",
+		"wikiReference": "Paladins_Beta_Version_0.54.1960.3"
 	},
 	{
 		"id": "6857705395442468638",
 		"date": "2017-07-31T17:36:36Z",
 		"name": "Celestial Uprising",
-		"version": "0.55"
+		"version": "0.55",
+		"wikiReference": "Paladins_Beta_Version_0.55.1993.7"
 	},
 	{
 		"id": "2945654154650476857",
 		"date": "2017-08-10T16:56:51Z",
 		"name": "Way of the Warrior",
-		"version": "0.56"
+		"version": "0.56",
+		"wikiReference": "Paladins_Beta_Version_0.56.2014.5"
 	},
 	{
 		"id": "4775568787641899396",
 		"date": "2017-08-24T14:42:09Z",
 		"name": "Bird of Prey",
-		"version": "0.57"
+		"version": "0.57",
+		"wikiReference": "Paladins_Beta_Version_0.57.2045.6"
 	},
 	{
 		"id": "6220071272169136079",
 		"date": "2017-09-11T12:40:45Z",
 		"name": "Beats Purr Minute :3",
-		"version": "0.58"
+		"version": "0.58",
+		"wikiReference": "Paladins_Beta_Version_0.58.2083.8"
 	},
 	{
 		"id": "1868388833269402005",
 		"date": "2017-09-19T20:16:15Z",
 		"name": "Plunder Ahoy!",
-		"version": "0.59"
+		"version": "0.59",
+		"wikiReference": "Paladins_Beta_Version_0.59.2111.2"
 	},
 	{
 		"id": "457072439206928207",
 		"date": "2017-10-05T13:58:16Z",
 		"name": "All Hallows Evie",
-		"version": "0.60"
+		"version": "0.60",
+		"wikiReference": "Paladins_Beta_Version_0.60.2150.3"
 	},
 	{
 		"id": "2975963013763356427",
 		"date": "2017-10-25T16:08:24Z",
 		"name": "Relentless",
-		"version": "0.61"
+		"version": "0.61",
+		"wikiReference": "Paladins_Beta_Version_0.61.2192.8"
 	},
 	{
 		"id": "4094490156939300353",
 		"date": "2017-11-01T22:37:08Z",
 		"name": "Ride the Lightning",
-		"version": "0.62"
+		"version": "0.62",
+		"wikiReference": "Paladins_Beta_Version_0.62.2219.2"
 	},
 	{
 		"id": "3361082808884628168",
 		"date": "2017-11-21T17:38:57Z",
 		"name": "Full Auto",
-		"version": "0.63"
+		"version": "0.63",
+		"wikiReference": "Paladins_Beta_Version_0.63.2254.2"
 	},
 	{
 		"id": "8766276069665132871",
 		"date": "2017-12-21T20:01:20Z",
 		"name": "Do You WannaBuild A Bomb King?",
-		"version": "0.64"
+		"version": "0.64",
+		"wikiReference": "Paladins_Beta_Version_0.64.2314.7"
 	},
 	{
 		"id": "7613264082208660964",
 		"date": "2018-02-05T23:05:07Z",
 		"name": "Paladins and Friends",
-		"version": "0.65"
+		"version": "0.65",
+		"wikiReference": "Paladins_Beta_Version_0.65.2356.5"
 	},
 	{
 		"id": "8948410962750469780",
 		"date": "2018-03-05T16:03:35Z",
 		"name": "Battlegrounds",
-		"version": "0.66"
+		"version": "0.66",
+		"wikiReference": "Paladins_Beta_Version_0.66.2497.4"
 	},
 	{
 		"id": "5617612072913620924",
 		"date": "2018-03-19T20:21:28Z",
 		"name": "The Realm Restored",
-		"version": "0.67"
+		"version": "0.67",
+		"wikiReference": "Paladins_Beta_Version_0.67.2523.6"
 	},
 	{
 		"id": "1673173229571738128",
 		"date": "2018-04-04T20:49:28Z",
 		"name": "Siege of Ascension Peak",
-		"version": "0.68"
+		"version": "0.68",
+		"wikiReference": "Paladins_Beta_Version_0.68.2566.1"
 	},
 	{
 		"id": "6939799954432150421",
 		"date": "2018-04-18T12:04:18Z",
 		"name": "Reign of House Aico",
-		"version": "0.69"
+		"version": "0.69",
+		"wikiReference": "Paladins_Beta_Version_0.69.2586"
 	},
 	{
 		"id": "3551055725956922163",
 		"date": "2018-05-17T13:31:56Z",
 		"name": "A New(er) Frontier",
-		"version": "0.70"
+		"version": "0.70",
+		"wikiReference": "Paladins_Version_0.70.2621"
 	},
 	{
 		"id": "9104470381683959475",
 		"date": "2018-06-07T17:08:20Z",
 		"name": "Rise of Furia",
-		"version": "1.1"
+		"version": "1.1",
+		"wikiReference": "Paladins_Version_1.1.2672"
 	},
 	{
 		"id": "5476669985336530027",
 		"date": "2018-07-09T07:20:59Z",
 		"name": "The Ameri-Khan Dream",
-		"version": "1.2"
+		"version": "1.2",
+		"wikiReference": "Paladins_Version_1.2.2680"
 	},
 	{
 		"id": "5806672943000383470",
 		"date": "2018-08-06T09:23:25Z",
 		"name": "Koga's Revenge",
-		"version": "1.3"
+		"version": "1.3",
+		"wikiReference": "Paladins_Version_1.3.2742"
 	},
 	{
 		"id": "3342041697892689199",
 		"date": "2018-08-30T09:29:04Z",
 		"name": "Dragon's Call",
-		"version": "1.4"
+		"version": "1.4",
+		"wikiReference": "Paladins_Version_1.4.2795"
 	},
 	{
 		"id": "9010301706042435942",
 		"date": "2018-09-13T14:09:29Z",
 		"name": "Xenosynthesis",
-		"version": "1.5"
+		"version": "1.5",
+		"wikiReference": "Paladins_Version_1.5.2802.3"
 	},
 	{
 		"id": "8876653573077024521",
 		"date": "2018-10-03T07:28:12Z",
 		"name": "Dark Tides",
-		"version": "1.6"
+		"version": "1.6",
+		"wikiReference": "Paladins_Version_1.6.2870"
 	},
 	{
 		"id": "9005119033746204441",
 		"date": "2018-11-09T21:13:21Z",
 		"name": "HRX-Treme",
-		"version": "1.7"
+		"version": "1.7",
+		"wikiReference": "Paladins_Version_1.7.2878.9"
 	},
 	{
 		"id": "7676725483035728447",
 		"date": "2018-11-28T18:10:48Z",
 		"name": "Remix",
-		"version": "1.8"
+		"version": "1.8",
+		"wikiReference": "Paladins_Version_1.8.2944"
 	},
 	{
 		"id": "3378673758968780541",
 		"date": "2018-12-18T22:40:16Z",
 		"name": "Merry Mayhem",
-		"version": "1.9"
+		"version": "1.9",
+		"wikiReference": "Paladins_Version_1.9.2979"
 	},
 	{
 		"id": "6500386239054717813",
 		"date": "2019-01-24T16:13:06Z",
 		"name": "Fire and Ice",
-		"version": "2.1"
+		"version": "2.1",
+		"wikiReference": "Paladins_Version_2.1.3013.17"
 	},
 	{
 		"id": "2216632362033478945",
 		"date": "2019-02-15T12:02:24Z",
 		"name": "End Times",
-		"version": "2.2"
+		"version": "2.2",
+		"wikiReference": "Paladins_Version_2.2.3058.13"
 	},
 	{
 		"id": "7281558238196354606",
 		"date": "2019-03-26T20:07:57Z",
 		"name": "Future's End",
-		"version": "2.4"
+		"version": "2.4",
+		"wikiReference": "Paladins_Version_2.4.3113.12"
 	},
 	{
 		"id": "1426846541855009052",
 		"date": "2019-05-03T08:29:08Z",
 		"name": "Street Style",
-		"version": "2.5"
+		"version": "2.5",
+		"wikiReference": "Paladins_Version_2.5.3159.8"
 	},
 	{
 		"id": "6536836389198178154",
 		"date": "2019-05-24T12:49:16Z",
 		"name": "Steel Forged",
-		"version": "2.6"
+		"version": "2.6",
+		"wikiReference": "Paladins_Version_2.6.3199.13"
 	},
 	{
 		"id": "6199584519987820597",
 		"date": "2019-07-19T20:43:21Z",
 		"name": "Sun & Moon",
-		"version": "2.8"
+		"version": "2.8",
+		"wikiReference": "Paladins_Version_2.8.3275.21"
 	},
 	{
 		"id": "1982181209846328923",
 		"date": "2019-10-04T20:01:40Z",
 		"name": "Pirate's Treasure",
-		"version": "2.10"
+		"version": "2.10",
+		"wikiReference": "Paladins_Version_2.10.3351.7"
 	},
 	{
 		"id": "6016729773150122986",
 		"date": "2019-11-06T00:45:21Z",
 		"name": "The Damned Frontier",
-		"version": "2.11"
+		"version": "2.11",
+		"wikiReference": "Paladins_Version_2.11.3416.8"
 	},
 	{
 		"id": "6116893073272919689",
 		"date": "2020-01-07T20:05:38Z",
 		"name": "A Tigron's Tale",
-		"version": "3.1"
+		"version": "3.1",
+		"wikiReference": "Paladins_Version_3.1.3487.7"
 	},
 	{
 		"id": "5643530014438111390",
 		"date": "2020-03-03T23:49:49Z",
 		"name": "Sands of Myth",
-		"version": "3.2"
+		"version": "3.2",
+		"wikiReference": "Paladins_Version_3.2.3587.5"
 	},
 	{
 		"id": "2215049597028102807",
 		"date": "2020-06-10T15:45:01Z",
 		"name": "Darkness & Dragons",
-		"version": "3.3"
+		"version": "3.3",
+		"wikiReference": "Paladins_Version_3.3.3661.12"
 	},
 	{
 		"id": "5376337349870200501",
 		"date": "2020-08-11T15:47:50Z",
 		"name": "Radiant Stars",
-		"version": "3.4"
+		"version": "3.4",
+		"wikiReference": "Paladins_Version_3.4.3767.15"
 	},
 	{
 		"id": "6820316466529149712",
 		"date": "2020-12-07T11:12:58Z",
 		"name": "Vora's Pact",
-		"version": "3.5"
+		"version": "3.5",
+		"wikiReference": "Paladins_Version_3.5.3884.0"
 	},
 	{
 		"id": "5145254898653829603",
 		"date": "2021-01-05T20:37:05Z",
 		"name": "The Eternal Pyre",
-		"version": "4.1"
+		"version": "4.1",
+		"wikiReference": "Paladins_Version_4.1.3942.2"
 	},
 	{
 		"id": "6979870707514733706",
 		"date": "2021-02-18T13:02:50Z",
 		"name": "Calamity",
-		"version": "4.2"
+		"version": "4.2",
+		"wikiReference": "Paladins_Version_4.2.3984.3"
 	},
 	{
 		"id": "19534460755489012",
 		"date": "2021-04-06T09:44:02Z",
 		"name": "Indomitable",
-		"version": "4.3"
+		"version": "4.3",
+		"wikiReference": "Paladins_Version_4.3.4031.8"
 	},
 	{
 		"id": "1637490650286084459",
 		"date": "2021-06-15T15:30:57Z",
 		"name": "Shadows",
-		"version": "4.4"
+		"version": "4.4",
+		"wikiReference": "Paladins_Version_4.4.4103.0"
 	},
 	{
 		"id": "3485255216347761654",
 		"date": "2021-08-19T09:22:26Z",
 		"name": "gen:LOCK",
-		"version": "4.5"
+		"version": "4.5",
+		"wikiReference": "Paladins_Version_4.5.4182.0"
 	},
 	{
 		"id": "7497953957505156899",
 		"date": "2021-10-06T18:25:28Z",
 		"name": "Trickshot",
-		"version": "4.6"
+		"version": "4.6",
+		"wikiReference": "Paladins_Version_4.6.4256.3"
 	},
 	{
 		"id": "5349980613665361160",
 		"date": "2021-11-30T19:17:33Z",
 		"name": "Absolution",
-		"version": "4.7"
+		"version": "4.7",
+		"wikiReference": "Paladins_Version_4.7.4331.1"
 	},
 	{
 		"id": "6990545201869987521",
 		"date": "2022-02-15T18:03:13Z",
 		"name": "Schism",
-		"version": "5.1"
+		"version": "5.1",
+		"wikiReference": "Paladins_Version_5.1.4433.0"
 	},
 	{
 		"id": "7895140511380206967",
 		"date": "2022-04-05T13:02:39Z",
 		"name": "Monstercat",
-		"version": "5.2"
+		"version": "5.2",
+		"wikiReference": "Paladins_Version_5.2.4522.0"
 	},
 	{
 		"id": "4577907206865129846",
 		"date": "2022-05-10T15:21:09Z",
 		"name": "Heart of Darkness",
-		"version": "5.3"
+		"version": "5.3",
+		"wikiReference": "Paladins_Version_5.3.4597.1"
 	},
 	{
 		"id": "7963463582624121846",
 		"date": "2022-07-19T14:19:37Z",
 		"name": "RWBY",
-		"version": "5.4"
+		"version": "5.4",
+		"wikiReference": "Paladins_Version_5.4.4683.1"
 	},
 	{
 		"id": "6558178249622575162",
 		"date": "2022-08-31T13:12:42Z",
 		"name": "Constellations",
-		"version": "5.5"
+		"version": "5.5",
+		"wikiReference": "Paladins_Version_5.5.4752.0"
 	},
 	{
 		"id": "3543158372271047032",
 		"date": "2022-10-14T18:42:06Z",
 		"name": "Last Remains",
-		"version": "5.6"
+		"version": "5.6",
+		"wikiReference": "Paladins_Version_5.6.4848.2"
 	},
 	{
 		"id": "8659163281104109006",
 		"date": "2022-11-15T21:47:45Z",
 		"name": "Dawnforge",
-		"version": "5.7"
+		"version": "5.7",
+		"wikiReference": "Paladins_Version_5.7.4941.1"
 	},
 	{
 		"id": "8838044822070471751",
 		"date": "2023-02-22T16:44:57Z",
 		"name": "Emergence",
-		"version": "6.1"
+		"version": "6.1",
+		"wikiReference": "Paladins_Version_6.1.5079.2"
 	},
 	{
 		"id": "5551513277002467503",
 		"date": "2023-03-28T15:53:48Z",
 		"name": "Emergence Community Patch",
-		"version": "6.2"
+		"version": "6.2",
+		"wikiReference": "Paladins_Version_6.2.5163.0"
 	},
 	{
 		"id": "5333026682510592444",
 		"date": "2023-05-16T15:54:52Z",
 		"name": "Midnight Masquerade",
-		"version": "6.3"
+		"version": "6.3",
+		"wikiReference": "Paladins_Version_6.3.5218.1"
 	},
 	{
 		"id": "4407404934233361875",
 		"date": "2023-06-20T14:26:06Z",
 		"name": "Anniversary",
-		"version": "6.4"
+		"version": "6.4",
+		"wikiReference": "Paladins_Version_6.4.5302.0"
 	},
 	{
 		"id": "3036170076376180474",
 		"date": "2023-08-15T15:41:41Z",
 		"name": "Desert Omens",
-		"version": "6.5"
+		"version": "6.5",
+		"wikiReference": "Paladins_Version_6.5.5375.0"
 	},
 	{
 		"id": "5604333451589750395",
 		"date": "2023-12-19T21:41:36Z",
 		"name": "Aico's Vault",
-		"version": "6.6"
+		"version": "6.6",
+		"wikiReference": "Paladins_Version_6.6.5488.18"
 	},
 	{
 		"id": "8649875152835906491",
 		"date": "2024-02-15T12:57:51Z",
 		"name": "Wild Hoard",
-		"version": "7.1"
+		"version": "7.1",
+		"wikiReference": "Paladins_Version_7.1.5572.5"
 	},
 	{
 		"id": "8705349433790619600",
 		"date": "2024-03-27T20:35:10Z",
 		"name": "Banners Fall",
-		"version": "7.2"
+		"version": "7.2",
+		"wikiReference": "Paladins_Version_7.2.5606.5"
 	},
 	{
 		"id": "4678450434508041480",
 		"date": "2024-06-19T01:26:57Z",
 		"name": "Feudal Fables",
-		"version": "7.3"
+		"version": "7.3",
+		"wikiReference": "Paladins_Version_7.3.5660.9"
 	},
 	{
 		"id": "8442779548279354640",
 		"date": "2024-07-31T11:38:56Z",
 		"name": "Tidal Surge",
-		"version": "7.4"
+		"version": "7.4",
+		"wikiReference": "Paladins_Version_7.4.5705.0"
 	},
 	{
 		"id": "5901489885744780980",
 		"date": "2024-09-16T11:16:26Z",
 		"name": "Reality Warp",
-		"version": "7.5"
+		"version": "7.5",
+		"wikiReference": "Paladins_Version_7.5.5731.0"
 	},
 	{
 		"id": "3175795169635208443",
 		"date": "2024-11-21T13:22:55Z",
 		"name": "Street Style: World Tour",
-		"version": "7.6"
+		"version": "7.6",
+		"wikiReference": "Paladins_Version_7.6.5775.0"
 	},
 	{
 		"id": "4453595700171469293",
 		"date": "2024-12-17T13:15:13Z",
 		"name": "Ska'drin Celebration",
-		"version": "7.7"
+		"version": "7.7",
+		"wikiReference": "Paladins_Version_7.7.5805.0"
 	},
 	{
 		"id": "8375037790896893010",
 		"date": "2025-02-03T13:18:41Z",
 		"name": "Wekono's Wake",
-		"version": "8.1"
+		"version": "8.1",
+		"wikiReference": "Paladins_Version_8.1.5839.0"
 	}
 ]

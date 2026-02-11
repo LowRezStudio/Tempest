@@ -1,14 +1,16 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using ConsoleAppFramework;
 using Tempest.CLI.Launcher;
 using Tempest.CLI.Marshal;
 using Tempest.CLI.Server;
+using Tempest.CLI.Build;
 
 var app = ConsoleApp.Create();
 
 app.Add<LauncherCommands>();
 app.Add<ServerCommands>("server");
 app.Add<MarshalCommands>("marshal");
+app.Add<BuildCommands>("build");
 
 if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 {

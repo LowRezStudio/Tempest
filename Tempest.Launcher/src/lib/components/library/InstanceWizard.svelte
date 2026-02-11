@@ -2,7 +2,8 @@
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import versions from "$lib/data/versions.json";
 	import { addInstance } from "$lib/stores/instance";
-	import { CloudDownload, Folder, Code } from "@lucide/svelte";
+	import { identifyBuild, type BuildInfo } from "$lib/core";
+	import { CloudDownload, Folder, Code, Loader2, AlertCircle } from "@lucide/svelte";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { defaultInstancePath } from "$lib/stores/settings";
 	import { path } from "@tauri-apps/api";
@@ -28,10 +29,14 @@
 	let showAdvanced = $state(false);
 	let defaultPathPlaceholder = $state("");
 
+	let isDetecting = $state(false);
+	let detectionError = $state("");
+	let hasDetected = $state(false);
+
 	const selectedVersion = $derived(flatVersions.find((v) => v.id === selectedVersionId));
 
 	const isValid = $derived(
-		selectedTab === "download" ? !!selectedVersionId : !!(selectedVersionId && selectedPath),
+		selectedTab === "download" ? !!selectedVersionId : !!(hasDetected && selectedVersionId && selectedPath),
 	);
 
 	async function handleBrowse() {
@@ -40,7 +45,40 @@
 			multiple: false,
 			title: "Select Paladins Installation Folder",
 		});
-		if (result) selectedPath = result;
+		if (result) {
+			selectedPath = result;
+			if (selectedTab === "folder") {
+				await performDetection(result);
+			}
+		}
+	}
+
+	async function performDetection(path: string) {
+		isDetecting = true;
+		detectionError = "";
+		hasDetected = false;
+		try {
+			const info = await identifyBuild(path);
+			if (info) {
+				const version = flatVersions.find((v) => v.id === info.Id);
+				if (version) {
+					selectedVersionId = version.id;
+					if (!selectedName) {
+						selectedName = info.PatchName;
+					}
+					hasDetected = true;
+				} else {
+					detectionError = `Build identified as ${info.PatchName} (${info.VersionGroup}), but it's not in our database.`;
+				}
+			} else {
+				detectionError = "Could not identify build in this folder.";
+			}
+		} catch (error) {
+			console.error("Detection error:", error);
+			detectionError = "An error occurred during build identification.";
+		} finally {
+			isDetecting = false;
+		}
 	}
 
 	async function getInstancePath() {
@@ -56,6 +94,11 @@
 		if (!isValid) return;
 
 		const instancePath = await getInstancePath();
+
+		if (selectedTab === "folder" && !selectedVersionId) {
+			await performDetection(instancePath);
+			if (!selectedVersionId) return;
+		}
 
 		addInstance({
 			id: crypto.randomUUID(),
@@ -94,6 +137,8 @@
 			selectedVersionId = "";
 			selectedPath = "";
 			showAdvanced = false;
+			hasDetected = false;
+			detectionError = "";
 		}
 	});
 
@@ -120,8 +165,7 @@
 	<div role="tablist" class="tabs tabs-border w-full mb-4">
 		<button
 			role="tab"
-			class="tab gap-2 flex-1"
-			class:tab-active={selectedTab === "download"}
+			class={["tab gap-2 flex-1", selectedTab === "download" && "tab-active"]}
 			onclick={() => (selectedTab = "download")}
 		>
 			<CloudDownload size={16} />
@@ -129,8 +173,7 @@
 		</button>
 		<button
 			role="tab"
-			class="tab gap-2 flex-1"
-			class:tab-active={selectedTab === "folder"}
+			class={["tab gap-2 flex-1", selectedTab === "folder" && "tab-active"]}
 			onclick={() => (selectedTab = "folder")}
 		>
 			<Folder size={16} />
@@ -162,21 +205,23 @@
 		</div>
 
 		<div class="space-y-4">
-			<div class="form-control">
-				<label for="game-version" class="label py-0.5">
-					<span class="label-text text-sm">Game Version</span>
-				</label>
-				<select
-					id="game-version"
-					class="select select-bordered w-full"
-					bind:value={selectedVersionId}
-				>
-					<option value="" disabled>Select a version...</option>
-					{#each versionOptions as version (version.value)}
-						<option value={version.value}>{version.label}</option>
-					{/each}
-				</select>
-			</div>
+			{#if selectedTab === "download" || (selectedTab === "folder" && hasDetected)}
+				<div class="form-control">
+					<label for="game-version" class="label py-0.5">
+						<span class="label-text text-sm">Game Version</span>
+					</label>
+					<select
+						id="game-version"
+						class="select select-bordered w-full"
+						bind:value={selectedVersionId}
+					>
+						<option value="" disabled>Select a version...</option>
+						{#each versionOptions as version (version.value)}
+							<option value={version.value}>{version.label}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
 
 			{#if selectedTab === "folder"}
 				<div class="form-control">
@@ -196,6 +241,14 @@
 							Browse
 						</button>
 					</div>
+					{#if detectionError}
+						<div class="label py-1">
+							<span class="label-text-alt text-error flex items-center gap-1">
+								<AlertCircle size={12} />
+								{detectionError}
+							</span>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -257,13 +310,22 @@
 			</button>
 			<div class="flex gap-2">
 				<button class="btn btn-ghost" onclick={() => (open = false)}>Cancel</button>
-				<button class="btn btn-accent" disabled={!isValid} onclick={handleCreate}>
+				<button
+					class="btn btn-accent"
+					disabled={!isValid || isDetecting}
+					onclick={handleCreate}
+				>
 					{#if selectedTab === "download"}
 						<CloudDownload size={16} />
 						Download & Create
 					{:else}
-						<Folder size={16} />
-						Import Instance
+						{#if isDetecting}
+							<Loader2 size={16} class="animate-spin" />
+							Identifying...
+						{:else}
+							<Folder size={16} />
+							Import Instance
+						{/if}
 					{/if}
 				</button>
 			</div>
