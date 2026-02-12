@@ -1,9 +1,15 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace MarshalLib;
 
 [JsonSerializable(typeof(MarshalFunction))]
 [JsonSerializable(typeof(MarshalObject))]
+[JsonSerializable(typeof(FieldType))]
+[JsonSerializable(typeof(MarshalFlags))]
+[JsonSerializable(typeof(MarshalSerializerVersion))]
+[JsonSerializable(typeof(Dictionary<string, MarshalObject>))]
+[JsonSerializable(typeof(List<Dictionary<string, MarshalObject>>))]
 [JsonSerializable(typeof(JsonNumberEnumConverter<MarshalFlags>))]
 [JsonSerializable(typeof(JsonNumberEnumConverter<FieldType>))]
 [JsonSerializable(typeof(JsonNumberEnumConverter<MarshalSerializerVersion>))]

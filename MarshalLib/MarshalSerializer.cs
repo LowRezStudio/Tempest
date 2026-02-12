@@ -248,24 +248,49 @@ public static class MarshalSerializer
     {
         var writer = new BinaryWriter(stream);
 
-        var functionHash = packet.Function;
-
-        if (functionHash == 0)
+        if (options.Version == MarshalSerializerVersion.Legacy)
         {
-            if (packet.FunctionName == null)
-                throw new Exception("Function hash and name are both null");
+            ushort functionIndex;
 
-            var function = options.FunctionMappings.Get(packet.FunctionName);
+            if (packet.FunctionName != null && options.FunctionMappings.TryGetIndex(packet.FunctionName, out functionIndex))
+            {
+            }
+            else if (packet.Function != 0 && options.FunctionMappings.TryGetIndex(packet.Function, out functionIndex))
+            {
+            }
+            else if (packet.Function != 0 && packet.Function <= ushort.MaxValue)
+            {
+                functionIndex = (ushort)packet.Function;
+            }
+            else
+            {
+                throw new Exception("Function index or name could not be resolved");
+            }
 
-            if (function == null)
-                throw new Exception($"Function (name: {packet.FunctionName}) not found");
-
-            functionHash = function.Hash;
+            writer.Write(functionIndex);
+            writer.Write((ushort)packet.Rows.Count);
         }
+        else
+        {
+            var functionHash = packet.Function;
 
-        writer.Write((byte)0);
-        writer.Write(functionHash);
-        writer.Write((ushort)packet.Rows.Count);
+            if (functionHash == 0)
+            {
+                if (packet.FunctionName == null)
+                    throw new Exception("Function hash and name are both null");
+
+                var function = options.FunctionMappings.Get(packet.FunctionName);
+
+                if (function == null)
+                    throw new Exception($"Function (name: {packet.FunctionName}) not found");
+
+                functionHash = function.Hash;
+            }
+
+            writer.Write((byte)0);
+            writer.Write(functionHash);
+            writer.Write((ushort)packet.Rows.Count);
+        }
 
         foreach (var (key, value) in packet.Rows)
         {

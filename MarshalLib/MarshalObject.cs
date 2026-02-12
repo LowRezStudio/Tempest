@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace MarshalLib;
 
+[JsonConverter(typeof(MarshalObjectJsonConverter))]
 public class MarshalObject(FieldType type, object value, MarshalFlags flags = MarshalFlags.None)
 {
     public FieldType Type { get; set; } = type;

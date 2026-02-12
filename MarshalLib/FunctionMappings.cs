@@ -44,4 +44,34 @@ public class FunctionMappings
 
     public FunctionDescriptor? Get(string name) =>
         _functions.FirstOrDefault(f => f.Name == name);
+
+    public bool TryGetIndex(string name, out ushort index)
+    {
+        for (var i = 0; i < _functions.Count; i++)
+        {
+            if (_functions[i].Name == name)
+            {
+                index = (ushort)i;
+                return true;
+            }
+        }
+
+        index = 0;
+        return false;
+    }
+
+    public bool TryGetIndex(uint hash, out ushort index)
+    {
+        for (var i = 0; i < _functions.Count; i++)
+        {
+            if (_functions[i].Hash == hash)
+            {
+                index = (ushort)i;
+                return true;
+            }
+        }
+
+        index = 0;
+        return false;
+    }
 }
