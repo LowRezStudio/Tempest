@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace MarshalLib;
 
 public class FunctionMappings
@@ -45,7 +47,7 @@ public class FunctionMappings
     public FunctionDescriptor? Get(string name) =>
         _functions.FirstOrDefault(f => f.Name == name);
 
-    public bool TryGetIndex(string name, out ushort index)
+    public bool TryGetIndex(string name, [NotNullWhen(true)] out ushort? index)
     {
         for (var i = 0; i < _functions.Count; i++)
         {
@@ -56,11 +58,11 @@ public class FunctionMappings
             }
         }
 
-        index = 0;
+        index = null;
         return false;
     }
 
-    public bool TryGetIndex(uint hash, out ushort index)
+    public bool TryGetIndex(uint hash, [NotNullWhen(true)] out ushort? index)
     {
         for (var i = 0; i < _functions.Count; i++)
         {
@@ -71,7 +73,7 @@ public class FunctionMappings
             }
         }
 
-        index = 0;
+        index = null;
         return false;
     }
 }

@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace MarshalLib;
 
 public class FieldMappings
@@ -42,8 +44,17 @@ public class FieldMappings
     public FieldDescriptor? Get(ushort index) =>
         _fields.GetValueOrDefault(index);
 
-    public bool TryGetIndex(string name, out ushort index) =>
-        _fieldNames.TryGetValue(name, out index);
+    public bool TryGetIndex(string name, [NotNullWhen(true)] out ushort? index)
+    {
+        if (_fieldNames.TryGetValue(name, out var value))
+        {
+            index = value;
+            return true;
+        }
+
+        index = null;
+        return false;
+    }
 
     public ushort GetIndex(string name) =>
         _fieldNames.GetValueOrDefault(name);

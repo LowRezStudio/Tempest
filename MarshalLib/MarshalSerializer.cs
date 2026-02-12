@@ -252,11 +252,13 @@ public static class MarshalSerializer
         {
             ushort functionIndex;
 
-            if (packet.FunctionName != null && options.FunctionMappings.TryGetIndex(packet.FunctionName, out functionIndex))
+            if (packet.FunctionName != null && options.FunctionMappings.TryGetIndex(packet.FunctionName, out var functionIndexFromName))
             {
+                functionIndex = functionIndexFromName.Value;
             }
-            else if (packet.Function != 0 && options.FunctionMappings.TryGetIndex(packet.Function, out functionIndex))
+            else if (packet.Function != 0 && options.FunctionMappings.TryGetIndex(packet.Function, out var functionIndexFromHash))
             {
+                functionIndex = functionIndexFromHash.Value;
             }
             else if (packet.Function != 0 && packet.Function <= ushort.MaxValue)
             {
@@ -304,7 +306,7 @@ public static class MarshalSerializer
         if (!options.FieldMappings.TryGetIndex(field, out var index))
             throw new Exception($"Field (name: {field}) not found");
 
-        Serialize(stream, index, marshalObject, options);
+        Serialize(stream, index.Value, marshalObject, options);
     }
 
     public static void Serialize(Stream stream, ushort fieldIndex, MarshalObject marshalObject, MarshalSerializerOptions options)
