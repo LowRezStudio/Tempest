@@ -40,30 +40,37 @@ internal class BuildCommands
             }
         }
 
+        BuildInfo? bestMatch = null;
+        int bestMatchCount = 0;
+        int bestFileCount = 0;
+
         foreach (var line in lines.Skip(1))
         {
             var parts = line.Split(',');
             if (parts.Length < header.Length) continue;
 
-            bool matches = true;
-            bool anyFileChecked = false;
+            int matchCount = 0;
+            int fileCount = 0;
             for (int i = 5; i < header.Length; i++)
             {
                 var expectedHash = parts[i];
                 if (string.IsNullOrEmpty(expectedHash)) continue;
 
                 var fileName = header[i];
-                anyFileChecked = true;
-                if (!localHashes.TryGetValue(fileName, out var actualHash) || actualHash != expectedHash)
+                fileCount++;
+                if (localHashes.TryGetValue(fileName, out var actualHash) && actualHash == expectedHash)
                 {
-                    matches = false;
-                    break;
+                    matchCount++;
                 }
             }
 
-            if (matches && anyFileChecked)
+            if (fileCount == 0) continue;
+
+            if (matchCount > bestMatchCount || (matchCount == bestMatchCount && fileCount > bestFileCount))
             {
-                var result = new BuildInfo
+                bestMatchCount = matchCount;
+                bestFileCount = fileCount;
+                bestMatch = new BuildInfo
                 {
                     Id = parts[0],
                     VersionGroup = parts[1],
@@ -71,25 +78,30 @@ internal class BuildCommands
                     PatchName = parts[3],
                     PatchWikiReference = $"https://paladins.fandom.com/wiki/{parts[4]}"
                 };
-
-                if (json)
-                {
-                    Console.WriteLine(JsonSerializer.Serialize(result, BuildSourceGenerationContext.Default.BuildInfo));
-                }
-                else
-                {
-                    Console.WriteLine($"Build Identified:");
-                    Console.WriteLine($"  ID:      {result.Id}");
-                    Console.WriteLine($"  Version: {result.VersionGroup}");
-                    Console.WriteLine($"  Patch:   {result.PatchName}");
-                    Console.WriteLine($"  Hotfix:  {result.PatchHotfix}");
-                    Console.WriteLine($"  Wiki:    {result.PatchWikiReference}");
-                }
-                return;
             }
         }
 
-        Console.WriteLine("Build not identified.");
+        if (bestMatch == null)
+        {
+            Console.WriteLine("Build not identified.");
+            return;
+        }
+
+        if (json)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(bestMatch, BuildSourceGenerationContext.Default.BuildInfo));
+        }
+        else
+        {
+            var confidence = bestFileCount == 0 ? 0 : (int)Math.Round((double)bestMatchCount / bestFileCount * 100);
+            Console.WriteLine($"Build Identified (closest match):");
+            Console.WriteLine($"  ID:      {bestMatch.Id}");
+            Console.WriteLine($"  Version: {bestMatch.VersionGroup}");
+            Console.WriteLine($"  Patch:   {bestMatch.PatchName}");
+            Console.WriteLine($"  Hotfix:  {bestMatch.PatchHotfix}");
+            Console.WriteLine($"  Wiki:    {bestMatch.PatchWikiReference}");
+            Console.WriteLine($"  Match:   {bestMatchCount}/{bestFileCount} ({confidence}%)");
+        }
     }
 
     private static async Task<string> GetFileHashAsync(string filePath)
