@@ -17,7 +17,7 @@ internal static class BinaryReaderExtensions
 
         return Encoding.UTF8.GetString(bytes.ToArray());
     }
-    
+
     public static short ReadInt16BigEndian(this BinaryReader binaryReader) => BinaryPrimitives.ReadInt16BigEndian(
         binaryReader.BaseStream is MemoryStream ms && ms.TryReadSpanUnsafe(2, out ReadOnlySpan<byte> readBytes) ? readBytes : binaryReader.ReadSpan(stackalloc byte[2]));
 

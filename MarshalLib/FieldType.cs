@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace MarshalLib;
 
-[JsonConverter(typeof(JsonStringEnumConverter))]
+[JsonConverter(typeof(JsonStringEnumConverter<FieldType>))]
 public enum FieldType : ushort
 {
     Byte = 2,

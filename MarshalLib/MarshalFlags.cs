@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace MarshalLib;
 
 [Flags]
-[JsonConverter(typeof(JsonStringEnumConverter))]
+[JsonConverter(typeof(JsonStringEnumConverter<MarshalFlags>))]
 public enum MarshalFlags
 {
     None = 0,

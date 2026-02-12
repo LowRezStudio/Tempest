@@ -20,42 +20,42 @@ public class MarshalObject(FieldType type, object value, MarshalFlags flags = Ma
             FieldType.String => 10,
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
-        
+
         return (ushort)((headerType << 12) | (param & 0x3F));
     }
-    
+
     public MarshalObject(byte value) : this(FieldType.Byte, value)
     {
     }
-    
+
     public MarshalObject(ushort value) : this(FieldType.Short, value)
     {
     }
-    
+
     public MarshalObject(uint value) : this(FieldType.Int, value)
     {
     }
-    
+
     public MarshalObject(ulong value) : this(FieldType.Long, value)
     {
     }
-    
+
     public MarshalObject(IList<Dictionary<string, MarshalObject>> value) : this(FieldType.DataSet, value)
     {
     }
-    
+
     public MarshalObject(string value, MarshalFlags flags = MarshalFlags.None) : this(FieldType.String, value, flags)
     {
     }
-    
+
     public MarshalObject(byte[] value) : this(FieldType.Blob, value)
     {
     }
-    
+
     public MarshalObject(Guid value) : this(FieldType.Guid, value)
     {
     }
-    
+
     public MarshalObject(DateTime value) : this(FieldType.DateTime, value)
     {
     }
