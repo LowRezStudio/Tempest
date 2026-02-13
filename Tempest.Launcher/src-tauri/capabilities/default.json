@@ -53,8 +53,40 @@
     "dialog:default",
     "os:default",
     "fs:default",
+    "fs:allow-copy-file",
+    "fs:allow-create",
     "fs:allow-exists",
+    "fs:allow-ftruncate",
+    "fs:allow-lstat",
+    "fs:allow-mkdir",
+    "fs:allow-open",
+    "fs:allow-read",
     "fs:allow-read-dir",
-    "fs:allow-mkdir"
+    "fs:allow-read-file",
+    "fs:allow-read-text-file",
+    "fs:allow-read-text-file-lines",
+    "fs:allow-read-text-file-lines-next",
+    "fs:allow-remove",
+    "fs:allow-rename",
+    "fs:allow-seek",
+    "fs:allow-size",
+    "fs:allow-stat",
+    "fs:allow-truncate",
+    "fs:allow-unwatch",
+    "fs:allow-watch",
+    "fs:allow-write",
+    "fs:allow-write-file",
+    "fs:allow-write-text-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        {
+          "path": "$HOME/.tempest"
+        },
+        {
+          "path": "$HOME/.tempest/**/*"
+        }
+      ]
+    }
   ]
 }
