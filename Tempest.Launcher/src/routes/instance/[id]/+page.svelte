@@ -3,13 +3,10 @@
 	import { goto } from "$app/navigation";
 	import { instanceMap, updateInstance, removeInstance } from "$lib/stores/instance";
 	import { processesList } from "$lib/stores/processes";
-	import { launchGame, killGame } from "$lib/core";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { revealItemInDir } from "@tauri-apps/plugin-opener";
-	import { exists, readDir } from "@tauri-apps/plugin-fs";
-	import { path as tauriPath } from "@tauri-apps/api";
-	import { instancePlatforms, type InstancePlatform } from "$lib/types/instance";
+	import type { InstancePlatform } from "$lib/types/instance";
 	import {
 		Play,
 		Settings,
@@ -24,6 +21,8 @@
 		Tag,
 		History,
 	} from "@lucide/svelte";
+	import { createInstancePlatformsQuery } from "$lib/queries/instance";
+	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 
 	type ModItem = {
 		id: string;
@@ -58,9 +57,6 @@
 	let editVersion = $state("");
 	let editPath = $state("");
 	let editPlatform = $state<InstancePlatform>("Win64");
-	let availablePlatforms = $state<InstancePlatform[]>([]);
-	let isDetectingPlatforms = $state(false);
-	const platformCache = new Map<string, InstancePlatform[]>();
 
 	function openSettings() {
 		if (!instance) return;
@@ -117,64 +113,37 @@
 
 	// Check if this instance is currently running
 	let isRunning = $derived($processesList.some((p) => p.instance?.id === instance?.id));
+	const launchGameMutation = createLaunchGameMutation();
+	const killGameMutation = createKillGameMutation();
+	let isLaunching = $derived(launchGameMutation.isPending);
+	let isKilling = $derived(killGameMutation.isPending);
+	let launchError = $derived(launchGameMutation.error?.message ?? "");
+	let killError = $derived(killGameMutation.error?.message ?? "");
 
-	async function detectAvailablePlatforms(instancePath: string): Promise<InstancePlatform[]> {
-		const cached = platformCache.get(instancePath);
-		if (cached) return cached;
-
-		const platformRoots = [
-			await tauriPath.join(instancePath, "ChaosGame", "Binaries"),
-			await tauriPath.join(instancePath, "Binaries"),
-		];
-
-		const detected: InstancePlatform[] = [];
-		for (const platform of instancePlatforms) {
-			const hasBinaries = await hasFilesInAnyDir(
-				platformRoots.map((root) => tauriPath.join(root, platform)),
-			);
-			if (hasBinaries) {
-				detected.push(platform);
-			}
+	function handleLaunchToggle() {
+		if (!instance) return;
+		if (isRunning) {
+			killGameMutation.mutate(instance);
+			return;
 		}
-
-		const resolved = detected.length ? detected : [...instancePlatforms];
-		platformCache.set(instancePath, resolved);
-		return resolved;
+		launchGameMutation.mutate(instance);
 	}
 
-	async function hasFilesInAnyDir(directoryPaths: Promise<string>[]): Promise<boolean> {
-		for (const dirPromise of directoryPaths) {
-			const dirPath = await dirPromise;
-			if (await hasFilesInDir(dirPath)) return true;
-		}
-		return false;
+	function clearLaunchError() {
+		launchGameMutation.reset();
 	}
 
-	async function hasFilesInDir(directoryPath: string): Promise<boolean> {
-		try {
-			if (!(await exists(directoryPath))) return false;
-			const entries = await readDir(directoryPath);
-			return entries.length > 0;
-		} catch {
-			return false;
-		}
+	function clearKillError() {
+		killGameMutation.reset();
 	}
 
-	$effect(() => {
-		async function updatePlatforms() {
-			if (!editPath) {
-				availablePlatforms = [];
-				return;
-			}
-			isDetectingPlatforms = true;
-			try {
-				availablePlatforms = await detectAvailablePlatforms(editPath);
-			} finally {
-				isDetectingPlatforms = false;
-			}
-		}
-		updatePlatforms();
-	});
+
+	const platformsQuery = createInstancePlatformsQuery(() => editPath);
+
+	let availablePlatforms = $derived(
+		(editPath ? platformsQuery.data : undefined) ?? ([] as InstancePlatform[]),
+	);
+	let isDetectingPlatforms = $derived(platformsQuery.isFetching);
 
 	$effect(() => {
 		if (!availablePlatforms.length) return;
@@ -216,9 +185,17 @@
 						class="btn text-sm"
 						class:btn-accent={!isRunning}
 						class:btn-error={isRunning}
-						onclick={() => (isRunning ? killGame(instance) : launchGame(instance))}
+						disabled={isLaunching || isKilling}
+						aria-busy={isLaunching || isKilling}
+						onclick={handleLaunchToggle}
 					>
-						{#if isRunning}
+						{#if isLaunching}
+							<span class="loading loading-spinner loading-xs"></span>
+							Launching
+						{:else if isKilling}
+							<span class="loading loading-spinner loading-xs"></span>
+							Stopping
+						{:else if isRunning}
 							<Square size={16} />
 							Stop
 						{:else}
@@ -253,6 +230,26 @@
 					</div>
 				</div>
 			</div>
+			{#if launchError}
+				<div class="pt-3">
+					<div class="alert alert-error">
+						<span>{launchError}</span>
+						<button class="btn btn-ghost btn-sm" onclick={clearLaunchError}>
+							Dismiss
+						</button>
+					</div>
+				</div>
+			{/if}
+			{#if killError}
+				<div class="pt-3">
+					<div class="alert alert-error">
+						<span>{killError}</span>
+						<button class="btn btn-ghost btn-sm" onclick={clearKillError}>
+							Dismiss
+						</button>
+					</div>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Tabs -->

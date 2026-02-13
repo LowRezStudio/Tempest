@@ -3,18 +3,13 @@
 	import { open } from "@tauri-apps/plugin-dialog";
 	import { invalidateAll } from "$app/navigation";
 	import { Settings } from "@lucide/svelte";
-	import { getVersion } from "@tauri-apps/api/app";
-	import { arch, type as osType } from "@tauri-apps/plugin-os";
+	import { createAboutInfoQuery } from "$lib/queries/about";
 
 	let activeTab = $state<"general" | "advanced">("general");
 
 	let localUsername = $state($username);
 	let localPath = $state($defaultInstancePath || "");
 
-	let appVersion = $state<string>("...");
-	let osName = $state<string>("...");
-	let architecture = $state<string>("...");
-	let buildDate = $state<string>("...");
 	let buildType = $state<string>(import.meta.env.DEV ? "Development" : "Production");
 
 	let showSaveToast = $state(false);
@@ -47,15 +42,12 @@
 		location.href = "/";
 	}
 
-	$effect(() => {
-		async function loadAboutInfo() {
-			appVersion = await getVersion();
-			osName = osType();
-			architecture = arch();
-			buildDate = new Date(__BUILD_DATE__).toUTCString();
-		}
-		loadAboutInfo();
-	});
+	const aboutQuery = createAboutInfoQuery();
+
+	let appVersion = $derived(aboutQuery.data?.appVersion ?? "...");
+	let osName = $derived(aboutQuery.data?.osName ?? "...");
+	let architecture = $derived(aboutQuery.data?.architecture ?? "...");
+	let buildDate = $derived(aboutQuery.data?.buildDate ?? "...");
 </script>
 
 <div class="flex flex-col h-full bg-base-100">

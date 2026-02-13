@@ -2,11 +2,12 @@
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import versions from "$lib/data/versions.json";
 	import { addInstance } from "$lib/stores/instance";
-	import { identifyBuild, type BuildInfo } from "$lib/core";
 	import type { Instance } from "$lib/types/instance";
 	import { CloudDownload, Folder, Code, Loader2, AlertCircle } from "@lucide/svelte";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { defaultInstancePath } from "$lib/stores/settings";
+	import { createDefaultInstancePathQuery } from "$lib/queries/instance";
+	import { createIdentifyBuildMutation } from "$lib/queries/core";
 	import { path } from "@tauri-apps/api";
 
 	interface Props {
@@ -28,9 +29,7 @@
 	let selectedVersionId = $state("");
 	let selectedPath = $state("");
 	let showAdvanced = $state(false);
-	let defaultPathPlaceholder = $state("");
 
-	let isDetecting = $state(false);
 	let detectionError = $state("");
 	let hasDetected = $state(false);
 
@@ -56,12 +55,14 @@
 		}
 	}
 
+	const identifyBuildMutation = createIdentifyBuildMutation();
+	let isDetecting = $derived(identifyBuildMutation.isPending);
+
 	async function performDetection(path: string) {
-		isDetecting = true;
 		detectionError = "";
 		hasDetected = false;
 		try {
-			const info = await identifyBuild(path);
+			const info = await identifyBuildMutation.mutateAsync(path);
 			if (info) {
 				const version = flatVersions.find((v) => v.id === info.Id);
 				if (version) {
@@ -79,8 +80,6 @@
 		} catch (error) {
 			console.error("Detection error:", error);
 			detectionError = "An error occurred during build identification.";
-		} finally {
-			isDetecting = false;
 		}
 	}
 
@@ -147,23 +146,12 @@
 		}
 	});
 
-	$effect(() => {
-		async function updatePlaceholder() {
-			if (!selectedVersion?.version) {
-				defaultPathPlaceholder = $defaultInstancePath ?? "";
-				return;
-			}
-			if ($defaultInstancePath) {
-				defaultPathPlaceholder = await path.join(
-					$defaultInstancePath,
-					selectedVersion.version,
-				);
-			} else {
-				defaultPathPlaceholder = `/instances/${selectedVersion.version}`;
-			}
-		}
-		updatePlaceholder();
-	});
+	const defaultPathQuery = createDefaultInstancePathQuery(
+		() => selectedVersion?.version,
+		() => $defaultInstancePath,
+	);
+
+	let defaultPathPlaceholder = $derived(defaultPathQuery.data ?? "");
 </script>
 
 <Modal bind:open title="Create New Instance" class="max-w-2xl">
