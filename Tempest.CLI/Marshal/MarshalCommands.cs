@@ -48,11 +48,7 @@ internal partial class MarshalCommands
         {
             using var outputStream = File.Open(output, FileMode.Create, FileAccess.Write, FileShare.None);
 
-            JsonSerializer.Serialize(outputStream, result, new JsonSerializerOptions()
-            {
-                WriteIndented = true,
-                TypeInfoResolver = MarshalSourceGenerationContext.Default
-            });
+            JsonSerializer.Serialize(outputStream, result, MarshalSourceGenerationContext.Default.MarshalFunction);
         }
         else
         {
