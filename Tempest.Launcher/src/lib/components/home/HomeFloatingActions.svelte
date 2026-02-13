@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Box, Play, Megaphone, Square, Loader2 } from "@lucide/svelte";
+	import { Box, Play, Megaphone, Square } from "@lucide/svelte";
 	import { lastLaunchedInstance, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { processesList } from "$lib/stores/processes";
 	import { launchGame, killGame } from "$lib/core";
@@ -17,13 +17,6 @@
 		:	false,
 	);
 
-	let isBusy = $derived($lastLaunchedInstance?.state?.type !== "prepared");
-	let busyLabel = $derived.by(() => {
-		if ($lastLaunchedInstance?.state?.type !== "unprepared") return "";
-		if ($lastLaunchedInstance.state.status === "downloading") return "Downloading build data";
-		if ($lastLaunchedInstance.state.status === "paused") return "Download paused";
-		return "Dumping tokens";
-	});
 </script>
 
 <div class="fixed bottom-6 left-6 right-6 z-50 flex items-end justify-between gap-6">
@@ -51,35 +44,26 @@
 				class="btn btn-lg join-item gap-2"
 				class:btn-accent={!isRunning}
 				class:btn-error={isRunning}
-				disabled={isBusy}
 				onclick={() =>
 					isRunning ? killGame($lastLaunchedInstance) : launchGame($lastLaunchedInstance)}
 				aria-label={isRunning ? "Stop game" : "Launch game"}
 			>
-				{#if isBusy}
-					<Loader2 size={24} class="animate-spin" />
-				{:else if isRunning}
+				{#if isRunning}
 					<Square size={24} />
 				{:else}
 					<Play size={24} />
 				{/if}
 				<div class="flex flex-col items-start">
 					<span class="font-semibold text-sm">
-						{isBusy ? busyLabel : isRunning ? "Stop Game" : "Run Game"}
+						{isRunning ? "Stop Game" : "Run Game"}
 					</span>
 					<span class="text-xs opacity-80">{$lastLaunchedInstance.label}</span>
 				</div>
 			</button>
 
-			{#if isBusy}
-				<div class="btn btn-lg join-item" aria-disabled="true">
-					<Box size={20} />
-				</div>
-			{:else}
-				<a href={`/instance/${$lastLaunchedInstanceId}`} class="btn btn-lg join-item">
-					<Box size={20} />
-				</a>
-			{/if}
+			<a href={`/instance/${$lastLaunchedInstanceId}`} class="btn btn-lg join-item">
+				<Box size={20} />
+			</a>
 		</div>
 	{/if}
 </div>

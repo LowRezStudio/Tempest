@@ -1,6 +1,6 @@
 export type UnpreparedState = {
 	type: "unprepared";
-	status: "downloading" | "paused" | "importing";
+	status: "downloading" | "paused";
 	percentage: number;
 };
 
