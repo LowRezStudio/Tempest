@@ -68,12 +68,14 @@ export const identifyBuild = async (path: string): Promise<BuildInfo | null> => 
 
 export const launchGame = async (instance: Instance) => {
 	const { path, launchOptions: options } = instance;
+	const platform = options.platform ?? "Win64";
 
 	lastLaunchedInstanceId.set(instance.id);
 
 	const command = createCommand([
 		"launch",
 		path,
+		{ "--platform": platform },
 		{ "--no-default-args": options.noDefaultArgs },
 		...(options.dllList ? options.dllList.map((dll) => ({ "--dll": dll })) : []),
 		...(options.args ? ["--", ...processArgs(options.args)] : []),

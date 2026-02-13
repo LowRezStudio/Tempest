@@ -1,6 +1,6 @@
 export type UnpreparedState = {
 	type: "unprepared";
-	status: "downloading" | "paused";
+	status: "downloading" | "paused" | "importing";
 	percentage: number;
 };
 
@@ -10,11 +10,16 @@ export type PreparedState = {
 
 export type InstanceState = UnpreparedState | PreparedState;
 
+export const instancePlatforms = ["Win64", "Win32"] as const;
+
+export type InstancePlatform = (typeof instancePlatforms)[number];
+
 export type InstanceLaunchOptions = {
 	dllList: string[];
 	args: string[];
 	noDefaultArgs: boolean;
 	log: boolean;
+	platform?: InstancePlatform;
 };
 
 export type Instance = {

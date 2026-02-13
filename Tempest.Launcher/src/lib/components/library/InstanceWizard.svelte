@@ -1,8 +1,10 @@
 <script lang="ts">
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import versions from "$lib/data/versions.json";
-	import { addInstance } from "$lib/stores/instance";
+	import { addInstance, updateInstance } from "$lib/stores/instance";
 	import { identifyBuild, type BuildInfo } from "$lib/core";
+	import { extractInstanceTokens } from "$lib/instanceTokens";
+	import type { Instance, InstanceState } from "$lib/types/instance";
 	import { CloudDownload, Folder, Code, Loader2, AlertCircle } from "@lucide/svelte";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { defaultInstancePath } from "$lib/stores/settings";
@@ -102,8 +104,23 @@
 			if (!selectedVersionId) return;
 		}
 
-		addInstance({
-			id: crypto.randomUUID(),
+		const instanceId = crypto.randomUUID();
+
+		const state: InstanceState =
+			selectedTab === "download" ?
+				{
+					type: "unprepared",
+					status: "downloading",
+					percentage: 0,
+				}
+			:	{
+					type: "unprepared",
+					status: "importing",
+					percentage: 0,
+				};
+
+		const newInstance: Instance = {
+			id: instanceId,
 			label:
 				selectedName ||
 				selectedVersion?.name ||
@@ -117,17 +134,31 @@
 				noDefaultArgs: false,
 				log: false,
 			},
-			state:
-				selectedTab === "download" ?
-					{
-						type: "unprepared",
-						status: "downloading",
-						percentage: 0,
+			state,
+		};
+
+		addInstance(newInstance);
+
+		if (selectedTab === "folder") {
+			void (async () => {
+				try {
+					const result = await extractInstanceTokens(newInstance);
+					if (result.success) {
+						updateInstance(instanceId, { state: { type: "prepared" } });
+					} else {
+						console.warn("Token extraction failed for instance:", instanceId);
+						if (result.stderr || result.stdout) {
+							console.warn("Token extraction output:", {
+								stdout: result.stdout,
+								stderr: result.stderr,
+							});
+						}
 					}
-				:	{
-						type: "prepared",
-					},
-		});
+				} catch (error) {
+					console.error("Token extraction error:", error);
+				}
+			})();
+		}
 
 		open = false;
 	}

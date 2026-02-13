@@ -10,6 +10,8 @@ internal partial class MarshalCommands
     /// <param name="output">Output directory</param>
     public void ExtractTokens(string path, string output)
     {
+        Directory.CreateDirectory(output);
+
         byte[] gzipHeader = [0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00];
 
         if (!File.Exists(path))
@@ -18,6 +20,7 @@ internal partial class MarshalCommands
         }
 
         using var file = File.Open(path, FileMode.Open);
+        var extractedCount = 0;
 
         long headerIndex;
 
@@ -49,7 +52,15 @@ internal partial class MarshalCommands
 
             Console.WriteLine($"Wrote all {bytes.Length} bytes to \"{filename}.dat\"");
 
+            extractedCount++;
+
             file.Position = headerIndex + 1;
+        }
+
+        if (extractedCount == 0)
+        {
+            Console.Error.WriteLine("No token data found in the provided file.");
+            Environment.ExitCode = 1;
         }
     }
 }

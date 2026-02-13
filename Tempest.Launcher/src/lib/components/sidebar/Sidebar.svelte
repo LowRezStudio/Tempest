@@ -15,13 +15,14 @@
 
 	<div class="divider mx-4 my-4 opacity-50"></div>
 
-	<div class="flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden px-2 scrollbar-none">
+	<div class="flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none">
 		{#each Object.values($instanceMap) as instance}
 			<SidebarItem
 				icon={Box}
 				label={instance.label}
 				active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
 				href={`/instance/${instance.id}`}
+				tooltip="native"
 			/>
 		{/each}
 
