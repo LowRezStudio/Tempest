@@ -4,6 +4,7 @@
 	import "@fontsource-variable/ubuntu-sans-mono";
 	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
+	import ToastStack from "$lib/components/ui/ToastStack.svelte";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import { page } from "$app/state";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
@@ -46,6 +47,7 @@
 		</main>
 		<InstanceWizard bind:open={$instanceWizardOpen} />
 	</div>
+	<ToastStack />
 </QueryClientProvider>
 
 <style>

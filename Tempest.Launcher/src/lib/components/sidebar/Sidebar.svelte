@@ -22,7 +22,6 @@
 				label={instance.label}
 				active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
 				href={`/instance/${instance.id}`}
-				tooltip="native"
 			/>
 		{/each}
 

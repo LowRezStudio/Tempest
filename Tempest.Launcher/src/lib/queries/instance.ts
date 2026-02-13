@@ -1,7 +1,8 @@
-import { createQuery } from "@tanstack/svelte-query";
+import { createMutation, createQuery } from "@tanstack/svelte-query";
 import { path } from "@tauri-apps/api";
 import { detectAvailablePlatforms } from "$lib/platforms/detection";
-import type { InstancePlatform } from "$lib/types/instance";
+import { setupInstance } from "$lib/platforms/setup";
+import type { Instance, InstancePlatform } from "$lib/types/instance";
 
 export const createInstancePlatformsQuery = (instancePath: () => string) =>
 	createQuery(() => {
@@ -32,3 +33,8 @@ export const createDefaultInstancePathQuery = (
 			},
 		};
 	});
+
+export const createSetupInstanceMutation = () =>
+	createMutation(() => ({
+		mutationFn: (instance: Instance): Promise<void> => setupInstance(instance),
+	}));

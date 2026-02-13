@@ -2,7 +2,6 @@
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { instanceMap, updateInstance, removeInstance } from "$lib/stores/instance";
-	import { setupInstance } from "$lib/platforms/setup";
 	import { processesList } from "$lib/stores/processes";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -22,7 +21,7 @@
 		Tag,
 		History,
 	} from "@lucide/svelte";
-	import { createInstancePlatformsQuery } from "$lib/queries/instance";
+	import { createInstancePlatformsQuery, createSetupInstanceMutation } from "$lib/queries/instance";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 
 	type ModItem = {
@@ -88,7 +87,7 @@
 			state: { type: "setup" } as unknown as Instance["state"],
 		});
 		try {
-			await setupInstance(targetInstance);
+			await setupInstanceMutation.mutateAsync(targetInstance);
 		} catch (error) {
 			console.error("Instance setup failed:", error);
 		} finally {
@@ -137,6 +136,7 @@
 	let isRunning = $derived($processesList.some((p) => p.instance?.id === instance?.id));
 	const launchGameMutation = createLaunchGameMutation();
 	const killGameMutation = createKillGameMutation();
+	const setupInstanceMutation = createSetupInstanceMutation();
 	let isLaunching = $derived(launchGameMutation.isPending);
 	let isKilling = $derived(killGameMutation.isPending);
 	let launchError = $derived(launchGameMutation.error?.message ?? "");
@@ -186,7 +186,11 @@
 					<div
 						class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
 					>
-						<Box size={32} class="opacity-60" />
+						{#if isSettingUp}
+							<span class="loading loading-spinner loading-md"></span>
+						{:else}
+							<Box size={32} class="opacity-60" />
+						{/if}
 					</div>
 					<div>
 						<h1 class="text-2xl font-bold mb-1">
@@ -196,11 +200,6 @@
 							<div class="flex items-center gap-1.5">
 								<Gamepad2 size={14} />
 								<span>{instance?.version || "Unknown version"}</span>
-								{#if isSettingUp}
-									<div class="tooltip" data-tip="Setting up instance...">
-										<span class="loading loading-spinner loading-xs"></span>
-									</div>
-								{/if}
 							</div>
 						</div>
 					</div>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Component } from "svelte";
 	import { page } from "$app/state";
+	import Tooltip from "$lib/components/ui/Tooltip.svelte";
 
 	interface Props {
 		href: string;
@@ -15,7 +16,7 @@
 	let isActive = $derived(active ?? page.url.pathname === href);
 </script>
 
-<div class="tooltip tooltip-right" data-tip={label}>
+<Tooltip label={label}>
 	<a
 		{href}
 		class:rounded-full={circle}
@@ -23,4 +24,4 @@
 	>
 		<Icon size={20} />
 	</a>
-</div>
+</Tooltip>

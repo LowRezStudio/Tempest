@@ -2,12 +2,11 @@
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import versions from "$lib/data/versions.json";
 	import { addInstance, updateInstance } from "$lib/stores/instance";
-	import { setupInstance } from "$lib/platforms/setup";
 	import type { Instance, InstanceState } from "$lib/types/instance";
 	import { CloudDownload, Folder, Code, Loader2, AlertCircle } from "@lucide/svelte";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { defaultInstancePath } from "$lib/stores/settings";
-	import { createDefaultInstancePathQuery } from "$lib/queries/instance";
+	import { createDefaultInstancePathQuery, createSetupInstanceMutation } from "$lib/queries/instance";
 	import { createIdentifyBuildMutation } from "$lib/queries/core";
 	import { path } from "@tauri-apps/api";
 
@@ -95,7 +94,7 @@
 
 	const runSetup = async (instance: Instance) => {
 		try {
-			await setupInstance(instance);
+			await setupInstanceMutation.mutateAsync(instance);
 		} catch (error) {
 			console.error("Instance setup failed:", error);
 		} finally {
@@ -155,6 +154,7 @@
 		() => selectedVersion?.version,
 		() => $defaultInstancePath,
 	);
+	const setupInstanceMutation = createSetupInstanceMutation();
 
 	let defaultPathPlaceholder = $derived(defaultPathQuery.data ?? "");
 </script>
