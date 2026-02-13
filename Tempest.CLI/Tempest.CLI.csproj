@@ -26,6 +26,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\MarshalLib\MarshalLib.csproj" />
+      <ProjectReference Include="..\MarshalLib.Database\MarshalLib.Database.csproj" />
       <ProjectReference Include="..\Tempest.Protocol\Tempest.Protocol.csproj" />
     </ItemGroup>
 

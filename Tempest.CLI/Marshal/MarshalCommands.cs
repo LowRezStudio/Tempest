@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MarshalLib;
+using MarshalLib.Database;
 
 namespace Tempest.CLI.Marshal;
 
@@ -47,7 +48,11 @@ internal partial class MarshalCommands
         {
             using var outputStream = File.Open(output, FileMode.Create, FileAccess.Write, FileShare.None);
 
-            JsonSerializer.Serialize(outputStream, result, MarshalSourceGenerationContext.Default.MarshalFunction);
+            JsonSerializer.Serialize(outputStream, result, new JsonSerializerOptions()
+            {
+                WriteIndented = true,
+                TypeInfoResolver = MarshalSourceGenerationContext.Default
+            });
         }
         else
         {
@@ -120,5 +125,48 @@ internal partial class MarshalCommands
         {
             MarshalSerializer.SerializeFunction(Console.OpenStandardOutput(), packet, options);
         }
+    }
+
+    /// <summary>Exports a marshal binary into SQLite tables</summary>
+    /// <param name="fields">Path of the exported fields.dat file</param>
+    /// <param name="functions">Path of the exported functions.dat file</param>
+    /// <param name="path">Export file path</param>
+    /// <param name="database">SQLite database file path</param>
+    /// <param name="obscure">Required to parse the assembly, applies a 0x2A XOR</param>
+    /// <param name="version">Marshal format version (Modern or Legacy)</param>
+    public void ExportSqlite(string fields, string functions, string path, string database, bool obscure = false, MarshalSerializerVersion version = MarshalSerializerVersion.Modern)
+    {
+        using var fieldsFile = File.OpenRead(fields);
+        using var functionsFile = File.OpenRead(functions);
+
+        var fieldMappings = FieldMappings.OpenRead(fieldsFile);
+        var functionMappings = FunctionMappings.OpenRead(functionsFile);
+
+        Stream stream;
+
+        if (obscure)
+        {
+            var decoded = File.ReadAllBytes(path).Select(b => (byte)(b ^ 0x2A)).ToArray();
+            stream = new MemoryStream(decoded);
+        }
+        else
+        {
+            stream = File.OpenRead(path);
+        }
+
+        var options = new MarshalSerializerOptions
+        {
+            FieldMappings = fieldMappings,
+            FunctionMappings = functionMappings,
+            Version = version
+        };
+
+        var result = MarshalSerializer.DeserializeFunction(stream, options);
+
+        var connectionString = $"Data Source={database}";
+
+        SqliteMarshalFunctionExporter.Export(connectionString, result);
+
+        stream.Close();
     }
 }
