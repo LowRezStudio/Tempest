@@ -26,8 +26,11 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
         writer.WriteStartObject();
         writer.WritePropertyName("Type");
         JsonSerializer.Serialize(writer, value.Type, options);
-        writer.WritePropertyName("Flags");
-        JsonSerializer.Serialize(writer, value.Flags, options);
+        if (value.Flags != MarshalFlags.None)
+        {
+            writer.WritePropertyName("Flags");
+            JsonSerializer.Serialize(writer, value.Flags, options);
+        }
         writer.WritePropertyName("Value");
         JsonSerializer.Serialize(writer, value.Value, value.Value?.GetType() ?? typeof(object), options);
         writer.WriteEndObject();
