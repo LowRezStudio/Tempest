@@ -2,11 +2,12 @@
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { instanceMap, updateInstance, removeInstance } from "$lib/stores/instance";
+	import { setupInstance } from "$lib/platforms/setup";
 	import { processesList } from "$lib/stores/processes";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { revealItemInDir } from "@tauri-apps/plugin-opener";
-	import type { InstancePlatform } from "$lib/types/instance";
+	import type { Instance, InstancePlatform } from "$lib/types/instance";
 	import {
 		Play,
 		Settings,
@@ -47,6 +48,7 @@
 	]);
 
 	const instance = $derived($instanceMap[page.params.id!]);
+	let isSettingUp = $derived((instance?.state as { type?: string } | undefined)?.type === "setup");
 
 	if (!instance) {
 		goto("/library");
@@ -79,6 +81,26 @@
 			},
 		});
 		isSettingsModalOpen = false;
+	}
+
+	const runSetup = async (targetInstance: Instance) => {
+		updateInstance(targetInstance.id, {
+			state: { type: "setup" } as unknown as Instance["state"],
+		});
+		try {
+			await setupInstance(targetInstance);
+		} catch (error) {
+			console.error("Instance setup failed:", error);
+		} finally {
+			updateInstance(targetInstance.id, {
+				state: { type: "prepared" } as unknown as Instance["state"],
+			});
+		}
+	};
+
+	function handleRunSetup() {
+		if (!instance || isSettingUp) return;
+		void runSetup(instance);
 	}
 
 	async function openFolder() {
@@ -174,6 +196,11 @@
 							<div class="flex items-center gap-1.5">
 								<Gamepad2 size={14} />
 								<span>{instance?.version || "Unknown version"}</span>
+								{#if isSettingUp}
+									<div class="tooltip" data-tip="Setting up instance...">
+										<span class="loading loading-spinner loading-xs"></span>
+									</div>
+								{/if}
 							</div>
 						</div>
 					</div>
@@ -185,8 +212,8 @@
 						class="btn text-sm"
 						class:btn-accent={!isRunning}
 						class:btn-error={isRunning}
-						disabled={isLaunching || isKilling}
-						aria-busy={isLaunching || isKilling}
+						disabled={isLaunching || isKilling || isSettingUp}
+						aria-busy={isLaunching || isKilling || isSettingUp}
 						onclick={handleLaunchToggle}
 					>
 						{#if isLaunching}
@@ -214,6 +241,12 @@
 							tabindex="0"
 							class="dropdown-content menu bg-base-300 rounded-box z-1 w-52 p-2 shadow-sm"
 						>
+							<li>
+								<button onclick={handleRunSetup} disabled={isSettingUp}>
+									<RefreshCw size={16} />
+									Run Setup
+								</button>
+							</li>
 							<li>
 								<button onclick={openFolder}>
 									<FolderOpen size={16} />

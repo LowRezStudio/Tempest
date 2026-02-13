@@ -8,7 +8,11 @@ export type PreparedState = {
 	type: "prepared";
 };
 
-export type InstanceState = UnpreparedState | PreparedState;
+export type SetupState = {
+	type: "setup";
+};
+
+export type InstanceState = UnpreparedState | SetupState | PreparedState;
 
 export const instancePlatforms = ["Win64", "Win32"] as const;
 

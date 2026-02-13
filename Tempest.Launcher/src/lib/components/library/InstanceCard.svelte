@@ -7,6 +7,8 @@
 	}
 
 	let { instance }: Props = $props();
+
+	let isSettingUp = $derived((instance.state as { type: string }).type === "setup");
 </script>
 
 <a
@@ -17,7 +19,13 @@
 		<div
 			class="w-12 h-12 rounded-lg bg-base-100 flex items-center justify-center shrink-0 overflow-hidden"
 		>
-			<Box size={24} class="opacity-60" />
+			{#if isSettingUp}
+				<div class="tooltip" data-tip="Setting up instance...">
+					<span class="loading loading-spinner loading-sm"></span>
+				</div>
+			{:else}
+				<Box size={24} class="opacity-60" />
+			{/if}
 		</div>
 		<div class="flex-1 min-w-0">
 			<h3 class="font-bold text-base truncate mb-0.5">{instance.label}</h3>

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import versions from "$lib/data/versions.json";
-	import { addInstance } from "$lib/stores/instance";
-	import type { Instance } from "$lib/types/instance";
+	import { addInstance, updateInstance } from "$lib/stores/instance";
+	import { setupInstance } from "$lib/platforms/setup";
+	import type { Instance, InstanceState } from "$lib/types/instance";
 	import { CloudDownload, Folder, Code, Loader2, AlertCircle } from "@lucide/svelte";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { defaultInstancePath } from "$lib/stores/settings";
@@ -92,6 +93,16 @@
 		return `/instances/${selectedVersion.version}`;
 	}
 
+	const runSetup = async (instance: Instance) => {
+		try {
+			await setupInstance(instance);
+		} catch (error) {
+			console.error("Instance setup failed:", error);
+		} finally {
+			updateInstance(instance.id, { state: { type: "prepared" } });
+		}
+	};
+
 	async function handleCreate() {
 		if (!isValid) return;
 
@@ -117,19 +128,13 @@
 				noDefaultArgs: false,
 				log: false,
 			},
-			state:
-				selectedTab === "download" ?
-					{
-						type: "unprepared",
-						status: "downloading",
-						percentage: 0,
-					}
-				:	{
-						type: "prepared",
-					},
+			state: {
+				type: "setup",
+			} as unknown as InstanceState,
 		};
 
 		addInstance(newInstance);
+		void runSetup(newInstance);
 
 		open = false;
 	}
