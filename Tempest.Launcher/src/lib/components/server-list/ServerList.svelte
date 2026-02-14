@@ -1,18 +1,10 @@
 <script lang="ts">
-	import { CountryCode, ServerListing } from "$lib/rpc";
-	import { ServerListClient } from "$lib/rpc/server_list/server_list_service.client";
+	import { CountryCode, serverList, ServerListing } from "$lib/rpc";
 	import { Server, ServerCrash, Search } from "@lucide/svelte";
-	import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
 	import "flag-icons/css/flag-icons.min.css";
 	interface Props {}
 
 	let {}: Props = $props();
-
-	//temporarily here
-	const transport = new GrpcWebFetchTransport({
-		baseUrl: "http://localhost:5197",
-	});
-	const client = new ServerListClient(transport);
 
 	let servers = $state<ServerListing[]>([]);
 	let searchQuery = $state("");
@@ -31,13 +23,13 @@
 	async function fetchServers() {
 		const server_list = [];
 		try {
-			const call = client.getServers({});
+			const call = serverList.getServers({});
 			for await (const resp of call.responses) {
 				server_list.push(resp);
 			}
 			error = false;
 		} catch (e) {
-			console.log(e);
+			console.error(e);
 			error = true;
 		}
 

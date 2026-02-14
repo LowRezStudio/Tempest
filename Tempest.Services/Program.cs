@@ -34,6 +34,6 @@ var app = builder.Build();
 
 app.UseCors("AllowFrontend");
 app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
-app.MapGrpcService<ServerListServiceImpl>().EnableGrpcWeb();
+app.MapGrpcService<ServerListServiceImpl>();
 
 app.Run();
