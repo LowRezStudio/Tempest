@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { House, Compass, Library, Plus, Settings, User, Box } from "@lucide/svelte";
+	import { House, Compass, Library, Plus, Settings, User, Box, Server } from "@lucide/svelte";
 	import SidebarItem from "./SidebarItem.svelte";
 	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { instanceWizardOpen } from "$lib/stores/ui";
@@ -11,6 +11,7 @@
 		<SidebarItem href="/" icon={House} label="Home" />
 		<SidebarItem href="/library" icon={Library} label="Library" />
 		<SidebarItem href="/character-select" icon={Compass} label="Champions" />
+		<SidebarItem href="/server-list" icon={Server} label="Servers" />
 	</nav>
 
 	<div class="divider mx-4 my-4 opacity-50"></div>

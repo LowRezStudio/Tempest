@@ -1,11 +1,9 @@
 import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
-import { fetch } from "@tauri-apps/plugin-http";
 import { ServerListClient } from "./rpc/server_list/server_list_service.client";
 
 const transport = new GrpcWebFetchTransport({
 	baseUrl: "http://localhost:5197",
-	format: "binary",
-	fetch,
+	format: "binary"
 });
 
 export const serverList = new ServerListClient(transport);
