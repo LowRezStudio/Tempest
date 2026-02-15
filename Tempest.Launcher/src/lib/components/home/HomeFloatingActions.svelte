@@ -7,7 +7,7 @@
 	// Mock announcement data
 	const announcement = {
 		title: "Announcement",
-		message: "Tempest Launcher is still in development so apologies if there's any bugs.",
+		message: "Tempest Launcher is still in development so expect bugs.",
 	};
 
 	// Check if the last launched instance is currently running
@@ -42,7 +42,6 @@
 			killGameMutation.reset();
 		}
 	}
-
 </script>
 
 <div class="fixed bottom-6 left-6 right-6 z-50 flex items-end justify-between gap-6">
@@ -86,7 +85,10 @@
 				{/if}
 				<div class="flex flex-col items-start">
 					<span class="font-semibold text-sm">
-						{isLaunching ? "Launching..." : isKilling ? "Stopping..." : isRunning ? "Stop Game" : "Run Game"}
+						{isLaunching ? "Launching..."
+						: isKilling ? "Stopping..."
+						: isRunning ? "Stop Game"
+						: "Run Game"}
 					</span>
 					<span class="text-xs opacity-80">{$lastLaunchedInstance.label}</span>
 				</div>
