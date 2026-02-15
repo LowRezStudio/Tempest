@@ -17,9 +17,6 @@ importers:
       '@fontsource-variable/ubuntu-sans-mono':
         specifier: ^5.2.10
         version: 5.2.10
-      '@fontsource/noto-color-emoji':
-        specifier: ^5.2.9
-        version: 5.2.11
       '@lucide/svelte':
         specifier: ^0.562.0
         version: 0.562.0(svelte@5.46.1)
@@ -83,6 +80,9 @@ importers:
       '@tauri-apps/plugin-shell':
         specifier: ~2.3.3
         version: 2.3.3
+      country-flag-emoji-polyfill:
+        specifier: ^0.1.8
+        version: 0.1.8
       daisyui:
         specifier: ^5.5.14
         version: 5.5.14
@@ -306,9 +306,6 @@ packages:
 
   '@fontsource-variable/ubuntu-sans-mono@5.2.10':
     resolution: {integrity: sha512-9oUR9qQPz0pyxb8GsbkiZwGj7ABsAtbgkkxcg0prOsvRk/nZhdfv23qpkG++T1Jo5DVQVfumRLBgPbNdmGT/1g==}
-
-  '@fontsource/noto-color-emoji@5.2.11':
-    resolution: {integrity: sha512-H1lT1LFRRSvCcTvCuhY4jQceJ5QTNGyCDNwF+egRn1ybObOF2rXkftGP+Hpg4RIGzM3HVtty1vT5HaILD4E/Mg==}
 
   '@isaacs/balanced-match@4.0.1':
     resolution: {integrity: sha512-yzMTt9lEb8Gv7zRioUilSglI0c0smZ9k5D65677DLWLtWJaXIS3CqcGyUFByYKlnUj6TkjLVs54fBl6+TiGQDQ==}
@@ -914,6 +911,9 @@ packages:
     resolution: {integrity: sha512-U71cyTamuh1CRNCfpGY6to28lxvNwPG4Guz/EVjgf3Jmzv0vlDp1atT9eS5dDjMYHucpHbWns6Lwf3BKz6svdw==}
     engines: {node: '>= 0.6'}
 
+  country-flag-emoji-polyfill@0.1.8:
+    resolution: {integrity: sha512-Mbah52sADS3gshUYhK5142gtUuJpHYOXlXtLFI3Ly4RqgkmPMvhX9kMZSTqDM8P7UqtSW99eHKFphhQSGXA3Cg==}
+
   daisyui@5.5.14:
     resolution: {integrity: sha512-L47rvw7I7hK68TA97VB8Ee0woHew+/ohR6Lx6Ah/krfISOqcG4My7poNpX5Mo5/ytMxiR40fEaz6njzDi7cuSg==}
 
@@ -1436,8 +1436,6 @@ snapshots:
 
   '@fontsource-variable/ubuntu-sans-mono@5.2.10': {}
 
-  '@fontsource/noto-color-emoji@5.2.11': {}
-
   '@isaacs/balanced-match@4.0.1': {}
 
   '@isaacs/brace-expansion@5.0.0':
@@ -1874,6 +1872,8 @@ snapshots:
   clsx@2.1.1: {}
 
   cookie@0.6.0: {}
+
+  country-flag-emoji-polyfill@0.1.8: {}
 
   daisyui@5.5.14: {}
 
