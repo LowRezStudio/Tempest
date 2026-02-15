@@ -56,7 +56,11 @@ internal static class WineExtensions
     }
 
     public static string GetPrefix() =>
-        Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".tempest", "prefix");
+        Path.Join(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "com.lowrezstudio.tempest",
+            "prefix"
+        );
 
     public static Task WaitForPrefix()
     {

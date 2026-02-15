@@ -87,15 +87,16 @@
 			"identifier": "fs:scope",
 			"allow": [
 				{
-					"path": "$HOME/.tempest"
+					"path": "$APP_CONFIG"
 				},
 				{
-					"path": "$HOME/.tempest/**/*"
+					"path": "$APP_CONFIG/**/*"
 				},
 				{
 					"path": "**"
 				}
 			]
-		}
+		},
+		"sql:default"
 	]
 }

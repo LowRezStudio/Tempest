@@ -6,7 +6,10 @@
 	import { CloudDownload, Folder, Code, Loader2, AlertCircle } from "@lucide/svelte";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { defaultInstancePath } from "$lib/stores/settings";
-	import { createDefaultInstancePathQuery, createSetupInstanceMutation } from "$lib/queries/instance";
+	import {
+		createDefaultInstancePathQuery,
+		createSetupInstanceMutation,
+	} from "$lib/queries/instance";
 	import { createIdentifyBuildMutation } from "$lib/queries/core";
 	import { path } from "@tauri-apps/api";
 

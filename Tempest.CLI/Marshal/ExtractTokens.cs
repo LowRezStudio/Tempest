@@ -39,11 +39,11 @@ internal partial class MarshalCommands
             var helloIndex = bytes.IndexOfBytes("HELLO"u8.ToArray());
             var versionIndex = bytes.IndexOfBytes("VERSION"u8.ToArray());
 
-            if (helloIndex != -1 && helloIndex < 50)
+            if (helloIndex != -1)
             {
                 filename = "functions";
             }
-            else if (versionIndex != 1 && versionIndex < 50)
+            else if (versionIndex != -1)
             {
                 filename = "fields";
             }

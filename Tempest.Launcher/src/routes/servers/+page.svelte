@@ -166,7 +166,7 @@
 													"badge",
 													server.players >= server.maxPlayers ?
 														"badge-error"
-													: 	"badge-success",
+													:	"badge-success",
 												]}
 											>
 												{server.players}/{server.maxPlayers}
@@ -179,7 +179,7 @@
 													"badge",
 													server.spectators >= server.maxSpectators ?
 														"badge-error"
-													: 	"badge-success",
+													:	"badge-success",
 												]}
 											>
 												{server.spectators}/{server.maxSpectators}
@@ -190,7 +190,9 @@
 											<span
 												class={[
 													"badge",
-													server.hasPassword ? "badge-error" : "badge-success",
+													server.hasPassword ? "badge-error" : (
+														"badge-success"
+													),
 												]}
 											>
 												{server.hasPassword ? "Yes" : "No"}
