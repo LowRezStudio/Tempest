@@ -5,8 +5,11 @@ Below are instructions on how to build Tempest from source.
 ## Cloning the repository
 
 ```bash
-git clone git@github.com:LowRezStudio/Tempest.git
+git clone https://github.com/LowRezStudio/Tempest.git
 ```
+
+> **Windows**: You should add the Tempest directory to your Windows Defender exclusions to prevent it from interfering with the build process and speed up development.
+
 ## Prerequisites
 - [Node.js](https://nodejs.org/en/download/) (ideally version 24 or higher)
 - [Zig](https://ziglang.org/download/) (version 0.15.2)
@@ -22,7 +25,7 @@ git clone git@github.com:LowRezStudio/Tempest.git
 ### macOS
 - [Tauri prerequisites](https://tauri.app/start/prerequisites/#macos)
 
-> Note: If you're not planning to work on the launcher, you can skip installing Rust, Node.js and the tauri prerequisites.
+> If you're **not** planning to work on the launcher, you can skip installing Rust, Node.js and the tauri prerequisites.
 
 ## Building the project
 
