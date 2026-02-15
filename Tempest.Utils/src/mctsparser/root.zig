@@ -3,8 +3,8 @@ const fs = std.fs;
 
 const Clap = @import("clap");
 
-const Field = @import("metadata.zig").Field;
-const Function = @import("metadata.zig").Function;
+const FieldEntry = @import("tokens.zig").FieldEntry;
+const FunctionDetail = @import("tokens.zig").FunctionDetail;
 const Parser = @import("parser.zig").Parser;
 
 pub fn main() !void {
@@ -64,8 +64,8 @@ pub fn main() !void {
     const functions_path = try fs.cwd().openFile(res.args.functions orelse return error.InvalidArguments, .{});
     defer functions_path.close();
 
-    const fields = try Field.init(allocator, fields_path);
-    const functions = try Function.init(allocator, functions_path);
+    const fields = try FieldEntry.init(allocator, fields_path);
+    const functions = try FunctionDetail.init(allocator, functions_path);
 
     const parser = try Parser.init(.{
         .allocator = allocator,

@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Field = @import("metadata.zig").Field;
-const Function = @import("metadata.zig").Function;
+const FieldEntry = @import("tokens.zig").FieldEntry;
+const FunctionDetail = @import("tokens.zig").FunctionDetail;
 
 const parser_mode = enum {
     serialize,
@@ -15,8 +15,8 @@ const parser_version = enum {
 
 const parser_options = struct {
     allocator: std.mem.Allocator,
-    fields: []Field,
-    functions: []Function,
+    fields: []FieldEntry,
+    functions: []FunctionDetail,
     mode: parser_mode,
     version: parser_version,
     is_encrypted: bool,
@@ -52,7 +52,7 @@ pub const Parser = struct {
         const options = self.options;
 
         for (options.fields) |field| {
-            std.debug.print("Field: {d} -> {s} ({s})\n", .{ field.index, field.name, @tagName(field.type) });
+            std.debug.print("Field: {d} -> {s} ({s} -> {s})\n", .{ field.index, field.name, @tagName(field.type), @tagName(field.netid_type) });
         }
         for (options.functions) |function| {
             std.debug.print("Function: {d} -> {s} ({x})\n", .{ function.index, function.name, function.hash });
