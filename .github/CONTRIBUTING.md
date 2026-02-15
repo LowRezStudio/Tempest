@@ -8,6 +8,7 @@ Below are instructions on how to build Tempest from source.
 git clone https://github.com/LowRezStudio/Tempest.git
 ```
 
+> [!IMPORTANT]
 > **Windows**: You should add the Tempest directory to your Windows Defender exclusions to prevent it from interfering with the build process and speed up development.
 
 ## Prerequisites
@@ -25,6 +26,7 @@ git clone https://github.com/LowRezStudio/Tempest.git
 ### macOS
 - [Tauri prerequisites](https://tauri.app/start/prerequisites/#macos)
 
+> [!TIP]
 > If you're **not** planning to work on the launcher, you can skip installing Rust, Node.js and the tauri prerequisites.
 
 ## Building the project
