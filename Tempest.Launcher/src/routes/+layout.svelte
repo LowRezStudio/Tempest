@@ -8,11 +8,14 @@
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import { page } from "$app/state";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
+	import { platform } from "@tauri-apps/plugin-os";
 
 	const { children } = $props();
 	const queryClient = new QueryClient();
 
 	$effect(() => {
+		document.documentElement.dataset.platform = platform();
+
 		const handleContextMenu = (event: Event) => {
 			event.preventDefault();
 		};

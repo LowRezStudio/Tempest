@@ -18,6 +18,7 @@
 	},
 	"devDependencies": {
 		"@catppuccin/daisyui": "^2.1.1",
+		"@fontsource/noto-color-emoji": "^5.2.9",
 		"@fontsource-variable/montserrat": "^5.2.8",
 		"@fontsource-variable/ubuntu-sans-mono": "^5.2.10",
 		"@lucide/svelte": "^0.562.0",

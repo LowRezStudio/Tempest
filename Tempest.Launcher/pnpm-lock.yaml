@@ -17,6 +17,9 @@ importers:
       '@fontsource-variable/ubuntu-sans-mono':
         specifier: ^5.2.10
         version: 5.2.10
+      '@fontsource/noto-color-emoji':
+        specifier: ^5.2.9
+        version: 5.2.11
       '@lucide/svelte':
         specifier: ^0.562.0
         version: 0.562.0(svelte@5.46.1)
@@ -303,6 +306,9 @@ packages:
 
   '@fontsource-variable/ubuntu-sans-mono@5.2.10':
     resolution: {integrity: sha512-9oUR9qQPz0pyxb8GsbkiZwGj7ABsAtbgkkxcg0prOsvRk/nZhdfv23qpkG++T1Jo5DVQVfumRLBgPbNdmGT/1g==}
+
+  '@fontsource/noto-color-emoji@5.2.11':
+    resolution: {integrity: sha512-H1lT1LFRRSvCcTvCuhY4jQceJ5QTNGyCDNwF+egRn1ybObOF2rXkftGP+Hpg4RIGzM3HVtty1vT5HaILD4E/Mg==}
 
   '@isaacs/balanced-match@4.0.1':
     resolution: {integrity: sha512-yzMTt9lEb8Gv7zRioUilSglI0c0smZ9k5D65677DLWLtWJaXIS3CqcGyUFByYKlnUj6TkjLVs54fBl6+TiGQDQ==}
@@ -1429,6 +1435,8 @@ snapshots:
   '@fontsource-variable/montserrat@5.2.8': {}
 
   '@fontsource-variable/ubuntu-sans-mono@5.2.10': {}
+
+  '@fontsource/noto-color-emoji@5.2.11': {}
 
   '@isaacs/balanced-match@4.0.1': {}
 

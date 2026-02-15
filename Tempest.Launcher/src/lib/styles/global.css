@@ -6,12 +6,15 @@
 @plugin "./themes/catppuccin.mocha.ts";
 
 @theme {
-	--font-sans:
-		"Montserrat Variable", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
-		"Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif;
+	--font-sans: "Montserrat Variable", var(--font-emoji), ui-sans-serif, system-ui, sans-serif;
+	--font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 	--font-mono:
 		"Ubuntu Sans Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
 		"Liberation Mono", "Courier New", monospace;
+}
+
+:root[data-platform="windows"] {
+	--font-emoji: "Noto Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 }
 
 * {
