@@ -1,95 +1,101 @@
 {
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": [
-    "main"
-  ],
-  "permissions": [
-    "core:default",
-    "opener:default",
-    "shell:allow-kill",
-    "shell:allow-open",
-    "shell:allow-stdin-write",
-    {
-      "identifier": "shell:allow-spawn",
-      "allow": [
-        {
-          "name": "dotnet",
-          "cmd": "dotnet",
-          "args": true
-        },
-        {
-          "name": "binaries/tempest-cli",
-          "args": true,
-          "sidecar": true
-        }
-      ]
-    },
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "dotnet",
-          "cmd": "dotnet",
-          "args": true
-        },
-        {
-          "name": "binaries/tempest-cli",
-          "args": true,
-          "sidecar": true
-        }
-      ]
-    },
-    "http:default",
-    {
-      "identifier": "http:allow-fetch",
-      "allow": [
-        {
-          "url": "http://localhost:5197"
-        }
-      ]
-    },
-    "dialog:default",
-    "os:default",
-    "fs:default",
-    "fs:allow-copy-file",
-    "fs:allow-create",
-    "fs:allow-exists",
-    "fs:allow-ftruncate",
-    "fs:allow-lstat",
-    "fs:allow-mkdir",
-    "fs:allow-open",
-    "fs:allow-read",
-    "fs:allow-read-dir",
-    "fs:allow-read-file",
-    "fs:allow-read-text-file",
-    "fs:allow-read-text-file-lines",
-    "fs:allow-read-text-file-lines-next",
-    "fs:allow-remove",
-    "fs:allow-rename",
-    "fs:allow-seek",
-    "fs:allow-size",
-    "fs:allow-stat",
-    "fs:allow-truncate",
-    "fs:allow-unwatch",
-    "fs:allow-watch",
-    "fs:allow-write",
-    "fs:allow-write-file",
-    "fs:allow-write-text-file",
-    {
-      "identifier": "fs:scope",
-      "allow": [
-        {
-          "path": "$HOME/.tempest"
-        },
-        {
-          "path": "$HOME/.tempest/**/*"
-        },
-        {
-          "path": "**"
-        }
-      ]
-    }
-  ]
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "default",
+	"description": "Capability for the main window",
+	"windows": ["main"],
+	"permissions": [
+		"core:default",
+		"opener:default",
+		"shell:allow-kill",
+		"shell:allow-open",
+		"shell:allow-stdin-write",
+		{
+			"identifier": "shell:allow-spawn",
+			"allow": [
+				{
+					"name": "dotnet",
+					"cmd": "dotnet",
+					"args": true
+				},
+				{
+					"name": "binaries/tempest-cli",
+					"args": true,
+					"sidecar": true
+				}
+			]
+		},
+		{
+			"identifier": "shell:allow-execute",
+			"allow": [
+				{
+					"name": "dotnet",
+					"cmd": "dotnet",
+					"args": true
+				},
+				{
+					"name": "binaries/tempest-cli",
+					"args": true,
+					"sidecar": true
+				}
+			]
+		},
+		{
+			"identifier": "http:default",
+			"allow": [
+				{
+					"url": "http://*"
+				},
+				{
+					"url": "https://*"
+				},
+				{
+					"url": "http://*:*"
+				},
+				{
+					"url": "https://*:*"
+				}
+			]
+		},
+		"dialog:default",
+		"os:default",
+		"fs:default",
+		"fs:allow-copy-file",
+		"fs:allow-create",
+		"fs:allow-exists",
+		"fs:allow-ftruncate",
+		"fs:allow-lstat",
+		"fs:allow-mkdir",
+		"fs:allow-open",
+		"fs:allow-read",
+		"fs:allow-read-dir",
+		"fs:allow-read-file",
+		"fs:allow-read-text-file",
+		"fs:allow-read-text-file-lines",
+		"fs:allow-read-text-file-lines-next",
+		"fs:allow-remove",
+		"fs:allow-rename",
+		"fs:allow-seek",
+		"fs:allow-size",
+		"fs:allow-stat",
+		"fs:allow-truncate",
+		"fs:allow-unwatch",
+		"fs:allow-watch",
+		"fs:allow-write",
+		"fs:allow-write-file",
+		"fs:allow-write-text-file",
+		{
+			"identifier": "fs:scope",
+			"allow": [
+				{
+					"path": "$HOME/.tempest"
+				},
+				{
+					"path": "$HOME/.tempest/**/*"
+				},
+				{
+					"path": "**"
+				}
+			]
+		}
+	]
 }

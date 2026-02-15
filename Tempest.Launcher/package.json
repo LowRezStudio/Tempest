@@ -19,6 +19,7 @@
 	"devDependencies": {
 		"@catppuccin/daisyui": "^2.1.1",
 		"@fontsource-variable/montserrat": "^5.2.8",
+		"@fontsource-variable/ubuntu-sans-mono": "^5.2.10",
 		"@lucide/svelte": "^0.562.0",
 		"@nanostores/persistent": "^1.2.0",
 		"@prettier/plugin-oxc": "^0.1.3",
@@ -30,6 +31,7 @@
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.49.2",
 		"@sveltejs/vite-plugin-svelte": "^6.2.1",
+		"@tanstack/svelte-query": "^6.0.18",
 		"@tailwindcss/vite": "^4.1.18",
 		"@tauri-apps/api": "^2.9.1",
 		"@tauri-apps/cli": "^2.9.6",
@@ -52,10 +54,5 @@
 		"typescript": "^5.9.3",
 		"vite": "^7.3.0"
 	},
-	"packageManager": "pnpm@10.26.2+sha512.0e308ff2005fc7410366f154f625f6631ab2b16b1d2e70238444dd6ae9d630a8482d92a451144debc492416896ed16f7b114a86ec68b8404b2443869e68ffda6",
-	"dependencies": {
-		"@fontsource-variable/ubuntu-sans-mono": "^5.2.10",
-		"@tanstack/svelte-query": "^6.0.18",
-		"flag-icons": "^7.5.0"
-	}
+	"packageManager": "pnpm@10.26.2+sha512.0e308ff2005fc7410366f154f625f6631ab2b16b1d2e70238444dd6ae9d630a8482d92a451144debc492416896ed16f7b114a86ec68b8404b2443869e68ffda6"
 }
