@@ -36,12 +36,12 @@ cd Tempest.Launcher/
 corepack enable
 pnpm install
 
+# If you want to work on the launcher in development mode
+pnpm tauri dev
+
 # If you want to build the production version
 pnpm tauri build
 # The build artifacts will be located in `Tempest.Launcher/src-tauri/target/release/`
-
-# If you want to work on the launcher in development mode
-pnpm tauri dev
 ```
 
 ### Building the CLI
