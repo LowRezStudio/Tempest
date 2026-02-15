@@ -66,6 +66,14 @@ zig build -Doptimize=ReleaseSafe
 # The build artifacts will be located in `Tempest.Utils/zig-out/bin/`
 ```
 
+# Code Editor setup
+
+We recommend using [Visual Studio Code](https://code.visualstudio.com/) with the following extensions:
+- [C#](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.csharp) for the CLI
+- [Zig](https://marketplace.visualstudio.com/items?itemName=ziglang.vscode-zig) if you plan on working on the utils
+- [Svelte for VS Code](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) if you plan on working on the launcher
+- [Tailwind CSS IntelliSense](https://marketplace.visualstudio.com/items?itemName=bradlc.vscode-tailwindcss) if you plan on working on the launcher
+
 # Techstack
 
 - Launcher: [Tauri](https://tauri.app/)
