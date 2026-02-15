@@ -12,6 +12,7 @@
 	} from "$lib/queries/instance";
 	import { createIdentifyBuildMutation } from "$lib/queries/core";
 	import { path } from "@tauri-apps/api";
+	import { platform } from "@tauri-apps/plugin-os";
 
 	interface Props {
 		open?: boolean;
@@ -32,6 +33,7 @@
 	let selectedVersionId = $state("");
 	let selectedPath = $state("");
 	let showAdvanced = $state(false);
+	let copyStatus = $state<"idle" | "copied" | "failed">("idle");
 
 	let detectionError = $state("");
 	let hasDetected = $state(false);
@@ -160,6 +162,31 @@
 	const setupInstanceMutation = createSetupInstanceMutation();
 
 	let defaultPathPlaceholder = $derived(defaultPathQuery.data ?? "");
+	const depotDownloaderBinary = $derived(
+		platform() === "windows" ? ".\\DepotDownloader.exe" : "./DepotDownloader",
+	);
+	const downloadPathForCommand = $derived(
+		selectedPath || defaultPathPlaceholder || "<install-path>",
+	);
+	const depotDownloaderCommand = $derived(
+		selectedVersionId ?
+			`${depotDownloaderBinary} -app 444090 -depot 444091 -manifest ${selectedVersionId} -os windows -dir "${downloadPathForCommand}" -qr -remember-password`
+		:	"",
+	);
+
+	async function handleCopyCommand() {
+		if (!depotDownloaderCommand) return;
+		try {
+			await navigator.clipboard.writeText(depotDownloaderCommand);
+			copyStatus = "copied";
+		} catch (error) {
+			console.error("Failed to copy command:", error);
+			copyStatus = "failed";
+		}
+		setTimeout(() => {
+			copyStatus = "idle";
+		}, 2000);
+	}
 </script>
 
 <Modal bind:open title="Create New Instance" class="max-w-2xl">
@@ -221,6 +248,24 @@
 							<option value={version.value}>{version.label}</option>
 						{/each}
 					</select>
+					{#if selectedTab === "download" && selectedVersionId}
+						<div class="mt-2 space-y-1.5">
+							<label class="label py-0.5 justify-between">
+								<span class="label-text text-sm">DepotDownloader command</span>
+								<button class="btn btn-accent btn-xs" onclick={handleCopyCommand}>
+									{copyStatus === "copied" ? "Copied"
+									: copyStatus === "failed" ? "Copy failed"
+									: "Copy"}
+								</button>
+							</label>
+							<div
+								class="rounded-sm bg-base-200 border border-base-300 px-3 py-2 text-xs font-mono whitespace-pre-wrap select-text"
+								style="user-select: text;"
+							>
+								{depotDownloaderCommand}
+							</div>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -313,7 +358,7 @@
 				<button class="btn btn-ghost" onclick={() => (open = false)}>Cancel</button>
 				<button
 					class="btn btn-accent"
-					disabled={!isValid || isDetecting}
+					disabled={!isValid || isDetecting || selectedTab === "download"}
 					onclick={handleCreate}
 				>
 					{#if selectedTab === "download"}

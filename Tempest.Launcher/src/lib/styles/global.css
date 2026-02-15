@@ -15,7 +15,7 @@
 }
 
 * {
-	@apply select-none;
+	@apply select-text;
 }
 
 @utility link {
