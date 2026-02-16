@@ -4,7 +4,9 @@ const fs = std.fs;
 const Clap = @import("clap");
 
 const FieldEntry = @import("tokens.zig").FieldEntry;
+const Fields = @import("tokens.zig").Fields;
 const FunctionDetail = @import("tokens.zig").FunctionDetail;
+const Functions = @import("tokens.zig").Functions;
 const Parser = @import("parser.zig").Parser;
 
 pub fn main() !void {
@@ -64,8 +66,8 @@ pub fn main() !void {
     const functions_path = try fs.cwd().openFile(res.args.functions orelse return error.InvalidArguments, .{});
     defer functions_path.close();
 
-    const fields = try FieldEntry.init(allocator, fields_path);
-    const functions = try FunctionDetail.init(allocator, functions_path);
+    const fields = Fields.init(try FieldEntry.init(allocator, fields_path));
+    const functions = try Functions.init(allocator, try FunctionDetail.init(allocator, functions_path));
 
     const parser = try Parser.init(.{
         .allocator = allocator,
@@ -76,7 +78,7 @@ pub fn main() !void {
         .is_encrypted = res.args.encrypted != 0,
     });
 
-    parser.printDebug();
+    try parser.printDebug();
 
     if (res.args.serialize != 0) {
         try parser.serialize();
