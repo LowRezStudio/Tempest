@@ -33,8 +33,8 @@ pub const CMscEntry = struct {
 };
 
 pub const CPackPacketNET = struct {
-    anon_union: union {
-        anon_struct: packed struct {
+    header: extern union {
+        fields: packed struct {
             size: u16,
             extended: u8,
             flags: u8,
@@ -48,6 +48,24 @@ pub const CPackPacket = struct {
     next: ?*CPackPacket,
     net: CPackPacketNET,
     source_func: u32,
+
+    pub fn init(allocator: std.mem.Allocator) !*CPackPacket {
+        const packet = try allocator.create(CPackPacket);
+        packet.* = .{
+            .next = null,
+            .net = .{
+                .header = .{ .all = 0 },
+                .data = std.mem.zeroes([0x7fe]u8),
+            },
+            .source_func = 0,
+        };
+
+        return packet;
+    }
+
+    pub fn deinit(self: *CPackPacket, allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
+    }
 };
 
 pub const CPackage = struct {
@@ -66,7 +84,7 @@ pub const CPackage = struct {
     db_action_func: u32,
 
     pub fn init(allocator: std.mem.Allocator) !CPackage {
-        const packet = try allocator.create(CPackPacket);
+        const packet = try CPackPacket.init(allocator);
 
         return CPackage{
             .base = .{ .next = null },
@@ -88,7 +106,7 @@ pub const CPackage = struct {
         var current = self.packets;
         while (current) |packet| {
             const next = packet.next;
-            allocator.destroy(packet);
+            packet.deinit(allocator);
             current = next;
         }
 
@@ -119,7 +137,7 @@ pub const CPackage = struct {
         self.used = file_stat.size;
 
         const max_read_size: u64 = @min(file_stat.size, 0x1ff80);
-        const max_packet_size: usize = 0x7fe;
+        const max_packet_size = 0x7fe;
 
         const buffer = try allocator.alloc(u8, max_read_size);
         defer allocator.free(buffer);
@@ -149,7 +167,7 @@ pub const CPackage = struct {
 
                 const need_more_packets = offset < read_bytes or total_read < file_stat.size;
                 if (need_more_packets) {
-                    const packet = try allocator.create(CPackPacket);
+                    const packet = try CPackPacket.init(allocator);
                     self.current.?.next = packet;
                     self.current = packet;
                 }

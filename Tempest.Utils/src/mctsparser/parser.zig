@@ -53,6 +53,8 @@ pub const Parser = struct {
         var current_packet: ?*marshal.CPackPacket = package.packets;
         var i: usize = 0;
         while (current_packet) |packet| {
+            if (packet.next == null) break;
+
             i += 1;
             current_packet = packet.next;
         }
