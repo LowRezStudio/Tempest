@@ -1,3 +1,6 @@
+const std = @import("std");
+const fs = std.fs;
+
 pub const CMarshalRow = struct {
     entry_count: u32,
     entry_list: ?*CMarshalEntry,
@@ -31,7 +34,7 @@ pub const CMscEntry = struct {
 
 pub const CPackPacketNET = struct {
     header: union {
-        fields: struct {
+        fields: packed struct {
             size: u16,
             extended: u8,
             flags: u8,
@@ -51,14 +54,177 @@ pub const CPackage = struct {
     base: CMscEntry,
 
     packets: ?*CPackPacket,
-    used: u32,
+    used: u64,
     place: u32,
     current: ?*CPackPacket,
     cur_place: u32,
     first_alloc: bool,
     flags: u8,
     extended: u8,
-    pby_extended: [0xc]u8,
+    p_extended: [0xc]u8,
     encoding: u8,
     db_action_func: u32,
+
+    pub fn init(allocator: std.mem.Allocator) !CPackage {
+        const packet = try allocator.create(CPackPacket);
+
+        packet.* = .{
+            .next = null,
+            .net = .{
+                .header = .{ .all = 0 },
+                .data = std.mem.zeroes([0x7fe]u8),
+            },
+            .source_func = 0,
+        };
+
+        return CPackage{
+            .base = .{ .next = null },
+            .packets = packet,
+            .used = 0,
+            .place = 0,
+            .current = packet,
+            .cur_place = 0,
+            .first_alloc = true,
+            .flags = 0,
+            .extended = 0,
+            .p_extended = std.mem.zeroes([0xc]u8),
+            .encoding = 3,
+            .db_action_func = 0,
+        };
+    }
+
+    pub fn deinit(self: *CPackage, allocator: std.mem.Allocator) void {
+        var current = self.packets;
+        while (current) |packet| {
+            const next = packet.next;
+            allocator.destroy(packet);
+            current = next;
+        }
+
+        self.packets = null;
+        self.current = null;
+    }
+
+    pub fn empty(self: *CPackage) void {
+        self.used = 0;
+        self.place = 0;
+        self.cur_place = 0;
+        self.first_alloc = true;
+        self.current = self.packets;
+        self.flags = 0;
+        self.extended = 0;
+    }
+
+    pub fn readFromFile(self: *CPackage, allocator: std.mem.Allocator, file_path: []const u8, obscure: bool) !u64 {
+        self.empty();
+
+        const file = try fs.cwd().openFile(file_path, .{});
+        defer file.close();
+
+        const file_stat = file.stat() catch {
+            return 0;
+        };
+
+        self.current = self.packets;
+        self.used = file_stat.size;
+
+        const max_read_size: u64 = @min(file_stat.size, 0x1ff80);
+        const max_packet_size = 0x7fe;
+
+        var buffer: []u8 = try allocator.alloc(u8, max_read_size);
+        defer allocator.free(buffer);
+
+        var fr = file.reader(buffer);
+        const reader = &fr.interface;
+
+        var remaining_bytes: u64 = self.used;
+        var total_read_bytes: u64 = 0;
+        outer: while (remaining_bytes > 0) {
+            if (remaining_bytes <= 0)
+                break;
+
+            const read_bytes = try reader.readSliceShort(buffer);
+            total_read_bytes += read_bytes;
+            remaining_bytes -= read_bytes;
+
+            if (obscure) {
+                if (read_bytes == 0)
+                    continue;
+
+                for (buffer[0..read_bytes]) |*b| {
+                    b.* ^= 0x2A;
+                }
+            }
+
+            var packet_offset: u64 = 0;
+            while (packet_offset < read_bytes) {
+                const bytes_to_copy = @min(read_bytes - packet_offset, max_packet_size);
+                @memcpy(self.current.?.net.data[0..bytes_to_copy], buffer[packet_offset..][0..bytes_to_copy]);
+
+                packet_offset += bytes_to_copy;
+
+                if (packet_offset >= read_bytes and total_read_bytes >= file_stat.size)
+                    break;
+
+                const packet = try allocator.create(CPackPacket);
+
+                packet.* = .{
+                    .next = null,
+                    .net = .{
+                        .header = .{ .all = 0 },
+                        .data = std.mem.zeroes([0x7fe]u8),
+                    },
+                    .source_func = 0,
+                };
+
+                self.current.?.next = packet;
+                self.current = self.current.?.next;
+
+                if (packet_offset >= read_bytes) {
+                    if (file_stat.size > total_read_bytes) {
+                        continue :outer;
+                    }
+
+                    break :outer;
+                }
+            }
+        }
+
+        return self.used;
+    }
+
+    pub fn format(
+        self: @This(),
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        try writer.print(
+            \\CPackage dump:
+            \\  packets: 0x{x}
+            \\  used: {d}
+            \\  place: {d}
+            \\  current: 0x{x}
+            \\  cur_place: {d}
+            \\  first_alloc: {d}
+            \\  flags: {d}
+            \\  extended: {d}
+            \\  p_extended: {any}
+            \\  encoding: {d}
+            \\  db_action_func: {d}
+            \\
+        , .{
+            @intFromPtr(self.packets),
+            self.used,
+            self.place,
+            @intFromPtr(self.current),
+            self.cur_place,
+            @intFromBool(self.first_alloc),
+            self.flags,
+            self.extended,
+            self.p_extended,
+            self.encoding,
+            self.db_action_func,
+        });
+
+        return writer.writeAll("\n");
+    }
 };

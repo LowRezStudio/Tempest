@@ -20,8 +20,9 @@ pub fn main() !void {
         \\-V, --version <str>    legacy or modern, defaults to Modern
         \\-f, --fields <str>     Input fields file path.
         \\-F, --functions <str>  Input functions file path.
+        \\-i, --input <str>      Input file path.
         \\-o, --output <str>     Output folder path.
-        \\-e, --encrypted        Is the file encrypted
+        \\-e, --obscure          Is the file encrypted
         \\-s, --serialize        Serialize to MCTS
         \\-d, --deserialize      Deserialize to JSON
     );
@@ -47,6 +48,11 @@ pub fn main() !void {
     if (res.args.verbose != 0)
         std.log.info("TODO: implement", .{});
 
+    if (res.args.input == null) {
+        std.log.err("Must specify --input", .{});
+        return error.InvalidArguments;
+    }
+
     if (res.args.fields == null or res.args.functions == null) {
         std.log.err("Must specify both --fields and --functions", .{});
         return error.InvalidArguments;
@@ -69,16 +75,14 @@ pub fn main() !void {
     const fields = Fields.init(try FieldEntry.init(allocator, fields_path));
     const functions = try Functions.init(allocator, try FunctionDetail.init(allocator, functions_path));
 
-    const parser = try Parser.init(.{
-        .allocator = allocator,
-        .fields = fields,
-        .functions = functions,
+    const parser = try Parser.init(allocator, fields, functions, .{
+        .file_path = res.args.input.?,
         .mode = if (res.args.serialize != 0) .serialize else .deserialize,
         .version = if (std.mem.eql(u8, res.args.version.?, "legacy")) .legacy else .modern,
-        .is_encrypted = res.args.encrypted != 0,
+        .obscure = res.args.obscure != 0,
     });
 
-    try parser.printDebug();
+    // try parser.printDebug();
 
     if (res.args.serialize != 0) {
         try parser.serialize();
