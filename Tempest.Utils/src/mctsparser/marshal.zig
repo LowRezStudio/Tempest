@@ -177,6 +177,45 @@ pub const CPackage = struct {
         return self.used;
     }
 
+    pub fn writeToFile(self: *CPackage, file_path: []const u8, obscure: bool) !u64 {
+        const file = try fs.cwd().createFile(file_path, .{});
+        defer file.close();
+
+        var buffer: [0x7fe]u8 = undefined;
+        var fw = file.writer(&buffer);
+        const writer = &fw.interface;
+
+        var total_written: u64 = 0;
+        var remaining = self.used;
+        var current_packet = self.packets;
+
+        while (current_packet) |packet| {
+            const bytes_to_write: usize = @min(remaining, 0x7fe);
+
+            if (obscure) {
+                var obscured_buffer: [0x7fe]u8 = undefined;
+
+                for (0..bytes_to_write) |i| {
+                    obscured_buffer[i] = packet.net.data[i] ^ 0x2A;
+                }
+
+                try writer.writeAll(obscured_buffer[0..bytes_to_write]);
+            } else {
+                try writer.writeAll(packet.net.data[0..bytes_to_write]);
+            }
+            try writer.flush();
+
+            total_written += bytes_to_write;
+            remaining -= @intCast(bytes_to_write);
+
+            current_packet = packet.next;
+
+            if (current_packet == null) break;
+        }
+
+        return total_written;
+    }
+
     pub fn format(
         self: @This(),
         writer: *std.Io.Writer,
