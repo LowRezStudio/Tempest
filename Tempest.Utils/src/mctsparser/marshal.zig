@@ -72,7 +72,7 @@ pub const CPackage = struct {
     base: CMscEntry,
 
     packets: ?*CPackPacket,
-    used: u64,
+    used: u32,
     place: u32,
     current: ?*CPackPacket,
     cur_place: u32,
@@ -103,15 +103,20 @@ pub const CPackage = struct {
     }
 
     pub fn deinit(self: *CPackage, allocator: std.mem.Allocator) void {
-        var current = self.packets;
+        freeChain(allocator, self.packets);
+        self.packets = null;
+        self.current = null;
+    }
+
+    pub fn freeChain(allocator: std.mem.Allocator, p_chain: ?*CPackPacket) void {
+        if (p_chain == null) return;
+
+        var current = p_chain;
         while (current) |packet| {
             const next = packet.next;
             packet.deinit(allocator);
             current = next;
         }
-
-        self.packets = null;
-        self.current = null;
     }
 
     pub fn empty(self: *CPackage) void {
@@ -124,6 +129,41 @@ pub const CPackage = struct {
         self.extended = 0;
     }
 
+    pub fn write(self: *CPackage, allocator: std.mem.Allocator, buffer: [*]const u8, size: u32) !u64 {
+        if (size == 0) return 0;
+
+        var remaining = size;
+        var buffer_offset: usize = 0;
+
+        while (remaining > 0) {
+            if (self.cur_place > 0x7fd) {
+                if (self.current.?.next == null) {
+                    const new_packet = try CPackPacket.init(allocator);
+                    self.current.?.next = new_packet;
+                }
+
+                self.current = self.current.?.next;
+                self.cur_place = 0;
+            }
+
+            const available_in_packet = 0x7fe - self.cur_place;
+            const bytes_to_write = @min(available_in_packet, remaining);
+
+            @memcpy(self.current.?.net.data[self.cur_place..][0..bytes_to_write], buffer[buffer_offset..][0..bytes_to_write]);
+
+            self.cur_place += bytes_to_write;
+            self.place += bytes_to_write;
+            buffer_offset += bytes_to_write;
+            remaining -= bytes_to_write;
+        }
+
+        if (self.place > self.used) {
+            self.used = self.place;
+        }
+
+        return size;
+    }
+
     pub fn readFromFile(self: *CPackage, allocator: std.mem.Allocator, file_path: []const u8, obscure: bool) !u64 {
         self.empty();
 
@@ -134,7 +174,7 @@ pub const CPackage = struct {
         if (file_stat.size == 0) return 0;
 
         self.current = self.packets;
-        self.used = file_stat.size;
+        self.used = @intCast(file_stat.size);
 
         const max_read_size: u64 = @min(file_stat.size, 0x1ff80);
         const max_packet_size = 0x7fe;

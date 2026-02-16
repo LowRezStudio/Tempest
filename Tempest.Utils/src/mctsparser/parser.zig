@@ -46,6 +46,8 @@ pub const Parser = struct {
 
     pub fn deserialize(self: *const Parser) !void {
         var package = try marshal.CPackage.init(self.allocator);
+        defer package.deinit(self.allocator);
+
         _ = try package.readFromFile(self.allocator, self.options.file_path, self.options.obscure);
 
         // TODO: remove this test stuff
