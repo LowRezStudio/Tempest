@@ -33,8 +33,8 @@ pub const CMscEntry = struct {
 };
 
 pub const CPackPacketNET = struct {
-    header: union {
-        fields: packed struct {
+    anon_union: union {
+        anon_struct: packed struct {
             size: u16,
             extended: u8,
             flags: u8,
@@ -67,15 +67,6 @@ pub const CPackage = struct {
 
     pub fn init(allocator: std.mem.Allocator) !CPackage {
         const packet = try allocator.create(CPackPacket);
-
-        packet.* = .{
-            .next = null,
-            .net = .{
-                .header = .{ .all = 0 },
-                .data = std.mem.zeroes([0x7fe]u8),
-            },
-            .source_func = 0,
-        };
 
         return CPackage{
             .base = .{ .next = null },
@@ -121,71 +112,46 @@ pub const CPackage = struct {
         const file = try fs.cwd().openFile(file_path, .{});
         defer file.close();
 
-        const file_stat = file.stat() catch {
-            return 0;
-        };
+        const file_stat = try file.stat();
+        if (file_stat.size == 0) return 0;
 
         self.current = self.packets;
         self.used = file_stat.size;
 
         const max_read_size: u64 = @min(file_stat.size, 0x1ff80);
-        const max_packet_size = 0x7fe;
+        const max_packet_size: usize = 0x7fe;
 
-        var buffer: []u8 = try allocator.alloc(u8, max_read_size);
+        const buffer = try allocator.alloc(u8, max_read_size);
         defer allocator.free(buffer);
 
         var fr = file.reader(buffer);
         const reader = &fr.interface;
 
-        var remaining_bytes: u64 = self.used;
-        var total_read_bytes: u64 = 0;
-        outer: while (remaining_bytes > 0) {
-            if (remaining_bytes <= 0)
-                break;
+        var total_read: u64 = 0;
 
+        while (total_read < file_stat.size) {
             const read_bytes = try reader.readSliceShort(buffer);
-            total_read_bytes += read_bytes;
-            remaining_bytes -= read_bytes;
+            if (read_bytes == 0) break;
 
             if (obscure) {
-                if (read_bytes == 0)
-                    continue;
-
                 for (buffer[0..read_bytes]) |*b| {
                     b.* ^= 0x2A;
                 }
             }
 
-            var packet_offset: u64 = 0;
-            while (packet_offset < read_bytes) {
-                const bytes_to_copy = @min(read_bytes - packet_offset, max_packet_size);
-                @memcpy(self.current.?.net.data[0..bytes_to_copy], buffer[packet_offset..][0..bytes_to_copy]);
+            total_read += read_bytes;
 
-                packet_offset += bytes_to_copy;
+            var offset: usize = 0;
+            while (offset < read_bytes) {
+                const bytes_to_copy = @min(read_bytes - offset, max_packet_size);
+                @memcpy(self.current.?.net.data[0..bytes_to_copy], buffer[offset..][0..bytes_to_copy]);
+                offset += bytes_to_copy;
 
-                if (packet_offset >= read_bytes and total_read_bytes >= file_stat.size)
-                    break;
-
-                const packet = try allocator.create(CPackPacket);
-
-                packet.* = .{
-                    .next = null,
-                    .net = .{
-                        .header = .{ .all = 0 },
-                        .data = std.mem.zeroes([0x7fe]u8),
-                    },
-                    .source_func = 0,
-                };
-
-                self.current.?.next = packet;
-                self.current = self.current.?.next;
-
-                if (packet_offset >= read_bytes) {
-                    if (file_stat.size > total_read_bytes) {
-                        continue :outer;
-                    }
-
-                    break :outer;
+                const need_more_packets = offset < read_bytes or total_read < file_stat.size;
+                if (need_more_packets) {
+                    const packet = try allocator.create(CPackPacket);
+                    self.current.?.next = packet;
+                    self.current = packet;
                 }
             }
         }
