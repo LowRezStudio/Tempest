@@ -66,6 +66,17 @@ pub const CPackPacket = struct {
     pub fn deinit(self: *CPackPacket, allocator: std.mem.Allocator) void {
         allocator.destroy(self);
     }
+
+    pub fn freeChain(allocator: std.mem.Allocator, p_chain: ?*CPackPacket) void {
+        if (p_chain == null) return;
+
+        var current = p_chain;
+        while (current) |packet| {
+            const next = packet.next;
+            packet.deinit(allocator);
+            current = next;
+        }
+    }
 };
 
 pub const CPackage = struct {
@@ -103,20 +114,9 @@ pub const CPackage = struct {
     }
 
     pub fn deinit(self: *CPackage, allocator: std.mem.Allocator) void {
-        freeChain(allocator, self.packets);
+        CPackPacket.freeChain(allocator, self.packets);
         self.packets = null;
         self.current = null;
-    }
-
-    pub fn freeChain(allocator: std.mem.Allocator, p_chain: ?*CPackPacket) void {
-        if (p_chain == null) return;
-
-        var current = p_chain;
-        while (current) |packet| {
-            const next = packet.next;
-            packet.deinit(allocator);
-            current = next;
-        }
     }
 
     pub fn empty(self: *CPackage) void {
