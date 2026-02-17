@@ -3,6 +3,20 @@ const fs = std.fs;
 
 const fnv1_32 = @import("utils.zig").fnv1_32;
 
+pub const Tokens = struct {
+    functions: Functions,
+    fields: Fields,
+
+    pub fn init(allocator: std.mem.Allocator, functions: []FunctionDetail, fields: []FieldEntry) !void {
+        global = .{
+            .functions = try Functions.init(allocator, functions),
+            .fields = Fields.init(fields),
+        };
+    }
+
+    pub var global: @This() = undefined;
+};
+
 pub const FieldType = enum(u8) {
     unknown = 0,
     _num_start,

@@ -4,6 +4,7 @@ const fs = std.fs;
 const Fields = @import("tokens.zig").Fields;
 const Functions = @import("tokens.zig").Functions;
 const marshal = @import("marshal.zig");
+const Tokens = @import("tokens.zig").Tokens;
 
 const parser_mode = enum {
     serialize,
@@ -30,15 +31,15 @@ pub const Parser = struct {
     reader: *std.Io.Reader,
     writer: *std.Io.Writer,
 
-    pub fn init(allocator: std.mem.Allocator, fields: Fields, functions: Functions, options: parser_options) !Parser {
+    pub fn init(allocator: std.mem.Allocator, options: parser_options) !Parser {
         // reader
         // writer
 
         return .{
             .allocator = allocator,
             .options = options,
-            .fields = fields,
-            .functions = functions,
+            .fields = Tokens.global.fields,
+            .functions = Tokens.global.functions,
             .reader = undefined,
             .writer = undefined,
         };
@@ -50,17 +51,13 @@ pub const Parser = struct {
 
         _ = try package.readFromFile(self.allocator, self.options.file_path, self.options.obscure);
 
-        // TODO: remove this test stuff
-        std.debug.print("{f}\n", .{package});
-        var current_packet: ?*marshal.CPackPacket = package.packets;
-        var i: usize = 0;
-        while (current_packet) |packet| {
-            if (packet.next == null) break;
+        _ = try package.setPlace(self.allocator, 0);
+        var marsh = marshal.CMarshal.init(0);
 
-            i += 1;
-            current_packet = packet.next;
-        }
-        std.debug.print("Packets in this package: {d}\n", .{i});
+        _ = try marsh.load(&package);
+
+        std.debug.print("{f}\n", .{package});
+        std.debug.print("{f}\n", .{marsh});
 
         std.debug.print("TODO: implement deserialize\n", .{});
     }

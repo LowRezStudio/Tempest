@@ -7,6 +7,7 @@ const FieldEntry = @import("tokens.zig").FieldEntry;
 const Fields = @import("tokens.zig").Fields;
 const FunctionDetail = @import("tokens.zig").FunctionDetail;
 const Functions = @import("tokens.zig").Functions;
+const Tokens = @import("tokens.zig").Tokens;
 const Parser = @import("parser.zig").Parser;
 
 pub fn main() !void {
@@ -72,10 +73,14 @@ pub fn main() !void {
     const functions_path = try fs.cwd().openFile(res.args.functions orelse return error.InvalidArguments, .{});
     defer functions_path.close();
 
-    const fields = Fields.init(try FieldEntry.init(allocator, fields_path));
-    const functions = try Functions.init(allocator, try FunctionDetail.init(allocator, functions_path));
+    // init tokens global lists
+    try Tokens.init(
+        allocator,
+        try FunctionDetail.init(allocator, functions_path),
+        try FieldEntry.init(allocator, fields_path),
+    );
 
-    const parser = try Parser.init(allocator, fields, functions, .{
+    const parser = try Parser.init(allocator, .{
         .file_path = res.args.input.?,
         .mode = if (res.args.serialize != 0) .serialize else .deserialize,
         .version = if (std.mem.eql(u8, res.args.version.?, "legacy")) .legacy else .modern,
