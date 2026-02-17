@@ -1,8 +1,6 @@
 const std = @import("std");
 const fs = std.fs;
 
-const fnv1_32 = @import("utils.zig").fnv1_32;
-
 pub const Tokens = struct {
     functions: Functions,
     fields: Fields,
@@ -108,9 +106,7 @@ pub const FieldEntry = struct {
 };
 
 pub const FunctionDetail = struct {
-    index: usize,
-    hash: u32,
-
+    index: u32,
     sort_index: u16,
     flags: u16,
     name: []const u8,
@@ -134,7 +130,6 @@ pub const FunctionDetail = struct {
         var fr = std.Io.Reader.fixed(file_buffer);
         var reader = &fr;
 
-        var index: usize = 0;
         while (true) {
             const sort_index = reader.takeInt(u16, .big) catch |err| switch (err) {
                 error.EndOfStream => break,
@@ -142,51 +137,33 @@ pub const FunctionDetail = struct {
             };
             const flags = reader.takeInt(u16, .big) catch break;
 
+            const index = reader.takeInt(u32, .big) catch break;
             const name = try reader.takeDelimiter('\x00');
 
             try fields.append(allocator, .{
                 .index = index,
-                .hash = fnv1_32(name.?),
                 .sort_index = sort_index,
                 .flags = flags,
                 .name = name.?,
                 .wide_name = &.{},
             });
-
-            index += 1;
         }
 
         return fields.toOwnedSlice(allocator);
     }
-
-    pub fn findByHash(list: []const FunctionDetail, hashmap: *const std.AutoHashMap(u32, usize), hash: u32) !FunctionDetail {
-        if (hashmap.get(hash)) |index| {
-            return list[index];
-        }
-        return error.FunctionNotFound;
-    }
-
-    pub fn findByIndex(list: []const FunctionDetail, index: usize) !FunctionDetail {
-        if (index < list.len) {
-            return list[index];
-        }
-        return error.FunctionNotFound;
-    }
 };
 
 pub const Functions = struct {
-    list: []FunctionDetail,
-    hashmap: std.AutoHashMap(u32, usize),
+    hashmap: std.AutoHashMap(u32, FunctionDetail),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, list: []FunctionDetail) !Functions {
-        var hashmap = std.AutoHashMap(u32, usize).init(allocator);
-        for (list, 0..) |function, idx| {
-            try hashmap.put(function.hash, idx);
+        var hashmap = std.AutoHashMap(u32, FunctionDetail).init(allocator);
+        for (list) |function| {
+            try hashmap.put(function.index, function);
         }
 
         return .{
-            .list = list,
             .hashmap = hashmap,
             .allocator = allocator,
         };
@@ -196,18 +173,11 @@ pub const Functions = struct {
         self.hashmap.deinit();
     }
 
-    pub fn findByHash(self: *const Functions, hash: u32) !FunctionDetail {
-        if (self.hashmap.get(hash)) |index| {
-            return self.list[index];
+    pub fn findByIndex(self: *const Functions, hash: u32) ?FunctionDetail {
+        if (self.hashmap.get(hash)) |value| {
+            return value;
         }
-        return error.FunctionNotFound;
-    }
-
-    pub fn findByIndex(self: *const Functions, index: usize) !FunctionDetail {
-        if (index < self.list.len) {
-            return self.list[index];
-        }
-        return error.FunctionNotFound;
+        return null;
     }
 };
 
@@ -220,10 +190,10 @@ pub const Fields = struct {
         };
     }
 
-    pub fn findByIndex(self: *const Fields, index: usize) !FieldEntry {
+    pub fn findByIndex(self: *const Fields, index: usize) ?FieldEntry {
         if (index < self.list.len) {
             return self.list[index];
         }
-        return error.FieldNotFound;
+        return null;
     }
 };

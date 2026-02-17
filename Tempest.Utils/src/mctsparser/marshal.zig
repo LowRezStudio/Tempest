@@ -29,10 +29,11 @@ pub const CMarshalRow = struct {
                 const next = entry.next;
 
                 if (entry.field_id > Tokens.global.fields.list.len) {
-                    std.debug.panic("Corrupt marshal entry detected: field_id {d} > max {d}", .{
+                    std.log.warn("Corrupt marshal entry detected: field_id {d} > max {d}", .{
                         entry.field_id,
                         Tokens.global.fields.list.len,
                     });
+                    return false;
                 }
 
                 entry.deinit(allocator);
@@ -43,7 +44,8 @@ pub const CMarshalRow = struct {
             }
         }
 
-        @panic("Corrupt marshal entry chain detected");
+        std.log.warn("Corrupt marshal entry chain detected", .{});
+        return false;
     }
 
     pub fn clear(self: *CMarshalRow, allocator: std.mem.Allocator) void {
@@ -65,6 +67,11 @@ pub const CMarshalRow = struct {
 
         self.entry_count = 0;
         self.entry_tail = null;
+    }
+
+    pub fn load() bool {
+        std.log.warn("TODO: implement CMarshalRowSet.load", .{});
+        return false;
     }
 
     pub fn format(
@@ -111,12 +118,44 @@ pub const CMarshal = struct {
         self.p_detail = null;
     }
 
-    pub fn load(self: *CMarshal, package: *CPackage) !usize {
-        _ = self;
-        _ = package;
+    pub fn load(self: *CMarshal, package: *CPackage) bool {
+        if (package.place + 1 >= package.used or package.cur_place + 1 > 0x7fd) {
+            _ = package.read(@ptrCast(&self.flags), 1);
+        } else {
+            self.flags = package.current.?.net.data[package.cur_place];
+            package.cur_place += 1;
+            package.place += 1;
+        }
 
-        // @compileError("TODO: implement CMarshal.load");
-        return 1;
+        if (package.place + 4 >= package.used or package.cur_place + 4 > 0x7fd) {
+            _ = package.read(@ptrCast(&self.function_id), 4);
+        } else {
+            self.function_id = std.mem.readInt(
+                u32,
+                package.current.?.net.data[package.cur_place..][0..4],
+                .little,
+            );
+            package.cur_place += 4;
+            package.place += 4;
+        }
+
+        const function_detail = Tokens.global.functions.findByIndex(self.function_id);
+
+        if (function_detail == null) {
+            std.log.warn("Bad marshal, out of range function [{d}]", .{self.function_id});
+            return false;
+        }
+
+        // Load the row data
+        // const result = self.base.load(package);
+        const result = CMarshalRow.load();
+
+        if (result) {
+            return true;
+        }
+
+        std.log.warn("Bad marshal [{s}]", .{Tokens.global.functions.findByIndex(self.function_id).?.name});
+        return false;
     }
 
     pub fn format(
@@ -406,6 +445,44 @@ pub const CPackage = struct {
         }
 
         return size;
+    }
+
+    pub fn read(self: *CPackage, buffer: [*]u8, size: u32) u32 {
+        var bytes_to_read = self.used - self.place;
+        if (bytes_to_read > size) bytes_to_read = size;
+
+        if (bytes_to_read == 0) return 0;
+
+        var remaining = bytes_to_read;
+        var buffer_offset: usize = 0;
+
+        while (true) {
+            if (self.cur_place > 0x7fd) {
+                const next = self.current.?.next;
+
+                if (next == null) return bytes_to_read - remaining;
+
+                self.current = next;
+                self.cur_place = 0;
+            }
+
+            var chunk = 0x7fe - self.cur_place;
+            if (chunk > remaining) chunk = remaining;
+
+            @memcpy(
+                buffer[buffer_offset..][0..chunk],
+                self.current.?.net.data[self.cur_place..][0..chunk],
+            );
+
+            self.cur_place += chunk;
+            self.place += chunk;
+            buffer_offset += chunk;
+            remaining -= chunk;
+
+            if (remaining == 0) break;
+        }
+
+        return bytes_to_read;
     }
 
     pub fn readFromFile(self: *CPackage, allocator: std.mem.Allocator, file_path: []const u8, obscure: bool) !u64 {

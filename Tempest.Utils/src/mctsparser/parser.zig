@@ -54,10 +54,20 @@ pub const Parser = struct {
         _ = try package.setPlace(self.allocator, 0);
         var marsh = marshal.CMarshal.init(0);
 
-        _ = try marsh.load(&package);
+        _ = marsh.load(&package);
 
-        std.debug.print("{f}\n", .{package});
-        std.debug.print("{f}\n", .{marsh});
+        // std.debug.print("{f}\n", .{package});
+        // std.debug.print("{f}\n", .{marsh});
+
+        _ = try package.writeToFile("test-output.dat", false);
+
+        // for (Tokens.global.fields.list) |field| {
+        //     std.debug.print("field {d}): {s}\n", .{ field.index, field.name });
+        // }
+        //
+        // for (Tokens.global.functions.list) |function| {
+        //     std.debug.print("function {d} ({X}): {s}\n", .{ function.index, function.hash, function.name });
+        // }
 
         std.debug.print("TODO: implement deserialize\n", .{});
     }
