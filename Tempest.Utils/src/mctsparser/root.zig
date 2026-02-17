@@ -18,7 +18,7 @@ pub fn main() !void {
     const params = comptime Clap.parseParamsComptime(
         \\-h, --help             Display this help and exit.
         \\-v, --verbose          Print verbose output.
-        \\-V, --version <str>    legacy or modern, defaults to Modern
+        \\-l, --legacy           Legacy version mode.
         \\-f, --fields <str>     Input fields file path.
         \\-F, --functions <str>  Input functions file path.
         \\-i, --input <str>      Input file path.
@@ -40,8 +40,6 @@ pub fn main() !void {
     defer res.deinit();
 
     // TODO: help by default if no args provided
-
-    res.args.version = "modern";
 
     if (res.args.help != 0)
         return Clap.helpToFile(.stderr(), Clap.Help, &params, .{});
@@ -67,6 +65,11 @@ pub fn main() !void {
         return error.InvalidArguments;
     }
 
+    if (res.args.legacy != 0) {
+        std.log.err("Legacy mode is not yet implemented", .{});
+        return error.InvalidArguments;
+    }
+
     const fields_path = try fs.cwd().openFile(res.args.fields orelse return error.InvalidArguments, .{});
     defer fields_path.close();
 
@@ -83,7 +86,7 @@ pub fn main() !void {
     const parser = try Parser.init(allocator, .{
         .file_path = res.args.input.?,
         .mode = if (res.args.serialize != 0) .serialize else .deserialize,
-        .version = if (std.mem.eql(u8, res.args.version.?, "legacy")) .legacy else .modern,
+        .version = if (res.args.legacy == 0) .modern else .legacy,
         .obscure = res.args.obscure != 0,
     });
 
