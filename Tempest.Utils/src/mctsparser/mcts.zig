@@ -247,6 +247,155 @@ pub const Functions = struct {
     }
 };
 
+pub const CMarshalRow = struct {
+    entry_count: windows.DWORD,
+    entry_list: ?*CMarshalEntry,
+    entry_tail: ?*CMarshalEntry,
+    entry_pool: ?*CMarshalEntry,
+
+    pub fn init() CMarshalRow {
+        return CMarshalRow{
+            .entry_count = 0,
+            .entry_list = null,
+            .entry_tail = null,
+            .entry_pool = null,
+        };
+    }
+
+    pub fn freeEntryChain(allocator: std.mem.Allocator, head_entry: ?*CMarshalEntry) bool {
+        const pHead = head_entry orelse return true;
+
+        if (pHead.field_id > Fields.entries.len) {
+            std.debug.panic("Bad memory detected in entry chain", .{});
+            return false;
+        }
+
+        var head: *CMarshalEntry = pHead;
+        while (true) {
+            const m_pNext = head.next;
+
+            allocator.destroy(head);
+
+            const next = m_pNext orelse return true;
+
+            if (pHead.field_id > Fields.entries.len) {
+                std.debug.panic("Bad memory detected in entry chain", .{});
+                return false;
+            }
+
+            head = next;
+        }
+    }
+
+    pub fn clear(self: *CMarshalRow, allocator: std.mem.Allocator) void {
+        if (self.entry_list) |entry_list| {
+            if (!freeEntryChain(allocator, entry_list)) {
+                std.log.warn("Avoiding freeing a marshal with bad memory.", .{});
+                return;
+            }
+            self.entry_list = null;
+        }
+
+        if (self.entry_pool) |entry_pool| {
+            if (!freeEntryChain(allocator, entry_pool)) {
+                std.log.warn("Avoiding freeing a marshal with bad memory.", .{});
+                return;
+            }
+            self.entry_pool = null;
+        }
+
+        self.entry_count = 0;
+        self.entry_tail = null;
+    }
+};
+
+pub const CMarshalRowSet = struct {
+    rows: []CMarshalRow,
+};
+
+pub const CMarshalEntry = struct {
+    data: extern union {
+        u32_number: u32,
+        i32_number: i32,
+        f32_number: f32,
+        f64_number: f64,
+        u64_number: u64,
+        wz_local: [4]u16,
+        wz_pointer: ?*const u16,
+        u8_data: ?*const u8,
+        row_set: ?*CMarshalRowSet,
+    },
+    next: ?*CMarshalEntry,
+    field_id: u16,
+    size: u16,
+};
+
+pub const CMarshal = struct {
+    base: CMarshalRow,
+
+    detail: ?*FunctionDetail,
+    flags: u8,
+    function_id: u32,
+
+    pub fn init(function_id: u32) CMarshal {
+        const row = CMarshalRow.init();
+        return CMarshal{
+            .base = row,
+            .detail = null,
+            .flags = 0,
+            .function_id = function_id,
+        };
+    }
+
+    pub fn load(self: *CMarshal, package: *CPackage) bool {
+        if (package.place + 1 < package.used and package.cur_place + 1 <= 0x7fd) {
+            self.flags = package.current.?.net.data[package.cur_place];
+            package.cur_place += 1;
+            package.place += 1;
+        } else {
+            var flags_buf: [1]u8 = undefined;
+            const read_bytes = package.read(&flags_buf, 1);
+            if (read_bytes == 0) return false;
+
+            self.flags = flags_buf[0];
+        }
+
+        var function_id: u32 = undefined;
+        if (package.place + 4 < package.used and package.cur_place + 4 <= 0x7fd) {
+            const cur = package.cur_place;
+            function_id = std.mem.readInt(u32, package.current.?.net.data[cur..][0..4], .little);
+            package.cur_place += 4;
+            package.place += 4;
+        } else {
+            var func_buf: [4]u8 = undefined;
+            const read_bytes = package.read(&func_buf, 4);
+            if (read_bytes == 0) return false;
+
+            function_id = std.mem.readInt(u32, &func_buf, .little);
+        }
+
+        const func_detail = Functions.get(function_id);
+
+        if (func_detail == null) {
+            std.log.warn("Bad marshal, out of range function [{d}]", .{function_id});
+            return false;
+        }
+
+        // Call CMarshalRow::Load to deserialize the row data
+        // TODO: implement CMarshalRow::Load
+        // const success = self.base.load(package);
+        const success = false;
+
+        if (success) {
+            self.function_id = function_id;
+            return true;
+        }
+
+        std.log.warn("Bad marshal [{s}]", .{func_detail.?.name});
+        return false;
+    }
+};
+
 pub const CMpscEntry = struct {
     next: ?*CMpscEntry,
 };

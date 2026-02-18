@@ -66,8 +66,7 @@ pub fn main() !void {
         return error.InvalidArguments;
     }
 
-    // Load fields an tokens
-
+    // Load fields and functions
     const fields_file = try fs.cwd().openFile(res.args.fields.?, .{});
     defer fields_file.close();
 
@@ -98,19 +97,17 @@ pub fn main() !void {
     const read_size = try package.readFromFile(allocator, res.args.input.?, res.args.obscure != 0);
     std.debug.print("Read {d} bytes\n", .{read_size});
 
-    // Write to file
+    // Write to file (non-obscured)
     const write_size = try package.writeToFile("./output.bin", false);
     std.debug.print("Wrote {d} bytes\n", .{write_size});
 
-    // Set place
+    // Set place and skip pkg flag
     const place = try package.setPlace(allocator, 1);
     std.debug.print("Set place to {d}\n", .{place});
 
     // Read from buffer
-    var test_read_buffer: []u8 = try allocator.alloc(u8, 0x7fe);
-    defer allocator.free(test_read_buffer);
-
-    const bytes_read = package.read(test_read_buffer, 0x4 * 4);
+    var test_read_buffer: [0x7fe]u8 = undefined;
+    const bytes_read = package.read(&test_read_buffer, 0x4 * 4);
     if (bytes_read == 0) return error.ReadFailed;
 
     std.debug.print("Read {d} bytes\n", .{bytes_read});
@@ -121,5 +118,17 @@ pub fn main() !void {
 
     const function_id = std.mem.readInt(u32, test_read_buffer[0..4], .little);
     std.debug.print("Function: {s}\n", .{mcts.Functions.get(function_id).?.name});
-    std.debug.print("Function: {X}\n", .{mcts.Functions.getByName("GET_DATA_ASSEMBLY").?.index});
+    std.debug.print("Function: {X}\n", .{mcts.Functions.getByName("HELLO").?.index});
+
+    // Test marshal
+    var marshal = mcts.CMarshal.init(0);
+
+    _ = try package.setPlace(allocator, 0);
+    const success = marshal.load(&package);
+
+    if (success) {
+        std.debug.print("Function: {s}\n", .{mcts.Functions.get(marshal.function_id).?.name});
+    } else {
+        std.debug.print("Failed to load marshal\n", .{});
+    }
 }
