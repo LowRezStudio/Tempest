@@ -1,256 +1,249 @@
 const std = @import("std");
 const fs = std.fs;
 
-const tokens = @import("tokens.zig");
-const Tokens = @import("tokens.zig").Tokens;
+const fnv1_32 = @import("utils.zig").fnv1_32;
 
-pub const CMarshalRow = struct {
-    entry_count: u32,
-    entry_list: ?*CMarshalEntry,
-    entry_tail: ?*CMarshalEntry,
-    entry_pool: ?*CMarshalEntry,
+pub const FieldType = enum(u8) {
+    unknown = 0,
+    _num_start,
+    byte,
+    int,
+    word,
+    dword,
+    float,
+    double,
+    qword,
+    netid,
+    datetime,
+    _num_end,
+    string,
+    rowset,
+    guid,
+    bin,
+    _last,
+};
 
-    pub fn init() CMarshalRow {
-        return CMarshalRow{
-            .entry_count = 0,
-            .entry_list = null,
-            .entry_tail = null,
-            .entry_pool = null,
-        };
+pub const NetIdType = enum(u8) {
+    unknown = 0,
+    local,
+    account,
+    character,
+    clan,
+    channel,
+    connection,
+    instance,
+    match,
+    player,
+    queue,
+    server,
+    team,
+    proxy,
+    _max_type,
+};
+
+pub const FieldEntry = struct {
+    // internal use
+    index: usize,
+
+    sort_index: u16,
+    netid_type: NetIdType,
+    type: FieldType,
+    name: []const u8,
+
+    pub fn init(allocator: std.mem.Allocator, file: fs.File) !struct { entries: []FieldEntry, buffer: []u8 } {
+        var buffer: [4096]u8 = undefined;
+        var fr = file.reader(&buffer);
+        const reader = &fr.interface;
+
+        const file_stat = try file.stat();
+        const file_buffer = try reader.readAlloc(allocator, file_stat.size);
+
+        const entries = try loadFromFile(allocator, file_buffer);
+        return .{ .entries = entries, .buffer = file_buffer };
     }
 
-    pub fn freeEntryChain(allocator: std.mem.Allocator, head: ?*CMarshalEntry) !bool {
-        if (head == null) return true;
+    fn loadFromFile(allocator: std.mem.Allocator, file_buffer: []u8) ![]FieldEntry {
+        var fields = std.ArrayList(FieldEntry).empty;
+        errdefer fields.deinit(allocator);
 
-        var current = head;
+        var fr = std.Io.Reader.fixed(file_buffer);
+        var reader = &fr;
 
-        if (current.?.field_id <= Tokens.global.fields.list.len) {
-            while (current) |entry| {
-                const next = entry.next;
+        var index: usize = 0;
+        while (true) {
+            const sort_index = reader.takeInt(u16, .big) catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => |e| return e,
+            };
 
-                if (entry.field_id > Tokens.global.fields.list.len) {
-                    std.log.warn("Corrupt marshal entry detected: field_id {d} > max {d}", .{
-                        entry.field_id,
-                        Tokens.global.fields.list.len,
-                    });
-                    return false;
-                }
+            const netid_type = reader.takeInt(u8, .big) catch break;
+            const @"type" = reader.takeInt(u8, .big) catch break;
+            const name = try reader.takeDelimiter('\x00');
 
-                entry.deinit(allocator);
+            try fields.append(allocator, .{
+                .index = index,
+                .sort_index = sort_index,
+                .netid_type = @enumFromInt(netid_type),
+                .type = @enumFromInt(@"type"),
+                .name = name.?,
+            });
 
-                if (next == null) return true;
-
-                current = next;
-            }
+            index += 1;
         }
 
-        std.log.warn("Corrupt marshal entry chain detected", .{});
-        return false;
-    }
-
-    pub fn clear(self: *CMarshalRow, allocator: std.mem.Allocator) void {
-        if (self.entry_list) |list| {
-            if (!try freeEntryChain(allocator, list)) {
-                std.log.err("Avoiding freeing a marshal with bad memory.", .{});
-                return;
-            }
-            self.entry_list = null;
-        }
-
-        if (self.entry_pool) |pool| {
-            if (!try freeEntryChain(allocator, pool)) {
-                std.log.err("Avoiding freeing a marshal with bad memory.", .{});
-                return;
-            }
-            self.entry_pool = null;
-        }
-
-        self.entry_count = 0;
-        self.entry_tail = null;
-    }
-
-    pub fn load() bool {
-        std.log.warn("TODO: implement CMarshalRowSet.load", .{});
-        return false;
-    }
-
-    pub fn format(
-        self: @This(),
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
-        try writer.print(
-            \\CMarshalRowSet dump:
-            \\  entries: {d}
-            \\  entry_list: 0x{x}
-            \\  entry_tail: 0x{x}
-            \\  entry_pool: 0x{x}
-            \\
-        , .{
-            self.entry_count,
-            @intFromPtr(self.entry_list),
-            @intFromPtr(self.entry_tail),
-            @intFromPtr(self.entry_pool),
-        });
+        return fields.toOwnedSlice(allocator);
     }
 };
 
-pub const CMarshal = struct {
-    base: CMarshalRow,
+pub const FunctionDetail = struct {
+    index: u32,
+    sort_index: u16,
+    flags: u16,
+    name: []const u8,
+    wide_name: []const u16,
 
-    p_detail: ?*tokens.FunctionDetail,
-    flags: u8,
-    function_id: u32,
+    pub fn init(allocator: std.mem.Allocator, file: fs.File) !struct { entries: []FunctionDetail, buffer: []u8 } {
+        var buffer: [4096]u8 = undefined;
+        var fr = file.reader(&buffer);
+        const reader = &fr.interface;
 
-    pub fn init(function_id: u32) CMarshal {
-        const row = CMarshalRow.init();
-        return CMarshal{
-            .base = row,
-            .p_detail = null,
-            .flags = 0,
-            .function_id = function_id,
-        };
+        const file_stat = try file.stat();
+        const file_buffer = try reader.readAlloc(allocator, file_stat.size);
+
+        const entries = try loadFromFile(allocator, file_buffer);
+        return .{ .entries = entries, .buffer = file_buffer };
     }
 
-    pub fn clear(self: *CMarshal, allocator: std.mem.Allocator) !void {
-        try self.base.clear(allocator);
-        self.flags = 0;
-        self.function_id = 0;
-        self.p_detail = null;
-    }
+    fn loadFromFile(allocator: std.mem.Allocator, file_buffer: []u8) ![]FunctionDetail {
+        var fields = std.ArrayList(FunctionDetail).empty;
+        errdefer fields.deinit(allocator);
 
-    pub fn load(self: *CMarshal, package: *CPackage) bool {
-        if (package.place + 1 >= package.used or package.cur_place + 1 > 0x7fd) {
-            _ = package.read(@ptrCast(&self.flags), 1);
-        } else {
-            self.flags = package.current.?.net.data[package.cur_place];
-            package.cur_place += 1;
-            package.place += 1;
+        var fr = std.Io.Reader.fixed(file_buffer);
+        var reader = &fr;
+
+        while (true) {
+            const sort_index = reader.takeInt(u16, .big) catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => |e| return e,
+            };
+            const flags = reader.takeInt(u16, .big) catch break;
+
+            const index = reader.takeInt(u32, .big) catch break;
+            const name = try reader.takeDelimiter('\x00');
+
+            try fields.append(allocator, .{
+                .index = index,
+                .sort_index = sort_index,
+                .flags = flags,
+                .name = name.?,
+                .wide_name = &.{},
+            });
         }
 
-        if (package.place + 4 >= package.used or package.cur_place + 4 > 0x7fd) {
-            _ = package.read(@ptrCast(&self.function_id), 4);
-        } else {
-            self.function_id = std.mem.readInt(
-                u32,
-                package.current.?.net.data[package.cur_place..][0..4],
-                .little,
-            );
-            package.cur_place += 4;
-            package.place += 4;
-        }
-
-        const function_detail = Tokens.global.functions.findByIndex(self.function_id);
-
-        if (function_detail == null) {
-            std.log.warn("Bad marshal, out of range function [{d}]", .{self.function_id});
-            return false;
-        }
-
-        // Load the row data
-        // const result = self.base.load(package);
-        const result = CMarshalRow.load();
-
-        if (result) {
-            return true;
-        }
-
-        std.log.warn("Bad marshal [{s}]", .{Tokens.global.functions.findByIndex(self.function_id).?.name});
-        return false;
-    }
-
-    pub fn format(
-        self: @This(),
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
-        try writer.print(
-            \\CMarshal dump:
-            \\  {f}
-            \\  p_detail: 0x{x}
-            \\  flags: {d}
-            \\  function_id: {d}
-            \\
-        , .{
-            self.base,
-            @intFromPtr(self.p_detail),
-            self.flags,
-            self.function_id,
-        });
+        return fields.toOwnedSlice(allocator);
     }
 };
 
-pub const CMarshalRowSet = struct {
-    rows: []CMarshalRow,
-};
+pub const Fields = struct {
+    pub var entries: []FieldEntry = &.{};
 
-pub const CMarshalEntry = struct {
-    data: union {
-        dw_number: u32,
-        n_number: i32,
-        f_number: f32,
-        d_number: f64,
-        qw_number: u64,
-        wz_local: [4]u8,
-        wz_pointer: ?*const u8,
-        by_data: ?*const u8,
-        row_set: ?*CMarshalRowSet,
-    },
-    next: ?*CMarshalEntry,
-    field_id: u16,
-    size: u16,
+    pub var buffer: []const u8 = &.{};
+    pub var allocator: ?std.mem.Allocator = null;
 
-    pub fn init(allocator: *std.mem.Allocator) CMarshalEntry {
-        _ = allocator;
+    pub fn init(alloc: std.mem.Allocator, file: fs.File) !void {
+        allocator = alloc;
 
-        @compileError("TODO: implement CMarshalEntry.init");
+        const results = try FieldEntry.init(allocator.?, file);
+
+        entries = results.entries;
+        buffer = results.buffer;
     }
 
-    pub fn deinit(self: *CMarshalEntry, allocator: *std.mem.Allocator) void {
-        _ = self;
-        _ = allocator;
+    pub fn deinit() void {
+        if (allocator) |alloc| {
+            alloc.free(entries);
+            alloc.free(buffer);
 
-        @compileError("TODO: implement CMarshalEntry.deinit");
+            entries = &.{};
+            buffer = &.{};
+            allocator = null;
+        }
     }
 
-    pub fn clear(self: *CMarshalEntry, allocator: *std.mem.Allocator) void {
-        _ = self;
-        _ = allocator;
-
-        @compileError("TODO: implement CMarshalEntry.clear");
+    pub fn get(index: usize) ?FieldEntry {
+        if (index < entries.len) {
+            return entries[index];
+        }
+        return null;
     }
 
     pub fn format(
-        self: @This(),
         writer: *std.Io.Writer,
     ) std.Io.Writer.Error!void {
-        try writer.print(
-            \\CMarshalEntry dump:
-            \\  data: 0x{any}
-            \\  next: 0x{x}
-            \\  field_id: {d}
-            \\  size: {d}
-            \\
-        , .{
-            self.data,
-            @intFromPtr(self.next),
-            self.field_id,
-            self.size,
-        });
+        for (entries) |field| {
+            try writer.print("Field: {d} -> {s} ({s} -> {s})\n", .{ field.index, field.name, @tagName(field.type), @tagName(field.netid_type) });
+        }
+    }
+};
+
+pub const Functions = struct {
+    pub var entries: std.AutoHashMap(u32, FunctionDetail) = undefined;
+    pub var list: []FunctionDetail = &.{};
+
+    pub var buffer: []u8 = &.{};
+    pub var allocator: ?std.mem.Allocator = null;
+
+    pub fn init(alloc: std.mem.Allocator, file: fs.File) !void {
+        allocator = alloc;
+
+        const result = try FunctionDetail.init(allocator.?, file);
+
+        var hashmap = std.AutoHashMap(u32, FunctionDetail).init(allocator.?);
+        for (result.entries) |function| {
+            try hashmap.put(function.index, function);
+        }
+
+        entries = hashmap;
+        list = result.entries;
+        buffer = result.buffer;
+    }
+
+    pub fn deinit() void {
+        if (allocator) |alloc| {
+            entries.deinit();
+            alloc.free(list);
+            alloc.free(buffer);
+
+            entries = undefined;
+            list = &.{};
+            buffer = &.{};
+            allocator = null;
+        }
+    }
+
+    pub fn get(hash: u32) ?FunctionDetail {
+        if (entries.get(hash)) |value| {
+            return value;
+        }
+        return null;
+    }
+
+    pub fn getByName(name: []const u8) ?FunctionDetail {
+        const idx = fnv1_32(name);
+        return get(idx);
+    }
+
+    pub fn format(
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        for (list, 0..) |function, idx| {
+            try writer.print("Function: {d} -> {s} ({X})\n", .{ idx, function.name, function.index });
+        }
     }
 };
 
 pub const CMscEntry = struct {
     next: ?*CMscEntry,
-
-    pub fn format(
-        self: @This(),
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
-        try writer.print(
-            \\CMscEntry dump:
-            \\  next: 0x{x}
-            \\
-        , .{@intFromPtr(self.next)});
-    }
 };
 
 pub const CPackPacketNET = struct {
@@ -263,20 +256,6 @@ pub const CPackPacketNET = struct {
         all: u32,
     },
     data: [0x7fe]u8,
-
-    pub fn format(
-        self: @This(),
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
-        try writer.print(
-            \\CPackPacketNET dump:
-            \\  header: {any}
-            \\  data: ...
-            \\
-        , .{
-            @intFromPtr(&self.header),
-        });
-    }
 };
 
 pub const CPackPacket = struct {
@@ -300,34 +279,6 @@ pub const CPackPacket = struct {
 
     pub fn deinit(self: *CPackPacket, allocator: std.mem.Allocator) void {
         allocator.destroy(self);
-    }
-
-    pub fn freeChain(allocator: std.mem.Allocator, chain: ?*CPackPacket) void {
-        if (chain == null) return;
-
-        var current = chain;
-        while (current) |packet| {
-            const next = packet.next;
-            packet.deinit(allocator);
-            current = next;
-        }
-    }
-
-    pub fn format(
-        self: @This(),
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
-        try writer.print(
-            \\CPackPacket dump:
-            \\  next: 0x{x}
-            \\  net: {f}
-            \\  source_func: {d}
-            \\
-        , .{
-            @intFromPtr(self.next),
-            self.net,
-            self.source_func,
-        });
     }
 };
 
@@ -366,9 +317,20 @@ pub const CPackage = struct {
     }
 
     pub fn deinit(self: *CPackage, allocator: std.mem.Allocator) void {
-        CPackPacket.freeChain(allocator, self.packets);
+        freeChain(allocator, self.packets);
         self.packets = null;
         self.current = null;
+    }
+
+    pub fn freeChain(allocator: std.mem.Allocator, chain: ?*CPackPacket) void {
+        if (chain == null) return;
+
+        var current = chain;
+        while (current) |packet| {
+            const next = packet.next;
+            packet.deinit(allocator);
+            current = next;
+        }
     }
 
     pub fn empty(self: *CPackage) void {
@@ -575,42 +537,5 @@ pub const CPackage = struct {
         }
 
         return total_written;
-    }
-
-    pub fn format(
-        self: @This(),
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
-        try writer.print(
-            \\CPackage dump:
-            \\  {f}
-            \\  packets: 0x{x}
-            \\  used: {d}
-            \\  place: {d}
-            \\  current: 0x{x}
-            \\  cur_place: {d}
-            \\  first_alloc: {d}
-            \\  flags: {d}
-            \\  extended: {d}
-            \\  p_extended: {any}
-            \\  encoding: {d}
-            \\  db_action_func: {d}
-            \\
-        , .{
-            self.base,
-            @intFromPtr(self.packets),
-            self.used,
-            self.place,
-            @intFromPtr(self.current),
-            self.cur_place,
-            @intFromBool(self.first_alloc),
-            self.flags,
-            self.extended,
-            self.p_extended,
-            self.encoding,
-            self.db_action_func,
-        });
-
-        return writer.writeAll("\n");
     }
 };

@@ -1,10 +1,7 @@
 const std = @import("std");
 const fs = std.fs;
 
-const Fields = @import("tokens.zig").Fields;
-const Functions = @import("tokens.zig").Functions;
-const marshal = @import("marshal.zig");
-const Tokens = @import("tokens.zig").Tokens;
+const mcts = @import("mcts.zig");
 
 const parser_mode = enum {
     serialize,
@@ -26,8 +23,8 @@ const parser_options = struct {
 pub const Parser = struct {
     allocator: std.mem.Allocator,
     options: parser_options,
-    fields: Fields,
-    functions: Functions,
+    fields: []mcts.FieldEntry,
+    functions: std.AutoHashMap(u32, mcts.FunctionDetail),
     reader: *std.Io.Reader,
     writer: *std.Io.Writer,
 
@@ -38,26 +35,26 @@ pub const Parser = struct {
         return .{
             .allocator = allocator,
             .options = options,
-            .fields = Tokens.global.fields,
-            .functions = Tokens.global.functions,
+            .fields = mcts.Fields.fields,
+            .functions = mcts.Functions.functions,
             .reader = undefined,
             .writer = undefined,
         };
     }
 
     pub fn deserialize(self: *const Parser) !void {
-        var package = try marshal.CPackage.init(self.allocator);
+        var package = try mcts.CPackage.init(self.allocator);
         defer package.deinit(self.allocator);
 
         _ = try package.readFromFile(self.allocator, self.options.file_path, self.options.obscure);
 
         _ = try package.setPlace(self.allocator, 0);
-        var marsh = marshal.CMarshal.init(0);
+        var marsh = mcts.CMarshal.init(0);
 
-        _ = marsh.load(&package);
+        _ = try marsh.load(self.allocator, &package);
 
-        // std.debug.print("{f}\n", .{package});
-        // std.debug.print("{f}\n", .{marsh});
+        std.debug.print("{f}\n", .{package});
+        std.debug.print("{f}\n", .{marsh});
 
         _ = try package.writeToFile("test-output.dat", false);
 

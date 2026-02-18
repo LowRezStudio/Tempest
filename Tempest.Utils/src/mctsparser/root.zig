@@ -3,17 +3,13 @@ const fs = std.fs;
 
 const Clap = @import("clap");
 
-const FieldEntry = @import("tokens.zig").FieldEntry;
-const Fields = @import("tokens.zig").Fields;
-const FunctionDetail = @import("tokens.zig").FunctionDetail;
-const Functions = @import("tokens.zig").Functions;
-const Tokens = @import("tokens.zig").Tokens;
+const mcts = @import("mcts.zig");
 const Parser = @import("parser.zig").Parser;
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = arena.allocator();
-    defer _ = arena.deinit();
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    const allocator = gpa.allocator();
+    defer _ = gpa.deinit();
 
     const params = comptime Clap.parseParamsComptime(
         \\-h, --help             Display this help and exit.
@@ -70,31 +66,27 @@ pub fn main() !void {
         return error.InvalidArguments;
     }
 
-    const fields_path = try fs.cwd().openFile(res.args.fields orelse return error.InvalidArguments, .{});
-    defer fields_path.close();
+    // Load fields an tokens
 
-    const functions_path = try fs.cwd().openFile(res.args.functions orelse return error.InvalidArguments, .{});
-    defer functions_path.close();
+    const fields_file = try fs.cwd().openFile(res.args.fields.?, .{});
+    defer fields_file.close();
 
-    // init tokens global lists
-    try Tokens.init(
-        allocator,
-        try FunctionDetail.init(allocator, functions_path),
-        try FieldEntry.init(allocator, fields_path),
-    );
+    const functions_file = try fs.cwd().openFile(res.args.functions.?, .{});
+    defer functions_file.close();
 
-    const parser = try Parser.init(allocator, .{
-        .file_path = res.args.input.?,
-        .mode = if (res.args.serialize != 0) .serialize else .deserialize,
-        .version = if (res.args.legacy == 0) .modern else .legacy,
-        .obscure = res.args.obscure != 0,
-    });
+    mcts.Fields.init(allocator, fields_file) catch |err| {
+        std.log.err("Failed to init fields: {s}", .{@errorName(err)});
+        return err;
+    };
+    defer mcts.Fields.deinit();
 
-    // try parser.printDebug();
+    mcts.Functions.init(allocator, functions_file) catch |err| {
+        std.log.err("Failed to init functions: {s}", .{@errorName(err)});
+        return err;
+    };
+    defer mcts.Functions.deinit();
 
-    if (res.args.serialize != 0) {
-        try parser.serialize();
-    } else {
-        try parser.deserialize();
-    }
+    // NOTE: Debug test
+    std.debug.print("Fields: {f}\n", .{mcts.Fields});
+    std.debug.print("Functions: {f}\n", .{mcts.Functions});
 }
