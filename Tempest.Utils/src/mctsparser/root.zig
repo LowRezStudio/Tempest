@@ -86,7 +86,40 @@ pub fn main() !void {
     };
     defer mcts.Functions.deinit();
 
-    // NOTE: Debug test
+    // NOTE: testing stuff
     std.debug.print("Fields: {f}\n", .{mcts.Fields});
     std.debug.print("Functions: {f}\n", .{mcts.Functions});
+
+    // Create a package
+    var package = try mcts.CPackage.init(allocator);
+    defer package.deinit(allocator);
+
+    // Read from file
+    const read_size = try package.readFromFile(allocator, res.args.input.?, res.args.obscure != 0);
+    std.debug.print("Read {d} bytes\n", .{read_size});
+
+    // Write to file
+    const write_size = try package.writeToFile("./output.bin", false);
+    std.debug.print("Wrote {d} bytes\n", .{write_size});
+
+    // Set place
+    const place = try package.setPlace(allocator, 1);
+    std.debug.print("Set place to {d}\n", .{place});
+
+    // Read from buffer
+    var test_read_buffer: []u8 = try allocator.alloc(u8, 0x7fe);
+    defer allocator.free(test_read_buffer);
+
+    const bytes_read = package.read(test_read_buffer, 0x4 * 4);
+    if (bytes_read == 0) return error.ReadFailed;
+
+    std.debug.print("Read {d} bytes\n", .{bytes_read});
+    for (test_read_buffer[0..bytes_read]) |b| {
+        std.debug.print("{X:0>2} ", .{b});
+    }
+    std.debug.print("\n", .{});
+
+    const function_id = std.mem.readInt(u32, test_read_buffer[0..4], .little);
+    std.debug.print("Function: {s}\n", .{mcts.Functions.get(function_id).?.name});
+    std.debug.print("Function: {X}\n", .{mcts.Functions.getByName("GET_DATA_ASSEMBLY").?.index});
 }

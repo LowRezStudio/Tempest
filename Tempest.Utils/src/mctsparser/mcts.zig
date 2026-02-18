@@ -1,5 +1,6 @@
 const std = @import("std");
 const fs = std.fs;
+const windows = std.os.windows;
 
 const fnv1_32 = @import("utils.zig").fnv1_32;
 
@@ -45,7 +46,7 @@ pub const FieldEntry = struct {
     // internal use
     index: usize,
 
-    sort_index: u16,
+    sort_index: windows.WORD,
     netid_type: NetIdType,
     type: FieldType,
     name: []const u8,
@@ -96,9 +97,9 @@ pub const FieldEntry = struct {
 };
 
 pub const FunctionDetail = struct {
-    index: u32,
-    sort_index: u16,
-    flags: u16,
+    index: windows.DWORD,
+    sort_index: windows.WORD,
+    flags: windows.WORD,
     name: []const u8,
     wide_name: []const u16,
 
@@ -151,6 +152,8 @@ pub const Fields = struct {
     pub var allocator: ?std.mem.Allocator = null;
 
     pub fn init(alloc: std.mem.Allocator, file: fs.File) !void {
+        if (allocator) |_| return;
+
         allocator = alloc;
 
         const results = try FieldEntry.init(allocator.?, file);
@@ -194,6 +197,8 @@ pub const Functions = struct {
     pub var allocator: ?std.mem.Allocator = null;
 
     pub fn init(alloc: std.mem.Allocator, file: fs.File) !void {
+        if (allocator) |_| return;
+
         allocator = alloc;
 
         const result = try FunctionDetail.init(allocator.?, file);
@@ -242,26 +247,26 @@ pub const Functions = struct {
     }
 };
 
-pub const CMscEntry = struct {
-    next: ?*CMscEntry,
+pub const CMpscEntry = struct {
+    next: ?*CMpscEntry,
 };
 
 pub const CPackPacketNET = struct {
     header: extern union {
         fields: packed struct {
-            size: u16,
-            extended: u8,
-            flags: u8,
+            size: windows.WORD,
+            extended: windows.BYTE,
+            flags: windows.BYTE,
         },
-        all: u32,
+        all: windows.DWORD,
     },
-    data: [0x7fe]u8,
+    data: [0x7fe]windows.BYTE,
 };
 
 pub const CPackPacket = struct {
     next: ?*CPackPacket,
     net: CPackPacketNET,
-    source_func: u32,
+    source_func: windows.DWORD,
 
     pub fn init(allocator: std.mem.Allocator) !*CPackPacket {
         const packet = try allocator.create(CPackPacket);
@@ -283,19 +288,19 @@ pub const CPackPacket = struct {
 };
 
 pub const CPackage = struct {
-    base: CMscEntry,
+    base: CMpscEntry,
 
     packets: ?*CPackPacket,
-    used: u32,
-    place: u32,
+    used: windows.DWORD,
+    place: windows.DWORD,
     current: ?*CPackPacket,
-    cur_place: u32,
+    cur_place: windows.DWORD,
     first_alloc: bool,
-    flags: u8,
-    extended: u8,
-    p_extended: [0xc]u8,
-    encoding: u8,
-    db_action_func: u32,
+    flags: windows.BYTE,
+    extended: windows.BYTE,
+    p_extended: [0xc]windows.BYTE,
+    encoding: windows.BYTE,
+    db_action_func: windows.DWORD,
 
     pub fn init(allocator: std.mem.Allocator) !CPackage {
         const packet = try CPackPacket.init(allocator);
@@ -374,8 +379,9 @@ pub const CPackage = struct {
         return self.place;
     }
 
-    pub fn write(self: *CPackage, allocator: std.mem.Allocator, buffer: [*]const u8, size: u32) !u64 {
+    pub fn write(self: *CPackage, allocator: std.mem.Allocator, buffer: []const u8, size: u32) !u64 {
         if (size == 0) return 0;
+        if (buffer.len < size) return 0;
 
         var remaining = size;
         var buffer_offset: usize = 0;
@@ -409,11 +415,12 @@ pub const CPackage = struct {
         return size;
     }
 
-    pub fn read(self: *CPackage, buffer: [*]u8, size: u32) u32 {
+    pub fn read(self: *CPackage, buffer: []u8, size: u32) u32 {
         var bytes_to_read = self.used - self.place;
         if (bytes_to_read > size) bytes_to_read = size;
 
         if (bytes_to_read == 0) return 0;
+        if (buffer.len < bytes_to_read) return 0;
 
         var remaining = bytes_to_read;
         var buffer_offset: usize = 0;
