@@ -262,6 +262,38 @@ pub const CMarshalRow = struct {
         };
     }
 
+    pub fn allocEntry(allocator: std.mem.Allocator, count: i32, head: *?*CMarshalEntry, tail: *?*CMarshalEntry) bool {
+        if (count <= 0) {
+            std.log.err("AllocEntry count is bad {d}", .{count});
+            return false;
+        }
+
+        var remaining: i32 = count - 1;
+        var first: ?*CMarshalEntry = null;
+        var prev: ?*CMarshalEntry = null;
+
+        while (true) {
+            const entry = allocator.create(CMarshalEntry) catch return false;
+            entry.* = std.mem.zeroes(CMarshalEntry);
+
+            remaining -= 1;
+
+            entry.next = prev;
+
+            if (remaining == -1) {
+                head.* = entry;
+                tail.* = first;
+                return true;
+            }
+
+            if (first == null) {
+                first = entry;
+            }
+
+            prev = entry;
+        }
+    }
+
     pub fn freeEntryChain(allocator: std.mem.Allocator, head_entry: ?*CMarshalEntry) bool {
         const pHead = head_entry orelse return true;
 
@@ -287,6 +319,10 @@ pub const CMarshalRow = struct {
         }
     }
 
+    pub fn deinit(self: *CMarshalRow, allocator: std.mem.Allocator) void {
+        self.clear(allocator);
+    }
+
     pub fn clear(self: *CMarshalRow, allocator: std.mem.Allocator) void {
         if (self.entry_list) |entry_list| {
             if (!freeEntryChain(allocator, entry_list)) {
@@ -306,6 +342,67 @@ pub const CMarshalRow = struct {
 
         self.entry_count = 0;
         self.entry_tail = null;
+    }
+
+    pub fn load(self: *CMarshalRow, allocator: std.mem.Allocator, package: *CPackage) bool {
+        self.clear(allocator);
+
+        if (package.used == 0) return false;
+
+        var count: u16 = undefined;
+        if (package.place + 2 < package.used and package.cur_place + 2 <= 0x7fd) {
+            count = std.mem.readInt(u16, package.current.?.net.data[package.cur_place..][0..2], .little);
+            package.cur_place += 2;
+            package.place += 2;
+        } else {
+            var count_buf: [2]u8 = undefined;
+            _ = package.read(&count_buf, 2);
+            count = std.mem.readInt(u16, &count_buf, .little);
+        }
+
+        self.entry_count = count;
+
+        if (count == 0xffff) {
+            if (package.place + 4 < package.used and package.cur_place + 4 <= 0x7fd) {
+                self.entry_count = std.mem.readInt(u32, package.current.?.net.data[package.cur_place..][0..4], .little);
+                package.cur_place += 4;
+                package.place += 4;
+            } else {
+                var count_buf: [4]u8 = undefined;
+                _ = package.read(&count_buf, 4);
+                self.entry_count = std.mem.readInt(u32, &count_buf, .little);
+            }
+        }
+
+        if (@as(u16, @truncate(self.entry_count)) == 0) return true;
+
+        const alloc_ok = allocEntry(allocator, count, &self.entry_list, &self.entry_tail);
+        if (!alloc_ok) return false;
+
+        self.entry_tail = self.entry_list;
+
+        const load_ok = self.loadEntries(allocator, package);
+
+        if (!load_ok) return false;
+
+        self.entry_tail = self.entry_list;
+        var next = self.entry_list.?.next;
+        var i: u32 = 0;
+        while (next != null and i < 0x800) : (i += 1) {
+            self.entry_tail = next;
+            next = next.?.next;
+        }
+
+        return true;
+    }
+
+    pub fn loadEntries(self: *CMarshalRow, allocator: std.mem.Allocator, package: *CPackage) bool {
+        _ = self;
+        _ = allocator;
+        _ = package;
+
+        std.log.warn("loadEntries: not implemented", .{});
+        return false;
     }
 };
 
@@ -347,7 +444,11 @@ pub const CMarshal = struct {
         };
     }
 
-    pub fn load(self: *CMarshal, package: *CPackage) bool {
+    pub fn deinit(self: *CMarshal, allocator: std.mem.Allocator) void {
+        self.base.deinit(allocator);
+    }
+
+    pub fn load(self: *CMarshal, allocator: std.mem.Allocator, package: *CPackage) bool {
         if (package.place + 1 < package.used and package.cur_place + 1 <= 0x7fd) {
             self.flags = package.current.?.net.data[package.cur_place];
             package.cur_place += 1;
@@ -381,10 +482,7 @@ pub const CMarshal = struct {
             return false;
         }
 
-        // Call CMarshalRow::Load to deserialize the row data
-        // TODO: implement CMarshalRow::Load
-        // const success = self.base.load(package);
-        const success = false;
+        const success = self.base.load(allocator, package);
 
         if (success) {
             self.function_id = function_id;
@@ -528,40 +626,41 @@ pub const CPackage = struct {
         return self.place;
     }
 
-    pub fn write(self: *CPackage, allocator: std.mem.Allocator, buffer: []const u8, size: u32) !u64 {
-        if (size == 0) return 0;
-        if (buffer.len < size) return 0;
+    pub fn peek(self: *CPackage, buffer: []u8, size: u32) u32 {
+        var bytes_to_read = self.used - self.place;
+        if (bytes_to_read > size) bytes_to_read = size;
 
-        var remaining = size;
+        if (bytes_to_read == 0) return 0;
+        if (buffer.len < bytes_to_read) return 0;
+
+        var current = self.current;
+        var cur_place = self.cur_place;
+
+        var remaining: u32 = bytes_to_read;
         var buffer_offset: usize = 0;
 
-        while (remaining > 0) {
-            if (self.cur_place > 0x7fd) {
-                if (self.current.?.next == null) {
-                    const new_packet = try CPackPacket.init(allocator);
-                    self.current.?.next = new_packet;
-                }
-
-                self.current = self.current.?.next;
-                self.cur_place = 0;
+        while (true) {
+            if (cur_place > 0x7fd) {
+                current = current.?.next orelse return bytes_to_read - remaining;
+                cur_place = 0;
             }
 
-            const available_in_packet = 0x7fe - self.cur_place;
-            const bytes_to_write = @min(available_in_packet, remaining);
+            var chunk = 0x7fe - cur_place;
+            if (chunk > remaining) chunk = remaining;
 
-            @memcpy(self.current.?.net.data[self.cur_place..][0..bytes_to_write], buffer[buffer_offset..][0..bytes_to_write]);
+            @memcpy(
+                buffer[buffer_offset..][0..chunk],
+                current.?.net.data[cur_place..][0..chunk],
+            );
 
-            self.cur_place += bytes_to_write;
-            self.place += bytes_to_write;
-            buffer_offset += bytes_to_write;
-            remaining -= bytes_to_write;
+            cur_place += chunk;
+            buffer_offset += chunk;
+            remaining -= chunk;
+
+            if (remaining == 0) break;
         }
 
-        if (self.place > self.used) {
-            self.used = self.place;
-        }
-
-        return size;
+        return bytes_to_read;
     }
 
     pub fn read(self: *CPackage, buffer: []u8, size: u32) u32 {
@@ -601,6 +700,89 @@ pub const CPackage = struct {
         }
 
         return bytes_to_read;
+    }
+
+    pub fn readValue(self: *CPackage, comptime T: type, value: *T) T {
+        const size = @sizeOf(T);
+
+        if (self.place + size < self.used and self.cur_place + size <= 0x7fd) {
+            const result = std.mem.readInt(T, self.current.?.net.data[self.cur_place..][0..size], .little);
+            value.* = result;
+            self.cur_place += size;
+            self.place += size;
+            return result;
+        }
+
+        var buf: [size]u8 = undefined;
+        _ = self.read(&buf, size);
+        const result = std.mem.readInt(T, &buf, .little);
+        value.* = result;
+        return result;
+    }
+
+    pub fn readBufferSkip(self: *CPackage, size: u32) u32 {
+        var bytes_to_skip = self.used - self.place;
+        if (bytes_to_skip > size) bytes_to_skip = size;
+
+        if (bytes_to_skip == 0) return 0;
+
+        var remaining: u32 = bytes_to_skip;
+
+        while (true) {
+            if (self.cur_place > 0x7fd) {
+                const next = self.current.?.next orelse return bytes_to_skip - remaining;
+                self.current = next;
+                self.cur_place = 0;
+            }
+
+            var chunk = 0x7fe - self.cur_place;
+            if (chunk > remaining) chunk = remaining;
+
+            self.place += chunk;
+            const prev = remaining;
+            remaining -= chunk;
+            self.cur_place += chunk;
+
+            if (prev == chunk) break;
+        }
+
+        return bytes_to_skip;
+    }
+
+    pub fn write(self: *CPackage, allocator: std.mem.Allocator, buffer: []const u8, size: u32) !u64 {
+        if (size == 0) return 0;
+        if (buffer.len < size) return 0;
+
+        var remaining = size;
+        var buffer_offset: usize = 0;
+
+        while (remaining > 0) {
+            if (self.cur_place > 0x7fd) {
+                if (self.current.?.next == null) {
+                    const new_packet = try CPackPacket.init(allocator);
+                    self.current.?.next = new_packet;
+                }
+
+                self.current = self.current.?.next;
+                self.cur_place = 0;
+            }
+
+            const available_in_packet = 0x7fe - self.cur_place;
+            const bytes_to_write = @min(available_in_packet, remaining);
+
+            @memcpy(self.current.?.net.data[self.cur_place..][0..bytes_to_write], buffer[buffer_offset..][0..bytes_to_write]);
+
+            self.cur_place += bytes_to_write;
+            self.place += bytes_to_write;
+            buffer_offset += bytes_to_write;
+            remaining -= bytes_to_write;
+        }
+
+        if (self.place > self.used) {
+            self.used = self.place;
+        }
+
+        return size;
     }
 
     pub fn readFromFile(self: *CPackage, allocator: std.mem.Allocator, file_path: []const u8, obscure: bool) !u64 {
@@ -693,5 +875,143 @@ pub const CPackage = struct {
         }
 
         return total_written;
+    }
+
+    pub fn stringReadTruncatedUTF16(
+        self: *CPackage,
+        allocator: std.mem.Allocator,
+        len: u16,
+        out_buffer: ?*u16,
+        max_len: *u32,
+    ) ?*const u16 {
+        const dw_bytes: u32 = @intCast(len);
+
+        var result: *u16 = undefined;
+        if (out_buffer) |ob| {
+            result = ob;
+        } else {
+            max_len.* = dw_bytes;
+            const buf = allocator.alloc(u16, dw_bytes + 1) catch return null;
+            result = &buf[0];
+        }
+
+        if (dw_bytes < max_len.*) {
+            max_len.* = dw_bytes;
+        }
+
+        const rcx = max_len.*;
+
+        if (len != 0) {
+            const tmp = allocator.alloc(u8, dw_bytes + 1) catch return null;
+            defer allocator.free(tmp);
+
+            _ = self.read(tmp[0..dw_bytes], dw_bytes);
+            tmp[len] = 0;
+
+            const result_many: [*]u16 = @ptrCast(result);
+            for (0..rcx) |i| {
+                result_many[i] = @intCast(tmp[i]);
+            }
+        }
+
+        const result_many: [*]u16 = @ptrCast(result);
+        result_many[rcx] = 0;
+        return @ptrCast(result);
+    }
+
+    pub fn stringReadWide(
+        self: *CPackage,
+        allocator: std.mem.Allocator,
+        avail_len: u16,
+        encoding: u8,
+        static_buffer: ?[*]u16,
+        static_buffer_len: u32,
+        buffer: ?*u16,
+        final_buffer_len: *u32,
+    ) ?*const u16 {
+        var p_buffer = buffer;
+
+        if (avail_len != 0) {
+            const avail_len_u32: u32 = avail_len;
+
+            if (encoding == 3) {
+                const r8: u32 = avail_len;
+
+                if (static_buffer_len > 0 and static_buffer_len >= avail_len_u32) {
+                    const sb = static_buffer.?;
+                    _ = self.read(@as([*]u8, @ptrCast(sb))[0 .. avail_len_u32 * 4], avail_len_u32 * 4);
+                    sb[avail_len] = 0;
+                    final_buffer_len.* = avail_len_u32;
+                    return @ptrCast(sb);
+                } else {
+                    if (static_buffer) |sb| {
+                        @memset(@as([*]u8, @ptrCast(sb))[0 .. (static_buffer_len * 4) + 4], 0);
+                    }
+
+                    if (p_buffer == null) {
+                        final_buffer_len.* = avail_len_u32;
+                        const buf = allocator.alloc(u16, avail_len_u32 + 1) catch return null;
+                        p_buffer = &buf[0];
+                    }
+
+                    const cur_len: u16 = @truncate(final_buffer_len.*);
+
+                    if (avail_len > cur_len) {
+                        const rbx: u32 = cur_len;
+                        const pb_many: [*]u16 = @ptrCast(p_buffer.?);
+                        _ = self.read(@as([*]u8, @ptrCast(pb_many))[0 .. rbx * 4], rbx * 4);
+                        pb_many[cur_len] = 0;
+                        final_buffer_len.* = rbx;
+                        // CPackage::ReadBuffer<CNullSpan>(self, (avail_len_u32 - rbx) * 4)
+                        return @ptrCast(p_buffer.?);
+                    }
+
+                    const pb_many: [*]u16 = @ptrCast(p_buffer.?);
+                    _ = self.read(@as([*]u8, @ptrCast(pb_many))[0 .. avail_len_u32 * 4], avail_len_u32 * 4);
+                    pb_many[r8] = 0;
+                    final_buffer_len.* = avail_len_u32;
+                    return @ptrCast(p_buffer.?);
+                }
+            } else {
+                if (encoding == 1) {
+                    // CPackage::StringReadWide<UTF8, UTF32>(self, avail_len_u32, static_buffer, static_buffer_len, p_buffer)
+                    return null;
+                }
+
+                if (encoding == 2) {
+                    // CPackage::StringReadWide<UTF16, UTF32>(self, avail_len_u32, static_buffer, static_buffer_len, p_buffer)
+                    return null;
+                }
+
+                if (encoding == 4) {
+                    // CPackage::StringReadWide<UTF32LE, UTF32>(self, avail_len_u32, static_buffer, static_buffer_len, p_buffer)
+                    return null;
+                }
+
+                if (encoding == 5) {
+                    return self.stringReadTruncatedUTF16(allocator, avail_len, buffer, final_buffer_len);
+                }
+
+                return null;
+            }
+        } else {
+            if (static_buffer_len == 0 or static_buffer == null) {
+                if (final_buffer_len.* != 0 and p_buffer != null) {
+                    const pb_many: [*]u16 = @ptrCast(p_buffer.?);
+                    pb_many[0] = 0;
+                    final_buffer_len.* = 0;
+                    return @ptrCast(p_buffer.?);
+                }
+
+                final_buffer_len.* = 0;
+                const buf = allocator.alloc(u16, 1) catch return null;
+                buf[0] = 0;
+                return @ptrCast(&buf[0]);
+            }
+
+            static_buffer.?[0] = 0;
+            final_buffer_len.* = 0;
+            return @ptrCast(static_buffer.?);
+        }
     }
 };

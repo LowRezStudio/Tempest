@@ -122,13 +122,30 @@ pub fn main() !void {
 
     // Test marshal
     var marshal = mcts.CMarshal.init(0);
+    defer marshal.deinit(allocator);
 
     _ = try package.setPlace(allocator, 0);
-    const success = marshal.load(&package);
+    const success = marshal.load(allocator, &package);
 
     if (success) {
         std.debug.print("Function: {s}\n", .{mcts.Functions.get(marshal.function_id).?.name});
     } else {
         std.debug.print("Failed to load marshal\n", .{});
+    }
+
+    // debug print what's in the marshal
+    {
+        const marshal_row = marshal.base;
+
+        std.debug.print("CMarshalRow dump:\n", .{});
+        std.debug.print("  entry_count: {d}\n", .{marshal_row.entry_count});
+        std.debug.print("  entry_list: 0x{x}\n", .{@intFromPtr(marshal_row.entry_list)});
+        std.debug.print("  entry_tail: 0x{x}\n", .{@intFromPtr(marshal_row.entry_tail)});
+        std.debug.print("  entry_pool: 0x{x}\n", .{@intFromPtr(marshal_row.entry_pool)});
+
+        var current = marshal_row.entry_list;
+        while (current) |entry| : (current = entry.next) {
+            std.debug.print("  entry: 0x{x}\n", .{@intFromPtr(entry)});
+        }
     }
 }
