@@ -22,6 +22,8 @@
       </PackageReference>
       <PackageReference Include="Grpc.Net.Client" Version="2.76.0-pre1" />
     <PackageReference Include="Grpc.AspNetCore" Version="2.76.0-pre1" />
+      <PackageReference Include="BLAKE3" Version="2.1.1" />
+      <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
     </ItemGroup>
 
     <ItemGroup>
