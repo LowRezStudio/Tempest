@@ -21,7 +21,10 @@
 		Tag,
 		History,
 	} from "@lucide/svelte";
-	import { createInstancePlatformsQuery, createSetupInstanceMutation } from "$lib/queries/instance";
+	import {
+		createInstancePlatformsQuery,
+		createSetupInstanceMutation,
+	} from "$lib/queries/instance";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 
 	type ModItem = {
@@ -47,7 +50,9 @@
 	]);
 
 	const instance = $derived($instanceMap[page.params.id!]);
-	let isSettingUp = $derived((instance?.state as { type?: string } | undefined)?.type === "setup");
+	let isSettingUp = $derived(
+		(instance?.state as { type?: string } | undefined)?.type === "setup",
+	);
 
 	if (!instance) {
 		goto("/library");
@@ -159,7 +164,6 @@
 		killGameMutation.reset();
 	}
 
-
 	const platformsQuery = createInstancePlatformsQuery(() => editPath);
 
 	let availablePlatforms = $derived(
@@ -173,7 +177,6 @@
 			editPlatform = availablePlatforms[0] ?? "Win64";
 		}
 	});
-
 </script>
 
 <div class="flex flex-col h-full bg-base-100">

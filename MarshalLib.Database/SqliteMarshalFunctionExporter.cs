@@ -22,6 +22,7 @@ public static class SqliteMarshalFunctionExporter
         using var transaction = connection.BeginTransaction();
 
         EnsurePragmas(connection, transaction);
+        ClearExistingData(connection, transaction);
         EnsureFunctionMetadataTable(connection, transaction);
 
         var functionId = UpsertFunctionMetadata(connection, transaction, function);
@@ -43,6 +44,41 @@ public static class SqliteMarshalFunctionExporter
         command.Transaction = transaction;
         command.CommandText = "PRAGMA foreign_keys = ON;";
         command.ExecuteNonQuery();
+    }
+
+    private static void ClearExistingData(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        using var disableFk = connection.CreateCommand();
+        disableFk.Transaction = transaction;
+        disableFk.CommandText = "PRAGMA foreign_keys = OFF;";
+        disableFk.ExecuteNonQuery();
+
+        var tableNames = new List<string>();
+        using (var tablesCommand = connection.CreateCommand())
+        {
+            tablesCommand.Transaction = transaction;
+            tablesCommand.CommandText =
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';";
+
+            using var reader = tablesCommand.ExecuteReader();
+            while (reader.Read())
+            {
+                tableNames.Add(reader.GetString(0));
+            }
+        }
+
+        foreach (var tableName in tableNames)
+        {
+            using var deleteCommand = connection.CreateCommand();
+            deleteCommand.Transaction = transaction;
+            deleteCommand.CommandText = $"DELETE FROM {QuoteIdentifier(tableName)};";
+            deleteCommand.ExecuteNonQuery();
+        }
+
+        using var enableFk = connection.CreateCommand();
+        enableFk.Transaction = transaction;
+        enableFk.CommandText = "PRAGMA foreign_keys = ON;";
+        enableFk.ExecuteNonQuery();
     }
 
     private static void EnsureFunctionMetadataTable(SqliteConnection connection, SqliteTransaction transaction)

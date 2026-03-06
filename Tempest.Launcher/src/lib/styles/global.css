@@ -7,15 +7,15 @@
 
 @theme {
 	--font-sans:
-		"Montserrat Variable", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
-		"Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif;
+		"Twemoji Country Flags", "Montserrat Variable", ui-sans-serif, system-ui, sans-serif;
+	--font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 	--font-mono:
 		"Ubuntu Sans Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
 		"Liberation Mono", "Courier New", monospace;
 }
 
 * {
-	@apply select-none;
+	@apply select-text;
 }
 
 @utility link {

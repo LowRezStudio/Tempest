@@ -5,9 +5,7 @@ import { instancePlatforms, type InstancePlatform } from "$lib/types/instance";
 
 const platformCache = new Map<string, InstancePlatform[]>();
 
-export async function detectAvailablePlatforms(
-	instancePath: string,
-): Promise<InstancePlatform[]> {
+export async function detectAvailablePlatforms(instancePath: string): Promise<InstancePlatform[]> {
 	console.debug("[platforms] detectAvailablePlatforms", { instancePath });
 	await allowScopeDirectory(instancePath, true);
 	const cached = platformCache.get(instancePath);
@@ -57,8 +55,7 @@ async function hasGameExecutableInDir(directoryPath: string): Promise<boolean> {
 		const entries = await readDir(directoryPath);
 		const executable = gameExecutableName.toLowerCase();
 		const hasExecutable = entries.some(
-			(entry) =>
-				!entry.isDirectory && (entry.name ?? "").toLowerCase() === executable,
+			(entry) => !entry.isDirectory && (entry.name ?? "").toLowerCase() === executable,
 		);
 		console.debug("[platforms] binaries dir entries", {
 			directoryPath,

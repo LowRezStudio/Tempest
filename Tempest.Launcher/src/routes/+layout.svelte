@@ -8,12 +8,17 @@
 	import { instanceWizardOpen, hostServerWizardOpen } from "$lib/stores/ui";
 	import { page } from "$app/state";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
+	import { platform } from "@tauri-apps/plugin-os";
+	import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
 	import HostServerWizard from "$lib/components/server-list/HostServerWizard.svelte";
 
 	const { children } = $props();
 	const queryClient = new QueryClient();
 
 	$effect(() => {
+		polyfillCountryFlagEmojis();
+		document.documentElement.dataset.platform = platform();
+
 		const handleContextMenu = (event: Event) => {
 			event.preventDefault();
 		};

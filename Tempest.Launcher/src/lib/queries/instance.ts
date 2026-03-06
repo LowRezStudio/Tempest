@@ -9,8 +9,7 @@ export const createInstancePlatformsQuery = (instancePath: () => string) =>
 		const pathValue = instancePath();
 		return {
 			queryKey: ["instance-platforms", pathValue],
-			queryFn: (): Promise<InstancePlatform[]> =>
-				detectAvailablePlatforms(pathValue),
+			queryFn: (): Promise<InstancePlatform[]> => detectAvailablePlatforms(pathValue),
 			enabled: !!pathValue,
 		};
 	});

@@ -10,8 +10,9 @@ export const instanceMap = persistentMap<Record<string, Instance>>(
 	jsonSerializer,
 );
 
-export const lastLaunchedInstance = computed([instanceMap, lastLaunchedInstanceId], (instanceMap, id) =>
-	id ? instanceMap[id] : undefined,
+export const lastLaunchedInstance = computed(
+	[instanceMap, lastLaunchedInstanceId],
+	(instanceMap, id) => (id ? instanceMap[id] : undefined),
 );
 
 export const addInstance = (instance: Instance) => instanceMap.setKey(instance.id, instance);

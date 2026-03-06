@@ -1,6 +1,15 @@
 #!/bin/sh
 
-WINEPREFIX_PATH="$HOME/.tempest/prefix"
+APP_CONFIG_DIR="${TAURI_APP_CONFIG_DIR:-}"
+if [ -z "$APP_CONFIG_DIR" ]; then
+    if [ -n "$XDG_CONFIG_HOME" ]; then
+        APP_CONFIG_DIR="$XDG_CONFIG_HOME/com.lowrezstudio.tempest"
+    else
+        APP_CONFIG_DIR="$HOME/.config/com.lowrezstudio.tempest"
+    fi
+fi
+
+WINEPREFIX_PATH="$APP_CONFIG_DIR/prefix"
 
 DOTNET_INSTALLER_URL="https://builds.dotnet.microsoft.com/dotnet/Runtime/9.0.6/dotnet-runtime-9.0.6-win-x64.exe"
 DOTNET_INSTALLER_NAME="dotnet-installer.exe"

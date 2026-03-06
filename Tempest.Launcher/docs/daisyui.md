@@ -719,7 +719,7 @@ where {CONTENT} can be navbar, site content, footer, etc
 and {SIDEBAR} can be a menu like:
 
 ```html
-<ul class="menu min-h-full w-80 bg-base-100 p-4 text-base-content">
+<ul class="menu bg-base-100 text-base-content min-h-full w-80 p-4">
 	<li><a>Item 1</a></li>
 	<li><a>Item 2</a></li>
 </ul>
@@ -742,7 +742,7 @@ Example: This sidebar is always visible on large screen, can be toggled on small
 	</div>
 	<div class="drawer-side">
 		<label for="my-drawer-3" aria-label="close sidebar" class="drawer-overlay"></label>
-		<ul class="menu min-h-full w-80 bg-base-200 p-4">
+		<ul class="menu bg-base-200 min-h-full w-80 p-4">
 			<!-- Sidebar content here -->
 			<li><button>Sidebar Item 1</button></li>
 			<li><button>Sidebar Item 2</button></li>
@@ -762,7 +762,7 @@ Example: This sidebar is always visible. When it's close we only see iocns, when
 	<div class="drawer-side is-drawer-close:overflow-visible">
 		<label for="my-drawer-4" aria-label="close sidebar" class="drawer-overlay"></label>
 		<div
-			class="flex min-h-full flex-col items-start bg-base-200 is-drawer-close:w-14 is-drawer-open:w-64"
+			class="bg-base-200 is-drawer-close:w-14 is-drawer-open:w-64 flex min-h-full flex-col items-start"
 		>
 			<!-- Sidebar content here -->
 			<ul class="menu w-full grow">
@@ -788,7 +788,7 @@ Example: This sidebar is always visible. When it's close we only see iocns, when
 				</li>
 			</ul>
 			<!-- button to open/close drawer -->
-			<div class="m-2 is-drawer-close:tooltip is-drawer-close:tooltip-right" data-tip="Open">
+			<div class="is-drawer-close:tooltip is-drawer-close:tooltip-right m-2" data-tip="Open">
 				<label
 					for="my-drawer-4"
 					class="drawer-button btn btn-circle btn-ghost is-drawer-open:rotate-y-180"

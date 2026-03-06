@@ -37,4 +37,5 @@ tauri-plugin-opener = "2"
 tauri-plugin-os = "2"
 tauri-plugin-persisted-scope = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-updater = "2"
