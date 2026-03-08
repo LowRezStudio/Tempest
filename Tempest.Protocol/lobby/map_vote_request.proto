@@ -3,4 +3,5 @@ package tempest.lobby;
 option csharp_namespace = "Tempest.Protocol.Lobby";
 
 message MapVoteRequest {
+	string mapId = 1;
 }

@@ -42,13 +42,17 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
         var subscription = _state.Subscribe().Subscribe(new Observer(queue));
         try
         {
-            while (!context.CancellationToken.IsCancellationRequested && await queue.Reader.WaitToReadAsync(context.CancellationToken))
+            //writing the initial data so the client is up to date
+            await responseStream.WriteAsync(_state.GetInfoEvent(), context.CancellationToken);
+            while (!context.CancellationToken.IsCancellationRequested)
             {
+                await Task.Delay(50, context.CancellationToken);
                 while (queue.Reader.TryRead(out var evt))
                 {
                     await responseStream.WriteAsync(evt);
                 }
             }
+            Console.WriteLine($"Event stream terminated!");
         }
         catch (OperationCanceledException) { }
         finally
@@ -68,10 +72,9 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
 
     public override Task<MapVoteResponse> MapVote(MapVoteRequest request, ServerCallContext context)
     {
-        // Map vote could transition lobby state; publish placeholder state update for now.
-        if (TryGetPlayerId(context, out _))
+        if (TryGetPlayerId(context, out var playerId))
         {
-            _state.PublishMapVoteState();
+            _state.Vote(playerId, request.MapId);
         }
         return Task.FromResult(new MapVoteResponse());
     }

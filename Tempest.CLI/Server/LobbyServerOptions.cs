@@ -4,6 +4,7 @@ internal sealed class LobbyServerOptions
 {
     public required string Name { get; init; }
     public required int MaxPlayers { get; init; }
+    public required int MinPlayers { get; init; }
     public string? Password { get; init; }
     public string Map { get; init; } = string.Empty;
     public string Version { get; init; } = string.Empty;

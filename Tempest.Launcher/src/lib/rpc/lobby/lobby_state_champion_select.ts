@@ -3,6 +3,7 @@
 // tslint:disable
 import type { BinaryWriteOptions } from "@protobuf-ts/runtime";
 import type { IBinaryWriter } from "@protobuf-ts/runtime";
+import { WireType } from "@protobuf-ts/runtime";
 import type { BinaryReadOptions } from "@protobuf-ts/runtime";
 import type { IBinaryReader } from "@protobuf-ts/runtime";
 import { UnknownFieldHandler } from "@protobuf-ts/runtime";
@@ -12,14 +13,22 @@ import { MessageType } from "@protobuf-ts/runtime";
 /**
  * @generated from protobuf message tempest.lobby.LobbyStateChampionSelect
  */
-export interface LobbyStateChampionSelect {}
+export interface LobbyStateChampionSelect {
+	/**
+	 * @generated from protobuf field: string mapId = 1
+	 */
+	mapId: string;
+}
 // @generated message type with reflection information, may provide speed optimized methods
 class LobbyStateChampionSelect$Type extends MessageType<LobbyStateChampionSelect> {
 	constructor() {
-		super("tempest.lobby.LobbyStateChampionSelect", []);
+		super("tempest.lobby.LobbyStateChampionSelect", [
+			{ no: 1, name: "mapId", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+		]);
 	}
 	create(value?: PartialMessage<LobbyStateChampionSelect>): LobbyStateChampionSelect {
 		const message = globalThis.Object.create(this.messagePrototype!);
+		message.mapId = "";
 		if (value !== undefined)
 			reflectionMergePartial<LobbyStateChampionSelect>(this, message, value);
 		return message;
@@ -35,6 +44,9 @@ class LobbyStateChampionSelect$Type extends MessageType<LobbyStateChampionSelect
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
+				case /* string mapId */ 1:
+					message.mapId = reader.string();
+					break;
 				default:
 					let u = options.readUnknownField;
 					if (u === "throw")
@@ -59,6 +71,8 @@ class LobbyStateChampionSelect$Type extends MessageType<LobbyStateChampionSelect
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
+		/* string mapId = 1; */
+		if (message.mapId !== "") writer.tag(1, WireType.LengthDelimited).string(message.mapId);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

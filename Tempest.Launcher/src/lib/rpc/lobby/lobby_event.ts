@@ -10,6 +10,7 @@ import { UnknownFieldHandler } from "@protobuf-ts/runtime";
 import type { PartialMessage } from "@protobuf-ts/runtime";
 import { reflectionMergePartial } from "@protobuf-ts/runtime";
 import { MessageType } from "@protobuf-ts/runtime";
+import { LobbyEventInfo } from "./lobby_event_info";
 import { LobbyEventStateUpdate } from "./lobby_event_state_update";
 import { LobbyEventPlayerUpdate } from "./lobby_event_player_update";
 import { LobbyEventPlayerLeave } from "./lobby_event_player_leave";
@@ -72,6 +73,13 @@ export interface LobbyEvent {
 				stateUpdate: LobbyEventStateUpdate;
 		  }
 		| {
+				oneofKind: "info";
+				/**
+				 * @generated from protobuf field: tempest.lobby.LobbyEventInfo info = 8
+				 */
+				info: LobbyEventInfo;
+		  }
+		| {
 				oneofKind: undefined;
 		  };
 }
@@ -122,6 +130,7 @@ class LobbyEvent$Type extends MessageType<LobbyEvent> {
 				oneof: "event",
 				T: () => LobbyEventStateUpdate,
 			},
+			{ no: 8, name: "info", kind: "message", oneof: "event", T: () => LobbyEventInfo },
 		]);
 	}
 	create(value?: PartialMessage<LobbyEvent>): LobbyEvent {
@@ -215,6 +224,17 @@ class LobbyEvent$Type extends MessageType<LobbyEvent> {
 						),
 					};
 					break;
+				case /* tempest.lobby.LobbyEventInfo info */ 8:
+					message.event = {
+						oneofKind: "info",
+						info: LobbyEventInfo.internalBinaryRead(
+							reader,
+							reader.uint32(),
+							options,
+							(message.event as any).info,
+						),
+					};
+					break;
 				default:
 					let u = options.readUnknownField;
 					if (u === "throw")
@@ -286,6 +306,13 @@ class LobbyEvent$Type extends MessageType<LobbyEvent> {
 			LobbyEventStateUpdate.internalBinaryWrite(
 				message.event.stateUpdate,
 				writer.tag(7, WireType.LengthDelimited).fork(),
+				options,
+			).join();
+		/* tempest.lobby.LobbyEventInfo info = 8; */
+		if (message.event.oneofKind === "info")
+			LobbyEventInfo.internalBinaryWrite(
+				message.event.info,
+				writer.tag(8, WireType.LengthDelimited).fork(),
 				options,
 			).join();
 		let u = options.writeUnknownFields;
