@@ -35,7 +35,7 @@ internal sealed class RigbyCommands
         if (chunksRootFull is not null && !Directory.Exists(chunksRootFull))
             throw new InvalidOperationException($"Chunks root does not exist: {chunksRootFull}");
 
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30.0) };
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5.0) };
 
         var tasks = new List<RestoreTask>();
         var expectedFiles = new HashSet<string>(RigbyOutputLayout.GetPathComparer());

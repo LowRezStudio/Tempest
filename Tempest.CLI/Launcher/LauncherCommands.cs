@@ -12,6 +12,32 @@ internal class LauncherCommands
         var defaultArgs = !noDefaultArgs;
         var is64Bit = Directory.GetParent(exePath)?.Name == "Win64";
 
+        // Rename EasyAntiCheat folders to prevent crash when loading anti-cheat with Wine
+        if (!OperatingSystem.IsWindows())
+        {
+            var binariesDir = Directory.GetParent(exePath)?.Parent?.FullName;
+            if (binariesDir != null)
+            {
+                var eacPath = Path.Combine(binariesDir, "EasyAntiCheat");
+                var eacPathRenamed = Path.Combine(binariesDir, "_EasyAntiCheat");
+                if (Directory.Exists(eacPath) && !Directory.Exists(eacPathRenamed))
+                {
+                    Directory.Move(eacPath, eacPathRenamed);
+                }
+            }
+
+            var platformDir = Directory.GetParent(exePath)?.FullName;
+            if (platformDir != null)
+            {
+                var platformEacPath = Path.Combine(platformDir, "EasyAntiCheat");
+                var platformEacPathRenamed = Path.Combine(platformDir, "_EasyAntiCheat");
+                if (Directory.Exists(platformEacPath) && !Directory.Exists(platformEacPathRenamed))
+                {
+                    Directory.Move(platformEacPath, platformEacPathRenamed);
+                }
+            }
+        }
+
         var process = new Process();
 
         process.StartInfo.FileName = exePath;

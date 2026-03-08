@@ -30,14 +30,32 @@ internal static class RigbyChunkStore
             throw new InvalidOperationException($"Missing chunk and no --base-url provided: {rel}");
 
         var url = $"{baseUrl.TrimEnd('/')}/{rel.Replace('\\', '/')}";
-        try
+        var maxRetries = 3;
+        for (var attempt = 0; attempt <= maxRetries; attempt++)
         {
-            return await http.GetByteArrayAsync(url, cancellationToken);
+            try
+            {
+                return await http.GetByteArrayAsync(url, cancellationToken);
+            }
+            catch (HttpRequestException) when (attempt < maxRetries)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1 << attempt), cancellationToken);
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new InvalidOperationException($"Failed to download chunk after {maxRetries + 1} attempts: {url}", ex);
+            }
+            catch (TaskCanceledException) when (attempt < maxRetries)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1 << attempt), cancellationToken);
+            }
+            catch (TaskCanceledException ex)
+            {
+                throw new InvalidOperationException($"Timeout downloading chunk after {maxRetries + 1} attempts: {url}", ex);
+            }
         }
-        catch (HttpRequestException ex)
-        {
-            throw new InvalidOperationException($"Failed to download chunk: {url}", ex);
-        }
+
+        throw new InvalidOperationException($"Failed to download chunk: {url}");
     }
 
     public static byte[] DecodeChunk(byte[] blob, string codec, int expectedLength)
