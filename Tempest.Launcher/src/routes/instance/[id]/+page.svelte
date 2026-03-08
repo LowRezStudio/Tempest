@@ -471,7 +471,7 @@ let editArgs = $state<string[]>([]);
 				{#if editArgs.length > 0}
 					<div class="flex flex-wrap gap-1.5">
 						{#each editArgs as arg, i (i)}
-							<span class="badge badge-neutral gap-1">
+							<span class="badge badge-ghost badge-neutral gap-1">
 								<button
 									type="button"
 									class="btn btn-ghost btn-xs btn-square p-0 h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content"
@@ -501,7 +501,7 @@ let editArgs = $state<string[]>([]);
 					</div>
 				{/if}
 				<p class="text-xs opacity-60">
-					Space-separated. Use quotes for arguments with spaces.
+					Space-separated arguments.
 				</p>
 			</div>
 		</div>
