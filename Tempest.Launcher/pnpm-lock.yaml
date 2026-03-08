@@ -6,10 +6,6 @@ settings:
 
 importers:
   .:
-    dependencies:
-      '@tauri-apps/plugin-sql':
-        specifier: ~2.3.2
-        version: 2.3.2
     devDependencies:
       '@catppuccin/daisyui':
         specifier: ^2.1.1
@@ -86,6 +82,9 @@ importers:
       '@tauri-apps/plugin-shell':
         specifier: ~2.3.3
         version: 2.3.3
+      '@tauri-apps/plugin-sql':
+        specifier: ~2.3.2
+        version: 2.3.2
       country-flag-emoji-polyfill:
         specifier: ^0.1.8
         version: 0.1.8
