@@ -3,6 +3,7 @@
 // tslint:disable
 import type { BinaryWriteOptions } from "@protobuf-ts/runtime";
 import type { IBinaryWriter } from "@protobuf-ts/runtime";
+import { WireType } from "@protobuf-ts/runtime";
 import type { BinaryReadOptions } from "@protobuf-ts/runtime";
 import type { IBinaryReader } from "@protobuf-ts/runtime";
 import { UnknownFieldHandler } from "@protobuf-ts/runtime";
@@ -12,14 +13,30 @@ import { MessageType } from "@protobuf-ts/runtime";
 /**
  * @generated from protobuf message tempest.lobby.LobbyStateMapVote
  */
-export interface LobbyStateMapVote {}
+export interface LobbyStateMapVote {
+	/**
+	 * @generated from protobuf field: map<string, string> votes = 1
+	 */
+	votes: {
+		[key: string]: string;
+	};
+}
 // @generated message type with reflection information, may provide speed optimized methods
 class LobbyStateMapVote$Type extends MessageType<LobbyStateMapVote> {
 	constructor() {
-		super("tempest.lobby.LobbyStateMapVote", []);
+		super("tempest.lobby.LobbyStateMapVote", [
+			{
+				no: 1,
+				name: "votes",
+				kind: "map",
+				K: 9 /*ScalarType.STRING*/,
+				V: { kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			},
+		]);
 	}
 	create(value?: PartialMessage<LobbyStateMapVote>): LobbyStateMapVote {
 		const message = globalThis.Object.create(this.messagePrototype!);
+		message.votes = {};
 		if (value !== undefined) reflectionMergePartial<LobbyStateMapVote>(this, message, value);
 		return message;
 	}
@@ -34,6 +51,9 @@ class LobbyStateMapVote$Type extends MessageType<LobbyStateMapVote> {
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
+				case /* map<string, string> votes */ 1:
+					this.binaryReadMap1(message.votes, reader, options);
+					break;
 				default:
 					let u = options.readUnknownField;
 					if (u === "throw")
@@ -53,11 +73,47 @@ class LobbyStateMapVote$Type extends MessageType<LobbyStateMapVote> {
 		}
 		return message;
 	}
+	private binaryReadMap1(
+		map: LobbyStateMapVote["votes"],
+		reader: IBinaryReader,
+		options: BinaryReadOptions,
+	): void {
+		let len = reader.uint32(),
+			end = reader.pos + len,
+			key: keyof LobbyStateMapVote["votes"] | undefined,
+			val: LobbyStateMapVote["votes"][any] | undefined;
+		while (reader.pos < end) {
+			let [fieldNo, wireType] = reader.tag();
+			switch (fieldNo) {
+				case 1:
+					key = reader.string();
+					break;
+				case 2:
+					val = reader.string();
+					break;
+				default:
+					throw new globalThis.Error(
+						"unknown map entry field for tempest.lobby.LobbyStateMapVote.votes",
+					);
+			}
+		}
+		map[key ?? ""] = val ?? "";
+	}
 	internalBinaryWrite(
 		message: LobbyStateMapVote,
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
+		/* map<string, string> votes = 1; */
+		for (let k of globalThis.Object.keys(message.votes))
+			writer
+				.tag(1, WireType.LengthDelimited)
+				.fork()
+				.tag(1, WireType.LengthDelimited)
+				.string(k)
+				.tag(2, WireType.LengthDelimited)
+				.string(message.votes[k])
+				.join();
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

@@ -31,6 +31,22 @@ internal sealed class EmbeddedServer
             });
         });
 
+        builder.Services.AddCors(options =>
+        {
+            options.AddPolicy("AllowFrontend",
+                policy =>
+                {
+                    policy
+                        .AllowAnyOrigin()
+                        .AllowAnyMethod()
+                        .AllowAnyHeader()
+                        .WithExposedHeaders(
+                        "grpc-status",
+                        "grpc-message",
+                        "grpc-status-details-bin"
+                        );
+                });
+        });
         builder.Services.AddLogging(c => c.ClearProviders());
         builder.Services.AddSingleton<ITicketStore>(_ticketStore);
         builder.Services.AddSingleton(_state);
@@ -39,6 +55,8 @@ internal sealed class EmbeddedServer
 
         _app = builder.Build();
 
+        _app.UseCors("AllowFrontend");
+        _app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
         _app.MapGrpcService<LobbyServiceImpl>();
         _app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 

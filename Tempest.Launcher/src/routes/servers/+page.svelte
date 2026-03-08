@@ -2,6 +2,9 @@
 	import { CountryCode } from "$lib/rpc";
 	import { createServersQuery } from "$lib/queries/servers";
 	import { RefreshCw, Server, ServerCrash, Search } from "@lucide/svelte";
+	import { hostServerWizardOpen } from "$lib/stores/ui";
+	import { lobbyHost, lobbyPassword } from "$lib/stores/lobby";
+	import { goto } from "$app/navigation";
 
 	let searchQuery = $state("");
 
@@ -95,7 +98,7 @@
 					<button
 						class="btn btn-accent"
 						onclick={() => {
-							//TODO
+							hostServerWizardOpen.set(true);
 						}}
 					>
 						Host server
@@ -154,7 +157,11 @@
 								{#each filteredServers as server (server.id)}
 									<tr
 										onclick={() => {
-											//TODO
+											lobbyHost.set(
+												`http://${server.ip}:${server.lobbyPort}`,
+											);
+											//TODO password
+											goto("/lobby");
 										}}
 									>
 										<td>{server.name}</td>

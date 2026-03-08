@@ -1,21 +1,49 @@
 import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
 import { ServerListClient } from "./rpc/server_list/server_list_service.client";
 import { fetch } from "@tauri-apps/plugin-http";
+import { LobbyClient } from "./rpc/lobby/lobby_service.client";
+import { ticket } from "./stores/lobby";
 
 const transport = new GrpcWebFetchTransport({
 	baseUrl: "http://localhost:5197",
 	format: "binary",
 	fetch,
 });
-
 export const serverList = new ServerListClient(transport);
 
+const connectionCache: Record<string, LobbyClient> = {}
+export function getConnectionToServer(host: string) {
+	if (host in connectionCache) {
+		return connectionCache[host]
+	}
+	const transport = new GrpcWebFetchTransport({
+		baseUrl: host,
+		format: "binary",
+		fetch,
+		interceptors: [
+			{
+				interceptUnary(next, method, input, options) {
+					if (!options.meta) {
+						options.meta = {};
+					}
+					if (ticket.get()) {
+						options.meta["x-ticket"] = ticket.get();
+					}
+
+					return next(method, input, options);
+				},
+			},
+		],
+	})
+	const client = new LobbyClient(transport)
+	connectionCache[host] = client
+	return client
+}
 export * from "./rpc/common/country";
 
 export * from "./rpc/google/protobuf/timestamp";
 
 export * from "./rpc/lobby/lobby_event";
-export * from "./rpc/lobby/lobby_info";
 export * from "./rpc/lobby/lobby_state";
 export * from "./rpc/lobby/lobby_state_champion_select";
 export * from "./rpc/lobby/lobby_state_game_in_progress";

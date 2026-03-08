@@ -9,6 +9,7 @@ import "lobby/lobby_event_player_join.proto";
 import "lobby/lobby_event_player_leave.proto";
 import "lobby/lobby_event_player_update.proto";
 import "lobby/lobby_event_state_update.proto";
+import "lobby/lobby_event_info.proto";
 
 message LobbyEvent {
   google.protobuf.Timestamp timestamp = 1;
@@ -19,5 +20,6 @@ message LobbyEvent {
     LobbyEventPlayerLeave player_leave = 5;
     LobbyEventPlayerUpdate player_update = 6;
     LobbyEventStateUpdate state_update = 7;
+    LobbyEventInfo info = 8;
   }
 }

@@ -19,6 +19,7 @@
 	let selectedPublic = $state(false);
 	let selectedGameMode = $state<GameMode>("siege");
 	let selectedMaxPlayers = $state<number>(10);
+	let selectedMinPlayers = $state<number>(0);
 	let selectedMaxSpectators = $state<number>(5);
 	let selectedPort = $state<number>(50051);
 	const hostLobbyMutation = createLaunchLobbyMutation();
@@ -31,6 +32,7 @@
 			tags: selectedTags,
 			version: instanceMap.get()[selectedInstanceId].version || "?",
 			"max-players": selectedMaxPlayers + "",
+			"min-players": selectedMinPlayers + "",
 			"public-server": selectedPublic,
 			gamemode: selectedGameMode,
 			password: selectedPassword || undefined,
@@ -145,6 +147,21 @@
 				max="30"
 				placeholder="Number between 1-30"
 				bind:value={selectedMaxPlayers}
+			/>
+		</div>
+		<div class="form-control">
+			<label for="server-min-players" class="label py-0.5">
+				<span class="label-text text-sm">Min players to start</span>
+			</label>
+			<input
+				id="server-min-players"
+				type="number"
+				class="input input-bordered w-full user-invalid:validator"
+				required
+				min="0"
+				max="30"
+				placeholder="Number between 0-30"
+				bind:value={selectedMinPlayers}
 			/>
 		</div>
 		<div class="form-control">

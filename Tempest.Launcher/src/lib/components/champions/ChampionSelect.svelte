@@ -8,9 +8,10 @@
 
 	interface Props {
 		onselect?: (champion: Champion) => void;
+		confirmedChampionName?: string;
 	}
 
-	let { onselect }: Props = $props();
+	let { onselect, confirmedChampionName }: Props = $props();
 
 	const champions: Champion[] = [
 		"Androxus",
@@ -82,25 +83,31 @@
 
 	function handleChampionClick(champion: Champion) {
 		selectedChampion = champion;
-		onselect?.(champion);
+	}
+	function handleConfirm() {
+		if (onselect && selectedChampion) {
+			onselect?.(selectedChampion);
+		}
 	}
 
 	function handleChampionHover(champion: Champion | null) {
 		hoveredChampion = champion;
 	}
 
-	// Get the champion to display in the background (only on selection, not hover)
-	let backgroundChampion = $derived(selectedChampion);
+	// Get the champion to display
+	let displayedChampion = $derived(
+		champions.find((c) => c.name == confirmedChampionName) || selectedChampion,
+	);
 
 	// Load video when background champion changes
 	$effect(() => {
-		if (videoElement && backgroundChampion) {
+		if (videoElement && displayedChampion) {
 			// Force dimensions before loading (WebKit fix)
 			videoElement.style.width = "100%";
 			videoElement.style.height = "100%";
 
-			videoElement.src = backgroundChampion.videoPath;
-			videoElement.poster = backgroundChampion.fallbackPath;
+			videoElement.src = displayedChampion.videoPath;
+			videoElement.poster = displayedChampion.fallbackPath;
 			videoElement.load();
 
 			// Wait for metadata to be loaded before playing (WebKit fix)
@@ -114,7 +121,7 @@
 			videoElement.addEventListener("loadedmetadata", handleMetadata, { once: true });
 
 			// Update previous champion after current one starts loading
-			previousChampion = backgroundChampion;
+			previousChampion = displayedChampion;
 		}
 	});
 </script>
@@ -122,9 +129,9 @@
 <div class="relative h-full w-full overflow-hidden bg-base-200">
 	<!-- Fullscreen Background -->
 	<div class="absolute inset-0">
-		{#if backgroundChampion}
+		{#if displayedChampion}
 			<!-- Previous champion fallback (to prevent flash) -->
-			{#if previousChampion && previousChampion.name !== backgroundChampion.name}
+			{#if previousChampion && previousChampion.name !== displayedChampion.name}
 				<img
 					src={previousChampion.fallbackPath}
 					alt={previousChampion.name}
@@ -134,15 +141,15 @@
 
 			<!-- Current champion fallback (always visible below video) -->
 			<img
-				src={backgroundChampion.fallbackPath}
-				alt={backgroundChampion.name}
+				src={displayedChampion.fallbackPath}
+				alt={displayedChampion.name}
 				class="absolute inset-0 h-full w-full object-cover object-[75%_center]"
 			/>
 
 			<!-- Video Layer -->
 			<video
 				bind:this={videoElement}
-				poster={backgroundChampion.fallbackPath}
+				poster={displayedChampion.fallbackPath}
 				class="absolute inset-0 !h-full !w-full object-cover object-[75%_center]"
 				loop
 				muted
@@ -170,14 +177,14 @@
 				class="text-4xl font-bold text-white"
 				style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
 			>
-				Select Your Champion
+				{confirmedChampionName ? "Selected Champion" : "Select Your Champion"}
 			</h1>
-			{#if selectedChampion}
+			{#if displayedChampion}
 				<h2
 					class="mt-4 text-6xl font-bold text-white"
 					style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
 				>
-					{selectedChampion.name}
+					{displayedChampion.name}
 				</h2>
 			{/if}
 		</div>
@@ -194,12 +201,13 @@
 						class={[
 							"h-18 w-18 overflow-hidden rounded-full border-2 p-0 transition-all duration-200",
 							"hover:scale-110 hover:shadow-xl",
-							selectedChampion?.name === champion.name ?
+							displayedChampion?.name === champion.name ?
 								"border-accent ring-3 ring-accent shadow-xl"
 							: hoveredChampion?.name === champion.name ?
 								"border-white/50 ring-3 ring-white/50"
 							:	"border-base-300",
 						]}
+						class:pointer-events-none={confirmedChampionName}
 						onclick={() => handleChampionClick(champion)}
 						onmouseenter={() => handleChampionHover(champion)}
 						onmouseleave={() => handleChampionHover(null)}
@@ -254,9 +262,10 @@
 			<button
 				type="button"
 				class="btn btn-lg relative z-10 shadow-xl"
-				class:btn-accent={selectedChampion}
-				class:btn-disabled={!selectedChampion}
-				disabled={!selectedChampion}
+				class:btn-accent={displayedChampion && !confirmedChampionName}
+				class:btn-disabled={!displayedChampion || !!confirmedChampionName}
+				disabled={!displayedChampion || !!confirmedChampionName}
+				onclick={handleConfirm}
 			>
 				Confirm Selection
 			</button>

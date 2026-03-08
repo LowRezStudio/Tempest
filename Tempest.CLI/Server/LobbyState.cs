@@ -12,6 +12,13 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     private readonly ConcurrentQueue<LobbyEvent> _eventBuffer = new();
     private readonly List<IObserver<LobbyEvent>> _subscribers = new();
     private readonly object _gate = new();
+    private Protocol.Lobby.LobbyState _state = new Protocol.Lobby.LobbyState
+    {
+        Waiting = new LobbyStateWaiting
+        {
+            MinPlayers = (uint)options.MinPlayers
+        }
+    };
 
     public IReadOnlyCollection<LobbyPlayer> Players => _players.Values.ToList();
 
@@ -27,12 +34,13 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             response = Error(JoinLobbyErrorCode.LobbyFull, "Lobby full");
             return false;
         }
-
+        //simple balancing that puts the new player into the team that has less players
+        int team = _players.Values.Count(p => p.TaskForce == 1) > _players.Count / 2.0 ? 2 : 1;
         var player = new LobbyPlayer
         {
             Id = id,
             DisplayName = displayName,
-            TaskForce = (_players.Count % 2) + 1, // simple balancing
+            TaskForce = team,
             Champion = string.Empty
         };
 
@@ -47,6 +55,15 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
             PlayerJoin = new LobbyEventPlayerJoin { Player = player }
         });
+        //for now starting the map voting when the minimum number of players have joined
+        //A countdown should be implemented in the future
+        if (_players.Count >= _options.MinPlayers && _state.Waiting != null)
+        {
+            SetState(new Protocol.Lobby.LobbyState
+            {
+                MapVote = new LobbyStateMapVote()
+            });
+        }
 
         var ticket = _ticketStore.Issue(id);
         response = new JoinLobbyResponse { Success = new JoinLobbySuccess { Ticket = ticket } };
@@ -58,6 +75,12 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         if (_players.TryRemove(id, out var player))
         {
             _ticketStore.RevokeTickets(id);
+            //removing map vote
+            if (_state.MapVote != null)
+            {
+                _state.MapVote.Votes.Remove(id);
+                PublishState();
+            }
             Publish(new LobbyEvent
             {
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
@@ -95,6 +118,16 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
             PlayerUpdate = new LobbyEventPlayerUpdate { Player = player }
         });
+        //Starting the game when all players have selected a champion
+        //A countdown should be implemented in the future
+        bool allHaveSelected = _players.Values.All(p => p.Champion != null && p.Champion.Length > 0);
+        if (allHaveSelected)
+        {
+            SetState(new Protocol.Lobby.LobbyState
+            {
+                InGame = new LobbyStateInGame()
+            });
+        } 
         return true;
     }
 
@@ -109,22 +142,54 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         return false;
     }
 
-    public void PublishMapVoteState()
+    public void Vote(string playerId, string mapId)
     {
-        // Placeholder: emit a state update with a waiting state until real map vote implemented
+        if (_state.MapVote == null) return;
+        _state.MapVote.Votes[playerId] = mapId;
+        bool everyoneHasVoted = _state.MapVote.Votes.Count >= _players.Count && _state.MapVote.Votes.Count > 0;
+        if (everyoneHasVoted)
+        {
+            string mostVotedMap = _state.MapVote.Votes.GroupBy(t => t.Value).OrderByDescending(g => g.Count()).First().Key;
+            SetState(new Protocol.Lobby.LobbyState
+            {
+                ChampionSelect = new LobbyStateChampionSelect
+                {
+                    MapId = mostVotedMap
+                }
+            });
+        }
+        PublishState();
+    }
+    private void SetState(Protocol.Lobby.LobbyState state)
+    {
+        _state = state;
+        PublishState();
+    }
+    private void PublishState()
+    {
         Publish(new LobbyEvent
         {
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
             StateUpdate = new LobbyEventStateUpdate
             {
-                State = new Protocol.Lobby.LobbyState
-                {
-                    Waiting = new LobbyStateWaiting()
-                }
+                State = _state
             }
         });
     }
 
+    public LobbyEvent GetInfoEvent()
+    {
+        var info = new LobbyEventInfo
+        {
+            Name = _options.Name,
+            State = _state
+        };
+        info.Players.AddRange(_players.Values);
+        return new LobbyEvent
+        {
+            Info = info,
+        };
+    }
     private static JoinLobbyResponse Error(JoinLobbyErrorCode code, string message) => new()
     {
         Error = new JoinLobbyError

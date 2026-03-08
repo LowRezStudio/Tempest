@@ -3,6 +3,7 @@
 // tslint:disable
 import type { BinaryWriteOptions } from "@protobuf-ts/runtime";
 import type { IBinaryWriter } from "@protobuf-ts/runtime";
+import { WireType } from "@protobuf-ts/runtime";
 import type { BinaryReadOptions } from "@protobuf-ts/runtime";
 import type { IBinaryReader } from "@protobuf-ts/runtime";
 import { UnknownFieldHandler } from "@protobuf-ts/runtime";
@@ -12,14 +13,22 @@ import { MessageType } from "@protobuf-ts/runtime";
 /**
  * @generated from protobuf message tempest.lobby.LobbyStateWaiting
  */
-export interface LobbyStateWaiting {}
+export interface LobbyStateWaiting {
+	/**
+	 * @generated from protobuf field: uint32 minPlayers = 1
+	 */
+	minPlayers: number;
+}
 // @generated message type with reflection information, may provide speed optimized methods
 class LobbyStateWaiting$Type extends MessageType<LobbyStateWaiting> {
 	constructor() {
-		super("tempest.lobby.LobbyStateWaiting", []);
+		super("tempest.lobby.LobbyStateWaiting", [
+			{ no: 1, name: "minPlayers", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
+		]);
 	}
 	create(value?: PartialMessage<LobbyStateWaiting>): LobbyStateWaiting {
 		const message = globalThis.Object.create(this.messagePrototype!);
+		message.minPlayers = 0;
 		if (value !== undefined) reflectionMergePartial<LobbyStateWaiting>(this, message, value);
 		return message;
 	}
@@ -34,6 +43,9 @@ class LobbyStateWaiting$Type extends MessageType<LobbyStateWaiting> {
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
+				case /* uint32 minPlayers */ 1:
+					message.minPlayers = reader.uint32();
+					break;
 				default:
 					let u = options.readUnknownField;
 					if (u === "throw")
@@ -58,6 +70,8 @@ class LobbyStateWaiting$Type extends MessageType<LobbyStateWaiting> {
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
+		/* uint32 minPlayers = 1; */
+		if (message.minPlayers !== 0) writer.tag(1, WireType.Varint).uint32(message.minPlayers);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

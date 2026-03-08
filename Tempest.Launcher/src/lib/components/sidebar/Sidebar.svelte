@@ -4,6 +4,7 @@
 	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import { page } from "$app/state";
+	import { lobbyHost } from "$lib/stores/lobby";
 </script>
 
 <aside class="flex h-screen w-16 flex-none flex-col items-center bg-base-300 py-4">
@@ -12,6 +13,9 @@
 		<SidebarItem href="/library" icon={Library} label="Library" />
 		<SidebarItem href="/character-select" icon={Compass} label="Champions" />
 		<SidebarItem href="/servers" icon={Server} label="Servers" />
+		{#if $lobbyHost}
+			<SidebarItem href="/lobby" icon={Compass} label="Lobby" />
+		{/if}
 	</nav>
 
 	<div class="divider mx-4 my-4 opacity-50"></div>
