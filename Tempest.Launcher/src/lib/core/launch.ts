@@ -1,8 +1,8 @@
-import type { Instance } from "../types/instance";
-import type { Process } from "../types/process";
-import { createCommand, processArgs } from "./command";
 import { lastLaunchedInstanceId } from "../stores/instance";
 import { processesList } from "../stores/processes";
+import { createCommand, processArgs } from "./command";
+import type { Instance } from "../types/instance";
+import type { Process } from "../types/process";
 
 export const launchGame = async (instance: Instance) => {
 	const { path, launchOptions: options } = instance;

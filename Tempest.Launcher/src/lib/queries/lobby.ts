@@ -1,7 +1,7 @@
 import { createMutation } from "@tanstack/svelte-query";
-import type { LobbyServerOptions } from "$lib/types/lobby";
 import { hostLobby } from "$lib/core/lobby";
 import type { LobbyClient } from "$lib/rpc/lobby/lobby_service.client";
+import type { LobbyServerOptions } from "$lib/types/lobby";
 
 export const createLaunchLobbyMutation = () =>
 	createMutation(() => ({

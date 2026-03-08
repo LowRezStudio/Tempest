@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Box, Play, Megaphone, Square } from "@lucide/svelte";
+	import { Box, Megaphone, Play, Square } from "@lucide/svelte";
+	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { lastLaunchedInstance, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { processesList } from "$lib/stores/processes";
-	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 
 	// Mock announcement data
 	const announcement = {

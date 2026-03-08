@@ -1,5 +1,6 @@
 import { createQuery } from "@tanstack/svelte-query";
-import { serverList, type ServerListing } from "$lib/rpc";
+import { serverList } from "$lib/rpc";
+import type { ServerListing } from "$lib/rpc";
 
 async function fetchServers(): Promise<ServerListing[]> {
 	try {

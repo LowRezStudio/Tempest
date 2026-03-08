@@ -1,7 +1,7 @@
-import type { Instance } from "$lib/types/instance";
 import { persistentAtom, persistentMap } from "@nanostores/persistent";
-import { jsonSerializer } from "./common";
 import { computed } from "nanostores";
+import { jsonSerializer } from "./common";
+import type { Instance } from "$lib/types/instance";
 
 export const lastLaunchedInstanceId = persistentAtom<string>("lastLaunchedInstanceId", undefined);
 export const instanceMap = persistentMap<Record<string, Instance>>(

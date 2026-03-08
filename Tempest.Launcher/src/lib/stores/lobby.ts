@@ -1,6 +1,6 @@
+import { persistentAtom } from "@nanostores/persistent";
 import { LobbyState, Timestamp } from "$lib/rpc";
 import { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
-import { persistentAtom } from "@nanostores/persistent";
 import { atom } from "nanostores";
 
 export const playerId = persistentAtom<string>("lobbyPlayerId", crypto.randomUUID());

@@ -1,6 +1,15 @@
 <script lang="ts">
+	import { X } from "@lucide/svelte";
+	import { goto } from "$app/navigation";
 	import ChampionSelect from "$lib/components/champions/ChampionSelect.svelte";
 	import MapSelect from "$lib/components/maps/MapSelect.svelte";
+	import maps from "$lib/data/maps.json";
+	import {
+		createChampionSelectMutation,
+		createLeaveLobbyMutation,
+		createMapSelectMutation,
+		createSendChatMessageMutation,
+	} from "$lib/queries/lobby";
 	import { getConnectionToServer, LobbyEvent } from "$lib/rpc";
 	import {
 		chatMessageStore,
@@ -12,23 +21,14 @@
 		ticket,
 	} from "$lib/stores/lobby";
 	import { username } from "$lib/stores/settings";
-	import { X } from "@lucide/svelte";
 	import { onDestroy, onMount, tick } from "svelte";
-	import maps from "$lib/data/maps.json";
-	import { goto } from "$app/navigation";
+	import type { LobbyEventChatMessage } from "$lib/rpc/lobby/lobby_event_chat_message";
+	import type { LobbyEventCountdown } from "$lib/rpc/lobby/lobby_event_countdown";
+	import type { LobbyEventInfo } from "$lib/rpc/lobby/lobby_event_info";
 	import type { LobbyEventPlayerJoin } from "$lib/rpc/lobby/lobby_event_player_join";
 	import type { LobbyEventPlayerLeave } from "$lib/rpc/lobby/lobby_event_player_leave";
 	import type { LobbyEventPlayerUpdate } from "$lib/rpc/lobby/lobby_event_player_update";
-	import type { LobbyEventChatMessage } from "$lib/rpc/lobby/lobby_event_chat_message";
 	import type { LobbyEventStateUpdate } from "$lib/rpc/lobby/lobby_event_state_update";
-	import type { LobbyEventCountdown } from "$lib/rpc/lobby/lobby_event_countdown";
-	import {
-		createChampionSelectMutation,
-		createLeaveLobbyMutation,
-		createMapSelectMutation,
-		createSendChatMessageMutation,
-	} from "$lib/queries/lobby";
-	import type { LobbyEventInfo } from "$lib/rpc/lobby/lobby_event_info";
 
 	const client = getConnectionToServer(lobbyHost.get());
 	//to close event stream when component destroyed

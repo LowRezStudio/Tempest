@@ -1,9 +1,9 @@
 <script lang="ts">
+	import { Library, Plus, Search, X } from "@lucide/svelte";
+	import InstanceCard from "$lib/components/library/InstanceCard.svelte";
 	import { instanceMap } from "$lib/stores/instance";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import type { Instance } from "$lib/types/instance";
-	import InstanceCard from "$lib/components/library/InstanceCard.svelte";
-	import { Search, X, Plus, Library } from "@lucide/svelte";
 
 	let searchQuery = $state("");
 	let sortBy = $state<"name" | "version" | "date">("name");

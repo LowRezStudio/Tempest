@@ -2,15 +2,15 @@
 	import "$lib/styles/global.css";
 	import "@fontsource-variable/montserrat";
 	import "@fontsource-variable/ubuntu-sans-mono";
-	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
-	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
-	import ToastStack from "$lib/components/ui/ToastStack.svelte";
-	import { instanceWizardOpen, hostServerWizardOpen } from "$lib/stores/ui";
-	import { page } from "$app/state";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
 	import { platform } from "@tauri-apps/plugin-os";
-	import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
+	import { page } from "$app/state";
+	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 	import HostServerWizard from "$lib/components/server-list/HostServerWizard.svelte";
+	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
+	import ToastStack from "$lib/components/ui/ToastStack.svelte";
+	import { hostServerWizardOpen, instanceWizardOpen } from "$lib/stores/ui";
+	import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
 
 	const { children } = $props();
 	const queryClient = new QueryClient();

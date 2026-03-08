@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { CountryCode } from "$lib/rpc";
-	import { createServersQuery } from "$lib/queries/servers";
-	import { RefreshCw, Server, ServerCrash, Search } from "@lucide/svelte";
-	import { hostServerWizardOpen } from "$lib/stores/ui";
-	import { lobbyHost, lobbyPassword } from "$lib/stores/lobby";
+	import { RefreshCw, Search, Server, ServerCrash } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
+	import { createServersQuery } from "$lib/queries/servers";
+	import { CountryCode } from "$lib/rpc";
+	import { lobbyHost, lobbyPassword } from "$lib/stores/lobby";
+	import { hostServerWizardOpen } from "$lib/stores/ui";
 
 	let searchQuery = $state("");
 

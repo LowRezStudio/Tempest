@@ -1,8 +1,9 @@
 <script lang="ts">
 	/*
-	The purpose of this page is to be a development tool
-	Makes it possible to add players, vote maps and select champions
-	*/
+The purpose of this page is to be a development tool
+Makes it possible to add players, vote maps and select champions
+*/
+	import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
 	import { LobbyClient } from "$lib/rpc/lobby/lobby_service.client";
 	import {
 		chatMessageStore,
@@ -10,9 +11,8 @@
 		playerStore,
 		stateStore,
 	} from "$lib/stores/lobby";
-	import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
-	import type { RpcOptions } from "@protobuf-ts/runtime-rpc";
 	import { onDestroy, onMount } from "svelte";
+	import type { RpcOptions } from "@protobuf-ts/runtime-rpc";
 
 	const transport = new GrpcWebFetchTransport({
 		baseUrl: "http://localhost:50051",

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { Component } from "svelte";
 	import { page } from "$app/state";
+	import type { Component } from "svelte";
 
 	interface Props {
 		href: string;

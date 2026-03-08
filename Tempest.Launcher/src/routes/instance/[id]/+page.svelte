@@ -1,32 +1,32 @@
 <script lang="ts">
-	import { page } from "$app/state";
-	import { goto } from "$app/navigation";
-	import { instanceMap, updateInstance, removeInstance } from "$lib/stores/instance";
-	import { processesList } from "$lib/stores/processes";
-	import Modal from "$lib/components/ui/Modal.svelte";
-	import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
-	import { revealItemInDir } from "@tauri-apps/plugin-opener";
-	import type { Instance, InstancePlatform } from "$lib/types/instance";
 	import {
-		Play,
-		Settings,
-		EllipsisVertical,
-		Gamepad2,
-		RefreshCw,
-		Trash2,
 		Box,
-		Square,
+		EllipsisVertical,
 		Folder,
 		FolderOpen,
-		Tag,
+		Gamepad2,
 		History,
+		Play,
+		RefreshCw,
+		Settings,
+		Square,
+		Tag,
+		Trash2,
 	} from "@lucide/svelte";
+	import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
+	import { revealItemInDir } from "@tauri-apps/plugin-opener";
+	import { goto } from "$app/navigation";
+	import { page } from "$app/state";
+	import Modal from "$lib/components/ui/Modal.svelte";
+	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import {
 		createInstancePlatformsQuery,
 		createSetupInstanceMutation,
 	} from "$lib/queries/instance";
-	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
+	import { instanceMap, removeInstance, updateInstance } from "$lib/stores/instance";
+	import { processesList } from "$lib/stores/processes";
 	import { parseArgs } from "$lib/utils/args";
+	import type { Instance, InstancePlatform } from "$lib/types/instance";
 
 	type ModItem = {
 		id: string;

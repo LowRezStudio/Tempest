@@ -5,7 +5,13 @@
  * @type {import("prettier").Config}
  */
 const prettierConfig = {
-	plugins: ["@prettier/plugin-oxc", "prettier-plugin-tailwindcss", "prettier-plugin-svelte"],
+	plugins: [
+		"@prettier/plugin-oxc",
+		"prettier-plugin-tailwindcss",
+		"prettier-plugin-svelte",
+		"@ianvs/prettier-plugin-sort-imports",
+	],
+	importOrder: ["<BUILTIN_MODULES>", "<THIRD_PARTY_MODULES>", "^$lib/(.*)$", "^[.]", "<TYPES>"],
 	useTabs: true,
 	tabWidth: 4,
 	printWidth: 100,

@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { House, Compass, Library, Plus, Settings, User, Box, Server } from "@lucide/svelte";
-	import SidebarItem from "./SidebarItem.svelte";
-	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
-	import { instanceWizardOpen } from "$lib/stores/ui";
+	import { Box, Compass, House, Library, Plus, Server, Settings, User } from "@lucide/svelte";
 	import { page } from "$app/state";
+	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { lobbyHost } from "$lib/stores/lobby";
+	import { instanceWizardOpen } from "$lib/stores/ui";
+	import SidebarItem from "./SidebarItem.svelte";
 </script>
 
 <aside class="flex h-screen w-16 flex-none flex-col items-center bg-base-300 py-4">

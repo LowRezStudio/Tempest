@@ -1,18 +1,18 @@
 <script lang="ts">
+	import { AlertCircle, CloudDownload, Code, Folder, Loader2 } from "@lucide/svelte";
+	import { path } from "@tauri-apps/api";
+	import { open as openDialog } from "@tauri-apps/plugin-dialog";
+	import { platform } from "@tauri-apps/plugin-os";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import versions from "$lib/data/versions.json";
-	import { addInstance, updateInstance } from "$lib/stores/instance";
-	import type { Instance, InstanceState } from "$lib/types/instance";
-	import { CloudDownload, Folder, Code, Loader2, AlertCircle } from "@lucide/svelte";
-	import { open as openDialog } from "@tauri-apps/plugin-dialog";
-	import { defaultInstancePath } from "$lib/stores/settings";
+	import { createIdentifyBuildMutation } from "$lib/queries/core";
 	import {
 		createDefaultInstancePathQuery,
 		createSetupInstanceMutation,
 	} from "$lib/queries/instance";
-	import { createIdentifyBuildMutation } from "$lib/queries/core";
-	import { path } from "@tauri-apps/api";
-	import { platform } from "@tauri-apps/plugin-os";
+	import { addInstance, updateInstance } from "$lib/stores/instance";
+	import { defaultInstancePath } from "$lib/stores/settings";
+	import type { Instance, InstanceState } from "$lib/types/instance";
 
 	interface Props {
 		open?: boolean;

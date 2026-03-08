@@ -1,7 +1,7 @@
 import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
-import { ServerListClient } from "./rpc/server_list/server_list_service.client";
 import { fetch } from "@tauri-apps/plugin-http";
 import { LobbyClient } from "./rpc/lobby/lobby_service.client";
+import { ServerListClient } from "./rpc/server_list/server_list_service.client";
 import { ticket } from "./stores/lobby";
 
 const transport = new GrpcWebFetchTransport({

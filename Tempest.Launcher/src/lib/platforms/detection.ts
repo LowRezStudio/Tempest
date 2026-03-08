@@ -1,7 +1,8 @@
 import { path as tauriPath } from "@tauri-apps/api";
 import { exists, readDir } from "@tauri-apps/plugin-fs";
 import { allowScopeDirectory } from "$lib/tauri/scopes";
-import { instancePlatforms, type InstancePlatform } from "$lib/types/instance";
+import { instancePlatforms } from "$lib/types/instance";
+import type { InstancePlatform } from "$lib/types/instance";
 
 const platformCache = new Map<string, InstancePlatform[]>();
 

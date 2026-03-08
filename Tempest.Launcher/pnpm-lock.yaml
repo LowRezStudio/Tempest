@@ -20,6 +20,9 @@ importers:
       '@fontsource-variable/ubuntu-sans-mono':
         specifier: ^5.2.10
         version: 5.2.10
+      '@ianvs/prettier-plugin-sort-imports':
+        specifier: ^4.7.1
+        version: 4.7.1(@prettier/plugin-oxc@0.1.3)(prettier@3.7.4)
       '@lucide/svelte':
         specifier: ^0.562.0
         version: 0.562.0(svelte@5.46.1)
@@ -103,7 +106,7 @@ importers:
         version: 3.4.1(prettier@3.7.4)(svelte@5.46.1)
       prettier-plugin-tailwindcss:
         specifier: ^0.7.2
-        version: 0.7.2(@prettier/plugin-oxc@0.1.3)(prettier-plugin-svelte@3.4.1(prettier@3.7.4)(svelte@5.46.1))(prettier@3.7.4)
+        version: 0.7.2(@ianvs/prettier-plugin-sort-imports@4.7.1(@prettier/plugin-oxc@0.1.3)(prettier@3.7.4))(@prettier/plugin-oxc@0.1.3)(prettier-plugin-svelte@3.4.1(prettier@3.7.4)(svelte@5.46.1))(prettier@3.7.4)
       rimraf:
         specifier: ^6.1.2
         version: 6.1.2
@@ -124,6 +127,70 @@ importers:
         version: 7.3.0(jiti@2.6.1)(lightningcss@1.30.2)
 
 packages:
+  '@babel/code-frame@7.29.0':
+    resolution:
+      {
+        integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==,
+      }
+    engines: { node: '>=6.9.0' }
+
+  '@babel/generator@7.29.1':
+    resolution:
+      {
+        integrity: sha512-qsaF+9Qcm2Qv8SRIMMscAvG4O3lJ0F1GuMo5HR/Bp02LopNgnZBC/EkbevHFeGs4ls/oPz9v+Bsmzbkbe+0dUw==,
+      }
+    engines: { node: '>=6.9.0' }
+
+  '@babel/helper-globals@7.28.0':
+    resolution:
+      {
+        integrity: sha512-+W6cISkXFa1jXsDEdYA8HeevQT/FULhxzR99pxphltZcVaugps53THCeiWA8SguxxpSp3gKPiuYfSWopkLQ4hw==,
+      }
+    engines: { node: '>=6.9.0' }
+
+  '@babel/helper-string-parser@7.27.1':
+    resolution:
+      {
+        integrity: sha512-qMlSxKbpRlAridDExk92nSobyDdpPijUq2DW6oDnUqd0iOGxmQjyqhMIihI9+zv4LPyZdRje2cavWPbCbWm3eA==,
+      }
+    engines: { node: '>=6.9.0' }
+
+  '@babel/helper-validator-identifier@7.28.5':
+    resolution:
+      {
+        integrity: sha512-qSs4ifwzKJSV39ucNjsvc6WVHs6b7S03sOh2OcHF9UHfVPqWWALUsNUVzhSBiItjRZoLHx7nIarVjqKVusUZ1Q==,
+      }
+    engines: { node: '>=6.9.0' }
+
+  '@babel/parser@7.29.0':
+    resolution:
+      {
+        integrity: sha512-IyDgFV5GeDUVX4YdF/3CPULtVGSXXMLh1xVIgdCgxApktqnQV0r7/8Nqthg+8YLGaAtdyIlo2qIdZrbCv4+7ww==,
+      }
+    engines: { node: '>=6.0.0' }
+    hasBin: true
+
+  '@babel/template@7.28.6':
+    resolution:
+      {
+        integrity: sha512-YA6Ma2KsCdGb+WC6UpBVFJGXL58MDA6oyONbjyF/+5sBgxY/dwkhLogbMT2GXXyU84/IhRw/2D1Os1B/giz+BQ==,
+      }
+    engines: { node: '>=6.9.0' }
+
+  '@babel/traverse@7.29.0':
+    resolution:
+      {
+        integrity: sha512-4HPiQr0X7+waHfyXPZpWPfWL/J7dcN1mx9gL6WdQVMbPnF3+ZhSMs8tCxN7oHddJE9fhNE7+lxdnlyemKfJRuA==,
+      }
+    engines: { node: '>=6.9.0' }
+
+  '@babel/types@7.29.0':
+    resolution:
+      {
+        integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==,
+      }
+    engines: { node: '>=6.9.0' }
+
   '@bufbuild/protobuf@2.10.2':
     resolution:
       {
@@ -413,6 +480,27 @@ packages:
       {
         integrity: sha512-9oUR9qQPz0pyxb8GsbkiZwGj7ABsAtbgkkxcg0prOsvRk/nZhdfv23qpkG++T1Jo5DVQVfumRLBgPbNdmGT/1g==,
       }
+
+  '@ianvs/prettier-plugin-sort-imports@4.7.1':
+    resolution:
+      {
+        integrity: sha512-jmTNYGlg95tlsoG3JLCcuC4BrFELJtLirLAkQW/71lXSyOhVt/Xj7xWbbGcuVbNq1gwWgSyMrPjJc9Z30hynVw==,
+      }
+    peerDependencies:
+      '@prettier/plugin-oxc': ^0.0.4 || ^0.1.0
+      '@vue/compiler-sfc': 2.7.x || 3.x
+      content-tag: ^4.0.0
+      prettier: 2 || 3 || ^4.0.0-0
+      prettier-plugin-ember-template-tag: ^2.1.0
+    peerDependenciesMeta:
+      '@prettier/plugin-oxc':
+        optional: true
+      '@vue/compiler-sfc':
+        optional: true
+      content-tag:
+        optional: true
+      prettier-plugin-ember-template-tag:
+        optional: true
 
   '@isaacs/balanced-match@4.0.1':
     resolution:
@@ -1492,6 +1580,20 @@ packages:
       }
     hasBin: true
 
+  js-tokens@4.0.0:
+    resolution:
+      {
+        integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==,
+      }
+
+  jsesc@3.1.0:
+    resolution:
+      {
+        integrity: sha512-/sM3dO2FOzXjKQhJuo0Q173wf2KOo8t4I8vHy6lF9poUp7bKT0/NHE8fPX23PwfhnykfqnC2xRxOnVw5XuGIaA==,
+      }
+    engines: { node: '>=6' }
+    hasBin: true
+
   kleur@4.1.5:
     resolution:
       {
@@ -1835,6 +1937,14 @@ packages:
       }
     engines: { node: '>=6' }
 
+  semver@7.7.4:
+    resolution:
+      {
+        integrity: sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA==,
+      }
+    engines: { node: '>=10' }
+    hasBin: true
+
   set-cookie-parser@2.7.2:
     resolution:
       {
@@ -1991,6 +2101,53 @@ packages:
       }
 
 snapshots:
+  '@babel/code-frame@7.29.0':
+    dependencies:
+      '@babel/helper-validator-identifier': 7.28.5
+      js-tokens: 4.0.0
+      picocolors: 1.1.1
+
+  '@babel/generator@7.29.1':
+    dependencies:
+      '@babel/parser': 7.29.0
+      '@babel/types': 7.29.0
+      '@jridgewell/gen-mapping': 0.3.13
+      '@jridgewell/trace-mapping': 0.3.31
+      jsesc: 3.1.0
+
+  '@babel/helper-globals@7.28.0': {}
+
+  '@babel/helper-string-parser@7.27.1': {}
+
+  '@babel/helper-validator-identifier@7.28.5': {}
+
+  '@babel/parser@7.29.0':
+    dependencies:
+      '@babel/types': 7.29.0
+
+  '@babel/template@7.28.6':
+    dependencies:
+      '@babel/code-frame': 7.29.0
+      '@babel/parser': 7.29.0
+      '@babel/types': 7.29.0
+
+  '@babel/traverse@7.29.0':
+    dependencies:
+      '@babel/code-frame': 7.29.0
+      '@babel/generator': 7.29.1
+      '@babel/helper-globals': 7.28.0
+      '@babel/parser': 7.29.0
+      '@babel/template': 7.28.6
+      '@babel/types': 7.29.0
+      debug: 4.4.3
+    transitivePeerDependencies:
+      - supports-color
+
+  '@babel/types@7.29.0':
+    dependencies:
+      '@babel/helper-string-parser': 7.27.1
+      '@babel/helper-validator-identifier': 7.28.5
+
   '@bufbuild/protobuf@2.10.2': {}
 
   '@bufbuild/protoplugin@2.10.2':
@@ -2105,6 +2262,19 @@ snapshots:
   '@fontsource-variable/montserrat@5.2.8': {}
 
   '@fontsource-variable/ubuntu-sans-mono@5.2.10': {}
+
+  '@ianvs/prettier-plugin-sort-imports@4.7.1(@prettier/plugin-oxc@0.1.3)(prettier@3.7.4)':
+    dependencies:
+      '@babel/generator': 7.29.1
+      '@babel/parser': 7.29.0
+      '@babel/traverse': 7.29.0
+      '@babel/types': 7.29.0
+      prettier: 3.7.4
+      semver: 7.7.4
+    optionalDependencies:
+      '@prettier/plugin-oxc': 0.1.3
+    transitivePeerDependencies:
+      - supports-color
 
   '@isaacs/balanced-match@4.0.1': {}
 
@@ -2624,6 +2794,10 @@ snapshots:
 
   jiti@2.6.1: {}
 
+  js-tokens@4.0.0: {}
+
+  jsesc@3.1.0: {}
+
   kleur@4.1.5: {}
 
   lightningcss-android-arm64@1.30.2:
@@ -2752,10 +2926,11 @@ snapshots:
       prettier: 3.7.4
       svelte: 5.46.1
 
-  prettier-plugin-tailwindcss@0.7.2(@prettier/plugin-oxc@0.1.3)(prettier-plugin-svelte@3.4.1(prettier@3.7.4)(svelte@5.46.1))(prettier@3.7.4):
+  prettier-plugin-tailwindcss@0.7.2(@ianvs/prettier-plugin-sort-imports@4.7.1(@prettier/plugin-oxc@0.1.3)(prettier@3.7.4))(@prettier/plugin-oxc@0.1.3)(prettier-plugin-svelte@3.4.1(prettier@3.7.4)(svelte@5.46.1))(prettier@3.7.4):
     dependencies:
       prettier: 3.7.4
     optionalDependencies:
+      '@ianvs/prettier-plugin-sort-imports': 4.7.1(@prettier/plugin-oxc@0.1.3)(prettier@3.7.4)
       '@prettier/plugin-oxc': 0.1.3
       prettier-plugin-svelte: 3.4.1(prettier@3.7.4)(svelte@5.46.1)
 
@@ -2799,6 +2974,8 @@ snapshots:
   sade@1.8.1:
     dependencies:
       mri: 1.2.0
+
+  semver@7.7.4: {}
 
   set-cookie-parser@2.7.2: {}
 

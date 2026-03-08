@@ -1,5 +1,5 @@
-import type { LobbyServerOptions } from "$lib/types/lobby";
 import { createCommand } from "./command";
+import type { LobbyServerOptions } from "$lib/types/lobby";
 
 export const hostLobby = async (options: LobbyServerOptions) => {
 	const command = createCommand([

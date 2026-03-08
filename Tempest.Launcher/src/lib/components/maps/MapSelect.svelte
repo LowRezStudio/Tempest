@@ -2,6 +2,7 @@
 	//OB57 map list
 	//TODO add all maps and version information
 	import maps from "$lib/data/maps.json";
+
 	interface PaladinsMap {
 		id: string;
 		displayName: string;

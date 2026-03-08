@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { Instance } from "$lib/types/instance";
 	import { Box } from "@lucide/svelte";
+	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
 		instance: Instance;

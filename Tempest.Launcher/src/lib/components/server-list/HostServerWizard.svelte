@@ -1,15 +1,16 @@
 <script lang="ts">
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { createLaunchLobbyMutation } from "$lib/queries/lobby";
+	import { instanceMap } from "$lib/stores/instance";
+	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
 		open?: boolean;
 	}
 	type GameMode = "siege" | "tdm" | "payload" | "onslaught";
-	import type { Instance } from "$lib/types/instance";
 
 	let { open = $bindable(false) }: Props = $props();
-	import { instanceMap } from "$lib/stores/instance";
-	import { createLaunchLobbyMutation } from "$lib/queries/lobby";
+
 	const instanceList = $derived(Object.values($instanceMap).filter(Boolean) as Instance[]);
 
 	let selectedName = $state("");

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { username, defaultInstancePath } from "$lib/stores/settings";
+	import { Settings } from "@lucide/svelte";
 	import { open } from "@tauri-apps/plugin-dialog";
 	import { invalidateAll } from "$app/navigation";
-	import { Settings } from "@lucide/svelte";
 	import { createAboutInfoQuery } from "$lib/queries/about";
+	import { defaultInstancePath, username } from "$lib/stores/settings";
 
 	let activeTab = $state<"general" | "advanced">("general");
 
