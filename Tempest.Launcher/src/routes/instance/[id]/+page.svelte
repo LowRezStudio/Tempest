@@ -26,6 +26,7 @@
 		createSetupInstanceMutation,
 	} from "$lib/queries/instance";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
+	import { parseArgs } from "$lib/utils/args";
 
 	type ModItem = {
 		id: string;
@@ -63,6 +64,34 @@
 	let editVersion = $state("");
 	let editPath = $state("");
 	let editPlatform = $state<InstancePlatform>("Win64");
+let editArgs = $state<string[]>([]);
+	let argsInput = $state("");
+
+	function addArgs() {
+		if (!argsInput.trim()) return;
+		const newArgs = parseArgs(argsInput);
+		editArgs = [...editArgs, ...newArgs];
+		argsInput = "";
+	}
+
+	function removeArg(index: number) {
+		editArgs = editArgs.filter((_, i) => i !== index);
+	}
+
+	function moveArg(index: number, direction: -1 | 1) {
+		const newIndex = index + direction;
+		if (newIndex < 0 || newIndex >= editArgs.length) return;
+		const newArgs = [...editArgs];
+		[newArgs[index], newArgs[newIndex]] = [newArgs[newIndex], newArgs[index]];
+		editArgs = newArgs;
+	}
+
+	function handleArgsKeydown(e: KeyboardEvent) {
+		if (e.key === "Enter") {
+			e.preventDefault();
+			addArgs();
+		}
+	}
 
 	function openSettings() {
 		if (!instance) return;
@@ -70,6 +99,8 @@
 		editVersion = instance.version || "";
 		editPath = instance.path;
 		editPlatform = instance.launchOptions?.platform ?? "Win64";
+		editArgs = instance.launchOptions?.args ?? [];
+		argsInput = "";
 		isSettingsModalOpen = true;
 	}
 
@@ -82,6 +113,7 @@
 			launchOptions: {
 				...instance.launchOptions,
 				platform: editPlatform,
+				args: editArgs,
 			},
 		});
 		isSettingsModalOpen = false;
@@ -415,6 +447,62 @@
 					<Folder size={16} />
 					Browse
 				</button>
+			</div>
+		</div>
+
+		<div class="form-control">
+			<label for="instance-args" class="label py-0.5">
+				<span class="label-text text-sm">Launch Arguments</span>
+			</label>
+			<div class="space-y-2">
+				<div class="join w-full">
+					<input
+						id="instance-args"
+						type="text"
+						placeholder=""
+						class="input input-bordered join-item flex-1 font-mono text-sm"
+						bind:value={argsInput}
+						onkeydown={handleArgsKeydown}
+					/>
+					<button class="btn btn-accent join-item" onclick={addArgs} type="button">
+						Add
+					</button>
+				</div>
+				{#if editArgs.length > 0}
+					<div class="flex flex-wrap gap-1.5">
+						{#each editArgs as arg, i (i)}
+							<span class="badge badge-neutral gap-1">
+								<button
+									type="button"
+									class="btn btn-ghost btn-xs btn-square p-0 h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content"
+									onclick={() => moveArg(i, -1)}
+									disabled={i === 0}
+								>
+									&#8592;
+								</button>
+								<span class="font-mono text-xs">{arg}</span>
+								<button
+									type="button"
+									class="btn btn-ghost btn-xs btn-square p-0 h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content"
+									onclick={() => moveArg(i, 1)}
+									disabled={i === editArgs.length - 1}
+								>
+									&#8594;
+								</button>
+								<button
+									type="button"
+									class="btn btn-ghost btn-xs btn-square p-0 h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content"
+									onclick={() => removeArg(i)}
+								>
+									&times;
+								</button>
+							</span>
+						{/each}
+					</div>
+				{/if}
+				<p class="text-xs opacity-60">
+					Space-separated. Use quotes for arguments with spaces.
+				</p>
 			</div>
 		</div>
 
