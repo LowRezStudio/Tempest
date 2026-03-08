@@ -83,27 +83,34 @@ class LobbyManager {
 
 	private async handleEvent(event: LobbyEvent): Promise<void> {
 		switch (event.event.oneofKind) {
-			case "info":
+			case "info": {
 				await this.handleInfoEvent(event.event.info);
 				break;
-			case "playerJoin":
+			}
+			case "playerJoin": {
 				await this.handlePlayerJoinEvent(event.event.playerJoin);
 				break;
-			case "playerLeave":
+			}
+			case "playerLeave": {
 				await this.handlePlayerLeaveEvent(event.event.playerLeave);
 				break;
-			case "playerUpdate":
+			}
+			case "playerUpdate": {
 				await this.handlePlayerUpdateEvent(event.event.playerUpdate);
 				break;
-			case "chatMessage":
+			}
+			case "chatMessage": {
 				await this.handleChatMessageEvent(event.event.chatMessage);
 				break;
-			case "stateUpdate":
+			}
+			case "stateUpdate": {
 				await this.handleStateUpdateEvent(event.event.stateUpdate);
 				break;
-			case "countdown":
+			}
+			case "countdown": {
 				await this.handleCountdownEvent(event.event.countdown);
 				break;
+			}
 		}
 	}
 
@@ -124,25 +131,25 @@ class LobbyManager {
 		}
 	}
 
-	private async handlePlayerJoinEvent(event: LobbyEventPlayerJoin): Promise<void> {
+	private handlePlayerJoinEvent(event: LobbyEventPlayerJoin): void {
 		const player = event.player;
 		if (player) {
 			players.set([...players.get(), player]);
 		}
 	}
 
-	private async handlePlayerLeaveEvent(event: LobbyEventPlayerLeave): Promise<void> {
+	private handlePlayerLeaveEvent(event: LobbyEventPlayerLeave): void {
 		const playerIdValue = event.playerId;
 		players.set(players.get().filter((p) => p.id !== playerIdValue));
 	}
 
-	private async handlePlayerUpdateEvent(event: LobbyEventPlayerUpdate): Promise<void> {
+	private handlePlayerUpdateEvent(event: LobbyEventPlayerUpdate): void {
 		const player = event.player;
 		if (!player) return;
 		players.set(players.get().map((p) => (p.id === player.id ? player : p)));
 	}
 
-	private async handleChatMessageEvent(event: LobbyEventChatMessage): Promise<void> {
+	private handleChatMessageEvent(event: LobbyEventChatMessage): void {
 		const message = event.chatMessage;
 		if (!message) return;
 		const sender = players.get().find((p) => p.id === message.authorId);
@@ -157,7 +164,7 @@ class LobbyManager {
 		]);
 	}
 
-	private async handleStateUpdateEvent(event: LobbyEventStateUpdate): Promise<void> {
+	private handleStateUpdateEvent(event: LobbyEventStateUpdate): void {
 		const eventState = event.state;
 		console.log("State update received:", eventState);
 		if (eventState) {
@@ -165,7 +172,7 @@ class LobbyManager {
 		}
 	}
 
-	private async handleCountdownEvent(event: LobbyEventCountdown): Promise<void> {
+	private handleCountdownEvent(event: LobbyEventCountdown): void {
 		console.log(`Countdown: ${event.seconds} seconds`);
 	}
 

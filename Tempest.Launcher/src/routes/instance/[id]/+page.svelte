@@ -55,9 +55,11 @@
 		(instance?.state as { type?: string } | undefined)?.type === "setup",
 	);
 
-	if (!instance) {
-		goto("/library");
-	}
+	$effect(() => {
+		if (!instance) {
+			goto("/library");
+		}
+	});
 
 	let isSettingsModalOpen = $state(false);
 	let editName = $state("");
@@ -273,21 +275,22 @@
 						</div>
 						<ul
 							tabindex="0"
+							role="menu"
 							class="dropdown-content menu bg-base-300 rounded-box z-1 w-52 p-2 shadow-sm"
 						>
-							<li>
+							<li role="menuitem">
 								<button onclick={handleRunSetup} disabled={isSettingUp}>
 									<RefreshCw size={16} />
 									Run Setup
 								</button>
 							</li>
-							<li>
+							<li role="menuitem">
 								<button onclick={openFolder}>
 									<FolderOpen size={16} />
 									Browse Folder
 								</button>
 							</li>
-							<li>
+							<li role="menuitem">
 								<button class="text-error" onclick={deleteInstance}>
 									<Trash2 size={16} />
 									Delete Instance

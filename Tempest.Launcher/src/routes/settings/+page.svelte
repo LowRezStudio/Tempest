@@ -37,7 +37,7 @@
 		}
 	}
 
-	async function resetAll() {
+	function resetAll() {
 		localStorage.clear();
 		location.href = "/";
 	}

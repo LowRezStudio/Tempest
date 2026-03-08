@@ -183,18 +183,18 @@ Makes it possible to add players, vote maps and select champions
 			},
 		);
 		for await (const event of eventStream.responses) {
-			if (event.event.oneofKind == "playerJoin") {
+			if (event.event.oneofKind === "playerJoin") {
 				const player = event.event.playerJoin.player;
 				if (player) {
 					playerStore.set([...$playerStore, player]);
 				}
-			} else if (event.event.oneofKind == "playerLeave") {
+			} else if (event.event.oneofKind === "playerLeave") {
 				const playerId = event.event.playerLeave.playerId;
 				playerStore.set($playerStore.filter((pl) => pl.id !== playerId));
-			} else if (event.event.oneofKind == "playerUpdate") {
+			} else if (event.event.oneofKind === "playerUpdate") {
 				const player = event.event.playerUpdate.player;
 				playerStore.set($playerStore.map((pl) => (pl.id === player?.id ? player : pl)));
-			} else if (event.event.oneofKind == "chatMessage") {
+			} else if (event.event.oneofKind === "chatMessage") {
 				const message = event.event.chatMessage.chatMessage;
 				if (message) {
 					const sender = $playerStore.find((p) => p.id === message.authorId);
@@ -207,14 +207,14 @@ Makes it possible to add players, vote maps and select champions
 						},
 					]);
 				}
-			} else if (event.event.oneofKind == "stateUpdate") {
+			} else if (event.event.oneofKind === "stateUpdate") {
 				const state = event.event.stateUpdate.state;
 				if (state) {
 					stateStore.set(state);
 				}
-			} else if (event.event.oneofKind == "countdown") {
+			} else if (event.event.oneofKind === "countdown") {
 				const time = event.event.countdown.seconds;
-			} else if (event.event.oneofKind == "info") {
+			} else if (event.event.oneofKind === "info") {
 				const { players, state } = event.event.info;
 				playerStore.set(players);
 				if (state) {
@@ -235,7 +235,7 @@ Makes it possible to add players, vote maps and select champions
 		console.log(resp);
 	}
 	async function handleChampionSelect(champion: string, id: string) {
-		console.log("Selected ", champion);
+		console.log("Selected", champion);
 		const resp = await client.championSelect(
 			{
 				name: champion,
@@ -264,14 +264,14 @@ Makes it possible to add players, vote maps and select champions
 	});
 
 	async function createNewPlayer() {
-		const id = Math.floor(Math.random() * 1000000) + 1 + "";
+		const id = String(Math.floor(Math.random() * 1000000) + 1);
 		const joinResp = await client.joinLobby({
 			playerId: id,
-			playerDisplayName: "Test " + id,
+			playerDisplayName: `Test ${id}`,
 			password: "",
 		});
 		console.log(joinResp);
-		if (joinResp.response.result.oneofKind == "success") {
+		if (joinResp.response.result.oneofKind === "success") {
 			const ticket = joinResp.response.result.success.ticket;
 			$debugPlayersStore.set(id, ticket);
 		}

@@ -96,7 +96,7 @@
 
 	// Get the champion to display
 	let displayedChampion = $derived(
-		champions.find((c) => c.name == confirmedChampionName) || selectedChampion,
+		champions.find((c) => c.name === confirmedChampionName) || selectedChampion,
 	);
 
 	// Load video when background champion changes

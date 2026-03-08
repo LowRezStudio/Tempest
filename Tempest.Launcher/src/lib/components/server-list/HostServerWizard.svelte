@@ -29,11 +29,11 @@
 	function handleCreate() {
 		hostLobbyMutation.mutate({
 			name: selectedName,
-			port: selectedPort + "",
+			port: String(selectedPort),
 			tags: selectedTags,
 			version: instanceMap.get()[selectedInstanceId].version || "?",
-			"max-players": selectedMaxPlayers + "",
-			"min-players": selectedMinPlayers + "",
+			"max-players": String(selectedMaxPlayers),
+			"min-players": String(selectedMinPlayers),
 			"public-server": selectedPublic,
 			gamemode: selectedGameMode,
 			password: selectedPassword || undefined,

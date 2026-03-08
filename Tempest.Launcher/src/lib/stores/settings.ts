@@ -7,7 +7,7 @@ import { onMount, task } from "nanostores";
 export const username = persistentAtom<string>("username", "Player");
 
 const getDefaultInstancePath = async () => {
-	const rootDir = platform() == "windows" ? "C:" : await homeDir();
+	const rootDir = platform() === "windows" ? "C:" : await homeDir();
 
 	return await path.join(rootDir, "Games", "Tempest");
 };

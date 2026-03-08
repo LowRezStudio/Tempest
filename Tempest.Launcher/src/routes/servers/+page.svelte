@@ -32,9 +32,7 @@
 		if (!code || code.length !== 2) {
 			return "";
 		}
-		return code
-			.toUpperCase()
-			.split("")
+		return [...code.toUpperCase()]
 			.map((char) => String.fromCodePoint(127397 + char.charCodeAt(0)))
 			.join("");
 	}

@@ -10,8 +10,8 @@ export const hostLobby = async (options: LobbyServerOptions) => {
 				return !!value;
 			})
 			.map(([key, value]) => {
-				if (value === true) return "--" + key;
-				return ["--" + key, value];
+				if (value === true) return `--${key}`;
+				return [`--${key}`, value];
 			}),
 	]);
 	//for debug

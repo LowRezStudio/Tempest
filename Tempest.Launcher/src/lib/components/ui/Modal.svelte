@@ -18,7 +18,7 @@
 		class: className = "",
 	}: Props = $props();
 
-	let dialog: HTMLDialogElement;
+	let dialog: HTMLDialogElement | undefined = $state();
 
 	$effect(() => {
 		if (!dialog) return;
