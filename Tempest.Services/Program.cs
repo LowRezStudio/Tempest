@@ -3,13 +3,12 @@ using Tempest.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.WebHost.ConfigureKestrel(options =>
+builder.WebHost.ConfigureKestrel(k =>
 {
-    options.ConfigureEndpointDefaults(endpointOptions =>
-    {
-        endpointOptions.Protocols = HttpProtocols.Http1AndHttp2;
-    });
+    k.ListenAnyIP(5197, o => o.Protocols = HttpProtocols.Http1);
+    k.ListenAnyIP(5198, o => o.Protocols = HttpProtocols.Http2);
 });
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend",

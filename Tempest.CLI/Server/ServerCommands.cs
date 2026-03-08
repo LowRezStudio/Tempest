@@ -16,7 +16,7 @@ internal class ServerCommands
         bool joinInProgress = false,
         bool publicServer = false,
         string? gamemode = null,
-        string servicesUrl = "https://localhost:7165",
+        string servicesUrl = "http://localhost:5198",
         int port = 50051,
         string? password = null,
         bool detach = false)
@@ -94,11 +94,11 @@ internal class ServerCommands
     public async Task Get(string id, string servicesUrl = "https://localhost:7165")
     {
         using var client = new ServerListClient(servicesUrl);
-        
+
         try
         {
             var server = await client.GetServerByIdAsync(id);
-            
+
             Console.WriteLine($"ID: {server.Id}");
             Console.WriteLine($"Name: {server.Name}");
             Console.WriteLine($"IP: {server.Ip}:{server.LobbyPort}");
