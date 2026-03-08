@@ -6,8 +6,10 @@
 		FolderOpen,
 		Gamepad2,
 		History,
+		PackageOpen,
 		Play,
 		RefreshCw,
+		RotateCcw,
 		Settings,
 		Square,
 		Tag,
@@ -23,10 +25,18 @@
 		createInstancePlatformsQuery,
 		createSetupInstanceMutation,
 	} from "$lib/queries/instance";
+	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { instanceMap, removeInstance, updateInstance } from "$lib/stores/instance";
 	import { processesList } from "$lib/stores/processes";
 	import { parseArgs } from "$lib/utils/args";
 	import type { Instance, InstancePlatform } from "$lib/types/instance";
+
+	const RIGBY_BASE_URL = "https://rigby.kyi.ro/chunks";
+	const RIGBY_MANIFEST_URL_TEMPLATE = "https://rigby.kyi.ro/manifests/{version}.manifest.json";
+
+	function isPre20Version(version: string): boolean {
+		return version.startsWith("0.") || version.startsWith("1.");
+	}
 
 	type ModItem = {
 		id: string;
@@ -53,6 +63,9 @@
 	const instance = $derived($instanceMap[page.params.id!]);
 	let isSettingUp = $derived(
 		(instance?.state as { type?: string } | undefined)?.type === "setup",
+	);
+	const canRestore = $derived(
+		instance?.version && instance?.path && isPre20Version(instance.version),
 	);
 
 	$effect(() => {
@@ -139,6 +152,20 @@
 	function handleRunSetup() {
 		if (!instance || isSettingUp) return;
 		void runSetup(instance);
+	}
+
+	function handleRestore() {
+		if (!instance?.version || !instance?.path || !canRestore) return;
+
+		restoreQueue.add({
+			manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{version}", instance.version)],
+			outDir: instance.path,
+			baseUrl: RIGBY_BASE_URL,
+		});
+
+		updateInstance(instance.id, {
+			state: { type: "downloading" } as unknown as Instance["state"],
+		});
 	}
 
 	async function openFolder() {
@@ -284,6 +311,14 @@
 									Run Setup
 								</button>
 							</li>
+							{#if canRestore}
+								<li role="menuitem">
+									<button onclick={handleRestore}>
+										<RotateCcw size={16} />
+										Verify
+									</button>
+								</li>
+							{/if}
 							<li role="menuitem">
 								<button onclick={openFolder}>
 									<FolderOpen size={16} />
@@ -339,67 +374,74 @@
 	<!-- Content Area -->
 	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
 		{#if activeTab === "content"}
-			<!-- Mod List -->
 			<div class="flex-1 overflow-y-auto">
-				<div class="px-4">
-					<table class="table">
-						<thead>
-							<tr>
-								<!-- <th class="w-12">
-									<input type="checkbox" class="checkbox checkbox-xs" />
-								</th> -->
-								<th>
-									<button class="flex items-center gap-1 font-semibold text-sm">
-										<span>Name</span>
-									</button>
-								</th>
-								<th class="w-48">Version</th>
-								<th class="w-auto text-right">
-									<button class="btn btn-ghost btn-sm">
-										<RefreshCw size={14} />
-										Refresh
-									</button>
-								</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each mods as mod (mod.id)}
-								<tr class="hover">
-									<!-- <td>
-										<input type="checkbox" class="checkbox checkbox-xs" />
-									</td> -->
-									<td>
-										<div class="flex items-center gap-3">
-											<div
-												class="w-10 h-10 rounded-lg bg-base-200 flex items-center justify-center shrink-0"
-											>
-												<Box size={20} class="opacity-60" />
-											</div>
-											<div class="flex-1 min-w-0">
-												<h3 class="font-bold text-sm truncate">
-													{mod.name}
-												</h3>
-												<p class="text-xs opacity-70">by {mod.author}</p>
-											</div>
-										</div>
-									</td>
-									<td>
-										<p class="font-semibold text-sm">{mod.version}</p>
-									</td>
-									<td>
-										<div class="flex items-center justify-end gap-1">
-											<button class="btn btn-error btn-sm btn-square">
-												<Trash2 size={14} />
-											</button>
-											<button class="btn btn-sm btn-square">
-												<EllipsisVertical size={14} />
-											</button>
-										</div>
-									</td>
+				<div class="px-4 py-6">
+					{#if mods.length === 0}
+						<div class="flex flex-col items-center justify-center h-64 gap-4">
+							<PackageOpen size={48} class="opacity-30" />
+							<p class="text-lg text-base-content/50">No content installed</p>
+							<p class="text-sm text-base-content/40">
+								Add mods to customize your instance
+							</p>
+						</div>
+					{:else}
+						<table class="table">
+							<thead>
+								<tr>
+									<th>
+										<button
+											class="flex items-center gap-1 font-semibold text-sm"
+										>
+											<span>Name</span>
+										</button>
+									</th>
+									<th class="w-48">Version</th>
+									<th class="w-auto text-right">
+										<button class="btn btn-ghost btn-sm">
+											<RefreshCw size={14} />
+											Refresh
+										</button>
+									</th>
 								</tr>
-							{/each}
-						</tbody>
-					</table>
+							</thead>
+							<tbody>
+								{#each mods as mod (mod.id)}
+									<tr class="hover">
+										<td>
+											<div class="flex items-center gap-3">
+												<div
+													class="w-10 h-10 rounded-lg bg-base-200 flex items-center justify-center shrink-0"
+												>
+													<Box size={20} class="opacity-60" />
+												</div>
+												<div class="flex-1 min-w-0">
+													<h3 class="font-bold text-sm truncate">
+														{mod.name}
+													</h3>
+													<p class="text-xs opacity-70">
+														by {mod.author}
+													</p>
+												</div>
+											</div>
+										</td>
+										<td>
+											<p class="font-semibold text-sm">{mod.version}</p>
+										</td>
+										<td>
+											<div class="flex items-center justify-end gap-1">
+												<button class="btn btn-error btn-sm btn-square">
+													<Trash2 size={14} />
+												</button>
+												<button class="btn btn-sm btn-square">
+													<EllipsisVertical size={14} />
+												</button>
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
 				</div>
 			</div>
 		{/if}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Library, Plus, Search, X } from "@lucide/svelte";
+	import { Boxes, Library, Plus, Search, X } from "@lucide/svelte";
 	import InstanceCard from "$lib/components/library/InstanceCard.svelte";
 	import { instanceMap } from "$lib/stores/instance";
 	import { instanceWizardOpen } from "$lib/stores/ui";
@@ -73,13 +73,16 @@
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">
 				{#if sortedInstances.length === 0}
-					<div class="flex flex-col items-center justify-center h-full gap-4">
+					<div class="flex flex-col items-center justify-center h-64 gap-4">
 						{#if searchQuery}
-							<p class="text-lg max-w-md truncate">
+							<Search size={48} class="opacity-30" />
+							<p class="text-lg text-base-content/50">
 								No instances found matching "{searchQuery}"
 							</p>
+							<p class="text-sm text-base-content/40">Try a different search term</p>
 						{:else}
-							<p class="text-lg">No instances yet</p>
+							<Boxes size={48} class="opacity-30" />
+							<p class="text-lg text-base-content/50">No instances yet</p>
 							<button
 								class="btn btn-accent gap-2"
 								onclick={() => instanceWizardOpen.set(true)}

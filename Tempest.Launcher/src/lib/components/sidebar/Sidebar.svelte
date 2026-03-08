@@ -1,5 +1,15 @@
 <script lang="ts">
-	import { Box, Compass, House, Library, Plus, Server, Settings, User } from "@lucide/svelte";
+	import {
+		Box,
+		Compass,
+		Download,
+		House,
+		Library,
+		Plus,
+		Server,
+		Settings,
+		User,
+	} from "@lucide/svelte";
 	import { page } from "$app/state";
 	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { lobbyHost } from "$lib/stores/lobby";
@@ -11,6 +21,7 @@
 	<nav class="flex flex-col gap-2">
 		<SidebarItem href="/" icon={House} label="Home" />
 		<SidebarItem href="/library" icon={Library} label="Library" />
+		<SidebarItem href="/downloads" icon={Download} label="Downloads" />
 		<SidebarItem href="/servers" icon={Server} label="Servers" />
 		{#if $lobbyHost}
 			<SidebarItem href="/lobby" icon={Compass} label="Lobby" />
@@ -20,7 +31,7 @@
 	<div class="divider mx-4 my-4 opacity-50"></div>
 
 	<div class="flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none">
-		{#each Object.values($instanceMap) as instance}
+		{#each Object.values($instanceMap).filter((i) => i.state?.type === "prepared") as instance}
 			<SidebarItem
 				icon={Box}
 				label={instance.label}

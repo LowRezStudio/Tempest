@@ -1,6 +1,6 @@
 namespace Tempest.CLI.Rigby.Events;
 
-internal sealed record RigbyCompleteEvent(
+public sealed record RigbyCompleteEvent(
     string Type,
     int Files,
     string OutDir,

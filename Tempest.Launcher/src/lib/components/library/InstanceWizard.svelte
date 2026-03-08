@@ -10,9 +10,17 @@
 		createDefaultInstancePathQuery,
 		createSetupInstanceMutation,
 	} from "$lib/queries/instance";
+	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { addInstance, updateInstance } from "$lib/stores/instance";
 	import { defaultInstancePath } from "$lib/stores/settings";
 	import type { Instance, InstanceState } from "$lib/types/instance";
+
+	const RIGBY_BASE_URL = "https://rigby.kyi.ro/chunks";
+	const RIGBY_MANIFEST_URL_TEMPLATE = "https://rigby.kyi.ro/manifests/{version}.manifest.json";
+
+	function isPre20Version(version: string): boolean {
+		return version.startsWith("0.") || version.startsWith("1.");
+	}
 
 	interface Props {
 		open?: boolean;
@@ -39,6 +47,10 @@
 	let hasDetected = $state(false);
 
 	const selectedVersion = $derived(flatVersions.find((v) => v.id === selectedVersionId));
+
+	const supportsCloudDownload = $derived(
+		selectedVersion?.version && isPre20Version(selectedVersion.version),
+	);
 
 	const isValid = $derived(
 		selectedTab === "download" ? !!selectedVersionId : (
@@ -111,6 +123,37 @@
 		if (!isValid) return;
 
 		const instancePath = await getInstancePath();
+
+		if (selectedTab === "download") {
+			if (!selectedVersion?.version || !supportsCloudDownload) return;
+
+			const newInstance: Instance = {
+				id: crypto.randomUUID(),
+				label: selectedName || `${selectedVersion.version} - ${selectedVersion.name}`,
+				version: selectedVersion.version,
+				path: instancePath,
+				launchOptions: {
+					dllList: [],
+					args: [],
+					noDefaultArgs: false,
+					log: false,
+				},
+				state: { type: "downloading" } as unknown as InstanceState,
+			};
+
+			addInstance(newInstance);
+
+			restoreQueue.add({
+				manifests: [
+					RIGBY_MANIFEST_URL_TEMPLATE.replace("{version}", selectedVersion.version),
+				],
+				outDir: instancePath,
+				baseUrl: RIGBY_BASE_URL,
+			});
+
+			open = false;
+			return;
+		}
 
 		if (selectedTab === "folder" && !selectedVersionId) {
 			await performDetection(instancePath);
@@ -358,12 +401,14 @@
 				<button class="btn btn-ghost" onclick={() => (open = false)}>Cancel</button>
 				<button
 					class="btn btn-accent"
-					disabled={!isValid || isDetecting || selectedTab === "download"}
+					disabled={!isValid ||
+						isDetecting ||
+						(selectedTab === "download" && !supportsCloudDownload)}
 					onclick={handleCreate}
 				>
 					{#if selectedTab === "download"}
 						<CloudDownload size={16} />
-						Download & Create
+						{supportsCloudDownload ? "Download & Create" : "Not Available"}
 					{:else if isDetecting}
 						<Loader2 size={16} class="animate-spin" />
 						Identifying...

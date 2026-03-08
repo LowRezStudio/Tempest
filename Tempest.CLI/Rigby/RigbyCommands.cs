@@ -61,7 +61,7 @@ internal sealed class RigbyCommands
             }
         }
 
-        var stats = await RunRestoreAsync(tasks, chunksRootFull, baseUrl, noDownload, http, cancellationToken);
+        var stats = await RunRestoreAsync(tasks, chunksRootFull, baseUrl, noDownload, json, http, cancellationToken);
         var deletedFiles = RigbyOutputLayout.DeleteUnexpectedFiles(outRoot, expectedFiles);
 
         if (json)
@@ -91,6 +91,7 @@ internal sealed class RigbyCommands
         string? chunksRoot,
         string? baseUrl,
         bool noDownload,
+        bool json,
         HttpClient http,
         CancellationToken cancellationToken)
     {
@@ -100,7 +101,9 @@ internal sealed class RigbyCommands
         if (totalFiles == 0)
             return stats;
 
-        using IRestoreProgress progress = new RestoreProgress(totalFiles, totalBytes);
+        using IRestoreProgress progress = json
+            ? new JsonRestoreProgress(totalFiles, totalBytes)
+            : new RestoreProgress(totalFiles, totalBytes);
 
         await Parallel.ForEachAsync(
             tasks,
