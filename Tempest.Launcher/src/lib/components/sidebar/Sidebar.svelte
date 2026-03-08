@@ -11,7 +11,6 @@
 	<nav class="flex flex-col gap-2">
 		<SidebarItem href="/" icon={House} label="Home" />
 		<SidebarItem href="/library" icon={Library} label="Library" />
-		<SidebarItem href="/character-select" icon={Compass} label="Champions" />
 		<SidebarItem href="/servers" icon={Server} label="Servers" />
 		{#if $lobbyHost}
 			<SidebarItem href="/lobby" icon={Compass} label="Lobby" />

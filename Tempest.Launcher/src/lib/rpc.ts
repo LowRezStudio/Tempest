@@ -26,8 +26,12 @@ export function getConnectionToServer(host: string) {
 					if (!options.meta) {
 						options.meta = {};
 					}
-					if (ticket.get()) {
-						options.meta["x-ticket"] = ticket.get();
+					const ticketValue = ticket.get();
+					if (ticketValue) {
+						console.log("Adding x-ticket to request:", method.name, ticketValue);
+						options.meta["x-ticket"] = ticketValue;
+					} else {
+						console.warn("No ticket available for request:", method.name);
 					}
 
 					return next(method, input, options);

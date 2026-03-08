@@ -19,9 +19,9 @@ internal class ServerCommands
         string servicesUrl = "http://localhost:5198",
         int port = 50051,
         string? password = null,
-        bool detach = false)
+        bool detach = false,
+        CancellationToken cancellationToken = default)
     {
-        // Create and start embedded gRPC + HTTP status server
         var options = new LobbyServerOptions
         {
             Name = name,
@@ -46,19 +46,18 @@ internal class ServerCommands
 
         if (detach)
         {
-            // Detach immediately; background server keeps running until process exit.
             return;
         }
 
-        var tcs = new TaskCompletionSource();
-        Console.CancelKeyPress += (_, e) =>
+        try
         {
-            e.Cancel = true;
-            if (!tcs.Task.IsCompleted)
-                tcs.SetResult();
-        };
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("Shutting down...");
+        }
 
-        await tcs.Task;
         await server.StopAsync();
     }
 

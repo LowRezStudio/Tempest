@@ -1,7 +1,7 @@
 <script lang="ts">
-	//OB57 map list
-	//TODO add all maps and version information
+	import { Check, Map } from "@lucide/svelte";
 	import maps from "$lib/data/maps.json";
+	import { playerId, players } from "$lib/lobby/stores";
 
 	interface PaladinsMap {
 		id: string;
@@ -13,115 +13,130 @@
 	interface Props {
 		onselect?: (map: PaladinsMap) => void;
 		selectMode?: "vote" | "select";
-		votes?: Record<string, string>; //playerId --> mapId
+		votes?: Record<string, string>;
 	}
 
-	let { onselect, selectMode, votes }: Props = $props();
+	let { onselect, selectMode = "select", votes }: Props = $props();
 
-	let selectedMap = $state<PaladinsMap | null>(null);
-	let hoveredMap = $state<PaladinsMap | null>(null);
+	let selectedMapId = $state<string | null>(null);
+
+	function getVoteCount(mapId: string): number {
+		if (!votes) return 0;
+		return Object.values(votes).filter((v) => v === mapId).length;
+	}
+
+	function getTotalVotes(): number {
+		if (!votes) return 0;
+		return Object.keys(votes).length;
+	}
+
+	function getVotersForMap(mapId: string): { id: string; displayName: string }[] {
+		if (!votes || !$players) return [];
+		return Object.entries(votes)
+			.filter(([_, votedMapId]) => votedMapId === mapId)
+			.map(([voterId]) => {
+				const player = $players.find((p) => p.id === voterId);
+				return player ? { id: player.id, displayName: player.displayName } : null;
+			})
+			.filter((p): p is { id: string; displayName: string } => p !== null);
+	}
+
+	function isVotedByCurrentPlayer(mapId: string): boolean {
+		if (!votes || !$playerId) return false;
+		return votes[$playerId] === mapId;
+	}
 
 	function handleMapClick(map: PaladinsMap) {
-		selectedMap = map;
+		console.log("Map clicked:", map.id);
+		selectedMapId = map.id;
 		onselect?.(map);
 	}
 
-	function handleMapHover(map: PaladinsMap | null) {
-		hoveredMap = map;
-	}
+	$effect(() => {
+		if (votes && $playerId && votes[$playerId]) {
+			selectedMapId = votes[$playerId];
+		}
+	});
 </script>
 
-<div class="relative h-full w-full overflow-hidden bg-base-200">
-	<!-- Fullscreen Background -->
-	<div class="absolute inset-0">
-		<video
-			src="/champions/empty.webm"
-			class="h-full w-full object-cover blur-xs"
-			loop
-			muted
-			playsinline
-			autoplay
-		></video>
-	</div>
-	<!-- Content Layer -->
-	<div class="relative z-10 flex h-full flex-col">
-		<!-- Header -->
-		<div class="p-8 pb-2 text-center">
-			<h1
-				class="text-4xl font-bold text-white"
-				style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
+<div class="h-full w-full overflow-y-auto flex items-center">
+	<div
+		class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-4 auto-rows-fr w-full"
+	>
+		{#each maps as map (map.id)}
+			{@const voteCount = getVoteCount(map.id)}
+			{@const totalVotes = getTotalVotes()}
+			{@const voters = getVotersForMap(map.id)}
+			{@const isVotedByMe = isVotedByCurrentPlayer(map.id)}
+			{@const votePercent = totalVotes > 0 ? (voteCount / totalVotes) * 100 : 0}
+			<button
+				type="button"
+				class="group relative rounded-xl overflow-hidden bg-base-200 transition-all duration-150 cursor-pointer hover:bg-base-300 active:scale-[0.98] {(
+					isVotedByMe
+				) ?
+					'ring-2 ring-accent'
+				:	''}"
+				onclick={() => handleMapClick(map)}
 			>
-				{selectMode == "vote" ? "Vote for the map" : "Select the map"}
-			</h1>
-		</div>
+				<div class="aspect-[16/10] relative overflow-hidden">
+					<img
+						src={map.iconPath}
+						alt={map.displayName}
+						class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+						loading="lazy"
+					/>
+					<div
+						class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"
+					></div>
 
-		<div class="relative flex flex-1 flex-col items-center">
-			<div
-				class="max-h-[80vh] relative z-10 grid max-w-7xl grid-cols-3 overflow-y-auto p-4 pb-1 scrollbar-hide md:grid-cols-3 lg:grid-cols-4"
-			>
-				{#each maps as map (map.id)}
-					<button
-						type="button"
-						class={[
-							"overflow-hidden border-2 p-0 transition-all duration-200",
-							"hover:scale-110 hover:shadow-xl",
-							"m-2 lg:m-4 relative",
-							selectedMap?.id === map.id ?
-								"border-lime-200 ring-3 ring-lime-200 shadow-xl"
-							: hoveredMap?.id === map.id ? "border-white/50 ring-3 ring-white/50"
-							: "border-base-300",
-						]}
-						onclick={() => handleMapClick(map)}
-						onmouseenter={() => handleMapHover(map)}
-						onmouseleave={() => handleMapHover(null)}
-					>
-						<img
-							src={map.iconPath}
-							alt={map.displayName}
-							class="h-full w-full object-cover"
-							loading="lazy"
-						/>
-						<p
-							class="absolute top-0 bg-gradient-to-r from-black/90 via-black/60 to-black/0 w-full text-left"
-						>
-							{map.displayName}
-						</p>
-						{#if selectMode == "vote"}
-							<p
-								class="absolute right-3 bottom-2 rounded-full bg-black w-7 h-7 flex justify-center items-center"
+					{#if selectMode === "vote" && voteCount > 0}
+						<div class="absolute top-2 left-2">
+							<div
+								class="bg-black/60 backdrop-blur-xs rounded-full px-2 py-1 flex items-center gap-1"
 							>
-								{votes ? Object.values(votes).filter((m) => m == map.id).length : 0}
-							</p>
-						{/if}
-					</button>
-				{/each}
-			</div>
-		</div>
+								<span class="text-white text-xs font-bold">{voteCount}</span>
+							</div>
+						</div>
+					{/if}
 
-		{#if selectMode == "select"}
-			<!-- Confirm Button -->
-			<div class="relative w-full pb-8 pt-4 text-center">
-				<!-- Bottom gradient blur -->
-				<div class="pointer-events-none absolute bottom-0 left-0 right-0 h-64">
-					<div
-						class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"
-					></div>
-					<div
-						class="absolute inset-0"
-						style="backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); mask-image: linear-gradient(to top, black, transparent); -webkit-mask-image: linear-gradient(to top, black, transparent);"
-					></div>
+					{#if isVotedByMe}
+						<div class="absolute top-2 right-2">
+							<div class="bg-accent text-accent-content rounded-full p-1">
+								<Check size={12} />
+							</div>
+						</div>
+					{/if}
+
+					<div class="absolute bottom-0 left-0 right-0 p-3">
+						<p class="font-bold text-white text-base truncate">{map.displayName}</p>
+						<p class="text-sm text-white/70">{map.mode}</p>
+					</div>
 				</div>
 
-				<button
-					type="button"
-					class="btn btn-lg relative z-10 shadow-xl"
-					class:btn-accent={selectedMap}
-					class:btn-disabled={!selectedMap}
-					disabled={!selectedMap}
-				>
-					Confirm Selection
-				</button>
-			</div>
-		{/if}
+				{#if selectMode === "vote"}
+					<div class="relative h-1 bg-base-300">
+						<div
+							class="absolute inset-y-0 left-0 bg-accent transition-all duration-300"
+							style="width: {votePercent}%"
+						></div>
+					</div>
+					<div class="h-10 p-2 flex items-center gap-1.5 bg-base-300/50">
+						{#if voters.length > 0}
+							{#each voters.slice(0, 5) as voter (voter.id)}
+								<div
+									class="w-6 h-6 rounded-full bg-base-300 flex items-center justify-center text-xs font-semibold"
+									title={voter.displayName}
+								>
+									{voter.displayName.charAt(0).toUpperCase()}
+								</div>
+							{/each}
+							{#if voters.length > 5}
+								<span class="text-xs opacity-70 ml-1">+{voters.length - 5}</span>
+							{/if}
+						{/if}
+					</div>
+				{/if}
+			</button>
+		{/each}
 	</div>
 </div>
