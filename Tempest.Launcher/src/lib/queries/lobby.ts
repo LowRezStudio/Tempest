@@ -10,26 +10,29 @@ export const createLaunchLobbyMutation = () =>
 
 export const createLeaveLobbyMutation = (client: LobbyClient) =>
 	createMutation(() => ({
-		mutationFn: () => client.leaveLobby({}).response
-	}))
+		mutationFn: () => client.leaveLobby({}).response,
+	}));
 
 export const createSendChatMessageMutation = (client: LobbyClient) =>
 	createMutation(() => ({
-		mutationFn: (chatboxText: string) => client.sendChatMessage({
-			content: chatboxText,
-		}).response
-	}))
+		mutationFn: (chatboxText: string) =>
+			client.sendChatMessage({
+				content: chatboxText,
+			}).response,
+	}));
 
 export const createChampionSelectMutation = (client: LobbyClient) =>
 	createMutation(() => ({
-		mutationFn: (championName: string) => client.championSelect({
-			name: championName,
-		}).response
-	}))
+		mutationFn: (championName: string) =>
+			client.championSelect({
+				name: championName,
+			}).response,
+	}));
 
 export const createMapSelectMutation = (client: LobbyClient) =>
 	createMutation(() => ({
-		mutationFn: (mapId: string) => client.mapVote({
-			mapId: mapId,
-		}).response
-	}))
+		mutationFn: (mapId: string) =>
+			client.mapVote({
+				mapId: mapId,
+			}).response,
+	}));

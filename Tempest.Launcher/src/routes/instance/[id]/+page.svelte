@@ -64,7 +64,7 @@
 	let editVersion = $state("");
 	let editPath = $state("");
 	let editPlatform = $state<InstancePlatform>("Win64");
-let editArgs = $state<string[]>([]);
+	let editArgs = $state<string[]>([]);
 	let argsInput = $state("");
 
 	function addArgs() {
@@ -500,9 +500,7 @@ let editArgs = $state<string[]>([]);
 						{/each}
 					</div>
 				{/if}
-				<p class="text-xs opacity-60">
-					Space-separated arguments.
-				</p>
+				<p class="text-xs opacity-60">Space-separated arguments.</p>
 			</div>
 		</div>
 

@@ -11,10 +11,10 @@ const transport = new GrpcWebFetchTransport({
 });
 export const serverList = new ServerListClient(transport);
 
-const connectionCache: Record<string, LobbyClient> = {}
+const connectionCache: Record<string, LobbyClient> = {};
 export function getConnectionToServer(host: string) {
 	if (host in connectionCache) {
-		return connectionCache[host]
+		return connectionCache[host];
 	}
 	const transport = new GrpcWebFetchTransport({
 		baseUrl: host,
@@ -34,10 +34,10 @@ export function getConnectionToServer(host: string) {
 				},
 			},
 		],
-	})
-	const client = new LobbyClient(transport)
-	connectionCache[host] = client
-	return client
+	});
+	const client = new LobbyClient(transport);
+	connectionCache[host] = client;
+	return client;
 }
 export * from "./rpc/common/country";
 
