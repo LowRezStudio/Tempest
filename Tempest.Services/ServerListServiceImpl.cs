@@ -35,11 +35,14 @@ public class ServerListServiceImpl : ServerList.ServerListBase
             Spectators = 0
         };
 
-        _store.Add(server);
+        var id = _store.Add(server);
 
         return Task.FromResult(new CreateLobbyResponse
         {
-            Success = new CreateLobbySuccess()
+            Success = new CreateLobbySuccess
+            {
+                Id = id+""
+            }
         });
     }
 
@@ -51,20 +54,37 @@ public class ServerListServiceImpl : ServerList.ServerListBase
         }
     }
 
-    public override Task<ServerListing> GetServerById(GetServerByIdRequest request, ServerCallContext context)
+    public override Task<GetServerByIdResponse> GetServerById(GetServerByIdRequest request, ServerCallContext context)
     {
         if (!ulong.TryParse(request.Id, out var id))
         {
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid server ID"));
+            return Task.FromResult(new GetServerByIdResponse
+            {
+                Error = new GetServerByIdError
+                {
+                    Code = GetServerByIdErrorCode.InvalidId,
+                    Message = $"Invalid id {request.Id}"
+                }
+            });
         }
 
         var server = _store.Get(id);
         if (server == null)
         {
-            throw new RpcException(new Status(StatusCode.NotFound, "Server not found"));
+            return Task.FromResult(new GetServerByIdResponse
+            {
+                Error = new GetServerByIdError
+                {
+                    Code = GetServerByIdErrorCode.IdNotFound,
+                    Message = "Server not found"
+                }
+            });
         }
 
-        return Task.FromResult(server);
+        return Task.FromResult(new GetServerByIdResponse
+        {
+            Success = server
+        });
     }
 
     public override Task<HeartbeatLobbyResponse> HeartbeatLobby(HeartbeatLobbyRequest request, ServerCallContext context)
