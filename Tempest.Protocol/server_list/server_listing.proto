@@ -6,7 +6,7 @@ import "common/country.proto";
 import "google/protobuf/timestamp.proto";
 
 message ServerListing {
-  uint64 id = 1;
+  string id = 1;
   string ip = 2;
   uint32 lobby_port = 3;
   string name = 4;

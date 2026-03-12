@@ -41,7 +41,7 @@ public class ServerListServiceImpl : ServerList.ServerListBase
         {
             Success = new CreateLobbySuccess
             {
-                Id = id+""
+                Id = id
             }
         });
     }
@@ -56,19 +56,7 @@ public class ServerListServiceImpl : ServerList.ServerListBase
 
     public override Task<GetServerByIdResponse> GetServerById(GetServerByIdRequest request, ServerCallContext context)
     {
-        if (!ulong.TryParse(request.Id, out var id))
-        {
-            return Task.FromResult(new GetServerByIdResponse
-            {
-                Error = new GetServerByIdError
-                {
-                    Code = GetServerByIdErrorCode.InvalidId,
-                    Message = $"Invalid id {request.Id}"
-                }
-            });
-        }
-
-        var server = _store.Get(id);
+        var server = _store.Get(request.Id);
         if (server == null)
         {
             return Task.FromResult(new GetServerByIdResponse

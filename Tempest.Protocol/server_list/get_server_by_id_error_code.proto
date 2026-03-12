@@ -4,6 +4,5 @@ option csharp_namespace = "Tempest.Protocol.ServerList";
 
 enum GetServerByIdErrorCode {
   GET_SERVER_BY_ID_ERROR_CODE_UNSPECIFIED = 0;
-  INVALID_ID = 1;
-  ID_NOT_FOUND = 2;
+  ID_NOT_FOUND = 1;
 }
