@@ -10,17 +10,15 @@
 		createDefaultInstancePathQuery,
 		createSetupInstanceMutation,
 	} from "$lib/queries/instance";
+	import {
+		isPre20Version,
+		RIGBY_BASE_URL,
+		RIGBY_MANIFEST_URL_TEMPLATE,
+	} from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { addInstance, updateInstance } from "$lib/stores/instance";
 	import { defaultInstancePath } from "$lib/stores/settings";
 	import type { Instance, InstanceState } from "$lib/types/instance";
-
-	const RIGBY_BASE_URL = "https://rigby.kyi.ro/chunks";
-	const RIGBY_MANIFEST_URL_TEMPLATE = "https://rigby.kyi.ro/manifests/{version}.manifest.json";
-
-	function isPre20Version(version: string): boolean {
-		return version.startsWith("0.") || version.startsWith("1.");
-	}
 
 	interface Props {
 		open?: boolean;

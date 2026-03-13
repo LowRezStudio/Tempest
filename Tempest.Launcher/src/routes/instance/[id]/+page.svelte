@@ -3,40 +3,25 @@
 		Box,
 		EllipsisVertical,
 		Folder,
-		FolderOpen,
 		Gamepad2,
-		History,
 		PackageOpen,
 		Play,
 		RefreshCw,
-		RotateCcw,
 		Settings,
 		Square,
-		Tag,
 		Trash2,
 	} from "@lucide/svelte";
-	import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
-	import { revealItemInDir } from "@tauri-apps/plugin-opener";
+	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
+	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
-	import {
-		createInstancePlatformsQuery,
-		createSetupInstanceMutation,
-	} from "$lib/queries/instance";
-	import { restoreQueue } from "$lib/rigby/restore-queue";
-	import { instanceMap, removeInstance, updateInstance } from "$lib/stores/instance";
+	import { createInstancePlatformsQuery } from "$lib/queries/instance";
+	import { instanceMap, updateInstance } from "$lib/stores/instance";
 	import { processesList } from "$lib/stores/processes";
 	import { parseArgs } from "$lib/utils/args";
-	import type { Instance, InstancePlatform } from "$lib/types/instance";
-
-	const RIGBY_BASE_URL = "https://rigby.kyi.ro/chunks";
-	const RIGBY_MANIFEST_URL_TEMPLATE = "https://rigby.kyi.ro/manifests/{version}.manifest.json";
-
-	function isPre20Version(version: string): boolean {
-		return version.startsWith("0.") || version.startsWith("1.");
-	}
+	import type { InstancePlatform } from "$lib/types/instance";
 
 	type ModItem = {
 		id: string;
@@ -49,7 +34,6 @@
 
 	let activeTab = $state<"content">("content");
 
-	// Mock data
 	const mods = $state<ModItem[]>([
 		{
 			id: "1",
@@ -63,9 +47,6 @@
 	const instance = $derived($instanceMap[page.params.id!]);
 	let isSettingUp = $derived(
 		(instance?.state as { type?: string } | undefined)?.type === "setup",
-	);
-	const canRestore = $derived(
-		instance?.version && instance?.path && isPre20Version(instance.version),
 	);
 
 	$effect(() => {
@@ -134,59 +115,6 @@
 		isSettingsModalOpen = false;
 	}
 
-	const runSetup = async (targetInstance: Instance) => {
-		updateInstance(targetInstance.id, {
-			state: { type: "setup" } as unknown as Instance["state"],
-		});
-		try {
-			await setupInstanceMutation.mutateAsync(targetInstance);
-		} catch (error) {
-			console.error("Instance setup failed:", error);
-		} finally {
-			updateInstance(targetInstance.id, {
-				state: { type: "prepared" } as unknown as Instance["state"],
-			});
-		}
-	};
-
-	function handleRunSetup() {
-		if (!instance || isSettingUp) return;
-		void runSetup(instance);
-	}
-
-	function handleRestore() {
-		if (!instance?.version || !instance?.path || !canRestore) return;
-
-		restoreQueue.add({
-			manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{version}", instance.version)],
-			outDir: instance.path,
-			baseUrl: RIGBY_BASE_URL,
-		});
-
-		updateInstance(instance.id, {
-			state: { type: "downloading" } as unknown as Instance["state"],
-		});
-	}
-
-	async function openFolder() {
-		if (!instance?.path) return;
-		await revealItemInDir(instance.path);
-	}
-
-	async function deleteInstance() {
-		if (!instance) return;
-
-		const confirmed = await ask(`Are you sure you want to delete "${instance.label}"?`, {
-			title: "Delete Instance",
-			kind: "warning",
-		});
-
-		if (confirmed) {
-			removeInstance(instance.id);
-			goto("/library");
-		}
-	}
-
 	async function handleBrowse() {
 		const result = await openDialog({
 			directory: true,
@@ -202,7 +130,6 @@
 	let isRunning = $derived($processesList.some((p) => p.instance?.id === instance?.id));
 	const launchGameMutation = createLaunchGameMutation();
 	const killGameMutation = createKillGameMutation();
-	const setupInstanceMutation = createSetupInstanceMutation();
 	let isLaunching = $derived(launchGameMutation.isPending);
 	let isKilling = $derived(killGameMutation.isPending);
 	let launchError = $derived(launchGameMutation.error?.message ?? "");
@@ -296,43 +223,9 @@
 					<button class="btn btn-square" onclick={openSettings}>
 						<Settings size={16} />
 					</button>
-					<div class="dropdown dropdown-end">
-						<div tabindex="0" role="button" class="btn btn-square">
-							<EllipsisVertical size={16} />
-						</div>
-						<ul
-							tabindex="0"
-							role="menu"
-							class="dropdown-content menu bg-base-300 rounded-box z-1 w-52 p-2 shadow-sm"
-						>
-							<li role="menuitem">
-								<button onclick={handleRunSetup} disabled={isSettingUp}>
-									<RefreshCw size={16} />
-									Run Setup
-								</button>
-							</li>
-							{#if canRestore}
-								<li role="menuitem">
-									<button onclick={handleRestore}>
-										<RotateCcw size={16} />
-										Verify
-									</button>
-								</li>
-							{/if}
-							<li role="menuitem">
-								<button onclick={openFolder}>
-									<FolderOpen size={16} />
-									Browse Folder
-								</button>
-							</li>
-							<li role="menuitem">
-								<button class="text-error" onclick={deleteInstance}>
-									<Trash2 size={16} />
-									Delete Instance
-								</button>
-							</li>
-						</ul>
-					</div>
+					{#if instance}
+						<InstanceMenu {instance} />
+					{/if}
 				</div>
 			</div>
 			{#if launchError}

@@ -2,6 +2,7 @@ import { createCommand } from "$lib/core/command";
 import { instanceMap, updateInstance } from "$lib/stores/instance";
 import { queueCurrentIndex, queueItems, queueRunning } from "./stores";
 import type { QueueItem } from "./stores";
+import type { Child } from "@tauri-apps/plugin-shell";
 import type { ArgumentType } from "$lib/core/command";
 import type { Instance } from "$lib/types/instance";
 
@@ -26,6 +27,8 @@ resetRunningItems();
 
 export class RestoreQueue {
 	private processing = false;
+	private runningChild: Child | null = null;
+	private runningOutDir: string | null = null;
 
 	add(options: Omit<QueueItem, "id" | "status" | "result" | "error">): string {
 		const item: QueueItem = {
@@ -90,6 +93,32 @@ export class RestoreQueue {
 		queueRunning.set(false);
 	}
 
+	cancel(outDir: string): void {
+		if (this.runningOutDir === outDir && this.runningChild) {
+			void this.runningChild.kill();
+			this.runningChild = null;
+			this.runningOutDir = null;
+		}
+
+		const items = queueItems.get();
+		const newItems = items.filter((item) => item.outDir !== outDir);
+		queueItems.set(newItems);
+
+		const instance = Object.values(instanceMap.get()).find((inst) => inst?.path === outDir) as
+			| Instance
+			| undefined;
+		if (instance?.id) {
+			updateInstance(instance.id, {
+				state: { type: "prepared" } as unknown as Instance["state"],
+			});
+		}
+
+		if (this.processing) {
+			this.processing = false;
+			this.processNext();
+		}
+	}
+
 	private async processNext(): Promise<void> {
 		if (!queueRunning.get() || this.processing) return;
 
@@ -142,6 +171,7 @@ export class RestoreQueue {
 
 		try {
 			const command = createCommand(args);
+			this.runningOutDir = item.outDir;
 			let stdout = "";
 			let stderr = "";
 
@@ -187,6 +217,8 @@ export class RestoreQueue {
 			});
 
 			command.on("close", (data) => {
+				this.runningChild = null;
+				this.runningOutDir = null;
 				console.log(
 					"Restore close:",
 					data.code,
@@ -232,7 +264,7 @@ export class RestoreQueue {
 				}
 			});
 
-			await command.spawn();
+			this.runningChild = await command.spawn();
 		} catch (error) {
 			console.error("Restore exception:", error);
 			this.updateItem(item.id, {

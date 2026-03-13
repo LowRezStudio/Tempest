@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Box } from "@lucide/svelte";
+	import { goto } from "$app/navigation";
 	import { queueItems } from "$lib/rigby/stores";
+	import InstanceMenu from "./InstanceMenu.svelte";
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
@@ -17,10 +19,16 @@
 	);
 
 	let downloadProgress = $derived(queueItem?.progress?.percent ?? 0);
+
+	function handleCardClick(e: MouseEvent) {
+		const target = e.target as Element;
+		if (target.closest("details.dropdown") || target.closest("dialog")) return;
+		goto(`/instance/${instance.id}`);
+	}
 </script>
 
 {#if isDownloading}
-	<div class="bg-base-200 rounded-lg p-4 cursor-not-allowed opacity-80">
+	<div class="bg-base-200 rounded-lg p-4 opacity-80">
 		<div class="flex items-center gap-3">
 			<div
 				class="w-12 h-12 rounded-lg bg-base-100 flex items-center justify-center shrink-0 overflow-hidden"
@@ -52,12 +60,18 @@
 					{/if}
 				</div>
 			</div>
+			<InstanceMenu {instance} />
 		</div>
 	</div>
 {:else}
-	<a
-		class="bg-base-200 hover:bg-base-300 rounded-lg transition-all duration-200 cursor-pointer p-4 text-left"
-		href={`/instance/${instance.id}`}
+	<div
+		class="bg-base-200 hover:bg-base-300 rounded-lg transition-all duration-200 p-4 text-left cursor-pointer"
+		onclick={handleCardClick}
+		role="link"
+		tabindex="0"
+		onkeydown={(e) => {
+			if (e.key === "Enter" || e.key === " ") handleCardClick(e as unknown as MouseEvent);
+		}}
 	>
 		<div class="flex items-center gap-3">
 			<div
@@ -83,6 +97,7 @@
 					{/if}
 				</div>
 			</div>
+			<InstanceMenu {instance} />
 		</div>
-	</a>
+	</div>
 {/if}
