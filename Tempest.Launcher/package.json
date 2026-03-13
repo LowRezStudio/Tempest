@@ -10,7 +10,7 @@
 		"prepare": "cd .. && husky Tempest.Launcher/.husky",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"proto-generate": "node generate-proto.js",
+		"proto-generate": "node scripts/generate-proto.js",
 		"tauri": "tauri",
 		"dprint": "dprint",
 		"fmt": "prettier --write .",
