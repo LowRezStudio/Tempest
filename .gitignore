@@ -8,3 +8,4 @@ riderModule.iml
 zig-out
 .zig-cache
 .DS_Store
+.vs
