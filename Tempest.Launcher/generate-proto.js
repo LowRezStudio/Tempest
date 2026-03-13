@@ -1,29 +1,26 @@
-import { execSync } from "child_process";
-import { existsSync, mkdirSync, rmSync } from "fs";
-import { globSync } from "glob";
+import { glob, mkdir, rm } from "fs/promises";
+import { join } from "path";
+import $ from "dax";
 
-//A cross-platform script to generate code from the .proto definitions
 const outDir = "src/lib/rpc";
-if (existsSync(outDir)) {
-	rmSync(outDir, { recursive: true, force: true });
-}
-mkdirSync(outDir);
 
-const protoFiles = globSync("../Tempest.Protocol/**/*.proto").join(" ");
-if (!protoFiles) {
+await rm(outDir, { recursive: true, force: true });
+await mkdir(outDir, { recursive: true });
+
+const protoFiles = [];
+for await (const f of glob("**/*.proto", {
+	cwd: join(import.meta.dirname, "../Tempest.Protocol"),
+})) {
+	protoFiles.push(f);
+}
+const protoFilesStr = protoFiles.join(" ");
+if (!protoFilesStr) {
 	console.error("No proto files found!");
 	process.exit(1);
 }
 
-const protocCmd = `protoc --ts_out ${outDir} --ts_opt server_none --proto_path ../Tempest.Protocol ${protoFiles}`;
-const prettierCmd = `prettier --write "${outDir}/**/*.ts"`;
+console.log("Generating code from .proto files");
+await $`pnpm exec protoc --ts_out ${outDir} --ts_opt server_none --proto_path ../Tempest.Protocol ${$.rawArg(protoFilesStr)}`;
 
-try {
-	console.log("Generating code from .proto files");
-	execSync(protocCmd, { stdio: "inherit" });
-	console.log("Running prettier on the generated files");
-	execSync(prettierCmd, { stdio: "inherit" });
-} catch (error) {
-	console.error("Generation failed:", error.message);
-	process.exit(1);
-}
+console.log("Running prettier on the generated files");
+await $`pnpm exec prettier --write ${outDir}/**/*.ts`;

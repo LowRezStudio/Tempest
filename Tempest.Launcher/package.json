@@ -45,7 +45,7 @@
 		"@tauri-apps/plugin-sql": "~2.3.2",
 		"country-flag-emoji-polyfill": "^0.1.8",
 		"daisyui": "^5.5.14",
-		"glob": "^13.0.6",
+		"dax": "^0.45.0",
 		"husky": "^9.1.7",
 		"nanostores": "^1.1.0",
 		"oxlint": "^1.35.0",

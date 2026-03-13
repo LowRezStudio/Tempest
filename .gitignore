@@ -9,3 +9,4 @@ zig-out
 .zig-cache
 .DS_Store
 .vs
+Properties/launchSettings.json
