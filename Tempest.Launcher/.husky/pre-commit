@@ -1,2 +1,2 @@
 cd Tempest.Launcher && pnpm fmt
-git add -A
+git add --update
