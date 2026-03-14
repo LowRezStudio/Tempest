@@ -3,6 +3,8 @@
 	import { remove } from "@tauri-apps/plugin-fs";
 	import { revealItemInDir } from "@tauri-apps/plugin-opener";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
+	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
+	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { createSetupInstanceMutation } from "$lib/queries/instance";
 	import {
 		isPre20Version,
@@ -22,11 +24,6 @@
 	let { instance, trigger }: Props = $props();
 
 	let showDeleteConfirm = $state(false);
-	let detailsEl: HTMLDetailsElement | undefined = $state();
-
-	function closeDropdown() {
-		if (detailsEl) detailsEl.open = false;
-	}
 
 	let isSettingUp = $derived((instance.state as { type: string }).type === "setup");
 	let isDownloading = $derived((instance.state as { type: string }).type === "downloading");
@@ -80,7 +77,7 @@
 		}
 	}
 
-	async function handleRestore() {
+	function handleRestore() {
 		if (!instance?.version || !instance?.path || !canRestore || isSettingUp) return;
 
 		restoreQueue.add({
@@ -95,71 +92,39 @@
 	}
 </script>
 
-<details class="dropdown dropdown-end" bind:this={detailsEl}>
-	{#if trigger}
-		<summary class="list-none [&::-webkit-details-marker]:hidden">
+<PopoverMenu>
+	{#snippet trigger()}
+		{#if trigger}
 			{@render trigger()}
-		</summary>
-	{:else}
-		<summary class="btn btn-square list-none [&::-webkit-details-marker]:hidden">
-			<EllipsisVertical size={16} />
-		</summary>
-	{/if}
-	<ul role="menu" class="dropdown-content menu bg-base-300 rounded-box z-1 w-52 p-2 shadow-sm">
+		{:else}
+			<button class="btn btn-square">
+				<EllipsisVertical size={16} />
+			</button>
+		{/if}
+	{/snippet}
+	{#snippet children()}
 		{#if isReady}
-			<li role="menuitem">
-				<button
-					onclick={() => {
-						closeDropdown();
-						handleRunSetup();
-					}}
-					disabled={isSettingUp}
-				>
-					<RefreshCw size={16} />
-					Run Setup
-				</button>
-			</li>
+			<PopoverMenuItem onclick={handleRunSetup} disabled={isSettingUp}>
+				<RefreshCw size={16} />
+				Run Setup
+			</PopoverMenuItem>
 			{#if canRestore}
-				<li role="menuitem">
-					<button
-						onclick={() => {
-							closeDropdown();
-							handleRestore();
-						}}
-						disabled={isSettingUp}
-					>
-						<RotateCcw size={16} />
-						Verify
-					</button>
-				</li>
+				<PopoverMenuItem onclick={handleRestore} disabled={isSettingUp}>
+					<RotateCcw size={16} />
+					Verify
+				</PopoverMenuItem>
 			{/if}
 		{/if}
-		<li role="menuitem">
-			<button
-				onclick={() => {
-					closeDropdown();
-					openFolder();
-				}}
-				disabled={!instance?.path}
-			>
-				<FolderOpen size={16} />
-				Browse Folder
-			</button>
-		</li>
-		<li role="menuitem">
-			<button
-				class="text-error"
-				onclick={() => {
-					closeDropdown();
-					showDeleteConfirm = true;
-				}}
-			>
-				<Trash2 size={16} />
-				Delete Instance
-			</button>
-		</li>
-	</ul>
-</details>
+		<PopoverMenuItem onclick={openFolder} disabled={!instance?.path}>
+			<FolderOpen size={16} />
+			Browse Folder
+		</PopoverMenuItem>
+		<PopoverMenuItem onclick={() => (showDeleteConfirm = true)} class="text-error">
+			<Trash2 size={16} />
+			Delete Instance
+		</PopoverMenuItem>
+	{/snippet}
+</PopoverMenu>
 
 <DeleteInstanceDialog
 	bind:open={showDeleteConfirm}

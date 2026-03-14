@@ -62,6 +62,21 @@
 	}
 }
 
+@keyframes popover-in {
+	0% {
+		opacity: 0;
+		transform: scale(0.96) translateY(4px);
+	}
+	100% {
+		opacity: 1;
+		transform: scale(1) translateY(0);
+	}
+}
+
+.popover-animate {
+	animation: popover-in 0.15s var(--ease-spring) forwards;
+}
+
 /* Reusable easing curves */
 :root {
 	--ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);

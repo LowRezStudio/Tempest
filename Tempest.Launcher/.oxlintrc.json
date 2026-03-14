@@ -126,7 +126,8 @@
 			"rules": {
 				// Svelte-specific adjustments
 				"no-undef": "off", // Svelte compiler handles this
-				"no-unused-vars": "off" // Svelte compiler handles this
+				"no-unused-vars": "off", // Svelte compiler handles this
+				"prefer-const": "off" // Svelte uses `let` for bindable props
 			}
 		},
 		{
