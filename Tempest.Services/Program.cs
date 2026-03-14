@@ -27,6 +27,7 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddGrpc();
+builder.Services.AddHostedService<HeartbeatManager>();
 builder.Services.AddSingleton<InMemoryServerStore>();
 
 var app = builder.Build();

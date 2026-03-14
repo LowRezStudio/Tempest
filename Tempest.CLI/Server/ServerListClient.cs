@@ -33,7 +33,7 @@ internal sealed class ServerListClient : IDisposable
         return servers;
     }
 
-    public async Task<ServerListing> GetServerByIdAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<GetServerByIdResponse> GetServerByIdAsync(string id, CancellationToken cancellationToken = default)
     {
         var request = new GetServerByIdRequest { Id = id };
         return await _client.GetServerByIdAsync(request, cancellationToken: cancellationToken);

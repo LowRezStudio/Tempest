@@ -6,6 +6,7 @@ import { ServerList } from "./server_list_service";
 import type { CreateLobbyRequest } from "./create_lobby_request";
 import type { CreateLobbyResponse } from "./create_lobby_response";
 import type { GetServerByIdRequest } from "./get_server_by_id_request";
+import type { GetServerByIdResponse } from "./get_server_by_id_response";
 import type { GetServersRequest } from "./get_servers_request";
 import type { HeartbeatLobbyRequest } from "./heartbeat_lobby_request";
 import type { HeartbeatLobbyResponse } from "./heartbeat_lobby_response";
@@ -42,7 +43,7 @@ export interface IServerListClient {
 	getServerById(
 		input: GetServerByIdRequest,
 		options?: RpcOptions,
-	): UnaryCall<GetServerByIdRequest, ServerListing>;
+	): UnaryCall<GetServerByIdRequest, GetServerByIdResponse>;
 	/**
 	 * @generated from protobuf rpc: HeartbeatLobby
 	 */
@@ -99,10 +100,10 @@ export class ServerListClient implements IServerListClient, ServiceInfo {
 	getServerById(
 		input: GetServerByIdRequest,
 		options?: RpcOptions,
-	): UnaryCall<GetServerByIdRequest, ServerListing> {
+	): UnaryCall<GetServerByIdRequest, GetServerByIdResponse> {
 		const method = this.methods[2],
 			opt = this._transport.mergeOptions(options);
-		return stackIntercept<GetServerByIdRequest, ServerListing>(
+		return stackIntercept<GetServerByIdRequest, GetServerByIdResponse>(
 			"unary",
 			this._transport,
 			method,

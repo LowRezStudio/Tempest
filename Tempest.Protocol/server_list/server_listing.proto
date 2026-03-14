@@ -3,9 +3,10 @@ package tempest.server_list;
 option csharp_namespace = "Tempest.Protocol.ServerList";
 
 import "common/country.proto";
+import "google/protobuf/timestamp.proto";
 
 message ServerListing {
-  uint64 id = 1;
+  string id = 1;
   string ip = 2;
   uint32 lobby_port = 3;
   string name = 4;
@@ -23,4 +24,5 @@ message ServerListing {
   bool joinable = 15;
   bool has_password = 16;
   common.CountryCode country = 17;
+  optional google.protobuf.Timestamp last_seen = 19;
 }
