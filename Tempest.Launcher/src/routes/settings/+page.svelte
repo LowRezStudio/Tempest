@@ -2,6 +2,7 @@
 	import { Settings } from "@lucide/svelte";
 	import { open } from "@tauri-apps/plugin-dialog";
 	import { invalidateAll } from "$app/navigation";
+	import Header from "$lib/components/ui/Header.svelte";
 	import { createAboutInfoQuery } from "$lib/queries/about";
 	import { defaultInstancePath, username } from "$lib/stores/settings";
 
@@ -51,44 +52,22 @@
 </script>
 
 <div class="flex flex-col h-full bg-base-100">
-	<div class="bg-base-200">
-		<div class="px-4 py-3">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-3">
-					<div
-						class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
-					>
-						<Settings size={32} class="opacity-60" />
-					</div>
-					<div>
-						<h1 class="text-2xl font-bold mb-1">Settings</h1>
-						<div class="flex items-center gap-3 text-sm text-base-content/70">
-							<span>Configure your launcher preferences</span>
-						</div>
-					</div>
-				</div>
-			</div>
-		</div>
-
-		<div class="px-4">
-			<div role="tablist" class="tabs tabs-border">
-				<button
-					role="tab"
-					class={activeTab === "general" ? "tab tab-active" : "tab"}
-					onclick={() => (activeTab = "general")}
-				>
-					General
-				</button>
-				<button
-					role="tab"
-					class={activeTab === "advanced" ? "tab tab-active" : "tab"}
-					onclick={() => (activeTab = "advanced")}
-				>
-					Advanced
-				</button>
-			</div>
-		</div>
-	</div>
+	<Header
+		title="Settings"
+		tabs={[
+			{ name: "General", value: "general" },
+			{ name: "Advanced", value: "advanced" },
+		]}
+		{activeTab}
+		onSelectTab={(tab) => (activeTab = tab)}
+	>
+		{#snippet icon()}
+			<Settings size={32} class="opacity-60" />
+		{/snippet}
+		{#snippet subtitle()}
+			<span>Configure your launcher preferences</span>
+		{/snippet}
+	</Header>
 
 	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
 		<div class="flex-1 overflow-y-auto">

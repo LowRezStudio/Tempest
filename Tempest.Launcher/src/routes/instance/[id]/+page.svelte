@@ -15,6 +15,7 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
+	import Header from "$lib/components/ui/Header.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
@@ -169,65 +170,56 @@
 
 <div class="flex flex-col h-full bg-base-100">
 	<!-- Header -->
-	<div class="bg-base-200">
-		<div class="px-4 py-3">
-			<div class="flex items-center justify-between">
-				<!-- Left: Icon and Info -->
-				<div class="flex items-center gap-3">
-					<div
-						class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
-					>
-						{#if isSettingUp}
-							<span class="loading loading-spinner loading-md"></span>
-						{:else}
-							<Box size={32} class="opacity-60" />
-						{/if}
-					</div>
-					<div>
-						<h1 class="text-2xl font-bold mb-1">
-							{instance?.label || "Loading..."}
-						</h1>
-						<div class="flex items-center gap-3 text-sm text-base-content/70">
-							<div class="flex items-center gap-1.5">
-								<Gamepad2 size={14} />
-								<span>{instance?.version || "Unknown version"}</span>
-							</div>
-						</div>
-					</div>
-				</div>
-
-				<!-- Right: Action Buttons -->
-				<div class="flex items-center gap-2">
-					<button
-						class="btn text-sm"
-						class:btn-accent={!isRunning}
-						class:btn-error={isRunning}
-						disabled={isLaunching || isKilling || isSettingUp}
-						aria-busy={isLaunching || isKilling || isSettingUp}
-						onclick={handleLaunchToggle}
-					>
-						{#if isLaunching}
-							<span class="loading loading-spinner loading-xs"></span>
-							Launching
-						{:else if isKilling}
-							<span class="loading loading-spinner loading-xs"></span>
-							Stopping
-						{:else if isRunning}
-							<Square size={16} />
-							Stop
-						{:else}
-							<Play size={16} />
-							Play
-						{/if}
-					</button>
-					<button class="btn btn-square" onclick={openSettings}>
-						<Settings size={16} />
-					</button>
-					{#if instance}
-						<InstanceMenu {instance} />
-					{/if}
-				</div>
+	<Header
+		title={instance?.label || "Loading..."}
+		tabs={[{ name: "Content", value: "content" }]}
+		{activeTab}
+		onSelectTab={(tab) => (activeTab = tab)}
+	>
+		{#snippet icon()}
+			{#if isSettingUp}
+				<span class="loading loading-spinner loading-md"></span>
+			{:else}
+				<Box size={32} class="opacity-60" />
+			{/if}
+		{/snippet}
+		{#snippet actions()}
+			<button
+				class="btn text-sm"
+				class:btn-accent={!isRunning}
+				class:btn-error={isRunning}
+				disabled={isLaunching || isKilling || isSettingUp}
+				aria-busy={isLaunching || isKilling || isSettingUp}
+				onclick={handleLaunchToggle}
+			>
+				{#if isLaunching}
+					<span class="loading loading-spinner loading-xs"></span>
+					Launching
+				{:else if isKilling}
+					<span class="loading loading-spinner loading-xs"></span>
+					Stopping
+				{:else if isRunning}
+					<Square size={16} />
+					Stop
+				{:else}
+					<Play size={16} />
+					Play
+				{/if}
+			</button>
+			<button class="btn btn-square" onclick={openSettings}>
+				<Settings size={16} />
+			</button>
+			{#if instance}
+				<InstanceMenu {instance} />
+			{/if}
+		{/snippet}
+		{#snippet subtitle()}
+			<div class="flex items-center gap-1.5">
+				<Gamepad2 size={14} />
+				<span>{instance?.version || "Unknown version"}</span>
 			</div>
+		{/snippet}
+		{#snippet errors()}
 			{#if launchError}
 				<div class="pt-3">
 					<div class="alert alert-error">
@@ -248,21 +240,8 @@
 					</div>
 				</div>
 			{/if}
-		</div>
-
-		<!-- Tabs -->
-		<div class="px-4">
-			<div role="tablist" class="tabs tabs-border">
-				<button
-					role="tab"
-					class={activeTab === "content" ? "tab tab-active" : "tab"}
-					onclick={() => (activeTab = "content")}
-				>
-					Content
-				</button>
-			</div>
-		</div>
-	</div>
+		{/snippet}
+	</Header>
 
 	<!-- Content Area -->
 	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">

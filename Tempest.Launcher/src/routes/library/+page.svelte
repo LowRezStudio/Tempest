@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Boxes, Library, Plus, Search, X } from "@lucide/svelte";
 	import InstanceCard from "$lib/components/library/InstanceCard.svelte";
+	import Header from "$lib/components/ui/Header.svelte";
 	import { instanceMap } from "$lib/stores/instance";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import type { Instance } from "$lib/types/instance";
@@ -29,44 +30,27 @@
 </script>
 
 <div class="flex flex-col h-full bg-base-100">
-	<div class="bg-base-200">
-		<div class="px-4 py-3">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-3">
-					<div
-						class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
-					>
-						<Library size={32} class="opacity-60" />
-					</div>
-					<div>
-						<h1 class="text-2xl font-bold mb-1">Library</h1>
-						<div class="flex items-center gap-3 text-sm text-base-content/70">
-							<span
-								>{instanceList.length}
-								{instanceList.length === 1 ? "instance" : "instances"}</span
-							>
-						</div>
-					</div>
-				</div>
-
-				<div class="flex items-center gap-2">
-					<label class="input input-bordered">
-						<Search size={16} class="opacity-50" />
-						<input
-							type="text"
-							placeholder="Search"
-							class="grow"
-							bind:value={searchQuery}
-						/>
-					</label>
-					<button class="btn btn-accent" onclick={() => instanceWizardOpen.set(true)}>
-						<Plus size={16} />
-						New Instance
-					</button>
-				</div>
-			</div>
-		</div>
-	</div>
+	<Header title="Library">
+		{#snippet icon()}
+			<Library size={32} class="opacity-60" />
+		{/snippet}
+		{#snippet actions()}
+			<label class="input input-bordered">
+				<Search size={16} class="opacity-50" />
+				<input type="text" placeholder="Search" class="grow" bind:value={searchQuery} />
+			</label>
+			<button class="btn btn-accent" onclick={() => instanceWizardOpen.set(true)}>
+				<Plus size={16} />
+				New Instance
+			</button>
+		{/snippet}
+		{#snippet subtitle()}
+			<span
+				>{instanceList.length}
+				{instanceList.length === 1 ? "instance" : "instances"}</span
+			>
+		{/snippet}
+	</Header>
 
 	<!-- Content Area -->
 	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">

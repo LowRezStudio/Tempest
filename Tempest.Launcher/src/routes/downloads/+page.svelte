@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Download, FolderOpen, Pause, Play, Plus, RotateCcw, Trash2 } from "@lucide/svelte";
+	import Header from "$lib/components/ui/Header.svelte";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import {
 		queueCompletedCount,
@@ -52,69 +53,50 @@
 </script>
 
 <div class="flex flex-col h-full bg-base-100">
-	<div class="bg-base-200">
-		<div class="px-4 py-3">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-3">
-					<div
-						class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
-					>
-						<Download size={32} class="opacity-60" />
-					</div>
-					<div>
-						<h1 class="text-2xl font-bold mb-1">Downloads</h1>
-						<div class="flex items-center gap-3 text-sm text-base-content/70">
-							{#if $queuePendingCount > 0}
-								<span class="badge badge-accent badge-sm"
-									>{$queuePendingCount} pending</span
-								>
-							{/if}
-							{#if $queueCompletedCount > 0}
-								<span class="badge badge-success badge-sm"
-									>{$queueCompletedCount} complete</span
-								>
-							{/if}
-							{#if $queueErrorCount > 0}
-								<span class="badge badge-error badge-sm"
-									>{$queueErrorCount} failed</span
-								>
-							{/if}
-							{#if $queueItems.length === 0}
-								<span>No downloads</span>
-							{/if}
-						</div>
-					</div>
-				</div>
-
-				<div class="flex items-center gap-2">
-					{#if $queueRunning}
-						<button class="btn btn-ghost" onclick={handlePause}>
-							<Pause size={16} />
-							Pause
-						</button>
-					{:else}
-						<button
-							class="btn btn-ghost"
-							onclick={handleStart}
-							disabled={$queuePendingCount === 0}
-						>
-							<Play size={16} />
-							Start
-						</button>
-					{/if}
-					<button
-						class="btn btn-ghost"
-						onclick={handleClearCompleted}
-						disabled={$queueCompletedCount === 0 && $queueErrorCount === 0}
-					>
-						<Trash2 size={16} />
-						Clear Completed
-					</button>
-				</div>
-			</div>
-		</div>
-	</div>
-
+	<Header title="Downloads">
+		{#snippet icon()}
+			<Download size={32} class="opacity-60" />
+		{/snippet}
+		{#snippet actions()}
+			{#if $queueRunning}
+				<button class="btn btn-ghost" onclick={handlePause}>
+					<Pause size={16} />
+					Pause
+				</button>
+			{:else}
+				<button
+					class="btn btn-ghost"
+					onclick={handleStart}
+					disabled={$queuePendingCount === 0}
+				>
+					<Play size={16} />
+					Start
+				</button>
+			{/if}
+			<button
+				class="btn btn-ghost"
+				onclick={handleClearCompleted}
+				disabled={$queueCompletedCount === 0 && $queueErrorCount === 0}
+			>
+				<Trash2 size={16} />
+				Clear Completed
+			</button>
+		{/snippet}
+		{#snippet subtitle()}
+			{#if $queuePendingCount > 0}
+				<span class="badge badge-accent badge-sm">{$queuePendingCount} pending</span>
+			{/if}
+			{#if $queueCompletedCount > 0}
+				<span class="badge badge-success badge-sm">{$queueCompletedCount} complete</span>
+			{/if}
+			{#if $queueErrorCount > 0}
+				<span class="badge badge-error badge-sm">{$queueErrorCount} failed</span>
+			{/if}
+			{#if $queueItems.length === 0}
+				<span>No downloads</span>
+			{/if}
+		{/snippet}
+	</Header>
 	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">

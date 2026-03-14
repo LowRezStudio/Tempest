@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { RefreshCw, Search, Server, ServerCrash } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
+	import Header from "$lib/components/ui/Header.svelte";
 	import { createServersQuery } from "$lib/queries/servers";
 	import { CountryCode } from "$lib/rpc";
 	import { lobbyHost, lobbyPassword } from "$lib/stores/lobby";
@@ -60,58 +61,41 @@
 </svelte:head>
 
 <div class="flex flex-col h-full bg-base-100">
-	<div class="bg-base-200">
-		<div class="px-4 py-3">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-3">
-					<div
-						class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
-					>
-						<Server size={32} class="opacity-60" />
-					</div>
-					<div>
-						<h1 class="text-2xl font-bold mb-1">Server List</h1>
-						<div class="flex items-center gap-3 text-sm text-base-content/70">
-							<span>{serverCount} {serverCount === 1 ? "server" : "servers"}</span>
-							{#if isFetching}
-								<span class="inline-flex items-center gap-2">
-									<span class="loading loading-spinner loading-xs"></span>
-									Refreshing
-								</span>
-							{/if}
-						</div>
-					</div>
-				</div>
-
-				<div class="flex items-center gap-2">
-					<label class="input input-bordered">
-						<Search size={16} class="opacity-50" />
-						<input
-							type="text"
-							placeholder="Search"
-							class="grow"
-							bind:value={searchQuery}
-						/>
-					</label>
-					<button
-						class="btn btn-accent"
-						onclick={() => {
-							hostServerWizardOpen.set(true);
-						}}
-					>
-						Host server
-					</button>
-					<button
-						class="btn btn-ghost btn-square"
-						onclick={refreshServers}
-						aria-label="Refresh servers"
-					>
-						<RefreshCw size={16} />
-					</button>
-				</div>
-			</div>
-		</div>
-	</div>
+	<Header title="Server List">
+		{#snippet icon()}
+			<Server size={32} class="opacity-60" />
+		{/snippet}
+		{#snippet actions()}
+			<label class="input input-bordered">
+				<Search size={16} class="opacity-50" />
+				<input type="text" placeholder="Search" class="grow" bind:value={searchQuery} />
+			</label>
+			<button
+				class="btn btn-accent"
+				onclick={() => {
+					hostServerWizardOpen.set(true);
+				}}
+			>
+				Host server
+			</button>
+			<button
+				class="btn btn-ghost btn-square"
+				onclick={refreshServers}
+				aria-label="Refresh servers"
+			>
+				<RefreshCw size={16} />
+			</button>
+		{/snippet}
+		{#snippet subtitle()}
+			<span>{serverCount} {serverCount === 1 ? "server" : "servers"}</span>
+			{#if isFetching}
+				<span class="inline-flex items-center gap-2">
+					<span class="loading loading-spinner loading-xs"></span>
+					Refreshing
+				</span>
+			{/if}
+		{/snippet}
+	</Header>
 
 	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
 		<div class="flex-1 overflow-y-auto">

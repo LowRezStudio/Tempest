@@ -2,6 +2,7 @@
 	import { LogOut, MessageCircle, Users, X } from "@lucide/svelte";
 	import ChampionSelect from "$lib/components/champions/ChampionSelect.svelte";
 	import MapSelect from "$lib/components/maps/MapSelect.svelte";
+	import Header from "$lib/components/ui/Header.svelte";
 	import maps from "$lib/data/maps.json";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import {
@@ -144,34 +145,20 @@
 			</div>
 
 			<div class="relative z-10 flex flex-col h-full">
-				<div class="bg-base-200/90 backdrop-blur-xs">
-					<div class="px-4 py-3">
-						<div class="flex items-center justify-between">
-							<div class="flex items-center gap-3">
-								<div
-									class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
-								>
-									<Users size={32} class="opacity-60" />
-								</div>
-								<div>
-									<h1 class="text-2xl font-bold mb-1">Map Vote</h1>
-									<div
-										class="flex items-center gap-3 text-sm text-base-content/70"
-									>
-										<span>{$players.length} players</span>
-									</div>
-								</div>
-							</div>
-
-							<div class="flex items-center gap-2">
-								<button class="btn btn-error" onclick={handleLeave}>
-									<LogOut size={18} />
-									Leave Lobby
-								</button>
-							</div>
-						</div>
-					</div>
-				</div>
+				<Header title="Map Vote" class="bg-base-200/90 backdrop-blur-xs">
+					{#snippet icon()}
+						<Users size={32} class="opacity-60" />
+					{/snippet}
+					{#snippet actions()}
+						<button class="btn btn-error" onclick={handleLeave}>
+							<LogOut size={18} />
+							Leave Lobby
+						</button>
+					{/snippet}
+					{#snippet subtitle()}
+						<span>{$players.length} players</span>
+					{/snippet}
+				</Header>
 
 				<div class="flex-1 overflow-y-auto">
 					<MapSelect
@@ -183,44 +170,29 @@
 			</div>
 		</div>
 	{:else}
-		<div class="bg-base-200">
-			<div class="px-4 py-3">
-				<div class="flex items-center justify-between">
-					<div class="flex items-center gap-3">
-						<div
-							class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
-						>
-							<Users size={32} class="opacity-60" />
-						</div>
-						<div>
-							<h1 class="text-2xl font-bold mb-1">
-								{$isInGame ? "Game in Progress" : "Lobby"}
-							</h1>
-							<div class="flex items-center gap-3 text-sm text-base-content/70">
-								{#if $isWaiting}
-									<span>
-										Waiting for players {$players.length}/{$lobbyState.waiting
-											?.minPlayers}
-									</span>
-								{:else}
-									<span>{$players.length} players</span>
-								{/if}
-								{#if $connectionStatus === "pending"}
-									<span class="inline-flex items-center gap-2">
-										<span class="loading loading-spinner loading-xs"></span>
-										Connecting
-									</span>
-								{/if}
-							</div>
-						</div>
-					</div>
-
-					<div class="flex items-center gap-2">
-						<button class="btn btn-error" onclick={handleLeave}> Leave Lobby </button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<Header title={$isInGame ? "Game in Progress" : "Lobby"}>
+			{#snippet icon()}
+				<Users size={32} class="opacity-60" />
+			{/snippet}
+			{#snippet actions()}
+				<button class="btn btn-error" onclick={handleLeave}> Leave Lobby </button>
+			{/snippet}
+			{#snippet subtitle()}
+				{#if $isWaiting}
+					<span>
+						Waiting for players {$players.length}/{$lobbyState.waiting?.minPlayers}
+					</span>
+				{:else}
+					<span>{$players.length} players</span>
+				{/if}
+				{#if $connectionStatus === "pending"}
+					<span class="inline-flex items-center gap-2">
+						<span class="loading loading-spinner loading-xs"></span>
+						Connecting
+					</span>
+				{/if}
+			{/snippet}
+		</Header>
 
 		<div class="flex-1 flex flex-col overflow-hidden bg-base-100 relative">
 			<div class="absolute inset-0">
