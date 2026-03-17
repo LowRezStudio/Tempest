@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { goto } from "$app/navigation";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { createLaunchLobbyMutation } from "$lib/queries/lobby";
 	import { instanceMap } from "$lib/stores/instance";
+	import { servicesURL } from "$lib/stores/settings";
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
@@ -24,23 +26,37 @@
 	let selectedMaxSpectators = $state<number>(5);
 	let selectedPort = $state<number>(50051);
 	const hostLobbyMutation = createLaunchLobbyMutation();
+	const hasLaunched = $derived(hostLobbyMutation.isSuccess);
 	const valid = $derived(selectedName.trim().length > 0 && selectedInstanceId);
 
 	function handleCreate() {
+		const instance = instanceMap.get()[selectedInstanceId];
+		if (!instance) return;
+		const { path, launchOptions: options } = instance;
+		const platform = options.platform ?? "Win64";
 		hostLobbyMutation.mutate({
+			path: path,
 			name: selectedName,
 			port: String(selectedPort),
 			tags: selectedTags,
-			version: instanceMap.get()[selectedInstanceId].version || "?",
+			version: instance.version || "?",
 			"max-players": String(selectedMaxPlayers),
 			"min-players": String(selectedMinPlayers),
 			"public-server": selectedPublic,
 			gamemode: selectedGameMode,
 			password: selectedPassword || undefined,
+			platform: platform,
+			"no-default-args": options.noDefaultArgs,
+			dll: options.dllList,
 		});
 		open = false;
 	}
 	$effect(() => {
+		if (hasLaunched) {
+			const pid = hostLobbyMutation.data;
+			hostLobbyMutation.reset();
+			goto(`/lobby-admin/${pid}`);
+		}
 		if (!open) {
 			selectedName = "";
 			selectedInstanceId = "";

@@ -1,11 +1,13 @@
 import { createQuery } from "@tanstack/svelte-query";
-import { serverList } from "$lib/rpc";
+import { getConnectionToServerList } from "$lib/rpc";
 import type { ServerListing } from "$lib/rpc";
 
 async function fetchServers(): Promise<ServerListing[]> {
 	try {
+		//cached
+		const client = getConnectionToServerList();
 		const servers: ServerListing[] = [];
-		const call = serverList.getServers({});
+		const call = client.getServers({});
 		for await (const resp of call.responses) {
 			servers.push(resp);
 		}

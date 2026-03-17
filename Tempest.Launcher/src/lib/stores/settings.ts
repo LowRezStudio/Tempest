@@ -5,6 +5,7 @@ import { platform } from "@tauri-apps/plugin-os";
 import { onMount, task } from "nanostores";
 
 export const username = persistentAtom<string>("username", "Player");
+export const servicesURL = persistentAtom<string>("servicesURL", "http://localhost:5197");
 
 const getDefaultInstancePath = async () => {
 	const rootDir = platform() === "windows" ? "C:" : await homeDir();

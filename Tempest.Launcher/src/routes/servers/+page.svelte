@@ -2,6 +2,7 @@
 	import { RefreshCw, Search, Server, ServerCrash } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import Header from "$lib/components/ui/Header.svelte";
+	import { moveToLobby } from "$lib/core/lobby";
 	import { createServersQuery } from "$lib/queries/servers";
 	import { CountryCode } from "$lib/rpc";
 	import { lobbyHost, lobbyPassword } from "$lib/stores/lobby";
@@ -139,11 +140,7 @@
 								{#each filteredServers as server (server.id)}
 									<tr
 										onclick={() => {
-											lobbyHost.set(
-												`http://${server.ip}:${server.lobbyPort}`,
-											);
-											//TODO password
-											goto("/lobby");
+											moveToLobby(`http://${server.ip}:${server.lobbyPort}`);
 										}}
 									>
 										<td>{server.name}</td>

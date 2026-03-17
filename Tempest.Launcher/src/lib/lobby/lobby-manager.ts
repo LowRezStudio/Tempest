@@ -1,5 +1,7 @@
-import { goto } from "$app/navigation";
 import { getConnectionToServer, LobbyEvent } from "$lib/rpc";
+import { instanceMap } from "$lib/stores/instance";
+import { playerStore } from "$lib/stores/lobby";
+import { processesList } from "$lib/stores/processes";
 import { username } from "$lib/stores/settings";
 import {
 	chatMessages,
@@ -21,6 +23,7 @@ import type { LobbyEventPlayerLeave } from "$lib/rpc/lobby/lobby_event_player_le
 import type { LobbyEventPlayerUpdate } from "$lib/rpc/lobby/lobby_event_player_update";
 import type { LobbyEventStateUpdate } from "$lib/rpc/lobby/lobby_event_state_update";
 import type { LobbyClient } from "$lib/rpc/lobby/lobby_service.client";
+import type { Instance } from "$lib/types/instance";
 
 class LobbyManager {
 	private client: LobbyClient | null = null;
@@ -172,6 +175,30 @@ class LobbyManager {
 		}
 	}
 
+	public getLaunchGameInstance(): Instance | null {
+		//TODO remove hardcoded OB57
+		const instance = Object.values(instanceMap.get()).find((i) => i.version === "0.57");
+
+		const player = playerStore.get().find((p) => p.id === playerId.get());
+		const isRunning = processesList.get().some((p) => p.instance.id === instance?.id);
+		if (!player || isRunning || !player.champion || !instance) return null;
+
+		const host = lobbyHost.get();
+		const ip = host.substring(host.lastIndexOf("/") + 1, host.lastIndexOf(":"));
+		const name = username.get();
+		const character = player.champion.toLowerCase();
+		const team = player.taskForce;
+		const arg = `${ip}?name=${name}?class=${character}?team=${team}?horse=2`;
+		return {
+			...instance,
+			launchOptions: {
+				...instance.launchOptions,
+				//TODO handle arguments better. This will not work very well if the user already has launch arguments defined
+				args: [arg, ...instance.launchOptions.args],
+			},
+		};
+	}
+
 	private handleCountdownEvent(event: LobbyEventCountdown): void {
 		console.log(`Countdown: ${event.seconds} seconds`);
 	}
@@ -203,7 +230,6 @@ class LobbyManager {
 		}
 		this.disconnect();
 		resetLobbyState();
-		goto("/servers");
 	}
 
 	isConnected(): boolean {

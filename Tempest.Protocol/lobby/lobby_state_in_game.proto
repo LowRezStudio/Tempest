@@ -3,5 +3,6 @@ package tempest.lobby;
 option csharp_namespace = "Tempest.Protocol.Lobby";
 
 message LobbyStateInGame {
-
+	bool game_server_open = 1;
+	bool game_server_error = 2;
 }

@@ -1,49 +1,49 @@
 [
 	{
 		"displayName": "Serpent Beach",
-		"id": "SG_Serpentbeach_P",
+		"id": "TMM_Beach_P_v04",
 		"mode": "siege",
 		"iconPath": "/loading-screens/Loading_Beach.webp"
 	},
 	{
 		"displayName": "Jaguar Falls",
-		"id": "SG_Jaguarfalls_P",
+		"id": "TMM_Falls_P_v04",
 		"mode": "siege",
 		"iconPath": "/loading-screens/Loading_Temple.webp"
 	},
 	{
 		"displayName": "Fish Market",
-		"id": "SG_Fishmarket_P",
+		"id": "FMM_P_Dock_v02",
 		"mode": "siege",
 		"iconPath": "/loading-screens/Loading_Village.webp"
 	},
 	{
 		"displayName": "Frog Isle",
-		"id": "SG_FrogIsle_P",
+		"id": "TMM_P_Isle_v02",
 		"mode": "siege",
 		"iconPath": "/loading-screens/Loading_Isle.webp"
 	},
 	{
 		"displayName": "Ice Mines",
-		"id": "SG_Icemines_P",
+		"id": "IMM_Mines_P_v04",
 		"mode": "siege",
 		"iconPath": "/loading-screens/Loading_NRMines.webp"
 	},
 	{
 		"displayName": "Frozen Guard",
-		"id": "SG_FrozenGuard_P",
+		"id": "IMM_P_Igloo_v02",
 		"mode": "siege",
 		"iconPath": "/loading-screens/Loading_NRIgloo.webp"
 	},
 	{
 		"displayName": "Stone Keep",
-		"id": "SG_Stonekeep_P",
+		"id": "KMM_P_v01",
 		"mode": "siege",
 		"iconPath": "/loading-screens/Loading_Castle.webp"
 	},
 	{
 		"displayName": "Brightmarsh",
-		"id": "SG_Brightmarsh_P",
+		"id": "BMM_P_v01",
 		"mode": "siege",
 		"iconPath": "/loading-screens/Loading_Atrium.webp"
 	}

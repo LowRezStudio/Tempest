@@ -3,13 +3,24 @@ import { fetch } from "@tauri-apps/plugin-http";
 import { LobbyClient } from "./rpc/lobby/lobby_service.client";
 import { ServerListClient } from "./rpc/server_list/server_list_service.client";
 import { ticket } from "./stores/lobby";
+import { servicesURL } from "./stores/settings";
 
-const transport = new GrpcWebFetchTransport({
-	baseUrl: "http://localhost:5197",
-	format: "binary",
-	fetch,
-});
-export const serverList = new ServerListClient(transport);
+let serverListConnectionCache: { host: string; client: ServerListClient } | null = null;
+export function getConnectionToServerList() {
+	const host = servicesURL.get();
+	if (serverListConnectionCache !== null && serverListConnectionCache.host === host) {
+		return serverListConnectionCache.client;
+	}
+	const transport = new GrpcWebFetchTransport({
+		baseUrl: host,
+		format: "binary",
+		fetch,
+	});
+
+	const client = new ServerListClient(transport);
+	serverListConnectionCache = { host, client };
+	return client;
+}
 
 const connectionCache: Record<string, LobbyClient> = {};
 export function getConnectionToServer(host: string) {
