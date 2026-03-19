@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { LogOut, MessageCircle, Users, X } from "@lucide/svelte";
+	import { goto } from "$app/navigation";
 	import ChampionSelect from "$lib/components/champions/ChampionSelect.svelte";
 	import MapSelect from "$lib/components/maps/MapSelect.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
@@ -8,6 +9,7 @@
 	import {
 		chatMessages,
 		connectionStatus,
+		isGameServerOpen,
 		isInChampionSelect,
 		isInGame,
 		isInMapVote,
@@ -18,14 +20,30 @@
 		teamLeft,
 		teamRight,
 	} from "$lib/lobby/stores";
+	import { createLaunchGameMutation } from "$lib/queries/core";
+	import { processesList } from "$lib/stores/processes";
 	import { onDestroy, onMount, tick } from "svelte";
+	import type { Instance } from "$lib/types/instance";
 
 	let chatboxText = $state<string>("");
 	let chatContainer = $state<HTMLDivElement>();
 	let chatOpen = $state<boolean>(false);
+	let currentInstance = $state<Instance | null>(null);
 
 	const currentMap = $derived(maps.find((m) => m.id === $lobbyState.championSelect?.mapId));
+	const gameRunning = $derived($processesList.some((p) => p.instance.id === currentInstance?.id));
+	const launchGameMutation = createLaunchGameMutation();
 
+	$effect(() => {
+		const instance = lobbyManager.getLaunchGameInstance();
+		if (instance && $isGameServerOpen && !launchGameMutation.isPending && !currentInstance) {
+			currentInstance = instance;
+			launchGameMutation.mutate(instance);
+		}
+		if (!$isGameServerOpen) {
+			currentInstance = null;
+		}
+	});
 	onMount(() => {
 		lobbyManager.connect();
 	});
@@ -51,6 +69,11 @@
 
 	async function handleLeave() {
 		await lobbyManager.leaveLobby();
+		goto("/servers");
+	}
+	function handleRejoin() {
+		if (!currentInstance) return;
+		launchGameMutation.mutate(currentInstance);
 	}
 
 	function getPlayerStatus(player: { id: string; champion?: string }): string {
@@ -175,6 +198,9 @@
 				<Users size={32} class="opacity-60" />
 			{/snippet}
 			{#snippet actions()}
+				{#if !gameRunning && !launchGameMutation.isPending && $isGameServerOpen && currentInstance}
+					<button class="btn btn-accent" onclick={handleRejoin}>Rejoin Game</button>
+				{/if}
 				<button class="btn btn-error" onclick={handleLeave}> Leave Lobby </button>
 			{/snippet}
 			{#snippet subtitle()}
@@ -182,14 +208,23 @@
 					<span>
 						Waiting for players {$players.length}/{$lobbyState.waiting?.minPlayers}
 					</span>
-				{:else}
-					<span>{$players.length} players</span>
-				{/if}
-				{#if $connectionStatus === "pending"}
+				{:else if $connectionStatus === "pending"}
 					<span class="inline-flex items-center gap-2">
 						<span class="loading loading-spinner loading-xs"></span>
 						Connecting
 					</span>
+				{:else if !$isGameServerOpen}
+					<span class="inline-flex items-center gap-2">
+						<span class="loading loading-spinner loading-xs"></span>
+						Waiting for server to start
+					</span>
+				{:else if launchGameMutation.isPending}
+					<span class="inline-flex items-center gap-2">
+						<span class="loading loading-spinner loading-xs"></span>
+						Launching Paladins
+					</span>
+				{:else}
+					<span>{$players.length} players</span>
 				{/if}
 			{/snippet}
 		</Header>
@@ -310,12 +345,24 @@
 		</button>
 	{/if}
 
-	{#if $connectionStatus === "disconnected"}
-		<div class="absolute inset-0 flex items-center justify-center z-30 bg-black/50">
-			<div class="modal-box flex flex-col items-center gap-4">
-				<p class="font-semibold text-lg">Connection Lost</p>
+	{#if $connectionStatus === "disconnected" || $lobbyState.inGame?.gameServerError}
+		<div
+			class="absolute inset-0 flex items-center justify-center z-30 bg-black/50 pointer-events-none"
+		>
+			<div class="modal-box flex flex-col items-center gap-4 opacity-100 pointer-events-auto">
+				<p class="font-semibold text-lg">
+					{#if $connectionStatus === "disconnected"}
+						Connection Lost
+					{:else}
+						Gameserver crashed
+					{/if}
+				</p>
 				<p class="text-sm opacity-70 text-center">
-					Unable to connect to the lobby server. Reconnecting...
+					{#if $connectionStatus === "disconnected"}
+						Unable to connect to the lobby server. Reconnecting...
+					{:else}
+						Lobby is restarting...
+					{/if}
 				</p>
 				<span class="loading loading-spinner loading-md"></span>
 			</div>

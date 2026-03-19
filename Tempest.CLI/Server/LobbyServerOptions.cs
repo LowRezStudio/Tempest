@@ -14,4 +14,9 @@ internal sealed class LobbyServerOptions
     public string? GameMode { get; init; }
     public int Port { get; init; } = 50051;
     public string? ServicesUrl { get; init; }
+    public string Path { get; init; } = string.Empty;
+    public bool NoDefaultArgs { get; init; } = false;
+    public string? Platform { get; init; } = null;
+    public string? Game { get; init; } = null;
+    public string[]? Dll { get; init; } = null;
 }

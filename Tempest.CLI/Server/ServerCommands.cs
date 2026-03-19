@@ -7,6 +7,7 @@ namespace Tempest.CLI.Server;
 internal class ServerCommands
 {
     public async Task Open(
+        string path,
         string name = "Paladins Server",
         string tags = "",
         string map = "",
@@ -20,6 +21,10 @@ internal class ServerCommands
         int port = 50051,
         string? password = null,
         bool detach = false,
+        bool noDefaultArgs = false,
+        string? platform = null,
+        string? game = null,
+        string[]? dll = null,
         CancellationToken cancellationToken = default)
     {
         var options = new LobbyServerOptions
@@ -35,8 +40,13 @@ internal class ServerCommands
             PublicServer = publicServer,
             GameMode = gamemode,
             Port = port,
-            ServicesUrl = servicesUrl
-        };
+            ServicesUrl = servicesUrl,
+            Path = path,
+            NoDefaultArgs = noDefaultArgs,
+            Platform = platform,
+            Game = game,
+            Dll = dll
+};
 
         var server = new EmbeddedServer(options);
         await server.StartAsync();

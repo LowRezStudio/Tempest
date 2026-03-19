@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Google.Protobuf.WellKnownTypes;
+using Tempest.CLI.Launcher;
 using Tempest.Protocol.Lobby;
 
 namespace Tempest.CLI.Server;
@@ -123,12 +124,70 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         bool allHaveSelected = _players.Values.All(p => p.Champion != null && p.Champion.Length > 0);
         if (allHaveSelected)
         {
+            var mapId = _state.ChampionSelect.MapId;
             SetState(new Protocol.Lobby.LobbyState
             {
-                InGame = new LobbyStateInGame()
+                InGame = new LobbyStateInGame
+                {
+                    GameServerOpen = false
+                }
             });
+            StartGameServer(mapId);
         } 
         return true;
+    }
+    private async void StartGameServer(string mapId)
+    {
+        string champions = string.Join(",", _players.Where(p => p.Value.Champion.Length > 0).Select(p => p.Value.Champion.ToLower()));
+        //TODO other gamemodes
+        string[] args = ["server", $"{mapId}?game=TempestMp.SiegeDEV?allowedChampions={champions}?maxplayers={_options.MaxPlayers}"];
+        var process = await LauncherCommands.LaunchGame(_options.Path, args, _options.NoDefaultArgs, _options.Platform, _options.Game, _options.Dll, true);
+        SetState(new Protocol.Lobby.LobbyState
+        {
+            InGame = new LobbyStateInGame
+            {
+                GameServerOpen = true
+            }
+        });
+     
+        await process.WaitForExitAsync();
+        if (process.ExitCode != 0)
+        {
+            Console.WriteLine($"Paladins server returned an error code: {process.ExitCode}");
+            SetState(new Protocol.Lobby.LobbyState
+            {
+                InGame = new LobbyStateInGame
+                {
+                    GameServerOpen = false,
+                    GameServerError = true
+                }
+            });
+            //TODO use countdown
+            await Task.Delay(10000);
+        }
+        Reset();
+    }
+    private void Reset()
+    {
+        foreach (var player in _players.Values.ToList())
+        {
+            player.Champion = string.Empty;
+        }
+
+        if (_players.Count >= _options.MinPlayers)
+        {
+            _state = new Protocol.Lobby.LobbyState
+            {
+                MapVote = new LobbyStateMapVote()
+            };
+        } else
+        {
+            _state = new Protocol.Lobby.LobbyState
+            {
+                Waiting = new LobbyStateWaiting()
+            };
+        }
+        Publish(GetInfoEvent());
     }
 
     public bool TryGetPlayerIdFromTicket(string ticket, out string playerId) => _ticketStore.TryGetPlayerId(ticket, out playerId);

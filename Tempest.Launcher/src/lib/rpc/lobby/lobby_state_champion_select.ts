@@ -20,7 +20,7 @@ import type {
  */
 export interface LobbyStateChampionSelect {
 	/**
-	 * @generated from protobuf field: string mapId = 1
+	 * @generated from protobuf field: string map_id = 1
 	 */
 	mapId: string;
 }
@@ -28,7 +28,7 @@ export interface LobbyStateChampionSelect {
 class LobbyStateChampionSelect$Type extends MessageType<LobbyStateChampionSelect> {
 	constructor() {
 		super("tempest.lobby.LobbyStateChampionSelect", [
-			{ no: 1, name: "mapId", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 1, name: "map_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 		]);
 	}
 	create(value?: PartialMessage<LobbyStateChampionSelect>): LobbyStateChampionSelect {
@@ -49,7 +49,7 @@ class LobbyStateChampionSelect$Type extends MessageType<LobbyStateChampionSelect
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
-				case /* string mapId */ 1:
+				case /* string map_id */ 1:
 					message.mapId = reader.string();
 					break;
 				default:
@@ -76,7 +76,7 @@ class LobbyStateChampionSelect$Type extends MessageType<LobbyStateChampionSelect
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
-		/* string mapId = 1; */
+		/* string map_id = 1; */
 		if (message.mapId !== "") writer.tag(1, WireType.LengthDelimited).string(message.mapId);
 		let u = options.writeUnknownFields;
 		if (u !== false)

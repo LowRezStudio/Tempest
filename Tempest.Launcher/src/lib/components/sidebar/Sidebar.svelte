@@ -8,11 +8,13 @@
 		Plus,
 		Server,
 		Settings,
+		SquareTerminal,
 		User,
 	} from "@lucide/svelte";
 	import { page } from "$app/state";
 	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { lobbyHost } from "$lib/stores/lobby";
+	import { lobbyServerProcessesList } from "$lib/stores/processes";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import SidebarItem from "./SidebarItem.svelte";
 </script>
@@ -47,6 +49,18 @@
 			<Plus size={20} />
 		</button>
 	</div>
+	<div class="flex flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none">
+		{#each $lobbyServerProcessesList as lobbyServer}
+			<SidebarItem
+				icon={SquareTerminal}
+				label={lobbyServer.createOptions.name}
+				active={page.route.id == "/lobby-admin/[pid]" &&
+					page.params.pid == String(lobbyServer.child.pid)}
+				href={`/lobby-admin/${lobbyServer.child.pid}`}
+			/>
+		{/each}
+	</div>
+	<div class="divider mx-4 my-4 opacity-50"></div>
 
 	<div class="mt-auto flex flex-col gap-2">
 		<SidebarItem href="/settings" icon={Settings} label="Settings" />

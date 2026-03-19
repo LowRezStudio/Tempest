@@ -1,29 +1,14 @@
 import { createMutation } from "@tanstack/svelte-query";
-import { hostLobby } from "$lib/core/lobby";
-import { lobbyManager } from "$lib/lobby/lobby-manager";
+import { hostLobby, killLobby } from "$lib/core/lobby";
 import type { LobbyServerOptions } from "$lib/types/lobby";
+import type { LobbyServerProcess } from "$lib/types/process";
 
 export const createLaunchLobbyMutation = () =>
 	createMutation(() => ({
 		mutationFn: (options: LobbyServerOptions) => hostLobby(options),
 	}));
 
-export const createLeaveLobbyMutation = () =>
+export const createKillLobbyServerMutation = () =>
 	createMutation(() => ({
-		mutationFn: () => lobbyManager.leaveLobby(),
-	}));
-
-export const createSendChatMessageMutation = () =>
-	createMutation(() => ({
-		mutationFn: (content: string) => lobbyManager.sendChatMessage(content),
-	}));
-
-export const createChampionSelectMutation = () =>
-	createMutation(() => ({
-		mutationFn: (championName: string) => lobbyManager.selectChampion(championName),
-	}));
-
-export const createMapSelectMutation = () =>
-	createMutation(() => ({
-		mutationFn: (mapId: string) => lobbyManager.voteForMap(mapId),
+		mutationFn: (process: LobbyServerProcess) => killLobby(process),
 	}));

@@ -38,6 +38,7 @@ export const isInChampionSelect = computed(state, ($state) => !!$state.championS
 export const isInMapVote = computed(state, ($state) => !!$state.mapVote);
 export const isWaiting = computed(state, ($state) => !!$state.waiting);
 export const isInGame = computed(state, ($state) => !!$state.inGame);
+export const isGameServerOpen = computed(state, ($state) => !!$state.inGame?.gameServerOpen);
 
 export function resetLobbyState(): void {
 	lobbyHost.set("");
