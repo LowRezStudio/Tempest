@@ -12,11 +12,17 @@ extern "kernel32" fn FreeConsole() callconv(.winapi) windows.BOOL;
 extern "kernel32" fn FreeLibraryAndExitThread(hLibModule: windows.HMODULE, dwExitCode: u32) callconv(.winapi) noreturn;
 extern "kernel32" fn GetCurrentThread() callconv(.winapi) windows.HANDLE;
 
+pub const THISCALL: std.builtin.CallingConvention =
+    if (arch == .x86)
+        .{ .x86_thiscall = .{} }
+    else
+        .c;
+
 // void __thiscall UPackage::AddNetPackage(_DWORD *this, _DWORD *a2)
-const AddNetPackage = *const fn (this: ?*anyopaque, a2: usize) callconv(.winapi) void;
+const AddNetPackage = *const fn (this: ?*anyopaque, a2: usize) callconv(THISCALL) void;
 
 // int __thiscall CTgAssemblyManager::LoadFile(_DWORD *this, char a2)
-const LoadFile = *const fn (this: ?*anyopaque, fullLoad: u8) callconv(.winapi) c_int;
+const LoadFile = *const fn (this: ?*anyopaque, fullLoad: u8) callconv(THISCALL) c_int;
 
 var original_addnetpackage: AddNetPackage = undefined;
 var assembly_manager: ?*anyopaque = undefined;
@@ -24,21 +30,22 @@ var loadfile: LoadFile = undefined;
 
 var is_loaded = std.atomic.Value(bool).init(false);
 
-fn hookAddNetPackage(this: ?*anyopaque, a2: usize) callconv(.winapi) void {
+fn hookAddNetPackage(this: ?*anyopaque, a2: usize) callconv(THISCALL) void {
     if (!is_loaded.load(.acquire)) {
+        log.info("[AsmLoader] Loading assembly...", .{});
         const result = @call(.auto, loadfile, .{ assembly_manager, 1 });
         if (result != 0) {
-            log.info("[AsmLoader] Loaded assembly!\n", .{});
+            log.info("[AsmLoader] Loaded assembly!", .{});
             is_loaded.store(true, .release);
         } else {
-            log.info("[AsmLoader] Failed to load assembly!\n", .{});
+            log.info("[AsmLoader] Failed to load assembly!", .{});
         }
     }
 
     _ = original_addnetpackage(this, a2);
 }
 
-fn main(inst: windows.HINSTANCE) !void {
+fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = arena.allocator();
     defer arena.deinit();
@@ -53,7 +60,6 @@ fn main(inst: windows.HINSTANCE) !void {
     log.info("[AsmLoader] Scanning for assembly manager...", .{});
     assembly_manager = blk: {
         const strings = try scanner.string(allocator, "Assembly load started\x00");
-
         const string = strings[0];
 
         const call = try scanner.findNext(string.address.?.get(), .{
@@ -62,19 +68,26 @@ fn main(inst: windows.HINSTANCE) !void {
 
         const address = try scanner.findNext(call.get(), .{
             .instructions = &.{ zydis.ZYDIS_MNEMONIC_LEA, zydis.ZYDIS_MNEMONIC_MOV },
-            .limit = 3,
+            .dst_reg = if (arch == .x86_64) zydis.ZYDIS_REGISTER_RCX else zydis.ZYDIS_REGISTER_ECX, // NOTE: kms
+            .limit = 4,
         });
 
-        log.info("[AsmLoader] Scanning for loadfile...", .{});
+        log.info("[AsmLoader] Scanning for loadFile...", .{});
         const loadfile_ref = try scanner.findNext(address.get(), .{
             .inst = zydis.ZYDIS_MNEMONIC_CALL,
         });
-        loadfile = loadfile_ref.AsPtr(LoadFile);
 
-        const value = if (address.getAddress()) |addr|
+        loadfile = loadfile: {
+            const result = try loadfile_ref.getAddress();
+            break :loadfile result.AsPtr(LoadFile);
+        };
+
+        const value: usize = if (address.getAddress()) |addr|
             addr.get()
         else |_|
             try address.getData(1);
+
+        log.info("[AsmLoader] Found assembly_manager: {x}", .{value});
 
         break :blk @ptrFromInt(value);
     };
@@ -100,17 +113,17 @@ fn main(inst: windows.HINSTANCE) !void {
         break :blk target.AsPtr(AddNetPackage);
     };
 
-    log.debug(
-        \\Base address       : 0x{x}
-        \\Found addNetworkPackage  : 0x{x}
-        \\Found gAssemblyManager   : 0x{x}
+    log.info(
+        \\Base address             : 0x{x}
+        \\Found addNetPackage      : 0x{x}
+        \\Found assembly_manager   : 0x{x}
         \\Found loadFile           : 0x{x}
         \\
     , .{
         module.base_address,
-        @intFromPtr(original_addnetpackage),
-        @intFromPtr(assembly_manager),
-        @intFromPtr(loadfile),
+        @intFromPtr(original_addnetpackage) - module.base_address,
+        @intFromPtr(assembly_manager) - module.base_address,
+        @intFromPtr(loadfile) - module.base_address,
     });
 
     try detourz.transactionBegin();
@@ -119,10 +132,6 @@ fn main(inst: windows.HINSTANCE) !void {
     try detourz.attach(@ptrCast(&original_addnetpackage), @constCast(&hookAddNetPackage));
 
     try detourz.transactionCommit();
-
-    // _ = FreeConsole();
-    // FreeLibraryAndExitThread(@ptrCast(inst), 0);
-    _ = inst;
 }
 
 pub export fn DllMain(
@@ -130,11 +139,11 @@ pub export fn DllMain(
     reason: u32,
     reserved: ?*anyopaque,
 ) windows.BOOL {
+    _ = inst;
     _ = reserved;
 
     if (reason == 1) {
-        // _ = std.Thread.spawn(.{}, main, .{hinstDLL}) catch return windows.FALSE;
-        _ = main(inst) catch return windows.FALSE;
+        _ = main() catch return windows.FALSE;
     }
 
     return windows.TRUE;
