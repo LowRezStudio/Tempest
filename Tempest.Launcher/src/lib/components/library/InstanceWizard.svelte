@@ -88,6 +88,7 @@
 					hasDetected = true;
 				} else {
 					detectionError = `Build identified as ${info.PatchName} (${info.VersionGroup}), but it's not in our database.`;
+					hasDetected = true;
 				}
 			} else {
 				detectionError = "Could not identify build in this folder.";
