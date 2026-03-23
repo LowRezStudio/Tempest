@@ -439,18 +439,6 @@ pub const Module = struct {
                 }
             }
 
-            std.log.debug("[Scanner.string] query=\"{s}\"", .{str});
-            if (utf8_addr) |a| {
-                std.log.debug("[Scanner.string] utf8  found @ 0x{x}", .{a});
-            } else {
-                std.log.debug("[Scanner.string] utf8  not found in .rdata", .{});
-            }
-            if (utf16_addr) |a| {
-                std.log.debug("[Scanner.string] utf16 found @ 0x{x}", .{a});
-            } else {
-                std.log.debug("[Scanner.string] utf16 not found in .rdata", .{});
-            }
-
             if (utf8_addr == null and utf16_addr == null) return MemError.NoResult;
 
             var decoder = try makeDecoder();
@@ -531,12 +519,6 @@ pub const Module = struct {
                             const is_utf8_hit = utf8_addr != null and addr == utf8_addr.?;
                             const is_utf16_hit = utf16_addr != null and addr == utf16_addr.?;
                             if (is_utf8_hit or is_utf16_hit) {
-                                std.log.debug("[Scanner.string] match @ 0x{x} -> 0x{x} ({s}, {s})", .{
-                                    current_addr,
-                                    addr,
-                                    if (is_utf16_hit) "utf16" else "utf8",
-                                    if (inst.mnemonic == zydis.ZYDIS_MNEMONIC_PUSH) "push" else "lea",
-                                });
                                 try results.append(allocator, Scanner{
                                     .module = self.module,
                                     .address = Address.init(current_addr),
@@ -552,8 +534,6 @@ pub const Module = struct {
 
                 i += 1;
             }
-
-            std.log.debug("[Scanner.string] total matches: {d}", .{results.items.len});
 
             if (results.items.len == 0) return MemError.NoResult;
 
