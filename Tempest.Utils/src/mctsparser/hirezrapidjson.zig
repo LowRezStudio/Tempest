@@ -36,13 +36,8 @@ pub const CPackageStringStream = struct {
 
 pub const HirezRapidJson = struct {
     pub const UTF8: type = []const u8;
-
-    pub const UTF16Wchar: type = []const u16;
-    pub const UTF16Unsigned: type = u16;
-    pub const UTF16ShortUnsigned: type = u16;
-
-    pub const UTF32Wchar: type = []const u16;
-    pub const UTF32Unsigned: type = u32;
+    pub const UTF16: type = []const u16;
+    pub const UTF32: type = []const u32;
 
     // zig fmt: off
     const utf8_range_table = [256]u8{

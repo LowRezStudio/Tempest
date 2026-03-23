@@ -375,7 +375,7 @@ pub const CMarshalRow = struct {
             }
         }
 
-        if (@as(u16, @truncate(self.entry_count)) == 0) return true;
+        if (self.entry_count == 0) return true;
 
         const alloc_ok = allocEntry(allocator, count, &self.entry_list, &self.entry_tail);
         if (!alloc_ok) return false;
@@ -398,12 +398,528 @@ pub const CMarshalRow = struct {
     }
 
     pub fn loadEntries(self: *CMarshalRow, allocator: std.mem.Allocator, package: *CPackage) bool {
-        _ = self;
-        _ = allocator;
-        _ = package;
+        const count = self.entry_count;
+        if (count == 0) return true;
 
-        std.log.warn("loadEntries: CMarshalRow::loadEntries not implemented", .{});
-        return false;
+        const max_field_id = Fields.entries.len;
+        var processed: i32 = 0;
+
+        const readType = struct {
+            fn call(pkg: *CPackage, T: type) T {
+                const size = @sizeOf(T);
+
+                if (pkg.place + size < pkg.used and pkg.cur_place + size <= 0x7fd) {
+                    const val = std.mem.readInt(T, pkg.current.?.net.data[pkg.cur_place..][0..size], .little);
+                    pkg.cur_place += size;
+                    pkg.place += size;
+                    return val;
+                } else {
+                    var buf: [size]u8 = undefined;
+                    _ = pkg.read(&buf, size);
+                    return std.mem.readInt(T, &buf, .little);
+                }
+            }
+        }.call;
+
+        while (processed < count) {
+            const raw_header = readType(package, u16);
+            const type_tag: u16 = raw_header & 0xf000;
+            const type_extra: u16 = raw_header & 0x3f;
+            const batch_count: u32 = type_extra;
+
+            if (batch_count == 0) {
+                if (type_tag != 0x9000) return false;
+
+                // Clear data
+                const tail = self.entry_tail.?;
+                tail.data = std.mem.zeroes(@TypeOf(tail.data));
+
+                // Read field id
+                const fld = readType(package, u16);
+                if (fld > max_field_id) {
+                    self.entry_tail.?.field_id = 0;
+                    return false;
+                }
+
+                const field_entry = Fields.get(fld) orelse {
+                    self.entry_tail.?.field_id = 0;
+                    return false;
+                };
+
+                if (field_entry.type != .string) {
+                    self.entry_tail.?.field_id = 0;
+                    return false;
+                }
+
+                tail.field_id = fld;
+                tail.size = 0;
+                processed += 1;
+                self.entry_tail = tail.next;
+                continue;
+            }
+
+            switch (type_tag) {
+                // Byte values
+                0x1000 => {
+                    if (type_extra > 0x20) return false;
+                    processed += @intCast(batch_count);
+                    if (processed > count) return false;
+
+                    var fields_buf: [0x21]u16 = undefined;
+                    var values_buf: [0x20]u8 = undefined;
+
+                    const fields_bytes: u32 = batch_count * 2;
+                    const values_bytes: u32 = batch_count;
+
+                    if (package.read(std.mem.sliceAsBytes(fields_buf[0..batch_count]), fields_bytes) != fields_bytes) return false;
+                    if (package.read(values_buf[0..batch_count], values_bytes) != values_bytes) return false;
+
+                    for (0..batch_count) |i| {
+                        const entry = self.entry_tail.?;
+                        const fld_id = fields_buf[i];
+                        entry.field_id = fld_id;
+                        if (fld_id > max_field_id) {
+                            entry.field_id = 0;
+                            return false;
+                        }
+                        const fe = Fields.get(fld_id) orelse {
+                            entry.field_id = 0;
+                            return false;
+                        };
+
+                        if (@intFromEnum(fe.type) - 1 > @intFromEnum(FieldType.datetime)) {
+                            entry.field_id = 0;
+                            return false;
+                        }
+                        entry.data.u32_number = values_buf[i];
+                        self.entry_tail = entry.next;
+                    }
+                },
+                // Word values
+                0x2000 => {
+                    if (batch_count > 0x20) return false;
+                    processed += @intCast(batch_count);
+                    if (processed > count) return false;
+
+                    var fields_buf: [0x21]u16 = undefined;
+                    var values_buf: [0x20]u16 = undefined;
+
+                    const fields_bytes: u32 = batch_count * 2;
+                    const values_bytes: u32 = batch_count * 2;
+
+                    if (package.read(std.mem.sliceAsBytes(fields_buf[0..batch_count]), fields_bytes) != fields_bytes) return false;
+                    if (package.read(std.mem.sliceAsBytes(values_buf[0..batch_count]), values_bytes) != values_bytes) return false;
+
+                    for (0..batch_count) |i| {
+                        const entry = self.entry_tail.?;
+                        const fld_id = fields_buf[i];
+                        entry.field_id = fld_id;
+                        if (fld_id > max_field_id) {
+                            entry.field_id = 0;
+                            return false;
+                        }
+                        const fe = Fields.get(fld_id) orelse {
+                            entry.field_id = 0;
+                            return false;
+                        };
+                        if (@intFromEnum(fe.type) - 1 > @intFromEnum(FieldType.datetime)) {
+                            entry.field_id = 0;
+                            return false;
+                        }
+                        entry.data.u32_number = values_buf[i];
+                        self.entry_tail = entry.next;
+                    }
+                },
+                // Dword values
+                0x3000 => {
+                    if (batch_count > 0x20) return false;
+                    processed += @intCast(batch_count);
+                    if (processed > count) return false;
+
+                    var fields_buf: [0x21]u16 = undefined;
+                    var values_buf: [0x20]u32 = undefined;
+
+                    const fields_bytes: u32 = batch_count * 2;
+                    const values_bytes: u32 = batch_count * 4;
+
+                    if (package.read(std.mem.sliceAsBytes(fields_buf[0..batch_count]), fields_bytes) != fields_bytes) return false;
+                    if (package.read(std.mem.sliceAsBytes(values_buf[0..batch_count]), values_bytes) != values_bytes) return false;
+
+                    for (0..batch_count) |i| {
+                        const entry = self.entry_tail.?;
+                        const fld_id = fields_buf[i];
+                        entry.field_id = fld_id;
+                        if (fld_id > max_field_id) {
+                            entry.field_id = 0;
+                            return false;
+                        }
+                        const fe = Fields.get(fld_id) orelse {
+                            entry.field_id = 0;
+                            return false;
+                        };
+
+                        if (@intFromEnum(fe.type) - 1 > @intFromEnum(FieldType.datetime)) {
+                            entry.field_id = 0;
+                            return false;
+                        }
+                        entry.data.u32_number = values_buf[i];
+                        self.entry_tail = entry.next;
+                    }
+                },
+                // Qword values
+                0x4000 => {
+                    if (batch_count > 0x20) return false;
+                    processed += @intCast(batch_count);
+                    if (processed > count) return false;
+
+                    var fields_buf: [0x21]u16 = undefined;
+                    var values_buf: [0x20]u64 = undefined;
+
+                    const fields_bytes: u32 = batch_count * 2;
+                    const values_bytes: u32 = batch_count * 8;
+
+                    if (package.read(std.mem.sliceAsBytes(fields_buf[0..batch_count]), fields_bytes) != fields_bytes) return false;
+                    if (package.read(std.mem.sliceAsBytes(values_buf[0..batch_count]), values_bytes) != values_bytes) return false;
+
+                    for (0..batch_count) |i| {
+                        const entry = self.entry_tail.?;
+                        const fld_id = fields_buf[i];
+                        entry.field_id = fld_id;
+                        if (fld_id > max_field_id) {
+                            entry.field_id = 0;
+                            return false;
+                        }
+                        const fe = Fields.get(fld_id) orelse {
+                            entry.field_id = 0;
+                            return false;
+                        };
+
+                        if (@intFromEnum(fe.type) - 1 > @intFromEnum(FieldType.datetime)) {
+                            entry.field_id = 0;
+                            return false;
+                        }
+                        entry.data.u64_number = values_buf[i];
+                        self.entry_tail = entry.next;
+                    }
+                },
+                // String
+                0x5000 => {
+                    const fld = readType(package, u16);
+                    const entry = self.entry_tail.?;
+                    entry.field_id = fld;
+
+                    if (fld > max_field_id) {
+                        entry.field_id = 0;
+                        return false;
+                    }
+                    const fe = Fields.get(fld) orelse {
+                        entry.field_id = 0;
+                        return false;
+                    };
+                    if (@intFromEnum(fe.type) != 0xc) {
+                        entry.field_id = 0;
+                        return false;
+                    }
+
+                    if (package.used - package.place <= 1) {
+                        entry.field_id = 0;
+                        return false;
+                    }
+
+                    const raw_avail = readType(package, u16);
+
+                    const encoding: u8 = if (@as(i16, @bitCast(raw_avail)) < 0) 4 else 5;
+                    const avail_len: u16 = if (encoding == 4) raw_avail & 0x7fff else raw_avail;
+
+                    if (@as(u32, avail_len) > package.used - package.place) {
+                        entry.field_id = 0;
+                        return false;
+                    }
+
+                    var final_len: u32 = 0;
+                    const str_ptr = package.stringReadWide(
+                        allocator,
+                        avail_len,
+                        encoding,
+                        null,
+                        0,
+                        null,
+                        &final_len,
+                    );
+
+                    entry.data.wz_pointer = str_ptr;
+
+                    entry.size = @truncate(final_len);
+                    processed += @intCast(batch_count);
+                    self.entry_tail = entry.next;
+                },
+                // String again
+                0xA000 => {
+                    if (batch_count - 1 > 4) {
+                        self.entry_tail.?.field_id = 0;
+                        return false;
+                    }
+
+                    const fld = readType(package, u16);
+
+                    const entry = self.entry_tail.?;
+                    entry.field_id = fld;
+
+                    if (fld > max_field_id) {
+                        entry.field_id = 0;
+                        return false;
+                    }
+                    const fe = Fields.get(fld) orelse {
+                        entry.field_id = 0;
+                        return false;
+                    };
+                    if (@intFromEnum(fe.type) != 0xc) {
+                        entry.field_id = 0;
+                        return false;
+                    }
+
+                    if (package.used - package.place <= 1) {
+                        entry.field_id = 0;
+                        return false;
+                    }
+
+                    const avail_len = readType(package, u16);
+                    if (avail_len > package.used - package.place) {
+                        entry.field_id = 0;
+                        return false;
+                    }
+
+                    var chr: u32 = 0;
+                    const str_ptr = package.stringReadWide(
+                        allocator,
+                        avail_len,
+                        @intCast(batch_count),
+                        @ptrCast(&entry.data.u32_number),
+                        3,
+                        null,
+                        &chr,
+                    );
+
+                    if (str_ptr == null) {
+                        entry.field_id = 0;
+                        return false;
+                    }
+
+                    const data_addr: usize = @intFromPtr(&entry.data);
+                    const str_addr: usize = @intFromPtr(str_ptr.?);
+                    if (str_addr != data_addr) {
+                        entry.data.wz_pointer = str_ptr;
+                    }
+
+                    processed += @intCast(batch_count);
+                    entry.size = @truncate(chr);
+                    self.entry_tail = entry.next;
+
+                    std.debug.print("Entry field: {s}\n", .{Fields.get(entry.field_id).?.name});
+                    std.debug.print("Entry size: {d}\n", .{entry.size});
+                    std.debug.print("Entry data: ", .{});
+
+                    if (str_ptr) |sp| {
+                        var buf: [256]u8 = undefined;
+                        var oi: usize = 0;
+                        var ii: usize = 0;
+                        while (ii < 64 and sp[ii] != 0 and oi < buf.len - 4) : (ii += 1) {
+                            const c = sp[ii];
+                            if (c <= 0x7F) {
+                                buf[oi] = @as(u8, @truncate(c));
+                                oi += 1;
+                            } else if (c <= 0x7FF) {
+                                buf[oi + 0] = @as(u8, @truncate(0xC0 | (c >> 6)));
+                                buf[oi + 1] = @as(u8, @truncate(0x80 | (c & 0x3F)));
+                                oi += 2;
+                            } else if (c <= 0xFFFF) {
+                                buf[oi + 0] = @as(u8, @truncate(0xE0 | (c >> 12)));
+                                buf[oi + 1] = @as(u8, @truncate(0x80 | ((c >> 6) & 0x3F)));
+                                buf[oi + 2] = @as(u8, @truncate(0x80 | (c & 0x3F)));
+                                oi += 3;
+                            } else if (c <= 0x10FFFF) {
+                                buf[oi + 0] = @as(u8, @truncate(0xF0 | (c >> 18)));
+                                buf[oi + 1] = @as(u8, @truncate(0x80 | ((c >> 12) & 0x3F)));
+                                buf[oi + 2] = @as(u8, @truncate(0x80 | ((c >> 6) & 0x3F)));
+                                buf[oi + 3] = @as(u8, @truncate(0x80 | (c & 0x3F)));
+                                oi += 4;
+                            } else {
+                                buf[oi + 0] = 0xEF;
+                                buf[oi + 1] = 0xBF;
+                                buf[oi + 2] = 0xFD;
+                                oi += 3;
+                            }
+                        }
+                        std.log.warn("DBG[{d}]: {s}", .{ entry.field_id, buf[0..oi] });
+                    }
+                },
+                else => {
+                    std.log.warn("Unknown type_tag: {x}", .{type_tag});
+                    return false;
+                },
+            }
+
+            //     0x6000 => {
+            //         // Rowset
+            //         const fld = readU16(package);
+            //         const entry = self.entry_tail.?;
+            //         entry.field_id = fld;
+            //
+            //         if (fld > max_field_id) {
+            //             entry.field_id = 0;
+            //             return false;
+            //         }
+            //         const fe = Fields.get(fld) orelse {
+            //             entry.field_id = 0;
+            //             return false;
+            //         };
+            //         if (@intFromEnum(fe.type) != 0xd) {
+            //             entry.field_id = 0;
+            //             return false;
+            //         }
+            //
+            //         if (entry.data.row_set == null) {
+            //             // TODO: CMarshalRowSet::CMarshalRowSet() + allocate
+            //             // entry.data.row_set = try allocator.create(CMarshalRowSet)
+            //             std.log.warn("loadEntries: 0x6000 CMarshalRowSet alloc not implemented", .{});
+            //             return false;
+            //         }
+            //
+            //         // TODO: CMarshalRowSet::Load(entry.data.row_set, package)
+            //         std.log.warn("loadEntries: 0x6000 CMarshalRowSet::Load not implemented", .{});
+            //         return false;
+            //     },
+            //
+            //     0x7000 => {
+            //         // GUID
+            //         const fld = readU16(package);
+            //         const entry = self.entry_tail.?;
+            //         entry.field_id = fld;
+            //
+            //         if (fld > max_field_id) {
+            //             entry.field_id = 0;
+            //             return false;
+            //         }
+            //         const fe = Fields.get(fld) orelse {
+            //             entry.field_id = 0;
+            //             return false;
+            //         };
+            //         if (@intFromEnum(fe.type) != 0xe) {
+            //             entry.field_id = 0;
+            //             return false;
+            //         }
+            //
+            //         if (entry.data.u8_data == null) {
+            //             entry.size = 0x10;
+            //             const guid_buf = allocator.alloc(u8, 0x10) catch {
+            //                 entry.field_id = 0;
+            //                 return false;
+            //             };
+            //             entry.data.u8_data = @ptrCast(guid_buf.ptr);
+            //         }
+            //
+            //         processed += @intCast(batch_count);
+            //         // TODO: CTgGuid::Load(entry.data.u8_data, package)
+            //         std.log.warn("loadEntries: 0x7000 CTgGuid::Load not implemented", .{});
+            //         self.entry_tail = entry.next;
+            //     },
+            //
+            //     0x8000 => {
+            //         // Binary blob
+            //         const fld = readU16(package);
+            //         const entry = self.entry_tail.?;
+            //         entry.field_id = fld;
+            //
+            //         if (fld > max_field_id) {
+            //             entry.field_id = 0;
+            //             return false;
+            //         }
+            //         const fe = Fields.get(fld) orelse {
+            //             entry.field_id = 0;
+            //             return false;
+            //         };
+            //         if (@intFromEnum(fe.type) != 0xf) {
+            //             entry.field_id = 0;
+            //             return false;
+            //         }
+            //
+            //         // Free existing buffer if present
+            //         if (entry.data.u8_data != null and entry.size != 0) {
+            //             // TODO: operator delete[] — need to track allocation properly
+            //             // allocator.free(entry.data.u8_data[0..entry.size])
+            //             entry.data.u8_data = null;
+            //         }
+            //
+            //         var size_buf: [2]u8 = undefined;
+            //         if (package.read(&size_buf, 2) != 2) {
+            //             entry.size = 0;
+            //             entry.field_id = 0;
+            //             return false;
+            //         }
+            //         const sz = std.mem.readInt(u16, &size_buf, .little);
+            //         entry.size = sz;
+            //         self.entry_tail = entry.next;
+            //
+            //         if (sz > 0) {
+            //             const buf = allocator.alloc(u8, sz) catch {
+            //                 entry.field_id = 0;
+            //                 return false;
+            //             };
+            //             entry.data.u8_data = @ptrCast(buf.ptr);
+            //             if (package.read(buf, sz) != sz) {
+            //                 allocator.free(buf);
+            //                 entry.size = 0;
+            //                 entry.field_id = 0;
+            //                 return false;
+            //             }
+            //         }
+            //
+            //         processed += @intCast(batch_count);
+            //     },
+            //
+            //     0x9000 => {
+            //         // NetId — 1 to 3 u16 components
+            //         if (header_param > 3) {
+            //             self.entry_tail.?.field_id = 0;
+            //             return false;
+            //         }
+            //
+            //         const entry = self.entry_tail.?;
+            //         entry.data = std.mem.zeroes(@TypeOf(entry.data));
+            //
+            //         const fld = readU16(package);
+            //         if (fld > max_field_id) {
+            //             entry.field_id = 0;
+            //             return false;
+            //         }
+            //         const fe = Fields.get(fld) orelse {
+            //             entry.field_id = 0;
+            //             return false;
+            //         };
+            //         if (@intFromEnum(fe.type) != 0xc) {
+            //             entry.field_id = 0;
+            //             return false;
+            //         }
+            //
+            //         // Read 1, 2, or 3 u16 components into wz_local
+            //         if (batch_count >= 1) {
+            //             entry.data.wz_local[0] = readU16(package);
+            //         }
+            //         if (batch_count >= 2) {
+            //             entry.data.wz_local[1] = readU16(package);
+            //         }
+            //         if (batch_count == 3) {
+            //             entry.data.wz_local[2] = readU16(package);
+            //         }
+            //
+            //         entry.field_id = fld;
+            //         entry.size = @intCast(batch_count);
+            //         processed += 1;
+            //         self.entry_tail = entry.next;
+            //     },
+        }
+
+        return true;
     }
 };
 
@@ -419,7 +935,7 @@ pub const CMarshalEntry = struct {
         f64_number: f64,
         u64_number: u64,
         wz_local: [4]u16,
-        wz_pointer: ?*const u16,
+        wz_pointer: ?[*:0]const u32,
         u8_data: ?*const u8,
         row_set: ?*CMarshalRowSet,
     },
@@ -881,648 +1397,758 @@ pub const CPackage = struct {
     pub fn stringReadTruncatedUTF16(
         self: *CPackage,
         allocator: std.mem.Allocator,
-        len: u16,
-        out_buffer: ?*u16,
+        wlen: u16,
+        pw_buffer: ?[*]u32,
         max_len: *u32,
-    ) ?*const u16 {
-        const dw_bytes: u32 = @intCast(len);
+    ) ?[*:0]const u32 {
+        const dw_bytes: u32 = wlen;
 
-        var result: *u16 = undefined;
-        if (out_buffer) |ob| {
-            result = ob;
-        } else {
+        const result: [*]u32 = if (pw_buffer) |buf| blk: {
+            break :blk buf;
+        } else blk: {
             max_len.* = dw_bytes;
-            const buf = allocator.alloc(u16, dw_bytes + 1) catch return null;
-            result = &buf[0];
-        }
+            const new_buf = allocator.alloc(u32, dw_bytes + 1) catch return null;
+            break :blk new_buf.ptr;
+        };
 
         if (dw_bytes < max_len.*) {
             max_len.* = dw_bytes;
         }
 
-        const rcx = max_len.*;
-
-        if (len != 0) {
-            const tmp = allocator.alloc(u8, dw_bytes + 1) catch return null;
-            defer allocator.free(tmp);
-
-            _ = self.read(tmp[0..dw_bytes], dw_bytes);
-            tmp[len] = 0;
-
-            const result_many: [*]u16 = @ptrCast(result);
-            for (0..rcx) |i| {
-                result_many[i] = @intCast(tmp[i]);
-            }
+        if (wlen == 0) {
+            result[max_len.*] = 0;
+            return @as([*:0]u32, @ptrCast(result));
         }
 
-        const result_many: [*]u16 = @ptrCast(result);
-        result_many[rcx] = 0;
-        return @ptrCast(result);
+        const tmp = allocator.alloc(u8, dw_bytes + 1) catch return null;
+        defer allocator.free(tmp);
+        tmp[dw_bytes] = 0;
+
+        _ = self.read(tmp[0..dw_bytes], dw_bytes);
+
+        const count = max_len.*;
+        for (0..count) |i| {
+            result[i] = tmp[i];
+        }
+
+        result[count] = 0;
+        return @as([*:0]u32, @ptrCast(result));
     }
 
-    pub fn stringReadWideUTF16(
+    // New function: UTF-8 to UTF-32 decoding using HirezRapidJson
+    pub fn stringReadWideUtf8ToUtf32(
         self: *CPackage,
         allocator: std.mem.Allocator,
-        avail_len: u16,
-        static_buffer: ?[*]u32,
+        w_available_len: u16,
+        wz_static_buffer: ?[*]u32,
         static_buffer_len: u32,
-        buffer: ?[*]u32,
+        wz_buffer: ?[*]u32,
         final_buffer_len: *u32,
-    ) ?*rapidjson.HirezRapidJson.UTF32Wchar {
-        const avail_len_u32: u32 = avail_len;
+    ) ?[*:0]const u32 {
+        var pwz_buffer = wz_buffer;
 
-        // save position for potential rewind
-        const saved_cur_place = self.cur_place;
-        const saved_current = self.current;
+        // Save position for potential restore after static-buffer probing
         const saved_place = self.place;
+        const saved_current = self.current;
+        const saved_cur_place = self.cur_place;
 
-        var out_buffer = buffer;
+        // === Path 1: Static buffer provided and has sufficient capacity ===
+        // static_buffer_len is in codepoints (UTF-32), each 4 bytes
+        if (static_buffer_len > 0 and static_buffer_len >= w_available_len) {
+            var output_idx: u32 = 0;
+            var stream = rapidjson.CPackageStringStream{
+                .package = self,
+                .available = w_available_len,
+                .read = 0,
+                .underflowed = false,
+            };
 
-        if (static_buffer_len > 0 and (static_buffer_len << 2) >= avail_len_u32) {
-            const sb = static_buffer.?;
-            var chars_written: i64 = 0;
-            var src_pos: i32 = 0;
+            while (output_idx < w_available_len and !stream.underflowed) {
+                var codepoint: u32 = 0;
+                // Decode returns true on success OR on clean underflow; check underflowed flag
+                if (!rapidjson.HirezRapidJson.decode(&stream, &codepoint)) {
+                    break;
+                }
+                // Stop on null terminator (matches assembly's !c check)
+                if (codepoint == 0) break;
 
-            while (true) {
-                if (@as(u16, @truncate(@as(u32, @bitCast(src_pos)))) < avail_len) {
-                    var peek_val: u16 = 0;
-                    _ = self.peek(@as([*]u8, @ptrCast(&peek_val))[0..2], 2);
-
-                    if (peek_val != 0) {
-                        var unit: u16 = 0;
-                        _ = self.readValue(u16, &unit);
-                        var codepoint: u32 = unit;
-
-                        if (@as(u32, unit) +% 0x2800 > 0x7ff) {
-                            // not a surrogate, BMP character
-                            src_pos += 1;
-                        } else {
-                            // low surrogate check
-                            if (unit > 0xdbff) break;
-
-                            if (avail_len <= @as(u16, @truncate(@as(u32, @bitCast(src_pos)))) + 1) break;
-
-                            var low: u16 = 0;
-                            _ = self.readValue(u16, &low);
-                            const low_u32: u32 = low;
-                            src_pos += 2;
-                            const low_check = low_u32 +% 0x2400;
-                            codepoint = ((@as(u32, unit) << 10 & 0xffc00) | (low_u32 & 0x3ff)) + 0x10000;
-
-                            if (@as(u16, @truncate(low_check)) > 0x3ff) break;
-                        }
-
-                        if (chars_written == @as(i64, static_buffer_len)) break;
-
-                        sb[@intCast(chars_written)] = codepoint;
-                        chars_written += 1;
-                        continue;
-                    }
+                // Check if static buffer would overflow
+                if (output_idx >= static_buffer_len) {
+                    // Restore package position and exit
+                    self.place = saved_place;
+                    self.current = saved_current;
+                    self.cur_place = saved_cur_place;
+                    break;
                 }
 
-                final_buffer_len.* = @intCast(chars_written);
-                sb[@intCast(chars_written)] = 0;
-                return @ptrCast(sb);
+                wz_static_buffer.?[output_idx] = codepoint;
+                output_idx += 1;
             }
 
-            out_buffer = buffer;
+            // Null-terminate and return static buffer
+            wz_static_buffer.?[output_idx] = 0;
+            final_buffer_len.* = output_idx;
+            return @as([*:0]const u32, @ptrCast(wz_static_buffer.?));
         }
 
-        if (static_buffer) |sb| {
-            @memset(@as([*]u8, @ptrCast(sb))[0 .. (@as(u64, static_buffer_len) << 2) + 4], 0);
+        // === Zero out static buffer if provided (safety) ===
+        if (wz_static_buffer) |static_buf| {
+            const zero_count = static_buffer_len + 1;
+            @memset(static_buf[0..zero_count], 0);
         }
 
-        if (out_buffer == null) {
-            final_buffer_len.* = avail_len_u32;
-            const buf = allocator.alloc(u32, avail_len_u32 + 1) catch return null;
-            out_buffer = buf.ptr;
+        // === Allocate dynamic output buffer if not provided ===
+        if (pwz_buffer == null) {
+            final_buffer_len.* = w_available_len; // Worst case: 1 byte -> 1 codepoint
+            const new_buf = allocator.alloc(u32, @as(usize, w_available_len) + 1) catch return null;
+            pwz_buffer = new_buf.ptr;
         }
 
-        // rewind
+        // === Restore position before main decoding pass ===
         self.place = saved_place;
         self.current = saved_current;
         self.cur_place = saved_cur_place;
 
-        const max_chars: u64 = final_buffer_len.*;
-        const pw = out_buffer.?;
+        const output_capacity = final_buffer_len.*;
 
-        var chars_written: u32 = 0;
-        var truncated: bool = false;
-        var write_pos: u64 = 0;
+        // === Path 2: Output buffer has enough capacity for worst-case ===
+        if (output_capacity >= w_available_len) {
+            var output_idx: u32 = 0;
+            var stream = rapidjson.CPackageStringStream{
+                .package = self,
+                .available = w_available_len,
+                .read = 0,
+                .underflowed = false,
+            };
 
-        if (max_chars < avail_len_u32) {
-            // buffer smaller than input: read raw u16s into pw, then decode in place
-            var src_pos: i32 = 0;
-            var out_pos: u32 = 0;
-
-            while (true) {
-                if (@as(u16, @truncate(@as(u32, @bitCast(src_pos)))) < avail_len) {
-                    var peek_val: u16 = 0;
-                    _ = self.peek(@as([*]u8, @ptrCast(&peek_val))[0..2], 2);
-
-                    if (peek_val != 0) {
-                        const place: u64 = self.place;
-                        var unit: u32 = undefined;
-
-                        if (place + 2 < self.used and self.cur_place + 2 <= 0x7fd) {
-                            unit = @as(u32, std.mem.readInt(u16, self.current.?.net.data[self.cur_place..][0..2], .little));
-                            self.cur_place += 2;
-                            self.place += 2;
-                        } else {
-                            var buf: [2]u8 = undefined;
-                            _ = self.read(&buf, 2);
-                            unit = std.mem.readInt(u16, &buf, .little);
-                        }
-
-                        var codepoint: u32 = unit;
-
-                        if (@as(u32, @as(u16, @truncate(unit))) +% 0x2800 > 0x7ff) {
-                            src_pos += 1;
-                        } else {
-                            if (@as(u16, @truncate(unit)) <= 0xdbff) {
-                                if (avail_len > @as(u16, @truncate(@as(u32, @bitCast(src_pos)))) + 1) {
-                                    const high = unit;
-                                    var low: u16 = 0;
-                                    _ = self.readValue(u16, &low);
-                                    const low_u32: u32 = low;
-                                    src_pos += 2;
-                                    const low_check = low_u32 +% 0x2400;
-                                    codepoint = ((high << 10 & 0xffc00) | (low_u32 & 0x3ff)) + 0x10000;
-                                    if (@as(u16, @truncate(low_check)) <= 0x3ff) {
-                                        if (max_chars > write_pos) {
-                                            pw[@intCast(write_pos)] = codepoint;
-                                            write_pos += 1;
-                                            out_pos += 1;
-                                        } else {
-                                            truncated = true;
-                                        }
-                                        chars_written = out_pos;
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            // invalid surrogate or truncated
-                            const end_ptr = &pw[write_pos];
-                            _ = end_ptr;
-                            chars_written = out_pos;
-                            break;
-                        }
-
-                        if (max_chars > write_pos) {
-                            pw[@intCast(write_pos)] = codepoint;
-                            write_pos += 1;
-                            out_pos += 1;
-                        } else {
-                            truncated = true;
-                        }
-                        chars_written = out_pos;
-                        continue;
-                    }
+            while (output_idx < w_available_len and !stream.underflowed) {
+                var codepoint: u32 = 0;
+                if (!rapidjson.HirezRapidJson.decode(&stream, &codepoint)) {
+                    break;
                 }
+                if (codepoint == 0) break;
 
-                chars_written = out_pos;
+                pwz_buffer.?[output_idx] = codepoint;
+                output_idx += 1;
+            }
+
+            // Skip any unconsumed input bytes
+            if (stream.read < w_available_len) {
+                _ = self.readBufferSkip(w_available_len - stream.read);
+            }
+
+            pwz_buffer.?[output_idx] = 0;
+            final_buffer_len.* = output_idx;
+            return @as([*:0]const u32, @ptrCast(pwz_buffer.?));
+        }
+
+        // === Path 3: Output buffer is smaller - decode on-the-fly, skip excess ===
+        var output_idx: u32 = 0;
+        var stream = rapidjson.CPackageStringStream{
+            .package = self,
+            .available = w_available_len,
+            .read = 0,
+            .underflowed = false,
+        };
+
+        while (!stream.underflowed and stream.read < w_available_len) {
+            var codepoint: u32 = 0;
+            if (!rapidjson.HirezRapidJson.decode(&stream, &codepoint)) {
                 break;
             }
+            if (codepoint == 0) break;
 
-            if (truncated) {
-                self.readBufferSkip((avail_len_u32 - @as(u32, @intCast(chars_written))) * 2);
+            // Only write if buffer has space
+            if (output_idx < output_capacity) {
+                pwz_buffer.?[output_idx] = codepoint;
+                output_idx += 1;
             }
-        } else {
-            // buffer >= input: first pass reads all u16s as u32 into pw
-            var i: u64 = 0;
-            while (i < @as(u64, avail_len)) {
-                const place: u64 = self.place;
-                var unit: u32 = undefined;
-
-                if (place + 2 < self.used and self.cur_place + 2 <= 0x7fd) {
-                    unit = std.mem.readInt(u16, self.current.?.net.data[self.cur_place..][0..2], .little);
-                    self.cur_place += 2;
-                    self.place += 2;
-                    pw[i] = unit;
-                    i += 1;
-                    if (i == @as(u64, avail_len)) break;
-                    continue;
-                }
-
-                var buf: [2]u8 = undefined;
-                _ = self.read(&buf, 2);
-                unit = std.mem.readInt(u16, &buf, .little);
-                pw[i] = unit;
-                i += 1;
-                if (i == @as(u64, avail_len)) break;
-            }
-
-            // second pass: decode UTF-16 surrogate pairs in place
-            var src_pos: i32 = 0;
-            var dst_pos: u64 = 0;
-            var consumed: u32 = 0;
-            truncated = false;
-
-            while (@as(u16, @truncate(@as(u32, @bitCast(src_pos)))) < avail_len) {
-                const unit: u32 = pw[@as(u64, @intCast(@as(u16, @truncate(@as(u32, @bitCast(src_pos))))))];
-                if (@as(u16, @truncate(unit)) == 0) break;
-
-                var codepoint: u32 = undefined;
-
-                if (@as(u16, @truncate(unit)) +% 0x2800 <= 0x7ff) {
-                    // surrogate range
-                    if (@as(u16, @truncate(unit)) > 0xdbff) break;
-                    if (avail_len <= @as(u16, @truncate(@as(u32, @bitCast(src_pos)))) + 1) break;
-
-                    const next_pos = @as(u64, @intCast(@as(u16, @truncate(@as(u32, @bitCast(src_pos + 1))))));
-                    const low: u32 = pw[next_pos];
-                    src_pos += 2;
-                    const low_check = @as(u16, @truncate(low)) +% 0x2400;
-                    codepoint = ((unit << 10 & 0xffc00) | (low & 0x3ff)) + 0x10000;
-                    if (low_check > 0x3ff) break;
-
-                    if (max_chars > dst_pos) {
-                        pw[dst_pos] = codepoint;
-                        dst_pos += 1;
-                        chars_written = @intCast(dst_pos);
-                    } else {
-                        truncated = true;
-                    }
-                } else {
-                    codepoint = @as(u16, @truncate(unit));
-                    src_pos += 1;
-
-                    if (max_chars > dst_pos) {
-                        pw[dst_pos] = codepoint;
-                        dst_pos += 1;
-                        chars_written = @intCast(dst_pos);
-                    } else {
-                        truncated = true;
-                    }
-                }
-
-                consumed += 1;
-            }
-
-            if (truncated) {
-                self.readBufferSkip((avail_len_u32 - consumed) * 2);
-            }
-
-            write_pos = dst_pos;
+            // Continue consuming input even if output buffer is full (to advance package position)
         }
 
-        final_buffer_len.* = chars_written;
-        pw[write_pos] = 0;
-        return @ptrCast(pw);
-    }
-
-    inline fn readU32FastPath(self: *CPackage, span: *u32) void {
-        const place: u64 = self.place;
-        if (place + 4 < self.used and self.cur_place + 4 <= 0x7fd) {
-            span.* = std.mem.readInt(u32, self.current.?.net.data[self.cur_place..][0..4], .little);
-            self.cur_place += 4;
-            self.place += 4;
-        } else {
-            var buf: [4]u8 = undefined;
-            _ = self.read(&buf, 4);
-            span.* = std.mem.readInt(u32, &buf, .little);
+        // Skip any remaining unconsumed bytes
+        if (stream.read < w_available_len) {
+            _ = self.readBufferSkip(w_available_len - stream.read);
         }
+
+        pwz_buffer.?[output_idx] = 0;
+        final_buffer_len.* = output_idx;
+        return @as([*:0]const u32, @ptrCast(pwz_buffer.?));
     }
 
-    pub fn stringReadWideUTF32LE(
+    // Helper: Check if code unit is high surrogate [0xD800, 0xDBFF]
+    fn isHighSurrogate(cu: u32) bool {
+        return cu >= 0xD800 and cu <= 0xDBFF;
+    }
+
+    // Helper: Check if code unit is low surrogate [0xDC00, 0xDFFF]
+    fn isLowSurrogate(cu: u32) bool {
+        return cu >= 0xDC00 and cu <= 0xDFFF;
+    }
+
+    // Helper: Combine surrogate pair into UTF-32 codepoint
+    fn combineSurrogates(high: u32, low: u32) u32 {
+        return 0x10000 + (((high & 0x3FF) << 10) | (low & 0x3FF));
+    }
+
+    // Helper: Read a single 4-byte UTF-16 unit from package
+    fn readUtf16Unit4Byte(self: *CPackage, buf: *[4]u8) ?u32 {
+        if (self.read(buf, 4) != 4) return null;
+        return std.mem.readInt(u32, buf, .little);
+    }
+
+    // Helper: Peek a single 4-byte UTF-16 unit from package (does not advance)
+    fn peekUtf16Unit4Byte(self: *CPackage, buf: *[4]u8) ?u32 {
+        if (self.peek(buf, 4) != 4) return null;
+        return std.mem.readInt(u32, buf, .little);
+    }
+
+    pub fn stringReadWideUtf16WideToUtf32(
         self: *CPackage,
         allocator: std.mem.Allocator,
-        avail_len: u16,
-        static_buffer: ?[*]u32,
+        w_available_len: u16,
+        wz_static_buffer: ?[*]u32,
         static_buffer_len: u32,
-        buffer: ?[*]u32,
+        wz_buffer: ?[*]u32,
         final_buffer_len: *u32,
-    ) ?*rapidjson.HirezRapidJson.UTF32Wchar {
-        const avail_len_u32: u32 = avail_len;
+    ) ?[*:0]const u32 {
+        var pwz_buffer = wz_buffer;
 
-        const saved_cur_place = self.cur_place;
-        const saved_current = self.current;
+        // Save position for potential restore after static-buffer probing
         const saved_place = self.place;
+        const saved_current = self.current;
+        const saved_cur_place = self.cur_place;
 
-        var out_buffer = buffer;
+        // === Path 1: Static buffer provided and has sufficient capacity ===
+        // Assembly check: (static_buffer_len << 2) >= w_available_len
+        if (static_buffer_len > 0 and (static_buffer_len << 2) >= w_available_len) {
+            var input_idx: u32 = 0;
+            var output_idx: u32 = 0;
+            var peek_buf: [4]u8 = undefined;
+            var read_buf: [4]u8 = undefined;
 
-        if (static_buffer_len > 0 and (static_buffer_len << 2) >= avail_len_u32) {
-            const sb = static_buffer.?;
-            var chars_written: i64 = 0;
-            var src_pos: i32 = 0;
+            while (input_idx < w_available_len) {
+                // Peek to check for null terminator or validity
+                const cu_peek = self.peekUtf16Unit4Byte(&peek_buf) orelse break;
+                if (cu_peek == 0) break; // null terminator
 
-            while (true) {
-                if (@as(u16, @truncate(@as(u32, @bitCast(src_pos)))) < avail_len) {
-                    var span: u32 = 0;
-                    _ = self.peek(@as([*]u8, @ptrCast(&span))[0..4], 4);
+                // Consume the unit
+                _ = self.readUtf16Unit4Byte(&read_buf) orelse break;
+                const cu = cu_peek; // Use peeked value to ensure consistency
 
-                    if (span != 0) {
-                        var unit: u32 = 0;
-                        readU32FastPath(self, &unit);
+                var codepoint = cu;
+                var consumed_units: u32 = 1;
 
-                        var rdx_3: i32 = src_pos + 1;
-                        var codepoint: u32 = unit;
+                // Handle UTF-16 surrogate pairs
+                if (isHighSurrogate(cu)) {
+                    // Need low surrogate next
+                    if (input_idx + 1 >= w_available_len) break;
 
-                        if (unit -% 0xd800 <= 0x7ff) {
-                            if (unit > 0xdbff) break;
+                    const low_peek = self.peekUtf16Unit4Byte(&peek_buf) orelse break;
+                    if (!isLowSurrogate(low_peek)) break; // invalid pair
 
-                            if (avail_len <= @as(u16, @truncate(@as(u32, @bitCast(rdx_3))))) break;
+                    _ = self.readUtf16Unit4Byte(&read_buf) orelse break;
+                    codepoint = combineSurrogates(cu, low_peek);
+                    consumed_units = 2;
+                } else if (cu >= 0xD800 and cu <= 0xDFFF) {
+                    // Lone low surrogate or invalid range - stop decoding
+                    break;
+                }
 
-                            var low: u32 = 0;
-                            const place: u64 = self.place;
-                            if (place + 4 < self.used and self.cur_place + 4 <= 0x7fd) {
-                                low = std.mem.readInt(u32, self.current.?.net.data[self.cur_place..][0..4], .little);
-                                self.cur_place += 4;
-                                self.place += 4;
-                            } else {
-                                var buf: [4]u8 = undefined;
-                                _ = self.read(&buf, 4);
-                                low = std.mem.readInt(u32, &buf, .little);
-                            }
+                // Check if static buffer would overflow
+                if (output_idx >= static_buffer_len) {
+                    // Restore package position and exit (matching assembly behavior)
+                    self.place = saved_place;
+                    self.current = saved_current;
+                    self.cur_place = saved_cur_place;
+                    break;
+                }
 
-                            rdx_3 = src_pos + 2;
-                            codepoint = ((unit << 10 & 0xffc00) | (low & 0x3ff)) + 0x10000;
+                wz_static_buffer.?[output_idx] = codepoint;
+                output_idx += 1;
+                input_idx += consumed_units;
+            }
 
-                            if (low -% 0xdc00 > 0x3ff) break;
+            // If we hit null terminator successfully within static buffer limits
+            if (input_idx < w_available_len or (output_idx < static_buffer_len and peek_buf[0] == 0 and peek_buf[1] == 0 and peek_buf[2] == 0 and peek_buf[3] == 0)) {
+                // Null-terminate and return static buffer
+                wz_static_buffer.?[output_idx] = 0;
+                final_buffer_len.* = output_idx;
+                return @as([*:0]const u32, @ptrCast(wz_static_buffer.?));
+            }
+
+            // If static buffer filled up or loop broke early, fall through to dynamic path
+            // Restore position first
+            self.place = saved_place;
+            self.current = saved_current;
+            self.cur_place = saved_cur_place;
+        }
+
+        // === Zero out static buffer if provided (safety, matching assembly) ===
+        if (wz_static_buffer) |static_buf| {
+            const zero_count = static_buffer_len + 1;
+            @memset(@as([*]u8, @ptrCast(static_buf))[0 .. zero_count * 4], 0);
+        }
+
+        // === Allocate dynamic output buffer if not provided ===
+        if (pwz_buffer == null) {
+            final_buffer_len.* = w_available_len; // worst case: all BMP chars, 1:1 mapping
+            const new_buf = allocator.alloc(u32, @as(usize, w_available_len) + 1) catch return null;
+            pwz_buffer = new_buf.ptr;
+        }
+
+        const output_capacity = final_buffer_len.*;
+        var input_idx: u32 = 0;
+        var output_idx: u32 = 0;
+        var buffer_full = false;
+        var read_buf: [4]u8 = undefined;
+
+        // === Path 2 & 3: Dynamic Buffer (Unified Loop with Overflow Handling) ===
+        // Assembly distinguishes based on output_capacity >= w_available_len
+        // We can handle both in one loop with a flag for skipping
+
+        const is_large_buffer = output_capacity >= w_available_len;
+
+        if (is_large_buffer) {
+            // Path 2: Bulk read first (optimization matching assembly)
+            while (input_idx < w_available_len) {
+                const cu = self.readUtf16Unit4Byte(&read_buf) orelse break;
+                pwz_buffer.?[input_idx] = cu;
+                if (cu == 0) break;
+                input_idx += 1;
+            }
+            const raw_count = input_idx;
+
+            // Compact surrogates in-place
+            var read_idx: u32 = 0;
+            var write_idx: u32 = 0;
+
+            while (read_idx < raw_count) {
+                const cu = pwz_buffer.?[read_idx];
+                if (cu == 0) break;
+
+                var codepoint = cu;
+                var consumed: u32 = 1;
+
+                if (isHighSurrogate(cu)) {
+                    if (read_idx + 1 < raw_count) {
+                        const low = pwz_buffer.?[read_idx + 1];
+                        if (isLowSurrogate(low)) {
+                            codepoint = combineSurrogates(cu, low);
+                            consumed = 2;
                         }
-
-                        if (chars_written == @as(i64, static_buffer_len)) break;
-
-                        sb[@intCast(chars_written)] = codepoint;
-                        src_pos = rdx_3;
-                        chars_written += 1;
-                        continue;
                     }
+                } else if (cu >= 0xD800 and cu <= 0xDFFF) {
+                    break; // Invalid lone surrogate
                 }
 
-                final_buffer_len.* = @intCast(chars_written);
-                sb[@intCast(chars_written)] = 0;
-                return @ptrCast(sb);
-            }
-
-            out_buffer = buffer;
-        }
-
-        if (static_buffer) |sb| {
-            @memset(@as([*]u8, @ptrCast(sb))[0 .. (@as(u64, static_buffer_len) << 2) + 4], 0);
-        }
-
-        if (out_buffer == null) {
-            final_buffer_len.* = avail_len_u32;
-            const buf = allocator.alloc(u32, avail_len_u32 + 1) catch return null;
-            out_buffer = buf.ptr;
-        }
-
-        self.place = saved_place;
-        self.current = saved_current;
-        self.cur_place = saved_cur_place;
-
-        const max_chars: u64 = final_buffer_len.*;
-        const pw = out_buffer.?;
-        var chars_written: u32 = 0;
-        var write_pos: u64 = 0;
-
-        if (max_chars >= avail_len_u32) {
-            // first pass: read all u32 units raw into pw
-            var i: u64 = 0;
-            while (i < @as(u64, avail_len)) {
-                const place: u64 = self.place;
-                var unit: u32 = undefined;
-                if (place + 4 < self.used and self.cur_place + 4 <= 0x7fd) {
-                    unit = std.mem.readInt(u32, self.current.?.net.data[self.cur_place..][0..4], .little);
-                    self.cur_place += 4;
-                    self.place += 4;
-                    pw[i] = unit;
-                    i += 1;
-                    if (i == @as(u64, avail_len)) break;
-                    continue;
-                }
-                var buf: [4]u8 = undefined;
-                _ = self.read(&buf, 4);
-                pw[i] = std.mem.readInt(u32, &buf, .little);
-                i += 1;
-                if (i == @as(u64, avail_len)) break;
-            }
-
-            // second pass: decode surrogate pairs in place
-            var src_pos: i32 = 0;
-            var dst_pos: u64 = 0;
-            var consumed: u32 = 0;
-            var truncated: bool = false;
-
-            while (@as(u16, @truncate(@as(u32, @bitCast(src_pos)))) < avail_len) {
-                const unit = pw[@as(u64, @intCast(@as(u16, @truncate(@as(u32, @bitCast(src_pos))))))];
-                if (unit == 0) break;
-
-                var codepoint: u32 = undefined;
-
-                if (unit -% 0xd800 <= 0x7ff) {
-                    if (unit > 0xdbff) break;
-                    if (avail_len <= @as(u16, @truncate(@as(u32, @bitCast(src_pos)))) + 1) break;
-
-                    const low = pw[@as(u64, @intCast(@as(u16, @truncate(@as(u32, @bitCast(src_pos + 1))))))];
-                    src_pos += 2;
-                    codepoint = ((unit << 10 & 0xffc00) | (low & 0x3ff)) + 0x10000;
-
-                    if (low -% 0xdc00 > 0x3ff) break;
-
-                    if (max_chars > dst_pos) {
-                        pw[dst_pos] = codepoint;
-                        dst_pos += 1;
-                        chars_written = @intCast(dst_pos);
-                    } else {
-                        truncated = true;
-                    }
+                if (write_idx < output_capacity) {
+                    pwz_buffer.?[write_idx] = codepoint;
+                    write_idx += 1;
                 } else {
-                    codepoint = unit;
-                    src_pos += 1;
-
-                    if (max_chars > dst_pos) {
-                        pw[dst_pos] = codepoint;
-                        dst_pos += 1;
-                        chars_written = @intCast(dst_pos);
-                    } else {
-                        truncated = true;
-                    }
+                    buffer_full = true;
                 }
 
-                consumed += 1;
+                read_idx += consumed;
             }
-
-            if (truncated) {
-                self.readBufferSkip((avail_len_u32 - consumed) << 2);
-            }
-
-            write_pos = dst_pos;
+            output_idx = write_idx;
+            input_idx = read_idx;
         } else {
-            // buffer smaller than input: read and decode simultaneously
-            var src_pos: i32 = 0;
-            var out_pos: u32 = 0;
-            var consumed: u32 = 0;
-            var truncated: bool = false;
+            // Path 3: Small buffer - decode on-the-fly
+            while (input_idx < w_available_len) {
+                const cu = self.readUtf16Unit4Byte(&read_buf) orelse break;
+                if (cu == 0) break;
 
-            while (true) {
-                if (@as(u16, @truncate(@as(u32, @bitCast(src_pos)))) < avail_len) {
-                    var span: u32 = 0;
-                    _ = self.peek(@as([*]u8, @ptrCast(&span))[0..4], 4);
+                var codepoint = cu;
+                var consumed_units: u32 = 1;
 
-                    if (span != 0) {
-                        var unit: u32 = 0;
-                        readU32FastPath(self, &unit);
-
-                        var rdx_7: i32 = src_pos + 1;
-                        var codepoint: u32 = unit;
-
-                        if (unit -% 0xd800 <= 0x7ff) {
-                            if (unit <= 0xdbff) {
-                                if (avail_len > @as(u16, @truncate(@as(u32, @bitCast(rdx_7))))) {
-                                    var low: u32 = 0;
-                                    readU32FastPath(self, &low);
-                                    rdx_7 = src_pos + 2;
-                                    codepoint = ((unit << 10 & 0xffc00) | (low & 0x3ff)) + 0x10000;
-
-                                    if (low -% 0xdc00 <= 0x3ff) {
-                                        if (max_chars > write_pos) {
-                                            pw[write_pos] = codepoint;
-                                            write_pos += 1;
-                                            out_pos += 1;
-                                            consumed += 1;
-                                            src_pos = rdx_7;
-                                            chars_written = out_pos;
-                                            continue;
-                                        } else {
-                                            truncated = true;
-                                            chars_written = out_pos;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            chars_written = out_pos;
-                            break;
-                        }
-
-                        // non-surrogate BMP
-                        if (max_chars > write_pos) {
-                            pw[write_pos] = codepoint;
-                            write_pos += 1;
-                            out_pos += 1;
-                            consumed += 1;
-                            src_pos = rdx_7;
-                            chars_written = out_pos;
-                            continue;
-                        } else {
-                            truncated = true;
-                            chars_written = out_pos;
-                            break;
-                        }
-                    }
+                if (isHighSurrogate(cu)) {
+                    if (input_idx + 1 >= w_available_len) break;
+                    const low = self.readUtf16Unit4Byte(&read_buf) orelse break;
+                    if (!isLowSurrogate(low)) break;
+                    codepoint = combineSurrogates(cu, low);
+                    consumed_units = 2;
+                } else if (cu >= 0xD800 and cu <= 0xDFFF) {
+                    break;
                 }
 
-                chars_written = out_pos;
-                break;
-            }
+                if (output_idx < output_capacity) {
+                    pwz_buffer.?[output_idx] = codepoint;
+                    output_idx += 1;
+                } else {
+                    buffer_full = true;
+                }
 
-            if (truncated) {
-                self.readBufferSkip((avail_len_u32 - consumed) << 2);
+                input_idx += consumed_units;
             }
         }
 
-        final_buffer_len.* = chars_written;
-        pw[write_pos] = 0;
-        return @ptrCast(pw);
+        // Skip any remaining unconsumed input bytes (units * 4)
+        if (input_idx < w_available_len) {
+            const skip_bytes = (w_available_len - input_idx) * 4;
+            _ = self.readBufferSkip(skip_bytes);
+        }
+
+        pwz_buffer.?[output_idx] = 0;
+        final_buffer_len.* = output_idx;
+        return @as([*:0]const u32, @ptrCast(pwz_buffer.?));
+    }
+
+    // === Helper methods for UTF-16 (2-byte) decoding ===
+
+    // Helper: Check if code unit is high surrogate [0xD800, 0xDBFF]
+    fn isHighSurrogate16(cu: u16) bool {
+        return cu >= 0xD800 and cu <= 0xDBFF;
+    }
+
+    // Helper: Check if code unit is low surrogate [0xDC00, 0xDFFF]
+    fn isLowSurrogate16(cu: u16) bool {
+        return cu >= 0xDC00 and cu <= 0xDFFF;
+    }
+
+    // Helper: Combine surrogate pair into UTF-32 codepoint
+    fn combineSurrogates16(high: u16, low: u16) u32 {
+        return 0x10000 + (((@as(u32, high) & 0x3FF) << 10) | (@as(u32, low) & 0x3FF));
+    }
+
+    // Helper: Read a single 2-byte UTF-16 unit from package
+    fn readUtf16Unit2Byte(self: *CPackage) ?u16 {
+        if (self.place + 2 > self.used or self.cur_place + 2 > 0x7fd) {
+            var buf: [2]u8 = undefined;
+            if (self.read(&buf, 2) != 2) return null;
+            return std.mem.readInt(u16, &buf, .little);
+        } else {
+            const val = std.mem.readInt(u16, self.current.?.net.data[self.cur_place..][0..2], .little);
+            self.cur_place += 2;
+            self.place += 2;
+            return val;
+        }
+    }
+
+    // Helper: Peek a single 2-byte UTF-16 unit from package (does not advance)
+    fn peekUtf16Unit2Byte(self: *CPackage) ?u16 {
+        var current = self.current;
+        var cur_place = self.cur_place;
+
+        if (cur_place > 0x7fd) {
+            current = current.?.next orelse return null;
+            cur_place = 0;
+        }
+
+        if (self.place + 2 > self.used) return null;
+
+        return std.mem.readInt(u16, current.?.net.data[cur_place..][0..2], .little);
+    }
+
+    // === UTF-16 (2-byte) to UTF-32 decoding ===
+    pub fn stringReadWideUtf16ToUtf32(
+        self: *CPackage,
+        allocator: std.mem.Allocator,
+        w_available_len: u16,
+        wz_static_buffer: ?[*]u32,
+        static_buffer_len: u32,
+        wz_buffer: ?[*]u32,
+        final_buffer_len: *u32,
+    ) ?[*:0]const u32 {
+        var pwz_buffer = wz_buffer;
+
+        // Save position for potential restore after static-buffer probing
+        const saved_place = self.place;
+        const saved_current = self.current;
+        const saved_cur_place = self.cur_place;
+
+        // === Path 1: Static buffer provided and has sufficient capacity ===
+        // Assembly check: (static_buffer_len << 2) >= w_available_len
+        // static_buffer_len is in UTF-32 codepoints (4 bytes each)
+        // w_available_len is in UTF-16 code units (2 bytes each)
+        if (static_buffer_len > 0 and (static_buffer_len << 2) >= w_available_len) {
+            var input_idx: u32 = 0;
+            var output_idx: u32 = 0;
+
+            while (input_idx < w_available_len) {
+                // Peek to check for null terminator
+                const cu_peek = self.peekUtf16Unit2Byte() orelse break;
+                if (cu_peek == 0) break; // null terminator
+
+                // Consume the unit
+                const cu = self.readUtf16Unit2Byte() orelse break;
+
+                var codepoint: u32 = cu;
+                var consumed_units: u32 = 1;
+
+                // Handle UTF-16 surrogate pairs
+                // Assembly check: (cu + 0x2800 > 0x7ff) means NOT in surrogate range
+                // Equivalent to: cu < 0xD800 or cu > 0xDFFF
+                if (cu >= 0xD800 and cu <= 0xDFFF) {
+                    // In surrogate range - check if high surrogate
+                    if (cu > 0xDBFF) {
+                        // Low surrogate without high - invalid
+                        break;
+                    }
+
+                    // High surrogate - need low surrogate next
+                    if (input_idx + 1 >= w_available_len) break;
+
+                    const low_peek = self.peekUtf16Unit2Byte() orelse break;
+                    // Assembly check: (low + 0x2400 <= 0x3ff) means low in [0xDC00, 0xDFFF]
+                    if (low_peek < 0xDC00 or low_peek > 0xDFFF) break;
+
+                    const low = self.readUtf16Unit2Byte() orelse break;
+                    codepoint = combineSurrogates16(cu, low);
+                    consumed_units = 2;
+                }
+
+                // Check if static buffer would overflow
+                if (output_idx >= static_buffer_len) {
+                    // Restore package position and exit
+                    self.place = saved_place;
+                    self.current = saved_current;
+                    self.cur_place = saved_cur_place;
+                    break;
+                }
+
+                wz_static_buffer.?[output_idx] = codepoint;
+                output_idx += 1;
+                input_idx += consumed_units;
+            }
+
+            // Null-terminate and return static buffer
+            wz_static_buffer.?[output_idx] = 0;
+            final_buffer_len.* = output_idx;
+            return @as([*:0]const u32, @ptrCast(wz_static_buffer.?));
+        }
+
+        // === Zero out static buffer if provided (safety) ===
+        if (wz_static_buffer) |static_buf| {
+            const zero_count = static_buffer_len + 1;
+            @memset(@as([*]u8, @ptrCast(static_buf))[0 .. zero_count * 4], 0);
+        }
+
+        // === Allocate dynamic output buffer if not provided ===
+        if (pwz_buffer == null) {
+            final_buffer_len.* = w_available_len; // worst case: all BMP chars
+            const new_buf = allocator.alloc(u32, @as(usize, w_available_len) + 1) catch return null;
+            pwz_buffer = new_buf.ptr;
+        }
+
+        const output_capacity = final_buffer_len.*;
+        const is_large_buffer = output_capacity >= w_available_len;
+
+        // === Path 2: Large buffer - bulk read then compact ===
+        if (is_large_buffer) {
+            var input_idx: u32 = 0;
+
+            // First pass: bulk-copy UTF-16 code units to output buffer
+            while (input_idx < w_available_len) {
+                const cu = self.readUtf16Unit2Byte() orelse break;
+                pwz_buffer.?[input_idx] = cu;
+                if (cu == 0) break;
+                input_idx += 1;
+            }
+            const raw_count = input_idx;
+
+            // Second pass: in-place surrogate pair compaction
+            var read_idx: u32 = 0;
+            var write_idx: u32 = 0;
+            var buffer_overflow = false;
+            var consumed_input: u32 = 0;
+
+            while (read_idx < raw_count) {
+                const cu = pwz_buffer.?[read_idx];
+                if (cu == 0) break;
+
+                var codepoint: u32 = cu;
+                var consumed: u32 = 1;
+
+                if (cu >= 0xD800 and cu <= 0xDFFF) {
+                    if (cu > 0xDBFF) {
+                        // Invalid low surrogate
+                        break;
+                    }
+                    if (read_idx + 1 < raw_count) {
+                        const low = pwz_buffer.?[read_idx + 1];
+                        if (low >= 0xDC00 and low <= 0xDFFF) {
+                            codepoint = combineSurrogates16(@intCast(cu), @intCast(low));
+                            consumed = 2;
+                        }
+                    }
+                }
+
+                if (write_idx < output_capacity) {
+                    pwz_buffer.?[write_idx] = codepoint;
+                    write_idx += 1;
+                } else {
+                    buffer_overflow = true;
+                }
+
+                read_idx += consumed;
+                consumed_input += consumed;
+            }
+
+            // Skip any unconsumed input bytes
+            if (consumed_input < w_available_len) {
+                const skip_bytes = (w_available_len - consumed_input) * 2;
+                _ = self.readBufferSkip(skip_bytes);
+            }
+
+            pwz_buffer.?[write_idx] = 0;
+            final_buffer_len.* = write_idx;
+            return @as([*:0]const u32, @ptrCast(pwz_buffer.?));
+        }
+
+        // === Path 3: Small buffer - decode on-the-fly ===
+        var input_idx: u32 = 0;
+        var output_idx: u32 = 0;
+        var buffer_full = false;
+
+        while (input_idx < w_available_len) {
+            const cu = self.readUtf16Unit2Byte() orelse break;
+            if (cu == 0) break;
+
+            var codepoint: u32 = cu;
+            var consumed_units: u32 = 1;
+
+            if (cu >= 0xD800 and cu <= 0xDFFF) {
+                if (cu > 0xDBFF) {
+                    // Invalid low surrogate
+                    break;
+                }
+                if (input_idx + 1 >= w_available_len) break;
+
+                const low = self.readUtf16Unit2Byte() orelse break;
+                if (low < 0xDC00 or low > 0xDFFF) break;
+
+                codepoint = combineSurrogates16(@intCast(cu), @intCast(low));
+                consumed_units = 2;
+            }
+
+            // Only write if buffer has space
+            if (output_idx < output_capacity) {
+                pwz_buffer.?[output_idx] = codepoint;
+                output_idx += 1;
+            } else {
+                buffer_full = true;
+            }
+
+            input_idx += consumed_units;
+        }
+
+        // Skip any remaining unconsumed bytes
+        if (input_idx < w_available_len) {
+            const skip_bytes = (w_available_len - input_idx) * 2;
+            _ = self.readBufferSkip(skip_bytes);
+        }
+
+        pwz_buffer.?[output_idx] = 0;
+        final_buffer_len.* = output_idx;
+        return @as([*:0]const u32, @ptrCast(pwz_buffer.?));
     }
 
     pub fn stringReadWide(
         self: *CPackage,
         allocator: std.mem.Allocator,
-        avail_len: u16,
+        w_available_len: u16,
         encoding: u8,
-        static_buffer: ?[*]u16,
+        wz_static_buffer: ?[*]u32,
         static_buffer_len: u32,
-        buffer: ?*u16,
+        wz_buffer: ?[*]u32,
         final_buffer_len: *u32,
-    ) ?*rapidjson.HirezRapidJson.UTF32Wchar {
-        var p_buffer = buffer;
+    ) ?[*:0]const u32 {
+        var p_buffer = wz_buffer;
 
-        if (avail_len != 0) {
-            const avail_len_u32: u32 = avail_len;
-
-            if (encoding == 3) {
-                const r8: u32 = avail_len;
-
-                if (static_buffer_len > 0 and static_buffer_len >= avail_len_u32) {
-                    const sb = static_buffer.?;
-                    _ = self.read(@as([*]u8, @ptrCast(sb))[0 .. avail_len_u32 * 4], avail_len_u32 * 4);
-                    sb[avail_len] = 0;
-                    final_buffer_len.* = avail_len_u32;
-                    return @ptrCast(sb);
-                } else {
-                    if (static_buffer) |sb| {
-                        @memset(@as([*]u8, @ptrCast(sb))[0 .. (static_buffer_len * 4) + 4], 0);
-                    }
-
-                    if (p_buffer == null) {
-                        final_buffer_len.* = avail_len_u32;
-                        const buf = allocator.alloc(u16, avail_len_u32 + 1) catch return null;
-                        p_buffer = &buf[0];
-                    }
-
-                    const cur_len: u16 = @truncate(final_buffer_len.*);
-
-                    if (avail_len > cur_len) {
-                        const rbx: u32 = cur_len;
-                        const pb_many: [*]u16 = @ptrCast(p_buffer.?);
-                        _ = self.read(@as([*]u8, @ptrCast(pb_many))[0 .. rbx * 4], rbx * 4);
-                        pb_many[cur_len] = 0;
-                        final_buffer_len.* = rbx;
-                        // CPackage::ReadBuffer<CNullSpan>(self, (avail_len_u32 - rbx) * 4)
-                        self.readBufferSkip((avail_len_u32 - rbx) * 4);
-                        return @ptrCast(p_buffer.?);
-                    }
-
-                    const pb_many: [*]u16 = @ptrCast(p_buffer.?);
-                    _ = self.read(@as([*]u8, @ptrCast(pb_many))[0 .. avail_len_u32 * 4], avail_len_u32 * 4);
-                    pb_many[r8] = 0;
-                    final_buffer_len.* = avail_len_u32;
-                    return @ptrCast(p_buffer.?);
-                }
-            } else {
-                if (encoding == 1) {
-                    // CPackage::StringReadWide<UTF8, UTF32>(self, avail_len_u32, static_buffer, static_buffer_len, p_buffer)
-                    std.log.warn("StringReadWide encoding 1 not implemented", .{});
-                    return null;
-                }
-
-                if (encoding == 2) {
-                    return self.stringReadWideUTF32LE(allocator, avail_len, static_buffer, static_buffer_len, buffer, final_buffer_len);
-                }
-
-                if (encoding == 4) {
-                    return self.stringReadWideUTF16(allocator, avail_len, static_buffer, static_buffer_len, buffer, final_buffer_len);
-                }
-
-                if (encoding == 5) {
-                    return self.stringReadTruncatedUTF16(allocator, avail_len, buffer, final_buffer_len);
-                }
-
-                return null;
-            }
-        } else {
-            if (static_buffer_len == 0 or static_buffer == null) {
+        if (w_available_len == 0) {
+            // Empty string path
+            if (static_buffer_len == 0 or wz_static_buffer == null) {
                 if (final_buffer_len.* != 0 and p_buffer != null) {
-                    const pb_many: [*]u16 = @ptrCast(p_buffer.?);
-                    pb_many[0] = 0;
+                    p_buffer.?[0] = 0;
                     final_buffer_len.* = 0;
                     return @ptrCast(p_buffer.?);
                 }
 
                 final_buffer_len.* = 0;
-                const buf = allocator.alloc(u16, 1) catch return null;
-                buf[0] = 0;
-                return @ptrCast(&buf[0]);
+                const new_buf = allocator.alloc(u32, 1) catch return null;
+                new_buf[0] = 0;
+                return @ptrCast(new_buf.ptr);
             }
 
-            static_buffer.?[0] = 0;
+            wz_static_buffer.?[0] = 0;
             final_buffer_len.* = 0;
-            return @ptrCast(static_buffer.?);
+            return @ptrCast(wz_static_buffer.?);
+        }
+
+        const available_len: u64 = w_available_len;
+
+        switch (encoding) {
+            1 => {
+                return self.stringReadWideUtf8ToUtf32(allocator, w_available_len, wz_static_buffer, static_buffer_len, wz_buffer, final_buffer_len);
+            },
+            2 => {
+                return self.stringReadWideUtf16WideToUtf32(allocator, w_available_len, wz_static_buffer, static_buffer_len, wz_buffer, final_buffer_len);
+            },
+            3 => {
+                // Encoding 3: raw u32 (wchar_t) array
+                if (static_buffer_len != 0 and static_buffer_len >= w_available_len) {
+                    // Static buffer is large enough
+                    _ = self.read(
+                        @as([*]u8, @ptrCast(wz_static_buffer.?))[0 .. available_len * 4],
+                        @intCast(available_len * 4),
+                    );
+                    wz_static_buffer.?[w_available_len] = 0;
+                    final_buffer_len.* = @intCast(available_len);
+                    return @ptrCast(wz_static_buffer.?);
+                }
+
+                // Static buffer too small or absent — zero it out if present
+                if (wz_static_buffer) |static_buf| {
+                    const zero_len = (static_buffer_len * 4) + 4;
+                    @memset(@as([*]u8, @ptrCast(static_buf))[0..zero_len], 0);
+                }
+
+                // Allocate output buffer if not provided
+                if (p_buffer == null) {
+                    final_buffer_len.* = @intCast(available_len);
+                    const new_buf = allocator.alloc(u32, available_len + 1) catch return null;
+                    p_buffer = new_buf.ptr;
+                }
+
+                const final_len: u16 = @truncate(final_buffer_len.*);
+
+                if (w_available_len > final_len) {
+                    // Read only up to final_len, skip the rest
+                    const read_len: u64 = final_len;
+                    _ = self.read(
+                        @as([*]u8, @ptrCast(p_buffer.?))[0 .. read_len * 4],
+                        @intCast(read_len * 4),
+                    );
+                    p_buffer.?[final_len] = 0;
+                    final_buffer_len.* = @intCast(read_len);
+
+                    // Skip remaining bytes
+                    const skip = (available_len - read_len) * 4;
+                    _ = self.readBufferSkip(@intCast(skip));
+
+                    return @ptrCast(p_buffer.?);
+                }
+
+                // Read full available
+                _ = self.read(
+                    @as([*]u8, @ptrCast(p_buffer.?))[0 .. available_len * 4],
+                    @intCast(available_len * 4),
+                );
+                p_buffer.?[w_available_len] = 0;
+                final_buffer_len.* = @intCast(available_len);
+                return @ptrCast(p_buffer.?);
+            },
+            4 => {
+                return self.stringReadWideUtf16ToUtf32(allocator, w_available_len, wz_static_buffer, static_buffer_len, wz_buffer, final_buffer_len);
+            },
+            5 => {
+                return self.stringReadTruncatedUTF16(allocator, w_available_len, wz_buffer, final_buffer_len);
+            },
+            else => {
+                std.log.warn("stringReadWide: unknown encoding {d}", .{encoding});
+                return null;
+            },
         }
     }
 };

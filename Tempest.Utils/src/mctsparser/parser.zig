@@ -35,8 +35,8 @@ pub const Parser = struct {
         return .{
             .allocator = allocator,
             .options = options,
-            .fields = mcts.Fields.fields,
-            .functions = mcts.Functions.functions,
+            .fields = mcts.Fields.entries,
+            .functions = mcts.Functions.entries,
             .reader = undefined,
             .writer = undefined,
         };

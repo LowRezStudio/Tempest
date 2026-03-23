@@ -1,4 +1,25 @@
 const std = @import("std");
+const windows = std.os.windows;
+
+pub const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
+
+pub const TH32CS_SNAPMODULE = 0x00000008;
+pub const TH32CS_SNAPMODULE32 = 0x00000010;
+pub const MAX_MODULE_NAME32 = 255;
+pub const MAX_PATH = 260;
+
+pub const MODULE_ENTRY_32 = extern struct {
+    dwSize: windows.DWORD,
+    th32ModuleID: windows.DWORD,
+    th32ProcessID: windows.DWORD,
+    GlblcntUsage: windows.DWORD,
+    ProccntUsage: windows.DWORD,
+    modBaseAddr: [*]u8,
+    modBaseSize: windows.DWORD,
+    hModule: windows.HMODULE,
+    szModule: [MAX_MODULE_NAME32 + 1]u8,
+    szExePath: [MAX_PATH]u8,
+};
 
 pub const IMAGE_DOS_HEADER = extern struct {
     e_magic: u16,
@@ -50,6 +71,11 @@ pub const IMAGE_SECTION_HEADER = extern struct {
     }
 };
 
+pub const IMAGE_DATA_DIRECTORY = extern struct {
+    VirtualAddress: u32,
+    Size: u32,
+};
+
 pub const IMAGE_OPTIONAL_HEADER64 = extern struct {
     Magic: u16,
     MajorLinkerVersion: u8,
@@ -80,7 +106,7 @@ pub const IMAGE_OPTIONAL_HEADER64 = extern struct {
     SizeOfHeapCommit: u64,
     LoaderFlags: u32,
     NumberOfRvaAndSizes: u32,
-    // DataDirectory array would follow
+    DataDirectory: [IMAGE_NUMBEROF_DIRECTORY_ENTRIES]IMAGE_DATA_DIRECTORY,
 };
 
 pub const IMAGE_OPTIONAL_HEADER32 = extern struct {
@@ -114,6 +140,7 @@ pub const IMAGE_OPTIONAL_HEADER32 = extern struct {
     SizeOfHeapCommit: u32,
     LoaderFlags: u32,
     NumberOfRvaAndSizes: u32,
+    DataDirectory: [IMAGE_NUMBEROF_DIRECTORY_ENTRIES]IMAGE_DATA_DIRECTORY,
 };
 
 pub const IMAGE_NT_HEADERS64 = extern struct {
@@ -126,4 +153,15 @@ pub const IMAGE_NT_HEADERS32 = extern struct {
     Signature: u32,
     FileHeader: IMAGE_FILE_HEADER,
     OptionalHeader: IMAGE_OPTIONAL_HEADER32,
+};
+
+pub const MEMORY_BASIC_INFORMATION = extern struct {
+    BaseAddress: windows.PVOID,
+    AllocationBase: windows.PVOID,
+    AllocationProtect: windows.DWORD,
+    PartitionId: windows.WORD,
+    RegionSize: windows.SIZE_T,
+    State: windows.DWORD,
+    Protect: windows.DWORD,
+    Type: windows.DWORD,
 };
