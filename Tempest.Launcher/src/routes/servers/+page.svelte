@@ -1,13 +1,11 @@
 <script lang="ts">
 	import { RefreshCw, Search, Server, ServerCrash } from "@lucide/svelte";
-	import { goto } from "$app/navigation";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { moveToLobby } from "$lib/core/lobby";
 	import { m } from "$lib/paraglide/messages";
 	import { createServersQuery } from "$lib/queries/servers";
 	import { CountryCode } from "$lib/rpc";
-	import { lobbyHost, lobbyPassword } from "$lib/stores/lobby";
-	import { hostServerWizardOpen } from "$lib/stores/ui";
+	import { hostServerWizardOpen, joinServerWizardOpen } from "$lib/stores/ui";
 
 	let searchQuery = $state("");
 
@@ -77,6 +75,14 @@
 					bind:value={searchQuery}
 				/>
 			</label>
+			<button
+				class="btn btn-accent"
+				onclick={() => {
+					joinServerWizardOpen.set(true);
+				}}
+			>
+				Join server
+			</button>
 			<button
 				class="btn btn-accent"
 				onclick={() => {

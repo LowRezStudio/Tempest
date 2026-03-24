@@ -9,4 +9,7 @@ message LobbyEventInfo {
   string name = 1;
   LobbyState state = 2;
   repeated LobbyPlayer players = 3;
+  uint32 max_players = 4;
+  string version = 5;
+  bool password_required = 6;
 }
