@@ -1,8 +1,16 @@
 const std = @import("std");
+const memory = @import("root").memory;
 const Lua = @import("luajit").Lua;
-const windows = std.os.windows;
 
+const windows = std.os.windows;
+const Module = memory.Module;
+
+// to-do: use tom's memory module
 extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.winapi) windows.HMODULE;
+
+export fn op_memory_module_init(name: ?[*:0]const u8) *Module {
+    return Module.init(name) orelse null;
+}
 
 export fn op_memory_module_base() usize {
     return @intFromPtr(GetModuleHandleA(null));

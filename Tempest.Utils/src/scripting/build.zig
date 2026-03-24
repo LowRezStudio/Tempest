@@ -27,7 +27,7 @@ fn buildForTarget(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std
 
     const luajit = luajit_dep.module("luajit");
 
-    const lib_mod = b.createModule(.{
+    const lib_mod = b.addModule("scripting", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,

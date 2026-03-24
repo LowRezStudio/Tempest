@@ -2,6 +2,8 @@ const std = @import("std");
 const Lua = @import("luajit").Lua;
 const windows = std.os.windows;
 
+// to-do: link the memory module instead of copying it in the project
+pub const memory = @import("memory/root.zig");
 pub const unreal = @import("unreal/root.zig");
 
 extern "kernel32" fn AllocConsole() callconv(.winapi) windows.BOOL;
