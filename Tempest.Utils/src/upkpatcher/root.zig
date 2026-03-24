@@ -137,6 +137,7 @@ pub fn main() !void {
         \\-d, --folder <str>     Input folder path.
         \\-S, --suffix <str>     Suffix to add before extension.
         \\-v, --verbose          Print verbose output.
+        \\-D, --dump             Dumps the package contents.
         \\
     );
 
@@ -155,6 +156,7 @@ pub fn main() !void {
     const has_folder = res.args.folder != null;
     const has_sfsc = res.args.sfsc != 0;
     const has_guid = res.args.guid != 0;
+    const has_dump = res.args.dump != 0;
 
     if (res.args.help != 0)
         return Clap.helpToFile(.stderr(), Clap.Help, &params, .{});
@@ -172,7 +174,7 @@ pub fn main() !void {
         return error.InvalidArguments;
     }
 
-    if (!has_sfsc and !has_guid) {
+    if (!has_sfsc and !has_guid and !has_dump) {
         std.log.err("Specify at least one patch: --sfsc or --guid", .{});
         return error.InvalidArguments;
     }
@@ -183,6 +185,18 @@ pub fn main() !void {
     }
 
     const suffix = res.args.suffix orelse "";
+
+    if (res.args.dump != 0) {
+        std.log.info("Dumping package...", .{});
+        if (res.args.file) |path| {
+            Patches.dumpPackage(arena, path) catch |e| {
+                std.debug.print("\n", .{});
+                std.log.err("Failed to dump package: {}", .{e});
+                return e;
+            };
+        }
+        std.debug.print("Done.\n", .{});
+    }
 
     if (has_sfsc) {
         std.log.info("Patching SeekFreeShaderCache...", .{});

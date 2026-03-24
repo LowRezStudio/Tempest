@@ -5,6 +5,49 @@ const windows = std.os.windows;
 const fnv1_32 = @import("utils.zig").fnv1_32;
 const rapidjson = @import("hirezrapidjson.zig");
 
+pub fn debugPrintUtf32String(str: ?[*:0]const u32, len: u32) void {
+    if (str == null) {
+        std.debug.print("(null)", .{});
+        return;
+    }
+    const ptr = str.?;
+    var buf: [1024]u8 = undefined;
+    var oi: usize = 0;
+    var ii: usize = 0;
+    while (ii < len and ii < 1024 and ptr[ii] != 0) : (ii += 1) {
+        const c = ptr[ii];
+        if (c <= 0x7F) {
+            buf[oi] = @as(u8, @truncate(c));
+            oi += 1;
+        } else if (c <= 0x7FF) {
+            if (oi + 1 >= buf.len) break;
+            buf[oi + 0] = @as(u8, @truncate(0xC0 | (c >> 6)));
+            buf[oi + 1] = @as(u8, @truncate(0x80 | (c & 0x3F)));
+            oi += 2;
+        } else if (c <= 0xFFFF) {
+            if (oi + 2 >= buf.len) break;
+            buf[oi + 0] = @as(u8, @truncate(0xE0 | (c >> 12)));
+            buf[oi + 1] = @as(u8, @truncate(0x80 | ((c >> 6) & 0x3F)));
+            buf[oi + 2] = @as(u8, @truncate(0x80 | (c & 0x3F)));
+            oi += 3;
+        } else if (c <= 0x10FFFF) {
+            if (oi + 3 >= buf.len) break;
+            buf[oi + 0] = @as(u8, @truncate(0xF0 | (c >> 18)));
+            buf[oi + 1] = @as(u8, @truncate(0x80 | ((c >> 12) & 0x3F)));
+            buf[oi + 2] = @as(u8, @truncate(0x80 | ((c >> 6) & 0x3F)));
+            buf[oi + 3] = @as(u8, @truncate(0x80 | (c & 0x3F)));
+            oi += 4;
+        } else {
+            if (oi + 3 >= buf.len) break;
+            buf[oi + 0] = 0xEF;
+            buf[oi + 1] = 0xBF;
+            buf[oi + 2] = 0xBD;
+            oi += 3;
+        }
+    }
+    std.debug.print("{s}", .{buf[0..oi]});
+}
+
 pub const FieldType = enum(u8) {
     unknown = 0,
     _num_start,
@@ -1435,7 +1478,6 @@ pub const CPackage = struct {
         return @as([*:0]u32, @ptrCast(result));
     }
 
-    // New function: UTF-8 to UTF-32 decoding using HirezRapidJson
     pub fn stringReadWideUtf8ToUtf32(
         self: *CPackage,
         allocator: std.mem.Allocator,
@@ -1445,162 +1487,14 @@ pub const CPackage = struct {
         wz_buffer: ?[*]u32,
         final_buffer_len: *u32,
     ) ?[*:0]const u32 {
-        var pwz_buffer = wz_buffer;
-
-        // Save position for potential restore after static-buffer probing
-        const saved_place = self.place;
-        const saved_current = self.current;
-        const saved_cur_place = self.cur_place;
-
-        // === Path 1: Static buffer provided and has sufficient capacity ===
-        // static_buffer_len is in codepoints (UTF-32), each 4 bytes
-        if (static_buffer_len > 0 and static_buffer_len >= w_available_len) {
-            var output_idx: u32 = 0;
-            var stream = rapidjson.CPackageStringStream{
-                .package = self,
-                .available = w_available_len,
-                .read = 0,
-                .underflowed = false,
-            };
-
-            while (output_idx < w_available_len and !stream.underflowed) {
-                var codepoint: u32 = 0;
-                // Decode returns true on success OR on clean underflow; check underflowed flag
-                if (!rapidjson.HirezRapidJson.decode(&stream, &codepoint)) {
-                    break;
-                }
-                // Stop on null terminator (matches assembly's !c check)
-                if (codepoint == 0) break;
-
-                // Check if static buffer would overflow
-                if (output_idx >= static_buffer_len) {
-                    // Restore package position and exit
-                    self.place = saved_place;
-                    self.current = saved_current;
-                    self.cur_place = saved_cur_place;
-                    break;
-                }
-
-                wz_static_buffer.?[output_idx] = codepoint;
-                output_idx += 1;
-            }
-
-            // Null-terminate and return static buffer
-            wz_static_buffer.?[output_idx] = 0;
-            final_buffer_len.* = output_idx;
-            return @as([*:0]const u32, @ptrCast(wz_static_buffer.?));
-        }
-
-        // === Zero out static buffer if provided (safety) ===
-        if (wz_static_buffer) |static_buf| {
-            const zero_count = static_buffer_len + 1;
-            @memset(static_buf[0..zero_count], 0);
-        }
-
-        // === Allocate dynamic output buffer if not provided ===
-        if (pwz_buffer == null) {
-            final_buffer_len.* = w_available_len; // Worst case: 1 byte -> 1 codepoint
-            const new_buf = allocator.alloc(u32, @as(usize, w_available_len) + 1) catch return null;
-            pwz_buffer = new_buf.ptr;
-        }
-
-        // === Restore position before main decoding pass ===
-        self.place = saved_place;
-        self.current = saved_current;
-        self.cur_place = saved_cur_place;
-
-        const output_capacity = final_buffer_len.*;
-
-        // === Path 2: Output buffer has enough capacity for worst-case ===
-        if (output_capacity >= w_available_len) {
-            var output_idx: u32 = 0;
-            var stream = rapidjson.CPackageStringStream{
-                .package = self,
-                .available = w_available_len,
-                .read = 0,
-                .underflowed = false,
-            };
-
-            while (output_idx < w_available_len and !stream.underflowed) {
-                var codepoint: u32 = 0;
-                if (!rapidjson.HirezRapidJson.decode(&stream, &codepoint)) {
-                    break;
-                }
-                if (codepoint == 0) break;
-
-                pwz_buffer.?[output_idx] = codepoint;
-                output_idx += 1;
-            }
-
-            // Skip any unconsumed input bytes
-            if (stream.read < w_available_len) {
-                _ = self.readBufferSkip(w_available_len - stream.read);
-            }
-
-            pwz_buffer.?[output_idx] = 0;
-            final_buffer_len.* = output_idx;
-            return @as([*:0]const u32, @ptrCast(pwz_buffer.?));
-        }
-
-        // === Path 3: Output buffer is smaller - decode on-the-fly, skip excess ===
-        var output_idx: u32 = 0;
-        var stream = rapidjson.CPackageStringStream{
-            .package = self,
-            .available = w_available_len,
-            .read = 0,
-            .underflowed = false,
-        };
-
-        while (!stream.underflowed and stream.read < w_available_len) {
-            var codepoint: u32 = 0;
-            if (!rapidjson.HirezRapidJson.decode(&stream, &codepoint)) {
-                break;
-            }
-            if (codepoint == 0) break;
-
-            // Only write if buffer has space
-            if (output_idx < output_capacity) {
-                pwz_buffer.?[output_idx] = codepoint;
-                output_idx += 1;
-            }
-            // Continue consuming input even if output buffer is full (to advance package position)
-        }
-
-        // Skip any remaining unconsumed bytes
-        if (stream.read < w_available_len) {
-            _ = self.readBufferSkip(w_available_len - stream.read);
-        }
-
-        pwz_buffer.?[output_idx] = 0;
-        final_buffer_len.* = output_idx;
-        return @as([*:0]const u32, @ptrCast(pwz_buffer.?));
-    }
-
-    // Helper: Check if code unit is high surrogate [0xD800, 0xDBFF]
-    fn isHighSurrogate(cu: u32) bool {
-        return cu >= 0xD800 and cu <= 0xDBFF;
-    }
-
-    // Helper: Check if code unit is low surrogate [0xDC00, 0xDFFF]
-    fn isLowSurrogate(cu: u32) bool {
-        return cu >= 0xDC00 and cu <= 0xDFFF;
-    }
-
-    // Helper: Combine surrogate pair into UTF-32 codepoint
-    fn combineSurrogates(high: u32, low: u32) u32 {
-        return 0x10000 + (((high & 0x3FF) << 10) | (low & 0x3FF));
-    }
-
-    // Helper: Read a single 4-byte UTF-16 unit from package
-    fn readUtf16Unit4Byte(self: *CPackage, buf: *[4]u8) ?u32 {
-        if (self.read(buf, 4) != 4) return null;
-        return std.mem.readInt(u32, buf, .little);
-    }
-
-    // Helper: Peek a single 4-byte UTF-16 unit from package (does not advance)
-    fn peekUtf16Unit4Byte(self: *CPackage, buf: *[4]u8) ?u32 {
-        if (self.peek(buf, 4) != 4) return null;
-        return std.mem.readInt(u32, buf, .little);
+        _ = self;
+        _ = allocator;
+        _ = w_available_len;
+        _ = wz_static_buffer;
+        _ = static_buffer_len;
+        _ = wz_buffer;
+        _ = final_buffer_len;
+        return null;
     }
 
     pub fn stringReadWideUtf16WideToUtf32(
@@ -1612,235 +1506,16 @@ pub const CPackage = struct {
         wz_buffer: ?[*]u32,
         final_buffer_len: *u32,
     ) ?[*:0]const u32 {
-        var pwz_buffer = wz_buffer;
-
-        // Save position for potential restore after static-buffer probing
-        const saved_place = self.place;
-        const saved_current = self.current;
-        const saved_cur_place = self.cur_place;
-
-        // === Path 1: Static buffer provided and has sufficient capacity ===
-        // Assembly check: (static_buffer_len << 2) >= w_available_len
-        if (static_buffer_len > 0 and (static_buffer_len << 2) >= w_available_len) {
-            var input_idx: u32 = 0;
-            var output_idx: u32 = 0;
-            var peek_buf: [4]u8 = undefined;
-            var read_buf: [4]u8 = undefined;
-
-            while (input_idx < w_available_len) {
-                // Peek to check for null terminator or validity
-                const cu_peek = self.peekUtf16Unit4Byte(&peek_buf) orelse break;
-                if (cu_peek == 0) break; // null terminator
-
-                // Consume the unit
-                _ = self.readUtf16Unit4Byte(&read_buf) orelse break;
-                const cu = cu_peek; // Use peeked value to ensure consistency
-
-                var codepoint = cu;
-                var consumed_units: u32 = 1;
-
-                // Handle UTF-16 surrogate pairs
-                if (isHighSurrogate(cu)) {
-                    // Need low surrogate next
-                    if (input_idx + 1 >= w_available_len) break;
-
-                    const low_peek = self.peekUtf16Unit4Byte(&peek_buf) orelse break;
-                    if (!isLowSurrogate(low_peek)) break; // invalid pair
-
-                    _ = self.readUtf16Unit4Byte(&read_buf) orelse break;
-                    codepoint = combineSurrogates(cu, low_peek);
-                    consumed_units = 2;
-                } else if (cu >= 0xD800 and cu <= 0xDFFF) {
-                    // Lone low surrogate or invalid range - stop decoding
-                    break;
-                }
-
-                // Check if static buffer would overflow
-                if (output_idx >= static_buffer_len) {
-                    // Restore package position and exit (matching assembly behavior)
-                    self.place = saved_place;
-                    self.current = saved_current;
-                    self.cur_place = saved_cur_place;
-                    break;
-                }
-
-                wz_static_buffer.?[output_idx] = codepoint;
-                output_idx += 1;
-                input_idx += consumed_units;
-            }
-
-            // If we hit null terminator successfully within static buffer limits
-            if (input_idx < w_available_len or (output_idx < static_buffer_len and peek_buf[0] == 0 and peek_buf[1] == 0 and peek_buf[2] == 0 and peek_buf[3] == 0)) {
-                // Null-terminate and return static buffer
-                wz_static_buffer.?[output_idx] = 0;
-                final_buffer_len.* = output_idx;
-                return @as([*:0]const u32, @ptrCast(wz_static_buffer.?));
-            }
-
-            // If static buffer filled up or loop broke early, fall through to dynamic path
-            // Restore position first
-            self.place = saved_place;
-            self.current = saved_current;
-            self.cur_place = saved_cur_place;
-        }
-
-        // === Zero out static buffer if provided (safety, matching assembly) ===
-        if (wz_static_buffer) |static_buf| {
-            const zero_count = static_buffer_len + 1;
-            @memset(@as([*]u8, @ptrCast(static_buf))[0 .. zero_count * 4], 0);
-        }
-
-        // === Allocate dynamic output buffer if not provided ===
-        if (pwz_buffer == null) {
-            final_buffer_len.* = w_available_len; // worst case: all BMP chars, 1:1 mapping
-            const new_buf = allocator.alloc(u32, @as(usize, w_available_len) + 1) catch return null;
-            pwz_buffer = new_buf.ptr;
-        }
-
-        const output_capacity = final_buffer_len.*;
-        var input_idx: u32 = 0;
-        var output_idx: u32 = 0;
-        var buffer_full = false;
-        var read_buf: [4]u8 = undefined;
-
-        // === Path 2 & 3: Dynamic Buffer (Unified Loop with Overflow Handling) ===
-        // Assembly distinguishes based on output_capacity >= w_available_len
-        // We can handle both in one loop with a flag for skipping
-
-        const is_large_buffer = output_capacity >= w_available_len;
-
-        if (is_large_buffer) {
-            // Path 2: Bulk read first (optimization matching assembly)
-            while (input_idx < w_available_len) {
-                const cu = self.readUtf16Unit4Byte(&read_buf) orelse break;
-                pwz_buffer.?[input_idx] = cu;
-                if (cu == 0) break;
-                input_idx += 1;
-            }
-            const raw_count = input_idx;
-
-            // Compact surrogates in-place
-            var read_idx: u32 = 0;
-            var write_idx: u32 = 0;
-
-            while (read_idx < raw_count) {
-                const cu = pwz_buffer.?[read_idx];
-                if (cu == 0) break;
-
-                var codepoint = cu;
-                var consumed: u32 = 1;
-
-                if (isHighSurrogate(cu)) {
-                    if (read_idx + 1 < raw_count) {
-                        const low = pwz_buffer.?[read_idx + 1];
-                        if (isLowSurrogate(low)) {
-                            codepoint = combineSurrogates(cu, low);
-                            consumed = 2;
-                        }
-                    }
-                } else if (cu >= 0xD800 and cu <= 0xDFFF) {
-                    break; // Invalid lone surrogate
-                }
-
-                if (write_idx < output_capacity) {
-                    pwz_buffer.?[write_idx] = codepoint;
-                    write_idx += 1;
-                } else {
-                    buffer_full = true;
-                }
-
-                read_idx += consumed;
-            }
-            output_idx = write_idx;
-            input_idx = read_idx;
-        } else {
-            // Path 3: Small buffer - decode on-the-fly
-            while (input_idx < w_available_len) {
-                const cu = self.readUtf16Unit4Byte(&read_buf) orelse break;
-                if (cu == 0) break;
-
-                var codepoint = cu;
-                var consumed_units: u32 = 1;
-
-                if (isHighSurrogate(cu)) {
-                    if (input_idx + 1 >= w_available_len) break;
-                    const low = self.readUtf16Unit4Byte(&read_buf) orelse break;
-                    if (!isLowSurrogate(low)) break;
-                    codepoint = combineSurrogates(cu, low);
-                    consumed_units = 2;
-                } else if (cu >= 0xD800 and cu <= 0xDFFF) {
-                    break;
-                }
-
-                if (output_idx < output_capacity) {
-                    pwz_buffer.?[output_idx] = codepoint;
-                    output_idx += 1;
-                } else {
-                    buffer_full = true;
-                }
-
-                input_idx += consumed_units;
-            }
-        }
-
-        // Skip any remaining unconsumed input bytes (units * 4)
-        if (input_idx < w_available_len) {
-            const skip_bytes = (w_available_len - input_idx) * 4;
-            _ = self.readBufferSkip(skip_bytes);
-        }
-
-        pwz_buffer.?[output_idx] = 0;
-        final_buffer_len.* = output_idx;
-        return @as([*:0]const u32, @ptrCast(pwz_buffer.?));
+        _ = self;
+        _ = allocator;
+        _ = w_available_len;
+        _ = wz_static_buffer;
+        _ = static_buffer_len;
+        _ = wz_buffer;
+        _ = final_buffer_len;
+        return null;
     }
 
-    // === Helper methods for UTF-16 (2-byte) decoding ===
-
-    // Helper: Check if code unit is high surrogate [0xD800, 0xDBFF]
-    fn isHighSurrogate16(cu: u16) bool {
-        return cu >= 0xD800 and cu <= 0xDBFF;
-    }
-
-    // Helper: Check if code unit is low surrogate [0xDC00, 0xDFFF]
-    fn isLowSurrogate16(cu: u16) bool {
-        return cu >= 0xDC00 and cu <= 0xDFFF;
-    }
-
-    // Helper: Combine surrogate pair into UTF-32 codepoint
-    fn combineSurrogates16(high: u16, low: u16) u32 {
-        return 0x10000 + (((@as(u32, high) & 0x3FF) << 10) | (@as(u32, low) & 0x3FF));
-    }
-
-    // Helper: Read a single 2-byte UTF-16 unit from package
-    fn readUtf16Unit2Byte(self: *CPackage) ?u16 {
-        if (self.place + 2 > self.used or self.cur_place + 2 > 0x7fd) {
-            var buf: [2]u8 = undefined;
-            if (self.read(&buf, 2) != 2) return null;
-            return std.mem.readInt(u16, &buf, .little);
-        } else {
-            const val = std.mem.readInt(u16, self.current.?.net.data[self.cur_place..][0..2], .little);
-            self.cur_place += 2;
-            self.place += 2;
-            return val;
-        }
-    }
-
-    // Helper: Peek a single 2-byte UTF-16 unit from package (does not advance)
-    fn peekUtf16Unit2Byte(self: *CPackage) ?u16 {
-        var current = self.current;
-        var cur_place = self.cur_place;
-
-        if (cur_place > 0x7fd) {
-            current = current.?.next orelse return null;
-            cur_place = 0;
-        }
-
-        if (self.place + 2 > self.used) return null;
-
-        return std.mem.readInt(u16, current.?.net.data[cur_place..][0..2], .little);
-    }
-
-    // === UTF-16 (2-byte) to UTF-32 decoding ===
     pub fn stringReadWideUtf16ToUtf32(
         self: *CPackage,
         allocator: std.mem.Allocator,
@@ -1850,198 +1525,14 @@ pub const CPackage = struct {
         wz_buffer: ?[*]u32,
         final_buffer_len: *u32,
     ) ?[*:0]const u32 {
-        var pwz_buffer = wz_buffer;
-
-        // Save position for potential restore after static-buffer probing
-        const saved_place = self.place;
-        const saved_current = self.current;
-        const saved_cur_place = self.cur_place;
-
-        // === Path 1: Static buffer provided and has sufficient capacity ===
-        // Assembly check: (static_buffer_len << 2) >= w_available_len
-        // static_buffer_len is in UTF-32 codepoints (4 bytes each)
-        // w_available_len is in UTF-16 code units (2 bytes each)
-        if (static_buffer_len > 0 and (static_buffer_len << 2) >= w_available_len) {
-            var input_idx: u32 = 0;
-            var output_idx: u32 = 0;
-
-            while (input_idx < w_available_len) {
-                // Peek to check for null terminator
-                const cu_peek = self.peekUtf16Unit2Byte() orelse break;
-                if (cu_peek == 0) break; // null terminator
-
-                // Consume the unit
-                const cu = self.readUtf16Unit2Byte() orelse break;
-
-                var codepoint: u32 = cu;
-                var consumed_units: u32 = 1;
-
-                // Handle UTF-16 surrogate pairs
-                // Assembly check: (cu + 0x2800 > 0x7ff) means NOT in surrogate range
-                // Equivalent to: cu < 0xD800 or cu > 0xDFFF
-                if (cu >= 0xD800 and cu <= 0xDFFF) {
-                    // In surrogate range - check if high surrogate
-                    if (cu > 0xDBFF) {
-                        // Low surrogate without high - invalid
-                        break;
-                    }
-
-                    // High surrogate - need low surrogate next
-                    if (input_idx + 1 >= w_available_len) break;
-
-                    const low_peek = self.peekUtf16Unit2Byte() orelse break;
-                    // Assembly check: (low + 0x2400 <= 0x3ff) means low in [0xDC00, 0xDFFF]
-                    if (low_peek < 0xDC00 or low_peek > 0xDFFF) break;
-
-                    const low = self.readUtf16Unit2Byte() orelse break;
-                    codepoint = combineSurrogates16(cu, low);
-                    consumed_units = 2;
-                }
-
-                // Check if static buffer would overflow
-                if (output_idx >= static_buffer_len) {
-                    // Restore package position and exit
-                    self.place = saved_place;
-                    self.current = saved_current;
-                    self.cur_place = saved_cur_place;
-                    break;
-                }
-
-                wz_static_buffer.?[output_idx] = codepoint;
-                output_idx += 1;
-                input_idx += consumed_units;
-            }
-
-            // Null-terminate and return static buffer
-            wz_static_buffer.?[output_idx] = 0;
-            final_buffer_len.* = output_idx;
-            return @as([*:0]const u32, @ptrCast(wz_static_buffer.?));
-        }
-
-        // === Zero out static buffer if provided (safety) ===
-        if (wz_static_buffer) |static_buf| {
-            const zero_count = static_buffer_len + 1;
-            @memset(@as([*]u8, @ptrCast(static_buf))[0 .. zero_count * 4], 0);
-        }
-
-        // === Allocate dynamic output buffer if not provided ===
-        if (pwz_buffer == null) {
-            final_buffer_len.* = w_available_len; // worst case: all BMP chars
-            const new_buf = allocator.alloc(u32, @as(usize, w_available_len) + 1) catch return null;
-            pwz_buffer = new_buf.ptr;
-        }
-
-        const output_capacity = final_buffer_len.*;
-        const is_large_buffer = output_capacity >= w_available_len;
-
-        // === Path 2: Large buffer - bulk read then compact ===
-        if (is_large_buffer) {
-            var input_idx: u32 = 0;
-
-            // First pass: bulk-copy UTF-16 code units to output buffer
-            while (input_idx < w_available_len) {
-                const cu = self.readUtf16Unit2Byte() orelse break;
-                pwz_buffer.?[input_idx] = cu;
-                if (cu == 0) break;
-                input_idx += 1;
-            }
-            const raw_count = input_idx;
-
-            // Second pass: in-place surrogate pair compaction
-            var read_idx: u32 = 0;
-            var write_idx: u32 = 0;
-            var buffer_overflow = false;
-            var consumed_input: u32 = 0;
-
-            while (read_idx < raw_count) {
-                const cu = pwz_buffer.?[read_idx];
-                if (cu == 0) break;
-
-                var codepoint: u32 = cu;
-                var consumed: u32 = 1;
-
-                if (cu >= 0xD800 and cu <= 0xDFFF) {
-                    if (cu > 0xDBFF) {
-                        // Invalid low surrogate
-                        break;
-                    }
-                    if (read_idx + 1 < raw_count) {
-                        const low = pwz_buffer.?[read_idx + 1];
-                        if (low >= 0xDC00 and low <= 0xDFFF) {
-                            codepoint = combineSurrogates16(@intCast(cu), @intCast(low));
-                            consumed = 2;
-                        }
-                    }
-                }
-
-                if (write_idx < output_capacity) {
-                    pwz_buffer.?[write_idx] = codepoint;
-                    write_idx += 1;
-                } else {
-                    buffer_overflow = true;
-                }
-
-                read_idx += consumed;
-                consumed_input += consumed;
-            }
-
-            // Skip any unconsumed input bytes
-            if (consumed_input < w_available_len) {
-                const skip_bytes = (w_available_len - consumed_input) * 2;
-                _ = self.readBufferSkip(skip_bytes);
-            }
-
-            pwz_buffer.?[write_idx] = 0;
-            final_buffer_len.* = write_idx;
-            return @as([*:0]const u32, @ptrCast(pwz_buffer.?));
-        }
-
-        // === Path 3: Small buffer - decode on-the-fly ===
-        var input_idx: u32 = 0;
-        var output_idx: u32 = 0;
-        var buffer_full = false;
-
-        while (input_idx < w_available_len) {
-            const cu = self.readUtf16Unit2Byte() orelse break;
-            if (cu == 0) break;
-
-            var codepoint: u32 = cu;
-            var consumed_units: u32 = 1;
-
-            if (cu >= 0xD800 and cu <= 0xDFFF) {
-                if (cu > 0xDBFF) {
-                    // Invalid low surrogate
-                    break;
-                }
-                if (input_idx + 1 >= w_available_len) break;
-
-                const low = self.readUtf16Unit2Byte() orelse break;
-                if (low < 0xDC00 or low > 0xDFFF) break;
-
-                codepoint = combineSurrogates16(@intCast(cu), @intCast(low));
-                consumed_units = 2;
-            }
-
-            // Only write if buffer has space
-            if (output_idx < output_capacity) {
-                pwz_buffer.?[output_idx] = codepoint;
-                output_idx += 1;
-            } else {
-                buffer_full = true;
-            }
-
-            input_idx += consumed_units;
-        }
-
-        // Skip any remaining unconsumed bytes
-        if (input_idx < w_available_len) {
-            const skip_bytes = (w_available_len - input_idx) * 2;
-            _ = self.readBufferSkip(skip_bytes);
-        }
-
-        pwz_buffer.?[output_idx] = 0;
-        final_buffer_len.* = output_idx;
-        return @as([*:0]const u32, @ptrCast(pwz_buffer.?));
+        _ = self;
+        _ = allocator;
+        _ = w_available_len;
+        _ = wz_static_buffer;
+        _ = static_buffer_len;
+        _ = wz_buffer;
+        _ = final_buffer_len;
+        return null;
     }
 
     pub fn stringReadWide(
@@ -2057,7 +1548,6 @@ pub const CPackage = struct {
         var p_buffer = wz_buffer;
 
         if (w_available_len == 0) {
-            // Empty string path
             if (static_buffer_len == 0 or wz_static_buffer == null) {
                 if (final_buffer_len.* != 0 and p_buffer != null) {
                     p_buffer.?[0] = 0;
@@ -2078,77 +1568,15 @@ pub const CPackage = struct {
 
         const available_len: u64 = w_available_len;
 
+        _ = available_len;
+
         switch (encoding) {
-            1 => {
-                return self.stringReadWideUtf8ToUtf32(allocator, w_available_len, wz_static_buffer, static_buffer_len, wz_buffer, final_buffer_len);
-            },
-            2 => {
-                return self.stringReadWideUtf16WideToUtf32(allocator, w_available_len, wz_static_buffer, static_buffer_len, wz_buffer, final_buffer_len);
-            },
-            3 => {
-                // Encoding 3: raw u32 (wchar_t) array
-                if (static_buffer_len != 0 and static_buffer_len >= w_available_len) {
-                    // Static buffer is large enough
-                    _ = self.read(
-                        @as([*]u8, @ptrCast(wz_static_buffer.?))[0 .. available_len * 4],
-                        @intCast(available_len * 4),
-                    );
-                    wz_static_buffer.?[w_available_len] = 0;
-                    final_buffer_len.* = @intCast(available_len);
-                    return @ptrCast(wz_static_buffer.?);
-                }
-
-                // Static buffer too small or absent — zero it out if present
-                if (wz_static_buffer) |static_buf| {
-                    const zero_len = (static_buffer_len * 4) + 4;
-                    @memset(@as([*]u8, @ptrCast(static_buf))[0..zero_len], 0);
-                }
-
-                // Allocate output buffer if not provided
-                if (p_buffer == null) {
-                    final_buffer_len.* = @intCast(available_len);
-                    const new_buf = allocator.alloc(u32, available_len + 1) catch return null;
-                    p_buffer = new_buf.ptr;
-                }
-
-                const final_len: u16 = @truncate(final_buffer_len.*);
-
-                if (w_available_len > final_len) {
-                    // Read only up to final_len, skip the rest
-                    const read_len: u64 = final_len;
-                    _ = self.read(
-                        @as([*]u8, @ptrCast(p_buffer.?))[0 .. read_len * 4],
-                        @intCast(read_len * 4),
-                    );
-                    p_buffer.?[final_len] = 0;
-                    final_buffer_len.* = @intCast(read_len);
-
-                    // Skip remaining bytes
-                    const skip = (available_len - read_len) * 4;
-                    _ = self.readBufferSkip(@intCast(skip));
-
-                    return @ptrCast(p_buffer.?);
-                }
-
-                // Read full available
-                _ = self.read(
-                    @as([*]u8, @ptrCast(p_buffer.?))[0 .. available_len * 4],
-                    @intCast(available_len * 4),
-                );
-                p_buffer.?[w_available_len] = 0;
-                final_buffer_len.* = @intCast(available_len);
-                return @ptrCast(p_buffer.?);
-            },
-            4 => {
-                return self.stringReadWideUtf16ToUtf32(allocator, w_available_len, wz_static_buffer, static_buffer_len, wz_buffer, final_buffer_len);
-            },
-            5 => {
-                return self.stringReadTruncatedUTF16(allocator, w_available_len, wz_buffer, final_buffer_len);
-            },
-            else => {
-                std.log.warn("stringReadWide: unknown encoding {d}", .{encoding});
-                return null;
-            },
+            1 => return self.stringReadWideUtf8ToUtf32(allocator, w_available_len, wz_static_buffer, static_buffer_len, wz_buffer, final_buffer_len),
+            2 => return self.stringReadWideUtf16WideToUtf32(allocator, w_available_len, wz_static_buffer, static_buffer_len, wz_buffer, final_buffer_len),
+            3 => return null, // TODO: Implement
+            4 => return self.stringReadWideUtf16ToUtf32(allocator, w_available_len, wz_static_buffer, static_buffer_len, wz_buffer, final_buffer_len),
+            5 => return self.stringReadTruncatedUTF16(allocator, w_available_len, wz_buffer, final_buffer_len),
+            else => return null,
         }
     }
 };

@@ -4,7 +4,6 @@ const fs = std.fs;
 const Clap = @import("clap");
 
 const mcts = @import("mcts.zig");
-const Parser = @import("parser.zig").Parser;
 
 pub fn main() !void {
     var gpa: std.heap.DebugAllocator(.{}) = .init;

@@ -175,3 +175,43 @@ pub fn patchGuidCache(allocator: std.mem.Allocator, files: [][]const u8) !bool {
 
     return true;
 }
+
+// opens a package and prints the contents via std.debug.print
+pub fn dumpPackage(allocator: std.mem.Allocator, file: []const u8) !void {
+    const f = try fs.cwd().openFile(file, .{});
+    defer f.close();
+
+    var parser = try UpkParser.Parser.init(allocator, f, .{});
+    try parser.parse();
+
+    var buffer: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const w = &stdout_writer.interface;
+
+    try w.print("{f}", .{parser.summary});
+    try w.print("\nExports:\n", .{});
+
+    for (parser.exports_table[1..], 1..) |exp, i| {
+        try w.print("{d}: {s}\n", .{ i, parser.names_table[exp.object_name].name.toString() });
+        try w.print("{f}\n", .{exp});
+    }
+
+    try w.print("\nImports:\n", .{});
+
+    for (parser.imports_table[1..], 1..) |imp, i| {
+        try w.print("{d}: {s}\n", .{ i, parser.names_table[imp.object_name].name.toString() });
+        try w.print("{f}\n", .{imp});
+    }
+
+    try w.print("\nDepends:\n", .{});
+
+    for (parser.depends_table) |depends| {
+        try w.print("  ", .{});
+        for (depends) |d| {
+            try w.print("{d} ", .{d});
+        }
+        try w.print("\n", .{});
+    }
+
+    try w.flush();
+}
