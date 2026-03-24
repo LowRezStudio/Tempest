@@ -33,6 +33,18 @@ export interface LobbyEventInfo {
 	 * @generated from protobuf field: repeated tempest.lobby.LobbyPlayer players = 3
 	 */
 	players: LobbyPlayer[];
+	/**
+	 * @generated from protobuf field: uint32 max_players = 4
+	 */
+	maxPlayers: number;
+	/**
+	 * @generated from protobuf field: string version = 5
+	 */
+	version: string;
+	/**
+	 * @generated from protobuf field: bool password_required = 6
+	 */
+	passwordRequired: boolean;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
@@ -47,12 +59,18 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 				repeat: 2 /*RepeatType.UNPACKED*/,
 				T: () => LobbyPlayer,
 			},
+			{ no: 4, name: "max_players", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
+			{ no: 5, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 6, name: "password_required", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
 		]);
 	}
 	create(value?: PartialMessage<LobbyEventInfo>): LobbyEventInfo {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.name = "";
 		message.players = [];
+		message.maxPlayers = 0;
+		message.version = "";
+		message.passwordRequired = false;
 		if (value !== undefined) reflectionMergePartial<LobbyEventInfo>(this, message, value);
 		return message;
 	}
@@ -82,6 +100,15 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 					message.players.push(
 						LobbyPlayer.internalBinaryRead(reader, reader.uint32(), options),
 					);
+					break;
+				case /* uint32 max_players */ 4:
+					message.maxPlayers = reader.uint32();
+					break;
+				case /* string version */ 5:
+					message.version = reader.string();
+					break;
+				case /* bool password_required */ 6:
+					message.passwordRequired = reader.bool();
 					break;
 				default:
 					let u = options.readUnknownField;
@@ -123,6 +150,13 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 				writer.tag(3, WireType.LengthDelimited).fork(),
 				options,
 			).join();
+		/* uint32 max_players = 4; */
+		if (message.maxPlayers !== 0) writer.tag(4, WireType.Varint).uint32(message.maxPlayers);
+		/* string version = 5; */
+		if (message.version !== "") writer.tag(5, WireType.LengthDelimited).string(message.version);
+		/* bool password_required = 6; */
+		if (message.passwordRequired !== false)
+			writer.tag(6, WireType.Varint).bool(message.passwordRequired);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

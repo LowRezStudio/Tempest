@@ -184,7 +184,10 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         {
             _state = new Protocol.Lobby.LobbyState
             {
-                Waiting = new LobbyStateWaiting()
+                Waiting = new LobbyStateWaiting
+                {
+                    MinPlayers = (uint)_options.MinPlayers
+                }
             };
         }
         Publish(GetInfoEvent());
@@ -241,7 +244,10 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         var info = new LobbyEventInfo
         {
             Name = _options.Name,
-            State = _state
+            State = _state,
+            Version = _options.Version,
+            PasswordRequired = _options.Password != null && !_options.Password.Equals(string.Empty),
+            MaxPlayers = (uint) _options.MaxPlayers
         };
         info.Players.AddRange(_players.Values);
         return new LobbyEvent
