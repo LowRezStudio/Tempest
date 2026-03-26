@@ -1,4 +1,7 @@
 <script lang="ts">
+	import all_champions from "$lib/data/champions.json";
+	import { compareVersions } from "$lib/utils/versions";
+
 	interface Champion {
 		name: string;
 		iconPath: string;
@@ -9,51 +12,22 @@
 	interface Props {
 		onselect?: (champion: Champion) => void;
 		confirmedChampionName?: string;
+		gameVersion?: string;
 	}
 
-	let { onselect, confirmedChampionName }: Props = $props();
+	let { onselect, confirmedChampionName, gameVersion = "0.57" }: Props = $props();
 
-	const champions: Champion[] = [
-		"Androxus",
-		"Ash",
-		"Barik",
-		"Bomb King",
-		"Buck",
-		"Cassie",
-		"Drogoz",
-		"Evie",
-		"Fernando",
-		"Grohk",
-		"Grover",
-		"Inara",
-		"Jenos",
-		"Kinessa",
-		"Lex",
-		"Lian",
-		"Maeve",
-		"Makoa",
-		"Mal'Damba",
-		"Pip",
-		"Ruckus",
-		"Seris",
-		"Sha Lin",
-		"Skye",
-		"Strix",
-		"Talus",
-		"Terminus",
-		"Torvald",
-		"Tyra",
-		"Viktor",
-		"Vivian",
-		"Willo",
-		"Ying",
-		"Zhin",
-	].map((name) => ({
-		name,
-		iconPath: `/champions/${name}/icon.webp`,
-		fallbackPath: `/champions/${name}/fallback.webp`,
-		videoPath: `/champions/${name}/video.webm`,
-	}));
+	const champions = all_champions
+		.filter((champ) => {
+			return compareVersions(gameVersion, champ.version) >= 0;
+		})
+		.sort((a, b) => a.name.localeCompare(b.name))
+		.map((champ) => ({
+			name: champ.name,
+			iconPath: `/champions/${champ.name}/icon.webp`,
+			fallbackPath: `/champions/${champ.name}/fallback.webp`,
+			videoPath: `/champions/${champ.name}/video.webm`,
+		}));
 
 	let selectedChampion = $state<Champion | null>(null);
 	let hoveredChampion = $state<Champion | null>(null);
