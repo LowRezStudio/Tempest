@@ -11,10 +11,17 @@
 		currentMap?: Map;
 		confirmedChampion?: string;
 		handleChampionSelect: (champ: string) => void;
+		gameVersion: string;
 	}
 
-	let { teamLeft, teamRight, currentMap, confirmedChampion, handleChampionSelect }: Props =
-		$props();
+	let {
+		teamLeft,
+		teamRight,
+		currentMap,
+		confirmedChampion,
+		handleChampionSelect,
+		gameVersion,
+	}: Props = $props();
 
 	function getPlayerStatus(player: LobbyPlayer) {
 		return player.champion || m.lobby_not_ready();
@@ -64,5 +71,6 @@
 	<ChampionSelect
 		confirmedChampionName={confirmedChampion}
 		onselect={(champ) => handleChampionSelect(champ.name)}
+		{gameVersion}
 	/>
 </div>

@@ -101,6 +101,7 @@
 			{currentMap}
 			confirmedChampion={ownChampion}
 			{handleChampionSelect}
+			gameVersion={$lobbyVersion ?? "0.57"}
 		/>
 	{:else if $isInMapVote}
 		<LobbyMapVote
