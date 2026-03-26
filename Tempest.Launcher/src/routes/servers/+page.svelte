@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { RefreshCw, Search, Server, ServerCrash } from "@lucide/svelte";
+	import { RefreshCw, Search, Server, ServerCrash, TriangleAlert } from "@lucide/svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { moveToLobby } from "$lib/core/lobby";
 	import { createServersQuery } from "$lib/queries/servers";
-	import { CountryCode } from "$lib/rpc";
+	import { CountryCode, ServerListing } from "$lib/rpc";
+	import { instanceMap } from "$lib/stores/instance";
 	import { hostServerWizardOpen, joinServerWizardOpen } from "$lib/stores/ui";
 
 	let searchQuery = $state("");
@@ -16,15 +17,23 @@
 	let isFetching = $derived(serversQuery.isFetching ?? false);
 
 	const filteredServers = $derived(
-		servers.filter(
-			(server) =>
-				server.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				server.game.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				server.map?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				server.version.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				server.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase())),
-		),
+		servers
+			.filter(
+				(server) =>
+					server.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.game.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.map?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.version.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.tags.some((tag) =>
+						tag.toLowerCase().includes(searchQuery.toLowerCase()),
+					),
+			)
+			.map((s) => ({ ...s, canJoin: canJoinServer(s) })),
 	);
+	function canJoinServer(server: ServerListing) {
+		//TODO check mods too
+		return Object.values($instanceMap).some((i) => i.version === server.version);
+	}
 
 	const serverCount = $derived(servers.length);
 
@@ -146,17 +155,41 @@
 								{#each filteredServers as server (server.id)}
 									<tr
 										onclick={() => {
+											if (!server.canJoin) return;
 											moveToLobby(`http://${server.ip}:${server.lobbyPort}`);
 										}}
+										class={!server.canJoin ? "text-base-content/70" : ""}
 									>
-										<td>{server.name}</td>
+										<td>
+											<span class="flex justify-between">
+												{server.name}
+												{#if !server.canJoin}
+													<span
+														class="group"
+														style="anchor-scope: --cannot-join;"
+													>
+														<TriangleAlert
+															size={20}
+															style="anchor-name: --cannot-join;"
+														></TriangleAlert>
+														<div
+															class="tooltip tooltip-right tooltip-open pointer-events-none fixed h-0 w-0 opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+															style="position-anchor: --cannot-join; top: anchor(center); left: anchor(center);"
+															data-tip={`Requires version ${server.version}`}
+															aria-hidden="true"
+														></div>
+													</span>
+												{/if}
+											</span>
+										</td>
 										<td>{server.game}</td>
 										<td>{server.map || "N/A"}</td>
 										<td>
 											<span
 												class={[
 													"badge",
-													server.players >= server.maxPlayers ?
+													!server.canJoin ? "badge-neutral"
+													: server.players >= server.maxPlayers ?
 														"badge-error"
 													:	"badge-success",
 												]}
@@ -169,7 +202,8 @@
 											<span
 												class={[
 													"badge",
-													server.spectators >= server.maxSpectators ?
+													!server.canJoin ? "badge-neutral"
+													: server.spectators >= server.maxSpectators ?
 														"badge-error"
 													:	"badge-success",
 												]}
@@ -182,9 +216,9 @@
 											<span
 												class={[
 													"badge",
-													server.hasPassword ? "badge-error" : (
-														"badge-success"
-													),
+													!server.canJoin ? "badge-neutral"
+													: server.hasPassword ? "badge-error"
+													: "badge-success",
 												]}
 											>
 												{server.hasPassword ? "Yes" : "No"}

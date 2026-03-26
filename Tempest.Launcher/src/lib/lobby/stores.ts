@@ -2,6 +2,7 @@ import { persistentAtom } from "@nanostores/persistent";
 import { atom, computed } from "nanostores";
 import type { LobbyState, Timestamp } from "$lib/rpc";
 import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
+import type { Instance } from "$lib/types/instance";
 import type { ExtendedJoinLobbyErrorCode } from "$lib/types/lobby";
 
 export type ConnectionStatus = "connected" | "disconnected" | "pending";
@@ -24,6 +25,9 @@ export const chatMessages = atom<ChatMessage[]>([]);
 export const state = atom<LobbyState>({});
 export const connectionStatus = atom<ConnectionStatus>("pending");
 export const joinErrorCode = atom<ExtendedJoinLobbyErrorCode | null>(null);
+export const currentInstance = atom<Instance | null>(null);
+
+export const debugPlayersStore = atom<Map<string, string>>(new Map());
 
 export const ownTeam = computed(
 	players,
@@ -55,4 +59,5 @@ export function resetLobbyState(): void {
 	joinErrorCode.set(null);
 	lobbyVersion.set(null);
 	lobbyMaxPlayers.set(null);
+	currentInstance.set(null);
 }

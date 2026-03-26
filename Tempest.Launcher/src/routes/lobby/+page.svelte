@@ -10,6 +10,7 @@
 	import {
 		chatMessages,
 		connectionStatus,
+		currentInstance,
 		isGameServerOpen,
 		isInChampionSelect,
 		isInGame,
@@ -28,12 +29,11 @@
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes";
 	import { onDestroy, onMount } from "svelte";
-	import type { Instance } from "$lib/types/instance";
-
-	let currentInstance = $state<Instance | null>(null);
 
 	const currentMap = $derived(maps.find((m) => m.id === $lobbyState.championSelect?.mapId));
-	const gameRunning = $derived($processesList.some((p) => p.instance.id === currentInstance?.id));
+	const gameRunning = $derived(
+		$processesList.some((p) => p.instance.id === $currentInstance?.id),
+	);
 
 	const ownChampion = $derived($players.find((p) => p.id == playerId.get())?.champion);
 
@@ -41,12 +41,12 @@
 
 	$effect(() => {
 		const instance = lobbyManager.getLaunchGameInstance();
-		if (instance && $isGameServerOpen && !launchGameMutation.isPending && !currentInstance) {
-			currentInstance = instance;
+		if (instance && $isGameServerOpen && !launchGameMutation.isPending && !$currentInstance) {
+			currentInstance.set(instance);
 			launchGameMutation.mutate(instance);
 		}
 		if (!$isGameServerOpen) {
-			currentInstance = null;
+			currentInstance.set(null);
 		}
 	});
 	onMount(() => {
@@ -79,8 +79,8 @@
 		await lobbyManager.joinLobby();
 	}
 	function handleRejoin() {
-		if (!currentInstance) return;
-		launchGameMutation.mutate(currentInstance);
+		if (!$currentInstance) return;
+		launchGameMutation.mutate($currentInstance);
 	}
 	async function handlePasswordSubmit(password: string) {
 		lobbyPassword.set(password);
@@ -113,13 +113,13 @@
 			isGameInProgress={$isInGame}
 			isWaiting={$isWaiting}
 			isPendingConnection={$connectionStatus === "pending"}
-			isGameServerLaunching={!$isGameServerOpen}
+			isGameServerLaunching={!$isGameServerOpen && !$lobbyState.inGame?.gameServerError}
 			isLaunchingClient={launchGameMutation.isPending}
 			canRejoinGame={!!(
 				!gameRunning &&
 				!launchGameMutation.isPending &&
 				$isGameServerOpen &&
-				currentInstance
+				$currentInstance
 			)}
 			playerCount={$players.length}
 			minimumPlayerCount={$lobbyState.waiting?.minPlayers || 0}
