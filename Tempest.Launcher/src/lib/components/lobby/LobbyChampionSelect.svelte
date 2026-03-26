@@ -1,5 +1,6 @@
 <script lang="ts">
 	import PlayerCard from "$lib/components/lobby/LobbyPlayerCard.svelte";
+	import champions from "$lib/data/champions.json";
 	import { m } from "$lib/paraglide/messages";
 	import ChampionSelect from "../champions/ChampionSelect.svelte";
 	import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
@@ -23,8 +24,8 @@
 		gameVersion,
 	}: Props = $props();
 
-	function getPlayerStatus(player: LobbyPlayer) {
-		return player.champion || m.lobby_not_ready();
+	function getChampionDisplayName(champion?: string): string {
+		return champions.find((c) => c.name === champion)?.displayName || "";
 	}
 </script>
 
@@ -35,8 +36,8 @@
 				{#each teamLeft as player (player.id)}
 					<PlayerCard
 						displayName={player.displayName}
-						champion={player.champion}
-						status={getPlayerStatus(player)}
+						championIconFolderName={getChampionDisplayName(player.champion)}
+						status={getChampionDisplayName(player.champion) || "Not ready"}
 					/>
 				{/each}
 			</div>
@@ -47,8 +48,8 @@
 				{#each teamRight as player (player.id)}
 					<PlayerCard
 						displayName={player.displayName}
-						champion={player.champion}
-						status={getPlayerStatus(player)}
+						championIconFolderName={getChampionDisplayName(player.champion)}
+						status={getChampionDisplayName(player.champion) || "Not ready"}
 					/>
 				{/each}
 			</div>

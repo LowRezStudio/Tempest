@@ -1,11 +1,11 @@
 <script lang="ts">
 	interface Props {
 		displayName: string;
-		champion: string;
+		championIconFolderName: string;
 		status: string;
 	}
 
-	let { displayName, champion, status }: Props = $props();
+	let { displayName, championIconFolderName: champion, status }: Props = $props();
 </script>
 
 <div class="flex items-center gap-3 bg-base-200/90 backdrop-blur-xs rounded-lg p-2">
