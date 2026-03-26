@@ -5,6 +5,7 @@ import { ServiceType } from "@protobuf-ts/runtime-rpc";
 import { CreateLobbyRequest } from "./create_lobby_request";
 import { CreateLobbyResponse } from "./create_lobby_response";
 import { GetServerByIdRequest } from "./get_server_by_id_request";
+import { GetServerByIdResponse } from "./get_server_by_id_response";
 import { GetServersRequest } from "./get_servers_request";
 import { HeartbeatLobbyRequest } from "./heartbeat_lobby_request";
 import { HeartbeatLobbyResponse } from "./heartbeat_lobby_response";
@@ -22,6 +23,6 @@ export const ServerList = new ServiceType("tempest.server_list.ServerList", [
 		I: GetServersRequest,
 		O: ServerListing,
 	},
-	{ name: "GetServerById", options: {}, I: GetServerByIdRequest, O: ServerListing },
+	{ name: "GetServerById", options: {}, I: GetServerByIdRequest, O: GetServerByIdResponse },
 	{ name: "HeartbeatLobby", options: {}, I: HeartbeatLobbyRequest, O: HeartbeatLobbyResponse },
 ]);

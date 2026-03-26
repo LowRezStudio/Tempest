@@ -1,0 +1,13 @@
+syntax = "proto3";
+package tempest.server_list;
+option csharp_namespace = "Tempest.Protocol.ServerList";
+
+import "server_list/server_listing.proto";
+import "server_list/get_server_by_id_error.proto";
+
+message GetServerByIdResponse {
+  oneof result {
+    ServerListing success = 1;
+    GetServerByIdError error = 2;
+  }
+}

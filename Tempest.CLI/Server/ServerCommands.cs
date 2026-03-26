@@ -106,23 +106,30 @@ internal class ServerCommands
 
         try
         {
-            var server = await client.GetServerByIdAsync(id);
-
-            Console.WriteLine($"ID: {server.Id}");
-            Console.WriteLine($"Name: {server.Name}");
-            Console.WriteLine($"IP: {server.Ip}:{server.LobbyPort}");
-            Console.WriteLine($"Game: {server.Game} v{server.Version}");
-            Console.WriteLine($"Players: {server.Players}/{server.MaxPlayers}");
-            Console.WriteLine($"Bots: {server.Bots}");
-            Console.WriteLine($"Spectators: {server.Spectators}/{server.MaxSpectators}");
-            Console.WriteLine($"Map: {server.Map ?? "N/A"}");
-            Console.WriteLine($"Map ID: {server.MapId ?? "N/A"}");
-            Console.WriteLine($"Joinable: {server.Joinable}");
-            Console.WriteLine($"Join in Progress: {server.JoinInProgress}");
-            Console.WriteLine($"Password: {(server.HasPassword ? "Yes" : "No")}");
-            Console.WriteLine($"Country: {server.Country}");
-            if (server.Tags.Count > 0)
-                Console.WriteLine($"Tags: {string.Join(", ", server.Tags)}");
+            var response = await client.GetServerByIdAsync(id);
+            
+            if (response.ResultCase == Protocol.ServerList.GetServerByIdResponse.ResultOneofCase.Success)
+            {
+                var server = response.Success;
+                Console.WriteLine($"ID: {server.Id}");
+                Console.WriteLine($"Name: {server.Name}");
+                Console.WriteLine($"IP: {server.Ip}:{server.LobbyPort}");
+                Console.WriteLine($"Game: {server.Game} v{server.Version}");
+                Console.WriteLine($"Players: {server.Players}/{server.MaxPlayers}");
+                Console.WriteLine($"Bots: {server.Bots}");
+                Console.WriteLine($"Spectators: {server.Spectators}/{server.MaxSpectators}");
+                Console.WriteLine($"Map: {server.Map ?? "N/A"}");
+                Console.WriteLine($"Map ID: {server.MapId ?? "N/A"}");
+                Console.WriteLine($"Joinable: {server.Joinable}");
+                Console.WriteLine($"Join in Progress: {server.JoinInProgress}");
+                Console.WriteLine($"Password: {(server.HasPassword ? "Yes" : "No")}");
+                Console.WriteLine($"Country: {server.Country}");
+                if (server.Tags.Count > 0)
+                    Console.WriteLine($"Tags: {string.Join(", ", server.Tags)}");
+            } else
+            {
+                Console.WriteLine($"Response Error: {response.Error.Message}");
+            }
         }
         catch (Exception ex)
         {

@@ -8,6 +8,7 @@ import {
 	WireType,
 } from "@protobuf-ts/runtime";
 import { CountryCode } from "../common/country";
+import { Timestamp } from "../google/protobuf/timestamp";
 import type {
 	BinaryReadOptions,
 	BinaryWriteOptions,
@@ -21,9 +22,9 @@ import type {
  */
 export interface ServerListing {
 	/**
-	 * @generated from protobuf field: uint64 id = 1
+	 * @generated from protobuf field: string id = 1
 	 */
-	id: bigint;
+	id: string;
 	/**
 	 * @generated from protobuf field: string ip = 2
 	 */
@@ -92,18 +93,16 @@ export interface ServerListing {
 	 * @generated from protobuf field: tempest.common.CountryCode country = 17
 	 */
 	country: CountryCode;
+	/**
+	 * @generated from protobuf field: optional google.protobuf.Timestamp last_seen = 19
+	 */
+	lastSeen?: Timestamp;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class ServerListing$Type extends MessageType<ServerListing> {
 	constructor() {
 		super("tempest.server_list.ServerListing", [
-			{
-				no: 1,
-				name: "id",
-				kind: "scalar",
-				T: 4 /*ScalarType.UINT64*/,
-				L: 0 /*LongType.BIGINT*/,
-			},
+			{ no: 1, name: "id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 2, name: "ip", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 3, name: "lobby_port", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 			{ no: 4, name: "name", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
@@ -132,11 +131,12 @@ class ServerListing$Type extends MessageType<ServerListing> {
 				kind: "enum",
 				T: () => ["tempest.common.CountryCode", CountryCode],
 			},
+			{ no: 19, name: "last_seen", kind: "message", T: () => Timestamp },
 		]);
 	}
 	create(value?: PartialMessage<ServerListing>): ServerListing {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		message.id = 0n;
+		message.id = "";
 		message.ip = "";
 		message.lobbyPort = 0;
 		message.name = "";
@@ -166,8 +166,8 @@ class ServerListing$Type extends MessageType<ServerListing> {
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
-				case /* uint64 id */ 1:
-					message.id = reader.uint64().toBigInt();
+				case /* string id */ 1:
+					message.id = reader.string();
 					break;
 				case /* string ip */ 2:
 					message.ip = reader.string();
@@ -220,6 +220,14 @@ class ServerListing$Type extends MessageType<ServerListing> {
 				case /* tempest.common.CountryCode country */ 17:
 					message.country = reader.int32();
 					break;
+				case /* optional google.protobuf.Timestamp last_seen */ 19:
+					message.lastSeen = Timestamp.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.lastSeen,
+					);
+					break;
 				default:
 					let u = options.readUnknownField;
 					if (u === "throw")
@@ -244,8 +252,8 @@ class ServerListing$Type extends MessageType<ServerListing> {
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
-		/* uint64 id = 1; */
-		if (message.id !== 0n) writer.tag(1, WireType.Varint).uint64(message.id);
+		/* string id = 1; */
+		if (message.id !== "") writer.tag(1, WireType.LengthDelimited).string(message.id);
 		/* string ip = 2; */
 		if (message.ip !== "") writer.tag(2, WireType.LengthDelimited).string(message.ip);
 		/* uint32 lobby_port = 3; */
@@ -285,6 +293,13 @@ class ServerListing$Type extends MessageType<ServerListing> {
 		/* optional string map_id = 18; */
 		if (message.mapId !== undefined)
 			writer.tag(18, WireType.LengthDelimited).string(message.mapId);
+		/* optional google.protobuf.Timestamp last_seen = 19; */
+		if (message.lastSeen)
+			Timestamp.internalBinaryWrite(
+				message.lastSeen,
+				writer.tag(19, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

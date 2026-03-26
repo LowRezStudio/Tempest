@@ -6,9 +6,8 @@ namespace Tempest.Services;
 
 public class InMemoryServerStore
 {
-    private readonly ConcurrentDictionary<ulong, ServerListing> _servers = new();
-    private ulong _nextId = 1;
-    private readonly ulong _dummyId;
+    private readonly ConcurrentDictionary<string, ServerListing> _servers = new();
+    private readonly string _dummyId;
 
     public InMemoryServerStore()
     {
@@ -36,15 +35,15 @@ public class InMemoryServerStore
         _dummyId = Add(server);
     }
 
-    public ulong Add(ServerListing server)
+    public string Add(ServerListing server)
     {
-        var id = Interlocked.Increment(ref _nextId) - 1;
+        var id = Guid.NewGuid().ToString();
         server.Id = id;
         _servers[id] = server;
         return id;
     }
 
-    public bool Update(ulong id, ServerListing server)
+    public bool Update(string id, ServerListing server)
     {
         if (!_servers.ContainsKey(id))
             return false;
@@ -54,7 +53,7 @@ public class InMemoryServerStore
         return true;
     }
 
-    public bool Remove(ulong id)
+    public bool Remove(string id)
     {
         if (id == _dummyId)
             return false;
@@ -62,7 +61,7 @@ public class InMemoryServerStore
         return _servers.TryRemove(id, out _);
     }
 
-    public ServerListing? Get(ulong id)
+    public ServerListing? Get(string id)
     {
         _servers.TryGetValue(id, out var server);
         return server;
