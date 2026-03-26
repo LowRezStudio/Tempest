@@ -11,9 +11,9 @@
 		SquareTerminal,
 	} from "@lucide/svelte";
 	import { page } from "$app/state";
+	import { lobbyHost } from "$lib/lobby/stores";
 	import { m } from "$lib/paraglide/messages";
 	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
-	import { lobbyHost } from "$lib/stores/lobby";
 	import { lobbyServerProcessesList } from "$lib/stores/processes";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import LanguageSelector from "./LanguageSelector.svelte";
