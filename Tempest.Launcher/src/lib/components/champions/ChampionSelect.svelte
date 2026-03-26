@@ -46,6 +46,7 @@
 		"Viktor",
 		"Vivian",
 		"Willo",
+		"Ying",
 		"Zhin",
 	].map((name) => ({
 		name,
@@ -193,7 +194,7 @@
 		<div class="relative flex flex-1 flex-col items-center justify-end">
 			<div
 				bind:this={scrollContainer}
-				class="relative z-10 grid max-h-[304px] max-w-6xl grid-cols-6 gap-3 overflow-y-auto p-4 scrollbar-hide md:grid-cols-8 lg:grid-cols-11"
+				class="relative z-10 grid max-h-[304px] max-w-6xl grid-cols-6 gap-3 overflow-y-auto p-4 scrollbar-hide md:grid-cols-8 lg:grid-cols-12"
 			>
 				{#each champions as champion (champion.name)}
 					<button
