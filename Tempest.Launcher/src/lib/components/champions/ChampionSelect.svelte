@@ -1,9 +1,10 @@
 <script lang="ts">
-	import all_champions from "$lib/data/champions.json";
+	import allChampions from "$lib/data/champions.json";
 	import { compareVersions } from "$lib/utils/versions";
 
 	interface Champion {
 		name: string;
+		displayName: string;
 		iconPath: string;
 		fallbackPath: string;
 		videoPath: string;
@@ -17,16 +18,17 @@
 
 	let { onselect, confirmedChampionName, gameVersion = "0.57" }: Props = $props();
 
-	const champions = all_champions
+	const champions = allChampions
 		.filter((champ) => {
 			return compareVersions(gameVersion, champ.version) >= 0;
 		})
-		.sort((a, b) => a.name.localeCompare(b.name))
+		.sort((a, b) => a.displayName.localeCompare(b.displayName))
 		.map((champ) => ({
 			name: champ.name,
-			iconPath: `/champions/${champ.name}/icon.webp`,
-			fallbackPath: `/champions/${champ.name}/fallback.webp`,
-			videoPath: `/champions/${champ.name}/video.webm`,
+			displayName: champ.displayName,
+			iconPath: `/champions/${champ.displayName}/icon.webp`,
+			fallbackPath: `/champions/${champ.displayName}/fallback.webp`,
+			videoPath: `/champions/${champ.displayName}/video.webm`,
 		}));
 
 	let selectedChampion = $state<Champion | null>(null);
@@ -109,7 +111,7 @@
 			{#if previousChampion && previousChampion.name !== displayedChampion.name}
 				<img
 					src={previousChampion.fallbackPath}
-					alt={previousChampion.name}
+					alt={previousChampion.displayName}
 					class="absolute inset-0 h-full w-full object-cover object-[75%_center]"
 				/>
 			{/if}
@@ -117,7 +119,7 @@
 			<!-- Current champion fallback (always visible below video) -->
 			<img
 				src={displayedChampion.fallbackPath}
-				alt={displayedChampion.name}
+				alt={displayedChampion.displayName}
 				class="absolute inset-0 h-full w-full object-cover object-[75%_center]"
 			/>
 
@@ -159,7 +161,7 @@
 					class="mt-4 text-6xl font-bold text-white"
 					style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
 				>
-					{displayedChampion.name}
+					{displayedChampion.displayName}
 				</h2>
 			{/if}
 		</div>

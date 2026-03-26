@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Users } from "@lucide/svelte";
+	import champions from "$lib/data/champions.json";
 	import Header from "../ui/Header.svelte";
 	import LobbyPlayerCard from "./LobbyPlayerCard.svelte";
 	import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
@@ -33,8 +34,8 @@
 		handleRejoin,
 		handleLeave,
 	}: Props = $props();
-	function getPlayerStatus(player: { id: string; champion?: string }): string {
-		return player.champion || "Not ready";
+	function getChampionDisplayName(champion?: string): string {
+		return champions.find((c) => c.name === champion)?.displayName || "";
 	}
 </script>
 
@@ -91,8 +92,8 @@
 			{#each teamLeft as player (player.id)}
 				<LobbyPlayerCard
 					displayName={player.displayName}
-					champion={player.champion}
-					status={getPlayerStatus(player)}
+					championIconFolderName={getChampionDisplayName(player.champion)}
+					status={getChampionDisplayName(player.champion) || "Not ready"}
 				/>
 			{/each}
 		</div>
@@ -101,8 +102,8 @@
 			{#each teamRight as player (player.id)}
 				<LobbyPlayerCard
 					displayName={player.displayName}
-					champion={player.champion}
-					status={getPlayerStatus(player)}
+					championIconFolderName={getChampionDisplayName(player.champion)}
+					status={getChampionDisplayName(player.champion) || "Not ready"}
 				/>
 			{/each}
 		</div>

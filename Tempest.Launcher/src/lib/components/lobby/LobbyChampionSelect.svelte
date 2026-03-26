@@ -1,5 +1,6 @@
 <script lang="ts">
 	import PlayerCard from "$lib/components/lobby/LobbyPlayerCard.svelte";
+	import champions from "$lib/data/champions.json";
 	import ChampionSelect from "../champions/ChampionSelect.svelte";
 	import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
 	import type { Map } from "$lib/types/lobby";
@@ -22,8 +23,8 @@
 		gameVersion,
 	}: Props = $props();
 
-	function getPlayerStatus(player: LobbyPlayer) {
-		return player.champion || "Not ready";
+	function getChampionDisplayName(champion?: string): string {
+		return champions.find((c) => c.name === champion)?.displayName || "";
 	}
 </script>
 
@@ -34,8 +35,8 @@
 				{#each teamLeft as player (player.id)}
 					<PlayerCard
 						displayName={player.displayName}
-						champion={player.champion}
-						status={getPlayerStatus(player)}
+						championIconFolderName={getChampionDisplayName(player.champion)}
+						status={getChampionDisplayName(player.champion) || "Not ready"}
 					/>
 				{/each}
 			</div>
@@ -46,8 +47,8 @@
 				{#each teamRight as player (player.id)}
 					<PlayerCard
 						displayName={player.displayName}
-						champion={player.champion}
-						status={getPlayerStatus(player)}
+						championIconFolderName={getChampionDisplayName(player.champion)}
+						status={getChampionDisplayName(player.champion) || "Not ready"}
 					/>
 				{/each}
 			</div>

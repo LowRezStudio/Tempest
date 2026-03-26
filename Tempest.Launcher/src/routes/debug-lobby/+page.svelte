@@ -4,6 +4,7 @@ The purpose of this page is to be a development tool
 Makes it possible to add players, vote maps and select champions
 */
 	import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
+	import allChampions from "$lib/data/champions.json";
 	import { chatMessages, debugPlayersStore, players, state } from "$lib/lobby/stores";
 	import { LobbyClient } from "$lib/rpc/lobby/lobby_service.client";
 	import { onDestroy, onMount } from "svelte";
@@ -34,41 +35,7 @@ Makes it possible to add players, vote maps and select champions
 			],
 		};
 	};
-	const champions: string[] = [
-		"Androxus",
-		"Ash",
-		"Barik",
-		"Bomb King",
-		"Buck",
-		"Cassie",
-		"Drogoz",
-		"Evie",
-		"Fernando",
-		"Grohk",
-		"Grover",
-		"Inara",
-		"Jenos",
-		"Kinessa",
-		"Lex",
-		"Lian",
-		"Maeve",
-		"Makoa",
-		"Mal'Damba",
-		"Pip",
-		"Ruckus",
-		"Seris",
-		"Sha Lin",
-		"Skye",
-		"Strix",
-		"Talus",
-		"Terminus",
-		"Torvald",
-		"Tyra",
-		"Viktor",
-		"Vivian",
-		"Willo",
-		"Zhin",
-	];
+	const champions: string[] = allChampions.map((c) => c.name);
 	const maps = [
 		{
 			displayName: "Serpent Beach",
