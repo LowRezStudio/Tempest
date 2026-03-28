@@ -108,6 +108,8 @@
 			playerCount={$players.length}
 			{handleMapSelect}
 			votes={$lobbyState.mapVote?.votes}
+			gameVersion={$lobbyVersion ?? "0.57"}
+			gamemode={"siege"} //TODO get from info message
 		/>
 	{:else}
 		<LobbyWaiting

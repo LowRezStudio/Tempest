@@ -8,9 +8,12 @@
 		playerCount: number;
 		handleMapSelect: (id: string) => void;
 		votes?: Record<string, string>;
+		gameVersion: string;
+		gamemode: "siege" | "payload";
 	}
 
-	let { handleLeave, playerCount, handleMapSelect, votes }: Props = $props();
+	let { handleLeave, playerCount, handleMapSelect, votes, gameVersion, gamemode }: Props =
+		$props();
 </script>
 
 <div class="relative h-full w-full">
@@ -41,8 +44,14 @@
 			{/snippet}
 		</Header>
 
-		<div class="flex-1 overflow-y-auto">
-			<MapSelect onselect={(map) => handleMapSelect(map.id)} selectMode="vote" {votes} />
+		<div class="min-h-0">
+			<MapSelect
+				onselect={(map) => handleMapSelect(map.id)}
+				selectMode="vote"
+				{votes}
+				{gameVersion}
+				{gamemode}
+			/>
 		</div>
 	</div>
 </div>
