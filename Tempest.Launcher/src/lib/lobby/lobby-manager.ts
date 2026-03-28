@@ -1,13 +1,17 @@
 import { getConnectionToServer, LobbyEvent } from "$lib/rpc";
+import { JoinLobbyErrorCode } from "$lib/rpc/lobby/join_lobby_error_code";
 import { instanceMap } from "$lib/stores/instance";
-import { playerStore } from "$lib/stores/lobby";
 import { processesList } from "$lib/stores/processes";
 import { username } from "$lib/stores/settings";
+import { JoinLobbyClientErrorCode } from "$lib/types/lobby";
 import {
 	chatMessages,
 	connectionStatus,
+	joinErrorCode,
 	lobbyHost,
+	lobbyMaxPlayers,
 	lobbyPassword,
+	lobbyVersion,
 	ownTeam,
 	playerId,
 	players,
@@ -63,7 +67,7 @@ class LobbyManager {
 		console.log("Starting to listen to event stream");
 		connectionStatus.set("pending");
 
-		while (!this.abortController?.signal.aborted) {
+		while (this.abortController !== null && !this.abortController?.signal.aborted) {
 			try {
 				const eventStream = this.getClient().receiveLobbyEvents(
 					{},
@@ -118,20 +122,38 @@ class LobbyManager {
 	}
 
 	private async handleInfoEvent(event: LobbyEventInfo): Promise<void> {
-		const { players: eventPlayers, state: eventState } = event;
+		const {
+			players: eventPlayers,
+			state: eventState,
+			maxPlayers,
+			passwordRequired,
+			version,
+		} = event;
 		players.set(eventPlayers);
 		if (eventState) {
 			state.set(eventState);
 		}
+		lobbyVersion.set(version);
+		lobbyMaxPlayers.set(maxPlayers);
 		if (eventPlayers.some((p) => p.id === playerId.get())) return;
-		const joinResp = await this.getClient().joinLobby({
-			playerId: playerId.get(),
-			playerDisplayName: username.get(),
-			password: lobbyPassword.get(),
-		});
-		if (joinResp.response.result.oneofKind === "success") {
-			ticket.set(joinResp.response.result.success.ticket);
+
+		const hasValidInstance = Object.values(instanceMap.get()).some(
+			(i) => i.version === version,
+		);
+		if (!hasValidInstance) {
+			joinErrorCode.set(JoinLobbyClientErrorCode.NO_VALID_INSTANCE);
+			return;
 		}
+		if (passwordRequired && !lobbyPassword.get()) {
+			joinErrorCode.set(JoinLobbyClientErrorCode.PASSWORD_REQUIRED);
+			return;
+		}
+		if (eventPlayers.length >= maxPlayers) {
+			joinErrorCode.set(JoinLobbyErrorCode.LOBBY_FULL);
+			return;
+		}
+
+		await this.joinLobby();
 	}
 
 	private handlePlayerJoinEvent(event: LobbyEventPlayerJoin): void {
@@ -176,10 +198,11 @@ class LobbyManager {
 	}
 
 	public getLaunchGameInstance(): Instance | null {
-		//TODO remove hardcoded OB57
-		const instance = Object.values(instanceMap.get()).find((i) => i.version === "0.57");
+		const instance = Object.values(instanceMap.get()).find(
+			(i) => i.version === lobbyVersion.get(),
+		);
 
-		const player = playerStore.get().find((p) => p.id === playerId.get());
+		const player = players.get().find((p) => p.id === playerId.get());
 		const isRunning = processesList.get().some((p) => p.instance.id === instance?.id);
 		if (!player || isRunning || !player.champion || !instance) return null;
 
@@ -219,6 +242,20 @@ class LobbyManager {
 			console.log("Vote response:", response);
 		} catch (error) {
 			console.error("Error voting for map:", error);
+		}
+	}
+
+	async joinLobby(): Promise<void> {
+		joinErrorCode.set(null);
+		const joinResp = await this.getClient().joinLobby({
+			playerId: playerId.get(),
+			playerDisplayName: username.get(),
+			password: lobbyPassword.get(),
+		});
+		if (joinResp.response.result.oneofKind === "success") {
+			ticket.set(joinResp.response.result.success.ticket);
+		} else if (joinResp.response.result.oneofKind === "error") {
+			joinErrorCode.set(joinResp.response.result.error.code);
 		}
 	}
 
