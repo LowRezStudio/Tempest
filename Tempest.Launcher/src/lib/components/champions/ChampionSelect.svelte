@@ -14,9 +14,15 @@
 		onselect?: (champion: Champion) => void;
 		confirmedChampionName?: string;
 		gameVersion?: string;
+		countdownSeconds?: number;
 	}
 
-	let { onselect, confirmedChampionName, gameVersion = "0.57" }: Props = $props();
+	let {
+		onselect,
+		confirmedChampionName,
+		gameVersion = "0.57",
+		countdownSeconds = -1,
+	}: Props = $props();
 
 	const champions = allChampions
 		.filter((champ) => {
@@ -162,6 +168,14 @@
 					style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
 				>
 					{displayedChampion.displayName}
+				</h2>
+			{/if}
+			{#if countdownSeconds > 0}
+				<h2
+					class="mt-4 text-6xl font-bold text-white"
+					style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
+				>
+					{countdownSeconds}
 				</h2>
 			{/if}
 		</div>

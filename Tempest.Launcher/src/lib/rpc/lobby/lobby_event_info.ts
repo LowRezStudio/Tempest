@@ -7,6 +7,7 @@ import {
 	UnknownFieldHandler,
 	WireType,
 } from "@protobuf-ts/runtime";
+import { LobbyEventCountdown } from "./lobby_event_countdown";
 import { LobbyPlayer } from "./lobby_player";
 import { LobbyState } from "./lobby_state";
 import type {
@@ -45,6 +46,10 @@ export interface LobbyEventInfo {
 	 * @generated from protobuf field: bool password_required = 6
 	 */
 	passwordRequired: boolean;
+	/**
+	 * @generated from protobuf field: optional tempest.lobby.LobbyEventCountdown countdown = 7
+	 */
+	countdown?: LobbyEventCountdown;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
@@ -62,6 +67,7 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 			{ no: 4, name: "max_players", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 			{ no: 5, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 6, name: "password_required", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
+			{ no: 7, name: "countdown", kind: "message", T: () => LobbyEventCountdown },
 		]);
 	}
 	create(value?: PartialMessage<LobbyEventInfo>): LobbyEventInfo {
@@ -110,6 +116,14 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 				case /* bool password_required */ 6:
 					message.passwordRequired = reader.bool();
 					break;
+				case /* optional tempest.lobby.LobbyEventCountdown countdown */ 7:
+					message.countdown = LobbyEventCountdown.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.countdown,
+					);
+					break;
 				default:
 					let u = options.readUnknownField;
 					if (u === "throw")
@@ -157,6 +171,13 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 		/* bool password_required = 6; */
 		if (message.passwordRequired !== false)
 			writer.tag(6, WireType.Varint).bool(message.passwordRequired);
+		/* optional tempest.lobby.LobbyEventCountdown countdown = 7; */
+		if (message.countdown)
+			LobbyEventCountdown.internalBinaryWrite(
+				message.countdown,
+				writer.tag(7, WireType.LengthDelimited).fork(),
+				options,
+			).join();
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

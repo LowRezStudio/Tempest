@@ -11,12 +11,14 @@
 		isWaiting: boolean;
 		isPendingConnection: boolean;
 		isGameServerLaunching: boolean;
+		isLobbyRestarting: boolean;
 		isLaunchingClient: boolean;
 		canRejoinGame: boolean;
 		playerCount: number;
 		minimumPlayerCount: number;
 		teamLeft: readonly LobbyPlayer[];
 		teamRight: readonly LobbyPlayer[];
+		countdownSeconds: number;
 		handleRejoin: () => void;
 		handleLeave: () => void;
 	}
@@ -26,21 +28,29 @@
 		isWaiting,
 		isPendingConnection,
 		isGameServerLaunching,
+		isLobbyRestarting,
 		isLaunchingClient,
 		canRejoinGame,
 		playerCount,
 		minimumPlayerCount,
 		teamLeft,
 		teamRight,
+		countdownSeconds,
 		handleRejoin,
 		handleLeave,
 	}: Props = $props();
 	function getChampionDisplayName(champion?: string): string {
 		return champions.find((c) => c.name === champion)?.displayName || "";
 	}
+	function getTitle() {
+		if (isWaiting && countdownSeconds > 0) return `Starting ${countdownSeconds}s`;
+		if (isWaiting) return m.lobby_title();
+		if (isLobbyRestarting) return `Restarting ${countdownSeconds}`;
+		return m.lobby_game_in_progress();
+	}
 </script>
 
-<Header title={isGameInProgress ? m.lobby_game_in_progress() : m.lobby_title()}>
+<Header title={getTitle()}>
 	{#snippet icon()}
 		<Users size={32} class="opacity-60" />
 	{/snippet}

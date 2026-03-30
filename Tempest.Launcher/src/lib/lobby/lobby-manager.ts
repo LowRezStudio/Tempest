@@ -1,4 +1,4 @@
-import { getConnectionToServer, LobbyEvent } from "$lib/rpc";
+import { getConnectionToServer, LobbyEvent, Timestamp } from "$lib/rpc";
 import { JoinLobbyErrorCode } from "$lib/rpc/lobby/join_lobby_error_code";
 import { instanceMap } from "$lib/stores/instance";
 import { processesList } from "$lib/stores/processes";
@@ -7,6 +7,7 @@ import { JoinLobbyClientErrorCode } from "$lib/types/lobby";
 import {
 	chatMessages,
 	connectionStatus,
+	currentCountdownSeconds,
 	joinErrorCode,
 	lobbyHost,
 	lobbyMaxPlayers,
@@ -32,6 +33,8 @@ import type { Instance } from "$lib/types/instance";
 class LobbyManager {
 	private client: LobbyClient | null = null;
 	private abortController: AbortController | null = null;
+	private countdownTimerInterval?: number;
+	private countdown?: LobbyEventCountdown;
 
 	connect(): void {
 		if (this.abortController && !this.abortController.signal.aborted) {
@@ -45,6 +48,15 @@ class LobbyManager {
 		}
 		this.client = getConnectionToServer(host);
 		this.abortController = new AbortController();
+		clearInterval(this.countdownTimerInterval);
+		this.countdownTimerInterval = setInterval(() => {
+			if (!this.countdown || !this.countdown.startTime) return;
+			const start = this.countdown.startTime;
+			const now = Timestamp.now();
+			const elapsed = Number(now.seconds - start.seconds) + (now.nanos - start.nanos) / 1e9;
+			const secondsLeft = this.countdown.seconds - Math.floor(elapsed);
+			currentCountdownSeconds.set(secondsLeft);
+		}, 250);
 		this.startEventStream();
 	}
 
@@ -60,6 +72,7 @@ class LobbyManager {
 		this.abortController.abort();
 		this.abortController = null;
 		connectionStatus.set("pending");
+		clearInterval(this.countdownTimerInterval);
 		console.log("Lobby disconnected");
 	}
 
@@ -128,6 +141,7 @@ class LobbyManager {
 			maxPlayers,
 			passwordRequired,
 			version,
+			countdown,
 		} = event;
 		players.set(eventPlayers);
 		if (eventState) {
@@ -135,6 +149,9 @@ class LobbyManager {
 		}
 		lobbyVersion.set(version);
 		lobbyMaxPlayers.set(maxPlayers);
+		if (countdown) {
+			this.handleCountdownEvent(countdown);
+		}
 		if (eventPlayers.some((p) => p.id === playerId.get())) return;
 
 		const hasValidInstance = Object.values(instanceMap.get()).some(
@@ -192,9 +209,8 @@ class LobbyManager {
 	private handleStateUpdateEvent(event: LobbyEventStateUpdate): void {
 		const eventState = event.state;
 		console.log("State update received:", eventState);
-		if (eventState) {
-			state.set(eventState);
-		}
+		if (!eventState) return;
+		state.set(eventState);
 	}
 
 	public getLaunchGameInstance(): Instance | null {
@@ -224,6 +240,8 @@ class LobbyManager {
 
 	private handleCountdownEvent(event: LobbyEventCountdown): void {
 		console.log(`Countdown: ${event.seconds} seconds`);
+		if (event.seconds === 0) this.countdown = undefined;
+		else this.countdown = event;
 	}
 
 	async sendChatMessage(content: string): Promise<void> {
