@@ -7,9 +7,10 @@
 	import { page } from "$app/state";
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 	import HostServerWizard from "$lib/components/server-list/HostServerWizard.svelte";
+	import JoinServerWizard from "$lib/components/server-list/JoinServerWizard.svelte";
 	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
 	import ToastStack from "$lib/components/ui/ToastStack.svelte";
-	import { hostServerWizardOpen, instanceWizardOpen } from "$lib/stores/ui";
+	import { hostServerWizardOpen, instanceWizardOpen, joinServerWizardOpen } from "$lib/stores/ui";
 	import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
 
 	const { children } = $props();
@@ -53,6 +54,7 @@
 		</main>
 		<InstanceWizard bind:open={$instanceWizardOpen} />
 		<HostServerWizard bind:open={$hostServerWizardOpen} />
+		<JoinServerWizard bind:open={$joinServerWizardOpen} />
 	</div>
 	<ToastStack />
 </QueryClientProvider>

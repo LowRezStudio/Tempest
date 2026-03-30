@@ -1,8 +1,8 @@
 import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
 import { fetch } from "@tauri-apps/plugin-http";
+import { ticket } from "./lobby/stores";
 import { LobbyClient } from "./rpc/lobby/lobby_service.client";
 import { ServerListClient } from "./rpc/server_list/server_list_service.client";
-import { ticket } from "./stores/lobby";
 import { servicesURL } from "./stores/settings";
 
 let serverListConnectionCache: { host: string; client: ServerListClient } | null = null;

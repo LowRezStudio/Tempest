@@ -7,6 +7,7 @@ import {
 	UnknownFieldHandler,
 	WireType,
 } from "@protobuf-ts/runtime";
+import { Timestamp } from "../google/protobuf/timestamp";
 import type {
 	BinaryReadOptions,
 	BinaryWriteOptions,
@@ -20,7 +21,11 @@ import type {
  */
 export interface LobbyEventCountdown {
 	/**
-	 * @generated from protobuf field: uint32 seconds = 1
+	 * @generated from protobuf field: google.protobuf.Timestamp start_time = 1
+	 */
+	startTime?: Timestamp;
+	/**
+	 * @generated from protobuf field: uint32 seconds = 2
 	 */
 	seconds: number;
 }
@@ -28,7 +33,8 @@ export interface LobbyEventCountdown {
 class LobbyEventCountdown$Type extends MessageType<LobbyEventCountdown> {
 	constructor() {
 		super("tempest.lobby.LobbyEventCountdown", [
-			{ no: 1, name: "seconds", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
+			{ no: 1, name: "start_time", kind: "message", T: () => Timestamp },
+			{ no: 2, name: "seconds", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 		]);
 	}
 	create(value?: PartialMessage<LobbyEventCountdown>): LobbyEventCountdown {
@@ -48,7 +54,15 @@ class LobbyEventCountdown$Type extends MessageType<LobbyEventCountdown> {
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
-				case /* uint32 seconds */ 1:
+				case /* google.protobuf.Timestamp start_time */ 1:
+					message.startTime = Timestamp.internalBinaryRead(
+						reader,
+						reader.uint32(),
+						options,
+						message.startTime,
+					);
+					break;
+				case /* uint32 seconds */ 2:
 					message.seconds = reader.uint32();
 					break;
 				default:
@@ -75,8 +89,15 @@ class LobbyEventCountdown$Type extends MessageType<LobbyEventCountdown> {
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
-		/* uint32 seconds = 1; */
-		if (message.seconds !== 0) writer.tag(1, WireType.Varint).uint32(message.seconds);
+		/* google.protobuf.Timestamp start_time = 1; */
+		if (message.startTime)
+			Timestamp.internalBinaryWrite(
+				message.startTime,
+				writer.tag(1, WireType.LengthDelimited).fork(),
+				options,
+			).join();
+		/* uint32 seconds = 2; */
+		if (message.seconds !== 0) writer.tag(2, WireType.Varint).uint32(message.seconds);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

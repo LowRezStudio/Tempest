@@ -4,13 +4,9 @@ The purpose of this page is to be a development tool
 Makes it possible to add players, vote maps and select champions
 */
 	import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
+	import allChampions from "$lib/data/champions.json";
+	import { chatMessages, debugPlayersStore, players, state } from "$lib/lobby/stores";
 	import { LobbyClient } from "$lib/rpc/lobby/lobby_service.client";
-	import {
-		chatMessageStore,
-		debugPlayersStore,
-		playerStore,
-		stateStore,
-	} from "$lib/stores/lobby";
 	import { onDestroy, onMount } from "svelte";
 	import type { RpcOptions } from "@protobuf-ts/runtime-rpc";
 
@@ -39,41 +35,7 @@ Makes it possible to add players, vote maps and select champions
 			],
 		};
 	};
-	const champions: string[] = [
-		"Androxus",
-		"Ash",
-		"Barik",
-		"Bomb King",
-		"Buck",
-		"Cassie",
-		"Drogoz",
-		"Evie",
-		"Fernando",
-		"Grohk",
-		"Grover",
-		"Inara",
-		"Jenos",
-		"Kinessa",
-		"Lex",
-		"Lian",
-		"Maeve",
-		"Makoa",
-		"Mal'Damba",
-		"Pip",
-		"Ruckus",
-		"Seris",
-		"Sha Lin",
-		"Skye",
-		"Strix",
-		"Talus",
-		"Terminus",
-		"Torvald",
-		"Tyra",
-		"Viktor",
-		"Vivian",
-		"Willo",
-		"Zhin",
-	];
+	const champions: string[] = allChampions.map((c) => c.name);
 	const maps = [
 		{
 			displayName: "Serpent Beach",
@@ -186,20 +148,20 @@ Makes it possible to add players, vote maps and select champions
 			if (event.event.oneofKind === "playerJoin") {
 				const player = event.event.playerJoin.player;
 				if (player) {
-					playerStore.set([...$playerStore, player]);
+					players.set([...$players, player]);
 				}
 			} else if (event.event.oneofKind === "playerLeave") {
 				const playerId = event.event.playerLeave.playerId;
-				playerStore.set($playerStore.filter((pl) => pl.id !== playerId));
+				players.set($players.filter((pl) => pl.id !== playerId));
 			} else if (event.event.oneofKind === "playerUpdate") {
 				const player = event.event.playerUpdate.player;
-				playerStore.set($playerStore.map((pl) => (pl.id === player?.id ? player : pl)));
+				players.set($players.map((pl) => (pl.id === player?.id ? player : pl)));
 			} else if (event.event.oneofKind === "chatMessage") {
 				const message = event.event.chatMessage.chatMessage;
 				if (message) {
-					const sender = $playerStore.find((p) => p.id === message.authorId);
-					chatMessageStore.set([
-						...$chatMessageStore,
+					const sender = $players.find((p) => p.id === message.authorId);
+					chatMessages.set([
+						...$chatMessages,
 						{
 							content: message.content,
 							username: sender?.displayName || "unknown",
@@ -208,17 +170,17 @@ Makes it possible to add players, vote maps and select champions
 					]);
 				}
 			} else if (event.event.oneofKind === "stateUpdate") {
-				const state = event.event.stateUpdate.state;
-				if (state) {
-					stateStore.set(state);
+				const eventState = event.event.stateUpdate.state;
+				if (eventState) {
+					state.set(eventState);
 				}
 			} else if (event.event.oneofKind === "countdown") {
 				const time = event.event.countdown.seconds;
 			} else if (event.event.oneofKind === "info") {
-				const { players, state } = event.event.info;
-				playerStore.set(players);
-				if (state) {
-					stateStore.set(state);
+				const { players: eventPlayers, state: eventState } = event.event.info;
+				players.set(eventPlayers);
+				if (eventState) {
+					state.set(eventState);
 				}
 			}
 			console.log(event);
@@ -290,7 +252,7 @@ Makes it possible to add players, vote maps and select champions
 <div class="flex flex-col h-full bg-base-100 p-6">
 	<div class="flex gap-3 items-center">
 		<button onclick={createNewPlayer} class="btn">New player</button>
-		<p>State {JSON.stringify($stateStore)}</p>
+		<p>State {JSON.stringify($state)}</p>
 	</div>
 	<table class="table table-zebra">
 		<thead>
@@ -306,7 +268,7 @@ Makes it possible to add players, vote maps and select champions
 			</tr>
 		</thead>
 		<tbody>
-			{#each $playerStore as player (player.id)}
+			{#each $players as player (player.id)}
 				<tr>
 					<td>{player.displayName}</td>
 					<td>{player.id}</td>
