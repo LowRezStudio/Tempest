@@ -10,10 +10,18 @@
 		votes?: Record<string, string>;
 		gameVersion: string;
 		gamemode: "siege" | "payload";
+		countdownSeconds: number;
 	}
 
-	let { handleLeave, playerCount, handleMapSelect, votes, gameVersion, gamemode }: Props =
-		$props();
+	let {
+		handleLeave,
+		playerCount,
+		handleMapSelect,
+		votes,
+		gameVersion,
+		gamemode,
+		countdownSeconds,
+	}: Props = $props();
 </script>
 
 <div class="relative h-full w-full">
@@ -29,7 +37,10 @@
 	</div>
 
 	<div class="relative z-10 flex flex-col h-full">
-		<Header title="Map Vote" class="bg-base-200/90 backdrop-blur-xs">
+		<Header
+			title={countdownSeconds > 0 ? `Map Vote ${countdownSeconds}s` : "Map Vote"}
+			class="bg-base-200/90 backdrop-blur-xs"
+		>
 			{#snippet icon()}
 				<Users size={32} class="opacity-60" />
 			{/snippet}

@@ -12,6 +12,7 @@
 		confirmedChampion?: string;
 		handleChampionSelect: (champ: string) => void;
 		gameVersion: string;
+		countdownSeconds: number;
 	}
 
 	let {
@@ -21,6 +22,7 @@
 		confirmedChampion,
 		handleChampionSelect,
 		gameVersion,
+		countdownSeconds,
 	}: Props = $props();
 
 	function getChampionDisplayName(champion?: string): string {
@@ -71,6 +73,7 @@
 	<ChampionSelect
 		confirmedChampionName={confirmedChampion}
 		onselect={(champ) => handleChampionSelect(champ.name)}
+		{countdownSeconds}
 		{gameVersion}
 	/>
 </div>

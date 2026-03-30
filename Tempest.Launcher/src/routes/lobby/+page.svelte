@@ -10,6 +10,7 @@
 	import {
 		chatMessages,
 		connectionStatus,
+		currentCountdownSeconds,
 		currentInstance,
 		isGameServerOpen,
 		isInChampionSelect,
@@ -101,6 +102,7 @@
 			confirmedChampion={ownChampion}
 			{handleChampionSelect}
 			gameVersion={$lobbyVersion ?? "0.57"}
+			countdownSeconds={$currentCountdownSeconds}
 		/>
 	{:else if $isInMapVote}
 		<LobbyMapVote
@@ -109,7 +111,9 @@
 			{handleMapSelect}
 			votes={$lobbyState.mapVote?.votes}
 			gameVersion={$lobbyVersion ?? "0.57"}
-			gamemode={"siege"} //TODO get from info message
+			gamemode={"siege"}
+			//TODO get from info message
+			countdownSeconds={$currentCountdownSeconds}
 		/>
 	{:else}
 		<LobbyWaiting
@@ -117,6 +121,7 @@
 			isWaiting={$isWaiting}
 			isPendingConnection={$connectionStatus === "pending"}
 			isGameServerLaunching={!$isGameServerOpen && !$lobbyState.inGame?.gameServerError}
+			isLobbyRestarting={!!$lobbyState.inGame?.gameServerFinishedRunning}
 			isLaunchingClient={launchGameMutation.isPending}
 			canRejoinGame={!!(
 				!gameRunning &&
@@ -128,6 +133,7 @@
 			minimumPlayerCount={$lobbyState.waiting?.minPlayers || 0}
 			teamLeft={$teamLeft}
 			teamRight={$teamRight}
+			countdownSeconds={$currentCountdownSeconds}
 			{handleRejoin}
 			{handleLeave}
 		/>
