@@ -16,7 +16,7 @@
 		selectMode?: "vote" | "select";
 		votes?: Record<string, string>;
 		gameVersion: string;
-		gamemode: "siege" | "payload";
+		gamemode: string;
 	}
 
 	let { onselect, selectMode = "select", votes, gameVersion, gamemode }: Props = $props();
@@ -27,7 +27,7 @@
 		return (
 			compareVersions(gameVersion, m.versionStart) >= 0 &&
 			compareVersions(gameVersion, m.versionEnd) <= 0 &&
-			m.mode === gamemode
+			gamemode.toLowerCase().includes(m.mode)
 		);
 	});
 

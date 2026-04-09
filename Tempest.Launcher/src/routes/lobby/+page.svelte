@@ -18,10 +18,9 @@
 		isInMapVote,
 		isWaiting,
 		joinErrorCode,
-		lobbyMaxPlayers,
 		lobbyPassword,
 		state as lobbyState,
-		lobbyVersion,
+		lobbyStaticInfo,
 		playerId,
 		players,
 		teamLeft,
@@ -101,7 +100,7 @@
 			{currentMap}
 			confirmedChampion={ownChampion}
 			{handleChampionSelect}
-			gameVersion={$lobbyVersion ?? "0.57"}
+			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
 			countdownSeconds={$currentCountdownSeconds}
 		/>
 	{:else if $isInMapVote}
@@ -110,9 +109,8 @@
 			playerCount={$players.length}
 			{handleMapSelect}
 			votes={$lobbyState.mapVote?.votes}
-			gameVersion={$lobbyVersion ?? "0.57"}
-			gamemode={"siege"}
-			//TODO get from info message
+			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
+			gamemode={$lobbyStaticInfo?.gamemode || "siege"}
 			countdownSeconds={$currentCountdownSeconds}
 		/>
 	{:else}
@@ -149,8 +147,8 @@
 		joinErrorCode={$joinErrorCode}
 		{handlePasswordSubmit}
 		{handleJoin}
-		lobbyVersion={$lobbyVersion || "unknown"}
-		maxPlayerCount={$lobbyMaxPlayers}
+		lobbyVersion={$lobbyStaticInfo?.version || "unknown"}
+		maxPlayerCount={$lobbyStaticInfo?.maxPlayers || 0}
 		playerCount={$players.length}
 	/>
 </div>
