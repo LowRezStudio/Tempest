@@ -10,7 +10,7 @@
 		handleMapSelect: (id: string) => void;
 		votes?: Record<string, string>;
 		gameVersion: string;
-		gamemode: "siege" | "payload";
+		gamemode: string;
 		countdownSeconds: number;
 	}
 

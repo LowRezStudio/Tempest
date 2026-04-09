@@ -13,5 +13,6 @@ message LobbyEventInfo {
   uint32 max_players = 4;
   string version = 5;
   bool password_required = 6;
+  string gamemode = 8;
   optional LobbyEventCountdown countdown = 7;
 }

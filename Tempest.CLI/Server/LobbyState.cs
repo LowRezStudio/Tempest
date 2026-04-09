@@ -215,8 +215,12 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     private async void StartGameServer(string mapId)
     {
         string champions = string.Join(",", _players.Where(p => p.Value.Champion.Length > 0).Select(p => p.Value.Champion.ToLower()));
-        //TODO other gamemodes
-        string[] args = ["server", $"{mapId}?game=TempestMp.SiegeDEV?allowedChampions={champions}?maxplayers={_options.MaxPlayers}"];
+        string serverArgs = $"{mapId}?game={_options.GameMode}?allowedChampions={champions},maldamba?maxplayers={_options.MaxPlayers}";
+        if (_options.Password != null && _options.Password.Length > 0)
+        {
+            serverArgs += $"?password={_options.Password}";
+        }
+        string[] args = ["server", serverArgs];
         var process = await LauncherCommands.LaunchGame(_options.Path, args, _options.NoDefaultArgs, _options.Platform, _options.Game, _options.Dll, true);
         SetState(new Protocol.Lobby.LobbyState
         {
@@ -311,7 +315,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             Version = _options.Version,
             PasswordRequired = _options.Password != null && !_options.Password.Equals(string.Empty),
             MaxPlayers = (uint) _options.MaxPlayers,
-            Countdown = _countdown
+            Countdown = _countdown,
+            Gamemode = _options.GameMode
         };
         info.Players.AddRange(_players.Values);
         return new LobbyEvent

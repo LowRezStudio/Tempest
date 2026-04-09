@@ -10,9 +10,8 @@ import {
 	currentCountdownSeconds,
 	joinErrorCode,
 	lobbyHost,
-	lobbyMaxPlayers,
 	lobbyPassword,
-	lobbyVersion,
+	lobbyStaticInfo,
 	ownTeam,
 	playerId,
 	players,
@@ -142,13 +141,17 @@ class LobbyManager {
 			passwordRequired,
 			version,
 			countdown,
+			gamemode,
 		} = event;
 		players.set(eventPlayers);
 		if (eventState) {
 			state.set(eventState);
 		}
-		lobbyVersion.set(version);
-		lobbyMaxPlayers.set(maxPlayers);
+		lobbyStaticInfo.set({
+			version,
+			maxPlayers,
+			gamemode,
+		});
 		if (countdown) {
 			this.handleCountdownEvent(countdown);
 		}
@@ -215,7 +218,7 @@ class LobbyManager {
 
 	public getLaunchGameInstance(): Instance | null {
 		const instance = Object.values(instanceMap.get()).find(
-			(i) => i.version === lobbyVersion.get(),
+			(i) => i.version === lobbyStaticInfo.get()?.version,
 		);
 
 		const player = players.get().find((p) => p.id === playerId.get());
@@ -227,7 +230,10 @@ class LobbyManager {
 		const name = username.get();
 		const character = player.champion.toLowerCase();
 		const team = player.taskForce;
-		const arg = `${ip}?name=${name}?class=${character}?team=${team}?horse=2`;
+		let arg = `${ip}?name=${name}?class=${character}?team=${team}?horse=2`;
+		if (lobbyPassword.get().length > 0) {
+			arg += `?password=${lobbyPassword.get()}`;
+		}
 		return {
 			...instance,
 			launchOptions: {

@@ -13,12 +13,15 @@ export interface ChatMessage {
 	content: string;
 	sentAt?: Timestamp;
 }
+export interface LobbyStaticInfo {
+	version: string;
+	maxPlayers: number;
+	gamemode: string;
+}
 
 export const playerId = persistentAtom<string>("lobbyPlayerId", crypto.randomUUID());
 
 export const lobbyHost = atom<string>("");
-export const lobbyVersion = atom<string | null>(null);
-export const lobbyMaxPlayers = atom<number | null>(null);
 export const lobbyPassword = atom<string>("");
 export const ticket = atom<string>("");
 export const players = atom<LobbyPlayer[]>([]);
@@ -28,6 +31,8 @@ export const connectionStatus = atom<ConnectionStatus>("pending");
 export const joinErrorCode = atom<ExtendedJoinLobbyErrorCode | null>(null);
 export const currentInstance = atom<Instance | null>(null);
 export const currentCountdownSeconds = atom<number>(-1);
+
+export const lobbyStaticInfo = atom<LobbyStaticInfo | null>(null);
 
 export const debugPlayersStore = atom<Map<string, string>>(new Map());
 
@@ -59,7 +64,7 @@ export function resetLobbyState(): void {
 	state.set({});
 	connectionStatus.set("pending");
 	joinErrorCode.set(null);
-	lobbyVersion.set(null);
-	lobbyMaxPlayers.set(null);
+	lobbyStaticInfo.set(null);
 	currentInstance.set(null);
+	currentCountdownSeconds.set(-1);
 }
