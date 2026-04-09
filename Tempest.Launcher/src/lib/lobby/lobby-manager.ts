@@ -234,12 +234,17 @@ class LobbyManager {
 		if (lobbyPassword.get().length > 0) {
 			arg += `?password=${lobbyPassword.get()}`;
 		}
+		let existingArgs = instance.launchOptions.args;
+		//the launch arguments could already contain an argument to join a server
+		if (existingArgs.length > 0 && !existingArgs[0].startsWith("-")) {
+			existingArgs = existingArgs.slice(1);
+		}
+
 		return {
 			...instance,
 			launchOptions: {
 				...instance.launchOptions,
-				//TODO handle arguments better. This will not work very well if the user already has launch arguments defined
-				args: [arg, ...instance.launchOptions.args],
+				args: [arg, ...existingArgs],
 			},
 		};
 	}
