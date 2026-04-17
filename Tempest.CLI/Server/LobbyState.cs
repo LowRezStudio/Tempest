@@ -184,6 +184,13 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     private void EndChampionSelect()
     {
         var mapId = _state.ChampionSelect.MapId;
+        foreach (var player in _players.Values)
+        {
+            if (player.Champion == null || player.Champion.Length == 0)
+            {
+                TryLeave(player.Id);
+            }
+        }
         SetState(new Protocol.Lobby.LobbyState { InGame = new LobbyStateInGame { } });
         StartGameServer(mapId);
     }
