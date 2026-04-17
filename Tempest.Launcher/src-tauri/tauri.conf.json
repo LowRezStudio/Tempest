@@ -26,6 +26,10 @@
 	"bundle": {
 		"active": true,
 		"externalBin": ["binaries/tempest-cli"],
+		"resources": {
+			"binaries/asmloader-windows_x86.dll": "asmloader-windows_x86.dll",
+			"binaries/asmloader-windows_x86_64.dll": "asmloader-windows_x86_64.dll"
+		},
 		"targets": ["msi", "dmg", "appimage"],
 		"linux": {
 			"appimage": {
