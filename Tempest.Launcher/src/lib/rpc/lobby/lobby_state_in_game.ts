@@ -27,6 +27,10 @@ export interface LobbyStateInGame {
 	 * @generated from protobuf field: bool game_server_error = 2
 	 */
 	gameServerError: boolean;
+	/**
+	 * @generated from protobuf field: bool game_server_finished_running = 3
+	 */
+	gameServerFinishedRunning: boolean;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class LobbyStateInGame$Type extends MessageType<LobbyStateInGame> {
@@ -34,12 +38,19 @@ class LobbyStateInGame$Type extends MessageType<LobbyStateInGame> {
 		super("tempest.lobby.LobbyStateInGame", [
 			{ no: 1, name: "game_server_open", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
 			{ no: 2, name: "game_server_error", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
+			{
+				no: 3,
+				name: "game_server_finished_running",
+				kind: "scalar",
+				T: 8 /*ScalarType.BOOL*/,
+			},
 		]);
 	}
 	create(value?: PartialMessage<LobbyStateInGame>): LobbyStateInGame {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.gameServerOpen = false;
 		message.gameServerError = false;
+		message.gameServerFinishedRunning = false;
 		if (value !== undefined) reflectionMergePartial<LobbyStateInGame>(this, message, value);
 		return message;
 	}
@@ -59,6 +70,9 @@ class LobbyStateInGame$Type extends MessageType<LobbyStateInGame> {
 					break;
 				case /* bool game_server_error */ 2:
 					message.gameServerError = reader.bool();
+					break;
+				case /* bool game_server_finished_running */ 3:
+					message.gameServerFinishedRunning = reader.bool();
 					break;
 				default:
 					let u = options.readUnknownField;
@@ -90,6 +104,9 @@ class LobbyStateInGame$Type extends MessageType<LobbyStateInGame> {
 		/* bool game_server_error = 2; */
 		if (message.gameServerError !== false)
 			writer.tag(2, WireType.Varint).bool(message.gameServerError);
+		/* bool game_server_finished_running = 3; */
+		if (message.gameServerFinishedRunning !== false)
+			writer.tag(3, WireType.Varint).bool(message.gameServerFinishedRunning);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

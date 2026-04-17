@@ -1,3 +1,5 @@
+import { JoinLobbyErrorCode } from "$lib/rpc/lobby/join_lobby_error_code";
+
 export type LobbyServerOptions = {
 	path: string;
 	name: string;
@@ -15,4 +17,16 @@ export type LobbyServerOptions = {
 	platform?: string;
 	game?: string;
 	dll?: string[];
+};
+export enum JoinLobbyClientErrorCode {
+	PASSWORD_REQUIRED = 100,
+	NO_VALID_INSTANCE = 101,
+}
+export type ExtendedJoinLobbyErrorCode = JoinLobbyErrorCode | JoinLobbyClientErrorCode;
+
+export type Map = {
+	displayName: string;
+	id: string;
+	mode: string;
+	iconPath: string;
 };

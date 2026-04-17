@@ -9,7 +9,12 @@
 	interface Props {
 		open?: boolean;
 	}
-	type GameMode = "siege" | "tdm" | "payload" | "onslaught";
+	//TODO check these and possibly support custom gamemodes
+	type GameMode =
+		| "TempestMp.Siege"
+		| "TempestMp.Tdm"
+		| "TempestMp.Payload"
+		| "TempestMp.Onslaught";
 
 	let { open = $bindable(false) }: Props = $props();
 
@@ -20,7 +25,7 @@
 	let selectedTags = $state("");
 	let selectedPassword = $state("");
 	let selectedPublic = $state(false);
-	let selectedGameMode = $state<GameMode>("siege");
+	let selectedGameMode = $state<GameMode>("TempestMp.Siege");
 	let selectedMaxPlayers = $state<number>(10);
 	let selectedMinPlayers = $state<number>(0);
 	let selectedMaxSpectators = $state<number>(5);
@@ -60,7 +65,7 @@
 		if (!open) {
 			selectedName = "";
 			selectedInstanceId = "";
-			selectedGameMode = "siege";
+			selectedGameMode = "TempestMp.Siege";
 			selectedPublic = false;
 			selectedPassword = "";
 			selectedTags = "";
@@ -114,10 +119,10 @@
 				class="select select-bordered w-full"
 				bind:value={selectedGameMode}
 			>
-				<option value="siege" label="Siege"></option>
-				<option value="tdm" label="Team Deathmatch"></option>
-				<option value="payload" label="Payload"></option>
-				<option value="onslaught" label="Onslaught"></option>
+				<option value="TempestMp.Siege" label="Siege"></option>
+				<option value="TempestMp.Payload" label="Payload"></option>
+				<option value="TempestMp.Tdm" label="Team Deathmatch"></option>
+				<option value="TempestMp.Onslaught" label="Onslaught"></option>
 			</select>
 		</div>
 		<span class="label-text text-sm label">Public servers are visible on the server list</span>
