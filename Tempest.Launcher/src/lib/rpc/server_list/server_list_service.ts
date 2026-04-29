@@ -10,12 +10,15 @@ import { GetServersRequest } from "./get_servers_request";
 import { HeartbeatLobbyRequest } from "./heartbeat_lobby_request";
 import { HeartbeatLobbyResponse } from "./heartbeat_lobby_response";
 import { ServerListing } from "./server_listing";
+import { UpdateLobbyRequest } from "./update_lobby_request";
+import { UpdateLobbyResponse } from "./update_lobby_response";
 
 /**
  * @generated ServiceType for protobuf service tempest.server_list.ServerList
  */
 export const ServerList = new ServiceType("tempest.server_list.ServerList", [
 	{ name: "CreateLobby", options: {}, I: CreateLobbyRequest, O: CreateLobbyResponse },
+	{ name: "UpdateLobby", options: {}, I: UpdateLobbyRequest, O: UpdateLobbyResponse },
 	{
 		name: "GetServers",
 		serverStreaming: true,

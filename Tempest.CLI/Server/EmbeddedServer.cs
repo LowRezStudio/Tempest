@@ -54,7 +54,7 @@ internal sealed class EmbeddedServer
         builder.Services.AddGrpc();
         if (_options.PublicServer && !string.IsNullOrEmpty(_options.ServicesUrl))
         {
-            builder.Services.AddHostedService<ServerListHearthbeat>();
+            builder.Services.AddHostedService<ServerListHeartbeat>();
         }
 
         _app = builder.Build();

@@ -11,6 +11,8 @@ import type { GetServersRequest } from "./get_servers_request";
 import type { HeartbeatLobbyRequest } from "./heartbeat_lobby_request";
 import type { HeartbeatLobbyResponse } from "./heartbeat_lobby_response";
 import type { ServerListing } from "./server_listing";
+import type { UpdateLobbyRequest } from "./update_lobby_request";
+import type { UpdateLobbyResponse } from "./update_lobby_response";
 import type {
 	RpcOptions,
 	RpcTransport,
@@ -30,6 +32,13 @@ export interface IServerListClient {
 		input: CreateLobbyRequest,
 		options?: RpcOptions,
 	): UnaryCall<CreateLobbyRequest, CreateLobbyResponse>;
+	/**
+	 * @generated from protobuf rpc: UpdateLobby
+	 */
+	updateLobby(
+		input: UpdateLobbyRequest,
+		options?: RpcOptions,
+	): UnaryCall<UpdateLobbyRequest, UpdateLobbyResponse>;
 	/**
 	 * @generated from protobuf rpc: GetServers
 	 */
@@ -78,13 +87,30 @@ export class ServerListClient implements IServerListClient, ServiceInfo {
 		);
 	}
 	/**
+	 * @generated from protobuf rpc: UpdateLobby
+	 */
+	updateLobby(
+		input: UpdateLobbyRequest,
+		options?: RpcOptions,
+	): UnaryCall<UpdateLobbyRequest, UpdateLobbyResponse> {
+		const method = this.methods[1],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<UpdateLobbyRequest, UpdateLobbyResponse>(
+			"unary",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
+	}
+	/**
 	 * @generated from protobuf rpc: GetServers
 	 */
 	getServers(
 		input: GetServersRequest,
 		options?: RpcOptions,
 	): ServerStreamingCall<GetServersRequest, ServerListing> {
-		const method = this.methods[1],
+		const method = this.methods[2],
 			opt = this._transport.mergeOptions(options);
 		return stackIntercept<GetServersRequest, ServerListing>(
 			"serverStreaming",
@@ -101,7 +127,7 @@ export class ServerListClient implements IServerListClient, ServiceInfo {
 		input: GetServerByIdRequest,
 		options?: RpcOptions,
 	): UnaryCall<GetServerByIdRequest, GetServerByIdResponse> {
-		const method = this.methods[2],
+		const method = this.methods[3],
 			opt = this._transport.mergeOptions(options);
 		return stackIntercept<GetServerByIdRequest, GetServerByIdResponse>(
 			"unary",
@@ -118,7 +144,7 @@ export class ServerListClient implements IServerListClient, ServiceInfo {
 		input: HeartbeatLobbyRequest,
 		options?: RpcOptions,
 	): UnaryCall<HeartbeatLobbyRequest, HeartbeatLobbyResponse> {
-		const method = this.methods[3],
+		const method = this.methods[4],
 			opt = this._transport.mergeOptions(options);
 		return stackIntercept<HeartbeatLobbyRequest, HeartbeatLobbyResponse>(
 			"unary",

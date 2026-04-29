@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { Check, Map } from "@lucide/svelte";
-	import maps from "$lib/data/maps.json";
+	import { Check } from "@lucide/svelte";
 	import { playerId, players } from "$lib/lobby/stores";
-	import { compareVersions } from "$lib/utils/versions";
+	import { compareVersions, getMapsForVersion } from "$lib/utils/versions";
 
 	interface PaladinsMap {
 		id: string;
@@ -22,14 +21,9 @@
 	let { onselect, selectMode = "select", votes, gameVersion, gamemode }: Props = $props();
 
 	let selectedMapId = $state<string | null>(null);
-
-	const filteredMaps = maps.filter((m) => {
-		return (
-			compareVersions(gameVersion, m.versionStart) >= 0 &&
-			compareVersions(gameVersion, m.versionEnd) <= 0 &&
-			gamemode.toLowerCase().includes(m.mode)
-		);
-	});
+	const filteredMaps = $derived(
+		getMapsForVersion(gameVersion).filter((m) => gamemode.toLowerCase().includes(m.mode)),
+	);
 
 	function getVoteCount(mapId: string): number {
 		if (!votes) return 0;

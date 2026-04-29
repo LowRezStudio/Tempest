@@ -24,8 +24,6 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     private CancellationTokenSource? _countdownCts;
     private LobbyEventCountdown? _countdown;
 
-    public IReadOnlyCollection<LobbyPlayer> Players => _players.Values.ToList();
-
     public bool TryJoin(string id, string displayName, string? password, out JoinLobbyResponse response)
     {
         if (!string.IsNullOrEmpty(_options.Password) && _options.Password != password)
@@ -191,7 +189,9 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
                 TryLeave(player.Id);
             }
         }
-        SetState(new Protocol.Lobby.LobbyState { InGame = new LobbyStateInGame { } });
+        SetState(new Protocol.Lobby.LobbyState { InGame = new LobbyStateInGame {
+            MapId = mapId,
+        } });
         StartGameServer(mapId);
     }
     private void EndInGame()
@@ -233,7 +233,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         {
             InGame = new LobbyStateInGame
             {
-                GameServerOpen = true
+                GameServerOpen = true,
+                MapId = mapId,
             }
         });
 
@@ -244,7 +245,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             InGame = new LobbyStateInGame
             {
                 GameServerFinishedRunning = true,
-                GameServerError = process.ExitCode != 0
+                GameServerError = process.ExitCode != 0,
+                MapId = mapId
             }
         });
     }

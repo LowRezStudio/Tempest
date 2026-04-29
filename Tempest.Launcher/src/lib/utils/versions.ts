@@ -1,3 +1,5 @@
+import maps from "$lib/data/maps.json";
+
 export function compareVersions(a: string, b: string) {
 	const partsA = a.split(".").map(Number);
 	const partsB = b.split(".").map(Number);
@@ -13,4 +15,13 @@ export function compareVersions(a: string, b: string) {
 	}
 
 	return 0;
+}
+
+export function getMapsForVersion(gameVersion: string) {
+	return maps.filter((m) => {
+		return (
+			compareVersions(gameVersion, m.versionStart) >= 0 &&
+			compareVersions(gameVersion, m.versionEnd) <= 0
+		);
+	});
 }

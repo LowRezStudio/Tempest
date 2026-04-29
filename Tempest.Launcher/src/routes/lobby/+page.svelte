@@ -5,7 +5,6 @@
 	import LobbyMapVote from "$lib/components/lobby/LobbyMapVote.svelte";
 	import LobbyOverlay from "$lib/components/lobby/LobbyOverlay.svelte";
 	import LobbyWaiting from "$lib/components/lobby/LobbyWaiting.svelte";
-	import maps from "$lib/data/maps.json";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import {
 		chatMessages,
@@ -29,9 +28,16 @@
 	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes";
+	import { getMapsForVersion } from "$lib/utils/versions";
 	import { onDestroy, onMount } from "svelte";
 
-	const currentMap = $derived(maps.find((m) => m.id === $lobbyState.championSelect?.mapId));
+	const currentMap = $derived(
+		$lobbyStaticInfo?.version ?
+			getMapsForVersion($lobbyStaticInfo?.version).find(
+				(m) => m.id === $lobbyState.championSelect?.mapId,
+			)
+		:	undefined,
+	);
 	const gameRunning = $derived(
 		$processesList.some((p) => p.instance.id === $currentInstance?.id),
 	);

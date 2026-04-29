@@ -39,6 +39,11 @@ internal sealed class ServerListClient : IDisposable
         return await _client.GetServerByIdAsync(request, cancellationToken: cancellationToken);
     }
 
+    public async Task<UpdateLobbyResponse> UpdateLobbyAsync(UpdateLobbyRequest request, CancellationToken cancellationToken = default)
+    {
+        return await _client.UpdateLobbyAsync(request, cancellationToken: cancellationToken);
+    }
+
     public async Task<HeartbeatLobbyResponse> HeartbeatLobbyAsync(CancellationToken cancellationToken = default)
     {
         var request = new HeartbeatLobbyRequest();

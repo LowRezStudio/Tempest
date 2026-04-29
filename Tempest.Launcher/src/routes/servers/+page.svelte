@@ -2,11 +2,13 @@
 	import { RefreshCw, Search, Server, ServerCrash, TriangleAlert } from "@lucide/svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { moveToLobby } from "$lib/core/lobby";
+	import maps from "$lib/data/maps.json";
 	import { m } from "$lib/paraglide/messages";
 	import { createServersQuery } from "$lib/queries/servers";
 	import { CountryCode, ServerListing } from "$lib/rpc";
 	import { instanceMap } from "$lib/stores/instance";
 	import { hostServerWizardOpen, joinServerWizardOpen } from "$lib/stores/ui";
+	import { getMapsForVersion } from "$lib/utils/versions";
 
 	let searchQuery = $state("");
 
@@ -34,6 +36,19 @@
 	function canJoinServer(server: ServerListing) {
 		//TODO check mods too
 		return Object.values($instanceMap).some((i) => i.version === server.version);
+	}
+	function findMapName(server: ServerListing) {
+		if (!server.map && !server.mapId) return m.common_na();
+		if (server.map) return server.map;
+		const map = getMapsForVersion(server.version).find((m) => m.id === server.mapId);
+		if (!map) return server.mapId;
+		return map.displayName;
+	}
+	function findGamemodeName(server: ServerListing) {
+		if (server.game.startsWith("TempestMp.")) {
+			return server.game.substring(server.game.indexOf(".") + 1);
+		}
+		return server.game;
 	}
 
 	const serverCount = $derived(servers.length);
@@ -191,8 +206,8 @@
 												{/if}
 											</span>
 										</td>
-										<td>{server.game}</td>
-										<td>{server.map || m.common_na()}</td>
+										<td>{findGamemodeName(server)}</td>
+										<td>{findMapName(server)}</td>
 										<td>
 											<span
 												class={[
