@@ -56,6 +56,8 @@
 			platform: platform,
 			"no-default-args": options.noDefaultArgs,
 			dll: options.dllList,
+			//currently hard coded to false because the server preloads the champions
+			"enable-joining-mid-game": false,
 		});
 		open = false;
 	}

@@ -142,6 +142,7 @@ class LobbyManager {
 			version,
 			countdown,
 			gamemode,
+			enableJoinMidGame,
 		} = event;
 		players.set(eventPlayers);
 		if (eventState) {
@@ -151,6 +152,7 @@ class LobbyManager {
 			version,
 			maxPlayers,
 			gamemode,
+			enableJoinMidGame,
 		});
 		if (countdown) {
 			this.handleCountdownEvent(countdown);

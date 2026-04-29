@@ -73,6 +73,14 @@
 	async function handleChampionSelect(championName: string) {
 		await lobbyManager.selectChampion(championName);
 	}
+	async function handleJoinMidGame(championName: string) {
+		await lobbyManager.selectChampion(championName);
+		const instance = lobbyManager.getLaunchGameInstance();
+		if (instance) {
+			currentInstance.set(instance);
+			launchGameMutation.mutate(instance);
+		}
+	}
 
 	async function handleMapSelect(mapId: string) {
 		await lobbyManager.voteForMap(mapId);
@@ -85,7 +93,7 @@
 	async function handleJoin() {
 		await lobbyManager.joinLobby();
 	}
-	function handleRejoin() {
+	function handleRejoinGame() {
 		if (!$currentInstance) return;
 		launchGameMutation.mutate($currentInstance);
 	}
@@ -134,12 +142,18 @@
 				$isGameServerOpen &&
 				$currentInstance
 			)}
+			canRejoinLobby={!$players.some((p) => p.id === playerId.get())}
+			canJoinMidGame={!!$lobbyStaticInfo?.enableJoinMidGame && !ownChampion}
 			playerCount={$players.length}
 			minimumPlayerCount={$lobbyState.waiting?.minPlayers || 0}
 			teamLeft={$teamLeft}
 			teamRight={$teamRight}
 			countdownSeconds={$currentCountdownSeconds}
-			{handleRejoin}
+			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
+			{currentMap}
+			{handleRejoinGame}
+			handleRejoinLobby={handleJoin}
+			{handleJoinMidGame}
 			{handleLeave}
 		/>
 	{/if}

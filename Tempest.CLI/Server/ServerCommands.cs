@@ -25,6 +25,7 @@ internal class ServerCommands
         string? platform = null,
         string? game = null,
         string[]? dll = null,
+        bool enableJoiningMidGame = false,
         CancellationToken cancellationToken = default)
     {
         var options = new LobbyServerOptions
@@ -45,7 +46,8 @@ internal class ServerCommands
             NoDefaultArgs = noDefaultArgs,
             Platform = platform,
             Game = game,
-            Dll = dll
+            Dll = dll,
+            EnableJoiningMidGame = enableJoiningMidGame,
 };
 
         var server = new EmbeddedServer(options);

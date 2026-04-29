@@ -325,7 +325,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             PasswordRequired = _options.Password != null && !_options.Password.Equals(string.Empty),
             MaxPlayers = (uint) _options.MaxPlayers,
             Countdown = _countdown,
-            Gamemode = _options.GameMode
+            Gamemode = _options.GameMode,
+            EnableJoinMidGame = _options.EnableJoiningMidGame,
         };
         info.Players.AddRange(_players.Values);
         return new LobbyEvent

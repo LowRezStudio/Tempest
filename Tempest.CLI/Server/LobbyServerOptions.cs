@@ -19,4 +19,5 @@ internal sealed class LobbyServerOptions
     public string? Platform { get; init; } = null;
     public string? Game { get; init; } = null;
     public string[]? Dll { get; init; } = null;
+    public bool EnableJoiningMidGame { get; init; } = false;
 }

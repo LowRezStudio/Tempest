@@ -17,6 +17,7 @@ export interface LobbyStaticInfo {
 	version: string;
 	maxPlayers: number;
 	gamemode: string;
+	enableJoinMidGame: boolean;
 }
 
 export const playerId = persistentAtom<string>("lobbyPlayerId", crypto.randomUUID());
@@ -42,11 +43,11 @@ export const ownTeam = computed(
 );
 
 export const teamLeft = computed([players, ownTeam], ($players, $ownTeam) =>
-	$players.filter((p) => p.taskForce === $ownTeam),
+	$players.filter((p) => p.taskForce === ($ownTeam || 1)),
 );
 
 export const teamRight = computed([players, ownTeam], ($players, $ownTeam) =>
-	$players.filter((p) => p.taskForce !== $ownTeam),
+	$players.filter((p) => p.taskForce !== ($ownTeam || 1)),
 );
 
 export const isInChampionSelect = computed(state, ($state) => !!$state.championSelect);

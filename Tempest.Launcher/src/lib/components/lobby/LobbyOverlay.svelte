@@ -81,5 +81,5 @@
 		>
 	</LobbyOverlayDialog>
 {:else if joinErrorCode !== null}
-	<LobbyOverlayDialog title="Unknown Error" />
+	<LobbyOverlayDialog title={`Unknown Error ${joinErrorCode}`} />
 {/if}

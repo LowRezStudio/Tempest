@@ -51,6 +51,10 @@ export interface LobbyEventInfo {
 	 */
 	gamemode: string;
 	/**
+	 * @generated from protobuf field: bool enable_join_mid_game = 9
+	 */
+	enableJoinMidGame: boolean;
+	/**
 	 * @generated from protobuf field: optional tempest.lobby.LobbyEventCountdown countdown = 7
 	 */
 	countdown?: LobbyEventCountdown;
@@ -72,6 +76,7 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 			{ no: 5, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 6, name: "password_required", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
 			{ no: 8, name: "gamemode", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 9, name: "enable_join_mid_game", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
 			{ no: 7, name: "countdown", kind: "message", T: () => LobbyEventCountdown },
 		]);
 	}
@@ -83,6 +88,7 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 		message.version = "";
 		message.passwordRequired = false;
 		message.gamemode = "";
+		message.enableJoinMidGame = false;
 		if (value !== undefined) reflectionMergePartial<LobbyEventInfo>(this, message, value);
 		return message;
 	}
@@ -124,6 +130,9 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 					break;
 				case /* string gamemode */ 8:
 					message.gamemode = reader.string();
+					break;
+				case /* bool enable_join_mid_game */ 9:
+					message.enableJoinMidGame = reader.bool();
 					break;
 				case /* optional tempest.lobby.LobbyEventCountdown countdown */ 7:
 					message.countdown = LobbyEventCountdown.internalBinaryRead(
@@ -190,6 +199,9 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 		/* string gamemode = 8; */
 		if (message.gamemode !== "")
 			writer.tag(8, WireType.LengthDelimited).string(message.gamemode);
+		/* bool enable_join_mid_game = 9; */
+		if (message.enableJoinMidGame !== false)
+			writer.tag(9, WireType.Varint).bool(message.enableJoinMidGame);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
