@@ -1,4 +1,6 @@
 using Grpc.Core;
+using System.Collections.Concurrent;
+using System.Threading.Channels;
 using Tempest.Protocol.Lobby;
 
 namespace Tempest.CLI.Server;
@@ -38,19 +40,16 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
     public override async Task ReceiveLobbyEvents(ReceiveLobbyEventsRequest request, IServerStreamWriter<LobbyEvent> responseStream, ServerCallContext context)
     {
         // Simple subscription that relays events to the stream.
-        var queue = new Channel<LobbyEvent>(capacity: 100);
-        var subscription = _state.Subscribe().Subscribe(new Observer(queue));
+        var channel = Channel.CreateBounded<LobbyEvent>(100);
+        var subscription = _state.Subscribe().Subscribe(new Observer(channel));
         try
         {
             //writing the initial data so the client is up to date
             await responseStream.WriteAsync(_state.GetInfoEvent(), context.CancellationToken);
-            while (!context.CancellationToken.IsCancellationRequested)
+            while (await channel.Reader.WaitToReadAsync(context.CancellationToken))
             {
-                await Task.Delay(50, context.CancellationToken);
-                while (queue.Reader.TryRead(out var evt))
-                {
-                    await responseStream.WriteAsync(evt);
-                }
+                while (channel.Reader.TryRead(out var evt))
+                    await responseStream.WriteAsync(evt, context.CancellationToken);
             }
             Console.WriteLine($"Event stream terminated!");
         }
@@ -99,10 +98,9 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
         return false;
     }
 
-    private sealed class Observer : IObserver<LobbyEvent>
+    private sealed class Observer(Channel<LobbyEvent> channel) : IObserver<LobbyEvent>
     {
-        private readonly Channel<LobbyEvent> _channel;
-        public Observer(Channel<LobbyEvent> channel) => _channel = channel;
+        private readonly Channel<LobbyEvent> _channel = channel;
         public void OnCompleted() { }
         public void OnError(Exception error) { }
         public void OnNext(LobbyEvent value)
