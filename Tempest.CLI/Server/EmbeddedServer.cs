@@ -49,6 +49,8 @@ internal sealed class EmbeddedServer
         builder.Services.AddLogging(c => c.ClearProviders());
         builder.Services.AddSingleton(_ticketStore);
         builder.Services.AddSingleton(_state);
+        builder.Services.AddSingleton<PlayerDisconnectMonitor>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<PlayerDisconnectMonitor>());
         builder.Services.AddSingleton<LobbyServiceImpl>();
         builder.Services.AddSingleton(_options);
         builder.Services.AddGrpc();

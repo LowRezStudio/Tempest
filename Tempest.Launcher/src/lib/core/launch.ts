@@ -10,6 +10,8 @@ export const launchGame = async (instance: Instance) => {
 
 	lastLaunchedInstanceId.set(instance.id);
 
+	console.log("Launching instance", instance.id, instance.version);
+	console.log(instance);
 	const command = createCommand([
 		"launch",
 		path,

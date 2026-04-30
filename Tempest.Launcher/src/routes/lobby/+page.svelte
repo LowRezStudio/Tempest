@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
+	import AfkDetector from "$lib/components/lobby/AfkDetector.svelte";
 	import LobbyChampionSelect from "$lib/components/lobby/LobbyChampionSelect.svelte";
 	import LobbyChat from "$lib/components/lobby/LobbyChat.svelte";
 	import LobbyMapVote from "$lib/components/lobby/LobbyMapVote.svelte";
 	import LobbyOverlay from "$lib/components/lobby/LobbyOverlay.svelte";
 	import LobbyWaiting from "$lib/components/lobby/LobbyWaiting.svelte";
+	import { killGame } from "$lib/core";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import {
 		chatMessages,
@@ -20,6 +22,7 @@
 		lobbyPassword,
 		state as lobbyState,
 		lobbyStaticInfo,
+		ownChampion,
 		playerId,
 		players,
 		teamLeft,
@@ -42,18 +45,34 @@
 		$processesList.some((p) => p.instance.id === $currentInstance?.id),
 	);
 
-	const ownChampion = $derived($players.find((p) => p.id == playerId.get())?.champion);
-
 	const launchGameMutation = createLaunchGameMutation();
+	const runAfkDetection = $derived(
+		!!(
+			$lobbyState.inGame?.gameServerOpen &&
+			$ownChampion &&
+			!gameRunning &&
+			!launchGameMutation.isPending
+		),
+	);
 
 	$effect(() => {
-		const instance = lobbyManager.getLaunchGameInstance();
-		if (instance && $isGameServerOpen && !launchGameMutation.isPending && !$currentInstance) {
-			currentInstance.set(instance);
-			launchGameMutation.mutate(instance);
+		if (
+			$isGameServerOpen &&
+			!gameRunning &&
+			!launchGameMutation.isPending &&
+			ownChampion &&
+			!$currentInstance
+		) {
+			console.log("Trying to launch the game!");
+			handleJoinGame();
 		}
 		if (!$isGameServerOpen) {
 			currentInstance.set(null);
+			//TODO maybe ask user before closing instances
+			const openInstances = $processesList.filter(
+				(p) => p.instance.version === $lobbyStaticInfo?.version,
+			);
+			openInstances.forEach((i) => killGame(i.instance));
 		}
 	});
 	onMount(() => {
@@ -75,11 +94,7 @@
 	}
 	async function handleJoinMidGame(championName: string) {
 		await lobbyManager.selectChampion(championName);
-		const instance = lobbyManager.getLaunchGameInstance();
-		if (instance) {
-			currentInstance.set(instance);
-			launchGameMutation.mutate(instance);
-		}
+		handleJoinGame();
 	}
 
 	async function handleMapSelect(mapId: string) {
@@ -93,9 +108,23 @@
 	async function handleJoin() {
 		await lobbyManager.joinLobby();
 	}
-	function handleRejoinGame() {
-		if (!$currentInstance) return;
-		launchGameMutation.mutate($currentInstance);
+	function handleJoinGame() {
+		const instance = lobbyManager.getLaunchGameInstance();
+		if (instance) {
+			console.log("Found instance. Launching game!");
+			currentInstance.set(instance);
+			launchGameMutation.mutate(instance);
+		} else {
+			console.error("Unable to create instance");
+			console.error(
+				"Game running",
+				gameRunning,
+				"Champion",
+				ownChampion,
+				"LobbyInfo",
+				lobbyStaticInfo,
+			);
+		}
 	}
 	async function handlePasswordSubmit(password: string) {
 		lobbyPassword.set(password);
@@ -113,7 +142,7 @@
 			teamLeft={$teamLeft}
 			teamRight={$teamRight}
 			{currentMap}
-			confirmedChampion={ownChampion}
+			confirmedChampion={$ownChampion}
 			{handleChampionSelect}
 			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
 			countdownSeconds={$currentCountdownSeconds}
@@ -140,9 +169,10 @@
 				!gameRunning &&
 				!launchGameMutation.isPending &&
 				$isGameServerOpen &&
-				$currentInstance
+				ownChampion
 			)}
-			canRejoinLobby={!$players.some((p) => p.id === playerId.get())}
+			canRejoinLobby={!$players.some((p) => p.id === playerId.get()) &&
+				$players.length < ($lobbyStaticInfo?.maxPlayers || 0)}
 			canJoinMidGame={!!$lobbyStaticInfo?.enableJoinMidGame && !ownChampion}
 			playerCount={$players.length}
 			minimumPlayerCount={$lobbyState.waiting?.minPlayers || 0}
@@ -151,7 +181,7 @@
 			countdownSeconds={$currentCountdownSeconds}
 			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
 			{currentMap}
-			{handleRejoinGame}
+			handleRejoinGame={handleJoinGame}
 			handleRejoinLobby={handleJoin}
 			{handleJoinMidGame}
 			{handleLeave}
@@ -172,4 +202,5 @@
 		maxPlayerCount={$lobbyStaticInfo?.maxPlayers || 0}
 		playerCount={$players.length}
 	/>
+	<AfkDetector {runAfkDetection} onAfk={handleLeave} />
 </div>

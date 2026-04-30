@@ -12,6 +12,7 @@ import {
 	lobbyHost,
 	lobbyPassword,
 	lobbyStaticInfo,
+	mostRecentLobbyConnectionTime,
 	ownTeam,
 	playerId,
 	players,
@@ -45,8 +46,10 @@ class LobbyManager {
 			console.error("Cannot connect: lobbyHost is empty");
 			return;
 		}
+		console.log("Connecting to lobby: ", host);
 		this.client = getConnectionToServer(host);
 		this.abortController = new AbortController();
+		mostRecentLobbyConnectionTime.set(new Date().toISOString());
 		clearInterval(this.countdownTimerInterval);
 		this.countdownTimerInterval = setInterval(() => {
 			if (!this.countdown || !this.countdown.startTime) return;
@@ -82,9 +85,10 @@ class LobbyManager {
 		while (this.abortController !== null && !this.abortController?.signal.aborted) {
 			try {
 				const eventStream = this.getClient().receiveLobbyEvents(
-					{},
+					{ playerId: playerId.get() },
 					{ abort: this.abortController!.signal },
 				);
+				console.log("Listening to lobby events");
 				for await (const event of eventStream.responses) {
 					connectionStatus.set("connected");
 					await this.handleEvent(event);
@@ -94,8 +98,9 @@ class LobbyManager {
 				console.error("Stream error", error);
 			}
 			connectionStatus.set("disconnected");
-			if (this.abortController?.signal.aborted) return;
+			if (this.abortController == null || this.abortController?.signal.aborted) return;
 			await new Promise((r) => setTimeout(r, 5000));
+			if (this.abortController == null || this.abortController?.signal.aborted) return;
 			console.log("Reconnecting to event stream");
 		}
 	}

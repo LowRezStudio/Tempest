@@ -3,6 +3,7 @@ import { atom } from "nanostores";
 export const instanceWizardOpen = atom<boolean>(false);
 export const hostServerWizardOpen = atom<boolean>(false);
 export const joinServerWizardOpen = atom<boolean>(false);
+export const appCloseLobbyWizardOpen = atom<boolean>(false);
 
 export type ToastTone = "info" | "success" | "warning" | "error" | "neutral";
 

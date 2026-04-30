@@ -23,6 +23,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     };
     private CancellationTokenSource? _countdownCts;
     private LobbyEventCountdown? _countdown;
+    private Process? _gameProcess;
+    private bool _gameServerKilledIntentionally;
 
     public bool TryJoin(string id, string displayName, string? password, out JoinLobbyResponse response)
     {
@@ -84,7 +86,10 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         }
         return false;
     }
-
+    public bool KickPlayer(string id)
+    {
+        return TryLeave(id);
+    }
     public void SendChat(string playerId, string content)
     {
         var evt = new LobbyEvent
@@ -158,10 +163,11 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         }
         else if (_state.InGame != null)
         {
+            bool everyoneHasLeft = _players.Values.All(p => p.Champion == null || p.Champion.Length == 0);
+            if (everyoneHasLeft && !_state.InGame.GameServerFinishedRunning)
+                KillGameServer();
             if (_state.InGame.GameServerFinishedRunning && _countdown == null)
-            {
                 StartCountdown(10, EndInGame);
-            }
         }
     }
     private void EndWaiting()
@@ -186,7 +192,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         {
             if (player.Champion == null || player.Champion.Length == 0)
             {
-                TryLeave(player.Id);
+                KickPlayer(player.Id);
             }
         }
         SetState(new Protocol.Lobby.LobbyState { InGame = new LobbyStateInGame {
@@ -229,6 +235,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         }
         string[] args = ["server", serverArgs];
         var process = await LauncherCommands.LaunchGame(_options.Path, args, _options.NoDefaultArgs, _options.Platform, _options.Game, _options.Dll, true);
+        _gameProcess = process;
         SetState(new Protocol.Lobby.LobbyState
         {
             InGame = new LobbyStateInGame
@@ -239,16 +246,27 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         });
 
         await process.WaitForExitAsync();
+        _gameProcess = null;
 
         SetState(new Protocol.Lobby.LobbyState
         {
             InGame = new LobbyStateInGame
             {
                 GameServerFinishedRunning = true,
-                GameServerError = process.ExitCode != 0,
+                GameServerError = process.ExitCode != 0 && !_gameServerKilledIntentionally,
                 MapId = mapId
             }
         });
+        _gameServerKilledIntentionally = false;
+    }
+
+    private void KillGameServer()
+    {
+        var process = _gameProcess;
+        if (process == null || process.HasExited) return;
+        _gameServerKilledIntentionally = true;
+        try { process.Kill(); }
+        catch (Exception ex) { Console.WriteLine($"Failed to kill game server: {ex.Message}"); }
     }
 
 

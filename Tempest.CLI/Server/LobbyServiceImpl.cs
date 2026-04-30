@@ -5,10 +5,11 @@ using Tempest.Protocol.Lobby;
 
 namespace Tempest.CLI.Server;
 
-internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStore) : Lobby.LobbyBase
+internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStore, PlayerDisconnectMonitor playerDisconnectMonitor) : Lobby.LobbyBase
 {
     private readonly LobbyState _state = state;
     private readonly ITicketStore _ticketStore = ticketStore;
+    private readonly PlayerDisconnectMonitor _playerDisconnectMonitor = playerDisconnectMonitor;
     private const string TicketHeader = "x-ticket";
 
     public override Task<JoinLobbyResponse> JoinLobby(JoinLobbyRequest request, ServerCallContext context)
@@ -42,6 +43,7 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
         // Simple subscription that relays events to the stream.
         var channel = Channel.CreateBounded<LobbyEvent>(100);
         var subscription = _state.Subscribe().Subscribe(new Observer(channel));
+        _playerDisconnectMonitor.PlayerConnected(request.PlayerId);
         try
         {
             //writing the initial data so the client is up to date
@@ -56,6 +58,7 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
         catch (OperationCanceledException) { }
         finally
         {
+            _playerDisconnectMonitor.PlayerDisconnected(request.PlayerId);
             subscription.Dispose();
         }
     }
