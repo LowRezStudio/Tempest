@@ -10,3 +10,7 @@ zig-out
 .DS_Store
 .vs
 Properties/launchSettings.json
+
+# Test binaries for MCTS parser
+extracted/
+output.bin
