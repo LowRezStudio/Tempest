@@ -5,6 +5,7 @@
 	import { platform } from "@tauri-apps/plugin-os";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import versions from "$lib/data/versions.json";
+	import { m } from "$lib/paraglide/messages";
 	import { createIdentifyBuildMutation } from "$lib/queries/core";
 	import {
 		createDefaultInstancePathQuery,
@@ -60,7 +61,7 @@
 		const result = await openDialog({
 			directory: true,
 			multiple: false,
-			title: "Select Paladins Installation Folder",
+			title: m.wizard_select_installation_folder(),
 		});
 		if (result) {
 			selectedPath = result;
@@ -87,15 +88,18 @@
 					}
 					hasDetected = true;
 				} else {
-					detectionError = `Build identified as ${info.PatchName} (${info.VersionGroup}), but it's not in our database.`;
+					detectionError = m.wizard_build_not_in_database({
+						patchName: info.PatchName,
+						versionGroup: info.VersionGroup,
+					});
 					hasDetected = true;
 				}
 			} else {
-				detectionError = "Could not identify build in this folder.";
+				detectionError = m.wizard_could_not_identify();
 			}
 		} catch (error) {
 			console.error("Detection error:", error);
-			detectionError = "An error occurred during build identification.";
+			detectionError = m.wizard_identify_error();
 		}
 	}
 
@@ -165,7 +169,7 @@
 				selectedName ||
 				selectedVersion?.name ||
 				selectedVersion?.version ||
-				"Paladins Instance",
+				m.wizard_paladins_instance(),
 			version: selectedVersion?.version,
 			path: instancePath,
 			launchOptions: {
@@ -231,7 +235,7 @@
 	}
 </script>
 
-<Modal bind:open title="Create New Instance" class="max-w-2xl">
+<Modal bind:open title={m.wizard_title()} class="max-w-2xl">
 	<div role="tablist" class="tabs tabs-border w-full mb-4">
 		<button
 			role="tab"
@@ -239,7 +243,7 @@
 			onclick={() => (selectedTab = "download")}
 		>
 			<CloudDownload size={16} />
-			<span>Download</span>
+			<span>{m.wizard_download()}</span>
 		</button>
 		<button
 			role="tab"
@@ -247,7 +251,7 @@
 			onclick={() => (selectedTab = "folder")}
 		>
 			<Folder size={16} />
-			<span>Import Existing</span>
+			<span>{m.wizard_import_existing()}</span>
 		</button>
 	</div>
 
@@ -257,17 +261,17 @@
 				{#if selectedTab === "download"}
 					<CloudDownload size={16} class="mt-0.5 shrink-0" />
 					<div>
-						<h4 class="font-semibold text-sm">Download a game version</h4>
+						<h4 class="font-semibold text-sm">{m.wizard_download_description()}</h4>
 						<p class="text-xs opacity-80">
-							Select a Paladins version to download and install automatically
+							{m.wizard_download_hint()}
 						</p>
 					</div>
 				{:else}
 					<Folder size={16} class="mt-0.5 shrink-0" />
 					<div>
-						<h4 class="font-semibold text-sm">Import from existing installation</h4>
+						<h4 class="font-semibold text-sm">{m.wizard_import_description()}</h4>
 						<p class="text-xs opacity-80">
-							Point to an existing Paladins installation folder
+							{m.wizard_import_hint()}
 						</p>
 					</div>
 				{/if}
@@ -278,14 +282,14 @@
 			{#if selectedTab === "download" || (selectedTab === "folder" && hasDetected)}
 				<div class="form-control">
 					<label for="game-version" class="label py-0.5">
-						<span class="label-text text-sm">Game Version</span>
+						<span class="label-text text-sm">{m.wizard_game_version()}</span>
 					</label>
 					<select
 						id="game-version"
 						class="select select-bordered w-full"
 						bind:value={selectedVersionId}
 					>
-						<option value="" disabled>Select a version...</option>
+						<option value="" disabled>{m.wizard_select_version()}</option>
 						{#each versionOptions as version (version.value)}
 							<option value={version.value}>{version.label}</option>
 						{/each}
@@ -293,11 +297,13 @@
 					{#if selectedTab === "download" && selectedVersionId}
 						<div class="mt-2 space-y-1.5">
 							<label class="label py-0.5 justify-between">
-								<span class="label-text text-sm">DepotDownloader command</span>
+								<span class="label-text text-sm"
+									>{m.wizard_depot_downloader_command()}</span
+								>
 								<button class="btn btn-accent btn-xs" onclick={handleCopyCommand}>
-									{copyStatus === "copied" ? "Copied"
-									: copyStatus === "failed" ? "Copy failed"
-									: "Copy"}
+									{copyStatus === "copied" ? m.common_copied()
+									: copyStatus === "failed" ? m.common_copy_failed()
+									: m.common_copy()}
 								</button>
 							</label>
 							<div
@@ -314,7 +320,7 @@
 			{#if selectedTab === "folder"}
 				<div class="form-control">
 					<label for="folder-path" class="label py-0.5">
-						<span class="label-text text-sm">Installation Path</span>
+						<span class="label-text text-sm">{m.wizard_installation_path()}</span>
 					</label>
 					<div class="join w-full">
 						<input
@@ -326,7 +332,7 @@
 						/>
 						<button class="btn btn-accent join-item" onclick={handleBrowse}>
 							<Folder size={16} />
-							Browse
+							{m.common_browse()}
 						</button>
 					</div>
 					{#if detectionError}
@@ -341,32 +347,32 @@
 			{/if}
 
 			{#if showAdvanced}
-				<div class="divider my-2 text-xs">Advanced Options</div>
+				<div class="divider my-2 text-xs">{m.wizard_advanced_options()}</div>
 
 				<div class="form-control">
 					<label for="instance-name" class="label py-0.5">
-						<span class="label-text text-sm">Instance Name</span>
-						<span class="label-text-alt text-xs">Optional</span>
+						<span class="label-text text-sm">{m.wizard_instance_name()}</span>
+						<span class="label-text-alt text-xs">{m.common_optional()}</span>
 					</label>
 					<input
 						id="instance-name"
 						type="text"
 						placeholder={selectedVersion?.name ||
 							selectedVersion?.version ||
-							"My Custom Instance"}
+							m.wizard_my_custom_instance()}
 						class="input input-bordered w-full"
 						bind:value={selectedName}
 					/>
 					<div class="label py-0.5">
-						<span class="label-text-alt text-xs">Leave empty to use version name</span>
+						<span class="label-text-alt text-xs">{m.wizard_leave_empty_version()}</span>
 					</div>
 				</div>
 
 				{#if selectedTab === "download"}
 					<div class="form-control">
 						<label for="download-path" class="label py-0.5">
-							<span class="label-text text-sm">Installation Path</span>
-							<span class="label-text-alt text-xs">Optional</span>
+							<span class="label-text text-sm">{m.wizard_installation_path()}</span>
+							<span class="label-text-alt text-xs">{m.common_optional()}</span>
 						</label>
 						<div class="join w-full">
 							<input
@@ -378,11 +384,11 @@
 							/>
 							<button class="btn btn-accent join-item" onclick={handleBrowse}>
 								<Folder size={16} />
-								Browse
+								{m.common_browse()}
 							</button>
 						</div>
 						<div class="label py-0.5">
-							<span class="label-text-alt text-xs">Defaults to instances folder</span>
+							<span class="label-text-alt text-xs"></span>
 						</div>
 					</div>
 				{/if}
@@ -394,10 +400,12 @@
 		<div class="flex items-center justify-between w-full">
 			<button class="btn btn-ghost" onclick={() => (showAdvanced = !showAdvanced)}>
 				<Code size={16} />
-				{showAdvanced ? "Hide Advanced" : "Advanced Options"}
+				{showAdvanced ? m.wizard_hide_advanced() : m.wizard_advanced_options()}
 			</button>
 			<div class="flex gap-2">
-				<button class="btn btn-ghost" onclick={() => (open = false)}>Cancel</button>
+				<button class="btn btn-ghost" onclick={() => (open = false)}
+					>{m.common_cancel()}</button
+				>
 				<button
 					class="btn btn-accent"
 					disabled={!isValid ||
@@ -407,13 +415,15 @@
 				>
 					{#if selectedTab === "download"}
 						<CloudDownload size={16} />
-						{supportsCloudDownload ? "Download & Create" : "Not Available"}
+						{supportsCloudDownload ?
+							m.wizard_download_and_create()
+						:	m.wizard_not_available()}
 					{:else if isDetecting}
 						<Loader2 size={16} class="animate-spin" />
-						Identifying...
+						{m.common_identifying()}
 					{:else}
 						<Folder size={16} />
-						Import Instance
+						{m.wizard_import_instance()}
 					{/if}
 				</button>
 			</div>

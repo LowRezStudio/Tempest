@@ -9,24 +9,25 @@
 		Server,
 		Settings,
 		SquareTerminal,
-		User,
 	} from "@lucide/svelte";
 	import { page } from "$app/state";
+	import { m } from "$lib/paraglide/messages";
 	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { lobbyHost } from "$lib/stores/lobby";
 	import { lobbyServerProcessesList } from "$lib/stores/processes";
 	import { instanceWizardOpen } from "$lib/stores/ui";
+	import LanguageSelector from "./LanguageSelector.svelte";
 	import SidebarItem from "./SidebarItem.svelte";
 </script>
 
 <aside class="flex h-screen w-16 flex-none flex-col items-center bg-base-300 py-4">
 	<nav class="flex flex-col gap-2">
-		<SidebarItem href="/" icon={House} label="Home" />
-		<SidebarItem href="/library" icon={Library} label="Library" />
-		<SidebarItem href="/downloads" icon={Download} label="Downloads" />
-		<SidebarItem href="/servers" icon={Server} label="Servers" />
+		<SidebarItem href="/" icon={House} label={m.sidebar_home()} />
+		<SidebarItem href="/library" icon={Library} label={m.sidebar_library()} />
+		<SidebarItem href="/downloads" icon={Download} label={m.sidebar_downloads()} />
+		<SidebarItem href="/servers" icon={Server} label={m.sidebar_servers()} />
 		{#if $lobbyHost}
-			<SidebarItem href="/lobby" icon={Compass} label="Lobby" />
+			<SidebarItem href="/lobby" icon={Compass} label={m.sidebar_lobby()} />
 		{/if}
 	</nav>
 
@@ -63,6 +64,7 @@
 	<div class="divider mx-4 my-4 opacity-50"></div>
 
 	<div class="mt-auto flex flex-col gap-2">
-		<SidebarItem href="/settings" icon={Settings} label="Settings" />
+		<LanguageSelector />
+		<SidebarItem href="/settings" icon={Settings} label={m.sidebar_settings()} />
 	</div>
 </aside>

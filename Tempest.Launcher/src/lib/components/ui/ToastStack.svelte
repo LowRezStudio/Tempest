@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { removeToast, toasts } from "$lib/stores/ui";
 	import type { Toast } from "$lib/stores/ui";
 
@@ -32,7 +33,7 @@
 				</div>
 				{#if toast.dismissible !== false}
 					<button class="btn btn-ghost btn-xs" onclick={() => removeToast(toast.id)}>
-						Dismiss
+						{m.common_dismiss()}
 					</button>
 				{/if}
 			</div>

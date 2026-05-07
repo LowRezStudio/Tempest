@@ -1,16 +1,10 @@
 <script lang="ts">
 	import { Box, Megaphone, Play, Square } from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { lastLaunchedInstance, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { processesList } from "$lib/stores/processes";
 
-	// Mock announcement data
-	const announcement = {
-		title: "Announcement",
-		message: "Tempest Launcher is still in development so expect bugs.",
-	};
-
-	// Check if the last launched instance is currently running
 	let isRunning = $derived(
 		$lastLaunchedInstance ?
 			$processesList.some((p) => p.instance.id === $lastLaunchedInstance.id)
@@ -54,10 +48,10 @@
 					>
 						<Megaphone size={20} class="opacity-60" />
 					</div>
-					<h3 class="font-bold text-sm">{announcement.title}</h3>
+					<h3 class="font-bold text-sm">{m.home_announcement_title()}</h3>
 				</div>
 				<p class="text-xs opacity-90 leading-relaxed">
-					{announcement.message}
+					{m.home_announcement_message()}
 				</p>
 			</div>
 		</div>
@@ -72,7 +66,7 @@
 				disabled={isLaunching || isKilling}
 				aria-busy={isLaunching || isKilling}
 				onclick={handleLaunchToggle}
-				aria-label={isRunning ? "Stop game" : "Launch game"}
+				aria-label={isRunning ? m.home_stop_game() : m.home_run_game()}
 			>
 				{#if isLaunching}
 					<span class="loading loading-spinner loading-xs"></span>
@@ -85,10 +79,10 @@
 				{/if}
 				<div class="flex flex-col items-start">
 					<span class="font-semibold text-sm">
-						{isLaunching ? "Launching..."
-						: isKilling ? "Stopping..."
-						: isRunning ? "Stop Game"
-						: "Run Game"}
+						{isLaunching ? m.common_launching()
+						: isKilling ? m.common_stopping_label()
+						: isRunning ? m.home_stop_game()
+						: m.home_run_game()}
 					</span>
 					<span class="text-xs opacity-80">{$lastLaunchedInstance.label}</span>
 				</div>
@@ -102,7 +96,9 @@
 			<div class="pt-2">
 				<div class="alert alert-error">
 					<span>{actionError}</span>
-					<button class="btn btn-ghost btn-sm" onclick={clearActionError}>Dismiss</button>
+					<button class="btn btn-ghost btn-sm" onclick={clearActionError}
+						>{m.common_dismiss()}</button
+					>
 				</div>
 			</div>
 		{/if}

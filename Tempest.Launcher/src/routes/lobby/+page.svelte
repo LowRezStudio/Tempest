@@ -20,6 +20,7 @@
 		teamLeft,
 		teamRight,
 	} from "$lib/lobby/stores";
+	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes";
 	import { onDestroy, onMount, tick } from "svelte";
@@ -78,14 +79,14 @@
 
 	function getPlayerStatus(player: { id: string; champion?: string }): string {
 		if ($lobbyState.mapVote && player.id in $lobbyState.mapVote.votes) {
-			return "Voted";
+			return m.lobby_voted();
 		}
-		return player.champion || "Not ready";
+		return player.champion || m.lobby_not_ready();
 	}
 </script>
 
 <svelte:head>
-	<title>Lobby</title>
+	<title>{m.lobby_title()}</title>
 </svelte:head>
 
 <div class="flex flex-col h-full bg-base-100">
@@ -137,7 +138,7 @@
 				{#if currentMap}
 					<div class="absolute top-0 right-0 p-4 z-20 mt-36">
 						<div class="bg-base-200/90 backdrop-blur-xs rounded-lg p-3 w-48">
-							<p class="text-sm opacity-70 mb-1">Playing on</p>
+							<p class="text-sm opacity-70 mb-1">{m.lobby_playing_on()}</p>
 							<p class="font-semibold">{currentMap.displayName}</p>
 							<img
 								src={currentMap.iconPath}
@@ -168,18 +169,18 @@
 			</div>
 
 			<div class="relative z-10 flex flex-col h-full">
-				<Header title="Map Vote" class="bg-base-200/90 backdrop-blur-xs">
+				<Header title={m.lobby_map_vote()} class="bg-base-200/90 backdrop-blur-xs">
 					{#snippet icon()}
 						<Users size={32} class="opacity-60" />
 					{/snippet}
 					{#snippet actions()}
 						<button class="btn btn-error" onclick={handleLeave}>
 							<LogOut size={18} />
-							Leave Lobby
+							{m.lobby_leave_lobby()}
 						</button>
 					{/snippet}
 					{#snippet subtitle()}
-						<span>{$players.length} players</span>
+						<span>{$players.length} {m.lobby_players()}</span>
 					{/snippet}
 				</Header>
 
@@ -193,38 +194,45 @@
 			</div>
 		</div>
 	{:else}
-		<Header title={$isInGame ? "Game in Progress" : "Lobby"}>
+		<Header title={$isInGame ? m.lobby_game_in_progress() : m.lobby_title()}>
 			{#snippet icon()}
 				<Users size={32} class="opacity-60" />
 			{/snippet}
 			{#snippet actions()}
 				{#if !gameRunning && !launchGameMutation.isPending && $isGameServerOpen && currentInstance}
-					<button class="btn btn-accent" onclick={handleRejoin}>Rejoin Game</button>
+					<button class="btn btn-accent" onclick={handleRejoin}
+						>{m.lobby_rejoin_game()}</button
+					>
 				{/if}
-				<button class="btn btn-error" onclick={handleLeave}> Leave Lobby </button>
+				<button class="btn btn-error" onclick={handleLeave}>
+					{m.lobby_leave_lobby()}
+				</button>
 			{/snippet}
 			{#snippet subtitle()}
 				{#if $isWaiting}
 					<span>
-						Waiting for players {$players.length}/{$lobbyState.waiting?.minPlayers}
+						{m.lobby_waiting_for_players({
+							current: $players.length,
+							min: $lobbyState.waiting?.minPlayers ?? 0,
+						})}
 					</span>
 				{:else if $connectionStatus === "pending"}
 					<span class="inline-flex items-center gap-2">
 						<span class="loading loading-spinner loading-xs"></span>
-						Connecting
+						{m.lobby_connecting()}
 					</span>
 				{:else if !$isGameServerOpen}
 					<span class="inline-flex items-center gap-2">
 						<span class="loading loading-spinner loading-xs"></span>
-						Waiting for server to start
+						{m.lobby_waiting_for_server()}
 					</span>
 				{:else if launchGameMutation.isPending}
 					<span class="inline-flex items-center gap-2">
 						<span class="loading loading-spinner loading-xs"></span>
-						Launching Paladins
+						{m.lobby_launching_game()}
 					</span>
 				{:else}
-					<span>{$players.length} players</span>
+					<span>{$players.length} {m.lobby_players()}</span>
 				{/if}
 			{/snippet}
 		</Header>
@@ -255,7 +263,9 @@
 							/>
 							<div class="min-w-0">
 								<p class="font-semibold truncate">{player.displayName}</p>
-								<p class="text-sm opacity-70">{player.champion || "Not ready"}</p>
+								<p class="text-sm opacity-70">
+									{player.champion || m.lobby_not_ready()}
+								</p>
 							</div>
 						</div>
 					{/each}
@@ -274,7 +284,9 @@
 							/>
 							<div class="min-w-0">
 								<p class="font-semibold truncate">{player.displayName}</p>
-								<p class="text-sm opacity-70">{player.champion || "Not ready"}</p>
+								<p class="text-sm opacity-70">
+									{player.champion || m.lobby_not_ready()}
+								</p>
 							</div>
 						</div>
 					{/each}
@@ -290,12 +302,12 @@
 			<div class="px-3 py-2 border-b border-base-300 flex items-center justify-between">
 				<div class="flex items-center gap-2">
 					<MessageCircle size={16} />
-					<span class="font-semibold text-sm">Team Chat</span>
+					<span class="font-semibold text-sm">{m.lobby_team_chat()}</span>
 				</div>
 				<button
 					class="btn btn-ghost btn-sm btn-square"
 					onclick={() => (chatOpen = false)}
-					aria-label="Close chat"
+					aria-label={m.lobby_close_chat()}
 				>
 					<X size={14} />
 				</button>
@@ -303,7 +315,7 @@
 
 			<div class="flex-1 overflow-y-auto p-3 min-h-0" bind:this={chatContainer}>
 				{#if $chatMessages.length === 0}
-					<p class="text-sm opacity-50 text-center py-2">No messages yet</p>
+					<p class="text-sm opacity-50 text-center py-2">{m.lobby_no_messages()}</p>
 				{:else}
 					<div class="flex flex-col gap-1.5">
 						{#each $chatMessages as msg (msg.sentAt)}
@@ -321,7 +333,7 @@
 					type="text"
 					class="input input-bordered input-sm w-full"
 					disabled={$connectionStatus !== "connected"}
-					placeholder="Type a message..."
+					placeholder={m.lobby_type_message()}
 					maxlength={100}
 					autocomplete="off"
 					bind:value={chatboxText}
@@ -341,7 +353,7 @@
 			}}
 		>
 			<MessageCircle size={18} />
-			Chat
+			{m.lobby_chat()}
 		</button>
 	{/if}
 
@@ -352,16 +364,16 @@
 			<div class="modal-box flex flex-col items-center gap-4 opacity-100 pointer-events-auto">
 				<p class="font-semibold text-lg">
 					{#if $connectionStatus === "disconnected"}
-						Connection Lost
+						{m.lobby_connection_lost()}
 					{:else}
-						Gameserver crashed
+						{m.lobby_gameserver_crashed()}
 					{/if}
 				</p>
 				<p class="text-sm opacity-70 text-center">
 					{#if $connectionStatus === "disconnected"}
-						Unable to connect to the lobby server. Reconnecting...
+						{m.lobby_reconnecting()}
 					{:else}
-						Lobby is restarting...
+						{m.lobby_lobby_restarting()}
 					{/if}
 				</p>
 				<span class="loading loading-spinner loading-md"></span>

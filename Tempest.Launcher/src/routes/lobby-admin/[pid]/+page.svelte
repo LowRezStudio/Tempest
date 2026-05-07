@@ -4,6 +4,7 @@
 	import { page } from "$app/state";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { moveToLobby } from "$lib/core/lobby";
+	import { m } from "$lib/paraglide/messages";
 	import { createKillLobbyServerMutation } from "$lib/queries/lobby";
 	import { lobbyServerProcessesList } from "$lib/stores/processes";
 
@@ -42,8 +43,8 @@
 
 <div class="flex flex-col h-full bg-base-100">
 	<Header
-		title={process?.createOptions.name || "Unknown"}
-		tabs={[{ name: "Logs", value: "logs" }]}
+		title={process?.createOptions.name || m.common_unknown()}
+		tabs={[{ name: m.lobbyadmin_logs(), value: "logs" }]}
 		{activeTab}
 		onSelectTab={(tab) => (activeTab = tab)}
 	>
@@ -52,14 +53,14 @@
 		{/snippet}
 		{#snippet subtitle()}
 			{#if hasError}
-				Encountered an error
+				{m.lobbyadmin_encountered_error()}
 			{:else if !isRunning}
-				Stopped
+				{m.lobbyadmin_stopped()}
 			{/if}
 		{/snippet}
 		{#snippet actions()}
 			{#if isRunning}
-				<button class="btn text-sm btn-accent" onclick={join}> Join </button>
+				<button class="btn text-sm btn-accent" onclick={join}> {m.common_join()} </button>
 			{/if}
 
 			<button
@@ -70,12 +71,12 @@
 			>
 				{#if isKilling}
 					<span class="loading loading-spinner loading-xs"></span>
-					Stopping
+					{m.lobbyadmin_stopping()}
 				{:else if isRunning}
 					<Square size={16} />
-					Stop
+					{m.common_stop()}
 				{:else if !isRunning}
-					Close
+					{m.common_close()}
 				{/if}
 			</button>
 		{/snippet}

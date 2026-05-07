@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Box } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
+	import { m } from "$lib/paraglide/messages";
 	import { queueItems } from "$lib/rigby/stores";
 	import InstanceMenu from "./InstanceMenu.svelte";
 	import type { Instance } from "$lib/types/instance";
@@ -57,12 +58,11 @@
 					{/if}
 					{#if queueItem?.progress}
 						<span class="text-accent">
-							Downloading... {Math.round(
-								queueItem.progress.bytesPerSecond / 1024 / 1024,
-							)} MB/s
+							{m.common_downloading()}
+							{Math.round(queueItem.progress.bytesPerSecond / 1024 / 1024)} MB/s
 						</span>
 					{:else}
-						<span class="text-accent">Downloading...</span>
+						<span class="text-accent">{m.common_downloading()}</span>
 					{/if}
 				</div>
 			</div>
@@ -99,7 +99,7 @@
 						</span>
 					{/if}
 					{#if isSettingUp}
-						<span class="text-accent">Setting up...</span>
+						<span class="text-accent">{m.common_setting_up()}</span>
 					{/if}
 				</div>
 			</div>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Download, FolderOpen, Pause, Play, Plus, RotateCcw, Trash2 } from "@lucide/svelte";
 	import Header from "$lib/components/ui/Header.svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import {
 		queueCompletedCount,
@@ -50,10 +51,17 @@
 	function handleRemove(id: string): void {
 		restoreQueue.remove(id);
 	}
+
+	function statusText(status: string): string {
+		if (status === "pending") return m.downloads_pending();
+		if (status === "complete") return m.downloads_complete();
+		if (status === "error") return m.downloads_failed();
+		return status;
+	}
 </script>
 
 <div class="flex flex-col h-full bg-base-100">
-	<Header title="Downloads">
+	<Header title={m.downloads_title()}>
 		{#snippet icon()}
 			<Download size={32} class="opacity-60" />
 		{/snippet}
@@ -61,7 +69,7 @@
 			{#if $queueRunning}
 				<button class="btn btn-ghost" onclick={handlePause}>
 					<Pause size={16} />
-					Pause
+					{m.common_pause()}
 				</button>
 			{:else}
 				<button
@@ -70,7 +78,7 @@
 					disabled={$queuePendingCount === 0}
 				>
 					<Play size={16} />
-					Start
+					{m.common_start()}
 				</button>
 			{/if}
 			<button
@@ -79,21 +87,27 @@
 				disabled={$queueCompletedCount === 0 && $queueErrorCount === 0}
 			>
 				<Trash2 size={16} />
-				Clear Completed
+				{m.downloads_clear_completed()}
 			</button>
 		{/snippet}
 		{#snippet subtitle()}
 			{#if $queuePendingCount > 0}
-				<span class="badge badge-accent badge-sm">{$queuePendingCount} pending</span>
+				<span class="badge badge-accent badge-sm"
+					>{$queuePendingCount} {m.downloads_pending()}</span
+				>
 			{/if}
 			{#if $queueCompletedCount > 0}
-				<span class="badge badge-success badge-sm">{$queueCompletedCount} complete</span>
+				<span class="badge badge-success badge-sm"
+					>{$queueCompletedCount} {m.downloads_complete()}</span
+				>
 			{/if}
 			{#if $queueErrorCount > 0}
-				<span class="badge badge-error badge-sm">{$queueErrorCount} failed</span>
+				<span class="badge badge-error badge-sm"
+					>{$queueErrorCount} {m.downloads_failed()}</span
+				>
 			{/if}
 			{#if $queueItems.length === 0}
-				<span>No downloads</span>
+				<span>{m.downloads_no_downloads()}</span>
 			{/if}
 		{/snippet}
 	</Header>
@@ -103,9 +117,9 @@
 				{#if $queueItems.length === 0}
 					<div class="flex flex-col items-center justify-center h-64 gap-4">
 						<FolderOpen size={48} class="opacity-30" />
-						<p class="text-lg text-base-content/50">No downloads in queue</p>
+						<p class="text-lg text-base-content/50">{m.downloads_no_downloads()}</p>
 						<p class="text-sm text-base-content/40">
-							Add restore operations from the library
+							{m.downloads_no_downloads_hint()}
 						</p>
 					</div>
 				{:else}
@@ -122,7 +136,7 @@
 												: item.status === 'complete' ? 'badge-success'
 												: 'badge-error'}"
 											>
-												{item.status}
+												{statusText(item.status)}
 											</span>
 											<span
 												class="text-sm font-mono truncate opacity-70"
@@ -143,7 +157,7 @@
 													>
 													<span class="opacity-70">
 														{progress.completedFiles}/{progress.totalFiles}
-														files
+														{m.downloads_files()}
 													</span>
 												</div>
 												<progress
@@ -166,12 +180,12 @@
 													</span>
 													{#if progress.etaSeconds > 0}
 														<span
-															>ETA: {formatTime(
+															>{m.downloads_eta()}: {formatTime(
 																progress.etaSeconds,
 															)}</span
 														>
 													{:else}
-														<span>Calculating...</span>
+														<span>{m.common_calculating()}</span>
 													{/if}
 												</div>
 											</div>
@@ -179,27 +193,33 @@
 											<div class="text-sm space-y-1">
 												<div class="flex items-center gap-4">
 													<span class="text-success font-semibold"
-														>{item.result.files} files</span
+														>{item.result.files}
+														{m.downloads_files()}</span
 													>
 													<span class="opacity-70"
-														>{formatBytes(item.result.diskWriteBytes)} written</span
+														>{formatBytes(item.result.diskWriteBytes)}
+														{m.downloads_written()}</span
 													>
 												</div>
 												{#if item.result.repairedFiles > 0}
 													<span class="text-warning text-xs"
-														>{item.result.repairedFiles} repaired</span
+														>{item.result.repairedFiles}
+														{m.downloads_repaired()}</span
 													>
 												{/if}
 												{#if item.result.verifiedFiles > 0}
 													<span class="text-xs opacity-60"
-														>{item.result.verifiedFiles} verified</span
+														>{item.result.verifiedFiles}
+														{m.downloads_verified()}</span
 													>
 												{/if}
 											</div>
 										{:else if item.status === "error" && item.error}
 											<p class="text-sm text-error">{item.error}</p>
 										{:else if item.status === "pending"}
-											<p class="text-sm opacity-50">Waiting in queue...</p>
+											<p class="text-sm opacity-50">
+												{m.common_waiting_in_queue()}
+											</p>
 										{/if}
 									</div>
 
@@ -208,7 +228,7 @@
 											<button
 												class="btn btn-ghost btn-sm btn-square"
 												onclick={handlePause}
-												aria-label="Pause"
+												aria-label={m.common_pause()}
 											>
 												<Pause size={16} />
 											</button>
@@ -216,7 +236,7 @@
 											<button
 												class="btn btn-ghost btn-sm btn-square"
 												onclick={() => handleRemove(item.id)}
-												aria-label="Remove"
+												aria-label={m.common_remove()}
 											>
 												<Trash2 size={16} />
 											</button>

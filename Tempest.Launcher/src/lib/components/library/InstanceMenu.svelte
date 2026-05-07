@@ -5,6 +5,7 @@
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { createSetupInstanceMutation } from "$lib/queries/instance";
 	import {
 		isPre20Version,
@@ -106,22 +107,22 @@
 		{#if isReady}
 			<PopoverMenuItem onclick={handleRunSetup} disabled={isSettingUp}>
 				<RefreshCw size={16} />
-				Run Setup
+				{m.instancemenu_run_setup()}
 			</PopoverMenuItem>
 			{#if canRestore}
 				<PopoverMenuItem onclick={handleRestore} disabled={isSettingUp}>
 					<RotateCcw size={16} />
-					Verify
+					{m.instancemenu_verify()}
 				</PopoverMenuItem>
 			{/if}
 		{/if}
 		<PopoverMenuItem onclick={openFolder} disabled={!instance?.path}>
 			<FolderOpen size={16} />
-			Browse Folder
+			{m.instancemenu_browse_folder()}
 		</PopoverMenuItem>
 		<PopoverMenuItem onclick={() => (showDeleteConfirm = true)} class="text-error">
 			<Trash2 size={16} />
-			Delete Instance
+			{m.instancemenu_delete_instance()}
 		</PopoverMenuItem>
 	{/snippet}
 </PopoverMenu>

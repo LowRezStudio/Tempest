@@ -3,6 +3,7 @@
 	import { open } from "@tauri-apps/plugin-dialog";
 	import { invalidateAll } from "$app/navigation";
 	import Header from "$lib/components/ui/Header.svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { createAboutInfoQuery } from "$lib/queries/about";
 	import { defaultInstancePath, username } from "$lib/stores/settings";
 
@@ -30,7 +31,7 @@
 		const selected = await open({
 			directory: true,
 			multiple: false,
-			title: "Select Default Instance Path",
+			title: m.settings_select_instance_folder(),
 		});
 
 		if (selected) {
@@ -53,10 +54,10 @@
 
 <div class="flex flex-col h-full bg-base-100">
 	<Header
-		title="Settings"
+		title={m.settings_title()}
 		tabs={[
-			{ name: "General", value: "general" },
-			{ name: "Advanced", value: "advanced" },
+			{ name: m.settings_general(), value: "general" },
+			{ name: m.settings_advanced(), value: "advanced" },
 		]}
 		{activeTab}
 		onSelectTab={(tab) => (activeTab = tab)}
@@ -65,7 +66,7 @@
 			<Settings size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet subtitle()}
-			<span>Configure your launcher preferences</span>
+			<span>{m.settings_configure_preferences()}</span>
 		{/snippet}
 	</Header>
 
@@ -76,20 +77,22 @@
 					<div class="flex flex-col gap-4">
 						<div class="form-control">
 							<label for="username-input" class="label py-0.5">
-								<span class="label-text text-sm">Username</span>
+								<span class="label-text text-sm">{m.settings_username()}</span>
 							</label>
 							<input
 								id="username-input"
 								type="text"
 								class="input input-bordered w-full"
 								bind:value={localUsername}
-								placeholder="Enter your username"
+								placeholder={m.settings_username_placeholder()}
 							/>
 						</div>
 
 						<div class="form-control">
 							<label for="path-input" class="label py-0.5">
-								<span class="label-text text-sm">Default Instance Path</span>
+								<span class="label-text text-sm"
+									>{m.settings_default_instance_path()}</span
+								>
 							</label>
 							<div class="join w-full">
 								<input
@@ -97,31 +100,32 @@
 									type="text"
 									class="input input-bordered join-item flex-1 font-mono"
 									bind:value={localPath}
-									placeholder="Select a directory..."
+									placeholder={m.settings_select_directory()}
 								/>
 								<button class="btn btn-accent join-item" onclick={browsePath}
-									>Browse</button
+									>{m.common_browse()}</button
 								>
 							</div>
 						</div>
 
 						<div class="flex justify-end gap-2 pt-2">
 							<button class="btn btn-accent" onclick={saveSettings}
-								>Save Changes</button
+								>{m.common_save_changes()}</button
 							>
 						</div>
 					</div>
 				{:else if activeTab === "advanced"}
 					<div class="flex flex-col">
 						<div class="flex flex-col gap-4">
-							<h2 class="text-xl font-semibold text-error">Danger Zone</h2>
+							<h2 class="text-xl font-semibold text-error">
+								{m.settings_danger_zone()}
+							</h2>
 							<p class="text-sm">
-								Resetting will clear all your settings and return everything to
-								default values. This action cannot be undone.
+								{m.settings_reset_warning()}
 							</p>
 							<div>
 								<button class="btn btn-error" onclick={resetAll}
-									>Clear All Settings</button
+									>{m.settings_clear_all()}</button
 								>
 							</div>
 						</div>
@@ -129,22 +133,22 @@
 						<div class="divider"></div>
 
 						<div class="flex flex-col gap-4">
-							<h2 class="text-xl font-semibold">About</h2>
+							<h2 class="text-xl font-semibold">{m.settings_about()}</h2>
 							<div class="flex flex-col gap-2 text-sm">
 								<div class="flex justify-between">
-									<span>Version</span>
+									<span>{m.settings_version()}</span>
 									<span class="font-mono">{appVersion}</span>
 								</div>
 								<div class="flex justify-between">
-									<span>Environment</span>
+									<span>{m.settings_environment()}</span>
 									<span class="font-mono">{buildType}</span>
 								</div>
 								<div class="flex justify-between">
-									<span>Build Date</span>
+									<span>{m.settings_build_date()}</span>
 									<span class="font-mono">{buildDate}</span>
 								</div>
 								<div class="flex justify-between">
-									<span>OS & Arch</span>
+									<span>{m.settings_os_arch()}</span>
 									<span class="font-mono">{architecture}-{osName}</span>
 								</div>
 							</div>
@@ -159,7 +163,7 @@
 	{#if showSaveToast}
 		<div class="toast toast-end toast-top">
 			<div class="alert alert-success">
-				<span>Settings saved successfully</span>
+				<span>{m.settings_saved_successfully()}</span>
 			</div>
 		</div>
 	{/if}

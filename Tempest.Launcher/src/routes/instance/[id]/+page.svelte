@@ -17,6 +17,7 @@
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
 	import { instanceMap, updateInstance } from "$lib/stores/instance";
@@ -120,7 +121,7 @@
 		const result = await openDialog({
 			directory: true,
 			multiple: false,
-			title: "Select Instance Folder",
+			title: m.settings_select_instance_folder(),
 		});
 		if (result) {
 			editPath = result;
@@ -171,8 +172,8 @@
 <div class="flex flex-col h-full bg-base-100">
 	<!-- Header -->
 	<Header
-		title={instance?.label || "Loading..."}
-		tabs={[{ name: "Content", value: "content" }]}
+		title={instance?.label || m.common_loading()}
+		tabs={[{ name: m.instance_content(), value: "content" }]}
 		{activeTab}
 		onSelectTab={(tab) => (activeTab = tab)}
 	>
@@ -194,16 +195,16 @@
 			>
 				{#if isLaunching}
 					<span class="loading loading-spinner loading-xs"></span>
-					Launching
+					{m.common_launching()}
 				{:else if isKilling}
 					<span class="loading loading-spinner loading-xs"></span>
-					Stopping
+					{m.common_stopping_label()}
 				{:else if isRunning}
 					<Square size={16} />
-					Stop
+					{m.common_stop()}
 				{:else}
 					<Play size={16} />
-					Play
+					{m.common_play()}
 				{/if}
 			</button>
 			<button class="btn btn-square" onclick={openSettings}>
@@ -216,7 +217,7 @@
 		{#snippet subtitle()}
 			<div class="flex items-center gap-1.5">
 				<Gamepad2 size={14} />
-				<span>{instance?.version || "Unknown version"}</span>
+				<span>{instance?.version || m.common_unknown_version()}</span>
 			</div>
 		{/snippet}
 		{#snippet errors()}
@@ -225,7 +226,7 @@
 					<div class="alert alert-error">
 						<span>{launchError}</span>
 						<button class="btn btn-ghost btn-sm" onclick={clearLaunchError}>
-							Dismiss
+							{m.common_dismiss()}
 						</button>
 					</div>
 				</div>
@@ -235,7 +236,7 @@
 					<div class="alert alert-error">
 						<span>{killError}</span>
 						<button class="btn btn-ghost btn-sm" onclick={clearKillError}>
-							Dismiss
+							{m.common_dismiss()}
 						</button>
 					</div>
 				</div>
@@ -251,9 +252,9 @@
 					{#if mods.length === 0}
 						<div class="flex flex-col items-center justify-center h-64 gap-4">
 							<PackageOpen size={48} class="opacity-30" />
-							<p class="text-lg text-base-content/50">No content installed</p>
+							<p class="text-lg text-base-content/50">{m.instance_no_content()}</p>
 							<p class="text-sm text-base-content/40">
-								Add mods to customize your instance
+								{m.instance_add_mods_hint()}
 							</p>
 						</div>
 					{:else}
@@ -264,14 +265,14 @@
 										<button
 											class="flex items-center gap-1 font-semibold text-sm"
 										>
-											<span>Name</span>
+											<span>{m.common_name()}</span>
 										</button>
 									</th>
-									<th class="w-48">Version</th>
+									<th class="w-48">{m.common_version()}</th>
 									<th class="w-auto text-right">
 										<button class="btn btn-ghost btn-sm">
 											<RefreshCw size={14} />
-											Refresh
+											{m.common_refresh()}
 										</button>
 									</th>
 								</tr>
@@ -320,16 +321,16 @@
 	</div>
 </div>
 
-<Modal bind:open={isSettingsModalOpen} title="Instance Settings" class="max-w-2xl">
+<Modal bind:open={isSettingsModalOpen} title={m.instance_instance_settings()} class="max-w-2xl">
 	<div class="space-y-4">
 		<div class="form-control">
 			<label for="instance-name" class="label py-0.5">
-				<span class="label-text text-sm">Instance Name</span>
+				<span class="label-text text-sm">{m.instance_name()}</span>
 			</label>
 			<input
 				id="instance-name"
 				type="text"
-				placeholder="Instance Name"
+				placeholder={m.instance_name()}
 				class="input input-bordered w-full"
 				bind:value={editName}
 			/>
@@ -337,7 +338,7 @@
 
 		<div class="form-control">
 			<label for="instance-version" class="label py-0.5">
-				<span class="label-text text-sm">Game Version</span>
+				<span class="label-text text-sm">{m.instance_version()}</span>
 			</label>
 			<input
 				id="instance-version"
@@ -350,7 +351,7 @@
 
 		<div class="form-control">
 			<label for="instance-path" class="label py-0.5">
-				<span class="label-text text-sm">Installation Path</span>
+				<span class="label-text text-sm">{m.instance_installation_path()}</span>
 			</label>
 			<div class="join w-full">
 				<input
@@ -362,14 +363,14 @@
 				/>
 				<button class="btn btn-accent join-item" onclick={handleBrowse}>
 					<Folder size={16} />
-					Browse
+					{m.common_browse()}
 				</button>
 			</div>
 		</div>
 
 		<div class="form-control">
 			<label for="instance-args" class="label py-0.5">
-				<span class="label-text text-sm">Launch Arguments</span>
+				<span class="label-text text-sm">{m.instance_launch_arguments()}</span>
 			</label>
 			<div class="space-y-2">
 				<div class="join w-full">
@@ -382,7 +383,7 @@
 						onkeydown={handleArgsKeydown}
 					/>
 					<button class="btn btn-accent join-item" onclick={addArgs} type="button">
-						Add
+						{m.common_add()}
 					</button>
 				</div>
 				{#if editArgs.length > 0}
@@ -417,14 +418,14 @@
 						{/each}
 					</div>
 				{/if}
-				<p class="text-xs opacity-60">Space-separated arguments.</p>
+				<p class="text-xs opacity-60">{m.instance_space_separated()}</p>
 			</div>
 		</div>
 
 		{#if availablePlatforms.length > 1}
 			<div class="form-control">
 				<label for="instance-platform" class="label py-0.5">
-					<span class="label-text text-sm">Platform</span>
+					<span class="label-text text-sm">{m.instance_platform()}</span>
 				</label>
 				<select
 					id="instance-platform"
@@ -443,9 +444,11 @@
 	{#snippet actions()}
 		<div class="flex justify-end gap-2 w-full">
 			<button class="btn btn-ghost" onclick={() => (isSettingsModalOpen = false)}>
-				Cancel
+				{m.common_cancel()}
 			</button>
-			<button class="btn btn-accent" onclick={saveSettings}> Save Changes </button>
+			<button class="btn btn-accent" onclick={saveSettings}>
+				{m.common_save_changes()}
+			</button>
 		</div>
 	{/snippet}
 </Modal>

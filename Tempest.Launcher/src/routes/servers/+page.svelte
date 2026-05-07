@@ -3,6 +3,7 @@
 	import { goto } from "$app/navigation";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { moveToLobby } from "$lib/core/lobby";
+	import { m } from "$lib/paraglide/messages";
 	import { createServersQuery } from "$lib/queries/servers";
 	import { CountryCode } from "$lib/rpc";
 	import { lobbyHost, lobbyPassword } from "$lib/stores/lobby";
@@ -48,7 +49,7 @@
 		if (error instanceof Error && error.message) {
 			return error.message;
 		}
-		return "Error while fetching the server list.";
+		return m.serverlist_error_fetching();
 	}
 
 	function refreshServers() {
@@ -58,18 +59,23 @@
 </script>
 
 <svelte:head>
-	<title>Server list</title>
+	<title>{m.serverlist_title()}</title>
 </svelte:head>
 
 <div class="flex flex-col h-full bg-base-100">
-	<Header title="Server List">
+	<Header title={m.serverlist_title()}>
 		{#snippet icon()}
 			<Server size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet actions()}
 			<label class="input input-bordered">
 				<Search size={16} class="opacity-50" />
-				<input type="text" placeholder="Search" class="grow" bind:value={searchQuery} />
+				<input
+					type="text"
+					placeholder={m.serverlist_search_placeholder()}
+					class="grow"
+					bind:value={searchQuery}
+				/>
 			</label>
 			<button
 				class="btn btn-accent"
@@ -77,22 +83,25 @@
 					hostServerWizardOpen.set(true);
 				}}
 			>
-				Host server
+				{m.serverlist_host_server()}
 			</button>
 			<button
 				class="btn btn-ghost btn-square"
 				onclick={refreshServers}
-				aria-label="Refresh servers"
+				aria-label={m.serverlist_refresh_aria_label()}
 			>
 				<RefreshCw size={16} />
 			</button>
 		{/snippet}
 		{#snippet subtitle()}
-			<span>{serverCount} {serverCount === 1 ? "server" : "servers"}</span>
+			<span
+				>{serverCount}
+				{serverCount === 1 ? m.serverlist_server() : m.serverlist_servers()}</span
+			>
 			{#if isFetching}
 				<span class="inline-flex items-center gap-2">
 					<span class="loading loading-spinner loading-xs"></span>
-					Refreshing
+					{m.serverlist_refreshing()}
 				</span>
 			{/if}
 		{/snippet}
@@ -104,7 +113,7 @@
 				{#if isLoading}
 					<div role="alert" class="alert alert-info">
 						<span class="loading loading-spinner loading-sm"></span>
-						<span>Loading servers…</span>
+						<span>{m.serverlist_loading()}</span>
 					</div>
 				{:else if error}
 					<div role="alert" class="alert alert-error">
@@ -113,27 +122,27 @@
 					</div>
 				{:else if servers.length === 0}
 					<div role="alert" class="alert alert-info">
-						<span>No servers available.</span>
+						<span>{m.serverlist_no_servers()}</span>
 					</div>
 				{:else if filteredServers.length === 0}
 					<div role="alert" class="alert alert-info">
-						<span>No servers matching search.</span>
+						<span>{m.serverlist_no_servers_matching()}</span>
 					</div>
 				{:else}
 					<div class="overflow-x-auto">
 						<table class="table table-zebra">
 							<thead>
 								<tr>
-									<th>Name</th>
-									<th>Gamemode</th>
-									<th>Map</th>
-									<th>Players</th>
-									<th>Bots</th>
-									<th>Spectators</th>
-									<th>Version</th>
-									<th>Password</th>
-									<th>Tags</th>
-									<th>Country</th>
+									<th>{m.serverlist_name()}</th>
+									<th>{m.serverlist_gamemode()}</th>
+									<th>{m.serverlist_map()}</th>
+									<th>{m.serverlist_players()}</th>
+									<th>{m.serverlist_bots()}</th>
+									<th>{m.serverlist_spectators()}</th>
+									<th>{m.serverlist_version()}</th>
+									<th>{m.serverlist_password()}</th>
+									<th>{m.serverlist_tags()}</th>
+									<th>{m.serverlist_country()}</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -145,7 +154,7 @@
 									>
 										<td>{server.name}</td>
 										<td>{server.game}</td>
-										<td>{server.map || "N/A"}</td>
+										<td>{server.map || m.common_na()}</td>
 										<td>
 											<span
 												class={[
@@ -181,7 +190,9 @@
 													),
 												]}
 											>
-												{server.hasPassword ? "Yes" : "No"}
+												{server.hasPassword ?
+													m.common_yes()
+												:	m.common_no()}
 											</span>
 										</td>
 										<td>{server.tags.join(", ")}</td>

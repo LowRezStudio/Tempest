@@ -2,6 +2,7 @@
 	import { Boxes, Library, Plus, Search, X } from "@lucide/svelte";
 	import InstanceCard from "$lib/components/library/InstanceCard.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { instanceMap } from "$lib/stores/instance";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import type { Instance } from "$lib/types/instance";
@@ -30,24 +31,29 @@
 </script>
 
 <div class="flex flex-col h-full bg-base-100">
-	<Header title="Library">
+	<Header title={m.library_title()}>
 		{#snippet icon()}
 			<Library size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet actions()}
 			<label class="input input-bordered">
 				<Search size={16} class="opacity-50" />
-				<input type="text" placeholder="Search" class="grow" bind:value={searchQuery} />
+				<input
+					type="text"
+					placeholder={m.library_search_placeholder()}
+					class="grow"
+					bind:value={searchQuery}
+				/>
 			</label>
 			<button class="btn btn-accent" onclick={() => instanceWizardOpen.set(true)}>
 				<Plus size={16} />
-				New Instance
+				{m.library_new_instance()}
 			</button>
 		{/snippet}
 		{#snippet subtitle()}
 			<span
 				>{instanceList.length}
-				{instanceList.length === 1 ? "instance" : "instances"}</span
+				{instanceList.length === 1 ? m.library_instance() : m.library_instances()}</span
 			>
 		{/snippet}
 	</Header>
@@ -61,18 +67,18 @@
 						{#if searchQuery}
 							<Search size={48} class="opacity-30" />
 							<p class="text-lg text-base-content/50">
-								No instances found matching "{searchQuery}"
+								{m.library_no_results({ query: searchQuery })}
 							</p>
-							<p class="text-sm text-base-content/40">Try a different search term</p>
+							<p class="text-sm text-base-content/40">{m.library_try_different()}</p>
 						{:else}
 							<Boxes size={48} class="opacity-30" />
-							<p class="text-lg text-base-content/50">No instances yet</p>
+							<p class="text-lg text-base-content/50">{m.library_no_instances()}</p>
 							<button
 								class="btn btn-accent gap-2"
 								onclick={() => instanceWizardOpen.set(true)}
 							>
 								<Plus size={20} />
-								Create Your First Instance
+								{m.library_create_first()}
 							</button>
 						{/if}
 					</div>
