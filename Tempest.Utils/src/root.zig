@@ -1,2 +1,2 @@
-pub const minilzo = @import("minilzo/root.zig");
-pub const upkparser = @import("upkparser/root.zig");
+pub const minilzo = @import("minilzo/main.zig");
+pub const upkparser = @import("upk-parser/main.zig");

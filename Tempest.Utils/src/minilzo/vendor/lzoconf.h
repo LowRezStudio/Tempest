@@ -140,27 +140,31 @@ LZO_COMPILE_TIME_ASSERT_HEADER(sizeof(lzo_uint) == LZO_SIZEOF_LZO_INT)
 LZO_COMPILE_TIME_ASSERT_HEADER(sizeof(lzo_xint) >= sizeof(lzo_uint))
 LZO_COMPILE_TIME_ASSERT_HEADER(sizeof(lzo_xint) >= sizeof(lzo_uint32_t))
 
-/* no typedef here because of const-pointer issues */
-#define lzo_bytep               unsigned char*
-#define lzo_charp               char*
-#define lzo_voidp               void*
-#define lzo_shortp              short*
-#define lzo_ushortp             unsigned short*
-#define lzo_intp                lzo_int*
-#define lzo_uintp               lzo_uint*
-#define lzo_xintp               lzo_xint*
-#define lzo_voidpp              lzo_voidp*
-#define lzo_bytepp              lzo_bytep*
+#ifndef __LZO_MMODEL
+#define __LZO_MMODEL            /*empty*/
+#endif
 
-#define lzo_int8_tp             lzo_int8_t*
-#define lzo_uint8_tp            lzo_uint8_t*
-#define lzo_int16_tp            lzo_int16_t*
-#define lzo_uint16_tp           lzo_uint16_t*
-#define lzo_int32_tp            lzo_int32_t*
-#define lzo_uint32_tp           lzo_uint32_t*
+/* no typedef here because of const-pointer issues */
+#define lzo_bytep               unsigned char __LZO_MMODEL *
+#define lzo_charp               char __LZO_MMODEL *
+#define lzo_voidp               void __LZO_MMODEL *
+#define lzo_shortp              short __LZO_MMODEL *
+#define lzo_ushortp             unsigned short __LZO_MMODEL *
+#define lzo_intp                lzo_int __LZO_MMODEL *
+#define lzo_uintp               lzo_uint __LZO_MMODEL *
+#define lzo_xintp               lzo_xint __LZO_MMODEL *
+#define lzo_voidpp              lzo_voidp __LZO_MMODEL *
+#define lzo_bytepp              lzo_bytep __LZO_MMODEL *
+
+#define lzo_int8_tp             lzo_int8_t __LZO_MMODEL *
+#define lzo_uint8_tp            lzo_uint8_t __LZO_MMODEL *
+#define lzo_int16_tp            lzo_int16_t __LZO_MMODEL *
+#define lzo_uint16_tp           lzo_uint16_t __LZO_MMODEL *
+#define lzo_int32_tp            lzo_int32_t __LZO_MMODEL *
+#define lzo_uint32_tp           lzo_uint32_t __LZO_MMODEL *
 #if defined(lzo_int64_t)
-#define lzo_int64_tp            lzo_int64_t*
-#define lzo_uint64_tp           lzo_uint64_t*
+#define lzo_int64_tp            lzo_int64_t __LZO_MMODEL *
+#define lzo_uint64_tp           lzo_uint64_t __LZO_MMODEL *
 #endif
 
 /* Older LZO versions used to support ancient systems and memory models
@@ -265,7 +269,7 @@ typedef int
 
 struct lzo_callback_t;
 typedef struct lzo_callback_t lzo_callback_t;
-#define lzo_callback_p lzo_callback_t*
+#define lzo_callback_p lzo_callback_t __LZO_MMODEL *
 
 /* malloc & free function types */
 typedef lzo_voidp (__LZO_CDECL *lzo_alloc_func_t)
@@ -385,15 +389,15 @@ LZO_EXTERN(unsigned) __lzo_align_gap(const lzo_voidp p, lzo_uint size);
 /* deprecated type names */
 #define lzo_int32               lzo_int32_t
 #define lzo_uint32              lzo_uint32_t
-#define lzo_int32p              lzo_int32_t*
-#define lzo_uint32p             lzo_uint32_t*
+#define lzo_int32p              lzo_int32_t __LZO_MMODEL *
+#define lzo_uint32p             lzo_uint32_t __LZO_MMODEL *
 #define LZO_INT32_MAX           LZO_INT32_C(2147483647)
 #define LZO_UINT32_MAX          LZO_UINT32_C(4294967295)
 #if defined(lzo_int64_t)
 #define lzo_int64               lzo_int64_t
 #define lzo_uint64              lzo_uint64_t
-#define lzo_int64p              lzo_int64_t*
-#define lzo_uint64p             lzo_uint64_t*
+#define lzo_int64p              lzo_int64_t __LZO_MMODEL *
+#define lzo_uint64p             lzo_uint64_t __LZO_MMODEL *
 #define LZO_INT64_MAX           LZO_INT64_C(9223372036854775807)
 #define LZO_UINT64_MAX          LZO_UINT64_C(18446744073709551615)
 #endif

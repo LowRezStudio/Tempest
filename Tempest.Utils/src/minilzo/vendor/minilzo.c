@@ -3667,10 +3667,10 @@ lzo_unused_funcs_impl(void, lzo_bitops_unused_funcs)(void)
 #endif
 #endif
 #ifndef lzo_memops_TU0p
-#define lzo_memops_TU0p void*
+#define lzo_memops_TU0p void __LZO_MMODEL *
 #endif
 #ifndef lzo_memops_TU1p
-#define lzo_memops_TU1p unsigned char*
+#define lzo_memops_TU1p unsigned char __LZO_MMODEL *
 #endif
 #ifndef lzo_memops_TU2p
 #if (LZO_OPT_UNALIGNED16)
@@ -3690,7 +3690,7 @@ typedef struct lzo_memops_TU2_struct lzo_memops_TU2;
 #ifndef lzo_memops_TU4p
 #if (LZO_OPT_UNALIGNED32)
 typedef lzo_uint32_t __lzo_may_alias lzo_memops_TU4;
-#define lzo_memops_TU4p volatile lzo_memops_TU4*
+#define lzo_memops_TU4p volatile lzo_memops_TU4 __LZO_MMODEL *
 #elif defined(__lzo_byte_struct)
 __lzo_byte_struct(lzo_memops_TU4_struct,4)
 typedef struct lzo_memops_TU4_struct lzo_memops_TU4;
@@ -3699,13 +3699,13 @@ struct lzo_memops_TU4_struct { unsigned char a[4]; } __lzo_may_alias;
 typedef struct lzo_memops_TU4_struct lzo_memops_TU4;
 #endif
 #ifndef lzo_memops_TU4p
-#define lzo_memops_TU4p lzo_memops_TU4*
+#define lzo_memops_TU4p lzo_memops_TU4 __LZO_MMODEL *
 #endif
 #endif
 #ifndef lzo_memops_TU8p
 #if (LZO_OPT_UNALIGNED64)
 typedef lzo_uint64_t __lzo_may_alias lzo_memops_TU8;
-#define lzo_memops_TU8p volatile lzo_memops_TU8*
+#define lzo_memops_TU8p volatile lzo_memops_TU8 __LZO_MMODEL *
 #elif defined(__lzo_byte_struct)
 __lzo_byte_struct(lzo_memops_TU8_struct,8)
 typedef struct lzo_memops_TU8_struct lzo_memops_TU8;
@@ -3714,7 +3714,7 @@ struct lzo_memops_TU8_struct { unsigned char a[8]; } __lzo_may_alias;
 typedef struct lzo_memops_TU8_struct lzo_memops_TU8;
 #endif
 #ifndef lzo_memops_TU8p
-#define lzo_memops_TU8p lzo_memops_TU8*
+#define lzo_memops_TU8p lzo_memops_TU8 __LZO_MMODEL *
 #endif
 #endif
 #ifndef lzo_memops_set_TU1p

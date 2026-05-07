@@ -1,0 +1,19 @@
+.{
+    .name = .luajit,
+    .fingerprint = 0xda4bba66d285c19c,
+    .version = "2.1.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        // .luajit_build = .{
+        //     .url = "git+https://github.com/LowRezStudio/zig-luajit-build#838e4bf9961fc8f68cf3849c91bf8c045b37c96a",
+        //     .hash = "luajit_build-1.1.6-HFjoU9dAAABQaKy7RNczxnX6V3-m_Mv36aw7Iz8v65n0",
+        // },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "libs",
+        "include",
+    },
+}
