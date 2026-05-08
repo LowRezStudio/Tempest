@@ -1,9 +1,17 @@
 @import "tailwindcss";
-@plugin "daisyui" {
+@plugin "daisyui/index.js" {
 	themes: false;
 }
 @plugin "./themes/catppuccin.latte.ts";
 @plugin "./themes/catppuccin.mocha.ts";
+
+@font-face {
+	font-family: "Montserrat Variable";
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 900;
+	src: url("/fonts/Montserrat-Variable.woff2") format("woff2-variations");
+}
 
 @theme {
 	--font-sans:

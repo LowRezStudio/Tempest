@@ -1,6 +1,5 @@
 <script lang="ts">
 	import "$lib/styles/global.css";
-	import "@fontsource-variable/montserrat";
 	import "@fontsource-variable/ubuntu-sans-mono";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
 	import { platform } from "@tauri-apps/plugin-os";
