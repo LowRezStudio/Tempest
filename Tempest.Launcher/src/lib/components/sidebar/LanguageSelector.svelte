@@ -9,6 +9,7 @@
 		en: "English",
 		fr: "Français",
 		es: "Español",
+		pl: "Polski",
 	};
 
 	let currentLocale = $state(getLocale());
