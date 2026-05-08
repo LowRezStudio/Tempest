@@ -1,0 +1,12 @@
+.{
+    .name = .inject,
+    .version = "0.0.0",
+    .fingerprint = 0xbb04a5f0a6d7b1d1,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "main.zig",
+    },
+}
