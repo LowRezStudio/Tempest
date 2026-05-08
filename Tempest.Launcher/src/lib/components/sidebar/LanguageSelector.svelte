@@ -5,11 +5,11 @@
 	import { Popover } from "bits-ui";
 	import type { Locale } from "$lib/paraglide/runtime";
 
-	const localeLabels: Record<string, string> = {
-		en: "English",
-		fr: "Français",
-		es: "Español",
-		pl: "Polski",
+	const localeLabels: Record<string, { flag: string; label: string }> = {
+		en: { flag: "🇬🇧", label: "English" },
+		fr: { flag: "🇫🇷", label: "Français" },
+		es: { flag: "🇪🇸", label: "Español" },
+		pl: { flag: "🇵🇱", label: "Polski" },
 	};
 
 	let currentLocale = $state(getLocale());
@@ -23,7 +23,7 @@
 	}
 </script>
 
-<span class="group" style="anchor-scope: --lang-item;">
+<span class="wrapper" style="anchor-scope: --lang-item;">
 	<Popover.Root bind:open>
 		<Popover.Trigger
 			class="btn btn-square btn-ghost"
@@ -33,7 +33,7 @@
 			<Globe size={20} />
 		</Popover.Trigger>
 		<div
-			class="tooltip tooltip-right tooltip-open pointer-events-none fixed z-50 h-0 w-0 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100"
+			class="tip tooltip tooltip-right tooltip-open pointer-events-none fixed z-50 h-0 w-0"
 			style="position-anchor: --lang-item; top: anchor(center); left: calc(anchor(right) + 4px); transform: translateY(-50%);"
 			data-tip={m.common_language()}
 			aria-hidden="true"
@@ -57,7 +57,10 @@
 								{:else}
 									<span class="w-4"></span>
 								{/if}
-								<span>{localeLabels[loc] ?? loc.toUpperCase()}</span>
+								<span
+									>{localeLabels[loc]?.flag ?? ""}
+									{localeLabels[loc]?.label ?? loc.toUpperCase()}</span
+								>
 							</button>
 						</li>
 					{/each}
@@ -66,3 +69,14 @@
 		</Popover.Portal>
 	</Popover.Root>
 </span>
+
+<style>
+	.tip {
+		opacity: 0;
+		transition: opacity 100ms;
+	}
+	.wrapper:hover .tip,
+	.wrapper:focus-within .tip {
+		opacity: 1;
+	}
+</style>
