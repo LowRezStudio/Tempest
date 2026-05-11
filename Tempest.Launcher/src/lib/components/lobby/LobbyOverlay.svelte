@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { JoinLobbyErrorCode } from "$lib/rpc/lobby/join_lobby_error_code";
 	import { JoinLobbyClientErrorCode } from "$lib/types/lobby";
 	import LobbyOverlayDialog from "./LobbyOverlayDialog.svelte";

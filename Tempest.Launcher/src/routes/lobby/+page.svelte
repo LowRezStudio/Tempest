@@ -72,7 +72,9 @@
 			const openInstances = $processesList.filter(
 				(p) => p.instance.version === $lobbyStaticInfo?.version,
 			);
-			openInstances.forEach((i) => killGame(i.instance));
+			for (const i of openInstances) {
+				killGame(i.instance);
+			}
 		}
 	});
 	onMount(() => {

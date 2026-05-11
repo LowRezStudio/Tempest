@@ -46,7 +46,7 @@
 	}
 	function findGamemodeName(server: ServerListing) {
 		if (server.game.startsWith("TempestMp.")) {
-			return server.game.substring(server.game.indexOf(".") + 1);
+			return server.game.slice(server.game.indexOf(".") + 1);
 		}
 		return server.game;
 	}

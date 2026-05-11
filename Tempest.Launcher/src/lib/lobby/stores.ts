@@ -64,7 +64,7 @@ export const isGameServerOpen = computed(state, ($state) => !!$state.inGame?.gam
 
 export const ownChampion = computed(
 	[players, playerId],
-	($players, $playerId) => $players.find((p) => p.id == $playerId)?.champion || "",
+	($players, $playerId) => $players.find((p) => p.id === $playerId)?.champion || "",
 );
 
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;

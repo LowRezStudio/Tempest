@@ -46,7 +46,7 @@ class LobbyManager {
 			console.error("Cannot connect: lobbyHost is empty");
 			return;
 		}
-		console.log("Connecting to lobby: ", host);
+		console.log("Connecting to lobby:", host);
 		this.client = getConnectionToServer(host);
 		this.abortController = new AbortController();
 		mostRecentLobbyConnectionTime.set(new Date().toISOString());
@@ -233,7 +233,7 @@ class LobbyManager {
 		if (!player || isRunning || !player.champion || !instance) return null;
 
 		const host = lobbyHost.get();
-		const ip = host.substring(host.lastIndexOf("/") + 1, host.lastIndexOf(":"));
+		const ip = host.slice(host.lastIndexOf("/") + 1, host.lastIndexOf(":"));
 		const name = username.get();
 		const character = player.champion.toLowerCase();
 		const team = player.taskForce;
@@ -258,8 +258,7 @@ class LobbyManager {
 
 	private handleCountdownEvent(event: LobbyEventCountdown): void {
 		console.log(`Countdown: ${event.seconds} seconds`);
-		if (event.seconds === 0) this.countdown = undefined;
-		else this.countdown = event;
+		this.countdown = event.seconds === 0 ? undefined : event;
 	}
 
 	async sendChatMessage(content: string): Promise<void> {

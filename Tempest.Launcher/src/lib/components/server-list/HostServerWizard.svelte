@@ -6,6 +6,7 @@
 	import { createLaunchLobbyMutation } from "$lib/queries/lobby";
 	import { instanceMap } from "$lib/stores/instance";
 	import { servicesURL, username } from "$lib/stores/settings";
+	import { untrack } from "svelte";
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
@@ -24,7 +25,9 @@
 
 	let selectedTab = $state<"general" | "advanced">("general");
 	let selectedName = $state($username ? `${$username}'s Server` : "");
-	let selectedInstanceId = $state(instanceList.length === 1 ? instanceList[0].id : "");
+	let selectedInstanceId = $state(
+		untrack(() => (instanceList.length === 1 ? instanceList[0].id : "")),
+	);
 	let selectedTags = $state("");
 	let selectedPassword = $state("");
 	let selectedPublic = $state(false);

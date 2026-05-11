@@ -1,6 +1,6 @@
 import { goto } from "$app/navigation";
 import { lobbyManager } from "$lib/lobby/lobby-manager";
-import { lobbyHost, lobbyPassword, resetLobbyState } from "$lib/lobby/stores";
+import { lobbyHost, resetLobbyState } from "$lib/lobby/stores";
 import { lobbyServerProcessesList } from "$lib/stores/processes";
 import { atom } from "nanostores";
 import { createCommand } from "./command";
