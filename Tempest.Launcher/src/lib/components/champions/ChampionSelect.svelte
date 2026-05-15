@@ -20,6 +20,7 @@
 	let {
 		onselect,
 		confirmedChampionName,
+		// TODO: Remove 0.57 placeholder
 		gameVersion = "0.57",
 		countdownSeconds = -1,
 	}: Props = $props();
