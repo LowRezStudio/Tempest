@@ -1,50 +1,395 @@
 [
 	{
 		"displayName": "Serpent Beach",
+		"id": "TMM_P_Beach_v02",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Beach.webp",
+		"versionStart": "0.34",
+		"versionEnd": "0.36"
+	},
+	{
+		"displayName": "Serpent Beach",
 		"id": "TMM_Beach_P_v04",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Beach.webp"
+		"iconPath": "/loading-screens/Loading_Beach.webp",
+		"versionStart": "0.37",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Serpent Beach",
+		"id": "SG_Serpentbeach_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Beach.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Serpent Beach (R)",
+		"id": "SG_SerpentBeach_RW_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Beachv2.webp",
+		"versionStart": "8.1",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Jaguar Falls",
+		"id": "TMM_P_Temple_v02",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Temple.webp",
+		"versionStart": "0.34",
+		"versionEnd": "0.39"
 	},
 	{
 		"displayName": "Jaguar Falls",
 		"id": "TMM_Falls_P_v04",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Temple.webp"
+		"iconPath": "/loading-screens/Loading_Temple.webp",
+		"versionStart": "0.40",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Jaguar Falls",
+		"id": "SG_Jaguarfalls_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Temple.webp",
+		"versionStart": "2.3",
+		"versionEnd": "4.3"
+	},
+	{
+		"displayName": "Jaguar Falls",
+		"id": "SG_JaguarFalls_Rework_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Temple.webp",
+		"versionStart": "4.4",
+		"versionEnd": "8.1"
 	},
 	{
 		"displayName": "Fish Market",
 		"id": "FMM_P_Dock_v02",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Village.webp"
+		"iconPath": "/loading-screens/Loading_Village.webp",
+		"versionStart": "0.34",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Fish Market",
+		"id": "SG_Fishmarket_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Village.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
 	},
 	{
 		"displayName": "Frog Isle",
 		"id": "TMM_P_Isle_v02",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Isle.webp"
+		"iconPath": "/loading-screens/Loading_Isle.webp",
+		"versionStart": "0.34",
+		"versionEnd": "1.2"
+	},
+	{
+		"displayName": "Frog Isle",
+		"id": "SE_Tropic_Isle",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Isle.webp",
+		"versionStart": "1.3",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Frog Isle",
+		"id": "SG_FrogIsle_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Isle.webp",
+		"versionStart": "2.3",
+		"versionEnd": "3.1"
+	},
+	{
+		"displayName": "Frog Isle",
+		"id": "SG_FrogIsle_V2_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Isle.webp",
+		"versionStart": "3.2",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Ice Mines",
+		"id": "IMM_P_Mine_v02",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_NRMines.webp",
+		"versionStart": "0.34",
+		"versionEnd": "0.38"
 	},
 	{
 		"displayName": "Ice Mines",
 		"id": "IMM_Mines_P_v04",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_NRMines.webp"
+		"iconPath": "/loading-screens/Loading_NRMines.webp",
+		"versionStart": "0.39",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Ice Mines",
+		"id": "SG_Icemines_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_NRMines.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
 	},
 	{
 		"displayName": "Frozen Guard",
 		"id": "IMM_P_Igloo_v02",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_NRIgloo.webp"
+		"iconPath": "/loading-screens/Loading_NRIgloo.webp",
+		"versionStart": "0.34",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Frozen Guard",
+		"id": "SG_FrozenGuard_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_NRIgloo.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Frozen Guard (R)",
+		"id": "SGA_SG_FrozenGuard_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_NRIgloo.webp",
+		"versionStart": "3.5",
+		"versionEnd": "8.1"
 	},
 	{
 		"displayName": "Stone Keep",
 		"id": "KMM_P_v01",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Castle.webp"
+		"iconPath": "/loading-screens/Loading_Castle.webp",
+		"versionStart": "0.41",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Stone Keep",
+		"id": "SG_Stonekeep_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Castle.webp",
+		"versionStart": "2.3",
+		"versionEnd": "4.5"
+	},
+	{
+		"displayName": "Og Stone Keep",
+		"id": "SG_Stonekeep_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Castle.webp",
+		"versionStart": "6.6",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Stone Keep",
+		"id": "SG_StoneKeep_V2_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Stonekeep_Night.webp",
+		"versionStart": "4.6",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Stone Keep Day",
+		"id": "SG_StoneKeep_V2_DAY_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Stonekeep_Day.webp",
+		"versionStart": "4.6",
+		"versionEnd": "8.1"
 	},
 	{
 		"displayName": "Brightmarsh",
 		"id": "BMM_P_v01",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Atrium.webp"
+		"iconPath": "/loading-screens/Loading_Atrium.webp",
+		"versionStart": "0.49",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Brightmarsh",
+		"id": "SG_Brightmarsh_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Atrium.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Ascension Peak",
+		"id": "AMM_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_AscensionPeak.webp",
+		"versionStart": "0.68",
+		"versionEnd": "1.2"
+	},
+	{
+		"displayName": "Ascension Peak",
+		"id": "SE_Asiatic_Peak",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_AscensionPeak.webp",
+		"versionStart": "1.3",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Ascension Peak",
+		"id": "SG_Ascensionpeak_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_AscensionPeak.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Timber Mill",
+		"id": "FMM_P_v02",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Spiral.webp",
+		"versionStart": "0.33",
+		"versionEnd": "0.36"
+	},
+	{
+		"displayName": "Timber Mill",
+		"id": "FMM_Mill_P_v04",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Spiral.webp",
+		"versionStart": "0.37",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Timber Mill",
+		"id": "SG_TimberMill_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Spiral.webp",
+		"versionStart": "2.3",
+		"versionEnd": "4.1"
+	},
+	{
+		"displayName": "Og Timber Mill",
+		"id": "SG_TimberMill_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Spiral.webp",
+		"versionStart": "6.6",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Timber Mill",
+		"id": "SGA_TimberMill_New_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Spiral.webp",
+		"versionStart": "4.2",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Splitstone Quarry",
+		"id": "QMM_P_v01",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Quarry.webp",
+		"versionStart": "0.55",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Splitstone Quarry",
+		"id": "SG_SplitstoneQuarry_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Quarry.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Warder's Gate",
+		"id": "Dragon_Siege_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_DragonSiege.webp",
+		"versionStart": "1.9",
+		"versionEnd": "5.1"
+	},
+	{
+		"displayName": "Og Warder's Gate",
+		"id": "Dragon_Siege_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_DragonSiege.webp",
+		"versionStart": "6.6",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Warder's Gate",
+		"id": "SG_WardersGateV2_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_DragonSiege.webp",
+		"versionStart": "5.2",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Shattered Desert",
+		"id": "DE_Siege_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_ShatteredDesert.webp",
+		"versionStart": "2.2",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Bazaar",
+		"id": "SG_Bazaar_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Bazaar.webp",
+		"versionStart": "2.5",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Dawnforge",
+		"id": "S_CelestialFortress_P",
+		"mode": "siege",
+		"iconPath": "/loading-screens/Loading_Dawnforge.webp",
+		"versionStart": "5.7",
+		"versionEnd": "8.1"
+	},
+
+	{
+		"displayName": "Hidden Temple",
+		"id": "TPM_P_v01",
+		"mode": "payload",
+		"iconPath": "/loading-screens/Loading_Payload_Ruins.webp",
+		"versionStart": "0.34",
+		"versionEnd": "0.64"
+	},
+	{
+		"displayName": "Hidden Temple",
+		"id": "TPM_P_v01",
+		"mode": "payload",
+		"iconPath": "/loading-screens/Loading_Payload_Ruins.webp",
+		"versionStart": "6.1",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Frostbite Cavern",
+		"id": "IPM_P_v01",
+		"mode": "payload",
+		"iconPath": "/loading-screens/Loading_FrostbiteCaverns.webp",
+		"versionStart": "0.34",
+		"versionEnd": "0.64"
+	},
+	{
+		"displayName": "Frostbite Cavern",
+		"id": "IPM_P_v01",
+		"mode": "payload",
+		"iconPath": "/loading-screens/Loading_FrostbiteCaverns.webp",
+		"versionStart": "6.1",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Greenwood Outpost",
+		"id": "FPM_P_v01",
+		"mode": "payload",
+		"iconPath": "/loading-screens/Loading_Payload_Forest.webp",
+		"versionStart": "0.34",
+		"versionEnd": "0.64"
+	},
+	{
+		"displayName": "Greenwood Outpost",
+		"id": "FPM_P_v01",
+		"mode": "payload",
+		"iconPath": "/loading-screens/Loading_Payload_Forest.webp",
+		"versionStart": "6.1",
+		"versionEnd": "8.1"
 	}
 ]

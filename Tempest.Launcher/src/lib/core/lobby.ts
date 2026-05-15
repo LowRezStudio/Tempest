@@ -1,6 +1,6 @@
 import { goto } from "$app/navigation";
 import { lobbyManager } from "$lib/lobby/lobby-manager";
-import { lobbyHost } from "$lib/lobby/stores";
+import { lobbyHost, resetLobbyState } from "$lib/lobby/stores";
 import { lobbyServerProcessesList } from "$lib/stores/processes";
 import { atom } from "nanostores";
 import { createCommand } from "./command";
@@ -59,10 +59,14 @@ export const killLobby = async (process: LobbyServerProcess) => {
 };
 
 export const moveToLobby = (host: string) => {
-	lobbyHost.set(host);
-	//TODO password
+	if (lobbyHost.get() === host) {
+		goto("/lobby");
+		return;
+	}
 	if (lobbyManager.isConnected()) {
 		lobbyManager.disconnect();
 	}
+	resetLobbyState();
+	lobbyHost.set(host);
 	goto("/lobby");
 };

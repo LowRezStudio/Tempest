@@ -1,13 +1,18 @@
-import { getConnectionToServer, LobbyEvent } from "$lib/rpc";
+import { getConnectionToServer, LobbyEvent, Timestamp } from "$lib/rpc";
+import { JoinLobbyErrorCode } from "$lib/rpc/lobby/join_lobby_error_code";
 import { instanceMap } from "$lib/stores/instance";
-import { playerStore } from "$lib/stores/lobby";
 import { processesList } from "$lib/stores/processes";
 import { username } from "$lib/stores/settings";
+import { JoinLobbyClientErrorCode } from "$lib/types/lobby";
 import {
 	chatMessages,
 	connectionStatus,
+	currentCountdownSeconds,
+	joinErrorCode,
 	lobbyHost,
 	lobbyPassword,
+	lobbyStaticInfo,
+	mostRecentLobbyConnectionTime,
 	ownTeam,
 	playerId,
 	players,
@@ -28,6 +33,8 @@ import type { Instance } from "$lib/types/instance";
 class LobbyManager {
 	private client: LobbyClient | null = null;
 	private abortController: AbortController | null = null;
+	private countdownTimerInterval?: number;
+	private countdown?: LobbyEventCountdown;
 
 	connect(): void {
 		if (this.abortController && !this.abortController.signal.aborted) {
@@ -39,8 +46,19 @@ class LobbyManager {
 			console.error("Cannot connect: lobbyHost is empty");
 			return;
 		}
+		console.log("Connecting to lobby:", host);
 		this.client = getConnectionToServer(host);
 		this.abortController = new AbortController();
+		mostRecentLobbyConnectionTime.set(new Date().toISOString());
+		clearInterval(this.countdownTimerInterval);
+		this.countdownTimerInterval = setInterval(() => {
+			if (!this.countdown || !this.countdown.startTime) return;
+			const start = this.countdown.startTime;
+			const now = Timestamp.now();
+			const elapsed = Number(now.seconds - start.seconds) + (now.nanos - start.nanos) / 1e9;
+			const secondsLeft = this.countdown.seconds - Math.floor(elapsed);
+			currentCountdownSeconds.set(secondsLeft);
+		}, 250);
 		this.startEventStream();
 	}
 
@@ -56,6 +74,7 @@ class LobbyManager {
 		this.abortController.abort();
 		this.abortController = null;
 		connectionStatus.set("pending");
+		clearInterval(this.countdownTimerInterval);
 		console.log("Lobby disconnected");
 	}
 
@@ -63,12 +82,13 @@ class LobbyManager {
 		console.log("Starting to listen to event stream");
 		connectionStatus.set("pending");
 
-		while (!this.abortController?.signal.aborted) {
+		while (this.abortController !== null && !this.abortController?.signal.aborted) {
 			try {
 				const eventStream = this.getClient().receiveLobbyEvents(
-					{},
+					{ playerId: playerId.get() },
 					{ abort: this.abortController!.signal },
 				);
+				console.log("Listening to lobby events");
 				for await (const event of eventStream.responses) {
 					connectionStatus.set("connected");
 					await this.handleEvent(event);
@@ -78,8 +98,9 @@ class LobbyManager {
 				console.error("Stream error", error);
 			}
 			connectionStatus.set("disconnected");
-			if (this.abortController?.signal.aborted) return;
+			if (this.abortController == null || this.abortController?.signal.aborted) return;
 			await new Promise((r) => setTimeout(r, 5000));
+			if (this.abortController == null || this.abortController?.signal.aborted) return;
 			console.log("Reconnecting to event stream");
 		}
 	}
@@ -118,20 +139,48 @@ class LobbyManager {
 	}
 
 	private async handleInfoEvent(event: LobbyEventInfo): Promise<void> {
-		const { players: eventPlayers, state: eventState } = event;
+		const {
+			players: eventPlayers,
+			state: eventState,
+			maxPlayers,
+			passwordRequired,
+			version,
+			countdown,
+			gamemode,
+			enableJoinMidGame,
+		} = event;
 		players.set(eventPlayers);
 		if (eventState) {
 			state.set(eventState);
 		}
-		if (eventPlayers.some((p) => p.id === playerId.get())) return;
-		const joinResp = await this.getClient().joinLobby({
-			playerId: playerId.get(),
-			playerDisplayName: username.get(),
-			password: lobbyPassword.get(),
+		lobbyStaticInfo.set({
+			version,
+			maxPlayers,
+			gamemode,
+			enableJoinMidGame,
 		});
-		if (joinResp.response.result.oneofKind === "success") {
-			ticket.set(joinResp.response.result.success.ticket);
+		if (countdown) {
+			this.handleCountdownEvent(countdown);
 		}
+		if (eventPlayers.some((p) => p.id === playerId.get())) return;
+
+		const hasValidInstance = Object.values(instanceMap.get()).some(
+			(i) => i.version === version,
+		);
+		if (!hasValidInstance) {
+			joinErrorCode.set(JoinLobbyClientErrorCode.NO_VALID_INSTANCE);
+			return;
+		}
+		if (passwordRequired && !lobbyPassword.get()) {
+			joinErrorCode.set(JoinLobbyClientErrorCode.PASSWORD_REQUIRED);
+			return;
+		}
+		if (eventPlayers.length >= maxPlayers) {
+			joinErrorCode.set(JoinLobbyErrorCode.LOBBY_FULL);
+			return;
+		}
+
+		await this.joinLobby();
 	}
 
 	private handlePlayerJoinEvent(event: LobbyEventPlayerJoin): void {
@@ -170,37 +219,46 @@ class LobbyManager {
 	private handleStateUpdateEvent(event: LobbyEventStateUpdate): void {
 		const eventState = event.state;
 		console.log("State update received:", eventState);
-		if (eventState) {
-			state.set(eventState);
-		}
+		if (!eventState) return;
+		state.set(eventState);
 	}
 
 	public getLaunchGameInstance(): Instance | null {
-		//TODO remove hardcoded OB57
-		const instance = Object.values(instanceMap.get()).find((i) => i.version === "0.57");
+		const instance = Object.values(instanceMap.get()).find(
+			(i) => i.version === lobbyStaticInfo.get()?.version,
+		);
 
-		const player = playerStore.get().find((p) => p.id === playerId.get());
+		const player = players.get().find((p) => p.id === playerId.get());
 		const isRunning = processesList.get().some((p) => p.instance.id === instance?.id);
 		if (!player || isRunning || !player.champion || !instance) return null;
 
 		const host = lobbyHost.get();
-		const ip = host.substring(host.lastIndexOf("/") + 1, host.lastIndexOf(":"));
+		const ip = host.slice(host.lastIndexOf("/") + 1, host.lastIndexOf(":"));
 		const name = username.get();
 		const character = player.champion.toLowerCase();
 		const team = player.taskForce;
-		const arg = `${ip}?name=${name}?class=${character}?team=${team}?horse=2`;
+		let arg = `${ip}?name=${name}?class=${character}?team=${team}?horse=2`;
+		if (lobbyPassword.get().length > 0) {
+			arg += `?password=${lobbyPassword.get()}`;
+		}
+		let existingArgs = instance.launchOptions.args;
+		//the launch arguments could already contain an argument to join a server
+		if (existingArgs.length > 0 && !existingArgs[0].startsWith("-")) {
+			existingArgs = existingArgs.slice(1);
+		}
+
 		return {
 			...instance,
 			launchOptions: {
 				...instance.launchOptions,
-				//TODO handle arguments better. This will not work very well if the user already has launch arguments defined
-				args: [arg, ...instance.launchOptions.args],
+				args: [arg, ...existingArgs],
 			},
 		};
 	}
 
 	private handleCountdownEvent(event: LobbyEventCountdown): void {
 		console.log(`Countdown: ${event.seconds} seconds`);
+		this.countdown = event.seconds === 0 ? undefined : event;
 	}
 
 	async sendChatMessage(content: string): Promise<void> {
@@ -219,6 +277,20 @@ class LobbyManager {
 			console.log("Vote response:", response);
 		} catch (error) {
 			console.error("Error voting for map:", error);
+		}
+	}
+
+	async joinLobby(): Promise<void> {
+		joinErrorCode.set(null);
+		const joinResp = await this.getClient().joinLobby({
+			playerId: playerId.get(),
+			playerDisplayName: username.get(),
+			password: lobbyPassword.get(),
+		});
+		if (joinResp.response.result.oneofKind === "success") {
+			ticket.set(joinResp.response.result.success.ticket);
+		} else if (joinResp.response.result.oneofKind === "error") {
+			joinErrorCode.set(joinResp.response.result.error.code);
 		}
 	}
 

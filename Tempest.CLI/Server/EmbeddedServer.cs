@@ -49,12 +49,14 @@ internal sealed class EmbeddedServer
         builder.Services.AddLogging(c => c.ClearProviders());
         builder.Services.AddSingleton(_ticketStore);
         builder.Services.AddSingleton(_state);
+        builder.Services.AddSingleton<PlayerDisconnectMonitor>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<PlayerDisconnectMonitor>());
         builder.Services.AddSingleton<LobbyServiceImpl>();
         builder.Services.AddSingleton(_options);
         builder.Services.AddGrpc();
         if (_options.PublicServer && !string.IsNullOrEmpty(_options.ServicesUrl))
         {
-            builder.Services.AddHostedService<ServerListHearthbeat>();
+            builder.Services.AddHostedService<ServerListHeartbeat>();
         }
 
         _app = builder.Build();

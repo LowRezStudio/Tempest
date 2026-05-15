@@ -1,6 +1,10 @@
 <script lang="ts">
+	import allChampions from "$lib/data/champions.json";
+	import { compareVersions } from "$lib/utils/versions";
+
 	interface Champion {
 		name: string;
+		displayName: string;
 		iconPath: string;
 		fallbackPath: string;
 		videoPath: string;
@@ -9,50 +13,29 @@
 	interface Props {
 		onselect?: (champion: Champion) => void;
 		confirmedChampionName?: string;
+		gameVersion?: string;
+		countdownSeconds?: number;
 	}
 
-	let { onselect, confirmedChampionName }: Props = $props();
+	let {
+		onselect,
+		confirmedChampionName,
+		gameVersion = "0.57",
+		countdownSeconds = -1,
+	}: Props = $props();
 
-	const champions: Champion[] = [
-		"Androxus",
-		"Ash",
-		"Barik",
-		"Bomb King",
-		"Buck",
-		"Cassie",
-		"Drogoz",
-		"Evie",
-		"Fernando",
-		"Grohk",
-		"Grover",
-		"Inara",
-		"Jenos",
-		"Kinessa",
-		"Lex",
-		"Lian",
-		"Maeve",
-		"Makoa",
-		"Mal'Damba",
-		"Pip",
-		"Ruckus",
-		"Seris",
-		"Sha Lin",
-		"Skye",
-		"Strix",
-		"Talus",
-		"Terminus",
-		"Torvald",
-		"Tyra",
-		"Viktor",
-		"Vivian",
-		"Willo",
-		"Zhin",
-	].map((name) => ({
-		name,
-		iconPath: `/champions/${name}/icon.webp`,
-		fallbackPath: `/champions/${name}/fallback.webp`,
-		videoPath: `/champions/${name}/video.webm`,
-	}));
+	const champions = allChampions
+		.filter((champ) => {
+			return compareVersions(gameVersion, champ.version) >= 0;
+		})
+		.sort((a, b) => a.displayName.localeCompare(b.displayName))
+		.map((champ) => ({
+			name: champ.name,
+			displayName: champ.displayName,
+			iconPath: `/champions/${champ.displayName}/icon.webp`,
+			fallbackPath: `/champions/${champ.displayName}/fallback.webp`,
+			videoPath: `/champions/${champ.displayName}/video.webm`,
+		}));
 
 	let selectedChampion = $state<Champion | null>(null);
 	let hoveredChampion = $state<Champion | null>(null);
@@ -134,7 +117,7 @@
 			{#if previousChampion && previousChampion.name !== displayedChampion.name}
 				<img
 					src={previousChampion.fallbackPath}
-					alt={previousChampion.name}
+					alt={previousChampion.displayName}
 					class="absolute inset-0 h-full w-full object-cover object-[75%_center]"
 				/>
 			{/if}
@@ -142,7 +125,7 @@
 			<!-- Current champion fallback (always visible below video) -->
 			<img
 				src={displayedChampion.fallbackPath}
-				alt={displayedChampion.name}
+				alt={displayedChampion.displayName}
 				class="absolute inset-0 h-full w-full object-cover object-[75%_center]"
 			/>
 
@@ -184,7 +167,15 @@
 					class="mt-4 text-6xl font-bold text-white"
 					style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
 				>
-					{displayedChampion.name}
+					{displayedChampion.displayName}
+				</h2>
+			{/if}
+			{#if countdownSeconds > 0}
+				<h2
+					class="mt-4 text-6xl font-bold text-white"
+					style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
+				>
+					{countdownSeconds}
 				</h2>
 			{/if}
 		</div>
@@ -193,7 +184,7 @@
 		<div class="relative flex flex-1 flex-col items-center justify-end">
 			<div
 				bind:this={scrollContainer}
-				class="relative z-10 grid max-h-[304px] max-w-6xl grid-cols-6 gap-3 overflow-y-auto p-4 scrollbar-hide md:grid-cols-8 lg:grid-cols-11"
+				class="relative z-10 grid max-h-[304px] max-w-6xl grid-cols-6 gap-3 overflow-y-auto p-4 scrollbar-hide md:grid-cols-8 lg:grid-cols-12"
 			>
 				{#each champions as champion (champion.name)}
 					<button

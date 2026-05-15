@@ -1,0 +1,14 @@
+syntax = "proto3";
+package tempest.server_list;
+option csharp_namespace = "Tempest.Protocol.ServerList";
+
+message UpdateLobbyRequest {
+  string id = 1;
+  optional uint32 players = 2;
+  optional uint32 bots = 3;
+  optional uint32 spectators = 4;
+  optional string map = 5;
+  optional string map_id = 6;
+  optional bool joinable = 7;
+  optional bool join_in_progress = 8;
+}

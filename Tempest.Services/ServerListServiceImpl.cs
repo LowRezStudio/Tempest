@@ -46,6 +46,28 @@ public class ServerListServiceImpl : ServerList.ServerListBase
         });
     }
 
+    public override Task<UpdateLobbyResponse> UpdateLobby(UpdateLobbyRequest request, ServerCallContext context)
+    {
+        var server = _store.Get(request.Id);
+        if (server == null)
+        {
+            return Task.FromResult(new UpdateLobbyResponse
+            {
+                Error = new UpdateLobbyError { Code = UpdateLobbyErrorCode.NotFound }
+            });
+        }
+
+        if (request.HasPlayers) server.Players = request.Players;
+        if (request.HasBots) server.Bots = request.Bots;
+        if (request.HasSpectators) server.Spectators = request.Spectators;
+        if (request.HasMap) server.Map = request.Map;
+        if (request.HasMapId) server.MapId = request.MapId;
+        if (request.HasJoinable) server.Joinable = request.Joinable;
+        if (request.HasJoinInProgress) server.JoinInProgress = request.JoinInProgress;
+
+        return Task.FromResult(new UpdateLobbyResponse { Success = new UpdateLobbySuccess() });
+    }
+
     public override async Task GetServers(GetServersRequest request, IServerStreamWriter<ServerListing> responseStream, ServerCallContext context)
     {
         foreach (var server in _store.GetAll())

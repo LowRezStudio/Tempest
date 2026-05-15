@@ -1,20 +1,28 @@
 <script lang="ts">
-	import { LogOut, MessageCircle, Users, X } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
-	import ChampionSelect from "$lib/components/champions/ChampionSelect.svelte";
-	import MapSelect from "$lib/components/maps/MapSelect.svelte";
-	import Header from "$lib/components/ui/Header.svelte";
-	import maps from "$lib/data/maps.json";
+	import AfkDetector from "$lib/components/lobby/AfkDetector.svelte";
+	import LobbyChampionSelect from "$lib/components/lobby/LobbyChampionSelect.svelte";
+	import LobbyChat from "$lib/components/lobby/LobbyChat.svelte";
+	import LobbyMapVote from "$lib/components/lobby/LobbyMapVote.svelte";
+	import LobbyOverlay from "$lib/components/lobby/LobbyOverlay.svelte";
+	import LobbyWaiting from "$lib/components/lobby/LobbyWaiting.svelte";
+	import { killGame } from "$lib/core";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import {
 		chatMessages,
 		connectionStatus,
+		currentCountdownSeconds,
+		currentInstance,
 		isGameServerOpen,
 		isInChampionSelect,
 		isInGame,
 		isInMapVote,
 		isWaiting,
+		joinErrorCode,
+		lobbyPassword,
 		state as lobbyState,
+		lobbyStaticInfo,
+		ownChampion,
 		playerId,
 		players,
 		teamLeft,
@@ -23,26 +31,50 @@
 	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes";
-	import { onDestroy, onMount, tick } from "svelte";
-	import type { Instance } from "$lib/types/instance";
+	import { getMapsForVersion } from "$lib/utils/versions";
+	import { onDestroy, onMount } from "svelte";
 
-	let chatboxText = $state<string>("");
-	let chatContainer = $state<HTMLDivElement>();
-	let chatOpen = $state<boolean>(false);
-	let currentInstance = $state<Instance | null>(null);
+	const currentMap = $derived(
+		$lobbyStaticInfo?.version ?
+			getMapsForVersion($lobbyStaticInfo?.version).find(
+				(m) => m.id === $lobbyState.championSelect?.mapId,
+			)
+		:	undefined,
+	);
+	const gameRunning = $derived(
+		$processesList.some((p) => p.instance.id === $currentInstance?.id),
+	);
 
-	const currentMap = $derived(maps.find((m) => m.id === $lobbyState.championSelect?.mapId));
-	const gameRunning = $derived($processesList.some((p) => p.instance.id === currentInstance?.id));
 	const launchGameMutation = createLaunchGameMutation();
+	const runAfkDetection = $derived(
+		!!(
+			$lobbyState.inGame?.gameServerOpen &&
+			$ownChampion &&
+			!gameRunning &&
+			!launchGameMutation.isPending
+		),
+	);
 
 	$effect(() => {
-		const instance = lobbyManager.getLaunchGameInstance();
-		if (instance && $isGameServerOpen && !launchGameMutation.isPending && !currentInstance) {
-			currentInstance = instance;
-			launchGameMutation.mutate(instance);
+		if (
+			$isGameServerOpen &&
+			!gameRunning &&
+			!launchGameMutation.isPending &&
+			ownChampion &&
+			!$currentInstance
+		) {
+			console.log("Trying to launch the game!");
+			handleJoinGame();
 		}
 		if (!$isGameServerOpen) {
-			currentInstance = null;
+			currentInstance.set(null);
+			//TODO maybe ask user before closing instances
+			const openInstances = $processesList.filter(
+				(p) => p.instance.version === $lobbyStaticInfo?.version,
+			);
+			for (const i of openInstances) {
+				killGame(i.instance);
+			}
 		}
 	});
 	onMount(() => {
@@ -55,13 +87,16 @@
 		}
 	});
 
-	async function handleSendChatMessage() {
-		await lobbyManager.sendChatMessage(chatboxText);
-		chatboxText = "";
+	async function handleSendChatMessage(message: string) {
+		await lobbyManager.sendChatMessage(message);
 	}
 
 	async function handleChampionSelect(championName: string) {
 		await lobbyManager.selectChampion(championName);
+	}
+	async function handleJoinMidGame(championName: string) {
+		await lobbyManager.selectChampion(championName);
+		handleJoinGame();
 	}
 
 	async function handleMapSelect(mapId: string) {
@@ -72,16 +107,30 @@
 		await lobbyManager.leaveLobby();
 		goto("/servers");
 	}
-	function handleRejoin() {
-		if (!currentInstance) return;
-		launchGameMutation.mutate(currentInstance);
+	async function handleJoin() {
+		await lobbyManager.joinLobby();
 	}
-
-	function getPlayerStatus(player: { id: string; champion?: string }): string {
-		if ($lobbyState.mapVote && player.id in $lobbyState.mapVote.votes) {
-			return m.lobby_voted();
+	function handleJoinGame() {
+		const instance = lobbyManager.getLaunchGameInstance();
+		if (instance) {
+			console.log("Found instance. Launching game!");
+			currentInstance.set(instance);
+			launchGameMutation.mutate(instance);
+		} else {
+			console.error("Unable to create instance");
+			console.error(
+				"Game running",
+				gameRunning,
+				"Champion",
+				ownChampion,
+				"LobbyInfo",
+				lobbyStaticInfo,
+			);
 		}
-		return player.champion || m.lobby_not_ready();
+	}
+	async function handlePasswordSubmit(password: string) {
+		lobbyPassword.set(password);
+		await lobbyManager.joinLobby();
 	}
 </script>
 
@@ -91,293 +140,69 @@
 
 <div class="flex flex-col h-full bg-base-100">
 	{#if $isInChampionSelect}
-		<div class="relative h-full w-full">
-			<div class="absolute inset-0 z-10">
-				<div class="absolute top-0 left-0 p-4 z-20">
-					<div class="flex flex-col gap-2">
-						{#each $teamLeft as player (player.id)}
-							<div
-								class="flex items-center gap-3 bg-base-200/90 backdrop-blur-xs rounded-lg p-2"
-							>
-								<img
-									src={`/champions/${player.champion || "Generic"}/icon.webp`}
-									alt={player.champion}
-									class="w-12 h-12 rounded-full ring-2 ring-base-300"
-									loading="lazy"
-								/>
-								<div class="min-w-0">
-									<p class="font-semibold truncate">{player.displayName}</p>
-									<p class="text-sm opacity-70">{getPlayerStatus(player)}</p>
-								</div>
-							</div>
-						{/each}
-					</div>
-				</div>
-
-				<div class="absolute top-0 right-0 p-4 z-20">
-					<div class="flex flex-col gap-2">
-						{#each $teamRight as player (player.id)}
-							<div
-								class="flex items-center gap-3 bg-base-200/90 backdrop-blur-xs rounded-lg p-2"
-							>
-								<img
-									src={`/champions/${player.champion || "Generic"}/icon.webp`}
-									alt={player.champion}
-									class="w-12 h-12 rounded-full ring-2 ring-base-300"
-									loading="lazy"
-								/>
-								<div class="min-w-0">
-									<p class="font-semibold truncate">{player.displayName}</p>
-									<p class="text-sm opacity-70">{getPlayerStatus(player)}</p>
-								</div>
-							</div>
-						{/each}
-					</div>
-				</div>
-
-				{#if currentMap}
-					<div class="absolute top-0 right-0 p-4 z-20 mt-36">
-						<div class="bg-base-200/90 backdrop-blur-xs rounded-lg p-3 w-48">
-							<p class="text-sm opacity-70 mb-1">{m.lobby_playing_on()}</p>
-							<p class="font-semibold">{currentMap.displayName}</p>
-							<img
-								src={currentMap.iconPath}
-								alt={currentMap.displayName}
-								class="w-full h-24 object-cover rounded mt-2"
-							/>
-						</div>
-					</div>
-				{/if}
-			</div>
-
-			<ChampionSelect
-				confirmedChampionName={$players.find((p) => p.id == playerId.get())?.champion}
-				onselect={(champ) => handleChampionSelect(champ.name)}
-			/>
-		</div>
+		<LobbyChampionSelect
+			teamLeft={$teamLeft}
+			teamRight={$teamRight}
+			{currentMap}
+			confirmedChampion={$ownChampion}
+			{handleChampionSelect}
+			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
+			countdownSeconds={$currentCountdownSeconds}
+		/>
 	{:else if $isInMapVote}
-		<div class="relative h-full w-full">
-			<div class="absolute inset-0">
-				<video
-					src="/champions/empty.webm"
-					class="h-full w-full object-cover blur-xs"
-					loop
-					muted
-					playsinline
-					autoplay
-				></video>
-			</div>
-
-			<div class="relative z-10 flex flex-col h-full">
-				<Header title={m.lobby_map_vote()} class="bg-base-200/90 backdrop-blur-xs">
-					{#snippet icon()}
-						<Users size={32} class="opacity-60" />
-					{/snippet}
-					{#snippet actions()}
-						<button class="btn btn-error" onclick={handleLeave}>
-							<LogOut size={18} />
-							{m.lobby_leave_lobby()}
-						</button>
-					{/snippet}
-					{#snippet subtitle()}
-						<span>{$players.length} {m.lobby_players()}</span>
-					{/snippet}
-				</Header>
-
-				<div class="flex-1 overflow-y-auto">
-					<MapSelect
-						onselect={(map) => handleMapSelect(map.id)}
-						selectMode="vote"
-						votes={$lobbyState.mapVote?.votes}
-					/>
-				</div>
-			</div>
-		</div>
+		<LobbyMapVote
+			{handleLeave}
+			playerCount={$players.length}
+			{handleMapSelect}
+			votes={$lobbyState.mapVote?.votes}
+			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
+			gamemode={$lobbyStaticInfo?.gamemode || "siege"}
+			countdownSeconds={$currentCountdownSeconds}
+		/>
 	{:else}
-		<Header title={$isInGame ? m.lobby_game_in_progress() : m.lobby_title()}>
-			{#snippet icon()}
-				<Users size={32} class="opacity-60" />
-			{/snippet}
-			{#snippet actions()}
-				{#if !gameRunning && !launchGameMutation.isPending && $isGameServerOpen && currentInstance}
-					<button class="btn btn-accent" onclick={handleRejoin}
-						>{m.lobby_rejoin_game()}</button
-					>
-				{/if}
-				<button class="btn btn-error" onclick={handleLeave}>
-					{m.lobby_leave_lobby()}
-				</button>
-			{/snippet}
-			{#snippet subtitle()}
-				{#if $isWaiting}
-					<span>
-						{m.lobby_waiting_for_players({
-							current: $players.length,
-							min: $lobbyState.waiting?.minPlayers ?? 0,
-						})}
-					</span>
-				{:else if $connectionStatus === "pending"}
-					<span class="inline-flex items-center gap-2">
-						<span class="loading loading-spinner loading-xs"></span>
-						{m.lobby_connecting()}
-					</span>
-				{:else if !$isGameServerOpen}
-					<span class="inline-flex items-center gap-2">
-						<span class="loading loading-spinner loading-xs"></span>
-						{m.lobby_waiting_for_server()}
-					</span>
-				{:else if launchGameMutation.isPending}
-					<span class="inline-flex items-center gap-2">
-						<span class="loading loading-spinner loading-xs"></span>
-						{m.lobby_launching_game()}
-					</span>
-				{:else}
-					<span>{$players.length} {m.lobby_players()}</span>
-				{/if}
-			{/snippet}
-		</Header>
-
-		<div class="flex-1 flex flex-col overflow-hidden bg-base-100 relative">
-			<div class="absolute inset-0">
-				<video
-					src="/champions/empty.webm"
-					class="h-full w-full object-cover blur-xs"
-					loop
-					muted
-					playsinline
-					autoplay
-				></video>
-			</div>
-
-			<div class="relative z-10 flex h-full items-center justify-center gap-12 p-8">
-				<div class="flex flex-col gap-2">
-					{#each $teamLeft as player (player.id)}
-						<div
-							class="flex items-center gap-3 bg-base-200/90 backdrop-blur-xs rounded-lg p-2"
-						>
-							<img
-								src={`/champions/${player.champion || "Generic"}/icon.webp`}
-								alt={player.champion}
-								class="w-12 h-12 rounded-full ring-2 ring-base-300"
-								loading="lazy"
-							/>
-							<div class="min-w-0">
-								<p class="font-semibold truncate">{player.displayName}</p>
-								<p class="text-sm opacity-70">
-									{player.champion || m.lobby_not_ready()}
-								</p>
-							</div>
-						</div>
-					{/each}
-				</div>
-
-				<div class="flex flex-col gap-2">
-					{#each $teamRight as player (player.id)}
-						<div
-							class="flex items-center gap-3 bg-base-200/90 backdrop-blur-xs rounded-lg p-2"
-						>
-							<img
-								src={`/champions/${player.champion || "Generic"}/icon.webp`}
-								alt={player.champion}
-								class="w-12 h-12 rounded-full ring-2 ring-base-300"
-								loading="lazy"
-							/>
-							<div class="min-w-0">
-								<p class="font-semibold truncate">{player.displayName}</p>
-								<p class="text-sm opacity-70">
-									{player.champion || m.lobby_not_ready()}
-								</p>
-							</div>
-						</div>
-					{/each}
-				</div>
-			</div>
-		</div>
+		<LobbyWaiting
+			isGameInProgress={$isInGame}
+			isWaiting={$isWaiting}
+			isPendingConnection={$connectionStatus === "pending"}
+			isGameServerLaunching={!$isGameServerOpen && !$lobbyState.inGame?.gameServerError}
+			isLobbyRestarting={!!$lobbyState.inGame?.gameServerFinishedRunning}
+			isLaunchingClient={launchGameMutation.isPending}
+			canRejoinGame={!!(
+				!gameRunning &&
+				!launchGameMutation.isPending &&
+				$isGameServerOpen &&
+				ownChampion
+			)}
+			canRejoinLobby={!$players.some((p) => p.id === playerId.get()) &&
+				$players.length < ($lobbyStaticInfo?.maxPlayers || 0)}
+			canJoinMidGame={!!$lobbyStaticInfo?.enableJoinMidGame && !ownChampion}
+			playerCount={$players.length}
+			minimumPlayerCount={$lobbyState.waiting?.minPlayers || 0}
+			teamLeft={$teamLeft}
+			teamRight={$teamRight}
+			countdownSeconds={$currentCountdownSeconds}
+			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
+			{currentMap}
+			handleRejoinGame={handleJoinGame}
+			handleRejoinLobby={handleJoin}
+			{handleJoinMidGame}
+			{handleLeave}
+		/>
 	{/if}
-
-	{#if chatOpen}
-		<div
-			class="absolute bottom-4 left-4 z-20 w-96 bg-base-200/95 backdrop-blur-xs rounded-lg shadow-xl flex flex-col max-h-96"
-		>
-			<div class="px-3 py-2 border-b border-base-300 flex items-center justify-between">
-				<div class="flex items-center gap-2">
-					<MessageCircle size={16} />
-					<span class="font-semibold text-sm">{m.lobby_team_chat()}</span>
-				</div>
-				<button
-					class="btn btn-ghost btn-sm btn-square"
-					onclick={() => (chatOpen = false)}
-					aria-label={m.lobby_close_chat()}
-				>
-					<X size={14} />
-				</button>
-			</div>
-
-			<div class="flex-1 overflow-y-auto p-3 min-h-0" bind:this={chatContainer}>
-				{#if $chatMessages.length === 0}
-					<p class="text-sm opacity-50 text-center py-2">{m.lobby_no_messages()}</p>
-				{:else}
-					<div class="flex flex-col gap-1.5">
-						{#each $chatMessages as msg (msg.sentAt)}
-							<div class="text-sm">
-								<span class="font-semibold">{msg.username}</span>
-								<span class="opacity-70">: {msg.content}</span>
-							</div>
-						{/each}
-					</div>
-				{/if}
-			</div>
-
-			<div class="p-2 border-t border-base-300">
-				<input
-					type="text"
-					class="input input-bordered input-sm w-full"
-					disabled={$connectionStatus !== "connected"}
-					placeholder={m.lobby_type_message()}
-					maxlength={100}
-					autocomplete="off"
-					bind:value={chatboxText}
-					onkeydown={(e) => e.key == "Enter" && handleSendChatMessage()}
-				/>
-			</div>
-		</div>
-	{:else}
-		<button
-			class="btn btn-accent absolute bottom-4 left-4 z-20"
-			onclick={() => {
-				chatOpen = true;
-				tick().then(() => {
-					if (!chatContainer) return;
-					chatContainer.scrollTop = chatContainer.scrollHeight;
-				});
-			}}
-		>
-			<MessageCircle size={18} />
-			{m.lobby_chat()}
-		</button>
-	{/if}
-
-	{#if $connectionStatus === "disconnected" || $lobbyState.inGame?.gameServerError}
-		<div
-			class="absolute inset-0 flex items-center justify-center z-30 bg-black/50 pointer-events-none"
-		>
-			<div class="modal-box flex flex-col items-center gap-4 opacity-100 pointer-events-auto">
-				<p class="font-semibold text-lg">
-					{#if $connectionStatus === "disconnected"}
-						{m.lobby_connection_lost()}
-					{:else}
-						{m.lobby_gameserver_crashed()}
-					{/if}
-				</p>
-				<p class="text-sm opacity-70 text-center">
-					{#if $connectionStatus === "disconnected"}
-						{m.lobby_reconnecting()}
-					{:else}
-						{m.lobby_lobby_restarting()}
-					{/if}
-				</p>
-				<span class="loading loading-spinner loading-md"></span>
-			</div>
-		</div>
-	{/if}
+	<LobbyChat
+		messages={$chatMessages}
+		disabled={$connectionStatus !== "connected"}
+		{handleSendChatMessage}
+	/>
+	<LobbyOverlay
+		disconnected={$connectionStatus === "disconnected"}
+		gameServerError={!!$lobbyState.inGame?.gameServerError}
+		joinErrorCode={$joinErrorCode}
+		{handlePasswordSubmit}
+		{handleJoin}
+		lobbyVersion={$lobbyStaticInfo?.version || "unknown"}
+		maxPlayerCount={$lobbyStaticInfo?.maxPlayers || 0}
+		playerCount={$players.length}
+	/>
+	<AfkDetector {runAfkDetection} onAfk={handleLeave} />
 </div>

@@ -5,4 +5,6 @@ option csharp_namespace = "Tempest.Protocol.Lobby";
 message LobbyStateInGame {
 	bool game_server_open = 1;
 	bool game_server_error = 2;
+	bool game_server_finished_running = 3;
+	string map_id = 4;
 }

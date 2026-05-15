@@ -1,5 +1,6 @@
-using System.Collections.Concurrent;
 using Google.Protobuf.WellKnownTypes;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using Tempest.CLI.Launcher;
 using Tempest.Protocol.Lobby;
 
@@ -20,8 +21,10 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             MinPlayers = (uint)options.MinPlayers
         }
     };
-
-    public IReadOnlyCollection<LobbyPlayer> Players => _players.Values.ToList();
+    private CancellationTokenSource? _countdownCts;
+    private LobbyEventCountdown? _countdown;
+    private Process? _gameProcess;
+    private bool _gameServerKilledIntentionally;
 
     public bool TryJoin(string id, string displayName, string? password, out JoinLobbyResponse response)
     {
@@ -56,15 +59,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
             PlayerJoin = new LobbyEventPlayerJoin { Player = player }
         });
-        //for now starting the map voting when the minimum number of players have joined
-        //A countdown should be implemented in the future
-        if (_players.Count >= _options.MinPlayers && _state.Waiting != null)
-        {
-            SetState(new Protocol.Lobby.LobbyState
-            {
-                MapVote = new LobbyStateMapVote()
-            });
-        }
+        StateMachine();
 
         var ticket = _ticketStore.Issue(id);
         response = new JoinLobbyResponse { Success = new JoinLobbySuccess { Ticket = ticket } };
@@ -76,7 +71,6 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         if (_players.TryRemove(id, out var player))
         {
             _ticketStore.RevokeTickets(id);
-            //removing map vote
             if (_state.MapVote != null)
             {
                 _state.MapVote.Votes.Remove(id);
@@ -87,11 +81,15 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
                 PlayerLeave = new LobbyEventPlayerLeave { PlayerId = player.Id }
             });
+            StateMachine();
             return true;
         }
         return false;
     }
-
+    public bool KickPlayer(string id)
+    {
+        return TryLeave(id);
+    }
     public void SendChat(string playerId, string content)
     {
         var evt = new LobbyEvent
@@ -119,76 +117,16 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
             PlayerUpdate = new LobbyEventPlayerUpdate { Player = player }
         });
-        //Starting the game when all players have selected a champion
-        //A countdown should be implemented in the future
-        bool allHaveSelected = _players.Values.All(p => p.Champion != null && p.Champion.Length > 0);
-        if (allHaveSelected)
-        {
-            var mapId = _state.ChampionSelect.MapId;
-            SetState(new Protocol.Lobby.LobbyState
-            {
-                InGame = new LobbyStateInGame
-                {
-                    GameServerOpen = false
-                }
-            });
-            StartGameServer(mapId);
-        } 
+        StateMachine();
         return true;
     }
-    private async void StartGameServer(string mapId)
+    public void Vote(string playerId, string mapId)
     {
-        string champions = string.Join(",", _players.Where(p => p.Value.Champion.Length > 0).Select(p => p.Value.Champion.ToLower()));
-        //TODO other gamemodes
-        string[] args = ["server", $"{mapId}?game=TempestMp.SiegeDEV?allowedChampions={champions}?maxplayers={_options.MaxPlayers}"];
-        var process = await LauncherCommands.LaunchGame(_options.Path, args, _options.NoDefaultArgs, _options.Platform, _options.Game, _options.Dll, true);
-        SetState(new Protocol.Lobby.LobbyState
-        {
-            InGame = new LobbyStateInGame
-            {
-                GameServerOpen = true
-            }
-        });
-     
-        await process.WaitForExitAsync();
-        if (process.ExitCode != 0)
-        {
-            Console.WriteLine($"Paladins server returned an error code: {process.ExitCode}");
-            SetState(new Protocol.Lobby.LobbyState
-            {
-                InGame = new LobbyStateInGame
-                {
-                    GameServerOpen = false,
-                    GameServerError = true
-                }
-            });
-            //TODO use countdown
-            await Task.Delay(10000);
-        }
-        Reset();
-    }
-    private void Reset()
-    {
-        foreach (var player in _players.Values.ToList())
-        {
-            player.Champion = string.Empty;
-        }
-
-        if (_players.Count >= _options.MinPlayers)
-        {
-            _state = new Protocol.Lobby.LobbyState
-            {
-                MapVote = new LobbyStateMapVote()
-            };
-        } else
-        {
-            _state = new Protocol.Lobby.LobbyState
-            {
-                Waiting = new LobbyStateWaiting()
-            };
-        }
-        Publish(GetInfoEvent());
-    }
+        if (_state.MapVote == null) return;
+        _state.MapVote.Votes[playerId] = mapId;
+        PublishState();
+        StateMachine();
+    }   
 
     public bool TryGetPlayerIdFromTicket(string ticket, out string playerId) => _ticketStore.TryGetPlayerId(ticket, out playerId);
 
@@ -200,30 +138,189 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         }
         return false;
     }
-
-    public void Vote(string playerId, string mapId)
+    //this method should be called when state is modified.
+    private void StateMachine()
     {
-        if (_state.MapVote == null) return;
-        _state.MapVote.Votes[playerId] = mapId;
-        bool everyoneHasVoted = _state.MapVote.Votes.Count >= _players.Count && _state.MapVote.Votes.Count > 0;
-        if (everyoneHasVoted)
+        if (_state.Waiting != null)
         {
-            string mostVotedMap = _state.MapVote.Votes.GroupBy(t => t.Value).OrderByDescending(g => g.Count()).First().Key;
-            SetState(new Protocol.Lobby.LobbyState
-            {
-                ChampionSelect = new LobbyStateChampionSelect
-                {
-                    MapId = mostVotedMap
-                }
-            });
+            bool enoughPlayers = _players.Count >= _options.MinPlayers;
+            if (enoughPlayers && _countdown == null) StartCountdown(10, EndWaiting);
+            else if (!enoughPlayers) CancelCountdown();
         }
-        PublishState();
+        else if (_state.MapVote != null)
+        {
+            bool everyoneHasVoted = _state.MapVote.Votes.Count >= _players.Count && _state.MapVote.Votes.Count > 0;
+            bool oneHasVoted = _state.MapVote.Votes.Count > 0;
+            if (everyoneHasVoted) StartCountdown(5, EndMapVote);
+            else if (_countdown == null && oneHasVoted) StartCountdown(15, EndMapVote);
+        }
+        else if (_state.ChampionSelect != null)
+        {
+            bool allHaveSelected = _players.Values.All(p => p.Champion != null && p.Champion.Length > 0);
+            bool oneHasSelected = _players.Values.Any(p => p.Champion != null && p.Champion.Length > 0);
+            if (allHaveSelected) StartCountdown(5, EndChampionSelect);
+            else if (_countdown == null && oneHasSelected) StartCountdown(60, EndChampionSelect);
+        }
+        else if (_state.InGame != null)
+        {
+            bool everyoneHasLeft = _players.Values.All(p => p.Champion == null || p.Champion.Length == 0);
+            if (everyoneHasLeft && !_state.InGame.GameServerFinishedRunning)
+                KillGameServer();
+            if (_state.InGame.GameServerFinishedRunning && _countdown == null)
+                StartCountdown(10, EndInGame);
+        }
     }
+    private void EndWaiting()
+    {
+        SetState(new Protocol.Lobby.LobbyState { MapVote = new LobbyStateMapVote() });
+    }
+
+    private void EndMapVote()
+    {
+        //selecting the most voted map and breaking ties by choosing randomly
+        var groups = _state.MapVote.Votes.GroupBy(t => t.Value).ToList();
+        int maxVotes = groups.Max(g => g.Count());
+        var topMaps = groups.Where(g => g.Count() == maxVotes).ToList();
+        string mapId = topMaps[Random.Shared.Next(topMaps.Count)].Key;
+        SetState(new Protocol.Lobby.LobbyState { ChampionSelect = new LobbyStateChampionSelect { MapId = mapId } });
+    }
+
+    private void EndChampionSelect()
+    {
+        var mapId = _state.ChampionSelect.MapId;
+        foreach (var player in _players.Values)
+        {
+            if (player.Champion == null || player.Champion.Length == 0)
+            {
+                KickPlayer(player.Id);
+            }
+        }
+        SetState(new Protocol.Lobby.LobbyState { InGame = new LobbyStateInGame {
+            MapId = mapId,
+        } });
+        StartGameServer(mapId);
+    }
+    private void EndInGame()
+    {
+        foreach (var player in _players.Values.ToList())
+        {
+            player.Champion = string.Empty;
+        }
+        //not using SetState because it would cause an unnecessary state update
+        if (_players.Count >= _options.MinPlayers)
+        {
+            _state = new Protocol.Lobby.LobbyState { MapVote = new LobbyStateMapVote() };
+        }
+        else
+        {
+            _state = new Protocol.Lobby.LobbyState
+            {
+                Waiting = new LobbyStateWaiting
+                {
+                    MinPlayers = (uint)_options.MinPlayers
+                }
+            };
+        }
+        StateMachine();
+        Publish(GetInfoEvent());
+    }
+
+    private async void StartGameServer(string mapId)
+    {
+        string champions = string.Join(",", _players.Where(p => p.Value.Champion.Length > 0).Select(p => p.Value.Champion.ToLower()));
+        string serverArgs = $"{mapId}?game={_options.GameMode}?allowedChampions={champions},maldamba?maxplayers={_options.MaxPlayers}";
+        if (_options.Password != null && _options.Password.Length > 0)
+        {
+            serverArgs += $"?password={_options.Password}";
+        }
+        string[] args = ["server", serverArgs];
+        var process = await LauncherCommands.LaunchGame(_options.Path, args, _options.NoDefaultArgs, _options.Platform, _options.Game, _options.Dll, true);
+        _gameProcess = process;
+        SetState(new Protocol.Lobby.LobbyState
+        {
+            InGame = new LobbyStateInGame
+            {
+                GameServerOpen = true,
+                MapId = mapId,
+            }
+        });
+
+        await process.WaitForExitAsync();
+        _gameProcess = null;
+
+        SetState(new Protocol.Lobby.LobbyState
+        {
+            InGame = new LobbyStateInGame
+            {
+                GameServerFinishedRunning = true,
+                GameServerError = process.ExitCode != 0 && !_gameServerKilledIntentionally,
+                MapId = mapId
+            }
+        });
+        _gameServerKilledIntentionally = false;
+    }
+
+    private void KillGameServer()
+    {
+        var process = _gameProcess;
+        if (process == null || process.HasExited) return;
+        _gameServerKilledIntentionally = true;
+        try { process.Kill(); }
+        catch (Exception ex) { Console.WriteLine($"Failed to kill game server: {ex.Message}"); }
+    }
+
+
+
     private void SetState(Protocol.Lobby.LobbyState state)
     {
         _state = state;
         PublishState();
+        StateMachine();
     }
+
+    private void CancelCountdown()
+    {
+        if (_countdown == null) return;
+        //letting clients know that countdown has ended
+        Publish(new LobbyEvent
+        {
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            Countdown = new LobbyEventCountdown
+            {
+                StartTime = Timestamp.FromDateTime(DateTime.UtcNow),
+                Seconds = 0
+            }
+        });
+        _countdownCts?.Cancel();
+        _countdown = null;
+    }
+
+    private Task StartCountdown(uint seconds, Action? onExpired = null)
+    {
+        _countdownCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _countdownCts = cts;
+        _countdown = new LobbyEventCountdown
+        {
+            StartTime = Timestamp.FromDateTime(DateTime.UtcNow),
+            Seconds = seconds
+        };
+        Publish(new LobbyEvent { Timestamp = Timestamp.FromDateTime(DateTime.UtcNow), Countdown = _countdown });
+        return RunCountdownAsync(seconds, onExpired, cts.Token);
+    }
+
+    private async Task RunCountdownAsync(uint seconds, Action? onExpired, CancellationToken ct)
+    {
+        try { await Task.Delay(TimeSpan.FromSeconds(seconds), ct); }
+        catch (OperationCanceledException)
+        {
+            _countdown = null;
+            return;
+        }
+        _countdown = null;
+        onExpired?.Invoke();
+    }
+
     private void PublishState()
     {
         Publish(new LobbyEvent
@@ -241,7 +338,13 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         var info = new LobbyEventInfo
         {
             Name = _options.Name,
-            State = _state
+            State = _state,
+            Version = _options.Version,
+            PasswordRequired = _options.Password != null && !_options.Password.Equals(string.Empty),
+            MaxPlayers = (uint) _options.MaxPlayers,
+            Countdown = _countdown,
+            Gamemode = _options.GameMode,
+            EnableJoinMidGame = _options.EnableJoiningMidGame,
         };
         info.Players.AddRange(_players.Values);
         return new LobbyEvent
@@ -249,6 +352,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             Info = info,
         };
     }
+
     private static JoinLobbyResponse Error(JoinLobbyErrorCode code, string message) => new()
     {
         Error = new JoinLobbyError

@@ -2,17 +2,47 @@
 	import "$lib/styles/global.css";
 	import "@fontsource-variable/ubuntu-sans-mono";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
+	import { getCurrentWindow } from "@tauri-apps/api/window";
 	import { platform } from "@tauri-apps/plugin-os";
 	import { page } from "$app/state";
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
+	import AppCloseLobbyWizard from "$lib/components/lobby/AppCloseLobbyWizard.svelte";
 	import HostServerWizard from "$lib/components/server-list/HostServerWizard.svelte";
+	import JoinServerWizard from "$lib/components/server-list/JoinServerWizard.svelte";
 	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
 	import ToastStack from "$lib/components/ui/ToastStack.svelte";
-	import { hostServerWizardOpen, instanceWizardOpen } from "$lib/stores/ui";
+	import { lobbyManager } from "$lib/lobby/lobby-manager";
+	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores";
+	import {
+		appCloseLobbyWizardOpen,
+		hostServerWizardOpen,
+		instanceWizardOpen,
+		joinServerWizardOpen,
+	} from "$lib/stores/ui";
 	import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
+
+	clearStaleConnectionIfNeeded();
 
 	const { children } = $props();
 	const queryClient = new QueryClient();
+
+	$effect(() => {
+		const appWindow = getCurrentWindow();
+		let unlisten: (() => void) | undefined;
+		appWindow
+			.onCloseRequested(async (event) => {
+				event.preventDefault();
+				if (lobbyManager.isConnected()) {
+					appCloseLobbyWizardOpen.set(true);
+				} else {
+					await appWindow.destroy();
+				}
+			})
+			.then((fn) => {
+				unlisten = fn;
+			});
+		return () => unlisten?.();
+	});
 
 	$effect(() => {
 		polyfillCountryFlagEmojis();
@@ -52,6 +82,8 @@
 		</main>
 		<InstanceWizard bind:open={$instanceWizardOpen} />
 		<HostServerWizard bind:open={$hostServerWizardOpen} />
+		<JoinServerWizard bind:open={$joinServerWizardOpen} />
+		<AppCloseLobbyWizard bind:open={$appCloseLobbyWizardOpen} />
 	</div>
 	<ToastStack />
 </QueryClientProvider>

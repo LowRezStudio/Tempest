@@ -7,6 +7,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { createKillLobbyServerMutation } from "$lib/queries/lobby";
 	import { lobbyServerProcessesList } from "$lib/stores/processes";
+	import { tick } from "svelte";
 
 	let activeTab = $state<"logs">("logs");
 
@@ -35,6 +36,21 @@
 			goto("/servers");
 		}
 	}
+	let logContainer = $state<HTMLDivElement>();
+
+	$effect(() => {
+		$logs?.length; // dependency
+		if (!logContainer) return;
+		const nearBottom =
+			logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 40;
+		if (!nearBottom) return;
+
+		tick().then(() => {
+			if (!logContainer) return;
+			logContainer.scrollTop = logContainer.scrollHeight;
+		});
+	});
+
 	function join() {
 		if (!process) return;
 		moveToLobby(`http://127.0.0.1:${process.createOptions.port}`);
@@ -84,7 +100,7 @@
 
 	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
 		{#if activeTab === "logs"}
-			<div class="px-4 py-6 overflow-y-auto">
+			<div class="px-4 py-6 overflow-y-auto" bind:this={logContainer}>
 				{#each $logs as log (log.id)}
 					<div>
 						{log.error ? `ERR: ${log.line}` : log.line}

@@ -1,0 +1,8 @@
+syntax = "proto3";
+package tempest.server_list;
+option csharp_namespace = "Tempest.Protocol.ServerList";
+
+enum UpdateLobbyErrorCode {
+  UPDATE_LOBBY_ERROR_CODE_UNSPECIFIED = 0;
+  NOT_FOUND = 1;
+}

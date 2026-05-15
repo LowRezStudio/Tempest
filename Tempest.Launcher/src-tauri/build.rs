@@ -150,5 +150,49 @@ fn main() {
 
     println!("cargo:warning=.NET CLI built successfully");
 
+    // Build Zig utilities (asmloader DLLs)
+    println!("cargo:warning=Building Zig utilities");
+
+    let utils_project_path = current_dir.join("../../Tempest.Utils");
+
+    if !utils_project_path.exists() {
+        panic!("Tempest.Utils project directory not found");
+    }
+
+    let zig_output = Command::new("zig")
+        .arg("build")
+        .arg("--release=safe")
+        .current_dir(&utils_project_path)
+        .output()
+        .expect("Failed to execute zig build");
+
+    if !zig_output.status.success() {
+        panic!(
+            "Failed to build Zig utilities: {}",
+            String::from_utf8_lossy(&zig_output.stderr)
+        );
+    }
+
+    // Copy asmloader DLLs
+    let zig_lib_dir = utils_project_path.join("zig-out/bin");
+    let files_to_copy = [
+        "asmloader-windows_x86.dll",
+        "asmloader-windows_x86_64.dll",
+    ];
+
+    for file in &files_to_copy {
+        let src = zig_lib_dir.join(file);
+        if src.exists() {
+            let dst = binaries_dir.join(file);
+            fs::copy(&src, &dst)
+                .unwrap_or_else(|e| panic!("Failed to copy {file}: {e}"));
+            println!("cargo:warning=Copied asmloader binary: {file}");
+        } else {
+            panic!("Expected asmloader binary not found: {}", src.display());
+        }
+    }
+
+    println!("cargo:warning=Zig utilities built successfully");
+
     tauri_build::build()
 }

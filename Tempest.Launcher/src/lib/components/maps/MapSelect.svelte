@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { Check, Map } from "@lucide/svelte";
-	import maps from "$lib/data/maps.json";
+	import { Check } from "@lucide/svelte";
 	import { playerId, players } from "$lib/lobby/stores";
+	import { compareVersions, getMapsForVersion } from "$lib/utils/versions";
 
 	interface PaladinsMap {
 		id: string;
@@ -14,11 +14,16 @@
 		onselect?: (map: PaladinsMap) => void;
 		selectMode?: "vote" | "select";
 		votes?: Record<string, string>;
+		gameVersion: string;
+		gamemode: string;
 	}
 
-	let { onselect, selectMode = "select", votes }: Props = $props();
+	let { onselect, selectMode = "select", votes, gameVersion, gamemode }: Props = $props();
 
 	let selectedMapId = $state<string | null>(null);
+	const filteredMaps = $derived(
+		getMapsForVersion(gameVersion).filter((m) => gamemode.toLowerCase().includes(m.mode)),
+	);
 
 	function getVoteCount(mapId: string): number {
 		if (!votes) return 0;
@@ -59,11 +64,11 @@
 	});
 </script>
 
-<div class="h-full w-full overflow-y-auto flex items-center">
+<div class="h-full w-full overflow-y-auto">
 	<div
-		class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-4 auto-rows-fr w-full"
+		class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-4 auto-rows-fr w-full lg:px-35"
 	>
-		{#each maps as map (map.id)}
+		{#each filteredMaps as map (map.id)}
 			{@const voteCount = getVoteCount(map.id)}
 			{@const totalVotes = getTotalVotes()}
 			{@const voters = getVotersForMap(map.id)}
