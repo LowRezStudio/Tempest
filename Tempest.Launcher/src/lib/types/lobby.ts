@@ -17,7 +17,7 @@ export type LobbyServerOptions = {
 	platform?: string;
 	game?: string;
 	dll?: string[];
-	"enable-joining-mid-game": boolean;
+	"enable-join-in-progress": boolean;
 };
 export enum JoinLobbyClientErrorCode {
 	PASSWORD_REQUIRED = 100,
