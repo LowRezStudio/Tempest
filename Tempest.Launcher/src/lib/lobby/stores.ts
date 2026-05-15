@@ -1,10 +1,11 @@
 import { persistentAtom } from "@nanostores/persistent";
 import { Timestamp } from "$lib/rpc";
+import { getMapsForVersion } from "$lib/utils/versions";
 import { atom, computed } from "nanostores";
 import type { LobbyState } from "$lib/rpc";
 import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
 import type { Instance } from "$lib/types/instance";
-import type { ExtendedJoinLobbyErrorCode } from "$lib/types/lobby";
+import type { ExtendedJoinLobbyErrorCode, Map as LobbyMap } from "$lib/types/lobby";
 
 export type ConnectionStatus = "connected" | "disconnected" | "pending";
 
@@ -17,7 +18,23 @@ export interface LobbyStaticInfo {
 	version: string;
 	maxPlayers: number;
 	gamemode: string;
-	enableJoinMidGame: boolean;
+	enableJoinInProgress: boolean;
+}
+
+export interface LobbyWaitingState {
+	isGameInProgress: boolean;
+	isWaiting: boolean;
+	isPendingConnection: boolean;
+	isGameServerLaunching: boolean;
+	isLobbyRestarting: boolean;
+	canRejoinGame: boolean;
+	canRejoinLobby: boolean;
+	canJoinInProgress: boolean;
+	playerCount: number;
+	minimumPlayerCount: number;
+	countdownSeconds: number;
+	gameVersion: string;
+	currentMap?: LobbyMap;
 }
 
 export const playerId = persistentAtom<string>("lobbyPlayerId", crypto.randomUUID());
@@ -94,3 +111,56 @@ export function resetLobbyState(): void {
 	currentInstance.set(null);
 	currentCountdownSeconds.set(-1);
 }
+
+export const lobbyWaitingState = computed(
+	[
+		isInGame,
+		isWaiting,
+		connectionStatus,
+		isGameServerOpen,
+		state,
+		lobbyStaticInfo,
+		players,
+		playerId,
+		ownChampion,
+		currentCountdownSeconds,
+	],
+	(
+		$isInGame,
+		$isWaiting,
+		$connectionStatus,
+		$isGameServerOpen,
+		$state,
+		$lobbyStaticInfo,
+		$players,
+		$playerId,
+		$ownChampion,
+		$currentCountdownSeconds,
+	) => {
+		const version = $lobbyStaticInfo?.version ?? "0.57"; // TODO: Remove 0.57 placeholder
+		const currentMap =
+			$lobbyStaticInfo?.version ?
+				getMapsForVersion($lobbyStaticInfo.version).find(
+					(m) => m.id === $state.championSelect?.mapId,
+				)
+			:	undefined;
+
+		return {
+			isGameInProgress: $isInGame,
+			isWaiting: $isWaiting,
+			isPendingConnection: $connectionStatus === "pending",
+			isGameServerLaunching: !$isGameServerOpen && !$state.inGame?.gameServerError,
+			isLobbyRestarting: !!$state.inGame?.gameServerFinishedRunning,
+			canRejoinGame: !!($isGameServerOpen && $ownChampion),
+			canRejoinLobby:
+				!$players.some((p) => p.id === $playerId) &&
+				$players.length < ($lobbyStaticInfo?.maxPlayers || 0),
+			canJoinInProgress: !!$lobbyStaticInfo?.enableJoinInProgress && !$ownChampion,
+			playerCount: $players.length,
+			minimumPlayerCount: $state.waiting?.minPlayers || 0,
+			countdownSeconds: $currentCountdownSeconds,
+			gameVersion: version,
+			currentMap,
+		} satisfies LobbyWaitingState;
+	},
+);

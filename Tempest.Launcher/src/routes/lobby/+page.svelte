@@ -94,7 +94,7 @@
 	async function handleChampionSelect(championName: string) {
 		await lobbyManager.selectChampion(championName);
 	}
-	async function handleJoinMidGame(championName: string) {
+	async function handleJoinInProgress(championName: string) {
 		await lobbyManager.selectChampion(championName);
 		handleJoinGame();
 	}
@@ -140,6 +140,7 @@
 
 <div class="flex flex-col h-full bg-base-100">
 	{#if $isInChampionSelect}
+		<!-- TODO: Remove 0.57 placeholder -->
 		<LobbyChampionSelect
 			teamLeft={$teamLeft}
 			teamRight={$teamRight}
@@ -150,6 +151,7 @@
 			countdownSeconds={$currentCountdownSeconds}
 		/>
 	{:else if $isInMapVote}
+		<!-- TODO: Remove 0.57 placeholder -->
 		<LobbyMapVote
 			{handleLeave}
 			playerCount={$players.length}
@@ -161,31 +163,9 @@
 		/>
 	{:else}
 		<LobbyWaiting
-			isGameInProgress={$isInGame}
-			isWaiting={$isWaiting}
-			isPendingConnection={$connectionStatus === "pending"}
-			isGameServerLaunching={!$isGameServerOpen && !$lobbyState.inGame?.gameServerError}
-			isLobbyRestarting={!!$lobbyState.inGame?.gameServerFinishedRunning}
-			isLaunchingClient={launchGameMutation.isPending}
-			canRejoinGame={!!(
-				!gameRunning &&
-				!launchGameMutation.isPending &&
-				$isGameServerOpen &&
-				ownChampion
-			)}
-			canRejoinLobby={!$players.some((p) => p.id === playerId.get()) &&
-				$players.length < ($lobbyStaticInfo?.maxPlayers || 0)}
-			canJoinMidGame={!!$lobbyStaticInfo?.enableJoinMidGame && !ownChampion}
-			playerCount={$players.length}
-			minimumPlayerCount={$lobbyState.waiting?.minPlayers || 0}
-			teamLeft={$teamLeft}
-			teamRight={$teamRight}
-			countdownSeconds={$currentCountdownSeconds}
-			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
-			{currentMap}
 			handleRejoinGame={handleJoinGame}
 			handleRejoinLobby={handleJoin}
-			{handleJoinMidGame}
+			{handleJoinInProgress}
 			{handleLeave}
 		/>
 	{/if}
