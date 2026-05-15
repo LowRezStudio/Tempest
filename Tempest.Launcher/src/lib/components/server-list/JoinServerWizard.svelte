@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { moveToLobby } from "$lib/core/lobby";
+	import { isValidHost } from "$lib/utils/network";
 
 	interface Props {
 		open?: boolean;
@@ -11,7 +12,7 @@
 	let selectedHost = $state<string>("");
 	let selectedPort = $state<number>(50051);
 
-	const valid = $derived(selectedHost.trim().length > 0);
+	const valid = $derived(isValidHost(selectedHost));
 
 	function handleJoin() {
 		moveToLobby(`http://${selectedHost}:${selectedPort}`);

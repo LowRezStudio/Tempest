@@ -14,7 +14,7 @@
 
 	//automatically scroll to bottom if near the bottom when new messages come (40px thresshold)
 	$effect(() => {
-		messages.length; //dependency
+		void messages.length; // dependency
 		if (!chatContainer) return;
 		const nearBottom =
 			chatContainer.scrollTop + chatContainer.clientHeight >= chatContainer.scrollHeight - 40;

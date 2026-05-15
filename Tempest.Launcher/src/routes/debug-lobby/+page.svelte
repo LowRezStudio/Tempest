@@ -42,7 +42,7 @@ Makes it possible to add players, vote maps and select champions
 		};
 	};
 	const champions: string[] = allChampions.map((c) => c.name);
-	const maps = getMapsForVersion("0.57");
+	const maps = getMapsForVersion("0.57"); // TODO: Remove 0.57 placeholder
 	async function openStreamForPlayer(id: string) {
 		const eventStream = client.receiveLobbyEvents(
 			{ playerId: id },

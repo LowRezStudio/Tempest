@@ -39,7 +39,7 @@
 	let logContainer = $state<HTMLDivElement>();
 
 	$effect(() => {
-		$logs?.length; // dependency
+		void $logs?.length; // dependency
 		if (!logContainer) return;
 		const nearBottom =
 			logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 40;
