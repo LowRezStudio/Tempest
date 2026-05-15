@@ -14,6 +14,6 @@ message LobbyEventInfo {
   string version = 5;
   bool password_required = 6;
   string gamemode = 8;
-  bool enable_join_mid_game = 9;
+  bool enable_join_in_progress = 9;
   optional LobbyEventCountdown countdown = 7;
 }

@@ -60,7 +60,7 @@
 			"no-default-args": options.noDefaultArgs,
 			dll: options.dllList,
 			//currently hard coded to false because the server preloads the champions
-			"enable-joining-mid-game": false,
+			"enable-join-in-progress": false,
 		});
 		open = false;
 	}
