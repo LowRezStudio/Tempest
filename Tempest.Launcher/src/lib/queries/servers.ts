@@ -22,6 +22,6 @@ export function createServersQuery() {
 	return createQuery(() => ({
 		queryKey: ["servers"],
 		queryFn: fetchServers,
-		refetchInterval: 2000,
+		refetchInterval: 60000,
 	}));
 }

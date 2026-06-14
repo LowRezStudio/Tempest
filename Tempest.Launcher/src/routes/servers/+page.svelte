@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { RefreshCw, Search, Server, ServerCrash, TriangleAlert } from "@lucide/svelte";
+	import {
+		RefreshCw,
+		Search,
+		Server,
+		ServerCrash,
+		ServerOff,
+		TriangleAlert,
+	} from "@lucide/svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { moveToLobby } from "$lib/core/lobby";
 	import maps from "$lib/data/maps.json";
@@ -151,12 +158,22 @@
 						<span>{formatQueryError(serversQuery.error)}</span>
 					</div>
 				{:else if servers.length === 0}
-					<div role="alert" class="alert alert-info">
-						<span>{m.serverlist_no_servers()}</span>
+					<div class="flex flex-col items-center justify-center h-64 gap-4">
+						<ServerOff size={48} class="opacity-30" />
+						<p class="text-lg text-base-content/50">{m.serverlist_no_servers()}</p>
+						<p class="text-sm text-base-content/40">
+							{m.serverlist_no_servers_hint()}
+						</p>
 					</div>
 				{:else if filteredServers.length === 0}
-					<div role="alert" class="alert alert-info">
-						<span>{m.serverlist_no_servers_matching()}</span>
+					<div class="flex flex-col items-center justify-center h-64 gap-4">
+						<Search size={48} class="opacity-30" />
+						<p class="text-lg text-base-content/50">
+							{m.serverlist_no_servers_matching()}
+						</p>
+						<p class="text-sm text-base-content/40">
+							{m.serverlist_no_servers_matching_hint()}
+						</p>
 					</div>
 				{:else}
 					<div class="overflow-x-auto">

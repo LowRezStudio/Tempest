@@ -1,101 +1,128 @@
-## MCP Tools
+# AGENTS.md — Tempest
 
-Use the Svelte MCP server for Svelte 5 / SvelteKit documentation:
+Compact context for OpenCode sessions. Prefer executable sources over this file; verify commands against the current repo.
 
-1. **list-sections** - Call FIRST to discover available docs sections.
-2. **get-documentation** - Fetch ALL relevant sections for the user's task.
-3. **svelte-autofixer** - MUST run on all Svelte code before presenting it. Repeat until clean.
-4. **playground-link** - Only after user confirms, and NEVER if code was written to files.
+## Repository layout
 
----
+Mixed stack, split by directory:
 
-## Svelte 5 (REQUIRED)
+- Root `.NET 10` solution: `Tempest.slnx`
+  - `MarshalLib`, `MarshalLib.Database`
+  - `Tempest.Protocol` — gRPC/protobuf contract, C# generated automatically by `Grpc.Tools`
+  - `Tempest.CLI` — console app / launcher backend, references `MarshalLib`, `MarshalLib.Database`, `Tempest.Protocol`
+  - `Tempest.Services` — ASP.NET Core gRPC server
+- `Tempest.Utils/` — Zig 0.15.2 native tools (`asmloader`, `upkpatcher`, `mctsparser`)
+- `Tempest.Launcher/` — Tauri v2 + SvelteKit 5 + Vite + TypeScript desktop frontend
 
-Legacy Svelte 3/4 syntax is NOT allowed.
+## Required tooling
 
-| Correct (Svelte 5)                  | WRONG (Legacy)                        |
-| ----------------------------------- | ------------------------------------- |
-| `let count = $state(0)`             | `let count = 0` with `$:` reactivity |
-| `let doubled = $derived(count * 2)` | `$: doubled = count * 2`             |
-| `let { name } = $props()`           | `export let name`                    |
-| `$effect(() => {...})`              | `onMount()`, `$:` for side effects   |
-| `onclick={handler}`                 | `on:click={handler}`                 |
-| `{@render children()}`              | `<slot />`                           |
+- .NET SDK `10.0.100` (see `global.json`, `rollForward: latestFeature`)
+- Zig `0.15.2`
+- Rust stable (only for the launcher)
+- Node.js `>= 22` with Corepack enabled (only for the launcher)
 
-### Props
+## .NET commands
 
-```svelte
-<script lang="ts">
-	interface Props {
-		title: string;
-		count?: number;
-		children?: Snippet;
-	}
-	let { title, count = 0, children }: Props = $props();
-</script>
+```bash
+# Build the whole solution
+dotnet build Tempest.slnx
+
+# Run the CLI (from repo root)
+dotnet run --project Tempest.CLI -- --help
+
+# Run a CLI subcommand
+dotnet run --project Tempest.CLI -- server --help
+
+# Publish the CLI (AOT by default on Tempest.CLI.csproj)
+dotnet publish -c Release Tempest.CLI
+# Output: Tempest.CLI/bin/Release/net10.0/publish/
+
+# Run the gRPC services server
+dotnet run --project Tempest.Services
 ```
 
-### Snippets (not slots)
+Notes:
+- Building `Tempest.CLI` triggers an MSBuild target (`BuildZigInject`) that compiles `Tempest.CLI/inject/` with `zig build -Doptimize=ReleaseSmall`. Zig must be on `PATH`.
+- `Tempest.Services` listens on `0.0.0.0:5197` (HTTP/1) and `0.0.0.0:5198` (HTTP/2). See `Program.cs`.
 
-```svelte
-<script lang="ts">
-	import type { Snippet } from "svelte";
-	interface Props { header: Snippet; children: Snippet }
-	let { header, children }: Props = $props();
-</script>
+## Zig / native utils commands
 
-<header>{@render header()}</header>
-<main>{@render children()}</main>
+```bash
+# Fast development build
+just dev
+# or explicitly
+zig build --build-file Tempest.Utils/build.zig -Doptimize=Debug
+
+# Release builds
+just fast     # ReleaseFast
+just small    # ReleaseSmall
+zig build --build-file Tempest.Utils/build.zig -Doptimize=ReleaseSafe
 ```
 
-### Shared State
+Artifacts land in `Tempest.Utils/zig-out/bin/`. The launcher bundle consumes the `asmloader-windows_*.dll` outputs.
 
-Global state uses **nanostores** (`@nanostores/persistent` for persistence) in `src/lib/stores/`. Use `.svelte.ts` with `$state` only for component-local shared state.
+## Launcher commands
 
----
+All run from `Tempest.Launcher/`:
 
-## Tailwind CSS v4 (REQUIRED)
+```bash
+corepack enable        # one-time
+pnpm install
 
-Use `@import "tailwindcss"` (NOT `@tailwind base/components/utilities`). Configure theme in CSS with `@theme`, not JavaScript. Use `@utility` for custom utilities (NOT `@layer components`).
+# Dev desktop app (Tauri + Vite)
+pnpm tauri dev
+# Vite dev server is fixed to http://localhost:1420
 
-### Renamed Utilities
+# Production-like Tauri build
+pnpm tauri build
+# Bundles appear in src-tauri/target/release/bundle/
 
-| v4 (CORRECT)     | v3 (WRONG)     |
-| ---------------- | -------------- |
-| `shadow-xs`      | `shadow-sm`    |
-| `shadow-sm`      | `shadow`       |
-| `rounded-xs`     | `rounded-sm`   |
-| `rounded-sm`     | `rounded`      |
-| `outline-hidden` | `outline-none` |
-| `ring-3`         | `ring`         |
+# Type-check / Svelte-check
+pnpm check
 
-### Other v4 Changes
+# Lint (oxlint)
+pnpm lint
 
-- CSS vars: `bg-(--color)` not `bg-[--color]`
-- Important: `flex!` not `!flex`
-- Borders/rings default to `currentColor` - always specify colors explicitly
-- Variants apply left-to-right (opposite of v3)
+# Format (Prettier, whole launcher)
+pnpm fmt
 
----
+# Regenerate TS protobuf clients from ../Tempest.Protocol
+pnpm proto-generate
+```
 
-## daisyUI 5
+Notes:
+- Package manager is `pnpm` only; `packageManager` is pinned in `package.json`.
+- `pnpm install` runs `prepare`, which installs Husky hooks from the repo root.
+- Husky pre-commit: `cd Tempest.Launcher && pnpm fmt && git add --update`.
+- `pnpm tauri build` bundles external `tempest-cli` and `asmloader` binaries. If they are missing, the bundle step fails; the dev server does not need them. See `src-tauri/tauri.conf.json` and `.github/workflows/release.yml`.
 
-See `Tempest.Launcher/docs/daisyui.md` for full component reference.
+## Code generation
 
-1. **NEVER make up components.** Check docs for available class names.
-2. **NEVER use `bg-*`/`text-*` on buttons.** Use `btn-accent`, `btn-neutral`, `btn-ghost`, etc.
-3. **NEVER add spacing utilities to buttons.** They have built-in spacing.
-4. **Use `*-accent` instead of `*-primary`/`*-secondary`** for highlighted elements.
-5. **Use `bg-base-100`/`200`/`300`** for backgrounds.
+Do not hand-edit generated files:
 
----
+- `Tempest.Launcher/src/lib/paraglide/` — generated by `@inlang/paraglide-js` from `messages/*.json` via the Vite plugin. Source language is `en`; supported: `en`, `fr`, `es`, `pl`.
+- `Tempest.Launcher/src/lib/rpc/` — generated from `Tempest.Protocol/**/*.proto` by `pnpm proto-generate` (uses `protoc --ts_out` + `@protobuf-ts/plugin`).
+- `Tempest.Protocol` C# outputs — generated automatically by `Grpc.Tools` on `dotnet build`.
+- `Tempest.CLI/inject/zig-out/bin/inject{32,64}.exe` — generated by the `BuildZigInject` MSBuild target.
 
-## Component Policy
+If you change `.proto` files, rebuild the solution and run `pnpm proto-generate`.
 
-Use components from `Tempest.Launcher/src/lib/components/`. Check for existing components before creating new ones. New components go in `src/lib/components/` with the appropriate subdirectory (`ui/`, `sidebar/`, `library/`, etc.). Components must follow `$lib/styles/global.css`. Do NOT create one-off components inside route folders.
+## Style / verification conventions
 
----
+- Prettier config is in `Tempest.Launcher/prettier.config.js`. Defaults: tabs, semi, double quotes, print width 100. YAML uses spaces/tabs override; Svelte uses the Svelte parser.
+- `Tempest.Launcher/.editorconfig`: tabs for most files, spaces for `.rs`.
+- Launcher lint: `oxlint` with config in `.oxlintrc.json`. Generated `src/lib/rpc/**` and `.svelte-kit/**` are ignored.
+- Launcher is an SPA: `+layout.ts` disables SSR/prerender and enables CSR. Static adapter with `fallback: "index.html"`.
+- TypeScript is strict; `tsconfig.json` extends `.svelte-kit/tsconfig.json`.
+- No test projects currently exist; verification is build + `pnpm check` + `pnpm lint`.
 
-## Documentation Policy
+## Release / CI
 
-NEVER create `.md` files in the project root or source directories. If explicitly requested, place them in `Tempest.Launcher/docs/`.
+`.github/workflows/release.yml` builds cross-platform Tauri bundles on tags (`v*`) or manual dispatch:
+
+- Windows → MSI, macOS → DMG, Ubuntu → AppImage
+- Installs .NET 10, Zig 0.15.2, Rust, Node 22, pnpm
+- Uses `pnpm install --frozen-lockfile` and `tauri-apps/tauri-action@v0`
+- Uploads artifacts and creates a draft GitHub release
+
+For local release builds, match the CI environment and ensure the sidecar binaries exist.

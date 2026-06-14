@@ -24,8 +24,6 @@ namespace Tempest.Services
                 var now = Timestamp.FromDateTime(DateTime.UtcNow);
                 var requests = servers.Select(async (server) =>
                 {
-                    //remove when demo entry is no longer needed
-                    if (server.Tags.Contains("demo")) return;
                     bool alive = await PingServer(server, stoppingToken);
                     if (alive)
                     {
