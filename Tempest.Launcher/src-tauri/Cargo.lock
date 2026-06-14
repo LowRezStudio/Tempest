@@ -5162,6 +5162,7 @@ dependencies = [
 name = "tempest-launcher"
 version = "1.0.0-dev.0"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "tauri",
@@ -5175,6 +5176,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-sql",
  "tauri-plugin-updater",
+ "windows",
 ]
 
 [[package]]

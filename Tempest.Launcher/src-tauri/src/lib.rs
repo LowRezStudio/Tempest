@@ -1,6 +1,8 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use tauri::scope::Scopes;
 
+mod child_cleanup;
+
 #[tauri::command]
 fn scopes_allow_directory(
     scopes: tauri::State<'_, Scopes>,
@@ -24,7 +26,9 @@ fn scopes_forbid_file(scopes: tauri::State<'_, Scopes>, path: String) -> Result<
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+	child_cleanup::setup();
+
+	tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
