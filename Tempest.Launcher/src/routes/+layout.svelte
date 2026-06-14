@@ -49,7 +49,9 @@
 		document.documentElement.dataset.platform = platform();
 
 		const handleContextMenu = (event: Event) => {
-			event.preventDefault();
+			if (!import.meta.env.DEV) {
+				event.preventDefault();
+			}
 		};
 		const handleDragStart = (event: Event) => {
 			event.preventDefault();

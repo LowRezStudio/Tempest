@@ -148,9 +148,10 @@
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">
 				{#if isLoading}
-					<div role="alert" class="alert alert-info">
-						<span class="loading loading-spinner loading-sm"></span>
-						<span>{m.serverlist_loading()}</span>
+					<div class="flex flex-col items-center justify-center h-64 gap-4">
+						<span class="loading loading-spinner loading-lg text-base-content/50"
+						></span>
+						<p class="text-lg text-base-content/50">{m.serverlist_loading()}</p>
 					</div>
 				{:else if error}
 					<div role="alert" class="alert alert-error">

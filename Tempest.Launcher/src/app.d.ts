@@ -13,5 +13,3 @@ declare global {
 }
 
 export {};
-
-declare module "@fontsource-variable/*";
