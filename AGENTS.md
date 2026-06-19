@@ -70,6 +70,8 @@ corepack enable        # one-time
 pnpm install
 
 # Dev desktop app (Tauri + Vite)
+# Build Tempest.CLI first; dev commands run it directly via `dotnet exec`
+dotnet build Tempest.slnx
 pnpm tauri dev
 # Vite dev server is fixed to http://localhost:1420
 
@@ -83,9 +85,6 @@ pnpm check
 # Lint (oxlint)
 pnpm lint
 
-# Format (Prettier, whole launcher)
-pnpm fmt
-
 # Regenerate TS protobuf clients from ../Tempest.Protocol
 pnpm proto-generate
 ```
@@ -93,7 +92,6 @@ pnpm proto-generate
 Notes:
 - Package manager is `pnpm` only; `packageManager` is pinned in `package.json`.
 - `pnpm install` runs `prepare`, which installs Husky hooks from the repo root.
-- Husky pre-commit: `cd Tempest.Launcher && pnpm fmt && git add --update`.
 - `pnpm tauri build` bundles external `tempest-cli` and `asmloader` binaries. If they are missing, the bundle step fails; the dev server does not need them. See `src-tauri/tauri.conf.json` and `.github/workflows/release.yml`.
 
 ## Code generation
@@ -109,7 +107,6 @@ If you change `.proto` files, rebuild the solution and run `pnpm proto-generate`
 
 ## Style / verification conventions
 
-- Prettier config is in `Tempest.Launcher/prettier.config.js`. Defaults: tabs, semi, double quotes, print width 100. YAML uses spaces/tabs override; Svelte uses the Svelte parser.
 - `Tempest.Launcher/.editorconfig`: tabs for most files, spaces for `.rs`.
 - Launcher lint: `oxlint` with config in `.oxlintrc.json`. Generated `src/lib/rpc/**` and `.svelte-kit/**` are ignored.
 - Launcher is an SPA: `+layout.ts` disables SSR/prerender and enables CSR. Static adapter with `fallback: "index.html"`.

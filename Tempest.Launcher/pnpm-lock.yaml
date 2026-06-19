@@ -97,6 +97,9 @@ importers:
       dax:
         specifier: ^0.46.1
         version: 0.46.1
+      ghostty-web:
+        specifier: ^0.4.0
+        version: 0.4.0
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -1589,6 +1592,12 @@ packages:
     engines: { node: ^8.16.0 || ^10.6.0 || >=11.0.0 }
     os: [darwin]
 
+  ghostty-web@0.4.0:
+    resolution:
+      {
+        integrity: sha512-0puDBik2qapbD/QQBW9o5ZHfXnZBqZWx/ctBiVtKZ6ZLds4NYb+wZuw1cRLXZk9zYovIQ908z3rvFhexAvc5Hg==,
+      }
+
   graceful-fs@4.2.11:
     resolution:
       {
@@ -2936,6 +2945,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  ghostty-web@0.4.0: {}
 
   graceful-fs@4.2.11: {}
 

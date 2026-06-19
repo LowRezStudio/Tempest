@@ -1,7 +1,7 @@
 import { goto } from "$app/navigation";
 import { lobbyManager } from "$lib/lobby/lobby-manager";
 import { lobbyHost, resetLobbyState } from "$lib/lobby/stores";
-import { lobbyServerProcessesList } from "$lib/stores/processes";
+import { appendProcessLog, lobbyServerProcessesList } from "$lib/stores/processes";
 import { atom } from "nanostores";
 import { createCommand } from "./command";
 import type { LobbyServerOptions } from "$lib/types/lobby";
@@ -47,6 +47,7 @@ export const hostLobby = async (options: LobbyServerOptions) => {
 	let nextId = 0;
 	function addLog(line: string, error: boolean) {
 		process.logs.set([...process.logs.get(), { id: nextId++, line, error }].slice(-200));
+		appendProcessLog(line, error, "lobby");
 	}
 
 	lobbyServerProcessesList.set([...lobbyServerProcessesList.get(), process]);

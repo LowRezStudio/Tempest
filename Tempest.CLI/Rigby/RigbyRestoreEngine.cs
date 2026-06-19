@@ -25,11 +25,10 @@ internal static class RigbyRestoreEngine
                 return new RestoreResult(true, patchedBytes, Math.Max(0, task.File.Size - patchedBytes));
         }
 
-        await RebuildFileAsync(task, chunksRoot, baseUrl, noDownload, http, cancellationToken);
-        return new RestoreResult(true, task.File.Size, 0);
+        return await RebuildFileAsync(task, chunksRoot, baseUrl, noDownload, http, cancellationToken);
     }
 
-    private static async Task RebuildFileAsync(
+    private static async Task<RestoreResult> RebuildFileAsync(
         RestoreTask task,
         string? chunksRoot,
         string? baseUrl,
@@ -40,14 +39,91 @@ internal static class RigbyRestoreEngine
         RigbyOutputLayout.EnsureParent(task.OutputPath);
         var tempPath = task.OutputPath + ".rigby.tmp";
 
-        await using var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        var totalSize = 0L;
+        for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
+            totalSize += task.Chunks[i].Length;
+
+        if (File.Exists(tempPath) && new FileInfo(tempPath).Length == totalSize)
+        {
+            if (await IsFileValidAsync(tempPath, task.File, cancellationToken))
+            {
+                File.Move(tempPath, task.OutputPath, true);
+                return new RestoreResult(false, 0, task.File.Size);
+            }
+            File.Delete(tempPath);
+        }
+
+        var existingBytes = 0L;
+        var startChunkIndex = task.File.ChunkStart;
+        if (File.Exists(tempPath))
+        {
+            var tempLength = new FileInfo(tempPath).Length;
+            if (tempLength > totalSize)
+            {
+                File.Delete(tempPath);
+            }
+            else
+            {
+                for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
+                {
+                    var chunkLen = task.Chunks[i].Length;
+                    if (existingBytes + chunkLen <= tempLength)
+                    {
+                        existingBytes += chunkLen;
+                        startChunkIndex = i + 1;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                if (existingBytes < tempLength)
+                {
+                    using var truncateStream = new FileStream(tempPath, FileMode.Open, FileAccess.Write, FileShare.None);
+                    truncateStream.SetLength(existingBytes);
+                }
+            }
+        }
+
+        await using var output = new FileStream(tempPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         using var fileSha256 = SHA256.Create();
         using var fileMd5 = MD5.Create();
         var fileBlake3 = Hasher.New();
 
         long written = 0;
+        long newBytesWritten = 0;
 
-        for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
+        if (existingBytes > 0)
+        {
+            output.Position = 0;
+            var buffer = ArrayPool<byte>.Shared.Rent(1024 * 1024);
+            try
+            {
+                var remaining = existingBytes;
+                while (remaining > 0)
+                {
+                    var toRead = (int)Math.Min(buffer.Length, remaining);
+                    var read = await output.ReadAsync(buffer.AsMemory(0, toRead), cancellationToken);
+                    if (read == 0)
+                        throw new InvalidOperationException($"Unexpected end of temp file: {tempPath}");
+
+                    fileSha256.TransformBlock(buffer, 0, read, null, 0);
+                    fileMd5.TransformBlock(buffer, 0, read, null, 0);
+                    fileBlake3.Update(buffer.AsSpan(0, read));
+                    remaining -= read;
+                    written += read;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+
+            output.Position = existingBytes;
+        }
+
+        for (var i = startChunkIndex; i < task.File.ChunkEnd; i++)
         {
             if (i < 0 || i >= task.Chunks.Count)
                 throw new InvalidOperationException($"Invalid chunk range for file: {task.File.Path}");
@@ -65,6 +141,7 @@ internal static class RigbyRestoreEngine
             fileMd5.TransformBlock(raw, 0, raw.Length, null, 0);
             fileBlake3.Update(raw);
             written += raw.Length;
+            newBytesWritten += raw.Length;
         }
 
         fileSha256.TransformFinalBlock([], 0, 0);
@@ -90,6 +167,8 @@ internal static class RigbyRestoreEngine
         await output.FlushAsync(cancellationToken);
         output.Close();
         File.Move(tempPath, task.OutputPath, true);
+
+        return new RestoreResult(true, newBytesWritten, existingBytes);
     }
 
     private static async Task<long> PatchMismatchedChunksAsync(

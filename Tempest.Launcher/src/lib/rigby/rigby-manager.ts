@@ -1,4 +1,5 @@
 import { createCommand } from "$lib/core/command";
+import { logCommandOutput } from "$lib/stores/processes";
 import { restoreError, restoreResult, restoreStatus } from "./stores";
 import type { RestoreResult } from "./stores";
 
@@ -35,6 +36,7 @@ export class RigbyManager {
 
 		try {
 			const command = createCommand(args);
+			logCommandOutput(command, "rigby");
 			let stdout = "";
 			let stderr = "";
 

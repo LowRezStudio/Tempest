@@ -36,7 +36,7 @@ export interface QueueItem {
 	chunksRoot?: string;
 	baseUrl?: string;
 	noDownload?: boolean;
-	status: "pending" | "running" | "complete" | "error";
+	status: "pending" | "running" | "paused" | "complete" | "error";
 	result?: RestoreResult;
 	progress?: ProgressEvent;
 	error?: string;
@@ -60,6 +60,10 @@ export const hasRestoreError = computed(restoreError, ($error) => $error !== nul
 export const queuePendingCount = computed(
 	queueItems,
 	($items) => $items.filter((i) => i.status === "pending").length,
+);
+export const queuePausedCount = computed(
+	queueItems,
+	($items) => $items.filter((i) => i.status === "paused").length,
 );
 export const queueCompletedCount = computed(
 	queueItems,

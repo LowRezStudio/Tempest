@@ -1,7 +1,9 @@
-export type UnpreparedState = {
-	type: "unprepared";
-	status: "downloading" | "paused";
-	percentage: number;
+export type DownloadingState = {
+	type: "downloading";
+};
+
+export type PausedState = {
+	type: "paused";
 };
 
 export type PreparedState = {
@@ -12,7 +14,7 @@ export type SetupState = {
 	type: "setup";
 };
 
-export type InstanceState = UnpreparedState | SetupState | PreparedState;
+export type InstanceState = DownloadingState | PausedState | SetupState | PreparedState;
 
 export const instancePlatforms = ["Win64", "Win32"] as const;
 

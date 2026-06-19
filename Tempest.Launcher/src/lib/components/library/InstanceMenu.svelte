@@ -26,9 +26,11 @@
 
 	let showDeleteConfirm = $state(false);
 
-	let isSettingUp = $derived((instance.state as { type: string }).type === "setup");
-	let isDownloading = $derived((instance.state as { type: string }).type === "downloading");
-	let isReady = $derived((instance.state as { type: string }).type === "prepared");
+	let isSettingUp = $derived(instance.state.type === "setup");
+	let isDownloading = $derived(instance.state.type === "downloading");
+	let isPaused = $derived(instance.state.type === "paused");
+	let isReady = $derived(instance.state.type === "prepared");
+	let isActive = $derived(isDownloading || isPaused);
 	let canRestore = $derived(
 		instance?.version && instance?.path && isPre20Version(instance.version),
 	);
@@ -43,7 +45,7 @@
 	async function handleDeleteConfirm(deleteData: boolean) {
 		if (!instance) return;
 
-		if (isDownloading && instance.path) {
+		if (isActive && instance.path) {
 			restoreQueue.cancel(instance.path);
 		}
 
@@ -65,7 +67,7 @@
 
 	async function runSetup(targetInstance: Instance) {
 		updateInstance(targetInstance.id, {
-			state: { type: "setup" } as unknown as Instance["state"],
+			state: { type: "setup" },
 		});
 		try {
 			await setupInstanceMutation.mutateAsync(targetInstance);
@@ -73,7 +75,7 @@
 			console.error("Instance setup failed:", error);
 		} finally {
 			updateInstance(targetInstance.id, {
-				state: { type: "prepared" } as unknown as Instance["state"],
+				state: { type: "prepared" },
 			});
 		}
 	}
@@ -88,7 +90,7 @@
 		});
 
 		updateInstance(instance.id, {
-			state: { type: "downloading" } as unknown as Instance["state"],
+			state: { type: "downloading" },
 		});
 	}
 </script>

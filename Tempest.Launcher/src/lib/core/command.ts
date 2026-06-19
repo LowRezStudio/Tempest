@@ -24,12 +24,8 @@ export const processArgs = (args: ArgumentType[]): string[] =>
 
 const createDevCommand = (args: ArgumentType[]) =>
 	Command.create("dotnet", [
-		"run",
-		"--project",
-		"../../Tempest.CLI/Tempest.CLI.csproj",
-		"--property",
-		"WarningLevel=0",
-		"--",
+		"exec",
+		"../../Tempest.CLI/bin/Debug/net10.0/Tempest.CLI.dll",
 		...processArgs(args),
 	]);
 

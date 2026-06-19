@@ -6,6 +6,7 @@
 		House,
 		Library,
 		Plus,
+		ScrollText,
 		Server,
 		Settings,
 		SquareTerminal,
@@ -65,6 +66,7 @@
 
 	<div class="mt-auto flex flex-col gap-2">
 		<LanguageSelector />
+		<SidebarItem href="/logs" icon={ScrollText} label={m.sidebar_logs()} />
 		<SidebarItem href="/settings" icon={Settings} label={m.sidebar_settings()} />
 	</div>
 </aside>

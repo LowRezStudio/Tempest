@@ -7,6 +7,7 @@
 		queueCompletedCount,
 		queueErrorCount,
 		queueItems,
+		queuePausedCount,
 		queuePendingCount,
 		queueRunning,
 		resetQueueState,
@@ -40,20 +41,17 @@
 		restoreQueue.start();
 	}
 
-	function handlePause(): void {
-		restoreQueue.pause();
+	async function handlePause(): Promise<void> {
+		await restoreQueue.pause();
 	}
 
 	function handleClearCompleted(): void {
 		restoreQueue.clearCompleted();
 	}
 
-	function handleRemove(id: string): void {
-		restoreQueue.remove(id);
-	}
-
 	function statusText(status: string): string {
 		if (status === "pending") return m.downloads_pending();
+		if (status === "paused") return m.downloads_paused();
 		if (status === "complete") return m.downloads_complete();
 		if (status === "error") return m.downloads_failed();
 		return status;
@@ -75,7 +73,7 @@
 				<button
 					class="btn btn-ghost"
 					onclick={handleStart}
-					disabled={$queuePendingCount === 0}
+					disabled={$queuePendingCount === 0 && $queuePausedCount === 0}
 				>
 					<Play size={16} />
 					{m.common_start()}
@@ -94,6 +92,11 @@
 			{#if $queuePendingCount > 0}
 				<span class="badge badge-accent badge-sm"
 					>{$queuePendingCount} {m.downloads_pending()}</span
+				>
+			{/if}
+			{#if $queuePausedCount > 0}
+				<span class="badge badge-warning badge-sm"
+					>{$queuePausedCount} {m.downloads_paused()}</span
 				>
 			{/if}
 			{#if $queueCompletedCount > 0}
@@ -133,6 +136,7 @@
 												class="badge badge-sm {item.status === 'pending' ?
 													'badge-neutral'
 												: item.status === 'running' ? 'badge-accent'
+												: item.status === 'paused' ? 'badge-warning'
 												: item.status === 'complete' ? 'badge-success'
 												: 'badge-error'}"
 											>
@@ -216,6 +220,10 @@
 											</div>
 										{:else if item.status === "error" && item.error}
 											<p class="text-sm text-error">{item.error}</p>
+										{:else if item.status === "paused"}
+											<p class="text-sm text-warning">
+												{m.common_paused()}
+											</p>
 										{:else if item.status === "pending"}
 											<p class="text-sm opacity-50">
 												{m.common_waiting_in_queue()}
@@ -223,25 +231,15 @@
 										{/if}
 									</div>
 
-									<div class="flex items-center gap-1">
-										{#if item.status === "running"}
-											<button
-												class="btn btn-ghost btn-sm btn-square"
-												onclick={handlePause}
-												aria-label={m.common_pause()}
-											>
-												<Pause size={16} />
-											</button>
-										{:else if item.status === "pending" || item.status === "error" || item.status === "complete"}
-											<button
-												class="btn btn-ghost btn-sm btn-square"
-												onclick={() => handleRemove(item.id)}
-												aria-label={m.common_remove()}
-											>
-												<Trash2 size={16} />
-											</button>
-										{/if}
-									</div>
+									{#if item.status === "running"}
+										<button
+											class="btn btn-ghost btn-sm btn-square"
+											onclick={handlePause}
+											aria-label={m.common_pause()}
+										>
+											<Pause size={16} />
+										</button>
+									{/if}
 								</div>
 							</div>
 						{/each}

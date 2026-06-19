@@ -141,7 +141,7 @@
 					noDefaultArgs: false,
 					log: false,
 				},
-				state: { type: "downloading" } as unknown as InstanceState,
+				state: { type: "downloading" },
 			};
 
 			addInstance(newInstance);
@@ -180,7 +180,7 @@
 			},
 			state: {
 				type: "setup",
-			} as unknown as InstanceState,
+			},
 		};
 
 		addInstance(newInstance);

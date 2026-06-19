@@ -1,5 +1,5 @@
 import { lastLaunchedInstanceId } from "../stores/instance";
-import { processesList } from "../stores/processes";
+import { logCommandOutput, processesList } from "../stores/processes";
 import { createCommand, processArgs } from "./command";
 import type { Instance } from "../types/instance";
 import type { Process } from "../types/process";
@@ -20,6 +20,8 @@ export const launchGame = async (instance: Instance) => {
 		...(options.dllList ? options.dllList.map((dll) => ({ "--dll": dll })) : []),
 		...(options.args ? ["--", ...processArgs(options.args)] : []),
 	]);
+
+	logCommandOutput(command, "launch");
 
 	command.on("close", () => {
 		processesList.set(processesList.get().filter((p) => p.instance.id !== instance.id));

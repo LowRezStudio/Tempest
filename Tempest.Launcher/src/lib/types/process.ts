@@ -14,6 +14,7 @@ export type ProcessLog = {
 	id: number;
 	line: string;
 	error: boolean;
+	source?: string;
 };
 export type LobbyServerProcess = {
 	createOptions: LobbyServerOptions;

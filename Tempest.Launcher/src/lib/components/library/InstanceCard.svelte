@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Box } from "@lucide/svelte";
+	import { Box, Pause } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { m } from "$lib/paraglide/messages";
 	import { queueItems } from "$lib/rigby/stores";
@@ -12,8 +12,10 @@
 
 	let { instance }: Props = $props();
 
-	let isSettingUp = $derived((instance.state as { type: string }).type === "setup");
-	let isDownloading = $derived((instance.state as { type: string }).type === "downloading");
+	let isSettingUp = $derived(instance.state.type === "setup");
+	let isDownloading = $derived(instance.state.type === "downloading");
+	let isPaused = $derived(instance.state.type === "paused");
+	let isActive = $derived(isDownloading || isPaused);
 
 	let queueItem = $derived(
 		$queueItems.find((item) => item.outDir === instance.path && item.status === "running"),
@@ -34,18 +36,22 @@
 	}
 </script>
 
-{#if isDownloading}
+{#if isActive}
 	<div class="bg-base-200 rounded-lg p-4 opacity-80">
 		<div class="flex items-center gap-3">
 			<div
 				class="w-12 h-12 rounded-lg bg-base-100 flex items-center justify-center shrink-0 overflow-hidden"
 			>
-				<div
-					class="radial-progress text-accent"
-					style="--value:{downloadProgress}; --size:3rem; --thickness:4px;"
-				>
-					<span class="text-xs font-semibold">{Math.round(downloadProgress)}%</span>
-				</div>
+				{#if isDownloading}
+					<div
+						class="radial-progress text-accent"
+						style="--value:{downloadProgress}; --size:3rem; --thickness:4px;"
+					>
+						<span class="text-xs font-semibold">{Math.round(downloadProgress)}%</span>
+					</div>
+				{:else}
+					<Pause size={24} class="text-warning" />
+				{/if}
 			</div>
 			<div class="flex-1 min-w-0">
 				<h3 class="font-bold text-base truncate mb-0.5">{instance.label}</h3>
@@ -56,13 +62,17 @@
 							{instance.version}
 						</span>
 					{/if}
-					{#if queueItem?.progress}
-						<span class="text-accent">
-							{m.common_downloading()}
-							{Math.round(queueItem.progress.bytesPerSecond / 1024 / 1024)} MB/s
-						</span>
+					{#if isDownloading}
+						{#if queueItem?.progress}
+							<span class="text-accent">
+								{m.common_downloading()}
+								{Math.round(queueItem.progress.bytesPerSecond / 1024 / 1024)} MB/s
+							</span>
+						{:else}
+							<span class="text-accent">{m.common_downloading()}</span>
+						{/if}
 					{:else}
-						<span class="text-accent">{m.common_downloading()}</span>
+						<span class="text-warning">{m.common_paused()}</span>
 					{/if}
 				</div>
 			</div>

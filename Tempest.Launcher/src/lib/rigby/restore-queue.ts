@@ -1,5 +1,6 @@
 import { createCommand } from "$lib/core/command";
 import { instanceMap, updateInstance } from "$lib/stores/instance";
+import { logCommandOutput } from "$lib/stores/processes";
 import { queueCurrentIndex, queueItems, queueRunning } from "./stores";
 import type { QueueItem } from "./stores";
 import type { Child } from "@tauri-apps/plugin-shell";
@@ -27,8 +28,10 @@ resetRunningItems();
 
 export class RestoreQueue {
 	private processing = false;
+	private pausing = false;
 	private runningChild: Child | null = null;
 	private runningOutDir: string | null = null;
+	private runningItemId: string | null = null;
 
 	add(options: Omit<QueueItem, "id" | "status" | "result" | "error">): string {
 		const item: QueueItem = {
@@ -84,13 +87,38 @@ export class RestoreQueue {
 	}
 
 	start(): void {
-		if (this.processing) return;
+		if (this.pausing) return;
 		queueRunning.set(true);
-		this.processNext();
+		if (!this.processing) {
+			this.processNext();
+		}
 	}
 
-	pause(): void {
+	async pause(): Promise<void> {
 		queueRunning.set(false);
+
+		if (this.runningChild && this.runningItemId) {
+			this.pausing = true;
+			const child = this.runningChild;
+			const itemId = this.runningItemId;
+			const item = queueItems.get().find((i) => i.id === itemId);
+
+			this.updateItem(itemId, { status: "paused", progress: undefined });
+			if (item) {
+				this.updateInstanceState(item.outDir, "paused");
+			}
+
+			try {
+				await child.kill();
+			} catch (error) {
+				console.error("Failed to kill restore process:", error);
+			} finally {
+				this.runningChild = null;
+				this.runningOutDir = null;
+				this.runningItemId = null;
+				this.pausing = false;
+			}
+		}
 	}
 
 	cancel(outDir: string): void {
@@ -98,6 +126,7 @@ export class RestoreQueue {
 			void this.runningChild.kill();
 			this.runningChild = null;
 			this.runningOutDir = null;
+			this.runningItemId = null;
 		}
 
 		const items = queueItems.get();
@@ -109,7 +138,7 @@ export class RestoreQueue {
 			| undefined;
 		if (instance?.id) {
 			updateInstance(instance.id, {
-				state: { type: "prepared" } as unknown as Instance["state"],
+				state: { type: "prepared" },
 			});
 		}
 
@@ -123,7 +152,9 @@ export class RestoreQueue {
 		if (!queueRunning.get() || this.processing) return;
 
 		const items = queueItems.get();
-		const nextIndex = items.findIndex((item) => item.status === "pending");
+		const nextIndex = items.findIndex(
+			(item) => item.status === "pending" || item.status === "paused",
+		);
 
 		if (nextIndex === -1) {
 			queueRunning.set(false);
@@ -137,6 +168,7 @@ export class RestoreQueue {
 
 		const item = items[nextIndex];
 		this.updateItem(item.id, { status: "running" });
+		this.updateInstanceState(item.outDir, "downloading");
 
 		await this.runRestore(item);
 
@@ -171,7 +203,9 @@ export class RestoreQueue {
 
 		try {
 			const command = createCommand(args);
+			logCommandOutput(command, "rigby-queue");
 			this.runningOutDir = item.outDir;
+			this.runningItemId = item.id;
 			let stdout = "";
 			let stderr = "";
 
@@ -208,6 +242,17 @@ export class RestoreQueue {
 			});
 
 			command.on("error", (error) => {
+				if (this.runningItemId !== item.id) {
+					console.log("Ignoring stale error event");
+					return;
+				}
+
+				const currentItem = queueItems.get().find((i) => i.id === item.id);
+				if (currentItem?.status === "paused") {
+					console.log("Ignoring error because restore was paused");
+					return;
+				}
+
 				console.error("Restore error:", error);
 				this.updateItem(item.id, {
 					status: "error",
@@ -217,8 +262,14 @@ export class RestoreQueue {
 			});
 
 			command.on("close", (data) => {
+				if (this.runningItemId !== item.id) {
+					console.log("Ignoring stale close event");
+					return;
+				}
+
 				this.runningChild = null;
 				this.runningOutDir = null;
+				this.runningItemId = null;
 				console.log(
 					"Restore close:",
 					data.code,
@@ -228,8 +279,9 @@ export class RestoreQueue {
 					stderr,
 				);
 
+				const currentItem = queueItems.get().find((i) => i.id === item.id);
+
 				if (data.code === 0) {
-					const currentItem = queueItems.get().find((i) => i.id === item.id);
 					if (currentItem?.status === "complete") {
 						return;
 					}
@@ -255,6 +307,8 @@ export class RestoreQueue {
 						status: "error",
 						error: "Process completed but no completion event was received",
 					});
+				} else if (currentItem?.status === "paused") {
+					console.log("Ignoring close error because restore was paused");
 				} else {
 					this.updateItem(item.id, {
 						status: "error",
@@ -267,6 +321,9 @@ export class RestoreQueue {
 			this.runningChild = await command.spawn();
 		} catch (error) {
 			console.error("Restore exception:", error);
+			this.runningChild = null;
+			this.runningOutDir = null;
+			this.runningItemId = null;
 			this.updateItem(item.id, {
 				status: "error",
 				error: String(error),
@@ -274,14 +331,14 @@ export class RestoreQueue {
 		}
 	}
 
-	private updateInstanceState(outDir: string, stateType: string): void {
+	private updateInstanceState(outDir: string, stateType: Instance["state"]["type"]): void {
 		const instances = instanceMap.get();
 		const instance = Object.values(instances).find((inst) => inst?.path === outDir) as
 			| Instance
 			| undefined;
 		if (instance?.id) {
 			updateInstance(instance.id, {
-				state: { type: stateType } as unknown as Instance["state"],
+				state: { type: stateType },
 			});
 		}
 	}
