@@ -39,7 +39,7 @@
 					<PlayerCard
 						displayName={player.displayName}
 						championIconFolderName={getChampionDisplayName(player.champion)}
-						status={getChampionDisplayName(player.champion) || "Not ready"}
+						status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
 					/>
 				{/each}
 			</div>
@@ -51,7 +51,7 @@
 					<PlayerCard
 						displayName={player.displayName}
 						championIconFolderName={getChampionDisplayName(player.champion)}
-						status={getChampionDisplayName(player.champion) || "Not ready"}
+						status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
 					/>
 				{/each}
 			</div>

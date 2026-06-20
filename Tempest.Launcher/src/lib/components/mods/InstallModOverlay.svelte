@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { PackageOpen } from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages";
 
 	interface Props {
 		visible: boolean;
@@ -23,11 +24,12 @@
 				>
 					<PackageOpen size={32} />
 				</div>
-				<h2 class="card-title justify-center">Install Mod</h2>
+				<h2 class="card-title justify-center">{m.overlay_install_mod_title()}</h2>
 				<p class="text-sm opacity-70">
-					Drop the mod file (<span class="font-mono text-accent">.upk</span>,
-					<span class="font-mono text-accent">.pck</span>) here to install onto this
-					instance.
+					{@html m.overlay_drop_here({
+						upk: '<span class="font-mono text-accent">.upk</span>',
+						pck: '<span class="font-mono text-accent">.pck</span>',
+					})}
 				</p>
 			</div>
 		</div>

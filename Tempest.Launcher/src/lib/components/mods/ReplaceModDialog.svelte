@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { AlertTriangle, Replace } from "@lucide/svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { m } from "$lib/paraglide/messages";
 
 	interface Props {
 		open: boolean;
@@ -29,7 +30,11 @@
 	}
 </script>
 
-<Modal bind:open title={isModConflict ? "Mod Conflict" : "File Conflict"} class="max-w-md">
+<Modal
+	bind:open
+	title={isModConflict ? m.conflict_mod_title() : m.conflict_file_title()}
+	class="max-w-md"
+>
 	<div class="space-y-4">
 		<div class="flex items-start gap-3">
 			<div class="text-warning mt-0.5 shrink-0">
@@ -37,32 +42,31 @@
 			</div>
 			<div>
 				<h4 class="font-bold text-base">
-					{isModConflict ? "Replace existing mod?" : "Replace existing file?"}
+					{isModConflict ?
+						m.conflict_replace_mod_heading()
+					:	m.conflict_replace_file_heading()}
 				</h4>
 				{#if isModConflict}
 					<p class="text-sm opacity-70 mt-1">
-						A mod named <span class="font-mono font-bold text-accent">{modName}</span> is
-						already installed on this instance.
+						{m.conflict_mod_message({ name: modName })}
 					</p>
 				{:else}
 					<p class="text-sm opacity-70 mt-1">
-						A file named <span class="font-mono font-bold text-accent">{modName}</span> is
-						already present on this instance.
+						{m.conflict_file_message({ name: modName })}
 					</p>
 				{/if}
 			</div>
 		</div>
 		<p class="text-sm opacity-60">
-			Do you want to overwrite it with the new file? This will replace the files in your game
-			directory.
+			{m.conflict_overwrite_warning()}
 		</p>
 	</div>
 
 	{#snippet actions()}
-		<button class="btn btn-ghost" onclick={handleCancel}> Cancel </button>
+		<button class="btn btn-ghost" onclick={handleCancel}> {m.common_cancel()} </button>
 		<button class="btn btn-error" onclick={handleConfirm}>
 			<Replace size={16} />
-			{isModConflict ? "Replace Mod" : "Replace File"}
+			{isModConflict ? m.conflict_replace_mod_btn() : m.conflict_replace_file_btn()}
 		</button>
 	{/snippet}
 </Modal>

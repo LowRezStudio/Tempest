@@ -44,8 +44,8 @@
 			const result = await openDialog({
 				directory: false,
 				multiple: false,
-				title: "Select mod files",
-				filters: [{ name: "Mod File", extensions: ["upk", "pck"] }],
+				title: m.dialog_select_mod_files_title(),
+				filters: [{ name: m.dialog_select_mod_files_filter(), extensions: ["upk", "pck"] }],
 			});
 
 			if (result) {
@@ -62,23 +62,25 @@
 
 				if (res.Success) {
 					addToast({
-						title: "Mod Installed",
-						message: `Successfully installed ${res.Mod?.Name ?? "mod"}.`,
+						title: m.toast_mod_installed_title(),
+						message: m.toast_mod_installed_message({
+							name: res.Mod?.Name ?? m.toast_mod_installed_fallback(),
+						}),
 						tone: "success",
 					});
 					queryClient.invalidateQueries({ queryKey: ["mods", instance.path] });
 				} else {
 					addToast({
-						title: "Installation Failed",
-						message: res.Message || "An unknown error occurred.",
+						title: m.toast_installation_failed_title(),
+						message: res.Message || m.toast_installation_failed_unknown(),
 						tone: "error",
 					});
 				}
 			}
 		} catch (error: any) {
 			addToast({
-				title: "Installation Failed",
-				message: error.message || "Internal error occurred.",
+				title: m.toast_installation_failed_title(),
+				message: error.message || m.toast_installation_failed_internal(),
 				tone: "error",
 			});
 		}
@@ -169,7 +171,7 @@
 		{#if isReady}
 			<PopoverMenuItem onclick={handleInstallMod} disabled={isSettingUp}>
 				<PackageOpen size={16} />
-				Install Mod...
+				{m.instancemenu_install_mod()}
 			</PopoverMenuItem>
 			<PopoverMenuItem onclick={handleRunSetup} disabled={isSettingUp}>
 				<RefreshCw size={16} />

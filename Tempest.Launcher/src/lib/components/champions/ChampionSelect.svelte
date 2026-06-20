@@ -1,5 +1,6 @@
 <script lang="ts">
 	import allChampions from "$lib/data/champions.json";
+	import { m } from "$lib/paraglide/messages";
 	import { compareVersions } from "$lib/utils/versions";
 
 	interface Champion {
@@ -161,7 +162,7 @@
 				class="text-4xl font-bold text-white"
 				style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
 			>
-				{confirmedChampionName ? "Selected Champion" : "Select Your Champion"}
+				{confirmedChampionName ? m.lobby_selected_champion() : m.lobby_select_champion()}
 			</h1>
 			{#if displayedChampion}
 				<h2
@@ -259,7 +260,7 @@
 				disabled={!displayedChampion || !!confirmedChampionName}
 				onclick={handleConfirm}
 			>
-				Confirm Selection
+				{m.common_confirm_selection()}
 			</button>
 		</div>
 	</div>

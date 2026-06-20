@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getCurrentWindow } from "@tauri-apps/api/window";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "../ui/Modal.svelte";
 
 	interface Props {
@@ -20,16 +21,19 @@
 	}
 </script>
 
-<Modal bind:open title="In a lobby" class="max-w-2xl">
+<Modal bind:open title={m.close_lobby_title()} class="max-w-2xl">
 	<div>
-		You are connected to a lobby and trying to close the application. Would you like to leave
-		the lobby or do you plan on coming back?
+		{m.close_lobby_message()}
 	</div>
 	{#snippet actions()}
 		<div class="flex items-center justify-end w-full">
 			<div class="flex gap-2">
-				<button class="btn btn-accent" onclick={handleLeaveAndClose}>Leave Lobby</button>
-				<button class="btn btn-accent" onclick={handleClose}>I'll come back soon</button>
+				<button class="btn btn-accent" onclick={handleLeaveAndClose}
+					>{m.lobby_leave_lobby()}</button
+				>
+				<button class="btn btn-accent" onclick={handleClose}
+					>{m.close_lobby_come_back()}</button
+				>
 			</div>
 		</div>
 	{/snippet}

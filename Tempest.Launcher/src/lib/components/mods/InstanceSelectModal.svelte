@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Box, PackageX } from "@lucide/svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { instanceMap } from "$lib/stores/instance";
 	import type { Instance } from "$lib/types/instance";
 
@@ -23,19 +24,16 @@
 	}
 </script>
 
-<Modal bind:open title="Select Target Instance" class="max-w-md">
+<Modal bind:open title={m.select_instance_title()} class="max-w-md">
 	<div class="space-y-4">
 		<p class="text-sm opacity-70">
-			Please select which Paladins instance you want to install this mod to:
+			{m.select_instance_hint()}
 		</p>
 
 		{#if instances.length === 0}
 			<div class="alert alert-warning">
 				<PackageX size={20} />
-				<span
-					>No prepared instances found. Please create or finish setting up an instance
-					first.</span
-				>
+				<span>{m.select_instance_no_instances()}</span>
 			</div>
 		{:else}
 			<ul class="list bg-base-100 rounded-box shadow-md max-h-60 overflow-y-auto">

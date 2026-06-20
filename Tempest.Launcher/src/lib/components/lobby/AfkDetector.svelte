@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import LobbyOverlayDialog from "./LobbyOverlayDialog.svelte";
 
 	interface Props {
@@ -39,7 +40,7 @@
 </script>
 
 {#if isAfk}
-	<LobbyOverlayDialog title="Are you still there?">
-		<button class="btn btn-accent" onclick={handleCancelAfk}>YES</button>
+	<LobbyOverlayDialog title={m.afk_title()}>
+		<button class="btn btn-accent" onclick={handleCancelAfk}>{m.common_yes()}</button>
 	</LobbyOverlayDialog>
 {/if}

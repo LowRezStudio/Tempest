@@ -45,32 +45,32 @@
 	/>
 {:else if joinErrorCode === JoinLobbyClientErrorCode.NO_VALID_INSTANCE}
 	<LobbyOverlayDialog
-		title={`No valid instance found for version ${lobbyVersion}`}
-		subtitle="Please leave the lobby and install the correct game version"
+		title={m.lobby_no_valid_instance({ version: lobbyVersion })}
+		subtitle={m.lobby_no_valid_instance_hint()}
 	/>
 {:else if joinErrorCode === JoinLobbyErrorCode.LOBBY_FULL}
 	<LobbyOverlayDialog
-		title={freeSpaceInLobby ? "Lobby can be joined" : "Lobby is full"}
+		title={freeSpaceInLobby ? m.lobby_can_be_joined() : m.lobby_is_full()}
 		subtitle={freeSpaceInLobby ?
-			`Players ${playerCount}/${maxPlayerCount}`
-		:	`Waiting for free space (${playerCount}/${maxPlayerCount})`}
+			m.lobby_players_count({ current: playerCount, max: maxPlayerCount ?? 0 })
+		:	m.lobby_waiting_for_free_space({ current: playerCount, max: maxPlayerCount ?? 0 })}
 		loading={!freeSpaceInLobby}
 	>
 		{#if freeSpaceInLobby}
-			<button class="btn btn-accent" onclick={handleJoin}>Join</button>
+			<button class="btn btn-accent" onclick={handleJoin}>{m.common_join()}</button>
 		{/if}
 	</LobbyOverlayDialog>
 {:else if joinErrorCode === JoinLobbyClientErrorCode.PASSWORD_REQUIRED || joinErrorCode === JoinLobbyErrorCode.INVALID_PASSWORD}
 	<LobbyOverlayDialog
 		title={joinErrorCode === JoinLobbyClientErrorCode.PASSWORD_REQUIRED ?
-			"Password Required"
-		:	"Incorrect Password. Please Try Again."}
+			m.lobby_password_required()
+		:	m.lobby_incorrect_password()}
 	>
 		<div class="form-control">
 			<input
 				id="lobby-password"
 				type="text"
-				placeholder="Password"
+				placeholder={m.common_password()}
 				class="input input-bordered"
 				bind:value={selectedPassword}
 			/>
@@ -78,9 +78,9 @@
 		<button
 			class="btn btn-accent"
 			onclick={() => handlePasswordSubmit(selectedPassword)}
-			disabled={!selectedPassword}>Join</button
+			disabled={!selectedPassword}>{m.common_join()}</button
 		>
 	</LobbyOverlayDialog>
 {:else if joinErrorCode !== null}
-	<LobbyOverlayDialog title={`Unknown Error ${joinErrorCode}`} />
+	<LobbyOverlayDialog title={m.lobby_unknown_error({ code: String(joinErrorCode) })} />
 {/if}

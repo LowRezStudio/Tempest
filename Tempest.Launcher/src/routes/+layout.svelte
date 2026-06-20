@@ -19,6 +19,7 @@
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores";
 	import { confirmReplaceMod, replaceDialogStore, resolveReplaceMod } from "$lib/mods/ui";
+	import { m } from "$lib/paraglide/messages";
 	import { instanceMap } from "$lib/stores/instance";
 	import { theme } from "$lib/stores/settings";
 	import {
@@ -45,8 +46,8 @@
 		const ext = filePath.split(".").pop()?.toLowerCase();
 		if (ext !== "upk" && ext !== "pck") {
 			addToast({
-				title: "Unsupported File",
-				message: "Only .upk and .pck mod files are supported.",
+				title: m.toast_unsupported_file_title(),
+				message: m.toast_unsupported_file_message(),
 				tone: "error",
 			});
 			return;
@@ -86,22 +87,24 @@
 
 			if (res.Success) {
 				addToast({
-					title: "Mod Installed",
-					message: `Successfully installed ${res.Mod?.Name ?? "mod"}.`,
+					title: m.toast_mod_installed_title(),
+					message: m.toast_mod_installed_message({
+						name: res.Mod?.Name ?? m.toast_mod_installed_fallback(),
+					}),
 					tone: "success",
 				});
 				queryClient.invalidateQueries({ queryKey: ["mods", targetInstance.path] });
 			} else {
 				addToast({
-					title: "Installation Failed",
-					message: res.Message || "An unknown error occurred.",
+					title: m.toast_installation_failed_title(),
+					message: res.Message || m.toast_installation_failed_unknown(),
 					tone: "error",
 				});
 			}
 		} catch (error: any) {
 			addToast({
-				title: "Installation Failed",
-				message: error.message || "Internal error occurred.",
+				title: m.toast_installation_failed_title(),
+				message: error.message || m.toast_installation_failed_internal(),
 				tone: "error",
 			});
 		}

@@ -112,7 +112,7 @@
 					joinServerWizardOpen.set(true);
 				}}
 			>
-				Join server
+				{m.join_server_title()}
 			</button>
 			<button
 				class="btn btn-accent"
@@ -217,7 +217,9 @@
 														<div
 															class="tooltip tooltip-right tooltip-open pointer-events-none fixed h-0 w-0 opacity-0 transition-opacity duration-100 group-hover:opacity-100"
 															style="position-anchor: --cannot-join; top: anchor(center); left: anchor(center);"
-															data-tip={`Requires version ${server.version}`}
+															data-tip={m.serverlist_requires_version(
+																{ version: server.version },
+															)}
 															aria-hidden="true"
 														></div>
 													</span>

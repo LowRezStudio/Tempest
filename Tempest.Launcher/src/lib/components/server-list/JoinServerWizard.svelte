@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { moveToLobby } from "$lib/core/lobby";
+	import { m } from "$lib/paraglide/messages";
 	import { isValidHost } from "$lib/utils/network";
 
 	interface Props {
@@ -20,16 +21,16 @@
 	}
 </script>
 
-<Modal bind:open title="Join server" class="max-w-2xl">
+<Modal bind:open title={m.join_server_title()} class="max-w-2xl">
 	<div class="space-y-4">
 		<div class="form-control">
 			<label for="host" class="label py-0.5">
-				<span class="label-text text-sm">Host</span>
+				<span class="label-text text-sm">{m.join_server_host()}</span>
 			</label>
 			<input
 				id="host"
 				type="text"
-				placeholder="IP address or domain"
+				placeholder={m.join_server_host_placeholder()}
 				maxlength="60"
 				class="input input-bordered w-full"
 				bind:value={selectedHost}
@@ -37,7 +38,7 @@
 		</div>
 		<div class="form-control">
 			<label for="server-port" class="label py-0.5">
-				<span class="label-text text-sm">Port</span>
+				<span class="label-text text-sm">{m.join_server_port()}</span>
 			</label>
 			<input
 				id="server-port"
@@ -46,7 +47,7 @@
 				required
 				min="50000"
 				max="65000"
-				placeholder="Port between 50000-65000"
+				placeholder={m.join_server_port_placeholder()}
 				bind:value={selectedPort}
 			/>
 		</div>
@@ -55,9 +56,11 @@
 	{#snippet actions()}
 		<div class="flex items-center justify-end w-full">
 			<div class="flex gap-2">
-				<button class="btn btn-ghost" onclick={() => (open = false)}>Cancel</button>
+				<button class="btn btn-ghost" onclick={() => (open = false)}
+					>{m.common_cancel()}</button
+				>
 				<button class="btn btn-accent" disabled={!valid} onclick={handleJoin}>
-					Join
+					{m.common_join()}
 				</button>
 			</div>
 		</div>

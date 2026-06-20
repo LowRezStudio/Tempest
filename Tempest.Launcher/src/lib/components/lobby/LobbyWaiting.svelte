@@ -26,9 +26,11 @@
 	}
 	function getTitle() {
 		const s = $lobbyWaitingState;
-		if (s.isWaiting && s.countdownSeconds > 0) return `Starting ${s.countdownSeconds}s`;
+		if (s.isWaiting && s.countdownSeconds > 0)
+			return m.lobby_starting_countdown({ seconds: s.countdownSeconds });
 		if (s.isWaiting) return m.lobby_title();
-		if (s.isLobbyRestarting) return `Restarting ${s.countdownSeconds}`;
+		if (s.isLobbyRestarting)
+			return m.lobby_restarting_countdown({ seconds: s.countdownSeconds });
 		return m.lobby_game_in_progress();
 	}
 </script>
@@ -46,7 +48,7 @@
 		{#if !$lobbyWaitingState.canRejoinLobby}
 			<button class="btn btn-error" onclick={handleLeave}> {m.lobby_leave_lobby()} </button>
 		{:else}
-			<button class="btn btn-accent" onclick={handleJoin}> Rejoin Lobby</button>
+			<button class="btn btn-accent" onclick={handleJoin}> {m.lobby_rejoin_lobby()}</button>
 		{/if}
 	{/snippet}
 	{#snippet subtitle()}
@@ -96,7 +98,7 @@
 					<LobbyPlayerCard
 						displayName={player.displayName}
 						championIconFolderName={getChampionDisplayName(player.champion)}
-						status={getChampionDisplayName(player.champion) || "Not ready"}
+						status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
 					/>
 				{/each}
 			</div>
@@ -106,7 +108,7 @@
 					<LobbyPlayerCard
 						displayName={player.displayName}
 						championIconFolderName={getChampionDisplayName(player.champion)}
-						status={getChampionDisplayName(player.champion) || "Not ready"}
+						status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
 					/>
 				{/each}
 			</div>
