@@ -49,13 +49,17 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+      - name: Cache Rust build
+        uses: actions/cache@v4
         with:
-          workspaces: Tempest.Launcher/src-tauri
-          cache-on-failure: true
-          key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            Tempest.Launcher/src-tauri/target/
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('Tempest.Launcher/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
