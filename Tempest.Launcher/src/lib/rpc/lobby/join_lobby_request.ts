@@ -20,31 +20,53 @@ import type {
  */
 export interface JoinLobbyRequest {
 	/**
-	 * @generated from protobuf field: string player_id = 1
+	 * @generated from protobuf field: tempest.lobby.AuthMethod auth_method = 1
 	 */
-	playerId: string;
+	authMethod: AuthMethod;
 	/**
-	 * @generated from protobuf field: string player_display_name = 2
+	 * @generated from protobuf field: string auth_value = 2
 	 */
-	playerDisplayName: string;
+	authValue: string;
 	/**
 	 * @generated from protobuf field: optional string password = 5
 	 */
 	password?: string;
 }
+/**
+ * @generated from protobuf enum tempest.lobby.AuthMethod
+ */
+export enum AuthMethod {
+	/**
+	 * @generated from protobuf enum value: AUTH_METHOD_UNSPECIFIED = 0;
+	 */
+	UNSPECIFIED = 0,
+	/**
+	 * @generated from protobuf enum value: AUTH_METHOD_PLAIN = 1;
+	 */
+	PLAIN = 1,
+	/**
+	 * @generated from protobuf enum value: AUTH_METHOD_TICKET = 2;
+	 */
+	TICKET = 2,
+}
 // @generated message type with reflection information, may provide speed optimized methods
 class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 	constructor() {
 		super("tempest.lobby.JoinLobbyRequest", [
-			{ no: 1, name: "player_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
-			{ no: 2, name: "player_display_name", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{
+				no: 1,
+				name: "auth_method",
+				kind: "enum",
+				T: () => ["tempest.lobby.AuthMethod", AuthMethod, "AUTH_METHOD_"],
+			},
+			{ no: 2, name: "auth_value", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 5, name: "password", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
 		]);
 	}
 	create(value?: PartialMessage<JoinLobbyRequest>): JoinLobbyRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		message.playerId = "";
-		message.playerDisplayName = "";
+		message.authMethod = 0;
+		message.authValue = "";
 		if (value !== undefined) reflectionMergePartial<JoinLobbyRequest>(this, message, value);
 		return message;
 	}
@@ -59,11 +81,11 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
-				case /* string player_id */ 1:
-					message.playerId = reader.string();
+				case /* tempest.lobby.AuthMethod auth_method */ 1:
+					message.authMethod = reader.int32();
 					break;
-				case /* string player_display_name */ 2:
-					message.playerDisplayName = reader.string();
+				case /* string auth_value */ 2:
+					message.authValue = reader.string();
 					break;
 				case /* optional string password */ 5:
 					message.password = reader.string();
@@ -92,12 +114,11 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
-		/* string player_id = 1; */
-		if (message.playerId !== "")
-			writer.tag(1, WireType.LengthDelimited).string(message.playerId);
-		/* string player_display_name = 2; */
-		if (message.playerDisplayName !== "")
-			writer.tag(2, WireType.LengthDelimited).string(message.playerDisplayName);
+		/* tempest.lobby.AuthMethod auth_method = 1; */
+		if (message.authMethod !== 0) writer.tag(1, WireType.Varint).int32(message.authMethod);
+		/* string auth_value = 2; */
+		if (message.authValue !== "")
+			writer.tag(2, WireType.LengthDelimited).string(message.authValue);
 		/* optional string password = 5; */
 		if (message.password !== undefined)
 			writer.tag(5, WireType.LengthDelimited).string(message.password);

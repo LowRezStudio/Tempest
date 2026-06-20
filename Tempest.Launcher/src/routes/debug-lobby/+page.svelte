@@ -11,6 +11,7 @@ Makes it possible to add players, vote maps and select champions
 		state as lobbyState,
 		players,
 	} from "$lib/lobby/stores";
+	import { AuthMethod } from "$lib/rpc/lobby/join_lobby_request";
 	import { LobbyClient } from "$lib/rpc/lobby/lobby_service.client";
 	import { getMapsForVersion } from "$lib/utils/versions";
 	import { onDestroy, onMount } from "svelte";
@@ -145,15 +146,16 @@ Makes it possible to add players, vote maps and select champions
 	async function createNewPlayer() {
 		const id = String(Math.floor(Math.random() * 1000000) + 1);
 		const joinResp = await client.joinLobby({
-			playerId: id,
-			playerDisplayName: `Test ${id}`,
+			authMethod: AuthMethod.PLAIN,
+			authValue: `Test ${id}`,
 			password: "",
 		});
 		console.log(joinResp);
 		if (joinResp.response.result.oneofKind === "success") {
+			const serverPlayerId = joinResp.response.result.success.playerId;
 			const ticket = joinResp.response.result.success.ticket;
-			debugPlayersStore.set(new Map(debugPlayersStore.get()).set(id, ticket));
-			openStreamForPlayer(id);
+			debugPlayersStore.set(new Map(debugPlayersStore.get()).set(serverPlayerId, ticket));
+			openStreamForPlayer(serverPlayerId);
 		}
 	}
 	//closing the event stream

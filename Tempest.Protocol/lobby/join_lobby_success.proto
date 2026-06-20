@@ -4,4 +4,5 @@ option csharp_namespace = "Tempest.Protocol.Lobby";
 
 message JoinLobbySuccess {
   string ticket = 1;
+  string player_id = 2;
 }

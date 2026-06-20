@@ -1,5 +1,6 @@
 import { getConnectionToServer, LobbyEvent, Timestamp } from "$lib/rpc";
 import { JoinLobbyErrorCode } from "$lib/rpc/lobby/join_lobby_error_code";
+import { AuthMethod } from "$lib/rpc/lobby/join_lobby_request";
 import { instanceMap } from "$lib/stores/instance";
 import { processesList } from "$lib/stores/processes";
 import { username } from "$lib/stores/settings";
@@ -283,12 +284,13 @@ class LobbyManager {
 	async joinLobby(): Promise<void> {
 		joinErrorCode.set(null);
 		const joinResp = await this.getClient().joinLobby({
-			playerId: playerId.get(),
-			playerDisplayName: username.get(),
+			authMethod: AuthMethod.PLAIN,
+			authValue: username.get(),
 			password: lobbyPassword.get(),
 		});
 		if (joinResp.response.result.oneofKind === "success") {
 			ticket.set(joinResp.response.result.success.ticket);
+			playerId.set(joinResp.response.result.success.playerId);
 		} else if (joinResp.response.result.oneofKind === "error") {
 			joinErrorCode.set(joinResp.response.result.error.code);
 		}

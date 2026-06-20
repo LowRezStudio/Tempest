@@ -23,17 +23,23 @@ export interface JoinLobbySuccess {
 	 * @generated from protobuf field: string ticket = 1
 	 */
 	ticket: string;
+	/**
+	 * @generated from protobuf field: string player_id = 2
+	 */
+	playerId: string;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class JoinLobbySuccess$Type extends MessageType<JoinLobbySuccess> {
 	constructor() {
 		super("tempest.lobby.JoinLobbySuccess", [
 			{ no: 1, name: "ticket", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 2, name: "player_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 		]);
 	}
 	create(value?: PartialMessage<JoinLobbySuccess>): JoinLobbySuccess {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.ticket = "";
+		message.playerId = "";
 		if (value !== undefined) reflectionMergePartial<JoinLobbySuccess>(this, message, value);
 		return message;
 	}
@@ -50,6 +56,9 @@ class JoinLobbySuccess$Type extends MessageType<JoinLobbySuccess> {
 			switch (fieldNo) {
 				case /* string ticket */ 1:
 					message.ticket = reader.string();
+					break;
+				case /* string player_id */ 2:
+					message.playerId = reader.string();
 					break;
 				default:
 					let u = options.readUnknownField;
@@ -77,6 +86,9 @@ class JoinLobbySuccess$Type extends MessageType<JoinLobbySuccess> {
 	): IBinaryWriter {
 		/* string ticket = 1; */
 		if (message.ticket !== "") writer.tag(1, WireType.LengthDelimited).string(message.ticket);
+		/* string player_id = 2; */
+		if (message.playerId !== "")
+			writer.tag(2, WireType.LengthDelimited).string(message.playerId);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

@@ -14,18 +14,36 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
 
     public override Task<JoinLobbyResponse> JoinLobby(JoinLobbyRequest request, ServerCallContext context)
     {
-        if (string.IsNullOrWhiteSpace(request.PlayerId) || string.IsNullOrWhiteSpace(request.PlayerDisplayName))
+        if (request.AuthMethod == AuthMethod.Ticket)
         {
             return Task.FromResult(new JoinLobbyResponse
             {
                 Error = new JoinLobbyError
                 {
                     Code = JoinLobbyErrorCode.LobbyInvalid,
-                    Message = "Missing player id or display name"
+                    Message = "Ticket auth is not implemented yet"
                 }
             });
         }
-        _state.TryJoin(request.PlayerId, request.PlayerDisplayName, request.Password, out var response);
+
+        if (string.IsNullOrWhiteSpace(request.AuthValue))
+        {
+            return Task.FromResult(new JoinLobbyResponse
+            {
+                Error = new JoinLobbyError
+                {
+                    Code = JoinLobbyErrorCode.LobbyInvalid,
+                    Message = "Missing username"
+                }
+            });
+        }
+
+        var playerId = Guid.NewGuid().ToString();
+        _state.TryJoin(playerId, request.AuthValue, request.Password, out var response);
+        if (response.Success != null)
+        {
+            response.Success.PlayerId = playerId;
+        }
         return Task.FromResult(response);
     }
 
