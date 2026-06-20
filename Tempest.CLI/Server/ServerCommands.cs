@@ -6,7 +6,7 @@ namespace Tempest.CLI.Server;
 
 internal class ServerCommands
 {
-    public static async Task Open(
+    public async Task Open(
         string path,
         string name = "Paladins Server",
         string tags = "",

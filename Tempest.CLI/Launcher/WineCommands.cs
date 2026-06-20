@@ -4,7 +4,7 @@ namespace Tempest.CLI.Launcher;
 
 internal class WineCommands
 {
-    public static async Task Init()
+    public async Task Init()
     {
         await WineExtensions.WaitForPrefix();
     }

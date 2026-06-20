@@ -15,7 +15,7 @@ internal partial class MarshalCommands
     /// <param name="obscure">Required to parse the assembly, applies a 0x2A XOR</param>
     /// <param name="version">Marshal format version (Modern or Legacy)</param>
     /// <param name="format">Output format (Json or Sqlite)</param>
-    public static void Deserialize(
+    public void Deserialize(
         string fields,
         string functions,
         string path,

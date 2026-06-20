@@ -25,7 +25,7 @@ jobs:
             arch: arm64
           - platform: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            bundles: appimage
+            bundles: appimage,deb,rpm
             arch: x64
 
     runs-on: ${{ matrix.platform }}
@@ -97,7 +97,8 @@ jobs:
             pkg-config \
             curl \
             wget \
-            file
+            file \
+            rpm
 
       - name: Install WiX (Windows)
         if: matrix.platform == 'windows-latest'
@@ -125,9 +126,7 @@ jobs:
         with:
           name: tempest-launcher-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*
           if-no-files-found: error
 
   release:

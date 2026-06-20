@@ -24,6 +24,16 @@ fn scopes_forbid_file(scopes: tauri::State<'_, Scopes>, path: String) -> Result<
     scopes.forbid_file(path).map_err(|error| error.to_string())
 }
 
+#[cfg(target_os = "windows")]
+async fn check_update(app: tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri_plugin_updater::UpdaterExt;
+    if let Some(update) = app.updater()?.check().await? {
+        update.download_and_install(|_, _| {}, || {}).await?;
+        app.restart();
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	child_cleanup::setup();
@@ -38,6 +48,18 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .setup(|_app| {
+            #[cfg(target_os = "windows")]
+            {
+                let handle = _app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = check_update(handle).await {
+                        eprintln!("Failed to check for updates: {e}");
+                    }
+                });
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             scopes_allow_directory,
             scopes_allow_file,

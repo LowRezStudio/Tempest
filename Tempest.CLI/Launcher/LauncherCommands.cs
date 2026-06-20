@@ -6,7 +6,7 @@ namespace Tempest.CLI.Launcher;
 
 internal class LauncherCommands
 {
-    public static async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null)
+    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null)
     {
         var args = context.EscapedArguments.ToArray();
         var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll);
