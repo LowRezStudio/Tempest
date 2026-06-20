@@ -38,6 +38,7 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+          cache: true
 
       - name: Setup Zig 0.15.2
         uses: goto-bus-stop/setup-zig@v2
