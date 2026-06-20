@@ -25,6 +25,13 @@
 	},
 	"bundle": {
 		"active": true,
+		"publisher": "Tempest Developers",
+		"homepage": "https://github.com/LowRezStudio/Tempest",
+		"copyright": "Copyright © 2026 Tempest Developers",
+		"license": "MIT",
+		"category": "Game",
+		"shortDescription": "Launcher client for Paladins",
+		"longDescription": "Tempest is an advanced custom launcher, patcher, and utility client for Paladins.",
 		"createUpdaterArtifacts": true,
 		"externalBin": ["binaries/tempest-cli"],
 		"resources": {
