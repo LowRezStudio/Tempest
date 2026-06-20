@@ -52,7 +52,7 @@ internal class ModCommands
     /// <param name="modFile">Path to the mod file (.upk, .pck)</param>
     /// <param name="replace">Overwrite the mod if it already exists</param>
     /// <param name="json">Output as JSON</param>
-    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool json = false)
+    public static async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool json = false)
     {
         try
         {
@@ -86,7 +86,7 @@ internal class ModCommands
     /// <summary>Lists installed mods for the game instance</summary>
     /// <param name="path">Path to the game folder or executable</param>
     /// <param name="json">Output as JSON</param>
-    public Task List([Argument] string path, bool json = false)
+    public static Task List([Argument] string path, bool json = false)
     {
         try
         {
@@ -120,7 +120,7 @@ internal class ModCommands
     /// <param name="path">Path to the game folder or executable</param>
     /// <param name="modName">Name of the mod to remove (e.g. TgMod.upk)</param>
     /// <param name="json">Output as JSON</param>
-    public async Task Remove([Argument] string path, [Argument] string modName, bool json = false)
+    public static async Task Remove([Argument] string path, [Argument] string modName, bool json = false)
     {
         try
         {
@@ -163,7 +163,7 @@ internal class ModCommands
     /// <param name="modFiles">List of mod files to install</param>
     /// <param name="replace">Overwrite existing mods</param>
     /// <param name="json">Output as JSON</param>
-    public async Task InstallBulk([Argument] string path, string[] modFiles, bool replace = false, bool json = false)
+    public static async Task InstallBulk([Argument] string path, string[] modFiles, bool replace = false, bool json = false)
     {
         var results = new List<ModInstallResult>();
         foreach (var file in modFiles)

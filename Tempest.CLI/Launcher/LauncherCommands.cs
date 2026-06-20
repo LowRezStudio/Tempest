@@ -6,7 +6,7 @@ namespace Tempest.CLI.Launcher;
 
 internal class LauncherCommands
 {
-    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null)
+    public static async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null)
     {
         var args = context.EscapedArguments.ToArray();
         var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll);
@@ -93,11 +93,11 @@ internal class LauncherCommands
         }
         if (isServer)
         {
-            #if DEBUG
+#if DEBUG
             var asmLoaderPath = Path.Combine(AppContext.BaseDirectory, $"../../../../Tempest.Utils/zig-out/bin/asmloader-windows_x86{(is64Bit ? "_64" : "")}.dll");
-            #else
+#else
             var asmLoaderPath = Path.Combine(AppContext.BaseDirectory, $"asmloader-windows_x86{(is64Bit ? "_64" : "")}.dll");
-            #endif
+#endif
             await process.InjectLibraryAsync(asmLoaderPath, is64Bit);
         }
 

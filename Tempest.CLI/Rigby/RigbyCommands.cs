@@ -9,7 +9,7 @@ internal sealed class RigbyCommands
 {
     private const string FormatVersion = "rigby-v1";
 
-    public async Task Restore(
+    public static async Task Restore(
         [Argument] string[] manifests,
         string outDir,
         string? chunksRoot = null,

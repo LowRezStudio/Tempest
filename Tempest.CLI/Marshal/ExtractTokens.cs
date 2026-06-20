@@ -8,7 +8,7 @@ internal partial class MarshalCommands
     /// <summary>Extracts uncompressed function and field token data from a PE</summary>
     /// <param name="path">Path of the DLL or EXE</param>
     /// <param name="output">Output directory</param>
-    public void ExtractTokens(string path, string output)
+    public static void ExtractTokens(string path, string output)
     {
         Directory.CreateDirectory(output);
 

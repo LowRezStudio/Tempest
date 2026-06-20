@@ -13,9 +13,9 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     private readonly ConcurrentDictionary<string, LobbyPlayer> _players = new();
     private readonly ITicketStore _ticketStore = ticketStore;
     private readonly ConcurrentQueue<LobbyEvent> _eventBuffer = new();
-    private readonly List<IObserver<LobbyEvent>> _subscribers = new();
-    private readonly object _gate = new();
-    private Protocol.Lobby.LobbyState _state = new Protocol.Lobby.LobbyState
+    private readonly List<IObserver<LobbyEvent>> _subscribers = [];
+    private readonly Lock _gate = new();
+    private Protocol.Lobby.LobbyState _state = new()
     {
         Waiting = new LobbyStateWaiting
         {
@@ -129,7 +129,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         _state.MapVote.Votes[playerId] = mapId;
         PublishState();
         StateMachine();
-    }   
+    }
 
     public bool TryGetPlayerIdFromTicket(string ticket, out string playerId) => _ticketStore.TryGetPlayerId(ticket, out playerId);
 
@@ -201,9 +201,13 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
                 KickPlayer(player.Id);
             }
         }
-        SetState(new Protocol.Lobby.LobbyState { InGame = new LobbyStateInGame {
-            MapId = mapId,
-        } });
+        SetState(new Protocol.Lobby.LobbyState
+        {
+            InGame = new LobbyStateInGame
+            {
+                MapId = mapId,
+            }
+        });
         StartGameServer(mapId);
     }
     private void EndInGame()
@@ -351,7 +355,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             State = _state,
             Version = _options.Version,
             PasswordRequired = _options.Password != null && !_options.Password.Equals(string.Empty),
-            MaxPlayers = (uint) _options.MaxPlayers,
+            MaxPlayers = (uint)_options.MaxPlayers,
             Countdown = _countdown,
             Gamemode = _options.GameMode,
             EnableJoinInProgress = _options.EnableJoinInProgress,
@@ -386,12 +390,10 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
 
     public IObservable<LobbyEvent> Subscribe() => new EventStream(this);
 
-    private sealed class EventStream : IObservable<LobbyEvent>, IObserver<LobbyEvent>, IDisposable
+    private sealed class EventStream(LobbyState parent) : IObservable<LobbyEvent>, IObserver<LobbyEvent>, IDisposable
     {
-        private readonly LobbyState _parent;
+        private readonly LobbyState _parent = parent;
         private bool _disposed;
-
-        public EventStream(LobbyState parent) => _parent = parent;
 
         public IDisposable Subscribe(IObserver<LobbyEvent> observer)
         {

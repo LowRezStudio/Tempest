@@ -19,7 +19,7 @@ public class InMemoryServerStore
     {
         if (!_servers.ContainsKey(id))
             return false;
-        
+
         server.Id = id;
         _servers[id] = server;
         return true;

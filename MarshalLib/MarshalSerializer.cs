@@ -78,10 +78,7 @@ public static class MarshalSerializer
 
                     foreach (var i in indexes)
                     {
-                        var field = options.FieldMappings.Get(i);
-
-                        if (field == null) throw new Exception($"Field (index: {i}) not found");
-
+                        var field = options.FieldMappings.Get(i) ?? throw new Exception($"Field (index: {i}) not found");
                         var value = headerType switch
                         {
                             1 => new MarshalObject(reader.ReadByte()),
@@ -99,10 +96,7 @@ public static class MarshalSerializer
             case 5: // String
                 {
                     var fieldIndex = reader.ReadUInt16();
-                    var field = options.FieldMappings.Get(fieldIndex);
-
-                    if (field == null) throw new Exception($"Field (index: {fieldIndex}) not found");
-
+                    var field = options.FieldMappings.Get(fieldIndex) ?? throw new Exception($"Field (index: {fieldIndex}) not found");
                     var length = reader.ReadUInt16();
                     var isUtf16 = (length & 0x8000) != 0;
 
@@ -136,10 +130,7 @@ public static class MarshalSerializer
             case 6: // DataSet
                 {
                     var fieldIndex = reader.ReadUInt16();
-                    var field = options.FieldMappings.Get(fieldIndex);
-
-                    if (field == null) throw new Exception($"Field (index: {fieldIndex}) not found");
-
+                    var field = options.FieldMappings.Get(fieldIndex) ?? throw new Exception($"Field (index: {fieldIndex}) not found");
                     var rowCount16 = reader.ReadUInt16();
                     var rowCount = rowCount16 == ushort.MaxValue ? reader.ReadUInt32() : rowCount16;
 
@@ -174,10 +165,7 @@ public static class MarshalSerializer
             case 7: // GUID
                 {
                     var fieldIndex = reader.ReadUInt16();
-                    var field = options.FieldMappings.Get(fieldIndex);
-
-                    if (field == null) throw new Exception($"Field (index: {fieldIndex}) not found");
-
+                    var field = options.FieldMappings.Get(fieldIndex) ?? throw new Exception($"Field (index: {fieldIndex}) not found");
                     if (headerParam != 1)
                     {
                         var length = reader.ReadUInt16();
@@ -194,10 +182,7 @@ public static class MarshalSerializer
             case 8: // Blob
                 {
                     var fieldIndex = reader.ReadUInt16();
-                    var field = options.FieldMappings.Get(fieldIndex);
-
-                    if (field == null) throw new Exception($"Field (index: {fieldIndex}) not found");
-
+                    var field = options.FieldMappings.Get(fieldIndex) ?? throw new Exception($"Field (index: {fieldIndex}) not found");
                     var length = reader.ReadUInt16();
 
                     result[field.Name] = new MarshalObject(reader.ReadBytes(length));
@@ -207,10 +192,7 @@ public static class MarshalSerializer
             case 9:
                 {
                     var fieldIndex = reader.ReadUInt16();
-                    var field = options.FieldMappings.Get(fieldIndex);
-
-                    if (field == null) throw new Exception($"Field (index: {fieldIndex}) not found");
-
+                    var field = options.FieldMappings.Get(fieldIndex) ?? throw new Exception($"Field (index: {fieldIndex}) not found");
                     var length = headerParam * 2;
                     var bytes = reader.ReadBytes(length);
                     var str = Encoding.Unicode.GetString(bytes);
@@ -225,10 +207,7 @@ public static class MarshalSerializer
                     var length = reader.ReadUInt16();
 
                     var isUtf32 = headerParam == 3;
-                    var field = options.FieldMappings.Get(fieldIndex);
-
-                    if (field == null) throw new Exception($"Field (index: {fieldIndex}) not found");
-
+                    var field = options.FieldMappings.Get(fieldIndex) ?? throw new Exception($"Field (index: {fieldIndex}) not found");
                     var slice = reader.ReadBytes(isUtf32 ? length * 4 : length * 2);
                     var flags = isUtf32 ? MarshalFlags.Utf32 : MarshalFlags.None;
                     var value = isUtf32 ? Encoding.UTF32.GetString(slice) : Encoding.Unicode.GetString(slice);
@@ -281,11 +260,7 @@ public static class MarshalSerializer
                 if (packet.FunctionName == null)
                     throw new Exception("Function hash and name are both null");
 
-                var function = options.FunctionMappings.Get(packet.FunctionName);
-
-                if (function == null)
-                    throw new Exception($"Function (name: {packet.FunctionName}) not found");
-
+                var function = options.FunctionMappings.Get(packet.FunctionName) ?? throw new Exception($"Function (name: {packet.FunctionName}) not found");
                 functionHash = function.Hash;
             }
 

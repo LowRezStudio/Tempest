@@ -15,7 +15,7 @@ internal static class BinaryReaderExtensions
             bytes.Add(b);
         }
 
-        return Encoding.UTF8.GetString(bytes.ToArray());
+        return Encoding.UTF8.GetString([.. bytes]);
     }
 
     public static short ReadInt16BigEndian(this BinaryReader binaryReader) => BinaryPrimitives.ReadInt16BigEndian(

@@ -6,7 +6,7 @@ namespace Tempest.CLI.Server;
 
 internal class ServerCommands
 {
-    public async Task Open(
+    public static async Task Open(
         string path,
         string name = "Paladins Server",
         string tags = "",
@@ -48,7 +48,7 @@ internal class ServerCommands
             Game = game,
             Dll = dll,
             EnableJoinInProgress = enableJoinInProgress,
-};
+        };
 
         var server = new EmbeddedServer(options);
         await server.StartAsync();
@@ -73,7 +73,7 @@ internal class ServerCommands
         await server.StopAsync();
     }
 
-    public async Task List(string servicesUrl = "https://localhost:7165")
+    public static async Task List(string servicesUrl = "https://localhost:7165")
     {
         using var client = new ServerListClient(servicesUrl);
         var servers = await client.GetServersAsync();
@@ -102,14 +102,14 @@ internal class ServerCommands
         }
     }
 
-    public async Task Get(string id, string servicesUrl = "https://localhost:7165")
+    public static async Task Get(string id, string servicesUrl = "https://localhost:7165")
     {
         using var client = new ServerListClient(servicesUrl);
 
         try
         {
             var response = await client.GetServerByIdAsync(id);
-            
+
             if (response.ResultCase == Protocol.ServerList.GetServerByIdResponse.ResultOneofCase.Success)
             {
                 var server = response.Success;
@@ -128,7 +128,8 @@ internal class ServerCommands
                 Console.WriteLine($"Country: {server.Country}");
                 if (server.Tags.Count > 0)
                     Console.WriteLine($"Tags: {string.Join(", ", server.Tags)}");
-            } else
+            }
+            else
             {
                 Console.WriteLine($"Response Error: {response.Error.Message}");
             }

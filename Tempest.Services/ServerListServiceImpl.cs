@@ -3,14 +3,9 @@ using Tempest.Protocol.ServerList;
 
 namespace Tempest.Services;
 
-public class ServerListServiceImpl : ServerList.ServerListBase
+public class ServerListServiceImpl(InMemoryServerStore store) : ServerList.ServerListBase
 {
-    private readonly InMemoryServerStore _store;
-
-    public ServerListServiceImpl(InMemoryServerStore store)
-    {
-        _store = store;
-    }
+    private readonly InMemoryServerStore _store = store;
 
     public override Task<CreateLobbyResponse> CreateLobby(CreateLobbyRequest request, ServerCallContext context)
     {

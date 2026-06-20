@@ -10,7 +10,7 @@ public class ModV1Installer : IModInstaller
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var fileName = Path.GetFileName(modFilePath);
-        var ext = Path.GetExtension(modFilePath).ToLowerInvariant();
+        _ = Path.GetExtension(modFilePath).ToLowerInvariant();
 
         // ponytail: simple name classification
         bool isVoiceMod = fileName.Contains("_VOX", StringComparison.OrdinalIgnoreCase) ||

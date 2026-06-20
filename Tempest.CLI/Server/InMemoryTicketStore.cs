@@ -12,7 +12,7 @@ internal sealed class InMemoryTicketStore : ITicketStore
         var ticket = Guid.NewGuid().ToString("N");
         _ticketToPlayer[ticket] = playerId;
         _playerToTickets.AddOrUpdate(playerId,
-            _ => new HashSet<string> { ticket },
+            _ => [ticket],
             (_, set) => { set.Add(ticket); return set; });
         return ticket;
     }

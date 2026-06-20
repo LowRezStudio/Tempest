@@ -10,7 +10,7 @@ internal class BuildCommands
     /// <summary>Identifies the build using the manifest file</summary>
     /// <param name="path">Path to the game folder</param>
     /// <param name="json">Output as JSON</param>
-    public async Task Identify([Argument] string path, bool json = false)
+    public static async Task Identify([Argument] string path, bool json = false)
     {
         var assembly = Assembly.GetExecutingAssembly();
         var resourceName = "Tempest.CLI.Resources.manifests.csv";

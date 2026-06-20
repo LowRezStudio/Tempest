@@ -2,18 +2,13 @@ using System.Collections.Concurrent;
 
 namespace Tempest.CLI.Server;
 
-internal sealed class PlayerDisconnectMonitor : BackgroundService
+internal sealed class PlayerDisconnectMonitor(LobbyState state) : BackgroundService
 {
     // handling the situation where a player has multiple event streams open for some reason
     private readonly ConcurrentDictionary<string, PlayerConnection> _players = new();
     private readonly TimeSpan _checkInterval = TimeSpan.FromSeconds(60);
     private readonly TimeSpan _maxDisconnectTime = TimeSpan.FromMinutes(5);
-    private readonly LobbyState _state;
-
-    public PlayerDisconnectMonitor(LobbyState state)
-    {
-        _state = state;
-    }
+    private readonly LobbyState _state = state;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

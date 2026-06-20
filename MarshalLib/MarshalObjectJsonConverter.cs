@@ -129,6 +129,6 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
             return new List<Dictionary<string, MarshalObject>>();
 
         return element.Deserialize<IList<Dictionary<string, MarshalObject>>>(options)
-            ?? new List<Dictionary<string, MarshalObject>>();
+            ?? [];
     }
 }

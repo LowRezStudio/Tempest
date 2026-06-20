@@ -6,7 +6,7 @@ namespace Tempest.CLI.Extensions;
 internal static class ProcessExtensions
 {
     private static readonly string TempExtractDir = Path.Combine(Path.GetTempPath(), "Tempest.Inject", Guid.NewGuid().ToString("N"));
-    private static readonly object ExtractLock = new();
+    private static readonly Lock ExtractLock = new();
     private static string? _inject32Path;
     private static string? _inject64Path;
 
@@ -47,11 +47,7 @@ internal static class ProcessExtensions
 
             var asm = Assembly.GetExecutingAssembly();
             var resourceName = asm.GetManifestResourceNames()
-                .FirstOrDefault(n => n.EndsWith(fileName, StringComparison.OrdinalIgnoreCase));
-
-            if (resourceName == null)
-                throw new InvalidOperationException($"Embedded resource for '{fileName}' not found. Available resources: {string.Join(',', asm.GetManifestResourceNames())}");
-
+                .FirstOrDefault(n => n.EndsWith(fileName, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"Embedded resource for '{fileName}' not found. Available resources: {string.Join(',', asm.GetManifestResourceNames())}");
             var outPath = Path.Combine(TempExtractDir, fileName);
 
             using (var rs = asm.GetManifestResourceStream(resourceName) ?? throw new InvalidOperationException($"Failed to open resource stream '{resourceName}'"))

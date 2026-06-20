@@ -8,7 +8,7 @@ internal sealed class LobbyServerOptions
     public string? Password { get; init; }
     public string Map { get; init; } = string.Empty;
     public string Version { get; init; } = string.Empty;
-    public IEnumerable<string> Tags { get; init; } = Enumerable.Empty<string>();
+    public IEnumerable<string> Tags { get; init; } = [];
     public bool JoinInProgress { get; init; }
     public bool PublicServer { get; init; }
     public string? GameMode { get; init; }

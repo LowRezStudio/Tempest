@@ -4,8 +4,8 @@ namespace MarshalLib;
 
 public class FieldMappings
 {
-    private Dictionary<ushort, FieldDescriptor> _fields = new();
-    private Dictionary<string, ushort> _fieldNames = new();
+    private readonly Dictionary<ushort, FieldDescriptor> _fields = [];
+    private readonly Dictionary<string, ushort> _fieldNames = [];
 
     public static FieldMappings OpenRead(Stream stream)
     {

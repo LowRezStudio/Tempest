@@ -47,11 +47,7 @@ internal static class WineExtensions
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || process.StartInfo.FileName != "wine")
             return process.Id;
 
-        var filename = Path.GetFileName(process.StartInfo.EnvironmentVariables["NATIVE_FILENAME"]);
-
-        if (filename == null)
-            throw new Exception("'NATIVE_FILENAME' Environment Variable is somehow null, this isn't your fault.");
-
+        var filename = Path.GetFileName(process.StartInfo.EnvironmentVariables["NATIVE_FILENAME"]) ?? throw new Exception("'NATIVE_FILENAME' Environment Variable is somehow null, this isn't your fault.");
         return await GetProcessId(filename);
     }
 
@@ -139,7 +135,7 @@ internal static class WineExtensions
         }
 
         result.Add(currentField.ToString());
-        return result.ToArray();
+        return [.. result];
     }
 
     private static async Task<DateTime?> GetProcessStartTime(int pid)
@@ -172,7 +168,7 @@ internal static class WineExtensions
                         // WMIC format: 20241221143022.123456-480
                         if (dateStr.Length >= 14)
                         {
-                            var year = int.Parse(dateStr.Substring(0, 4));
+                            var year = int.Parse(dateStr[..4]);
                             var month = int.Parse(dateStr.Substring(4, 2));
                             var day = int.Parse(dateStr.Substring(6, 2));
                             var hour = int.Parse(dateStr.Substring(8, 2));

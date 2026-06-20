@@ -5,12 +5,12 @@ using Tempest.CLI.Rigby.Models;
 
 namespace Tempest.CLI.Rigby;
 
-internal sealed class JsonRestoreProgress : IRestoreProgress
+internal sealed class JsonRestoreProgress(int totalFiles, long totalBytes) : IRestoreProgress
 {
     private readonly Lock gate = new();
     private readonly Stopwatch stopwatch = Stopwatch.StartNew();
-    private readonly int totalFiles;
-    private readonly long totalBytes;
+    private readonly int totalFiles = totalFiles;
+    private readonly long totalBytes = totalBytes;
 
     private int completedFiles;
     private long completedBytes;
@@ -18,12 +18,6 @@ internal sealed class JsonRestoreProgress : IRestoreProgress
     private int verifiedFiles;
     private long diskWriteBytes;
     private long reusedBytes;
-
-    public JsonRestoreProgress(int totalFiles, long totalBytes)
-    {
-        this.totalFiles = totalFiles;
-        this.totalBytes = totalBytes;
-    }
 
     public void FileCompleted(RestoreResult result)
     {

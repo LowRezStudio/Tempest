@@ -10,7 +10,7 @@ namespace Tempest.Services
         private static readonly HttpClient client = new();
         private static readonly TimeSpan CheckInterval = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(90);
- 
+
         public HeartbeatManager(InMemoryServerStore store)
         {
             _store = store;

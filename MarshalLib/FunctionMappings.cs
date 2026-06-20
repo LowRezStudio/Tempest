@@ -4,7 +4,7 @@ namespace MarshalLib;
 
 public class FunctionMappings
 {
-    private List<FunctionDescriptor> _functions = new();
+    private readonly List<FunctionDescriptor> _functions = [];
 
     public static FunctionMappings OpenRead(Stream stream)
     {
