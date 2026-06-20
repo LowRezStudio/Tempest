@@ -1,6 +1,5 @@
-import { getConnectionToServer, LobbyEvent, Timestamp } from "$lib/rpc";
+import { AuthMethod, getConnectionToServer, LobbyEvent, Timestamp } from "$lib/rpc";
 import { JoinLobbyErrorCode } from "$lib/rpc/lobby/join_lobby_error_code";
-import { AuthMethod } from "$lib/rpc/lobby/join_lobby_request";
 import { instanceMap } from "$lib/stores/instance";
 import { processesList } from "$lib/stores/processes";
 import { username } from "$lib/stores/settings";

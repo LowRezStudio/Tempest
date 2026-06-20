@@ -7,6 +7,7 @@ import {
 	UnknownFieldHandler,
 	WireType,
 } from "@protobuf-ts/runtime";
+import { AuthMethod } from "../common/auth_method";
 import { CountryCode } from "../common/country";
 import { Timestamp } from "../google/protobuf/timestamp";
 import type {
@@ -97,6 +98,10 @@ export interface ServerListing {
 	 * @generated from protobuf field: optional google.protobuf.Timestamp last_seen = 19
 	 */
 	lastSeen?: Timestamp;
+	/**
+	 * @generated from protobuf field: repeated tempest.common.AuthMethod auth_methods = 20
+	 */
+	authMethods: AuthMethod[];
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class ServerListing$Type extends MessageType<ServerListing> {
@@ -132,6 +137,13 @@ class ServerListing$Type extends MessageType<ServerListing> {
 				T: () => ["tempest.common.CountryCode", CountryCode],
 			},
 			{ no: 19, name: "last_seen", kind: "message", T: () => Timestamp },
+			{
+				no: 20,
+				name: "auth_methods",
+				kind: "enum",
+				repeat: 1 /*RepeatType.PACKED*/,
+				T: () => ["tempest.common.AuthMethod", AuthMethod, "AUTH_METHOD_"],
+			},
 		]);
 	}
 	create(value?: PartialMessage<ServerListing>): ServerListing {
@@ -152,6 +164,7 @@ class ServerListing$Type extends MessageType<ServerListing> {
 		message.joinable = false;
 		message.hasPassword = false;
 		message.country = 0;
+		message.authMethods = [];
 		if (value !== undefined) reflectionMergePartial<ServerListing>(this, message, value);
 		return message;
 	}
@@ -228,6 +241,12 @@ class ServerListing$Type extends MessageType<ServerListing> {
 						message.lastSeen,
 					);
 					break;
+				case /* repeated tempest.common.AuthMethod auth_methods */ 20:
+					if (wireType === WireType.LengthDelimited)
+						for (let e = reader.int32() + reader.pos; reader.pos < e; )
+							message.authMethods.push(reader.int32());
+					else message.authMethods.push(reader.int32());
+					break;
 				default:
 					let u = options.readUnknownField;
 					if (u === "throw")
@@ -300,6 +319,13 @@ class ServerListing$Type extends MessageType<ServerListing> {
 				writer.tag(19, WireType.LengthDelimited).fork(),
 				options,
 			).join();
+		/* repeated tempest.common.AuthMethod auth_methods = 20; */
+		if (message.authMethods.length) {
+			writer.tag(20, WireType.LengthDelimited).fork();
+			for (let i = 0; i < message.authMethods.length; i++)
+				writer.int32(message.authMethods[i]);
+			writer.join();
+		}
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

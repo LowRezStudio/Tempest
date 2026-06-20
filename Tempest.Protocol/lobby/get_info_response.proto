@@ -1,0 +1,15 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+import "common/auth_method.proto";
+
+message GetInfoResponse {
+  string name = 1;
+  string game = 2;
+  string version = 3;
+  uint32 players = 4;
+  uint32 max_players = 5;
+  bool has_password = 6;
+  repeated common.AuthMethod auth_methods = 7;
+}

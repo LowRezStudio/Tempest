@@ -4,6 +4,8 @@ option csharp_namespace = "Tempest.Protocol.Lobby";
 
 import "lobby/champion_select_request.proto";
 import "lobby/champion_select_response.proto";
+import "lobby/get_info_request.proto";
+import "lobby/get_info_response.proto";
 import "lobby/join_lobby_request.proto";
 import "lobby/join_lobby_response.proto";
 import "lobby/leave_lobby_request.proto";
@@ -18,6 +20,7 @@ import "lobby/send_chat_message_response.proto";
 service Lobby {
   rpc JoinLobby(JoinLobbyRequest) returns (JoinLobbyResponse);
   rpc LeaveLobby(LeaveLobbyRequest) returns (LeaveLobbyResponse);
+  rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
   rpc ReceiveLobbyEvents(ReceiveLobbyEventsRequest) returns (stream LobbyEvent);
   rpc ChampionSelect(ChampionSelectRequest) returns (ChampionSelectResponse);
   rpc MapVote(MapVoteRequest) returns (MapVoteResponse);

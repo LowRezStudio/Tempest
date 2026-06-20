@@ -55,6 +55,7 @@ export function getConnectionToServer(host: string) {
 	return client;
 }
 export * from "./rpc/common/country";
+export * from "./rpc/common/auth_method";
 
 export * from "./rpc/google/protobuf/timestamp";
 

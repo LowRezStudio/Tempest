@@ -2,14 +2,10 @@ syntax = "proto3";
 package tempest.lobby;
 option csharp_namespace = "Tempest.Protocol.Lobby";
 
-enum AuthMethod {
-  AUTH_METHOD_UNSPECIFIED = 0;
-  AUTH_METHOD_PLAIN = 1;
-  AUTH_METHOD_TICKET = 2;
-}
+import "common/auth_method.proto";
 
 message JoinLobbyRequest {
-  AuthMethod auth_method = 1;
+  common.AuthMethod auth_method = 1;
   string auth_value = 2;
   optional string password = 5;
 }

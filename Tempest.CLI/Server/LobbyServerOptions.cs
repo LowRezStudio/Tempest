@@ -20,4 +20,5 @@ internal sealed class LobbyServerOptions
     public string? Game { get; init; } = null;
     public string[]? Dll { get; init; } = null;
     public bool EnableJoinInProgress { get; init; } = false;
+    public IEnumerable<Tempest.Protocol.Common.AuthMethod> AuthMethods { get; init; } = [Tempest.Protocol.Common.AuthMethod.Plain];
 }

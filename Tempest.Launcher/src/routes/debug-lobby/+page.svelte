@@ -11,7 +11,7 @@ Makes it possible to add players, vote maps and select champions
 		state as lobbyState,
 		players,
 	} from "$lib/lobby/stores";
-	import { AuthMethod } from "$lib/rpc/lobby/join_lobby_request";
+	import { AuthMethod } from "$lib/rpc";
 	import { LobbyClient } from "$lib/rpc/lobby/lobby_service.client";
 	import { getMapsForVersion } from "$lib/utils/versions";
 	import { onDestroy, onMount } from "svelte";

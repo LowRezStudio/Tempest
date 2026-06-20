@@ -7,6 +7,7 @@ import {
 	UnknownFieldHandler,
 	WireType,
 } from "@protobuf-ts/runtime";
+import { AuthMethod } from "../common/auth_method";
 import type {
 	BinaryReadOptions,
 	BinaryWriteOptions,
@@ -20,7 +21,7 @@ import type {
  */
 export interface JoinLobbyRequest {
 	/**
-	 * @generated from protobuf field: tempest.lobby.AuthMethod auth_method = 1
+	 * @generated from protobuf field: tempest.common.AuthMethod auth_method = 1
 	 */
 	authMethod: AuthMethod;
 	/**
@@ -32,23 +33,6 @@ export interface JoinLobbyRequest {
 	 */
 	password?: string;
 }
-/**
- * @generated from protobuf enum tempest.lobby.AuthMethod
- */
-export enum AuthMethod {
-	/**
-	 * @generated from protobuf enum value: AUTH_METHOD_UNSPECIFIED = 0;
-	 */
-	UNSPECIFIED = 0,
-	/**
-	 * @generated from protobuf enum value: AUTH_METHOD_PLAIN = 1;
-	 */
-	PLAIN = 1,
-	/**
-	 * @generated from protobuf enum value: AUTH_METHOD_TICKET = 2;
-	 */
-	TICKET = 2,
-}
 // @generated message type with reflection information, may provide speed optimized methods
 class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 	constructor() {
@@ -57,7 +41,7 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 				no: 1,
 				name: "auth_method",
 				kind: "enum",
-				T: () => ["tempest.lobby.AuthMethod", AuthMethod, "AUTH_METHOD_"],
+				T: () => ["tempest.common.AuthMethod", AuthMethod, "AUTH_METHOD_"],
 			},
 			{ no: 2, name: "auth_value", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 5, name: "password", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
@@ -81,7 +65,7 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
-				case /* tempest.lobby.AuthMethod auth_method */ 1:
+				case /* tempest.common.AuthMethod auth_method */ 1:
 					message.authMethod = reader.int32();
 					break;
 				case /* string auth_value */ 2:
@@ -114,7 +98,7 @@ class JoinLobbyRequest$Type extends MessageType<JoinLobbyRequest> {
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
-		/* tempest.lobby.AuthMethod auth_method = 1; */
+		/* tempest.common.AuthMethod auth_method = 1; */
 		if (message.authMethod !== 0) writer.tag(1, WireType.Varint).int32(message.authMethod);
 		/* string auth_value = 2; */
 		if (message.authValue !== "")

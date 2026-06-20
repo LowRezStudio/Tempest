@@ -3,6 +3,7 @@ package tempest.server_list;
 option csharp_namespace = "Tempest.Protocol.ServerList";
 
 import "common/country.proto";
+import "common/auth_method.proto";
 import "google/protobuf/timestamp.proto";
 
 message ServerListing {
@@ -25,4 +26,5 @@ message ServerListing {
   bool has_password = 16;
   common.CountryCode country = 17;
   optional google.protobuf.Timestamp last_seen = 19;
+  repeated common.AuthMethod auth_methods = 20;
 }

@@ -1,15 +1,18 @@
 using Grpc.Core;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using Tempest.Protocol.Common;
 using Tempest.Protocol.Lobby;
+using Tempest.Protocol.ServerList;
 
 namespace Tempest.CLI.Server;
 
-internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStore, PlayerDisconnectMonitor playerDisconnectMonitor) : Lobby.LobbyBase
+internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStore, PlayerDisconnectMonitor playerDisconnectMonitor, LobbyServerOptions options) : Lobby.LobbyBase
 {
     private readonly LobbyState _state = state;
     private readonly ITicketStore _ticketStore = ticketStore;
     private readonly PlayerDisconnectMonitor _playerDisconnectMonitor = playerDisconnectMonitor;
+    private readonly LobbyServerOptions _options = options;
     private const string TicketHeader = "x-ticket";
 
     public override Task<JoinLobbyResponse> JoinLobby(JoinLobbyRequest request, ServerCallContext context)
@@ -54,6 +57,25 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
             _state.TryLeave(playerId);
         }
         return Task.FromResult(new LeaveLobbyResponse());
+    }
+
+    public override Task<GetInfoResponse> GetInfo(GetInfoRequest request, ServerCallContext context)
+    {
+        var info = _state.GetInfoEvent().Info;
+
+        var response = new GetInfoResponse
+        {
+            Name = _options.Name,
+            Game = _options.GameMode ?? string.Empty,
+            Version = _options.Version,
+            Players = (uint)info.Players.Count,
+            MaxPlayers = (uint)_options.MaxPlayers,
+            HasPassword = !string.IsNullOrEmpty(_options.Password),
+        };
+
+        response.AuthMethods.AddRange(_options.AuthMethods);
+
+        return Task.FromResult(response);
     }
 
     public override async Task ReceiveLobbyEvents(ReceiveLobbyEventsRequest request, IServerStreamWriter<LobbyEvent> responseStream, ServerCallContext context)

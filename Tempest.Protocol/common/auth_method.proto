@@ -1,0 +1,9 @@
+syntax = "proto3";
+package tempest.common;
+option csharp_namespace = "Tempest.Protocol.Common";
+
+enum AuthMethod {
+  AUTH_METHOD_UNSPECIFIED = 0;
+  AUTH_METHOD_PLAIN = 1;
+  AUTH_METHOD_TICKET = 2;
+}

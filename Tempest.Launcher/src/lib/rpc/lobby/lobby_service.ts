@@ -4,6 +4,8 @@
 import { ServiceType } from "@protobuf-ts/runtime-rpc";
 import { ChampionSelectRequest } from "./champion_select_request";
 import { ChampionSelectResponse } from "./champion_select_response";
+import { GetInfoRequest } from "./get_info_request";
+import { GetInfoResponse } from "./get_info_response";
 import { JoinLobbyRequest } from "./join_lobby_request";
 import { JoinLobbyResponse } from "./join_lobby_response";
 import { LeaveLobbyRequest } from "./leave_lobby_request";
@@ -21,6 +23,7 @@ import { SendChatMessageResponse } from "./send_chat_message_response";
 export const Lobby = new ServiceType("tempest.lobby.Lobby", [
 	{ name: "JoinLobby", options: {}, I: JoinLobbyRequest, O: JoinLobbyResponse },
 	{ name: "LeaveLobby", options: {}, I: LeaveLobbyRequest, O: LeaveLobbyResponse },
+	{ name: "GetInfo", options: {}, I: GetInfoRequest, O: GetInfoResponse },
 	{
 		name: "ReceiveLobbyEvents",
 		serverStreaming: true,
