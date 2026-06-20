@@ -126,8 +126,17 @@ jobs:
         with:
           name: tempest-launcher-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*
-          if-no-files-found: error
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi.sig
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg.sig
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage.sig
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb.sig
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
+            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm.sig
+          if-no-files-found: warn
 
   release:
     needs: build
