@@ -17,6 +17,7 @@ export type ModInstallResult = {
 	Message: string;
 	Mod?: ModRecord;
 	Conflict?: boolean;
+	IsModConflict?: boolean;
 };
 
 export type ModListResult = {

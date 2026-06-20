@@ -20,6 +20,7 @@ public class ModInstallResult
     public string Message { get; set; } = string.Empty;
     public ModRecord? Mod { get; set; }
     public bool Conflict { get; set; }
+    public bool IsModConflict { get; set; }
 }
 
 public class ModListResult

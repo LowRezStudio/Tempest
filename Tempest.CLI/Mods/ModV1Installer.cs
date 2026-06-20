@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Tempest.CLI.Mods;
@@ -33,10 +34,15 @@ public class ModV1Installer : IModInstaller
         {
             if (!replace)
             {
+                var mods = ModCommands.LoadMetadata(gamePath);
+                bool isMod = mods.Any(m => string.Equals(m.Name, fileName, StringComparison.OrdinalIgnoreCase) ||
+                                           (m.InstalledFiles != null && m.InstalledFiles.Any(f => string.Equals(f, destPath, StringComparison.OrdinalIgnoreCase))));
+
                 return new ModInstallResult
                 {
                     Success = false,
                     Conflict = true,
+                    IsModConflict = isMod,
                     Message = $"Mod with filename '{fileName}' already exists in destination."
                 };
             }
@@ -47,13 +53,22 @@ public class ModV1Installer : IModInstaller
             var backupPath = Path.Combine(backupDir, fileName);
             try
             {
-                if (File.Exists(backupPath)) File.Delete(backupPath);
-                File.Move(destPath, backupPath);
+                if (File.Exists(backupPath))
+                {
+                    // If a file already exists in backup, it's considered priority (the pristine original)
+                    // and we do NOT make a new backup of the already-modified destPath.
+                    // Instead, we just delete the existing destPath before copying the new mod file.
+                    File.Delete(destPath);
+                }
+                else
+                {
+                    File.Move(destPath, backupPath);
+                }
             }
             catch (Exception ex)
             {
-                // Non-fatal if backup fails
-                Console.Error.WriteLine($"Warning: Failed to backup existing file: {ex.Message}");
+                // Non-fatal if backup/deletion fails
+                Console.Error.WriteLine($"Warning: Failed to handle backup or deletion of existing file: {ex.Message}");
             }
         }
 

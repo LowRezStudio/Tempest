@@ -18,6 +18,7 @@
 	import { installMod } from "$lib/core/mods";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores";
+	import { confirmReplaceMod, replaceDialogStore, resolveReplaceMod } from "$lib/mods/ui";
 	import { instanceMap } from "$lib/stores/instance";
 	import { theme } from "$lib/stores/settings";
 	import {
@@ -36,10 +37,8 @@
 
 	let isDraggingFiles = $state(false);
 	let showInstanceSelect = $state(false);
-	let showReplaceConfirm = $state(false);
 
 	let droppedFilePath = $state("");
-	let conflictingModName = $state("");
 	let targetInstance = $state<any>(null);
 
 	async function handleModFileDrop(filePath: string) {
@@ -62,7 +61,7 @@
 			const inst = $instanceMap[instanceId];
 			if (inst && inst.state?.type === "prepared") {
 				targetInstance = inst;
-				await proceedWithInstall(false);
+				await proceedWithInstall();
 				return;
 			}
 		}
@@ -70,11 +69,21 @@
 		showInstanceSelect = true;
 	}
 
-	async function proceedWithInstall(replace: boolean) {
+	async function proceedWithInstall() {
 		if (!targetInstance || !droppedFilePath) return;
 
 		try {
-			const res = await installMod(targetInstance.path, droppedFilePath, replace);
+			let res = await installMod(targetInstance.path, droppedFilePath, false);
+			if (res.Conflict) {
+				const modName = droppedFilePath.split(/[/\\]/).pop() || droppedFilePath;
+				const confirmed = await confirmReplaceMod(modName, res.IsModConflict);
+				if (confirmed) {
+					res = await installMod(targetInstance.path, droppedFilePath, true);
+				} else {
+					return; // Cancelled
+				}
+			}
+
 			if (res.Success) {
 				addToast({
 					title: "Mod Installed",
@@ -82,9 +91,6 @@
 					tone: "success",
 				});
 				queryClient.invalidateQueries({ queryKey: ["mods", targetInstance.path] });
-			} else if (res.Conflict) {
-				conflictingModName = droppedFilePath.split(/[/\\]/).pop() || droppedFilePath;
-				showReplaceConfirm = true;
 			} else {
 				addToast({
 					title: "Installation Failed",
@@ -104,12 +110,7 @@
 	async function handleInstanceSelected(inst: any) {
 		targetInstance = inst;
 		showInstanceSelect = false;
-		await proceedWithInstall(false);
-	}
-
-	async function handleReplaceConfirmed() {
-		showReplaceConfirm = false;
-		await proceedWithInstall(true);
+		await proceedWithInstall();
 	}
 
 	$effect(() => {
@@ -211,10 +212,11 @@
 			oncancel={() => {}}
 		/>
 		<ReplaceModDialog
-			bind:open={showReplaceConfirm}
-			modName={conflictingModName}
-			onconfirm={handleReplaceConfirmed}
-			oncancel={() => {}}
+			bind:open={$replaceDialogStore.open}
+			modName={$replaceDialogStore.modName}
+			isModConflict={$replaceDialogStore.isModConflict}
+			onconfirm={() => resolveReplaceMod(true)}
+			oncancel={() => resolveReplaceMod(false)}
 		/>
 	</div>
 	<ToastStack />

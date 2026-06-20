@@ -10,7 +10,7 @@ namespace Tempest.CLI.Mods;
 
 internal class ModCommands
 {
-    private static string GetMetadataPath(string gamePath)
+    internal static string GetMetadataPath(string gamePath)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var metadataDir = Path.Combine(resolvedGame, ".tempest", "mods");
@@ -18,7 +18,7 @@ internal class ModCommands
         return Path.Combine(metadataDir, "mods.json");
     }
 
-    private static List<ModRecord> LoadMetadata(string gamePath)
+    internal static List<ModRecord> LoadMetadata(string gamePath)
     {
         var path = GetMetadataPath(gamePath);
         if (!File.Exists(path)) return [];

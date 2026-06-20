@@ -8,13 +8,14 @@
 		Trash2,
 	} from "@lucide/svelte";
 	import { useQueryClient } from "@tanstack/svelte-query";
-	import { confirm as confirmDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
+	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { remove } from "@tauri-apps/plugin-fs";
 	import { revealItemInDir } from "@tauri-apps/plugin-opener";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { installMod } from "$lib/core/mods";
+	import { confirmReplaceMod } from "$lib/mods/ui";
 	import { m } from "$lib/paraglide/messages";
 	import { createSetupInstanceMutation } from "$lib/queries/instance";
 	import {
@@ -48,7 +49,17 @@
 			});
 
 			if (result) {
-				const res = await installMod(instance.path, result, false);
+				let res = await installMod(instance.path, result, false);
+				if (res.Conflict) {
+					const modName = result.split(/[/\\]/).pop() || result;
+					const confirmed = await confirmReplaceMod(modName, res.IsModConflict);
+					if (confirmed) {
+						res = await installMod(instance.path, result, true);
+					} else {
+						return; // Cancelled
+					}
+				}
+
 				if (res.Success) {
 					addToast({
 						title: "Mod Installed",
@@ -56,32 +67,10 @@
 						tone: "success",
 					});
 					queryClient.invalidateQueries({ queryKey: ["mods", instance.path] });
-				} else if (res.Conflict) {
-					const confirmed = await confirmDialog(
-						`A mod named ${res.Mod?.Name || "this mod"} already exists. Do you want to replace it?`,
-						{ title: "Mod Conflict", kind: "warning" },
-					);
-					if (confirmed) {
-						const replaceRes = await installMod(instance.path, result, true);
-						if (replaceRes.Success) {
-							addToast({
-								title: "Mod Installed",
-								message: `Successfully replaced ${replaceRes.Mod?.Name ?? "mod"}.`,
-								tone: "success",
-							});
-							queryClient.invalidateQueries({ queryKey: ["mods", instance.path] });
-						} else {
-							addToast({
-								title: "Installation Failed",
-								message: replaceRes.Message,
-								tone: "error",
-							});
-						}
-					}
 				} else {
 					addToast({
 						title: "Installation Failed",
-						message: res.Message,
+						message: res.Message || "An unknown error occurred.",
 						tone: "error",
 					});
 				}
