@@ -77,7 +77,13 @@
 		<div class="flex-1 overflow-y-auto">
 			<div class="p-6">
 				{#if activeTab === "general"}
-					<div class="flex flex-col gap-4">
+					<form
+						class="flex flex-col gap-4"
+						onsubmit={(e) => {
+							e.preventDefault();
+							saveSettings();
+						}}
+					>
 						<div class="form-control">
 							<label for="username-input" class="label py-0.5">
 								<span class="label-text text-sm">{m.settings_username()}</span>
@@ -123,18 +129,20 @@
 									bind:value={localPath}
 									placeholder={m.settings_select_directory()}
 								/>
-								<button class="btn btn-accent join-item" onclick={browsePath}
-									>{m.common_browse()}</button
+								<button
+									type="button"
+									class="btn btn-accent join-item"
+									onclick={browsePath}>{m.common_browse()}</button
 								>
 							</div>
 						</div>
 
 						<div class="flex justify-end gap-2 pt-2">
-							<button class="btn btn-accent" onclick={saveSettings}
+							<button type="submit" class="btn btn-accent"
 								>{m.common_save_changes()}</button
 							>
 						</div>
-					</div>
+					</form>
 				{:else if activeTab === "advanced"}
 					<div class="flex flex-col">
 						<div class="flex flex-col gap-4">
