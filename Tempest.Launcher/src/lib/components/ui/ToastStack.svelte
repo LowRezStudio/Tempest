@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { X } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { removeToast, toasts } from "$lib/stores/ui";
 	import type { Toast } from "$lib/stores/ui";
@@ -23,19 +24,21 @@
 	aria-atomic="true"
 >
 	{#each toastItems as toast (toast.id)}
-		<div class={getAlertClass(toast)} role="status">
-			<div class="flex items-start gap-3">
-				<div class="flex-1">
-					{#if toast.title}
-						<div class="font-semibold text-sm">{toast.title}</div>
-					{/if}
-					<div class="text-sm">{toast.message}</div>
-				</div>
-				{#if toast.dismissible !== false}
-					<button class="btn btn-ghost btn-xs" onclick={() => removeToast(toast.id)}>
-						{m.common_dismiss()}
-					</button>
+		<div class="{getAlertClass(toast)} relative" role="status">
+			{#if toast.dismissible !== false}
+				<button
+					class="btn btn-circle btn-ghost btn-xs absolute top-2 right-2"
+					onclick={() => removeToast(toast.id)}
+					aria-label={m.common_dismiss()}
+				>
+					<X size={14} />
+				</button>
+			{/if}
+			<div class="pr-6">
+				{#if toast.title}
+					<div class="font-semibold text-sm">{toast.title}</div>
 				{/if}
+				<div class="text-sm">{toast.message}</div>
 			</div>
 		</div>
 	{/each}

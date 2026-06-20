@@ -1,10 +1,20 @@
 <script lang="ts">
-	import { EllipsisVertical, FolderOpen, RefreshCw, RotateCcw, Trash2 } from "@lucide/svelte";
+	import {
+		EllipsisVertical,
+		FolderOpen,
+		PackageOpen,
+		RefreshCw,
+		RotateCcw,
+		Trash2,
+	} from "@lucide/svelte";
+	import { useQueryClient } from "@tanstack/svelte-query";
+	import { confirm as confirmDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { remove } from "@tauri-apps/plugin-fs";
 	import { revealItemInDir } from "@tauri-apps/plugin-opener";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
+	import { installMod } from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
 	import { createSetupInstanceMutation } from "$lib/queries/instance";
 	import {
@@ -14,6 +24,7 @@
 	} from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { removeInstance, updateInstance } from "$lib/stores/instance";
+	import { addToast } from "$lib/stores/ui";
 	import type { Instance } from "$lib/types/instance";
 	import type { Snippet } from "svelte";
 
@@ -23,6 +34,66 @@
 	}
 
 	let { instance, trigger }: Props = $props();
+
+	const queryClient = useQueryClient();
+
+	async function handleInstallMod() {
+		if (!instance?.path) return;
+		try {
+			const result = await openDialog({
+				directory: false,
+				multiple: false,
+				title: "Select mod files",
+				filters: [{ name: "Mod File", extensions: ["upk", "pck"] }],
+			});
+
+			if (result) {
+				const res = await installMod(instance.path, result, false);
+				if (res.Success) {
+					addToast({
+						title: "Mod Installed",
+						message: `Successfully installed ${res.Mod?.Name ?? "mod"}.`,
+						tone: "success",
+					});
+					queryClient.invalidateQueries({ queryKey: ["mods", instance.path] });
+				} else if (res.Conflict) {
+					const confirmed = await confirmDialog(
+						`A mod named ${res.Mod?.Name || "this mod"} already exists. Do you want to replace it?`,
+						{ title: "Mod Conflict", kind: "warning" },
+					);
+					if (confirmed) {
+						const replaceRes = await installMod(instance.path, result, true);
+						if (replaceRes.Success) {
+							addToast({
+								title: "Mod Installed",
+								message: `Successfully replaced ${replaceRes.Mod?.Name ?? "mod"}.`,
+								tone: "success",
+							});
+							queryClient.invalidateQueries({ queryKey: ["mods", instance.path] });
+						} else {
+							addToast({
+								title: "Installation Failed",
+								message: replaceRes.Message,
+								tone: "error",
+							});
+						}
+					}
+				} else {
+					addToast({
+						title: "Installation Failed",
+						message: res.Message,
+						tone: "error",
+					});
+				}
+			}
+		} catch (error: any) {
+			addToast({
+				title: "Installation Failed",
+				message: error.message || "Internal error occurred.",
+				tone: "error",
+			});
+		}
+	}
 
 	let showDeleteConfirm = $state(false);
 
@@ -107,6 +178,10 @@
 	{/snippet}
 	{#snippet children()}
 		{#if isReady}
+			<PopoverMenuItem onclick={handleInstallMod} disabled={isSettingUp}>
+				<PackageOpen size={16} />
+				Install Mod...
+			</PopoverMenuItem>
 			<PopoverMenuItem onclick={handleRunSetup} disabled={isSettingUp}>
 				<RefreshCw size={16} />
 				{m.instancemenu_run_setup()}

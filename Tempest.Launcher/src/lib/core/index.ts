@@ -3,6 +3,8 @@ export type { ArgumentType } from "./command";
 export { getVersion, identifyBuild } from "./build";
 export type { BuildInfo } from "./build";
 export { launchGame, killGame } from "./launch";
+export { listMods, installMod, removeMod } from "./mods";
+export type { ModRecord, ModInstallResult, ModListResult } from "./mods";
 export {
 	getFieldsTokenPath,
 	getFunctionsTokenPath,

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		Box,
-		EllipsisVertical,
 		Folder,
 		Gamepad2,
 		PackageOpen,
@@ -15,41 +14,39 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
+	import ModMenu from "$lib/components/mods/ModMenu.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
+	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
 	import { instanceMap, updateInstance } from "$lib/stores/instance";
 	import { processesList } from "$lib/stores/processes";
 	import { parseArgs } from "$lib/utils/args";
 	import type { InstancePlatform } from "$lib/types/instance";
 
-	type ModItem = {
-		id: string;
-		name: string;
-		author: string;
-		version: string;
-		enabled: boolean;
-		icon?: string;
-	};
-
 	let activeTab = $state<"content">("content");
-
-	const mods = $state<ModItem[]>([
-		{
-			id: "1",
-			name: "Multiplayer",
-			author: "Tempest",
-			version: "1.0.0",
-			enabled: true,
-		},
-	]);
 
 	const instance = $derived($instanceMap[page.params.id!]);
 	let isSettingUp = $derived(
 		(instance?.state as { type?: string } | undefined)?.type === "setup",
 	);
+
+	const modsQuery = createModsQuery(() => instance?.path ?? "");
+	let modsList = $derived(modsQuery.data ?? []);
+	let isQueryLoading = $derived(modsQuery.isFetching);
+
+	const removeModMutation = createRemoveModMutation();
+
+	function handleRemoveMod(modName: string) {
+		if (!instance) return;
+		removeModMutation.mutate({ gamePath: instance.path, modName });
+	}
+
+	function handleRefreshMods() {
+		modsQuery.refetch();
+	}
 
 	$effect(() => {
 		if (!instance) {
@@ -249,7 +246,7 @@
 		{#if activeTab === "content"}
 			<div class="flex-1 overflow-y-auto">
 				<div class="px-4 py-6">
-					{#if mods.length === 0}
+					{#if modsList.length === 0}
 						<div class="flex flex-col items-center justify-center h-64 gap-4">
 							<PackageOpen size={48} class="opacity-30" />
 							<p class="text-lg text-base-content/50">{m.instance_no_content()}</p>
@@ -270,15 +267,24 @@
 									</th>
 									<th class="w-48">{m.common_version()}</th>
 									<th class="w-auto text-right">
-										<button class="btn btn-ghost btn-sm">
-											<RefreshCw size={14} />
+										<button
+											class="btn btn-ghost btn-sm"
+											onclick={handleRefreshMods}
+											disabled={isQueryLoading}
+										>
+											{#if isQueryLoading}
+												<span class="loading loading-spinner loading-xs"
+												></span>
+											{:else}
+												<RefreshCw size={14} />
+											{/if}
 											{m.common_refresh()}
 										</button>
 									</th>
 								</tr>
 							</thead>
 							<tbody>
-								{#each mods as mod (mod.id)}
+								{#each modsList as mod (mod.Id)}
 									<tr class="hover">
 										<td>
 											<div class="flex items-center gap-3">
@@ -289,25 +295,27 @@
 												</div>
 												<div class="flex-1 min-w-0">
 													<h3 class="font-bold text-sm truncate">
-														{mod.name}
+														{mod.Name}
 													</h3>
 													<p class="text-xs opacity-70">
-														by {mod.author}
+														by {mod.Author}
 													</p>
 												</div>
 											</div>
 										</td>
 										<td>
-											<p class="font-semibold text-sm">{mod.version}</p>
+											<p class="font-semibold text-sm">{mod.Version}</p>
 										</td>
 										<td>
 											<div class="flex items-center justify-end gap-1">
-												<button class="btn btn-error btn-sm btn-square">
+												<button
+													class="btn btn-error btn-sm btn-square"
+													disabled={removeModMutation.isPending}
+													onclick={() => handleRemoveMod(mod.Name)}
+												>
 													<Trash2 size={14} />
 												</button>
-												<button class="btn btn-sm btn-square">
-													<EllipsisVertical size={14} />
-												</button>
+												<ModMenu {mod} />
 											</div>
 										</td>
 									</tr>

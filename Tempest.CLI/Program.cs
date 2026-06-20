@@ -5,6 +5,7 @@ using Tempest.CLI.Marshal;
 using Tempest.CLI.Server;
 using Tempest.CLI.Build;
 using Tempest.CLI.Rigby;
+using Tempest.CLI.Mods;
 
 var app = ConsoleApp.Create();
 
@@ -13,6 +14,7 @@ app.Add<ServerCommands>("server");
 app.Add<MarshalCommands>("marshal");
 app.Add<BuildCommands>("build");
 app.Add<RigbyCommands>("rigby");
+app.Add<ModCommands>("mod");
 
 if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 {

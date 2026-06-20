@@ -1,5 +1,6 @@
 <script lang="ts">
 	import "$lib/styles/global.css";
+	// @ts-ignore
 	import "@fontsource-variable/ubuntu-sans-mono";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
 	import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -7,13 +8,19 @@
 	import { page } from "$app/state";
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 	import AppCloseLobbyWizard from "$lib/components/lobby/AppCloseLobbyWizard.svelte";
+	import InstallModOverlay from "$lib/components/mods/InstallModOverlay.svelte";
+	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
+	import ReplaceModDialog from "$lib/components/mods/ReplaceModDialog.svelte";
 	import HostServerWizard from "$lib/components/server-list/HostServerWizard.svelte";
 	import JoinServerWizard from "$lib/components/server-list/JoinServerWizard.svelte";
 	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
 	import ToastStack from "$lib/components/ui/ToastStack.svelte";
+	import { installMod } from "$lib/core/mods";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores";
+	import { instanceMap } from "$lib/stores/instance";
 	import {
+		addToast,
 		appCloseLobbyWizardOpen,
 		hostServerWizardOpen,
 		instanceWizardOpen,
@@ -25,6 +32,84 @@
 
 	const { children } = $props();
 	const queryClient = new QueryClient();
+
+	let isDraggingFiles = $state(false);
+	let showInstanceSelect = $state(false);
+	let showReplaceConfirm = $state(false);
+
+	let droppedFilePath = $state("");
+	let conflictingModName = $state("");
+	let targetInstance = $state<any>(null);
+
+	async function handleModFileDrop(filePath: string) {
+		const ext = filePath.split(".").pop()?.toLowerCase();
+		if (ext !== "upk" && ext !== "pck") {
+			addToast({
+				title: "Unsupported File",
+				message: "Only .upk and .pck mod files are supported.",
+				tone: "error",
+			});
+			return;
+		}
+
+		droppedFilePath = filePath;
+
+		const pathname = page.url.pathname;
+		const match = pathname.match(/^\/instance\/([^/]+)/);
+		if (match) {
+			const instanceId = match[1];
+			const inst = $instanceMap[instanceId];
+			if (inst && inst.state?.type === "prepared") {
+				targetInstance = inst;
+				await proceedWithInstall(false);
+				return;
+			}
+		}
+
+		showInstanceSelect = true;
+	}
+
+	async function proceedWithInstall(replace: boolean) {
+		if (!targetInstance || !droppedFilePath) return;
+
+		try {
+			const res = await installMod(targetInstance.path, droppedFilePath, replace);
+			if (res.Success) {
+				addToast({
+					title: "Mod Installed",
+					message: `Successfully installed ${res.Mod?.Name ?? "mod"}.`,
+					tone: "success",
+				});
+				queryClient.invalidateQueries({ queryKey: ["mods", targetInstance.path] });
+			} else if (res.Conflict) {
+				conflictingModName = droppedFilePath.split(/[/\\]/).pop() || droppedFilePath;
+				showReplaceConfirm = true;
+			} else {
+				addToast({
+					title: "Installation Failed",
+					message: res.Message || "An unknown error occurred.",
+					tone: "error",
+				});
+			}
+		} catch (error: any) {
+			addToast({
+				title: "Installation Failed",
+				message: error.message || "Internal error occurred.",
+				tone: "error",
+			});
+		}
+	}
+
+	async function handleInstanceSelected(inst: any) {
+		targetInstance = inst;
+		showInstanceSelect = false;
+		await proceedWithInstall(false);
+	}
+
+	async function handleReplaceConfirmed() {
+		showReplaceConfirm = false;
+		await proceedWithInstall(true);
+	}
 
 	$effect(() => {
 		const appWindow = getCurrentWindow();
@@ -42,6 +127,29 @@
 				unlisten = fn;
 			});
 		return () => unlisten?.();
+	});
+
+	$effect(() => {
+		let unlistenDrop: (() => void) | undefined;
+		const appWindow = getCurrentWindow();
+		appWindow
+			.onDragDropEvent((event) => {
+				if (event.payload.type === "enter" || event.payload.type === "over") {
+					isDraggingFiles = true;
+				} else if (event.payload.type === "drop") {
+					isDraggingFiles = false;
+					const paths = event.payload.paths;
+					if (paths && paths.length > 0) {
+						void handleModFileDrop(paths[0]);
+					}
+				} else if (event.payload.type === "leave") {
+					isDraggingFiles = false;
+				}
+			})
+			.then((fn) => {
+				unlistenDrop = fn;
+			});
+		return () => unlistenDrop?.();
 	});
 
 	$effect(() => {
@@ -81,11 +189,23 @@
 					{@render children?.()}
 				</div>
 			{/key}
+			<InstallModOverlay visible={isDraggingFiles} />
 		</main>
 		<InstanceWizard bind:open={$instanceWizardOpen} />
 		<HostServerWizard bind:open={$hostServerWizardOpen} />
 		<JoinServerWizard bind:open={$joinServerWizardOpen} />
 		<AppCloseLobbyWizard bind:open={$appCloseLobbyWizardOpen} />
+		<InstanceSelectModal
+			bind:open={showInstanceSelect}
+			onselect={handleInstanceSelected}
+			oncancel={() => {}}
+		/>
+		<ReplaceModDialog
+			bind:open={showReplaceConfirm}
+			modName={conflictingModName}
+			onconfirm={handleReplaceConfirmed}
+			oncancel={() => {}}
+		/>
 	</div>
 	<ToastStack />
 </QueryClientProvider>

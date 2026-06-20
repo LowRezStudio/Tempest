@@ -50,6 +50,9 @@
 			case "rigby-queue": {
 				return m.logs_filter_rigby_queue();
 			}
+			case "mods": {
+				return m.logs_filter_mods();
+			}
 			default: {
 				return source;
 			}
