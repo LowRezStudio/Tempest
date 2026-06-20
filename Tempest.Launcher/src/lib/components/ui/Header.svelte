@@ -36,7 +36,7 @@
 					{@render icon()}
 				</div>
 				<div>
-					<h1 class="text-2xl font-bold mb-1">
+					<h1 class="text-2xl font-bold mb-1 uppercase">
 						{title}
 					</h1>
 					{#if subtitle}
