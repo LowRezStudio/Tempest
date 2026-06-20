@@ -1,6 +1,6 @@
 [package]
 name = "tempest-launcher"
-version = "1.0.0-dev.3"
+version = "1.0.0-dev.4"
 authors = ["Kyiro <Kyiro@protonmail.com>"]
 edition = "2021"
 
@@ -48,4 +48,5 @@ windows = { version = "0.61", features = [
 	"Win32_Foundation",
 	"Win32_System_JobObjects",
 	"Win32_System_Threading",
+	"Win32_Security",
 ] }
