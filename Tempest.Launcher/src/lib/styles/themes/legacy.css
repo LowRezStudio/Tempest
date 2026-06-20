@@ -1,0 +1,655 @@
+/* Really scuffed legacy theme. Unlocked through an easter egg. */
+@plugin "daisyui/theme" {
+	name: "legacy";
+	default: false;
+	prefersdark: false;
+	color-scheme: dark;
+
+	--color-base-100: #0e3f55;
+	--color-base-200: #0a2c3a;
+	--color-base-300: #051f28;
+	--color-base-content: #ffffff;
+
+	--color-primary: #2fbbb5;
+	--color-primary-content: #ffffff;
+
+	--color-secondary: #207d79;
+	--color-secondary-content: #ffffff;
+
+	--color-accent: #34c3d1;
+	--color-accent-content: #081224;
+
+	--color-neutral: #142b2a;
+	--color-neutral-content: #ffffff;
+
+	--color-info: #34c3d1;
+	--color-info-content: #081224;
+
+	--color-success: #37e8e2;
+	--color-success-content: #081224;
+
+	--color-warning: #f59e0b;
+	--color-warning-content: #1f2937;
+
+	--color-error: #ef4444;
+	--color-error-content: #ffffff;
+
+	--radius-selector: 0rem;
+	--radius-field: 0rem;
+	--radius-box: 0rem;
+
+	--size-selector: 0.25rem;
+	--size-field: 0.25rem;
+
+	--border: 1px;
+
+	--depth: 1;
+	--noise: 0;
+}
+
+[data-theme="legacy"] {
+	/* Scrollbar custom styles */
+	::-webkit-scrollbar {
+		width: 4px;
+		height: 4px;
+	}
+
+	::-webkit-scrollbar-thumb {
+		background: #34c3d1;
+	}
+
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	/* Reset rounded style to be sharp/retro */
+	.btn {
+		/* ponytail: simple and reliable replacement of standard daisyUI rounded style to be retro */
+		border-radius: 0 !important;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.025em;
+	}
+
+	/* Button variants - legacy style */
+	.btn-primary,
+	.btn-secondary,
+	.btn-accent,
+	.btn-neutral {
+		border-radius: 0 !important;
+		outline: none !important;
+		box-shadow: none !important;
+		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
+		border: 1px solid #2fbbb5 !important;
+		color: #ffffff !important;
+	}
+
+	.btn-primary:hover,
+	.btn-secondary:hover,
+	.btn-accent:hover,
+	.btn-neutral:hover {
+		filter: brightness(1.2) !important;
+		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
+	}
+
+	/* Error/Danger buttons - legacy gaming dark-red style */
+	.btn-error {
+		border-radius: 0 !important;
+		outline: none !important;
+		box-shadow: none !important;
+		background-image: linear-gradient(to bottom, #7d2020, #2a1414) !important;
+		border: 1px solid #b52f2f !important;
+		color: #ffffff !important;
+	}
+
+	.btn-error:hover {
+		filter: brightness(1.2) !important;
+		background-image: linear-gradient(to bottom, #7d2020, #2a1414) !important;
+	}
+
+	/* The Play button (btn-lg or launch button) */
+	.btn-lg {
+		border: 2px solid #37e8e2 !important;
+		background-image: radial-gradient(100% 60% at 50% 80%, #15887e 0%, #081224 100%) !important;
+		outline: none !important;
+		font-family: "Montserrat Variable", sans-serif !important;
+		font-size: 1.5rem !important;
+		text-transform: uppercase;
+		font-weight: 700;
+	}
+
+	/* If disabled */
+	.btn:disabled {
+		filter: grayscale(1) brightness(0.6) !important;
+		opacity: 0.6 !important;
+	}
+
+	/* Inputs styling */
+	.input,
+	.select,
+	.textarea {
+		border-radius: 0 !important;
+		background-color: #939393 !important;
+		border: 1px solid #98958e !important;
+		color: #ffffff !important;
+	}
+
+	.input::placeholder {
+		color: #bcbcbc !important;
+	}
+
+	.input:hover,
+	.select:hover {
+		border-color: #2fbbb5 !important;
+	}
+
+	/* Progress bar styling - asset parity with old launcher */
+	progress,
+	.progress {
+		appearance: none !important;
+		border: 1px solid #181d1e !important;
+		height: 25px !important;
+		background-image: url("/img/progress-bar-background.png") !important;
+		background-size: cover !important;
+	}
+
+	progress::-webkit-progress-bar,
+	.progress::-webkit-progress-bar {
+		background-image: url("/img/progress-bar-background.png") !important;
+		background-size: cover !important;
+	}
+
+	progress::-webkit-progress-value,
+	.progress::-webkit-progress-value {
+		background-image: url("/img/progress-bar-percentage.png") !important;
+		background-size: cover !important;
+	}
+
+	progress::-moz-progress-bar,
+	.progress::-moz-progress-bar {
+		background-image: url("/img/progress-bar-percentage.png") !important;
+		background-size: cover !important;
+	}
+
+	/* Cards styling - matches light white legacy cards/plaques */
+	.card {
+		border-radius: 0 !important;
+		border: 1px solid #34c3d1 !important;
+		background-color: rgba(255, 255, 255, 0.95) !important;
+		box-shadow: none !important;
+		color: #000000 !important;
+	}
+
+	.card * {
+		color: #000000 !important;
+	}
+
+	/* Card inner icon containers (like Megaphone / announcement wrapper) */
+	.card .bg-base-300 {
+		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
+		border: 2px solid #37e8e2 !important;
+		border-radius: 0 !important;
+		box-shadow: 0 0 6px rgba(55, 232, 226, 0.2) !important;
+	}
+
+	/* Inner icon colors inside card wrappers are bright white */
+	.card .bg-base-300 * {
+		color: #ffffff !important;
+	}
+
+	/* Modals styling - matches settings menu in legacy launcher */
+	[role="dialog"],
+	[data-dialog-content],
+	.modal-box {
+		background-color: rgba(255, 255, 255, 0.9) !important;
+		border: 1px solid #34c3d1 !important;
+		border-radius: 0 !important;
+		color: #000000 !important;
+		box-shadow: none !important;
+	}
+
+	/* Dialog / Modal text content */
+	[role="dialog"] *,
+	[data-dialog-content] *,
+	.modal-box * {
+		color: #000000 !important;
+	}
+
+	/* Alert boxes inside dialogs - legacy theme contrast fix */
+	[role="dialog"] .alert,
+	[data-dialog-content] .alert,
+	.modal-box .alert {
+		background-color: #d1eef4 !important;
+		border: 1px solid #34c3d1 !important;
+		border-radius: 0 !important;
+	}
+
+	[role="dialog"] .alert *,
+	[data-dialog-content] .alert *,
+	.modal-box .alert * {
+		color: #000000 !important;
+	}
+
+	/* Classic game tab component styling in legacy theme */
+	.tabs {
+		border-radius: 0 !important;
+		display: flex !important;
+		gap: 4px !important;
+		border: none !important;
+	}
+
+	.tab,
+	[role="tab"] {
+		border-radius: 0 !important;
+		font-weight: bold !important;
+		text-transform: uppercase !important;
+		letter-spacing: 0.05em !important;
+		background-color: #051f28 !important;
+		border: 1px solid rgba(52, 195, 209, 0.4) !important;
+		color: rgba(255, 255, 255, 0.7) !important;
+		padding: 8px 16px !important;
+		height: auto !important;
+		transition: all 150ms ease !important;
+		margin-bottom: 0 !important;
+	}
+
+	.tab:hover,
+	[role="tab"]:hover {
+		background-color: #0a2c3a !important;
+		color: #ffffff !important;
+		border-color: #34c3d1 !important;
+	}
+
+	.tab-active,
+	.tab[aria-selected="true"],
+	[role="tab"][aria-selected="true"] {
+		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
+		border: 1px solid #2fbbb5 !important;
+		color: #ffffff !important;
+		box-shadow: none !important;
+	}
+
+	/* Disable bottom borders from default daisyui layout styles */
+	.tabs-border .tab,
+	.tabs-border [role="tab"] {
+		border-bottom-width: 1px !important;
+	}
+
+	.tabs-border .tab-active,
+	.tabs-border [role="tab"][aria-selected="true"] {
+		border-bottom-width: 1px !important;
+	}
+
+	/* Tab styling inside dialogs overrides in legacy theme to ensure proper text colors */
+	[role="dialog"] .tab,
+	[data-dialog-content] .tab,
+	.modal-box .tab,
+	[role="dialog"] .tab *,
+	[data-dialog-content] .tab *,
+	.modal-box .tab * {
+		color: rgba(255, 255, 255, 0.7) !important;
+	}
+
+	[role="dialog"] .tab-active,
+	[data-dialog-content] .tab-active,
+	.modal-box .tab-active,
+	[role="dialog"] .tab-active *,
+	[data-dialog-content] .tab-active *,
+	.modal-box .tab-active * {
+		color: #ffffff !important;
+	}
+
+	/* Codeblocks / Mono text containers inside dialogs - legacy theme contrast fix */
+	[role="dialog"] .font-mono,
+	[data-dialog-content] .font-mono,
+	.modal-box .font-mono {
+		background-color: #e2e8f0 !important;
+		border-color: #cbd5e1 !important;
+		color: #000000 !important;
+	}
+
+	[role="dialog"] .font-mono *,
+	[data-dialog-content] .font-mono *,
+	.modal-box .font-mono * {
+		color: #000000 !important;
+	}
+
+	/* Badges inside dialogs - legacy theme contrast fix */
+	[role="dialog"] .badge,
+	[data-dialog-content] .badge,
+	.modal-box .badge {
+		background-color: #e2e8f0 !important;
+		border: 1px solid #cbd5e1 !important;
+		border-radius: 0 !important;
+		color: #000000 !important;
+	}
+
+	[role="dialog"] .badge *,
+	[data-dialog-content] .badge *,
+	.modal-box .badge * {
+		color: #000000 !important;
+	}
+
+	[role="dialog"] .badge .btn-ghost:hover,
+	[data-dialog-content] .badge .btn-ghost:hover,
+	.modal-box .badge .btn-ghost:hover {
+		background-color: rgba(0, 0, 0, 0.15) !important;
+		color: #000000 !important;
+	}
+
+	/* Keep buttons, inputs, and selected values style in dialogs */
+	[role="dialog"] .btn,
+	[data-dialog-content] .btn,
+	.modal-box .btn,
+	[role="dialog"] .btn *,
+	[data-dialog-content] .btn *,
+	.modal-box .btn * {
+		color: #ffffff !important;
+	}
+
+	/* Ghost button overrides inside dialogs (e.g. Advanced Options, Cancel, etc.) */
+	[role="dialog"] .btn-ghost,
+	[data-dialog-content] .btn-ghost,
+	.modal-box .btn-ghost,
+	[role="dialog"] .btn-ghost *,
+	[data-dialog-content] .btn-ghost *,
+	.modal-box .btn-ghost * {
+		color: #000000 !important;
+		background: transparent !important;
+		border-color: transparent !important;
+		outline: none !important;
+	}
+
+	[role="dialog"] .btn-ghost:hover,
+	[data-dialog-content] .btn-ghost:hover,
+	.modal-box .btn-ghost:hover {
+		background-color: rgba(0, 0, 0, 0.08) !important;
+		color: #000000 !important;
+	}
+
+	[role="dialog"] .input,
+	[data-dialog-content] .input,
+	.modal-box .input,
+	[role="dialog"] .select,
+	[data-dialog-content] .select,
+	.modal-box .select,
+	[role="dialog"] .textarea,
+	[data-dialog-content] .textarea,
+	.modal-box .textarea {
+		background-color: #939393 !important;
+		border: 1px solid #98958e !important;
+		color: #ffffff !important;
+	}
+
+	[role="dialog"] .input::placeholder,
+	[data-dialog-content] .input::placeholder,
+	.modal-box .input::placeholder {
+		color: #bcbcbc !important;
+	}
+
+	/* Popover/Dropdown styling - matches settings menu and modals */
+	[data-popover-content] {
+		background-color: rgba(255, 255, 255, 0.95) !important;
+		border: 1px solid #34c3d1 !important;
+		border-radius: 0 !important;
+		color: #000000 !important;
+		box-shadow: none !important;
+		padding: 4px !important;
+	}
+
+	[data-popover-content] ul,
+	[data-popover-content] li {
+		background-color: transparent !important;
+		border: none !important;
+		box-shadow: none !important;
+	}
+
+	[data-popover-content] * {
+		color: #000000 !important;
+	}
+
+	/* Menu items inside Popover/Dropdown */
+	[data-popover-content] button,
+	[data-popover-content] li button,
+	[data-popover-content] a {
+		border-radius: 0 !important;
+		color: #000000 !important;
+		padding: 0.4rem !important;
+		width: 100% !important;
+		text-align: left !important;
+	}
+
+	[data-popover-content] button:hover,
+	[data-popover-content] li button:hover,
+	[data-popover-content] a:hover {
+		background-color: #6b6b6b !important;
+		color: #ffffff !important;
+	}
+
+	[data-popover-content] button:hover *,
+	[data-popover-content] li button:hover *,
+	[data-popover-content] a:hover * {
+		background-color: transparent !important;
+		color: #ffffff !important;
+	}
+
+	/* Custom background: entirely copies the radial gradient from the old launcher! */
+	html,
+	body,
+	main,
+	.page-transition {
+		background-image: radial-gradient(100% 40% at 50% 50%, #219cd5 25%, #0e3f55 85%) !important;
+		background-color: #0e3f55 !important;
+	}
+
+	/* Page containers inside main in legacy theme - makes solid backgrounds transparent for gradient */
+	main .bg-base-100,
+	.page-transition .bg-base-100,
+	body .bg-base-100:not([role="dialog"]):not([data-dialog-content]):not(.modal-box) {
+		background-color: transparent !important;
+		background-image: none !important;
+	}
+
+	/* Page Header styling in legacy theme - white background with navigation pattern */
+	main .bg-base-200:has(h1),
+	.page-transition .bg-base-200:has(h1) {
+		position: relative !important;
+		background-color: rgba(255, 255, 255, 0.95) !important;
+		background-image: url("/img/navigation-pattern.png") !important;
+		background-repeat: repeat-x !important;
+		background-size: auto 100% !important;
+		border-bottom: 1px solid #34c3d1 !important;
+		border-radius: 0 !important;
+		color: #000000 !important;
+	}
+
+	/* Title and subtitle text inside white header (excluding buttons/button children, tabs/tab children and icon container) */
+	main .bg-base-200:has(h1) h1,
+	.page-transition .bg-base-200:has(h1) h1,
+	main
+		.bg-base-200:has(h1)
+		*:not(.btn):not(.btn *):not(.tab):not(.tab *):not(.bg-base-300):not(.bg-base-300 *),
+	.page-transition
+		.bg-base-200:has(h1)
+		*:not(.btn):not(.btn *):not(.tab):not(.tab *):not(.bg-base-300):not(.bg-base-300 *) {
+		color: #000000 !important;
+	}
+
+	/* Header icon container - classic gaming gradient background with thick glowing border */
+	main .bg-base-200:has(h1) .bg-base-300,
+	.page-transition .bg-base-200:has(h1) .bg-base-300 {
+		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
+		border: 2px solid #37e8e2 !important;
+		border-radius: 0 !important;
+		box-shadow: 0 0 8px rgba(55, 232, 226, 0.3) !important;
+	}
+
+	/* Rendered icon color inside header icon container to be bright white */
+	main .bg-base-200:has(h1) .bg-base-300 *,
+	.page-transition .bg-base-200:has(h1) .bg-base-300 * {
+		color: #ffffff !important;
+	}
+
+	/* Style base-200 containers (like Instance Cards or library cards) inside main to look like legacy cards - light white design */
+	main .bg-base-200:not(:has(h1)),
+	.page-transition .bg-base-200:not(:has(h1)),
+	body
+		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1)) {
+		border: 1px solid #34c3d1 !important;
+		border-radius: 0 !important;
+		background-color: rgba(255, 255, 255, 0.95) !important;
+		box-shadow: none !important;
+		color: #000000 !important;
+	}
+
+	/* Card texts inside light cards */
+	main .bg-base-200:not(:has(h1)) *,
+	.page-transition .bg-base-200:not(:has(h1)) *,
+	body
+		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1))
+		* {
+		color: #000000 !important;
+	}
+
+	main .bg-base-200:not(:has(h1)):hover,
+	.page-transition .bg-base-200:not(:has(h1)):hover {
+		border-color: #37e8e2 !important;
+		background-color: #ffffff !important;
+	}
+
+	/* Inner icon containers inside cards - styled exactly like the header icons! */
+	main .bg-base-200 .bg-base-100,
+	.page-transition .bg-base-200 .bg-base-100 {
+		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
+		border: 2px solid #37e8e2 !important;
+		border-radius: 0 !important;
+		box-shadow: 0 0 6px rgba(55, 232, 226, 0.2) !important;
+	}
+
+	/* Icon colors inside the card's inner icon wrapper are bright white */
+	main .bg-base-200 .bg-base-100 *,
+	.page-transition .bg-base-200 .bg-base-100 * {
+		color: #ffffff !important;
+	}
+
+	/* Buttons and button contents inside the card are styled with legacy dark teal background and white text/icons */
+	main .bg-base-200 .btn,
+	.page-transition .bg-base-200 .btn,
+	body
+		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1))
+		.btn {
+		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
+		border: 1px solid #2fbbb5 !important;
+		color: #ffffff !important;
+		border-radius: 0 !important;
+	}
+
+	main .bg-base-200 .btn *,
+	.page-transition .bg-base-200 .btn *,
+	body
+		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1))
+		.btn
+		* {
+		color: #ffffff !important;
+	}
+
+	/* Header and outline styling to mimic old window with dark blue sidebar */
+	aside {
+		border-right: 1px solid #34c3d1 !important;
+		background-color: #051f28 !important;
+		background-image: none !important;
+	}
+
+	/* Sidebar text, buttons and icons in legacy theme - now light for dark blue background! */
+	aside * {
+		color: #ffffff !important;
+	}
+
+	aside .btn,
+	aside a {
+		color: #ffffff !important;
+		border-radius: 0 !important;
+	}
+
+	aside .btn:hover,
+	aside a:hover {
+		background-color: rgba(255, 255, 255, 0.08) !important;
+		color: #ffffff !important;
+	}
+
+	/* Active sidebar button icon/text overrides to be white */
+	aside .btn-accent,
+	aside .btn-accent * {
+		color: #ffffff !important;
+	}
+
+	/* Comprehensive UI Component skinning for all remaining modules */
+	.checkbox,
+	input[type="checkbox"],
+	.toggle,
+	input[type="radio"],
+	.radio {
+		border-radius: 0 !important;
+		border: 1px solid #34c3d1 !important;
+		background-color: #939393 !important;
+	}
+
+	.checkbox:checked,
+	input[type="checkbox"]:checked,
+	.toggle:checked,
+	.radio:checked,
+	input[type="radio"]:checked {
+		background-color: #2fbbb5 !important;
+		border-color: #37e8e2 !important;
+	}
+
+	table,
+	.table {
+		border-collapse: collapse !important;
+		width: 100% !important;
+		border-radius: 0 !important;
+	}
+
+	table th,
+	.table th,
+	table td,
+	.table td {
+		border: 1px solid #34c3d1 !important;
+		padding: 8px !important;
+		border-radius: 0 !important;
+	}
+
+	table th,
+	.table th {
+		background-color: rgba(14, 64, 87, 0.6) !important;
+		color: #ffffff !important;
+	}
+
+	.list-item,
+	.list-row,
+	.grid-item {
+		border-radius: 0 !important;
+		border: 1px solid #34c3d1 !important;
+		background-color: #0a2c3a !important;
+	}
+
+	.avatar,
+	.avatar img,
+	.mask,
+	img,
+	.rounded,
+	.rounded-box,
+	.rounded-xl,
+	.rounded-lg,
+	.rounded-md,
+	.rounded-sm {
+		border-radius: 0 !important;
+	}
+
+	.collapse,
+	.collapse-title,
+	.collapse-content {
+		border-radius: 0 !important;
+		border: 1px solid #34c3d1 !important;
+	}
+}

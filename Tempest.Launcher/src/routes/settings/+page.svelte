@@ -5,12 +5,14 @@
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createAboutInfoQuery } from "$lib/queries/about";
-	import { defaultInstancePath, username } from "$lib/stores/settings";
+	import { defaultInstancePath, theme, username } from "$lib/stores/settings";
+	import type { Theme } from "$lib/stores/settings";
 
 	let activeTab = $state<"general" | "advanced">("general");
 
 	let localUsername = $state($username);
 	let localPath = $state($defaultInstancePath || "");
+	let localTheme = $state<Theme>($theme);
 
 	let buildType = $state<string>(import.meta.env.DEV ? "Development" : "Production");
 
@@ -19,6 +21,7 @@
 	async function saveSettings() {
 		username.set(localUsername);
 		defaultInstancePath.set(localPath);
+		theme.set(localTheme);
 		await invalidateAll();
 
 		showSaveToast = true;
@@ -86,6 +89,24 @@
 								bind:value={localUsername}
 								placeholder={m.settings_username_placeholder()}
 							/>
+						</div>
+
+						<div class="form-control">
+							<label for="theme-input" class="label py-0.5">
+								<span class="label-text text-sm">{m.settings_theme()}</span>
+							</label>
+							<select
+								id="theme-input"
+								class="select select-bordered w-full"
+								bind:value={localTheme}
+							>
+								<option value="system">{m.settings_theme_system()}</option>
+								<option value="mocha">{m.settings_theme_mocha()}</option>
+								<option value="latte">{m.settings_theme_latte()}</option>
+								{#if localUsername === "Grohk" || localTheme === "legacy"}
+									<option value="legacy">{m.settings_theme_legacy()}</option>
+								{/if}
+							</select>
 						</div>
 
 						<div class="form-control">

@@ -5,6 +5,8 @@
 @plugin "./themes/catppuccin.latte.ts";
 @plugin "./themes/catppuccin.mocha.ts";
 
+@import "./themes/legacy.css";
+
 @font-face {
 	font-family: "Montserrat Variable";
 	font-style: normal;

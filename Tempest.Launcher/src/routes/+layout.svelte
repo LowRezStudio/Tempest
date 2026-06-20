@@ -19,6 +19,7 @@
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores";
 	import { instanceMap } from "$lib/stores/instance";
+	import { theme } from "$lib/stores/settings";
 	import {
 		addToast,
 		appCloseLobbyWizardOpen,
@@ -150,6 +151,15 @@
 				unlistenDrop = fn;
 			});
 		return () => unlistenDrop?.();
+	});
+
+	$effect(() => {
+		const currentTheme = $theme;
+		if (currentTheme === "system") {
+			document.documentElement.removeAttribute("data-theme");
+		} else {
+			document.documentElement.setAttribute("data-theme", currentTheme);
+		}
 	});
 
 	$effect(() => {
