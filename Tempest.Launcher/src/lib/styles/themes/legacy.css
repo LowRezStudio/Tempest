@@ -519,7 +519,10 @@
 
 	/* Inner icon containers inside cards - styled exactly like the header icons! */
 	main .bg-base-200 .bg-base-100,
-	.page-transition .bg-base-200 .bg-base-100 {
+	.page-transition .bg-base-200 .bg-base-100,
+	body
+		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1))
+		.bg-base-100 {
 		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
 		border: 2px solid #37e8e2 !important;
 		border-radius: 0 !important;
@@ -528,7 +531,11 @@
 
 	/* Icon colors inside the card's inner icon wrapper are bright white */
 	main .bg-base-200 .bg-base-100 *,
-	.page-transition .bg-base-200 .bg-base-100 * {
+	.page-transition .bg-base-200 .bg-base-100 *,
+	body
+		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1))
+		.bg-base-100
+		* {
 		color: #ffffff !important;
 	}
 
