@@ -17,6 +17,15 @@
 
 	let targetPath = $derived(mod.InstalledFiles[0] || mod.OriginalPath || "");
 
+	// ponytail: extract filename from path for display as placeholder when cleared
+	let actualFilename = $derived(
+		targetPath ?
+			targetPath.substring(
+				Math.max(targetPath.lastIndexOf("/"), targetPath.lastIndexOf("\\")) + 1,
+			)
+		:	"",
+	);
+
 	async function showInExplorer() {
 		if (!targetPath) return;
 		await revealItemInDir(targetPath);
@@ -33,7 +42,9 @@
 	}
 
 	async function handleRename() {
-		if (!editName.trim() || editName === mod.Name) {
+		const finalName = editName.trim() || actualFilename;
+
+		if (!finalName || finalName === mod.Name) {
 			isRenameModalOpen = false;
 			return;
 		}
@@ -41,7 +52,7 @@
 		await renameMutation.mutateAsync({
 			gamePath,
 			oldName: mod.Name,
-			newName: editName.trim(),
+			newName: finalName,
 		});
 
 		isRenameModalOpen = false;
@@ -66,7 +77,12 @@
 	{/snippet}
 </PopoverMenu>
 
-<Modal bind:open={isRenameModalOpen} title={m.mod_rename_dialog_title()} class="max-w-md">
+<Modal
+	bind:open={isRenameModalOpen}
+	title={m.mod_rename_dialog_title()}
+	class="max-w-md"
+	onsubmit={handleRename}
+>
 	<div class="space-y-4 pt-2">
 		<div class="form-control">
 			<label for="mod-name" class="label py-0.5">
@@ -76,15 +92,16 @@
 				id="mod-name"
 				type="text"
 				class="input input-bordered w-full"
+				placeholder={actualFilename}
 				bind:value={editName}
 			/>
 		</div>
 	</div>
 	{#snippet actions()}
-		<button class="btn btn-ghost" onclick={() => (isRenameModalOpen = false)}>
+		<button class="btn btn-ghost" type="button" onclick={() => (isRenameModalOpen = false)}>
 			{m.common_cancel()}
 		</button>
-		<button class="btn btn-accent" onclick={handleRename} disabled={renameMutation.isPending}>
+		<button class="btn btn-accent" type="submit" disabled={renameMutation.isPending}>
 			{#if renameMutation.isPending}
 				<span class="loading loading-spinner loading-xs"></span>
 			{/if}

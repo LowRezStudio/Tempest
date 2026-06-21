@@ -230,9 +230,10 @@
 	}
 </script>
 
-<Modal bind:open title={m.wizard_title()} class="max-w-2xl">
+<Modal bind:open title={m.wizard_title()} class="max-w-2xl" onsubmit={handleCreate}>
 	<div role="tablist" class="tabs tabs-border w-full mb-4">
 		<button
+			type="button"
 			role="tab"
 			class={["tab gap-2 flex-1", selectedTab === "download" && "tab-active"]}
 			onclick={() => (selectedTab = "download")}
@@ -241,6 +242,7 @@
 			<span>{m.wizard_download()}</span>
 		</button>
 		<button
+			type="button"
 			role="tab"
 			class={["tab gap-2 flex-1", selectedTab === "folder" && "tab-active"]}
 			onclick={() => (selectedTab = "folder")}
@@ -295,7 +297,11 @@
 								<span class="label-text text-sm"
 									>{m.wizard_depot_downloader_command()}</span
 								>
-								<button class="btn btn-accent btn-xs" onclick={handleCopyCommand}>
+								<button
+									class="btn btn-accent btn-xs"
+									type="button"
+									onclick={handleCopyCommand}
+								>
 									{copyStatus === "copied" ? m.common_copied()
 									: copyStatus === "failed" ? m.common_copy_failed()
 									: m.common_copy()}
@@ -325,7 +331,11 @@
 							class="input input-bordered join-item flex-1 font-mono"
 							bind:value={selectedPath}
 						/>
-						<button class="btn btn-accent join-item" onclick={handleBrowse}>
+						<button
+							class="btn btn-accent join-item"
+							type="button"
+							onclick={handleBrowse}
+						>
 							<Folder size={16} />
 							{m.common_browse()}
 						</button>
@@ -377,7 +387,11 @@
 								class="input input-bordered join-item flex-1 font-mono"
 								bind:value={selectedPath}
 							/>
-							<button class="btn btn-accent join-item" onclick={handleBrowse}>
+							<button
+								class="btn btn-accent join-item"
+								type="button"
+								onclick={handleBrowse}
+							>
 								<Folder size={16} />
 								{m.common_browse()}
 							</button>
@@ -393,20 +407,24 @@
 
 	{#snippet actions()}
 		<div class="flex items-center justify-between w-full">
-			<button class="btn btn-ghost" onclick={() => (showAdvanced = !showAdvanced)}>
+			<button
+				class="btn btn-ghost"
+				type="button"
+				onclick={() => (showAdvanced = !showAdvanced)}
+			>
 				<Code size={16} />
 				{showAdvanced ? m.wizard_hide_advanced() : m.wizard_advanced_options()}
 			</button>
 			<div class="flex gap-2">
-				<button class="btn btn-ghost" onclick={() => (open = false)}
+				<button class="btn btn-ghost" type="button" onclick={() => (open = false)}
 					>{m.common_cancel()}</button
 				>
 				<button
 					class="btn btn-accent"
+					type="submit"
 					disabled={!isValid ||
 						isDetecting ||
 						(selectedTab === "download" && !supportsCloudDownload)}
-					onclick={handleCreate}
 				>
 					{#if selectedTab === "download"}
 						<CloudDownload size={16} />

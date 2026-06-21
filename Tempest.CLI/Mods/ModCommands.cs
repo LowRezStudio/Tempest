@@ -25,7 +25,23 @@ internal class ModCommands
         try
         {
             var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize(json, ModSourceGenerationContext.Default.ListModRecord) ?? [];
+            var mods = JsonSerializer.Deserialize(json, ModSourceGenerationContext.Default.ListModRecord) ?? [];
+            var resolvedGame = GameFolderResolver.Resolve(gamePath);
+            foreach (var mod in mods)
+            {
+                if (mod.InstalledFiles != null)
+                {
+                    for (int i = 0; i < mod.InstalledFiles.Count; i++)
+                    {
+                        var file = mod.InstalledFiles[i];
+                        if (!Path.IsPathRooted(file))
+                        {
+                            mod.InstalledFiles[i] = Path.GetFullPath(Path.Combine(resolvedGame, file));
+                        }
+                    }
+                }
+            }
+            return mods;
         }
         catch
         {
@@ -38,8 +54,39 @@ internal class ModCommands
         var path = GetMetadataPath(gamePath);
         try
         {
+            var resolvedGame = GameFolderResolver.Resolve(gamePath);
+            foreach (var mod in mods)
+            {
+                if (mod.InstalledFiles != null)
+                {
+                    for (int i = 0; i < mod.InstalledFiles.Count; i++)
+                    {
+                        var file = mod.InstalledFiles[i];
+                        if (Path.IsPathRooted(file))
+                        {
+                            mod.InstalledFiles[i] = Path.GetRelativePath(resolvedGame, file);
+                        }
+                    }
+                }
+            }
             var json = JsonSerializer.Serialize(mods, ModSourceGenerationContext.Default.ListModRecord);
             File.WriteAllText(path, json);
+
+            // ponytail: restore absolute paths in memory to avoid breaking subsequent operations/printing
+            foreach (var mod in mods)
+            {
+                if (mod.InstalledFiles != null)
+                {
+                    for (int i = 0; i < mod.InstalledFiles.Count; i++)
+                    {
+                        var file = mod.InstalledFiles[i];
+                        if (!Path.IsPathRooted(file))
+                        {
+                            mod.InstalledFiles[i] = Path.GetFullPath(Path.Combine(resolvedGame, file));
+                        }
+                    }
+                }
+            }
         }
         catch (Exception ex)
         {

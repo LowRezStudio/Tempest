@@ -8,6 +8,7 @@ export const username = persistentAtom<string>("username", "Player");
 export const servicesURL = persistentAtom<string>("servicesURL", "http://localhost:5197");
 export type Theme = "system" | "mocha" | "latte" | "legacy";
 export const theme = persistentAtom<Theme>("theme", "system");
+export const pinnedBackground = persistentAtom<string | undefined>("pinnedBackground", undefined);
 
 const getDefaultInstancePath = async () => {
 	const rootDir = platform() === "windows" ? "C:" : await homeDir();

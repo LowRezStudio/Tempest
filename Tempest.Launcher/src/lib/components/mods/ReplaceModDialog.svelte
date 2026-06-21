@@ -23,7 +23,7 @@
 	}
 </script>
 
-<Modal bind:open title={m.conflict_mod_title()} class="max-w-md">
+<Modal bind:open title={m.conflict_mod_title()} class="max-w-md" onsubmit={handleConfirm}>
 	<div class="space-y-4">
 		<div class="flex items-start gap-3">
 			<div class="text-warning mt-0.5 shrink-0">
@@ -44,8 +44,10 @@
 	</div>
 
 	{#snippet actions()}
-		<button class="btn btn-ghost" onclick={handleCancel}> {m.common_cancel()} </button>
-		<button class="btn btn-error" onclick={handleConfirm}>
+		<button class="btn btn-ghost" type="button" onclick={handleCancel}>
+			{m.common_cancel()}
+		</button>
+		<button class="btn btn-error" type="submit">
 			<Replace size={16} />
 			{m.conflict_replace_mod_btn()}
 		</button>

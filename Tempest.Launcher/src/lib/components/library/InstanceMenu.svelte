@@ -350,7 +350,12 @@
 	onconfirm={handleDeleteConfirm}
 />
 
-<Modal bind:open={isSettingsModalOpen} title={m.instance_instance_settings()} class="max-w-2xl">
+<Modal
+	bind:open={isSettingsModalOpen}
+	title={m.instance_instance_settings()}
+	class="max-w-2xl"
+	onsubmit={saveSettings}
+>
 	<div class="space-y-4">
 		<div class="form-control">
 			<label for="instance-name" class="label py-0.5">
@@ -444,7 +449,7 @@
 					class="input input-bordered join-item flex-1 font-mono"
 					bind:value={editPath}
 				/>
-				<button class="btn btn-accent join-item" onclick={handleBrowse}>
+				<button class="btn btn-accent join-item" type="button" onclick={handleBrowse}>
 					<Folder size={16} />
 					{m.common_browse()}
 				</button>
@@ -526,10 +531,14 @@
 
 	{#snippet actions()}
 		<div class="flex justify-end gap-2 w-full">
-			<button class="btn btn-ghost" onclick={() => (isSettingsModalOpen = false)}>
+			<button
+				class="btn btn-ghost"
+				type="button"
+				onclick={() => (isSettingsModalOpen = false)}
+			>
 				{m.common_cancel()}
 			</button>
-			<button class="btn btn-accent" onclick={saveSettings}>
+			<button class="btn btn-accent" type="submit">
 				{m.common_save_changes()}
 			</button>
 		</div>

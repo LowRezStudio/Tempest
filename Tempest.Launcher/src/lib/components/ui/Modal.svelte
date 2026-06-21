@@ -9,6 +9,7 @@
 		children: Snippet;
 		actions?: Snippet;
 		class?: string;
+		onsubmit?: (e: SubmitEvent) => void;
 	}
 
 	let {
@@ -17,6 +18,7 @@
 		children,
 		actions,
 		class: className = "",
+		onsubmit,
 	}: Props = $props();
 </script>
 
@@ -27,23 +29,33 @@
 			class="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-base-100 rounded-box shadow-xl max-w-2xl w-full max-h-[85vh] p-6 overflow-y-auto {className}"
 			style="animation: pop-in 0.15s ease forwards;"
 		>
-			{#if title}
-				<Dialog.Title class="font-bold text-lg pb-4">
-					{title}
-				</Dialog.Title>
-			{/if}
+			<form
+				onsubmit={(e) => {
+					e.preventDefault();
+					if (onsubmit) {
+						onsubmit(e);
+					}
+				}}
+				class="contents"
+			>
+				{#if title}
+					<Dialog.Title class="font-bold text-lg pb-4">
+						{title}
+					</Dialog.Title>
+				{/if}
 
-			<Dialog.Close class="btn btn-circle btn-ghost absolute right-4 top-4">
-				<X size={16} />
-			</Dialog.Close>
+				<Dialog.Close class="btn btn-circle btn-ghost absolute right-4 top-4" type="button">
+					<X size={16} />
+				</Dialog.Close>
 
-			{@render children()}
+				{@render children()}
 
-			{#if actions}
-				<div class="flex justify-end gap-2 pt-4">
-					{@render actions()}
-				</div>
-			{/if}
+				{#if actions}
+					<div class="flex justify-end gap-2 pt-4">
+						{@render actions()}
+					</div>
+				{/if}
+			</form>
 		</Dialog.Content>
 	</Dialog.Portal>
 </Dialog.Root>

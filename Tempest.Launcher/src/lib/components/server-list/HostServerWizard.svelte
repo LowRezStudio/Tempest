@@ -41,6 +41,7 @@
 	const valid = $derived(selectedName.trim().length > 0 && selectedInstanceId);
 
 	function handleCreate() {
+		if (!valid) return;
 		const instance = instanceMap.get()[selectedInstanceId];
 		if (!instance) return;
 		const { path, launchOptions: options } = instance;
@@ -86,9 +87,10 @@
 	});
 </script>
 
-<Modal bind:open title={m.hostserver_title()} class="max-w-2xl">
+<Modal bind:open title={m.hostserver_title()} class="max-w-2xl" onsubmit={handleCreate}>
 	<div role="tablist" class="tabs tabs-border w-full mb-4">
 		<button
+			type="button"
 			role="tab"
 			class={["tab gap-2 flex-1", selectedTab === "general" && "tab-active"]}
 			onclick={() => (selectedTab = "general")}
@@ -97,6 +99,7 @@
 			<span>General</span>
 		</button>
 		<button
+			type="button"
 			role="tab"
 			class={["tab gap-2 flex-1", selectedTab === "advanced" && "tab-active"]}
 			onclick={() => (selectedTab = "advanced")}
@@ -267,10 +270,10 @@
 	{#snippet actions()}
 		<div class="flex items-center justify-end w-full">
 			<div class="flex gap-2">
-				<button class="btn btn-ghost" onclick={() => (open = false)}
+				<button class="btn btn-ghost" type="button" onclick={() => (open = false)}
 					>{m.common_cancel()}</button
 				>
-				<button class="btn btn-accent" disabled={!valid} onclick={handleCreate}>
+				<button class="btn btn-accent" type="submit" disabled={!valid}>
 					{m.common_create()}
 				</button>
 			</div>

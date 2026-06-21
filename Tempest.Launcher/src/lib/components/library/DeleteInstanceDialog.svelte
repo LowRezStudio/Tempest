@@ -32,7 +32,7 @@
 	});
 </script>
 
-<Modal bind:open title={m.delete_title()}>
+<Modal bind:open title={m.delete_title()} onsubmit={handleConfirm}>
 	<div class="space-y-4">
 		<p class="text-sm">
 			{m.delete_confirm_message({ name: instanceName })}
@@ -54,10 +54,15 @@
 	</div>
 
 	{#snippet actions()}
-		<button class="btn btn-ghost" onclick={() => (open = false)} disabled={isDeleting}>
+		<button
+			class="btn btn-ghost"
+			type="button"
+			onclick={() => (open = false)}
+			disabled={isDeleting}
+		>
 			{m.common_cancel()}
 		</button>
-		<button class="btn btn-error" onclick={handleConfirm} disabled={isDeleting}>
+		<button class="btn btn-error" type="submit" disabled={isDeleting}>
 			{#if isDeleting}
 				<span class="loading loading-spinner loading-sm"></span>
 				{m.common_deleting()}
