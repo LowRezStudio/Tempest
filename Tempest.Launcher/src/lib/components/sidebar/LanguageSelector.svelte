@@ -10,6 +10,7 @@
 		fr: { flag: "🇫🇷", label: "Français" },
 		es: { flag: "🇪🇸", label: "Español" },
 		pl: { flag: "🇵🇱", label: "Polski" },
+		ru: { flag: "🇷🇺", label: "Русский" },
 	};
 
 	let currentLocale = $state(getLocale());
