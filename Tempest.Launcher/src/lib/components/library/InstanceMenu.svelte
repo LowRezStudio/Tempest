@@ -43,38 +43,60 @@
 		try {
 			const result = await openDialog({
 				directory: false,
-				multiple: false,
+				multiple: true,
 				title: m.dialog_select_mod_files_title(),
 				filters: [{ name: m.dialog_select_mod_files_filter(), extensions: ["upk", "pck"] }],
 			});
 
 			if (result) {
-				let res = await installMod(instance.path, result, false);
-				if (res.Conflict) {
-					const modName = result.split(/[/\\]/).pop() || result;
-					const confirmed = await confirmReplaceMod(modName, res.IsModConflict);
-					if (confirmed) {
-						res = await installMod(instance.path, result, true);
+				const paths = Array.isArray(result) ? result : [result];
+				let successCount = 0;
+				let lastInstalledName = "";
+
+				for (const filePath of paths) {
+					let res = await installMod(instance.path, filePath, false);
+					if (res.Conflict) {
+						const modName = filePath.split(/[/\\]/).pop() || filePath;
+						const confirmed = await confirmReplaceMod(modName, res.IsModConflict);
+						if (confirmed) {
+							res = await installMod(instance.path, filePath, true);
+						} else {
+							continue; // Skip this one on cancel
+						}
+					}
+
+					if (res.Success) {
+						successCount++;
+						lastInstalledName =
+							res.Mod?.Name ??
+							filePath.split(/[/\\]/).pop() ??
+							m.toast_mod_installed_fallback();
 					} else {
-						return; // Cancelled
+						addToast({
+							title: m.toast_installation_failed_title(),
+							message: `${filePath.split(/[/\\]/).pop()}: ${res.Message || m.toast_installation_failed_unknown()}`,
+							tone: "error",
+						});
 					}
 				}
 
-				if (res.Success) {
-					addToast({
-						title: m.toast_mod_installed_title(),
-						message: m.toast_mod_installed_message({
-							name: res.Mod?.Name ?? m.toast_mod_installed_fallback(),
-						}),
-						tone: "success",
-					});
+				if (successCount > 0) {
+					if (successCount === 1) {
+						addToast({
+							title: m.toast_mod_installed_title(),
+							message: m.toast_mod_installed_message({
+								name: lastInstalledName,
+							}),
+							tone: "success",
+						});
+					} else {
+						addToast({
+							title: m.toast_mod_installed_title(),
+							message: `Successfully installed ${successCount} mods`,
+							tone: "success",
+						});
+					}
 					queryClient.invalidateQueries({ queryKey: ["mods", instance.path] });
-				} else {
-					addToast({
-						title: m.toast_installation_failed_title(),
-						message: res.Message || m.toast_installation_failed_unknown(),
-						tone: "error",
-					});
 				}
 			}
 		} catch (error: any) {

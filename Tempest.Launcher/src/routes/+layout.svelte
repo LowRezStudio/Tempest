@@ -39,21 +39,33 @@
 	let isDraggingFiles = $state(false);
 	let showInstanceSelect = $state(false);
 
-	let droppedFilePath = $state("");
+	let droppedFilePaths = $state<string[]>([]);
 	let targetInstance = $state<any>(null);
 
-	async function handleModFileDrop(filePath: string) {
-		const ext = filePath.split(".").pop()?.toLowerCase();
-		if (ext !== "upk" && ext !== "pck") {
+	async function handleModFileDrop(filePaths: string[]) {
+		const validPaths: string[] = [];
+		let hadInvalid = false;
+
+		for (const filePath of filePaths) {
+			const ext = filePath.split(".").pop()?.toLowerCase();
+			if (ext === "upk" || ext === "pck") {
+				validPaths.push(filePath);
+			} else {
+				hadInvalid = true;
+			}
+		}
+
+		if (hadInvalid) {
 			addToast({
 				title: m.toast_unsupported_file_title(),
 				message: m.toast_unsupported_file_message(),
 				tone: "error",
 			});
-			return;
 		}
 
-		droppedFilePath = filePath;
+		if (validPaths.length === 0) return;
+
+		droppedFilePaths = validPaths;
 
 		const pathname = page.url.pathname;
 		const match = pathname.match(/^\/instance\/([^/]+)/);
@@ -71,42 +83,63 @@
 	}
 
 	async function proceedWithInstall() {
-		if (!targetInstance || !droppedFilePath) return;
+		if (!targetInstance || droppedFilePaths.length === 0) return;
 
-		try {
-			let res = await installMod(targetInstance.path, droppedFilePath, false);
-			if (res.Conflict) {
-				const modName = droppedFilePath.split(/[/\\]/).pop() || droppedFilePath;
-				const confirmed = await confirmReplaceMod(modName, res.IsModConflict);
-				if (confirmed) {
-					res = await installMod(targetInstance.path, droppedFilePath, true);
-				} else {
-					return; // Cancelled
+		let successCount = 0;
+		let lastInstalledName = "";
+
+		for (const filePath of droppedFilePaths) {
+			try {
+				let res = await installMod(targetInstance.path, filePath, false);
+				if (res.Conflict) {
+					const modName = filePath.split(/[/\\]/).pop() || filePath;
+					const confirmed = await confirmReplaceMod(modName, res.IsModConflict);
+					if (confirmed) {
+						res = await installMod(targetInstance.path, filePath, true);
+					} else {
+						continue; // Skip this one on cancel
+					}
 				}
-			}
 
-			if (res.Success) {
-				addToast({
-					title: m.toast_mod_installed_title(),
-					message: m.toast_mod_installed_message({
-						name: res.Mod?.Name ?? m.toast_mod_installed_fallback(),
-					}),
-					tone: "success",
-				});
-				queryClient.invalidateQueries({ queryKey: ["mods", targetInstance.path] });
-			} else {
+				if (res.Success) {
+					successCount++;
+					lastInstalledName =
+						res.Mod?.Name ??
+						filePath.split(/[/\\]/).pop() ??
+						m.toast_mod_installed_fallback();
+				} else {
+					addToast({
+						title: m.toast_installation_failed_title(),
+						message: `${filePath.split(/[/\\]/).pop()}: ${res.Message || m.toast_installation_failed_unknown()}`,
+						tone: "error",
+					});
+				}
+			} catch (error: any) {
 				addToast({
 					title: m.toast_installation_failed_title(),
-					message: res.Message || m.toast_installation_failed_unknown(),
+					message: `${filePath.split(/[/\\]/).pop()}: ${error.message || m.toast_installation_failed_internal()}`,
 					tone: "error",
 				});
 			}
-		} catch (error: any) {
-			addToast({
-				title: m.toast_installation_failed_title(),
-				message: error.message || m.toast_installation_failed_internal(),
-				tone: "error",
-			});
+		}
+
+		if (successCount > 0) {
+			if (successCount === 1) {
+				addToast({
+					title: m.toast_mod_installed_title(),
+					message: m.toast_mod_installed_message({
+						name: lastInstalledName,
+					}),
+					tone: "success",
+				});
+			} else {
+				addToast({
+					title: m.toast_mod_installed_title(),
+					message: `Successfully installed ${successCount} mods`,
+					tone: "success",
+				});
+			}
+			queryClient.invalidateQueries({ queryKey: ["mods", targetInstance.path] });
 		}
 	}
 
@@ -145,7 +178,7 @@
 					isDraggingFiles = false;
 					const paths = event.payload.paths;
 					if (paths && paths.length > 0) {
-						void handleModFileDrop(paths[0]);
+						void handleModFileDrop(paths);
 					}
 				} else if (event.payload.type === "leave") {
 					isDraggingFiles = false;
