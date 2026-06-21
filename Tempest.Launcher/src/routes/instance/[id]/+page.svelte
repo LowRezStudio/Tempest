@@ -8,6 +8,7 @@
 		RefreshCw,
 		Settings,
 		Square,
+		Terminal,
 		Trash2,
 	} from "@lucide/svelte";
 	import { useQueryClient } from "@tanstack/svelte-query";
@@ -312,6 +313,17 @@
 			<div class="flex items-center gap-1.5">
 				<Gamepad2 size={14} />
 				<span>{instance?.version || m.common_unknown_version()}</span>
+				{#if instance?.launchOptions?.args && instance.launchOptions.args.length > 0}
+					<div
+						class="flex items-center gap-1 min-w-0 ml-1.5"
+						title={instance.launchOptions.args.join(" ")}
+					>
+						<Terminal size={14} class="shrink-0" />
+						<span class="text-xs font-mono truncate max-w-[350px]">
+							{instance.launchOptions.args.join(" ")}
+						</span>
+					</div>
+				{/if}
 			</div>
 		{/snippet}
 		{#snippet errors()}
