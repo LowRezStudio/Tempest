@@ -81,9 +81,6 @@
 				const version = flatVersions.find((v) => v.id === info.Id);
 				if (version) {
 					selectedVersionId = version.id;
-					if (!selectedName) {
-						selectedName = info.VersionGroup;
-					}
 					hasDetected = true;
 				} else {
 					detectionError = m.wizard_build_not_in_database({
