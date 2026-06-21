@@ -17,7 +17,7 @@ export const launchGame = async (instance: Instance) => {
 		path,
 		{ "--platform": platform },
 		{ "--no-default-args": options.noDefaultArgs },
-		{ "--homedir": `Tempest_${instance.label.replace(/[^a-zA-Z0-9-_]/g, "_")}` },
+		{ "--homedir": `Tempest_${instance.label.replaceAll(/[^a-zA-Z0-9-_]/g, "_")}` },
 		...(options.dllList ? options.dllList.map((dll) => ({ "--dll": dll })) : []),
 		...(options.args ? ["--", ...processArgs(options.args)] : []),
 	]);
