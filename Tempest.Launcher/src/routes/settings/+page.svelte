@@ -6,6 +6,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { createAboutInfoQuery } from "$lib/queries/about";
 	import { defaultInstancePath, theme, username } from "$lib/stores/settings";
+	import { updaterStore } from "$lib/stores/updater.svelte";
 	import type { Theme } from "$lib/stores/settings";
 
 	let activeTab = $state<"general" | "advanced">("general");
@@ -180,6 +181,15 @@
 									<span>{m.settings_os_arch()}</span>
 									<span class="font-mono">{architecture}-{osName}</span>
 								</div>
+							</div>
+							<div class="pt-2 flex justify-start">
+								<button
+									type="button"
+									class="btn btn-accent btn-sm"
+									onclick={() => updaterStore.checkForUpdates(false)}
+								>
+									{m.settings_check_for_updates()}
+								</button>
 							</div>
 						</div>
 					</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { FitAddon, Ghostty, Terminal } from "ghostty-web";
 	import { onDestroy, onMount } from "svelte";
 	import type { Child } from "@tauri-apps/plugin-shell";
 	import type { ProcessLog } from "$lib/types/process";
@@ -11,32 +12,49 @@
 	let { logs, child }: Props = $props();
 
 	let container = $state<HTMLDivElement>();
-	let term = $state<import("ghostty-web").Terminal | undefined>();
+	let term = $state<Terminal | undefined>();
 	let lastId = -1;
 	let pendingRaf: number | null = null;
 	const encoder = new TextEncoder();
 
-	let resizeObserver = $state<ResizeObserver | undefined>();
+	let fitAddon: FitAddon | undefined;
 	let dataDisposable: { dispose: () => void } | undefined;
 
+	function resolveColor(cssVar: string, fallback: string): string {
+		if (!container) return fallback;
+		const styleColor = getComputedStyle(container).getPropertyValue(cssVar).trim();
+		if (!styleColor) return fallback;
+
+		const ctx = document.createElement("canvas").getContext("2d");
+		if (!ctx) return styleColor;
+		ctx.fillStyle = styleColor;
+		const resolved = ctx.fillStyle;
+		if (resolved.startsWith("#")) {
+			return resolved.slice(0, 7);
+		}
+		return resolved;
+	}
+
 	onMount(async () => {
-		const { Ghostty, Terminal } = await import("ghostty-web");
 		const wasmUrl = (await import("ghostty-web/ghostty-vt.wasm?url")).default;
 		const ghostty = await Ghostty.load(wasmUrl);
+
+		if (!container) return;
+
+		const bg = resolveColor("--color-base-300", "#1e1e2e");
+		const fg = resolveColor("--color-base-content", "#cdd6f4");
 
 		term = new Terminal({
 			ghostty,
 			fontSize: 13,
 			fontFamily: "'Ubuntu Sans Mono Variable', monospace",
 			theme: {
-				background: "#1e1e2e",
-				foreground: "#cdd6f4",
+				background: bg,
+				foreground: fg,
 			},
 			scrollback: 10000,
-			disableStdin: !child,
+			disableStdin: false,
 		});
-
-		if (!container) return;
 
 		term.open(container);
 		if (term.element) {
@@ -45,25 +63,22 @@
 		}
 		term.write("\x1b[?25l");
 
-		if (child) {
-			dataDisposable = term.onData((data) => {
-				if (child) {
-					void child.write(data);
-				}
-			});
-		}
+		dataDisposable = term.onData((data) => {
+			if (child) {
+				void child.write(data);
+			}
+		});
 
 		await document.fonts.ready;
-		fit(term, container);
 
-		resizeObserver = new ResizeObserver(() => {
-			if (term && container) fit(term, container);
-		});
-		resizeObserver.observe(container);
+		fitAddon = new FitAddon();
+		term.loadAddon(fitAddon);
+		fitAddon.fit();
+		fitAddon.observeResize();
 	});
 
 	onDestroy(() => {
-		resizeObserver?.disconnect();
+		fitAddon?.dispose();
 		dataDisposable?.dispose();
 		if (pendingRaf !== null) {
 			cancelAnimationFrame(pendingRaf);
@@ -72,26 +87,10 @@
 	});
 
 	$effect(() => {
-		void logs.length;
+		void logs;
 		if (!term) return;
 		scheduleFlush();
 	});
-
-	function fit(terminal: import("ghostty-web").Terminal, parent: HTMLDivElement): void {
-		const renderer = (
-			terminal as unknown as {
-				renderer?: { getMetrics: () => { width: number; height: number } };
-			}
-		).renderer;
-		if (!renderer) return;
-
-		const metrics = renderer.getMetrics();
-		if (!metrics.width || !metrics.height) return;
-
-		const cols = Math.max(1, Math.floor(parent.clientWidth / metrics.width));
-		const rows = Math.max(1, Math.floor(parent.clientHeight / metrics.height));
-		terminal.resize(cols, rows);
-	}
 
 	function scheduleFlush(): void {
 		if (pendingRaf !== null) return;
@@ -126,8 +125,12 @@
 		}
 
 		if (chunk) {
+			const wasAtBottom = term.getViewportY() < 1;
 			term.write(encoder.encode(chunk));
 			lastId = nextId;
+			if (wasAtBottom) {
+				term.scrollToBottom();
+			}
 		}
 	}
 </script>

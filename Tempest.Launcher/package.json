@@ -43,6 +43,7 @@
 		"@tauri-apps/plugin-os": "~2.3.2",
 		"@tauri-apps/plugin-shell": "~2.3.5",
 		"@tauri-apps/plugin-sql": "~2.4.0",
+		"@tauri-apps/plugin-updater": "^2.10.1",
 		"bits-ui": "^2.18.1",
 		"country-flag-emoji-polyfill": "^0.1.8",
 		"daisyui": "^5.5.19",

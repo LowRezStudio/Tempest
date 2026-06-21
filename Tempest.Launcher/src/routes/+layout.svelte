@@ -15,6 +15,7 @@
 	import JoinServerWizard from "$lib/components/server-list/JoinServerWizard.svelte";
 	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
 	import ToastStack from "$lib/components/ui/ToastStack.svelte";
+	import UpdateDialog from "$lib/components/updater/UpdateDialog.svelte";
 	import { installMod } from "$lib/core/mods";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores";
@@ -29,6 +30,7 @@
 		instanceWizardOpen,
 		joinServerWizardOpen,
 	} from "$lib/stores/ui";
+	import { updaterStore } from "$lib/stores/updater.svelte";
 	import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
 
 	clearStaleConnectionIfNeeded();
@@ -225,6 +227,11 @@
 			document.removeEventListener("drop", handleDrop);
 		};
 	});
+
+	$effect(() => {
+		// ponytail: check for updates silently on startup
+		updaterStore.checkForUpdates(true);
+	});
 </script>
 
 <QueryClientProvider client={queryClient}>
@@ -253,6 +260,7 @@
 			onconfirm={() => resolveReplaceMod(true)}
 			oncancel={() => resolveReplaceMod(false)}
 		/>
+		<UpdateDialog />
 	</div>
 	<ToastStack />
 </QueryClientProvider>

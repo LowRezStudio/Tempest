@@ -8,3 +8,5 @@ export const allowScopeFile = (path: string): Promise<void> =>
 
 export const forbidScopeFile = (path: string): Promise<void> =>
 	invoke("scopes_forbid_file", { path });
+
+export const triggerChildCleanup = (): Promise<void> => invoke("trigger_child_cleanup");
