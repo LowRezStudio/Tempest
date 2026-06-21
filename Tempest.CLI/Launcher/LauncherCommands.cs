@@ -6,15 +6,15 @@ namespace Tempest.CLI.Launcher;
 
 internal class LauncherCommands
 {
-    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null)
+    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null)
     {
         var args = context.EscapedArguments.ToArray();
-        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll);
+        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, homedir: homedir);
         await process.WaitForExitAsync();
     }
     public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
                                                 string? platform = null, string? game = null, string[]? dll = null,
-                                                bool isServer = false)
+                                                bool isServer = false, string? homedir = null)
     {
         var exePath = LauncherUtility.GetExecutablePath(path, platform, game);
         var defaultArgs = !noDefaultArgs;
@@ -65,7 +65,8 @@ internal class LauncherCommands
             process.StartInfo.ArgumentList.Add("-eac-nop-loaded");
             process.StartInfo.ArgumentList.Add("-replayfile=");
             process.StartInfo.ArgumentList.Add("-COOKFORDEMO");
-            process.StartInfo.ArgumentList.Add("-homedir=Tempest");
+            homedir ??= "Tempest";
+            process.StartInfo.ArgumentList.Add($"-homedir={homedir}");
         }
 
         process.UseWine().Start();
