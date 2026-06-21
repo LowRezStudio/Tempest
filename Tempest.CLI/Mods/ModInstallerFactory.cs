@@ -9,6 +9,7 @@ public static class ModInstallerFactory
         return version switch
         {
             ModFormatVersion.V1 => new ModV1Installer(),
+            ModFormatVersion.V2 => new ModV2Installer(),
             _ => throw new NotSupportedException($"Mod format version '{version}' is not supported.")
         };
     }

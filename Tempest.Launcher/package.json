@@ -44,6 +44,7 @@
 		"@tauri-apps/plugin-shell": "~2.3.5",
 		"@tauri-apps/plugin-sql": "~2.4.0",
 		"@tauri-apps/plugin-updater": "^2.10.1",
+		"@types/markdown-it": "^14.1.2",
 		"bits-ui": "^2.18.1",
 		"country-flag-emoji-polyfill": "^0.1.8",
 		"daisyui": "^5.5.19",
@@ -61,5 +62,9 @@
 		"typescript": "^6.0.3",
 		"vite": "^8.0.11"
 	},
-	"packageManager": "pnpm@11.0.8+sha512.4c4097e1dd2d42372c4e7fa5a791ff28fc75a484c7ac192e64b1df0fdef17594ba982f9b4fed9adfb3c757846f565b799b2763fb3733d1de1bcb82cf46684912"
+	"packageManager": "pnpm@11.0.8+sha512.4c4097e1dd2d42372c4e7fa5a791ff28fc75a484c7ac192e64b1df0fdef17594ba982f9b4fed9adfb3c757846f565b799b2763fb3733d1de1bcb82cf46684912",
+	"dependencies": {
+		"@tailwindcss/typography": "^0.5.20",
+		"markdown-it": "^14.2.0"
+	}
 }

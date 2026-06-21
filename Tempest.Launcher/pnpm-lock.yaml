@@ -6,6 +6,13 @@ settings:
 
 importers:
   .:
+    dependencies:
+      '@tailwindcss/typography':
+        specifier: ^0.5.20
+        version: 0.5.20(tailwindcss@4.3.0)
+      markdown-it:
+        specifier: ^14.2.0
+        version: 14.2.0
     devDependencies:
       '@catppuccin/daisyui':
         specifier: ^2.1.1
@@ -88,6 +95,9 @@ importers:
       '@tauri-apps/plugin-updater':
         specifier: ^2.10.1
         version: 2.10.1
+      '@types/markdown-it':
+        specifier: ^14.1.2
+        version: 14.1.2
       bits-ui:
         specifier: ^2.18.1
         version: 2.18.1(@internationalized/date@3.12.0)(@sveltejs/kit@2.65.0(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3)(vite@8.0.16(jiti@2.7.0)))(svelte@5.56.3)(typescript@6.0.3)(vite@8.0.16(jiti@2.7.0)))(svelte@5.56.3)
@@ -1181,6 +1191,14 @@ packages:
       }
     engines: { node: '>= 20' }
 
+  '@tailwindcss/typography@0.5.20':
+    resolution:
+      {
+        integrity: sha512-hwbzQuNUfcPvbegQFatVPl/MY/tcM9KLl963hQ5laJKPh81TEZ1+dNG9PirGvcaDBkp+BCshExAyKVPW91dozw==,
+      }
+    peerDependencies:
+      tailwindcss: '>=3.0.0 || >=4.0.0 || insiders'
+
   '@tailwindcss/vite@4.2.4':
     resolution:
       {
@@ -1387,6 +1405,24 @@ packages:
         integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==,
       }
 
+  '@types/linkify-it@5.0.0':
+    resolution:
+      {
+        integrity: sha512-sVDA58zAw4eWAffKOaQH5/5j3XeayukzDk+ewSsnv3p4yJEZHCCzMDiZM8e0OUrRvmpGZ85jf4yDHkHsgBNr9Q==,
+      }
+
+  '@types/markdown-it@14.1.2':
+    resolution:
+      {
+        integrity: sha512-promo4eFwuiW+TfGxhi+0x3czqTYJkG8qB17ZUJiVF10Xm7NLVRSLUsfRTU/6h1e24VvRnXCx+hG7li58lkzog==,
+      }
+
+  '@types/mdurl@2.0.0':
+    resolution:
+      {
+        integrity: sha512-RGdgjQUZba5p6QEFAVx2OGb8rQDL/cPRG7GiedRzMcJ1tYnUANBncjbSB1NRGwbvjcPeikRABz2nshyPk1bhWg==,
+      }
+
   '@types/trusted-types@2.0.7':
     resolution:
       {
@@ -1408,6 +1444,12 @@ packages:
       }
     engines: { node: '>=0.4.0' }
     hasBin: true
+
+  argparse@2.0.1:
+    resolution:
+      {
+        integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==,
+      }
 
   aria-query@5.3.1:
     resolution:
@@ -1487,6 +1529,14 @@ packages:
         integrity: sha512-Mbah52sADS3gshUYhK5142gtUuJpHYOXlXtLFI3Ly4RqgkmPMvhX9kMZSTqDM8P7UqtSW99eHKFphhQSGXA3Cg==,
       }
 
+  cssesc@3.0.0:
+    resolution:
+      {
+        integrity: sha512-/Tb/JcjK111nNScGob5MNtsntNM1aCNUDipB/TkwZFhyDrrE47SOx/18wF2bbjgc3ZzCSKW1T5nt5EbFoAz/Vg==,
+      }
+    engines: { node: '>=4' }
+    hasBin: true
+
   daisyui@5.5.23:
     resolution:
       {
@@ -1555,6 +1605,13 @@ packages:
         integrity: sha512-SkE2t82KlkkxQRVMVLAGKxLfORGQfrkx5dkj+vlgXRVNEdPc4eZcR+J/Fvj8C+yKSFH5L0q3NFlyufOVQnCcYQ==,
       }
     engines: { node: '>=10.13.0' }
+
+  entities@4.5.0:
+    resolution:
+      {
+        integrity: sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw==,
+      }
+    engines: { node: '>=0.12' }
 
   esm-env@1.2.2:
     resolution:
@@ -1799,6 +1856,12 @@ packages:
       }
     engines: { node: '>= 12.0.0' }
 
+  linkify-it@5.0.1:
+    resolution:
+      {
+        integrity: sha512-wVoTjP4Q6R0NW5hiZkVJaFZPWgtXfoGF+6LucL3/FtiNjmcHhYjEr5f1Kqjirc1nBW07J/ZuRFumqr2oqccEWg==,
+      }
+
   locate-character@3.0.0:
     resolution:
       {
@@ -1816,6 +1879,19 @@ packages:
     resolution:
       {
         integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==,
+      }
+
+  markdown-it@14.2.0:
+    resolution:
+      {
+        integrity: sha512-1TGiQiJVRQ3NPmZH6sx5Cfnmg6GQm9jvC1ch4TK511NjSJvjzKLzn5pPfZRNZkRPZP0HqCioSndqH8v2nRaWVQ==,
+      }
+    hasBin: true
+
+  mdurl@2.0.0:
+    resolution:
+      {
+        integrity: sha512-Lf+9+2r+Tdp5wXDXC4PcIBjTDtq4UKjCPMQhKIuzpJNW0b96kVqSwW0bT7FhRSfmAiFYgP+SCRvdrDozfh0U5w==,
       }
 
   mri@1.2.0:
@@ -1895,6 +1971,13 @@ packages:
         integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==,
       }
     engines: { node: '>=12' }
+
+  postcss-selector-parser@6.0.10:
+    resolution:
+      {
+        integrity: sha512-IQ7TZdoaqbT+LCpShg46jnZVlhWD2w6iQYAcYXfHARZ7X1t/UGhhceQDs5X0cGqKvYlHNOuv7Oa1xmb0oQuA3w==,
+      }
+    engines: { node: '>=4' }
 
   postcss@8.5.15:
     resolution:
@@ -1977,6 +2060,13 @@ packages:
       }
     engines: { node: '>=14' }
     hasBin: true
+
+  punycode.js@2.3.1:
+    resolution:
+      {
+        integrity: sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA==,
+      }
+    engines: { node: '>=6' }
 
   readdirp@4.1.2:
     resolution:
@@ -2150,6 +2240,12 @@ packages:
     engines: { node: '>=14.17' }
     hasBin: true
 
+  uc.micro@2.1.0:
+    resolution:
+      {
+        integrity: sha512-ARDJmphmdvUk6Glw7y9DQ2bFkKBHwQHLi2lsaH6PPmz/Ka9sFOBsBluozhDltWmnv9u/cF6Rt87znRTPV+yp/A==,
+      }
+
   undici-types@5.28.4:
     resolution:
       {
@@ -2167,6 +2263,12 @@ packages:
     resolution:
       {
         integrity: sha512-IGjKp/o0NL3Bso1PymYURCJxMPNAf/ILOpendP9f5B6e1rTJgdgiOvgfoT8VxCAdY+Wisb9uhGaJJf3yZ2V9nw==,
+      }
+
+  util-deprecate@1.0.2:
+    resolution:
+      {
+        integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==,
       }
 
   uuid@14.0.0:
@@ -2766,6 +2868,11 @@ snapshots:
       '@tailwindcss/oxide-win32-arm64-msvc': 4.2.4
       '@tailwindcss/oxide-win32-x64-msvc': 4.2.4
 
+  '@tailwindcss/typography@0.5.20(tailwindcss@4.3.0)':
+    dependencies:
+      postcss-selector-parser: 6.0.10
+      tailwindcss: 4.3.0
+
   '@tailwindcss/vite@4.2.4(vite@8.0.16(jiti@2.7.0))':
     dependencies:
       '@tailwindcss/node': 4.2.4
@@ -2870,6 +2977,15 @@ snapshots:
 
   '@types/estree@1.0.9': {}
 
+  '@types/linkify-it@5.0.0': {}
+
+  '@types/markdown-it@14.1.2':
+    dependencies:
+      '@types/linkify-it': 5.0.0
+      '@types/mdurl': 2.0.0
+
+  '@types/mdurl@2.0.0': {}
+
   '@types/trusted-types@2.0.7': {}
 
   '@typescript/vfs@1.6.4(typescript@5.4.5)':
@@ -2880,6 +2996,8 @@ snapshots:
       - supports-color
 
   acorn@8.17.0: {}
+
+  argparse@2.0.1: {}
 
   aria-query@5.3.1: {}
 
@@ -2919,6 +3037,8 @@ snapshots:
 
   country-flag-emoji-polyfill@0.1.8: {}
 
+  cssesc@3.0.0: {}
+
   daisyui@5.5.23: {}
 
   dax@0.46.1:
@@ -2943,6 +3063,8 @@ snapshots:
     dependencies:
       graceful-fs: 4.2.11
       tapable: 2.3.3
+
+  entities@4.5.0: {}
 
   esm-env@1.2.2: {}
 
@@ -3036,6 +3158,10 @@ snapshots:
       lightningcss-win32-arm64-msvc: 1.32.0
       lightningcss-win32-x64-msvc: 1.32.0
 
+  linkify-it@5.0.1:
+    dependencies:
+      uc.micro: 2.1.0
+
   locate-character@3.0.0: {}
 
   lz-string@1.5.0: {}
@@ -3043,6 +3169,17 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  markdown-it@14.2.0:
+    dependencies:
+      argparse: 2.0.1
+      entities: 4.5.0
+      linkify-it: 5.0.1
+      mdurl: 2.0.0
+      punycode.js: 2.3.1
+      uc.micro: 2.1.0
+
+  mdurl@2.0.0: {}
 
   mri@1.2.0: {}
 
@@ -3107,6 +3244,11 @@ snapshots:
 
   picomatch@4.0.4: {}
 
+  postcss-selector-parser@6.0.10:
+    dependencies:
+      cssesc: 3.0.0
+      util-deprecate: 1.0.2
+
   postcss@8.5.15:
     dependencies:
       nanoid: 3.3.12
@@ -3127,6 +3269,8 @@ snapshots:
       prettier-plugin-svelte: 3.5.2(prettier@3.8.4)(svelte@5.56.3)
 
   prettier@3.8.4: {}
+
+  punycode.js@2.3.1: {}
 
   readdirp@4.1.2: {}
 
@@ -3251,6 +3395,8 @@ snapshots:
 
   typescript@6.0.3: {}
 
+  uc.micro@2.1.0: {}
+
   undici-types@5.28.4: {}
 
   unplugin@2.3.11:
@@ -3261,6 +3407,8 @@ snapshots:
       webpack-virtual-modules: 0.6.2
 
   urlpattern-polyfill@10.1.0: {}
+
+  util-deprecate@1.0.2: {}
 
   uuid@14.0.0: {}
 

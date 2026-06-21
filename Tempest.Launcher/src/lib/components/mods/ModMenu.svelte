@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { EllipsisVertical, FolderOpen, Pencil } from "@lucide/svelte";
+	import { path } from "@tauri-apps/api";
 	import { revealItemInDir } from "@tauri-apps/plugin-opener";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
@@ -27,6 +28,12 @@
 	);
 
 	async function showInExplorer() {
+		if (mod.Kind === "V2") {
+			if (!gamePath) return;
+			const v2ModsPath = await path.join(gamePath, ".tempest", "v2", "mods");
+			await revealItemInDir(v2ModsPath);
+			return;
+		}
 		if (!targetPath) return;
 		await revealItemInDir(targetPath);
 	}
@@ -66,7 +73,10 @@
 		</button>
 	{/snippet}
 	{#snippet children()}
-		<PopoverMenuItem onclick={showInExplorer} disabled={!targetPath}>
+		<PopoverMenuItem
+			onclick={showInExplorer}
+			disabled={mod.Kind === "V2" ? !gamePath : !targetPath}
+		>
 			<FolderOpen size={16} />
 			{m.mod_show_in_explorer()}
 		</PopoverMenuItem>

@@ -7,11 +7,14 @@ public class ModRecord
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Author { get; set; } = "Unknown";
+    public List<ModAuthor> Authors { get; set; } = [];
     public string Version { get; set; } = "1.0.0";
     public bool Enabled { get; set; } = true;
     public string Kind { get; set; } = string.Empty; // "Voice", "Asset", "NativePackage"
     public string OriginalPath { get; set; } = string.Empty;
     public List<string> InstalledFiles { get; set; } = [];
+    public string Readme { get; set; } = string.Empty;
+    public string ReadmeContent { get; set; } = string.Empty;
 }
 
 public class ModInstallResult

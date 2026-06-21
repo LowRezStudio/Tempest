@@ -25,14 +25,21 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
     {
         writer.WriteStartObject();
         writer.WritePropertyName("Type");
-        JsonSerializer.Serialize(writer, value.Type, options);
+        JsonSerializer.Serialize(writer, value.Type, options.GetTypeInfo(typeof(FieldType)));
         if (value.Flags != MarshalFlags.None)
         {
             writer.WritePropertyName("Flags");
-            JsonSerializer.Serialize(writer, value.Flags, options);
+            JsonSerializer.Serialize(writer, value.Flags, options.GetTypeInfo(typeof(MarshalFlags)));
         }
         writer.WritePropertyName("Value");
-        JsonSerializer.Serialize(writer, value.Value, value.Value?.GetType() ?? typeof(object), options);
+        if (value.Value is null)
+        {
+            writer.WriteNullValue();
+        }
+        else
+        {
+            JsonSerializer.Serialize(writer, value.Value, options.GetTypeInfo(value.Value.GetType()));
+        }
         writer.WriteEndObject();
     }
 
@@ -128,7 +135,8 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
         if (element.ValueKind == JsonValueKind.Null)
             return new List<Dictionary<string, MarshalObject>>();
 
-        return element.Deserialize<IList<Dictionary<string, MarshalObject>>>(options)
+        var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<IList<Dictionary<string, MarshalObject>>>)options.GetTypeInfo(typeof(IList<Dictionary<string, MarshalObject>>));
+        return JsonSerializer.Deserialize(element, typeInfo)
             ?? [];
     }
 }

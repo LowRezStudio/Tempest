@@ -40,6 +40,44 @@ internal class ModCommands
                         }
                     }
                 }
+
+                if (string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
+                {
+                    var modDir = Path.Combine(resolvedGame, ".tempest", "v2", "mods", mod.Id);
+                    if (Directory.Exists(modDir))
+                    {
+                        string? foundReadmeFile = null;
+                        if (!string.IsNullOrEmpty(mod.Readme) && File.Exists(Path.Combine(modDir, mod.Readme)))
+                        {
+                            foundReadmeFile = mod.Readme;
+                        }
+                        else
+                        {
+                            var fallbacks = new[] { "README.md", "readme.md", "README.txt", "readme.txt" };
+                            foreach (var fallback in fallbacks)
+                            {
+                                if (File.Exists(Path.Combine(modDir, fallback)))
+                                {
+                                    foundReadmeFile = fallback;
+                                    mod.Readme = fallback;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (foundReadmeFile != null)
+                        {
+                            try
+                            {
+                                mod.ReadmeContent = File.ReadAllText(Path.Combine(modDir, foundReadmeFile));
+                            }
+                            catch
+                            {
+                                mod.ReadmeContent = "Error reading readme file.";
+                            }
+                        }
+                    }
+                }
             }
             return mods;
         }
@@ -182,13 +220,20 @@ internal class ModCommands
             }
 
             IModInstaller installer;
-            try
+            if (string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
             {
-                installer = ModInstallerFactory.CreateForFile(mod.Name);
+                installer = new ModV2Installer();
             }
-            catch
+            else
             {
-                installer = new ModV1Installer();
+                try
+                {
+                    installer = ModInstallerFactory.CreateForFile(mod.Name);
+                }
+                catch
+                {
+                    installer = new ModV1Installer();
+                }
             }
 
             await installer.RemoveAsync(path, mod);
@@ -309,5 +354,102 @@ internal class ModCommands
                 Console.WriteLine($"Error: {result.Message}");
             }
         }
+    }
+
+    /// <summary>Packages a mod directory into a .tempest mod package, optionally signing it</summary>
+    /// <param name="sourceDir">Path to the mod folder containing manifest.toml, files/, dlls/ etc</param>
+    /// <param name="outputZip">Path to the output .tempest or .zip file</param>
+    /// <param name="key">Optional path to a private key PEM file to sign the mod</param>
+    public async Task Pack([Argument] string sourceDir, [Argument] string outputZip, string? key = null)
+    {
+        try
+        {
+            var fullSourceDir = Path.GetFullPath(sourceDir);
+            if (!Directory.Exists(fullSourceDir))
+            {
+                Console.Error.WriteLine($"Error: Source directory does not exist: {sourceDir}");
+                return;
+            }
+
+            var manifestPath = Path.Combine(fullSourceDir, "manifest.toml");
+            if (!File.Exists(manifestPath))
+            {
+                Console.Error.WriteLine($"Error: manifest.toml not found in source directory: {sourceDir}");
+                return;
+            }
+
+            var checksumEntries = new List<string>();
+            var allFiles = Directory.GetFiles(fullSourceDir, "*", SearchOption.AllDirectories);
+            Array.Sort(allFiles, StringComparer.Ordinal);
+
+            foreach (var file in allFiles)
+            {
+                var relativePath = Path.GetRelativePath(fullSourceDir, file).Replace('\\', '/');
+                if (relativePath == "CHECKSUMS" || relativePath == "CHECKSUMS.asc")
+                    continue;
+
+                var hash = ComputeSha256(file);
+                checksumEntries.Add($"{hash} {relativePath}");
+            }
+
+            var checksumsContent = string.Join("\n", checksumEntries);
+            var checksumsPath = Path.Combine(fullSourceDir, "CHECKSUMS");
+            await File.WriteAllTextAsync(checksumsPath, checksumsContent);
+
+            var ascPath = Path.Combine(fullSourceDir, "CHECKSUMS.asc");
+            if (File.Exists(ascPath)) File.Delete(ascPath);
+
+            if (!string.IsNullOrEmpty(key))
+            {
+                if (!File.Exists(key))
+                {
+                    Console.Error.WriteLine($"Error: Private key file not found: {key}");
+                    return;
+                }
+
+                var privateKeyPem = await File.ReadAllTextAsync(key);
+                var signedContent = ModV2Installer.SignData(checksumsContent, privateKeyPem);
+                await File.WriteAllTextAsync(ascPath, signedContent);
+                Console.WriteLine("Mod signed successfully.");
+            }
+
+            if (File.Exists(outputZip))
+            {
+                File.Delete(outputZip);
+            }
+
+            System.IO.Compression.ZipFile.CreateFromDirectory(fullSourceDir, outputZip);
+            Console.WriteLine($"Successfully packed mod to '{outputZip}'");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to pack mod: {ex.Message}");
+        }
+    }
+
+    /// <summary>Generates a new RSA private/public keypair for signing mods</summary>
+    /// <param name="outputPath">Prefix path for output files (e.g. 'mykey' will create 'mykey.key' and 'mykey.pub')</param>
+    public Task GenKey([Argument] string outputPath)
+    {
+        try
+        {
+            ModV2Installer.GeneratePgpKeyPair("tempest@lowrez.studio", $"{outputPath}.key", $"{outputPath}.pub");
+
+            Console.WriteLine($"Generated private key: {outputPath}.key");
+            Console.WriteLine($"Generated public key: {outputPath}.pub");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to generate keypair: {ex.Message}");
+        }
+        return Task.CompletedTask;
+    }
+
+    private static string ComputeSha256(string filePath)
+    {
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        using var stream = File.OpenRead(filePath);
+        var hash = sha256.ComputeHash(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }

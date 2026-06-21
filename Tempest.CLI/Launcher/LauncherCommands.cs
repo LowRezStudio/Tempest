@@ -1,6 +1,10 @@
 using System.Diagnostics;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using ConsoleAppFramework;
 using Tempest.CLI.Extensions;
+using Tempest.CLI.Mods;
 
 namespace Tempest.CLI.Launcher;
 
@@ -88,9 +92,41 @@ internal class LauncherCommands
 
         await Task.Delay(TimeSpan.FromSeconds(1));
 
+        var allDlls = new List<string>();
         if (dll != null)
         {
-            await Task.WhenAll(dll.Select(d => process.InjectLibraryAsync(d, is64Bit)));
+            allDlls.AddRange(dll);
+        }
+
+        try
+        {
+            var resolvedGame = GameFolderResolver.Resolve(path);
+            var metadataPath = ModCommands.GetMetadataPath(path);
+            if (File.Exists(metadataPath))
+            {
+                var mods = ModCommands.LoadMetadata(path);
+                foreach (var mod in mods)
+                {
+                    if (mod.Enabled && string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var dllsDir = Path.Combine(resolvedGame, ".tempest", "v2", "mods", mod.Id, "dlls");
+                        if (Directory.Exists(dllsDir))
+                        {
+                            var files = Directory.GetFiles(dllsDir, "*.dll", SearchOption.AllDirectories);
+                            allDlls.AddRange(files);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Warning: Failed to load V2 mod DLLs for injection: {ex.Message}");
+        }
+
+        if (allDlls.Count > 0)
+        {
+            await Task.WhenAll(allDlls.Distinct(StringComparer.OrdinalIgnoreCase).Select(d => process.InjectLibraryAsync(d, is64Bit)));
         }
         if (isServer)
         {

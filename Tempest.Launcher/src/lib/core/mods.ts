@@ -1,15 +1,24 @@
 import { appendProcessLogs } from "$lib/stores/processes";
 import { createCommand } from "./command";
 
+export type ModAuthor = {
+	Name: string;
+	Link: string;
+	Avatar?: string;
+};
+
 export type ModRecord = {
 	Id: string;
 	Name: string;
 	Author: string;
+	Authors?: ModAuthor[];
 	Version: string;
 	Enabled: boolean;
 	Kind: string;
 	OriginalPath: string;
 	InstalledFiles: string[];
+	Readme?: string;
+	ReadmeContent?: string;
 };
 
 export type ModInstallResult = {

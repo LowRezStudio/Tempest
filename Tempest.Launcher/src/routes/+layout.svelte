@@ -29,6 +29,7 @@
 		hostServerWizardOpen,
 		instanceWizardOpen,
 		joinServerWizardOpen,
+		removeToast,
 	} from "$lib/stores/ui";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
@@ -50,7 +51,7 @@
 
 		for (const filePath of filePaths) {
 			const ext = filePath.split(".").pop()?.toLowerCase();
-			if (ext === "upk" || ext === "pck") {
+			if (ext === "upk" || ext === "pck" || ext === "zip" || ext === "tempest") {
 				validPaths.push(filePath);
 			} else {
 				hadInvalid = true;
@@ -91,35 +92,45 @@
 		let lastInstalledName = "";
 
 		for (const filePath of droppedFilePaths) {
+			const modFileName = filePath.split(/[/\\]/).pop() || filePath;
+			let installingToastId: string | undefined;
 			try {
+				installingToastId = addToast({
+					title: m.toast_mod_installing_title(),
+					message: m.toast_mod_installing_message({ name: modFileName }),
+					tone: "info",
+					duration: 0,
+				});
+
 				let res = await installMod(targetInstance.path, filePath, false);
 				if (res.Conflict) {
-					const modName = filePath.split(/[/\\]/).pop() || filePath;
-					const confirmed = await confirmReplaceMod(modName, res.IsModConflict);
+					const confirmed = await confirmReplaceMod(modFileName, res.IsModConflict);
 					if (confirmed) {
 						res = await installMod(targetInstance.path, filePath, true);
 					} else {
+						if (installingToastId) removeToast(installingToastId);
 						continue; // Skip this one on cancel
 					}
 				}
 
+				if (installingToastId) removeToast(installingToastId);
+
 				if (res.Success) {
 					successCount++;
 					lastInstalledName =
-						res.Mod?.Name ??
-						filePath.split(/[/\\]/).pop() ??
-						m.toast_mod_installed_fallback();
+						res.Mod?.Name ?? modFileName ?? m.toast_mod_installed_fallback();
 				} else {
 					addToast({
 						title: m.toast_installation_failed_title(),
-						message: `${filePath.split(/[/\\]/).pop()}: ${res.Message || m.toast_installation_failed_unknown()}`,
+						message: `${modFileName}: ${res.Message || m.toast_installation_failed_unknown()}`,
 						tone: "error",
 					});
 				}
 			} catch (error: any) {
+				if (installingToastId) removeToast(installingToastId);
 				addToast({
 					title: m.toast_installation_failed_title(),
-					message: `${filePath.split(/[/\\]/).pop()}: ${error.message || m.toast_installation_failed_internal()}`,
+					message: `${modFileName}: ${error.message || m.toast_installation_failed_internal()}`,
 					tone: "error",
 				});
 			}

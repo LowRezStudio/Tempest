@@ -1,4 +1,5 @@
 ﻿using ConsoleAppFramework;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Runtime.CompilerServices;
 
@@ -6,6 +7,8 @@ namespace Tempest.CLI.Server;
 
 internal class ServerCommands
 {
+    [RequiresDynamicCode("Calls Tempest.CLI.Server.EmbeddedServer.StartAsync()")]
+    [RequiresUnreferencedCode("Calls Tempest.CLI.Server.EmbeddedServer.StartAsync()")]
     public async Task Open(
         string path,
         string name = "Paladins Server",

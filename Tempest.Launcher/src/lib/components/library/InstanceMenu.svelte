@@ -32,7 +32,7 @@
 	} from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { removeInstance, updateInstance } from "$lib/stores/instance";
-	import { addToast } from "$lib/stores/ui";
+	import { addToast, removeToast } from "$lib/stores/ui";
 	import { parseArgs } from "$lib/utils/args";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { Instance, InstancePlatform } from "$lib/types/instance";
@@ -55,7 +55,12 @@
 				directory: false,
 				multiple: true,
 				title: m.dialog_select_mod_files_title(),
-				filters: [{ name: m.dialog_select_mod_files_filter(), extensions: ["upk", "pck"] }],
+				filters: [
+					{
+						name: m.dialog_select_mod_files_filter(),
+						extensions: ["upk", "pck", "zip", "tempest"],
+					},
+				],
 			});
 
 			if (result) {
@@ -64,27 +69,48 @@
 				let lastInstalledName = "";
 
 				for (const filePath of paths) {
-					let res = await installMod(instance.path, filePath, false);
-					if (res.Conflict) {
-						const modName = filePath.split(/[/\\]/).pop() || filePath;
-						const confirmed = await confirmReplaceMod(modName, res.IsModConflict);
-						if (confirmed) {
-							res = await installMod(instance.path, filePath, true);
-						} else {
-							continue; // Skip this one on cancel
-						}
-					}
+					const modFileName = filePath.split(/[/\\]/).pop() || filePath;
+					let installingToastId: string | undefined;
+					try {
+						installingToastId = addToast({
+							title: m.toast_mod_installing_title(),
+							message: m.toast_mod_installing_message({ name: modFileName }),
+							tone: "info",
+							duration: 0,
+						});
 
-					if (res.Success) {
-						successCount++;
-						lastInstalledName =
-							res.Mod?.Name ??
-							filePath.split(/[/\\]/).pop() ??
-							m.toast_mod_installed_fallback();
-					} else {
+						let res = await installMod(instance.path, filePath, false);
+						if (res.Conflict) {
+							const confirmed = await confirmReplaceMod(
+								modFileName,
+								res.IsModConflict,
+							);
+							if (confirmed) {
+								res = await installMod(instance.path, filePath, true);
+							} else {
+								if (installingToastId) removeToast(installingToastId);
+								continue; // Skip this one on cancel
+							}
+						}
+
+						if (installingToastId) removeToast(installingToastId);
+
+						if (res.Success) {
+							successCount++;
+							lastInstalledName =
+								res.Mod?.Name ?? modFileName ?? m.toast_mod_installed_fallback();
+						} else {
+							addToast({
+								title: m.toast_installation_failed_title(),
+								message: `${modFileName}: ${res.Message || m.toast_installation_failed_unknown()}`,
+								tone: "error",
+							});
+						}
+					} catch (error: any) {
+						if (installingToastId) removeToast(installingToastId);
 						addToast({
 							title: m.toast_installation_failed_title(),
-							message: `${filePath.split(/[/\\]/).pop()}: ${res.Message || m.toast_installation_failed_unknown()}`,
+							message: `${modFileName}: ${error.message || m.toast_installation_failed_internal()}`,
 							tone: "error",
 						});
 					}

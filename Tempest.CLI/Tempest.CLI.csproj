@@ -16,6 +16,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
       <PackageReference Include="ConsoleAppFramework" Version="5.7.11">
         <PrivateAssets>all</PrivateAssets>
         <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -24,6 +25,7 @@
       <PackageReference Include="Grpc.Net.Client" Version="2.76.0-pre1" />
     <PackageReference Include="Grpc.AspNetCore" Version="2.76.0-pre1" />
       <PackageReference Include="BLAKE3" Version="2.1.1" />
+      <PackageReference Include="Tomlyn" Version="2.7.0" />
       <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
     </ItemGroup>
 
@@ -34,13 +36,13 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ZigReference Include="inject\main.zig"/>
-        <ZigReference Include="inject\build.zig"/>
+        <ZigReference Include="inject\main.zig" />
+        <ZigReference Include="inject\build.zig" />
     </ItemGroup>
 
     <ItemGroup>
-        <ZigOutput Include="inject\zig-out\bin\inject32.exe"/>
-        <ZigOutput Include="inject\zig-out\bin\inject64.exe"/>
+        <ZigOutput Include="inject\zig-out\bin\inject32.exe" />
+        <ZigOutput Include="inject\zig-out\bin\inject64.exe" />
     </ItemGroup>
 
     <Target Name="BuildZigInject" BeforeTargets="CoreCompile" Inputs="@(ZigReference)" Outputs="@(ZigOutput)">
