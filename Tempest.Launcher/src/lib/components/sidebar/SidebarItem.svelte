@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/state";
+	import { getContrastColor } from "$lib/utils/color";
 	import type { Component } from "svelte";
 
 	interface Props {
@@ -8,9 +9,10 @@
 		label: string;
 		active?: boolean;
 		circle?: boolean;
+		color?: string;
 	}
 
-	let { href, icon: Icon, label, active, circle }: Props = $props();
+	let { href, icon: Icon, label, active, circle, color }: Props = $props();
 
 	let isActive = $derived(active ?? page.url.pathname === href);
 </script>
@@ -19,8 +21,12 @@
 	<a
 		{href}
 		class:rounded-full={circle}
-		class={["btn btn-square", isActive ? "btn-accent" : "btn-ghost"]}
-		style="anchor-name: --sidebar-item;"
+		class="btn btn-square"
+		class:btn-accent={isActive && !color}
+		class:btn-ghost={!isActive && !color}
+		style="anchor-name: --sidebar-item; {color ?
+			`background-color: ${isActive ? color : 'transparent'}; border-color: ${isActive ? color : 'transparent'}; color: ${isActive ? getContrastColor(color) : color};`
+		:	''}"
 		aria-label={label}
 	>
 		<Icon size={20} />

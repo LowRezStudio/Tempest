@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { onDestroy, onMount } from "svelte";
+	import type { Child } from "@tauri-apps/plugin-shell";
 	import type { ProcessLog } from "$lib/types/process";
 
 	interface Props {
 		logs: ReadonlyArray<ProcessLog>;
+		child?: Child | null;
 	}
 
-	let { logs }: Props = $props();
+	let { logs, child }: Props = $props();
 
 	let container = $state<HTMLDivElement>();
 	let term = $state<import("ghostty-web").Terminal | undefined>();
@@ -15,6 +17,7 @@
 	const encoder = new TextEncoder();
 
 	let resizeObserver = $state<ResizeObserver | undefined>();
+	let dataDisposable: { dispose: () => void } | undefined;
 
 	onMount(async () => {
 		const { Ghostty, Terminal } = await import("ghostty-web");
@@ -30,7 +33,7 @@
 				foreground: "#cdd6f4",
 			},
 			scrollback: 10000,
-			disableStdin: true,
+			disableStdin: !child,
 		});
 
 		if (!container) return;
@@ -41,6 +44,14 @@
 			term.element.style.height = "100%";
 		}
 		term.write("\x1b[?25l");
+
+		if (child) {
+			dataDisposable = term.onData((data) => {
+				if (child) {
+					void child.write(data);
+				}
+			});
+		}
 
 		await document.fonts.ready;
 		fit(term, container);
@@ -53,6 +64,7 @@
 
 	onDestroy(() => {
 		resizeObserver?.disconnect();
+		dataDisposable?.dispose();
 		if (pendingRaf !== null) {
 			cancelAnimationFrame(pendingRaf);
 		}

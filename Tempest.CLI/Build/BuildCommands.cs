@@ -81,9 +81,15 @@ internal class BuildCommands
             }
         }
 
+        if (bestMatchCount == 0)
+        {
+            bestMatch = null;
+        }
+
         if (bestMatch == null)
         {
-            Console.WriteLine("Build not identified.");
+            Console.Error.WriteLine("Build not identified. No matching files found.");
+            Environment.ExitCode = 1;
             return;
         }
 

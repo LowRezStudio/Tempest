@@ -158,6 +158,39 @@ internal class ModCommands
         }
     }
 
+    /// <summary>Renames a mod in the game instance</summary>
+    /// <param name="path">Path to the game folder or executable</param>
+    /// <param name="oldName">Old name of the mod</param>
+    /// <param name="newName">New name of the mod</param>
+    /// <param name="json">Output as JSON</param>
+    public Task Rename([Argument] string path, [Argument] string oldName, [Argument] string newName, bool json = false)
+    {
+        try
+        {
+            var mods = LoadMetadata(path);
+            var mod = mods.FirstOrDefault(m => string.Equals(m.Name, oldName, StringComparison.OrdinalIgnoreCase));
+
+            if (mod == null)
+            {
+                var fail = new ModInstallResult { Success = false, Message = $"Mod not found: {oldName}" };
+                PrintResult(fail, json);
+                return Task.CompletedTask;
+            }
+
+            mod.Name = newName;
+            SaveMetadata(path, mods);
+
+            var ok = new ModInstallResult { Success = true, Message = $"Mod renamed to '{newName}' successfully.", Mod = mod };
+            PrintResult(ok, json);
+        }
+        catch (Exception ex)
+        {
+            var fail = new ModInstallResult { Success = false, Message = ex.Message };
+            PrintResult(fail, json);
+        }
+        return Task.CompletedTask;
+    }
+
     /// <summary>Installs multiple mods into the game instance</summary>
     /// <param name="path">Path to the game folder or executable</param>
     /// <param name="modFiles">List of mod files to install</param>

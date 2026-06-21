@@ -1,5 +1,5 @@
 import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-import { installMod, listMods, removeMod } from "$lib/core/mods";
+import { installMod, listMods, removeMod, renameMod } from "$lib/core/mods";
 
 export const createModsQuery = (instancePath: () => string) =>
 	createQuery(() => {
@@ -34,6 +34,24 @@ export const createRemoveModMutation = () => {
 	return createMutation(() => ({
 		mutationFn: ({ gamePath, modName }: { gamePath: string; modName: string }) =>
 			removeMod(gamePath, modName),
+		onSuccess: (_, variables) => {
+			queryClient.invalidateQueries({ queryKey: ["mods", variables.gamePath] });
+		},
+	}));
+};
+
+export const createRenameModMutation = () => {
+	const queryClient = useQueryClient();
+	return createMutation(() => ({
+		mutationFn: ({
+			gamePath,
+			oldName,
+			newName,
+		}: {
+			gamePath: string;
+			oldName: string;
+			newName: string;
+		}) => renameMod(gamePath, oldName, newName),
 		onSuccess: (_, variables) => {
 			queryClient.invalidateQueries({ queryKey: ["mods", variables.gamePath] });
 		},

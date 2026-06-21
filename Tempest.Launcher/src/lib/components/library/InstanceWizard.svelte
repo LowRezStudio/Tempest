@@ -52,9 +52,7 @@
 	);
 
 	const isValid = $derived(
-		selectedTab === "download" ? !!selectedVersionId : (
-			!!(hasDetected && selectedVersionId && selectedPath)
-		),
+		selectedTab === "download" ? !!selectedVersionId : !!(selectedVersionId && selectedPath),
 	);
 
 	async function handleBrowse() {
@@ -279,7 +277,7 @@
 		</div>
 
 		<div class="space-y-4">
-			{#if selectedTab === "download" || (selectedTab === "folder" && hasDetected)}
+			{#if selectedTab === "download" || (selectedTab === "folder" && (hasDetected || !!detectionError))}
 				<div class="form-control">
 					<label for="game-version" class="label py-0.5">
 						<span class="label-text text-sm">{m.wizard_game_version()}</span>

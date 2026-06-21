@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Boxes, Library, Plus, Search, X } from "@lucide/svelte";
 	import InstanceCard from "$lib/components/library/InstanceCard.svelte";
+	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { instanceMap } from "$lib/stores/instance";
@@ -63,25 +64,31 @@
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">
 				{#if sortedInstances.length === 0}
-					<div class="flex flex-col items-center justify-center h-64 gap-4">
-						{#if searchQuery}
-							<Search size={48} class="opacity-30" />
-							<p class="text-lg text-base-content/50">
-								{m.library_no_results({ query: searchQuery })}
-							</p>
-							<p class="text-sm text-base-content/40">{m.library_try_different()}</p>
-						{:else}
-							<Boxes size={48} class="opacity-30" />
-							<p class="text-lg text-base-content/50">{m.library_no_instances()}</p>
-							<button
-								class="btn btn-accent gap-2"
-								onclick={() => instanceWizardOpen.set(true)}
-							>
-								<Plus size={20} />
-								{m.library_create_first()}
-							</button>
-						{/if}
-					</div>
+					{#if searchQuery}
+						<EmptyState
+							title={m.library_no_results({ query: searchQuery })}
+							description={m.library_try_different()}
+						>
+							{#snippet icon()}
+								<Search size={48} />
+							{/snippet}
+						</EmptyState>
+					{:else}
+						<EmptyState title={m.library_no_instances()}>
+							{#snippet icon()}
+								<Boxes size={48} />
+							{/snippet}
+							{#snippet actions()}
+								<button
+									class="btn btn-accent gap-2"
+									onclick={() => instanceWizardOpen.set(true)}
+								>
+									<Plus size={20} />
+									{m.library_create_first()}
+								</button>
+							{/snippet}
+						</EmptyState>
+					{/if}
 				{:else}
 					<div
 						class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4"

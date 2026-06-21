@@ -11,6 +11,7 @@
 		onSelectTab?: (tab: Tab) => void;
 		tabs?: { name: string; value: Tab }[];
 		class?: string;
+		iconBg?: string;
 	}
 
 	let {
@@ -23,6 +24,7 @@
 		onSelectTab,
 		tabs,
 		class: className = "",
+		iconBg,
 	}: Props<T> = $props();
 </script>
 
@@ -31,7 +33,9 @@
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-3">
 				<div
-					class="w-16 h-16 rounded-xl bg-base-300 flex items-center justify-center shrink-0"
+					class="w-16 h-16 rounded-xl flex items-center justify-center shrink-0"
+					style={iconBg ? `background-color: ${iconBg};` : ""}
+					class:bg-base-300={!iconBg}
 				>
 					{@render icon()}
 				</div>

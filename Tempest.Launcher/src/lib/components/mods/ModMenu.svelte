@@ -1,22 +1,50 @@
 <script lang="ts">
-	import { EllipsisVertical, FolderOpen } from "@lucide/svelte";
+	import { EllipsisVertical, FolderOpen, Pencil } from "@lucide/svelte";
 	import { revealItemInDir } from "@tauri-apps/plugin-opener";
+	import Modal from "$lib/components/ui/Modal.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { m } from "$lib/paraglide/messages";
+	import { createRenameModMutation } from "$lib/queries/mods";
 	import type { ModRecord } from "$lib/core/mods";
 
 	interface Props {
 		mod: ModRecord;
+		gamePath: string;
 	}
 
-	let { mod }: Props = $props();
+	let { mod, gamePath }: Props = $props();
 
 	let targetPath = $derived(mod.InstalledFiles[0] || mod.OriginalPath || "");
 
 	async function showInExplorer() {
 		if (!targetPath) return;
 		await revealItemInDir(targetPath);
+	}
+
+	let isRenameModalOpen = $state(false);
+	let editName = $state("");
+
+	const renameMutation = createRenameModMutation();
+
+	function openRename() {
+		editName = mod.Name;
+		isRenameModalOpen = true;
+	}
+
+	async function handleRename() {
+		if (!editName.trim() || editName === mod.Name) {
+			isRenameModalOpen = false;
+			return;
+		}
+
+		await renameMutation.mutateAsync({
+			gamePath,
+			oldName: mod.Name,
+			newName: editName.trim(),
+		});
+
+		isRenameModalOpen = false;
 	}
 </script>
 
@@ -31,5 +59,36 @@
 			<FolderOpen size={16} />
 			{m.mod_show_in_explorer()}
 		</PopoverMenuItem>
+		<PopoverMenuItem onclick={openRename}>
+			<Pencil size={16} />
+			{m.mod_rename()}
+		</PopoverMenuItem>
 	{/snippet}
 </PopoverMenu>
+
+<Modal bind:open={isRenameModalOpen} title={m.mod_rename_dialog_title()} class="max-w-md">
+	<div class="space-y-4 pt-2">
+		<div class="form-control">
+			<label for="mod-name" class="label py-0.5">
+				<span class="label-text text-sm">{m.mod_rename_dialog_label()}</span>
+			</label>
+			<input
+				id="mod-name"
+				type="text"
+				class="input input-bordered w-full"
+				bind:value={editName}
+			/>
+		</div>
+	</div>
+	{#snippet actions()}
+		<button class="btn btn-ghost" onclick={() => (isRenameModalOpen = false)}>
+			{m.common_cancel()}
+		</button>
+		<button class="btn btn-accent" onclick={handleRename} disabled={renameMutation.isPending}>
+			{#if renameMutation.isPending}
+				<span class="loading loading-spinner loading-xs"></span>
+			{/if}
+			{m.mod_rename_dialog_button()}
+		</button>
+	{/snippet}
+</Modal>

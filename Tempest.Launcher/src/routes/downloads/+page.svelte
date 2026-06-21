@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Download, FolderOpen, Pause, Play, Plus, RotateCcw, Trash2 } from "@lucide/svelte";
+	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
@@ -12,6 +13,7 @@
 		queueRunning,
 		resetQueueState,
 	} from "$lib/rigby/stores";
+	import { instanceWizardOpen } from "$lib/stores/ui";
 
 	function formatBytes(bytes: number): string {
 		if (bytes === 0) return "0 B";
@@ -64,6 +66,10 @@
 			<Download size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet actions()}
+			<button class="btn btn-accent" onclick={() => instanceWizardOpen.set(true)}>
+				<Plus size={16} />
+				{m.wizard_download()}
+			</button>
 			{#if $queueRunning}
 				<button class="btn btn-ghost" onclick={handlePause}>
 					<Pause size={16} />
@@ -118,13 +124,23 @@
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">
 				{#if $queueItems.length === 0}
-					<div class="flex flex-col items-center justify-center h-64 gap-4">
-						<FolderOpen size={48} class="opacity-30" />
-						<p class="text-lg text-base-content/50">{m.downloads_no_downloads()}</p>
-						<p class="text-sm text-base-content/40">
-							{m.downloads_no_downloads_hint()}
-						</p>
-					</div>
+					<EmptyState
+						title={m.downloads_no_downloads()}
+						description={m.downloads_no_downloads_hint()}
+					>
+						{#snippet icon()}
+							<FolderOpen size={48} />
+						{/snippet}
+						{#snippet actions()}
+							<button
+								class="btn btn-accent mt-2 gap-2"
+								onclick={() => instanceWizardOpen.set(true)}
+							>
+								<Plus size={20} />
+								{m.wizard_download()}
+							</button>
+						{/snippet}
+					</EmptyState>
 				{:else}
 					<div class="space-y-2">
 						{#each $queueItems as item (item.id)}

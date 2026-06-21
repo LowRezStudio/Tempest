@@ -2,12 +2,13 @@
 	import { Square, SquareTerminal } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
+	import GhosttyTerminal from "$lib/components/ui/GhosttyTerminal.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { moveToLobby } from "$lib/core/lobby";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillLobbyServerMutation } from "$lib/queries/lobby";
 	import { lobbyServerProcessesList } from "$lib/stores/processes";
-	import { tick } from "svelte";
+	import { get } from "svelte/store";
 
 	let activeTab = $state<"logs">("logs");
 
@@ -16,7 +17,8 @@
 	);
 	const killLobbyMutation = createKillLobbyServerMutation();
 
-	const logs = $derived(process?.logs);
+	const logsStore = $derived(process?.logs);
+	const logsList = $derived(logsStore ? (get(logsStore) ?? []) : []);
 	const isKilling = $derived(killLobbyMutation.isPending);
 	const returnCode = $derived(process?.returnCode);
 	const isRunning = $derived($returnCode === null);
@@ -36,21 +38,6 @@
 			goto("/servers");
 		}
 	}
-	let logContainer = $state<HTMLDivElement>();
-
-	$effect(() => {
-		void $logs?.length; // dependency
-		if (!logContainer) return;
-		const nearBottom =
-			logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 40;
-		if (!nearBottom) return;
-
-		tick().then(() => {
-			if (!logContainer) return;
-			logContainer.scrollTop = logContainer.scrollHeight;
-		});
-	});
-
 	function join() {
 		if (!process) return;
 		moveToLobby(`http://127.0.0.1:${process.createOptions.port}`);
@@ -98,15 +85,9 @@
 		{/snippet}
 	</Header>
 
-	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
+	<div class="flex-1 overflow-hidden bg-base-100">
 		{#if activeTab === "logs"}
-			<div class="px-4 py-6 overflow-y-auto" bind:this={logContainer}>
-				{#each $logs as log (log.id)}
-					<div>
-						{log.error ? `ERR: ${log.line}` : log.line}
-					</div>
-				{/each}
-			</div>
+			<GhosttyTerminal logs={logsList} child={process?.child} />
 		{/if}
 	</div>
 </div>

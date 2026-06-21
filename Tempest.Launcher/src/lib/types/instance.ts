@@ -35,4 +35,5 @@ export type Instance = {
 	path: string;
 	launchOptions: InstanceLaunchOptions;
 	state: InstanceState;
+	color?: string;
 };

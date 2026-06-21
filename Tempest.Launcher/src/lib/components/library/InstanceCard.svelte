@@ -3,6 +3,7 @@
 	import { goto } from "$app/navigation";
 	import { m } from "$lib/paraglide/messages";
 	import { queueItems } from "$lib/rigby/stores";
+	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import InstanceMenu from "./InstanceMenu.svelte";
 	import type { Instance } from "$lib/types/instance";
 
@@ -40,17 +41,27 @@
 	<div class="bg-base-200 rounded-lg p-4 opacity-80">
 		<div class="flex items-center gap-3">
 			<div
-				class="w-12 h-12 rounded-lg bg-base-100 flex items-center justify-center shrink-0 overflow-hidden"
+				class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
+				style="background-color: {getInstanceColor(instance)}"
 			>
 				{#if isDownloading}
 					<div
-						class="radial-progress text-accent"
-						style="--value:{downloadProgress}; --size:3rem; --thickness:4px;"
+						class="radial-progress"
+						style="--value:{downloadProgress}; --size:3rem; --thickness:4px; color: {getContrastColor(
+							getInstanceColor(instance),
+						)};"
 					>
-						<span class="text-xs font-semibold">{Math.round(downloadProgress)}%</span>
+						<span
+							class="text-xs font-semibold"
+							style="color: {getContrastColor(getInstanceColor(instance))};"
+							>{Math.round(downloadProgress)}%</span
+						>
 					</div>
 				{:else}
-					<Pause size={24} class="text-warning" />
+					<Pause
+						size={24}
+						style="color: {getContrastColor(getInstanceColor(instance))};"
+					/>
 				{/if}
 			</div>
 			<div class="flex-1 min-w-0">
@@ -91,12 +102,16 @@
 	>
 		<div class="flex items-center gap-3">
 			<div
-				class="w-12 h-12 rounded-lg bg-base-100 flex items-center justify-center shrink-0 overflow-hidden"
+				class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
+				style="background-color: {getInstanceColor(instance)}"
 			>
 				{#if isSettingUp}
-					<span class="loading loading-spinner loading-sm"></span>
+					<span
+						class="loading loading-spinner loading-sm"
+						style="color: {getContrastColor(getInstanceColor(instance))};"
+					></span>
 				{:else}
-					<Box size={24} class="opacity-60" />
+					<Box size={24} style="color: {getContrastColor(getInstanceColor(instance))};" />
 				{/if}
 			</div>
 			<div class="flex-1 min-w-0">

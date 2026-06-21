@@ -145,6 +145,26 @@ fn main() {
         );
     }
 
+    // Copy native libraries (.dll, .so, .dylib) to the binaries directory so they can be bundled
+    if let Ok(entries) = fs::read_dir(&temp_output) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                    let ext_lower = ext.to_lowercase();
+                    if ext_lower == "dll" || ext_lower == "so" || ext_lower == "dylib" {
+                        let file_name = path.file_name().unwrap();
+                        let dest_path = binaries_dir.join(file_name);
+                        fs::copy(&path, &dest_path).unwrap_or_else(|e| {
+                            panic!("Failed to copy native dependency {}: {}", file_name.to_string_lossy(), e);
+                        });
+                        println!("cargo:warning=Copied native library: {}", file_name.to_string_lossy());
+                    }
+                }
+            }
+        }
+    }
+
     // Clean up temporary build directory
     let _ = fs::remove_dir_all(temp_output);
 

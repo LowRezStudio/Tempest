@@ -92,3 +92,27 @@ export const removeMod = async (gamePath: string, modName: string): Promise<ModI
 		return { Success: false, Message: "Internal error parsing CLI output" };
 	}
 };
+
+export const renameMod = async (
+	gamePath: string,
+	oldName: string,
+	newName: string,
+): Promise<ModInstallResult> => {
+	const args = ["mod", "rename", gamePath, oldName, newName, "--json"];
+	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
+	const res = await createCommand(args).execute();
+
+	if (res.stdout) {
+		appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
+	}
+	if (res.stderr) {
+		appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
+	}
+
+	try {
+		return JSON.parse(res.stdout) as ModInstallResult;
+	} catch (error) {
+		console.error("Failed to parse rename mod result:", error, res.stdout, res.stderr);
+		return { Success: false, Message: "Internal error parsing CLI output" };
+	}
+};

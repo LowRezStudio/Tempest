@@ -17,6 +17,7 @@
 	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
 	import { lobbyServerProcessesList } from "$lib/stores/processes";
 	import { instanceWizardOpen } from "$lib/stores/ui";
+	import { getInstanceColor } from "$lib/utils/color";
 	import LanguageSelector from "./LanguageSelector.svelte";
 	import SidebarItem from "./SidebarItem.svelte";
 </script>
@@ -41,6 +42,7 @@
 				label={instance.label}
 				active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
 				href={`/instance/${instance.id}`}
+				color={getInstanceColor(instance)}
 			/>
 		{/each}
 

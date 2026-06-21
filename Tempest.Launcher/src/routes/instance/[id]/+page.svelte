@@ -10,20 +10,26 @@
 		Square,
 		Trash2,
 	} from "@lucide/svelte";
+	import { useQueryClient } from "@tanstack/svelte-query";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
 	import ModMenu from "$lib/components/mods/ModMenu.svelte";
+	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { installMod } from "$lib/core/mods";
+	import { confirmReplaceMod } from "$lib/mods/ui";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
 	import { instanceMap, updateInstance } from "$lib/stores/instance";
 	import { processesList } from "$lib/stores/processes";
+	import { addToast } from "$lib/stores/ui";
 	import { parseArgs } from "$lib/utils/args";
+	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { InstancePlatform } from "$lib/types/instance";
 
 	let activeTab = $state<"content">("content");
@@ -32,6 +38,78 @@
 	let isSettingUp = $derived(
 		(instance?.state as { type?: string } | undefined)?.type === "setup",
 	);
+
+	const queryClient = useQueryClient();
+
+	async function handleInstallMod() {
+		if (!instance?.path) return;
+		try {
+			const result = await openDialog({
+				directory: false,
+				multiple: true,
+				title: m.dialog_select_mod_files_title(),
+				filters: [{ name: m.dialog_select_mod_files_filter(), extensions: ["upk", "pck"] }],
+			});
+
+			if (result) {
+				const paths = Array.isArray(result) ? result : [result];
+				let successCount = 0;
+				let lastInstalledName = "";
+
+				for (const filePath of paths) {
+					let res = await installMod(instance.path, filePath, false);
+					if (res.Conflict) {
+						const modName = filePath.split(/[/\\]/).pop() || filePath;
+						const confirmed = await confirmReplaceMod(modName, res.IsModConflict);
+						if (confirmed) {
+							res = await installMod(instance.path, filePath, true);
+						} else {
+							continue; // Skip this one on cancel
+						}
+					}
+
+					if (res.Success) {
+						successCount++;
+						lastInstalledName =
+							res.Mod?.Name ??
+							filePath.split(/[/\\]/).pop() ??
+							m.toast_mod_installed_fallback();
+					} else {
+						addToast({
+							title: m.toast_installation_failed_title(),
+							message: `${filePath.split(/[/\\]/).pop()}: ${res.Message || m.toast_installation_failed_unknown()}`,
+							tone: "error",
+						});
+					}
+				}
+
+				if (successCount > 0) {
+					if (successCount === 1) {
+						addToast({
+							title: m.toast_mod_installed_title(),
+							message: m.toast_mod_installed_message({
+								name: lastInstalledName,
+							}),
+							tone: "success",
+						});
+					} else {
+						addToast({
+							title: m.toast_mod_installed_title(),
+							message: `Successfully installed ${successCount} mods`,
+							tone: "success",
+						});
+					}
+					queryClient.invalidateQueries({ queryKey: ["mods", instance.path] });
+				}
+			}
+		} catch (error: any) {
+			addToast({
+				title: m.toast_installation_failed_title(),
+				message: error.message || m.toast_installation_failed_internal(),
+				tone: "error",
+			});
+		}
+	}
 
 	const modsQuery = createModsQuery(() => instance?.path ?? "");
 	let modsList = $derived(modsQuery.data ?? []);
@@ -55,11 +133,24 @@
 	});
 
 	let isSettingsModalOpen = $state(false);
+	const colorPresets = [
+		"#ef4444",
+		"#f97316",
+		"#f59e0b",
+		"#10b981",
+		"#06b6d4",
+		"#3b82f6",
+		"#6366f1",
+		"#8b5cf6",
+		"#ec4899",
+		"#6b7280",
+	];
 	let editName = $state("");
 	let editVersion = $state("");
 	let editPath = $state("");
 	let editPlatform = $state<InstancePlatform>("Win64");
 	let editArgs = $state<string[]>([]);
+	let editColor = $state("");
 	let argsInput = $state("");
 
 	function addArgs() {
@@ -95,6 +186,7 @@
 		editPath = instance.path;
 		editPlatform = instance.launchOptions?.platform ?? "Win64";
 		editArgs = instance.launchOptions?.args ?? [];
+		editColor = getInstanceColor(instance);
 		argsInput = "";
 		isSettingsModalOpen = true;
 	}
@@ -105,6 +197,7 @@
 			label: editName,
 			version: editVersion,
 			path: editPath,
+			color: editColor,
 			launchOptions: {
 				...instance.launchOptions,
 				platform: editPlatform,
@@ -173,12 +266,16 @@
 		tabs={[{ name: m.instance_content(), value: "content" }]}
 		{activeTab}
 		onSelectTab={(tab) => (activeTab = tab)}
+		iconBg={getInstanceColor(instance)}
 	>
 		{#snippet icon()}
 			{#if isSettingUp}
-				<span class="loading loading-spinner loading-md"></span>
+				<span
+					class="loading loading-spinner loading-md"
+					style="color: {getContrastColor(getInstanceColor(instance))};"
+				></span>
 			{:else}
-				<Box size={32} class="opacity-60" />
+				<Box size={32} style="color: {getContrastColor(getInstanceColor(instance))};" />
 			{/if}
 		{/snippet}
 		{#snippet actions()}
@@ -247,13 +344,23 @@
 			<div class="flex-1 overflow-y-auto">
 				<div class="px-4 py-6">
 					{#if modsList.length === 0}
-						<div class="flex flex-col items-center justify-center h-64 gap-4">
-							<PackageOpen size={48} class="opacity-30" />
-							<p class="text-lg text-base-content/50">{m.instance_no_content()}</p>
-							<p class="text-sm text-base-content/40">
-								{m.instance_add_mods_hint()}
-							</p>
-						</div>
+						<EmptyState
+							title={m.instance_no_content()}
+							description={m.instance_drag_import_hint()}
+						>
+							{#snippet icon()}
+								<PackageOpen size={48} />
+							{/snippet}
+							{#snippet actions()}
+								<button
+									class="btn btn-accent btn-sm mt-2"
+									onclick={handleInstallMod}
+								>
+									<PackageOpen size={14} />
+									{m.instancemenu_install_mod()}
+								</button>
+							{/snippet}
+						</EmptyState>
 					{:else}
 						<table class="table">
 							<thead>
@@ -315,7 +422,7 @@
 												>
 													<Trash2 size={14} />
 												</button>
-												<ModMenu {mod} />
+												<ModMenu {mod} gamePath={instance?.path ?? ""} />
 											</div>
 										</td>
 									</tr>
@@ -355,6 +462,60 @@
 				class="input input-bordered w-full"
 				bind:value={editVersion}
 			/>
+		</div>
+
+		<div class="form-control">
+			<label for="instance-color" class="label py-0.5">
+				<span class="label-text text-sm">{m.instance_color()}</span>
+			</label>
+			<div class="flex items-center gap-6 w-full">
+				<div
+					class="w-20 h-20 rounded-xl flex items-center justify-center shrink-0 overflow-hidden shadow-sm border border-base-content/10"
+					style="background-color: {editColor};"
+				>
+					<Box size={40} style="color: {getContrastColor(editColor)};" />
+				</div>
+
+				<div class="flex-1 h-20 flex flex-col justify-between min-w-0">
+					<div class="flex flex-wrap justify-between w-full">
+						{#each colorPresets as preset}
+							<button
+								type="button"
+								class="w-7 h-7 rounded-full border border-base-content/10 cursor-pointer transition-transform hover:scale-110 active:scale-95 flex items-center justify-center shrink-0"
+								style="background-color: {preset};"
+								onclick={() => (editColor = preset)}
+								title={preset}
+							>
+								{#if editColor.toLowerCase() === preset.toLowerCase()}
+									<span class="text-white text-[10px] font-bold">✓</span>
+								{/if}
+							</button>
+						{/each}
+					</div>
+
+					<div class="flex items-center gap-2 w-full">
+						<input
+							id="instance-color"
+							type="color"
+							class="w-16 h-10 p-0.5 rounded border border-base-300 cursor-pointer bg-base-100 shrink-0"
+							bind:value={editColor}
+						/>
+						<button
+							type="button"
+							class="btn btn-sm flex-1"
+							onclick={() => {
+								editColor = getInstanceColor({
+									...instance,
+									label: editName,
+									color: undefined,
+								});
+							}}
+						>
+							{m.instance_reset_color()}
+						</button>
+					</div>
+				</div>
+			</div>
 		</div>
 
 		<div class="form-control">

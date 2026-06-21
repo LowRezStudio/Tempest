@@ -26,11 +26,13 @@
 	}
 	function getTitle() {
 		const s = $lobbyWaitingState;
-		if (s.isWaiting && s.countdownSeconds > 0)
+		if (s.isWaiting && s.countdownSeconds > 0) {
 			return m.lobby_starting_countdown({ seconds: s.countdownSeconds });
+		}
 		if (s.isWaiting) return m.lobby_title();
-		if (s.isLobbyRestarting)
+		if (s.isLobbyRestarting) {
 			return m.lobby_restarting_countdown({ seconds: s.countdownSeconds });
+		}
 		return m.lobby_game_in_progress();
 	}
 </script>
