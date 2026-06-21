@@ -130,7 +130,7 @@
 
 			const newInstance: Instance = {
 				id: crypto.randomUUID(),
-				label: selectedName || `${selectedVersion.version} - ${selectedVersion.name}`,
+				label: selectedName || selectedVersion.name || selectedVersion.version,
 				version: selectedVersion.version,
 				path: instancePath,
 				launchOptions: {
