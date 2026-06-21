@@ -57,7 +57,16 @@
 	"library_no_instances": "Sin instancias aún",
 	"library_create_first": "Crear tu primera instancia",
 	"library_search_placeholder": "Buscar",
-	"library_instances": "instancias",
+	"library_instances": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "instancia",
+				"countPlural=other": "instancias"
+			}
+		}
+	],
 	"library_instance": "instancia",
 	"library_no_results": "No se encontraron instancias para \"{query}\"",
 	"library_try_different": "Prueba con otro término de búsqueda",
@@ -69,7 +78,16 @@
 	"downloads_complete": "completadas",
 	"downloads_failed": "fallidas",
 	"downloads_clear_completed": "Limpiar completadas",
-	"downloads_files": "archivos",
+	"downloads_files": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "archivo",
+				"countPlural=other": "archivos"
+			}
+		}
+	],
 	"downloads_written": "escritos",
 	"downloads_repaired": "reparados",
 	"downloads_verified": "verificados",
@@ -96,7 +114,16 @@
 	"serverlist_refresh_aria_label": "Actualizar servidores",
 	"serverlist_refreshing": "Actualizando",
 	"serverlist_server": "servidor",
-	"serverlist_servers": "servidores",
+	"serverlist_servers": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "servidor",
+				"countPlural=other": "servidores"
+			}
+		}
+	],
 	"lobby_title": "Lobby",
 	"lobby_game_in_progress": "Partida en curso",
 	"lobby_leave_lobby": "Salir del lobby",
@@ -120,7 +147,16 @@
 	"lobby_select_champion": "Selecciona tu campeón",
 	"lobby_not_ready": "No listo",
 	"lobby_voted": "Votado",
-	"lobby_players": "jugadores",
+	"lobby_players": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "jugador",
+				"countPlural=other": "jugadores"
+			}
+		}
+	],
 	"settings_title": "Ajustes",
 	"settings_general": "General",
 	"settings_advanced": "Avanzado",

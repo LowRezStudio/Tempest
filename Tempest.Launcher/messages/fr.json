@@ -57,7 +57,16 @@
 	"library_no_instances": "Aucune instance",
 	"library_create_first": "Créer votre première instance",
 	"library_search_placeholder": "Rechercher",
-	"library_instances": "instances",
+	"library_instances": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "instance",
+				"countPlural=other": "instances"
+			}
+		}
+	],
 	"library_instance": "instance",
 	"library_no_results": "Aucune instance trouvée pour \"{query}\"",
 	"library_try_different": "Essayez un autre terme de recherche",
@@ -69,7 +78,16 @@
 	"downloads_complete": "terminé",
 	"downloads_failed": "échoué",
 	"downloads_clear_completed": "Effacer les terminés",
-	"downloads_files": "fichiers",
+	"downloads_files": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "fichier",
+				"countPlural=other": "fichiers"
+			}
+		}
+	],
 	"downloads_written": "écrits",
 	"downloads_repaired": "réparés",
 	"downloads_verified": "vérifiés",
@@ -96,7 +114,16 @@
 	"serverlist_refresh_aria_label": "Actualiser les serveurs",
 	"serverlist_refreshing": "Actualisation",
 	"serverlist_server": "serveur",
-	"serverlist_servers": "serveurs",
+	"serverlist_servers": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "serveur",
+				"countPlural=other": "serveurs"
+			}
+		}
+	],
 	"lobby_title": "Lobby",
 	"lobby_game_in_progress": "Partie en cours",
 	"lobby_leave_lobby": "Quitter le lobby",
@@ -120,7 +147,16 @@
 	"lobby_select_champion": "Sélectionnez votre champion",
 	"lobby_not_ready": "Pas prêt",
 	"lobby_voted": "Voté",
-	"lobby_players": "joueurs",
+	"lobby_players": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "joueur",
+				"countPlural=other": "joueurs"
+			}
+		}
+	],
 	"settings_title": "Paramètres",
 	"settings_general": "Général",
 	"settings_advanced": "Avancé",

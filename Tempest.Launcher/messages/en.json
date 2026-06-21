@@ -57,7 +57,16 @@
 	"library_no_instances": "No instances yet",
 	"library_create_first": "Create Your First Instance",
 	"library_search_placeholder": "Search",
-	"library_instances": "instances",
+	"library_instances": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "instance",
+				"countPlural=other": "instances"
+			}
+		}
+	],
 	"library_instance": "instance",
 	"library_no_results": "No instances found matching \"{query}\"",
 	"library_try_different": "Try a different search term",
@@ -69,7 +78,16 @@
 	"downloads_complete": "complete",
 	"downloads_failed": "failed",
 	"downloads_clear_completed": "Clear Completed",
-	"downloads_files": "files",
+	"downloads_files": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "file",
+				"countPlural=other": "files"
+			}
+		}
+	],
 	"downloads_written": "written",
 	"downloads_repaired": "repaired",
 	"downloads_verified": "verified",
@@ -96,7 +114,16 @@
 	"serverlist_refresh_aria_label": "Refresh servers",
 	"serverlist_refreshing": "Refreshing",
 	"serverlist_server": "server",
-	"serverlist_servers": "servers",
+	"serverlist_servers": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "server",
+				"countPlural=other": "servers"
+			}
+		}
+	],
 	"lobby_title": "Lobby",
 	"lobby_game_in_progress": "Game in Progress",
 	"lobby_leave_lobby": "Leave Lobby",
@@ -120,7 +147,16 @@
 	"lobby_select_champion": "Select Your Champion",
 	"lobby_not_ready": "Not ready",
 	"lobby_voted": "Voted",
-	"lobby_players": "players",
+	"lobby_players": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "player",
+				"countPlural=other": "players"
+			}
+		}
+	],
 	"settings_title": "Settings",
 	"settings_general": "General",
 	"settings_advanced": "Advanced",

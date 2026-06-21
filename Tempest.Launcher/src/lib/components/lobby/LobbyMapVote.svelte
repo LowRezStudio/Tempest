@@ -54,7 +54,7 @@
 				</button>
 			{/snippet}
 			{#snippet subtitle()}
-				<span>{playerCount} {m.lobby_players()}</span>
+				<span>{playerCount} {m.lobby_players({ count: playerCount })}</span>
 			{/snippet}
 		</Header>
 

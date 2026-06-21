@@ -177,7 +177,9 @@
 													>
 													<span class="opacity-70">
 														{progress.completedFiles}/{progress.totalFiles}
-														{m.downloads_files()}
+														{m.downloads_files({
+															count: progress.totalFiles,
+														})}
 													</span>
 												</div>
 												<progress
@@ -214,7 +216,9 @@
 												<div class="flex items-center gap-4">
 													<span class="text-success font-semibold"
 														>{item.result.files}
-														{m.downloads_files()}</span
+														{m.downloads_files({
+															count: item.result.files,
+														})}</span
 													>
 													<span class="opacity-70"
 														>{formatBytes(item.result.diskWriteBytes)}

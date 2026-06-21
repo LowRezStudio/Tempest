@@ -133,7 +133,7 @@
 		{#snippet subtitle()}
 			<span
 				>{serverCount}
-				{serverCount === 1 ? m.serverlist_server() : m.serverlist_servers()}</span
+				{m.serverlist_servers({ count: serverCount })}</span
 			>
 			{#if isFetching}
 				<span class="inline-flex items-center gap-2">

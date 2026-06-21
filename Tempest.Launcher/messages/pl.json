@@ -57,7 +57,18 @@
 	"library_no_instances": "Brak instancji",
 	"library_create_first": "Utwórz swoją pierwszą instancję",
 	"library_search_placeholder": "Szukaj",
-	"library_instances": "instancje",
+	"library_instances": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "instancja",
+				"countPlural=few": "instancje",
+				"countPlural=many": "instancji",
+				"countPlural=other": "instancji"
+			}
+		}
+	],
 	"library_instance": "instancja",
 	"library_no_results": "Nie znaleziono instancji pasujących do \"{query}\"",
 	"library_try_different": "Spróbuj innego wyszukiwania",
@@ -69,7 +80,18 @@
 	"downloads_complete": "zakończone",
 	"downloads_failed": "nieudane",
 	"downloads_clear_completed": "Wyczyść zakończone",
-	"downloads_files": "pliki",
+	"downloads_files": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "plik",
+				"countPlural=few": "pliki",
+				"countPlural=many": "plików",
+				"countPlural=other": "plików"
+			}
+		}
+	],
 	"downloads_written": "zapisane",
 	"downloads_repaired": "naprawione",
 	"downloads_verified": "zweryfikowane",
@@ -96,7 +118,18 @@
 	"serverlist_refresh_aria_label": "Odśwież serwery",
 	"serverlist_refreshing": "Odświeżanie",
 	"serverlist_server": "serwer",
-	"serverlist_servers": "serwery",
+	"serverlist_servers": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "serwer",
+				"countPlural=few": "serwery",
+				"countPlural=many": "serwerów",
+				"countPlural=other": "serwerów"
+			}
+		}
+	],
 	"lobby_title": "Poczekalnia",
 	"lobby_game_in_progress": "Gra w toku",
 	"lobby_leave_lobby": "Opuść poczekalnię",
@@ -120,13 +153,29 @@
 	"lobby_select_champion": "Wybierz swojego bohatera",
 	"lobby_not_ready": "Nie gotowy",
 	"lobby_voted": "Zagłosowano",
-	"lobby_players": "graczy",
+	"lobby_players": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "gracz",
+				"countPlural=few": "gracze",
+				"countPlural=many": "graczy",
+				"countPlural=other": "graczy"
+			}
+		}
+	],
 	"settings_title": "Ustawienia",
 	"settings_general": "Ogólne",
 	"settings_advanced": "Zaawansowane",
 	"settings_username": "Nazwa użytkownika",
 	"settings_username_placeholder": "Wpisz nazwę użytkownika",
 	"settings_default_instance_path": "Domyślna ścieżka instancji",
+	"settings_theme": "Motyw",
+	"settings_theme_system": "Systemowy (Auto)",
+	"settings_theme_mocha": "Catppuccin Mocha (Ciemny)",
+	"settings_theme_latte": "Catppuccin Latte (Jasny)",
+	"settings_theme_legacy": "Tempest Legacy",
 	"settings_select_directory": "Wybierz katalog...",
 	"settings_saved_successfully": "Pomyślnie zapisano ustawienia",
 	"settings_danger_zone": "Strefa niebezpieczna",
@@ -178,7 +227,7 @@
 	"delete_deleting": "Usuwanie...",
 	"delete_delete": "Usuń",
 	"hostserver_title": "Stwórz serwer",
-	"hostserver_server_name": "Nazwa serwerów",
+	"hostserver_server_name": "Nazwa serwera",
 	"hostserver_instance": "Instancja",
 	"hostserver_select_instance": "Wybierz instancję...",
 	"hostserver_gamemode": "Tryb gry",
@@ -190,7 +239,7 @@
 	"hostserver_tags_optional": "Opcjonalne",
 	"hostserver_max_players": "Maks. liczba graczy",
 	"hostserver_players_range": "Liczba z przedziału 1-30",
-	"hostserver_min_players": "Min. graczy do startu",
+	"hostserver_min_players": "Min. liczba graczy do startu",
 	"hostserver_players_range_min": "Liczba z przedziału 0-30",
 	"hostserver_max_spectators": "Maks. obserwatorów",
 	"hostserver_spectators_range": "Liczba z przedziału 1-30",

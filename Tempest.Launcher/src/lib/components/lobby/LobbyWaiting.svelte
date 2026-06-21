@@ -77,7 +77,10 @@
 				{m.lobby_lobby_restarting()}
 			</span>
 		{:else}
-			<span>{$lobbyWaitingState.playerCount} {m.lobby_players()}</span>
+			<span
+				>{$lobbyWaitingState.playerCount}
+				{m.lobby_players({ count: $lobbyWaitingState.playerCount })}</span
+			>
 		{/if}
 	{/snippet}
 </Header>

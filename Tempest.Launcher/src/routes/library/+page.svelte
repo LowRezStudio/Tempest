@@ -54,7 +54,7 @@
 		{#snippet subtitle()}
 			<span
 				>{instanceList.length}
-				{instanceList.length === 1 ? m.library_instance() : m.library_instances()}</span
+				{m.library_instances({ count: instanceList.length })}</span
 			>
 		{/snippet}
 	</Header>
