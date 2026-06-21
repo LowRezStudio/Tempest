@@ -588,7 +588,7 @@
 						</div>
 					</div>
 				{:else if modDetailsTab === "readme"}
-					<div class="h-full overflow-y-auto pr-3">
+					<div class="h-full overflow-y-auto overflow-x-hidden pr-3 break-words">
 						{#if selectedModForFiles.ReadmeContent}
 							{#if isReadmeMarkdown}
 								<article
@@ -598,8 +598,11 @@
 									{@html readmeContent}
 								</article>
 							{:else}
-								<pre
-									class="whitespace-pre-wrap font-mono text-xs opacity-80 bg-base-200/40 p-5 rounded-xl border border-base-300 text-base-content h-full">{selectedModForFiles.ReadmeContent}</pre>
+								<div
+									class="whitespace-pre-wrap font-mono text-xs opacity-80 bg-base-200/40 p-5 rounded-xl border border-base-300 text-base-content"
+								>
+									{selectedModForFiles.ReadmeContent}
+								</div>
 							{/if}
 						{:else}
 							<p class="opacity-50 italic text-center py-12">
