@@ -17,6 +17,9 @@ replaceDialogStore.listen((state) => {
 });
 
 export const confirmReplaceMod = (modName: string, isModConflict = true): Promise<boolean> => {
+	if (!isModConflict) {
+		return Promise.resolve(true);
+	}
 	return new Promise<boolean>((resolve) => {
 		activeResolver = resolve;
 		replaceDialogStore.set({

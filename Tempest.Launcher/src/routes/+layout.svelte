@@ -250,7 +250,6 @@
 		<ReplaceModDialog
 			bind:open={$replaceDialogStore.open}
 			modName={$replaceDialogStore.modName}
-			isModConflict={$replaceDialogStore.isModConflict}
 			onconfirm={() => resolveReplaceMod(true)}
 			oncancel={() => resolveReplaceMod(false)}
 		/>
