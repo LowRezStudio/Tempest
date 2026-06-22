@@ -16,7 +16,6 @@ public class ModV1Installer : IModInstaller
 
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var fileName = Path.GetFileName(modFilePath);
-        _ = Path.GetExtension(modFilePath).ToLowerInvariant();
 
         // ponytail: simple name classification
         var isVoiceMod = fileName.Contains("_VOX", StringComparison.OrdinalIgnoreCase) ||
@@ -96,34 +95,23 @@ public class ModV1Installer : IModInstaller
         var shouldRegisterIni = !fileName.Contains("_SF", StringComparison.OrdinalIgnoreCase) &&
                                 !fileName.Contains("WWB", StringComparison.OrdinalIgnoreCase);
 
-        if (!shouldRegisterIni)
-            return new ModInstallResult
-            {
-                Success = true,
-                Message = "Mod installed successfully",
-                Mod = modRecord
-            };
+        if (shouldRegisterIni)
         {
             var iniPath = Path.Combine(resolvedGame, "ChaosGame", "Config", "DefaultEngine.ini");
-            
-            if (!File.Exists(iniPath))
-                return new ModInstallResult
+
+            if (File.Exists(iniPath))
+            {
+                try
                 {
-                    Success = true,
-                    Message = "Mod installed successfully",
-                    Mod = modRecord
-                };
-            
-            try
-            {
-                var lines = IniPatcher.Parse(iniPath);
-                var packageName = Path.GetFileNameWithoutExtension(fileName);
-                IniPatcher.AddNativePackage(lines, packageName);
-                IniPatcher.Save(iniPath, lines);
-            }
-            catch (Exception ex)
-            {
-                await Console.Error.WriteLineAsync($"Warning: Failed to patch DefaultEngine.ini: {ex.Message}");
+                    var lines = IniPatcher.Parse(iniPath);
+                    var packageName = Path.GetFileNameWithoutExtension(fileName);
+                    IniPatcher.AddNativePackage(lines, packageName);
+                    IniPatcher.Save(iniPath, lines);
+                }
+                catch (Exception ex)
+                {
+                    await Console.Error.WriteLineAsync($"Warning: Failed to patch DefaultEngine.ini: {ex.Message}");
+                }
             }
         }
 
@@ -194,7 +182,5 @@ public class ModV1Installer : IModInstaller
         {
             await Console.Error.WriteLineAsync($"Warning: Failed to unpatch DefaultEngine.ini: {ex.Message}");
         }
-
-        return;
     }
 }

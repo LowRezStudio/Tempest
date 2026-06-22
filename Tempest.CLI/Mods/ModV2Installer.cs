@@ -39,6 +39,10 @@ public class ModV2Installer : IModInstaller
         """
     ];
 
+    private static string NormalizeEntryPath(string fullName) => fullName.Replace('\\', '/');
+    private static bool IsDirectoryEntry(ZipArchiveEntry entry) =>
+        entry.FullName.EndsWith('/') || string.IsNullOrEmpty(entry.Name);
+
     public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool allowUnsigned)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
@@ -80,96 +84,12 @@ public class ModV2Installer : IModInstaller
                     checksumsContent = await reader.ReadToEndAsync();
                 }
 
-                var checksumLines = checksumsContent.Split(["\r\n", "\r", "\n"], StringSplitOptions.None);
-                var checksumMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var line in checksumLines)
+                var checksumMap = ParseChecksumMap(checksumsContent);
+                await VerifyArchiveChecksumsAsync(archive, checksumMap);
+
+                if (await VerifySignatureAsync(checksumsContent, ascEntry, resolvedGame))
                 {
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    
-                    if (parts.Length < 2) continue;
-                    
-                    var hash = parts[0].Trim().ToLowerInvariant();
-                    var rel = string.Join(" ", parts.Skip(1)).TrimStart('*').Trim().Replace('\\', '/');
-                    checksumMap[rel] = hash;
-                }
-
-                foreach (var entry in archive.Entries)
-                {
-                    if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\'))
-                        continue;
-
-                    var relativePath = entry.FullName.Replace('\\', '/');
-                    if (relativePath == "CHECKSUMS" || relativePath == "CHECKSUMS.asc")
-                        continue;
-
-                    if (!checksumMap.TryGetValue(relativePath, out var expectedHash))
-                    {
-                        throw new Exception($"File '{relativePath}' is not present in CHECKSUMS.");
-                    }
-
-                    string actualHash;
-                    await using (var stream = await entry.OpenAsync())
-                    using (var sha256 = SHA256.Create())
-                    {
-                        var hashBytes = await sha256.ComputeHashAsync(stream);
-                        actualHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
-                    }
-
-                    if (actualHash != expectedHash)
-                    {
-                        throw new Exception($"File '{relativePath}' checksum mismatch! Expected: {expectedHash}, Actual: {actualHash}");
-                    }
-                }
-
-                if (ascEntry != null)
-                {
-                    string ascContent;
-                    using (var reader = new StreamReader(await ascEntry.OpenAsync(), Encoding.UTF8))
-                    {
-                        ascContent = await reader.ReadToEndAsync();
-                    }
-
-                    var keysDir = TempestPathUtility.GetLocalKeysDirectory(resolvedGame);
-                    var globalKeysDir = TempestPathUtility.GetGlobalKeysDirectory();
-                    var signatureVerified = OfficialKeys.Any(key => VerifyData(checksumsContent, ascContent, key));
-
-                    if (!signatureVerified)
-                    {
-                        var pubKeys = new List<string>();
-                        if (Directory.Exists(keysDir))
-                        {
-                            pubKeys.AddRange(Directory.GetFiles(keysDir, "*.pub"));
-                        }
-                        if (Directory.Exists(globalKeysDir))
-                        {
-                            pubKeys.AddRange(Directory.GetFiles(globalKeysDir, "*.pub"));
-                        }
-
-                        foreach (var keyFile in pubKeys)
-                        {
-                            var pubKeyPem = await File.ReadAllTextAsync(keyFile);
-                            
-                            if (!VerifyData(checksumsContent, ascContent, pubKeyPem)) continue;
-                            
-                            signatureVerified = true;
-                            break;
-                        }
-                    }
-
-                    if (!signatureVerified)
-                    {
-                        await Console.Error.WriteLineAsync("Warning: Mod has an invalid or untrusted signature.");
-                    }
-
-                    if (signatureVerified)
-                    {
-                        isSignedAndVerified = true;
-                    }
-                }
-                else
-                {
-                    await Console.Error.WriteLineAsync("Warning: Installing an unsigned mod (missing CHECKSUMS.asc).");
+                    isSignedAndVerified = true;
                 }
             }
             else
@@ -213,12 +133,9 @@ public class ModV2Installer : IModInstaller
             var metadataMods = ModCommands.LoadMetadata(gamePath);
             foreach (var entry in archive.Entries)
             {
-                var relativePath = entry.FullName.Replace('\\', '/');
-                if (relativePath.EndsWith('/') || string.IsNullOrEmpty(entry.Name))
-                {
-                    continue;
-                }
+                if (IsDirectoryEntry(entry)) continue;
 
+                var relativePath = NormalizeEntryPath(entry.FullName);
                 if (!relativePath.StartsWith("files/")) continue;
                 
                 var relativeInFiles = relativePath["files/".Length..];
@@ -248,13 +165,9 @@ public class ModV2Installer : IModInstaller
 
             foreach (var entry in archive.Entries)
             {
-                var relativePath = entry.FullName.Replace('\\', '/');
+                if (IsDirectoryEntry(entry)) continue;
 
-                if (relativePath.EndsWith('/') || string.IsNullOrEmpty(entry.Name))
-                {
-                    continue;
-                }
-
+                var relativePath = NormalizeEntryPath(entry.FullName);
                 if (relativePath.StartsWith("files/"))
                 {
                     var relativeInFiles = relativePath["files/".Length..];
@@ -312,40 +225,13 @@ public class ModV2Installer : IModInstaller
                         {
                             var gameIniLines = IniPatcher.Parse(destGamePath);
                             var modIniLines = IniPatcher.Parse(modFilesIniPath);
-
-                             var iniBackupPath = TempestPathUtility.GetLocalV2IniBackupPath(resolvedGame, modId, relativeInFiles);
-                            var iniBackupDir = Path.GetDirectoryName(iniBackupPath);
-                            if (iniBackupDir != null) Directory.CreateDirectory(iniBackupDir);
-
                             var backupLines = new List<IniLine>();
 
-                            string? currentModSection = null;
-                            foreach (var line in modIniLines)
-                            {
-                                if (line.Type == IniLineType.Section)
-                                {
-                                    currentModSection = line.SectionName;
-                                }
-                                else if (line.Type == IniLineType.Entry && currentModSection != null && line.Key != null)
-                                {
-                                    var existingEntry = line.Prefix == "+" || line.Prefix == "-" ? null : gameIniLines.FirstOrDefault(l =>
-                                        l.Type == IniLineType.Entry &&
-                                        string.Equals(l.SectionName, currentModSection, StringComparison.OrdinalIgnoreCase) &&
-                                        string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase));
+                            ApplyModIniToGameIni(gameIniLines, modIniLines, backupLines);
 
-                                    if (existingEntry != null)
-                                    {
-                                        IniPatcher.ApplyPatch(backupLines, currentModSection, existingEntry.Prefix ?? "", existingEntry.Key ?? "", existingEntry.Value ?? "");
-                                        existingEntry.Value = line.Value;
-                                        existingEntry.Prefix = line.Prefix;
-                                        existingEntry.Raw = (line.Prefix ?? "") + line.Key + "=" + line.Value;
-                                    }
-                                    else
-                                    {
-                                        IniPatcher.ApplyPatch(gameIniLines, currentModSection, line.Prefix ?? "", line.Key, line.Value ?? "");
-                                    }
-                                }
-                            }
+                            var iniBackupPath = TempestPathUtility.GetLocalV2IniBackupPath(resolvedGame, modId, relativeInFiles);
+                            var iniBackupDir = Path.GetDirectoryName(iniBackupPath);
+                            if (iniBackupDir != null) Directory.CreateDirectory(iniBackupDir);
 
                             if (backupLines.Count > 0)
                             {
@@ -433,59 +319,7 @@ public class ModV2Installer : IModInstaller
                 var iniBackupPath = TempestPathUtility.GetLocalV2IniBackupPath(resolvedGame, modId, relativePathFromFiles);
                 var backupLines = File.Exists(iniBackupPath) ? IniPatcher.Parse(iniBackupPath) : [];
 
-                string? currentModSection = null;
-                foreach (var line in modIniLines)
-                {
-                    switch (line.Type)
-                    {
-                        case IniLineType.Section:
-                            currentModSection = line.SectionName;
-                            break;
-                        case IniLineType.Entry when currentModSection != null && line.Key != null:
-                        {
-                            var backupEntry = backupLines.FirstOrDefault(l =>
-                                l.Type == IniLineType.Entry &&
-                                string.Equals(l.SectionName, currentModSection, StringComparison.OrdinalIgnoreCase) &&
-                                string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase));
-
-                            if (backupEntry != null)
-                            {
-                                var gameEntry = gameIniLines.FirstOrDefault(l =>
-                                    l.Type == IniLineType.Entry &&
-                                    string.Equals(l.SectionName, currentModSection, StringComparison.OrdinalIgnoreCase) &&
-                                    string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase));
-
-                                if (gameEntry != null)
-                                {
-                                    gameEntry.Value = backupEntry.Value;
-                                    gameEntry.Prefix = backupEntry.Prefix;
-                                    gameEntry.Raw = (backupEntry.Prefix ?? "") + backupEntry.Key + "=" + backupEntry.Value;
-                                }
-                            }
-                            else
-                            {
-                                if (line.Prefix == "+")
-                                {
-                                    gameIniLines.RemoveAll(l =>
-                                        l.Type == IniLineType.Entry &&
-                                        string.Equals(l.SectionName, currentModSection, StringComparison.OrdinalIgnoreCase) &&
-                                        string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase) &&
-                                        (string.Equals(l.Value, line.Value, StringComparison.OrdinalIgnoreCase) ||
-                                         string.Equals(l.Value, line.Value + " ; tempest", StringComparison.OrdinalIgnoreCase)));
-                                }
-                                else if (line.Prefix != "-")
-                                {
-                                    gameIniLines.RemoveAll(l =>
-                                        l.Type == IniLineType.Entry &&
-                                        string.Equals(l.SectionName, currentModSection, StringComparison.OrdinalIgnoreCase) &&
-                                        string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase));
-                                }
-                            }
-
-                            break;
-                        }
-                    }
-                }
+                RestoreGameIni(gameIniLines, modIniLines, backupLines);
 
                 IniPatcher.Save(destGamePath, gameIniLines);
             }
@@ -541,6 +375,146 @@ public class ModV2Installer : IModInstaller
         }
 
         return Task.CompletedTask;
+    }
+
+    private static void ApplyModIniToGameIni(List<IniLine> gameIniLines, List<IniLine> modIniLines, List<IniLine> backupLines)
+    {
+        string? currentModSection = null;
+        foreach (var line in modIniLines)
+        {
+            switch (line.Type)
+            {
+                case IniLineType.Section:
+                    currentModSection = line.SectionName;
+                    break;
+                case IniLineType.Entry when currentModSection != null && line.Key != null:
+                    if (line.Prefix is "+" or "-")
+                    {
+                        IniPatcher.ApplyPatch(gameIniLines, currentModSection, line.Prefix, line.Key, line.Value ?? "");
+                    }
+                    else
+                    {
+                        var gameIndex = IniPatcher.FindKeyIndex(gameIniLines, currentModSection, line.Key);
+                        if (gameIndex >= 0)
+                        {
+                            var existingEntry = gameIniLines[gameIndex];
+                            IniPatcher.ApplyPatch(backupLines, currentModSection, existingEntry.Prefix ?? "", existingEntry.Key ?? "", existingEntry.Value ?? "");
+                            gameIniLines[gameIndex] = IniPatcher.CreateEntry(currentModSection, line.Key, line.Value ?? "", line.Prefix);
+                        }
+                        else
+                        {
+                            IniPatcher.ApplyPatch(gameIniLines, currentModSection, line.Prefix ?? "", line.Key, line.Value ?? "");
+                        }
+                    }
+                    break;
+            }
+        }
+    }
+
+    private static void RestoreGameIni(List<IniLine> gameIniLines, List<IniLine> modIniLines, List<IniLine> backupLines)
+    {
+        string? currentModSection = null;
+        foreach (var line in modIniLines)
+        {
+            switch (line.Type)
+            {
+                case IniLineType.Section:
+                    currentModSection = line.SectionName;
+                    break;
+                case IniLineType.Entry when currentModSection != null && line.Key != null:
+                    var backupIndex = IniPatcher.FindKeyIndex(backupLines, currentModSection, line.Key);
+                    if (backupIndex >= 0)
+                    {
+                        var gameIndex = IniPatcher.FindKeyIndex(gameIniLines, currentModSection, line.Key);
+                        if (gameIndex >= 0)
+                            gameIniLines[gameIndex] = backupLines[backupIndex];
+                    }
+                    else if (line.Prefix == "+")
+                    {
+                        var value = line.Value ?? "";
+                        IniPatcher.RemoveAllInSection(gameIniLines, currentModSection, l =>
+                            l.Type == IniLineType.Entry &&
+                            string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase) &&
+                            (string.Equals(l.Value, value, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(l.Value, value + " ; tempest", StringComparison.OrdinalIgnoreCase)));
+                    }
+                    else if (line.Prefix != "-")
+                    {
+                        IniPatcher.RemoveAllInSection(gameIniLines, currentModSection, l =>
+                            l.Type == IniLineType.Entry &&
+                            string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase));
+                    }
+                    break;
+            }
+        }
+    }
+
+    private static Dictionary<string, string> ParseChecksumMap(string checksumsContent)
+    {
+        return checksumsContent
+            .Split(["\r\n", "\r", "\n"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Where(parts => parts.Length >= 2)
+            .ToDictionary(
+                parts => string.Join(" ", parts.Skip(1)).TrimStart('*').Trim().Replace('\\', '/'),
+                parts => parts[0].Trim().ToLowerInvariant(),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static async Task VerifyArchiveChecksumsAsync(ZipArchive archive, Dictionary<string, string> checksumMap)
+    {
+        foreach (var entry in archive.Entries)
+        {
+            if (IsDirectoryEntry(entry)) continue;
+
+            var relativePath = NormalizeEntryPath(entry.FullName);
+            if (relativePath is "CHECKSUMS" or "CHECKSUMS.asc") continue;
+
+            if (!checksumMap.TryGetValue(relativePath, out var expectedHash))
+                throw new Exception($"File '{relativePath}' is not present in CHECKSUMS.");
+
+            await using var stream = await entry.OpenAsync();
+            using var sha256 = SHA256.Create();
+            var actualHash = Convert.ToHexString(await sha256.ComputeHashAsync(stream)).ToLowerInvariant();
+
+            if (actualHash != expectedHash)
+                throw new Exception($"File '{relativePath}' checksum mismatch! Expected: {expectedHash}, Actual: {actualHash}");
+        }
+    }
+
+    private static async Task<bool> VerifySignatureAsync(string checksumsContent, ZipArchiveEntry? ascEntry, string resolvedGame)
+    {
+        if (ascEntry == null)
+        {
+            await Console.Error.WriteLineAsync("Warning: Installing an unsigned mod (missing CHECKSUMS.asc).");
+            return false;
+        }
+
+        string ascContent;
+        using (var reader = new StreamReader(await ascEntry.OpenAsync(), Encoding.UTF8))
+        {
+            ascContent = await reader.ReadToEndAsync();
+        }
+
+        if (OfficialKeys.Any(key => VerifyData(checksumsContent, ascContent, key)))
+            return true;
+
+        var keysDir = TempestPathUtility.GetLocalKeysDirectory(resolvedGame);
+        var globalKeysDir = TempestPathUtility.GetGlobalKeysDirectory();
+
+        var pubKeys = new[] { keysDir, globalKeysDir }
+            .Where(Directory.Exists)
+            .SelectMany(d => Directory.GetFiles(d, "*.pub"));
+
+        foreach (var keyFile in pubKeys)
+        {
+            var pubKeyPem = await File.ReadAllTextAsync(keyFile);
+            if (VerifyData(checksumsContent, ascContent, pubKeyPem))
+                return true;
+        }
+
+        await Console.Error.WriteLineAsync("Warning: Mod has an invalid or untrusted signature.");
+        return false;
     }
 
     public static string SignData(string content, string privateKeyPem)
