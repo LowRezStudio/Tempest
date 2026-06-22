@@ -37,6 +37,15 @@ fn trigger_child_cleanup() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    {
+        // AppImage bundles libgbm/libEGL which mismatch with the host's Mesa drivers,
+        // causing EGL display creation to fail. We disable DMABuf only inside AppImages.
+        if std::env::var("APPIMAGE").is_ok() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
 	tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_fs::init())

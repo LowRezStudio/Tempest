@@ -23,7 +23,7 @@ jobs:
             target: aarch64-apple-darwin
             bundles: dmg
             arch: arm64
-          - platform: ubuntu-latest
+          - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             bundles: appimage,deb,rpm
             arch: x64
@@ -83,7 +83,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies (Ubuntu)
-        if: matrix.platform == 'ubuntu-latest'
+        if: startsWith(matrix.platform, 'ubuntu-')
         run: |
           sudo apt update
           sudo apt-get install -y \
