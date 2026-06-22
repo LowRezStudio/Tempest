@@ -76,6 +76,10 @@ public class ModV2Installer : IModInstaller
             var checksumsEntry = archive.GetEntry("CHECKSUMS");
             var ascEntry = archive.GetEntry("CHECKSUMS.asc");
 
+            var hasDlls = archive.Entries.Any(e => !IsDirectoryEntry(e) &&
+                NormalizeEntryPath(e.FullName).StartsWith("dlls/", StringComparison.OrdinalIgnoreCase) &&
+                Path.GetExtension(e.Name).Equals(".dll", StringComparison.OrdinalIgnoreCase));
+
             if (checksumsEntry != null)
             {
                 string checksumsContent;
@@ -87,17 +91,17 @@ public class ModV2Installer : IModInstaller
                 var checksumMap = ParseChecksumMap(checksumsContent);
                 await VerifyArchiveChecksumsAsync(archive, checksumMap);
 
-                if (await VerifySignatureAsync(checksumsContent, ascEntry, resolvedGame))
+                if (await VerifySignatureAsync(checksumsContent, ascEntry, resolvedGame, hasDlls))
                 {
                     isSignedAndVerified = true;
                 }
             }
-            else
+            else if (hasDlls)
             {
                 await Console.Error.WriteLineAsync("Warning: Installing an unsigned mod (missing CHECKSUMS).");
             }
 
-            if (!isSignedAndVerified && !allowUnsigned)
+            if (!isSignedAndVerified && !allowUnsigned && hasDlls)
             {
                 return new ModInstallResult
                 {
@@ -482,11 +486,12 @@ public class ModV2Installer : IModInstaller
         }
     }
 
-    private static async Task<bool> VerifySignatureAsync(string checksumsContent, ZipArchiveEntry? ascEntry, string resolvedGame)
+    private static async Task<bool> VerifySignatureAsync(string checksumsContent, ZipArchiveEntry? ascEntry, string resolvedGame, bool hasDlls)
     {
         if (ascEntry == null)
         {
-            await Console.Error.WriteLineAsync("Warning: Installing an unsigned mod (missing CHECKSUMS.asc).");
+            if (hasDlls)
+                await Console.Error.WriteLineAsync("Warning: Installing an unsigned mod (missing CHECKSUMS.asc).");
             return false;
         }
 
