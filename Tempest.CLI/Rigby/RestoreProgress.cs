@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Threading;
 using Tempest.CLI.Rigby.Models;
 
 namespace Tempest.CLI.Rigby;

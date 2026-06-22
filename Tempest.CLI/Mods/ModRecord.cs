@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace Tempest.CLI.Mods;
 
 public class ModRecord
@@ -24,6 +22,7 @@ public class ModInstallResult
     public ModRecord? Mod { get; set; }
     public bool Conflict { get; set; }
     public bool IsModConflict { get; set; }
+    public bool Unverified { get; set; }
 }
 
 public class ModListResult

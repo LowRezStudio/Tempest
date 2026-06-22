@@ -1,7 +1,6 @@
 using Google.Protobuf.WellKnownTypes;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Threading;
 using Tempest.CLI.Launcher;
 using Tempest.Protocol.Lobby;
 

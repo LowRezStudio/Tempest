@@ -11,6 +11,7 @@
 	import InstallModOverlay from "$lib/components/mods/InstallModOverlay.svelte";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import ReplaceModDialog from "$lib/components/mods/ReplaceModDialog.svelte";
+	import UnverifiedModDialog from "$lib/components/mods/UnverifiedModDialog.svelte";
 	import HostServerWizard from "$lib/components/server-list/HostServerWizard.svelte";
 	import JoinServerWizard from "$lib/components/server-list/JoinServerWizard.svelte";
 	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
@@ -19,7 +20,14 @@
 	import { installMod } from "$lib/core/mods";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores";
-	import { confirmReplaceMod, replaceDialogStore, resolveReplaceMod } from "$lib/mods/ui";
+	import {
+		confirmReplaceMod,
+		confirmUnverifiedMod,
+		replaceDialogStore,
+		resolveReplaceMod,
+		resolveUnverifiedMod,
+		unverifiedDialogStore,
+	} from "$lib/mods/ui";
 	import { m } from "$lib/paraglide/messages";
 	import { instanceMap } from "$lib/stores/instance";
 	import { theme } from "$lib/stores/settings";
@@ -102,11 +110,28 @@
 					duration: 0,
 				});
 
-				let res = await installMod(targetInstance.path, filePath, false);
+				let allowedUnsigned = false;
+				let res = await installMod(targetInstance.path, filePath, false, false);
+				if (res.Unverified) {
+					const confirmed = await confirmUnverifiedMod(modFileName);
+					if (confirmed) {
+						allowedUnsigned = true;
+						res = await installMod(targetInstance.path, filePath, false, true);
+					} else {
+						if (installingToastId) removeToast(installingToastId);
+						continue; // Skip this one on cancel
+					}
+				}
+
 				if (res.Conflict) {
 					const confirmed = await confirmReplaceMod(modFileName, res.IsModConflict);
 					if (confirmed) {
-						res = await installMod(targetInstance.path, filePath, true);
+						res = await installMod(
+							targetInstance.path,
+							filePath,
+							true,
+							allowedUnsigned,
+						);
 					} else {
 						if (installingToastId) removeToast(installingToastId);
 						continue; // Skip this one on cancel
@@ -270,6 +295,12 @@
 			modName={$replaceDialogStore.modName}
 			onconfirm={() => resolveReplaceMod(true)}
 			oncancel={() => resolveReplaceMod(false)}
+		/>
+		<UnverifiedModDialog
+			bind:open={$unverifiedDialogStore.open}
+			modName={$unverifiedDialogStore.modName}
+			onconfirm={() => resolveUnverifiedMod(true)}
+			oncancel={() => resolveUnverifiedMod(false)}
 		/>
 		<UpdateDialog />
 	</div>

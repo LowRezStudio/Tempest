@@ -1,5 +1,3 @@
-using System.IO;
-
 namespace Tempest.CLI.Mods;
 
 public static class GameFolderResolver

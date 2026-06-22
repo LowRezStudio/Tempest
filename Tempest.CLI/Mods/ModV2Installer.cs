@@ -1,18 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Tasks;
 using Tomlyn;
 using Tomlyn.Model;
 using Tomlyn.Serialization;
 using Org.BouncyCastle.Bcpg;
 using Org.BouncyCastle.Bcpg.OpenPgp;
 using Org.BouncyCastle.Crypto;
-using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Math;
 using Org.BouncyCastle.Security;
@@ -26,14 +20,34 @@ internal partial class ModTomlContext : TomlSerializerContext
 
 public class ModV2Installer : IModInstaller
 {
-    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace)
+    private static readonly string[] OfficialKeys = [
+        // Kyiro
+        """
+        -----BEGIN PGP PUBLIC KEY BLOCK-----
+
+        mDMEajkdDhYJKwYBBAHaRw8BAQdAfKiZ3VNxDLk6EWlUUQIZFQUFyRYkW4w9r4e7
+        Et59G7e0HEt5aXJvIDxLeWlyb0Bwcm90b25tYWlsLmNvbT6IkwQTFgoAOxYhBNqJ
+        YuGJfFCnu5uMWmwG7lWWw4ZYBQJqOR0OAhsDBQsJCAcCAiICBhUKCQgLAgQWAgMB
+        Ah4HAheAAAoJEGwG7lWWw4ZYr14A/0KuopQiJBoHZveK7JiThW+WiPv69jUh9tGv
+        /2oihtHkAP41hh7B88VKgvrGIOx77odJ3T743iRu9okEq0mAVr7ZCrg4BGo5HQ4S
+        CisGAQQBl1UBBQEBB0DZDHj26USAveTugZ38jPqmBzrY+pFVZfzGzNYvz960TAMB
+        CAeIeAQYFgoAIBYhBNqJYuGJfFCnu5uMWmwG7lWWw4ZYBQJqOR0OAhsMAAoJEGwG
+        7lWWw4ZYcNIA/jd/Sy+TUvMoR52y+N+kEV4pU/l+0Z2zmZvspUvaRLsiAQC3Slwi
+        7iuPeUpRq+pI7e8BYuAjvSfQtMKx0NZXGVmyDQ==
+        =RKLn
+        -----END PGP PUBLIC KEY BLOCK-----
+        """
+    ];
+
+    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool allowUnsigned)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
+        var isSignedAndVerified = false;
 
         try
         {
-            using var fileStream = File.OpenRead(modFilePath);
-            using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read);
+            await using var fileStream = File.OpenRead(modFilePath);
+            await using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read);
 
             var manifestEntry = archive.GetEntry("manifest.toml");
             if (manifestEntry == null)
@@ -42,7 +56,7 @@ public class ModV2Installer : IModInstaller
             }
 
             string manifestContent;
-            using (var reader = new StreamReader(manifestEntry.Open(), Encoding.UTF8))
+            using (var reader = new StreamReader(await manifestEntry.OpenAsync(), Encoding.UTF8))
             {
                 manifestContent = await reader.ReadToEndAsync();
             }
@@ -61,23 +75,23 @@ public class ModV2Installer : IModInstaller
             if (checksumsEntry != null)
             {
                 string checksumsContent;
-                using (var reader = new StreamReader(checksumsEntry.Open(), Encoding.UTF8))
+                using (var reader = new StreamReader(await checksumsEntry.OpenAsync(), Encoding.UTF8))
                 {
                     checksumsContent = await reader.ReadToEndAsync();
                 }
 
-                var checksumLines = checksumsContent.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+                var checksumLines = checksumsContent.Split(["\r\n", "\r", "\n"], StringSplitOptions.None);
                 var checksumMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var line in checksumLines)
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
                     var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 2)
-                    {
-                        var hash = parts[0].Trim().ToLowerInvariant();
-                        var rel = string.Join(" ", parts.Skip(1)).TrimStart('*').Trim().Replace('\\', '/');
-                        checksumMap[rel] = hash;
-                    }
+                    
+                    if (parts.Length < 2) continue;
+                    
+                    var hash = parts[0].Trim().ToLowerInvariant();
+                    var rel = string.Join(" ", parts.Skip(1)).TrimStart('*').Trim().Replace('\\', '/');
+                    checksumMap[rel] = hash;
                 }
 
                 foreach (var entry in archive.Entries)
@@ -95,10 +109,10 @@ public class ModV2Installer : IModInstaller
                     }
 
                     string actualHash;
-                    using (var stream = entry.Open())
+                    await using (var stream = await entry.OpenAsync())
                     using (var sha256 = SHA256.Create())
                     {
-                        var hashBytes = sha256.ComputeHash(stream);
+                        var hashBytes = await sha256.ComputeHashAsync(stream);
                         actualHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
                     }
 
@@ -111,53 +125,69 @@ public class ModV2Installer : IModInstaller
                 if (ascEntry != null)
                 {
                     string ascContent;
-                    using (var reader = new StreamReader(ascEntry.Open(), Encoding.UTF8))
+                    using (var reader = new StreamReader(await ascEntry.OpenAsync(), Encoding.UTF8))
                     {
                         ascContent = await reader.ReadToEndAsync();
                     }
 
-                    var keysDir = Path.Combine(resolvedGame, ".tempest", "keys");
-                    bool signatureVerified = false;
-                    bool hasKeys = false;
+                    var keysDir = TempestPathUtility.GetLocalKeysDirectory(resolvedGame);
+                    var globalKeysDir = TempestPathUtility.GetGlobalKeysDirectory();
+                    var signatureVerified = OfficialKeys.Any(key => VerifyData(checksumsContent, ascContent, key));
 
-                    if (Directory.Exists(keysDir))
+                    if (!signatureVerified)
                     {
-                        var pubKeys = Directory.GetFiles(keysDir, "*.pub");
-                        if (pubKeys.Length > 0)
+                        var pubKeys = new List<string>();
+                        if (Directory.Exists(keysDir))
                         {
-                            hasKeys = true;
-                            foreach (var keyFile in pubKeys)
-                            {
-                                var pubKeyPem = await File.ReadAllTextAsync(keyFile);
-                                if (VerifyData(checksumsContent, ascContent, pubKeyPem))
-                                {
-                                    signatureVerified = true;
-                                    break;
-                                }
-                            }
+                            pubKeys.AddRange(Directory.GetFiles(keysDir, "*.pub"));
+                        }
+                        if (Directory.Exists(globalKeysDir))
+                        {
+                            pubKeys.AddRange(Directory.GetFiles(globalKeysDir, "*.pub"));
+                        }
+
+                        foreach (var keyFile in pubKeys)
+                        {
+                            var pubKeyPem = await File.ReadAllTextAsync(keyFile);
+                            
+                            if (!VerifyData(checksumsContent, ascContent, pubKeyPem)) continue;
+                            
+                            signatureVerified = true;
+                            break;
                         }
                     }
 
-                    if (!hasKeys)
+                    if (!signatureVerified)
                     {
-                        Console.Error.WriteLine("Warning: Mod signature could not be verified (no trusted public keys found in '.tempest/keys/').");
+                        await Console.Error.WriteLineAsync("Warning: Mod has an invalid or untrusted signature.");
                     }
-                    else if (!signatureVerified)
+
+                    if (signatureVerified)
                     {
-                        Console.Error.WriteLine("Warning: Mod has an invalid or untrusted signature.");
+                        isSignedAndVerified = true;
                     }
                 }
                 else
                 {
-                    Console.Error.WriteLine("Warning: Installing an unsigned mod (missing CHECKSUMS.asc).");
+                    await Console.Error.WriteLineAsync("Warning: Installing an unsigned mod (missing CHECKSUMS.asc).");
                 }
             }
             else
             {
-                Console.Error.WriteLine("Warning: Installing an unsigned mod (missing CHECKSUMS).");
+                await Console.Error.WriteLineAsync("Warning: Installing an unsigned mod (missing CHECKSUMS).");
             }
 
-            var targetModDir = Path.Combine(resolvedGame, ".tempest", "v2", "mods", modId);
+            if (!isSignedAndVerified && !allowUnsigned)
+            {
+                return new ModInstallResult
+                {
+                    Success = false,
+                    Unverified = true,
+                    Message = "Installing unsigned or unverified mods is not allowed without the '--allow-unsigned' flag."
+                };
+            }
+
+            var targetModDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, modId);
 
             if (Directory.Exists(targetModDir))
             {
@@ -189,30 +219,27 @@ public class ModV2Installer : IModInstaller
                     continue;
                 }
 
-                if (relativePath.StartsWith("files/"))
-                {
-                    var relativeInFiles = relativePath["files/".Length..];
-                    var ext = Path.GetExtension(entry.Name).ToLowerInvariant();
+                if (!relativePath.StartsWith("files/")) continue;
+                
+                var relativeInFiles = relativePath["files/".Length..];
+                var ext = Path.GetExtension(entry.Name).ToLowerInvariant();
 
-                    if (ext != ".ini")
-                    {
-                        var destGamePath = Path.Combine(resolvedGame, relativeInFiles);
-                        if (File.Exists(destGamePath))
-                        {
-                            if (!replace)
-                            {
-                                bool isMod = metadataMods.Any(m => m.InstalledFiles != null && m.InstalledFiles.Any(f => string.Equals(f, destGamePath, StringComparison.OrdinalIgnoreCase)));
-                                return new ModInstallResult
-                                {
-                                    Success = false,
-                                    Conflict = true,
-                                    IsModConflict = isMod,
-                                    Message = $"File '{relativeInFiles}' already exists in destination."
-                                };
-                            }
-                        }
-                    }
-                }
+                if (ext == ".ini") continue;
+                
+                var destGamePath = Path.Combine(resolvedGame, relativeInFiles);
+                if (!File.Exists(destGamePath)) continue;
+
+                if (replace) continue;
+                
+                var isMod = metadataMods.Any(m => m.InstalledFiles.Any(f => string.Equals(f, destGamePath, StringComparison.OrdinalIgnoreCase)));
+                
+                return new ModInstallResult
+                {
+                    Success = false,
+                    Conflict = true,
+                    IsModConflict = isMod,
+                    Message = $"File '{relativeInFiles}' already exists in destination."
+                };
             }
 
             Directory.CreateDirectory(targetModDir);
@@ -241,7 +268,7 @@ public class ModV2Installer : IModInstaller
 
                         if (File.Exists(destGamePath))
                         {
-                            var backupPath = Path.Combine(resolvedGame, ".tempest", "v2", "backup", relativeInFiles);
+                            var backupPath = TempestPathUtility.GetLocalV2BackupPath(resolvedGame, relativeInFiles);
                             var backupDir = Path.GetDirectoryName(backupPath);
                             if (backupDir != null) Directory.CreateDirectory(backupDir);
 
@@ -257,8 +284,8 @@ public class ModV2Installer : IModInstaller
                             }
                         }
 
-                        using (var srcStream = entry.Open())
-                        using (var destStream = File.Create(destGamePath))
+                        await using (var srcStream = await entry.OpenAsync())
+                        await using (var destStream = File.Create(destGamePath))
                         {
                             await srcStream.CopyToAsync(destStream);
                         }
@@ -275,8 +302,8 @@ public class ModV2Installer : IModInstaller
                         var modFilesIniDir = Path.GetDirectoryName(modFilesIniPath);
                         if (modFilesIniDir != null) Directory.CreateDirectory(modFilesIniDir);
 
-                        using (var srcStream = entry.Open())
-                        using (var destStream = File.Create(modFilesIniPath))
+                        await using (var srcStream = await entry.OpenAsync())
+                        await using (var destStream = File.Create(modFilesIniPath))
                         {
                             await srcStream.CopyToAsync(destStream);
                         }
@@ -286,7 +313,7 @@ public class ModV2Installer : IModInstaller
                             var gameIniLines = IniPatcher.Parse(destGamePath);
                             var modIniLines = IniPatcher.Parse(modFilesIniPath);
 
-                            var iniBackupPath = Path.Combine(resolvedGame, ".tempest", "v2", "ini-backup", modId, relativeInFiles);
+                             var iniBackupPath = TempestPathUtility.GetLocalV2IniBackupPath(resolvedGame, modId, relativeInFiles);
                             var iniBackupDir = Path.GetDirectoryName(iniBackupPath);
                             if (iniBackupDir != null) Directory.CreateDirectory(iniBackupDir);
 
@@ -301,7 +328,7 @@ public class ModV2Installer : IModInstaller
                                 }
                                 else if (line.Type == IniLineType.Entry && currentModSection != null && line.Key != null)
                                 {
-                                    var existingEntry = gameIniLines.FirstOrDefault(l =>
+                                    var existingEntry = line.Prefix == "+" || line.Prefix == "-" ? null : gameIniLines.FirstOrDefault(l =>
                                         l.Type == IniLineType.Entry &&
                                         string.Equals(l.SectionName, currentModSection, StringComparison.OrdinalIgnoreCase) &&
                                         string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase));
@@ -341,11 +368,10 @@ public class ModV2Installer : IModInstaller
                     var destDir = Path.GetDirectoryName(destModPath);
                     if (destDir != null) Directory.CreateDirectory(destDir);
 
-                    using (var srcStream = entry.Open())
-                    using (var destStream = File.Create(destModPath))
-                    {
-                        await srcStream.CopyToAsync(destStream);
-                    }
+                    await using var srcStream = await entry.OpenAsync();
+                    await using var destStream = File.Create(destModPath);
+                    
+                    await srcStream.CopyToAsync(destStream);
                 }
             }
 
@@ -388,7 +414,7 @@ public class ModV2Installer : IModInstaller
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var modId = mod.Id;
 
-        var targetModDir = Path.Combine(resolvedGame, ".tempest", "v2", "mods", modId);
+        var targetModDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, modId);
         var targetFilesDir = Path.Combine(targetModDir, "files");
 
         if (Directory.Exists(targetFilesDir))
@@ -399,22 +425,23 @@ public class ModV2Installer : IModInstaller
                 var relativePathFromFiles = Path.GetRelativePath(targetFilesDir, modIniFile);
                 var destGamePath = Path.Combine(resolvedGame, relativePathFromFiles);
 
-                if (File.Exists(destGamePath))
+                if (!File.Exists(destGamePath)) continue;
+                
+                var gameIniLines = IniPatcher.Parse(destGamePath);
+                var modIniLines = IniPatcher.Parse(modIniFile);
+
+                var iniBackupPath = TempestPathUtility.GetLocalV2IniBackupPath(resolvedGame, modId, relativePathFromFiles);
+                var backupLines = File.Exists(iniBackupPath) ? IniPatcher.Parse(iniBackupPath) : [];
+
+                string? currentModSection = null;
+                foreach (var line in modIniLines)
                 {
-                    var gameIniLines = IniPatcher.Parse(destGamePath);
-                    var modIniLines = IniPatcher.Parse(modIniFile);
-
-                    var iniBackupPath = Path.Combine(resolvedGame, ".tempest", "v2", "ini-backup", modId, relativePathFromFiles);
-                    List<IniLine> backupLines = File.Exists(iniBackupPath) ? IniPatcher.Parse(iniBackupPath) : [];
-
-                    string? currentModSection = null;
-                    foreach (var line in modIniLines)
+                    switch (line.Type)
                     {
-                        if (line.Type == IniLineType.Section)
-                        {
+                        case IniLineType.Section:
                             currentModSection = line.SectionName;
-                        }
-                        else if (line.Type == IniLineType.Entry && currentModSection != null && line.Key != null)
+                            break;
+                        case IniLineType.Entry when currentModSection != null && line.Key != null:
                         {
                             var backupEntry = backupLines.FirstOrDefault(l =>
                                 l.Type == IniLineType.Entry &&
@@ -437,54 +464,70 @@ public class ModV2Installer : IModInstaller
                             }
                             else
                             {
-                                gameIniLines.RemoveAll(l =>
-                                    l.Type == IniLineType.Entry &&
-                                    string.Equals(l.SectionName, currentModSection, StringComparison.OrdinalIgnoreCase) &&
-                                    string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase));
+                                if (line.Prefix == "+")
+                                {
+                                    gameIniLines.RemoveAll(l =>
+                                        l.Type == IniLineType.Entry &&
+                                        string.Equals(l.SectionName, currentModSection, StringComparison.OrdinalIgnoreCase) &&
+                                        string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase) &&
+                                        (string.Equals(l.Value, line.Value, StringComparison.OrdinalIgnoreCase) ||
+                                         string.Equals(l.Value, line.Value + " ; tempest", StringComparison.OrdinalIgnoreCase)));
+                                }
+                                else if (line.Prefix != "-")
+                                {
+                                    gameIniLines.RemoveAll(l =>
+                                        l.Type == IniLineType.Entry &&
+                                        string.Equals(l.SectionName, currentModSection, StringComparison.OrdinalIgnoreCase) &&
+                                        string.Equals(l.Key, line.Key, StringComparison.OrdinalIgnoreCase));
+                                }
                             }
+
+                            break;
                         }
                     }
-
-                    IniPatcher.Save(destGamePath, gameIniLines);
                 }
+
+                IniPatcher.Save(destGamePath, gameIniLines);
             }
         }
 
         foreach (var file in mod.InstalledFiles)
         {
             var ext = Path.GetExtension(file).ToLowerInvariant();
-            if (ext != ".ini")
+            if (ext == ".ini") continue;
+            
+            var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
+            var backupPath = TempestPathUtility.GetLocalV2BackupPath(resolvedGame, relativePathFromGame);
+
+            if (File.Exists(backupPath))
             {
-                var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
-                var backupPath = Path.Combine(resolvedGame, ".tempest", "v2", "backup", relativePathFromGame);
-
-                if (File.Exists(backupPath))
+                try
                 {
-                    try
-                    {
-                        var destDir = Path.GetDirectoryName(file);
-                        if (destDir != null) Directory.CreateDirectory(destDir);
+                    var destDir = Path.GetDirectoryName(file);
+                    if (destDir != null) Directory.CreateDirectory(destDir);
 
-                        if (File.Exists(file)) File.Delete(file);
-                        File.Move(backupPath, file, overwrite: true);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"Warning: Failed to restore backup {backupPath} to {file}: {ex.Message}");
-                    }
+                    if (File.Exists(file)) File.Delete(file);
+                    File.Move(backupPath, file, overwrite: true);
                 }
-                else
+                catch (Exception ex)
                 {
-                    if (File.Exists(file))
-                    {
-                        try { File.Delete(file); } catch { }
-                    }
+                    Console.Error.WriteLine($"Warning: Failed to restore backup {backupPath} to {file}: {ex.Message}");
+                }
+            }
+            else
+            {
+                if (!File.Exists(file)) continue;
+                
+                try { File.Delete(file); }
+                catch
+                {
+                    // ignored
                 }
             }
         }
 
-        var modV2BackupDir = Path.Combine(resolvedGame, ".tempest", "v2", "backup", modId);
-        var modV2IniBackupDir = Path.Combine(resolvedGame, ".tempest", "v2", "ini-backup", modId);
+        var modV2BackupDir = TempestPathUtility.GetLocalV2BackupDirectory(resolvedGame, modId);
+        var modV2IniBackupDir = TempestPathUtility.GetLocalV2IniBackupDirectory(resolvedGame, modId);
 
         try
         {
@@ -502,119 +545,114 @@ public class ModV2Installer : IModInstaller
 
     public static string SignData(string content, string privateKeyPem)
     {
-        using (var keyIn = new MemoryStream(Encoding.UTF8.GetBytes(privateKeyPem)))
-        using (var decStream = PgpUtilities.GetDecoderStream(keyIn))
+        using var keyIn = new MemoryStream(Encoding.UTF8.GetBytes(privateKeyPem));
+        using var decStream = PgpUtilities.GetDecoderStream(keyIn);
+        
+        var pgpSec = new PgpSecretKeyRingBundle(decStream);
+        
+        PgpSecretKey? secretKey = null;
+        
+        foreach (var kRing in pgpSec.GetKeyRings())
         {
-            PgpSecretKeyRingBundle pgpSec = new PgpSecretKeyRingBundle(decStream);
-            PgpSecretKey secretKey = null;
-            foreach (PgpSecretKeyRing kRing in pgpSec.GetKeyRings())
+            foreach (var k in kRing.GetSecretKeys())
             {
-                foreach (PgpSecretKey k in kRing.GetSecretKeys())
+                if (k.IsSigningKey)
                 {
-                    if (k.IsSigningKey)
-                    {
-                        secretKey = k;
-                        break;
-                    }
+                    secretKey = k;
+                    break;
                 }
-                if (secretKey != null) break;
             }
-
-            if (secretKey == null) throw new Exception("No signing key found in private key file.");
-
-            PgpPrivateKey pgpPrivKey = secretKey.ExtractPrivateKey("".ToCharArray());
-
-            using (var memOut = new MemoryStream())
-            {
-                using (var armoredOut = new ArmoredOutputStream(memOut))
-                {
-                    PgpSignatureGenerator sGen = new PgpSignatureGenerator(
-                        secretKey.PublicKey.Algorithm,
-                        HashAlgorithmTag.Sha256
-                    );
-
-                    sGen.InitSign(PgpSignature.BinaryDocument, pgpPrivKey);
-                    foreach (string userId in secretKey.PublicKey.GetUserIds())
-                    {
-                        PgpSignatureSubpacketGenerator spGen = new PgpSignatureSubpacketGenerator();
-                        spGen.AddSignerUserId(isCritical: false, userId);
-                        sGen.SetHashedSubpackets(spGen.Generate());
-                        break;
-                    }
-
-                    string normalized = content.Replace("\r\n", "\n");
-                    byte[] dataBytes = Encoding.UTF8.GetBytes(normalized);
-                    sGen.Update(dataBytes);
-
-                    sGen.Generate().Encode(armoredOut);
-                }
-                return Encoding.UTF8.GetString(memOut.ToArray());
-            }
+            if (secretKey != null) break;
         }
+
+        if (secretKey == null) throw new Exception("No signing key found in private key file.");
+
+        var pgpPrivKey = secretKey.ExtractPrivateKey("".ToCharArray());
+
+        using var memOut = new MemoryStream();
+        using var armoredOut = new ArmoredOutputStream(memOut);
+
+        var sGen = new PgpSignatureGenerator(secretKey.PublicKey.Algorithm, HashAlgorithmTag.Sha256);
+
+        sGen.InitSign(PgpSignature.BinaryDocument, pgpPrivKey);
+        foreach (var userId in secretKey.PublicKey.GetUserIds())
+        {
+            var spGen = new PgpSignatureSubpacketGenerator();
+            spGen.AddSignerUserId(isCritical: false, userId);
+            sGen.SetHashedSubpackets(spGen.Generate());
+            break;
+        }
+
+        var normalized = content.Replace("\r\n", "\n");
+        var dataBytes = Encoding.UTF8.GetBytes(normalized);
+        sGen.Update(dataBytes);
+
+        sGen.Generate().Encode(armoredOut);
+        
+        return Encoding.UTF8.GetString(memOut.ToArray());
     }
 
     public static bool VerifyData(string checksumsContent, string ascContent, string publicKeyPem)
     {
         try
         {
-            using (var keyIn = new MemoryStream(Encoding.UTF8.GetBytes(publicKeyPem)))
-            using (var decKeyStream = PgpUtilities.GetDecoderStream(keyIn))
+            using var keyIn = new MemoryStream(Encoding.UTF8.GetBytes(publicKeyPem));
+            using var decKeyStream = PgpUtilities.GetDecoderStream(keyIn);
+            
+            var pgpPub = new PgpPublicKeyRingBundle(decKeyStream);
+
+            var lines = ascContent.Split(["\r\n", "\r", "\n"], StringSplitOptions.None);
+            var sigLines = new List<string>();
+            var inSignature = false;
+            
+            foreach (var line in lines)
             {
-                PgpPublicKeyRingBundle pgpPub = new PgpPublicKeyRingBundle(decKeyStream);
-
-                var lines = ascContent.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
-                var sigLines = new List<string>();
-                bool inSignature = false;
-                foreach (var line in lines)
+                if (line.Contains("-----BEGIN PGP SIGNATURE-----"))
                 {
-                    if (line.Contains("-----BEGIN PGP SIGNATURE-----"))
-                    {
-                        inSignature = true;
-                    }
-                    if (inSignature)
-                    {
-                        sigLines.Add(line);
-                    }
-                    if (line.Contains("-----END PGP SIGNATURE-----"))
-                    {
-                        break;
-                    }
+                    inSignature = true;
                 }
-
-                var sigBlock = sigLines.Count > 0 ? string.Join("\n", sigLines) : ascContent;
-
-                using (var memIn = new MemoryStream(Encoding.UTF8.GetBytes(sigBlock)))
-                using (var decStream = PgpUtilities.GetDecoderStream(memIn))
+                if (inSignature)
                 {
-                    PgpObjectFactory pgpFact = new PgpObjectFactory(decStream);
-                    PgpObject obj = pgpFact.NextPgpObject();
-                    PgpSignatureList sigList = null;
-
-                    while (obj != null)
-                    {
-                        if (obj is PgpSignatureList list)
-                        {
-                            sigList = list;
-                            break;
-                        }
-                        obj = pgpFact.NextPgpObject();
-                    }
-
-                    if (sigList == null || sigList.Count == 0) return false;
-
-                    PgpSignature sig = sigList[0];
-                    PgpPublicKey pubKey = pgpPub.GetPublicKey(sig.KeyId);
-                    if (pubKey == null) return false;
-
-                    sig.InitVerify(pubKey);
-
-                    string normalized = checksumsContent.Replace("\r\n", "\n");
-                    byte[] dataBytes = Encoding.UTF8.GetBytes(normalized);
-                    sig.Update(dataBytes);
-
-                    return sig.Verify();
+                    sigLines.Add(line);
+                }
+                if (line.Contains("-----END PGP SIGNATURE-----"))
+                {
+                    break;
                 }
             }
+
+            var sigBlock = sigLines.Count > 0 ? string.Join("\n", sigLines) : ascContent;
+
+            using var memIn = new MemoryStream(Encoding.UTF8.GetBytes(sigBlock));
+            using var decStream = PgpUtilities.GetDecoderStream(memIn);
+            var pgpFact = new PgpObjectFactory(decStream);
+            var obj = pgpFact.NextPgpObject();
+            
+            PgpSignatureList? sigList = null;
+
+            while (obj != null)
+            {
+                if (obj is PgpSignatureList list)
+                {
+                    sigList = list;
+                    break;
+                }
+                obj = pgpFact.NextPgpObject();
+            }
+
+            if (sigList == null || sigList.Count == 0) return false;
+
+            var sig = sigList[0];
+            var pubKey = pgpPub.GetPublicKey(sig.KeyId);
+            if (pubKey == null) return false;
+
+            sig.InitVerify(pubKey);
+
+            var normalized = checksumsContent.Replace("\r\n", "\n");
+            var dataBytes = Encoding.UTF8.GetBytes(normalized);
+            sig.Update(dataBytes);
+
+            return sig.Verify();
         }
         catch
         {
@@ -671,9 +709,9 @@ public class ModV2Installer : IModInstaller
 
     public static void GeneratePgpKeyPair(string id, string privateKeyPath, string publicKeyPath)
     {
-        IAsymmetricCipherKeyPairGenerator kpg = GeneratorUtilities.GetKeyPairGenerator("RSA");
+        var kpg = GeneratorUtilities.GetKeyPairGenerator("RSA");
         kpg.Init(new RsaKeyGenerationParameters(BigInteger.ValueOf(0x10001), new SecureRandom(), 2048, 12));
-        AsymmetricCipherKeyPair kp = kpg.GenerateKeyPair();
+        var kp = kpg.GenerateKeyPair();
 
         var secretKey = new PgpSecretKey(
             PgpSignature.DefaultCertification,
@@ -709,7 +747,7 @@ public class ModManifest
     public string Name { get; set; } = string.Empty;
     public string Icon { get; set; } = string.Empty;
     public string Readme { get; set; } = string.Empty;
-    public List<ModAuthor> Authors { get; set; } = new();
+    public List<ModAuthor> Authors { get; set; } = [];
 }
 
 public class ModAuthor

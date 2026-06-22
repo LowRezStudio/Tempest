@@ -1,9 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
-using System.Threading.Tasks;
 using ConsoleAppFramework;
 
 namespace Tempest.CLI.Mods;
@@ -13,7 +8,7 @@ internal class ModCommands
     internal static string GetMetadataPath(string gamePath)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
-        var metadataDir = Path.Combine(resolvedGame, ".tempest", "mods");
+        var metadataDir = TempestPathUtility.GetLocalModsDirectory(resolvedGame);
         Directory.CreateDirectory(metadataDir);
         return Path.Combine(metadataDir, "mods.json");
     }
@@ -29,54 +24,47 @@ internal class ModCommands
             var resolvedGame = GameFolderResolver.Resolve(gamePath);
             foreach (var mod in mods)
             {
-                if (mod.InstalledFiles != null)
+                for (var i = 0; i < mod.InstalledFiles.Count; i++)
                 {
-                    for (int i = 0; i < mod.InstalledFiles.Count; i++)
+                    var file = mod.InstalledFiles[i];
+                    if (!Path.IsPathRooted(file))
                     {
-                        var file = mod.InstalledFiles[i];
-                        if (!Path.IsPathRooted(file))
-                        {
-                            mod.InstalledFiles[i] = Path.GetFullPath(Path.Combine(resolvedGame, file));
-                        }
+                        mod.InstalledFiles[i] = Path.GetFullPath(Path.Combine(resolvedGame, file));
                     }
                 }
 
-                if (string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase)) continue;
+                
+                var modDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id);
+                if (!Directory.Exists(modDir)) continue;
+                    
+                string? foundReadmeFile = null;
+                if (!string.IsNullOrEmpty(mod.Readme) && File.Exists(Path.Combine(modDir, mod.Readme)))
                 {
-                    var modDir = Path.Combine(resolvedGame, ".tempest", "v2", "mods", mod.Id);
-                    if (Directory.Exists(modDir))
+                    foundReadmeFile = mod.Readme;
+                }
+                else
+                {
+                    var fallbacks = new[] { "README.md", "readme.md", "README.txt", "readme.txt" };
+                    foreach (var fallback in fallbacks)
                     {
-                        string? foundReadmeFile = null;
-                        if (!string.IsNullOrEmpty(mod.Readme) && File.Exists(Path.Combine(modDir, mod.Readme)))
-                        {
-                            foundReadmeFile = mod.Readme;
-                        }
-                        else
-                        {
-                            var fallbacks = new[] { "README.md", "readme.md", "README.txt", "readme.txt" };
-                            foreach (var fallback in fallbacks)
-                            {
-                                if (File.Exists(Path.Combine(modDir, fallback)))
-                                {
-                                    foundReadmeFile = fallback;
-                                    mod.Readme = fallback;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (foundReadmeFile != null)
-                        {
-                            try
-                            {
-                                mod.ReadmeContent = File.ReadAllText(Path.Combine(modDir, foundReadmeFile));
-                            }
-                            catch
-                            {
-                                mod.ReadmeContent = "Error reading readme file.";
-                            }
-                        }
+                        if (!File.Exists(Path.Combine(modDir, fallback))) continue;
+                                
+                        foundReadmeFile = fallback;
+                        mod.Readme = fallback;
+                        break;
                     }
+                }
+
+                if (foundReadmeFile == null) continue;
+                    
+                try
+                {
+                    mod.ReadmeContent = File.ReadAllText(Path.Combine(modDir, foundReadmeFile));
+                }
+                catch
+                {
+                    mod.ReadmeContent = "Error reading readme file.";
                 }
             }
             return mods;
@@ -95,15 +83,12 @@ internal class ModCommands
             var resolvedGame = GameFolderResolver.Resolve(gamePath);
             foreach (var mod in mods)
             {
-                if (mod.InstalledFiles != null)
+                for (var i = 0; i < mod.InstalledFiles.Count; i++)
                 {
-                    for (int i = 0; i < mod.InstalledFiles.Count; i++)
+                    var file = mod.InstalledFiles[i];
+                    if (Path.IsPathRooted(file))
                     {
-                        var file = mod.InstalledFiles[i];
-                        if (Path.IsPathRooted(file))
-                        {
-                            mod.InstalledFiles[i] = Path.GetRelativePath(resolvedGame, file);
-                        }
+                        mod.InstalledFiles[i] = Path.GetRelativePath(resolvedGame, file);
                     }
                 }
             }
@@ -113,15 +98,12 @@ internal class ModCommands
             // ponytail: restore absolute paths in memory to avoid breaking subsequent operations/printing
             foreach (var mod in mods)
             {
-                if (mod.InstalledFiles != null)
+                for (var i = 0; i < mod.InstalledFiles.Count; i++)
                 {
-                    for (int i = 0; i < mod.InstalledFiles.Count; i++)
+                    var file = mod.InstalledFiles[i];
+                    if (!Path.IsPathRooted(file))
                     {
-                        var file = mod.InstalledFiles[i];
-                        if (!Path.IsPathRooted(file))
-                        {
-                            mod.InstalledFiles[i] = Path.GetFullPath(Path.Combine(resolvedGame, file));
-                        }
+                        mod.InstalledFiles[i] = Path.GetFullPath(Path.Combine(resolvedGame, file));
                     }
                 }
             }
@@ -136,8 +118,9 @@ internal class ModCommands
     /// <param name="path">Path to the game folder or executable</param>
     /// <param name="modFile">Path to the mod file (.upk, .pck)</param>
     /// <param name="replace">Overwrite the mod if it already exists</param>
+    /// <param name="allowUnsigned">Allow installing unsigned or unverified mods</param>
     /// <param name="json">Output as JSON</param>
-    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool json = false)
+    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool allowUnsigned = false, bool json = false)
     {
         try
         {
@@ -149,7 +132,7 @@ internal class ModCommands
             }
 
             var installer = ModInstallerFactory.CreateForFile(modFile);
-            var result = await installer.InstallAsync(path, modFile, replace);
+            var result = await installer.InstallAsync(path, modFile, replace, allowUnsigned);
 
             if (result.Success && result.Mod != null)
             {
@@ -287,8 +270,9 @@ internal class ModCommands
     /// <param name="path">Path to the game folder or executable</param>
     /// <param name="modFiles">List of mod files to install</param>
     /// <param name="replace">Overwrite existing mods</param>
+    /// <param name="allowUnsigned">Allow installing unsigned or unverified mods</param>
     /// <param name="json">Output as JSON</param>
-    public async Task InstallBulk([Argument] string path, string[] modFiles, bool replace = false, bool json = false)
+    public async Task InstallBulk([Argument] string path, string[] modFiles, bool replace = false, bool allowUnsigned = false, bool json = false)
     {
         var results = new List<ModInstallResult>();
         foreach (var file in modFiles)
@@ -302,7 +286,7 @@ internal class ModCommands
                 }
 
                 var installer = ModInstallerFactory.CreateForFile(file);
-                var result = await installer.InstallAsync(path, file, replace);
+                var result = await installer.InstallAsync(path, file, replace, allowUnsigned);
 
                 if (result.Success && result.Mod != null)
                 {
@@ -345,6 +329,10 @@ internal class ModCommands
             {
                 Console.WriteLine($"Success: {result.Message}");
             }
+            else if (result.Unverified)
+            {
+                Console.WriteLine($"Unverified: {result.Message}");
+            }
             else if (result.Conflict)
             {
                 Console.WriteLine($"Conflict: {result.Message}");
@@ -367,14 +355,14 @@ internal class ModCommands
             var fullSourceDir = Path.GetFullPath(sourceDir);
             if (!Directory.Exists(fullSourceDir))
             {
-                Console.Error.WriteLine($"Error: Source directory does not exist: {sourceDir}");
+                await Console.Error.WriteLineAsync($"Error: Source directory does not exist: {sourceDir}");
                 return;
             }
 
             var manifestPath = Path.Combine(fullSourceDir, "manifest.toml");
             if (!File.Exists(manifestPath))
             {
-                Console.Error.WriteLine($"Error: manifest.toml not found in source directory: {sourceDir}");
+                await Console.Error.WriteLineAsync($"Error: manifest.toml not found in source directory: {sourceDir}");
                 return;
             }
 
@@ -403,7 +391,7 @@ internal class ModCommands
             {
                 if (!File.Exists(key))
                 {
-                    Console.Error.WriteLine($"Error: Private key file not found: {key}");
+                    await Console.Error.WriteLineAsync($"Error: Private key file not found: {key}");
                     return;
                 }
 
@@ -418,25 +406,81 @@ internal class ModCommands
                 File.Delete(outputZip);
             }
 
-            System.IO.Compression.ZipFile.CreateFromDirectory(fullSourceDir, outputZip);
+            await System.IO.Compression.ZipFile.CreateFromDirectoryAsync(fullSourceDir, outputZip);
             Console.WriteLine($"Successfully packed mod to '{outputZip}'");
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Failed to pack mod: {ex.Message}");
+            await Console.Error.WriteLineAsync($"Failed to pack mod: {ex.Message}");
         }
     }
 
-    /// <summary>Generates a new RSA private/public keypair for signing mods</summary>
+    /// <summary>Generates a new RSA private/public keypair for signing mods and automatically trusts the public key</summary>
     /// <param name="outputPath">Prefix path for output files (e.g. 'mykey' will create 'mykey.key' and 'mykey.pub')</param>
-    public Task GenKey([Argument] string outputPath)
+    /// <param name="gamePath">Optional path to the game folder or executable to automatically trust the public key</param>
+    public Task GenKey([Argument] string outputPath, string? gamePath = null)
     {
         try
         {
-            ModV2Installer.GeneratePgpKeyPair("tempest@lowrez.studio", $"{outputPath}.key", $"{outputPath}.pub");
+            var pubKeyPath = $"{outputPath}.pub";
+            ModV2Installer.GeneratePgpKeyPair("tempest@lowrez.studio", $"{outputPath}.key", pubKeyPath);
 
             Console.WriteLine($"Generated private key: {outputPath}.key");
-            Console.WriteLine($"Generated public key: {outputPath}.pub");
+            Console.WriteLine($"Generated public key: {pubKeyPath}");
+
+            // ponytail: auto-trust key by copying to global ~/.tempest/keys/, wine app data, and optionally the local game folder
+            try
+            {
+                var globalKeysDir = TempestPathUtility.GetGlobalKeysDirectory();
+                Directory.CreateDirectory(globalKeysDir);
+                var destGlobalPubKeyPath = Path.Combine(globalKeysDir, Path.GetFileName(pubKeyPath));
+                File.Copy(pubKeyPath, destGlobalPubKeyPath, overwrite: true);
+                Console.WriteLine($"Automatically trusted key globally: {destGlobalPubKeyPath}");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Warning: Could not save key to global trust store: {ex.Message}");
+            }
+
+            string? resolvedGame = null;
+            if (!string.IsNullOrEmpty(gamePath))
+            {
+                try
+                {
+                    resolvedGame = GameFolderResolver.Resolve(gamePath);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Could not resolve specified game path: {ex.Message}");
+                }
+            }
+            else
+            {
+                try
+                {
+                    resolvedGame = GameFolderResolver.Resolve(Directory.GetCurrentDirectory());
+                }
+                catch
+                {
+                    // Ignore, not inside a game folder
+                }
+            }
+
+            if (resolvedGame != null)
+            {
+                try
+                {
+                    var keysDir = TempestPathUtility.GetLocalKeysDirectory(resolvedGame);
+                    Directory.CreateDirectory(keysDir);
+                    var destPubKeyPath = Path.Combine(keysDir, Path.GetFileName(pubKeyPath));
+                    File.Copy(pubKeyPath, destPubKeyPath, overwrite: true);
+                    Console.WriteLine($"Automatically trusted key locally: {destPubKeyPath}");
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Warning: Could not save key to local game trust store: {ex.Message}");
+                }
+            }
         }
         catch (Exception ex)
         {

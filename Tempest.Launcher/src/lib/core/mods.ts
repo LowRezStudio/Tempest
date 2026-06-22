@@ -27,6 +27,7 @@ export type ModInstallResult = {
 	Mod?: ModRecord;
 	Conflict?: boolean;
 	IsModConflict?: boolean;
+	Unverified?: boolean;
 };
 
 export type ModListResult = {
@@ -59,9 +60,11 @@ export const installMod = async (
 	gamePath: string,
 	modFile: string,
 	replace = false,
+	allowUnsigned = false,
 ): Promise<ModInstallResult> => {
 	const args = ["mod", "install", gamePath, modFile];
 	if (replace) args.push("--replace");
+	if (allowUnsigned) args.push("--allow-unsigned");
 	args.push("--json");
 
 	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");

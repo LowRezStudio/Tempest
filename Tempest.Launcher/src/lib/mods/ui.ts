@@ -36,3 +36,35 @@ export const resolveReplaceMod = (value: boolean) => {
 	replaceDialogStore.set({ open: false, modName: "", isModConflict: true });
 	resolve?.(value);
 };
+
+let activeUnverifiedResolver: ((value: boolean) => void) | undefined = undefined;
+
+export const unverifiedDialogStore = atom<{ open: boolean; modName: string }>({
+	open: false,
+	modName: "",
+});
+
+unverifiedDialogStore.listen((state) => {
+	if (!state.open && activeUnverifiedResolver) {
+		const resolve = activeUnverifiedResolver;
+		activeUnverifiedResolver = undefined;
+		resolve(false);
+	}
+});
+
+export const confirmUnverifiedMod = (modName: string): Promise<boolean> => {
+	return new Promise<boolean>((resolve) => {
+		activeUnverifiedResolver = resolve;
+		unverifiedDialogStore.set({
+			open: true,
+			modName,
+		});
+	});
+};
+
+export const resolveUnverifiedMod = (value: boolean) => {
+	const resolve = activeUnverifiedResolver;
+	activeUnverifiedResolver = undefined;
+	unverifiedDialogStore.set({ open: false, modName: "" });
+	resolve?.(value);
+};

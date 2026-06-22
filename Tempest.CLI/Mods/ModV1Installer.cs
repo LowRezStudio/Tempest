@@ -1,25 +1,30 @@
-using System;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-
 namespace Tempest.CLI.Mods;
 
 public class ModV1Installer : IModInstaller
 {
-    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace)
+    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool allowUnsigned)
     {
+        if (!allowUnsigned)
+        {
+            return new ModInstallResult
+            {
+                Success = false,
+                Unverified = true,
+                Message = "Installing unsigned or unverified mods is not allowed without the '--allow-unsigned' flag."
+            };
+        }
+
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var fileName = Path.GetFileName(modFilePath);
         _ = Path.GetExtension(modFilePath).ToLowerInvariant();
 
         // ponytail: simple name classification
-        bool isVoiceMod = fileName.Contains("_VOX", StringComparison.OrdinalIgnoreCase) ||
-                          fileName.Contains("_VGS", StringComparison.OrdinalIgnoreCase);
-        bool isAssetMod = fileName.Contains("_SF", StringComparison.OrdinalIgnoreCase) ||
-                          fileName.Contains("_PC", StringComparison.OrdinalIgnoreCase);
+        var isVoiceMod = fileName.Contains("_VOX", StringComparison.OrdinalIgnoreCase) ||
+                         fileName.Contains("_VGS", StringComparison.OrdinalIgnoreCase);
+        var isAssetMod = fileName.Contains("_SF", StringComparison.OrdinalIgnoreCase) ||
+                         fileName.Contains("_PC", StringComparison.OrdinalIgnoreCase);
 
-        string kind = "NativePackage";
+        var kind = "NativePackage";
         if (isVoiceMod) kind = "Voice";
         else if (isAssetMod) kind = "Asset";
 
@@ -35,8 +40,8 @@ public class ModV1Installer : IModInstaller
             if (!replace)
             {
                 var mods = ModCommands.LoadMetadata(gamePath);
-                bool isMod = mods.Any(m => string.Equals(m.Name, fileName, StringComparison.OrdinalIgnoreCase) ||
-                                           (m.InstalledFiles != null && m.InstalledFiles.Any(f => string.Equals(f, destPath, StringComparison.OrdinalIgnoreCase))));
+                var isMod = mods.Any(m => string.Equals(m.Name, fileName, StringComparison.OrdinalIgnoreCase) ||
+                                          m.InstalledFiles.Any(f => string.Equals(f, destPath, StringComparison.OrdinalIgnoreCase)));
 
                 return new ModInstallResult
                 {
@@ -68,7 +73,7 @@ public class ModV1Installer : IModInstaller
             catch (Exception ex)
             {
                 // Non-fatal if backup/deletion fails
-                Console.Error.WriteLine($"Warning: Failed to handle backup or deletion of existing file: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Warning: Failed to handle backup or deletion of existing file: {ex.Message}");
             }
         }
 
@@ -88,25 +93,37 @@ public class ModV1Installer : IModInstaller
         modRecord.InstalledFiles.Add(destPath);
 
         // Register in INI if non-asset mod
-        bool shouldRegisterIni = !fileName.Contains("_SF", StringComparison.OrdinalIgnoreCase) &&
-                                 !fileName.Contains("WWB", StringComparison.OrdinalIgnoreCase);
+        var shouldRegisterIni = !fileName.Contains("_SF", StringComparison.OrdinalIgnoreCase) &&
+                                !fileName.Contains("WWB", StringComparison.OrdinalIgnoreCase);
 
-        if (shouldRegisterIni)
+        if (!shouldRegisterIni)
+            return new ModInstallResult
+            {
+                Success = true,
+                Message = "Mod installed successfully",
+                Mod = modRecord
+            };
         {
             var iniPath = Path.Combine(resolvedGame, "ChaosGame", "Config", "DefaultEngine.ini");
-            if (File.Exists(iniPath))
+            
+            if (!File.Exists(iniPath))
+                return new ModInstallResult
+                {
+                    Success = true,
+                    Message = "Mod installed successfully",
+                    Mod = modRecord
+                };
+            
+            try
             {
-                try
-                {
-                    var lines = IniPatcher.Parse(iniPath);
-                    var packageName = Path.GetFileNameWithoutExtension(fileName);
-                    IniPatcher.AddNativePackage(lines, packageName);
-                    IniPatcher.Save(iniPath, lines);
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Warning: Failed to patch DefaultEngine.ini: {ex.Message}");
-                }
+                var lines = IniPatcher.Parse(iniPath);
+                var packageName = Path.GetFileNameWithoutExtension(fileName);
+                IniPatcher.AddNativePackage(lines, packageName);
+                IniPatcher.Save(iniPath, lines);
+            }
+            catch (Exception ex)
+            {
+                await Console.Error.WriteLineAsync($"Warning: Failed to patch DefaultEngine.ini: {ex.Message}");
             }
         }
 
@@ -118,7 +135,7 @@ public class ModV1Installer : IModInstaller
         };
     }
 
-    public Task RemoveAsync(string gamePath, ModRecord mod)
+    public async Task RemoveAsync(string gamePath, ModRecord mod)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var backupDir = Path.Combine(resolvedGame, "ChaosGame", "CookedAssetBackup");
@@ -138,48 +155,46 @@ public class ModV1Installer : IModInstaller
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"Warning: Failed to restore backup file {backupPath} to {file}: {ex.Message}");
+                    await Console.Error.WriteLineAsync($"Warning: Failed to restore backup file {backupPath} to {file}: {ex.Message}");
                 }
             }
             else
             {
-                if (File.Exists(file))
+                if (!File.Exists(file)) continue;
+                
+                try
                 {
-                    try
-                    {
-                        File.Delete(file);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"Warning: Failed to delete installed file {file}: {ex.Message}");
-                    }
+                    File.Delete(file);
+                }
+                catch (Exception ex)
+                {
+                    await Console.Error.WriteLineAsync($"Warning: Failed to delete installed file {file}: {ex.Message}");
                 }
             }
         }
 
         // Unregister in INI if non-asset mod
-        bool shouldUnregisterIni = !mod.Name.Contains("_SF", StringComparison.OrdinalIgnoreCase) &&
-                                   !mod.Name.Contains("WWB", StringComparison.OrdinalIgnoreCase);
+        var shouldUnregisterIni = !mod.Name.Contains("_SF", StringComparison.OrdinalIgnoreCase) &&
+                                  !mod.Name.Contains("WWB", StringComparison.OrdinalIgnoreCase);
 
-        if (shouldUnregisterIni)
+        if (!shouldUnregisterIni) return;
+        
+        var iniPath = Path.Combine(resolvedGame, "ChaosGame", "Config", "DefaultEngine.ini");
+        
+        if (!File.Exists(iniPath)) return;
+        
+        try
         {
-            var iniPath = Path.Combine(resolvedGame, "ChaosGame", "Config", "DefaultEngine.ini");
-            if (File.Exists(iniPath))
-            {
-                try
-                {
-                    var lines = IniPatcher.Parse(iniPath);
-                    var packageName = Path.GetFileNameWithoutExtension(mod.Name);
-                    IniPatcher.RemoveNativePackage(lines, packageName);
-                    IniPatcher.Save(iniPath, lines);
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Warning: Failed to unpatch DefaultEngine.ini: {ex.Message}");
-                }
-            }
+            var lines = IniPatcher.Parse(iniPath);
+            var packageName = Path.GetFileNameWithoutExtension(mod.Name);
+            IniPatcher.RemoveNativePackage(lines, packageName);
+            IniPatcher.Save(iniPath, lines);
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Warning: Failed to unpatch DefaultEngine.ini: {ex.Message}");
         }
 
-        return Task.CompletedTask;
+        return;
     }
 }

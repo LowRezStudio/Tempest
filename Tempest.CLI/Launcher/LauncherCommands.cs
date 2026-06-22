@@ -1,7 +1,4 @@
 using System.Diagnostics;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using ConsoleAppFramework;
 using Tempest.CLI.Extensions;
 using Tempest.CLI.Mods;
@@ -109,7 +106,7 @@ internal class LauncherCommands
                 {
                     if (mod.Enabled && string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
                     {
-                        var dllsDir = Path.Combine(resolvedGame, ".tempest", "v2", "mods", mod.Id, "dlls");
+                        var dllsDir = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id), "dlls");
                         if (Directory.Exists(dllsDir))
                         {
                             var files = Directory.GetFiles(dllsDir, "*.dll", SearchOption.AllDirectories);

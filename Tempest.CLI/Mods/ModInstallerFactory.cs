@@ -1,5 +1,3 @@
-using System;
-
 namespace Tempest.CLI.Mods;
 
 public static class ModInstallerFactory

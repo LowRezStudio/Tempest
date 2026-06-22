@@ -22,7 +22,7 @@
 	import Header from "$lib/components/ui/Header.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { installMod } from "$lib/core/mods";
-	import { confirmReplaceMod } from "$lib/mods/ui";
+	import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
@@ -73,14 +73,31 @@
 							duration: 0,
 						});
 
-						let res = await installMod(instance.path, filePath, false);
+						let allowedUnsigned = false;
+						let res = await installMod(instance.path, filePath, false, false);
+						if (res.Unverified) {
+							const confirmed = await confirmUnverifiedMod(modFileName);
+							if (confirmed) {
+								allowedUnsigned = true;
+								res = await installMod(instance.path, filePath, false, true);
+							} else {
+								if (installingToastId) removeToast(installingToastId);
+								continue; // Skip this one on cancel
+							}
+						}
+
 						if (res.Conflict) {
 							const confirmed = await confirmReplaceMod(
 								modFileName,
 								res.IsModConflict,
 							);
 							if (confirmed) {
-								res = await installMod(instance.path, filePath, true);
+								res = await installMod(
+									instance.path,
+									filePath,
+									true,
+									allowedUnsigned,
+								);
 							} else {
 								if (installingToastId) removeToast(installingToastId);
 								continue; // Skip this one on cancel
