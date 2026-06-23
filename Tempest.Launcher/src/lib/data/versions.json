@@ -268,14 +268,6 @@
 		"appId": 596350,
 		"date": "2018-02-17T02:10:17Z",
 		"name": "Battlegrounds PTS",
-		"version": "0.66-pts",
-		"wikiReference": "Paladins_Beta_Version_0.66.2497.4"
-	},
-	{
-		"id": "8948410962750469780",
-		"appId": 444090,
-		"date": "2018-03-05T16:03:35Z",
-		"name": "Battlegrounds",
 		"version": "0.66",
 		"wikiReference": "Paladins_Beta_Version_0.66.2497.4"
 	},
