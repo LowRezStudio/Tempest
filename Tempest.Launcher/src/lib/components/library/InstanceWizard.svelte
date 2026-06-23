@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { AlertCircle, CloudDownload, Code, Folder, Loader2 } from "@lucide/svelte";
+	import { AlertCircle, BookOpen, CloudDownload, Code, Folder, Loader2 } from "@lucide/svelte";
 	import { path } from "@tauri-apps/api";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
+	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { platform } from "@tauri-apps/plugin-os";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import versions from "$lib/data/versions.json";
@@ -15,6 +16,7 @@
 		isPre20Version,
 		RIGBY_BASE_URL,
 		RIGBY_MANIFEST_URL_TEMPLATE,
+		WIKI_BASE_URL,
 	} from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { addInstance, updateInstance } from "$lib/stores/instance";
@@ -46,6 +48,7 @@
 	let hasDetected = $state(false);
 
 	const selectedVersion = $derived(flatVersions.find((v) => v.id === selectedVersionId));
+	const selectedAppId = $derived(selectedVersion?.appId ?? 444090);
 
 	const supportsCloudDownload = $derived(
 		selectedVersion?.version && isPre20Version(selectedVersion.version),
@@ -129,6 +132,7 @@
 				id: crypto.randomUUID(),
 				label: selectedName || selectedVersion.name || selectedVersion.version,
 				version: selectedVersion.version,
+				appId: selectedAppId,
 				path: instancePath,
 				launchOptions: {
 					dllList: [],
@@ -166,6 +170,7 @@
 				selectedVersion?.version ||
 				m.wizard_paladins_instance(),
 			version: selectedVersion?.version,
+			appId: selectedAppId,
 			path: instancePath,
 			launchOptions: {
 				dllList: [],
@@ -211,7 +216,7 @@
 	);
 	const depotDownloaderCommand = $derived(
 		selectedVersionId ?
-			`${depotDownloaderBinary} -app 444090 -depot 444091 -manifest ${selectedVersionId} -os windows -dir "${downloadPathForCommand}" -qr -remember-password`
+			`${depotDownloaderBinary} -app ${selectedAppId} -depot 444091 -manifest ${selectedVersionId} -os windows -dir "${downloadPathForCommand}" -qr -remember-password`
 		:	"",
 	);
 
@@ -227,6 +232,16 @@
 		setTimeout(() => {
 			copyStatus = "idle";
 		}, 2000);
+	}
+
+	async function handleOpenWiki() {
+		const ref = selectedVersion?.wikiReference;
+		if (!ref) return;
+		try {
+			await openUrl(`${WIKI_BASE_URL}${encodeURIComponent(ref)}?fandom=allow`);
+		} catch (error) {
+			console.error("Failed to open wiki:", error);
+		}
 	}
 </script>
 
@@ -281,16 +296,29 @@
 					<label for="game-version" class="label py-0.5">
 						<span class="label-text text-sm">{m.wizard_game_version()}</span>
 					</label>
-					<select
-						id="game-version"
-						class="select select-bordered w-full"
-						bind:value={selectedVersionId}
-					>
-						<option value="" disabled>{m.wizard_select_version()}</option>
-						{#each versionOptions as version (version.value)}
-							<option value={version.value}>{version.label}</option>
-						{/each}
-					</select>
+					<div class="flex gap-2">
+						<select
+							id="game-version"
+							class="select select-bordered flex-1"
+							bind:value={selectedVersionId}
+						>
+							<option value="" disabled>{m.wizard_select_version()}</option>
+							{#each versionOptions as version (version.value)}
+								<option value={version.value}>{version.label}</option>
+							{/each}
+						</select>
+						{#if selectedVersion?.wikiReference}
+							<button
+								type="button"
+								class="btn btn-square btn-ghost"
+								title={m.wizard_open_wiki()}
+								aria-label={m.wizard_open_wiki()}
+								onclick={handleOpenWiki}
+							>
+								<BookOpen size={16} />
+							</button>
+						{/if}
+					</div>
 					{#if selectedTab === "download" && selectedVersionId}
 						<div class="mt-2 space-y-1.5">
 							<label class="label py-0.5 justify-between">

@@ -32,6 +32,7 @@ export type Instance = {
 	id: string;
 	label: string;
 	version?: string;
+	appId?: number;
 	path: string;
 	launchOptions: InstanceLaunchOptions;
 	state: InstanceState;

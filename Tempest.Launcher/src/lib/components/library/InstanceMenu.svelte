@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		BookOpen,
 		Box,
 		EllipsisVertical,
 		Folder,
@@ -13,12 +14,13 @@
 	import { useQueryClient } from "@tanstack/svelte-query";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { remove } from "@tauri-apps/plugin-fs";
-	import { revealItemInDir } from "@tauri-apps/plugin-opener";
+	import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { installMod } from "$lib/core/mods";
+	import versions from "$lib/data/versions.json";
 	import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui";
 	import { m } from "$lib/paraglide/messages";
 	import {
@@ -29,6 +31,7 @@
 		isPre20Version,
 		RIGBY_BASE_URL,
 		RIGBY_MANIFEST_URL_TEMPLATE,
+		WIKI_BASE_URL,
 	} from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { removeInstance, updateInstance } from "$lib/stores/instance";
@@ -45,6 +48,19 @@
 	}
 
 	let { instance, trigger, openSettingsModal = $bindable(false) }: Props = $props();
+
+	const flatVersions = versions;
+	const versionEntry = $derived(flatVersions.find((v) => v.version === instance.version));
+	const wikiReference = $derived(versionEntry?.wikiReference);
+
+	async function handleOpenWiki() {
+		if (!wikiReference) return;
+		try {
+			await openUrl(`${WIKI_BASE_URL}${encodeURIComponent(wikiReference)}?fandom=allow`);
+		} catch (error) {
+			console.error("Failed to open wiki:", error);
+		}
+	}
 
 	const queryClient = useQueryClient();
 
@@ -366,6 +382,13 @@
 			<FolderOpen size={16} />
 			{m.instancemenu_browse_folder()}
 		</PopoverMenuItem>
+
+		{#if wikiReference}
+			<PopoverMenuItem onclick={handleOpenWiki}>
+				<BookOpen size={16} />
+				{m.instancemenu_open_wiki()}
+			</PopoverMenuItem>
+		{/if}
 
 		{#if isReady}
 			<PopoverMenuItem onclick={handleRunSetup} disabled={isSettingUp}>
