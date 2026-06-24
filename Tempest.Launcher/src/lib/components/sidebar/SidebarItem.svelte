@@ -10,9 +10,10 @@
 		active?: boolean;
 		circle?: boolean;
 		color?: string;
+		onpointerdown?: (e: PointerEvent) => void;
 	}
 
-	let { href, icon: Icon, label, active, circle, color }: Props = $props();
+	let { href, icon: Icon, label, active, circle, color, onpointerdown }: Props = $props();
 
 	let isActive = $derived(active ?? page.url.pathname === href);
 </script>
@@ -20,6 +21,7 @@
 <span class="wrapper" style="anchor-scope: --sidebar-item;">
 	<a
 		{href}
+		{onpointerdown}
 		class:rounded-full={circle}
 		class="btn btn-square"
 		class:btn-accent={isActive && !color}

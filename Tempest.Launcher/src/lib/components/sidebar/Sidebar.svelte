@@ -14,15 +14,45 @@
 	import { page } from "$app/state";
 	import { lobbyHost } from "$lib/lobby/stores";
 	import { m } from "$lib/paraglide/messages";
-	import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance";
+	import { instanceMap, instanceOrder, setInstanceOrder } from "$lib/stores/instance";
 	import { lobbyServerProcessesList } from "$lib/stores/processes";
 	import { instanceWizardOpen } from "$lib/stores/ui";
 	import { getInstanceColor } from "$lib/utils/color";
+	import { createReorderable } from "$lib/utils/reorder.svelte";
 	import LanguageSelector from "./LanguageSelector.svelte";
 	import SidebarItem from "./SidebarItem.svelte";
+	import type { Instance } from "$lib/types/instance";
+
+	let preparedInstances = $derived.by(() => {
+		const order = $instanceOrder;
+		const all = Object.values($instanceMap).filter(
+			(i): i is Instance => !!i && i.state?.type === "prepared",
+		);
+		const byId = new Map(all.map((i) => [i.id, i]));
+		const sorted: Instance[] = [];
+		for (const id of order) {
+			const inst = byId.get(id);
+			if (inst) {
+				sorted.push(inst);
+				byId.delete(id);
+			}
+		}
+		for (const inst of byId.values()) sorted.push(inst);
+		return sorted;
+	});
+
+	let listEl: HTMLDivElement | undefined = $state();
+	const reorder = createReorderable<Instance>({
+		ids: () => preparedInstances.map((i) => i.id),
+		container: () => listEl,
+		onReorder: setInstanceOrder,
+	});
 </script>
 
-<aside class="flex h-screen w-16 flex-none flex-col items-center bg-base-300 py-4">
+<aside
+	class="flex h-screen w-16 flex-none flex-col items-center bg-base-300 py-4"
+	class:dragging={!!reorder.drag}
+>
 	<nav class="flex flex-col gap-2">
 		<SidebarItem href="/" icon={House} label={m.sidebar_home()} />
 		<SidebarItem href="/library" icon={Library} label={m.sidebar_library()} />
@@ -35,15 +65,26 @@
 
 	<div class="divider mx-4 my-4 opacity-50"></div>
 
-	<div class="flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none">
-		{#each Object.values($instanceMap).filter((i) => i.state?.type === "prepared") as instance}
-			<SidebarItem
-				icon={Box}
-				label={instance.label}
-				active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
-				href={`/instance/${instance.id}`}
-				color={getInstanceColor(instance)}
-			/>
+	<div
+		bind:this={listEl}
+		class="instance-list flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none"
+	>
+		{#each preparedInstances as instance, i (instance.id)}
+			<div
+				data-id={instance.id}
+				class="instance-slot"
+				style:transform={reorder.shiftFor(i)}
+				class:is-ghost={reorder.drag?.id === instance.id}
+			>
+				<SidebarItem
+					icon={Box}
+					label={instance.label}
+					active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
+					href={`/instance/${instance.id}`}
+					color={getInstanceColor(instance)}
+					onpointerdown={reorder.pointerdown(instance.id, i, instance)}
+				/>
+			</div>
 		{/each}
 
 		<button
@@ -71,4 +112,47 @@
 		<SidebarItem href="/logs" icon={ScrollText} label={m.sidebar_logs()} />
 		<SidebarItem href="/settings" icon={Settings} label={m.sidebar_settings()} />
 	</div>
+
+	{#if reorder.drag}
+		<div
+			class="drag-clone pointer-events-none fixed z-[100]"
+			style:top={`${reorder.pointerY - reorder.drag.offsetY}px`}
+			style:left={`${reorder.pointerX - reorder.drag.offsetX}px`}
+			aria-hidden="true"
+			inert
+		>
+			<SidebarItem
+				icon={Box}
+				label={reorder.drag.item.label}
+				href={`/instance/${reorder.drag.item.id}`}
+				color={getInstanceColor(reorder.drag.item)}
+			/>
+		</div>
+	{/if}
 </aside>
+
+<style>
+	.instance-slot {
+		touch-action: none;
+		position: relative;
+		z-index: 1;
+		will-change: transform;
+	}
+	/* Transitions only while dragging so the drop reorder is instant (no glitch). */
+	.dragging .instance-slot {
+		transition: transform 200ms ease;
+	}
+	.instance-slot.is-ghost {
+		z-index: 0;
+		opacity: 0.3;
+		outline: 2px dashed currentColor;
+		outline-offset: -2px;
+		border-radius: 0.5rem;
+	}
+	.drag-clone {
+		filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+		transform: scale(1.08);
+		transform-origin: center center;
+		opacity: 0.95;
+	}
+</style>

@@ -1,4 +1,4 @@
-import { persistentAtom, persistentMap } from "@nanostores/persistent";
+import { persistentAtom, persistentJSON, persistentMap } from "@nanostores/persistent";
 import { computed } from "nanostores";
 import { jsonSerializer } from "./common";
 import type { Instance } from "$lib/types/instance";
@@ -9,6 +9,8 @@ export const instanceMap = persistentMap<Record<string, Instance>>(
 	{},
 	jsonSerializer,
 );
+
+export const instanceOrder = persistentJSON<string[]>("instanceOrder", []);
 
 export const lastLaunchedInstance = computed(
 	[instanceMap, lastLaunchedInstanceId],
@@ -25,3 +27,5 @@ export const updateInstance = (id: string, updates: Partial<Instance>) => {
 };
 
 export const removeInstance = (id: string) => instanceMap.setKey(id, undefined);
+
+export const setInstanceOrder = (ids: string[]) => instanceOrder.set(ids);

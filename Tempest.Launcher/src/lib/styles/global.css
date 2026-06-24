@@ -126,3 +126,10 @@
 		display: none;
 	}
 }
+
+/* Drag-reorder cursor feedback (used by createReorderable). */
+body.sidebar-dragging,
+body.sidebar-dragging * {
+	cursor: grabbing !important;
+	user-select: none;
+}
