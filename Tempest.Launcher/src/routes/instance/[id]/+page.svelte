@@ -1,5 +1,15 @@
 <script lang="ts">
-	import { Box, Gamepad2, PackageOpen, Play, Settings, Square, Terminal } from "@lucide/svelte";
+	import {
+		Box,
+		FolderOpen,
+		Gamepad2,
+		PackageOpen,
+		Play,
+		Settings,
+		Square,
+		Terminal,
+	} from "@lucide/svelte";
+	import { revealItemInDir } from "@tauri-apps/plugin-opener";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
@@ -74,6 +84,11 @@
 		killGameMutation.reset();
 	}
 
+	async function handleOpenInstanceFolder() {
+		if (!instance?.path) return;
+		await revealItemInDir(instance.path);
+	}
+
 	let isFilesDialogOpen = $state(false);
 	let selectedModForFiles = $state<ModRecord | null>(null);
 
@@ -127,6 +142,13 @@
 			</button>
 			<button class="btn btn-square" onclick={() => (isSettingsModalOpen = true)}>
 				<Settings size={16} />
+			</button>
+			<button
+				class="btn btn-square"
+				disabled={!instance?.path}
+				onclick={handleOpenInstanceFolder}
+			>
+				<FolderOpen size={16} />
 			</button>
 			{#if instance}
 				<InstanceMenu {instance} bind:openSettingsModal={isSettingsModalOpen} />

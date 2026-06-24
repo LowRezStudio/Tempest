@@ -11,6 +11,7 @@
 	} from "@lucide/svelte";
 	import { remove } from "@tauri-apps/plugin-fs";
 	import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+	import { page } from "$app/state";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import InstanceSettingsModal from "$lib/components/library/InstanceSettingsModal.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
@@ -63,6 +64,7 @@
 	let canRestore = $derived(
 		instance?.version && instance?.path && isPre20Version(instance.version),
 	);
+	let isOnInstancePage = $derived(page.route.id === "/instance/[id]");
 
 	const setupInstanceMutation = createSetupInstanceMutation();
 
@@ -144,10 +146,12 @@
 		{/if}
 	{/snippet}
 	{#snippet children()}
-		<PopoverMenuItem onclick={() => (isSettingsModalOpen = true)} disabled={isSettingUp}>
-			<Settings size={16} />
-			{m.instance_instance_settings()}
-		</PopoverMenuItem>
+		{#if !isOnInstancePage}
+			<PopoverMenuItem onclick={() => (isSettingsModalOpen = true)} disabled={isSettingUp}>
+				<Settings size={16} />
+				{m.instance_instance_settings()}
+			</PopoverMenuItem>
+		{/if}
 
 		{#if isReady}
 			<PopoverMenuItem onclick={handleInstallMod} disabled={isSettingUp}>
@@ -156,10 +160,12 @@
 			</PopoverMenuItem>
 		{/if}
 
-		<PopoverMenuItem onclick={openFolder} disabled={!instance?.path}>
-			<FolderOpen size={16} />
-			{m.instancemenu_browse_folder()}
-		</PopoverMenuItem>
+		{#if !isOnInstancePage}
+			<PopoverMenuItem onclick={openFolder} disabled={!instance?.path}>
+				<FolderOpen size={16} />
+				{m.instancemenu_browse_folder()}
+			</PopoverMenuItem>
+		{/if}
 
 		{#if wikiReference}
 			<PopoverMenuItem onclick={handleOpenWiki}>
