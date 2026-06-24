@@ -136,10 +136,10 @@
 		touch-action: none;
 		position: relative;
 		z-index: 1;
-		will-change: transform;
 	}
 	/* Transitions only while dragging so the drop reorder is instant (no glitch). */
 	.dragging .instance-slot {
+		will-change: transform;
 		transition: transform 200ms ease;
 	}
 	.instance-slot.is-ghost {
