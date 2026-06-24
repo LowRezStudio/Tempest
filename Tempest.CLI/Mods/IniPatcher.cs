@@ -86,7 +86,7 @@ public static class IniPatcher
         lines.RemoveAll(l =>
             l.Type == IniLineType.Entry &&
             l.Key == "NativePackages" &&
-            GetFirstValue(l.Value) == packageName);
+            ValuesEqual(l.Value, packageName));
     }
 
     public static IniLine CreateEntry(string section, string key, string value, string? prefix)
@@ -123,9 +123,16 @@ public static class IniPatcher
             default:
                 var existingIndex = FindKeyIndex(lines, sectionStart, sectionEnd, key);
                 if (existingIndex >= 0)
+                {
+                    var existing = lines[existingIndex];
+                    if (existing.Prefix is null && ValuesEqual(existing.Value, value))
+                        return;
                     lines[existingIndex] = CreateEntry(section, key, value, null);
+                }
                 else
+                {
                     lines.Insert(insertIndex, CreateEntry(section, key, value, null));
+                }
                 break;
         }
     }
@@ -200,7 +207,7 @@ public static class IniPatcher
             var l = lines[i];
             if (l.Type == IniLineType.Entry &&
                 string.Equals(l.Key, key, StringComparison.OrdinalIgnoreCase) &&
-                GetFirstValue(l.Value) == value)
+                ValuesEqual(l.Value, value))
                 return true;
         }
         return false;
@@ -213,7 +220,7 @@ public static class IniPatcher
             var l = lines[i];
             if (l.Type == IniLineType.Entry &&
                 string.Equals(l.Key, key, StringComparison.OrdinalIgnoreCase) &&
-                GetFirstValue(l.Value) == value)
+                ValuesEqual(l.Value, value))
             {
                 lines.RemoveAt(i);
                 i--;
@@ -236,6 +243,9 @@ public static class IniPatcher
             }
         }
     }
+
+    private static bool ValuesEqual(string? a, string? b) =>
+        string.Equals(GetFirstValue(a), GetFirstValue(b), StringComparison.Ordinal);
 
     private static string? GetFirstValue(string? value)
     {
