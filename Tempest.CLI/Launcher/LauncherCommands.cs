@@ -51,6 +51,8 @@ internal class LauncherCommands
                                                 string? platform = null, string? game = null, string[]? dll = null,
                                                 bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor")
     {
+        if (isServer) gamescope = false;
+
         var exePath = LauncherUtility.GetExecutablePath(path, platform, game);
         var defaultArgs = !noDefaultArgs;
         var is64Bit = Directory.GetParent(exePath)?.Name == "Win64";
