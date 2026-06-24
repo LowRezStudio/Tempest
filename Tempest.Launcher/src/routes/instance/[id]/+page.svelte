@@ -235,7 +235,7 @@
 		fullPath?: string;
 	}
 
-	function buildFileTree(files: string[], instancePath?: string): TreeNode[] {
+	function buildFileTree(files: string[], instancePath: string | undefined): TreeNode[] {
 		const root: TreeNode = { name: "root", children: [], isFile: false };
 
 		let normalizedBase = "";

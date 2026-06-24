@@ -21,7 +21,7 @@
 		handleJoinInProgress,
 		handleLeave,
 	}: Props = $props();
-	function getChampionDisplayName(champion?: string): string {
+	function getChampionDisplayName(champion: string | undefined): string {
 		return champions.find((c) => c.name === champion)?.displayName || "";
 	}
 	function getTitle() {

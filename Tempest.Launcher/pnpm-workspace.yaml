@@ -1,4 +1,6 @@
 minimumReleaseAge: 2440
+minimumReleaseAgeExclude:
+  - vite
 
 onlyBuiltDependencies:
   - '@tailwindcss/oxide'
