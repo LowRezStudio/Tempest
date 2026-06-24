@@ -68,19 +68,7 @@
 									{mod.Name}
 								</button>
 							</div>
-							{#if mod.Authors && mod.Authors.length > 0 && mod.Authors.some((a) => a.Link)}
-								<button
-									class="text-xs opacity-70 hover:opacity-100 cursor-pointer text-left block"
-									onclick={() => onOpenDetails(mod)}
-								>
-									by <span
-										class="underline decoration-dashed decoration-1 underline-offset-2"
-										>{mod.Author}</span
-									>
-								</button>
-							{:else}
-								<p class="text-xs opacity-70">by {mod.Author}</p>
-							{/if}
+							<p class="text-xs opacity-70">by {mod.Author}</p>
 						</div>
 					</div>
 				</td>
