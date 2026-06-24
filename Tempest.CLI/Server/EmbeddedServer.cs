@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 namespace Tempest.CLI.Server;
@@ -17,8 +16,6 @@ internal sealed class EmbeddedServer
         _state = new LobbyState(options, _ticketStore);
     }
 
-    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public async Task StartAsync()
     {
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions());
