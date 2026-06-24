@@ -8,7 +8,7 @@
 		placement?: string;
 	}
 
-	let { placement = "toast-top toast-end" }: Props = $props();
+	let { placement = "toast-bottom toast-end" }: Props = $props();
 
 	let toastItems = $derived($toasts);
 
