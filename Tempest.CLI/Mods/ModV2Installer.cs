@@ -24,17 +24,22 @@ public class ModV2Installer : IModInstaller
         // Kyiro
         """
         -----BEGIN PGP PUBLIC KEY BLOCK-----
+        Version: BouncyCastle.NET Cryptography (net6.0) v2.6.2+b4f2f6ad76
 
-        mDMEajkdDhYJKwYBBAHaRw8BAQdAfKiZ3VNxDLk6EWlUUQIZFQUFyRYkW4w9r4e7
-        Et59G7e0HEt5aXJvIDxLeWlyb0Bwcm90b25tYWlsLmNvbT6IkwQTFgoAOxYhBNqJ
-        YuGJfFCnu5uMWmwG7lWWw4ZYBQJqOR0OAhsDBQsJCAcCAiICBhUKCQgLAgQWAgMB
-        Ah4HAheAAAoJEGwG7lWWw4ZYr14A/0KuopQiJBoHZveK7JiThW+WiPv69jUh9tGv
-        /2oihtHkAP41hh7B88VKgvrGIOx77odJ3T743iRu9okEq0mAVr7ZCrg4BGo5HQ4S
-        CisGAQQBl1UBBQEBB0DZDHj26USAveTugZ38jPqmBzrY+pFVZfzGzNYvz960TAMB
-        CAeIeAQYFgoAIBYhBNqJYuGJfFCnu5uMWmwG7lWWw4ZYBQJqOR0OAhsMAAoJEGwG
-        7lWWw4ZYcNIA/jd/Sy+TUvMoR52y+N+kEV4pU/l+0Z2zmZvspUvaRLsiAQC3Slwi
-        7iuPeUpRq+pI7e8BYuAjvSfQtMKx0NZXGVmyDQ==
-        =RKLn
+        mQENBGo76U8BCACXjyMsYNtl+CrwJM5gHEX8ZWGnGF5P9BH8FUXyNyBLhHl9FIMO
+        Q82GUFgseM7sB6tpOI5ny/oM/rGnB3x083WX3iPfnEqGCE7mwewVBBZ161nORFXF
+        ZSHmS9GGc49gaegXca0Zn5buO/AVf2dSX3V/DTGlM9k37PBkhLIkq9nWreF+ms7p
+        LKbN6OTC91rCoG0uu+o1xufacXA2oP6HwHfjey0BHCfNJMe0XXj996fPjd6GQiPp
+        vRzFduv4xD8beq0ESLmnATgGpIz9V4fuj199aQarC9UXnrK5/307ii9alnKSwMkC
+        2Ft+LmgJznva5lWC/X5B72tGlo49P8qKSuYPABEBAAG0FXRlbXBlc3RAbG93cmV6
+        LnN0dWRpb4kBHAQQAQIABgUCajvpTwAKCRCros/8spKO7PY7B/9aoBdneA6D2Wis
+        AlGxN1JODeMLVlJRJ7/c0ctP+f79tr9QF9RmR9Q2Wp+n/f8vgkXvrOLCkCZeRiL5
+        HmkA7INoTPQ1wo0hegfo1s6/0DZ5fT/9vsqh/U+m2+MGj4qeEFJl6MZIipBUrd3h
+        +7A7BS9y6D6pCQD7OJDUSdLUIVpQf3mmTo+/RWRJt3Dpt5E/xvcL+hkBfe+VMhgE
+        ynFRVWCVYyrEX0rx461H8AuMACBrkN8y15TGp3BhwYpV24zjSTKfgUCiw5637AQs
+        vLPTkL7z765hBld34NBGBe4hadnHqNOoQgG9lu4w4tmr3iLsZHnQwv6QPeVmwyNq
+        nkcUNeY9
+        =dsdU
         -----END PGP PUBLIC KEY BLOCK-----
         """
     ];
@@ -141,19 +146,19 @@ public class ModV2Installer : IModInstaller
 
                 var relativePath = NormalizeEntryPath(entry.FullName);
                 if (!relativePath.StartsWith("files/")) continue;
-                
+
                 var relativeInFiles = relativePath["files/".Length..];
                 var ext = Path.GetExtension(entry.Name).ToLowerInvariant();
 
                 if (ext == ".ini") continue;
-                
+
                 var destGamePath = Path.Combine(resolvedGame, relativeInFiles);
                 if (!File.Exists(destGamePath)) continue;
 
                 if (replace) continue;
-                
+
                 var isMod = metadataMods.Any(m => m.InstalledFiles.Any(f => string.Equals(f, destGamePath, StringComparison.OrdinalIgnoreCase)));
-                
+
                 return new ModInstallResult
                 {
                     Success = false,
@@ -260,7 +265,7 @@ public class ModV2Installer : IModInstaller
 
                     await using var srcStream = await entry.OpenAsync();
                     await using var destStream = File.Create(destModPath);
-                    
+
                     await srcStream.CopyToAsync(destStream);
                 }
             }
@@ -316,7 +321,7 @@ public class ModV2Installer : IModInstaller
                 var destGamePath = Path.Combine(resolvedGame, relativePathFromFiles);
 
                 if (!File.Exists(destGamePath)) continue;
-                
+
                 var gameIniLines = IniPatcher.Parse(destGamePath);
                 var modIniLines = IniPatcher.Parse(modIniFile);
 
@@ -333,7 +338,7 @@ public class ModV2Installer : IModInstaller
         {
             var ext = Path.GetExtension(file).ToLowerInvariant();
             if (ext == ".ini") continue;
-            
+
             var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
             var backupPath = TempestPathUtility.GetLocalV2BackupPath(resolvedGame, relativePathFromGame);
 
@@ -355,7 +360,7 @@ public class ModV2Installer : IModInstaller
             else
             {
                 if (!File.Exists(file)) continue;
-                
+
                 try { File.Delete(file); }
                 catch
                 {
@@ -526,11 +531,11 @@ public class ModV2Installer : IModInstaller
     {
         using var keyIn = new MemoryStream(Encoding.UTF8.GetBytes(privateKeyPem));
         using var decStream = PgpUtilities.GetDecoderStream(keyIn);
-        
+
         var pgpSec = new PgpSecretKeyRingBundle(decStream);
-        
+
         PgpSecretKey? secretKey = null;
-        
+
         foreach (var kRing in pgpSec.GetKeyRings())
         {
             foreach (var k in kRing.GetSecretKeys())
@@ -567,7 +572,7 @@ public class ModV2Installer : IModInstaller
         sGen.Update(dataBytes);
 
         sGen.Generate().Encode(armoredOut);
-        
+
         return Encoding.UTF8.GetString(memOut.ToArray());
     }
 
@@ -577,13 +582,13 @@ public class ModV2Installer : IModInstaller
         {
             using var keyIn = new MemoryStream(Encoding.UTF8.GetBytes(publicKeyPem));
             using var decKeyStream = PgpUtilities.GetDecoderStream(keyIn);
-            
+
             var pgpPub = new PgpPublicKeyRingBundle(decKeyStream);
 
             var lines = ascContent.Split(["\r\n", "\r", "\n"], StringSplitOptions.None);
             var sigLines = new List<string>();
             var inSignature = false;
-            
+
             foreach (var line in lines)
             {
                 if (line.Contains("-----BEGIN PGP SIGNATURE-----"))
@@ -606,7 +611,7 @@ public class ModV2Installer : IModInstaller
             using var decStream = PgpUtilities.GetDecoderStream(memIn);
             var pgpFact = new PgpObjectFactory(decStream);
             var obj = pgpFact.NextPgpObject();
-            
+
             PgpSignatureList? sigList = null;
 
             while (obj != null)

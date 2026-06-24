@@ -151,6 +151,8 @@ public static class IniPatcher
 
         if (start < 0) return (-1, -1);
 
+        if (start + 1 >= lines.Count) return (start, lines.Count);
+
         var end = lines.FindIndex(start + 1, l => l.Type == IniLineType.Section);
         return end < 0 ? (start, lines.Count) : (start, end);
     }
@@ -184,7 +186,7 @@ public static class IniPatcher
         var count = sectionEnd - sectionStart - 1;
         if (count <= 0) return sectionStart + 1;
 
-        var lastEntry = lines.FindLastIndex(sectionStart + 1, count, l => l.Type == IniLineType.Entry);
+        var lastEntry = lines.FindLastIndex(sectionEnd - 1, count, l => l.Type == IniLineType.Entry);
         return lastEntry >= 0 ? lastEntry + 1 : sectionStart + 1;
     }
 
