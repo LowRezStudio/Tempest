@@ -111,6 +111,10 @@ export function createReorderable<T>(options: ReorderableOptions) {
 				},
 				{ capture: true, once: true },
 			);
+			// Drop focus so the tooltip (shown on :focus-within) doesn't stick.
+			if (document.activeElement instanceof HTMLElement) {
+				document.activeElement.blur();
+			}
 		}
 		pending = null;
 		drag = null;
