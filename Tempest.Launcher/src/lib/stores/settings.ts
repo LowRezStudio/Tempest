@@ -9,6 +9,9 @@ export const servicesURL = persistentAtom<string>("servicesURL", "http://localho
 export type Theme = "system" | "mocha" | "latte" | "legacy";
 export const theme = persistentAtom<Theme>("theme", "system");
 export const pinnedBackground = persistentAtom<string | undefined>("pinnedBackground", undefined);
+export const winePath = persistentAtom<string | undefined>("winePath", undefined);
+export const useGamescope = persistentAtom<string>("useGamescope", "false");
+export const gamescopeArgs = persistentAtom<string>("gamescopeArgs", "-f --force-grab-cursor");
 
 const getDefaultInstancePath = async () => {
 	const rootDir = platform() === "windows" ? "C:" : await homeDir();

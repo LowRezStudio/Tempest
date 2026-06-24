@@ -1,4 +1,5 @@
 import { Command } from "@tauri-apps/plugin-shell";
+import type { SpawnOptions } from "@tauri-apps/plugin-shell";
 
 export type ArgumentType =
 	| string
@@ -22,14 +23,14 @@ export const processArgs = (args: ArgumentType[]): string[] =>
 		return [];
 	});
 
-const createDevCommand = (args: ArgumentType[]) =>
-	Command.create("dotnet", [
-		"exec",
-		"../../Tempest.CLI/bin/Debug/net10.0/Tempest.CLI.dll",
-		...processArgs(args),
-	]);
+const createDevCommand = (args: ArgumentType[], env?: SpawnOptions["env"]) =>
+	Command.create(
+		"dotnet",
+		["exec", "../../Tempest.CLI/bin/Debug/net10.0/Tempest.CLI.dll", ...processArgs(args)],
+		{ env },
+	);
 
-const createProdCommand = (args: ArgumentType[]) =>
-	Command.sidecar("binaries/tempest-cli", processArgs(args));
+const createProdCommand = (args: ArgumentType[], env?: SpawnOptions["env"]) =>
+	Command.sidecar("binaries/tempest-cli", processArgs(args), { env });
 
 export const createCommand = import.meta.env.DEV ? createDevCommand : createProdCommand;

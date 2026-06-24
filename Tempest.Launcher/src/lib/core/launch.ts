@@ -1,5 +1,6 @@
 import { lastLaunchedInstanceId } from "../stores/instance";
 import { logCommandOutput, processesList } from "../stores/processes";
+import { gamescopeArgs, useGamescope, winePath } from "../stores/settings";
 import { createCommand, processArgs } from "./command";
 import type { Instance } from "../types/instance";
 import type { Process } from "../types/process";
@@ -12,21 +13,30 @@ export const launchGame = async (instance: Instance) => {
 
 	console.log("Launching instance", instance.id, instance.version);
 	console.log(instance);
-	const command = createCommand([
-		"launch",
-		path,
-		{ "--platform": platform },
-		{ "--no-default-args": options.noDefaultArgs },
-		{
-			"--homedir":
-				`${instance.version ? `${instance.version}_` : ""}${instance.label}`.replaceAll(
-					/[^a-zA-Z0-9-_]/g,
-					"_",
-				),
-		},
-		...(options.dllList ? options.dllList.map((dll) => ({ "--dll": dll })) : []),
-		...(options.args ? ["--", ...processArgs(options.args)] : []),
-	]);
+
+	const wine = winePath.get();
+	const env: Record<string, string> | undefined = wine ? { WINE: wine } : undefined;
+
+	const command = createCommand(
+		[
+			"launch",
+			path,
+			{ "--platform": platform },
+			{ "--no-default-args": options.noDefaultArgs },
+			{ "--gamescope": useGamescope.get() === "true" },
+			{ "--gamescope-args": gamescopeArgs.get() || undefined },
+			{
+				"--homedir":
+					`${instance.version ? `${instance.version}_` : ""}${instance.label}`.replaceAll(
+						/[^a-zA-Z0-9-_]/g,
+						"_",
+					),
+			},
+			...(options.dllList ? options.dllList.map((dll) => ({ "--dll": dll })) : []),
+			...(options.args ? ["--", ...processArgs(options.args)] : []),
+		],
+		env,
+	);
 
 	logCommandOutput(command, "launch");
 

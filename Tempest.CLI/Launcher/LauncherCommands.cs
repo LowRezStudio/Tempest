@@ -7,15 +7,49 @@ namespace Tempest.CLI.Launcher;
 
 internal class LauncherCommands
 {
-    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null)
+    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor")
     {
         var args = context.EscapedArguments.ToArray();
-        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, homedir: homedir);
+        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs);
+
+        if (gamescope && !OperatingSystem.IsWindows())
+        {
+            var nativeFilename = Path.GetFileName(process.StartInfo.EnvironmentVariables["NATIVE_FILENAME"]);
+            if (!string.IsNullOrEmpty(nativeFilename))
+            {
+                int gamePid = 0;
+                // Wait for the game process to start and obtain its PID
+                for (int i = 0; i < 15 && !process.HasExited; i++)
+                {
+                    gamePid = await WineExtensions.GetProcessId(nativeFilename);
+                    if (gamePid > 0) break;
+                    await Task.Delay(TimeSpan.FromSeconds(1));
+                }
+
+                if (gamePid > 0)
+                {
+                    while (!process.HasExited)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(1));
+                        if (!await WineExtensions.IsWinePidAlive(gamePid))
+                        {
+                            try
+                            {
+                                process.Kill(true);
+                            }
+                            catch { }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         await process.WaitForExitAsync();
     }
     public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
                                                 string? platform = null, string? game = null, string[]? dll = null,
-                                                bool isServer = false, string? homedir = null)
+                                                bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor")
     {
         var exePath = LauncherUtility.GetExecutablePath(path, platform, game);
         var defaultArgs = !noDefaultArgs;
@@ -66,11 +100,23 @@ internal class LauncherCommands
             process.StartInfo.ArgumentList.Add("-eac-nop-loaded");
             process.StartInfo.ArgumentList.Add("-replayfile=");
             process.StartInfo.ArgumentList.Add("-COOKFORDEMO");
+            if (gamescope)
+            {
+                process.StartInfo.ArgumentList.Add("-nosplash");
+                process.StartInfo.ArgumentList.Add("-windowed");
+            }
             homedir ??= "Tempest";
             process.StartInfo.ArgumentList.Add($"-homedir={homedir}");
         }
 
-        process.UseWine().Start();
+        if (gamescope)
+        {
+            process.UseWine().UseGamescope(gamescopeArgs).Start();
+        }
+        else
+        {
+            process.UseWine().Start();
+        }
 
         _ = Task.Run(async () =>
         {

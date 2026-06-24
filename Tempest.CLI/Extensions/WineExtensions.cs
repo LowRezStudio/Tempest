@@ -27,7 +27,7 @@ internal static class WineExtensions
         process.StartInfo.EnvironmentVariables["WINEDEBUG"] = "-all";
         process.StartInfo.EnvironmentVariables["NATIVE_FILENAME"] = process.StartInfo.FileName;
 
-        process.StartInfo.FileName = "wine";
+        process.StartInfo.FileName = Environment.GetEnvironmentVariable("WINE") ?? "wine";
 
         if (process.StartInfo.ArgumentList.Count > 0)
         {
@@ -41,10 +41,40 @@ internal static class WineExtensions
         return process;
     }
 
+    public static Process UseGamescope(this Process process, string? gamescopeArgs = "-f --force-grab-cursor")
+    {
+        // Gamescope is a Linux-only compositor
+        if (!OperatingSystem.IsLinux()) return process;
+
+        var filename = process.StartInfo.FileName;
+        var extraArgs = string.IsNullOrWhiteSpace(gamescopeArgs)
+            ? []
+            : gamescopeArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        if (process.StartInfo.ArgumentList.Count > 0)
+        {
+            var originalArgs = process.StartInfo.ArgumentList.ToArray();
+            process.StartInfo.ArgumentList.Clear();
+            foreach (var arg in extraArgs) process.StartInfo.ArgumentList.Add(arg);
+            process.StartInfo.ArgumentList.Add("--");
+            process.StartInfo.ArgumentList.Add(filename);
+            foreach (var arg in originalArgs) process.StartInfo.ArgumentList.Add(arg);
+            process.StartInfo.FileName = "gamescope";
+        }
+        else
+        {
+            var prefix = extraArgs.Length > 0 ? string.Join(" ", extraArgs) + " " : "";
+            process.StartInfo.Arguments = $"{prefix}-- {filename} {process.StartInfo.Arguments}";
+            process.StartInfo.FileName = "gamescope";
+        }
+
+        return process;
+    }
+
     public static async Task<int> GetProcessId(this Process process)
     {
         // You obviously don't need any of this for native platforms
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || process.StartInfo.FileName != "wine")
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || (process.StartInfo.FileName != "wine" && process.StartInfo.FileName != "gamescope"))
             return process.Id;
 
         var filename = Path.GetFileName(process.StartInfo.EnvironmentVariables["NATIVE_FILENAME"]) ?? throw new Exception("'NATIVE_FILENAME' Environment Variable is somehow null, this isn't your fault.");
@@ -80,7 +110,7 @@ internal static class WineExtensions
         string output = await process.StandardOutput.ReadToEndAsync();
         await process.WaitForExitAsync();
 
-        int newestPid = 0;
+        var pids = new List<int>();
 
         foreach (var line in output.Split('\n'))
         {
@@ -94,7 +124,7 @@ internal static class WineExtensions
                     {
                         if (int.TryParse(parts[i + 2], out int pid))
                         {
-                            newestPid = pid;
+                            pids.Add(pid);
                             break;
                         }
                     }
@@ -102,7 +132,40 @@ internal static class WineExtensions
             }
         }
 
+        if (pids.Count == 0) return 0;
+        if (pids.Count == 1) return pids[0];
+
+        int newestPid = pids[0];
+        DateTime? newestTime = null;
+
+        foreach (var pid in pids)
+        {
+            var startTime = await GetProcessStartTime(pid);
+            if (startTime != null && (newestTime == null || startTime > newestTime))
+            {
+                newestTime = startTime;
+                newestPid = pid;
+            }
+        }
+
         return newestPid;
+    }
+
+    public static async Task<bool> IsWinePidAlive(int pid)
+    {
+        var process = new Process();
+
+        process.StartInfo.FileName = "tasklist.exe";
+        process.StartInfo.Arguments = $"/FI \"PID eq {pid}\" /fo csv";
+        process.StartInfo.RedirectStandardOutput = true;
+        process.StartInfo.CreateNoWindow = true;
+
+        process.UseWine().Start();
+
+        string output = await process.StandardOutput.ReadToEndAsync();
+        await process.WaitForExitAsync();
+
+        return output.Contains($"\"{pid}\"");
     }
 
     private static string[] ParseCsvLine(string line)
