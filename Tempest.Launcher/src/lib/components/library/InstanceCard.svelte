@@ -67,7 +67,7 @@
 			<div class="flex-1 min-w-0">
 				<h3 class="font-bold text-base truncate mb-0.5">{instance.label}</h3>
 				<div class="flex items-center gap-2 text-sm">
-					{#if instance.version}
+					{#if instance.version && !isDownloading}
 						<span class="opacity-70 font-mono flex items-center gap-1.5">
 							<Box size={12} />
 							{instance.version}
