@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { Box, Folder } from "@lucide/svelte";
+	import { useQueryClient } from "@tanstack/svelte-query";
+	import { resolveResource } from "@tauri-apps/api/path";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { installMod, removeMod } from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
+	import { createModsQuery } from "$lib/queries/mods";
 	import { updateInstance } from "$lib/stores/instance";
 	import { parseArgs } from "$lib/utils/args";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
@@ -29,6 +33,8 @@
 		"#6b7280",
 	];
 
+	const queryClient = useQueryClient();
+
 	let editName = $state("");
 	let editVersion = $state("");
 	let editPath = $state("");
@@ -36,6 +42,11 @@
 	let editArgs = $state<string[]>([]);
 	let editColor = $state("");
 	let argsInput = $state("");
+	let editEnableConsole = $state(false);
+	let initialEnableConsole = false;
+	let hasInitializedConsole = false;
+
+	const modsQuery = createModsQuery(() => editPath);
 
 	// ponytail: reset form whenever the modal opens with the latest instance data
 	$effect(() => {
@@ -47,6 +58,17 @@
 			editArgs = instance.launchOptions?.args ?? [];
 			editColor = getInstanceColor(instance);
 			argsInput = "";
+			hasInitializedConsole = false;
+		}
+	});
+
+	// ponytail: check if tgmod is installed using createModsQuery
+	$effect(() => {
+		if (open && modsQuery.data && !hasInitializedConsole) {
+			const isInstalled = modsQuery.data.some((m) => m.Id === "tgmod");
+			editEnableConsole = isInstalled;
+			initialEnableConsole = isInstalled;
+			hasInitializedConsole = true;
 		}
 	});
 
@@ -101,7 +123,7 @@
 		}
 	});
 
-	function save() {
+	async function save() {
 		updateInstance(instance.id, {
 			label: editName,
 			version: editVersion,
@@ -113,6 +135,22 @@
 				args: editArgs,
 			},
 		});
+
+		// ponytail: install or remove Console mod if checkbox toggled
+		if (editEnableConsole !== initialEnableConsole) {
+			try {
+				if (editEnableConsole) {
+					const modFile = await resolveResource("resources/TgMod.tempest");
+					await installMod(editPath, modFile, true, true);
+				} else {
+					await removeMod(editPath, "TgMod (Console)");
+				}
+				queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
+			} catch (error) {
+				console.error("Failed to toggle Console mod:", error);
+			}
+		}
+
 		open = false;
 	}
 </script>
@@ -289,6 +327,17 @@
 				</select>
 			</div>
 		{/if}
+
+		<div class="form-control">
+			<label class="label cursor-pointer justify-start gap-3 py-0.5">
+				<input
+					type="checkbox"
+					class="checkbox checkbox-accent checkbox-sm"
+					bind:checked={editEnableConsole}
+				/>
+				<span class="label-text text-sm font-semibold">Enable Console</span>
+			</label>
+		</div>
 	</div>
 
 	{#snippet actions()}

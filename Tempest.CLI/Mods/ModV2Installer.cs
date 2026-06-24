@@ -572,6 +572,7 @@ public class ModV2Installer : IModInstaller
         sGen.Update(dataBytes);
 
         sGen.Generate().Encode(armoredOut);
+        armoredOut.Close();
 
         return Encoding.UTF8.GetString(memOut.ToArray());
     }
@@ -605,7 +606,12 @@ public class ModV2Installer : IModInstaller
                 }
             }
 
-            var sigBlock = sigLines.Count > 0 ? string.Join("\n", sigLines) : ascContent;
+            var sigBlock = sigLines.Count > 0 ? string.Join("\r\n", sigLines) : ascContent;
+
+            if (!sigBlock.Contains("-----END PGP SIGNATURE-----"))
+            {
+                sigBlock = sigBlock.TrimEnd() + "\r\n-----END PGP SIGNATURE-----\r\n";
+            }
 
             using var memIn = new MemoryStream(Encoding.UTF8.GetBytes(sigBlock));
             using var decStream = PgpUtilities.GetDecoderStream(memIn);
