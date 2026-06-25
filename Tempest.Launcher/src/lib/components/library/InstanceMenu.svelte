@@ -21,7 +21,6 @@
 	import { m } from "$lib/paraglide/messages";
 	import { createSetupInstanceMutation } from "$lib/queries/instance";
 	import {
-		isPre20Version,
 		RIGBY_BASE_URL,
 		RIGBY_MANIFEST_URL_TEMPLATE,
 		WIKI_BASE_URL,
@@ -61,9 +60,7 @@
 	let isPaused = $derived(instance.state.type === "paused");
 	let isReady = $derived(instance.state.type === "prepared");
 	let isActive = $derived(isDownloading || isPaused);
-	let canRestore = $derived(
-		instance?.version && instance?.path && isPre20Version(instance.version),
-	);
+	let canRestore = $derived(!!(instance?.version && instance?.path));
 	let isOnInstancePage = $derived(page.route.id === "/instance/[id]");
 
 	const setupInstanceMutation = createSetupInstanceMutation();
@@ -114,8 +111,13 @@
 	function handleRestore() {
 		if (!instance?.version || !instance?.path || !canRestore || isSettingUp) return;
 
+		const matchedVersion = versions.find(
+			(v) => v.version === instance.version && v.appId === instance.appId,
+		);
+		const versionId = matchedVersion?.id || instance.version;
+
 		restoreQueue.add({
-			manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{version}", instance.version)],
+			manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", versionId)],
 			outDir: instance.path,
 			baseUrl: RIGBY_BASE_URL,
 		});

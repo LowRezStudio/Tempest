@@ -13,7 +13,6 @@
 		createSetupInstanceMutation,
 	} from "$lib/queries/instance";
 	import {
-		isPre20Version,
 		RIGBY_BASE_URL,
 		RIGBY_MANIFEST_URL_TEMPLATE,
 		WIKI_BASE_URL,
@@ -49,10 +48,13 @@
 
 	const selectedVersion = $derived(flatVersions.find((v) => v.id === selectedVersionId));
 	const selectedAppId = $derived(selectedVersion?.appId ?? 444090);
-
-	const supportsCloudDownload = $derived(
-		selectedVersion?.version && isPre20Version(selectedVersion.version),
+	const isPts = $derived(
+		(selectedAppId !== 444090 && selectedAppId !== 44090) ||
+			!!selectedVersion?.name?.toLowerCase().includes("pts"),
 	);
+	const selectedDepotId = $derived(isPts ? 596351 : 444091);
+
+	const supportsCloudDownload = $derived(!!selectedVersion?.version);
 
 	const isValid = $derived(
 		selectedTab === "download" ? !!selectedVersionId : !!(selectedVersionId && selectedPath),
@@ -146,9 +148,7 @@
 			addInstance(newInstance);
 
 			restoreQueue.add({
-				manifests: [
-					RIGBY_MANIFEST_URL_TEMPLATE.replace("{version}", selectedVersion.version),
-				],
+				manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", selectedVersion.id)],
 				outDir: instancePath,
 				baseUrl: RIGBY_BASE_URL,
 			});
@@ -216,7 +216,7 @@
 	);
 	const depotDownloaderCommand = $derived(
 		selectedVersionId ?
-			`${depotDownloaderBinary} -app ${selectedAppId} -depot 444091 -manifest ${selectedVersionId} -os windows -dir "${downloadPathForCommand}" -qr -remember-password`
+			`${depotDownloaderBinary} -app ${selectedAppId} -depot ${selectedDepotId} -manifest ${selectedVersionId} -os windows -dir "${downloadPathForCommand}" -qr -remember-password`
 		:	"",
 	);
 
