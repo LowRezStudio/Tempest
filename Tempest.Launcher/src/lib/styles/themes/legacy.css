@@ -7,7 +7,7 @@
 
 	--color-base-100: #0e3f55;
 	--color-base-200: #0a2c3a;
-	--color-base-300: #051f28;
+	--color-base-300: #0a2c3a;
 	--color-base-content: #ffffff;
 
 	--color-primary: #2fbbb5;
@@ -175,7 +175,7 @@
 	.card {
 		border-radius: 0 !important;
 		border: 1px solid #34c3d1 !important;
-		background-color: rgba(255, 255, 255, 0.95) !important;
+		background-color: #f0ede8 !important;
 		box-shadow: none !important;
 		color: #000000 !important;
 	}
@@ -299,7 +299,6 @@
 		color: #ffffff !important;
 	}
 
-	/* Codeblocks / Mono text containers inside dialogs - legacy theme contrast fix */
 	[role="dialog"] .font-mono,
 	[data-dialog-content] .font-mono,
 	.modal-box .font-mono {
@@ -389,7 +388,7 @@
 
 	/* Popover/Dropdown styling - matches settings menu and modals */
 	[data-popover-content] {
-		background-color: rgba(255, 255, 255, 0.95) !important;
+		background-color: #f0ede8 !important;
 		border: 1px solid #34c3d1 !important;
 		border-radius: 0 !important;
 		color: #000000 !important;
@@ -433,12 +432,12 @@
 		color: #ffffff !important;
 	}
 
-	/* Custom background: entirely copies the radial gradient from the old launcher! */
+	/* Custom background: solid dark teal */
 	html,
 	body,
 	main,
 	.page-transition {
-		background-image: radial-gradient(100% 40% at 50% 50%, #219cd5 25%, #0e3f55 85%) !important;
+		background-image: none !important;
 		background-color: #0e3f55 !important;
 	}
 
@@ -454,7 +453,7 @@
 	main .bg-base-200:has(h1),
 	.page-transition .bg-base-200:has(h1) {
 		position: relative !important;
-		background-color: rgba(255, 255, 255, 0.95) !important;
+		background-color: #f0ede8 !important;
 		background-image: url("/img/navigation-pattern.png") !important;
 		background-repeat: repeat-x !important;
 		background-size: auto 100% !important;
@@ -497,7 +496,7 @@
 		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1)) {
 		border: 1px solid #34c3d1 !important;
 		border-radius: 0 !important;
-		background-color: rgba(255, 255, 255, 0.95) !important;
+		background-color: #f0ede8 !important;
 		box-shadow: none !important;
 		color: #000000 !important;
 	}
@@ -514,7 +513,7 @@
 	main .bg-base-200:not(:has(h1)):hover,
 	.page-transition .bg-base-200:not(:has(h1)):hover {
 		border-color: #37e8e2 !important;
-		background-color: #ffffff !important;
+		background-color: #f0ede8 !important;
 	}
 
 	/* Inner icon containers inside cards - styled exactly like the header icons! */
@@ -615,15 +614,22 @@
 		border-collapse: collapse !important;
 		width: 100% !important;
 		border-radius: 0 !important;
+		border: none !important;
 	}
 
 	table th,
 	.table th,
 	table td,
 	.table td {
-		border: 1px solid #34c3d1 !important;
+		border: none !important;
+		border-top: 1px solid rgba(52, 195, 209, 0.2) !important;
 		padding: 8px !important;
 		border-radius: 0 !important;
+	}
+
+	table thead th,
+	.table thead th {
+		border-top: none !important;
 	}
 
 	table th,
