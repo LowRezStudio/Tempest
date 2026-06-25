@@ -65,6 +65,7 @@
 			directory: true,
 			multiple: false,
 			title: m.wizard_select_installation_folder(),
+			defaultPath: $defaultInstancePath || undefined,
 		});
 		if (result) {
 			selectedPath = result;

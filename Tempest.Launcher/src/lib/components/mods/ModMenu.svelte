@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { EllipsisVertical, FolderOpen, Pencil } from "@lucide/svelte";
 	import { path } from "@tauri-apps/api";
-	import { revealItemInDir } from "@tauri-apps/plugin-opener";
+	import { stat } from "@tauri-apps/plugin-fs";
+	import { openPath } from "@tauri-apps/plugin-opener";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
@@ -31,11 +32,29 @@
 		if (mod.Kind === "V2") {
 			if (!gamePath) return;
 			const v2ModsPath = await path.join(gamePath, ".tempest", "v2", "mods");
-			await revealItemInDir(v2ModsPath);
+			await openPath(v2ModsPath);
 			return;
 		}
 		if (!targetPath) return;
-		await revealItemInDir(targetPath);
+
+		let resolvedFolder = targetPath;
+		try {
+			const info = await stat(targetPath);
+			if (info.isFile) {
+				resolvedFolder = await path.dirname(targetPath);
+			}
+		} catch (error) {
+			console.error("Failed to stat mod targetPath:", error);
+			// Fallback: if it ends with an extension or seems like a file, try directory
+			if (
+				targetPath.includes(".") &&
+				!targetPath.endsWith("/") &&
+				!targetPath.endsWith("\\")
+			) {
+				resolvedFolder = await path.dirname(targetPath);
+			}
+		}
+		await openPath(resolvedFolder);
 	}
 
 	let isRenameModalOpen = $state(false);

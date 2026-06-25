@@ -10,7 +10,7 @@
 		Trash2,
 	} from "@lucide/svelte";
 	import { remove } from "@tauri-apps/plugin-fs";
-	import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+	import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 	import { page } from "$app/state";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import InstanceSettingsModal from "$lib/components/library/InstanceSettingsModal.svelte";
@@ -67,7 +67,7 @@
 
 	async function openFolder() {
 		if (!instance?.path) return;
-		await revealItemInDir(instance.path);
+		await openPath(instance.path);
 	}
 
 	async function handleDeleteConfirm(deleteData: boolean) {

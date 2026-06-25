@@ -9,7 +9,7 @@
 		Square,
 		Terminal,
 	} from "@lucide/svelte";
-	import { revealItemInDir } from "@tauri-apps/plugin-opener";
+	import { openPath } from "@tauri-apps/plugin-opener";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
@@ -86,7 +86,7 @@
 
 	async function handleOpenInstanceFolder() {
 		if (!instance?.path) return;
-		await revealItemInDir(instance.path);
+		await openPath(instance.path);
 	}
 
 	let isFilesDialogOpen = $state(false);
