@@ -73,7 +73,7 @@
 					</div>
 				</td>
 				<td>
-					<p class="font-semibold text-sm">{mod.Version}</p>
+					<p class="font-semibold text-sm">{mod.Version || "Unknown"}</p>
 				</td>
 				<td>
 					<div class="flex items-center justify-end gap-1">

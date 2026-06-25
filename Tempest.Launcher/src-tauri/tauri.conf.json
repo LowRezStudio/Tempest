@@ -38,7 +38,7 @@
 			"binaries/asmloader-windows_x86.dll": "asmloader-windows_x86.dll",
 			"binaries/asmloader-windows_x86_64.dll": "asmloader-windows_x86_64.dll",
 			"binaries/*": "",
-			"resources/TgMod.tempest": "TgMod.tempest"
+			"TgMod.tempest": "TgMod.tempest"
 		},
 		"targets": ["msi", "dmg", "appimage", "deb", "rpm"],
 		"linux": {

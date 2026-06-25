@@ -140,7 +140,7 @@
 		if (editEnableConsole !== initialEnableConsole) {
 			try {
 				if (editEnableConsole) {
-					const modFile = await resolveResource("resources/TgMod.tempest");
+					const modFile = await resolveResource("TgMod.tempest");
 					await installMod(editPath, modFile, true, true);
 				} else {
 					await removeMod(editPath, "TgMod (Console)");
