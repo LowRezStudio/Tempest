@@ -7,6 +7,14 @@
 		"core:default",
 		"core:window:allow-destroy",
 		"opener:default",
+		{
+			"identifier": "opener:allow-open-path",
+			"allow": [
+				{
+					"path": "**"
+				}
+			]
+		},
 		"shell:allow-kill",
 		"shell:allow-open",
 		"shell:allow-stdin-write",
