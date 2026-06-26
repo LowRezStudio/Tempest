@@ -9,13 +9,13 @@
 		Settings,
 		Trash2,
 	} from "@lucide/svelte";
-	import { remove } from "@tauri-apps/plugin-fs";
 	import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 	import { page } from "$app/state";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import InstanceSettingsModal from "$lib/components/library/InstanceSettingsModal.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
+	import { deleteInstance } from "$lib/core/instance-delete";
 	import versions from "$lib/data/versions.json";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
@@ -26,7 +26,7 @@
 		WIKI_BASE_URL,
 	} from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
-	import { removeInstance, updateInstance } from "$lib/stores/instance";
+	import { updateInstance } from "$lib/stores/instance";
 	import type { Instance } from "$lib/types/instance";
 	import type { Snippet } from "svelte";
 
@@ -56,10 +56,7 @@
 	let showDeleteConfirm = $state(false);
 
 	let isSettingUp = $derived(instance.state.type === "setup");
-	let isDownloading = $derived(instance.state.type === "downloading");
-	let isPaused = $derived(instance.state.type === "paused");
 	let isReady = $derived(instance.state.type === "prepared");
-	let isActive = $derived(isDownloading || isPaused);
 	let canRestore = $derived(!!((instance?.version || instance?.manifestId) && instance?.path));
 	let isOnInstancePage = $derived(page.route.id === "/instance/[id]");
 
@@ -72,20 +69,7 @@
 
 	async function handleDeleteConfirm(deleteData: boolean) {
 		if (!instance) return;
-
-		if (isActive && instance.path) {
-			restoreQueue.cancel(instance.path);
-		}
-
-		if (deleteData && instance.path) {
-			try {
-				await remove(instance.path, { recursive: true });
-			} catch (error) {
-				console.error("Failed to delete instance data:", error);
-			}
-		}
-
-		removeInstance(instance.id);
+		await deleteInstance(instance, deleteData);
 	}
 
 	function handleRunSetup() {

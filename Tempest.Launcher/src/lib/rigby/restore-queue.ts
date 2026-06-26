@@ -159,6 +159,23 @@ export class RestoreQueue {
 		this.start();
 	}
 
+	resume(id: string): void {
+		const items = queueItems.get();
+		const item = items.find((i) => i.id === id);
+		if (!item || item.status !== "paused") return;
+
+		const otherItems = items.filter((i) => i.id !== id);
+		const allOthersPaused = otherItems.every((i) => i.status === "paused");
+
+		if (allOthersPaused) {
+			queueItems.set([{ ...item, status: "pending", progress: undefined }, ...otherItems]);
+		} else {
+			this.updateItem(id, { status: "pending", progress: undefined });
+		}
+
+		this.start();
+	}
+
 	private async processNext(): Promise<void> {
 		if (!queueRunning.get() || this.processing) return;
 
