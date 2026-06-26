@@ -1,22 +1,59 @@
 services:
+  traefik:
+    image: traefik:v3
+    container_name: tempest-traefik
+    command:
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
+      - --providers.docker.network=traefik
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      - --entrypoints.web.http.redirections.entryPoint.permanent=true
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email=${TEMPEST_ACME_EMAIL:-}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+    ports:
+      - "${TEMPEST_HTTP_PORT:-80}:80"
+      - "${TEMPEST_HTTPS_PORT:-443}:443"
+    volumes:
+      - "${CONTAINER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro"
+      - letsencrypt:/letsencrypt
+    networks:
+      - traefik
+    restart: unless-stopped
+
   tempest-services:
     build:
       context: .
       dockerfile: Tempest.Services/Dockerfile
     image: tempest-services:latest
     container_name: tempest-services
-    ports:
-      - "${TEMPEST_HTTP_PORT:-80}:80"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ASPNETCORE_URLS: "http://+:80"
-    cap_add:
-      - NET_BIND_SERVICE
+      ASPNETCORE_URLS: "http://+:8080"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:80/"]
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8080/"]
       interval: 30s
       timeout: 5s
       start_period: 10s
       retries: 3
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.tempest.rule=Host(`${TEMPEST_HOST:-tempest.local}`)
+      - traefik.http.routers.tempest.entrypoints=websecure
+      - traefik.http.routers.tempest.tls.certresolver=letsencrypt
+      - traefik.http.services.tempest.loadbalancer.server.port=8080
+    networks:
+      - traefik
 
+volumes:
+  letsencrypt:
+    name: tempest-letsencrypt
+
+networks:
+  traefik:
+    name: traefik
