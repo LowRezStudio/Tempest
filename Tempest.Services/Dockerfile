@@ -13,5 +13,5 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app/publish .
 EXPOSE 5197
-EXPOSE 5198
+ENV ASPNETCORE_URLS=http://+:5197
 ENTRYPOINT ["dotnet", "Tempest.Services.dll"]
