@@ -43,7 +43,7 @@ dotnet run --project Tempest.Services
 
 Notes:
 - Building `Tempest.CLI` triggers an MSBuild target (`BuildZigInject`) that compiles `Tempest.CLI/inject/` with `zig build -Doptimize=ReleaseSmall`. Zig must be on `PATH`.
-- `Tempest.Services` listens on `0.0.0.0:5197` (HTTP/1) and `0.0.0.0:5198` (HTTP/2). See `Program.cs`.
+- `Tempest.Services` uses the default ASP.NET Core URL (`http://localhost:5000`) unless overridden by `Properties/launchSettings.json` or `HTTP_PORTS`. The Dockerfile sets `HTTP_PORTS=80`. See `Program.cs`.
 
 ## Zig / native utils commands
 

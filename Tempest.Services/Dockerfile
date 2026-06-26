@@ -16,5 +16,5 @@ WORKDIR /app
 RUN apk add --no-cache curl
 COPY --from=build /app/publish .
 EXPOSE 80
-ENV ASPNETCORE_URLS=http://+:80
+ENV HTTP_PORTS=80
 ENTRYPOINT ["dotnet", "Tempest.Services.dll"]
