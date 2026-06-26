@@ -17,7 +17,7 @@ internal sealed class ServerListHeartbeat : BackgroundService
     {
         _options = options;
         _state = state;
-        _client = new ServerListClient(_options.ServicesUrl ?? "https://localhost:7165");
+        _client = new ServerListClient(_options.ServicesUrl ?? "https://api.lowrezstudio.com");
         _state.Subscribe().Subscribe(new Observer(this));
     }
 

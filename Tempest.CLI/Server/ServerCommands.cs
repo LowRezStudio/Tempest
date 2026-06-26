@@ -15,7 +15,7 @@ internal class ServerCommands
         bool joinInProgress = false,
         bool publicServer = false,
         string? gamemode = null,
-        string servicesUrl = "http://localhost:5198",
+        string servicesUrl = "https://api.lowrezstudio.com",
         int port = 50051,
         string? password = null,
         bool detach = false,
@@ -114,7 +114,7 @@ internal class ServerCommands
         await server.StopAsync();
     }
 
-    public static async Task List(string servicesUrl = "https://localhost:7165")
+    public static async Task List(string servicesUrl = "https://api.lowrezstudio.com")
     {
         using var client = new ServerListClient(servicesUrl);
         var servers = await client.GetServersAsync();
@@ -143,7 +143,7 @@ internal class ServerCommands
         }
     }
 
-    public static async Task Get(string id, string servicesUrl = "https://localhost:7165")
+    public static async Task Get(string id, string servicesUrl = "https://api.lowrezstudio.com")
     {
         using var client = new ServerListClient(servicesUrl);
 
