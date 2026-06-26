@@ -86,7 +86,7 @@ internal class LauncherCommands
         var process = new Process();
 
         process.StartInfo.FileName = exePath;
-        process.StartInfo.Environment["OPENSSL_ia32cap"] = "~0x200000200000000"; // Fix for the 64bit clients not working on 10th Gen and 11th Gen Intel CPUs
+        process.StartInfo.Environment["OPENSSL_ia32cap"] = "~0x20000000"; // Fix for the 64bit clients not working on 10th Gen and 11th Gen Intel CPUs
 
         foreach (var arg in args)
         {

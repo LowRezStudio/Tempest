@@ -5,7 +5,7 @@ import { platform } from "@tauri-apps/plugin-os";
 import { onMount, task } from "nanostores";
 
 export const username = persistentAtom<string>("username", "Player");
-export const servicesURL = persistentAtom<string>("servicesURL", "http://localhost:5197");
+export const servicesURL = persistentAtom<string>("servicesURL", "https://api.lowrezstudio.com");
 export type Theme = "system" | "mocha" | "latte" | "legacy";
 export const theme = persistentAtom<Theme>("theme", "system");
 export const pinnedBackground = persistentAtom<string | undefined>("pinnedBackground", undefined);

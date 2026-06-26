@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { Download, FolderOpen, Pause, Play, Plus, RotateCcw, Trash2 } from "@lucide/svelte";
+	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
+	import { deleteInstance } from "$lib/core/instance-delete";
 	import { m } from "$lib/paraglide/messages";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import {
@@ -13,7 +15,9 @@
 		queueRunning,
 		resetQueueState,
 	} from "$lib/rigby/stores";
+	import { instanceMap } from "$lib/stores/instance";
 	import { instanceWizardOpen } from "$lib/stores/ui";
+	import type { QueueItem } from "$lib/rigby/stores";
 
 	function formatBytes(bytes: number): string {
 		if (bytes === 0) return "0 B";
@@ -49,6 +53,45 @@
 
 	function handleClearCompleted(): void {
 		restoreQueue.clearCompleted();
+	}
+
+	function handleRetry(id: string): void {
+		restoreQueue.retry(id);
+	}
+
+	function handleResume(id: string): void {
+		restoreQueue.resume(id);
+	}
+
+	let showDeleteConfirm = $state(false);
+	let selectedItem = $state<QueueItem | null>(null);
+
+	const selectedInstance = $derived(
+		selectedItem ?
+			Object.values($instanceMap).find((inst) => inst?.path === selectedItem!.outDir)
+		:	undefined,
+	);
+
+	function handleRemove(item: QueueItem): void {
+		if (item.noDownload) {
+			restoreQueue.remove(item.id);
+			return;
+		}
+
+		selectedItem = item;
+		showDeleteConfirm = true;
+	}
+
+	async function handleDeleteConfirm(deleteData: boolean): Promise<void> {
+		if (!selectedItem) return;
+
+		if (selectedInstance) {
+			await deleteInstance(selectedInstance, deleteData);
+		} else {
+			restoreQueue.remove(selectedItem.id);
+		}
+
+		selectedItem = null;
 	}
 
 	function statusText(status: string): string {
@@ -259,6 +302,40 @@
 										>
 											<Pause size={16} />
 										</button>
+									{:else if item.status === "error"}
+										<div class="flex items-center gap-1">
+											<button
+												class="btn btn-ghost btn-sm btn-square"
+												onclick={() => handleRetry(item.id)}
+												aria-label={m.updater_btn_retry()}
+											>
+												<RotateCcw size={16} />
+											</button>
+											<button
+												class="btn btn-ghost btn-sm btn-square"
+												onclick={() => handleRemove(item)}
+												aria-label={m.common_remove()}
+											>
+												<Trash2 size={16} />
+											</button>
+										</div>
+									{:else if item.status === "paused"}
+										<div class="flex items-center gap-1">
+											<button
+												class="btn btn-ghost btn-sm btn-square"
+												onclick={() => handleResume(item.id)}
+												aria-label={m.common_start()}
+											>
+												<Play size={16} />
+											</button>
+											<button
+												class="btn btn-ghost btn-sm btn-square"
+												onclick={() => handleRemove(item)}
+												aria-label={m.common_remove()}
+											>
+												<Trash2 size={16} />
+											</button>
+										</div>
 									{/if}
 								</div>
 							</div>
@@ -269,3 +346,9 @@
 		</div>
 	</div>
 </div>
+
+<DeleteInstanceDialog
+	bind:open={showDeleteConfirm}
+	instanceName={selectedInstance?.label ?? selectedItem?.outDir.split(/[/\\]/).pop() ?? ""}
+	onconfirm={handleDeleteConfirm}
+/>

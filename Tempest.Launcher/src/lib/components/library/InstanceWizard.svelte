@@ -135,6 +135,7 @@
 				id: crypto.randomUUID(),
 				label: selectedName || selectedVersion.name || selectedVersion.version,
 				version: selectedVersion.version,
+				manifestId: selectedVersion.id,
 				appId: selectedAppId,
 				path: instancePath,
 				launchOptions: {
@@ -171,6 +172,7 @@
 				selectedVersion?.version ||
 				m.wizard_paladins_instance(),
 			version: selectedVersion?.version,
+			manifestId: selectedVersion?.id,
 			appId: selectedAppId,
 			path: instancePath,
 			launchOptions: {

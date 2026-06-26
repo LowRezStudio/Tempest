@@ -1,6 +1,8 @@
 import { createCommand } from "$lib/core/command";
+import { m } from "$lib/paraglide/messages";
 import { instanceMap, updateInstance } from "$lib/stores/instance";
-import { logCommandOutput } from "$lib/stores/processes";
+import { appendProcessLog, logCommandOutput } from "$lib/stores/processes";
+import { addToast } from "$lib/stores/ui";
 import { queueCurrentIndex, queueItems, queueRunning } from "./stores";
 import type { QueueItem } from "./stores";
 import type { Child } from "@tauri-apps/plugin-shell";
@@ -141,11 +143,37 @@ export class RestoreQueue {
 				state: { type: "prepared" },
 			});
 		}
+	}
 
-		if (this.processing) {
-			this.processing = false;
-			this.processNext();
+	retry(id: string): void {
+		const items = queueItems.get();
+		const item = items.find((i) => i.id === id);
+		if (!item || item.status !== "error") return;
+
+		this.updateItem(id, {
+			status: "pending",
+			error: undefined,
+			progress: undefined,
+			result: undefined,
+		});
+		this.start();
+	}
+
+	resume(id: string): void {
+		const items = queueItems.get();
+		const item = items.find((i) => i.id === id);
+		if (!item || item.status !== "paused") return;
+
+		const otherItems = items.filter((i) => i.id !== id);
+		const allOthersPaused = otherItems.every((i) => i.status === "paused");
+
+		if (allOthersPaused) {
+			queueItems.set([{ ...item, status: "pending", progress: undefined }, ...otherItems]);
+		} else {
+			this.updateItem(id, { status: "pending", progress: undefined });
 		}
+
+		this.start();
 	}
 
 	private async processNext(): Promise<void> {
@@ -170,16 +198,26 @@ export class RestoreQueue {
 		this.updateItem(item.id, { status: "running" });
 		this.updateInstanceState(item.outDir, "downloading");
 
-		await this.runRestore(item);
-
-		this.processing = false;
+		try {
+			await this.runRestore(item);
+		} catch (error) {
+			console.error("Unexpected restore failure:", error);
+			this.updateItem(item.id, {
+				status: "error",
+				error: String(error),
+				progress: undefined,
+			});
+			this.updateInstanceState(item.outDir, "prepared");
+		} finally {
+			this.processing = false;
+		}
 
 		if (queueRunning.get()) {
 			this.processNext();
 		}
 	}
 
-	private async runRestore(item: QueueItem): Promise<void> {
+	private runRestore(item: QueueItem): Promise<void> {
 		const args = [
 			"rigby",
 			"restore",
@@ -199,15 +237,26 @@ export class RestoreQueue {
 			args.push({ "--no-download": true });
 		}
 
-		console.log("Restore args:", JSON.stringify(args, null, 2));
+		appendProcessLog(`Restore args: ${JSON.stringify(args)}`, false, "rigby-queue");
 
-		try {
-			const command = createCommand(args);
-			logCommandOutput(command, "rigby-queue");
-			this.runningOutDir = item.outDir;
-			this.runningItemId = item.id;
-			let stdout = "";
-			let stderr = "";
+		const command = createCommand(args);
+		logCommandOutput(command, "rigby-queue");
+		this.runningOutDir = item.outDir;
+		this.runningItemId = item.id;
+		let stdout = "";
+		let stderr = "";
+
+		return new Promise<void>((resolve) => {
+			let settled = false;
+
+			const finish = () => {
+				if (settled) return;
+				settled = true;
+				this.runningChild = null;
+				this.runningOutDir = null;
+				this.runningItemId = null;
+				resolve();
+			};
 
 			command.stdout.on("data", (data) => {
 				stdout += data;
@@ -244,12 +293,14 @@ export class RestoreQueue {
 			command.on("error", (error) => {
 				if (this.runningItemId !== item.id) {
 					console.log("Ignoring stale error event");
+					finish();
 					return;
 				}
 
 				const currentItem = queueItems.get().find((i) => i.id === item.id);
 				if (currentItem?.status === "paused") {
 					console.log("Ignoring error because restore was paused");
+					finish();
 					return;
 				}
 
@@ -259,11 +310,14 @@ export class RestoreQueue {
 					error: String(error),
 					progress: undefined,
 				});
+				this.updateInstanceState(item.outDir, "prepared");
+				finish();
 			});
 
 			command.on("close", (data) => {
 				if (this.runningItemId !== item.id) {
 					console.log("Ignoring stale close event");
+					finish();
 					return;
 				}
 
@@ -283,6 +337,7 @@ export class RestoreQueue {
 
 				if (data.code === 0) {
 					if (currentItem?.status === "complete") {
+						finish();
 						return;
 					}
 
@@ -296,6 +351,7 @@ export class RestoreQueue {
 									progress: undefined,
 								});
 								this.updateInstanceState(item.outDir, "prepared");
+								finish();
 								return;
 							}
 						} catch {
@@ -307,28 +363,37 @@ export class RestoreQueue {
 						status: "error",
 						error: "Process completed but no completion event was received",
 					});
+					this.updateInstanceState(item.outDir, "prepared");
+					finish();
 				} else if (currentItem?.status === "paused") {
 					console.log("Ignoring close error because restore was paused");
+					finish();
 				} else {
 					this.updateItem(item.id, {
 						status: "error",
 						error: stderr || `Failed with code ${data.code}`,
 						progress: undefined,
 					});
+					this.updateInstanceState(item.outDir, "prepared");
+					finish();
 				}
 			});
 
-			this.runningChild = await command.spawn();
-		} catch (error) {
-			console.error("Restore exception:", error);
-			this.runningChild = null;
-			this.runningOutDir = null;
-			this.runningItemId = null;
-			this.updateItem(item.id, {
-				status: "error",
-				error: String(error),
-			});
-		}
+			void command
+				.spawn()
+				.then((child) => {
+					this.runningChild = child;
+				})
+				.catch((error) => {
+					console.error("Restore exception:", error);
+					this.updateItem(item.id, {
+						status: "error",
+						error: String(error),
+					});
+					this.updateInstanceState(item.outDir, "prepared");
+					finish();
+				});
+		});
 	}
 
 	private updateInstanceState(outDir: string, stateType: Instance["state"]["type"]): void {
@@ -343,6 +408,38 @@ export class RestoreQueue {
 		}
 	}
 
+	private instanceName(outDir: string): string {
+		const instances = instanceMap.get();
+		const instance = Object.values(instances).find((inst) => inst?.path === outDir) as
+			| Instance
+			| undefined;
+		return instance?.label ?? outDir.split(/[/\\]/).pop() ?? outDir;
+	}
+
+	private notifyStatusChange(item: QueueItem): void {
+		const name = this.instanceName(item.outDir);
+
+		if (item.status === "running") {
+			addToast({
+				title: m.toast_download_started_title(),
+				message: m.toast_download_started_message({ name }),
+				tone: "info",
+			});
+		} else if (item.status === "complete") {
+			addToast({
+				title: m.toast_download_finished_title(),
+				message: m.toast_download_finished_message({ name }),
+				tone: "success",
+			});
+		} else if (item.status === "error") {
+			addToast({
+				title: m.toast_download_failed_title(),
+				message: `${name}: ${item.error || m.toast_download_failed_unknown()}`,
+				tone: "error",
+			});
+		}
+	}
+
 	private updateItem(
 		id: string,
 		updates: Partial<Pick<QueueItem, "status" | "result" | "error" | "progress">>,
@@ -351,9 +448,14 @@ export class RestoreQueue {
 		const index = items.findIndex((item) => item.id === id);
 		if (index === -1) return;
 
+		const oldStatus = items[index].status;
 		const newItems = [...items];
 		newItems[index] = { ...newItems[index], ...updates };
 		queueItems.set(newItems);
+
+		if (updates.status && updates.status !== oldStatus) {
+			this.notifyStatusChange(newItems[index]);
+		}
 	}
 }
 

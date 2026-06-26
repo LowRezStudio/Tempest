@@ -8,6 +8,7 @@ internal sealed class EmbeddedServer
     private readonly LobbyState _state;
     private readonly ITicketStore _ticketStore;
     private WebApplication? _app;
+    private readonly List<UpnpPortMapper> _upnp = [];
 
     public EmbeddedServer(LobbyServerOptions options)
     {
@@ -64,13 +65,49 @@ internal sealed class EmbeddedServer
         _app.MapGet("/health", () => Results.StatusCode(200));
 
         await _app.StartAsync();
+
+        if (_options.Upnp)
+        {
+            var ports = new[] { _options.Port, _options.GameServerPort }.Distinct();
+            foreach (var port in ports)
+            {
+                var mapper = new UpnpPortMapper(port, $"Tempest: {_options.Name}");
+                try
+                {
+                    await mapper.MapAsync();
+                    Console.WriteLine($"UPnP mapped port {port}");
+                    _upnp.Add(mapper);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"UPnP mapping failed for port {port}: {ex.Message}");
+                    await mapper.DisposeAsync();
+                }
+            }
+        }
     }
 
     public async Task StopAsync()
     {
+        _state.KillGameServer();
+
+        foreach (var mapper in _upnp)
+        {
+            try
+            {
+                await mapper.UnmapAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"UPnP unmap failed: {ex.Message}");
+            }
+            await mapper.DisposeAsync();
+        }
+        _upnp.Clear();
+
         if (_app != null)
         {
-            await _app.StopAsync();
+            await _app.StopAsync(TimeSpan.FromSeconds(2));
             await _app.DisposeAsync();
         }
     }

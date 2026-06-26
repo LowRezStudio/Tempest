@@ -15,8 +15,9 @@ internal class ServerCommands
         bool joinInProgress = false,
         bool publicServer = false,
         string? gamemode = null,
-        string servicesUrl = "http://localhost:5198",
+        string servicesUrl = "https://api.lowrezstudio.com",
         int port = 50051,
+        int gameServerPort = 7777,
         string? password = null,
         bool detach = false,
         bool noDefaultArgs = false,
@@ -24,6 +25,7 @@ internal class ServerCommands
         string? game = null,
         string[]? dll = null,
         bool enableJoinInProgress = false,
+        bool upnp = false,
         CancellationToken cancellationToken = default)
     {
         var options = new LobbyServerOptions
@@ -39,6 +41,7 @@ internal class ServerCommands
             PublicServer = publicServer,
             GameMode = gamemode,
             Port = port,
+            GameServerPort = gameServerPort,
             ServicesUrl = servicesUrl,
             Path = path,
             NoDefaultArgs = noDefaultArgs,
@@ -46,6 +49,7 @@ internal class ServerCommands
             Game = game,
             Dll = dll,
             EnableJoinInProgress = enableJoinInProgress,
+            Upnp = upnp,
         };
 
         var server = new EmbeddedServer(options);
@@ -59,9 +63,52 @@ internal class ServerCommands
             return;
         }
 
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var reader = new StreamReader(Console.OpenStandardInput());
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    string? input;
+                    try
+                    {
+                        input = await reader.ReadLineAsync(cts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+
+                    if (input == null)
+                    {
+                        try { await Task.Delay(100, cts.Token); }
+                        catch (OperationCanceledException) { break; }
+                        continue;
+                    }
+
+                    if (input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await cts.CancelAsync();
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when shutdown is requested.
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Stdin reader error: {ex.Message}");
+            }
+        }, cts.Token);
+
         try
         {
-            await Task.Delay(Timeout.Infinite, cancellationToken);
+            await Task.Delay(Timeout.Infinite, cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -71,7 +118,7 @@ internal class ServerCommands
         await server.StopAsync();
     }
 
-    public static async Task List(string servicesUrl = "https://localhost:7165")
+    public static async Task List(string servicesUrl = "https://api.lowrezstudio.com")
     {
         using var client = new ServerListClient(servicesUrl);
         var servers = await client.GetServersAsync();
@@ -100,7 +147,7 @@ internal class ServerCommands
         }
     }
 
-    public static async Task Get(string id, string servicesUrl = "https://localhost:7165")
+    public static async Task Get(string id, string servicesUrl = "https://api.lowrezstudio.com")
     {
         using var client = new ServerListClient(servicesUrl);
 

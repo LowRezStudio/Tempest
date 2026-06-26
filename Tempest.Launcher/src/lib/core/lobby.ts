@@ -22,18 +22,32 @@ export const hostLobby = async (options: LobbyServerOptions) => {
 				return [`--${key}`, value];
 			}),
 	]);
-	command.stdout.on("data", (line) => {
-		console.log("stdout:", line);
-		addLog(line, false);
+	let stdoutBuffer = "";
+	let stderrBuffer = "";
+
+	function appendLines(buffer: string, data: string, error: boolean): string {
+		const combined = buffer + data;
+		const lines = combined.split("\n");
+		const leftover = lines.pop() ?? "";
+		const complete = lines.filter((line) => line || error);
+		for (const line of complete) {
+			addLog(line, error);
+		}
+		return leftover;
+	}
+
+	command.stdout.on("data", (data) => {
+		stdoutBuffer = appendLines(stdoutBuffer, data, false);
 	});
 
-	command.stderr.on("data", (line) => {
-		console.error("stderr:", line);
-		addLog(line, true);
+	command.stderr.on("data", (data) => {
+		stderrBuffer = appendLines(stderrBuffer, data, true);
 	});
 	const child = await command.spawn();
 
 	command.on("close", (e) => {
+		if (stdoutBuffer) addLog(stdoutBuffer, false);
+		if (stderrBuffer) addLog(stderrBuffer, true);
 		process.returnCode.set(e.code);
 	});
 
@@ -55,8 +69,7 @@ export const hostLobby = async (options: LobbyServerOptions) => {
 };
 
 export const killLobby = async (process: LobbyServerProcess) => {
-	//TODO gracefull shutdown?
-	await process.child.kill();
+	await process.child.write("kill\n");
 };
 
 export const moveToLobby = (host: string) => {

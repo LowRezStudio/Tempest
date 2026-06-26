@@ -14,3 +14,4 @@ Properties/launchSettings.json
 # Test binaries for MCTS parser
 extracted/
 output.bin
+.env

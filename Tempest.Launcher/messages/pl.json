@@ -246,6 +246,8 @@
 	"hostserver_spectators_range": "Liczba z przedziału 1-30",
 	"hostserver_port": "Port",
 	"hostserver_port_range": "Port z przedziału 50000-65000",
+	"hostserver_game_server_port": "Port serwera gry",
+	"hostserver_game_server_port_range": "Port serwera gry, domyślnie 7777",
 	"instance_content": "Zawartość",
 	"instance_no_content": "Brak zainstalowanej zawartości",
 	"instance_add_mods_hint": "Dodaj mody, aby dostosować swoją instancję",

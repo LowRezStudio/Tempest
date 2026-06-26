@@ -8,7 +8,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { createKillLobbyServerMutation } from "$lib/queries/lobby";
 	import { lobbyServerProcessesList } from "$lib/stores/processes";
-	import { get } from "svelte/store";
+	import type { ProcessLog } from "$lib/types/process";
 
 	let activeTab = $state<"logs">("logs");
 
@@ -18,7 +18,7 @@
 	const killLobbyMutation = createKillLobbyServerMutation();
 
 	const logsStore = $derived(process?.logs);
-	const logsList = $derived(logsStore ? (get(logsStore) ?? []) : []);
+	const logsList = $derived(logsStore ? ($logsStore as ProcessLog[]) : []);
 	const isKilling = $derived(killLobbyMutation.isPending);
 	const returnCode = $derived(process?.returnCode);
 	const isRunning = $derived($returnCode === null);

@@ -36,6 +36,7 @@
 	let selectedMinPlayers = $state<number>(1);
 	let selectedMaxSpectators = $state<number>(5);
 	let selectedPort = $state<number>(50051);
+	let selectedGameServerPort = $state<number>(7777);
 	const hostLobbyMutation = createLaunchLobbyMutation();
 	const hasLaunched = $derived(hostLobbyMutation.isSuccess);
 	const valid = $derived(selectedName.trim().length > 0 && selectedInstanceId);
@@ -50,6 +51,7 @@
 			path: path,
 			name: selectedName,
 			port: String(selectedPort),
+			"game-server-port": String(selectedGameServerPort),
 			tags: selectedTags,
 			version: instance.version || "?",
 			"max-players": String(selectedMaxPlayers),
@@ -62,6 +64,7 @@
 			dll: options.dllList,
 			//currently hard coded to false because the server preloads the champions
 			"enable-join-in-progress": false,
+			upnp: true,
 		});
 		open = false;
 	}
@@ -83,6 +86,7 @@
 			selectedMinPlayers = 1;
 			selectedMaxSpectators = 5;
 			selectedPort = 50051;
+			selectedGameServerPort = 7777;
 		}
 	});
 </script>
@@ -262,6 +266,21 @@
 					max="65000"
 					placeholder={m.hostserver_port_range()}
 					bind:value={selectedPort}
+				/>
+			</div>
+			<div class="form-control">
+				<label for="game-server-port" class="label py-0.5">
+					<span class="label-text text-sm">{m.hostserver_game_server_port()}</span>
+				</label>
+				<input
+					id="game-server-port"
+					type="number"
+					class="input input-bordered w-full user-invalid:validator"
+					required
+					min="1"
+					max="65535"
+					placeholder={m.hostserver_game_server_port_range()}
+					bind:value={selectedGameServerPort}
 				/>
 			</div>
 		</div>

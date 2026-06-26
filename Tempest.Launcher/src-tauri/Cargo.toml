@@ -1,6 +1,6 @@
 [package]
 name = "tempest-launcher"
-version = "1.0.0-14"
+version = "1.0.0-15"
 authors = ["Kyiro <Kyiro@protonmail.com>"]
 edition = "2021"
 
