@@ -1,5 +1,5 @@
 import { createCommand } from "$lib/core/command";
-import { logCommandOutput } from "$lib/stores/processes";
+import { appendProcessLog, logCommandOutput } from "$lib/stores/processes";
 import { restoreError, restoreResult, restoreStatus } from "./stores";
 import type { RestoreResult } from "./stores";
 
@@ -33,6 +33,8 @@ export class RigbyManager {
 			{ "--base-url": options.baseUrl },
 			{ "--no-download": options.noDownload },
 		];
+
+		appendProcessLog(`Restore args: ${JSON.stringify(args)}`, false, "rigby");
 
 		try {
 			const command = createCommand(args);

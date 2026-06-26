@@ -60,7 +60,7 @@
 	let isPaused = $derived(instance.state.type === "paused");
 	let isReady = $derived(instance.state.type === "prepared");
 	let isActive = $derived(isDownloading || isPaused);
-	let canRestore = $derived(!!(instance?.version && instance?.path));
+	let canRestore = $derived(!!((instance?.version || instance?.manifestId) && instance?.path));
 	let isOnInstancePage = $derived(page.route.id === "/instance/[id]");
 
 	const setupInstanceMutation = createSetupInstanceMutation();
@@ -109,15 +109,15 @@
 	}
 
 	function handleRestore() {
-		if (!instance?.version || !instance?.path || !canRestore || isSettingUp) return;
+		if (!instance?.path || !canRestore || isSettingUp) return;
 
-		const matchedVersion = versions.find(
-			(v) => v.version === instance.version && v.appId === instance.appId,
-		);
-		const versionId = matchedVersion?.id || instance.version;
+		const manifestId =
+			instance.manifestId ?? versions.find((i) => i.version === instance.version)?.id;
+
+		if (!manifestId) return;
 
 		restoreQueue.add({
-			manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", versionId)],
+			manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", manifestId)],
 			outDir: instance.path,
 			baseUrl: RIGBY_BASE_URL,
 		});

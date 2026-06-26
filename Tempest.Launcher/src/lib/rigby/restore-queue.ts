@@ -1,6 +1,8 @@
 import { createCommand } from "$lib/core/command";
+import { m } from "$lib/paraglide/messages";
 import { instanceMap, updateInstance } from "$lib/stores/instance";
-import { logCommandOutput } from "$lib/stores/processes";
+import { appendProcessLog, logCommandOutput } from "$lib/stores/processes";
+import { addToast } from "$lib/stores/ui";
 import { queueCurrentIndex, queueItems, queueRunning } from "./stores";
 import type { QueueItem } from "./stores";
 import type { Child } from "@tauri-apps/plugin-shell";
@@ -148,6 +150,20 @@ export class RestoreQueue {
 		}
 	}
 
+	retry(id: string): void {
+		const items = queueItems.get();
+		const item = items.find((i) => i.id === id);
+		if (!item || item.status !== "error") return;
+
+		this.updateItem(id, {
+			status: "pending",
+			error: undefined,
+			progress: undefined,
+			result: undefined,
+		});
+		this.start();
+	}
+
 	private async processNext(): Promise<void> {
 		if (!queueRunning.get() || this.processing) return;
 
@@ -199,7 +215,7 @@ export class RestoreQueue {
 			args.push({ "--no-download": true });
 		}
 
-		console.log("Restore args:", JSON.stringify(args, null, 2));
+		appendProcessLog(`Restore args: ${JSON.stringify(args)}`, false, "rigby-queue");
 
 		try {
 			const command = createCommand(args);
@@ -259,6 +275,7 @@ export class RestoreQueue {
 					error: String(error),
 					progress: undefined,
 				});
+				this.updateInstanceState(item.outDir, "prepared");
 			});
 
 			command.on("close", (data) => {
@@ -307,6 +324,7 @@ export class RestoreQueue {
 						status: "error",
 						error: "Process completed but no completion event was received",
 					});
+					this.updateInstanceState(item.outDir, "prepared");
 				} else if (currentItem?.status === "paused") {
 					console.log("Ignoring close error because restore was paused");
 				} else {
@@ -315,6 +333,7 @@ export class RestoreQueue {
 						error: stderr || `Failed with code ${data.code}`,
 						progress: undefined,
 					});
+					this.updateInstanceState(item.outDir, "prepared");
 				}
 			});
 
@@ -328,6 +347,7 @@ export class RestoreQueue {
 				status: "error",
 				error: String(error),
 			});
+			this.updateInstanceState(item.outDir, "prepared");
 		}
 	}
 
@@ -343,6 +363,38 @@ export class RestoreQueue {
 		}
 	}
 
+	private instanceName(outDir: string): string {
+		const instances = instanceMap.get();
+		const instance = Object.values(instances).find((inst) => inst?.path === outDir) as
+			| Instance
+			| undefined;
+		return instance?.label ?? outDir.split(/[/\\]/).pop() ?? outDir;
+	}
+
+	private notifyStatusChange(item: QueueItem): void {
+		const name = this.instanceName(item.outDir);
+
+		if (item.status === "running") {
+			addToast({
+				title: m.toast_download_started_title(),
+				message: m.toast_download_started_message({ name }),
+				tone: "info",
+			});
+		} else if (item.status === "complete") {
+			addToast({
+				title: m.toast_download_finished_title(),
+				message: m.toast_download_finished_message({ name }),
+				tone: "success",
+			});
+		} else if (item.status === "error") {
+			addToast({
+				title: m.toast_download_failed_title(),
+				message: `${name}: ${item.error || m.toast_download_failed_unknown()}`,
+				tone: "error",
+			});
+		}
+	}
+
 	private updateItem(
 		id: string,
 		updates: Partial<Pick<QueueItem, "status" | "result" | "error" | "progress">>,
@@ -351,9 +403,14 @@ export class RestoreQueue {
 		const index = items.findIndex((item) => item.id === id);
 		if (index === -1) return;
 
+		const oldStatus = items[index].status;
 		const newItems = [...items];
 		newItems[index] = { ...newItems[index], ...updates };
 		queueItems.set(newItems);
+
+		if (updates.status && updates.status !== oldStatus) {
+			this.notifyStatusChange(newItems[index]);
+		}
 	}
 }
 

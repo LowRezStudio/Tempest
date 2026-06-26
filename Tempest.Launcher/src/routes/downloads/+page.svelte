@@ -51,6 +51,14 @@
 		restoreQueue.clearCompleted();
 	}
 
+	function handleRetry(id: string): void {
+		restoreQueue.retry(id);
+	}
+
+	function handleRemove(id: string): void {
+		restoreQueue.remove(id);
+	}
+
 	function statusText(status: string): string {
 		if (status === "pending") return m.downloads_pending();
 		if (status === "paused") return m.downloads_paused();
@@ -259,6 +267,23 @@
 										>
 											<Pause size={16} />
 										</button>
+									{:else if item.status === "error"}
+										<div class="flex items-center gap-1">
+											<button
+												class="btn btn-ghost btn-sm btn-square"
+												onclick={() => handleRetry(item.id)}
+												aria-label={m.updater_btn_retry()}
+											>
+												<RotateCcw size={16} />
+											</button>
+											<button
+												class="btn btn-ghost btn-sm btn-square"
+												onclick={() => handleRemove(item.id)}
+												aria-label={m.common_remove()}
+											>
+												<Trash2 size={16} />
+											</button>
+										</div>
 									{/if}
 								</div>
 							</div>
