@@ -1,0 +1,22 @@
+services:
+  tempest-services:
+    build:
+      context: .
+      dockerfile: Tempest.Services/Dockerfile
+    image: tempest-services:latest
+    container_name: tempest-services
+    ports:
+      - "${TEMPEST_HTTP_PORT:-80}:80"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:80"
+    cap_add:
+      - NET_BIND_SERVICE
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
