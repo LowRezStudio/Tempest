@@ -143,11 +143,6 @@ export class RestoreQueue {
 				state: { type: "prepared" },
 			});
 		}
-
-		if (this.processing) {
-			this.processing = false;
-			this.processNext();
-		}
 	}
 
 	retry(id: string): void {
@@ -186,16 +181,26 @@ export class RestoreQueue {
 		this.updateItem(item.id, { status: "running" });
 		this.updateInstanceState(item.outDir, "downloading");
 
-		await this.runRestore(item);
-
-		this.processing = false;
+		try {
+			await this.runRestore(item);
+		} catch (error) {
+			console.error("Unexpected restore failure:", error);
+			this.updateItem(item.id, {
+				status: "error",
+				error: String(error),
+				progress: undefined,
+			});
+			this.updateInstanceState(item.outDir, "prepared");
+		} finally {
+			this.processing = false;
+		}
 
 		if (queueRunning.get()) {
 			this.processNext();
 		}
 	}
 
-	private async runRestore(item: QueueItem): Promise<void> {
+	private runRestore(item: QueueItem): Promise<void> {
 		const args = [
 			"rigby",
 			"restore",
@@ -217,13 +222,24 @@ export class RestoreQueue {
 
 		appendProcessLog(`Restore args: ${JSON.stringify(args)}`, false, "rigby-queue");
 
-		try {
-			const command = createCommand(args);
-			logCommandOutput(command, "rigby-queue");
-			this.runningOutDir = item.outDir;
-			this.runningItemId = item.id;
-			let stdout = "";
-			let stderr = "";
+		const command = createCommand(args);
+		logCommandOutput(command, "rigby-queue");
+		this.runningOutDir = item.outDir;
+		this.runningItemId = item.id;
+		let stdout = "";
+		let stderr = "";
+
+		return new Promise<void>((resolve) => {
+			let settled = false;
+
+			const finish = () => {
+				if (settled) return;
+				settled = true;
+				this.runningChild = null;
+				this.runningOutDir = null;
+				this.runningItemId = null;
+				resolve();
+			};
 
 			command.stdout.on("data", (data) => {
 				stdout += data;
@@ -260,12 +276,14 @@ export class RestoreQueue {
 			command.on("error", (error) => {
 				if (this.runningItemId !== item.id) {
 					console.log("Ignoring stale error event");
+					finish();
 					return;
 				}
 
 				const currentItem = queueItems.get().find((i) => i.id === item.id);
 				if (currentItem?.status === "paused") {
 					console.log("Ignoring error because restore was paused");
+					finish();
 					return;
 				}
 
@@ -276,11 +294,13 @@ export class RestoreQueue {
 					progress: undefined,
 				});
 				this.updateInstanceState(item.outDir, "prepared");
+				finish();
 			});
 
 			command.on("close", (data) => {
 				if (this.runningItemId !== item.id) {
 					console.log("Ignoring stale close event");
+					finish();
 					return;
 				}
 
@@ -300,6 +320,7 @@ export class RestoreQueue {
 
 				if (data.code === 0) {
 					if (currentItem?.status === "complete") {
+						finish();
 						return;
 					}
 
@@ -313,6 +334,7 @@ export class RestoreQueue {
 									progress: undefined,
 								});
 								this.updateInstanceState(item.outDir, "prepared");
+								finish();
 								return;
 							}
 						} catch {
@@ -325,8 +347,10 @@ export class RestoreQueue {
 						error: "Process completed but no completion event was received",
 					});
 					this.updateInstanceState(item.outDir, "prepared");
+					finish();
 				} else if (currentItem?.status === "paused") {
 					console.log("Ignoring close error because restore was paused");
+					finish();
 				} else {
 					this.updateItem(item.id, {
 						status: "error",
@@ -334,21 +358,25 @@ export class RestoreQueue {
 						progress: undefined,
 					});
 					this.updateInstanceState(item.outDir, "prepared");
+					finish();
 				}
 			});
 
-			this.runningChild = await command.spawn();
-		} catch (error) {
-			console.error("Restore exception:", error);
-			this.runningChild = null;
-			this.runningOutDir = null;
-			this.runningItemId = null;
-			this.updateItem(item.id, {
-				status: "error",
-				error: String(error),
-			});
-			this.updateInstanceState(item.outDir, "prepared");
-		}
+			void command
+				.spawn()
+				.then((child) => {
+					this.runningChild = child;
+				})
+				.catch((error) => {
+					console.error("Restore exception:", error);
+					this.updateItem(item.id, {
+						status: "error",
+						error: String(error),
+					});
+					this.updateInstanceState(item.outDir, "prepared");
+					finish();
+				});
+		});
 	}
 
 	private updateInstanceState(outDir: string, stateType: Instance["state"]["type"]): void {
