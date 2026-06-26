@@ -97,8 +97,6 @@ internal class LauncherCommands
         {
             process.StartInfo.ArgumentList.Add("-seekfreeloadingpcconsole");
             process.StartInfo.ArgumentList.Add("-pid=402");
-            process.StartInfo.ArgumentList.Add("-anon");
-            process.StartInfo.ArgumentList.Add("-nosteam");
             process.StartInfo.ArgumentList.Add("-eac-nop-loaded");
             process.StartInfo.ArgumentList.Add("-replayfile=");
             process.StartInfo.ArgumentList.Add("-COOKFORDEMO");
