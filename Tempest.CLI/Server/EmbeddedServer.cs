@@ -68,9 +68,10 @@ internal sealed class EmbeddedServer
 
     public async Task StopAsync()
     {
+        _state.KillGameServer();
         if (_app != null)
         {
-            await _app.StopAsync();
+            await _app.StopAsync(TimeSpan.FromSeconds(2));
             await _app.DisposeAsync();
         }
     }

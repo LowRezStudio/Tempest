@@ -275,12 +275,12 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         _gameServerKilledIntentionally = false;
     }
 
-    private void KillGameServer()
+    public void KillGameServer()
     {
         var process = _gameProcess;
         if (process == null || process.HasExited) return;
         _gameServerKilledIntentionally = true;
-        try { process.Kill(); }
+        try { process.Kill(true); }
         catch (Exception ex) { Console.WriteLine($"Failed to kill game server: {ex.Message}"); }
     }
 
