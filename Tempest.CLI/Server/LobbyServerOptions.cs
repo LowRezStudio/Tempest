@@ -13,6 +13,7 @@ internal sealed class LobbyServerOptions
     public bool PublicServer { get; init; }
     public string? GameMode { get; init; }
     public int Port { get; init; } = 50051;
+    public int GameServerPort { get; init; } = 7777;
     public string? ServicesUrl { get; init; }
     public string Path { get; init; } = string.Empty;
     public bool NoDefaultArgs { get; init; } = false;
@@ -20,5 +21,6 @@ internal sealed class LobbyServerOptions
     public string? Game { get; init; } = null;
     public string[]? Dll { get; init; } = null;
     public bool EnableJoinInProgress { get; init; } = false;
+    public bool Upnp { get; init; }
     public IEnumerable<Tempest.Protocol.Common.AuthMethod> AuthMethods { get; init; } = [Tempest.Protocol.Common.AuthMethod.Plain];
 }

@@ -238,6 +238,8 @@
 	"hostserver_spectators_range": "Number between 1-30",
 	"hostserver_port": "Port",
 	"hostserver_port_range": "Port between 50000-65000",
+	"hostserver_game_server_port": "Game server port",
+	"hostserver_game_server_port_range": "Game server port, default 7777",
 	"instance_content": "Content",
 	"instance_no_content": "No content installed",
 	"instance_add_mods_hint": "Add mods to customize your instance",

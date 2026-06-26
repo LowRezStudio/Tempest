@@ -11,6 +11,7 @@ export type LobbyServerOptions = {
 	"public-server": boolean;
 	gamemode: string | null;
 	port: string;
+	"game-server-port": string;
 	password?: string;
 	"services-url"?: string;
 	"no-default-args"?: boolean;
@@ -18,6 +19,7 @@ export type LobbyServerOptions = {
 	game?: string;
 	dll?: string[];
 	"enable-join-in-progress": boolean;
+	upnp: boolean;
 };
 export enum JoinLobbyClientErrorCode {
 	PASSWORD_REQUIRED = 100,

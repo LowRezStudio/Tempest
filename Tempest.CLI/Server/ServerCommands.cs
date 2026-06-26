@@ -17,6 +17,7 @@ internal class ServerCommands
         string? gamemode = null,
         string servicesUrl = "https://api.lowrezstudio.com",
         int port = 50051,
+        int gameServerPort = 7777,
         string? password = null,
         bool detach = false,
         bool noDefaultArgs = false,
@@ -24,6 +25,7 @@ internal class ServerCommands
         string? game = null,
         string[]? dll = null,
         bool enableJoinInProgress = false,
+        bool upnp = false,
         CancellationToken cancellationToken = default)
     {
         var options = new LobbyServerOptions
@@ -39,6 +41,7 @@ internal class ServerCommands
             PublicServer = publicServer,
             GameMode = gamemode,
             Port = port,
+            GameServerPort = gameServerPort,
             ServicesUrl = servicesUrl,
             Path = path,
             NoDefaultArgs = noDefaultArgs,
@@ -46,6 +49,7 @@ internal class ServerCommands
             Game = game,
             Dll = dll,
             EnableJoinInProgress = enableJoinInProgress,
+            Upnp = upnp,
         };
 
         var server = new EmbeddedServer(options);
