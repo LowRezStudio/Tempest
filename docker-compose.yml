@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3
+    image: docker.io/library/traefik:v3
     container_name: tempest-traefik
     command:
       - --api.dashboard=true
