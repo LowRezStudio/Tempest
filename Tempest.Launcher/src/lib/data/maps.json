@@ -391,5 +391,117 @@
 		"iconPath": "/loading-screens/Loading_Payload_Forest.webp",
 		"versionStart": "6.1",
 		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Brightmarsh",
+		"id": "BMO_P_v01",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_Atrium.webp",
+		"versionStart": "0.55",
+		"versionEnd": "0.70"
+	},
+	{
+		"displayName": "Brightmarsh",
+		"id": "BMO_P_v01",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_Atrium.webp",
+		"versionStart": "7.2",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Jaguar Falls",
+		"id": "TMO_Falls_P_v04",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_Temple.webp",
+		"versionStart": "0.55",
+		"versionEnd": "1.2"
+	},
+	{
+		"displayName": "Primal Court",
+		"id": "TOM_P_v01",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_TropicalArena.webp",
+		"versionStart": "0.52",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Primal Court",
+		"id": "ON_PrimalCourt_P",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_TropicalArena.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Snowfall Junction",
+		"id": "IOM_P_v01",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_IceArena.webp",
+		"versionStart": "0.52",
+		"versionEnd": "1.2"
+	},
+	{
+		"displayName": "Snowfall Junction",
+		"id": "ON_SnowfallJunction_P",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_IceArena.webp",
+		"versionStart": "2.4",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Magistrate's Archives",
+		"id": "KMO_P",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_Archives.webp",
+		"versionStart": "0.64",
+		"versionEnd": "1.2"
+	},
+	{
+		"displayName": "Magistrate's Archives",
+		"id": "KMO_P",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_Archives.webp",
+		"versionStart": "2.3",
+		"versionEnd": "2.7"
+	},
+	{
+		"displayName": "Magistrate's Archives",
+		"id": "ON_MAv2_MagistratesArchives_P",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_ArchivesV2.webp",
+		"versionStart": "3.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Foreman's Rise",
+		"id": "QMO_P",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_Quarry_Onslaught.webp",
+		"versionStart": "0.66",
+		"versionEnd": "1.2"
+	},
+	{
+		"displayName": "Foreman's Rise",
+		"id": "ON_ForemansRise_P",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_Quarry_Onslaught.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Marauder's Port",
+		"id": "Pirate_v2_P",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_MaraudersPort.webp",
+		"versionStart": "1.6",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Marauder's Port",
+		"id": "ON_MaraudersPort_P",
+		"mode": "onslaught",
+		"iconPath": "/loading-screens/Loading_MaraudersPort.webp",
+		"versionStart": "2.5",
+		"versionEnd": "8.1"
 	}
 ]

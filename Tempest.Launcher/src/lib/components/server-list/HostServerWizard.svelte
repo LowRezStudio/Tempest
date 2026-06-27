@@ -14,7 +14,7 @@
 	}
 	//TODO check these and possibly support custom gamemodes
 	type GameMode =
-		| "TempestMp.Siege"
+		| "TempestMp.SiegeDEV"
 		| "TempestMp.Tdm"
 		| "TempestMp.Payload"
 		| "TempestMp.Onslaught";
@@ -31,7 +31,7 @@
 	let selectedTags = $state("");
 	let selectedPassword = $state("");
 	let selectedPublic = $state(false);
-	let selectedGameMode = $state<GameMode>("TempestMp.Siege");
+	let selectedGameMode = $state<GameMode>("TempestMp.SiegeDEV");
 	let selectedMaxPlayers = $state<number>(10);
 	let selectedMinPlayers = $state<number>(1);
 	let selectedMaxSpectators = $state<number>(5);
@@ -78,7 +78,7 @@
 			selectedTab = "general";
 			selectedName = $username ? `${$username}'s Server` : "";
 			selectedInstanceId = instanceList.length === 1 ? instanceList[0].id : "";
-			selectedGameMode = "TempestMp.Siege";
+			selectedGameMode = "TempestMp.SiegeDEV";
 			selectedPublic = false;
 			selectedPassword = "";
 			selectedTags = "";
@@ -162,7 +162,7 @@
 					class="select select-bordered w-full"
 					bind:value={selectedGameMode}
 				>
-					<option value="TempestMp.Siege" label="Siege"></option>
+					<option value="TempestMp.SiegeDEV" label="Siege"></option>
 					<option value="TempestMp.Payload" label="Payload"></option>
 					<option value="TempestMp.Tdm" label="Team Deathmatch"></option>
 					<option value="TempestMp.Onslaught" label="Onslaught"></option>
