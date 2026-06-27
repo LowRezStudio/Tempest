@@ -8,8 +8,6 @@ import type { CreateLobbyResponse } from "./create_lobby_response";
 import type { GetServerByIdRequest } from "./get_server_by_id_request";
 import type { GetServerByIdResponse } from "./get_server_by_id_response";
 import type { GetServersRequest } from "./get_servers_request";
-import type { HeartbeatLobbyRequest } from "./heartbeat_lobby_request";
-import type { HeartbeatLobbyResponse } from "./heartbeat_lobby_response";
 import type { ServerListing } from "./server_listing";
 import type { UpdateLobbyRequest } from "./update_lobby_request";
 import type { UpdateLobbyResponse } from "./update_lobby_response";
@@ -53,13 +51,6 @@ export interface IServerListClient {
 		input: GetServerByIdRequest,
 		options?: RpcOptions,
 	): UnaryCall<GetServerByIdRequest, GetServerByIdResponse>;
-	/**
-	 * @generated from protobuf rpc: HeartbeatLobby
-	 */
-	heartbeatLobby(
-		input: HeartbeatLobbyRequest,
-		options?: RpcOptions,
-	): UnaryCall<HeartbeatLobbyRequest, HeartbeatLobbyResponse>;
 }
 /**
  * @generated from protobuf service tempest.server_list.ServerList
@@ -130,23 +121,6 @@ export class ServerListClient implements IServerListClient, ServiceInfo {
 		const method = this.methods[3],
 			opt = this._transport.mergeOptions(options);
 		return stackIntercept<GetServerByIdRequest, GetServerByIdResponse>(
-			"unary",
-			this._transport,
-			method,
-			opt,
-			input,
-		);
-	}
-	/**
-	 * @generated from protobuf rpc: HeartbeatLobby
-	 */
-	heartbeatLobby(
-		input: HeartbeatLobbyRequest,
-		options?: RpcOptions,
-	): UnaryCall<HeartbeatLobbyRequest, HeartbeatLobbyResponse> {
-		const method = this.methods[4],
-			opt = this._transport.mergeOptions(options);
-		return stackIntercept<HeartbeatLobbyRequest, HeartbeatLobbyResponse>(
 			"unary",
 			this._transport,
 			method,

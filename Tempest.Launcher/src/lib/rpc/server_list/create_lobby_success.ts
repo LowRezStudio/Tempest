@@ -23,17 +23,23 @@ export interface CreateLobbySuccess {
 	 * @generated from protobuf field: string id = 1
 	 */
 	id: string;
+	/**
+	 * @generated from protobuf field: string ticket = 2
+	 */
+	ticket: string;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class CreateLobbySuccess$Type extends MessageType<CreateLobbySuccess> {
 	constructor() {
 		super("tempest.server_list.CreateLobbySuccess", [
 			{ no: 1, name: "id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 2, name: "ticket", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 		]);
 	}
 	create(value?: PartialMessage<CreateLobbySuccess>): CreateLobbySuccess {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.id = "";
+		message.ticket = "";
 		if (value !== undefined) reflectionMergePartial<CreateLobbySuccess>(this, message, value);
 		return message;
 	}
@@ -50,6 +56,9 @@ class CreateLobbySuccess$Type extends MessageType<CreateLobbySuccess> {
 			switch (fieldNo) {
 				case /* string id */ 1:
 					message.id = reader.string();
+					break;
+				case /* string ticket */ 2:
+					message.ticket = reader.string();
 					break;
 				default:
 					let u = options.readUnknownField;
@@ -77,6 +86,8 @@ class CreateLobbySuccess$Type extends MessageType<CreateLobbySuccess> {
 	): IBinaryWriter {
 		/* string id = 1; */
 		if (message.id !== "") writer.tag(1, WireType.LengthDelimited).string(message.id);
+		/* string ticket = 2; */
+		if (message.ticket !== "") writer.tag(2, WireType.LengthDelimited).string(message.ticket);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

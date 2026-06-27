@@ -51,6 +51,10 @@ export interface UpdateLobbyRequest {
 	 * @generated from protobuf field: optional bool join_in_progress = 8
 	 */
 	joinInProgress?: boolean;
+	/**
+	 * @generated from protobuf field: string ticket = 9
+	 */
+	ticket: string;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class UpdateLobbyRequest$Type extends MessageType<UpdateLobbyRequest> {
@@ -70,11 +74,13 @@ class UpdateLobbyRequest$Type extends MessageType<UpdateLobbyRequest> {
 				opt: true,
 				T: 8 /*ScalarType.BOOL*/,
 			},
+			{ no: 9, name: "ticket", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 		]);
 	}
 	create(value?: PartialMessage<UpdateLobbyRequest>): UpdateLobbyRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.id = "";
+		message.ticket = "";
 		if (value !== undefined) reflectionMergePartial<UpdateLobbyRequest>(this, message, value);
 		return message;
 	}
@@ -112,6 +118,9 @@ class UpdateLobbyRequest$Type extends MessageType<UpdateLobbyRequest> {
 					break;
 				case /* optional bool join_in_progress */ 8:
 					message.joinInProgress = reader.bool();
+					break;
+				case /* string ticket */ 9:
+					message.ticket = reader.string();
 					break;
 				default:
 					let u = options.readUnknownField;
@@ -156,6 +165,8 @@ class UpdateLobbyRequest$Type extends MessageType<UpdateLobbyRequest> {
 		/* optional bool join_in_progress = 8; */
 		if (message.joinInProgress !== undefined)
 			writer.tag(8, WireType.Varint).bool(message.joinInProgress);
+		/* string ticket = 9; */
+		if (message.ticket !== "") writer.tag(9, WireType.LengthDelimited).string(message.ticket);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

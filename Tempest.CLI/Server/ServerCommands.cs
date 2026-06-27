@@ -1,4 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.Logging;
+using ZLogger;
 
 namespace Tempest.CLI.Server;
 
@@ -52,7 +54,13 @@ internal class ServerCommands
             Upnp = upnp,
         };
 
-        var server = new EmbeddedServer(options);
+        using var loggerFactory = LoggerFactory.Create(logging =>
+        {
+            logging.ClearProviders();
+            logging.AddZLoggerConsole();
+        });
+
+        var server = new EmbeddedServer(options, loggerFactory);
         await server.StartAsync();
 
         Console.WriteLine($"Lobby '{options.Name}' started on port {port} (gRPC + HTTP)");
@@ -118,7 +126,7 @@ internal class ServerCommands
         await server.StopAsync();
     }
 
-    public static async Task List(string servicesUrl = "https://api.lowrezstudio.com")
+    public async Task List(string servicesUrl = "https://api.lowrezstudio.com")
     {
         using var client = new ServerListClient(servicesUrl);
         var servers = await client.GetServersAsync();
@@ -147,7 +155,7 @@ internal class ServerCommands
         }
     }
 
-    public static async Task Get(string id, string servicesUrl = "https://api.lowrezstudio.com")
+    public async Task Get(string id, string servicesUrl = "https://api.lowrezstudio.com")
     {
         using var client = new ServerListClient(servicesUrl);
 

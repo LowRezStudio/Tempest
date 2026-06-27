@@ -5,10 +5,9 @@ namespace Tempest.Services;
 
 public class ServerListServiceImpl(InMemoryServerStore store) : ServerList.ServerListBase
 {
-    private readonly InMemoryServerStore _store = store;
-
     public override Task<CreateLobbyResponse> CreateLobby(CreateLobbyRequest request, ServerCallContext context)
     {
+        var ticket = Guid.NewGuid().ToString("N");
         var server = new ServerListing
         {
             Ip = request.Ip,
@@ -27,45 +26,48 @@ public class ServerListServiceImpl(InMemoryServerStore store) : ServerList.Serve
             Country = request.Country,
             Players = 0,
             Bots = 0,
-            Spectators = 0
+            Spectators = 0,
         };
 
-        var id = _store.Add(server);
+        var id = store.Add(server, ticket);
 
         return Task.FromResult(new CreateLobbyResponse
         {
             Success = new CreateLobbySuccess
             {
-                Id = id
+                Id = id,
+                Ticket = ticket
             }
         });
     }
 
     public override Task<UpdateLobbyResponse> UpdateLobby(UpdateLobbyRequest request, ServerCallContext context)
     {
-        var server = _store.Get(request.Id);
-        if (server == null)
+        var updated = store.Update(request.Id, request.Ticket, server =>
+        {
+            if (request.HasPlayers) server.Players = request.Players;
+            if (request.HasBots) server.Bots = request.Bots;
+            if (request.HasSpectators) server.Spectators = request.Spectators;
+            if (request.HasMap) server.Map = request.Map;
+            if (request.HasMapId) server.MapId = request.MapId;
+            if (request.HasJoinable) server.Joinable = request.Joinable;
+            if (request.HasJoinInProgress) server.JoinInProgress = request.JoinInProgress;
+        });
+
+        if (!updated)
         {
             return Task.FromResult(new UpdateLobbyResponse
             {
-                Error = new UpdateLobbyError { Code = UpdateLobbyErrorCode.NotFound }
+                Error = new UpdateLobbyError { Code = UpdateLobbyErrorCode.InvalidTicket }
             });
         }
-
-        if (request.HasPlayers) server.Players = request.Players;
-        if (request.HasBots) server.Bots = request.Bots;
-        if (request.HasSpectators) server.Spectators = request.Spectators;
-        if (request.HasMap) server.Map = request.Map;
-        if (request.HasMapId) server.MapId = request.MapId;
-        if (request.HasJoinable) server.Joinable = request.Joinable;
-        if (request.HasJoinInProgress) server.JoinInProgress = request.JoinInProgress;
 
         return Task.FromResult(new UpdateLobbyResponse { Success = new UpdateLobbySuccess() });
     }
 
     public override async Task GetServers(GetServersRequest request, IServerStreamWriter<ServerListing> responseStream, ServerCallContext context)
     {
-        foreach (var server in _store.GetAll())
+        foreach (var server in store.GetAll())
         {
             await responseStream.WriteAsync(server);
         }
@@ -73,7 +75,7 @@ public class ServerListServiceImpl(InMemoryServerStore store) : ServerList.Serve
 
     public override Task<GetServerByIdResponse> GetServerById(GetServerByIdRequest request, ServerCallContext context)
     {
-        var server = _store.Get(request.Id);
+        var server = store.Get(request.Id);
         if (server == null)
         {
             return Task.FromResult(new GetServerByIdResponse
@@ -90,10 +92,5 @@ public class ServerListServiceImpl(InMemoryServerStore store) : ServerList.Serve
         {
             Success = server
         });
-    }
-
-    public override Task<HeartbeatLobbyResponse> HeartbeatLobby(HeartbeatLobbyRequest request, ServerCallContext context)
-    {
-        return Task.FromResult(new HeartbeatLobbyResponse());
     }
 }

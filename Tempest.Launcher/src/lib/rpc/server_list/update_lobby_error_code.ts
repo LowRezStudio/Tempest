@@ -13,4 +13,8 @@ export enum UpdateLobbyErrorCode {
 	 * @generated from protobuf enum value: NOT_FOUND = 1;
 	 */
 	NOT_FOUND = 1,
+	/**
+	 * @generated from protobuf enum value: INVALID_TICKET = 2;
+	 */
+	INVALID_TICKET = 2,
 }

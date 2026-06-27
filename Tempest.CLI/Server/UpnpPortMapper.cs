@@ -80,8 +80,9 @@ internal sealed class UpnpPortMapper : IAsyncDisposable
             "\r\n");
 
         using var udp = new UdpClient();
-        udp.Client.Bind(new IPEndPoint(IPAddress.Any, 0));
-        await udp.Client.SendAsync(new ArraySegment<byte>(message), SocketFlags.None).ConfigureAwait(false);
+        udp.EnableBroadcast = true;
+        var multicastEndpoint = new IPEndPoint(IPAddress.Parse("239.255.255.250"), 1900);
+        await udp.SendAsync(message, message.Length, multicastEndpoint).ConfigureAwait(false);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
@@ -126,7 +127,7 @@ internal sealed class UpnpPortMapper : IAsyncDisposable
         response.EnsureSuccessStatusCode();
         var xml = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
-        using var reader = XmlReader.Create(new StringReader(xml));
+        using var reader = XmlReader.Create(new StringReader(xml), new XmlReaderSettings { Async = true });
         string? urlBase = null;
         string? controlUrl = null;
         string? serviceType = null;
@@ -141,7 +142,7 @@ internal sealed class UpnpPortMapper : IAsyncDisposable
                 var name = reader.Name;
                 if (name.Equals("URLBase", StringComparison.OrdinalIgnoreCase))
                 {
-                    urlBase = await reader.ReadElementContentAsStringAsync().ConfigureAwait(false);
+                    urlBase = (await reader.ReadElementContentAsStringAsync().ConfigureAwait(false)).Trim();
                 }
                 else if (name.Equals("service", StringComparison.OrdinalIgnoreCase))
                 {
@@ -151,11 +152,11 @@ internal sealed class UpnpPortMapper : IAsyncDisposable
                 }
                 else if (inService && name.Equals("serviceType", StringComparison.OrdinalIgnoreCase))
                 {
-                    currentServiceType = await reader.ReadElementContentAsStringAsync().ConfigureAwait(false);
+                    currentServiceType = (await reader.ReadElementContentAsStringAsync().ConfigureAwait(false)).Trim();
                 }
                 else if (inService && name.Equals("controlURL", StringComparison.OrdinalIgnoreCase))
                 {
-                    currentControlUrl = await reader.ReadElementContentAsStringAsync().ConfigureAwait(false);
+                    currentControlUrl = (await reader.ReadElementContentAsStringAsync().ConfigureAwait(false)).Trim();
                 }
             }
             else if (inService && reader.NodeType == XmlNodeType.EndElement && reader.Name.Equals("service", StringComparison.OrdinalIgnoreCase))
@@ -175,12 +176,25 @@ internal sealed class UpnpPortMapper : IAsyncDisposable
         if (string.IsNullOrEmpty(controlUrl))
             return (null, null);
 
-        var baseUri = string.IsNullOrEmpty(urlBase) ? location : urlBase;
-        if (Uri.TryCreate(controlUrl, UriKind.Absolute, out _))
-            return (controlUrl, serviceType);
+        controlUrl = controlUrl.Trim();
 
-        if (Uri.TryCreate(new Uri(baseUri), controlUrl, out var absolute))
+        if (Uri.TryCreate(controlUrl, UriKind.Absolute, out var absoluteControlUrl) &&
+            absoluteControlUrl.IsAbsoluteUri &&
+            (absoluteControlUrl.Scheme == Uri.UriSchemeHttp || absoluteControlUrl.Scheme == Uri.UriSchemeHttps))
+        {
+            return (absoluteControlUrl.ToString(), serviceType);
+        }
+
+        var baseUri = string.IsNullOrEmpty(urlBase) ? location : urlBase;
+        if (!Uri.TryCreate(baseUri, UriKind.Absolute, out var baseUriObj))
+            baseUriObj = new Uri(location);
+
+        if (Uri.TryCreate(baseUriObj, controlUrl, out var absolute) &&
+            absolute.IsAbsoluteUri &&
+            (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
+        {
             return (absolute.ToString(), serviceType);
+        }
 
         return (null, null);
     }
@@ -226,9 +240,15 @@ internal sealed class UpnpPortMapper : IAsyncDisposable
 
     private async Task SendSoapAsync(string url, string serviceType, string action, string body, CancellationToken cancellationToken)
     {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var requestUri) ||
+            (requestUri.Scheme != Uri.UriSchemeHttp && requestUri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new InvalidOperationException($"UPnP control URL is not a valid absolute HTTP/HTTPS URI: '{url}'");
+        }
+
         var content = new StringContent(body, Encoding.UTF8, "text/xml");
         content.Headers.TryAddWithoutValidation("SOAPACTION", $"\"{serviceType}#{action}\"");
-        using var response = await _http.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
+        using var response = await _http.PostAsync(requestUri, content, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
     }
 

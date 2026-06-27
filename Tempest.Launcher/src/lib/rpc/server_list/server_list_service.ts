@@ -7,8 +7,6 @@ import { CreateLobbyResponse } from "./create_lobby_response";
 import { GetServerByIdRequest } from "./get_server_by_id_request";
 import { GetServerByIdResponse } from "./get_server_by_id_response";
 import { GetServersRequest } from "./get_servers_request";
-import { HeartbeatLobbyRequest } from "./heartbeat_lobby_request";
-import { HeartbeatLobbyResponse } from "./heartbeat_lobby_response";
 import { ServerListing } from "./server_listing";
 import { UpdateLobbyRequest } from "./update_lobby_request";
 import { UpdateLobbyResponse } from "./update_lobby_response";
@@ -27,5 +25,4 @@ export const ServerList = new ServiceType("tempest.server_list.ServerList", [
 		O: ServerListing,
 	},
 	{ name: "GetServerById", options: {}, I: GetServerByIdRequest, O: GetServerByIdResponse },
-	{ name: "HeartbeatLobby", options: {}, I: HeartbeatLobbyRequest, O: HeartbeatLobbyResponse },
 ]);

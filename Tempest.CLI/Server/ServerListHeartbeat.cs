@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
+using Grpc.Core;
+using Microsoft.Extensions.Logging;
 using Tempest.Protocol.Lobby;
 using Tempest.Protocol.ServerList;
 
@@ -10,13 +12,16 @@ internal sealed class ServerListHeartbeat : BackgroundService
     private readonly LobbyServerOptions _options;
     private readonly LobbyState _state;
     private readonly ServerListClient _client;
-    private readonly TimeSpan _checkInterval = TimeSpan.FromSeconds(120);
+    private readonly ILogger<ServerListHeartbeat> _logger;
+    private readonly TimeSpan _heartbeatInterval = TimeSpan.FromSeconds(120);
     private string? _ownId;
+    private string? _ticket;
 
-    public ServerListHeartbeat(LobbyServerOptions options, LobbyState state)
+    public ServerListHeartbeat(LobbyServerOptions options, LobbyState state, ILogger<ServerListHeartbeat> logger)
     {
         _options = options;
         _state = state;
+        _logger = logger;
         _client = new ServerListClient(_options.ServicesUrl ?? "https://api.lowrezstudio.com");
         _state.Subscribe().Subscribe(new Observer(this));
     }
@@ -27,44 +32,46 @@ internal sealed class ServerListHeartbeat : BackgroundService
         {
             try
             {
-                if (await ShouldRegisterAsync(stoppingToken))
+                if (_ownId == null)
                 {
                     var response = await RegisterAsync(stoppingToken);
                     if (response.ResultCase == CreateLobbyResponse.ResultOneofCase.Success)
                     {
-                        Console.WriteLine($"Successfully registered with ServerList service. Id: {response.Success.Id}");
+                        _logger.LogInformation("Successfully registered with ServerList service. Id: {ServerListId}", response.Success.Id);
                         _ownId = response.Success.Id;
+                        _ticket = response.Success.Ticket;
                     }
                     else if (response.ResultCase == CreateLobbyResponse.ResultOneofCase.Error)
                     {
-                        Console.WriteLine($"Failed to register with ServerList: {response.Error.Message}");
+                        _logger.LogError("Failed to register with ServerList: {ErrorMessage}", response.Error.Message);
+                    }
+                }
+                else
+                {
+                    var response = await _client.UpdateLobbyAsync(
+                        new UpdateLobbyRequest { Id = _ownId, Ticket = _ticket },
+                        stoppingToken);
+
+                    if (response.ResultCase == UpdateLobbyResponse.ResultOneofCase.Error)
+                    {
+                        _logger.LogWarning("Server list heartbeat rejected ({ErrorCode}), re-registering...", response.Error.Code);
+                        _ownId = null;
+                        _ticket = null;
                     }
                 }
             }
+            catch (RpcException ex) when (ex.StatusCode == StatusCode.PermissionDenied)
+            {
+                _logger.LogError("Failed to register with ServerList: access denied (HTTP 403)");
+            }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to register with ServerList: {ex.Message}");
+                _logger.LogError(ex, "Server list heartbeat error");
             }
 
-            await Task.Delay(_checkInterval, stoppingToken);
+            await Task.Delay(_heartbeatInterval, stoppingToken);
         }
         _client.Dispose();
-    }
-
-    private async Task<bool> ShouldRegisterAsync(CancellationToken ct)
-    {
-        if (_ownId == null) return true;
-        try
-        {
-            var response = await _client.GetServerByIdAsync(_ownId, ct);
-            return response.ResultCase == GetServerByIdResponse.ResultOneofCase.Error
-                && response.Error.Code == GetServerByIdErrorCode.IdNotFound;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error checking server list entry: {ex.Message}");
-            return false;
-        }
     }
 
     private async Task<CreateLobbyResponse> RegisterAsync(CancellationToken ct)
@@ -103,16 +110,15 @@ internal sealed class ServerListHeartbeat : BackgroundService
 
     private sealed class Observer(ServerListHeartbeat parent) : IObserver<LobbyEvent>
     {
-        private readonly ServerListHeartbeat _parent = parent;
         public void OnCompleted() { }
         public void OnError(Exception error) { }
 
         public void OnNext(LobbyEvent ev)
         {
-            if (_parent._ownId == null) return;
+            if (parent._ownId == null || parent._ticket == null) return;
             if (ev.PlayerJoin == null && ev.PlayerLeave == null && ev.StateUpdate == null && ev.Info == null) return;
 
-            var info = _parent._state.GetInfoEvent().Info;
+            var info = parent._state.GetInfoEvent().Info;
             string? mapId = null;
             if (info.State.ChampionSelect != null)
                 mapId = info.State.ChampionSelect.MapId;
@@ -123,17 +129,18 @@ internal sealed class ServerListHeartbeat : BackgroundService
 
             var request = new UpdateLobbyRequest
             {
-                Id = _parent._ownId,
+                Id = parent._ownId,
+                Ticket = parent._ticket,
                 Players = (uint)info.Players.Count,
                 MapId = mapId,
             };
             try
             {
-                _ = _parent._client.UpdateLobbyAsync(request);
+                _ = parent._client.UpdateLobbyAsync(request);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to update ServerList entry {ex.Message}");
+                parent._logger.LogError(ex, "Failed to update ServerList entry");
             }
         }
     }

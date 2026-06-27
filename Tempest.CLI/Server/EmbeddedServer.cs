@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Logging;
+using ZLogger;
 
 namespace Tempest.CLI.Server;
 
@@ -7,14 +9,16 @@ internal sealed class EmbeddedServer
     private readonly LobbyServerOptions _options;
     private readonly LobbyState _state;
     private readonly ITicketStore _ticketStore;
+    private readonly ILogger<EmbeddedServer> _logger;
     private WebApplication? _app;
     private readonly List<UpnpPortMapper> _upnp = [];
 
-    public EmbeddedServer(LobbyServerOptions options)
+    public EmbeddedServer(LobbyServerOptions options, ILoggerFactory loggerFactory)
     {
         _options = options;
+        _logger = loggerFactory.CreateLogger<EmbeddedServer>();
         _ticketStore = new InMemoryTicketStore();
-        _state = new LobbyState(options, _ticketStore);
+        _state = new LobbyState(options, _ticketStore, loggerFactory.CreateLogger<LobbyState>());
     }
 
     public async Task StartAsync()
@@ -44,7 +48,8 @@ internal sealed class EmbeddedServer
                         );
                 });
         });
-        builder.Services.AddLogging(c => c.ClearProviders());
+        builder.Logging.ClearProviders();
+        builder.Logging.AddZLoggerConsole();
         builder.Services.AddSingleton(_ticketStore);
         builder.Services.AddSingleton(_state);
         builder.Services.AddSingleton<PlayerDisconnectMonitor>();
@@ -65,6 +70,7 @@ internal sealed class EmbeddedServer
         _app.MapGet("/health", () => Results.StatusCode(200));
 
         await _app.StartAsync();
+        _logger.LogInformation("Embedded server started on port {Port}", _options.Port);
 
         if (_options.Upnp)
         {
@@ -75,12 +81,12 @@ internal sealed class EmbeddedServer
                 try
                 {
                     await mapper.MapAsync();
-                    Console.WriteLine($"UPnP mapped port {port}");
+                    _logger.LogInformation("UPnP mapped port {Port}", port);
                     _upnp.Add(mapper);
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"UPnP mapping failed for port {port}: {ex.Message}");
+                    _logger.LogError(ex, "UPnP mapping failed for port {Port}", port);
                     await mapper.DisposeAsync();
                 }
             }
@@ -89,6 +95,7 @@ internal sealed class EmbeddedServer
 
     public async Task StopAsync()
     {
+        _logger.LogInformation("Embedded server stopping");
         _state.KillGameServer();
 
         foreach (var mapper in _upnp)
@@ -99,7 +106,7 @@ internal sealed class EmbeddedServer
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"UPnP unmap failed: {ex.Message}");
+                _logger.LogError(ex, "UPnP unmap failed");
             }
             await mapper.DisposeAsync();
         }

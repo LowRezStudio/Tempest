@@ -11,4 +11,5 @@ message UpdateLobbyRequest {
   optional string map_id = 6;
   optional bool joinable = 7;
   optional bool join_in_progress = 8;
+  string ticket = 9;
 }

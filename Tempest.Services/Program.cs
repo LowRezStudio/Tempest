@@ -1,4 +1,6 @@
+using Quartz;
 using Tempest.Services;
+using Tempest.Services.Jobs;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -23,8 +25,21 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddGrpc();
-builder.Services.AddHostedService<HeartbeatManager>();
 builder.Services.AddSingleton<InMemoryServerStore>();
+
+builder.Services.AddQuartz(q =>
+{
+    q.UseInMemoryStore();
+
+    var jobKey = new JobKey(nameof(RemoveDeadServerListingsJob));
+    q.AddJob<RemoveDeadServerListingsJob>(jobKey);
+    q.AddTrigger(t => t
+        .ForJob(jobKey)
+        .WithSimpleSchedule(s => s
+            .WithInterval(TimeSpan.FromSeconds(30))
+            .RepeatForever()));
+});
+builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
 
 var app = builder.Build();
 

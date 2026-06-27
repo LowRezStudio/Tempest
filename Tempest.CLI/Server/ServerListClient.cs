@@ -44,12 +44,6 @@ internal sealed class ServerListClient : IDisposable
         return await _client.UpdateLobbyAsync(request, cancellationToken: cancellationToken);
     }
 
-    public async Task<HeartbeatLobbyResponse> HeartbeatLobbyAsync(CancellationToken cancellationToken = default)
-    {
-        var request = new HeartbeatLobbyRequest();
-        return await _client.HeartbeatLobbyAsync(request, cancellationToken: cancellationToken);
-    }
-
     public void Dispose()
     {
         _channel.Dispose();

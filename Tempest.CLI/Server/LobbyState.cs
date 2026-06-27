@@ -1,4 +1,5 @@
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Tempest.CLI.Launcher;
@@ -6,11 +7,9 @@ using Tempest.Protocol.Lobby;
 
 namespace Tempest.CLI.Server;
 
-internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticketStore)
+internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticketStore, ILogger<LobbyState> logger)
 {
-    private readonly LobbyServerOptions _options = options;
     private readonly ConcurrentDictionary<string, LobbyPlayer> _players = new();
-    private readonly ITicketStore _ticketStore = ticketStore;
     private readonly ConcurrentQueue<LobbyEvent> _eventBuffer = new();
     private readonly List<IObserver<LobbyEvent>> _subscribers = [];
     private readonly Lock _gate = new();
@@ -30,13 +29,15 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
 
     public bool TryJoin(string id, string displayName, string? password, out JoinLobbyResponse response)
     {
-        if (!string.IsNullOrEmpty(_options.Password) && _options.Password != password)
+        if (!string.IsNullOrEmpty(options.Password) && options.Password != password)
         {
+            logger.LogWarning("Player {DisplayName} failed to join: invalid password", displayName);
             response = Error(JoinLobbyErrorCode.InvalidPassword, "Invalid password");
             return false;
         }
-        if (_players.Count >= _options.MaxPlayers)
+        if (_players.Count >= options.MaxPlayers)
         {
+            logger.LogWarning("Player {DisplayName} failed to join: lobby full ({PlayerCount}/{MaxPlayers})", displayName, _players.Count, options.MaxPlayers);
             response = Error(JoinLobbyErrorCode.LobbyFull, "Lobby full");
             return false;
         }
@@ -52,9 +53,12 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
 
         if (!_players.TryAdd(id, player))
         {
+            logger.LogWarning("Player {DisplayName} failed to join: already in lobby", displayName);
             response = Error(JoinLobbyErrorCode.LobbyInvalid, "Player already in lobby");
             return false;
         }
+
+        logger.LogInformation("Player {DisplayName} joined lobby (team {Team}, {PlayerCount}/{MaxPlayers})", displayName, team, _players.Count, options.MaxPlayers);
 
         Publish(new LobbyEvent
         {
@@ -63,7 +67,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         });
         StateMachine();
 
-        var ticket = _ticketStore.Issue(id);
+        var ticket = ticketStore.Issue(id);
         response = new JoinLobbyResponse { Success = new JoinLobbySuccess { Ticket = ticket } };
         return true;
     }
@@ -72,7 +76,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     {
         if (_players.TryRemove(id, out var player))
         {
-            _ticketStore.RevokeTickets(id);
+            logger.LogInformation("Player {DisplayName} left lobby ({PlayerCount}/{MaxPlayers})", player.DisplayName, _players.Count, options.MaxPlayers);
+            ticketStore.RevokeTickets(id);
             if (_state.MapVote != null)
             {
                 _state.MapVote.Votes.Remove(id);
@@ -90,10 +95,18 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     }
     public bool KickPlayer(string id)
     {
+        if (_players.TryGetValue(id, out var player))
+        {
+            logger.LogInformation("Kicking player {DisplayName} from lobby", player.DisplayName);
+        }
         return TryLeave(id);
     }
     public void SendChat(string playerId, string content)
     {
+        if (_players.TryGetValue(playerId, out var player))
+        {
+            logger.LogDebug("Chat message from {DisplayName}: {Content}", player.DisplayName, content);
+        }
         var evt = new LobbyEvent
         {
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
@@ -113,6 +126,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     public bool TrySelectChampion(string playerId, string champion)
     {
         if (!_players.TryGetValue(playerId, out var player)) return false;
+        logger.LogInformation("Player {DisplayName} selected champion {Champion}", player.DisplayName, champion);
         player.Champion = champion;
         Publish(new LobbyEvent
         {
@@ -125,12 +139,16 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     public void Vote(string playerId, string mapId)
     {
         if (_state.MapVote == null) return;
+        if (_players.TryGetValue(playerId, out var player))
+        {
+            logger.LogInformation("Player {DisplayName} voted for map {MapId}", player.DisplayName, mapId);
+        }
         _state.MapVote.Votes[playerId] = mapId;
         PublishState();
         StateMachine();
     }
 
-    public bool TryGetPlayerIdFromTicket(string ticket, out string playerId) => _ticketStore.TryGetPlayerId(ticket, out playerId);
+    public bool TryGetPlayerIdFromTicket(string ticket, out string playerId) => ticketStore.TryGetPlayerId(ticket, out playerId);
 
     public bool TryLeaveByTicket(string ticket)
     {
@@ -147,7 +165,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         {
             if (_state.Waiting != null)
             {
-                bool enoughPlayers = _players.Count >= _options.MinPlayers;
+                bool enoughPlayers = _players.Count >= options.MinPlayers;
                 if (enoughPlayers && _countdown == null) StartCountdown(10, EndWaiting);
                 else if (!enoughPlayers) CancelCountdown();
             }
@@ -177,6 +195,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     }
     private void EndWaiting()
     {
+        logger.LogInformation("Starting map vote");
         SetState(new Protocol.Lobby.LobbyState { MapVote = new LobbyStateMapVote() });
     }
 
@@ -187,6 +206,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         int maxVotes = groups.Max(g => g.Count());
         var topMaps = groups.Where(g => g.Count() == maxVotes).ToList();
         string mapId = topMaps[Random.Shared.Next(topMaps.Count)].Key;
+        logger.LogInformation("Map vote ended, selected map {MapId} with {VoteCount} votes", mapId, maxVotes);
         SetState(new Protocol.Lobby.LobbyState { ChampionSelect = new LobbyStateChampionSelect { MapId = mapId } });
     }
 
@@ -197,9 +217,11 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         {
             if (player.Champion == null || player.Champion.Length == 0)
             {
+                logger.LogInformation("Player {DisplayName} did not select a champion and was kicked", player.DisplayName);
                 KickPlayer(player.Id);
             }
         }
+        logger.LogInformation("Champion select ended, starting game server on map {MapId} with {PlayerCount} players", mapId, _players.Count);
         SetState(new Protocol.Lobby.LobbyState
         {
             InGame = new LobbyStateInGame
@@ -216,7 +238,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             player.Champion = string.Empty;
         }
         //not using SetState because it would cause an unnecessary state update
-        if (_players.Count >= _options.MinPlayers)
+        if (_players.Count >= options.MinPlayers)
         {
             _state = new Protocol.Lobby.LobbyState { MapVote = new LobbyStateMapVote() };
         }
@@ -226,7 +248,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             {
                 Waiting = new LobbyStateWaiting
                 {
-                    MinPlayers = (uint)_options.MinPlayers
+                    MinPlayers = (uint)options.MinPlayers
                 }
             };
         }
@@ -243,14 +265,16 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     private async Task RunGameServerAsync(string mapId)
     {
         string champions = string.Join(",", _players.Where(p => p.Value.Champion.Length > 0).Select(p => p.Value.Champion.ToLower()));
-        string serverArgs = $"{mapId}?game={_options.GameMode}?allowedChampions={champions},maldamba?maxplayers={_options.MaxPlayers}";
-        if (_options.Password != null && _options.Password.Length > 0)
+        string serverArgs = $"{mapId}?game={options.GameMode}?allowedChampions={champions},maldamba?maxplayers={options.MaxPlayers}";
+        if (options.Password != null && options.Password.Length > 0)
         {
-            serverArgs += $"?password={_options.Password}";
+            serverArgs += $"?password={options.Password}";
         }
         string[] args = ["server", serverArgs];
-        var process = await LauncherCommands.LaunchGame(_options.Path, args, _options.NoDefaultArgs, _options.Platform, _options.Game, _options.Dll, true);
+        logger.LogInformation("Launching game server with args: {ServerArgs}", serverArgs);
+        var process = await LauncherCommands.LaunchGame(options.Path, args, options.NoDefaultArgs, options.Platform, options.Game, options.Dll, true);
         _gameProcess = process;
+        logger.LogInformation("Game server started (PID {ProcessId})", process.Id);
         SetState(new Protocol.Lobby.LobbyState
         {
             InGame = new LobbyStateInGame
@@ -263,12 +287,14 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         await process.WaitForExitAsync();
         _gameProcess = null;
 
+        var gameServerError = process.ExitCode != 0 && !_gameServerKilledIntentionally;
+        logger.LogInformation("Game server exited with code {ExitCode} (killed intentionally: {KilledIntentionally}, error: {Error})", process.ExitCode, _gameServerKilledIntentionally, gameServerError);
         SetState(new Protocol.Lobby.LobbyState
         {
             InGame = new LobbyStateInGame
             {
                 GameServerFinishedRunning = true,
-                GameServerError = process.ExitCode != 0 && !_gameServerKilledIntentionally,
+                GameServerError = gameServerError,
                 MapId = mapId
             }
         });
@@ -280,8 +306,9 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         var process = _gameProcess;
         if (process == null || process.HasExited) return;
         _gameServerKilledIntentionally = true;
+        logger.LogInformation("Killing game server (PID {ProcessId})", process.Id);
         try { process.Kill(true); }
-        catch (Exception ex) { Console.WriteLine($"Failed to kill game server: {ex.Message}"); }
+        catch (Exception ex) { logger.LogError(ex, "Failed to kill game server"); }
     }
 
     private void SetState(Protocol.Lobby.LobbyState state)
@@ -294,6 +321,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     private void CancelCountdown()
     {
         if (_countdown == null) return;
+        logger.LogInformation("Countdown cancelled");
         //letting clients know that countdown has ended
         Publish(new LobbyEvent
         {
@@ -318,6 +346,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             StartTime = Timestamp.FromDateTime(DateTime.UtcNow),
             Seconds = seconds
         };
+        logger.LogInformation("Starting countdown: {Seconds}s", seconds);
         Publish(new LobbyEvent { Timestamp = Timestamp.FromDateTime(DateTime.UtcNow), Countdown = _countdown });
         return RunCountdownAsync(seconds, onExpired, cts.Token);
     }
@@ -350,14 +379,14 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     {
         var info = new LobbyEventInfo
         {
-            Name = _options.Name,
+            Name = options.Name,
             State = _state,
-            Version = _options.Version,
-            PasswordRequired = _options.Password != null && !_options.Password.Equals(string.Empty),
-            MaxPlayers = (uint)_options.MaxPlayers,
+            Version = options.Version,
+            PasswordRequired = options.Password != null && !options.Password.Equals(string.Empty),
+            MaxPlayers = (uint)options.MaxPlayers,
             Countdown = _countdown,
-            Gamemode = _options.GameMode,
-            EnableJoinInProgress = _options.EnableJoinInProgress,
+            Gamemode = options.GameMode,
+            EnableJoinInProgress = options.EnableJoinInProgress,
         };
         info.Players.AddRange(_players.Values);
         return new LobbyEvent
@@ -391,14 +420,13 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
 
     private sealed class EventStream(LobbyState parent) : IObservable<LobbyEvent>, IObserver<LobbyEvent>, IDisposable
     {
-        private readonly LobbyState _parent = parent;
         private bool _disposed;
 
         public IDisposable Subscribe(IObserver<LobbyEvent> observer)
         {
-            lock (_parent._gate)
+            lock (parent._gate)
             {
-                _parent._subscribers.Add(observer);
+                parent._subscribers.Add(observer);
             }
             return this;
         }
@@ -410,9 +438,9 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         public void Dispose()
         {
             if (_disposed) return;
-            lock (_parent._gate)
+            lock (parent._gate)
             {
-                _parent._subscribers.Remove(this);
+                parent._subscribers.Remove(this);
             }
             _disposed = true;
         }

@@ -27,6 +27,7 @@
       <PackageReference Include="BLAKE3" Version="2.1.1" />
       <PackageReference Include="Tomlyn" Version="2.7.0" />
       <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
+      <PackageReference Include="ZLogger" Version="2.5.10" />
     </ItemGroup>
 
     <ItemGroup>

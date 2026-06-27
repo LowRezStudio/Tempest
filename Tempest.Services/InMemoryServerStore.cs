@@ -1,27 +1,32 @@
 using System.Collections.Concurrent;
+using Google.Protobuf.WellKnownTypes;
 using Tempest.Protocol.ServerList;
 
 namespace Tempest.Services;
 
 public class InMemoryServerStore
 {
-    private readonly ConcurrentDictionary<string, ServerListing> _servers = new();
+    private readonly ConcurrentDictionary<string, RegisteredServer> _servers = new();
 
-    public string Add(ServerListing server)
+    public string Add(ServerListing server, string ticket)
     {
         var id = Guid.NewGuid().ToString();
         server.Id = id;
-        _servers[id] = server;
+        server.LastSeen = Timestamp.FromDateTime(DateTime.UtcNow);
+        _servers[id] = new RegisteredServer(server, ticket);
         return id;
     }
 
-    public bool Update(string id, ServerListing server)
+    public bool Update(string id, string ticket, Action<ServerListing> update)
     {
-        if (!_servers.ContainsKey(id))
+        if (!_servers.TryGetValue(id, out var registered))
             return false;
 
-        server.Id = id;
-        _servers[id] = server;
+        if (registered.Ticket != ticket)
+            return false;
+
+        update(registered.Listing);
+        registered.Listing.LastSeen = Timestamp.FromDateTime(DateTime.UtcNow);
         return true;
     }
 
@@ -32,12 +37,12 @@ public class InMemoryServerStore
 
     public ServerListing? Get(string id)
     {
-        _servers.TryGetValue(id, out var server);
-        return server;
+        _servers.TryGetValue(id, out var registered);
+        return registered?.Listing;
     }
 
     public IEnumerable<ServerListing> GetAll()
     {
-        return _servers.Values;
+        return _servers.Values.Select(r => r.Listing);
     }
 }
