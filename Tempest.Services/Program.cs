@@ -1,11 +1,16 @@
+using AspNet.Security.OAuth.GitHub;
 using Quartz;
 using Tempest.Services;
+using Tempest.Services.Endpoints;
+using Tempest.Services.Features.ServerList;
 using Tempest.Services.Jobs;
+using Tempest.Services.Persistence;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
 builder.WebHost.UseKestrelHttpsConfiguration();
 
+// Routing / CORS
 builder.Services.AddRouting();
 builder.Services.AddCors(options =>
 {
@@ -24,9 +29,57 @@ builder.Services.AddCors(options =>
         });
 });
 
+// gRPC + Razor Pages
 builder.Services.AddGrpc();
-builder.Services.AddSingleton<InMemoryServerStore>();
+builder.Services.AddRazorPages();
 
+// Minimal API VSA — auto-registered IEndpoint implementations
+builder.Services.AddEndpoints();
+
+// Persistence — ADO.NET + Dapper over SQLite
+builder.Services.AddScoped<SqliteConnectionFactory>();
+builder.Services.AddHostedService<DatabaseInitializer>();
+
+// Features
+builder.Services.AddScoped<ServerListingRepository>();
+
+// Authentication
+var githubClientId = builder.Configuration["Authentication:GitHub:ClientId"];
+var githubClientSecret = builder.Configuration["Authentication:GitHub:ClientSecret"];
+var githubConfigured = !string.IsNullOrWhiteSpace(githubClientId) && !string.IsNullOrWhiteSpace(githubClientSecret);
+
+var authenticationBuilder = builder.Services
+    .AddAuthentication(options =>
+    {
+        options.DefaultScheme = "Cookies";
+        options.DefaultChallengeScheme = githubConfigured
+            ? GitHubAuthenticationDefaults.AuthenticationScheme
+            : "Cookies";
+    })
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/Login";
+        options.LogoutPath = "/Logout";
+        options.AccessDeniedPath = "/Login";
+    });
+
+if (githubConfigured)
+{
+    authenticationBuilder.AddGitHub(options =>
+    {
+        options.ClientId = githubClientId!;
+        options.ClientSecret = githubClientSecret!;
+        options.Scope.Add("read:user");
+        options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+    });
+}
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("Authenticated", policy => policy.RequireAuthenticatedUser());
+});
+
+// Background jobs
 builder.Services.AddQuartz(q =>
 {
     q.UseInMemoryStore();
@@ -43,8 +96,20 @@ builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
 
 var app = builder.Build();
 
+if (!githubConfigured)
+{
+    app.Logger.LogWarning("GitHub OAuth credentials are not configured (Authentication:GitHub:ClientId/ClientSecret). Login will be unavailable until they are set.");
+}
+
 app.UseCors("AllowFrontend");
 app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
-app.MapGrpcService<ServerListServiceImpl>();
+
+app.UseStaticFiles();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGrpcService<ServerListGrpcService>();
+app.MapRazorPages();
+app.MapEndpoints();
 
 app.Run();

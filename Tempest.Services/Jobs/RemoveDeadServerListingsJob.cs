@@ -1,35 +1,32 @@
-using Google.Protobuf.WellKnownTypes;
 using Quartz;
+using Tempest.Services.Features.ServerList;
 
 namespace Tempest.Services.Jobs;
 
 [DisallowConcurrentExecution]
 public class RemoveDeadServerListingsJob : IJob
 {
-    private readonly InMemoryServerStore _store;
+    private readonly ServerListingRepository _repository;
     private readonly ILogger<RemoveDeadServerListingsJob> _logger;
 
     private static readonly TimeSpan StaleTimeout = TimeSpan.FromMinutes(1);
 
-    public RemoveDeadServerListingsJob(InMemoryServerStore store, ILogger<RemoveDeadServerListingsJob> logger)
+    public RemoveDeadServerListingsJob(ServerListingRepository repository, ILogger<RemoveDeadServerListingsJob> logger)
     {
-        _store = store;
+        _repository = repository;
         _logger = logger;
     }
 
     public Task Execute(IJobExecutionContext context)
     {
-        var now = Timestamp.FromDateTime(DateTime.UtcNow);
+        var stale = _repository.GetStale(StaleTimeout);
         var removed = 0;
 
-        foreach (var server in _store.GetAll().ToList())
+        foreach (var server in stale)
         {
-            if (server.LastSeen == null || (now - server.LastSeen).ToTimeSpan() > StaleTimeout)
+            if (_repository.Remove(server.Id))
             {
-                if (_store.Remove(server.Id))
-                {
-                    removed++;
-                }
+                removed++;
             }
         }
 

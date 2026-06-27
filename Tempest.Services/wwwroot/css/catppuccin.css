@@ -1,0 +1,372 @@
+/*!
+ * Tempest — Catppuccin theme for Pico CSS
+ * Matches the launcher: Mocha (dark, default) + Latte (light), sapphire accent.
+ * Palette: https://catppuccin.com
+ */
+
+/* ==========================================================================
+   Catppuccin Mocha (dark) — default
+   ========================================================================== */
+[data-theme="dark"],
+:root:not([data-theme="light"]),
+:host(:not([data-theme="light"])) {
+  color-scheme: dark;
+
+  /* Base surfaces */
+  --pico-background-color: #1e1e2e; /* Base */
+  --pico-color: #cdd6f4; /* Text */
+  --pico-text-selection-color: rgba(116, 199, 236, 0.3); /* Sapphire */
+  --pico-muted-color: #a6adc8; /* Subtext0 */
+  --pico-muted-border-color: #313244; /* Surface0 */
+
+  /* Primary = Sapphire */
+  --pico-primary: #74c7ec;
+  --pico-primary-background: #74c7ec;
+  --pico-primary-border: var(--pico-primary-background);
+  --pico-primary-underline: rgba(116, 199, 236, 0.5);
+  --pico-primary-hover: #89dceb; /* Sky */
+  --pico-primary-hover-background: #89dceb;
+  --pico-primary-hover-border: var(--pico-primary-hover-background);
+  --pico-primary-hover-underline: var(--pico-primary-hover);
+  --pico-primary-focus: rgba(116, 199, 236, 0.4);
+  --pico-primary-inverse: #1e1e2e; /* Base — sapphire is light, text must be dark */
+
+  /* Secondary = Subtext1 on Surface1 */
+  --pico-secondary: #bac2de; /* Subtext1 */
+  --pico-secondary-background: #45475a; /* Surface1 */
+  --pico-secondary-border: var(--pico-secondary-background);
+  --pico-secondary-underline: rgba(186, 194, 222, 0.5);
+  --pico-secondary-hover: #a6adc8; /* Subtext0 */
+  --pico-secondary-hover-background: #585b70; /* Surface2 */
+  --pico-secondary-hover-border: var(--pico-secondary-hover-background);
+  --pico-secondary-hover-underline: var(--pico-secondary-hover);
+  --pico-secondary-focus: rgba(186, 194, 222, 0.25);
+  --pico-secondary-inverse: #cdd6f4; /* Text */
+
+  /* Contrast = light button (Text on Base) */
+  --pico-contrast: #1e1e2e; /* Base */
+  --pico-contrast-background: #cdd6f4; /* Text */
+  --pico-contrast-border: var(--pico-contrast-background);
+  --pico-contrast-underline: rgba(205, 214, 244, 0.5);
+  --pico-contrast-hover: #11111b; /* Crust */
+  --pico-contrast-hover-background: #a6adc8; /* Subtext0 */
+  --pico-contrast-hover-border: var(--pico-contrast-hover-background);
+  --pico-contrast-hover-underline: var(--pico-contrast-hover);
+  --pico-contrast-focus: rgba(205, 214, 244, 0.25);
+  --pico-contrast-inverse: #1e1e2e; /* Base */
+
+  --pico-box-shadow: 0.0145rem 0.029rem 0.174rem rgba(0, 0, 0, 0.4),
+    0.0335rem 0.067rem 0.402rem rgba(0, 0, 0, 0.45),
+    0.0625rem 0.125rem 0.75rem rgba(0, 0, 0, 0.5),
+    0.1125rem 0.225rem 1.35rem rgba(0, 0, 0, 0.55),
+    0.2085rem 0.417rem 2.502rem rgba(0, 0, 0, 0.6),
+    0.5rem 1rem 6rem rgba(0, 0, 0, 0.7),
+    0 0 0 0.0625rem rgba(0, 0, 0, 0.2);
+
+  /* Headings — fade from Text to Subtext */
+  --pico-h1-color: #cdd6f4; /* Text */
+  --pico-h2-color: #cdd6f4; /* Text */
+  --pico-h3-color: #bac2de; /* Subtext1 */
+  --pico-h4-color: #bac2de; /* Subtext1 */
+  --pico-h5-color: #a6adc8; /* Subtext0 */
+  --pico-h6-color: #a6adc8; /* Subtext0 */
+
+  /* Inline elements */
+  --pico-mark-background-color: #f9e2af; /* Yellow */
+  --pico-mark-color: #1e1e2e; /* Base */
+  --pico-ins-color: #a6e3a1; /* Green */
+  --pico-del-color: #f38ba8; /* Red */
+
+  /* Blockquote */
+  --pico-blockquote-border-color: var(--pico-muted-border-color);
+  --pico-blockquote-footer-color: var(--pico-muted-color);
+
+  /* Tables */
+  --pico-table-border-color: var(--pico-muted-border-color);
+  --pico-table-row-stripped-background-color: rgba(49, 50, 68, 0.5); /* Surface0 */
+
+  /* Code */
+  --pico-code-background-color: #181825; /* Mantle */
+  --pico-code-color: #bac2de; /* Subtext1 */
+  --pico-code-kbd-background-color: var(--pico-color);
+  --pico-code-kbd-color: var(--pico-background-color);
+
+  /* Form elements */
+  --pico-form-element-background-color: #181825; /* Mantle */
+  --pico-form-element-selected-background-color: #313244; /* Surface0 */
+  --pico-form-element-border-color: #313244; /* Surface0 */
+  --pico-form-element-color: #cdd6f4; /* Text */
+  --pico-form-element-placeholder-color: var(--pico-muted-color);
+  --pico-form-element-active-background-color: #11111b; /* Crust */
+  --pico-form-element-active-border-color: var(--pico-primary-border);
+  --pico-form-element-focus-color: var(--pico-primary-focus);
+  --pico-form-element-disabled-opacity: 0.5;
+  --pico-form-element-invalid-border-color: #f38ba8; /* Red */
+  --pico-form-element-invalid-active-border-color: #eba0ac; /* Maroon */
+  --pico-form-element-invalid-focus-color: var(--pico-form-element-invalid-active-border-color);
+  --pico-form-element-valid-border-color: #a6e3a1; /* Green */
+  --pico-form-element-valid-active-border-color: #94e2d5; /* Teal */
+  --pico-form-element-valid-focus-color: var(--pico-form-element-valid-active-border-color);
+
+  /* Switch */
+  --pico-switch-background-color: #45475a; /* Surface1 */
+  --pico-switch-checked-background-color: var(--pico-primary-background);
+  --pico-switch-color: #1e1e2e; /* Base */
+  --pico-switch-thumb-box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+
+  /* Range */
+  --pico-range-border-color: #313244; /* Surface0 */
+  --pico-range-active-border-color: #45475a; /* Surface1 */
+  --pico-range-thumb-border-color: var(--pico-background-color);
+  --pico-range-thumb-color: var(--pico-secondary-background);
+  --pico-range-thumb-active-color: var(--pico-primary-background);
+
+  /* Accordion */
+  --pico-accordion-border-color: var(--pico-muted-border-color);
+  --pico-accordion-active-summary-color: var(--pico-primary-hover);
+  --pico-accordion-close-summary-color: var(--pico-color);
+  --pico-accordion-open-summary-color: var(--pico-muted-color);
+
+  /* Card */
+  --pico-card-background-color: #181825; /* Mantle */
+  --pico-card-border-color: #313244; /* Surface0 */
+  --pico-card-box-shadow: var(--pico-box-shadow);
+  --pico-card-sectioning-background-color: #11111b; /* Crust */
+
+  /* Dropdown */
+  --pico-dropdown-background-color: #181825; /* Mantle */
+  --pico-dropdown-border-color: #313244; /* Surface0 */
+  --pico-dropdown-box-shadow: var(--pico-box-shadow);
+  --pico-dropdown-color: var(--pico-color);
+  --pico-dropdown-hover-background-color: #313244; /* Surface0 */
+
+  /* Loading / modal / progress / tooltip */
+  --pico-loading-spinner-opacity: 0.6;
+  --pico-modal-overlay-background-color: rgba(17, 17, 27, 0.75); /* Crust */
+  --pico-progress-background-color: #313244; /* Surface0 */
+  --pico-progress-color: var(--pico-primary-background);
+  --pico-tooltip-background-color: var(--pico-contrast-background);
+  --pico-tooltip-color: var(--pico-contrast-inverse);
+}
+
+/* ==========================================================================
+   Catppuccin Latte (light)
+   ========================================================================== */
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Base surfaces */
+  --pico-background-color: #eff1f5; /* Base */
+  --pico-color: #4c4f69; /* Text */
+  --pico-text-selection-color: rgba(32, 159, 181, 0.25); /* Sapphire */
+  --pico-muted-color: #6c6f85; /* Subtext0 */
+  --pico-muted-border-color: #ccd0da; /* Surface0 */
+
+  /* Primary = Sapphire */
+  --pico-primary: #209fb5;
+  --pico-primary-background: #209fb5;
+  --pico-primary-border: var(--pico-primary-background);
+  --pico-primary-underline: rgba(32, 159, 181, 0.5);
+  --pico-primary-hover: #179299; /* Teal — darker for light-theme hover */
+  --pico-primary-hover-background: #179299;
+  --pico-primary-hover-border: var(--pico-primary-hover-background);
+  --pico-primary-hover-underline: var(--pico-primary-hover);
+  --pico-primary-focus: rgba(32, 159, 181, 0.4);
+  --pico-primary-inverse: #ffffff; /* Sapphire is mid-tone, white text reads best */
+
+  /* Secondary = Subtext1 on Surface1 */
+  --pico-secondary: #5c5f77; /* Subtext1 */
+  --pico-secondary-background: #bcc0cc; /* Surface1 */
+  --pico-secondary-border: var(--pico-secondary-background);
+  --pico-secondary-underline: rgba(92, 95, 119, 0.5);
+  --pico-secondary-hover: #6c6f85; /* Subtext0 */
+  --pico-secondary-hover-background: #acb0be; /* Surface2 */
+  --pico-secondary-hover-border: var(--pico-secondary-hover-background);
+  --pico-secondary-hover-underline: var(--pico-secondary-hover);
+  --pico-secondary-focus: rgba(92, 95, 119, 0.25);
+  --pico-secondary-inverse: #1e1e2e; /* Base (dark) */
+
+  /* Contrast = dark button (Text on light) */
+  --pico-contrast: #eff1f5; /* Base */
+  --pico-contrast-background: #4c4f69; /* Text */
+  --pico-contrast-border: var(--pico-contrast-background);
+  --pico-contrast-underline: rgba(76, 79, 105, 0.5);
+  --pico-contrast-hover: #ffffff;
+  --pico-contrast-hover-background: #5c5f77; /* Subtext1 */
+  --pico-contrast-hover-border: var(--pico-contrast-hover-background);
+  --pico-contrast-hover-underline: var(--pico-contrast-hover);
+  --pico-contrast-focus: rgba(76, 79, 105, 0.25);
+  --pico-contrast-inverse: #eff1f5; /* Base */
+
+  --pico-box-shadow: 0.0145rem 0.029rem 0.174rem rgba(76, 79, 105, 0.06),
+    0.0335rem 0.067rem 0.402rem rgba(76, 79, 105, 0.08),
+    0.0625rem 0.125rem 0.75rem rgba(76, 79, 105, 0.1),
+    0.1125rem 0.225rem 1.35rem rgba(76, 79, 105, 0.12),
+    0.2085rem 0.417rem 2.502rem rgba(76, 79, 105, 0.14),
+    0.5rem 1rem 6rem rgba(76, 79, 105, 0.18),
+    0 0 0 0.0625rem rgba(76, 79, 105, 0.03);
+
+  /* Headings — fade from Text to Subtext */
+  --pico-h1-color: #4c4f69; /* Text */
+  --pico-h2-color: #4c4f69; /* Text */
+  --pico-h3-color: #5c5f77; /* Subtext1 */
+  --pico-h4-color: #5c5f77; /* Subtext1 */
+  --pico-h5-color: #6c6f85; /* Subtext0 */
+  --pico-h6-color: #6c6f85; /* Subtext0 */
+
+  /* Inline elements */
+  --pico-mark-background-color: #df8e1d; /* Yellow */
+  --pico-mark-color: #eff1f5; /* Base */
+  --pico-ins-color: #40a02b; /* Green */
+  --pico-del-color: #d20f39; /* Red */
+
+  /* Blockquote */
+  --pico-blockquote-border-color: var(--pico-muted-border-color);
+  --pico-blockquote-footer-color: var(--pico-muted-color);
+
+  /* Tables */
+  --pico-table-border-color: var(--pico-muted-border-color);
+  --pico-table-row-stripped-background-color: rgba(204, 208, 218, 0.5); /* Surface0 */
+
+  /* Code */
+  --pico-code-background-color: #e6e9ef; /* Mantle */
+  --pico-code-color: #5c5f77; /* Subtext1 */
+  --pico-code-kbd-background-color: var(--pico-color);
+  --pico-code-kbd-color: var(--pico-background-color);
+
+  /* Form elements */
+  --pico-form-element-background-color: #e6e9ef; /* Mantle */
+  --pico-form-element-selected-background-color: #ccd0da; /* Surface0 */
+  --pico-form-element-border-color: #ccd0da; /* Surface0 */
+  --pico-form-element-color: #4c4f69; /* Text */
+  --pico-form-element-placeholder-color: var(--pico-muted-color);
+  --pico-form-element-active-background-color: #dce0e8; /* Crust */
+  --pico-form-element-active-border-color: var(--pico-primary-border);
+  --pico-form-element-focus-color: var(--pico-primary-focus);
+  --pico-form-element-disabled-opacity: 0.5;
+  --pico-form-element-invalid-border-color: #d20f39; /* Red */
+  --pico-form-element-invalid-active-border-color: #ea76cb; /* Maroon/Pink */
+  --pico-form-element-invalid-focus-color: var(--pico-form-element-invalid-active-border-color);
+  --pico-form-element-valid-border-color: #40a02b; /* Green */
+  --pico-form-element-valid-active-border-color: #179299; /* Teal */
+  --pico-form-element-valid-focus-color: var(--pico-form-element-valid-active-border-color);
+
+  /* Switch */
+  --pico-switch-background-color: #bcc0cc; /* Surface1 */
+  --pico-switch-checked-background-color: var(--pico-primary-background);
+  --pico-switch-color: #ffffff;
+  --pico-switch-thumb-box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+
+  /* Range */
+  --pico-range-border-color: #ccd0da; /* Surface0 */
+  --pico-range-active-border-color: #bcc0cc; /* Surface1 */
+  --pico-range-thumb-border-color: var(--pico-background-color);
+  --pico-range-thumb-color: var(--pico-secondary-background);
+  --pico-range-thumb-active-color: var(--pico-primary-background);
+
+  /* Accordion */
+  --pico-accordion-border-color: var(--pico-muted-border-color);
+  --pico-accordion-active-summary-color: var(--pico-primary-hover);
+  --pico-accordion-close-summary-color: var(--pico-color);
+  --pico-accordion-open-summary-color: var(--pico-muted-color);
+
+  /* Card */
+  --pico-card-background-color: #e6e9ef; /* Mantle */
+  --pico-card-border-color: #ccd0da; /* Surface0 */
+  --pico-card-box-shadow: var(--pico-box-shadow);
+  --pico-card-sectioning-background-color: #dce0e8; /* Crust */
+
+  /* Dropdown */
+  --pico-dropdown-background-color: #e6e9ef; /* Mantle */
+  --pico-dropdown-border-color: #ccd0da; /* Surface0 */
+  --pico-dropdown-box-shadow: var(--pico-box-shadow);
+  --pico-dropdown-color: var(--pico-color);
+  --pico-dropdown-hover-background-color: #ccd0da; /* Surface0 */
+
+  /* Loading / modal / progress / tooltip */
+  --pico-loading-spinner-opacity: 0.5;
+  --pico-modal-overlay-background-color: rgba(220, 224, 232, 0.75); /* Crust */
+  --pico-progress-background-color: #ccd0da; /* Surface0 */
+  --pico-progress-color: var(--pico-primary-background);
+  --pico-tooltip-background-color: var(--pico-contrast-background);
+  --pico-tooltip-color: var(--pico-contrast-inverse);
+}
+
+/* ==========================================================================
+   prefers-color-scheme fallback (when no data-theme is set)
+   Mirrors the launcher's "system" theme behaviour: dark = Mocha, light = Latte.
+   ========================================================================== */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]),
+  :host(:not([data-theme])) {
+    color-scheme: light;
+    --pico-background-color: #eff1f5;
+    --pico-color: #4c4f69;
+    --pico-text-selection-color: rgba(32, 159, 181, 0.25);
+    --pico-muted-color: #6c6f85;
+    --pico-muted-border-color: #ccd0da;
+    --pico-primary: #209fb5;
+    --pico-primary-background: #209fb5;
+    --pico-primary-border: var(--pico-primary-background);
+    --pico-primary-underline: rgba(32, 159, 181, 0.5);
+    --pico-primary-hover: #179299;
+    --pico-primary-hover-background: #179299;
+    --pico-primary-hover-border: var(--pico-primary-hover-background);
+    --pico-primary-hover-underline: var(--pico-primary-hover);
+    --pico-primary-focus: rgba(32, 159, 181, 0.4);
+    --pico-primary-inverse: #ffffff;
+    --pico-secondary: #5c5f77;
+    --pico-secondary-background: #bcc0cc;
+    --pico-secondary-border: var(--pico-secondary-background);
+    --pico-secondary-underline: rgba(92, 95, 119, 0.5);
+    --pico-secondary-hover: #6c6f85;
+    --pico-secondary-hover-background: #acb0be;
+    --pico-secondary-hover-border: var(--pico-secondary-hover-background);
+    --pico-secondary-hover-underline: var(--pico-secondary-hover);
+    --pico-secondary-focus: rgba(92, 95, 119, 0.25);
+    --pico-secondary-inverse: #1e1e2e;
+    --pico-contrast: #eff1f5;
+    --pico-contrast-background: #4c4f69;
+    --pico-contrast-border: var(--pico-contrast-background);
+    --pico-contrast-underline: rgba(76, 79, 105, 0.5);
+    --pico-contrast-hover: #ffffff;
+    --pico-contrast-hover-background: #5c5f77;
+    --pico-contrast-hover-border: var(--pico-contrast-hover-background);
+    --pico-contrast-hover-underline: var(--pico-contrast-hover);
+    --pico-contrast-focus: rgba(76, 79, 105, 0.25);
+    --pico-contrast-inverse: #eff1f5;
+    --pico-h1-color: #4c4f69;
+    --pico-h2-color: #4c4f69;
+    --pico-h3-color: #5c5f77;
+    --pico-h4-color: #5c5f77;
+    --pico-h5-color: #6c6f85;
+    --pico-h6-color: #6c6f85;
+    --pico-mark-background-color: #df8e1d;
+    --pico-mark-color: #eff1f5;
+    --pico-ins-color: #40a02b;
+    --pico-del-color: #d20f39;
+    --pico-table-row-stripped-background-color: rgba(204, 208, 218, 0.5);
+    --pico-code-background-color: #e6e9ef;
+    --pico-code-color: #5c5f77;
+    --pico-form-element-background-color: #e6e9ef;
+    --pico-form-element-selected-background-color: #ccd0da;
+    --pico-form-element-border-color: #ccd0da;
+    --pico-form-element-color: #4c4f69;
+    --pico-form-element-active-background-color: #dce0e8;
+    --pico-form-element-invalid-border-color: #d20f39;
+    --pico-form-element-invalid-active-border-color: #ea76cb;
+    --pico-form-element-valid-border-color: #40a02b;
+    --pico-form-element-valid-active-border-color: #179299;
+    --pico-switch-background-color: #bcc0cc;
+    --pico-range-border-color: #ccd0da;
+    --pico-range-active-border-color: #bcc0cc;
+    --pico-card-background-color: #e6e9ef;
+    --pico-card-border-color: #ccd0da;
+    --pico-card-sectioning-background-color: #dce0e8;
+    --pico-dropdown-background-color: #e6e9ef;
+    --pico-dropdown-border-color: #ccd0da;
+    --pico-dropdown-hover-background-color: #ccd0da;
+    --pico-modal-overlay-background-color: rgba(220, 224, 232, 0.75);
+    --pico-progress-background-color: #ccd0da;
+  }
+}

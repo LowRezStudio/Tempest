@@ -1,21 +1,22 @@
 using Grpc.Core;
 using Tempest.Protocol.ServerList;
+using ServerListService = Tempest.Protocol.ServerList.ServerList;
 
-namespace Tempest.Services;
+namespace Tempest.Services.Features.ServerList;
 
-public class ServerListServiceImpl(InMemoryServerStore store) : ServerList.ServerListBase
+public class ServerListGrpcService(ServerListingRepository repository) : ServerListService.ServerListBase
 {
     public override Task<CreateLobbyResponse> CreateLobby(CreateLobbyRequest request, ServerCallContext context)
     {
         var ticket = Guid.NewGuid().ToString("N");
-        var server = new ServerListing
+        var row = new ServerListingRow
         {
             Ip = request.Ip,
             LobbyPort = request.LobbyPort,
             Name = request.Name,
             Game = request.Game,
             Version = request.Version,
-            Tags = { request.Tags },
+            Tags = request.Tags.ToList(),
             Map = request.Map,
             MapId = request.MapId,
             MaxPlayers = request.MaxPlayers,
@@ -24,12 +25,10 @@ public class ServerListServiceImpl(InMemoryServerStore store) : ServerList.Serve
             Joinable = request.Joinable,
             HasPassword = request.HasPassword,
             Country = request.Country,
-            Players = 0,
-            Bots = 0,
-            Spectators = 0,
+            Ticket = ticket,
         };
 
-        var id = store.Add(server, ticket);
+        var id = repository.Add(row);
 
         return Task.FromResult(new CreateLobbyResponse
         {
@@ -43,15 +42,16 @@ public class ServerListServiceImpl(InMemoryServerStore store) : ServerList.Serve
 
     public override Task<UpdateLobbyResponse> UpdateLobby(UpdateLobbyRequest request, ServerCallContext context)
     {
-        var updated = store.Update(request.Id, request.Ticket, server =>
+        var updated = repository.Update(request.Id, request.Ticket, server =>
         {
-            if (request.HasPlayers) server.Players = request.Players;
-            if (request.HasBots) server.Bots = request.Bots;
-            if (request.HasSpectators) server.Spectators = request.Spectators;
-            if (request.HasMap) server.Map = request.Map;
-            if (request.HasMapId) server.MapId = request.MapId;
-            if (request.HasJoinable) server.Joinable = request.Joinable;
-            if (request.HasJoinInProgress) server.JoinInProgress = request.JoinInProgress;
+            if (request.HasPlayers) server = server with { Players = request.Players };
+            if (request.HasBots) server = server with { Bots = request.Bots };
+            if (request.HasSpectators) server = server with { Spectators = request.Spectators };
+            if (request.HasMap) server = server with { Map = request.Map };
+            if (request.HasMapId) server = server with { MapId = request.MapId };
+            if (request.HasJoinable) server = server with { Joinable = request.Joinable };
+            if (request.HasJoinInProgress) server = server with { JoinInProgress = request.JoinInProgress };
+            return server;
         });
 
         if (!updated)
@@ -67,16 +67,16 @@ public class ServerListServiceImpl(InMemoryServerStore store) : ServerList.Serve
 
     public override async Task GetServers(GetServersRequest request, IServerStreamWriter<ServerListing> responseStream, ServerCallContext context)
     {
-        foreach (var server in store.GetAll())
+        foreach (var row in repository.GetAll())
         {
-            await responseStream.WriteAsync(server);
+            await responseStream.WriteAsync(row.ToProto());
         }
     }
 
     public override Task<GetServerByIdResponse> GetServerById(GetServerByIdRequest request, ServerCallContext context)
     {
-        var server = store.Get(request.Id);
-        if (server == null)
+        var row = repository.Get(request.Id);
+        if (row is null)
         {
             return Task.FromResult(new GetServerByIdResponse
             {
@@ -90,7 +90,7 @@ public class ServerListServiceImpl(InMemoryServerStore store) : ServerList.Serve
 
         return Task.FromResult(new GetServerByIdResponse
         {
-            Success = server
+            Success = row.ToProto()
         });
     }
 }
