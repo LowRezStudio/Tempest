@@ -30,6 +30,10 @@ export interface LobbyStateInGame {
 	 * @generated from protobuf field: string map_id = 4
 	 */
 	mapId: string;
+	/**
+	 * @generated from protobuf field: uint32 game_server_port = 5
+	 */
+	gameServerPort: number;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class LobbyStateInGame$Type extends MessageType<LobbyStateInGame> {
@@ -44,6 +48,7 @@ class LobbyStateInGame$Type extends MessageType<LobbyStateInGame> {
 				T: 8 /*ScalarType.BOOL*/,
 			},
 			{ no: 4, name: "map_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 5, name: "game_server_port", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 		]);
 	}
 	create(value?: PartialMessage<LobbyStateInGame>): LobbyStateInGame {
@@ -52,6 +57,7 @@ class LobbyStateInGame$Type extends MessageType<LobbyStateInGame> {
 		message.gameServerError = false;
 		message.gameServerFinishedRunning = false;
 		message.mapId = "";
+		message.gameServerPort = 0;
 		if (value !== undefined) reflectionMergePartial<LobbyStateInGame>(this, message, value);
 		return message;
 	}
@@ -77,6 +83,9 @@ class LobbyStateInGame$Type extends MessageType<LobbyStateInGame> {
 					break;
 				case /* string map_id */ 4:
 					message.mapId = reader.string();
+					break;
+				case /* uint32 game_server_port */ 5:
+					message.gameServerPort = reader.uint32();
 					break;
 				default:
 					let u = options.readUnknownField;
@@ -113,6 +122,9 @@ class LobbyStateInGame$Type extends MessageType<LobbyStateInGame> {
 			writer.tag(3, WireType.Varint).bool(message.gameServerFinishedRunning);
 		/* string map_id = 4; */
 		if (message.mapId !== "") writer.tag(4, WireType.LengthDelimited).string(message.mapId);
+		/* uint32 game_server_port = 5; */
+		if (message.gameServerPort !== 0)
+			writer.tag(5, WireType.Varint).uint32(message.gameServerPort);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

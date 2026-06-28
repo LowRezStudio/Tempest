@@ -1,6 +1,7 @@
 import { AuthMethod, getConnectionToServer, LobbyEvent, Timestamp } from "$lib/rpc";
 import { JoinLobbyErrorCode } from "$lib/rpc/lobby/join_lobby_error_code";
 import { instanceMap } from "$lib/stores/instance.svelte";
+/* eslint-disable-next-line no-unused-vars */
 import { processesList } from "$lib/stores/processes.svelte";
 import { username } from "$lib/stores/settings.svelte";
 import { JoinLobbyClientErrorCode } from "$lib/types/lobby";
@@ -233,11 +234,19 @@ class LobbyManager {
 		if (!player || isRunning || !player.champion || !instance) return null;
 
 		const host = lobbyHost.value;
-		const ip = host.slice(host.lastIndexOf("/") + 1, host.lastIndexOf(":"));
+		let ip = "";
+		try {
+			ip = new URL(host).hostname;
+		} catch {
+			ip = host.replace(/^https?:\/\//, "").split(":")[0];
+		}
+
+		const gameServerPort = state.value.inGame?.gameServerPort ?? 7777;
+
 		const name = username.value;
 		const character = player.champion.toLowerCase();
 		const team = player.taskForce;
-		let arg = `${ip}?name=${name}?class=${character}?team=${team}?horse=2`;
+		let arg = `${ip}:${gameServerPort}?name=${name}?class=${character}?team=${team}?horse=2`;
 		if (lobbyPassword.value.length > 0) {
 			arg += `?password=${lobbyPassword.value}`;
 		}

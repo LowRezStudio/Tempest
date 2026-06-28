@@ -7,4 +7,5 @@ message LobbyStateInGame {
 	bool game_server_error = 2;
 	bool game_server_finished_running = 3;
 	string map_id = 4;
+	uint32 game_server_port = 5;
 }

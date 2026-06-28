@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Box, Pause } from "@lucide/svelte";
+	import { Box, Gamepad2, Pause } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { m } from "$lib/paraglide/messages";
 	import { queueItems } from "$lib/rigby/stores.svelte";
@@ -19,7 +19,9 @@
 	let isActive = $derived(isDownloading || isPaused);
 
 	let queueItem = $derived(
-		queueItems.value.find((item) => item.outDir === instance.path && item.status === "running"),
+		queueItems.value.find(
+			(item) => item.outDir === instance.path && (item.status === "running" || item.status === "pending"),
+		),
 	);
 
 	let downloadProgress = $derived(queueItem?.progress?.percent ?? 0);
@@ -69,12 +71,14 @@
 				<div class="flex items-center gap-2 text-sm">
 					{#if instance.version && !isDownloading}
 						<span class="opacity-70 font-mono flex items-center gap-1.5">
-							<Box size={12} />
+							<Gamepad2 size={12} />
 							{instance.version}
 						</span>
 					{/if}
 					{#if isDownloading}
-						{#if queueItem?.progress}
+						{#if queueItem?.status === "pending"}
+							<span class="text-accent">{m.common_waiting_in_queue()}</span>
+						{:else if queueItem?.progress}
 							<span class="text-accent">
 								{m.common_downloading()}
 								{Math.round(queueItem.progress.bytesPerSecond / 1024 / 1024)} MB/s
@@ -119,7 +123,7 @@
 				<div class="flex items-center gap-2 text-sm">
 					{#if instance.version}
 						<span class="opacity-70 font-mono flex items-center gap-1.5">
-							<Box size={12} />
+							<Gamepad2 size={12} />
 							{instance.version}
 						</span>
 					{/if}

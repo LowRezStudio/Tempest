@@ -227,6 +227,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             InGame = new LobbyStateInGame
             {
                 MapId = mapId,
+                GameServerPort = (uint)options.GameServerPort,
             }
         });
         StartGameServer(mapId);
@@ -281,6 +282,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             {
                 GameServerOpen = true,
                 MapId = mapId,
+                GameServerPort = (uint)options.GameServerPort,
             }
         });
 
@@ -295,7 +297,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             {
                 GameServerFinishedRunning = true,
                 GameServerError = gameServerError,
-                MapId = mapId
+                MapId = mapId,
+                GameServerPort = (uint)options.GameServerPort,
             }
         });
         _gameServerKilledIntentionally = false;
