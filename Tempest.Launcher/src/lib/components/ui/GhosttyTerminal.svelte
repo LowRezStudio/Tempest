@@ -16,24 +16,40 @@
 	let term = $state<Terminal | undefined>();
 	let lastId = -1;
 	let pendingRaf: number | null = null;
-	const encoder = new TextEncoder();
 
 	let fitAddon: FitAddon | undefined;
 	let dataDisposable: { dispose: () => void } | undefined;
 
-	function resolveColor(cssVar: string, fallback: string): string {
-		if (!container) return fallback;
-		const styleColor = getComputedStyle(container).getPropertyValue(cssVar).trim();
-		if (!styleColor) return fallback;
-
-		const ctx = document.createElement("canvas").getContext("2d");
-		if (!ctx) return styleColor;
-		ctx.fillStyle = styleColor;
-		const resolved = ctx.fillStyle;
-		if (resolved.startsWith("#")) {
-			return resolved.slice(0, 7);
+	function resolveColors(
+		el: HTMLDivElement | undefined,
+		mapping: Record<string, { cssVar: string; fallback: string }>
+	): Record<string, string> {
+		const result: Record<string, string> = {};
+		if (!el) {
+			for (const [key, val] of Object.entries(mapping)) {
+				result[key] = val.fallback;
+			}
+			return result;
 		}
-		return resolved;
+
+		const computed = getComputedStyle(el);
+		const ctx = document.createElement("canvas").getContext("2d");
+
+		for (const [key, val] of Object.entries(mapping)) {
+			const styleColor = computed.getPropertyValue(val.cssVar).trim();
+			if (!styleColor) {
+				result[key] = val.fallback;
+				continue;
+			}
+			if (!ctx) {
+				result[key] = styleColor;
+				continue;
+			}
+			ctx.fillStyle = styleColor;
+			const resolved = ctx.fillStyle;
+			result[key] = resolved.startsWith("#") ? resolved.slice(0, 7) : resolved;
+		}
+		return result;
 	}
 
 	onMount(async () => {
@@ -42,16 +58,18 @@
 
 		if (!container) return;
 
-		const bg = resolveColor("--color-base-300", "#1e1e2e");
-		const fg = resolveColor("--color-base-content", "#cdd6f4");
+		const colors = resolveColors(container, {
+			bg: { cssVar: "--color-base-300", fallback: "#1e1e2e" },
+			fg: { cssVar: "--color-base-content", fallback: "#cdd6f4" },
+		});
 
 		term = new Terminal({
 			ghostty,
 			fontSize: 13,
 			fontFamily: "'Ubuntu Sans Mono Variable', monospace",
 			theme: {
-				background: bg,
-				foreground: fg,
+				background: colors.bg,
+				foreground: colors.fg,
 			},
 			scrollback: 10000,
 			disableStdin: false,
@@ -114,10 +132,26 @@
 			lastId = -1;
 		}
 
+		let startIndex = 0;
+		if (lastId !== -1) {
+			let low = 0;
+			let high = current.length - 1;
+			startIndex = current.length; // Default to end of array if none found
+			while (low <= high) {
+				const mid = (low + high) >> 1;
+				if (current[mid].id > lastId) {
+					startIndex = mid;
+					high = mid - 1;
+				} else {
+					low = mid + 1;
+				}
+			}
+		}
+
 		let chunk = "";
 		let nextId = lastId;
-		for (const log of current) {
-			if (log.id <= lastId) continue;
+		for (let i = startIndex; i < current.length; i++) {
+			const log = current[i];
 			const prefix = showPrefix && log.source ? `\x1b[90m[${log.source}]\x1b[0m ` : "";
 			const color = log.error ? "\x1b[31m" : "";
 			const line = log.line.replaceAll(/\r?\n/g, "\r\n");
@@ -127,7 +161,7 @@
 
 		if (chunk) {
 			const wasAtBottom = term.getViewportY() < 1;
-			term.write(encoder.encode(chunk));
+			term.write(chunk);
 			lastId = nextId;
 			if (wasAtBottom) {
 				term.scrollToBottom();

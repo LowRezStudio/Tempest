@@ -3,7 +3,7 @@
 	import ModFileTree from "$lib/components/mods/ModFileTree.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import MarkdownIt from "markdown-it";
+	import { marked } from "marked";
 	import type { ModRecord } from "$lib/core/mods";
 
 	interface Props {
@@ -13,8 +13,6 @@
 	}
 
 	let { mod, open = $bindable(false), instancePath }: Props = $props();
-
-	const md = new MarkdownIt({ html: true, linkify: true });
 
 	let tab = $state<"details" | "readme" | "files">("details");
 
@@ -28,7 +26,7 @@
 	let isReadmeMarkdown = $derived(mod?.Readme ? mod.Readme.toLowerCase().endsWith(".md") : false);
 
 	let readmeContent = $derived(
-		mod?.ReadmeContent && isReadmeMarkdown ? md.render(mod.ReadmeContent) : "",
+		mod?.ReadmeContent && isReadmeMarkdown ? (marked.parse(mod.ReadmeContent, { async: false }) as string) : "",
 	);
 </script>
 

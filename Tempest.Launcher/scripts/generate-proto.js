@@ -23,4 +23,4 @@ console.log("Generating code from .proto files");
 await $`protoc --ts_out ${outDir} --ts_opt server_none --proto_path ../Tempest.Protocol ${$.rawArg(protoFilesStr)}`;
 
 console.log("Running prettier on the generated files");
-await $`prettier --write ${outDir}/**/*.ts`;
+await $`oxfmt --write ${outDir}/**/*.ts`;
