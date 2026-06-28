@@ -1,5 +1,6 @@
 <script lang="ts" generics="T extends string">
 	import type { Snippet } from "svelte";
+	import { Tabs } from "bits-ui";
 
 	interface Props<Tab> {
 		title: string;
@@ -61,17 +62,22 @@
 		{@render errors?.()}
 	</div>
 	<div class="px-4">
-		<div role="tablist" class="tabs tabs-border">
-			{#each tabs as tab (tab.value)}
-				<button
-					role="tab"
-					aria-selected={activeTab === tab.value}
-					class={activeTab === tab.value ? "tab tab-active" : "tab"}
-					onclick={() => onSelectTab?.(tab.value)}
-				>
-					{tab.name}
-				</button>
-			{/each}
-		</div>
+		{#if tabs && tabs.length > 0}
+			<Tabs.Root
+				value={activeTab}
+				onValueChange={(val) => onSelectTab?.(val as T)}
+			>
+				<Tabs.List class="tabs tabs-border">
+					{#each tabs as tab (tab.value)}
+						<Tabs.Trigger
+							value={tab.value}
+							class="tab data-[state=active]:tab-active"
+						>
+							{tab.name}
+						</Tabs.Trigger>
+					{/each}
+				</Tabs.List>
+			</Tabs.Root>
+		{/if}
 	</div>
 </div>

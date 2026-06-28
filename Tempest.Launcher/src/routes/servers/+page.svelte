@@ -7,6 +7,7 @@
 		ServerOff,
 		TriangleAlert,
 	} from "@lucide/svelte";
+	import { Tooltip } from "bits-ui";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { moveToLobby } from "$lib/core/lobby.svelte";
 	import maps from "$lib/data/maps.json";
@@ -206,23 +207,25 @@
 											<span class="flex justify-between">
 												{server.name}
 												{#if !server.canJoin}
-													<span
-														class="group"
-														style="anchor-scope: --cannot-join;"
-													>
-														<TriangleAlert
-															size={20}
-															style="anchor-name: --cannot-join;"
-														></TriangleAlert>
-														<div
-															class="tooltip tooltip-right tooltip-open pointer-events-none fixed h-0 w-0 opacity-0 transition-opacity duration-100 group-hover:opacity-100"
-															style="position-anchor: --cannot-join; top: anchor(center); left: anchor(center);"
-															data-tip={m.serverlist_requires_version(
-																{ version: server.version },
-															)}
-															aria-hidden="true"
-														></div>
-													</span>
+													<Tooltip.Root delayDuration={150}>
+														<Tooltip.Trigger>
+															{#snippet child({ props })}
+																<span {...props} onclick={(e) => e.stopPropagation()}>
+																	<TriangleAlert size={20} class="text-warning" />
+																</span>
+															{/snippet}
+														</Tooltip.Trigger>
+														<Tooltip.Portal>
+															<Tooltip.Content
+																side="right"
+																sideOffset={8}
+																class="z-50 bg-neutral text-neutral-content text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-md transition-opacity duration-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100"
+															>
+																<Tooltip.Arrow class="fill-neutral" />
+																{m.serverlist_requires_version({ version: server.version })}
+															</Tooltip.Content>
+														</Tooltip.Portal>
+													</Tooltip.Root>
 												{/if}
 											</span>
 										</td>

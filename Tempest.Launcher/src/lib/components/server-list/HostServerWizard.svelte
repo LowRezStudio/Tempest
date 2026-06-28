@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Server, SlidersHorizontal } from "@lucide/svelte";
+	import { Tabs } from "bits-ui";
 	import { goto } from "$app/navigation";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
@@ -92,26 +93,24 @@
 </script>
 
 <Modal bind:open title={m.hostserver_title()} class="max-w-2xl" onsubmit={handleCreate}>
-	<div role="tablist" class="tabs tabs-border w-full mb-4">
-		<button
-			type="button"
-			role="tab"
-			class={["tab gap-2 flex-1", selectedTab === "general" && "tab-active"]}
-			onclick={() => (selectedTab = "general")}
-		>
-			<Server size={16} />
-			<span>General</span>
-		</button>
-		<button
-			type="button"
-			role="tab"
-			class={["tab gap-2 flex-1", selectedTab === "advanced" && "tab-active"]}
-			onclick={() => (selectedTab = "advanced")}
-		>
-			<SlidersHorizontal size={16} />
-			<span>Advanced</span>
-		</button>
-	</div>
+	<Tabs.Root bind:value={selectedTab} class="w-full mb-4">
+		<Tabs.List class="tabs tabs-border w-full">
+			<Tabs.Trigger
+				value="general"
+				class="tab gap-2 flex-1 data-[state=active]:tab-active"
+			>
+				<Server size={16} />
+				<span>General</span>
+			</Tabs.Trigger>
+			<Tabs.Trigger
+				value="advanced"
+				class="tab gap-2 flex-1 data-[state=active]:tab-active"
+			>
+				<SlidersHorizontal size={16} />
+				<span>Advanced</span>
+			</Tabs.Trigger>
+		</Tabs.List>
+	</Tabs.Root>
 	<!--Rendering both tabs always so the height of the modal does not change-->
 	<div class="grid">
 		<!-- General tab -->

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { AlertCircle, BookOpen, CloudDownload, Code, Folder, Loader2 } from "@lucide/svelte";
+	import { Tabs } from "bits-ui";
 	import { path } from "@tauri-apps/api";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { openUrl } from "@tauri-apps/plugin-opener";
@@ -249,26 +250,24 @@
 </script>
 
 <Modal bind:open title={m.wizard_title()} class="max-w-2xl" onsubmit={handleCreate}>
-	<div role="tablist" class="tabs tabs-border w-full mb-4">
-		<button
-			type="button"
-			role="tab"
-			class={["tab gap-2 flex-1", selectedTab === "download" && "tab-active"]}
-			onclick={() => (selectedTab = "download")}
-		>
-			<CloudDownload size={16} />
-			<span>{m.wizard_download()}</span>
-		</button>
-		<button
-			type="button"
-			role="tab"
-			class={["tab gap-2 flex-1", selectedTab === "folder" && "tab-active"]}
-			onclick={() => (selectedTab = "folder")}
-		>
-			<Folder size={16} />
-			<span>{m.wizard_import_existing()}</span>
-		</button>
-	</div>
+	<Tabs.Root bind:value={selectedTab} class="w-full mb-4">
+		<Tabs.List class="tabs tabs-border w-full">
+			<Tabs.Trigger
+				value="download"
+				class="tab gap-2 flex-1 data-[state=active]:tab-active"
+			>
+				<CloudDownload size={16} />
+				<span>{m.wizard_download()}</span>
+			</Tabs.Trigger>
+			<Tabs.Trigger
+				value="folder"
+				class="tab gap-2 flex-1 data-[state=active]:tab-active"
+			>
+				<Folder size={16} />
+				<span>{m.wizard_import_existing()}</span>
+			</Tabs.Trigger>
+		</Tabs.List>
+	</Tabs.Root>
 
 	<div class="space-y-4">
 		<div class="alert">

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Download, FolderOpen, Pause, Play, Plus, RotateCcw, Trash2 } from "@lucide/svelte";
+	import { Progress } from "bits-ui";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
@@ -225,11 +226,16 @@
 														})}
 													</span>
 												</div>
-												<progress
-													class="progress progress-accent w-full"
+												<Progress.Root
 													value={progress.percent}
-													max="100"
-												></progress>
+													max={100}
+													class="bg-base-300 relative h-2 w-full overflow-hidden rounded-full"
+												>
+													<div
+														class="bg-accent h-full w-full flex-1 rounded-full transition-all duration-300"
+														style={`transform: translateX(-${100 - progress.percent}%)`}
+													></div>
+												</Progress.Root>
 												<div
 													class="flex items-center justify-between text-xs opacity-70"
 												>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Tabs } from "bits-ui";
 	import ModFileTree from "$lib/components/mods/ModFileTree.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
@@ -34,32 +35,28 @@
 <Modal bind:open title={mod?.Name || "Mod Details"} class="max-w-2xl">
 	<div class="space-y-4">
 		{#if mod}
-			<div role="tablist" class="tabs tabs-box bg-base-200 p-1 rounded-box">
-				<button
-					role="tab"
-					class="tab rounded-lg transition-all"
-					class:tab-active={tab === "details"}
-					onclick={() => (tab = "details")}
-				>
-					Details
-				</button>
-				<button
-					role="tab"
-					class="tab rounded-lg transition-all"
-					class:tab-active={tab === "readme"}
-					onclick={() => (tab = "readme")}
-				>
-					Readme
-				</button>
-				<button
-					role="tab"
-					class="tab rounded-lg transition-all"
-					class:tab-active={tab === "files"}
-					onclick={() => (tab = "files")}
-				>
-					Changed Files ({mod.InstalledFiles?.length ?? 0})
-				</button>
-			</div>
+			<Tabs.Root bind:value={tab}>
+				<Tabs.List class="tabs tabs-box bg-base-200 p-1 rounded-box">
+					<Tabs.Trigger
+						value="details"
+						class="tab rounded-lg transition-all data-[state=active]:tab-active"
+					>
+						Details
+					</Tabs.Trigger>
+					<Tabs.Trigger
+						value="readme"
+						class="tab rounded-lg transition-all data-[state=active]:tab-active"
+					>
+						Readme
+					</Tabs.Trigger>
+					<Tabs.Trigger
+						value="files"
+						class="tab rounded-lg transition-all data-[state=active]:tab-active"
+					>
+						Changed Files ({mod.InstalledFiles?.length ?? 0})
+					</Tabs.Trigger>
+				</Tabs.List>
+			</Tabs.Root>
 
 			<div class="h-[480px] overflow-hidden flex flex-col justify-start mt-4">
 				{#if tab === "details"}

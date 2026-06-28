@@ -6,6 +6,7 @@
 		Loader2,
 		RefreshCw,
 	} from "@lucide/svelte";
+	import { Progress } from "bits-ui";
 	import { platform } from "@tauri-apps/plugin-os";
 	import { m } from "$lib/paraglide/messages";
 	import { updaterStore } from "$lib/stores/updater.svelte";
@@ -112,16 +113,17 @@
 					</div>
 				</div>
 
-				<div class="w-full bg-base-200 rounded-full h-2.5 overflow-hidden">
-					{#if updaterStore.contentLength}
-						<div
-							class="bg-accent h-full transition-all duration-300"
-							style="width: {updaterStore.progress}%"
-						></div>
-					{:else}
-						<div class="bg-accent h-full w-1/3 rounded-full animate-pulse"></div>
-					{/if}
-				</div>
+				<Progress.Root
+					value={updaterStore.contentLength ? updaterStore.progress : null}
+					max={100}
+					class="w-full bg-base-200 rounded-full h-2.5 overflow-hidden relative"
+				>
+					<div
+						class="bg-accent h-full transition-all duration-300 rounded-full"
+						style={updaterStore.contentLength ? `transform: translateX(-${100 - updaterStore.progress}%)` : `width: 33.333%`}
+						class:animate-pulse={!updaterStore.contentLength}
+					></div>
+				</Progress.Root>
 
 				{#if updaterStore.contentLength}
 					<div class="flex justify-end text-xs font-mono opacity-70">
