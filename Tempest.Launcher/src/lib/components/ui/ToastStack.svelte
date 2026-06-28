@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { X } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { removeToast, toasts } from "$lib/stores/ui";
-	import type { Toast } from "$lib/stores/ui";
+	import { removeToast, toasts } from "$lib/stores/ui.svelte";
+	import type { Toast } from "$lib/stores/ui.svelte";
 
 	interface Props {
 		placement?: string;
@@ -10,7 +10,7 @@
 
 	let { placement = "toast-bottom toast-end" }: Props = $props();
 
-	let toastItems = $derived($toasts);
+	let toastItems = $derived(toasts.value);
 
 	const getAlertClass = (toast: Toast) => {
 		const tone = toast.tone ?? "info";

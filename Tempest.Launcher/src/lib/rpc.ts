@@ -1,9 +1,9 @@
 import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
 import { fetch } from "@tauri-apps/plugin-http";
-import { ticket } from "./lobby/stores";
+import { ticket } from "./lobby/stores.svelte";
 import { LobbyClient } from "./rpc/lobby/lobby_service.client";
 import { ServerListClient } from "./rpc/server_list/server_list_service.client";
-import { servicesURL } from "./stores/settings";
+import { servicesURL } from "./stores/settings.svelte";
 
 let serverListConnectionCache: { host: string; client: ServerListClient } | null = null;
 export function getConnectionToServerList() {

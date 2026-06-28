@@ -2,7 +2,7 @@
 	import { Box, PackageX } from "@lucide/svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { instanceMap } from "$lib/stores/instance";
+	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { Instance } from "$lib/types/instance";
 
@@ -16,7 +16,7 @@
 
 	// Filter only instances that are in prepared state
 	let instances = $derived(
-		Object.values($instanceMap).filter((inst) => inst && inst.state?.type === "prepared"),
+		Object.values(instanceMap.value).filter((inst) => inst && inst.state?.type === "prepared") as Instance[],
 	);
 
 	function handleSelect(inst: Instance) {

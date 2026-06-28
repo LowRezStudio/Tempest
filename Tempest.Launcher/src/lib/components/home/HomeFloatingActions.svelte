@@ -2,12 +2,12 @@
 	import { Box, Megaphone, Play, Square } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
-	import { lastLaunchedInstance, lastLaunchedInstanceId } from "$lib/stores/instance";
-	import { processesList } from "$lib/stores/processes";
+	import { lastLaunchedInstance, lastLaunchedInstanceId } from "$lib/stores/instance.svelte";
+	import { processesList } from "$lib/stores/processes.svelte";
 
 	let isRunning = $derived(
-		$lastLaunchedInstance ?
-			$processesList.some((p) => p.instance.id === $lastLaunchedInstance.id)
+		lastLaunchedInstance.value ?
+			processesList.value.some((p) => p.instance.id === lastLaunchedInstance.value?.id)
 		:	false,
 	);
 
@@ -20,12 +20,12 @@
 	);
 
 	function handleLaunchToggle() {
-		if (!$lastLaunchedInstance) return;
+		if (!lastLaunchedInstance.value) return;
 		if (isRunning) {
-			killGameMutation.mutate($lastLaunchedInstance);
+			killGameMutation.mutate(lastLaunchedInstance.value);
 			return;
 		}
-		launchGameMutation.mutate($lastLaunchedInstance);
+		launchGameMutation.mutate(lastLaunchedInstance.value);
 	}
 
 	function clearActionError() {
@@ -57,7 +57,7 @@
 		</div>
 	</div>
 
-	{#if $lastLaunchedInstance}
+	{#if lastLaunchedInstance.value}
 		<div class="join shadow-lg">
 			<button
 				class="btn btn-lg join-item gap-2"
@@ -84,11 +84,11 @@
 						: isRunning ? m.home_stop_game()
 						: m.home_run_game()}
 					</span>
-					<span class="text-xs opacity-80">{$lastLaunchedInstance.label}</span>
+					<span class="text-xs opacity-80">{lastLaunchedInstance.value.label}</span>
 				</div>
 			</button>
 
-			<a href={`/instance/${$lastLaunchedInstanceId}`} class="btn btn-lg join-item">
+			<a href={`/instance/${lastLaunchedInstanceId.value}`} class="btn btn-lg join-item">
 				<Box size={20} />
 			</a>
 		</div>

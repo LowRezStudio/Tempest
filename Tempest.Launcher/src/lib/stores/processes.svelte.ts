@@ -1,15 +1,14 @@
 import { Command } from "@tauri-apps/plugin-shell";
-import { atom } from "nanostores";
 import type { LobbyServerProcess, Process, ProcessLog } from "$lib/types/process";
 
-export const processesList = atom<Process[]>([]);
+export const processesList = $state({ value: [] as Process[] });
 
-export const lobbyServerProcessesList = atom<LobbyServerProcess[]>([]);
+export const lobbyServerProcessesList = $state({ value: [] as LobbyServerProcess[] });
 
 const MAX_LOGS = 5000;
 let nextLogId = 0;
 
-export const processLogs = atom<ProcessLog[]>([]);
+export const processLogs = $state({ value: [] as ProcessLog[] });
 
 export function appendProcessLog(line: string, error = false, source = ""): void {
 	appendProcessLogs([line], error, source);
@@ -18,11 +17,11 @@ export function appendProcessLog(line: string, error = false, source = ""): void
 export function appendProcessLogs(lines: string[], error = false, source = ""): void {
 	if (lines.length === 0) return;
 	const entries = lines.map((line) => ({ id: nextLogId++, line, error, source }));
-	processLogs.set([...processLogs.get(), ...entries].slice(-MAX_LOGS));
+	processLogs.value = [...processLogs.value, ...entries].slice(-MAX_LOGS);
 }
 
 export function clearProcessLogs(): void {
-	processLogs.set([]);
+	processLogs.value = [];
 }
 
 function appendLines(buffer: string, data: string, source: string, error: boolean): string {

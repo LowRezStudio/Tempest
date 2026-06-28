@@ -1,12 +1,12 @@
 import { createCommand } from "$lib/core/command";
 import { m } from "$lib/paraglide/messages";
-import { instanceMap, updateInstance } from "$lib/stores/instance";
-import { appendProcessLog, logCommandOutput } from "$lib/stores/processes";
-import { addToast } from "$lib/stores/ui";
-import { queueCurrentIndex, queueItems, queueRunning } from "./stores";
+import { instanceMap, updateInstance } from "$lib/stores/instance.svelte";
+import { appendProcessLog, logCommandOutput } from "$lib/stores/processes.svelte";
+import { addToast } from "$lib/stores/ui.svelte";
+import { queueCurrentIndex, queueItems, queueRunning } from "./stores.svelte";
 import type { ArgumentType } from "$lib/core/command";
 import type { Instance } from "$lib/types/instance";
-import type { QueueItem } from "./stores";
+import type { QueueItem } from "./stores.svelte";
 import type { Child } from "@tauri-apps/plugin-shell";
 
 function generateId(): string {
@@ -14,7 +14,7 @@ function generateId(): string {
 }
 
 function resetRunningItems(): void {
-	const items = queueItems.get();
+	const items = queueItems.value;
 	const hasRunning = items.some((item) => item.status === "running");
 	if (!hasRunning) return;
 
@@ -23,7 +23,7 @@ function resetRunningItems(): void {
 			? { ...item, status: "pending" as const, progress: undefined }
 			: item,
 	);
-	queueItems.set(updated);
+	queueItems.value = updated;
 }
 
 resetRunningItems();
@@ -41,9 +41,9 @@ export class RestoreQueue {
 			id: generateId(),
 			status: "pending",
 		};
-		queueItems.set([...queueItems.get(), item]);
+		queueItems.value = [...queueItems.value, item];
 
-		if (!this.processing && !queueRunning.get()) {
+		if (!this.processing && !queueRunning.value) {
 			this.start();
 		}
 
@@ -51,7 +51,7 @@ export class RestoreQueue {
 	}
 
 	remove(id: string): void {
-		const items = queueItems.get();
+		const items = queueItems.value;
 		const index = items.findIndex((item) => item.id === id);
 		if (index === -1) return;
 
@@ -59,16 +59,16 @@ export class RestoreQueue {
 		if (item.status === "running") return;
 
 		const newItems = items.filter((i) => i.id !== id);
-		queueItems.set(newItems);
+		queueItems.value = newItems;
 
-		const currentIdx = queueCurrentIndex.get();
+		const currentIdx = queueCurrentIndex.value;
 		if (currentIdx !== null && index < currentIdx) {
-			queueCurrentIndex.set(currentIdx - 1);
+			queueCurrentIndex.value = currentIdx - 1;
 		}
 	}
 
 	reorder(fromIndex: number, toIndex: number): void {
-		const items = queueItems.get();
+		const items = queueItems.value;
 		const pendingItems = items.filter((i) => i.status === "pending");
 		const completedItems = items.filter((i) => i.status !== "pending");
 
@@ -79,31 +79,31 @@ export class RestoreQueue {
 		const [moved] = pendingItems.splice(fromIndex, 1);
 		pendingItems.splice(toIndex, 0, moved);
 
-		queueItems.set([...completedItems, ...pendingItems]);
+		queueItems.value = [...completedItems, ...pendingItems];
 	}
 
 	clearCompleted(): void {
-		const items = queueItems.get();
-		queueItems.set(items.filter((item) => item.status !== "complete"));
-		queueCurrentIndex.set(null);
+		const items = queueItems.value;
+		queueItems.value = items.filter((item) => item.status !== "complete");
+		queueCurrentIndex.value = null;
 	}
 
 	start(): void {
 		if (this.pausing) return;
-		queueRunning.set(true);
+		queueRunning.value = true;
 		if (!this.processing) {
 			this.processNext();
 		}
 	}
 
 	async pause(): Promise<void> {
-		queueRunning.set(false);
+		queueRunning.value = false;
 
 		if (this.runningChild && this.runningItemId) {
 			this.pausing = true;
 			const child = this.runningChild;
 			const itemId = this.runningItemId;
-			const item = queueItems.get().find((i) => i.id === itemId);
+			const item = queueItems.value.find((i) => i.id === itemId);
 
 			this.updateItem(itemId, { status: "paused", progress: undefined });
 			if (item) {
@@ -131,9 +131,9 @@ export class RestoreQueue {
 			this.runningItemId = null;
 		}
 
-		const items = queueItems.get();
+		const items = queueItems.value;
 		const newItems = items.filter((item) => item.outDir !== outDir);
-		queueItems.set(newItems);
+		queueItems.value = newItems;
 
 		const instance = Object.values(instanceMap.get()).find((inst) => inst?.path === outDir) as
 			| Instance
@@ -146,7 +146,7 @@ export class RestoreQueue {
 	}
 
 	retry(id: string): void {
-		const items = queueItems.get();
+		const items = queueItems.value;
 		const item = items.find((i) => i.id === id);
 		if (!item || item.status !== "error") return;
 
@@ -160,7 +160,7 @@ export class RestoreQueue {
 	}
 
 	resume(id: string): void {
-		const items = queueItems.get();
+		const items = queueItems.value;
 		const item = items.find((i) => i.id === id);
 		if (!item || item.status !== "paused") return;
 
@@ -168,7 +168,7 @@ export class RestoreQueue {
 		const allOthersPaused = otherItems.every((i) => i.status === "paused");
 
 		if (allOthersPaused) {
-			queueItems.set([{ ...item, status: "pending", progress: undefined }, ...otherItems]);
+			queueItems.value = [{ ...item, status: "pending", progress: undefined }, ...otherItems];
 		} else {
 			this.updateItem(id, { status: "pending", progress: undefined });
 		}
@@ -177,22 +177,22 @@ export class RestoreQueue {
 	}
 
 	private async processNext(): Promise<void> {
-		if (!queueRunning.get() || this.processing) return;
+		if (!queueRunning.value || this.processing) return;
 
-		const items = queueItems.get();
+		const items = queueItems.value;
 		const nextIndex = items.findIndex(
 			(item) => item.status === "pending" || item.status === "paused",
 		);
 
 		if (nextIndex === -1) {
-			queueRunning.set(false);
-			queueCurrentIndex.set(null);
+			queueRunning.value = false;
+			queueCurrentIndex.value = null;
 			this.processing = false;
 			return;
 		}
 
 		this.processing = true;
-		queueCurrentIndex.set(nextIndex);
+		queueCurrentIndex.value = nextIndex;
 
 		const item = items[nextIndex];
 		this.updateItem(item.id, { status: "running" });
@@ -212,7 +212,7 @@ export class RestoreQueue {
 			this.processing = false;
 		}
 
-		if (queueRunning.get()) {
+		if (queueRunning.value) {
 			this.processNext();
 		}
 	}
@@ -297,7 +297,7 @@ export class RestoreQueue {
 					return;
 				}
 
-				const currentItem = queueItems.get().find((i) => i.id === item.id);
+				const currentItem = queueItems.value.find((i) => i.id === item.id);
 				if (currentItem?.status === "paused") {
 					console.log("Ignoring error because restore was paused");
 					finish();
@@ -333,7 +333,7 @@ export class RestoreQueue {
 					stderr,
 				);
 
-				const currentItem = queueItems.get().find((i) => i.id === item.id);
+				const currentItem = queueItems.value.find((i) => i.id === item.id);
 
 				if (data.code === 0) {
 					if (currentItem?.status === "complete") {
@@ -444,14 +444,14 @@ export class RestoreQueue {
 		id: string,
 		updates: Partial<Pick<QueueItem, "status" | "result" | "error" | "progress">>,
 	): void {
-		const items = queueItems.get();
+		const items = queueItems.value;
 		const index = items.findIndex((item) => item.id === id);
 		if (index === -1) return;
 
 		const oldStatus = items[index].status;
 		const newItems = [...items];
 		newItems[index] = { ...newItems[index], ...updates };
-		queueItems.set(newItems);
+		queueItems.value = newItems;
 
 		if (updates.status && updates.status !== oldStatus) {
 			this.notifyStatusChange(newItems[index]);

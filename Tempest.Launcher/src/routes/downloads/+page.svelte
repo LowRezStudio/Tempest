@@ -14,10 +14,10 @@
 		queuePendingCount,
 		queueRunning,
 		resetQueueState,
-	} from "$lib/rigby/stores";
-	import { instanceMap } from "$lib/stores/instance";
-	import { instanceWizardOpen } from "$lib/stores/ui";
-	import type { QueueItem } from "$lib/rigby/stores";
+	} from "$lib/rigby/stores.svelte";
+	import { instanceMap } from "$lib/stores/instance.svelte";
+	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
+	import type { QueueItem } from "$lib/rigby/stores.svelte";
 
 	function formatBytes(bytes: number): string {
 		if (bytes === 0) return "0 B";
@@ -68,7 +68,7 @@
 
 	const selectedInstance = $derived(
 		selectedItem ?
-			Object.values($instanceMap).find((inst) => inst?.path === selectedItem!.outDir)
+			Object.values(instanceMap.value).find((inst) => inst?.path === selectedItem!.outDir)
 		:	undefined,
 	);
 
@@ -109,11 +109,11 @@
 			<Download size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet actions()}
-			<button class="btn btn-accent" onclick={() => instanceWizardOpen.set(true)}>
+			<button class="btn btn-accent" onclick={() => instanceWizardOpen.value = true}>
 				<Plus size={16} />
 				{m.wizard_download()}
 			</button>
-			{#if $queueRunning}
+			{#if queueRunning.value}
 				<button class="btn btn-ghost" onclick={handlePause}>
 					<Pause size={16} />
 					{m.common_pause()}
@@ -122,7 +122,7 @@
 				<button
 					class="btn btn-ghost"
 					onclick={handleStart}
-					disabled={$queuePendingCount === 0 && $queuePausedCount === 0}
+					disabled={queuePendingCount.value === 0 && queuePausedCount.value === 0}
 				>
 					<Play size={16} />
 					{m.common_start()}
@@ -131,34 +131,34 @@
 			<button
 				class="btn btn-ghost"
 				onclick={handleClearCompleted}
-				disabled={$queueCompletedCount === 0 && $queueErrorCount === 0}
+				disabled={queueCompletedCount.value === 0 && queueErrorCount.value === 0}
 			>
 				<Trash2 size={16} />
 				{m.downloads_clear_completed()}
 			</button>
 		{/snippet}
 		{#snippet subtitle()}
-			{#if $queuePendingCount > 0}
+			{#if queuePendingCount.value > 0}
 				<span class="badge badge-accent badge-sm"
-					>{$queuePendingCount} {m.downloads_pending()}</span
+					>{queuePendingCount.value} {m.downloads_pending()}</span
 				>
 			{/if}
-			{#if $queuePausedCount > 0}
+			{#if queuePausedCount.value > 0}
 				<span class="badge badge-warning badge-sm"
-					>{$queuePausedCount} {m.downloads_paused()}</span
+					>{queuePausedCount.value} {m.downloads_paused()}</span
 				>
 			{/if}
-			{#if $queueCompletedCount > 0}
+			{#if queueCompletedCount.value > 0}
 				<span class="badge badge-success badge-sm"
-					>{$queueCompletedCount} {m.downloads_complete()}</span
+					>{queueCompletedCount.value} {m.downloads_complete()}</span
 				>
 			{/if}
-			{#if $queueErrorCount > 0}
+			{#if queueErrorCount.value > 0}
 				<span class="badge badge-error badge-sm"
-					>{$queueErrorCount} {m.downloads_failed()}</span
+					>{queueErrorCount.value} {m.downloads_failed()}</span
 				>
 			{/if}
-			{#if $queueItems.length === 0}
+			{#if queueItems.value.length === 0}
 				<span>{m.downloads_no_downloads()}</span>
 			{/if}
 		{/snippet}
@@ -166,7 +166,7 @@
 	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">
-				{#if $queueItems.length === 0}
+				{#if queueItems.value.length === 0}
 					<EmptyState
 						title={m.downloads_no_downloads()}
 						description={m.downloads_no_downloads_hint()}
@@ -177,7 +177,7 @@
 						{#snippet actions()}
 							<button
 								class="btn btn-accent mt-2 gap-2"
-								onclick={() => instanceWizardOpen.set(true)}
+								onclick={() => instanceWizardOpen.value = true}
 							>
 								<Plus size={20} />
 								{m.wizard_download()}
@@ -186,7 +186,7 @@
 					</EmptyState>
 				{:else}
 					<div class="space-y-2">
-						{#each $queueItems as item (item.id)}
+						{#each queueItems.value as item (item.id)}
 							<div class="bg-base-200 rounded-lg p-4">
 								<div class="flex items-start justify-between gap-4">
 									<div class="flex-1 min-w-0">

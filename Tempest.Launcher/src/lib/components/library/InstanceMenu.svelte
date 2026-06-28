@@ -26,7 +26,7 @@
 		WIKI_BASE_URL,
 	} from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
-	import { updateInstance } from "$lib/stores/instance";
+	import { updateInstance } from "$lib/stores/instance.svelte";
 	import type { Instance } from "$lib/types/instance";
 	import type { Snippet } from "svelte";
 

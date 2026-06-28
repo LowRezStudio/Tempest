@@ -1,6 +1,6 @@
 import { remove } from "@tauri-apps/plugin-fs";
 import { restoreQueue } from "$lib/rigby/restore-queue";
-import { removeInstance } from "$lib/stores/instance";
+import { removeInstance } from "$lib/stores/instance.svelte";
 import type { Instance } from "$lib/types/instance";
 
 export async function deleteInstance(instance: Instance, deleteData: boolean): Promise<void> {

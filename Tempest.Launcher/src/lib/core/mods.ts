@@ -1,4 +1,4 @@
-import { appendProcessLogs } from "$lib/stores/processes";
+import { appendProcessLogs } from "$lib/stores/processes.svelte";
 import { createCommand } from "./command";
 
 export type ModAuthor = {

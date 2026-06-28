@@ -2,7 +2,7 @@
 	import { MessageCircle, X } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { tick } from "svelte";
-	import type { ChatMessage } from "$lib/lobby/stores";
+	import type { ChatMessage } from "$lib/lobby/stores.svelte";
 
 	interface Props {
 		messages: readonly ChatMessage[];

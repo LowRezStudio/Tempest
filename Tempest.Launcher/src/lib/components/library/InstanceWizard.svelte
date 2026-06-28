@@ -18,8 +18,8 @@
 		WIKI_BASE_URL,
 	} from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
-	import { addInstance, updateInstance } from "$lib/stores/instance";
-	import { defaultInstancePath } from "$lib/stores/settings";
+	import { addInstance, updateInstance } from "$lib/stores/instance.svelte";
+	import { defaultInstancePath } from "$lib/stores/settings.svelte";
 	import type { Instance, InstanceState } from "$lib/types/instance";
 
 	interface Props {
@@ -65,7 +65,7 @@
 			directory: true,
 			multiple: false,
 			title: m.wizard_select_installation_folder(),
-			defaultPath: $defaultInstancePath || undefined,
+			defaultPath: defaultInstancePath.value || undefined,
 		});
 		if (result) {
 			selectedPath = result;
@@ -107,8 +107,8 @@
 	async function getInstancePath() {
 		if (selectedPath) return selectedPath;
 		if (!selectedVersion?.version) return "";
-		if ($defaultInstancePath) {
-			return await path.join($defaultInstancePath, selectedVersion.version);
+		if (defaultInstancePath.value) {
+			return await path.join(defaultInstancePath.value, selectedVersion.version);
 		}
 		return `/instances/${selectedVersion.version}`;
 	}
@@ -206,7 +206,7 @@
 
 	const defaultPathQuery = createDefaultInstancePathQuery(
 		() => selectedVersion?.version,
-		() => $defaultInstancePath,
+		() => defaultInstancePath.value,
 	);
 	const setupInstanceMutation = createSetupInstanceMutation();
 

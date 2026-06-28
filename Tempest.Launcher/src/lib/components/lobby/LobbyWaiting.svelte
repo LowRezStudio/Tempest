@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Users } from "@lucide/svelte";
 	import champions from "$lib/data/champions.json";
-	import { lobbyWaitingState, teamLeft, teamRight } from "$lib/lobby/stores";
+	import { lobbyWaitingState, teamLeft, teamRight } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import ChampionSelect from "../champions/ChampionSelect.svelte";
 	import Header from "../ui/Header.svelte";
@@ -25,7 +25,7 @@
 		return champions.find((c) => c.name === champion)?.displayName || "";
 	}
 	function getTitle() {
-		const s = $lobbyWaitingState;
+		const s = lobbyWaitingState.value;
 		if (s.isWaiting && s.countdownSeconds > 0) {
 			return m.lobby_starting_countdown({ seconds: s.countdownSeconds });
 		}
@@ -42,51 +42,51 @@
 		<Users size={32} class="opacity-60" />
 	{/snippet}
 	{#snippet actions()}
-		{#if $lobbyWaitingState.canRejoinGame}
+		{#if lobbyWaitingState.value.canRejoinGame}
 			<button class="btn btn-accent" onclick={handleRejoinGame}
 				>{m.lobby_rejoin_game()}</button
 			>
 		{/if}
-		{#if !$lobbyWaitingState.canRejoinLobby}
+		{#if !lobbyWaitingState.value.canRejoinLobby}
 			<button class="btn btn-error" onclick={handleLeave}> {m.lobby_leave_lobby()} </button>
 		{:else}
 			<button class="btn btn-accent" onclick={handleJoin}> {m.lobby_rejoin_lobby()}</button>
 		{/if}
 	{/snippet}
 	{#snippet subtitle()}
-		{#if $lobbyWaitingState.isWaiting}
+		{#if lobbyWaitingState.value.isWaiting}
 			<span>
 				{m.lobby_waiting_for_players({
-					current: $lobbyWaitingState.playerCount,
-					min: $lobbyWaitingState.minimumPlayerCount ?? 0,
+					current: lobbyWaitingState.value.playerCount,
+					min: lobbyWaitingState.value.minimumPlayerCount ?? 0,
 				})}
 			</span>
-		{:else if $lobbyWaitingState.isPendingConnection}
+		{:else if lobbyWaitingState.value.isPendingConnection}
 			<span class="inline-flex items-center gap-2">
 				<span class="loading loading-spinner loading-xs"></span>
 				{m.lobby_connecting()}
 			</span>
-		{:else if $lobbyWaitingState.isGameServerLaunching}
+		{:else if lobbyWaitingState.value.isGameServerLaunching}
 			<span class="inline-flex items-center gap-2">
 				<span class="loading loading-spinner loading-xs"></span>
 				{m.lobby_waiting_for_server()}
 			</span>
-		{:else if $lobbyWaitingState.isLobbyRestarting}
+		{:else if lobbyWaitingState.value.isLobbyRestarting}
 			<span class="inline-flex items-center gap-2">
 				<span class="loading loading-spinner loading-xs"></span>
 				{m.lobby_lobby_restarting()}
 			</span>
 		{:else}
 			<span
-				>{$lobbyWaitingState.playerCount}
-				{m.lobby_players({ count: $lobbyWaitingState.playerCount })}</span
+				>{lobbyWaitingState.value.playerCount}
+				{m.lobby_players({ count: lobbyWaitingState.value.playerCount })}</span
 			>
 		{/if}
 	{/snippet}
 </Header>
 
 <div class="flex-1 flex flex-col overflow-hidden bg-base-100 relative">
-	{#if !$lobbyWaitingState.canJoinInProgress || $lobbyWaitingState.canRejoinLobby}
+	{#if !lobbyWaitingState.value.canJoinInProgress || lobbyWaitingState.value.canRejoinLobby}
 		<div class="absolute inset-0">
 			<video
 				src="/champions/empty.webm"
@@ -99,7 +99,7 @@
 		</div>
 		<div class="relative justify-center gap-20 z-10 flex h-full items-center p-8">
 			<div class="flex flex-col gap-2">
-				{#each $teamLeft as player (player.id)}
+				{#each teamLeft.value as player (player.id)}
 					<LobbyPlayerCard
 						displayName={player.displayName}
 						championIconFolderName={getChampionDisplayName(player.champion)}
@@ -109,7 +109,7 @@
 			</div>
 
 			<div class="flex flex-col gap-2">
-				{#each $teamRight as player (player.id)}
+				{#each teamRight.value as player (player.id)}
 					<LobbyPlayerCard
 						displayName={player.displayName}
 						championIconFolderName={getChampionDisplayName(player.champion)}
@@ -120,11 +120,11 @@
 		</div>
 	{:else}
 		<LobbyChampionSelect
-			teamLeft={$teamLeft}
-			teamRight={$teamRight}
-			currentMap={$lobbyWaitingState.currentMap}
+			teamLeft={teamLeft.value}
+			teamRight={teamRight.value}
+			currentMap={lobbyWaitingState.value.currentMap}
 			handleChampionSelect={handleJoinInProgress}
-			gameVersion={$lobbyWaitingState.gameVersion}
+			gameVersion={lobbyWaitingState.value.gameVersion}
 			countdownSeconds={-1}
 		/>
 	{/if}

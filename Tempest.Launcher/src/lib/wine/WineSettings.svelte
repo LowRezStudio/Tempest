@@ -4,7 +4,7 @@
 	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { platform } from "@tauri-apps/plugin-os";
 	import { m } from "$lib/paraglide/messages";
-	import { gamescopeArgs, useGamescope, winePath } from "$lib/stores/settings";
+	import { gamescopeArgs, useGamescope, winePath } from "$lib/stores/settings.svelte";
 	import { which } from "$lib/tauri/which";
 
 	let gamescopePath = $state<string | null>(null);
@@ -24,21 +24,21 @@
 		});
 
 		if (selected) {
-			$winePath = selected;
+			winePath.value = selected;
 		}
 	}
 
 	async function detectWine() {
 		const detected = await which("wine");
 		if (detected) {
-			$winePath = detected;
+			winePath.value = detected;
 		}
 	}
 
-	let localUseGamescope = $state($useGamescope === "true");
+	let localUseGamescope = $state(useGamescope.value === "true");
 
 	$effect(() => {
-		useGamescope.set(localUseGamescope ? "true" : "false");
+		useGamescope.value = localUseGamescope ? "true" : "false";
 	});
 
 	const isWindows = platform() === "windows";
@@ -55,7 +55,7 @@
 				id="wine-path-input"
 				type="text"
 				class="input input-bordered join-item flex-1 font-mono"
-				bind:value={$winePath}
+				bind:value={winePath.value}
 				placeholder={m.settings_wine_executable_placeholder()}
 			/>
 			<button type="button" class="btn btn-accent join-item" onclick={browseWinePath}>
@@ -102,7 +102,7 @@
 				id="gamescope-args-input"
 				type="text"
 				class="input input-bordered w-full font-mono"
-				bind:value={$gamescopeArgs}
+				bind:value={gamescopeArgs.value}
 				placeholder={m.settings_wine_gamescope_args_placeholder()}
 				disabled={!isGamescopeInstalled}
 			/>

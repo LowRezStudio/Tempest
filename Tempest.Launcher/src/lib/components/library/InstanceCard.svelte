@@ -2,7 +2,7 @@
 	import { Box, Pause } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { m } from "$lib/paraglide/messages";
-	import { queueItems } from "$lib/rigby/stores";
+	import { queueItems } from "$lib/rigby/stores.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import InstanceMenu from "./InstanceMenu.svelte";
 	import type { Instance } from "$lib/types/instance";
@@ -19,7 +19,7 @@
 	let isActive = $derived(isDownloading || isPaused);
 
 	let queueItem = $derived(
-		$queueItems.find((item) => item.outDir === instance.path && item.status === "running"),
+		queueItems.value.find((item) => item.outDir === instance.path && item.status === "running"),
 	);
 
 	let downloadProgress = $derived(queueItem?.progress?.percent ?? 0);

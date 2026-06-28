@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Modal from "$lib/components/ui/Modal.svelte";
-	import { moveToLobby } from "$lib/core/lobby";
+	import { moveToLobby } from "$lib/core/lobby.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { isValidHost } from "$lib/utils/network";
 

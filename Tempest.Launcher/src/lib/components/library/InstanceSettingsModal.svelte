@@ -8,7 +8,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
 	import { createModsQuery } from "$lib/queries/mods";
-	import { updateInstance } from "$lib/stores/instance";
+	import { updateInstance } from "$lib/stores/instance.svelte";
 	import { parseArgs } from "$lib/utils/args";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { Instance, InstancePlatform } from "$lib/types/instance";

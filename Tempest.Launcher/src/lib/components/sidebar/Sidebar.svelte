@@ -12,11 +12,11 @@
 		SquareTerminal,
 	} from "@lucide/svelte";
 	import { page } from "$app/state";
-	import { lobbyHost } from "$lib/lobby/stores";
+	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { instanceMap, instanceOrder, setInstanceOrder } from "$lib/stores/instance";
-	import { lobbyServerProcessesList } from "$lib/stores/processes";
-	import { instanceWizardOpen } from "$lib/stores/ui";
+	import { instanceMap, instanceOrder, setInstanceOrder } from "$lib/stores/instance.svelte";
+	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
+	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
 	import { getInstanceColor } from "$lib/utils/color";
 	import { createReorderable } from "$lib/utils/reorder.svelte";
 	import LanguageSelector from "./LanguageSelector.svelte";
@@ -24,9 +24,9 @@
 	import type { Instance } from "$lib/types/instance";
 
 	let preparedInstances = $derived.by(() => {
-		const order = $instanceOrder;
-		const all = Object.values($instanceMap).filter(
-			(i): i is Instance => !!i && i.state?.type === "prepared",
+		const order = instanceOrder.value;
+		const all = Object.values(instanceMap.value).filter(
+			(i) => !!i && i.state?.type === "prepared",
 		);
 		const byId = new Map(all.map((i) => [i.id, i]));
 		const sorted: Instance[] = [];
@@ -58,7 +58,7 @@
 		<SidebarItem href="/library" icon={Library} label={m.sidebar_library()} />
 		<SidebarItem href="/downloads" icon={Download} label={m.sidebar_downloads()} />
 		<SidebarItem href="/servers" icon={Server} label={m.sidebar_servers()} />
-		{#if $lobbyHost}
+		{#if lobbyHost.value}
 			<SidebarItem href="/lobby" icon={Compass} label={m.sidebar_lobby()} />
 		{/if}
 	</nav>
@@ -89,13 +89,13 @@
 
 		<button
 			class="btn btn-ghost btn-square outline-none"
-			onclick={() => instanceWizardOpen.set(true)}
+			onclick={() => (instanceWizardOpen.value = true)}
 		>
 			<Plus size={20} />
 		</button>
 	</div>
 	<div class="flex flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none">
-		{#each $lobbyServerProcessesList as lobbyServer}
+		{#each lobbyServerProcessesList.value as lobbyServer}
 			<SidebarItem
 				icon={SquareTerminal}
 				label={lobbyServer.createOptions.name}

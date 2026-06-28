@@ -5,7 +5,7 @@
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createAboutInfoQuery } from "$lib/queries/about";
-	import { defaultInstancePath, theme, username } from "$lib/stores/settings";
+	import { defaultInstancePath, theme, username } from "$lib/stores/settings.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import WineSettings from "$lib/wine/WineSettings.svelte";
 
@@ -21,7 +21,7 @@
 		});
 
 		if (selected) {
-			$defaultInstancePath = selected;
+			defaultInstancePath.value = selected;
 		}
 	}
 
@@ -68,7 +68,7 @@
 								id="username-input"
 								type="text"
 								class="input input-bordered w-full"
-								bind:value={$username}
+								bind:value={username.value}
 								placeholder={m.settings_username_placeholder()}
 							/>
 						</div>
@@ -80,7 +80,7 @@
 							<select
 								id="theme-input"
 								class="select select-bordered w-full"
-								bind:value={$theme}
+								bind:value={theme.value}
 							>
 								<option value="system">{m.settings_theme_system()}</option>
 								<option value="mocha">{m.settings_theme_mocha()}</option>
@@ -100,7 +100,7 @@
 									id="path-input"
 									type="text"
 									class="input input-bordered join-item flex-1 font-mono"
-									bind:value={$defaultInstancePath}
+									bind:value={defaultInstancePath.value}
 									placeholder={m.settings_select_directory()}
 								/>
 								<button

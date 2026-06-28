@@ -8,13 +8,13 @@
 		TriangleAlert,
 	} from "@lucide/svelte";
 	import Header from "$lib/components/ui/Header.svelte";
-	import { moveToLobby } from "$lib/core/lobby";
+	import { moveToLobby } from "$lib/core/lobby.svelte";
 	import maps from "$lib/data/maps.json";
 	import { m } from "$lib/paraglide/messages";
 	import { createServersQuery } from "$lib/queries/servers";
 	import { CountryCode, ServerListing } from "$lib/rpc";
-	import { instanceMap } from "$lib/stores/instance";
-	import { hostServerWizardOpen, joinServerWizardOpen } from "$lib/stores/ui";
+	import { instanceMap } from "$lib/stores/instance.svelte";
+	import { hostServerWizardOpen, joinServerWizardOpen } from "$lib/stores/ui.svelte";
 	import { getMapsForVersion } from "$lib/utils/versions";
 
 	let searchQuery = $state("");
@@ -42,7 +42,7 @@
 	);
 	function canJoinServer(server: ServerListing) {
 		//TODO check mods too
-		return Object.values($instanceMap).some((i) => i.version === server.version);
+		return Object.values(instanceMap.value).some((i) => i && i.version === server.version);
 	}
 	function findMapName(server: ServerListing) {
 		if (!server.map && !server.mapId) return m.common_na();
@@ -109,7 +109,7 @@
 			<button
 				class="btn btn-accent"
 				onclick={() => {
-					joinServerWizardOpen.set(true);
+					joinServerWizardOpen.value = true;
 				}}
 			>
 				{m.join_server_title()}
@@ -117,7 +117,7 @@
 			<button
 				class="btn btn-accent"
 				onclick={() => {
-					hostServerWizardOpen.set(true);
+					hostServerWizardOpen.value = true;
 				}}
 			>
 				{m.serverlist_host_server()}

@@ -1,6 +1,6 @@
-import { lastLaunchedInstanceId } from "../stores/instance";
-import { logCommandOutput, processesList } from "../stores/processes";
-import { gamescopeArgs, useGamescope, winePath } from "../stores/settings";
+import { lastLaunchedInstanceId } from "../stores/instance.svelte";
+import { logCommandOutput, processesList } from "../stores/processes.svelte";
+import { gamescopeArgs, useGamescope, winePath } from "../stores/settings.svelte";
 import { createCommand, processArgs } from "./command";
 import type { Instance } from "../types/instance";
 import type { Process } from "../types/process";
@@ -9,7 +9,7 @@ export const launchGame = async (instance: Instance) => {
 	const { path, launchOptions: options } = instance;
 	const platform = options.platform ?? "Win64";
 
-	lastLaunchedInstanceId.set(instance.id);
+	lastLaunchedInstanceId.value = instance.id;
 
 	console.log("Launching instance", instance.id, instance.version);
 	console.log(instance);
@@ -41,7 +41,7 @@ export const launchGame = async (instance: Instance) => {
 	logCommandOutput(command, "launch");
 
 	command.on("close", () => {
-		processesList.set(processesList.get().filter((p) => p.instance.id !== instance.id));
+		processesList.value = processesList.value.filter((p) => p.instance.id !== instance.id);
 	});
 
 	const child = await command.spawn();
@@ -53,12 +53,12 @@ export const launchGame = async (instance: Instance) => {
 		instance,
 	};
 
-	processesList.set([...processesList.get(), process]);
+	processesList.value = [...processesList.value, process];
 };
 
 export const killGame = async (instance: Instance) => {
-	const processes = processesList.get();
-	const process = processes.find((p) => p.instance.id === instance.id);
+	const processes = processesList.value;
+	const process = processes.find((p: Process) => p.instance.id === instance.id);
 
 	if (process) await process.child.write("kill\n");
 };

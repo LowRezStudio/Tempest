@@ -1,8 +1,7 @@
 import { goto } from "$app/navigation";
-import { atom } from "nanostores";
 import { lobbyManager } from "$lib/lobby/lobby-manager";
-import { lobbyHost, resetLobbyState } from "$lib/lobby/stores";
-import { appendProcessLog, lobbyServerProcessesList } from "$lib/stores/processes";
+import { lobbyHost, resetLobbyState } from "$lib/lobby/stores.svelte";
+import { appendProcessLog, lobbyServerProcessesList } from "$lib/stores/processes.svelte";
 import { createCommand } from "./command";
 import type { LobbyServerOptions } from "$lib/types/lobby";
 import type { LobbyServerProcess, ProcessLog } from "$lib/types/process";
@@ -48,23 +47,40 @@ export const hostLobby = async (options: LobbyServerOptions) => {
 	command.on("close", (e) => {
 		if (stdoutBuffer) addLog(stdoutBuffer, false);
 		if (stderrBuffer) addLog(stderrBuffer, true);
-		process.returnCode.set(e.code);
+		process.returnCode.value = e.code;
 	});
+
+	let logsState = $state<ProcessLog[]>([]);
+	let returnCodeState = $state<number | null>(null);
 
 	const process: LobbyServerProcess = {
 		createOptions: options,
 		child,
 		command,
-		logs: atom<ProcessLog[]>([]),
-		returnCode: atom<number | null>(null),
+		logs: {
+			get value() {
+				return logsState;
+			},
+			set value(v) {
+				logsState = v;
+			},
+		},
+		returnCode: {
+			get value() {
+				return returnCodeState;
+			},
+			set value(v) {
+				returnCodeState = v;
+			},
+		},
 	};
 	let nextId = 0;
 	function addLog(line: string, error: boolean) {
-		process.logs.set([...process.logs.get(), { id: nextId++, line, error }].slice(-200));
+		process.logs.value = [...process.logs.value, { id: nextId++, line, error }].slice(-200);
 		appendProcessLog(line, error, "lobby");
 	}
 
-	lobbyServerProcessesList.set([...lobbyServerProcessesList.get(), process]);
+	lobbyServerProcessesList.value = [...lobbyServerProcessesList.value, process];
 	return child.pid;
 };
 
@@ -73,7 +89,7 @@ export const killLobby = async (process: LobbyServerProcess) => {
 };
 
 export const moveToLobby = (host: string) => {
-	if (lobbyHost.get() === host) {
+	if (lobbyHost.value === host) {
 		goto("/lobby");
 		return;
 	}
@@ -81,6 +97,6 @@ export const moveToLobby = (host: string) => {
 		lobbyManager.disconnect();
 	}
 	resetLobbyState();
-	lobbyHost.set(host);
+	lobbyHost.value = host;
 	goto("/lobby");
 };

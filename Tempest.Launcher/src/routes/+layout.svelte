@@ -19,7 +19,7 @@
 	import UpdateDialog from "$lib/components/updater/UpdateDialog.svelte";
 	import { installMod } from "$lib/core/mods";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
-	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores";
+	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores.svelte";
 	import {
 		confirmReplaceMod,
 		confirmUnverifiedMod,
@@ -27,10 +27,10 @@
 		resolveReplaceMod,
 		resolveUnverifiedMod,
 		unverifiedDialogStore,
-	} from "$lib/mods/ui";
+	} from "$lib/mods/ui.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { instanceMap } from "$lib/stores/instance";
-	import { theme } from "$lib/stores/settings";
+	import { instanceMap } from "$lib/stores/instance.svelte";
+	import { theme } from "$lib/stores/settings.svelte";
 	import {
 		addToast,
 		appCloseLobbyWizardOpen,
@@ -38,7 +38,7 @@
 		instanceWizardOpen,
 		joinServerWizardOpen,
 		removeToast,
-	} from "$lib/stores/ui";
+	} from "$lib/stores/ui.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
 
@@ -82,7 +82,7 @@
 		const match = pathname.match(/^\/instance\/([^/]+)/);
 		if (match) {
 			const instanceId = match[1];
-			const inst = $instanceMap[instanceId];
+			const inst = instanceMap.value[instanceId];
 			if (inst && inst.state?.type === "prepared") {
 				targetInstance = inst;
 				await proceedWithInstall();
@@ -194,7 +194,7 @@
 			.onCloseRequested(async (event) => {
 				event.preventDefault();
 				if (lobbyManager.isConnected()) {
-					appCloseLobbyWizardOpen.set(true);
+					appCloseLobbyWizardOpen.value = true;
 				} else {
 					await appWindow.destroy();
 				}
@@ -229,7 +229,7 @@
 	});
 
 	$effect(() => {
-		const currentTheme = $theme;
+		const currentTheme = theme.value;
 		if (currentTheme === "system") {
 			document.documentElement.removeAttribute("data-theme");
 		} else {
@@ -281,24 +281,24 @@
 			{/key}
 			<InstallModOverlay visible={isDraggingFiles} />
 		</main>
-		<InstanceWizard bind:open={$instanceWizardOpen} />
-		<HostServerWizard bind:open={$hostServerWizardOpen} />
-		<JoinServerWizard bind:open={$joinServerWizardOpen} />
-		<AppCloseLobbyWizard bind:open={$appCloseLobbyWizardOpen} />
+		<InstanceWizard bind:open={instanceWizardOpen.value} />
+		<HostServerWizard bind:open={hostServerWizardOpen.value} />
+		<JoinServerWizard bind:open={joinServerWizardOpen.value} />
+		<AppCloseLobbyWizard bind:open={appCloseLobbyWizardOpen.value} />
 		<InstanceSelectModal
 			bind:open={showInstanceSelect}
 			onselect={handleInstanceSelected}
 			oncancel={() => {}}
 		/>
 		<ReplaceModDialog
-			bind:open={$replaceDialogStore.open}
-			modName={$replaceDialogStore.modName}
+			bind:open={replaceDialogStore.value.open}
+			modName={replaceDialogStore.value.modName}
 			onconfirm={() => resolveReplaceMod(true)}
 			oncancel={() => resolveReplaceMod(false)}
 		/>
 		<UnverifiedModDialog
-			bind:open={$unverifiedDialogStore.open}
-			modName={$unverifiedDialogStore.modName}
+			bind:open={unverifiedDialogStore.value.open}
+			modName={unverifiedDialogStore.value.modName}
 			onconfirm={() => resolveUnverifiedMod(true)}
 			oncancel={() => resolveUnverifiedMod(false)}
 		/>

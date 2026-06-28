@@ -1,9 +1,9 @@
 import { useQueryClient } from "@tanstack/svelte-query";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { installMod } from "$lib/core/mods";
-import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui";
+import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui.svelte";
 import { m } from "$lib/paraglide/messages";
-import { addToast, removeToast } from "$lib/stores/ui";
+import { addToast, removeToast } from "$lib/stores/ui.svelte";
 
 export function useInstallMods(instancePath: () => string | undefined) {
 	const queryClient = useQueryClient();

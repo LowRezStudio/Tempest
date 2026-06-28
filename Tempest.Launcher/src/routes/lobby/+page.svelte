@@ -27,29 +27,29 @@
 		players,
 		teamLeft,
 		teamRight,
-	} from "$lib/lobby/stores";
+	} from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation } from "$lib/queries/core";
-	import { processesList } from "$lib/stores/processes";
+	import { processesList } from "$lib/stores/processes.svelte";
 	import { getMapsForVersion } from "$lib/utils/versions";
 	import { onDestroy, onMount } from "svelte";
 
 	const currentMap = $derived(
-		$lobbyStaticInfo?.version ?
-			getMapsForVersion($lobbyStaticInfo?.version).find(
-				(m) => m.id === $lobbyState.championSelect?.mapId,
+		lobbyStaticInfo.value?.version ?
+			getMapsForVersion(lobbyStaticInfo.value?.version).find(
+				(m) => m.id === lobbyState.value.championSelect?.mapId,
 			)
 		:	undefined,
 	);
 	const gameRunning = $derived(
-		$processesList.some((p) => p.instance.id === $currentInstance?.id),
+		processesList.value.some((p) => p.instance.id === currentInstance.value?.id),
 	);
 
 	const launchGameMutation = createLaunchGameMutation();
 	const runAfkDetection = $derived(
 		!!(
-			$lobbyState.inGame?.gameServerOpen &&
-			$ownChampion &&
+			lobbyState.value.inGame?.gameServerOpen &&
+			ownChampion.value &&
 			!gameRunning &&
 			!launchGameMutation.isPending
 		),
@@ -57,20 +57,20 @@
 
 	$effect(() => {
 		if (
-			$isGameServerOpen &&
+			isGameServerOpen.value &&
 			!gameRunning &&
 			!launchGameMutation.isPending &&
 			ownChampion &&
-			!$currentInstance
+			!currentInstance.value
 		) {
 			console.log("Trying to launch the game!");
 			handleJoinGame();
 		}
-		if (!$isGameServerOpen) {
-			currentInstance.set(null);
+		if (!isGameServerOpen.value) {
+			currentInstance.value = null;
 			//TODO maybe ask user before closing instances
-			const openInstances = $processesList.filter(
-				(p) => p.instance.version === $lobbyStaticInfo?.version,
+			const openInstances = processesList.value.filter(
+				(p) => p.instance.version === lobbyStaticInfo.value?.version,
 			);
 			for (const i of openInstances) {
 				killGame(i.instance);
@@ -114,7 +114,7 @@
 		const instance = lobbyManager.getLaunchGameInstance();
 		if (instance) {
 			console.log("Found instance. Launching game!");
-			currentInstance.set(instance);
+			currentInstance.value = instance;
 			launchGameMutation.mutate(instance);
 		} else {
 			console.error("Unable to create instance");
@@ -129,7 +129,7 @@
 		}
 	}
 	async function handlePasswordSubmit(password: string) {
-		lobbyPassword.set(password);
+		lobbyPassword.value = password;
 		await lobbyManager.joinLobby();
 	}
 </script>
@@ -139,27 +139,27 @@
 </svelte:head>
 
 <div class="flex flex-col h-full bg-base-100">
-	{#if $isInChampionSelect}
+	{#if isInChampionSelect.value}
 		<!-- TODO: Remove 0.57 placeholder -->
 		<LobbyChampionSelect
-			teamLeft={$teamLeft}
-			teamRight={$teamRight}
+			teamLeft={teamLeft.value}
+			teamRight={teamRight.value}
 			{currentMap}
-			confirmedChampion={$ownChampion}
+			confirmedChampion={ownChampion.value}
 			{handleChampionSelect}
-			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
-			countdownSeconds={$currentCountdownSeconds}
+			gameVersion={lobbyStaticInfo.value?.version ?? "0.57"}
+			countdownSeconds={currentCountdownSeconds.value}
 		/>
-	{:else if $isInMapVote}
+	{:else if isInMapVote.value}
 		<!-- TODO: Remove 0.57 placeholder -->
 		<LobbyMapVote
 			{handleLeave}
-			playerCount={$players.length}
+			playerCount={players.value.length}
 			{handleMapSelect}
-			votes={$lobbyState.mapVote?.votes}
-			gameVersion={$lobbyStaticInfo?.version ?? "0.57"}
-			gamemode={$lobbyStaticInfo?.gamemode || "siege"}
-			countdownSeconds={$currentCountdownSeconds}
+			votes={lobbyState.value.mapVote?.votes}
+			gameVersion={lobbyStaticInfo.value?.version ?? "0.57"}
+			gamemode={lobbyStaticInfo.value?.gamemode || "siege"}
+			countdownSeconds={currentCountdownSeconds.value}
 		/>
 	{:else}
 		<LobbyWaiting
@@ -170,19 +170,19 @@
 		/>
 	{/if}
 	<LobbyChat
-		messages={$chatMessages}
-		disabled={$connectionStatus !== "connected"}
+		messages={chatMessages.value}
+		disabled={connectionStatus.value !== "connected"}
 		{handleSendChatMessage}
 	/>
 	<LobbyOverlay
-		disconnected={$connectionStatus === "disconnected"}
-		gameServerError={!!$lobbyState.inGame?.gameServerError}
-		joinErrorCode={$joinErrorCode}
+		disconnected={connectionStatus.value === "disconnected"}
+		gameServerError={!!lobbyState.value.inGame?.gameServerError}
+		joinErrorCode={joinErrorCode.value}
 		{handlePasswordSubmit}
 		{handleJoin}
-		lobbyVersion={$lobbyStaticInfo?.version || "unknown"}
-		maxPlayerCount={$lobbyStaticInfo?.maxPlayers || 0}
-		playerCount={$players.length}
+		lobbyVersion={lobbyStaticInfo.value?.version || "unknown"}
+		maxPlayerCount={lobbyStaticInfo.value?.maxPlayers || 0}
+		playerCount={players.value.length}
 	/>
 	<AfkDetector {runAfkDetection} onAfk={handleLeave} />
 </div>

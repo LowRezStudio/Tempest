@@ -21,14 +21,14 @@
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
-	import { instanceMap } from "$lib/stores/instance";
-	import { processesList } from "$lib/stores/processes";
+	import { instanceMap } from "$lib/stores/instance.svelte";
+	import { processesList } from "$lib/stores/processes.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { ModRecord } from "$lib/core/mods";
 
 	let activeTab = $state<"content">("content");
 
-	const instance = $derived($instanceMap[page.params.id!]);
+	const instance = $derived(instanceMap.value[page.params.id!]);
 	let isSettingUp = $derived(
 		(instance?.state as { type?: string } | undefined)?.type === "setup",
 	);
@@ -59,7 +59,7 @@
 	let isSettingsModalOpen = $state(false);
 
 	// Check if this instance is currently running
-	let isRunning = $derived($processesList.some((p) => p.instance?.id === instance?.id));
+	let isRunning = $derived(processesList.value.some((p) => p.instance?.id === instance?.id));
 	const launchGameMutation = createLaunchGameMutation();
 	const killGameMutation = createKillGameMutation();
 	let isLaunching = $derived(launchGameMutation.isPending);

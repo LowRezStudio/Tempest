@@ -1,7 +1,6 @@
 import type { Instance } from "./instance";
 import type { LobbyServerOptions } from "./lobby";
 import type { Child, Command } from "@tauri-apps/plugin-shell";
-import type { WritableAtom } from "nanostores";
 
 export type Process = {
 	status: "on" | "setup" | "off";
@@ -16,10 +15,11 @@ export type ProcessLog = {
 	error: boolean;
 	source?: string;
 };
+
 export type LobbyServerProcess = {
 	createOptions: LobbyServerOptions;
 	child: Child;
 	command: Command<string>;
-	logs: WritableAtom<ProcessLog[]>;
-	returnCode: WritableAtom<number | null>;
+	logs: { value: ProcessLog[] };
+	returnCode: { value: number | null };
 };

@@ -4,8 +4,8 @@
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createLaunchLobbyMutation } from "$lib/queries/lobby";
-	import { instanceMap } from "$lib/stores/instance";
-	import { servicesURL, username } from "$lib/stores/settings";
+	import { instanceMap } from "$lib/stores/instance.svelte";
+	import { servicesURL, username } from "$lib/stores/settings.svelte";
 	import { untrack } from "svelte";
 	import type { Instance } from "$lib/types/instance";
 
@@ -21,10 +21,10 @@
 
 	let { open = $bindable(false) }: Props = $props();
 
-	const instanceList = $derived(Object.values($instanceMap).filter(Boolean) as Instance[]);
+	const instanceList = $derived(Object.values(instanceMap.value).filter(Boolean) as Instance[]);
 
 	let selectedTab = $state<"general" | "advanced">("general");
-	let selectedName = $state($username ? `${$username}'s Server` : "");
+	let selectedName = $state(username.value ? `${username.value}'s Server` : "");
 	let selectedInstanceId = $state(
 		untrack(() => (instanceList.length === 1 ? instanceList[0].id : "")),
 	);
@@ -76,7 +76,7 @@
 		}
 		if (!open) {
 			selectedTab = "general";
-			selectedName = $username ? `${$username}'s Server` : "";
+			selectedName = username.value ? `${username.value}'s Server` : "";
 			selectedInstanceId = instanceList.length === 1 ? instanceList[0].id : "";
 			selectedGameMode = "TempestMp.SiegeDEV";
 			selectedPublic = false;

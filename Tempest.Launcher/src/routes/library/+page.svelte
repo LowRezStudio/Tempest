@@ -4,15 +4,15 @@
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { instanceMap } from "$lib/stores/instance";
-	import { instanceWizardOpen } from "$lib/stores/ui";
+	import { instanceMap } from "$lib/stores/instance.svelte";
+	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
 	import type { Instance } from "$lib/types/instance";
 
 	let searchQuery = $state("");
 	let sortBy = $state<"name" | "version" | "date">("name");
 	let groupBy = $state<"none" | "version" | "group">("group");
 
-	const instanceList = $derived(Object.values($instanceMap).filter(Boolean) as Instance[]);
+	const instanceList = $derived(Object.values(instanceMap.value).filter(Boolean) as Instance[]);
 
 	const filteredInstances = $derived(
 		instanceList.filter(
@@ -46,7 +46,7 @@
 					bind:value={searchQuery}
 				/>
 			</label>
-			<button class="btn btn-accent" onclick={() => instanceWizardOpen.set(true)}>
+			<button class="btn btn-accent" onclick={() => instanceWizardOpen.value = true}>
 				<Plus size={16} />
 				{m.library_new_instance()}
 			</button>
@@ -81,7 +81,7 @@
 							{#snippet actions()}
 								<button
 									class="btn btn-accent gap-2"
-									onclick={() => instanceWizardOpen.set(true)}
+									onclick={() => instanceWizardOpen.value = true}
 								>
 									<Plus size={20} />
 									{m.library_create_first()}

@@ -1,7 +1,7 @@
 import { createCommand } from "$lib/core/command";
-import { appendProcessLog, logCommandOutput } from "$lib/stores/processes";
-import { restoreError, restoreResult, restoreStatus } from "./stores";
-import type { RestoreResult } from "./stores";
+import { appendProcessLog, logCommandOutput } from "$lib/stores/processes.svelte";
+import { restoreError, restoreResult, restoreStatus } from "./stores.svelte";
+import type { RestoreResult } from "./stores.svelte";
 
 export interface RestoreOptions {
 	manifests: string[];
@@ -18,9 +18,9 @@ export class RigbyManager {
 		this.abortController?.abort();
 		this.abortController = new AbortController();
 
-		restoreStatus.set("running");
-		restoreError.set(null);
-		restoreResult.set(null);
+		restoreStatus.value = "running";
+		restoreError.value = null;
+		restoreResult.value = null;
 
 		const args = [
 			"rigby",
@@ -46,22 +46,22 @@ export class RigbyManager {
 				if (data.code === 0) {
 					try {
 						const result = JSON.parse(stdout) as RestoreResult;
-						restoreResult.set(result);
-						restoreStatus.set("complete");
+						restoreResult.value = result;
+						restoreStatus.value = "complete";
 					} catch {
-						restoreError.set(`Failed to parse restore output: ${stdout}`);
-						restoreStatus.set("error");
+						restoreError.value = `Failed to parse restore output: ${stdout}`;
+						restoreStatus.value = "error";
 					}
 				} else {
-					restoreError.set(stderr || `Restore failed with code ${data.code}`);
-					restoreStatus.set("error");
+					restoreError.value = stderr || `Restore failed with code ${data.code}`;
+					restoreStatus.value = "error";
 				}
 				this.abortController = null;
 			});
 
 			command.on("error", (error) => {
-				restoreError.set(error);
-				restoreStatus.set("error");
+				restoreError.value = error;
+				restoreStatus.value = "error";
 				this.abortController = null;
 			});
 
@@ -75,8 +75,8 @@ export class RigbyManager {
 
 			await command.spawn();
 		} catch (error) {
-			restoreError.set(String(error));
-			restoreStatus.set("error");
+			restoreError.value = String(error);
+			restoreStatus.value = "error";
 			this.abortController = null;
 		}
 	}
@@ -84,7 +84,7 @@ export class RigbyManager {
 	cancel(): void {
 		this.abortController?.abort();
 		this.abortController = null;
-		restoreStatus.set("idle");
+		restoreStatus.value = "idle";
 	}
 }
 

@@ -3,14 +3,14 @@
 	import GhosttyTerminal from "$lib/components/ui/GhosttyTerminal.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { clearProcessLogs, processLogs } from "$lib/stores/processes";
+	import { clearProcessLogs, processLogs } from "$lib/stores/processes.svelte";
 
 	let activeSource = $state("all");
 
 	const uniqueSources = $derived.by(() => {
 		const seen = new Set<string>();
 		const sources: string[] = [];
-		for (const log of $processLogs) {
+		for (const log of processLogs.value) {
 			if (log.source && !seen.has(log.source)) {
 				seen.add(log.source);
 				sources.push(log.source);
@@ -25,8 +25,8 @@
 	]);
 
 	const filteredLogs = $derived(
-		activeSource === "all" ? $processLogs : (
-			$processLogs.filter((log) => log.source === activeSource)
+		activeSource === "all" ? processLogs.value : (
+			processLogs.value.filter((log) => log.source === activeSource)
 		),
 	);
 
@@ -74,7 +74,7 @@
 			<button
 				class="btn btn-ghost"
 				onclick={clearProcessLogs}
-				disabled={$processLogs.length === 0}
+				disabled={processLogs.value.length === 0}
 			>
 				<Trash2 size={16} />
 				{m.common_clear()}

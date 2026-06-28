@@ -10,7 +10,7 @@ Makes it possible to add players, vote maps and select champions
 		debugPlayersStore,
 		state as lobbyState,
 		players,
-	} from "$lib/lobby/stores";
+	} from "$lib/lobby/stores.svelte";
 	import { AuthMethod } from "$lib/rpc";
 	import { LobbyClient } from "$lib/rpc/lobby/lobby_service.client";
 	import { getMapsForVersion } from "$lib/utils/versions";
@@ -27,7 +27,7 @@ Makes it possible to add players, vote maps and select champions
 	//common logic for adding the x-ticket header to requests
 	//protobug-ts interceptor
 	const rpcOptions = function (id: string): RpcOptions {
-		const ticket = $debugPlayersStore.get(id) || "";
+		const ticket = debugPlayersStore.value.get(id) || "";
 		return {
 			interceptors: [
 				{
@@ -66,39 +66,39 @@ Makes it possible to add players, vote maps and select champions
 			if (event.event.oneofKind === "playerJoin") {
 				const player = event.event.playerJoin.player;
 				if (player) {
-					players.set([...$players, player]);
+					players.value = [...players.value, player];
 				}
 			} else if (event.event.oneofKind === "playerLeave") {
 				const playerId = event.event.playerLeave.playerId;
-				players.set($players.filter((pl) => pl.id !== playerId));
+				players.value = players.value.filter((pl) => pl.id !== playerId);
 			} else if (event.event.oneofKind === "playerUpdate") {
 				const player = event.event.playerUpdate.player;
-				players.set($players.map((pl) => (pl.id === player?.id ? player : pl)));
+				players.value = players.value.map((pl) => (pl.id === player?.id ? player : pl));
 			} else if (event.event.oneofKind === "chatMessage") {
 				const message = event.event.chatMessage.chatMessage;
 				if (message) {
-					const sender = $players.find((p) => p.id === message.authorId);
-					chatMessages.set([
-						...$chatMessages,
+					const sender = players.value.find((p) => p.id === message.authorId);
+					chatMessages.value = [
+						...chatMessages.value,
 						{
 							content: message.content,
 							username: sender?.displayName || "unknown",
 							sentAt: message.sentAt,
 						},
-					]);
+					];
 				}
 			} else if (event.event.oneofKind === "stateUpdate") {
 				const eventState = event.event.stateUpdate.state;
 				if (eventState) {
-					lobbyState.set(eventState);
+					lobbyState.value = eventState;
 				}
 			} else if (event.event.oneofKind === "countdown") {
 				const time = event.event.countdown.seconds;
 			} else if (event.event.oneofKind === "info") {
 				const { players: eventPlayers, state: eventState } = event.event.info;
-				players.set(eventPlayers);
+				players.value = eventPlayers;
 				if (eventState) {
-					lobbyState.set(eventState);
+					lobbyState.value = eventState;
 				}
 			}
 			console.log(event);
@@ -154,7 +154,7 @@ Makes it possible to add players, vote maps and select champions
 		if (joinResp.response.result.oneofKind === "success") {
 			const serverPlayerId = joinResp.response.result.success.playerId;
 			const ticket = joinResp.response.result.success.ticket;
-			debugPlayersStore.set(new Map(debugPlayersStore.get()).set(serverPlayerId, ticket));
+			debugPlayersStore.value = new Map(debugPlayersStore.value).set(serverPlayerId, ticket);
 			openStreamForPlayer(serverPlayerId);
 		}
 	}
@@ -172,7 +172,7 @@ Makes it possible to add players, vote maps and select champions
 <div class="flex flex-col h-full bg-base-100 p-6">
 	<div class="flex gap-3 items-center">
 		<button onclick={createNewPlayer} class="btn">New player</button>
-		<p>State {JSON.stringify($lobbyState)}</p>
+		<p>State {JSON.stringify(lobbyState.value)}</p>
 	</div>
 	<table class="table table-zebra">
 		<thead>
@@ -188,14 +188,14 @@ Makes it possible to add players, vote maps and select champions
 			</tr>
 		</thead>
 		<tbody>
-			{#each $players as player (player.id)}
+			{#each players.value as player (player.id)}
 				<tr>
 					<td>{player.displayName}</td>
 					<td>{player.id}</td>
 					<td>{player.taskForce}</td>
 					<td>{player.champion}</td>
 					<td>
-						{#if $debugPlayersStore.has(player.id)}
+						{#if debugPlayersStore.value.has(player.id)}
 							<select
 								onchange={(e) =>
 									handleMapSelect(
@@ -211,7 +211,7 @@ Makes it possible to add players, vote maps and select champions
 						{/if}
 					</td>
 					<td>
-						{#if $debugPlayersStore.has(player.id)}
+						{#if debugPlayersStore.value.has(player.id)}
 							<select
 								onchange={(e) =>
 									handleChampionSelect(
@@ -227,7 +227,7 @@ Makes it possible to add players, vote maps and select champions
 						{/if}
 					</td>
 					<td>
-						{#if $debugPlayersStore.has(player.id)}
+						{#if debugPlayersStore.value.has(player.id)}
 							<input
 								type="text"
 								class="input w-30"
@@ -241,9 +241,8 @@ Makes it possible to add players, vote maps and select champions
 						{/if}
 					</td>
 					<td>
-						{#if $debugPlayersStore.has(player.id)}
-							<button class="btn" onclick={() => handleLeave(player.id)}>Leave</button
-							>
+						{#if debugPlayersStore.value.has(player.id)}
+							<button class="btn" onclick={() => handleLeave(player.id)}>Leave</button>
 						{/if}
 					</td>
 				</tr>

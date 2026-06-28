@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Check } from "@lucide/svelte";
-	import { playerId, players } from "$lib/lobby/stores";
+	import { playerId, players } from "$lib/lobby/stores.svelte";
 	import { compareVersions, getMapsForVersion } from "$lib/utils/versions";
 
 	interface PaladinsMap {
@@ -36,19 +36,19 @@
 	}
 
 	function getVotersForMap(mapId: string): { id: string; displayName: string }[] {
-		if (!votes || !$players) return [];
+		if (!votes || !players.value) return [];
 		return Object.entries(votes)
 			.filter(([_, votedMapId]) => votedMapId === mapId)
 			.map(([voterId]) => {
-				const player = $players.find((p) => p.id === voterId);
+				const player = players.value.find((p) => p.id === voterId);
 				return player ? { id: player.id, displayName: player.displayName } : null;
 			})
 			.filter((p): p is { id: string; displayName: string } => p !== null);
 	}
 
 	function isVotedByCurrentPlayer(mapId: string): boolean {
-		if (!votes || !$playerId) return false;
-		return votes[$playerId] === mapId;
+		if (!votes || !playerId.value) return false;
+		return votes[playerId.value] === mapId;
 	}
 
 	function handleMapClick(map: PaladinsMap) {
@@ -58,8 +58,8 @@
 	}
 
 	$effect(() => {
-		if (votes && $playerId && votes[$playerId]) {
-			selectedMapId = votes[$playerId];
+		if (votes && playerId.value && votes[playerId.value]) {
+			selectedMapId = votes[playerId.value];
 		}
 	});
 </script>

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import HomeFloatingActions from "$lib/components/home/HomeFloatingActions.svelte";
-	import { pinnedBackground } from "$lib/stores/settings";
-	import { addToast } from "$lib/stores/ui";
+	import { pinnedBackground } from "$lib/stores/settings.svelte";
+	import { addToast } from "$lib/stores/ui.svelte";
 	import { fade } from "svelte/transition";
 
 	const backgrounds = Object.keys(import.meta.glob("/static/loading-screens/*.webp")).map((img) =>
@@ -10,10 +10,10 @@
 
 	const getRandomBackground = () => backgrounds[Math.floor(Math.random() * backgrounds.length)];
 
-	let currentBackground = $state($pinnedBackground || getRandomBackground());
+	let currentBackground = $state(pinnedBackground.value || getRandomBackground());
 
 	function changeBackground() {
-		if ($pinnedBackground) return;
+		if (pinnedBackground.value) return;
 		if (backgrounds.length <= 1) return;
 		let next = getRandomBackground();
 		while (next === currentBackground) {
@@ -24,14 +24,14 @@
 
 	function pinBackground(event: MouseEvent) {
 		event.preventDefault();
-		if ($pinnedBackground === currentBackground) {
-			pinnedBackground.set(undefined);
+		if (pinnedBackground.value === currentBackground) {
+			pinnedBackground.value = undefined;
 			addToast({
 				message: "Background unpinned!",
 				tone: "info",
 			});
 		} else {
-			pinnedBackground.set(currentBackground);
+			pinnedBackground.value = currentBackground;
 			addToast({
 				message: "Background pinned as the default one!",
 				tone: "success",

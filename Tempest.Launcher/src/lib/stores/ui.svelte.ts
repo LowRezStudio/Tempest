@@ -1,9 +1,7 @@
-import { atom } from "nanostores";
-
-export const instanceWizardOpen = atom<boolean>(false);
-export const hostServerWizardOpen = atom<boolean>(false);
-export const joinServerWizardOpen = atom<boolean>(false);
-export const appCloseLobbyWizardOpen = atom<boolean>(false);
+export const instanceWizardOpen = $state({ value: false });
+export const hostServerWizardOpen = $state({ value: false });
+export const joinServerWizardOpen = $state({ value: false });
+export const appCloseLobbyWizardOpen = $state({ value: false });
 
 export type ToastTone = "info" | "success" | "warning" | "error" | "neutral";
 
@@ -25,7 +23,7 @@ const createToastId = () =>
 	globalThis.crypto?.randomUUID?.() ??
 	`toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-export const toasts = atom<Toast[]>([]);
+export const toasts = $state({ value: [] as Toast[] });
 
 export const addToast = (input: ToastInput) => {
 	const id = createToastId();
@@ -38,7 +36,7 @@ export const addToast = (input: ToastInput) => {
 		dismissible: input.dismissible ?? true,
 	};
 
-	toasts.set([...toasts.get(), toast]);
+	toasts.value = [...toasts.value, toast];
 
 	if (toast.duration && toast.duration > 0) {
 		const timeout = setTimeout(() => {
@@ -57,7 +55,7 @@ export const removeToast = (id: string) => {
 		toastTimeouts.delete(id);
 	}
 
-	toasts.set(toasts.get().filter((toast) => toast.id !== id));
+	toasts.value = toasts.value.filter((toast) => toast.id !== id);
 };
 
 export const clearToasts = () => {
@@ -65,5 +63,5 @@ export const clearToasts = () => {
 		clearTimeout(timeout);
 	}
 	toastTimeouts.clear();
-	toasts.set([]);
+	toasts.value = [];
 };

@@ -4,25 +4,24 @@
 	import { page } from "$app/state";
 	import GhosttyTerminal from "$lib/components/ui/GhosttyTerminal.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
-	import { moveToLobby } from "$lib/core/lobby";
+	import { moveToLobby } from "$lib/core/lobby.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillLobbyServerMutation } from "$lib/queries/lobby";
-	import { lobbyServerProcessesList } from "$lib/stores/processes";
+	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
 	import type { ProcessLog } from "$lib/types/process";
 
 	let activeTab = $state<"logs">("logs");
 
 	const process = $derived(
-		$lobbyServerProcessesList.find((p) => String(p.child.pid) === page.params.pid!),
+		lobbyServerProcessesList.value.find((p) => String(p.child.pid) === page.params.pid!),
 	);
 	const killLobbyMutation = createKillLobbyServerMutation();
 
-	const logsStore = $derived(process?.logs);
-	const logsList = $derived(logsStore ? ($logsStore as ProcessLog[]) : []);
+	const logsList = $derived(process?.logs ? process.logs.value : []);
 	const isKilling = $derived(killLobbyMutation.isPending);
 	const returnCode = $derived(process?.returnCode);
-	const isRunning = $derived($returnCode === null);
-	const hasError = $derived($returnCode !== null && $returnCode !== 0);
+	const isRunning = $derived(returnCode ? returnCode.value === null : false);
+	const hasError = $derived(returnCode ? returnCode.value !== null && returnCode.value !== 0 : false);
 
 	function handleStopOrClose() {
 		if (!process) return;
@@ -31,9 +30,7 @@
 			killLobbyMutation.mutate(process);
 		} else {
 			//closing
-			lobbyServerProcessesList.set(
-				lobbyServerProcessesList.get().filter((p) => p.child.pid !== process.child.pid),
-			);
+			lobbyServerProcessesList.value = lobbyServerProcessesList.value.filter((p) => p.child.pid !== process.child.pid);
 			killLobbyMutation.reset();
 			goto("/servers");
 		}
