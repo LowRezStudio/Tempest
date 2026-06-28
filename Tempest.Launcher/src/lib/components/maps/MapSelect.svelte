@@ -64,9 +64,9 @@
 	});
 </script>
 
-<div class="h-full w-full overflow-y-auto">
+<div class="h-full w-full overflow-y-auto flex items-center justify-center">
 	<div
-		class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-4 auto-rows-fr w-full lg:px-35"
+		class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4 auto-rows-fr w-full m-auto"
 	>
 		{#each filteredMaps as map (map.id)}
 			{@const voteCount = getVoteCount(map.id)}
@@ -76,7 +76,7 @@
 			{@const votePercent = totalVotes > 0 ? (voteCount / totalVotes) * 100 : 0}
 			<button
 				type="button"
-				class="group relative rounded-xl overflow-hidden bg-base-200 transition-all duration-150 cursor-pointer hover:bg-base-300 active:scale-[0.98] {(
+				class="group relative rounded-none overflow-hidden bg-base-200 transition-all duration-150 cursor-pointer hover:bg-base-300 active:scale-[0.98] {(
 					isVotedByMe
 				) ?
 					'ring-2 ring-accent'
@@ -114,7 +114,7 @@
 
 					<div class="absolute bottom-0 left-0 right-0 p-3">
 						<p class="font-bold text-white text-base truncate">{map.displayName}</p>
-						<p class="text-sm text-white/70">{map.mode}</p>
+						<p class="text-xs font-bold text-white/70 uppercase">{map.mode}</p>
 					</div>
 				</div>
 
