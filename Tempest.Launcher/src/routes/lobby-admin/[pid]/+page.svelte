@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Square, SquareTerminal } from "@lucide/svelte";
+	import { Square, SquareTerminal, Globe } from "@lucide/svelte";
+	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import GhosttyTerminal from "$lib/components/ui/GhosttyTerminal.svelte";
@@ -59,6 +60,11 @@
 			{/if}
 		{/snippet}
 		{#snippet actions()}
+			<button class="btn text-sm btn-outline" onclick={() => openUrl("https://myip.wtf/")}>
+				<Globe size={16} />
+				{m.lobbyadmin_whats_my_ip()}
+			</button>
+
 			{#if isRunning}
 				<button class="btn text-sm btn-accent" onclick={join}> {m.common_join()} </button>
 			{/if}

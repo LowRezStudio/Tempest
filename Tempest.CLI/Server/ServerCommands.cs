@@ -28,8 +28,15 @@ internal class ServerCommands
         string[]? dll = null,
         bool enableJoinInProgress = false,
         bool upnp = false,
+        string? apiKey = null,
+        string country = "UNSPECIFIED",
         CancellationToken cancellationToken = default)
     {
+        if (!Enum.TryParse<Tempest.Protocol.Common.CountryCode>(country, true, out var countryCode))
+        {
+            countryCode = Tempest.Protocol.Common.CountryCode.Unspecified;
+        }
+
         var options = new LobbyServerOptions
         {
             Name = name,
@@ -52,6 +59,8 @@ internal class ServerCommands
             Dll = dll,
             EnableJoinInProgress = enableJoinInProgress,
             Upnp = upnp,
+            ApiKey = apiKey,
+            Country = countryCode,
         };
 
         using var loggerFactory = LoggerFactory.Create(logging =>

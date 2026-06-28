@@ -160,13 +160,8 @@
 					{/each}
 				</select>
 			</div>
-			<span class="label-text text-sm label">{m.hostserver_public_hint()}</span>
-			<div class="form-control flex items-center justify-between">
-				<label for="public" class="label">
-					<span class="label-text text-sm">{m.hostserver_public()}</span>
-				</label>
-				<input id="public" class="toggle" type="checkbox" bind:checked={selectedPublic} />
-				<label for="password" class="label">
+			<div class="form-control">
+				<label for="password" class="label py-0.5">
 					<span class="label-text text-sm">{m.hostserver_password()}</span>
 				</label>
 				<input
@@ -174,7 +169,7 @@
 					type="text"
 					placeholder={m.hostserver_leave_empty_password()}
 					maxlength="60"
-					class="input input-bordered"
+					class="input input-bordered w-full"
 					bind:value={selectedPassword}
 				/>
 			</div>

@@ -88,7 +88,8 @@ internal sealed class ServerListHeartbeat : BackgroundService
             JoinInProgress = _options.JoinInProgress,
             Joinable = true,
             HasPassword = !string.IsNullOrEmpty(_options.Password),
-            Country = Protocol.Common.CountryCode.Us
+            Country = _options.Country,
+            ApiKey = _options.ApiKey ?? string.Empty
         };
 
         if (!string.IsNullOrEmpty(_options.Map))

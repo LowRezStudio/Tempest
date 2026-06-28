@@ -264,6 +264,7 @@
 	"lobbyadmin_encountered_error": "Une erreur s'est produite",
 	"lobbyadmin_stopped": "Arrêté",
 	"lobbyadmin_stopping": "Arrêt en cours",
+	"lobbyadmin_whats_my_ip": "Quelle est mon IP ?",
 	"home_announcement_title": "Annonce",
 	"home_announcement_message": "Tempest Launcher est encore en développement, des bugs sont possibles.",
 	"home_stop_game": "Arrêter le jeu",

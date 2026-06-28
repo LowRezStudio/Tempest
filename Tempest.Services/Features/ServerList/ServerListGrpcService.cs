@@ -4,10 +4,49 @@ using ServerListService = Tempest.Protocol.ServerList.ServerList;
 
 namespace Tempest.Services.Features.ServerList;
 
-public class ServerListGrpcService(ServerListingRepository repository) : ServerListService.ServerListBase
+public class ServerListGrpcService(
+    ServerListingRepository repository,
+    Tempest.Services.Features.ApiKeys.ApiKeyRepository apiKeyRepository) : ServerListService.ServerListBase
 {
     public override Task<CreateLobbyResponse> CreateLobby(CreateLobbyRequest request, ServerCallContext context)
     {
+        var apiKey = request.ApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey) || !apiKeyRepository.IsKeyValid(apiKey, out var userId, out var userName))
+        {
+            return Task.FromResult(new CreateLobbyResponse
+            {
+                Error = new CreateLobbyError
+                {
+                    Code = CreateLobbyErrorCode.KeyNotAllowed,
+                    Message = "Invalid API key"
+                }
+            });
+        }
+
+        if (apiKeyRepository.IsUserBanned(userId!))
+        {
+            return Task.FromResult(new CreateLobbyResponse
+            {
+                Error = new CreateLobbyError
+                {
+                    Code = CreateLobbyErrorCode.KeyNotAllowed,
+                    Message = "User is banned"
+                }
+            });
+        }
+
+        if (repository.IsApiKeyInUse(apiKey, TimeSpan.FromMinutes(1)))
+        {
+            return Task.FromResult(new CreateLobbyResponse
+            {
+                Error = new CreateLobbyError
+                {
+                    Code = CreateLobbyErrorCode.KeyNotAllowed,
+                    Message = "This API key is already in use by an active server"
+                }
+            });
+        }
+
         var ticket = Guid.NewGuid().ToString("N");
         var row = new ServerListingRow
         {
@@ -26,6 +65,7 @@ public class ServerListGrpcService(ServerListingRepository repository) : ServerL
             HasPassword = request.HasPassword,
             Country = request.Country,
             Ticket = ticket,
+            ApiKey = apiKey,
         };
 
         var id = repository.Add(row);

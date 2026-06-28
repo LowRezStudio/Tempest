@@ -51,6 +51,7 @@ builder.Services.AddHostedService<DatabaseInitializer>();
 
 // Features
 builder.Services.AddScoped<ServerListingRepository>();
+builder.Services.AddScoped<Tempest.Services.Features.ApiKeys.ApiKeyRepository>();
 
 // Authentication
 var githubClientId = builder.Configuration["Authentication:GitHub:ClientId"];

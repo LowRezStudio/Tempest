@@ -21,11 +21,11 @@ public sealed class ServerListingRepository(SqliteConnectionFactory connectionFa
             INSERT INTO server_listings (
                 id, ticket, ip, lobby_port, name, game, version, tags, map, map_id,
                 players, max_players, bots, max_spectators, spectators,
-                join_in_progress, joinable, has_password, country, auth_methods, last_seen
+                join_in_progress, joinable, has_password, country, auth_methods, last_seen, api_key
             ) VALUES (
                 $id, $ticket, $ip, $lobbyPort, $name, $game, $version, $tags, $map, $mapId,
                 $players, $maxPlayers, $bots, $maxSpectators, $spectators,
-                $joinInProgress, $joinable, $hasPassword, $country, $authMethods, $lastSeen
+                $joinInProgress, $joinable, $hasPassword, $country, $authMethods, $lastSeen, $apiKey
             );
             """, new
         {
@@ -50,9 +50,18 @@ public sealed class ServerListingRepository(SqliteConnectionFactory connectionFa
             country = (long)row.Country,
             authMethods = row.AuthMethodsJson,
             lastSeen = now,
+            apiKey = row.ApiKey,
         });
 
         return id;
+    }
+
+    public bool IsApiKeyInUse(string apiKey, TimeSpan timeout)
+    {
+        var cutoff = DateTimeOffset.UtcNow.Subtract(timeout).ToString("O");
+        return Connection.ExecuteScalar<int>("""
+            SELECT COUNT(*) FROM server_listings WHERE api_key = $apiKey AND last_seen >= $cutoff;
+            """, new { apiKey, cutoff }) > 0;
     }
 
     public bool Update(string id, string ticket, Func<ServerListingRow, ServerListingRow> update)
@@ -137,7 +146,8 @@ public sealed class ServerListingRepository(SqliteConnectionFactory connectionFa
             has_password    AS HasPassword,
             country         AS Country,
             auth_methods    AS AuthMethodsJson,
-            last_seen       AS LastSeen
+            last_seen       AS LastSeen,
+            api_key         AS ApiKey
         FROM server_listings
         """;
 
@@ -168,10 +178,11 @@ public sealed class ServerListingRepository(SqliteConnectionFactory connectionFa
         public long Country { get; init; }
         public string AuthMethodsJson { get; init; } = "[]";
         public string LastSeen { get; init; } = string.Empty;
+        public string? ApiKey { get; init; }
 
         public ServerListingRow ToRow() => ServerListingRow.FromReader(
             Id, Ticket, Ip, LobbyPort, Name, Game, Version, TagsJson, Map, MapId,
             Players, MaxPlayers, Bots, MaxSpectators, Spectators,
-            JoinInProgress, Joinable, HasPassword, Country, AuthMethodsJson, LastSeen);
+            JoinInProgress, Joinable, HasPassword, Country, AuthMethodsJson, LastSeen, ApiKey);
     }
 }

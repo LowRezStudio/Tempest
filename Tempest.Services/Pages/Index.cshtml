@@ -18,6 +18,74 @@
     }
 </header>
 
+@if (TempData["Message"] != null)
+{
+    <article style="background-color: var(--pico-ins-color); color: var(--pico-color); margin-bottom: 2rem; padding: 1rem;">
+        @TempData["Message"]
+    </article>
+}
+@if (TempData["Error"] != null)
+{
+    <article style="background-color: var(--pico-del-color); color: var(--pico-color); margin-bottom: 2rem; padding: 1rem;">
+        @TempData["Error"]
+    </article>
+}
+
+@if (User.Identity?.IsAuthenticated == true)
+{
+    <article>
+        <header style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0;">My API Keys (@Model.ApiKeys.Count / 5)</h3>
+            @if (!Model.IsBanned && Model.ApiKeys.Count < 5)
+            {
+                <form method="post" asp-page-handler="CreateKey" style="margin: 0;">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="contrast" style="margin: 0;">Generate API Key</button>
+                </form>
+            }
+        </header>
+
+        @if (Model.IsBanned)
+        {
+            <p style="color: var(--pico-del-color); font-weight: bold;">Your account is banned. You cannot use or create API keys.</p>
+        }
+        else if (Model.ApiKeys.Count == 0)
+        {
+            <p>You have not created any API keys yet. Create one to host public servers.</p>
+        }
+        else
+        {
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">API Key (Keep Private!)</th>
+                        <th scope="col">Created</th>
+                        <th scope="col" style="text-align: right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var key in Model.ApiKeys)
+                    {
+                        <tr>
+                            <td>
+                                <code>@key.Key</code>
+                            </td>
+                            <td>@key.CreatedAt.ToString("g")</td>
+                            <td style="text-align: right;">
+                                <form method="post" asp-page-handler="DeleteKey" style="margin: 0; display: inline-block;">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="key" value="@key.Key" />
+                                    <button type="submit" class="outline secondary" style="margin: 0; padding: 0.25rem 0.75rem; font-size: 0.85rem;">Revoke</button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </article>
+}
+
 <table>
     <thead>
         <tr>

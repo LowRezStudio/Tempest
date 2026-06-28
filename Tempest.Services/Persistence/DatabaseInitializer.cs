@@ -38,6 +38,20 @@ public sealed class DatabaseInitializer(IServiceProvider services) : IHostedLife
                 last_seen       TEXT NOT NULL
             );
             """),
+        ("0002_api_keys_and_bans", """
+            CREATE TABLE IF NOT EXISTS api_keys (
+                key          TEXT PRIMARY KEY,
+                user_id      TEXT NOT NULL,
+                user_name    TEXT NOT NULL,
+                created_at   TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS banned_users (
+                user_id      TEXT PRIMARY KEY,
+                banned_at    TEXT NOT NULL,
+                reason       TEXT
+            );
+            ALTER TABLE server_listings ADD COLUMN api_key TEXT;
+            """),
     ];
 
     public async Task StartAsync(CancellationToken cancellationToken)
