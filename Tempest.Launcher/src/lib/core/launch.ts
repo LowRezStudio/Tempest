@@ -23,7 +23,7 @@ export const launchGame = async (instance: Instance) => {
 			path,
 			{ "--platform": platform },
 			{ "--no-default-args": options.noDefaultArgs },
-			{ "--gamescope": useGamescope.get() === "true" },
+			{ "--gamescope": useGamescope.get() },
 			{ "--gamescope-args": gamescopeArgs.get() || undefined },
 			{
 				"--homedir":

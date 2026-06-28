@@ -35,12 +35,6 @@
 		}
 	}
 
-	let localUseGamescope = $state(useGamescope.value === "true");
-
-	$effect(() => {
-		useGamescope.value = localUseGamescope ? "true" : "false";
-	});
-
 	const isWindows = platform() === "windows";
 	const isLinux = platform() === "linux";
 </script>
@@ -73,7 +67,7 @@
 				<input
 					type="checkbox"
 					class="toggle toggle-accent"
-					bind:checked={localUseGamescope}
+					bind:checked={useGamescope.value}
 					disabled={!isGamescopeInstalled}
 				/>
 				<span class="label-text text-sm">{m.settings_wine_use_gamescope()}</span>

@@ -9,7 +9,7 @@ export type Theme = "system" | "mocha" | "latte" | "legacy";
 export const theme = persistedState<Theme>("theme", "system");
 export const pinnedBackground = persistedState<string | undefined>("pinnedBackground", undefined);
 export const winePath = persistedState<string | undefined>("winePath", undefined);
-export const useGamescope = persistedState<string>("useGamescope", "false");
+export const useGamescope = persistedState<boolean>("useGamescope", false);
 export const gamescopeArgs = persistedState<string>("gamescopeArgs", "-f --force-grab-cursor");
 
 const getDefaultInstancePath = async () => {
