@@ -14,7 +14,6 @@ import {
 	lobbyPassword,
 	lobbyStaticInfo,
 	mostRecentLobbyConnectionTime,
-	ownTeam,
 	playerId,
 	players,
 	resetLobbyState,
@@ -206,7 +205,7 @@ class LobbyManager {
 		const message = event.chatMessage;
 		if (!message) return;
 		const sender = players.value.find((p) => p.id === message.authorId);
-		if (!sender || sender.taskForce !== ownTeam.value) return;
+		if (!sender) return;
 		chatMessages.value = [
 			...chatMessages.value,
 			{
