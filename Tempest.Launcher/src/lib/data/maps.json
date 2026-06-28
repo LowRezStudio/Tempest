@@ -503,5 +503,109 @@
 		"iconPath": "/loading-screens/Loading_MaraudersPort.webp",
 		"versionStart": "2.5",
 		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Throne",
+		"id": "DM_Abyss_Throne",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_Throne.webp",
+		"versionStart": "1.3",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Throne",
+		"id": "TD_Throne_P.upk",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_Throne.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Abyss",
+		"id": "DM_Abyss_Abyss.upk",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_Abyss.webp",
+		"versionStart": "1.3",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Abyss",
+		"id": "TD_Abyss_P.upk",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_Abyss.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Dragon Arena",
+		"id": "DM_Dragon_Firefall.upk",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_DragonsArena.webp",
+		"versionStart": "1.8",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Dragon Arena",
+		"id": "TD_DragonArena_P.upk",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_DragonsArena.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Trade District",
+		"id": "KMT_P.upk",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_TradeDistrict.webp",
+		"versionStart": "0.65",
+		"versionEnd": "1.2"
+	},
+	{
+		"displayName": "Trade District",
+		"id": "DM_Keep_District",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_TradeDistrict.webp",
+		"versionStart": "0.65",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Trade District",
+		"id": "TD_TradeDistrict_P",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_TradeDistrict.webp",
+		"versionStart": "2.3",
+		"versionEnd": "5.3"
+	},
+	{
+		"displayName": "Trade District",
+		"id": "KTM_TDv2_P",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_TradeDistrict.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Trade District",
+		"id": "TD_TradeDistrict_P",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_TradeDistrictV2.webp",
+		"versionStart": "7.5",
+		"versionEnd": "8.1"
+	},
+	{
+		"displayName": "Snowfall Junction",
+		"id": "DM_Ice_Junction",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_IceArena.webp",
+		"versionStart": "1.3",
+		"versionEnd": "2.2"
+	},
+	{
+		"displayName": "Snowfall Junction",
+		"id": "TD_SnowfallJunction_P",
+		"mode": "tdm",
+		"iconPath": "/loading-screens/Loading_IceArena.webp",
+		"versionStart": "2.3",
+		"versionEnd": "8.1"
 	}
 ]
