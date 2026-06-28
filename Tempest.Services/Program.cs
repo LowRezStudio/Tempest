@@ -1,4 +1,5 @@
 using AspNet.Security.OAuth.GitHub;
+using Microsoft.AspNetCore.HttpOverrides;
 using Quartz;
 using Tempest.Services;
 using Tempest.Services.Endpoints;
@@ -27,6 +28,14 @@ builder.Services.AddCors(options =>
                 "grpc-status-details-bin"
                 );
         });
+});
+
+// Forwarded Headers (for reverse proxy behind TLS)
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
 });
 
 // gRPC + Razor Pages
@@ -95,6 +104,8 @@ builder.Services.AddQuartz(q =>
 builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
 
 var app = builder.Build();
+
+app.UseForwardedHeaders();
 
 if (!githubConfigured)
 {
