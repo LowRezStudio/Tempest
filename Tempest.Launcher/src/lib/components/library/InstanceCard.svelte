@@ -46,7 +46,12 @@
 				class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
 				style="background-color: {getInstanceColor(instance)}"
 			>
-				{#if isDownloading}
+				{#if queueItem?.status === "pending" || !isDownloading}
+					<Pause
+						size={24}
+						style="color: {getContrastColor(getInstanceColor(instance))};"
+					/>
+				{:else}
 					<div
 						class="radial-progress"
 						style="--value:{downloadProgress}; --size:3rem; --thickness:4px; color: {getContrastColor(
@@ -59,11 +64,6 @@
 							>{Math.round(downloadProgress)}%</span
 						>
 					</div>
-				{:else}
-					<Pause
-						size={24}
-						style="color: {getContrastColor(getInstanceColor(instance))};"
-					/>
 				{/if}
 			</div>
 			<div class="flex-1 min-w-0">
