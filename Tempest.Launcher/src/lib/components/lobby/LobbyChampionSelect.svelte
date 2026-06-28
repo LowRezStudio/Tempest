@@ -5,6 +5,7 @@
 	import ChampionSelect from "../champions/ChampionSelect.svelte";
 	import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
 	import { resolveGamemodeLabel, type Map } from "$lib/types/lobby";
+	import LobbyPlayerCard from "./LobbyPlayerCard.svelte";
 
 	interface Props {
 		teamLeft: readonly LobbyPlayer[];
@@ -42,39 +43,13 @@
 	>
 		{#each teamLeft as player (player.id)}
 			{@const champDisplayName = getChampionDisplayName(player.champion)}
-			<div
-				class="flex items-center gap-2.5 bg-base-200/90 backdrop-blur-xs rounded-lg p-1.5 shadow-md"
-			>
-				<div
-					class="relative w-10 h-10 flex-shrink-0 bg-neutral-900 overflow-hidden border border-blue-500/20"
-				>
-					<img
-						src={`/champions/${champDisplayName || "Generic"}/icon.webp`}
-						alt={champDisplayName || "No Champion"}
-						class="w-full h-full object-cover rounded-none"
-						loading="lazy"
-						onerror={(e) => {
-							(e.currentTarget as HTMLImageElement).src = "/champions/Generic/icon.webp";
-						}}
-					/>
-				</div>
-				<div class="min-w-0 flex-1">
-					<p
-						class="text-sm font-semibold truncate text-white leading-tight"
-					>
-						{player.displayName}
-					</p>
-					<p
-						class="text-xs opacity-75 truncate leading-none {player.champion
-							? 'text-blue-400'
-							: 'text-white/50'}"
-					>
-						{player.champion
-							? champDisplayName
-							: m.lobby_not_ready()}
-					</p>
-				</div>
-			</div>
+			<LobbyPlayerCard
+				displayName={player.displayName}
+				championIconFolderName={champDisplayName}
+				status={player.champion ? champDisplayName : m.lobby_not_ready()}
+				team="left"
+				compact={true}
+			/>
 		{/each}
 	</div>
 
@@ -84,55 +59,37 @@
 	>
 		{#each teamRight as player (player.id)}
 			{@const champDisplayName = getChampionDisplayName(player.champion)}
-			<div
-				class="flex items-center gap-2.5 bg-base-200/90 backdrop-blur-xs rounded-lg p-1.5 shadow-md"
-			>
-				<div
-					class="relative w-10 h-10 flex-shrink-0 bg-neutral-900 overflow-hidden border border-red-500/20"
-				>
-					<img
-						src={`/champions/${champDisplayName || "Generic"}/icon.webp`}
-						alt={champDisplayName || "No Champion"}
-						class="w-full h-full object-cover rounded-none"
-						loading="lazy"
-						onerror={(e) => {
-							(e.currentTarget as HTMLImageElement).src = "/champions/Generic/icon.webp";
-						}}
-					/>
-				</div>
-				<div class="min-w-0 flex-1">
-					<p
-						class="text-sm font-semibold truncate text-white leading-tight"
-					>
-						{player.displayName}
-					</p>
-					<p
-						class="text-xs opacity-75 truncate leading-none {player.champion
-							? 'text-red-400'
-							: 'text-white/50'}"
-					>
-						{player.champion
-							? champDisplayName
-							: m.lobby_not_ready()}
-					</p>
-				</div>
-			</div>
+			<LobbyPlayerCard
+				displayName={player.displayName}
+				championIconFolderName={champDisplayName}
+				status={player.champion ? champDisplayName : m.lobby_not_ready()}
+				team="right"
+				compact={true}
+			/>
 		{/each}
 	</div>
 
 	<!-- Floating Map Card -->
 	{#if currentMap}
-		<div class="absolute bottom-8 right-8 z-20">
-			<div
-				class="bg-base-200/90 backdrop-blur-xs rounded-lg p-3 w-48 shadow-lg"
-			>
-				<p class="text-sm opacity-70 mb-1">{gamemodeName}</p>
-				<p class="font-semibold">{currentMap.displayName}</p>
-				<img
-					src={currentMap.iconPath}
-					alt={currentMap.displayName}
-					class="w-full h-24 object-cover rounded mt-2"
-				/>
+		<div class="absolute bottom-8 right-8 z-20 text-right w-48">
+			<p class="text-sm opacity-70 mb-1">{gamemodeName}</p>
+			<p class="font-semibold text-white">{currentMap.displayName}</p>
+			<div class="relative w-full h-24 mt-2">
+				<!-- Clipped Background Container -->
+				<div
+					class="absolute inset-0 overflow-hidden border border-red-500/30"
+					style="clip-path: polygon(24px 0%, 100% 0%, 100% 100%, 0% 100%);"
+				>
+					<img
+						src={currentMap.iconPath}
+						alt={currentMap.displayName}
+						class="w-full h-full object-cover rounded-none"
+					/>
+				</div>
+				<!-- Slanted Edge Border matching the right team's nameplates exactly, with horizontal Y-axis caps -->
+				<svg class="absolute top-0 left-0 bottom-0 h-full w-6 text-red-500 z-20" viewBox="0 0 24 100" preserveAspectRatio="none">
+					<polygon points="16,0 24,0 8,100 0,100" fill="currentColor" />
+				</svg>
 			</div>
 		</div>
 	{/if}

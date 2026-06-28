@@ -88,35 +88,51 @@
 <div class="flex-1 flex flex-col overflow-hidden bg-base-100 relative">
 	{#if !lobbyWaitingState.value.canJoinInProgress || lobbyWaitingState.value.canRejoinLobby}
 		<div class="absolute inset-0">
-			<video
-				src="/champions/empty.webm"
-				class="h-full w-full object-cover blur-xs"
-				loop
-				muted
-				playsinline
-				autoplay
-			></video>
+			{#if lobbyWaitingState.value.currentMap}
+				<img
+					src={lobbyWaitingState.value.currentMap.iconPath}
+					alt={lobbyWaitingState.value.currentMap.displayName}
+					class="h-full w-full object-cover blur-xs"
+				/>
+			{:else}
+				<video
+					src="/champions/empty.webm"
+					class="h-full w-full object-cover blur-xs"
+					loop
+					muted
+					playsinline
+					autoplay
+				></video>
+			{/if}
 		</div>
-		<div class="relative justify-center gap-20 z-10 flex h-full items-center p-8">
-			<div class="flex flex-col gap-2">
-				{#each teamLeft.value as player (player.id)}
-					<LobbyPlayerCard
-						displayName={player.displayName}
-						championIconFolderName={getChampionDisplayName(player.champion)}
-						status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
-					/>
-				{/each}
-			</div>
+		<!-- Left Side Panel (Blue Gradient) -->
+		<div
+			class="absolute top-0 left-0 bottom-0 w-48 md:w-64 lg:w-80 z-20 bg-gradient-to-r from-blue-950/95 via-blue-900/40 to-transparent flex flex-col p-4 md:p-6 pt-16 gap-3"
+		>
+			{#each teamLeft.value as player (player.id)}
+				<LobbyPlayerCard
+					displayName={player.displayName}
+					championIconFolderName={getChampionDisplayName(player.champion)}
+					status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
+					team="left"
+					compact={true}
+				/>
+			{/each}
+		</div>
 
-			<div class="flex flex-col gap-2">
-				{#each teamRight.value as player (player.id)}
-					<LobbyPlayerCard
-						displayName={player.displayName}
-						championIconFolderName={getChampionDisplayName(player.champion)}
-						status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
-					/>
-				{/each}
-			</div>
+		<!-- Right Side Panel (Red Gradient) -->
+		<div
+			class="absolute top-0 right-0 bottom-0 w-48 md:w-64 lg:w-80 z-20 bg-gradient-to-l from-red-950/95 via-red-900/40 to-transparent flex flex-col p-4 md:p-6 pt-16 gap-3"
+		>
+			{#each teamRight.value as player (player.id)}
+				<LobbyPlayerCard
+					displayName={player.displayName}
+					championIconFolderName={getChampionDisplayName(player.champion)}
+					status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
+					team="right"
+					compact={true}
+				/>
+			{/each}
 		</div>
 	{:else}
 		<LobbyChampionSelect

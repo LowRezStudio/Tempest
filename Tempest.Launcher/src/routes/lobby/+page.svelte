@@ -37,7 +37,7 @@
 	const currentMap = $derived(
 		lobbyStaticInfo.value?.version ?
 			getMapsForVersion(lobbyStaticInfo.value?.version).find(
-				(m) => m.id === lobbyState.value.championSelect?.mapId,
+				(m) => m.id === lobbyState.value.championSelect?.mapId || m.id === lobbyState.value.inGame?.mapId,
 			)
 		:	undefined,
 	);

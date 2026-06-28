@@ -145,7 +145,9 @@ export const lobbyWaitingState = {
 		const version = lobbyStaticInfo.value?.version ?? "0.57"; // TODO: Remove 0.57 placeholder
 		const currentMap = lobbyStaticInfo.value?.version
 			? getMapsForVersion(lobbyStaticInfo.value.version).find(
-					(m) => m.id === state.value.championSelect?.mapId,
+					(m) =>
+						m.id === state.value.championSelect?.mapId ||
+						m.id === state.value.inGame?.mapId,
 				)
 			: undefined;
 
