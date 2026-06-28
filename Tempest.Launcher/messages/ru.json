@@ -248,7 +248,7 @@
 	"hostserver_port": "Порт",
 	"hostserver_port_range": "Порт от 50000 до 65000",
 	"hostserver_game_server_port": "Порт игрового сервера",
-	"hostserver_game_server_port_range": "Порт игрового сервера, по умолчанию 7777",
+	"hostserver_game_server_port_range": "Порт игрового сервера, по умолчанию 7000",
 	"instance_content": "Контент",
 	"instance_no_content": "Нет установленного контента",
 	"instance_add_mods_hint": "Добавьте моды для настройки инстанса",

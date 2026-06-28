@@ -235,7 +235,7 @@
 	"hostserver_port": "Port",
 	"hostserver_port_range": "Port entre 50000-65000",
 	"hostserver_game_server_port": "Port du serveur de jeu",
-	"hostserver_game_server_port_range": "Port du serveur de jeu, 7777 par défaut",
+	"hostserver_game_server_port_range": "Port du serveur de jeu, 7000 par défaut",
 	"instance_content": "Contenu",
 	"instance_no_content": "Aucun contenu installé",
 	"instance_add_mods_hint": "Ajoutez des mods pour personnaliser votre instance",

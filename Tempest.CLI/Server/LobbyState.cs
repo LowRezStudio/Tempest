@@ -271,8 +271,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         {
             serverArgs += $"?password={options.Password}";
         }
-        string[] args = ["server", serverArgs];
-        logger.LogInformation("Launching game server with args: {ServerArgs}", serverArgs);
+        string[] args = ["server", serverArgs, $"-port={options.GameServerPort}"];
+        logger.LogInformation("Launching game server with args: {ServerArgs} -port={Port}", serverArgs, options.GameServerPort);
         var process = await LauncherCommands.LaunchGame(options.Path, args, options.NoDefaultArgs, options.Platform, options.Game, options.Dll, true);
         _gameProcess = process;
         logger.LogInformation("Game server started (PID {ProcessId})", process.Id);

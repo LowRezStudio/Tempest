@@ -31,7 +31,7 @@
 	let selectedMinPlayers = $state<number>(1);
 	let selectedMaxSpectators = $state<number>(5);
 	let selectedPort = $state<number>(50051);
-	let selectedGameServerPort = $state<number>(7777);
+	let selectedGameServerPort = $state<number>(7000);
 	const hostLobbyMutation = createLaunchLobbyMutation();
 	const hasLaunched = $derived(hostLobbyMutation.isSuccess);
 	const valid = $derived(selectedName.trim().length > 0 && selectedInstanceId);
@@ -81,7 +81,7 @@
 			selectedMinPlayers = 1;
 			selectedMaxSpectators = 5;
 			selectedPort = 50051;
-			selectedGameServerPort = 7777;
+			selectedGameServerPort = 7000;
 		}
 	});
 </script>

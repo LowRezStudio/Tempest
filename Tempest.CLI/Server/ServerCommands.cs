@@ -19,7 +19,7 @@ internal class ServerCommands
         string? gamemode = null,
         string servicesUrl = "https://api.lowrezstudio.com",
         int port = 50051,
-        int gameServerPort = 7777,
+        int gameServerPort = 7000,
         string? password = null,
         bool detach = false,
         bool noDefaultArgs = false,

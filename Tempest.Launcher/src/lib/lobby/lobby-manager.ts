@@ -241,7 +241,7 @@ class LobbyManager {
 			ip = host.replace(/^https?:\/\//, "").split(":")[0];
 		}
 
-		const gameServerPort = state.value.inGame?.gameServerPort ?? 7777;
+		const gameServerPort = state.value.inGame?.gameServerPort ?? 7000;
 
 		const name = username.value;
 		const character = player.champion.toLowerCase();

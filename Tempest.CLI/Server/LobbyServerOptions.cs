@@ -13,7 +13,7 @@ internal sealed class LobbyServerOptions
     public bool PublicServer { get; init; }
     public string? GameMode { get; init; }
     public int Port { get; init; } = 50051;
-    public int GameServerPort { get; init; } = 7777;
+    public int GameServerPort { get; init; } = 7000;
     public string? ServicesUrl { get; init; }
     public string Path { get; init; } = string.Empty;
     public bool NoDefaultArgs { get; init; } = false;

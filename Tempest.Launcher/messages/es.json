@@ -240,7 +240,7 @@
 	"hostserver_port": "Puerto",
 	"hostserver_port_range": "Puerto entre 50000-65000",
 	"hostserver_game_server_port": "Puerto del servidor de juego",
-	"hostserver_game_server_port_range": "Puerto del servidor de juego, 7777 por defecto",
+	"hostserver_game_server_port_range": "Puerto del servidor de juego, 7000 por defecto",
 	"instance_content": "Contenido",
 	"instance_no_content": "Sin contenido instalado",
 	"instance_add_mods_hint": "Añade mods para personalizar tu instancia",
