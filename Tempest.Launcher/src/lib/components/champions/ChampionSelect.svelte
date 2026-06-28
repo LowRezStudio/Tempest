@@ -192,7 +192,7 @@
 					<button
 						type="button"
 						class={[
-							"h-18 w-18 overflow-hidden rounded-full border-2 p-0 transition-all duration-200",
+							"h-18 w-18 overflow-hidden rounded-lg border-2 p-0 transition-all duration-200 cursor-pointer",
 							"hover:scale-110 hover:shadow-xl",
 							displayedChampion?.name === champion.name ?
 								"border-accent ring-3 ring-accent shadow-xl"
@@ -254,7 +254,7 @@
 
 			<button
 				type="button"
-				class="btn btn-lg relative z-10 shadow-xl"
+				class="btn btn-lg relative z-10 shadow-none cursor-pointer"
 				class:btn-accent={displayedChampion && !confirmedChampionName}
 				class:btn-disabled={!displayedChampion || !!confirmedChampionName}
 				disabled={!displayedChampion || !!confirmedChampionName}

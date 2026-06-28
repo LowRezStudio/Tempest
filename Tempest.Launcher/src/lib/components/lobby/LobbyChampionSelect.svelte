@@ -58,7 +58,7 @@
 		</div>
 
 		{#if currentMap}
-			<div class="absolute top-0 right-0 p-4 z-20 mt-36">
+			<div class="absolute bottom-8 right-8 z-20">
 				<div class="bg-base-200/90 backdrop-blur-xs rounded-lg p-3 w-48">
 					<p class="text-sm opacity-70 mb-1">{m.lobby_playing_on()}</p>
 					<p class="font-semibold">{currentMap.displayName}</p>

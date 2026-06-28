@@ -12,7 +12,7 @@
 	<img
 		src={`/champions/${champion || "Generic"}/icon.webp`}
 		alt={champion || "No Champion"}
-		class="w-12 h-12 rounded-full ring-2 ring-base-300"
+		class="w-12 h-12 rounded-lg ring-2 ring-base-300"
 		loading="lazy"
 	/>
 	<div class="min-w-0">

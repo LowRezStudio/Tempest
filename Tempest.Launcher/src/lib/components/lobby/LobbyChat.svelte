@@ -33,7 +33,7 @@
 
 {#if open}
 	<div
-		class="absolute bottom-4 left-4 z-20 w-96 bg-base-200/95 backdrop-blur-xs rounded-lg shadow-xl flex flex-col max-h-96"
+		class="absolute bottom-8 left-8 z-20 w-96 bg-base-200/95 backdrop-blur-xs rounded-lg shadow-xl flex flex-col max-h-[480px]"
 	>
 		<div class="px-3 py-2 border-b border-base-300 flex items-center justify-between">
 			<div class="flex items-center gap-2">
@@ -84,7 +84,7 @@
 	</div>
 {:else}
 	<button
-		class="btn btn-accent absolute bottom-4 left-4 z-20"
+		class="btn btn-accent absolute bottom-8 left-8 z-20 shadow-none"
 		onclick={() => {
 			open = true;
 			tick().then(() => {
