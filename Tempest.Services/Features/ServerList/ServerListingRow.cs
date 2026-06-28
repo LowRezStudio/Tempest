@@ -32,6 +32,7 @@ public sealed record ServerListingRow
     public CountryCode Country { get; init; }
     public IReadOnlyList<AuthMethod> AuthMethods { get; init; } = [];
     public DateTimeOffset LastSeen { get; init; }
+    public string? ApiKey { get; init; }
 
     /// <summary>
     /// Maps this row to the gRPC <see cref="ServerListing"/> message.
@@ -68,7 +69,7 @@ public sealed record ServerListingRow
         string tagsJson, string? map, string? mapId,
         long players, long maxPlayers, long bots, long maxSpectators, long spectators,
         long joinInProgress, long joinable, long hasPassword, long country,
-        string authMethodsJson, string lastSeen)
+        string authMethodsJson, string lastSeen, string? apiKey)
     {
         return new ServerListingRow
         {
@@ -93,6 +94,7 @@ public sealed record ServerListingRow
             Country = (CountryCode)country,
             AuthMethods = DeserializeAuthMethods(authMethodsJson),
             LastSeen = DateTimeOffset.Parse(lastSeen, null, System.Globalization.DateTimeStyles.RoundtripKind),
+            ApiKey = apiKey,
         };
     }
 

@@ -18,6 +18,58 @@
     }
 </header>
 
+@if (TempData["Message"] != null)
+{
+    <article style="background-color: var(--pico-ins-color); color: var(--pico-color); margin-bottom: 2rem; padding: 1rem;">
+        @TempData["Message"]
+    </article>
+}
+@if (TempData["Error"] != null)
+{
+    <article style="background-color: var(--pico-del-color); color: var(--pico-color); margin-bottom: 2rem; padding: 1rem;">
+        @TempData["Error"]
+    </article>
+}
+
+@if (User.Identity?.IsAuthenticated == true)
+{
+    <article>
+        <header style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0;">My API Keys (@Model.ApiKeys.Count / 5)</h3>
+            @if (!Model.IsBanned && Model.ApiKeys.Count < 5)
+            {
+                <form method="post" asp-page-handler="CreateKey" style="margin: 0;">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="contrast" style="margin: 0;">Generate API Key</button>
+                </form>
+            }
+        </header>
+
+        @if (Model.IsBanned)
+        {
+            <p style="color: var(--pico-del-color); font-weight: bold;">Your account is banned. You cannot use or create API keys.</p>
+        }
+        else if (Model.ApiKeys.Count == 0)
+        {
+            <p>You have not created any API keys yet. Create one to host public servers.</p>
+        }
+        else
+        {
+            @foreach (var key in Model.ApiKeys)
+            {
+                <form method="post" asp-page-handler="DeleteKey" style="margin-bottom: 1rem;">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="key" value="@key.Key" />
+                    <div role="group">
+                        <input type="text" readonly value="@key.Key" aria-label="API Key" onclick="this.select();" style="font-family: monospace;" />
+                        <button type="submit" class="outline secondary" style="width: auto; white-space: nowrap;">Revoke</button>
+                    </div>
+                </form>
+            }
+        }
+    </article>
+}
+
 <table>
     <thead>
         <tr>
@@ -49,10 +101,35 @@
                 <td>@(server.Map ?? "—")</td>
                 <td>@server.Players / @server.MaxPlayers@if (server.Bots > 0) { <text> (+@server.Bots bots)</text> }</td>
                 <td>@server.Spectators / @server.MaxSpectators</td>
-                <td>@(server.Country == CountryCode.Unspecified ? "—" : server.Country.ToString())</td>
+                <td>
+                    @{
+                        var countryStr = server.Country.ToString();
+                        if (server.Country != CountryCode.Unspecified && countryStr.Length == 2)
+                        {
+                            var code = countryStr.ToUpperInvariant();
+                            <span title="@code">@GetFlagEmoji(code) @code</span>
+                        }
+                        else
+                        {
+                            <text>—</text>
+                        }
+                    }
+                </td>
                 <td>@string.Join(", ", server.Tags)</td>
             </tr>
         }
     }
     </tbody>
 </table>
+
+@functions {
+    public static string GetFlagEmoji(string countryCode)
+    {
+        if (string.IsNullOrEmpty(countryCode) || countryCode.Length != 2)
+            return "";
+        countryCode = countryCode.ToUpperInvariant();
+        int firstChar = countryCode[0] - 'A' + 0x1F1E6;
+        int secondChar = countryCode[1] - 'A' + 0x1F1E6;
+        return char.ConvertFromUtf32(firstChar) + char.ConvertFromUtf32(secondChar);
+    }
+}

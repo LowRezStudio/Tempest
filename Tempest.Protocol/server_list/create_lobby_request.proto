@@ -19,4 +19,5 @@ message CreateLobbyRequest {
   bool joinable = 12;
   bool has_password = 13;
   common.CountryCode country = 14;
+  string api_key = 15;
 }

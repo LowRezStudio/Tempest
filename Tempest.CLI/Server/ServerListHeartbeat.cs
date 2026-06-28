@@ -88,7 +88,8 @@ internal sealed class ServerListHeartbeat : BackgroundService
             JoinInProgress = _options.JoinInProgress,
             Joinable = true,
             HasPassword = !string.IsNullOrEmpty(_options.Password),
-            Country = Protocol.Common.CountryCode.Us
+            Country = _options.Country,
+            ApiKey = _options.ApiKey ?? string.Empty
         };
 
         if (!string.IsNullOrEmpty(_options.Map))
@@ -127,12 +128,20 @@ internal sealed class ServerListHeartbeat : BackgroundService
                 mapId = info.State.InGame.MapId;
             }
 
+            bool joinable = true;
+            if (info.State.InGame != null && !parent._options.JoinInProgress && !parent._options.EnableJoinInProgress)
+            {
+                // ponytail: hide server from list once started if join-in-progress is disabled
+                joinable = false;
+            }
+
             var request = new UpdateLobbyRequest
             {
                 Id = parent._ownId,
                 Ticket = parent._ticket,
                 Players = (uint)info.Players.Count,
                 MapId = mapId,
+                Joinable = joinable
             };
             try
             {

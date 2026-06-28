@@ -23,6 +23,7 @@
       </PackageReference>
       <PackageReference Include="Grpc.AspNetCore.Web" Version="2.80.0" />
       <PackageReference Include="Grpc.Net.Client" Version="2.80.0" />
+      <PackageReference Include="Grpc.Net.Client.Web" Version="2.80.0" />
     <PackageReference Include="Grpc.AspNetCore" Version="2.80.0" />
       <PackageReference Include="BLAKE3" Version="2.1.1" />
       <PackageReference Include="Tomlyn" Version="2.7.0" />

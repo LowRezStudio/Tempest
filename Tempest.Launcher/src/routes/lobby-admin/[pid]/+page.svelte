@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Square, SquareTerminal } from "@lucide/svelte";
+	import { Square, SquareTerminal, Globe } from "@lucide/svelte";
+	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import GhosttyTerminal from "$lib/components/ui/GhosttyTerminal.svelte";
@@ -13,7 +14,9 @@
 	let activeTab = $state<"logs">("logs");
 
 	const process = $derived(
-		lobbyServerProcessesList.value.find((p) => String(p.child.pid) === page.params.pid!),
+		lobbyServerProcessesList.value.find(
+			(p) => String(p.child.pid) === page.params.pid!,
+		),
 	);
 	const killLobbyMutation = createKillLobbyServerMutation();
 
@@ -21,7 +24,11 @@
 	const isKilling = $derived(killLobbyMutation.isPending);
 	const returnCode = $derived(process?.returnCode);
 	const isRunning = $derived(returnCode ? returnCode.value === null : false);
-	const hasError = $derived(returnCode ? returnCode.value !== null && returnCode.value !== 0 : false);
+	const hasError = $derived(
+		returnCode
+			? returnCode.value !== null && returnCode.value !== 0
+			: false,
+	);
 
 	function handleStopOrClose() {
 		if (!process) return;
@@ -30,7 +37,10 @@
 			killLobbyMutation.mutate(process);
 		} else {
 			//closing
-			lobbyServerProcessesList.value = lobbyServerProcessesList.value.filter((p) => p.child.pid !== process.child.pid);
+			lobbyServerProcessesList.value =
+				lobbyServerProcessesList.value.filter(
+					(p) => p.child.pid !== process.child.pid,
+				);
 			killLobbyMutation.reset();
 			goto("/servers");
 		}
@@ -59,8 +69,15 @@
 			{/if}
 		{/snippet}
 		{#snippet actions()}
+			<button class="btn" onclick={() => openUrl("https://myip.wtf/")}>
+				<Globe size={16} />
+				{m.lobbyadmin_whats_my_ip()}
+			</button>
+
 			{#if isRunning}
-				<button class="btn text-sm btn-accent" onclick={join}> {m.common_join()} </button>
+				<button class="btn text-sm btn-accent" onclick={join}>
+					{m.common_join()}
+				</button>
 			{/if}
 
 			<button

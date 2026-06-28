@@ -71,6 +71,10 @@ export interface CreateLobbyRequest {
 	 * @generated from protobuf field: tempest.common.CountryCode country = 14
 	 */
 	country: CountryCode;
+	/**
+	 * @generated from protobuf field: string api_key = 15
+	 */
+	apiKey: string;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
@@ -101,6 +105,7 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 				kind: "enum",
 				T: () => ["tempest.common.CountryCode", CountryCode],
 			},
+			{ no: 15, name: "api_key", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 		]);
 	}
 	create(value?: PartialMessage<CreateLobbyRequest>): CreateLobbyRequest {
@@ -117,6 +122,7 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 		message.joinable = false;
 		message.hasPassword = false;
 		message.country = 0;
+		message.apiKey = "";
 		if (value !== undefined) reflectionMergePartial<CreateLobbyRequest>(this, message, value);
 		return message;
 	}
@@ -172,6 +178,9 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 					break;
 				case /* tempest.common.CountryCode country */ 14:
 					message.country = reader.int32();
+					break;
+				case /* string api_key */ 15:
+					message.apiKey = reader.string();
 					break;
 				default:
 					let u = options.readUnknownField;
@@ -230,6 +239,8 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 			writer.tag(13, WireType.Varint).bool(message.hasPassword);
 		/* tempest.common.CountryCode country = 14; */
 		if (message.country !== 0) writer.tag(14, WireType.Varint).int32(message.country);
+		/* string api_key = 15; */
+		if (message.apiKey !== "") writer.tag(15, WireType.LengthDelimited).string(message.apiKey);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
