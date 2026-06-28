@@ -85,9 +85,7 @@
 								<option value="system">{m.settings_theme_system()}</option>
 								<option value="mocha">{m.settings_theme_mocha()}</option>
 								<option value="latte">{m.settings_theme_latte()}</option>
-								{#if $username === "Grohk" || $theme === "legacy"}
-									<option value="legacy">{m.settings_theme_legacy()}</option>
-								{/if}
+								<option value="legacy">{m.settings_theme_legacy()}</option>
 							</select>
 						</div>
 
