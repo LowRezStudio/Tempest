@@ -47,6 +47,7 @@
 		// Unicorn rules for modern JavaScript
 		"unicorn/catch-error-name": "error",
 		"unicorn/prefer-includes": "error",
+		"unicorn/prefer-node-protocol": "error",
 		"unicorn/prefer-string-starts-ends-with": "error",
 		"unicorn/prefer-type-error": "error",
 		"unicorn/throw-new-error": "error",

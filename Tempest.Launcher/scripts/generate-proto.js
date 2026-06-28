@@ -1,5 +1,5 @@
-import { glob, mkdir, rm } from "fs/promises";
-import { join } from "path";
+import { glob, mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import $ from "dax";
 
 const outDir = join(import.meta.dirname, "../src/lib/rpc");
