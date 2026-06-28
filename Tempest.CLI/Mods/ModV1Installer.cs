@@ -4,16 +4,6 @@ public class ModV1Installer : IModInstaller
 {
     public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool allowUnsigned)
     {
-        if (!allowUnsigned)
-        {
-            return new ModInstallResult
-            {
-                Success = false,
-                Unverified = true,
-                Message = "Installing unsigned or unverified mods is not allowed without the '--allow-unsigned' flag."
-            };
-        }
-
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var fileName = Path.GetFileName(modFilePath);
 
