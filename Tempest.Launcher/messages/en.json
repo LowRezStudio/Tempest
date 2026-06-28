@@ -24,7 +24,7 @@
 	"common_join": "Join",
 	"common_leave": "Leave",
 	"common_confirm": "Confirm",
-	"common_confirm_selection": "Confirm Selection",
+	"common_confirm_selection": "Lock in",
 	"common_copied": "Copied",
 	"common_copy_failed": "Copy failed",
 	"common_optional": "Optional",

@@ -9,17 +9,11 @@
 	import { servicesURL, username } from "$lib/stores/settings.svelte";
 	import { untrack } from "svelte";
 	import type { Instance } from "$lib/types/instance";
+	import { GAMEMODES, type GameModeId as GameMode } from "$lib/types/lobby";
 
 	interface Props {
 		open?: boolean;
 	}
-	//TODO check these and possibly support custom gamemodes
-	type GameMode =
-		| "TempestMp.SiegeDEV"
-		| "TempestMp.Tdm"
-		| "TempestMp.Payload"
-		| "TempestMp.Onslaught";
-
 	let { open = $bindable(false) }: Props = $props();
 
 	const instanceList = $derived(Object.values(instanceMap.value).filter(Boolean) as Instance[]);
@@ -161,10 +155,9 @@
 					class="select select-bordered w-full"
 					bind:value={selectedGameMode}
 				>
-					<option value="TempestMp.SiegeDEV" label="Siege"></option>
-					<option value="TempestMp.Payload" label="Payload"></option>
-					<option value="TempestMp.Tdm" label="Team Deathmatch"></option>
-					<option value="TempestMp.Onslaught" label="Onslaught"></option>
+					{#each GAMEMODES as mode}
+						<option value={mode.id} label={mode.label}></option>
+					{/each}
 				</select>
 			</div>
 			<span class="label-text text-sm label">{m.hostserver_public_hint()}</span>

@@ -84,7 +84,7 @@
 	</div>
 {:else}
 	<button
-		class="btn btn-accent absolute bottom-8 left-8 z-20 shadow-none"
+		class="btn absolute bottom-8 left-8 z-20 shadow-none"
 		onclick={() => {
 			open = true;
 			tick().then(() => {
