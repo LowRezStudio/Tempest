@@ -24,7 +24,7 @@ export const createInstallModMutation = () => {
 			replace?: boolean;
 		}) => installMod(gamePath, modFile, replace),
 		onSuccess: (_, variables) => {
-			queryClient.invalidateQueries({ queryKey: ["mods", variables.gamePath] });
+			void queryClient.invalidateQueries({ queryKey: ["mods", variables.gamePath] });
 		},
 	}));
 };
@@ -35,7 +35,7 @@ export const createRemoveModMutation = () => {
 		mutationFn: ({ gamePath, modName }: { gamePath: string; modName: string }) =>
 			removeMod(gamePath, modName),
 		onSuccess: (_, variables) => {
-			queryClient.invalidateQueries({ queryKey: ["mods", variables.gamePath] });
+			void queryClient.invalidateQueries({ queryKey: ["mods", variables.gamePath] });
 		},
 	}));
 };
@@ -53,7 +53,7 @@ export const createRenameModMutation = () => {
 			newName: string;
 		}) => renameMod(gamePath, oldName, newName),
 		onSuccess: (_, variables) => {
-			queryClient.invalidateQueries({ queryKey: ["mods", variables.gamePath] });
+			void queryClient.invalidateQueries({ queryKey: ["mods", variables.gamePath] });
 		},
 	}));
 };

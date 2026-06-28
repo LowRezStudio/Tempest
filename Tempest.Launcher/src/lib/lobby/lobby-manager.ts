@@ -59,7 +59,7 @@ class LobbyManager {
 			const secondsLeft = this.countdown.seconds - Math.floor(elapsed);
 			currentCountdownSeconds.value = secondsLeft;
 		}, 250);
-		this.startEventStream();
+		void this.startEventStream();
 	}
 
 	private getClient(): LobbyClient {
@@ -112,27 +112,27 @@ class LobbyManager {
 				break;
 			}
 			case "playerJoin": {
-				await this.handlePlayerJoinEvent(event.event.playerJoin);
+				this.handlePlayerJoinEvent(event.event.playerJoin);
 				break;
 			}
 			case "playerLeave": {
-				await this.handlePlayerLeaveEvent(event.event.playerLeave);
+				this.handlePlayerLeaveEvent(event.event.playerLeave);
 				break;
 			}
 			case "playerUpdate": {
-				await this.handlePlayerUpdateEvent(event.event.playerUpdate);
+				this.handlePlayerUpdateEvent(event.event.playerUpdate);
 				break;
 			}
 			case "chatMessage": {
-				await this.handleChatMessageEvent(event.event.chatMessage);
+				this.handleChatMessageEvent(event.event.chatMessage);
 				break;
 			}
 			case "stateUpdate": {
-				await this.handleStateUpdateEvent(event.event.stateUpdate);
+				this.handleStateUpdateEvent(event.event.stateUpdate);
 				break;
 			}
 			case "countdown": {
-				await this.handleCountdownEvent(event.event.countdown);
+				this.handleCountdownEvent(event.event.countdown);
 				break;
 			}
 		}

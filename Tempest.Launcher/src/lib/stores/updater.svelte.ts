@@ -73,7 +73,7 @@ class UpdaterStore {
 			}
 		} catch (error: any) {
 			console.error("Failed to check for updates:", error);
-			this.errorMessage = error?.message || String(error);
+			this.errorMessage = error?.message ?? String(error);
 			this.status = "error";
 			if (silent) {
 				// Don't show error dialog if checking silently on start
@@ -123,7 +123,7 @@ class UpdaterStore {
 			}, 1000);
 		} catch (error: any) {
 			console.error("Update download/install failed:", error);
-			this.errorMessage = error?.message || String(error);
+			this.errorMessage = error?.message ?? String(error);
 			this.status = "error";
 		}
 	}

@@ -34,9 +34,7 @@ export function getConnectionToServer(host: string) {
 		interceptors: [
 			{
 				interceptUnary(next, method, input, options) {
-					if (!options.meta) {
-						options.meta = {};
-					}
+					options.meta ??= {};
 					const ticketValue = ticket.get();
 					if (ticketValue) {
 						console.log("Adding x-ticket to request:", method.name, ticketValue);

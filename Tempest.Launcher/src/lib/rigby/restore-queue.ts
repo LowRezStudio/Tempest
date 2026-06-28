@@ -92,7 +92,7 @@ export class RestoreQueue {
 		if (this.pausing) return;
 		queueRunning.value = true;
 		if (!this.processing) {
-			this.processNext();
+			void this.processNext();
 		}
 	}
 
@@ -213,7 +213,7 @@ export class RestoreQueue {
 		}
 
 		if (queueRunning.value) {
-			this.processNext();
+			void this.processNext();
 		}
 	}
 
@@ -263,7 +263,7 @@ export class RestoreQueue {
 				console.log("stdout chunk:", data);
 
 				const lines = stdout.split("\n");
-				stdout = lines.pop() || "";
+				stdout = lines.pop() ?? "";
 
 				for (const line of lines) {
 					if (!line.trim()) continue;
@@ -434,7 +434,7 @@ export class RestoreQueue {
 		} else if (item.status === "error") {
 			addToast({
 				title: m.toast_download_failed_title(),
-				message: `${name}: ${item.error || m.toast_download_failed_unknown()}`,
+				message: `${name}: ${item.error ?? m.toast_download_failed_unknown()}`,
 				tone: "error",
 			});
 		}

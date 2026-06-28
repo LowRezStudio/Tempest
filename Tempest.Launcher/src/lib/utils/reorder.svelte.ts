@@ -70,7 +70,7 @@ export function createReorderable<T>(options: ReorderableOptions) {
 			orderedIds.push(id);
 			rects.set(id, { top: rect.top, mid: rect.top + rect.height / 2 });
 			if (firstTop === null) firstTop = rect.top;
-			else if (secondTop === null) secondTop = rect.top;
+			else secondTop ??= rect.top;
 		}
 		const fallbackH = slots[0]?.getBoundingClientRect().height ?? 48;
 		const pitch = firstTop !== null && secondTop !== null ? secondTop - firstTop : fallbackH;

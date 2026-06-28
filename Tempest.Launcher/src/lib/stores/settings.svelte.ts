@@ -25,7 +25,7 @@ export const defaultInstancePath = persistedState<string | undefined>(
 
 if (typeof window !== "undefined") {
 	if (!defaultInstancePath.get()) {
-		getDefaultInstancePath().then((p) => {
+		void getDefaultInstancePath().then((p) => {
 			defaultInstancePath.set(p);
 		});
 	}

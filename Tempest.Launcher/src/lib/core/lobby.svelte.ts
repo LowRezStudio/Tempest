@@ -90,7 +90,7 @@ export const killLobby = async (process: LobbyServerProcess) => {
 
 export const moveToLobby = (host: string) => {
 	if (lobbyHost.value === host) {
-		goto("/lobby");
+		void goto("/lobby");
 		return;
 	}
 	if (lobbyManager.isConnected()) {
@@ -98,5 +98,5 @@ export const moveToLobby = (host: string) => {
 	}
 	resetLobbyState();
 	lobbyHost.value = host;
-	goto("/lobby");
+	void goto("/lobby");
 };

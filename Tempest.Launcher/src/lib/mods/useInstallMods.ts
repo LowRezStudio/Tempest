@@ -32,7 +32,7 @@ export function useInstallMods(instancePath: () => string | undefined) {
 			let lastInstalledName = "";
 
 			for (const filePath of paths) {
-				const modFileName = filePath.split(/[/\\]/).pop() || filePath;
+				const modFileName = filePath.split(/[/\\]/).pop() ?? filePath;
 				let installingToastId: string | undefined;
 				try {
 					installingToastId = addToast({
@@ -82,7 +82,7 @@ export function useInstallMods(instancePath: () => string | undefined) {
 					if (installingToastId) removeToast(installingToastId);
 					addToast({
 						title: m.toast_installation_failed_title(),
-						message: `${modFileName}: ${error.message || m.toast_installation_failed_internal()}`,
+						message: `${modFileName}: ${error.message ?? m.toast_installation_failed_internal()}`,
 						tone: "error",
 					});
 				}
@@ -104,12 +104,12 @@ export function useInstallMods(instancePath: () => string | undefined) {
 						tone: "success",
 					});
 				}
-				queryClient.invalidateQueries({ queryKey: ["mods", gamePath] });
+				void queryClient.invalidateQueries({ queryKey: ["mods", gamePath] });
 			}
 		} catch (error: any) {
 			addToast({
 				title: m.toast_installation_failed_title(),
-				message: error.message || m.toast_installation_failed_internal(),
+				message: error.message ?? m.toast_installation_failed_internal(),
 				tone: "error",
 			});
 		}

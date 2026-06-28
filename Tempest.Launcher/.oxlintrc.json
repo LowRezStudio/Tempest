@@ -1,6 +1,6 @@
 {
 	"$schema": "./node_modules/oxlint/configuration_schema.json",
-	"plugins": ["import", "jsdoc", "jsx-a11y", "react", "unicorn"],
+	"plugins": ["import", "jsdoc", "jsx-a11y", "react", "unicorn", "typescript"],
 	"env": {
 		"browser": true,
 		"es2022": true,
@@ -32,6 +32,7 @@
 
 		// TypeScript strict rules
 		"typescript/strict-boolean-expressions": "error",
+		"typescript/prefer-nullish-coalescing": "error",
 		"typescript/no-for-in-array": "error",
 		"typescript/no-unnecessary-qualifier": "error",
 		"typescript/prefer-as-const": "error",

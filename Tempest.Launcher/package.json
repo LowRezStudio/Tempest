@@ -13,7 +13,7 @@
 		"proto-generate": "node scripts/generate-proto.js",
 		"tauri": "tauri",
 		"fmt": "oxfmt --write .",
-		"lint": "oxlint"
+		"lint": "oxlint --type-aware"
 	},
 	"devDependencies": {
 		"@catppuccin/daisyui": "^2.1.1",
@@ -49,6 +49,7 @@
 		"husky": "^9.1.7",
 		"oxfmt": "^0.56.0",
 		"oxlint": "^1.71.0",
+		"oxlint-tsgolint": "^0.23.0",
 		"svelte": "^5.56.3",
 		"svelte-check": "^4.6.0",
 		"tailwindcss": "^4.3.1",

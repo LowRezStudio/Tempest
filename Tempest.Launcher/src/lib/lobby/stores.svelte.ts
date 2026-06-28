@@ -70,13 +70,13 @@ export const ownTeam = {
 
 export const teamLeft = {
 	get value() {
-		return players.value.filter((p) => p.taskForce === (ownTeam.value || 1));
+		return players.value.filter((p) => p.taskForce === (ownTeam.value ?? 1));
 	},
 };
 
 export const teamRight = {
 	get value() {
-		return players.value.filter((p) => p.taskForce !== (ownTeam.value || 1));
+		return players.value.filter((p) => p.taskForce !== (ownTeam.value ?? 1));
 	},
 };
 
@@ -108,7 +108,7 @@ export const isGameServerOpen = {
 
 export const ownChampion = {
 	get value() {
-		return players.value.find((p) => p.id === playerId.value)?.champion || "";
+		return players.value.find((p) => p.id === playerId.value)?.champion ?? "";
 	},
 };
 
@@ -158,10 +158,10 @@ export const lobbyWaitingState = {
 			canRejoinGame: !!(isGameServerOpen.value && ownChampion.value),
 			canRejoinLobby:
 				!players.value.some((p) => p.id === playerId.value) &&
-				players.value.length < (lobbyStaticInfo.value?.maxPlayers || 0),
+				players.value.length < (lobbyStaticInfo.value?.maxPlayers ?? 0),
 			canJoinInProgress: !!lobbyStaticInfo.value?.enableJoinInProgress && !ownChampion.value,
 			playerCount: players.value.length,
-			minimumPlayerCount: state.value.waiting?.minPlayers || 0,
+			minimumPlayerCount: state.value.waiting?.minPlayers ?? 0,
 			countdownSeconds: currentCountdownSeconds.value,
 			gameVersion: version,
 			currentMap,
