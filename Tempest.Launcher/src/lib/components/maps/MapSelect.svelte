@@ -79,7 +79,7 @@
 				class="group relative rounded-none overflow-hidden bg-base-200 transition-all duration-150 cursor-pointer hover:bg-base-300 active:scale-[0.98] {(
 					isVotedByMe
 				) ?
-					'ring-2 ring-accent'
+					'ring-4 ring-accent'
 				:	''}"
 				onclick={() => handleMapClick(map)}
 			>
