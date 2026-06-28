@@ -38,8 +38,9 @@ const resolveTokenSources = async (
 	instancePath: string,
 	platform: InstancePlatform,
 ): Promise<{ primary: string; fallback: string }> => {
-	const startPath =
-		isFilePath(instancePath) ? await tauriPath.dirname(instancePath) : instancePath;
+	const startPath = isFilePath(instancePath)
+		? await tauriPath.dirname(instancePath)
+		: instancePath;
 	const gameFolder = await findGameFolder(startPath);
 	await allowScopeDirectory(gameFolder, true);
 
@@ -53,8 +54,9 @@ const resolveTokenSources = async (
 };
 
 const resolveAssemblyDatPath = async (instancePath: string): Promise<string> => {
-	const startPath =
-		isFilePath(instancePath) ? await tauriPath.dirname(instancePath) : instancePath;
+	const startPath = isFilePath(instancePath)
+		? await tauriPath.dirname(instancePath)
+		: instancePath;
 	const gameFolder = await findGameFolder(startPath);
 	const assemblyDir = await tauriPath.join(gameFolder, "ChaosGame", "CookedPCConsole");
 	await allowScopeDirectory(assemblyDir, true);

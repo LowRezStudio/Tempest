@@ -12,8 +12,7 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"proto-generate": "node scripts/generate-proto.js",
 		"tauri": "tauri",
-		"dprint": "dprint",
-		"fmt": "prettier --write .",
+		"fmt": "oxfmt --write .",
 		"lint": "oxlint"
 	},
 	"devDependencies": {
@@ -52,10 +51,8 @@
 		"ghostty-web": "^0.4.0",
 		"husky": "^9.1.7",
 		"nanostores": "^1.3.0",
+		"oxfmt": "^0.56.0",
 		"oxlint": "^1.71.0",
-		"prettier": "^3.8.4",
-		"prettier-plugin-svelte": "^4.1.1",
-		"prettier-plugin-tailwindcss": "^0.8.0",
 		"svelte": "^5.56.3",
 		"svelte-check": "^4.6.0",
 		"tailwindcss": "^4.3.1",

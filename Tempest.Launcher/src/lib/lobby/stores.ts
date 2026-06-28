@@ -1,7 +1,7 @@
 import { persistentAtom } from "@nanostores/persistent";
+import { atom, computed } from "nanostores";
 import { Timestamp } from "$lib/rpc";
 import { getMapsForVersion } from "$lib/utils/versions";
-import { atom, computed } from "nanostores";
 import type { LobbyState } from "$lib/rpc";
 import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
 import type { Instance } from "$lib/types/instance";
@@ -138,12 +138,11 @@ export const lobbyWaitingState = computed(
 		$currentCountdownSeconds,
 	) => {
 		const version = $lobbyStaticInfo?.version ?? "0.57"; // TODO: Remove 0.57 placeholder
-		const currentMap =
-			$lobbyStaticInfo?.version ?
-				getMapsForVersion($lobbyStaticInfo.version).find(
+		const currentMap = $lobbyStaticInfo?.version
+			? getMapsForVersion($lobbyStaticInfo.version).find(
 					(m) => m.id === $state.championSelect?.mapId,
 				)
-			:	undefined;
+			: undefined;
 
 		return {
 			isGameInProgress: $isInGame,

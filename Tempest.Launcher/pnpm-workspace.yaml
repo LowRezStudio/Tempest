@@ -1,7 +1,7 @@
 minimumReleaseAge: 2440
 minimumReleaseAgeExclude:
-  - vite
+    - vite
 
 onlyBuiltDependencies:
-  - '@tailwindcss/oxide'
-  - esbuild
+    - "@tailwindcss/oxide"
+    - esbuild

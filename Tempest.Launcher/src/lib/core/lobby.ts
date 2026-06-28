@@ -1,8 +1,8 @@
 import { goto } from "$app/navigation";
+import { atom } from "nanostores";
 import { lobbyManager } from "$lib/lobby/lobby-manager";
 import { lobbyHost, resetLobbyState } from "$lib/lobby/stores";
 import { appendProcessLog, lobbyServerProcessesList } from "$lib/stores/processes";
-import { atom } from "nanostores";
 import { createCommand } from "./command";
 import type { LobbyServerOptions } from "$lib/types/lobby";
 import type { LobbyServerProcess, ProcessLog } from "$lib/types/process";

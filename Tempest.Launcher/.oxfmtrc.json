@@ -1,0 +1,25 @@
+{
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	"sortTailwindcss": {},
+	"sortImports": {
+		"newlinesBetween": false,
+		"customGroups": [
+			{
+				"groupName": "types",
+				"selector": "type"
+			},
+			{
+				"groupName": "lib",
+				"elementNamePattern": ["$lib", "$lib/**"]
+			}
+		],
+		"groups": ["builtin", "external", "lib", ["parent", "sibling", "index"], "types", "unknown"]
+	},
+	"useTabs": true,
+	"tabWidth": 4,
+	"printWidth": 100,
+	"semi": true,
+	"singleQuote": false,
+	"sortPackageJson": false,
+	"ignorePatterns": []
+}

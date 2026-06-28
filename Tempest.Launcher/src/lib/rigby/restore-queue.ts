@@ -4,10 +4,10 @@ import { instanceMap, updateInstance } from "$lib/stores/instance";
 import { appendProcessLog, logCommandOutput } from "$lib/stores/processes";
 import { addToast } from "$lib/stores/ui";
 import { queueCurrentIndex, queueItems, queueRunning } from "./stores";
-import type { QueueItem } from "./stores";
-import type { Child } from "@tauri-apps/plugin-shell";
 import type { ArgumentType } from "$lib/core/command";
 import type { Instance } from "$lib/types/instance";
+import type { QueueItem } from "./stores";
+import type { Child } from "@tauri-apps/plugin-shell";
 
 function generateId(): string {
 	return `restore-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -19,9 +19,9 @@ function resetRunningItems(): void {
 	if (!hasRunning) return;
 
 	const updated = items.map((item) =>
-		item.status === "running" ?
-			{ ...item, status: "pending" as const, progress: undefined }
-		:	item,
+		item.status === "running"
+			? { ...item, status: "pending" as const, progress: undefined }
+			: item,
 	);
 	queueItems.set(updated);
 }
