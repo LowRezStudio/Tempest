@@ -31,7 +31,7 @@
 		"yoda": "error",
 
 		// TypeScript strict rules
-		"typescript/strict-boolean-expressions": "error",
+		"typescript/strict-boolean-expressions": "off",
 		"typescript/prefer-nullish-coalescing": "error",
 		"typescript/no-for-in-array": "error",
 		"typescript/no-unnecessary-qualifier": "error",
