@@ -7,13 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      '@tailwindcss/typography':
-        specifier: ^0.5.20
-        version: 0.5.20(tailwindcss@4.3.1)
-      markdown-it:
-        specifier: ^14.2.0
-        version: 14.2.0
     devDependencies:
       '@catppuccin/daisyui':
         specifier: ^2.1.1
@@ -51,6 +44,9 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 7.1.2
         version: 7.1.2(svelte@5.56.3)(vite@8.1.0(jiti@2.7.0))
+      '@tailwindcss/typography':
+        specifier: ^0.5.20
+        version: 0.5.20(tailwindcss@4.3.1)
       '@tailwindcss/vite':
         specifier: 4.3.1
         version: 4.3.1(vite@8.1.0(jiti@2.7.0))
@@ -108,6 +104,9 @@ importers:
       husky:
         specifier: ^9.1.7
         version: 9.1.7
+      markdown-it:
+        specifier: ^14.2.0
+        version: 14.2.0
       oxfmt:
         specifier: ^0.56.0
         version: 0.56.0(svelte@5.56.3)

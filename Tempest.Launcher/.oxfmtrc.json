@@ -20,6 +20,6 @@
 	"printWidth": 100,
 	"semi": true,
 	"singleQuote": false,
-	"sortPackageJson": false,
+	"sortPackageJson": true,
 	"ignorePatterns": []
 }

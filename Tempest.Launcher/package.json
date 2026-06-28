@@ -1,7 +1,7 @@
 {
 	"name": "tempest.launcher",
-	"private": true,
 	"version": "1.0.0-16",
+	"private": true,
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
@@ -28,6 +28,7 @@
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.66.0",
 		"@sveltejs/vite-plugin-svelte": "7.1.2",
+		"@tailwindcss/typography": "^0.5.20",
 		"@tailwindcss/vite": "4.3.1",
 		"@tanstack/svelte-query": "^6.1.34",
 		"@tauri-apps/api": "^2.11.1",
@@ -47,6 +48,7 @@
 		"dax": "^0.48.3",
 		"ghostty-web": "^0.4.0",
 		"husky": "^9.1.7",
+		"markdown-it": "^14.2.0",
 		"oxfmt": "^0.56.0",
 		"oxlint": "^1.71.0",
 		"oxlint-tsgolint": "^0.23.0",
@@ -56,9 +58,5 @@
 		"typescript": "^6.0.3",
 		"vite": "^8.1.0"
 	},
-	"packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b",
-	"dependencies": {
-		"@tailwindcss/typography": "^0.5.20",
-		"markdown-it": "^14.2.0"
-	}
+	"packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b"
 }
