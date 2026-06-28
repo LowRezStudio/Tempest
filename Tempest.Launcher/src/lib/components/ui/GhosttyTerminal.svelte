@@ -7,9 +7,10 @@
 	interface Props {
 		logs: ReadonlyArray<ProcessLog>;
 		child?: Child | null;
+		showPrefix?: boolean;
 	}
 
-	let { logs, child }: Props = $props();
+	let { logs, child, showPrefix = true }: Props = $props();
 
 	let container = $state<HTMLDivElement>();
 	let term = $state<Terminal | undefined>();
@@ -117,7 +118,7 @@
 		let nextId = lastId;
 		for (const log of current) {
 			if (log.id <= lastId) continue;
-			const prefix = log.source ? `\x1b[90m[${log.source}]\x1b[0m ` : "";
+			const prefix = showPrefix && log.source ? `\x1b[90m[${log.source}]\x1b[0m ` : "";
 			const color = log.error ? "\x1b[31m" : "";
 			const line = log.line.replaceAll(/\r?\n/g, "\r\n");
 			chunk += `${prefix}${color}${line}\x1b[0m\r\n`;

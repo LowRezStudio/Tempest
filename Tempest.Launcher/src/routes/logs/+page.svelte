@@ -1,11 +1,28 @@
 <script lang="ts">
-	import { ScrollText, Trash2 } from "@lucide/svelte";
+	import { ScrollText, Trash2, Copy, Check } from "@lucide/svelte";
 	import GhosttyTerminal from "$lib/components/ui/GhosttyTerminal.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { clearProcessLogs, processLogs } from "$lib/stores/processes.svelte";
 
 	let activeSource = $state("all");
+	let copyStatus = $state<"idle" | "copied" | "failed">("idle");
+
+	async function handleCopy() {
+		const textToCopy = filteredLogs
+			.map((log) => (activeSource === "all" && log.source ? `[${log.source}] ${log.line}` : log.line))
+			.join("\n");
+		try {
+			await navigator.clipboard.writeText(textToCopy);
+			copyStatus = "copied";
+		} catch (error) {
+			console.error("Failed to copy logs:", error);
+			copyStatus = "failed";
+		}
+		setTimeout(() => {
+			copyStatus = "idle";
+		}, 2000);
+	}
 
 	const uniqueSources = $derived.by(() => {
 		const seen = new Set<string>();
@@ -73,6 +90,21 @@
 		{#snippet actions()}
 			<button
 				class="btn btn-ghost"
+				onclick={handleCopy}
+				disabled={filteredLogs.length === 0}
+			>
+				{#if copyStatus === "copied"}
+					<Check size={16} class="text-success" />
+					{m.common_copied()}
+				{:else if copyStatus === "failed"}
+					{m.common_copy_failed()}
+				{:else}
+					<Copy size={16} />
+					{m.common_copy_all()}
+				{/if}
+			</button>
+			<button
+				class="btn btn-ghost"
 				onclick={clearProcessLogs}
 				disabled={processLogs.value.length === 0}
 			>
@@ -84,7 +116,7 @@
 
 	<div class="flex-1 overflow-hidden">
 		{#key activeSource}
-			<GhosttyTerminal logs={filteredLogs} />
+			<GhosttyTerminal logs={filteredLogs} showPrefix={activeSource === "all"} />
 		{/key}
 	</div>
 </div>
