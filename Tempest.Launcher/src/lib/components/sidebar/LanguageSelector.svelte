@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { Globe } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { getLocale, locales, setLocale } from "$lib/paraglide/runtime";
+	import { locales } from "$lib/paraglide/runtime";
 	import { Popover, Tooltip } from "bits-ui";
 	import type { Locale } from "$lib/paraglide/runtime";
+	import { localeState } from "$lib/stores/locale.svelte";
 
 	const localeLabels: Record<string, { flag: string; label: string }> = {
 		en: { flag: "🇬🇧", label: "English" },
@@ -13,14 +14,11 @@
 		ru: { flag: "🇷🇺", label: "Русский" },
 	};
 
-	let currentLocale = $state(getLocale());
 	let open = $state(false);
 
 	function selectLocale(locale: Locale) {
-		if (locale === currentLocale) return;
-		currentLocale = locale;
 		open = false;
-		setLocale(locale);
+		localeState.set(locale);
 	}
 </script>
 
@@ -59,10 +57,10 @@
 					<li>
 						<button
 							class="flex items-center gap-2"
-							class:active={loc === currentLocale}
+							class:active={loc === localeState.current}
 							onclick={() => selectLocale(loc)}
 						>
-							{#if loc === currentLocale}
+							{#if loc === localeState.current}
 								<span class="text-accent">✓</span>
 							{:else}
 								<span class="w-4"></span>

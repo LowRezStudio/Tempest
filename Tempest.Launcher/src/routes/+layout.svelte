@@ -41,6 +41,7 @@
 		removeToast,
 	} from "$lib/stores/ui.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
+	import { localeState } from "$lib/stores/locale.svelte";
 	import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
 
 	clearStaleConnectionIfNeeded();
@@ -273,40 +274,42 @@
 
 <QueryClientProvider client={queryClient}>
 	<Tooltip.Provider delayDuration={400}>
-		<div class="flex h-screen w-full overflow-hidden">
-			<Sidebar />
-			<main class="flex-1 min-w-0 relative overflow-hidden">
-				{#key page.url.pathname}
-					<div class="page-transition">
-						{@render children?.()}
-					</div>
-				{/key}
-				<InstallModOverlay visible={isDraggingFiles} />
-			</main>
-			<InstanceWizard bind:open={instanceWizardOpen.value} />
-			<HostServerWizard bind:open={hostServerWizardOpen.value} />
-			<JoinServerWizard bind:open={joinServerWizardOpen.value} />
-			<AppCloseLobbyWizard bind:open={appCloseLobbyWizardOpen.value} />
-			<InstanceSelectModal
-				bind:open={showInstanceSelect}
-				onselect={handleInstanceSelected}
-				oncancel={() => {}}
-			/>
-			<ReplaceModDialog
-				bind:open={replaceDialogStore.value.open}
-				modName={replaceDialogStore.value.modName}
-				onconfirm={() => resolveReplaceMod(true)}
-				oncancel={() => resolveReplaceMod(false)}
-			/>
-			<UnverifiedModDialog
-				bind:open={unverifiedDialogStore.value.open}
-				modName={unverifiedDialogStore.value.modName}
-				onconfirm={() => resolveUnverifiedMod(true)}
-				oncancel={() => resolveUnverifiedMod(false)}
-			/>
-			<UpdateDialog />
-		</div>
-		<ToastStack />
+		{#key localeState.current}
+			<div class="flex h-screen w-full overflow-hidden">
+				<Sidebar />
+				<main class="flex-1 min-w-0 relative overflow-hidden">
+					{#key page.url.pathname}
+						<div class="page-transition">
+							{@render children?.()}
+						</div>
+					{/key}
+					<InstallModOverlay visible={isDraggingFiles} />
+				</main>
+				<InstanceWizard bind:open={instanceWizardOpen.value} />
+				<HostServerWizard bind:open={hostServerWizardOpen.value} />
+				<JoinServerWizard bind:open={joinServerWizardOpen.value} />
+				<AppCloseLobbyWizard bind:open={appCloseLobbyWizardOpen.value} />
+				<InstanceSelectModal
+					bind:open={showInstanceSelect}
+					onselect={handleInstanceSelected}
+					oncancel={() => {}}
+				/>
+				<ReplaceModDialog
+					bind:open={replaceDialogStore.value.open}
+					modName={replaceDialogStore.value.modName}
+					onconfirm={() => resolveReplaceMod(true)}
+					oncancel={() => resolveReplaceMod(false)}
+				/>
+				<UnverifiedModDialog
+					bind:open={unverifiedDialogStore.value.open}
+					modName={unverifiedDialogStore.value.modName}
+					onconfirm={() => resolveUnverifiedMod(true)}
+					oncancel={() => resolveUnverifiedMod(false)}
+				/>
+				<UpdateDialog />
+			</div>
+			<ToastStack />
+		{/key}
 	</Tooltip.Provider>
 </QueryClientProvider>
 
