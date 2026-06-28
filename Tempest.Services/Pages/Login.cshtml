@@ -1,0 +1,7 @@
+@page
+@model LoginModel
+@{
+    ViewData["Title"] = "Sign in";
+}
+
+<a href="/Login?handler=Github@(Model.ReturnUrl is { Length: > 0 } rl ? $"&returnUrl={rl}" : "")" role="button">Sign in with GitHub</a>

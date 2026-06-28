@@ -1,0 +1,58 @@
+@page
+@model IndexModel
+@using Tempest.Protocol.Common
+@using Tempest.Services.Features.ServerList
+@{
+    ViewData["Title"] = "Servers";
+}
+
+<header>
+    <h1>Servers</h1>
+    @if (User.Identity?.IsAuthenticated == true)
+    {
+        <a href="/Logout" role="button" class="secondary">Sign out</a>
+    }
+    else
+    {
+        <a href="/Login?handler=Github" role="button">Sign in with GitHub</a>
+    }
+</header>
+
+<table>
+    <thead>
+        <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Game</th>
+            <th scope="col">Version</th>
+            <th scope="col">Map</th>
+            <th scope="col">Players</th>
+            <th scope="col">Spectators</th>
+            <th scope="col">Country</th>
+            <th scope="col">Tags</th>
+        </tr>
+    </thead>
+    <tbody>
+    @if (Model.Servers.Count == 0)
+    {
+        <tr>
+            <td colspan="8">No servers online.</td>
+        </tr>
+    }
+    else
+    {
+        foreach (var server in Model.Servers)
+        {
+            <tr>
+                <td>@server.Name@(server.HasPassword ? " 🔒" : "")</td>
+                <td>@server.Game</td>
+                <td>@server.Version</td>
+                <td>@(server.Map ?? "—")</td>
+                <td>@server.Players / @server.MaxPlayers@if (server.Bots > 0) { <text> (+@server.Bots bots)</text> }</td>
+                <td>@server.Spectators / @server.MaxSpectators</td>
+                <td>@(server.Country == CountryCode.Unspecified ? "—" : server.Country.ToString())</td>
+                <td>@string.Join(", ", server.Tags)</td>
+            </tr>
+        }
+    }
+    </tbody>
+</table>
