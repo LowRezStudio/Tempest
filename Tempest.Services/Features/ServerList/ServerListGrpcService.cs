@@ -109,6 +109,11 @@ public class ServerListGrpcService(
     {
         foreach (var row in repository.GetAll())
         {
+            if (!row.Joinable)
+            {
+                // ponytail: skip non-joinable servers to exclude them from the server browser
+                continue;
+            }
             await responseStream.WriteAsync(row.ToProto());
         }
     }

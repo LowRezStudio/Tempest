@@ -1,4 +1,6 @@
 using Grpc.Net.Client;
+using Grpc.Net.Client.Web;
+using System.Net.Http;
 using Tempest.Protocol.ServerList;
 
 namespace Tempest.CLI.Server;
@@ -10,7 +12,11 @@ internal sealed class ServerListClient : IDisposable
 
     public ServerListClient(string serverUrl)
     {
-        _channel = GrpcChannel.ForAddress(serverUrl);
+        var handler = new GrpcWebHandler(GrpcWebMode.GrpcWeb, new HttpClientHandler());
+        _channel = GrpcChannel.ForAddress(serverUrl, new GrpcChannelOptions
+        {
+            HttpHandler = handler
+        });
         _client = new ServerList.ServerListClient(_channel);
     }
 

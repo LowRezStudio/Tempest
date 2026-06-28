@@ -29,6 +29,13 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
 
     public bool TryJoin(string id, string displayName, string? password, out JoinLobbyResponse response)
     {
+        if (_state.InGame != null && !options.JoinInProgress && !options.EnableJoinInProgress)
+        {
+            // ponytail: block joining mid-game if join-in-progress is not enabled
+            logger.LogWarning("Player {DisplayName} failed to join: game is in progress and join-in-progress is disabled", displayName);
+            response = Error(JoinLobbyErrorCode.LobbyInvalid, "Game is already in progress");
+            return false;
+        }
         if (!string.IsNullOrEmpty(options.Password) && options.Password != password)
         {
             logger.LogWarning("Player {DisplayName} failed to join: invalid password", displayName);
