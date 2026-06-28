@@ -70,6 +70,7 @@ var authenticationBuilder = builder.Services
         options.LoginPath = "/Login";
         options.LogoutPath = "/Logout";
         options.AccessDeniedPath = "/Login";
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // ponytail: force HTTPS for session cookies
     });
 
 if (githubConfigured)
@@ -79,7 +80,7 @@ if (githubConfigured)
         options.ClientId = githubClientId!;
         options.ClientSecret = githubClientSecret!;
         options.Scope.Add("read:user");
-        options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always; // ponytail: force HTTPS for OAuth correlation cookie
     });
 }
 
