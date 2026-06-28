@@ -34,6 +34,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__Default: "Data Source=/app/data/tempest.db"
+      Authentication__GitHub__ClientId: "${TEMPEST_GITHUB_CLIENT_ID:-}"
+      Authentication__GitHub__ClientSecret: "${TEMPEST_GITHUB_CLIENT_SECRET:-}"
+    volumes:
+      - tempest-db:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8080/"]
@@ -53,6 +58,8 @@ services:
 volumes:
   letsencrypt:
     name: tempest-letsencrypt
+  tempest-db:
+    name: tempest-db
 
 networks:
   traefik:
