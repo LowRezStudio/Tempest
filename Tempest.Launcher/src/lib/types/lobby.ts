@@ -45,6 +45,7 @@ export type LobbyServerOptions = {
 	dll?: string[];
 	"enable-join-in-progress": boolean;
 	upnp: boolean;
+	discover?: boolean;
 };
 export enum JoinLobbyClientErrorCode {
 	PASSWORD_REQUIRED = 100,

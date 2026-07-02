@@ -189,17 +189,17 @@
 
 	<!-- Content Layer -->
 	<div class="relative z-20 flex h-full flex-col {sidebarPadding ? 'mx-48 md:mx-64 lg:mx-80' : ''}" style="container-type: inline-size;">
-		<!-- Header -->
-		<div class="p-8 text-center">
-			{#if countdownSeconds > 0}
+		<!-- Counter -->
+		{#if countdownSeconds > 0}
+			<div class="pt-4 flex justify-center">
 				<h2
-					class="mt-4 text-6xl font-bold text-white"
+					class="text-6xl font-bold text-white"
 					style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
 				>
 					{countdownSeconds}
 				</h2>
-			{/if}
-		</div>
+			</div>
+		{/if}
 
 		<!-- Floating Champion Portraits -->
 		{#if !confirmedChampionName}

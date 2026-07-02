@@ -22,6 +22,7 @@ internal sealed class LobbyServerOptions
     public string[]? Dll { get; init; } = null;
     public bool EnableJoinInProgress { get; init; } = false;
     public bool Upnp { get; init; }
+    public bool Discover { get; init; }
     public string? ApiKey { get; init; }
     public Tempest.Protocol.Common.CountryCode Country { get; init; } = Tempest.Protocol.Common.CountryCode.Unspecified;
     public IEnumerable<Tempest.Protocol.Common.AuthMethod> AuthMethods { get; init; } = [Tempest.Protocol.Common.AuthMethod.Plain];

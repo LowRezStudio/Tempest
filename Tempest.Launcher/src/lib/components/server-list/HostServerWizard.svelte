@@ -32,6 +32,7 @@
 	let selectedMaxSpectators = $state<number>(5);
 	let selectedPort = $state<number>(50051);
 	let selectedGameServerPort = $state<number>(7000);
+	let selectedUpnp = $state(false);
 	const hostLobbyMutation = createLaunchLobbyMutation();
 	const hasLaunched = $derived(hostLobbyMutation.isSuccess);
 	const valid = $derived(selectedName.trim().length > 0 && selectedInstanceId);
@@ -59,7 +60,7 @@
 			dll: options.dllList,
 			//currently hard coded to false because the server preloads the champions
 			"enable-join-in-progress": false,
-			upnp: true,
+			upnp: selectedUpnp,
 		});
 		open = false;
 	}
@@ -82,6 +83,7 @@
 			selectedMaxSpectators = 5;
 			selectedPort = 50051;
 			selectedGameServerPort = 7000;
+			selectedUpnp = false;
 		}
 	});
 </script>
@@ -270,7 +272,20 @@
 					bind:value={selectedGameServerPort}
 				/>
 			</div>
+		<div class="form-control">
+			<label class="label cursor-pointer justify-start gap-3 py-0.5">
+				<input
+					type="checkbox"
+					class="toggle toggle-accent"
+					bind:checked={selectedUpnp}
+				/>
+				<span class="label-text text-sm">{m.hostserver_upnp()}</span>
+			</label>
+			<p class="text-xs opacity-60 mt-1">
+				{m.hostserver_upnp_hint()} — <span class="font-mono">{selectedPort}</span>, <span class="font-mono">{selectedGameServerPort}</span>
+			</p>
 		</div>
+	</div>
 	</div>
 
 	{#snippet actions()}

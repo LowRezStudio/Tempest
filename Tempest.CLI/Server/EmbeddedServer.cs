@@ -57,6 +57,10 @@ internal sealed class EmbeddedServer
         builder.Services.AddSingleton<LobbyServiceImpl>();
         builder.Services.AddSingleton(_options);
         builder.Services.AddGrpc();
+        if (_options.Discover)
+        {
+            builder.Services.AddHostedService<LanDiscoveryResponder>();
+        }
         if (_options.PublicServer && !string.IsNullOrEmpty(_options.ServicesUrl))
         {
             builder.Services.AddHostedService<ServerListHeartbeat>();
@@ -71,6 +75,15 @@ internal sealed class EmbeddedServer
 
         await _app.StartAsync();
         _logger.LogInformation("Embedded server started on port {Port}", _options.Port);
+
+        try
+        {
+            await FirewallHelper.OpenPortsAsync(_options.Port, _options.GameServerPort, _logger);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open firewall ports");
+        }
 
         if (_options.Upnp)
         {
@@ -97,6 +110,15 @@ internal sealed class EmbeddedServer
     {
         _logger.LogInformation("Embedded server stopping");
         _state.KillGameServer();
+
+        try
+        {
+            await FirewallHelper.ClosePortsAsync(_options.Port, _options.GameServerPort, _logger);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to close firewall ports");
+        }
 
         foreach (var mapper in _upnp)
         {

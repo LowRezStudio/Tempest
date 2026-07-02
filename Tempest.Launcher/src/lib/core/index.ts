@@ -5,6 +5,7 @@ export type { BuildInfo } from "./build";
 export { launchGame, killGame } from "./launch";
 export { listMods, installMod, removeMod } from "./mods";
 export type { ModRecord, ModInstallResult, ModListResult, ModAuthor } from "./mods";
+export { createDiscoverCommand } from "./server";
 export {
 	getFieldsTokenPath,
 	getFunctionsTokenPath,

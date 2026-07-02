@@ -12,20 +12,42 @@
 	import { moveToLobby } from "$lib/core/lobby.svelte";
 	import maps from "$lib/data/maps.json";
 	import { m } from "$lib/paraglide/messages";
-	import { createServersQuery } from "$lib/queries/servers";
+	import { createServersQuery, createLanServersQuery } from "$lib/queries/servers";
 	import { CountryCode, ServerListing } from "$lib/rpc";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { hostServerWizardOpen, joinServerWizardOpen } from "$lib/stores/ui.svelte";
 	import { getMapsForVersion } from "$lib/utils/versions";
+	import { untrack } from "svelte";
 
 	let searchQuery = $state("");
 
-	const serversQuery = createServersQuery();
+	let activeTab = $state<"internet" | "lan">("internet");
+	const tabs = [
+		{ name: m.serverlist_tab_internet(), value: "internet" as const },
+		{ name: m.serverlist_tab_lan(), value: "lan" as const },
+	];
 
-	let servers = $derived(serversQuery.data ?? []);
-	let error = $derived(serversQuery.isError ?? false);
-	let isLoading = $derived(serversQuery.isLoading ?? false);
-	let isFetching = $derived(serversQuery.isFetching ?? false);
+	const serversQuery = createServersQuery();
+	const lanQuery = createLanServersQuery();
+
+	$effect(() => {
+		if (activeTab === "lan") {
+			untrack(() => lanQuery.refetch());
+		}
+	});
+
+	let servers = $derived(
+		activeTab === "internet" ? (serversQuery.data ?? []) : (lanQuery.data ?? []),
+	);
+	let error = $derived(
+		activeTab === "internet" ? (serversQuery.isError ?? false) : (lanQuery.isError ?? false),
+	);
+	let isLoading = $derived(
+		activeTab === "internet" ? (serversQuery.isLoading ?? false) : (lanQuery.isLoading ?? false),
+	);
+	let isFetching = $derived(
+		activeTab === "internet" ? (serversQuery.isFetching ?? false) : (lanQuery.isFetching ?? false),
+	);
 
 	const filteredServers = $derived(
 		servers
@@ -77,6 +99,9 @@
 	}
 
 	function formatQueryError(error: unknown) {
+		if (typeof error === "string" && error) {
+			return error;
+		}
 		if (error instanceof Error && error.message) {
 			return error.message;
 		}
@@ -85,7 +110,11 @@
 
 	function refreshServers() {
 		searchQuery = "";
-		serversQuery.refetch();
+		if (activeTab === "internet") {
+			serversQuery.refetch();
+		} else {
+			lanQuery.refetch();
+		}
 	}
 </script>
 
@@ -94,7 +123,12 @@
 </svelte:head>
 
 <div class="flex flex-col h-full bg-base-100">
-	<Header title={m.serverlist_title()}>
+	<Header
+		title={m.serverlist_title()}
+		{tabs}
+		{activeTab}
+		onSelectTab={(tab) => (activeTab = tab)}
+	>
 		{#snippet icon()}
 			<Server size={32} class="opacity-60" />
 		{/snippet}
@@ -158,7 +192,7 @@
 				{:else if error}
 					<div role="alert" class="alert alert-error">
 						<ServerCrash />
-						<span>{formatQueryError(serversQuery.error)}</span>
+						<span>{formatQueryError(activeTab === "internet" ? serversQuery.error : lanQuery.error)}</span>
 					</div>
 				{:else if servers.length === 0}
 					<div class="flex flex-col items-center justify-center h-64 gap-4">
@@ -192,7 +226,9 @@
 									<th>{m.serverlist_version()}</th>
 									<th>{m.serverlist_password()}</th>
 									<th>{m.serverlist_tags()}</th>
-									<th>{m.serverlist_country()}</th>
+									{#if activeTab === "internet"}
+										<th>{m.serverlist_country()}</th>
+									{/if}
 								</tr>
 							</thead>
 							<tbody>
@@ -275,7 +311,9 @@
 											</span>
 										</td>
 										<td>{server.tags.join(", ")}</td>
-										<td>{formatCountryLabel(CountryCode[server.country])}</td>
+										{#if activeTab === "internet"}
+											<td>{CountryCode[server.country] ? formatCountryLabel(CountryCode[server.country]) : ""}</td>
+										{/if}
 									</tr>
 								{/each}
 							</tbody>

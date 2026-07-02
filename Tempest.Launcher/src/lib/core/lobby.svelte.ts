@@ -10,7 +10,7 @@ export const hostLobby = async (options: LobbyServerOptions) => {
 	const command = createCommand([
 		"server",
 		"open",
-		...Object.entries(options)
+		...Object.entries({ ...options, discover: true })
 			.filter(([, value]) => {
 				if (Array.isArray(value) && value.length === 0) return false;
 				return !!value;
