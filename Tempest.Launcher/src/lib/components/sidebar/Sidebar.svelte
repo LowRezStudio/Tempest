@@ -10,13 +10,14 @@
 		Server,
 		Settings,
 		SquareTerminal,
+		Terminal,
 	} from "@lucide/svelte";
 	import { page } from "$app/state";
 	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { instanceMap, instanceOrder, setInstanceOrder } from "$lib/stores/instance.svelte";
 	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
-	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
+	import { commandsPageOpen, instanceWizardOpen } from "$lib/stores/ui.svelte";
 	import { getInstanceColor } from "$lib/utils/color";
 	import { createReorderable } from "$lib/utils/reorder.svelte";
 	import LanguageSelector from "./LanguageSelector.svelte";
@@ -95,6 +96,14 @@
 		</button>
 	</div>
 	<div class="flex flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none">
+		{#if commandsPageOpen.value}
+			<SidebarItem
+				icon={Terminal}
+				label={m.commands_page_title()}
+				active={page.url.pathname === "/news"}
+				href="/news"
+			/>
+		{/if}
 		{#each lobbyServerProcessesList.value as lobbyServer}
 			<SidebarItem
 				icon={SquareTerminal}
