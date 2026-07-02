@@ -2,8 +2,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using Google.Protobuf;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Tempest.Protocol.ServerList;
 
 namespace Tempest.CLI.Server;

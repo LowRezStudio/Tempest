@@ -1,6 +1,5 @@
 using Grpc.Net.Client;
 using Grpc.Net.Client.Web;
-using System.Net.Http;
 using Tempest.Protocol.ServerList;
 
 namespace Tempest.CLI.Server;

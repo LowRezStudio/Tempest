@@ -1,5 +1,4 @@
 using Google.Protobuf.WellKnownTypes;
-using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Tempest.CLI.Launcher;

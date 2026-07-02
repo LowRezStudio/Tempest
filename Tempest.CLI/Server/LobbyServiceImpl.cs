@@ -1,5 +1,4 @@
 using Grpc.Core;
-using Microsoft.Extensions.Logging;
 using System.Threading.Channels;
 using Tempest.Protocol.Common;
 using Tempest.Protocol.Lobby;

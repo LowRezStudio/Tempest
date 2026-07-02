@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.Extensions.Logging;
 using ZLogger;
 
 namespace Tempest.CLI.Server;

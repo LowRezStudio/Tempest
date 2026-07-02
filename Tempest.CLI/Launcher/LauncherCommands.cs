@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using ConsoleAppFramework;
 using Tempest.CLI.Extensions;
 using Tempest.CLI.Mods;
 

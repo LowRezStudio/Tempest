@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
 using Grpc.Core;
-using Microsoft.Extensions.Logging;
 using Tempest.Protocol.Lobby;
 using Tempest.Protocol.ServerList;
 
