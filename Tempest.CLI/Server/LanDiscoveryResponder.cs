@@ -25,44 +25,85 @@ internal sealed class LanDiscoveryResponder : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         UdpClient? udpClient = null;
+        UdpClient? hijackClient = null;
         try
         {
             udpClient = new UdpClient();
             udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, DiscoveryPort));
             _logger.LogInformation("LAN Discovery Responder listening on UDP port {Port}", DiscoveryPort);
+
+            hijackClient = new UdpClient();
+            hijackClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            hijackClient.Client.Bind(new IPEndPoint(IPAddress.Any, _options.GameServerPort));
+            _logger.LogInformation("LAN Discovery Responder hijacked game server UDP port {Port}", _options.GameServerPort);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start LAN Discovery Responder on UDP port {Port}", DiscoveryPort);
+            _logger.LogError(ex, "Failed to start LAN Discovery Responder");
             udpClient?.Dispose();
+            hijackClient?.Dispose();
             return;
         }
 
         using (udpClient)
+        using (hijackClient)
         {
-            while (!stoppingToken.IsCancellationRequested)
+            var udpTask = ReceiveLoop(udpClient, stoppingToken);
+            var hijackTask = ReceiveLoop(hijackClient, stoppingToken);
+
+            _ = Task.Run(async () =>
             {
-                try
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    var result = await udpClient.ReceiveAsync(stoppingToken);
-                    var requestText = Encoding.UTF8.GetString(result.Buffer);
-                    if (requestText == "TEMPEST_DISCOVER")
+                    if (_state.GetInfoEvent().Info.State.InGame != null)
                     {
-                        var responseBytes = CreateResponseBytes();
-                        await udpClient.SendAsync(responseBytes, responseBytes.Length, result.RemoteEndPoint);
+                        if (hijackClient.Client != null)
+                        {
+                            _logger.LogInformation("Game server starting, releasing hijacked port {Port}", _options.GameServerPort);
+                            hijackClient.Dispose();
+                        }
+                        break;
                     }
+                    await Task.Delay(1000, stoppingToken);
                 }
-                catch (OperationCanceledException)
+            }, stoppingToken);
+
+            await Task.WhenAll(udpTask, hijackTask);
+        }
+    }
+
+    private async Task ReceiveLoop(UdpClient client, CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                var result = await client.ReceiveAsync(stoppingToken);
+                var requestText = Encoding.UTF8.GetString(result.Buffer);
+                if (requestText == "TEMPEST_DISCOVER")
                 {
-                    break;
+                    var responseBytes = CreateResponseBytes();
+                    await client.SendAsync(responseBytes, responseBytes.Length, result.RemoteEndPoint);
                 }
-                catch (Exception ex)
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+            catch (SocketException)
+            {
+                break;
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                if (!stoppingToken.IsCancellationRequested)
                 {
-                    if (!stoppingToken.IsCancellationRequested)
-                    {
-                        _logger.LogError(ex, "Error in LAN Discovery Responder loop");
-                    }
+                    _logger.LogError(ex, "Error in LAN Discovery Responder loop");
                 }
             }
         }
