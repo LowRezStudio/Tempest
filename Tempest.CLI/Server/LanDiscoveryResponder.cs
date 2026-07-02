@@ -6,19 +6,13 @@ using Tempest.Protocol.ServerList;
 
 namespace Tempest.CLI.Server;
 
-internal sealed class LanDiscoveryResponder : BackgroundService
+internal sealed class LanDiscoveryResponder(
+    LobbyServerOptions options,
+    LobbyState state,
+    ILogger<LanDiscoveryResponder> logger)
+    : BackgroundService
 {
-    private readonly LobbyServerOptions _options;
-    private readonly LobbyState _state;
-    private readonly ILogger<LanDiscoveryResponder> _logger;
     private const int DiscoveryPort = 50054;
-
-    public LanDiscoveryResponder(LobbyServerOptions options, LobbyState state, ILogger<LanDiscoveryResponder> logger)
-    {
-        _options = options;
-        _state = state;
-        _logger = logger;
-    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -29,16 +23,16 @@ internal sealed class LanDiscoveryResponder : BackgroundService
             udpClient = new UdpClient();
             udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, DiscoveryPort));
-            _logger.LogInformation("LAN Discovery Responder listening on UDP port {Port}", DiscoveryPort);
+            logger.LogInformation("LAN Discovery Responder listening on UDP port {Port}", DiscoveryPort);
 
             hijackClient = new UdpClient();
             hijackClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            hijackClient.Client.Bind(new IPEndPoint(IPAddress.Any, _options.GameServerPort));
-            _logger.LogInformation("LAN Discovery Responder hijacked game server UDP port {Port}", _options.GameServerPort);
+            hijackClient.Client.Bind(new IPEndPoint(IPAddress.Any, options.GameServerPort));
+            logger.LogInformation("LAN Discovery Responder hijacked game server UDP port {Port}", options.GameServerPort);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start LAN Discovery Responder");
+            logger.LogError(ex, "Failed to start LAN Discovery Responder");
             udpClient?.Dispose();
             hijackClient?.Dispose();
             return;
@@ -54,11 +48,11 @@ internal sealed class LanDiscoveryResponder : BackgroundService
             {
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    if (_state.GetInfoEvent().Info.State.InGame != null)
+                    if (state.GetInfoEvent().Info.State.InGame != null)
                     {
-                        if (hijackClient.Client != null)
+                        if (hijackClient != null)
                         {
-                            _logger.LogInformation("Game server starting, releasing hijacked port {Port}", _options.GameServerPort);
+                            logger.LogInformation("Game server starting, releasing hijacked port {Port}", options.GameServerPort);
                             hijackClient.Dispose();
                         }
                         break;
@@ -79,11 +73,11 @@ internal sealed class LanDiscoveryResponder : BackgroundService
             {
                 var result = await client.ReceiveAsync(stoppingToken);
                 var requestText = Encoding.UTF8.GetString(result.Buffer);
-                if (requestText == "TEMPEST_DISCOVER")
-                {
-                    var responseBytes = CreateResponseBytes();
-                    await client.SendAsync(responseBytes, responseBytes.Length, result.RemoteEndPoint);
-                }
+                
+                if (requestText != "TEMPEST_DISCOVER") continue;
+                
+                var responseBytes = CreateResponseBytes();
+                await client.SendAsync(responseBytes, responseBytes.Length, result.RemoteEndPoint);
             }
             catch (ObjectDisposedException)
             {
@@ -101,7 +95,7 @@ internal sealed class LanDiscoveryResponder : BackgroundService
             {
                 if (!stoppingToken.IsCancellationRequested)
                 {
-                    _logger.LogError(ex, "Error in LAN Discovery Responder loop");
+                    logger.LogError(ex, "Error in LAN Discovery Responder loop");
                 }
             }
         }
@@ -110,7 +104,7 @@ internal sealed class LanDiscoveryResponder : BackgroundService
     private byte[] CreateResponseBytes()
     {
         var localIp = GetLocalIpAddress();
-        var info = _state.GetInfoEvent().Info;
+        var info = state.GetInfoEvent().Info;
         
         string? mapId = null;
         if (info.State.ChampionSelect != null)
@@ -118,34 +112,34 @@ internal sealed class LanDiscoveryResponder : BackgroundService
         if (info.State.InGame != null)
             mapId = info.State.InGame.MapId;
 
-        bool joinable = true;
-        if (info.State.InGame != null && !_options.JoinInProgress && !_options.EnableJoinInProgress)
+        var joinable = true;
+        if (info.State.InGame != null && !options.JoinInProgress && !options.EnableJoinInProgress)
         {
             joinable = false;
         }
 
         var listing = new ServerListing
         {
-            Id = $"lan_{_options.Port}_{localIp}",
+            Id = $"lan_{options.Port}_{localIp}",
             Ip = localIp,
-            LobbyPort = (uint)_options.Port,
-            Name = _options.Name,
-            Game = _options.GameMode ?? "",
-            Version = _options.Version ?? "",
+            LobbyPort = (uint)options.Port,
+            Name = options.Name,
+            Game = options.GameMode ?? "",
+            Version = options.Version ?? "",
             Players = (uint)info.Players.Count,
-            MaxPlayers = (uint)_options.MaxPlayers,
+            MaxPlayers = (uint)options.MaxPlayers,
             Bots = 0,
             MaxSpectators = 0,
             Spectators = 0,
-            JoinInProgress = _options.JoinInProgress,
+            JoinInProgress = options.JoinInProgress,
             Joinable = joinable,
-            HasPassword = !string.IsNullOrEmpty(_options.Password),
-            Country = _options.Country,
+            HasPassword = !string.IsNullOrEmpty(options.Password),
+            Country = options.Country,
         };
 
-        if (!string.IsNullOrEmpty(_options.Map))
+        if (!string.IsNullOrEmpty(options.Map))
         {
-            listing.Map = _options.Map;
+            listing.Map = options.Map;
         }
         else if (!string.IsNullOrEmpty(mapId))
         {
@@ -157,7 +151,7 @@ internal sealed class LanDiscoveryResponder : BackgroundService
             listing.MapId = mapId;
         }
 
-        foreach (var tag in _options.Tags)
+        foreach (var tag in options.Tags)
         {
             listing.Tags.Add(tag);
         }

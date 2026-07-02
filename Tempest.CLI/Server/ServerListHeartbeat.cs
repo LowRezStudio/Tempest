@@ -127,7 +127,7 @@ internal sealed class ServerListHeartbeat : BackgroundService
                 mapId = info.State.InGame.MapId;
             }
 
-            bool joinable = true;
+            var joinable = true;
             if (info.State.InGame != null && !parent._options.JoinInProgress && !parent._options.EnableJoinInProgress)
             {
                 // ponytail: hide server from list once started if join-in-progress is disabled

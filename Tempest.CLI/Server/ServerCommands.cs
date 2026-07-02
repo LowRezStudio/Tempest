@@ -246,7 +246,7 @@ internal class ServerCommands
                         if (mask != null && ip.Length == mask.Length)
                         {
                             var broadcastBytes = new byte[ip.Length];
-                            for (int i = 0; i < ip.Length; i++)
+                            for (var i = 0; i < ip.Length; i++)
                             {
                                 broadcastBytes[i] = (byte)(ip[i] | ~mask[i]);
                             }

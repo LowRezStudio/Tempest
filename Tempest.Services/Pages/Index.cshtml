@@ -107,7 +107,7 @@
                         if (server.Country != CountryCode.Unspecified && countryStr.Length == 2)
                         {
                             var code = countryStr.ToUpperInvariant();
-                            <span title="@code">@GetFlagEmoji(code) @code</span>
+                            <span title="@(code)">@GetFlagEmoji(code) @(code)</span>
                         }
                         else
                         {

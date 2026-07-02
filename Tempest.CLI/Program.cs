@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using ConsoleAppFramework;
 using Tempest.CLI.Launcher;
 using Tempest.CLI.Marshal;
 using Tempest.CLI.Server;

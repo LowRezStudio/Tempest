@@ -7,20 +7,11 @@ namespace Tempest.CLI.Server;
 
 // ponytail: minimal UPnP IGD port mapper; no external dependency, AOT-safe (raw SOAP + XmlReader).
 // Covers WANIPConnection/WANPPPConnection. Add NAT-PMP/PCP only if routers in the wild need it.
-internal sealed class UpnpPortMapper : IAsyncDisposable
+internal sealed class UpnpPortMapper(int port, string description) : IAsyncDisposable
 {
-    private readonly int _port;
-    private readonly string _description;
-    private readonly HttpClient _http;
+    private readonly HttpClient _http = new();
     private string? _controlUrl;
     private string? _serviceType;
-
-    public UpnpPortMapper(int port, string description)
-    {
-        _port = port;
-        _description = description;
-        _http = new HttpClient();
-    }
 
     public async Task MapAsync(CancellationToken cancellationToken = default)
     {
@@ -38,12 +29,12 @@ internal sealed class UpnpPortMapper : IAsyncDisposable
         var localIp = GetLocalIpForGateway(new Uri(controlUrl).Host);
         var body = BuildSoap("AddPortMapping", serviceType,
             $"<NewRemoteHost></NewRemoteHost>" +
-            $"<NewExternalPort>{_port}</NewExternalPort>" +
+            $"<NewExternalPort>{port}</NewExternalPort>" +
             $"<NewProtocol>TCP</NewProtocol>" +
-            $"<NewInternalPort>{_port}</NewInternalPort>" +
+            $"<NewInternalPort>{port}</NewInternalPort>" +
             $"<NewInternalClient>{localIp}</NewInternalClient>" +
             $"<NewEnabled>1</NewEnabled>" +
-            $"<NewPortMappingDescription>{XmlEncode(_description)}</NewPortMappingDescription>" +
+            $"<NewPortMappingDescription>{XmlEncode(description)}</NewPortMappingDescription>" +
             $"<NewLeaseDuration>0</NewLeaseDuration>");
 
         await SendSoapAsync(controlUrl, serviceType, "AddPortMapping", body, cancellationToken).ConfigureAwait(false);
@@ -56,7 +47,7 @@ internal sealed class UpnpPortMapper : IAsyncDisposable
 
         var body = BuildSoap("DeletePortMapping", _serviceType,
             "<NewRemoteHost></NewRemoteHost>" +
-            $"<NewExternalPort>{_port}</NewExternalPort>" +
+            $"<NewExternalPort>{port}</NewExternalPort>" +
             "<NewProtocol>TCP</NewProtocol>");
 
         await SendSoapAsync(_controlUrl, _serviceType, "DeletePortMapping", body, cancellationToken).ConfigureAwait(false);
@@ -133,7 +124,7 @@ internal sealed class UpnpPortMapper : IAsyncDisposable
         string? serviceType = null;
         string? currentServiceType = null;
         string? currentControlUrl = null;
-        bool inService = false;
+        var inService = false;
 
         while (await reader.ReadAsync().ConfigureAwait(false))
         {

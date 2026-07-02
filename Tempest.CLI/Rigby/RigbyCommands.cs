@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ConsoleAppFramework;
 using Tempest.CLI.Rigby.Events;
 using Tempest.CLI.Rigby.Models;
 

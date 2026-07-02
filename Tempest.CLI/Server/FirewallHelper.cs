@@ -65,8 +65,8 @@ internal static class FirewallHelper
         {
             // Windows: Using netsh to avoid PowerShell AV false-positives.
             // Note: netsh cannot create truly volatile rules. These rely on ClosePortsAsync for cleanup.
-            string cmd = $"netsh advfirewall firewall add rule name=\"Tempest Lobby Port {lobbyPort}\" dir=in action=allow protocol=TCP localport={lobbyPort} && " +
-                         $"netsh advfirewall firewall add rule name=\"Tempest Game Port {gamePort}\" dir=in action=allow protocol=UDP localport={gamePort}";
+            var cmd = $"netsh advfirewall firewall add rule name=\"Tempest Lobby Port {lobbyPort}\" dir=in action=allow protocol=TCP localport={lobbyPort} && " +
+                      $"netsh advfirewall firewall add rule name=\"Tempest Game Port {gamePort}\" dir=in action=allow protocol=UDP localport={gamePort}";
 
             if (await RunCommandAsync("cmd.exe", ["/c", cmd], logger))
                 logger.LogInformation("Successfully opened firewall ports on Windows.");
@@ -76,7 +76,7 @@ internal static class FirewallHelper
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             // Linux: skip if ports already open, use runtime-only configs (no --permanent flags)
-            string checkAndOpen = $@"
+            var checkAndOpen = $@"
                 if command -v firewall-cmd >/dev/null 2>&1; then
                     if firewall-cmd --query-port={lobbyPort}/tcp >/dev/null 2>&1 && firewall-cmd --query-port={gamePort}/udp >/dev/null 2>&1; then
                         exit 0
@@ -102,8 +102,8 @@ internal static class FirewallHelper
 
         logger.LogInformation("Attempting to close firewall ports: Lobby={LobbyPort} (TCP), Game={GamePort} (UDP)", lobbyPort, gamePort);
 
-        string cmd = $"netsh advfirewall firewall delete rule name=\"Tempest Lobby Port {lobbyPort}\" & " +
-                     $"netsh advfirewall firewall delete rule name=\"Tempest Game Port {gamePort}\"";
+        var cmd = $"netsh advfirewall firewall delete rule name=\"Tempest Lobby Port {lobbyPort}\" & " +
+                  $"netsh advfirewall firewall delete rule name=\"Tempest Game Port {gamePort}\"";
 
         await RunCommandAsync("cmd.exe", ["/c", cmd], logger);
     }

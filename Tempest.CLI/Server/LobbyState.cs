@@ -48,7 +48,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             return false;
         }
         //simple balancing that puts the new player into the team that has less players
-        int team = _players.Values.Count(p => p.TaskForce == 1) > _players.Count / 2.0 ? 2 : 1;
+        var team = _players.Values.Count(p => p.TaskForce == 1) > _players.Count / 2.0 ? 2 : 1;
         var player = new LobbyPlayer
         {
             Id = id,
@@ -171,27 +171,27 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         {
             if (_state.Waiting != null)
             {
-                bool enoughPlayers = _players.Count >= options.MinPlayers;
+                var enoughPlayers = _players.Count >= options.MinPlayers;
                 if (enoughPlayers && _countdown == null) StartCountdown(10, EndWaiting);
                 else if (!enoughPlayers) CancelCountdown();
             }
             else if (_state.MapVote != null)
             {
-                bool everyoneHasVoted = _state.MapVote.Votes.Count >= _players.Count && _state.MapVote.Votes.Count > 0;
-                bool oneHasVoted = _state.MapVote.Votes.Count > 0;
+                var everyoneHasVoted = _state.MapVote.Votes.Count >= _players.Count && _state.MapVote.Votes.Count > 0;
+                var oneHasVoted = _state.MapVote.Votes.Count > 0;
                 if (everyoneHasVoted) StartCountdown(5, EndMapVote);
                 else if (_countdown == null && oneHasVoted) StartCountdown(15, EndMapVote);
             }
             else if (_state.ChampionSelect != null)
             {
-                bool allHaveSelected = _players.Values.All(p => p.Champion != null && p.Champion.Length > 0);
-                bool oneHasSelected = _players.Values.Any(p => p.Champion != null && p.Champion.Length > 0);
+                var allHaveSelected = _players.Values.All(p => p.Champion != null && p.Champion.Length > 0);
+                var oneHasSelected = _players.Values.Any(p => p.Champion != null && p.Champion.Length > 0);
                 if (allHaveSelected) StartCountdown(5, EndChampionSelect);
                 else if (_countdown == null && oneHasSelected) StartCountdown(60, EndChampionSelect);
             }
             else if (_state.InGame != null)
             {
-                bool everyoneHasLeft = _players.Values.All(p => p.Champion == null || p.Champion.Length == 0);
+                var everyoneHasLeft = _players.Values.All(p => p.Champion == null || p.Champion.Length == 0);
                 if (everyoneHasLeft && !_state.InGame.GameServerFinishedRunning)
                     KillGameServer();
                 if (_state.InGame.GameServerFinishedRunning && _countdown == null)
@@ -209,9 +209,9 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     {
         //selecting the most voted map and breaking ties by choosing randomly
         var groups = _state.MapVote.Votes.GroupBy(t => t.Value).ToList();
-        int maxVotes = groups.Max(g => g.Count());
+        var maxVotes = groups.Max(g => g.Count());
         var topMaps = groups.Where(g => g.Count() == maxVotes).ToList();
-        string mapId = topMaps[Random.Shared.Next(topMaps.Count)].Key;
+        var mapId = topMaps[Random.Shared.Next(topMaps.Count)].Key;
         logger.LogInformation("Map vote ended, selected map {MapId} with {VoteCount} votes", mapId, maxVotes);
         SetState(new Protocol.Lobby.LobbyState { ChampionSelect = new LobbyStateChampionSelect { MapId = mapId } });
     }
@@ -271,8 +271,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
 
     private async Task RunGameServerAsync(string mapId)
     {
-        string champions = string.Join(",", _players.Where(p => p.Value.Champion.Length > 0).Select(p => p.Value.Champion.ToLower()));
-        string serverArgs = $"{mapId}?game={options.GameMode}?allowedChampions={champions},maldamba?maxplayers={options.MaxPlayers}";
+        var champions = string.Join(",", _players.Where(p => p.Value.Champion.Length > 0).Select(p => p.Value.Champion.ToLower()));
+        var serverArgs = $"{mapId}?game={options.GameMode}?allowedChampions={champions},maldamba?maxplayers={options.MaxPlayers}";
         if (options.Password != null && options.Password.Length > 0)
         {
             serverArgs += $"?password={options.Password}";
