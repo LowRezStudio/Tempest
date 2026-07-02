@@ -87,7 +87,7 @@
 			],
 		},
 		{
-			label: "TgPlayerController",
+			label: "Player Controller",
 			categories: [
 				{
 					name: "Native", key: "tpc_native", color: palette[10],
@@ -121,6 +121,15 @@
 					name: "Misc", key: "tpc_misc", color: palette[16],
 					commands:
 						"SelfAlert, ServerProfileScript, RequestScoreBoard, SuppressHelpText, ResetGameTips, AllocateDevicePoint, AllocateAbilitySkillPoint, ClientPlayVGS, ClientPlayPing, ClientSurrender, ClientNotifyTutorialUIEvent, TestHelpTip, GiveGoldToFriendlyPlayer",
+				},
+			],
+		},
+		{
+			label: "Engine",
+			categories: [
+				{
+					name: "Base", key: "cm_base", color: palette[17],
+					commands: "Fly, Ghost, Walk",
 				},
 			],
 		},
@@ -511,6 +520,9 @@ ClientSurrender(optional bool bSurrender = true)
 ClientNotifyTutorialUIEvent(int Evt, int evtData)
 TestHelpTip(int HelpTipId)
 GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerController.EGiveGoldResult
+Fly()
+Walk()
+Ghost()
 `.trim();
 
 	function buildSigMap(raw: string): Map<string, string> {
@@ -550,7 +562,8 @@ GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerContro
 
 	const groupLabels: Record<string, string> = {
 		"Cheat Manager": m.commands_group_cheat_manager(),
-		"TgPlayerController": m.commands_group_tg_controller(),
+		"Player Controller": m.commands_group_tg_controller(),
+		"Engine": m.commands_group_cm_base(),
 	};
 
 	const catLabels: Record<string, string> = {
@@ -571,6 +584,7 @@ GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerContro
 		tpc_keybinding: m.commands_cat_tpc_keybinding(),
 		tpc_debug: m.commands_cat_tpc_debug(),
 		tpc_misc: m.commands_cat_tpc_misc(),
+		cm_base: m.commands_cat_cm_base(),
 	};
 
 	let enabledKeys = $state(new Set(categoryKeys));
