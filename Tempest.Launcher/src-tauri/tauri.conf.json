@@ -4,7 +4,7 @@
 	"version": "1.0.0-20",
 	"identifier": "com.lowrezstudio.tempest",
 	"build": {
-		"beforeDevCommand": "pnpm dev",
+		"beforeDevCommand": "pnpm dev:cli && pnpm dev",
 		"devUrl": "http://localhost:1420",
 		"beforeBuildCommand": "pnpm build",
 		"frontendDist": "../build"

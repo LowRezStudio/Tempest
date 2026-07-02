@@ -5,6 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
+		"dev:cli": "dotnet build ../Tempest.slnx",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "cd .. && husky Tempest.Launcher/.husky",
