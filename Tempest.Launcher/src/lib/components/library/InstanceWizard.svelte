@@ -2,10 +2,12 @@
 	import { AlertCircle, BookOpen, CloudDownload, Code, Folder, Loader2 } from "@lucide/svelte";
 	import { Tabs } from "bits-ui";
 	import { path } from "@tauri-apps/api";
+	import { resolveResource } from "@tauri-apps/api/path";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { platform } from "@tauri-apps/plugin-os";
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { installMod } from "$lib/core/mods";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
 	import { createIdentifyBuildMutation } from "$lib/queries/core";
@@ -42,6 +44,7 @@
 	let selectedVersionId = $state("");
 	let selectedPath = $state("");
 	let showAdvanced = $state(false);
+	let enableConsole = $state(true);
 	let copyStatus = $state<"idle" | "copied" | "failed">("idle");
 
 	let detectionError = $state("");
@@ -190,6 +193,15 @@
 		addInstance(newInstance);
 		void runSetup(newInstance);
 
+		if (enableConsole) {
+			try {
+				const modFile = await resolveResource("TgMod.tempest");
+				await installMod(instancePath, modFile, true, true);
+			} catch (error) {
+				console.error("Failed to install Console mod:", error);
+			}
+		}
+
 		open = false;
 	}
 
@@ -200,6 +212,7 @@
 			selectedVersionId = "";
 			selectedPath = "";
 			showAdvanced = false;
+			enableConsole = true;
 			hasDetected = false;
 			detectionError = "";
 		}
@@ -431,6 +444,13 @@
 						</div>
 					</div>
 				{/if}
+
+				<div class="form-control">
+					<label class="label cursor-pointer justify-start gap-3 py-1">
+						<input type="checkbox" class="checkbox checkbox-accent checkbox-sm" bind:checked={enableConsole} />
+						<span class="label-text text-sm">Enable Console</span>
+					</label>
+				</div>
 			{/if}
 		</div>
 	</div>

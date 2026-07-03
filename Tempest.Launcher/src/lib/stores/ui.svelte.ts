@@ -5,7 +5,7 @@ export const hostServerWizardOpen = $state({ value: false });
 export const joinServerWizardOpen = $state({ value: false });
 export const appCloseLobbyWizardOpen = $state({ value: false });
 
-export const commandsPageOpen = persistedState("commandsPageOpen", false);
+export const commandsPageOpen = $state({ value: false });
 
 export type ToastTone = "info" | "success" | "warning" | "error" | "neutral";
 
