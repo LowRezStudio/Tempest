@@ -127,7 +127,7 @@
 						onclick={(e) => {
 							e.stopPropagation();
 							commandsPageOpen.value = true;
-							goto("/news");
+							goto("/commands");
 						}}
 					>
 						<Terminal size={12} />

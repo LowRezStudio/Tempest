@@ -100,8 +100,8 @@
 			<SidebarItem
 				icon={Terminal}
 				label={m.commands_page_title()}
-				active={page.url.pathname === "/news"}
-				href="/news"
+				active={page.url.pathname === "/commands"}
+				href="/commands"
 			/>
 		{/if}
 		{#each lobbyServerProcessesList.value as lobbyServer}
