@@ -31,7 +31,7 @@
 	} from "$lib/mods/ui.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { instanceMap } from "$lib/stores/instance.svelte";
-	import { theme } from "$lib/stores/settings.svelte";
+	import { customThemeCss, theme } from "$lib/stores/settings.svelte";
 	import {
 		addToast,
 		appCloseLobbyWizardOpen,
@@ -230,12 +230,46 @@
 		return () => unlistenDrop?.();
 	});
 
+	let customThemeStyle: HTMLStyleElement | undefined;
+
+	function transformCustomTheme(input: string): string {
+		if (!input.includes('@plugin "daisyui/theme"')) return input;
+		const lines = input.split("\n");
+		const vars: string[] = [];
+		for (const line of lines) {
+			const trimmed = line.trim();
+			if (trimmed.startsWith("--") || trimmed.startsWith("color-scheme:")) {
+				vars.push(trimmed.replaceAll('"', ""));
+			}
+		}
+		return vars.length ? `[data-theme="custom"] {\n${vars.join("\n")}\n}` : input;
+	}
+
 	$effect(() => {
 		const currentTheme = theme.value;
 		if (currentTheme === "system") {
 			document.documentElement.removeAttribute("data-theme");
 		} else {
 			document.documentElement.setAttribute("data-theme", currentTheme);
+		}
+
+		if (currentTheme === "custom") {
+			const raw = customThemeCss.value;
+			const css = raw ? transformCustomTheme(raw) : "";
+			if (css) {
+				if (!customThemeStyle) {
+					customThemeStyle = document.createElement("style");
+					customThemeStyle.id = "custom-theme";
+					document.head.append(customThemeStyle);
+				}
+				customThemeStyle.textContent = css;
+			}
+		} else {
+			const existing = document.querySelector("#custom-theme");
+			if (existing) {
+				existing.remove();
+				customThemeStyle = undefined;
+			}
 		}
 	});
 

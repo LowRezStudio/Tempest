@@ -5,8 +5,9 @@ import { persistedState } from "./persisted.svelte";
 
 export const username = persistedState<string>("username", "Player");
 export const servicesURL = persistedState<string>("servicesURL", "https://api.lowrezstudio.com");
-export type Theme = "system" | "mocha" | "latte" | "legacy";
+export type Theme = "system" | "mocha" | "latte" | "legacy" | "custom";
 export const theme = persistedState<Theme>("theme", "system");
+export const customThemeCss = persistedState<string | undefined>("customThemeCss", undefined);
 export const pinnedBackground = persistedState<string | undefined>("pinnedBackground", undefined);
 export const winePath = persistedState<string | undefined>("winePath", undefined);
 export const useGamescope = persistedState<boolean>("useGamescope", false);
