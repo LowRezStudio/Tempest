@@ -1,7 +1,7 @@
 {
 	"commands_disclaimer": "Los comandos disponibles varían entre parches. Esta lista se ha generado desde la 8.1. El autocompletado de la consola siempre será preciso para cada parche.",
 	"commands_subtitle_f2": "Comandos de consola F2",
-	"commands_page_title": "Comandos",
+	"commands_page_title": "Comandos de Paladins",
 	"commands_group_cheat_manager": "Cheat Manager",
 	"commands_group_tg_controller": "TgPlayerController",
 	"commands_group_cm_base": "Engine",
@@ -199,6 +199,7 @@
 	"settings_theme_custom_css": "CSS de tema personalizado",
 	"settings_theme_custom_placeholder": "Pegue aquí su bloque @plugin de tema daisyUI...",
 	"settings_theme_custom_hint": "Pegue un bloque @plugin \"daisyui/theme\". El nombre puede ser cualquiera; se aplicará al seleccionar esta opción.",
+	"settings_theme_custom_generator": "Genere un tema en daisyui.com/theme-generator",
 	"settings_select_directory": "Seleccionar directorio...",
 	"settings_saved_successfully": "Ajustes guardados correctamente",
 	"settings_danger_zone": "Zona de peligro",

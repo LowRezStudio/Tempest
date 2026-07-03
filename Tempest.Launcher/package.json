@@ -1,6 +1,6 @@
 {
 	"name": "tempest.launcher",
-	"version": "1.0.0-21",
+	"version": "1.0.0-22",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -14,7 +14,8 @@
 		"proto-generate": "node scripts/generate-proto.js",
 		"tauri": "tauri",
 		"fmt": "oxfmt --write .",
-		"lint": "oxlint --type-aware"
+		"lint": "oxlint --type-aware",
+		"bump": "node scripts/bump.mjs"
 	},
 	"devDependencies": {
 		"@catppuccin/daisyui": "^2.1.1",

@@ -110,6 +110,14 @@
 								<p class="text-xs text-base-content/60 mt-1">
 									{m.settings_theme_custom_hint()}
 								</p>
+								<a
+									href="https://daisyui.com/theme-generator"
+									target="_blank"
+									rel="noreferrer"
+									class="link text-xs mt-1"
+								>
+									{m.settings_theme_custom_generator()}
+								</a>
 							</div>
 						{/if}
 

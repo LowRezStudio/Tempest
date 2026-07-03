@@ -114,6 +114,15 @@ jobs:
         working-directory: Tempest.Launcher
         run: pnpm install --frozen-lockfile
 
+      - name: Get release notes from tag
+        id: get_notes
+        shell: bash
+        run: |
+          notes=$(git tag -l --format='%(contents)' "${{ github.ref_name }}" 2>/dev/null || echo "")
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$notes" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -128,7 +137,7 @@ jobs:
           releaseName: 'Tempest Launcher v__VERSION__'
           releaseDraft: true
           prerelease: false
-          releaseBody: 'See the assets to download this version and install.'
+          releaseBody: ${{ steps.get_notes.outputs.notes }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

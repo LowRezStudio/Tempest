@@ -1,7 +1,7 @@
 {
 	"commands_disclaimer": "Доступные команды различаются между патчами. Этот список составлен из версии 8.1. Автозаполнение консоли всегда будет точным для каждого патча.",
 	"commands_subtitle_f2": "Консольные команды F2",
-	"commands_page_title": "Команды",
+	"commands_page_title": "Команды Paladins",
 	"commands_group_cheat_manager": "Cheat Manager",
 	"commands_group_tg_controller": "TgPlayerController",
 	"commands_group_cm_base": "Engine",
@@ -207,6 +207,7 @@
 	"settings_theme_custom_css": "Пользовательский CSS темы",
 	"settings_theme_custom_placeholder": "Вставьте сюда блок @plugin темы daisyUI...",
 	"settings_theme_custom_hint": "Вставьте блок @plugin \"daisyui/theme\". Имя может быть любым; тема применится при выборе этой опции.",
+	"settings_theme_custom_generator": "Сгенерируйте тему на daisyui.com/theme-generator",
 	"settings_select_directory": "Выберите папку...",
 	"settings_saved_successfully": "Настройки успешно сохранены",
 	"settings_danger_zone": "Опасная зона",

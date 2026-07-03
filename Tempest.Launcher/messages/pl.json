@@ -1,7 +1,7 @@
 {
 	"commands_disclaimer": "Dostępne komendy różnią się między łatkami. Ta lista pochodzi z wersji 8.1. Autouzupełnianie konsoli będzie zawsze dokładne dla danej łatki.",
 	"commands_subtitle_f2": "Komendy konsoli F2",
-	"commands_page_title": "Komendy",
+	"commands_page_title": "Komendy Paladins",
 	"commands_group_cheat_manager": "Cheat Manager",
 	"commands_group_tg_controller": "TgPlayerController",
 	"commands_group_cm_base": "Engine",
@@ -207,6 +207,7 @@
 	"settings_theme_custom_css": "Niestandardowy CSS motywu",
 	"settings_theme_custom_placeholder": "Wklej tutaj swój blok @plugin motywu daisyUI...",
 	"settings_theme_custom_hint": "Wklej blok @plugin \"daisyui/theme\". Nazwa może być dowolna; zostanie zastosowana po wybraniu tej opcji.",
+	"settings_theme_custom_generator": "Wygeneruj motyw na daisyui.com/theme-generator",
 	"settings_select_directory": "Wybierz katalog...",
 	"settings_saved_successfully": "Pomyślnie zapisano ustawienia",
 	"settings_danger_zone": "Strefa niebezpieczna",

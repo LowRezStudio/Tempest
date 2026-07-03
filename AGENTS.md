@@ -121,5 +121,24 @@ If you change `.proto` files, rebuild the solution and run `pnpm proto-generate`
 - Installs .NET 10, Zig 0.15.2, Rust, Node 22, pnpm
 - Uses `pnpm install --frozen-lockfile` and `tauri-apps/tauri-action@v0`
 - Uploads artifacts and creates a draft GitHub release
+- Release notes are pulled from the annotated tag's message (set by `pnpm bump`)
+
+## Releasing
+
+Use the bump script from `Tempest.Launcher/`:
+
+```bash
+pnpm bump
+```
+
+It will:
+1. Prompt for the new version (suggesting the next pre-release number)
+2. Prompt for multi-line patch notes
+3. Update `package.json`, `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`
+4. Commit with the patch notes in the body
+5. Create an annotated tag with the patch notes
+6. Prompt to push to origin
+
+The CI workflow then extracts the tag annotation and sets it as the GitHub Release body.
 
 For local release builds, match the CI environment and ensure the sidecar binaries exist.

@@ -1,7 +1,7 @@
 {
 	"commands_disclaimer": "Available commands vary between patches. This list is produced from 8.1. The console autofill will always be accurate per patch.",
 	"commands_subtitle_f2": "F2 Console Commands",
-	"commands_page_title": "Commands",
+	"commands_page_title": "Paladins Commands",
 	"commands_group_cheat_manager": "Cheat Manager",
 	"commands_group_tg_controller": "Player Controller",
 	"commands_group_cm_base": "Engine",
@@ -199,6 +199,7 @@
 	"settings_theme_custom_css": "Custom Theme CSS",
 	"settings_theme_custom_placeholder": "Paste your daisyUI theme @plugin block here...",
 	"settings_theme_custom_hint": "Paste a @plugin \"daisyui/theme\" block. The name field can be anything; it will be applied when this option is selected.",
+	"settings_theme_custom_generator": "Generate a theme at daisyui.com/theme-generator",
 	"settings_select_directory": "Select a directory...",
 	"settings_saved_successfully": "Settings saved successfully",
 	"settings_danger_zone": "Danger Zone",
