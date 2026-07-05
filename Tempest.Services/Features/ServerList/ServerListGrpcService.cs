@@ -102,13 +102,16 @@ public class ServerListGrpcService(
         if (httpContext == null) return "127.0.0.1";
 
         string? ip = null;
-        if (configuration.GetValue<bool>("ServerList:GuessIpFromHeaders"))
+
+        // CF-Connecting-IP is always trusted first if present
+        if (httpContext.Request.Headers.TryGetValue("CF-Connecting-IP", out var cfIp) && !string.IsNullOrWhiteSpace(cfIp))
         {
-            if (httpContext.Request.Headers.TryGetValue("CF-Connecting-IP", out var cfIp) && !string.IsNullOrWhiteSpace(cfIp))
-            {
-                ip = cfIp.ToString().Split(',')[0].Trim();
-            }
-            else if (httpContext.Request.Headers.TryGetValue("X-Forwarded-For", out var xffIp) && !string.IsNullOrWhiteSpace(xffIp))
+            ip = cfIp.ToString().Split(',')[0].Trim();
+        }
+
+        if (string.IsNullOrEmpty(ip) && configuration.GetValue<bool>("ServerList:GuessIpFromHeaders"))
+        {
+            if (httpContext.Request.Headers.TryGetValue("X-Forwarded-For", out var xffIp) && !string.IsNullOrWhiteSpace(xffIp))
             {
                 ip = xffIp.ToString().Split(',')[0].Trim();
             }
