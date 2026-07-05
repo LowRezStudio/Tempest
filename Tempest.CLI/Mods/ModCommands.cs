@@ -186,7 +186,7 @@ internal class ModCommands
 
     /// <summary>Removes a mod from the game instance</summary>
     /// <param name="path">Path to the game folder or executable</param>
-    /// <param name="modName">Name of the mod to remove (e.g. TgMod.upk)</param>
+    /// <param name="modName">Name of the mod to remove (e.g. Tempest Mod.tempest)</param>
     /// <param name="json">Output as JSON</param>
     public async Task Remove([Argument] string path, [Argument] string modName, bool json = false)
     {

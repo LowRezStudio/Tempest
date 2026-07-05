@@ -1,29 +1,34 @@
 <script lang="ts">
-	import { Box, ChevronDown, ChevronUp, Megaphone, Play, Square, Terminal } from "@lucide/svelte";
+	import { Box, ChevronDown, ChevronUp, Megaphone, Play, ScrollText, Square, Terminal } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { m } from "$lib/paraglide/messages";
 	import { commandsPageOpen } from "$lib/stores/ui.svelte";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { lastLaunchedInstance, lastLaunchedInstanceId } from "$lib/stores/instance.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
+	import { onMount } from "svelte";
 
 	import { persistedState } from "$lib/stores/persisted.svelte";
+	import { cachedReleaseNotes, fetchLatestRelease } from "$lib/queries/release";
 
-	type TileId = "commands" | "announcement";
+	type TileId = "commands" | "announcement" | "releasenotes";
 
 	const commandsMinimized = persistedState("home_commands_minimized", true);
 	const announcementMinimized = persistedState("home_announcement_minimized", true);
+	const releasenotesMinimized = persistedState("home_releasenotes_minimized", true);
 
 	let minimized = $state<Record<TileId, boolean>>({
 		commands: commandsMinimized.value,
 		announcement: announcementMinimized.value,
+		releasenotes: releasenotesMinimized.value,
 	});
 
 	function toggleMinimize(tile: TileId) {
 		const next = !minimized[tile];
 		minimized = { ...minimized, [tile]: next };
 		if (tile === "commands") commandsMinimized.value = next;
-		else announcementMinimized.value = next;
+		else if (tile === "announcement") announcementMinimized.value = next;
+		else releasenotesMinimized.value = next;
 	}
 
 	let isRunning = $derived(
@@ -31,6 +36,15 @@
 			processesList.value.some((p) => p.instance.id === lastLaunchedInstance.value?.id)
 		:	false,
 	);
+
+	let loading = $state(false);
+
+	onMount(() => {
+		if (!cachedReleaseNotes.value) {
+			loading = true;
+			fetchLatestRelease().finally(() => { loading = false; });
+		}
+	});
 
 	const launchGameMutation = createLaunchGameMutation();
 	const killGameMutation = createKillGameMutation();
@@ -59,26 +73,26 @@
 	}
 </script>
 
-<div class="fixed bottom-6 left-6 right-6 z-50 flex items-end justify-between gap-6">
-	<div class="w-[500px] flex flex-col gap-3">
+<div class="fixed bottom-6 left-6 right-6 z-50 flex items-end justify-between gap-4">
+	<div class="w-[380px] flex flex-col gap-2">
 		<div class="card bg-base-200/95 shadow-xl backdrop-blur-sm">
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				class="card-body p-4 cursor-pointer select-none"
+				class="card-body p-3 cursor-pointer select-none"
 				onclick={() => toggleMinimize("commands")}
 				role="button"
 				tabindex="0"
 				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleMinimize("commands"); }}
 			>
-				<div class="flex items-center gap-3 mb-3">
+				<div class="flex items-center gap-2 mb-2">
 					<div
-						class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center shrink-0"
+						class="w-8 h-8 rounded-lg bg-base-300 flex items-center justify-center shrink-0"
 					>
-						<Terminal size={20} class="opacity-60" />
+						<Terminal size={16} class="opacity-60" />
 					</div>
 					<div class="flex-1">
-						<h3 class="font-bold text-sm">{m.home_quick_commands()}</h3>
-						<p class="text-[11px] opacity-60">{m.home_commands_subtitle()}</p>
+						<h3 class="font-bold text-xs">{m.home_quick_commands()}</h3>
+						<p class="text-[10px] opacity-60">{m.home_commands_subtitle()}</p>
 					</div>
 					<button
 						class="btn btn-ghost btn-xs btn-square shrink-0"
@@ -89,9 +103,9 @@
 						aria-label={minimized.commands ? m.home_show_section() : m.home_hide_section()}
 					>
 						{#if minimized.commands}
-							<ChevronUp size={14} />
+							<ChevronUp size={12} />
 						{:else}
-							<ChevronDown size={14} />
+							<ChevronDown size={12} />
 						{/if}
 					</button>
 				</div>
@@ -145,13 +159,16 @@
 				tabindex="0"
 				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleMinimize("announcement"); }}
 			>
-				<div class="flex items-center gap-3 mb-2">
+				<div class="flex items-center gap-2 mb-2">
 					<div
-						class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center shrink-0"
+						class="w-8 h-8 rounded-lg bg-base-300 flex items-center justify-center shrink-0"
 					>
-						<Megaphone size={20} class="opacity-60" />
+						<Megaphone size={16} class="opacity-60" />
 					</div>
-					<h3 class="font-bold text-sm flex-1">{m.home_announcement_title()}</h3>
+					<div class="flex-1">
+						<h3 class="font-bold text-xs">{m.home_announcement_title()}</h3>
+						<p class="text-[10px] opacity-60">{m.home_announcement_subtitle()}</p>
+					</div>
 					<button
 						class="btn btn-ghost btn-xs btn-square shrink-0"
 						onclick={(e) => {
@@ -161,9 +178,9 @@
 						aria-label={minimized.announcement ? m.home_show_section() : m.home_hide_section()}
 					>
 						{#if minimized.announcement}
-							<ChevronUp size={14} />
+							<ChevronUp size={12} />
 						{:else}
-							<ChevronDown size={14} />
+							<ChevronDown size={12} />
 						{/if}
 					</button>
 				</div>
@@ -171,6 +188,59 @@
 					<p class="text-xs opacity-90 leading-relaxed">
 						{m.home_announcement_message()}
 					</p>
+					{/if}
+			</div>
+		</div>
+
+		<div class="card bg-base-200/95 shadow-xl backdrop-blur-sm">
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="card-body p-4 cursor-pointer select-none"
+				onclick={() => toggleMinimize("releasenotes")}
+				role="button"
+				tabindex="0"
+				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleMinimize("releasenotes"); }}
+			>
+				<div class="flex items-center gap-2 mb-2">
+					<div
+						class="w-8 h-8 rounded-lg bg-base-300 flex items-center justify-center shrink-0"
+					>
+						<ScrollText size={16} class="opacity-60" />
+					</div>
+					<div class="flex-1">
+						<h3 class="font-bold text-xs">{m.home_releasenotes_title()}</h3>
+						<p class="text-[10px] opacity-60">
+							{cachedReleaseNotes.value ? `v${cachedReleaseNotes.value.version}` : ""}
+						</p>
+					</div>
+					<button
+						class="btn btn-ghost btn-xs btn-square shrink-0"
+						onclick={(e) => {
+							e.stopPropagation();
+							toggleMinimize("releasenotes");
+						}}
+						aria-label={minimized.releasenotes ? m.home_show_section() : m.home_hide_section()}
+					>
+						{#if minimized.releasenotes}
+							<ChevronUp size={12} />
+						{:else}
+							<ChevronDown size={12} />
+						{/if}
+					</button>
+				</div>
+				{#if !minimized.releasenotes}
+					{#if loading}
+						<p class="text-xs opacity-60">{m.home_releasenotes_loading()}</p>
+					{:else if cachedReleaseNotes.value}
+						<div class="flex items-center gap-2 mb-2">
+							<span class="badge badge-accent badge-sm">{cachedReleaseNotes.value.version}</span>
+						</div>
+						<div class="text-xs leading-relaxed opacity-90 whitespace-pre-wrap max-h-40 overflow-y-auto">
+							{cachedReleaseNotes.value.body}
+						</div>
+					{:else}
+						<p class="text-xs opacity-60">{m.home_releasenotes_unavailable()}</p>
+					{/if}
 				{/if}
 			</div>
 		</div>
@@ -179,7 +249,7 @@
 	{#if lastLaunchedInstance.value}
 		<div class="join shadow-lg">
 			<button
-				class="btn btn-lg join-item gap-2"
+				class="btn btn-md join-item gap-2"
 				class:btn-accent={!isRunning}
 				class:btn-error={isRunning}
 				disabled={isLaunching || isKilling}
@@ -192,9 +262,9 @@
 				{:else if isKilling}
 					<span class="loading loading-spinner loading-xs"></span>
 				{:else if isRunning}
-					<Square size={24} />
+					<Square size={20} />
 				{:else}
-					<Play size={24} />
+					<Play size={20} />
 				{/if}
 				<div class="flex flex-col items-start">
 					<span class="font-semibold text-sm">
