@@ -5,7 +5,7 @@ option csharp_namespace = "Tempest.Protocol.ServerList";
 import "common/country.proto";
 
 message CreateLobbyRequest {
-  string ip = 1;
+  reserved 1;
   uint32 lobby_port = 2;
   string name = 3;
   string gamemode = 4;

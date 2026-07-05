@@ -16,10 +16,6 @@ import type { PartialMessage } from "@protobuf-ts/runtime";
  */
 export interface CreateLobbyRequest {
 	/**
-	 * @generated from protobuf field: string ip = 1
-	 */
-	ip: string;
-	/**
 	 * @generated from protobuf field: uint32 lobby_port = 2
 	 */
 	lobbyPort: number;
@@ -84,7 +80,6 @@ export interface CreateLobbyRequest {
 class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 	constructor() {
 		super("tempest.server_list.CreateLobbyRequest", [
-			{ no: 1, name: "ip", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 2, name: "lobby_port", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 			{ no: 3, name: "name", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 4, name: "gamemode", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
@@ -115,7 +110,6 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 	}
 	create(value?: PartialMessage<CreateLobbyRequest>): CreateLobbyRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		message.ip = "";
 		message.lobbyPort = 0;
 		message.name = "";
 		message.gamemode = "";
@@ -143,9 +137,6 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
-				case /* string ip */ 1:
-					message.ip = reader.string();
-					break;
 				case /* uint32 lobby_port */ 2:
 					message.lobbyPort = reader.uint32();
 					break;
@@ -215,8 +206,6 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
-		/* string ip = 1; */
-		if (message.ip !== "") writer.tag(1, WireType.LengthDelimited).string(message.ip);
 		/* uint32 lobby_port = 2; */
 		if (message.lobbyPort !== 0) writer.tag(2, WireType.Varint).uint32(message.lobbyPort);
 		/* string name = 3; */

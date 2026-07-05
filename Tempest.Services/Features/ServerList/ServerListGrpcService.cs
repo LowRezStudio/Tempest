@@ -6,7 +6,8 @@ namespace Tempest.Services.Features.ServerList;
 
 public class ServerListGrpcService(
     ServerListingRepository repository,
-    Tempest.Services.Features.ApiKeys.ApiKeyRepository apiKeyRepository) : ServerListService.ServerListBase
+    Tempest.Services.Features.ApiKeys.ApiKeyRepository apiKeyRepository,
+    IConfiguration configuration) : ServerListService.ServerListBase
 {
     public override Task<CreateLobbyResponse> CreateLobby(CreateLobbyRequest request, ServerCallContext context)
     {
@@ -50,7 +51,7 @@ public class ServerListGrpcService(
         var ticket = Guid.NewGuid().ToString("N");
         var row = new ServerListingRow
         {
-            Ip = request.Ip,
+            Ip = GetClientIp(context.GetHttpContext(), configuration),
             LobbyPort = request.LobbyPort,
             Name = request.Name,
             Gamemode = request.Gamemode,
@@ -79,6 +80,48 @@ public class ServerListGrpcService(
                 Ticket = ticket
             }
         });
+    }
+
+    private static string GetClientIp(Microsoft.AspNetCore.Http.HttpContext? httpContext, IConfiguration configuration)
+    {
+        if (httpContext == null) return "127.0.0.1";
+
+        string? ip = null;
+        if (configuration.GetValue<bool>("ServerList:GuessIpFromHeaders"))
+        {
+            if (httpContext.Request.Headers.TryGetValue("CF-Connecting-IP", out var cfIp) && !string.IsNullOrWhiteSpace(cfIp))
+            {
+                ip = cfIp.ToString().Split(',')[0].Trim();
+            }
+            else if (httpContext.Request.Headers.TryGetValue("X-Forwarded-For", out var xffIp) && !string.IsNullOrWhiteSpace(xffIp))
+            {
+                ip = xffIp.ToString().Split(',')[0].Trim();
+            }
+            else if (httpContext.Request.Headers.TryGetValue("X-Real-IP", out var xriIp) && !string.IsNullOrWhiteSpace(xriIp))
+            {
+                ip = xriIp.ToString().Trim();
+            }
+        }
+
+        if (string.IsNullOrEmpty(ip))
+        {
+            var remoteIp = httpContext.Connection.RemoteIpAddress;
+            if (remoteIp != null)
+            {
+                if (remoteIp.IsIPv4MappedToIPv6)
+                {
+                    remoteIp = remoteIp.MapToIPv4();
+                }
+                ip = remoteIp.ToString();
+            }
+        }
+
+        if (string.IsNullOrEmpty(ip) || ip == "::1")
+        {
+            ip = "127.0.0.1";
+        }
+
+        return ip;
     }
 
     public override Task<UpdateLobbyResponse> UpdateLobby(UpdateLobbyRequest request, ServerCallContext context)

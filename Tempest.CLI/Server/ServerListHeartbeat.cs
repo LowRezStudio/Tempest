@@ -78,7 +78,6 @@ internal sealed class ServerListHeartbeat : BackgroundService
     {
         var request = new CreateLobbyRequest
         {
-            Ip = GetLocalIpAddress(),
             LobbyPort = (uint)_options.Port,
             Name = _options.Name,
             Gamemode = _options.GameMode ?? "",
@@ -100,14 +99,6 @@ internal sealed class ServerListHeartbeat : BackgroundService
             request.Tags.Add(tag);
 
         return await _client.CreateLobbyAsync(request, ct);
-    }
-
-    private static string GetLocalIpAddress()
-    {
-        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0);
-        socket.Connect("8.8.8.8", 65530);
-        var endPoint = socket.LocalEndPoint as IPEndPoint;
-        return endPoint?.Address.ToString() ?? "127.0.0.1";
     }
 
     private sealed class Observer(ServerListHeartbeat parent) : IObserver<LobbyEvent>
