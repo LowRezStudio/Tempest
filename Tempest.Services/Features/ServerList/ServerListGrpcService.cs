@@ -7,7 +7,8 @@ namespace Tempest.Services.Features.ServerList;
 public class ServerListGrpcService(
     ServerListingRepository repository,
     Tempest.Services.Features.ApiKeys.ApiKeyRepository apiKeyRepository,
-    IConfiguration configuration) : ServerListService.ServerListBase
+    IConfiguration configuration,
+    ILogger<ServerListGrpcService> logger) : ServerListService.ServerListBase
 {
     public override Task<CreateLobbyResponse> CreateLobby(CreateLobbyRequest request, ServerCallContext context)
     {
@@ -49,9 +50,23 @@ public class ServerListGrpcService(
         }
 
         var ticket = Guid.NewGuid().ToString("N");
+        var httpContext = context.GetHttpContext();
+        var clientIp = GetClientIp(httpContext, configuration);
+
+        logger.LogInformation("Registering lobby '{LobbyName}' (Port: {LobbyPort}). Connection Remote IP: {RemoteIp}, Resolved IP: {ResolvedIp}",
+            request.Name, request.LobbyPort, httpContext?.Connection?.RemoteIpAddress, clientIp);
+
+        if (logger.IsEnabled(LogLevel.Debug) && httpContext != null)
+        {
+            foreach (var header in httpContext.Request.Headers)
+            {
+                logger.LogDebug("Incoming Header: {HeaderKey} = {HeaderValue}", header.Key, header.Value.ToString());
+            }
+        }
+
         var row = new ServerListingRow
         {
-            Ip = GetClientIp(context.GetHttpContext(), configuration),
+            Ip = clientIp,
             LobbyPort = request.LobbyPort,
             Name = request.Name,
             Gamemode = request.Gamemode,
