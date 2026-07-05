@@ -153,7 +153,7 @@
 		<div class="card bg-base-200/95 shadow-xl backdrop-blur-sm">
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				class="card-body p-4 cursor-pointer select-none"
+				class="card-body p-3 cursor-pointer select-none"
 				onclick={() => toggleMinimize("announcement")}
 				role="button"
 				tabindex="0"
@@ -195,7 +195,7 @@
 		<div class="card bg-base-200/95 shadow-xl backdrop-blur-sm">
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				class="card-body p-4 cursor-pointer select-none"
+				class="card-body p-3 cursor-pointer select-none"
 				onclick={() => toggleMinimize("releasenotes")}
 				role="button"
 				tabindex="0"
@@ -249,7 +249,7 @@
 	{#if lastLaunchedInstance.value}
 		<div class="join shadow-lg">
 			<button
-				class="btn btn-md join-item gap-2"
+			class="btn btn-lg join-item gap-2"
 				class:btn-accent={!isRunning}
 				class:btn-error={isRunning}
 				disabled={isLaunching || isKilling}
