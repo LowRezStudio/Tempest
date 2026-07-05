@@ -37,6 +37,7 @@ services:
             ConnectionStrings__Default: "Data Source=/app/data/tempest.db"
             Authentication__GitHub__ClientId: "${TEMPEST_GITHUB_CLIENT_ID:-}"
             Authentication__GitHub__ClientSecret: "${TEMPEST_GITHUB_CLIENT_SECRET:-}"
+            ServerList__GuessIpFromHeaders: "true"
         volumes:
             - tempest-db:/app/data
         restart: unless-stopped
