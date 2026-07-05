@@ -53,16 +53,15 @@
 		servers
 			.filter(
 				(server) =>
-					canJoinServer(server) &&
-					(server.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-						server.game.toLowerCase().includes(searchQuery.toLowerCase()) ||
-						server.map?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-						server.version.toLowerCase().includes(searchQuery.toLowerCase()) ||
-						server.tags.some((tag) =>
-							tag.toLowerCase().includes(searchQuery.toLowerCase()),
-						)),
+					server.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.game.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.map?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.version.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.tags.some((tag) =>
+						tag.toLowerCase().includes(searchQuery.toLowerCase()),
+					),
 			)
-			.map((s) => ({ ...s, canJoin: true })),
+			.map((s) => ({ ...s, canJoin: canJoinServer(s) })),
 	);
 	function canJoinServer(server: ServerListing) {
 		//TODO check mods too

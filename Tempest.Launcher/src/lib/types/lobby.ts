@@ -1,7 +1,7 @@
 import { JoinLobbyErrorCode } from "$lib/rpc/lobby/join_lobby_error_code";
 
 export const GAMEMODES = [
-	{ id: "TempestMp.SiegeDEV", label: "Siege" },
+	{ id: "TempestMp.Siege", label: "Siege" },
 	{ id: "TempestMp.Payload", label: "Payload" },
 	{ id: "TempestMp.Tdm", label: "Team Deathmatch" },
 	{ id: "TempestMp.Onslaught", label: "Onslaught" },

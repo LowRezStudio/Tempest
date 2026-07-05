@@ -26,7 +26,7 @@
 	let selectedTags = $state("");
 	let selectedPassword = $state("");
 	let selectedPublic = $state(false);
-	let selectedGameMode = $state<GameMode>("TempestMp.SiegeDEV");
+	let selectedGameMode = $state<GameMode>("TempestMp.Siege");
 	let selectedMaxPlayers = $state<number>(10);
 	let selectedMinPlayers = $state<number>(1);
 	let selectedMaxSpectators = $state<number>(5);
@@ -74,7 +74,7 @@
 			selectedTab = "general";
 			selectedName = username.value ? `${username.value}'s Server` : "";
 			selectedInstanceId = instanceList.length === 1 ? instanceList[0].id : "";
-			selectedGameMode = "TempestMp.SiegeDEV";
+			selectedGameMode = "TempestMp.Siege";
 			selectedPublic = false;
 			selectedPassword = "";
 			selectedTags = "";
