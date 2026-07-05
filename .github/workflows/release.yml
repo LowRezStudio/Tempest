@@ -86,6 +86,7 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu-')
         run: |
           sudo apt update
+          sudo apt --fix-broken install -y
           sudo apt-get install -y \
             libappindicator3-dev \
             librsvg2-dev \
@@ -109,7 +110,8 @@ jobs:
             gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-bad \
             gstreamer1.0-plugins-ugly \
-            gstreamer1.0-libav
+            gstreamer1.0-libav \
+            libunwind-dev
 
       - name: Install WiX (Windows)
         if: matrix.platform == 'windows-latest'
