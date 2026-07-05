@@ -56,6 +56,10 @@ internal sealed class EmbeddedServer
         builder.Services.AddSingleton<LobbyServiceImpl>();
         builder.Services.AddSingleton(_options);
         builder.Services.AddGrpc();
+        builder.Services.Configure<HostOptions>(options =>
+        {
+            options.StartupTimeout = TimeSpan.FromSeconds(60);
+        });
         if (_options.Discover)
         {
             builder.Services.AddHostedService<LanDiscoveryResponder>();

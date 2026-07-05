@@ -16,10 +16,6 @@ import type { PartialMessage } from "@protobuf-ts/runtime";
  */
 export interface CreateLobbyRequest {
 	/**
-	 * @generated from protobuf field: string ip = 1
-	 */
-	ip: string;
-	/**
 	 * @generated from protobuf field: uint32 lobby_port = 2
 	 */
 	lobbyPort: number;
@@ -28,7 +24,11 @@ export interface CreateLobbyRequest {
 	 */
 	name: string;
 	/**
-	 * @generated from protobuf field: string game = 4
+	 * @generated from protobuf field: string gamemode = 4
+	 */
+	gamemode: string;
+	/**
+	 * @generated from protobuf field: string game = 16
 	 */
 	game: string;
 	/**
@@ -80,10 +80,10 @@ export interface CreateLobbyRequest {
 class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 	constructor() {
 		super("tempest.server_list.CreateLobbyRequest", [
-			{ no: 1, name: "ip", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 2, name: "lobby_port", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 			{ no: 3, name: "name", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
-			{ no: 4, name: "game", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 4, name: "gamemode", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 16, name: "game", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 5, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{
 				no: 6,
@@ -110,9 +110,9 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 	}
 	create(value?: PartialMessage<CreateLobbyRequest>): CreateLobbyRequest {
 		const message = globalThis.Object.create(this.messagePrototype!);
-		message.ip = "";
 		message.lobbyPort = 0;
 		message.name = "";
+		message.gamemode = "";
 		message.game = "";
 		message.version = "";
 		message.tags = [];
@@ -137,16 +137,16 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 		while (reader.pos < end) {
 			let [fieldNo, wireType] = reader.tag();
 			switch (fieldNo) {
-				case /* string ip */ 1:
-					message.ip = reader.string();
-					break;
 				case /* uint32 lobby_port */ 2:
 					message.lobbyPort = reader.uint32();
 					break;
 				case /* string name */ 3:
 					message.name = reader.string();
 					break;
-				case /* string game */ 4:
+				case /* string gamemode */ 4:
+					message.gamemode = reader.string();
+					break;
+				case /* string game */ 16:
 					message.game = reader.string();
 					break;
 				case /* string version */ 5:
@@ -206,14 +206,13 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 		writer: IBinaryWriter,
 		options: BinaryWriteOptions,
 	): IBinaryWriter {
-		/* string ip = 1; */
-		if (message.ip !== "") writer.tag(1, WireType.LengthDelimited).string(message.ip);
 		/* uint32 lobby_port = 2; */
 		if (message.lobbyPort !== 0) writer.tag(2, WireType.Varint).uint32(message.lobbyPort);
 		/* string name = 3; */
 		if (message.name !== "") writer.tag(3, WireType.LengthDelimited).string(message.name);
-		/* string game = 4; */
-		if (message.game !== "") writer.tag(4, WireType.LengthDelimited).string(message.game);
+		/* string gamemode = 4; */
+		if (message.gamemode !== "")
+			writer.tag(4, WireType.LengthDelimited).string(message.gamemode);
 		/* string version = 5; */
 		if (message.version !== "") writer.tag(5, WireType.LengthDelimited).string(message.version);
 		/* repeated string tags = 6; */
@@ -241,6 +240,8 @@ class CreateLobbyRequest$Type extends MessageType<CreateLobbyRequest> {
 		if (message.country !== 0) writer.tag(14, WireType.Varint).int32(message.country);
 		/* string api_key = 15; */
 		if (message.apiKey !== "") writer.tag(15, WireType.LengthDelimited).string(message.apiKey);
+		/* string game = 16; */
+		if (message.game !== "") writer.tag(16, WireType.LengthDelimited).string(message.game);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

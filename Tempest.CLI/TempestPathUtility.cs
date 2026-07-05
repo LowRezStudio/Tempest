@@ -3,10 +3,10 @@ namespace Tempest.CLI;
 public static class TempestPathUtility
 {
     public static string GetGlobalKeysDirectory() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "keys");
+        Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "keys"));
 
     public static string GetWinePrefixDirectory() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "prefix");
+        Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "prefix"));
 
     public static string GetLocalKeysDirectory(string resolvedGame) =>
         Path.Combine(resolvedGame, ".tempest", "keys");

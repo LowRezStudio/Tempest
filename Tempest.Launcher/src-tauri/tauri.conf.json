@@ -45,11 +45,28 @@
 			"appimage": {
 				"bundleMediaFramework": true
 			},
+			"deb": {
+				"depends": [
+					"libwebkit2gtk-4.1-0",
+					"libgtk-3-0",
+					"gstreamer1.0-plugins-base",
+					"gstreamer1.0-plugins-good",
+					"gstreamer1.0-plugins-bad"
+				],
+				"recommends": ["gstreamer1.0-plugins-ugly", "gstreamer1.0-libav"]
+			},
 			"rpm": {
 				"depends": [
+					"webkit2gtk4.1",
+					"gtk3",
 					"gstreamer1-plugins-base",
 					"gstreamer1-plugins-good",
 					"gstreamer1-plugins-bad-free"
+				],
+				"recommends": [
+					"gstreamer1-plugins-ugly-free",
+					"gstreamer1-libav",
+					"gstreamer1-plugin-openh264"
 				]
 			}
 		},

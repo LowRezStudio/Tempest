@@ -20,7 +20,7 @@ public sealed class DatabaseInitializer(IServiceProvider services) : IHostedLife
                 ip              TEXT NOT NULL,
                 lobby_port      INTEGER NOT NULL,
                 name            TEXT NOT NULL,
-                game            TEXT NOT NULL,
+                gamemode        TEXT NOT NULL,
                 version         TEXT NOT NULL,
                 tags            TEXT NOT NULL DEFAULT '[]',
                 map             TEXT,
@@ -51,6 +51,12 @@ public sealed class DatabaseInitializer(IServiceProvider services) : IHostedLife
                 reason       TEXT
             );
             ALTER TABLE server_listings ADD COLUMN api_key TEXT;
+            """),
+        ("0003_rename_game_to_gamemode", """
+            ALTER TABLE server_listings RENAME COLUMN game TO gamemode;
+            """),
+        ("0004_add_game", """
+            ALTER TABLE server_listings ADD COLUMN game TEXT NOT NULL DEFAULT 'Paladins';
             """),
     ];
 

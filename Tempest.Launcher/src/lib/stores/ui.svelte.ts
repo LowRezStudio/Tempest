@@ -1,5 +1,3 @@
-import { persistedState } from "./persisted.svelte";
-
 export const instanceWizardOpen = $state({ value: false });
 export const hostServerWizardOpen = $state({ value: false });
 export const joinServerWizardOpen = $state({ value: false });

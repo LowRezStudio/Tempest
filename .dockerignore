@@ -5,3 +5,14 @@
 **/.vs
 .dotnet
 .Microsoft.DotNet.ImageBuilder
+.git
+.github
+.idea
+.agents
+.opencode
+Tempest.Launcher/node_modules
+Tempest.Launcher/src-tauri/target
+Tempest.Utils/.zig-cache
+Tempest.Utils/zig-out
+**/bin-debug
+**/bin-release

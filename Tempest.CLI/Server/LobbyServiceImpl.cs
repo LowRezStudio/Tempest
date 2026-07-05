@@ -73,7 +73,8 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
         var response = new GetInfoResponse
         {
             Name = options.Name,
-            Game = options.GameMode ?? string.Empty,
+            Gamemode = options.GameMode ?? string.Empty,
+            Game = "Paladins",
             Version = options.Version,
             Players = (uint)info.Players.Count,
             MaxPlayers = (uint)options.MaxPlayers,

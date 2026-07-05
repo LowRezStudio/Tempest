@@ -76,8 +76,17 @@ internal class ServerCommands
             logging.AddZLoggerConsole();
         });
 
-        var server = new EmbeddedServer(options, loggerFactory);
-        await server.StartAsync();
+        EmbeddedServer server;
+        try
+        {
+            server = new EmbeddedServer(options, loggerFactory);
+            await server.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"CRITICAL SERVER STARTUP ERROR: {ex}");
+            throw;
+        }
 
         Console.WriteLine($"Lobby '{options.Name}' started on port {port} (gRPC + HTTP)");
         Console.WriteLine("Players can now connect (stub logic). Press Ctrl+C to stop.");
@@ -87,48 +96,57 @@ internal class ServerCommands
             return;
         }
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-        _ = Task.Run(async () =>
+        var cts = new CancellationTokenSource();
+        AppDomain.CurrentDomain.ProcessExit += (s, e) => cts.Cancel();
+        Console.CancelKeyPress += (s, e) =>
         {
-            try
+            e.Cancel = true;
+            cts.Cancel();
+        };
+
+        if (!Console.IsInputRedirected)
+        {
+            _ = Task.Run(async () =>
             {
-                using var reader = new StreamReader(Console.OpenStandardInput());
-                while (!cts.Token.IsCancellationRequested)
+                try
                 {
-                    string? input;
-                    try
+                    using var reader = new StreamReader(Console.OpenStandardInput());
+                    while (!cts.Token.IsCancellationRequested)
                     {
-                        input = await reader.ReadLineAsync(cts.Token);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
+                        string? input;
+                        try
+                        {
+                            input = await reader.ReadLineAsync(cts.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
 
-                    if (input == null)
-                    {
-                        try { await Task.Delay(100, cts.Token); }
-                        catch (OperationCanceledException) { break; }
-                        continue;
-                    }
+                        if (input == null)
+                        {
+                            try { await Task.Delay(100, cts.Token); }
+                            catch (OperationCanceledException) { break; }
+                            continue;
+                        }
 
-                    if (input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await cts.CancelAsync();
-                        break;
+                        if (input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await cts.CancelAsync();
+                            break;
+                        }
                     }
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected when shutdown is requested.
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Stdin reader error: {ex.Message}");
-            }
-        }, cts.Token);
+                catch (OperationCanceledException)
+                {
+                    // Expected when shutdown is requested.
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Stdin reader error: {ex.Message}");
+                }
+            }, cts.Token);
+        }
 
         try
         {
@@ -160,7 +178,7 @@ internal class ServerCommands
             Console.WriteLine($"ID: {server.Id}");
             Console.WriteLine($"Name: {server.Name}");
             Console.WriteLine($"IP: {server.Ip}:{server.LobbyPort}");
-            Console.WriteLine($"Game: {server.Game} v{server.Version}");
+            Console.WriteLine($"Gamemode: {server.Gamemode} v{server.Version}");
             Console.WriteLine($"Players: {server.Players}/{server.MaxPlayers}");
             Console.WriteLine($"Map: {server.Map ?? "N/A"}");
             Console.WriteLine($"Joinable: {server.Joinable}");
@@ -185,7 +203,7 @@ internal class ServerCommands
                 Console.WriteLine($"ID: {server.Id}");
                 Console.WriteLine($"Name: {server.Name}");
                 Console.WriteLine($"IP: {server.Ip}:{server.LobbyPort}");
-                Console.WriteLine($"Game: {server.Game} v{server.Version}");
+                Console.WriteLine($"Gamemode: {server.Gamemode} v{server.Version}");
                 Console.WriteLine($"Players: {server.Players}/{server.MaxPlayers}");
                 Console.WriteLine($"Bots: {server.Bots}");
                 Console.WriteLine($"Spectators: {server.Spectators}/{server.MaxSpectators}");
@@ -210,6 +228,7 @@ internal class ServerCommands
     }
 
     public async Task Discover(
+        int port = 7000,
         int timeoutMs = 1500,
         CancellationToken cancellationToken = default)
     {
@@ -223,7 +242,7 @@ internal class ServerCommands
         // 1. Send broadcast on standard 255.255.255.255
         try
         {
-            var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, 50054);
+            var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, port);
             await client.SendAsync(requestBytes, requestBytes.Length, broadcastEndpoint);
         }
         catch { }
@@ -251,7 +270,7 @@ internal class ServerCommands
                                 broadcastBytes[i] = (byte)(ip[i] | ~mask[i]);
                             }
                             var broadcastIp = new IPAddress(broadcastBytes);
-                            await client.SendAsync(requestBytes, requestBytes.Length, new IPEndPoint(broadcastIp, 50054));
+                            await client.SendAsync(requestBytes, requestBytes.Length, new IPEndPoint(broadcastIp, port));
                         }
                     }
                 }

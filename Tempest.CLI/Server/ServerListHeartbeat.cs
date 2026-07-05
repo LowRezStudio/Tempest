@@ -12,7 +12,7 @@ internal sealed class ServerListHeartbeat : BackgroundService
     private readonly LobbyState _state;
     private readonly ServerListClient _client;
     private readonly ILogger<ServerListHeartbeat> _logger;
-    private readonly TimeSpan _heartbeatInterval = TimeSpan.FromSeconds(120);
+    private readonly TimeSpan _heartbeatInterval = TimeSpan.FromSeconds(30);
     private string? _ownId;
     private string? _ticket;
 
@@ -27,6 +27,7 @@ internal sealed class ServerListHeartbeat : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Task.Yield();
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -77,11 +78,11 @@ internal sealed class ServerListHeartbeat : BackgroundService
     {
         var request = new CreateLobbyRequest
         {
-            Ip = GetLocalIpAddress(),
             LobbyPort = (uint)_options.Port,
             Name = _options.Name,
-            Game = _options.GameMode,
-            Version = _options.Version,
+            Gamemode = _options.GameMode ?? "",
+            Game = "Paladins",
+            Version = _options.Version ?? "",
             MaxPlayers = (uint)_options.MaxPlayers,
             MaxSpectators = 0,
             JoinInProgress = _options.JoinInProgress,
@@ -98,14 +99,6 @@ internal sealed class ServerListHeartbeat : BackgroundService
             request.Tags.Add(tag);
 
         return await _client.CreateLobbyAsync(request, ct);
-    }
-
-    private static string GetLocalIpAddress()
-    {
-        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0);
-        socket.Connect("8.8.8.8", 65530);
-        var endPoint = socket.LocalEndPoint as IPEndPoint;
-        return endPoint?.Address.ToString() ?? "127.0.0.1";
     }
 
     private sealed class Observer(ServerListHeartbeat parent) : IObserver<LobbyEvent>

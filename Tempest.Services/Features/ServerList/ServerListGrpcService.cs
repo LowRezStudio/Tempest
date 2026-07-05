@@ -6,7 +6,9 @@ namespace Tempest.Services.Features.ServerList;
 
 public class ServerListGrpcService(
     ServerListingRepository repository,
-    Tempest.Services.Features.ApiKeys.ApiKeyRepository apiKeyRepository) : ServerListService.ServerListBase
+    Tempest.Services.Features.ApiKeys.ApiKeyRepository apiKeyRepository,
+    IConfiguration configuration,
+    ILogger<ServerListGrpcService> logger) : ServerListService.ServerListBase
 {
     public override Task<CreateLobbyResponse> CreateLobby(CreateLobbyRequest request, ServerCallContext context)
     {
@@ -48,12 +50,27 @@ public class ServerListGrpcService(
         }
 
         var ticket = Guid.NewGuid().ToString("N");
+        var httpContext = context.GetHttpContext();
+        var clientIp = GetClientIp(httpContext, configuration);
+
+        logger.LogInformation("Registering lobby '{LobbyName}' (Port: {LobbyPort}). Connection Remote IP: {RemoteIp}, Resolved IP: {ResolvedIp}",
+            request.Name, request.LobbyPort, httpContext?.Connection?.RemoteIpAddress, clientIp);
+
+        if (logger.IsEnabled(LogLevel.Debug) && httpContext != null)
+        {
+            foreach (var header in httpContext.Request.Headers)
+            {
+                logger.LogDebug("Incoming Header: {HeaderKey} = {HeaderValue}", header.Key, header.Value.ToString());
+            }
+        }
+
         var row = new ServerListingRow
         {
-            Ip = request.Ip,
+            Ip = clientIp,
             LobbyPort = request.LobbyPort,
             Name = request.Name,
-            Game = request.Game,
+            Gamemode = request.Gamemode,
+            Game = string.IsNullOrEmpty(request.Game) ? "Paladins" : request.Game,
             Version = request.Version,
             Tags = request.Tags.ToList(),
             Map = request.Map,
@@ -78,6 +95,51 @@ public class ServerListGrpcService(
                 Ticket = ticket
             }
         });
+    }
+
+    private static string GetClientIp(Microsoft.AspNetCore.Http.HttpContext? httpContext, IConfiguration configuration)
+    {
+        if (httpContext == null) return "127.0.0.1";
+
+        string? ip = null;
+
+        // CF-Connecting-IP is always trusted first if present
+        if (httpContext.Request.Headers.TryGetValue("CF-Connecting-IP", out var cfIp) && !string.IsNullOrWhiteSpace(cfIp))
+        {
+            ip = cfIp.ToString().Split(',')[0].Trim();
+        }
+
+        if (string.IsNullOrEmpty(ip) && configuration.GetValue<bool>("ServerList:GuessIpFromHeaders"))
+        {
+            if (httpContext.Request.Headers.TryGetValue("X-Forwarded-For", out var xffIp) && !string.IsNullOrWhiteSpace(xffIp))
+            {
+                ip = xffIp.ToString().Split(',')[0].Trim();
+            }
+            else if (httpContext.Request.Headers.TryGetValue("X-Real-IP", out var xriIp) && !string.IsNullOrWhiteSpace(xriIp))
+            {
+                ip = xriIp.ToString().Trim();
+            }
+        }
+
+        if (string.IsNullOrEmpty(ip))
+        {
+            var remoteIp = httpContext.Connection.RemoteIpAddress;
+            if (remoteIp != null)
+            {
+                if (remoteIp.IsIPv4MappedToIPv6)
+                {
+                    remoteIp = remoteIp.MapToIPv4();
+                }
+                ip = remoteIp.ToString();
+            }
+        }
+
+        if (string.IsNullOrEmpty(ip) || ip == "::1")
+        {
+            ip = "127.0.0.1";
+        }
+
+        return ip;
     }
 
     public override Task<UpdateLobbyResponse> UpdateLobby(UpdateLobbyRequest request, ServerCallContext context)

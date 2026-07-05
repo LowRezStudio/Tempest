@@ -16,7 +16,8 @@ public sealed record ServerListingRow
     public string Ip { get; init; } = string.Empty;
     public uint LobbyPort { get; init; }
     public string Name { get; init; } = string.Empty;
-    public string Game { get; init; } = string.Empty;
+    public string Gamemode { get; init; } = string.Empty;
+    public string Game { get; init; } = "Paladins";
     public string Version { get; init; } = string.Empty;
     public IReadOnlyList<string> Tags { get; init; } = [];
     public string? Map { get; init; }
@@ -43,6 +44,7 @@ public sealed record ServerListingRow
         Ip = Ip,
         LobbyPort = LobbyPort,
         Name = Name,
+        Gamemode = Gamemode,
         Game = Game,
         Version = Version,
         Tags = { Tags },
@@ -65,7 +67,7 @@ public sealed record ServerListingRow
     /// Hydrates a row from a Dapper-read dictionary, parsing the JSON columns.
     /// </summary>
     internal static ServerListingRow FromReader(
-        string id, string ticket, string ip, long lobbyPort, string name, string game, string version,
+        string id, string ticket, string ip, long lobbyPort, string name, string gamemode, string game, string version,
         string tagsJson, string? map, string? mapId,
         long players, long maxPlayers, long bots, long maxSpectators, long spectators,
         long joinInProgress, long joinable, long hasPassword, long country,
@@ -78,6 +80,7 @@ public sealed record ServerListingRow
             Ip = ip,
             LobbyPort = (uint)lobbyPort,
             Name = name,
+            Gamemode = gamemode,
             Game = game,
             Version = version,
             Tags = DeserializeStrings(tagsJson),
