@@ -20,7 +20,11 @@ export interface GetInfoResponse {
 	 */
 	name: string;
 	/**
-	 * @generated from protobuf field: string game = 2
+	 * @generated from protobuf field: string gamemode = 2
+	 */
+	gamemode: string;
+	/**
+	 * @generated from protobuf field: string game = 8
 	 */
 	game: string;
 	/**
@@ -49,7 +53,8 @@ class GetInfoResponse$Type extends MessageType<GetInfoResponse> {
 	constructor() {
 		super("tempest.lobby.GetInfoResponse", [
 			{ no: 1, name: "name", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
-			{ no: 2, name: "game", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 2, name: "gamemode", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 8, name: "game", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 3, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 4, name: "players", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 			{ no: 5, name: "max_players", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
@@ -66,6 +71,7 @@ class GetInfoResponse$Type extends MessageType<GetInfoResponse> {
 	create(value?: PartialMessage<GetInfoResponse>): GetInfoResponse {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.name = "";
+		message.gamemode = "";
 		message.game = "";
 		message.version = "";
 		message.players = 0;
@@ -89,7 +95,10 @@ class GetInfoResponse$Type extends MessageType<GetInfoResponse> {
 				case /* string name */ 1:
 					message.name = reader.string();
 					break;
-				case /* string game */ 2:
+				case /* string gamemode */ 2:
+					message.gamemode = reader.string();
+					break;
+				case /* string game */ 8:
 					message.game = reader.string();
 					break;
 				case /* string version */ 3:
@@ -136,8 +145,9 @@ class GetInfoResponse$Type extends MessageType<GetInfoResponse> {
 	): IBinaryWriter {
 		/* string name = 1; */
 		if (message.name !== "") writer.tag(1, WireType.LengthDelimited).string(message.name);
-		/* string game = 2; */
-		if (message.game !== "") writer.tag(2, WireType.LengthDelimited).string(message.game);
+		/* string gamemode = 2; */
+		if (message.gamemode !== "")
+			writer.tag(2, WireType.LengthDelimited).string(message.gamemode);
 		/* string version = 3; */
 		if (message.version !== "") writer.tag(3, WireType.LengthDelimited).string(message.version);
 		/* uint32 players = 4; */
@@ -153,6 +163,8 @@ class GetInfoResponse$Type extends MessageType<GetInfoResponse> {
 				writer.int32(message.authMethods[i]);
 			writer.join();
 		}
+		/* string game = 8; */
+		if (message.game !== "") writer.tag(8, WireType.LengthDelimited).string(message.game);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

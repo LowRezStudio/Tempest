@@ -388,13 +388,14 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     {
         var info = new LobbyEventInfo
         {
-            Name = options.Name,
+            Name = options.Name ?? "",
             State = _state,
-            Version = options.Version,
+            Version = options.Version ?? "",
             PasswordRequired = options.Password != null && !options.Password.Equals(string.Empty),
             MaxPlayers = (uint)options.MaxPlayers,
             Countdown = _countdown,
-            Gamemode = options.GameMode,
+            Gamemode = options.GameMode ?? "",
+            Game = "Paladins",
             EnableJoinInProgress = options.EnableJoinInProgress,
         };
         info.Players.AddRange(_players.Values);

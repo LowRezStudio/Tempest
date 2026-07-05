@@ -12,7 +12,7 @@ internal sealed class ServerListHeartbeat : BackgroundService
     private readonly LobbyState _state;
     private readonly ServerListClient _client;
     private readonly ILogger<ServerListHeartbeat> _logger;
-    private readonly TimeSpan _heartbeatInterval = TimeSpan.FromSeconds(120);
+    private readonly TimeSpan _heartbeatInterval = TimeSpan.FromSeconds(30);
     private string? _ownId;
     private string? _ticket;
 
@@ -27,6 +27,7 @@ internal sealed class ServerListHeartbeat : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Task.Yield();
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -80,8 +81,9 @@ internal sealed class ServerListHeartbeat : BackgroundService
             Ip = GetLocalIpAddress(),
             LobbyPort = (uint)_options.Port,
             Name = _options.Name,
-            Game = _options.GameMode,
-            Version = _options.Version,
+            Gamemode = _options.GameMode ?? "",
+            Game = "Paladins",
+            Version = _options.Version ?? "",
             MaxPlayers = (uint)_options.MaxPlayers,
             MaxSpectators = 0,
             JoinInProgress = _options.JoinInProgress,

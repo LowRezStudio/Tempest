@@ -130,6 +130,7 @@
 	"serverlist_search_placeholder": "Search",
 	"serverlist_name": "Name",
 	"serverlist_gamemode": "Gamemode",
+	"serverlist_game": "Game",
 	"serverlist_map": "Map",
 	"serverlist_players": "Players",
 	"serverlist_bots": "Bots",

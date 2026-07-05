@@ -19,11 +19,11 @@ public sealed class ServerListingRepository(SqliteConnectionFactory connectionFa
 
         Connection.Execute("""
             INSERT INTO server_listings (
-                id, ticket, ip, lobby_port, name, game, version, tags, map, map_id,
+                id, ticket, ip, lobby_port, name, gamemode, game, version, tags, map, map_id,
                 players, max_players, bots, max_spectators, spectators,
                 join_in_progress, joinable, has_password, country, auth_methods, last_seen, api_key
             ) VALUES (
-                $id, $ticket, $ip, $lobbyPort, $name, $game, $version, $tags, $map, $mapId,
+                $id, $ticket, $ip, $lobbyPort, $name, $gamemode, $game, $version, $tags, $map, $mapId,
                 $players, $maxPlayers, $bots, $maxSpectators, $spectators,
                 $joinInProgress, $joinable, $hasPassword, $country, $authMethods, $lastSeen, $apiKey
             );
@@ -34,6 +34,7 @@ public sealed class ServerListingRepository(SqliteConnectionFactory connectionFa
             ip = row.Ip,
             lobbyPort = (long)row.LobbyPort,
             name = row.Name,
+            gamemode = row.Gamemode,
             game = row.Game,
             version = row.Version,
             tags = row.TagsJson,
@@ -131,6 +132,7 @@ public sealed class ServerListingRepository(SqliteConnectionFactory connectionFa
             ip              AS Ip,
             lobby_port      AS LobbyPort,
             name            AS Name,
+            gamemode        AS Gamemode,
             game            AS Game,
             version         AS Version,
             tags            AS TagsJson,
@@ -162,6 +164,7 @@ public sealed class ServerListingRepository(SqliteConnectionFactory connectionFa
         public string Ip { get; init; } = string.Empty;
         public long LobbyPort { get; init; }
         public string Name { get; init; } = string.Empty;
+        public string Gamemode { get; init; } = string.Empty;
         public string Game { get; init; } = string.Empty;
         public string Version { get; init; } = string.Empty;
         public string TagsJson { get; init; } = "[]";
@@ -181,7 +184,7 @@ public sealed class ServerListingRepository(SqliteConnectionFactory connectionFa
         public string? ApiKey { get; init; }
 
         public ServerListingRow ToRow() => ServerListingRow.FromReader(
-            Id, Ticket, Ip, LobbyPort, Name, Game, Version, TagsJson, Map, MapId,
+            Id, Ticket, Ip, LobbyPort, Name, Gamemode, Game, Version, TagsJson, Map, MapId,
             Players, MaxPlayers, Bots, MaxSpectators, Spectators,
             JoinInProgress, Joinable, HasPassword, Country, AuthMethodsJson, LastSeen, ApiKey);
     }

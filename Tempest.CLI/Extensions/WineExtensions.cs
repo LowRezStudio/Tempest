@@ -81,8 +81,15 @@ internal static class WineExtensions
         return await GetProcessId(filename);
     }
 
-    public static string GetPrefix() =>
-        TempestPathUtility.GetWinePrefixDirectory();
+    public static string GetPrefix()
+    {
+        var envPrefix = Environment.GetEnvironmentVariable("WINEPREFIX");
+        if (!string.IsNullOrEmpty(envPrefix))
+        {
+            return Path.GetFullPath(envPrefix);
+        }
+        return Path.GetFullPath(TempestPathUtility.GetWinePrefixDirectory());
+    }
 
     public static Task WaitForPrefix()
     {

@@ -34,7 +34,11 @@ export interface ServerListing {
 	 */
 	name: string;
 	/**
-	 * @generated from protobuf field: string game = 5
+	 * @generated from protobuf field: string gamemode = 5
+	 */
+	gamemode: string;
+	/**
+	 * @generated from protobuf field: string game = 21
 	 */
 	game: string;
 	/**
@@ -106,7 +110,8 @@ class ServerListing$Type extends MessageType<ServerListing> {
 			{ no: 2, name: "ip", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 3, name: "lobby_port", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
 			{ no: 4, name: "name", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
-			{ no: 5, name: "game", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 5, name: "gamemode", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 21, name: "game", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 6, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{
 				no: 7,
@@ -147,6 +152,7 @@ class ServerListing$Type extends MessageType<ServerListing> {
 		message.ip = "";
 		message.lobbyPort = 0;
 		message.name = "";
+		message.gamemode = "";
 		message.game = "";
 		message.version = "";
 		message.tags = [];
@@ -186,7 +192,10 @@ class ServerListing$Type extends MessageType<ServerListing> {
 				case /* string name */ 4:
 					message.name = reader.string();
 					break;
-				case /* string game */ 5:
+				case /* string gamemode */ 5:
+					message.gamemode = reader.string();
+					break;
+				case /* string game */ 21:
 					message.game = reader.string();
 					break;
 				case /* string version */ 6:
@@ -274,8 +283,9 @@ class ServerListing$Type extends MessageType<ServerListing> {
 		if (message.lobbyPort !== 0) writer.tag(3, WireType.Varint).uint32(message.lobbyPort);
 		/* string name = 4; */
 		if (message.name !== "") writer.tag(4, WireType.LengthDelimited).string(message.name);
-		/* string game = 5; */
-		if (message.game !== "") writer.tag(5, WireType.LengthDelimited).string(message.game);
+		/* string gamemode = 5; */
+		if (message.gamemode !== "")
+			writer.tag(5, WireType.LengthDelimited).string(message.gamemode);
 		/* string version = 6; */
 		if (message.version !== "") writer.tag(6, WireType.LengthDelimited).string(message.version);
 		/* repeated string tags = 7; */
@@ -321,6 +331,8 @@ class ServerListing$Type extends MessageType<ServerListing> {
 				writer.int32(message.authMethods[i]);
 			writer.join();
 		}
+		/* string game = 21; */
+		if (message.game !== "") writer.tag(21, WireType.LengthDelimited).string(message.game);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

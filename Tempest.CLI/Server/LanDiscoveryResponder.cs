@@ -12,37 +12,27 @@ internal sealed class LanDiscoveryResponder(
     ILogger<LanDiscoveryResponder> logger)
     : BackgroundService
 {
-    private const int DiscoveryPort = 50054;
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Task.Yield();
         UdpClient? udpClient = null;
-        UdpClient? hijackClient = null;
         try
         {
             udpClient = new UdpClient();
             udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, DiscoveryPort));
-            logger.LogInformation("LAN Discovery Responder listening on UDP port {Port}", DiscoveryPort);
-
-            hijackClient = new UdpClient();
-            hijackClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            hijackClient.Client.Bind(new IPEndPoint(IPAddress.Any, options.GameServerPort));
-            logger.LogInformation("LAN Discovery Responder hijacked game server UDP port {Port}", options.GameServerPort);
+            udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, options.GameServerPort));
+            logger.LogInformation("LAN Discovery Responder listening on game server UDP port {Port}", options.GameServerPort);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to start LAN Discovery Responder");
+            logger.LogError(ex, "Failed to start LAN Discovery Responder on port {Port}", options.GameServerPort);
             udpClient?.Dispose();
-            hijackClient?.Dispose();
             return;
         }
 
         using (udpClient)
-        using (hijackClient)
         {
-            var udpTask = ReceiveLoop(udpClient, stoppingToken);
-            var hijackTask = ReceiveLoop(hijackClient, stoppingToken);
+            var receiveTask = ReceiveLoop(udpClient, stoppingToken);
 
             _ = Task.Run(async () =>
             {
@@ -50,18 +40,15 @@ internal sealed class LanDiscoveryResponder(
                 {
                     if (state.GetInfoEvent().Info.State.InGame != null)
                     {
-                        if (hijackClient != null)
-                        {
-                            logger.LogInformation("Game server starting, releasing hijacked port {Port}", options.GameServerPort);
-                            hijackClient.Dispose();
-                        }
+                        logger.LogInformation("Game server starting, releasing game server UDP port {Port}", options.GameServerPort);
+                        udpClient.Dispose();
                         break;
                     }
                     await Task.Delay(1000, stoppingToken);
                 }
             }, stoppingToken);
 
-            await Task.WhenAll(udpTask, hijackTask);
+            await receiveTask;
         }
     }
 
@@ -124,7 +111,8 @@ internal sealed class LanDiscoveryResponder(
             Ip = localIp,
             LobbyPort = (uint)options.Port,
             Name = options.Name,
-            Game = options.GameMode ?? "",
+            Gamemode = options.GameMode ?? "",
+            Game = "Paladins",
             Version = options.Version ?? "",
             Players = (uint)info.Players.Count,
             MaxPlayers = (uint)options.MaxPlayers,

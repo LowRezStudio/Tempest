@@ -11,7 +11,8 @@ message ServerListing {
   string ip = 2;
   uint32 lobby_port = 3;
   string name = 4;
-  string game = 5;
+  string gamemode = 5;
+  string game = 21;
   string version = 6;
   repeated string tags = 7;
   optional string map = 8;

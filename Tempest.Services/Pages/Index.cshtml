@@ -74,7 +74,7 @@
     <thead>
         <tr>
             <th scope="col">Name</th>
-            <th scope="col">Game</th>
+            <th scope="col">Gamemode</th>
             <th scope="col">Version</th>
             <th scope="col">Map</th>
             <th scope="col">Players</th>
@@ -96,7 +96,7 @@
         {
             <tr>
                 <td>@server.Name@(server.HasPassword ? " 🔒" : "")</td>
-                <td>@server.Game</td>
+                <td>@server.Gamemode</td>
                 <td>@server.Version</td>
                 <td>@(server.Map ?? "—")</td>
                 <td>@server.Players / @server.MaxPlayers@if (server.Bots > 0) { <text> (+@server.Bots bots)</text> }</td>

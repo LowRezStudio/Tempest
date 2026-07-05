@@ -46,6 +46,10 @@ export interface LobbyEventInfo {
 	 */
 	gamemode: string;
 	/**
+	 * @generated from protobuf field: string game = 10
+	 */
+	game: string;
+	/**
 	 * @generated from protobuf field: bool enable_join_in_progress = 9
 	 */
 	enableJoinInProgress: boolean;
@@ -71,6 +75,7 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 			{ no: 5, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 6, name: "password_required", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
 			{ no: 8, name: "gamemode", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+			{ no: 10, name: "game", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 9, name: "enable_join_in_progress", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
 			{ no: 7, name: "countdown", kind: "message", T: () => LobbyEventCountdown },
 		]);
@@ -83,6 +88,7 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 		message.version = "";
 		message.passwordRequired = false;
 		message.gamemode = "";
+		message.game = "";
 		message.enableJoinInProgress = false;
 		if (value !== undefined) reflectionMergePartial<LobbyEventInfo>(this, message, value);
 		return message;
@@ -125,6 +131,9 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 					break;
 				case /* string gamemode */ 8:
 					message.gamemode = reader.string();
+					break;
+				case /* string game */ 10:
+					message.game = reader.string();
 					break;
 				case /* bool enable_join_in_progress */ 9:
 					message.enableJoinInProgress = reader.bool();
@@ -197,6 +206,8 @@ class LobbyEventInfo$Type extends MessageType<LobbyEventInfo> {
 		/* bool enable_join_in_progress = 9; */
 		if (message.enableJoinInProgress !== false)
 			writer.tag(9, WireType.Varint).bool(message.enableJoinInProgress);
+		/* string game = 10; */
+		if (message.game !== "") writer.tag(10, WireType.LengthDelimited).string(message.game);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

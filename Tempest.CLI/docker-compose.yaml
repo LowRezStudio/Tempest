@@ -1,0 +1,28 @@
+services:
+    tempest-server:
+        build:
+            context: ..
+            dockerfile: Tempest.CLI/Dockerfile
+        container_name: tempest-server
+        security_opt:
+            - label:disable
+        environment:
+            - TEMPEST_VERSION=0.57
+            - TEMPEST_API_KEY=tempest_sk_2931530bc2a442f582df501d5093c16a
+            - TEMPEST_NAME=Tempest Public Server (0.57)
+            - TEMPEST_PUBLIC_SERVER=true
+            - TEMPEST_PORT=50051
+            - TEMPEST_GAME_SERVER_PORT=7000
+            - TEMPEST_DISCOVER=true
+            - WINEDEBUG=-all
+        ports:
+            - "50051:50051/tcp"
+            - "7000:7000/udp"
+        volumes:
+            - data:/app/data
+            - game:/app/game
+        restart: unless-stopped
+
+volumes:
+    data:
+    game:

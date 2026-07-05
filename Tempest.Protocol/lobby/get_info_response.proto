@@ -6,7 +6,8 @@ import "common/auth_method.proto";
 
 message GetInfoResponse {
   string name = 1;
-  string game = 2;
+  string gamemode = 2;
+  string game = 8;
   string version = 3;
   uint32 players = 4;
   uint32 max_players = 5;

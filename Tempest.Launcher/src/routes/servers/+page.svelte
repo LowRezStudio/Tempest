@@ -54,7 +54,7 @@
 			.filter(
 				(server) =>
 					server.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-					server.game.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.gamemode.toLowerCase().includes(searchQuery.toLowerCase()) ||
 					server.map?.toLowerCase().includes(searchQuery.toLowerCase()) ||
 					server.version.toLowerCase().includes(searchQuery.toLowerCase()) ||
 					server.tags.some((tag) =>
@@ -75,10 +75,10 @@
 		return map.displayName;
 	}
 	function findGamemodeName(server: ServerListing) {
-		if (server.game.startsWith("TempestMp.")) {
-			return server.game.slice(server.game.indexOf(".") + 1);
+		if (server.gamemode.startsWith("TempestMp.")) {
+			return server.gamemode.slice(server.gamemode.indexOf(".") + 1);
 		}
-		return server.game;
+		return server.gamemode;
 	}
 
 	const serverCount = $derived(servers.length);
@@ -93,6 +93,9 @@
 	}
 
 	function formatCountryLabel(code: string) {
+		if (code === "COUNTRY_CODE_UNSPECIFIED") {
+			return "";
+		}
 		const flag = toFlagEmoji(code);
 		return flag ? `${flag} ${code}` : code;
 	}
