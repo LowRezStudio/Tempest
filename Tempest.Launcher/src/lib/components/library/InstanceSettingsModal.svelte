@@ -65,7 +65,7 @@
 	// ponytail: check if tgmod is installed using createModsQuery
 	$effect(() => {
 		if (open && modsQuery.data && !hasInitializedConsole) {
-			const isInstalled = modsQuery.data.some((m) => m.Id === "tgmod");
+			const isInstalled = modsQuery.data.some((m) => m.OriginalPath.includes("Tempest Mod.tempest") || m.Name === "Tempest Mod (Console + Multiplayer)");
 			editEnableConsole = isInstalled;
 			initialEnableConsole = isInstalled;
 			hasInitializedConsole = true;
@@ -143,7 +143,7 @@
 					const modFile = await resolveResource("Tempest Mod.tempest");
 					await installMod(editPath, modFile, true, true);
 				} else {
-					await removeMod(editPath, "Tempest Mod (Console)");
+					await removeMod(editPath, "Tempest Mod (Console + Multiplayer)");
 				}
 				queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
 			} catch (error) {
