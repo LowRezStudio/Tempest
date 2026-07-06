@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { Box, ChevronDown, ChevronUp, Megaphone, Play, ScrollText, Square, Terminal } from "@lucide/svelte";
+	import { Box, ChevronDown, ChevronUp, Library, Megaphone, Play, ScrollText, Square, Terminal } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { m } from "$lib/paraglide/messages";
 	import { commandsPageOpen } from "$lib/stores/ui.svelte";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
-	import { lastLaunchedInstance, lastLaunchedInstanceId } from "$lib/stores/instance.svelte";
+	import { lastLaunchedInstance, instanceMap } from "$lib/stores/instance.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { onMount } from "svelte";
 
@@ -31,9 +31,13 @@
 		else releasenotesMinimized.value = next;
 	}
 
+	let currentInstance = $derived(
+		lastLaunchedInstance.value ?? Object.values(instanceMap.value).find(Boolean),
+	);
+
 	let isRunning = $derived(
-		lastLaunchedInstance.value ?
-			processesList.value.some((p) => p.instance.id === lastLaunchedInstance.value?.id)
+		currentInstance ?
+			processesList.value.some((p) => p.instance.id === currentInstance.id)
 		:	false,
 	);
 
@@ -55,12 +59,12 @@
 	);
 
 	function handleLaunchToggle() {
-		if (!lastLaunchedInstance.value) return;
+		if (!currentInstance) return;
 		if (isRunning) {
-			killGameMutation.mutate(lastLaunchedInstance.value);
+			killGameMutation.mutate(currentInstance);
 			return;
 		}
-		launchGameMutation.mutate(lastLaunchedInstance.value);
+		launchGameMutation.mutate(currentInstance);
 	}
 
 	function clearActionError() {
@@ -75,7 +79,7 @@
 
 <div class="fixed bottom-6 left-6 right-6 z-50 flex items-end justify-between gap-4">
 	<div class="w-[380px] flex flex-col gap-2">
-		<div class="card bg-base-200/95 shadow-xl backdrop-blur-sm">
+		<div class="card bg-base-200/95 shadow-xl backdrop-blur-sm hover:brightness-90 transition-all duration-150">
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="card-body p-3 cursor-pointer select-none"
@@ -150,7 +154,7 @@
 				{/if}
 			</div>
 		</div>
-		<div class="card bg-base-200/95 shadow-xl backdrop-blur-sm">
+		<div class="card bg-base-200/95 shadow-xl backdrop-blur-sm hover:brightness-90 transition-all duration-150">
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="card-body p-3 cursor-pointer select-none"
@@ -188,11 +192,12 @@
 					<p class="text-xs opacity-90 leading-relaxed">
 						{m.home_announcement_message()}
 					</p>
-					{/if}
-			</div>
+	{/if}
+</div>
 		</div>
 
-		<div class="card bg-base-200/95 shadow-xl backdrop-blur-sm">
+
+		<div class="card bg-base-200/95 shadow-xl backdrop-blur-sm hover:brightness-90 transition-all duration-150">
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="card-body p-3 cursor-pointer select-none"
@@ -246,10 +251,10 @@
 		</div>
 	</div>
 
-	{#if lastLaunchedInstance.value}
+	{#if currentInstance}
 		<div class="join shadow-lg">
 			<button
-			class="btn btn-lg join-item gap-2"
+			class="btn btn-lg join-item gap-2 min-h-14"
 				class:btn-accent={!isRunning}
 				class:btn-error={isRunning}
 				disabled={isLaunching || isKilling}
@@ -273,11 +278,11 @@
 						: isRunning ? m.home_stop_game()
 						: m.home_run_game()}
 					</span>
-					<span class="text-xs opacity-80">{lastLaunchedInstance.value.label}</span>
+					<span class="text-xs opacity-80">{currentInstance.label}</span>
 				</div>
 			</button>
 
-			<a href={`/instance/${lastLaunchedInstanceId.value}`} class="btn btn-lg join-item">
+			<a href={`/instance/${currentInstance.id}`} class="btn btn-lg join-item min-h-14">
 				<Box size={20} />
 			</a>
 		</div>
@@ -291,5 +296,15 @@
 				</div>
 			</div>
 		{/if}
+	{:else}
+		<div class="join shadow-lg">
+			<a href="/library" class="btn btn-lg btn-accent join-item gap-2 min-h-14">
+				<Library size={20} />
+				<div class="flex flex-col items-start">
+					<span class="font-semibold text-sm">{m.home_get_started()}</span>
+					<span class="text-xs opacity-80">{m.home_get_started_subtitle()}</span>
+				</div>
+			</a>
+		</div>
 	{/if}
 </div>

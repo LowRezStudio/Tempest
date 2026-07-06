@@ -79,10 +79,10 @@
 								<Boxes size={48} />
 							{/snippet}
 							{#snippet actions()}
-								<button
-									class="btn btn-accent gap-2"
-									onclick={() => instanceWizardOpen.value = true}
-								>
+							<button
+								class="btn btn-accent gap-2"
+								onclick={() => instanceWizardOpen.value = true}
+							>
 									<Plus size={20} />
 									{m.library_create_first()}
 								</button>

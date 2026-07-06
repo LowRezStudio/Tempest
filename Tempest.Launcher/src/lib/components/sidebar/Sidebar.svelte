@@ -1,17 +1,5 @@
 <script lang="ts">
-	import {
-		Box,
-		Compass,
-		Download,
-		House,
-		Library,
-		Plus,
-		ScrollText,
-		Server,
-		Settings,
-		SquareTerminal,
-		Terminal,
-	} from "@lucide/svelte";
+	import { Box, Compass, Download, House, Library, Plus, ScrollText, Server, Settings, SquareTerminal, Terminal } from "@lucide/svelte";
 	import { page } from "$app/state";
 	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";

@@ -50,6 +50,10 @@
 	let detectionError = $state("");
 	let hasDetected = $state(false);
 
+	let loginMethod = $state<"steam" | "epic" | "hirez">();
+	let showLoginPrompt = $state(false);
+	let selectedArgs = $state<string[]>([]);
+
 	const selectedVersion = $derived(flatVersions.find((v) => v.id === selectedVersionId));
 	const selectedAppId = $derived(selectedVersion?.appId ?? 444090);
 	const isPts = $derived(
@@ -132,6 +136,16 @@
 
 		const instancePath = await getInstancePath();
 
+		if (selectedTab === "folder" && !selectedVersionId) {
+			await performDetection(instancePath);
+			if (!selectedVersionId) return;
+		}
+
+		if (selectedVersion?.version === "8.1" && !loginMethod) {
+			showLoginPrompt = true;
+			return;
+		}
+
 		if (selectedTab === "download") {
 			if (!selectedVersion?.version || !supportsCloudDownload) return;
 
@@ -144,7 +158,7 @@
 				path: instancePath,
 				launchOptions: {
 					dllList: [],
-					args: [],
+					args: selectedArgs,
 					noDefaultArgs: false,
 					log: false,
 				},
@@ -163,11 +177,6 @@
 			return;
 		}
 
-		if (selectedTab === "folder" && !selectedVersionId) {
-			await performDetection(instancePath);
-			if (!selectedVersionId) return;
-		}
-
 		const newInstance: Instance = {
 			id: crypto.randomUUID(),
 			label:
@@ -181,7 +190,7 @@
 			path: instancePath,
 			launchOptions: {
 				dllList: [],
-				args: [],
+				args: selectedArgs,
 				noDefaultArgs: false,
 				log: false,
 			},
@@ -203,7 +212,7 @@
 		}
 
 		open = false;
-	}
+	}	
 
 	$effect(() => {
 		if (!open) {
@@ -215,6 +224,9 @@
 			enableConsole = true;
 			hasDetected = false;
 			detectionError = "";
+			loginMethod = undefined;
+			showLoginPrompt = false;
+			selectedArgs = [];
 		}
 	});
 
@@ -249,6 +261,12 @@
 		setTimeout(() => {
 			copyStatus = "idle";
 		}, 2000);
+	}
+
+	function handleLoginSelect(method: "steam" | "epic" | "hirez") {
+		loginMethod = method;
+		if (method === "steam") selectedArgs.push("-steam");
+		else if (method === "epic") selectedArgs.push("-epic");
 	}
 
 	async function handleOpenWiki() {
@@ -391,6 +409,51 @@
 							</span>
 						</div>
 					{/if}
+				</div>
+			{/if}
+
+			{#if showLoginPrompt}
+				<div class="bg-base-300/30 rounded-box p-4">
+					<h4 class="font-semibold text-sm mb-1">{m.wizard_login_prompt_title()}</h4>
+					<p class="text-xs opacity-70 mb-3">{m.wizard_login_prompt_desc()}</p>
+					<div class="flex flex-col gap-2">
+						<button
+							type="button"
+							class="btn justify-start gap-3 h-12"
+							class:btn-accent={loginMethod === "steam"}
+							class:btn-ghost={loginMethod !== "steam"}
+							onclick={() => handleLoginSelect("steam")}
+						>
+							<div class="text-left">
+								<div class="font-semibold text-sm">{m.wizard_login_steam()}</div>
+								<div class="text-xs opacity-60">{m.wizard_login_steam_desc()}</div>
+							</div>
+						</button>
+						<button
+							type="button"
+							class="btn justify-start gap-3 h-12"
+							class:btn-accent={loginMethod === "epic"}
+							class:btn-ghost={loginMethod !== "epic"}
+							onclick={() => handleLoginSelect("epic")}
+						>
+							<div class="text-left">
+								<div class="font-semibold text-sm">{m.wizard_login_epic()}</div>
+								<div class="text-xs opacity-60">{m.wizard_login_epic_desc()}</div>
+							</div>
+						</button>
+						<button
+							type="button"
+							class="btn justify-start gap-3 h-12"
+							class:btn-accent={loginMethod === "hirez"}
+							class:btn-ghost={loginMethod !== "hirez"}
+							onclick={() => handleLoginSelect("hirez")}
+						>
+							<div class="text-left">
+								<div class="font-semibold text-sm">{m.wizard_login_hirez()}</div>
+								<div class="text-xs opacity-60">{m.wizard_login_hirez_desc()}</div>
+							</div>
+						</button>
+					</div>
 				</div>
 			{/if}
 
