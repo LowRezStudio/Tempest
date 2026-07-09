@@ -60,7 +60,7 @@ ENV WINEPREFIX="/app/wine-prefix-template"
 ENV WINEDLLOVERRIDES="mscoree,mshtml="
 ENV WINEDEBUG="-all"
 RUN mkdir -p /app/wine-prefix-template && \
-    xvfb-run --auto-servernum /app/publish/Tempest.CLI wine init
+    wine wineboot --init
 
 # =========================================================
 # Stage 2: Headless Runner Image
