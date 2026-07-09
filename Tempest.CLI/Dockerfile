@@ -4,8 +4,8 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
 WORKDIR /src
 
-# Install required build tools for Native AOT on Alpine, plus gcompat (for protoc), utilities, and wine (to pre-initialize the prefix)
-RUN apk add --no-cache clang build-base zlib-dev gcompat xz curl wine freetype libgcc libstdc++
+# Install required build tools for Native AOT on Alpine, plus gcompat (for protoc), utilities, wine (to pre-initialize the prefix), and xvfb-run (headless X server for wine)
+RUN apk add --no-cache clang build-base zlib-dev gcompat xz curl wine freetype libgcc libstdc++ xvfb-run gnutls
 
 # Download and install Zig 0.15.2
 RUN mkdir -p /opt/zig && \
@@ -60,7 +60,7 @@ ENV WINEPREFIX="/app/wine-prefix-template"
 ENV WINEDLLOVERRIDES="mscoree,mshtml="
 ENV WINEDEBUG="-all"
 RUN mkdir -p /app/wine-prefix-template && \
-    /app/publish/Tempest.CLI wine init
+    xvfb-run --auto-servernum /app/publish/Tempest.CLI wine init
 
 # =========================================================
 # Stage 2: Headless Runner Image
@@ -68,8 +68,9 @@ RUN mkdir -p /app/wine-prefix-template && \
 FROM alpine:3.20
 WORKDIR /app
 
-# Install Wine (for running Windows game servers), jq (for parsing JSON), bash (for entrypoint), and dependencies
-RUN apk add --no-cache wine jq bash freetype gcompat libgcc libstdc++ curl icu-libs
+# Install Wine (for running Windows game servers), jq (for parsing JSON), bash (for entrypoint),
+# xvfb-run (headless X server so Wine can create windows without a display), gnutls (encryption), and dependencies
+RUN apk add --no-cache wine jq bash freetype gcompat libgcc libstdc++ curl icu-libs xvfb-run gnutls
 
 # Copy AOT-compiled binary, native libraries (.so), and resources
 COPY --from=build /app/publish/ /app/

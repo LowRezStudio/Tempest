@@ -8,6 +8,16 @@ export WINEDLLOVERRIDES="mscoree,mshtml="
 export WINEDEBUG="-all"
 mkdir -p "$HOME"
 
+# Start a virtual X framebuffer so Wine can create windows headlessly.
+# Without this, Wine fails with "no driver could be loaded" and game server
+# processes crash immediately on startup.
+export DISPLAY=:99
+Xvfb :99 -screen 0 1x1x8 -nolisten tcp -noreset +extension GLX &
+XVFB_PID=$!
+
+# Give Xvfb a moment to start
+sleep 0.5
+
 # Deploy pre-initialized Wine prefix template if not present in the volume
 if [ ! -d "$WINEPREFIX/drive_c" ] && [ -d "/app/wine-prefix-template" ]; then
     echo "=== Deploying pre-initialized Wine prefix template ==="
