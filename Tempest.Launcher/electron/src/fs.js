@@ -1,5 +1,5 @@
-const { ipcMain } = require("electron");
-const fs = require("node:fs");
+import fs from "node:fs";
+import { ipcMain } from "electron";
 
 ipcMain.handle("fs:exists", (_event, { path: p }) => fs.existsSync(p));
 

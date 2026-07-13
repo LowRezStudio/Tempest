@@ -1,4 +1,4 @@
-const { ipcMain, dialog, BrowserWindow } = require("electron");
+import { ipcMain, dialog, BrowserWindow } from "electron";
 
 ipcMain.handle("dialog:open", async (event, { options }) => {
 	const win = BrowserWindow.fromWebContents(event.sender);

@@ -1,5 +1,6 @@
-const { ipcMain, app } = require("electron");
-const path = require("node:path");
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { ipcMain, app } from "electron";
 
 const sqliteDbs = new Map();
 
@@ -11,7 +12,6 @@ function resolveDbPath(connString) {
 
 function ensureDb(connString) {
 	if (!sqliteDbs.has(connString)) {
-		const { DatabaseSync } = require("node:sqlite");
 		sqliteDbs.set(connString, new DatabaseSync(resolveDbPath(connString)));
 	}
 	return sqliteDbs.get(connString);

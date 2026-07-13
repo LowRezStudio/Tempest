@@ -1,5 +1,6 @@
-const { ipcMain } = require("electron");
-const { autoUpdater } = require("electron-updater");
+import { ipcMain } from "electron";
+import electronUpdater from "electron-updater";
+const { autoUpdater } = electronUpdater;
 
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = false;

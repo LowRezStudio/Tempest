@@ -1,6 +1,6 @@
-const { ipcMain, app } = require("electron");
-const path = require("node:path");
-const os = require("node:os");
+import os from "node:os";
+import path from "node:path";
+import { ipcMain, app } from "electron";
 
 ipcMain.handle("path:join", (_event, { paths }) => path.join(...paths));
 ipcMain.handle("path:dirname", (_event, { path: p }) => path.dirname(p));

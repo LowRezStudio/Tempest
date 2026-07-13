@@ -1,16 +1,16 @@
-const { app, BrowserWindow } = require("electron");
-const path = require("node:path");
-const shellMod = require("./shell");
-require("./fs");
-require("./dialog");
-require("./opener");
-require("./os");
-require("./path");
-require("./app");
-require("./window");
-require("./scopes");
-require("./sql");
-require("./updater");
+import path from "node:path";
+import { app, BrowserWindow, shell } from "electron";
+import { activeChildren } from "./shell.js";
+import "./fs.js";
+import "./dialog.js";
+import "./opener.js";
+import "./os.js";
+import "./path.js";
+import "./app.js";
+import "./window.js";
+import "./scopes.js";
+import "./sql.js";
+import "./updater.js";
 
 let mainWindow = null;
 
@@ -23,18 +23,33 @@ function createWindow() {
 		minWidth: 1024,
 		minHeight: 800,
 		title: "Tempest",
+		autoHideMenuBar: true,
 		webPreferences: {
-			preload: path.join(__dirname, "preload.js"),
+			preload: path.join(import.meta.dirname, "preload.cjs"),
 			contextIsolation: true,
 			nodeIntegration: false,
-			sandbox: false,
+			sandbox: true,
+			devTools: !app.isPackaged,
 		},
+	});
+
+	mainWindow.webContents.on("will-navigate", (event, url) => {
+		const allowed = app.isPackaged ? ["file://"] : ["http://localhost:1420"];
+		if (!allowed.some((p) => url.startsWith(p))) {
+			event.preventDefault();
+			shell.openExternal(url);
+		}
+	});
+
+	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+		shell.openExternal(url);
+		return { action: "deny" };
 	});
 
 	if (!app.isPackaged) {
 		void mainWindow.loadURL("http://localhost:1420");
 	} else {
-		void mainWindow.loadFile(path.join(__dirname, "..", "build", "index.html"));
+		void mainWindow.loadFile(path.join(import.meta.dirname, "..", "build", "index.html"));
 	}
 
 	mainWindow.on("close", async (e) => {
@@ -50,8 +65,6 @@ function createWindow() {
 	});
 }
 
-app.commandLine.appendSwitch("js-flags", "--experimental-sqlite");
-
 app.whenReady()
 	.then(() => {
 		createWindow();
@@ -63,12 +76,12 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
-	for (const [, child] of shellMod.activeChildren) {
+	for (const [, child] of activeChildren) {
 		try {
 			child.kill();
 		} catch {
 			/* ignore */
 		}
 	}
-	shellMod.activeChildren.clear();
+	activeChildren.clear();
 });

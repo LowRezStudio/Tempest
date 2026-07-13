@@ -1,7 +1,7 @@
-const { ipcMain } = require("electron");
-const path = require("node:path");
-const fs = require("node:fs");
-const { spawn, execFile } = require("node:child_process");
+import { spawn, execFile } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { ipcMain } from "electron";
 
 const activeChildren = new Map();
 let nextPid = 1;
@@ -97,4 +97,4 @@ ipcMain.handle("which", (_event, { name }) => {
 	return null;
 });
 
-module.exports = { activeChildren };
+export { activeChildren };

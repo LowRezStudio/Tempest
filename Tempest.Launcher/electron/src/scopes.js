@@ -1,4 +1,4 @@
-const { ipcMain } = require("electron");
+import { ipcMain } from "electron";
 
 ipcMain.handle("scopes_allow_directory", () => {});
 ipcMain.handle("scopes_allow_file", () => {});

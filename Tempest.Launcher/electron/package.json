@@ -2,11 +2,11 @@
 	"name": "tempest-launcher-electron",
 	"version": "1.0.0-26",
 	"private": true,
-	"type": "commonjs",
+	"type": "module",
 	"main": "src/main.js",
 	"scripts": {
-		"dev": "node scripts/dev.mjs",
-		"build": "node scripts/build.mjs"
+		"dev": "node scripts/dev.js",
+		"build": "node scripts/build.js"
 	},
 	"dependencies": {
 		"electron-updater": "^6.0.0"

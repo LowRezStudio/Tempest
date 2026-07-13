@@ -1,4 +1,4 @@
-const { ipcMain, app } = require("electron");
+import { ipcMain, app } from "electron";
 
 ipcMain.handle("app:version", () => app.getVersion());
 ipcMain.handle("relaunch", () => {

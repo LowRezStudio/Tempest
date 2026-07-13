@@ -1,5 +1,5 @@
-const { ipcMain } = require("electron");
-const os = require("node:os");
+import os from "node:os";
+import { ipcMain } from "electron";
 
 ipcMain.handle("os:platform", () => {
 	switch (process.platform) {
