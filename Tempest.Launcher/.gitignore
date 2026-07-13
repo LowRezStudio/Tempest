@@ -9,6 +9,10 @@ node_modules
 /build
 target
 
+# Electron
+dist/
+electron/resources/
+
 # OS
 .DS_Store
 Thumbs.db

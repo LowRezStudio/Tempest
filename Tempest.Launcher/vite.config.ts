@@ -1,10 +1,29 @@
+import path from "node:path";
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+
+const electronAliases: Record<string, string> = process.env.ELECTRON
+	? {
+			// Most specific paths first — Vite prefix-matches and appends the remainder
+			"@tauri-apps/api/window": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/api/path": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/api/core": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/api/app": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/plugin-updater": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/plugin-shell": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/plugin-opener": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/plugin-os": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/plugin-http": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/plugin-fs": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/plugin-sql": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/plugin-dialog": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/api": path.resolve("src/lib/electron/bridge"),
+		}
+	: {};
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -23,11 +42,11 @@ export default defineConfig({
 		__BUILD_DATE__: JSON.stringify(new Date().toISOString()),
 	},
 
-	// Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-	//
-	// 1. prevent vite from obscuring rust errors
+	resolve: {
+		alias: electronAliases,
+	},
+
 	clearScreen: false,
-	// 2. tauri expects a fixed port, fail if that port is not available
 	server: {
 		port: 1420,
 		strictPort: true,
@@ -40,7 +59,6 @@ export default defineConfig({
 				}
 			: undefined,
 		watch: {
-			// 3. tell vite to ignore watching `src-tauri`
 			ignored: ["**/src-tauri/**"],
 		},
 	},

@@ -1,0 +1,29 @@
+appId: com.lowrezstudio.tempest
+productName: Tempest Launcher
+directories:
+    output: dist
+files:
+    - ../build/**/*
+extraResources:
+    - from: resources/binaries
+      to: binaries
+    - from: ../src-tauri/resources
+      to: .
+win:
+    target: msi
+    icon: ../src-tauri/icons/icon.ico
+mac:
+    target: dmg
+    icon: ../src-tauri/icons/icon.icns
+    category: public.app-category.games
+linux:
+    target:
+        - AppImage
+        - deb
+        - rpm
+    icon: ../src-tauri/icons
+    category: Game
+publish:
+    provider: github
+    owner: LowRezStudio
+    repo: Tempest

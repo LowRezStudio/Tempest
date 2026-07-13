@@ -1,0 +1,19 @@
+{
+	"name": "tempest-launcher-electron",
+	"version": "1.0.0-26",
+	"private": true,
+	"type": "commonjs",
+	"main": "src/main.js",
+	"scripts": {
+		"dev": "node scripts/dev.mjs",
+		"build": "node scripts/build.mjs"
+	},
+	"dependencies": {
+		"electron-updater": "^6.0.0"
+	},
+	"devDependencies": {
+		"dax": "^0.48.3",
+		"electron": "^43.0.0",
+		"electron-builder": "^26.0.0"
+	}
+}
