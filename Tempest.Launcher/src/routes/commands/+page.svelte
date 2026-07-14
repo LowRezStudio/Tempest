@@ -50,11 +50,6 @@
 	}
 </script>
 
-<svelte:head>
-	<title>Commands</title>
-	<meta name="description" content="In-game console command reference" />
-</svelte:head>
-
 <div class="flex flex-col h-full bg-base-100">
 	<Header title={m.commands_page_title()}>
 		{#snippet icon()}

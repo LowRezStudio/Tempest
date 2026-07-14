@@ -18,6 +18,7 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon}>
+	<title>Tempest Launcher</title>
 </svelte:head>
 
 <QueryClientProvider client={queryClient}>

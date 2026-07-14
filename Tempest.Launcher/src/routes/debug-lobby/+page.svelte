@@ -165,10 +165,6 @@ Makes it possible to add players, vote maps and select champions
 	});
 </script>
 
-<svelte:head>
-	<title>Lobby DEBUG</title>
-</svelte:head>
-
 <div class="flex flex-col h-full bg-base-100 p-6">
 	<div class="flex gap-3 items-center">
 		<button onclick={createNewPlayer} class="btn">New player</button>

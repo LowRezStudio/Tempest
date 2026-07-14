@@ -120,10 +120,6 @@
 	}
 </script>
 
-<svelte:head>
-	<title>{m.serverlist_title()}</title>
-</svelte:head>
-
 <div class="flex flex-col h-full bg-base-100">
 	<Header
 		title={m.serverlist_title()}

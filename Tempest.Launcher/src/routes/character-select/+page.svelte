@@ -16,10 +16,6 @@
 	}
 </script>
 
-<svelte:head>
-	<title>Character Selection</title>
-</svelte:head>
-
 <div class="h-screen">
 	<ChampionSelect onselect={handleChampionSelect} />
 </div>

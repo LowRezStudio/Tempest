@@ -134,10 +134,6 @@
 	}
 </script>
 
-<svelte:head>
-	<title>{m.lobby_title()}</title>
-</svelte:head>
-
 <div class="flex flex-col h-full bg-base-100">
 	{#if isInChampionSelect.value}
 		<!-- TODO: Remove 0.57 placeholder -->
