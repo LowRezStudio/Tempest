@@ -4,7 +4,7 @@
 	import "@fontsource-variable/ubuntu-sans-mono";
 	import { Tooltip } from "bits-ui";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
-	import favicon from "$lib/assets/favicon.ico";
+	import favicon from "$lib/assets/favicon.ico?url";
 	import AppShell from "$lib/components/layout/AppShell.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 
@@ -12,7 +12,6 @@
 	const queryClient = new QueryClient();
 
 	$effect(() => {
-		// ponytail: check for updates silently on startup
 		updaterStore.checkForUpdates(true);
 	});
 </script>
