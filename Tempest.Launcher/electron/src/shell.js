@@ -46,10 +46,18 @@ ipcMain.handle("shell:spawn", (event, { program, args, options, sidecar }) => {
 	return { pid: id };
 });
 
-ipcMain.handle("shell:execute", (_event, { program, args, options }) => {
+ipcMain.handle("shell:execute", (_event, { program, args, options, sidecar }) => {
+	let resolvedProgram = program;
+	if (sidecar) {
+		const ext = process.platform === "win32" ? ".exe" : "";
+		resolvedProgram = path.join(process.resourcesPath, program + ext);
+		if (!fs.existsSync(resolvedProgram)) {
+			resolvedProgram = path.join(process.resourcesPath, "binaries", program + ext);
+		}
+	}
 	return new Promise((resolve) => {
 		execFile(
-			program,
+			resolvedProgram,
 			args ?? [],
 			{
 				...options,

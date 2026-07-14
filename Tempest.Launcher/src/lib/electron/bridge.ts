@@ -116,6 +116,7 @@ export class Command {
 			program: this.program,
 			args: this.args,
 			options: this.options,
+			sidecar: this._sidecar,
 		});
 	}
 }
