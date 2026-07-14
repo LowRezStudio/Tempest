@@ -1,28 +1,18 @@
+import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { stdin } from "node:process";
+import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
-import $ from "dax";
 
-const rl = createInterface({ input: stdin });
+const rl = createInterface({ input: stdin, output: stdout });
 const ask = (q, d) => rl.question(d ? `${q} [${d}]: ` : `${q}: `).then((a) => a.trim() || d || "");
-
-async function multiline(q) {
-	console.log(`\n${q} (empty line to finish):\n`);
-	const lines = [];
-	while (true) {
-		const line = await rl.question("");
-		if (!line.trim()) break;
-		lines.push(line);
-	}
-	return lines.join("\n");
-}
+const confirm = (q) => rl.question(`${q} [y/N]: `).then((a) => a.trim().toLowerCase() === "y");
 
 async function main() {
-	const pkg = JSON.parse(readFileSync("Tempest.Launcher/package.json", "utf8"));
+	const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 	const cur = pkg.version;
 
-	$.log("=== Tempest Version Bump ===\n");
-	$.log(`Current version: ${cur}\n`);
+	console.log("=== Tempest Version Bump ===\n");
+	console.log(`Current version: ${cur}`);
 
 	const dash = cur.lastIndexOf("-");
 	const suggested =
@@ -30,77 +20,78 @@ async function main() {
 			? `${cur.slice(0, dash)}-${Number(cur.slice(dash + 1)) + 1}`
 			: cur;
 
+	console.log(`Suggested: ${suggested}\n`);
+
 	const ver = await ask("New version", suggested);
-	if (!ver) return ($.log("Aborted."), rl.close());
+	if (!ver) return (console.log("Aborted."), rl.close());
 
-	const notes = await multiline("Enter patch notes");
-	if (!notes) return ($.log("Aborted."), rl.close());
+	const notes = await ask("Patch notes");
+	if (!notes) return (console.log("Aborted."), rl.close());
 
-	$.log(`\n--- Summary ---`);
-	$.log(`Version: ${cur} → ${ver}`);
-	$.log("Patch notes:");
-	$.log(notes);
-	$.log("---------------\n");
+	console.log("\n--- Summary ---");
+	console.log(`Version: ${cur} -> ${ver}`);
+	console.log(`Notes: ${notes}\n`);
 
-	if (!(await $.confirm("Proceed with bump?"))) return ($.log("Aborted."), rl.close());
+	if (!(await confirm("Proceed with bump?"))) return (console.log("Aborted."), rl.close());
 
 	pkg.version = ver;
-	writeFileSync("Tempest.Launcher/package.json", `${JSON.stringify(pkg, null, "\t")}\n`);
+	writeFileSync("package.json", `${JSON.stringify(pkg, null, "\t")}\n`);
+	console.log("  updated package.json");
 
-	const tauri = JSON.parse(readFileSync("Tempest.Launcher/src-tauri/tauri.conf.json", "utf8"));
+	const tauri = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
 	tauri.version = ver;
-	writeFileSync(
-		"Tempest.Launcher/src-tauri/tauri.conf.json",
-		`${JSON.stringify(tauri, null, "\t")}\n`,
-	);
+	writeFileSync("src-tauri/tauri.conf.json", `${JSON.stringify(tauri, null, "\t")}\n`);
+	console.log("  updated src-tauri/tauri.conf.json");
 
-	const cargoPath = "Tempest.Launcher/src-tauri/Cargo.toml";
+	const cargoPath = "src-tauri/Cargo.toml";
 	let cargo = readFileSync(cargoPath, "utf8");
 	if (!cargo.includes(`version = "${cur}"`)) {
-		$.logError("ERROR: version not found in Cargo.toml");
+		console.error(`ERROR: version not found in ${cargoPath}`);
 		process.exit(1);
 	}
 	writeFileSync(cargoPath, cargo.replace(`version = "${cur}"`, `version = "${ver}"`));
+	console.log("  updated src-tauri/Cargo.toml");
 
-	const lockPath = "Tempest.Launcher/src-tauri/Cargo.lock";
-	let lock = readFileSync(lockPath, "utf8");
-	const marker = `name = "tempest-launcher"\nversion = "${cur}"`;
-	if (!lock.includes(marker)) {
-		$.logError("ERROR: version not found in Cargo.lock");
-		process.exit(1);
-	}
-	writeFileSync(lockPath, lock.replace(marker, `name = "tempest-launcher"\nversion = "${ver}"`));
+	const lockPath = "src-tauri/Cargo.lock";
+	try {
+		let lock = readFileSync(lockPath, "utf8");
+		const markers = [`name = "tempest-launcher"\nversion = "${cur}"`];
+		for (const m of markers) {
+			if (lock.includes(m)) lock = lock.replace(m, m.replace(`"${cur}"`, `"${ver}"`));
+		}
+		writeFileSync(lockPath, lock);
+		console.log("  updated src-tauri/Cargo.lock");
+	} catch {}
 
-	const electronPkg = JSON.parse(readFileSync("Tempest.Launcher/electron/package.json", "utf8"));
+	const electronPkg = JSON.parse(readFileSync("electron/package.json", "utf8"));
 	electronPkg.version = ver;
-	writeFileSync(
-		"Tempest.Launcher/electron/package.json",
-		`${JSON.stringify(electronPkg, null, "\t")}\n`,
-	);
+	writeFileSync("electron/package.json", `${JSON.stringify(electronPkg, null, "\t")}\n`);
+	console.log("  updated electron/package.json");
 
-	$.log("✓ Files updated");
+	console.log("\nAll files updated.\n");
 
 	const tag = `v${ver}`;
-	await $`git add -A`;
-	await $`git commit -F -`.stdin(`chore: bump to ${tag}\n\n${notes}`);
-	$.log("✓ Committed");
-	await $`git tag -a ${tag} -F -`.stdin(notes);
-	$.log(`✓ Tagged ${tag}`);
+	const msg = `chore: bump to ${tag}\n\n${notes}`;
+	execSync("git add -A", { stdio: "inherit" });
+	execSync("git commit -F -", { input: msg, stdio: ["pipe", "inherit", "inherit"] });
+	console.log("  committed");
+	execSync(`git tag -a ${tag} -F -`, { input: notes, stdio: ["pipe", "inherit", "inherit"] });
+	console.log(`  tagged ${tag}`);
 
-	if (await $.confirm("Push commit and tag to origin?")) {
-		await $`git push`;
-		await $`git push origin ${tag}`;
-		$.log("✓ Pushed");
+	if (await confirm("Push commit and tag to origin?")) {
+		execSync("git push", { stdio: "inherit" });
+		execSync(`git push origin ${tag}`, { stdio: "inherit" });
+		console.log("  pushed");
 	} else {
-		$.log("Skipped push. Run:");
-		$.log(`  git push && git push origin ${tag}`);
+		console.log("\nSkipped push. To push later:");
+		console.log(`  git push && git push origin ${tag}`);
 	}
 
-	$.log("\nDone!");
+	console.log("\nDone!");
 	rl.close();
 }
 
 main().catch((e) => {
-	$.logError(e);
+	console.error(e);
 	process.exit(1);
 });
