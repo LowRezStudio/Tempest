@@ -25,10 +25,6 @@
 		"Liberation Mono", "Courier New", monospace;
 }
 
-* {
-	@apply select-text;
-}
-
 @utility link {
 	@apply text-primary;
 }

@@ -1,5 +1,6 @@
 import path from "node:path";
 import { app, BrowserWindow, shell } from "electron";
+import serve from "electron-serve";
 import { activeChildren } from "./shell.js";
 import "./fs.js";
 import "./dialog.js";
@@ -16,6 +17,8 @@ let mainWindow = null;
 
 process.chdir(process.cwd());
 
+const loadURL = serve({ directory: "build" });
+
 function createWindow() {
 	mainWindow = new BrowserWindow({
 		width: 1280,
@@ -29,12 +32,12 @@ function createWindow() {
 			contextIsolation: true,
 			nodeIntegration: false,
 			sandbox: true,
-			devTools: !app.isPackaged,
+			devTools: true,
 		},
 	});
 
 	mainWindow.webContents.on("will-navigate", (event, url) => {
-		const allowed = app.isPackaged ? ["file://"] : ["http://localhost:1420"];
+		const allowed = app.isPackaged ? ["app://"] : ["http://localhost:1420"];
 		if (!allowed.some((p) => url.startsWith(p))) {
 			event.preventDefault();
 			void shell.openExternal(url);
@@ -49,7 +52,7 @@ function createWindow() {
 	if (!app.isPackaged) {
 		void mainWindow.loadURL("http://localhost:1420");
 	} else {
-		void mainWindow.loadFile(path.join(import.meta.dirname, "..", "build", "index.html"));
+		void loadURL(mainWindow);
 	}
 
 	mainWindow.on("close", async (e) => {

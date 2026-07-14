@@ -2,6 +2,11 @@
 	"name": "tempest-launcher-electron",
 	"version": "1.0.0-26",
 	"private": true,
+	"homepage": "https://github.com/LowRezStudio/Tempest",
+	"author": {
+		"name": "LowRezStudio",
+		"email": "dev@lowrez.studio"
+	},
 	"type": "module",
 	"main": "src/main.js",
 	"scripts": {
@@ -9,6 +14,7 @@
 		"build": "node scripts/build.js"
 	},
 	"dependencies": {
+		"electron-serve": "^3.0.1",
 		"electron-updater": "^6.0.0"
 	},
 	"devDependencies": {

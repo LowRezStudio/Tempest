@@ -131,6 +131,9 @@ importers:
 
   electron:
     dependencies:
+      electron-serve:
+        specifier: ^3.0.1
+        version: 3.0.1
       electron-updater:
         specifier: ^6.0.0
         version: 6.8.9
@@ -1346,6 +1349,10 @@ packages:
 
   electron-publish@26.15.3:
     resolution: {integrity: sha512-g/2bn8YTavY4cuS5F+jOS7zmZbXXBV8KZ8yHKfJjFPoKtzBqrpCdNPxBd3tqdBwP7BVd0lGzf7Bk2s0KesWZ4Q==}
+
+  electron-serve@3.0.1:
+    resolution: {integrity: sha512-o40R/CfuxT4ccpD3kK2enFghd2jgXSgI02l4p51f8f2clXC4GPKpi0JQUn1FSRGrIHWH8fjdPlRsznEyItDPLg==}
+    engines: {node: '>=20'}
 
   electron-updater@6.8.9:
     resolution: {integrity: sha512-ZhVxM9iGONUpZGI1FxdMRgJjUFXi7AYGVa5PwKlO1tV1/4zDxQmfKpXOHVztKrd6L9rLcFjERvi1Mf2vxyTkig==}
@@ -3509,6 +3516,8 @@ snapshots:
       mime: 2.6.0
     transitivePeerDependencies:
       - supports-color
+
+  electron-serve@3.0.1: {}
 
   electron-updater@6.8.9:
     dependencies:

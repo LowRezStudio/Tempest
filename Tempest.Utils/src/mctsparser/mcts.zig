@@ -123,14 +123,14 @@ pub const FieldEntry = struct {
 
             const netid_type = reader.takeInt(u8, .big) catch break;
             const @"type" = reader.takeInt(u8, .big) catch break;
-            const name = try reader.takeDelimiter('\x00');
+            const name = try reader.takeDelimiterExclusive('\x00');
 
             try fields.append(allocator, .{
                 .index = index,
                 .sort_index = sort_index,
                 .netid_type = @enumFromInt(netid_type),
                 .type = @enumFromInt(@"type"),
-                .name = name.?,
+                .name = name,
             });
 
             index += 1;
@@ -174,13 +174,13 @@ pub const FunctionDetail = struct {
             const flags = reader.takeInt(u16, .big) catch break;
 
             const index = reader.takeInt(u32, .big) catch break;
-            const name = try reader.takeDelimiter('\x00');
+            const name = try reader.takeDelimiterExclusive('\x00');
 
             try fields.append(allocator, .{
                 .index = index,
                 .sort_index = sort_index,
                 .flags = flags,
-                .name = name.?,
+                .name = name,
                 .wide_name = &.{},
             });
         }

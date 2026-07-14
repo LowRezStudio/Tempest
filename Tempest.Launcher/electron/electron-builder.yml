@@ -1,9 +1,18 @@
 appId: com.lowrezstudio.tempest
 productName: Tempest Launcher
+electronLanguages:
+    - en-US
+    - fr
+    - es
+    - es-419
+    - pl
+    - ru
 directories:
     output: dist
 files:
-    - ../build/**/*
+    - build/**/*
+    - src/**/*
+    - package.json
 extraResources:
     - from: resources/binaries
       to: binaries

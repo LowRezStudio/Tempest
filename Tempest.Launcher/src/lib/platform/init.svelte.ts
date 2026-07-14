@@ -21,6 +21,13 @@ $effect.root(() => {
 	document.addEventListener("dragstart", handleDragStart);
 	document.addEventListener("drop", handleDrop);
 
+	if (!import.meta.env.DEV) {
+		const style = document.createElement("style");
+		style.textContent =
+			"body { user-select: none; } input, textarea, [contenteditable] { user-select: text; }";
+		document.head.append(style);
+	}
+
 	return () => {
 		document.removeEventListener("contextmenu", handleContextMenu);
 		document.removeEventListener("dragstart", handleDragStart);
