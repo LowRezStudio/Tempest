@@ -1,37 +1,27 @@
 import os from "node:os";
-import { ipcMain } from "electron";
 
-ipcMain.handle("os:platform", () => {
-	switch (process.platform) {
-		case "win32": {
-			return "windows";
-		}
-		case "darwin": {
-			return "macos";
-		}
-		default: {
-			return "linux";
-		}
-	}
-});
+export function injectOs(window) {
+	const platform =
+		process.platform === "win32"
+			? "windows"
+			: process.platform === "darwin"
+				? "macos"
+				: "linux";
 
-ipcMain.handle("os:arch", () => {
-	const a = process.arch;
-	return a === "x64" ? "x86_64" : a === "arm64" ? "aarch64" : a;
-});
+	const arch =
+		process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : process.arch;
 
-ipcMain.handle("os:type", () => {
-	switch (process.platform) {
-		case "win32": {
-			return "Windows_NT";
-		}
-		case "darwin": {
-			return "Darwin";
-		}
-		default: {
-			return "Linux";
-		}
-	}
-});
+	const type =
+		process.platform === "win32"
+			? "Windows_NT"
+			: process.platform === "darwin"
+				? "Darwin"
+				: "Linux";
 
-ipcMain.handle("os:version", () => os.release());
+	const version = os.release();
+
+	const payload = JSON.stringify({ platform, arch, type, version });
+	void window.webContents.executeJavaScript(
+		`Object.defineProperty(window,'__os',{value:Object.freeze(${payload}),writable:!1,configurable:!1})`,
+	);
+}

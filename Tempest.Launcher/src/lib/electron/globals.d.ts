@@ -4,7 +4,15 @@ interface ElectronAPI {
 	getPathForFile(file: File): string;
 }
 
+interface OSInfo {
+	readonly platform: string;
+	readonly arch: string;
+	readonly type: string;
+	readonly version: string;
+}
+
 interface Window {
 	electronAPI?: ElectronAPI;
 	__closeHook?: () => Promise<boolean>;
+	__os?: OSInfo;
 }

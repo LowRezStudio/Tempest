@@ -1,11 +1,12 @@
+import os from "node:os";
 import path from "node:path";
 import { app, BrowserWindow, shell } from "electron";
 import serve from "electron-serve";
-import { activeChildren } from "./shell.js";
+import { injectOs } from "./os.js";
 import "./fs.js";
 import "./dialog.js";
 import "./opener.js";
-import "./os.js";
+import { activeChildren } from "./shell.js";
 import "./path.js";
 import "./app.js";
 import "./window.js";
@@ -16,6 +17,11 @@ import "./updater.js";
 let mainWindow = null;
 
 process.chdir(process.cwd());
+
+// Pin to the same dir Tauri uses so SQL/localStorage survive across runs.
+if (process.platform === "linux") {
+	app.setPath("userData", path.join(os.homedir(), ".local", "share", "com.lowrezstudio.tempest"));
+}
 
 const loadURL = serve({ directory: "build" });
 
@@ -34,6 +40,10 @@ function createWindow() {
 			sandbox: true,
 			devTools: true,
 		},
+	});
+
+	mainWindow.webContents.on("did-finish-load", () => {
+		injectOs(mainWindow);
 	});
 
 	mainWindow.webContents.on("will-navigate", (event, url) => {

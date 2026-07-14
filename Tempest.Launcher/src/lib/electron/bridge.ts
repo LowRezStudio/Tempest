@@ -266,45 +266,22 @@ export function openUrl(url: string): Promise<void> {
 }
 
 // ---- @tauri-apps/plugin-os ----
-// ponytail: cache platform info after first fetch (never changes at runtime)
-
-let _osCache: { platform: string; arch: string; type: string; version: string } | null = null;
-
-async function _ensureOsCache() {
-	if (!_osCache) {
-		const [platform, arch, type, version] = await Promise.all([
-			eio().invoke("os:platform"),
-			eio().invoke("os:arch"),
-			eio().invoke("os:type"),
-			eio().invoke("os:version"),
-		]);
-		_osCache = {
-			platform: platform as string,
-			arch: arch as string,
-			type: type as string,
-			version: version as string,
-		};
-	}
-}
+// injected as non-writable constants from main process via executeJavaScript
 
 export function platform(): string {
-	void _ensureOsCache();
-	return _osCache?.platform ?? "";
+	return (window as any).__os?.platform ?? "";
 }
 
 export function arch(): string {
-	void _ensureOsCache();
-	return _osCache?.arch ?? "";
+	return (window as any).__os?.arch ?? "";
 }
 
 export function type(): string {
-	void _ensureOsCache();
-	return _osCache?.type ?? "";
+	return (window as any).__os?.type ?? "";
 }
 
 export function version(): string {
-	void _ensureOsCache();
-	return _osCache?.version ?? "";
+	return (window as any).__os?.version ?? "";
 }
 
 // ---- @tauri-apps/plugin-http ----
