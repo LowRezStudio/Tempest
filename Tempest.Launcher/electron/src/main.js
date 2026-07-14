@@ -26,12 +26,17 @@ if (process.platform === "linux") {
 const loadURL = serve({ directory: "build" });
 
 function createWindow() {
+	const icon = app.isPackaged
+		? path.join(process.resourcesPath, "icon.png")
+		: path.join(import.meta.dirname, "..", "..", "src-tauri", "icons", "icon.png");
+
 	mainWindow = new BrowserWindow({
 		width: 1280,
 		height: 900,
 		minWidth: 1024,
 		minHeight: 800,
 		title: "Tempest",
+		icon,
 		autoHideMenuBar: true,
 		webPreferences: {
 			preload: path.join(import.meta.dirname, "preload.cjs"),

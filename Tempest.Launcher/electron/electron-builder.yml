@@ -18,6 +18,8 @@ extraResources:
       to: binaries
     - from: ../src-tauri/resources
       to: .
+    - from: ../src-tauri/icons/icon.png
+      to: icon.png
 win:
     target: msi
     icon: ../src-tauri/icons/icon.ico
