@@ -15,7 +15,7 @@
 		"tauri": "tauri",
 		"fmt": "oxfmt --write .",
 		"lint": "oxlint --type-aware",
-		"bump": "node scripts/bump.mjs",
+		"bump": "node scripts/bump.js",
 		"electron:dev": "pnpm -C electron dev",
 		"electron:build": "pnpm -C electron build"
 	},

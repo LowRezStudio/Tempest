@@ -71,6 +71,13 @@ async function main() {
 	}
 	writeFileSync(lockPath, lock.replace(marker, `name = "tempest-launcher"\nversion = "${ver}"`));
 
+	const electronPkg = JSON.parse(readFileSync("Tempest.Launcher/electron/package.json", "utf8"));
+	electronPkg.version = ver;
+	writeFileSync(
+		"Tempest.Launcher/electron/package.json",
+		`${JSON.stringify(electronPkg, null, "\t")}\n`,
+	);
+
 	$.log("✓ Files updated");
 
 	const tag = `v${ver}`;
