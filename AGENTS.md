@@ -100,6 +100,7 @@ Notes:
 - Package manager is `pnpm` only; `packageManager` is pinned in `package.json`.
 - `pnpm install` runs `prepare`, which installs Husky hooks from the repo root.
 - `pnpm tauri build` bundles external `tempest-cli` and `asmloader` binaries. If they are missing, the bundle step fails; the dev server does not need them. See `src-tauri/tauri.conf.json` and `.github/workflows/release.yml`.
+- When installing or updating a Tauri plugin, the Electron layer must be kept in sync: add or update the corresponding shim in `Tempest.Launcher/src/lib/electron/bridge.ts` and implement the IPC handlers in `Tempest.Launcher/electron/`. Every plugin API must be mirrored 1:1 so the frontend compiles against the same interface on both runtimes.
 
 ## Code generation
 
