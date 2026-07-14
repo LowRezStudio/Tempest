@@ -5,16 +5,11 @@
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createAboutInfoQuery } from "$lib/queries/about";
-	import { customThemeCss, defaultInstancePath, theme, username } from "$lib/stores/settings.svelte";
+	import { defaultInstancePath, theme, username } from "$lib/stores/settings.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import WineSettings from "$lib/wine/WineSettings.svelte";
 
 	let activeTab = $state<"general" | "wine" | "advanced">("general");
-	let customCss = $state(customThemeCss.value ?? "");
-
-	$effect(() => {
-		customThemeCss.value = customCss || undefined;
-	});
 
 	const buildType = import.meta.env.DEV ? "Development" : "Production";
 
@@ -91,35 +86,8 @@
 								<option value="mocha">{m.settings_theme_mocha()}</option>
 								<option value="latte">{m.settings_theme_latte()}</option>
 								<option value="legacy">{m.settings_theme_legacy()}</option>
-								<option value="custom">{m.settings_theme_custom()}</option>
-							</select>
-						</div>
-
-						{#if theme.value === "custom"}
-							<div class="form-control">
-								<label for="custom-css-input" class="label py-0.5">
-									<span class="label-text text-sm">{m.settings_theme_custom_css()}</span>
-								</label>
-								<textarea
-									id="custom-css-input"
-									class="textarea textarea-bordered w-full font-mono text-xs leading-relaxed"
-									rows="8"
-									bind:value={customCss}
-									placeholder={m.settings_theme_custom_placeholder()}
-								></textarea>
-								<p class="text-xs text-base-content/60 mt-1">
-									{m.settings_theme_custom_hint()}
-								</p>
-								<a
-									href="https://daisyui.com/theme-generator"
-									target="_blank"
-									rel="noreferrer"
-									class="link text-xs mt-1"
-								>
-									{m.settings_theme_custom_generator()}
-								</a>
-							</div>
-						{/if}
+						</select>
+					</div>
 
 						<div class="form-control">
 							<label for="path-input" class="label py-0.5">

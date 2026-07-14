@@ -55,7 +55,7 @@
 	<meta name="description" content="In-game console command reference" />
 </svelte:head>
 
-<div class="flex flex-col h-full overflow-hidden">
+<div class="flex flex-col h-full bg-base-100">
 	<Header title={m.commands_page_title()}>
 		{#snippet icon()}
 			<Terminal size={32} class="opacity-60" />
@@ -64,8 +64,20 @@
 			<span>{m.commands_subtitle_f2()}</span>
 		{/snippet}
 		{#snippet actions()}
+			<label class="input input-bordered">
+				<Search size={16} class="opacity-50" />
+				<input
+					type="text"
+					placeholder="Search commands..."
+					class="grow"
+					bind:value={search}
+				/>
+				{#if count !== allCommands.length}
+					<span class="text-xs text-base-content/50 shrink-0">{count}/{allCommands.length}</span>
+				{/if}
+			</label>
 			<button
-				class="btn btn-ghost btn-xs btn-square"
+				class="btn btn-circle btn-ghost"
 				onclick={() => { commandsPageOpen.value = false; goto("/"); }}
 				aria-label={m.common_close()}
 			>
@@ -74,116 +86,108 @@
 		{/snippet}
 	</Header>
 
-	<div class="shrink-0 px-4 pb-3 flex flex-col gap-3">
-		<label class="input input-bordered input-sm flex items-center gap-2">
-			<Search size={14} class="shrink-0 text-base-content/40" />
-			<input
-				type="text"
-				placeholder="Search commands..."
-				class="grow"
-				bind:value={search}
-			/>
-			{#if count !== allCommands.length}
-				<span class="text-xs text-base-content/50 shrink-0">{count}/{allCommands.length}</span>
-			{/if}
-		</label>
-		{#each categoryGroups as group}
-			<div>
-				<span class="text-xs font-semibold uppercase tracking-wider text-base-content/40 mb-1 block">
-					{groupLabels[group.label]}
-				</span>
-				<div class="flex flex-wrap gap-x-3 gap-y-1">
-					{#each group.categories as { name, color, key }}
-						<label class="flex items-center gap-1.5 cursor-pointer select-none text-sm group">
-							<input
-								type="checkbox"
-								checked={enabledKeys.has(key)}
-								onchange={() => toggleCategory(key)}
-								class="hidden"
-							/>
-							<span
-								class="inline-flex items-center justify-center w-3.5 h-3.5 rounded transition-colors shrink-0"
-								style={`
-									background-color: ${enabledKeys.has(key) ? color : 'transparent'};
-									border: 2px solid ${color};
-								`}
-							>
-								{#if enabledKeys.has(key)}
-									<svg class="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-										<polyline points="20 6 9 17 4 12" />
-									</svg>
-								{/if}
+	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
+		<div class="flex-1 overflow-y-auto">
+			<div class="px-4 py-6">
+				<div class="flex flex-col gap-3 mb-6">
+					{#each categoryGroups as group}
+						<div>
+							<span class="text-xs font-semibold uppercase tracking-wider text-base-content/40 mb-1 block">
+								{groupLabels[group.label]}
 							</span>
-							<span style="color: {color}">{catLabels[key]}</span>
-						</label>
-					{/each}
-				</div>
-			</div>
-		{/each}
-	</div>
-
-	<div class="flex-1 overflow-y-auto">
-		<div class="px-4 pb-6">
-			{#if visible.length > 0}
-				<div class="flex flex-wrap gap-1.5 items-start">
-					{#each visible as cmd (cmd.name + cmd.catKey)}
-						{@const cat = catMap.get(cmd.catKey)!}
-						{@const key = cmd.name + cmd.catKey}
-						{@const expanded = expandedKey === key}
-						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-						<div
-							class="cmd-badge cursor-pointer"
-							class:expanded
-							role="button"
-							tabindex="0"
-							onclick={(e) => {
-								if ((e.target as HTMLElement).tagName === "TEXTAREA") return;
-								toggleExpanded(key);
-							}}
-							onkeydown={(e) => {
-								if ((e.target as HTMLElement).tagName === "TEXTAREA") return;
-								if (e.key === 'Enter' || e.key === ' ') toggleExpanded(key);
-							}}
-							style={`
-								--cat-color: ${cat.color};
-								--cat-bg: color-mix(in srgb, ${cat.color} 18%, transparent);
-								--cat-border: color-mix(in srgb, ${cat.color} 40%, transparent);
-							`}
-						>
-							{#if expanded}
-								<div class="flex flex-col gap-1.5">
-									<div class="flex items-center gap-2">
-										<span class="font-mono text-xs font-bold shrink-0">{cmd.name}</span>
-										<span class="text-[10px] text-base-content/30 bg-base-300 px-1.5 py-0.5 rounded font-mono">{catLabels[cat.key]}</span>
-									</div>
-									<div class="bg-base-300/50 rounded-lg p-2 overflow-x-auto">
-										<code class="text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-all">{getSig(cmd.name)}</code>
-									</div>
-									<textarea
-										class="w-full text-xs bg-base-300/50 border border-base-300 rounded px-2 py-1 resize-none outline-none focus:outline-none leading-tight"
-										rows={1}
-										placeholder="Add a description..."
-										value={descriptions[key] ?? ""}
-										oninput={(e) => {
-											descriptions[key] = e.currentTarget.value;
-										}}
-									></textarea>
-								</div>
-							{:else}
-								<span class="font-mono text-xs">{cmd.name}</span>
-							{/if}
+							<div class="flex flex-wrap gap-x-3 gap-y-1">
+								{#each group.categories as { name, color, key }}
+									<label class="flex items-center gap-1.5 cursor-pointer select-none text-sm group">
+										<input
+											type="checkbox"
+											checked={enabledKeys.has(key)}
+											onchange={() => toggleCategory(key)}
+											class="hidden"
+										/>
+										<span
+											class="inline-flex items-center justify-center w-3.5 h-3.5 rounded transition-colors shrink-0"
+											style={`
+												background-color: ${enabledKeys.has(key) ? color : 'transparent'};
+												border: 2px solid ${color};
+											`}
+										>
+											{#if enabledKeys.has(key)}
+												<svg class="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+													<polyline points="20 6 9 17 4 12" />
+												</svg>
+											{/if}
+										</span>
+										<span style="color: {color}">{catLabels[key]}</span>
+									</label>
+								{/each}
+							</div>
 						</div>
 					{/each}
 				</div>
-			{:else}
-				<div class="flex flex-col items-center justify-center h-48 gap-3 text-base-content/50">
-					<Search size={40} class="opacity-30" />
-					<p class="text-lg">No commands matching "{search}"</p>
+
+				{#if visible.length > 0}
+					<div class="flex flex-wrap gap-1.5 items-start">
+						{#each visible as cmd (cmd.name + cmd.catKey)}
+							{@const cat = catMap.get(cmd.catKey)!}
+							{@const key = cmd.name + cmd.catKey}
+							{@const expanded = expandedKey === key}
+							<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+							<div
+								class="cmd-badge cursor-pointer select-none"
+								class:expanded
+								role="button"
+								tabindex="0"
+								onselectstart={(e) => { if ((e.target as HTMLElement).tagName !== 'TEXTAREA') e.preventDefault(); }}
+								onclick={(e) => {
+									if ((e.target as HTMLElement).tagName === "TEXTAREA") return;
+									toggleExpanded(key);
+								}}
+								onkeydown={(e) => {
+									if ((e.target as HTMLElement).tagName === "TEXTAREA") return;
+									if (e.key === 'Enter' || e.key === ' ') toggleExpanded(key);
+								}}
+								style={`
+									--cat-color: ${cat.color};
+									--cat-bg: color-mix(in srgb, ${cat.color} 18%, transparent);
+									--cat-border: color-mix(in srgb, ${cat.color} 40%, transparent);
+								`}
+							>
+								{#if expanded}
+									<div class="flex flex-col gap-1.5">
+										<div class="flex items-center gap-2">
+											<span class="font-mono text-xs font-bold shrink-0 select-none">{cmd.name}</span>
+											<span class="text-[10px] text-base-content/30 bg-base-300 px-1.5 py-0.5 rounded font-mono select-none">{catLabels[cat.key]}</span>
+										</div>
+										<div class="bg-base-300/50 rounded-lg p-2 overflow-x-auto">
+											<code class="text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-all select-none">{getSig(cmd.name)}</code>
+										</div>
+										<textarea
+											class="w-full text-xs bg-base-300/50 border border-base-300 rounded px-2 py-1 resize-none outline-none focus:outline-none leading-tight"
+											rows={1}
+											placeholder="Add a description..."
+											value={descriptions[key] ?? ""}
+											oninput={(e) => {
+												descriptions[key] = e.currentTarget.value;
+											}}
+										></textarea>
+									</div>
+								{:else}
+									<span class="font-mono text-xs select-none">{cmd.name}</span>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="flex flex-col items-center justify-center h-48 gap-3 text-base-content/50">
+						<Search size={40} class="opacity-30" />
+						<p class="text-lg">No commands matching "{search}"</p>
+					</div>
+				{/if}
+
+				<div class="mt-6 text-[11px] text-base-content/50 leading-relaxed">
+					{m.commands_disclaimer()}
 				</div>
-			{/if}
-		</div>
-		<div class="px-4 pb-4 text-[11px] text-base-content/50 leading-relaxed">
-			{m.commands_disclaimer()}
+			</div>
 		</div>
 	</div>
 </div>
@@ -191,6 +195,7 @@
 
 <style>
 	.cmd-badge {
+		user-select: none;
 		display: inline-flex;
 		align-items: center;
 		border-radius: 0.5rem;
