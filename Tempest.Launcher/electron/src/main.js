@@ -37,12 +37,12 @@ function createWindow() {
 		const allowed = app.isPackaged ? ["file://"] : ["http://localhost:1420"];
 		if (!allowed.some((p) => url.startsWith(p))) {
 			event.preventDefault();
-			shell.openExternal(url);
+			void shell.openExternal(url);
 		}
 	});
 
 	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-		shell.openExternal(url);
+		void shell.openExternal(url);
 		return { action: "deny" };
 	});
 
