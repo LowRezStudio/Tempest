@@ -90,7 +90,7 @@ app.whenReady()
 				responseHeaders: {
 					...details.responseHeaders,
 					"Content-Security-Policy": [
-						"default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src *; font-src * data:; connect-src *; frame-src *;",
+						"default-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src *; font-src * data:; connect-src *; frame-src *;",
 					],
 					"Access-Control-Allow-Origin": ["*"],
 				},
