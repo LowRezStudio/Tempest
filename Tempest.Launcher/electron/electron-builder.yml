@@ -8,7 +8,7 @@ electronLanguages:
     - pl
     - ru
 directories:
-    output: dist
+    output: ../dist
 files:
     - build/**/*
     - src/**/*

@@ -131,7 +131,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.backend }}" = "tauri" ]; then
-            pnpm install --frozen-lockfile --no-optional
+            pnpm install --frozen-lockfile --filter '!electron'
           else
             pnpm install --frozen-lockfile
           fi
@@ -145,6 +145,13 @@ jobs:
         if: matrix.backend == 'electron'
         working-directory: Tempest.Launcher
         run: ELECTRON=true pnpm build
+
+      - name: Prepare Electron build directory
+        if: matrix.backend == 'electron'
+        working-directory: Tempest.Launcher
+        run: |
+          rm -rf electron/build
+          cp -r build electron/build
 
       - name: Get release notes from tag
         id: get_notes
@@ -174,10 +181,10 @@ jobs:
 
       - name: Build Electron app
         if: matrix.backend == 'electron'
-        working-directory: Tempest.Launcher
+        working-directory: Tempest.Launcher/electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --config electron/electron-builder.yml --publish always
+        run: npx electron-builder --publish always
 
       - name: Set release body (Electron only)
         if: matrix.backend == 'electron'

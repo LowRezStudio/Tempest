@@ -21,7 +21,7 @@ public class MarshalObject(FieldType type, object value, MarshalFlags flags = Ma
             FieldType.Guid => 7,
             FieldType.Blob => 8,
             FieldType.String => 10,
-            _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
+            _ => throw new ArgumentOutOfRangeException(nameof(Type), Type, null)
         };
 
         return (ushort)((headerType << 12) | (param & 0x3F));
