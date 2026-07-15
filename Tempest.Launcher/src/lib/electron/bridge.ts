@@ -285,7 +285,6 @@ export function version(): string {
 }
 
 // ---- @tauri-apps/plugin-http ----
-// ponytail: Electron renderer has native fetch with no CORS
 
 export const fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
 	window.fetch(input, init)) as typeof window.fetch;

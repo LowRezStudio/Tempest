@@ -85,16 +85,33 @@ function createWindow() {
 
 app.whenReady()
 	.then(() => {
+		const upsert = (obj, key, value) => {
+			const lower = key.toLowerCase();
+			for (const k of Object.keys(obj)) {
+				if (k.toLowerCase() === lower) {
+					obj[k] = value;
+					return;
+				}
+			}
+			obj[key] = value;
+		};
+
 		session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-			callback({
-				responseHeaders: {
-					...details.responseHeaders,
-					"Content-Security-Policy": [
-						"default-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src *; font-src * data:; connect-src *; frame-src *;",
-					],
-					"Access-Control-Allow-Origin": ["*"],
-				},
-			});
+			const { responseHeaders: h } = details;
+
+			if (details.method === "OPTIONS") {
+				upsert(h, "Access-Control-Allow-Origin", ["*"]);
+				upsert(h, "Access-Control-Allow-Methods", ["POST, GET, OPTIONS"]);
+				upsert(h, "Access-Control-Allow-Headers", ["*"]);
+				callback({ responseHeaders: h, statusLine: "HTTP/1.1 204 No Content" });
+				return;
+			}
+
+			upsert(h, "Content-Security-Policy", [
+				"default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src *; font-src * data:; connect-src *; frame-src *;",
+			]);
+			upsert(h, "Access-Control-Allow-Origin", ["*"]);
+			callback({ responseHeaders: h });
 		});
 		createWindow();
 	})
