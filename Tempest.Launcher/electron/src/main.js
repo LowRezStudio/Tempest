@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, shell, session } from "electron";
 import serve from "electron-serve";
 import { injectOs } from "./os.js";
 import "./fs.js";
@@ -85,6 +85,17 @@ function createWindow() {
 
 app.whenReady()
 	.then(() => {
+		session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+			callback({
+				responseHeaders: {
+					...details.responseHeaders,
+					"Content-Security-Policy": [
+						"default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src *; font-src * data:; connect-src *; frame-src *;",
+					],
+					"Access-Control-Allow-Origin": ["*"],
+				},
+			});
+		});
 		createWindow();
 	})
 	.catch(console.error);
