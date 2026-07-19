@@ -32,7 +32,7 @@ fn buildForTarget(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std
     exe.subsystem = .Console;
 
     if (optimize != .Debug) {
-        exe.want_lto = true;
+        exe.lto = .full;
     }
 
     b.installArtifact(exe);

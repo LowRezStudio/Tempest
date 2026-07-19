@@ -2,7 +2,7 @@
     .name = .inject,
     .version = "0.0.0",
     .fingerprint = 0xbb04a5f0a6d7b1d1,
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{},
     .paths = .{
         "build.zig",
