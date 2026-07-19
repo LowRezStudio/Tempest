@@ -32,7 +32,8 @@ fn buildForTarget(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std
     exe.subsystem = .Console;
 
     if (optimize != .Debug) {
-        exe.lto = .full;
+        // exe.lto = .full;
+        exe.lto = .none; // regression from zig 0.16.0, doesn't cross-compile anymore
     }
 
     b.installArtifact(exe);
