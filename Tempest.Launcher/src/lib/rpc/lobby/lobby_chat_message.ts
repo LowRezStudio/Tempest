@@ -27,6 +27,10 @@ export interface LobbyChatMessage {
 	 * @generated from protobuf field: google.protobuf.Timestamp sent_at = 3
 	 */
 	sentAt?: Timestamp;
+	/**
+	 * @generated from protobuf field: string channel = 4
+	 */
+	channel: string;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class LobbyChatMessage$Type extends MessageType<LobbyChatMessage> {
@@ -35,12 +39,14 @@ class LobbyChatMessage$Type extends MessageType<LobbyChatMessage> {
 			{ no: 1, name: "content", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 2, name: "author_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 3, name: "sent_at", kind: "message", T: () => Timestamp },
+			{ no: 4, name: "channel", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 		]);
 	}
 	create(value?: PartialMessage<LobbyChatMessage>): LobbyChatMessage {
 		const message = globalThis.Object.create(this.messagePrototype!);
 		message.content = "";
 		message.authorId = "";
+		message.channel = "";
 		if (value !== undefined) reflectionMergePartial<LobbyChatMessage>(this, message, value);
 		return message;
 	}
@@ -68,6 +74,9 @@ class LobbyChatMessage$Type extends MessageType<LobbyChatMessage> {
 						options,
 						message.sentAt,
 					);
+					break;
+				case /* string channel */ 4:
+					message.channel = reader.string();
 					break;
 				default:
 					let u = options.readUnknownField;
@@ -105,6 +114,8 @@ class LobbyChatMessage$Type extends MessageType<LobbyChatMessage> {
 				writer.tag(3, WireType.LengthDelimited).fork(),
 				options,
 			).join();
+		/* string channel = 4; */
+		if (message.channel !== "") writer.tag(4, WireType.LengthDelimited).string(message.channel);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

@@ -7,6 +7,7 @@ import { LobbyEventChatMessage } from "./lobby_event_chat_message";
 import { LobbyEventCountdown } from "./lobby_event_countdown";
 import { LobbyEventInfo } from "./lobby_event_info";
 import { LobbyEventPlayerJoin } from "./lobby_event_player_join";
+import { LobbyEventPlayerKicked } from "./lobby_event_player_kicked";
 import { LobbyEventPlayerLeave } from "./lobby_event_player_leave";
 import { LobbyEventPlayerUpdate } from "./lobby_event_player_update";
 import { LobbyEventStateUpdate } from "./lobby_event_state_update";
@@ -80,6 +81,13 @@ export interface LobbyEvent {
 				info: LobbyEventInfo;
 		  }
 		| {
+				oneofKind: "playerKicked";
+				/**
+				 * @generated from protobuf field: tempest.lobby.LobbyEventPlayerKicked player_kicked = 9
+				 */
+				playerKicked: LobbyEventPlayerKicked;
+		  }
+		| {
 				oneofKind: undefined;
 		  };
 }
@@ -131,6 +139,13 @@ class LobbyEvent$Type extends MessageType<LobbyEvent> {
 				T: () => LobbyEventStateUpdate,
 			},
 			{ no: 8, name: "info", kind: "message", oneof: "event", T: () => LobbyEventInfo },
+			{
+				no: 9,
+				name: "player_kicked",
+				kind: "message",
+				oneof: "event",
+				T: () => LobbyEventPlayerKicked,
+			},
 		]);
 	}
 	create(value?: PartialMessage<LobbyEvent>): LobbyEvent {
@@ -235,6 +250,17 @@ class LobbyEvent$Type extends MessageType<LobbyEvent> {
 						),
 					};
 					break;
+				case /* tempest.lobby.LobbyEventPlayerKicked player_kicked */ 9:
+					message.event = {
+						oneofKind: "playerKicked",
+						playerKicked: LobbyEventPlayerKicked.internalBinaryRead(
+							reader,
+							reader.uint32(),
+							options,
+							(message.event as any).playerKicked,
+						),
+					};
+					break;
 				default:
 					let u = options.readUnknownField;
 					if (u === "throw")
@@ -313,6 +339,13 @@ class LobbyEvent$Type extends MessageType<LobbyEvent> {
 			LobbyEventInfo.internalBinaryWrite(
 				message.event.info,
 				writer.tag(8, WireType.LengthDelimited).fork(),
+				options,
+			).join();
+		/* tempest.lobby.LobbyEventPlayerKicked player_kicked = 9; */
+		if (message.event.oneofKind === "playerKicked")
+			LobbyEventPlayerKicked.internalBinaryWrite(
+				message.event.playerKicked,
+				writer.tag(9, WireType.LengthDelimited).fork(),
 				options,
 			).join();
 		let u = options.writeUnknownFields;

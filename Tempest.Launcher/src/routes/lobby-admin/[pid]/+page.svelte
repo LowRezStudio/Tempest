@@ -101,7 +101,10 @@
 
 	<div class="flex-1 overflow-hidden bg-base-100">
 		{#if activeTab === "logs"}
-			<GhosttyTerminal logs={logsList} child={process?.child} />
+			<GhosttyTerminal
+			logs={logsList}
+			child={process?.child}
+		/>
 		{/if}
 	</div>
 </div>

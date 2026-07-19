@@ -16,6 +16,8 @@ import "lobby/map_vote_response.proto";
 import "lobby/receive_lobby_events_request.proto";
 import "lobby/send_chat_message_request.proto";
 import "lobby/send_chat_message_response.proto";
+import "lobby/send_command_request.proto";
+import "lobby/send_command_response.proto";
 
 service Lobby {
   rpc JoinLobby(JoinLobbyRequest) returns (JoinLobbyResponse);
@@ -25,4 +27,5 @@ service Lobby {
   rpc ChampionSelect(ChampionSelectRequest) returns (ChampionSelectResponse);
   rpc MapVote(MapVoteRequest) returns (MapVoteResponse);
   rpc SendChatMessage(SendChatMessageRequest) returns (SendChatMessageResponse);
+  rpc SendCommand(SendCommandRequest) returns (SendCommandResponse);
 }

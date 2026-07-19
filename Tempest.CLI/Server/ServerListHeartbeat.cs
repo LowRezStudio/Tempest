@@ -12,9 +12,13 @@ internal sealed class ServerListHeartbeat : BackgroundService
     private readonly LobbyState _state;
     private readonly ServerListClient _client;
     private readonly ILogger<ServerListHeartbeat> _logger;
-    private readonly TimeSpan _heartbeatInterval = TimeSpan.FromSeconds(30);
+    private readonly TimeSpan _periodicInterval = TimeSpan.FromSeconds(30);
+    private readonly TimeSpan _minHeartbeatInterval = TimeSpan.FromSeconds(10);
     private string? _ownId;
     private string? _ticket;
+    private DateTime _lastHeartbeat = DateTime.MinValue;
+    private CancellationTokenSource? _periodicCts;
+    private readonly Lock _heartbeatLock = new();
 
     public ServerListHeartbeat(LobbyServerOptions options, LobbyState state, ILogger<ServerListHeartbeat> logger)
     {
@@ -22,7 +26,7 @@ internal sealed class ServerListHeartbeat : BackgroundService
         _state = state;
         _logger = logger;
         _client = new ServerListClient(_options.ServicesUrl ?? "https://api.lowrezstudio.com");
-        _state.Subscribe().Subscribe(new Observer(this));
+        _state.Subscribe("").Subscribe(new Observer(this));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -30,48 +34,101 @@ internal sealed class ServerListHeartbeat : BackgroundService
         await Task.Yield();
         while (!stoppingToken.IsCancellationRequested)
         {
+            // Wait for the periodic interval; event-driven heartbeats can reset this timer
+            _periodicCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             try
             {
-                if (_ownId == null)
-                {
-                    var response = await RegisterAsync(stoppingToken);
-                    if (response.ResultCase == CreateLobbyResponse.ResultOneofCase.Success)
-                    {
-                        _logger.LogInformation("Successfully registered with ServerList service. Id: {ServerListId}", response.Success.Id);
-                        _ownId = response.Success.Id;
-                        _ticket = response.Success.Ticket;
-                    }
-                    else if (response.ResultCase == CreateLobbyResponse.ResultOneofCase.Error)
-                    {
-                        _logger.LogError("Failed to register with ServerList: {ErrorMessage}", response.Error.Message);
-                    }
-                }
-                else
-                {
-                    var response = await _client.UpdateLobbyAsync(
-                        new UpdateLobbyRequest { Id = _ownId, Ticket = _ticket },
-                        stoppingToken);
-
-                    if (response.ResultCase == UpdateLobbyResponse.ResultOneofCase.Error)
-                    {
-                        _logger.LogWarning("Server list heartbeat rejected ({ErrorCode}), re-registering...", response.Error.Code);
-                        _ownId = null;
-                        _ticket = null;
-                    }
-                }
+                await Task.Delay(_periodicInterval, _periodicCts.Token);
+                // Timer elapsed without being reset — send a periodic heartbeat
+                await SendHeartbeatAsync(stoppingToken);
             }
-            catch (RpcException ex) when (ex.StatusCode == StatusCode.PermissionDenied)
+            catch (OperationCanceledException)
             {
-                _logger.LogError("Failed to register with ServerList: access denied (HTTP 403)");
+                // Timer was reset by an event-driven heartbeat; restart the delay
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Server list heartbeat error");
-            }
-
-            await Task.Delay(_heartbeatInterval, stoppingToken);
         }
         _client.Dispose();
+    }
+
+    private async Task SendHeartbeatAsync(CancellationToken ct)
+    {
+        // Rate-limit: ensure at least _minHeartbeatInterval between heartbeats
+        lock (_heartbeatLock)
+        {
+            var now = DateTime.UtcNow;
+            if (now - _lastHeartbeat < _minHeartbeatInterval)
+                return;
+            _lastHeartbeat = now;
+        }
+
+        // A heartbeat is being sent — reset the periodic timer so it doesn't fire too soon
+        ResetPeriodicTimer();
+
+        try
+        {
+            if (_ownId == null)
+            {
+                var response = await RegisterAsync(ct);
+                if (response.ResultCase == CreateLobbyResponse.ResultOneofCase.Success)
+                {
+                    _logger.LogInformation("Successfully registered with ServerList service. Id: {ServerListId}", response.Success.Id);
+                    _ownId = response.Success.Id;
+                    _ticket = response.Success.Ticket;
+                }
+                else if (response.ResultCase == CreateLobbyResponse.ResultOneofCase.Error)
+                {
+                    _logger.LogError("Failed to register with ServerList: {ErrorMessage}", response.Error.Message);
+                }
+            }
+            else
+            {
+                var request = BuildUpdateRequest();
+                var response = await _client.UpdateLobbyAsync(request, ct);
+
+                if (response.ResultCase == UpdateLobbyResponse.ResultOneofCase.Error)
+                {
+                    _logger.LogWarning("Server list heartbeat rejected ({ErrorCode}), re-registering...", response.Error.Code);
+                    _ownId = null;
+                    _ticket = null;
+                }
+            }
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.PermissionDenied)
+        {
+            _logger.LogError("Failed to register with ServerList: access denied (HTTP 403)");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Server list heartbeat error");
+        }
+    }
+
+    private UpdateLobbyRequest BuildUpdateRequest()
+    {
+        var info = _state.GetInfoEvent().Info;
+        string? mapId = null;
+        if (info.State.ChampionSelect != null)
+            mapId = info.State.ChampionSelect.MapId;
+        if (info.State.InGame != null)
+            mapId = info.State.InGame.MapId;
+
+        var joinable = true;
+        if (info.State.InGame != null && !_options.JoinInProgress && !_options.EnableJoinInProgress)
+            joinable = false;
+
+        return new UpdateLobbyRequest
+        {
+            Id = _ownId,
+            Ticket = _ticket,
+            Players = (uint)info.Players.Count,
+            MapId = mapId,
+            Joinable = joinable
+        };
+    }
+
+    private void ResetPeriodicTimer()
+    {
+        _periodicCts?.Cancel();
     }
 
     private async Task<CreateLobbyResponse> RegisterAsync(CancellationToken ct)
@@ -111,38 +168,8 @@ internal sealed class ServerListHeartbeat : BackgroundService
             if (parent._ownId == null || parent._ticket == null) return;
             if (ev.PlayerJoin == null && ev.PlayerLeave == null && ev.StateUpdate == null && ev.Info == null) return;
 
-            var info = parent._state.GetInfoEvent().Info;
-            string? mapId = null;
-            if (info.State.ChampionSelect != null)
-                mapId = info.State.ChampionSelect.MapId;
-            if (info.State.InGame != null)
-            {
-                mapId = info.State.InGame.MapId;
-            }
-
-            var joinable = true;
-            if (info.State.InGame != null && !parent._options.JoinInProgress && !parent._options.EnableJoinInProgress)
-            {
-                // ponytail: hide server from list once started if join-in-progress is disabled
-                joinable = false;
-            }
-
-            var request = new UpdateLobbyRequest
-            {
-                Id = parent._ownId,
-                Ticket = parent._ticket,
-                Players = (uint)info.Players.Count,
-                MapId = mapId,
-                Joinable = joinable
-            };
-            try
-            {
-                _ = parent._client.UpdateLobbyAsync(request);
-            }
-            catch (Exception ex)
-            {
-                parent._logger.LogError(ex, "Failed to update ServerList entry");
-            }
+            // Fire-and-forget: triggers a heartbeat (subject to rate limiting)
+            _ = parent.SendHeartbeatAsync(CancellationToken.None);
         }
     }
 }

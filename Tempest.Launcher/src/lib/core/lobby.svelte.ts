@@ -85,7 +85,7 @@ export const hostLobby = async (options: LobbyServerOptions) => {
 };
 
 export const killLobby = async (process: LobbyServerProcess) => {
-	await process.child.write("kill\n");
+	await process.child.write("exit\n");
 };
 
 export const moveToLobby = (host: string) => {

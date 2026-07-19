@@ -31,7 +31,7 @@ function createWindow() {
 		: path.join(import.meta.dirname, "..", "..", "src-tauri", "icons", "icon.png");
 
 	mainWindow = new BrowserWindow({
-		width: 1280,
+		width: 1500,
 		height: 900,
 		minWidth: 1024,
 		minHeight: 800,

@@ -8,15 +8,21 @@ internal sealed class EmbeddedServer
     private readonly LobbyServerOptions _options;
     private readonly LobbyState _state;
     private readonly ITicketStore _ticketStore;
+    private readonly IPBanStore _banStore;
     private readonly ILogger<EmbeddedServer> _logger;
     private WebApplication? _app;
     private readonly List<UpnpPortMapper> _upnp = [];
+    private LobbyServiceImpl? _lobbyService;
+    internal LobbyState State => _state;
+    internal IPBanStore BanStore => _banStore;
+    internal LobbyServiceImpl? LobbyService => _lobbyService;
 
     public EmbeddedServer(LobbyServerOptions options, ILoggerFactory loggerFactory)
     {
         _options = options;
         _logger = loggerFactory.CreateLogger<EmbeddedServer>();
         _ticketStore = new InMemoryTicketStore();
+        _banStore = new IPBanStore(loggerFactory.CreateLogger<IPBanStore>());
         _state = new LobbyState(options, _ticketStore, loggerFactory.CreateLogger<LobbyState>());
     }
 
@@ -51,6 +57,7 @@ internal sealed class EmbeddedServer
         builder.Logging.AddZLoggerConsole();
         builder.Services.AddSingleton(_ticketStore);
         builder.Services.AddSingleton(_state);
+        builder.Services.AddSingleton(_banStore);
         builder.Services.AddSingleton<PlayerDisconnectMonitor>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<PlayerDisconnectMonitor>());
         builder.Services.AddSingleton<LobbyServiceImpl>();
@@ -70,6 +77,9 @@ internal sealed class EmbeddedServer
         }
 
         _app = builder.Build();
+
+        // Capture the lobby service instance for console commands
+        _lobbyService = _app.Services.GetRequiredService<LobbyServiceImpl>();
 
         _app.UseCors("AllowFrontend");
         _app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });

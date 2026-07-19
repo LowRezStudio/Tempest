@@ -5,18 +5,14 @@
 		Server,
 		ServerCrash,
 		ServerOff,
-		TriangleAlert,
 	} from "@lucide/svelte";
-	import { Tooltip } from "bits-ui";
 	import Header from "$lib/components/ui/Header.svelte";
-	import { moveToLobby } from "$lib/core/lobby.svelte";
-	import maps from "$lib/data/maps.json";
+	import ServerRow from "$lib/components/server-list/ServerRow.svelte";
+	import ServerDetailsDialog from "$lib/components/server-list/ServerDetailsDialog.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createServersQuery, createLanServersQuery } from "$lib/queries/servers";
-	import { CountryCode, ServerListing } from "$lib/rpc";
-	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { hostServerWizardOpen, joinServerWizardOpen } from "$lib/stores/ui.svelte";
-	import { getMapsForVersion } from "$lib/utils/versions";
+	import type { ServerListing } from "$lib/rpc";
 	import { untrack } from "svelte";
 
 	let searchQuery = $state("");
@@ -50,63 +46,31 @@
 	);
 
 	const filteredServers = $derived(
-		servers
-			.filter(
-				(server) =>
-					server.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-					server.gamemode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-					server.map?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-					server.version.toLowerCase().includes(searchQuery.toLowerCase()) ||
-					server.tags.some((tag) =>
-						tag.toLowerCase().includes(searchQuery.toLowerCase()),
-					),
-			)
-			.map((s) => ({ ...s, canJoin: canJoinServer(s) })),
+		servers.filter(
+			(server) =>
+				server.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				server.gamemode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				server.map?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				server.version.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				server.tags.some((tag) =>
+					tag.toLowerCase().includes(searchQuery.toLowerCase()),
+				),
+		),
 	);
-	function canJoinServer(server: ServerListing) {
-		//TODO check mods too
-		return Object.values(instanceMap.value).some((i) => i && i.version === server.version);
-	}
-	function findMapName(server: ServerListing) {
-		if (!server.map && !server.mapId) return m.common_na();
-		if (server.map) return server.map;
-		const map = getMapsForVersion(server.version).find((m) => m.id === server.mapId);
-		if (!map) return server.mapId;
-		return map.displayName;
-	}
-	function findGamemodeName(server: ServerListing) {
-		if (server.gamemode.startsWith("TempestMp.")) {
-			return server.gamemode.slice(server.gamemode.indexOf(".") + 1);
-		}
-		return server.gamemode;
-	}
 
 	const serverCount = $derived(servers.length);
 
-	function toFlagEmoji(code: string) {
-		if (!code || code.length !== 2) {
-			return "";
-		}
-		return [...code.toUpperCase()]
-			.map((char) => String.fromCodePoint(127397 + char.charCodeAt(0)))
-			.join("");
+	let selectedServer = $state<ServerListing | null>(null);
+	let detailsOpen = $state(false);
+
+	function openDetails(server: ServerListing) {
+		selectedServer = server;
+		detailsOpen = true;
 	}
 
-	function formatCountryLabel(code: string) {
-		if (code === "COUNTRY_CODE_UNSPECIFIED") {
-			return "";
-		}
-		const flag = toFlagEmoji(code);
-		return flag ? `${flag} ${code}` : code;
-	}
-
-	function formatQueryError(error: unknown) {
-		if (typeof error === "string" && error) {
-			return error;
-		}
-		if (error instanceof Error && error.message) {
-			return error.message;
-		}
+	function formatQueryError(err: unknown) {
+		if (typeof err === "string" && err) return err;
+		if (err instanceof Error && err.message) return err.message;
 		return m.serverlist_error_fetching();
 	}
 
@@ -211,114 +175,23 @@
 						</p>
 					</div>
 				{:else}
-					<div class="overflow-x-auto">
-						<table class="table table-zebra">
-							<thead>
-								<tr>
-									<th>{m.serverlist_name()}</th>
-									<th>{m.serverlist_gamemode()}</th>
-									<th>{m.serverlist_map()}</th>
-									<th>{m.serverlist_players()}</th>
-									<th>{m.serverlist_bots()}</th>
-									<th>{m.serverlist_spectators()}</th>
-									<th>{m.serverlist_version()}</th>
-									<th>{m.serverlist_password()}</th>
-									<th>{m.serverlist_tags()}</th>
-									{#if activeTab === "internet"}
-										<th>{m.serverlist_country()}</th>
-									{/if}
-								</tr>
-							</thead>
-							<tbody>
-								{#each filteredServers as server (server.id)}
-									<tr
-										onclick={() => {
-											if (!server.canJoin) return;
-											moveToLobby(`http://${server.ip}:${server.lobbyPort}`);
-										}}
-										class={!server.canJoin ? "text-base-content/70" : ""}
-									>
-										<td>
-											<span class="flex justify-between">
-												{server.name}
-												{#if !server.canJoin}
-													<Tooltip.Root delayDuration={150}>
-														<Tooltip.Trigger>
-															{#snippet child({ props })}
-																<span {...props} onclick={(e) => e.stopPropagation()}>
-																	<TriangleAlert size={20} class="text-warning" />
-																</span>
-															{/snippet}
-														</Tooltip.Trigger>
-														<Tooltip.Portal>
-															<Tooltip.Content
-																side="right"
-																sideOffset={8}
-																class="z-50 bg-neutral text-neutral-content text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-md transition-opacity duration-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100"
-															>
-																<Tooltip.Arrow class="fill-neutral" />
-																{m.serverlist_requires_version({ version: server.version })}
-															</Tooltip.Content>
-														</Tooltip.Portal>
-													</Tooltip.Root>
-												{/if}
-											</span>
-										</td>
-										<td>{findGamemodeName(server)}</td>
-										<td>{findMapName(server)}</td>
-										<td>
-											<span
-												class={[
-													"badge",
-													!server.canJoin ? "badge-neutral"
-													: server.players >= server.maxPlayers ?
-														"badge-error"
-													:	"badge-success",
-												]}
-											>
-												{server.players}/{server.maxPlayers}
-											</span>
-										</td>
-										<td>{server.bots}</td>
-										<td>
-											<span
-												class={[
-													"badge",
-													!server.canJoin ? "badge-neutral"
-													: server.spectators >= server.maxSpectators ?
-														"badge-error"
-													:	"badge-success",
-												]}
-											>
-												{server.spectators}/{server.maxSpectators}
-											</span>
-										</td>
-										<td>{server.version}</td>
-										<td>
-											<span
-												class={[
-													"badge",
-													!server.canJoin ? "badge-neutral"
-													: server.hasPassword ? "badge-error"
-													: "badge-success",
-												]}
-											>
-												{server.hasPassword ?
-													m.common_yes()
-												:	m.common_no()}
-											</span>
-										</td>
-										<td>{server.tags.join(", ")}</td>
-										{#if activeTab === "internet"}
-											<td>{CountryCode[server.country] ? formatCountryLabel(CountryCode[server.country]) : ""}</td>
-										{/if}
-									</tr>
-								{/each}
-							</tbody>
-						</table>
+					<div class="flex flex-col gap-3">
+						{#each filteredServers as server (server.id)}
+							<ServerRow
+								{server}
+								showCountry={activeTab === "internet"}
+								onclick={openDetails}
+							/>
+						{/each}
 					</div>
 				{/if}
 			</div>
 		</div>
 	</div>
 </div>
+
+<ServerDetailsDialog
+	server={selectedServer}
+	showCountry={activeTab === "internet"}
+	bind:open={detailsOpen}
+/>

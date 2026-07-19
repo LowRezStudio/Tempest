@@ -83,6 +83,7 @@ Makes it possible to add players, vote maps and select champions
 						{
 							content: message.content,
 							username: sender?.displayName || "unknown",
+							channel: message.channel,
 							sentAt: message.sentAt,
 						},
 					];
@@ -109,6 +110,7 @@ Makes it possible to add players, vote maps and select champions
 		const resp = await client.sendChatMessage(
 			{
 				content: content,
+				channel: "",
 			},
 			rpcOptions(id),
 		);

@@ -2,7 +2,7 @@ syntax = "proto3";
 package tempest.lobby;
 option csharp_namespace = "Tempest.Protocol.Lobby";
 
-message SendChatMessageRequest {
-  string content = 1;
-  string channel = 2;
+message LobbyEventPlayerKicked {
+  string player_id = 1;
+  string reason = 2;
 }

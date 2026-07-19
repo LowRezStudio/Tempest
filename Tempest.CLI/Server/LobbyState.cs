@@ -9,8 +9,9 @@ namespace Tempest.CLI.Server;
 internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticketStore, ILogger<LobbyState> logger)
 {
     private readonly ConcurrentDictionary<string, LobbyPlayer> _players = new();
+    private readonly ConcurrentDictionary<string, byte> _kickedPlayers = new();
     private readonly ConcurrentQueue<LobbyEvent> _eventBuffer = new();
-    private readonly List<IObserver<LobbyEvent>> _subscribers = [];
+    private readonly ConcurrentDictionary<string, IObserver<LobbyEvent>> _subscribers = new();
     private readonly Lock _gate = new();
     private Protocol.Lobby.LobbyState _state = new()
     {
@@ -99,15 +100,36 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         }
         return false;
     }
-    public bool KickPlayer(string id)
+    public bool KickPlayer(string id, string reason = "Kicked by server")
     {
-        if (_players.TryGetValue(id, out var player))
+        if (!_players.TryGetValue(id, out var player)) return false;
+
+        logger.LogInformation("Kicking player {DisplayName} from lobby: {Reason}", player.DisplayName, reason);
+
+        // Mark as kicked BEFORE removing so the event stream can detect it
+        _kickedPlayers.TryAdd(id, 0);
+
+        // Notify all players (including the kicked one) about the kick
+        Publish(new LobbyEvent
         {
-            logger.LogInformation("Kicking player {DisplayName} from lobby", player.DisplayName);
-        }
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            PlayerKicked = new LobbyEventPlayerKicked
+            {
+                PlayerId = player.Id,
+                Reason = reason
+            }
+        });
+
         return TryLeave(id);
     }
-    public void SendChat(string playerId, string content)
+
+    public bool IsKicked(string playerId) => _kickedPlayers.ContainsKey(playerId);
+
+    public void ClearKicked(string playerId)
+    {
+        _kickedPlayers.TryRemove(playerId, out _);
+    }
+    public void SendChat(string playerId, string content, string channel = "global")
     {
         if (_players.TryGetValue(playerId, out var player))
         {
@@ -122,11 +144,24 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
                 {
                     AuthorId = playerId,
                     Content = content,
-                    SentAt = Timestamp.FromDateTime(DateTime.UtcNow)
+                    SentAt = Timestamp.FromDateTime(DateTime.UtcNow),
+                    Channel = channel
                 }
             }
         };
-        Publish(evt);
+
+        if (channel == "team" && _players.TryGetValue(playerId, out var sender))
+        {
+            var teamPlayers = _players.Values
+                .Where(p => p.TaskForce == sender.TaskForce)
+                .Select(p => p.Id)
+                .ToHashSet();
+            PublishTo(teamPlayers, evt);
+        }
+        else
+        {
+            Publish(evt);
+        }
     }
 
     public bool TrySelectChampion(string playerId, string champion)
@@ -419,25 +454,37 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         lock (_gate)
         {
             _eventBuffer.Enqueue(evt);
-            foreach (var s in _subscribers.ToArray())
+            foreach (var (_, s) in _subscribers.ToArray())
             {
                 try { s.OnNext(evt); } catch { /* ignore */ }
             }
         }
     }
 
-    public IObservable<LobbyEvent> Subscribe() => new EventStream(this);
+    private void PublishTo(HashSet<string> playerIds, LobbyEvent evt)
+    {
+        lock (_gate)
+        {
+            _eventBuffer.Enqueue(evt);
+            foreach (var playerId in playerIds)
+            {
+                if (_subscribers.TryGetValue(playerId, out var s))
+                {
+                    try { s.OnNext(evt); } catch { /* ignore */ }
+                }
+            }
+        }
+    }
 
-    private sealed class EventStream(LobbyState parent) : IObservable<LobbyEvent>, IObserver<LobbyEvent>, IDisposable
+    public IObservable<LobbyEvent> Subscribe(string playerId) => new EventStream(this, playerId);
+
+    private sealed class EventStream(LobbyState parent, string playerId) : IObservable<LobbyEvent>, IDisposable
     {
         private bool _disposed;
 
         public IDisposable Subscribe(IObserver<LobbyEvent> observer)
         {
-            lock (parent._gate)
-            {
-                parent._subscribers.Add(observer);
-            }
+            parent._subscribers[playerId] = observer;
             return this;
         }
 
@@ -448,10 +495,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         public void Dispose()
         {
             if (_disposed) return;
-            lock (parent._gate)
-            {
-                parent._subscribers.Remove(this);
-            }
+            parent._subscribers.TryRemove(playerId, out _);
             _disposed = true;
         }
     }
