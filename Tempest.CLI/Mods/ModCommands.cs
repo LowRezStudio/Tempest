@@ -1,5 +1,8 @@
+using System.Diagnostics;
+using System.Linq;
 using System.Text.Json;
 using ConsoleAppFramework;
+using Tempest.CLI.Extensions;
 
 namespace Tempest.CLI.Mods;
 
@@ -182,6 +185,83 @@ internal class ModCommands
             Console.Error.WriteLine($"Error: {ex.Message}");
         }
         return Task.CompletedTask;
+    }
+
+    /// <summary>Reloads DLLs for a V2 mod into a running game process</summary>
+    /// <param name="path">Path to the game folder or executable</param>
+    /// <param name="modId">ID of the mod whose DLLs to reload</param>
+    /// <param name="json">Output as JSON</param>
+    public async Task ReloadDll([Argument] string path, [Argument] string modId, bool json = false)
+    {
+        try
+        {
+            var resolvedGame = GameFolderResolver.Resolve(path);
+            var binaries64 = Path.Combine(resolvedGame, "Binaries", "Win64");
+            var exeFiles = Directory.Exists(binaries64)
+                ? Directory.GetFiles(binaries64, "*.exe", SearchOption.TopDirectoryOnly)
+                : Directory.GetFiles(Path.Combine(resolvedGame, "Binaries"), "*.exe", SearchOption.AllDirectories);
+            var gameExe = exeFiles.FirstOrDefault(f =>
+            {
+                var name = Path.GetFileNameWithoutExtension(f);
+                return !name.Contains("AutoReporter", StringComparison.OrdinalIgnoreCase)
+                    && !name.Contains("CrashReport", StringComparison.OrdinalIgnoreCase)
+                    && !name.Contains("Launcher", StringComparison.OrdinalIgnoreCase);
+            }) ?? exeFiles.FirstOrDefault();
+            if (gameExe == null)
+            {
+                var fail = new ModInstallResult { Success = false, Message = "No game executable found in Binaries directory." };
+                PrintResult(fail, json);
+                return;
+            }
+
+            var exeName = Path.GetFileNameWithoutExtension(gameExe);
+            var is64Bit = gameExe.Contains("Win64", StringComparison.OrdinalIgnoreCase);
+
+            var processes = Process.GetProcessesByName(exeName)
+                .Where(p => !p.HasExited)
+                .ToArray();
+            if (processes.Length == 0)
+            {
+                var fail = new ModInstallResult { Success = false, Message = $"No running process found for '{exeName}'." };
+                PrintResult(fail, json);
+                return;
+            }
+
+            var process = processes[0];
+            Console.Error.WriteLine($"[reload] Targeting PID {process.Id}");
+
+            var dllsDir = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, modId), "dlls");
+            if (!Directory.Exists(dllsDir))
+            {
+                var fail = new ModInstallResult { Success = false, Message = $"No DLL directory found for mod '{modId}'." };
+                PrintResult(fail, json);
+                return;
+            }
+
+            var dlls = Directory.GetFiles(dllsDir, "*.dll", SearchOption.AllDirectories);
+            if (dlls.Length == 0)
+            {
+                var fail = new ModInstallResult { Success = false, Message = $"No DLL files found for mod '{modId}'." };
+                PrintResult(fail, json);
+                return;
+            }
+
+            var results = await Task.WhenAll(dlls.Select(d => process.InjectLibraryAsync(d, is64Bit)));
+            var allSucceeded = results.All(r => r);
+            var ok = new ModInstallResult
+            {
+                Success = allSucceeded,
+                Message = allSucceeded
+                    ? $"Successfully reloaded {dlls.Length} DLL(s) for mod '{modId}'."
+                    : $"Failed to reload some DLLs for mod '{modId}'."
+            };
+            PrintResult(ok, json);
+        }
+        catch (Exception ex)
+        {
+            var fail = new ModInstallResult { Success = false, Message = ex.Message };
+            PrintResult(fail, json);
+        }
     }
 
     /// <summary>Removes a mod from the game instance</summary>

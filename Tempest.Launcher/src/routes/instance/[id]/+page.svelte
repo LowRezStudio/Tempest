@@ -222,6 +222,7 @@
 						<InstanceModTable
 							mods={modsList}
 							gamePath={instance?.path ?? ""}
+							{isRunning}
 							isLoading={isQueryLoading}
 							isRemoving={removeModMutation.isPending}
 							onRefresh={handleRefreshMods}

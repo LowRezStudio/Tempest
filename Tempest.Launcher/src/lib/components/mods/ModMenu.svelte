@@ -31,8 +31,8 @@
 	async function showInExplorer() {
 		if (mod.Kind === "V2") {
 			if (!gamePath) return;
-			const v2ModsPath = await path.join(gamePath, ".tempest", "v2", "mods");
-			await openPath(v2ModsPath);
+			const modFolder = await path.join(gamePath, ".tempest", "v2", "mods", mod.Id);
+			await openPath(modFolder);
 			return;
 		}
 		if (!targetPath) return;

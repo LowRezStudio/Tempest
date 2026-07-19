@@ -1,12 +1,18 @@
 <script lang="ts">
-	import { Box, RefreshCw, Trash2 } from "@lucide/svelte";
-	import ModMenu from "$lib/components/mods/ModMenu.svelte";
+	import { Box, FolderOpen, Pencil, RefreshCw, RotateCw, Trash2 } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
+	import { reloadModDll } from "$lib/core/mods";
 	import type { ModRecord } from "$lib/core/mods";
+	import { exists, stat } from "@tauri-apps/plugin-fs";
+	import { path } from "@tauri-apps/api";
+	import { openPath } from "@tauri-apps/plugin-opener";
+	import Modal from "$lib/components/ui/Modal.svelte";
+	import { createRenameModMutation } from "$lib/queries/mods";
 
 	interface Props {
 		mods: ModRecord[];
 		gamePath: string;
+		isRunning: boolean;
 		isLoading: boolean;
 		isRemoving?: boolean;
 		onRefresh: () => void;
@@ -17,12 +23,75 @@
 	let {
 		mods,
 		gamePath,
+		isRunning,
 		isLoading,
 		isRemoving = false,
 		onRefresh,
 		onRemoveMod,
 		onOpenDetails,
 	}: Props = $props();
+
+	let reloadingModId = $state<string | null>(null);
+
+	async function showInExplorer(mod: ModRecord) {
+		if (mod.Kind === "V2") {
+			if (!gamePath) return;
+			const modFolder = await path.join(gamePath, ".tempest", "v2", "mods", mod.Id);
+			await openPath(modFolder);
+			return;
+		}
+		const targetPath = mod.InstalledFiles[0] || mod.OriginalPath || "";
+		if (!targetPath) return;
+		let resolvedFolder = targetPath;
+		try {
+			const info = await stat(targetPath);
+			if (info.isFile) resolvedFolder = await path.dirname(targetPath);
+		} catch {
+			if (targetPath.includes(".") && !targetPath.endsWith("/") && !targetPath.endsWith("\\"))
+				resolvedFolder = await path.dirname(targetPath);
+		}
+		await openPath(resolvedFolder);
+	}
+
+	let editingMod = $state<{ name: string } | null>(null);
+	let isRenameModalOpen = $state(false);
+	const renameMutation = createRenameModMutation();
+	let editName = $state("");
+
+	function openRename(mod: ModRecord) {
+		editingMod = { name: mod.Name };
+		editName = mod.Name;
+		isRenameModalOpen = true;
+	}
+
+	function closeRename() { isRenameModalOpen = false; editingMod = null; }
+
+	$effect(() => { if (!isRenameModalOpen && editingMod) editingMod = null; });
+
+	async function handleRename() {
+		if (!editingMod) return;
+		const finalName = editName.trim();
+		if (!finalName || finalName === editingMod.name) { closeRename(); return; }
+		await renameMutation.mutateAsync({ gamePath, oldName: editingMod.name, newName: finalName });
+		closeRename();
+	}
+
+	let hasDllMap = $state<Map<string, boolean>>(new Map());
+
+	$effect(() => {
+		if (!gamePath) return;
+		const next = new Map<string, boolean>();
+		for (const mod of mods) {
+			if (mod.Kind?.toLowerCase() !== "v2") continue;
+			const id = mod.Id;
+			exists(`${gamePath}/.tempest/v2/mods/${id}/dlls`).then(r => { next.set(id, r); hasDllMap = new Map(next); }).catch(() => { next.set(id, false); hasDllMap = new Map(next); });
+		}
+	});
+
+	const handleReload = async (mod: ModRecord) => {
+		reloadingModId = mod.Id;
+		try { await reloadModDll(gamePath, mod.Id); } finally { reloadingModId = null; }
+	};
 </script>
 
 <table class="table">
@@ -77,17 +146,68 @@
 				</td>
 				<td>
 					<div class="flex items-center justify-end gap-1">
+						{#if hasDllMap.get(mod.Id)}
+							<button
+								class="btn btn-sm btn-square btn-ghost {isRunning ? 'text-primary' : ''}"
+								disabled={!isRunning || reloadingModId === mod.Id}
+								onclick={() => handleReload(mod)}
+								title="Reload DLLs"
+							>
+								{#if reloadingModId === mod.Id}
+									<span class="loading loading-spinner loading-xs"></span>
+								{:else}
+									<RotateCw size={14} />
+								{/if}
+							</button>
+						{/if}
 						<button
-							class="btn btn-error btn-sm btn-square"
+							class="btn btn-sm btn-square btn-ghost hover:text-error"
 							disabled={isRemoving}
 							onclick={() => onRemoveMod(mod.Name)}
+							title="Delete mod"
 						>
 							<Trash2 size={14} />
 						</button>
-						<ModMenu {mod} {gamePath} />
+						<button
+							class="btn btn-sm btn-square btn-ghost"
+							onclick={() => showInExplorer(mod)}
+							title={m.mod_show_in_explorer()}
+						>
+							<FolderOpen size={14} />
+						</button>
+						<button
+							class="btn btn-sm btn-square btn-ghost"
+							onclick={() => openRename(mod)}
+							title={m.mod_rename()}
+						>
+							<Pencil size={14} />
+						</button>
 					</div>
 				</td>
 			</tr>
 		{/each}
 	</tbody>
 </table>
+
+<Modal
+	bind:open={isRenameModalOpen}
+	title={m.mod_rename_dialog_title()}
+	class="max-w-md"
+	onsubmit={handleRename}
+>
+	<div class="space-y-4 pt-2">
+		<div class="form-control">
+			<label for="mod-name" class="label py-0.5">
+				<span class="label-text text-sm">{m.mod_rename_dialog_label()}</span>
+			</label>
+			<input id="mod-name" type="text" class="input input-bordered w-full" bind:value={editName} />
+		</div>
+	</div>
+	{#snippet actions()}
+		<button class="btn btn-ghost" type="button" onclick={closeRename}>{m.common_cancel()}</button>
+		<button class="btn btn-accent" type="submit" disabled={renameMutation.isPending}>
+			{#if renameMutation.isPending}<span class="loading loading-spinner loading-xs"></span>{/if}
+			{m.mod_rename_dialog_button()}
+		</button>
+	{/snippet}
+</Modal>
