@@ -11,6 +11,7 @@ export type ConnectionStatus = "connected" | "disconnected" | "pending";
 export interface ChatMessage {
 	username: string;
 	content: string;
+	channel: string;
 	sentAt?: Timestamp;
 }
 export interface LobbyStaticInfo {

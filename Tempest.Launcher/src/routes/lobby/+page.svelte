@@ -87,8 +87,8 @@
 		}
 	});
 
-	async function handleSendChatMessage(message: string) {
-		await lobbyManager.sendChatMessage(message);
+	async function handleSendChatMessage(message: string, channel: string) {
+		await lobbyManager.sendChatMessage(message, channel);
 	}
 
 	async function handleChampionSelect(championName: string) {

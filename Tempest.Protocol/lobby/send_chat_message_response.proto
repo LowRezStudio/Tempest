@@ -2,6 +2,12 @@ syntax = "proto3";
 package tempest.lobby;
 option csharp_namespace = "Tempest.Protocol.Lobby";
 
-message SendChatMessageResponse {
+import "lobby/send_chat_message_error.proto";
+import "lobby/send_chat_message_success.proto";
 
+message SendChatMessageResponse {
+  oneof result {
+    SendChatMessageSuccess success = 1;
+    SendChatMessageError error = 2;
+  }
 }

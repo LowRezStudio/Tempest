@@ -8,4 +8,5 @@ message LobbyChatMessage {
   string content = 1;
   string author_id = 2;
   google.protobuf.Timestamp sent_at = 3;
+  string channel = 4;
 }

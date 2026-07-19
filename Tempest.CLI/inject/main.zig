@@ -29,12 +29,8 @@ extern "kernel32" fn WaitForSingleObject(hHandle: windows.HANDLE, dwMilliseconds
 extern "kernel32" fn GetExitCodeThread(hThread: windows.HANDLE, lpExitCode: *windows.DWORD) callconv(.winapi) windows.BOOL;
 extern "kernel32" fn CloseHandle(hObject: windows.HANDLE) callconv(.winapi) windows.BOOL;
 
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
+pub fn main(init: std.process.Init) !void {
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
     if (args.len != 3) {
         std.debug.print("Usage: <pid> <dll_path>\n", .{});
         std.process.exit(1);
@@ -50,7 +46,7 @@ pub fn main() !void {
 
     const process_handle = OpenProcess(
         PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
-        0,
+        windows.BOOL.FALSE,
         pid,
     ) orelse {
         const error_code = GetLastError();
@@ -86,8 +82,8 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    const dll_path_z = try allocator.dupeZ(u8, dll_path);
-    if (WriteProcessMemory(process_handle, remote_memory, dll_path_z.ptr, dll_path_len, null) == 0) {
+    const dll_path_z = try init.arena.allocator().dupeZ(u8, dll_path);
+    if (WriteProcessMemory(process_handle, remote_memory, dll_path_z.ptr, dll_path_len, null) == .FALSE) {
         const error_code = GetLastError();
         std.debug.print("Error: Failed to write DLL path to target process (Error: {d})\n", .{error_code});
         _ = VirtualFreeEx(process_handle, remote_memory, 0, MEM_RELEASE);
@@ -111,7 +107,7 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    const wait_result = WaitForSingleObject(thread_handle, windows.INFINITE);
+    const wait_result = WaitForSingleObject(thread_handle, 4294967295);
 
     if (wait_result != WAIT_OBJECT_0) {
         switch (wait_result) {
@@ -130,7 +126,7 @@ pub fn main() !void {
     }
 
     var exit_code: windows.DWORD = 0;
-    if (GetExitCodeThread(thread_handle, &exit_code) == 0) {
+    if (GetExitCodeThread(thread_handle, &exit_code) == .FALSE) {
         const error_code = GetLastError();
         std.debug.print("Error: Failed to get remote thread exit code (Error: {d})\n", .{error_code});
         _ = VirtualFreeEx(process_handle, remote_memory, 0, MEM_RELEASE);
@@ -147,7 +143,7 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    if (VirtualFreeEx(process_handle, remote_memory, 0, MEM_RELEASE) == 0) {
+    if (VirtualFreeEx(process_handle, remote_memory, 0, MEM_RELEASE) == .FALSE) {
         const error_code = GetLastError();
         std.debug.print("Warning: Failed to free remote memory (Error: {d})\n", .{error_code});
     }

@@ -60,6 +60,11 @@
 			<button class="btn btn-accent" onclick={handleJoin}>{m.common_join()}</button>
 		{/if}
 	</LobbyOverlayDialog>
+{:else if joinErrorCode === JoinLobbyClientErrorCode.KICKED}
+	<LobbyOverlayDialog
+		title={m.lobby_kicked()}
+		subtitle={m.lobby_kicked_hint()}
+	/>
 {:else if joinErrorCode === JoinLobbyClientErrorCode.PASSWORD_REQUIRED || joinErrorCode === JoinLobbyErrorCode.INVALID_PASSWORD}
 	<LobbyOverlayDialog
 		title={joinErrorCode === JoinLobbyClientErrorCode.PASSWORD_REQUIRED ?

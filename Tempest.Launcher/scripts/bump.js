@@ -4,7 +4,8 @@ import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 
 const rl = createInterface({ input: stdin, output: stdout });
-const ask = (q, d) => rl.question(d ? `${q} [${d}]: ` : `${q}: `).then((a) => a.trim() || d || "");
+const ask = (q, d) =>
+	rl.question(d ? `${q} [${d}]: ` : `${q}: `).then((a) => (a.trim() || d) ?? "");
 const confirm = (q) => rl.question(`${q} [y/N]: `).then((a) => a.trim().toLowerCase() === "y");
 
 async function main() {
@@ -44,7 +45,7 @@ async function main() {
 	console.log("  updated src-tauri/tauri.conf.json");
 
 	const cargoPath = "src-tauri/Cargo.toml";
-	let cargo = readFileSync(cargoPath, "utf8");
+	const cargo = readFileSync(cargoPath, "utf8");
 	if (!cargo.includes(`version = "${cur}"`)) {
 		console.error(`ERROR: version not found in ${cargoPath}`);
 		process.exit(1);
@@ -91,7 +92,7 @@ async function main() {
 	rl.close();
 }
 
-main().catch((e) => {
+main().catch((_error) => {
 	console.error(e);
 	process.exit(1);
 });

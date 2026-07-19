@@ -9,6 +9,11 @@ class MiniEmitter {
 		return this;
 	}
 
+	removeListener(event: string, cb: Function): this {
+		this._listeners.get(event)?.delete(cb);
+		return this;
+	}
+
 	emit(event: string, ...args: unknown[]) {
 		for (const cb of this._listeners.get(event) ?? []) cb(...args);
 	}
@@ -72,6 +77,11 @@ export class Command {
 
 	on(event: string, cb: Function): this {
 		this._emitter.on(event, cb);
+		return this;
+	}
+
+	removeListener(event: string, cb: Function): this {
+		this._emitter.removeListener(event, cb);
 		return this;
 	}
 

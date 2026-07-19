@@ -50,6 +50,7 @@ export type LobbyServerOptions = {
 export enum JoinLobbyClientErrorCode {
 	PASSWORD_REQUIRED = 100,
 	NO_VALID_INSTANCE = 101,
+	KICKED = 102,
 }
 export type ExtendedJoinLobbyErrorCode = JoinLobbyErrorCode | JoinLobbyClientErrorCode;
 

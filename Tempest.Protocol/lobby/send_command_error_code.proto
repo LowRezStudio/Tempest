@@ -1,0 +1,10 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+enum SendCommandErrorCode {
+  SEND_COMMAND_ERROR_CODE_UNSPECIFIED = 0;
+  UNKNOWN_COMMAND = 1;
+  FORBIDDEN = 2;
+  INVALID_ARGUMENTS = 3;
+}

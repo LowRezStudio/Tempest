@@ -1,0 +1,13 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+import "lobby/send_command_error.proto";
+import "lobby/send_command_success.proto";
+
+message SendCommandResponse {
+  oneof result {
+    SendCommandSuccess success = 1;
+    SendCommandError error = 2;
+  }
+}

@@ -24,6 +24,7 @@ import type { LobbyEventChatMessage } from "$lib/rpc/lobby/lobby_event_chat_mess
 import type { LobbyEventCountdown } from "$lib/rpc/lobby/lobby_event_countdown";
 import type { LobbyEventInfo } from "$lib/rpc/lobby/lobby_event_info";
 import type { LobbyEventPlayerJoin } from "$lib/rpc/lobby/lobby_event_player_join";
+import type { LobbyEventPlayerKicked } from "$lib/rpc/lobby/lobby_event_player_kicked";
 import type { LobbyEventPlayerLeave } from "$lib/rpc/lobby/lobby_event_player_leave";
 import type { LobbyEventPlayerUpdate } from "$lib/rpc/lobby/lobby_event_player_update";
 import type { LobbyEventStateUpdate } from "$lib/rpc/lobby/lobby_event_state_update";
@@ -33,7 +34,7 @@ import type { Instance } from "$lib/types/instance";
 class LobbyManager {
 	private client: LobbyClient | null = null;
 	private abortController: AbortController | null = null;
-	private countdownTimerInterval?: number;
+	private countdownTimerInterval?: ReturnType<typeof setInterval>;
 	private countdown?: LobbyEventCountdown;
 
 	connect(): void {
@@ -113,6 +114,10 @@ class LobbyManager {
 			}
 			case "playerJoin": {
 				this.handlePlayerJoinEvent(event.event.playerJoin);
+				break;
+			}
+			case "playerKicked": {
+				this.handlePlayerKickedEvent(event.event.playerKicked);
 				break;
 			}
 			case "playerLeave": {
@@ -195,6 +200,18 @@ class LobbyManager {
 		players.value = players.value.filter((p) => p.id !== playerIdValue);
 	}
 
+	private handlePlayerKickedEvent(event: LobbyEventPlayerKicked): void {
+		const kickedId = event.playerId;
+		players.value = players.value.filter((p) => p.id !== kickedId);
+
+		// If the current player was kicked, disconnect and show reason
+		if (kickedId === playerId.value) {
+			console.log(`You were kicked: ${event.reason}`);
+			joinErrorCode.value = JoinLobbyClientErrorCode.KICKED;
+			this.disconnect();
+		}
+	}
+
 	private handlePlayerUpdateEvent(event: LobbyEventPlayerUpdate): void {
 		const player = event.player;
 		if (!player) return;
@@ -211,6 +228,7 @@ class LobbyManager {
 			{
 				content: message.content,
 				username: sender.displayName,
+				channel: message.channel,
 				sentAt: message.sentAt,
 			},
 		];
@@ -269,9 +287,21 @@ class LobbyManager {
 		this.countdown = event.seconds === 0 ? undefined : event;
 	}
 
-	async sendChatMessage(content: string): Promise<void> {
+	async sendChatMessage(content: string, channel = ""): Promise<void> {
 		if (!content.trim()) return;
-		await this.getClient().sendChatMessage({ content }).response;
+		const response = await this.getClient().sendChatMessage({ content, channel }).response;
+		if (response.result.oneofKind === "error") {
+			console.error("Chat message error:", response.result.error);
+		}
+	}
+
+	async sendCommand(command: string, args = ""): Promise<void> {
+		const response = await this.getClient().sendCommand({ command, arguments: args }).response;
+		if (response.result.oneofKind === "error") {
+			console.error("Command error:", response.result.error);
+		} else if (response.result.oneofKind === "success") {
+			console.log("Command success:", response.result.success.message);
+		}
 	}
 
 	async selectChampion(championName: string): Promise<void> {

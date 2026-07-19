@@ -89,13 +89,14 @@ internal class ServerCommands
         }
 
         Console.WriteLine($"Lobby '{options.Name}' started on port {port} (gRPC + HTTP)");
-        Console.WriteLine("Players can now connect (stub logic). Press Ctrl+C to stop.");
 
         if (detach)
         {
+            Console.WriteLine("Server running in detached mode.");
             return;
         }
 
+        // Simple read-line command loop.
         var cts = new CancellationTokenSource();
         AppDomain.CurrentDomain.ProcessExit += (s, e) => cts.Cancel();
         Console.CancelKeyPress += (s, e) =>
@@ -104,57 +105,19 @@ internal class ServerCommands
             cts.Cancel();
         };
 
-        if (!Console.IsInputRedirected)
+        var handler = new CommandHandler(server.State, server, server.LobbyService!, server.BanStore, cts);
+
+        while (!cts.Token.IsCancellationRequested)
         {
-            _ = Task.Run(async () =>
+            var line = await Task.Run(() => Console.ReadLine(), cts.Token);
+            if (line == null) break; // EOF
+
+            var command = line.Trim();
+            if (command.Length > 0)
             {
-                try
-                {
-                    using var reader = new StreamReader(Console.OpenStandardInput());
-                    while (!cts.Token.IsCancellationRequested)
-                    {
-                        string? input;
-                        try
-                        {
-                            input = await reader.ReadLineAsync(cts.Token);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            break;
-                        }
-
-                        if (input == null)
-                        {
-                            try { await Task.Delay(100, cts.Token); }
-                            catch (OperationCanceledException) { break; }
-                            continue;
-                        }
-
-                        if (input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase))
-                        {
-                            await cts.CancelAsync();
-                            break;
-                        }
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    // Expected when shutdown is requested.
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Stdin reader error: {ex.Message}");
-                }
-            }, cts.Token);
-        }
-
-        try
-        {
-            await Task.Delay(Timeout.Infinite, cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            Console.WriteLine("Shutting down...");
+                try { handler.Execute(command); }
+                catch (Exception ex) { Console.WriteLine($"Error: {ex.Message}"); }
+            }
         }
 
         await server.StopAsync();

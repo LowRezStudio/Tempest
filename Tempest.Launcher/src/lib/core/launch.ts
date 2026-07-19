@@ -60,5 +60,5 @@ export const killGame = async (instance: Instance) => {
 	const processes = processesList.value;
 	const process = processes.find((p: Process) => p.instance.id === instance.id);
 
-	if (process) await process.child.write("kill\n");
+	if (process) await process.child.write("exit\n");
 };
