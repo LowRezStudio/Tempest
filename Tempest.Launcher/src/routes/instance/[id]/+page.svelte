@@ -1,10 +1,10 @@
 <script lang="ts">
 	import {
-		Box,
 		FolderOpen,
 		Gamepad2,
 		PackageOpen,
 		Play,
+		Plus,
 		Settings,
 		Square,
 		Terminal,
@@ -32,6 +32,7 @@
 	let isSettingUp = $derived(
 		(instance?.state as { type?: string } | undefined)?.type === "setup",
 	);
+	let isReady = $derived(instance?.state?.type === "prepared");
 
 	const { installMods: handleInstallMod } = useInstallMods(() => instance?.path);
 
@@ -114,7 +115,7 @@
 					style="color: {getContrastColor(getInstanceColor(instance))};"
 				></span>
 			{:else}
-				<Box size={32} style="color: {getContrastColor(getInstanceColor(instance))};" />
+				<img src="/img/crystal.png" alt="" class="w-10 h-10 object-contain" />
 			{/if}
 		{/snippet}
 		{#snippet actions()}
@@ -150,6 +151,11 @@
 			>
 				<FolderOpen size={16} />
 			</button>
+			{#if isReady}
+				<button class="btn btn-square" onclick={handleInstallMod}>
+					<Plus size={16} />
+				</button>
+			{/if}
 			{#if instance}
 				<InstanceMenu {instance} bind:openSettingsModal={isSettingsModalOpen} />
 			{/if}

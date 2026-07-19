@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { Box, Gamepad2, Pause } from "@lucide/svelte";
+	import { Gamepad2, Pause, Trash2 } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { m } from "$lib/paraglide/messages";
 	import { queueItems } from "$lib/rigby/stores.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
+	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
+	import { deleteInstance } from "$lib/core/instance-delete";
 	import InstanceMenu from "./InstanceMenu.svelte";
 	import type { Instance } from "$lib/types/instance";
 
@@ -26,12 +28,20 @@
 
 	let downloadProgress = $derived(queueItem?.progress?.percent ?? 0);
 
+	let showDeleteConfirm = $state(false);
+
+	async function handleDeleteConfirm(deleteData: boolean) {
+		if (!instance) return;
+		await deleteInstance(instance, deleteData);
+	}
+
 	function handleCardClick(e: MouseEvent) {
 		const target = e.target as Element;
 		if (
 			target.closest("[data-bits-popover-trigger]") ||
 			target.closest("[data-bits-popover-content]") ||
-			target.closest("dialog")
+			target.closest("dialog") ||
+			target.closest(".delete-instance-btn")
 		) {
 			return;
 		}
@@ -91,7 +101,18 @@
 					{/if}
 				</div>
 			</div>
-			<InstanceMenu {instance} />
+			<div class="flex items-center gap-1">
+				<button
+					class="btn btn-square text-error delete-instance-btn"
+					onclick={(e) => {
+						e.stopPropagation();
+						showDeleteConfirm = true;
+					}}
+				>
+					<Trash2 size={14} />
+				</button>
+				<InstanceMenu {instance} />
+			</div>
 		</div>
 	</div>
 {:else}
@@ -115,7 +136,7 @@
 						style="color: {getContrastColor(getInstanceColor(instance))};"
 					></span>
 				{:else}
-					<Box size={24} style="color: {getContrastColor(getInstanceColor(instance))};" />
+					<img src="/img/crystal.png" alt="" class="w-9 h-9 object-contain" />
 				{/if}
 			</div>
 			<div class="flex-1 min-w-0">
@@ -132,7 +153,24 @@
 					{/if}
 				</div>
 			</div>
-			<InstanceMenu {instance} />
+			<div class="flex items-center gap-1">
+				<button
+					class="btn btn-square text-error delete-instance-btn"
+					onclick={(e) => {
+						e.stopPropagation();
+						showDeleteConfirm = true;
+					}}
+				>
+					<Trash2 size={14} />
+				</button>
+				<InstanceMenu {instance} />
+			</div>
 		</div>
 	</div>
 {/if}
+
+<DeleteInstanceDialog
+	bind:open={showDeleteConfirm}
+	instanceName={instance.label}
+	onconfirm={handleDeleteConfirm}
+/>

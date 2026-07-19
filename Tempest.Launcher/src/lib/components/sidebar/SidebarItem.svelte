@@ -2,11 +2,11 @@
 	import { page } from "$app/state";
 	import { getContrastColor } from "$lib/utils/color";
 	import { Tooltip } from "bits-ui";
-	import type { Component } from "svelte";
+	import type { Snippet } from "svelte";
 
 	interface Props {
 		href: string;
-		icon: Component<any>;
+		children: Snippet;
 		label: string;
 		active?: boolean;
 		circle?: boolean;
@@ -14,7 +14,7 @@
 		onpointerdown?: (e: PointerEvent) => void;
 	}
 
-	let { href, icon: Icon, label, active, circle, color, onpointerdown }: Props = $props();
+	let { href, children, label, active, circle, color, onpointerdown }: Props = $props();
 
 	let isActive = $derived(active ?? page.url.pathname === href);
 </script>
@@ -31,11 +31,11 @@
 				class:btn-accent={isActive && !color}
 				class:btn-ghost={!isActive && !color}
 				style={color ?
-					`background-color: ${isActive ? color : 'transparent'}; border-color: ${isActive ? color : 'transparent'}; color: ${isActive ? getContrastColor(color) : color};`
+					`background-color: ${isActive ? color : `color-mix(in srgb, ${color} 15%, transparent)`}; border-color: ${isActive ? 'white' : color}; color: ${isActive ? getContrastColor(color) : color};`
 				:	''}
 				aria-label={label}
 			>
-				<Icon size={20} />
+				{@render children()}
 			</a>
 		{/snippet}
 	</Tooltip.Trigger>
@@ -50,4 +50,3 @@
 		</Tooltip.Content>
 	</Tooltip.Portal>
 </Tooltip.Root>
-

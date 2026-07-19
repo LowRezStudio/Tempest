@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { Box, Compass, Download, House, Library, Plus, ScrollText, Server, Settings, SquareTerminal, Terminal } from "@lucide/svelte";
+	import { Compass, Download, House, Library, Plus, ScrollText, Server, Settings, SquareTerminal, Terminal } from "@lucide/svelte";
 	import { page } from "$app/state";
 	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { instanceMap, instanceOrder, setInstanceOrder } from "$lib/stores/instance.svelte";
 	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
 	import { commandsPageOpen, instanceWizardOpen } from "$lib/stores/ui.svelte";
-	import { getInstanceColor } from "$lib/utils/color";
+	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import { createReorderable } from "$lib/utils/reorder.svelte";
 	import LanguageSelector from "./LanguageSelector.svelte";
 	import SidebarItem from "./SidebarItem.svelte";
@@ -43,12 +43,12 @@
 	class:dragging={!!reorder.drag}
 >
 	<nav class="flex flex-col gap-2">
-		<SidebarItem href="/" icon={House} label={m.sidebar_home()} />
-		<SidebarItem href="/library" icon={Library} label={m.sidebar_library()} />
-		<SidebarItem href="/downloads" icon={Download} label={m.sidebar_downloads()} />
-		<SidebarItem href="/servers" icon={Server} label={m.sidebar_servers()} />
+		<SidebarItem href="/" label={m.sidebar_home()}><House size={20} /></SidebarItem>
+		<SidebarItem href="/library" label={m.sidebar_library()}><Library size={20} /></SidebarItem>
+		<SidebarItem href="/downloads" label={m.sidebar_downloads()}><Download size={20} /></SidebarItem>
+		<SidebarItem href="/servers" label={m.sidebar_servers()}><Server size={20} /></SidebarItem>
 		{#if lobbyHost.value}
-			<SidebarItem href="/lobby" icon={Compass} label={m.sidebar_lobby()} />
+			<SidebarItem href="/lobby" label={m.sidebar_lobby()}><Compass size={20} /></SidebarItem>
 		{/if}
 	</nav>
 
@@ -66,13 +66,14 @@
 				class:is-ghost={reorder.drag?.id === instance.id}
 			>
 				<SidebarItem
-					icon={Box}
 					label={instance.label}
 					active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
 					href={`/instance/${instance.id}`}
 					color={getInstanceColor(instance)}
 					onpointerdown={reorder.pointerdown(instance.id, i, instance)}
-				/>
+				>
+					<span class="text-[10px] font-bold leading-none">{instance.version}</span>
+				</SidebarItem>
 			</div>
 		{/each}
 
@@ -86,28 +87,30 @@
 	<div class="flex flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none">
 		{#if commandsPageOpen.value}
 			<SidebarItem
-				icon={Terminal}
-				label={m.commands_page_title()}
-				active={page.url.pathname === "/commands"}
-				href="/commands"
-			/>
+					label={m.commands_page_title()}
+					active={page.url.pathname === "/commands"}
+					href="/commands"
+				>
+					<Terminal size={20} />
+				</SidebarItem>
 		{/if}
 		{#each lobbyServerProcessesList.value as lobbyServer}
 			<SidebarItem
-				icon={SquareTerminal}
-				label={lobbyServer.createOptions.name}
-				active={page.route.id == "/lobby-admin/[pid]" &&
-					page.params.pid == String(lobbyServer.child.pid)}
-				href={`/lobby-admin/${lobbyServer.child.pid}`}
-			/>
+					label={lobbyServer.createOptions.name}
+					active={page.route.id == "/lobby-admin/[pid]" &&
+						page.params.pid == String(lobbyServer.child.pid)}
+					href={`/lobby-admin/${lobbyServer.child.pid}`}
+				>
+					<SquareTerminal size={20} />
+				</SidebarItem>
 		{/each}
 	</div>
 	<div class="divider mx-4 my-4 opacity-50"></div>
 
 	<div class="mt-auto flex flex-col gap-2">
 		<LanguageSelector />
-		<SidebarItem href="/logs" icon={ScrollText} label={m.sidebar_logs()} />
-		<SidebarItem href="/settings" icon={Settings} label={m.sidebar_settings()} />
+		<SidebarItem href="/logs" label={m.sidebar_logs()}><ScrollText size={20} /></SidebarItem>
+		<SidebarItem href="/settings" label={m.sidebar_settings()}><Settings size={20} /></SidebarItem>
 	</div>
 
 	{#if reorder.drag}
@@ -119,11 +122,13 @@
 			inert
 		>
 			<SidebarItem
-				icon={Box}
-				label={reorder.drag.item.label}
-				href={`/instance/${reorder.drag.item.id}`}
-				color={getInstanceColor(reorder.drag.item)}
-			/>
+					label={reorder.drag.item.label}
+					href={`/instance/${reorder.drag.item.id}`}
+					color={getInstanceColor(reorder.drag.item)}
+					active={true}
+				>
+					<span class="text-[10px] font-bold leading-none">{reorder.drag.item.version}</span>
+				</SidebarItem>
 		</div>
 	{/if}
 </aside>

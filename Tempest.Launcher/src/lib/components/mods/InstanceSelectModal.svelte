@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { Box, PackageX } from "@lucide/svelte";
+	import { PackageX } from "@lucide/svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { instanceMap } from "$lib/stores/instance.svelte";
-	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
+	import { getInstanceColor } from "$lib/utils/color";
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
@@ -49,19 +49,13 @@
 								class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
 								style="background-color: {getInstanceColor(inst)}"
 							>
-								<Box
-									size={24}
-									style="color: {getContrastColor(getInstanceColor(inst))};"
-								/>
+								<img src="/img/crystal.png" alt="" class="w-9 h-9 object-contain" />
 							</div>
 							<div class="list-col-grow min-w-0">
 								<h4 class="font-bold text-base truncate mb-0.5">{inst.label}</h4>
 								<div class="flex items-center gap-2 text-xs">
 									{#if inst.version}
-										<span
-											class="opacity-60 font-mono flex items-center gap-1 shrink-0"
-										>
-											<Box size={12} />
+										<span class="opacity-60 font-mono shrink-0">
 											{inst.version}
 										</span>
 									{/if}
