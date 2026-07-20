@@ -6,6 +6,7 @@ riderModule.iml
 *.user
 /.idea
 zig-out
+zig-pkg
 .zig-cache
 .DS_Store
 .vs
