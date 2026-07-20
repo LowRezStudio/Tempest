@@ -1,5 +1,13 @@
 const eio = () => (window as any).electronAPI!;
 
+type FsResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+async function unwrap<T>(p: Promise<FsResult<T>>): Promise<T> {
+	const result = await p;
+	if (!result.ok) return Promise.reject(result.error);
+	return result.data;
+}
+
 class MiniEmitter {
 	private _listeners = new Map<string, Set<Function>>();
 
@@ -241,17 +249,17 @@ export function exists(p: string): Promise<boolean> {
 export function readDir(
 	p: string,
 ): Promise<{ name: string; isDirectory: boolean; isFile: boolean; isSymlink: boolean }[]> {
-	return eio().invoke("fs:read-dir", { path: p });
+	return unwrap(eio().invoke("fs:read-dir", { path: p }));
 }
 
 export function stat(
 	p: string,
 ): Promise<{ size: number; isDirectory: boolean; isFile: boolean; isSymlink: boolean }> {
-	return eio().invoke("fs:stat", { path: p });
+	return unwrap(eio().invoke("fs:stat", { path: p }));
 }
 
 export function remove(p: string, options?: { recursive?: boolean }): Promise<void> {
-	return eio().invoke("fs:remove", { path: p, options });
+	return unwrap(eio().invoke("fs:remove", { path: p, options })) as Promise<void>;
 }
 
 // ---- @tauri-apps/plugin-dialog ----
