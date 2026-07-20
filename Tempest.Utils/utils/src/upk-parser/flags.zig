@@ -14,13 +14,15 @@ pub const ECompressionFlags = packed struct(u32) {
     pub fn format(self: ECompressionFlags, writer: *std.Io.Writer) !void {
         try writer.print("{s}", .{@tagName(self.type)});
 
-        inline for (@typeInfo(ECompressionFlags).@"struct".fields) |field| {
-            if (comptime std.mem.eql(u8, field.name, "type")) continue;
-            if (comptime std.mem.startsWith(u8, field.name, "_pad")) continue;
+        const info = @typeInfo(ECompressionFlags).@"struct";
 
-            if (field.type == bool) {
-                if (@field(self, field.name)) {
-                    try writer.print(", {s}", .{field.name});
+        inline for (info.field_names, info.field_types) |name, field_type| {
+            if (comptime std.mem.eql(u8, name, "type")) continue;
+            if (comptime std.mem.startsWith(u8, name, "_pad")) continue;
+
+            if (field_type == bool) {
+                if (@field(self, name)) {
+                    try writer.print(", {s}", .{name});
                 }
             }
         }
@@ -54,14 +56,15 @@ pub const EPackageFlags = packed struct(u32) {
     filter_editor_only: bool = false,
 
     pub fn format(self: EPackageFlags, writer: *std.Io.Writer) !void {
-        inline for (@typeInfo(EPackageFlags).@"struct".fields, 0..) |field, i| {
-            if (comptime std.mem.startsWith(u8, field.name, "_pad")) continue;
+        const info = @typeInfo(EPackageFlags).@"struct";
 
-            if (field.type == bool) {
-                if (@field(self, field.name)) {
+        inline for (info.field_names, info.field_types, 0..) |name, field_type, i| {
+            if (comptime std.mem.startsWith(u8, name, "_pad")) continue;
+            if (field_type == bool) {
+                if (@field(self, name)) {
                     try writer.print("{s}{s}", .{
                         if (i == 0) "" else ", ",
-                        field.name,
+                        name,
                     });
                 }
             }
@@ -129,14 +132,17 @@ pub const EObjectFlags = packed struct(u64) {
     cooked_startup_object: bool,
 
     pub fn format(self: EPackageFlags, writer: *std.Io.Writer) !void {
-        inline for (@typeInfo(EPackageFlags).@"struct".fields, 0..) |field, i| {
-            if (comptime std.mem.startsWith(u8, field.name, "_pad")) continue;
+        try writer.print("{s}", .{@tagName(self.type)});
+        const info = @typeInfo(EPackageFlags).@"struct";
 
-            if (field.type == bool) {
-                if (@field(self, field.name)) {
+        inline for (info.field_names, info.field_types, 0..) |name, field_type, i| {
+            if (comptime std.mem.startsWith(u8, name, "_pad")) continue;
+
+            if (field_type == bool) {
+                if (@field(self, name)) {
                     try writer.print("{s}{s}", .{
                         if (i == 0) "" else ", ",
-                        field.name,
+                        name,
                     });
                 }
             }
