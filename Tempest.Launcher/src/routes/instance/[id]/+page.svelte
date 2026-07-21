@@ -116,7 +116,7 @@
 					style="color: {getContrastColor(getInstanceColor(instance))};"
 				></span>
 			{:else}
-				<CrystalIcon class="w-11 h-11" />
+				<CrystalIcon class="w-[3.25rem] h-[3.25rem]" />
 			{/if}
 		{/snippet}
 		{#snippet actions()}
