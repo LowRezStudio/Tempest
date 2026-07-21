@@ -39,9 +39,7 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Setup Zig 0.16.0
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.16.0
+        uses: marler8997/setup-anyzig@master
 
       - name: Setup Rust
         if: matrix.backend == 'tauri'
