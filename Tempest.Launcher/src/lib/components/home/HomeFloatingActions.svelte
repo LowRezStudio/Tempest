@@ -44,10 +44,8 @@
 	let loading = $state(false);
 
 	onMount(() => {
-		if (!cachedReleaseNotes.value) {
-			loading = true;
-			fetchLatestRelease().finally(() => { loading = false; });
-		}
+		loading = true;
+		fetchLatestRelease().finally(() => { loading = false; });
 	});
 
 	const launchGameMutation = createLaunchGameMutation();

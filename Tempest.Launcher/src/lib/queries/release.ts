@@ -14,18 +14,17 @@ export async function fetchLatestRelease(): Promise<LatestRelease | null> {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), 5000);
 		const res = await fetch(
-			"https://github.com/LowRezStudio/Tempest/releases/latest/download/latest.json",
+			"https://api.github.com/repos/LowRezStudio/Tempest/releases/latest",
 			{ signal: controller.signal },
 		);
 		clearTimeout(timeout);
 		if (!res.ok) return null;
 		const data = await res.json();
-		const raw = (data.notes ?? "") as string;
-		const body = raw.replace(/^chore: bump to v[^\n]*\n?/, "").trim();
+		const body = (data.body ?? "").trim();
 		const release: LatestRelease = {
-			version: data.version,
+			version: data.tag_name?.replace(/^v/, "") ?? "",
 			body,
-			pub_date: data.pub_date ?? "",
+			pub_date: data.published_at ?? "",
 		};
 		cachedReleaseNotes.value = release;
 		return release;
