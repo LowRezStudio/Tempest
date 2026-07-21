@@ -148,7 +148,7 @@
 					<div class="flex items-center justify-end gap-1">
 						{#if hasDllMap.get(mod.Id)}
 							<button
-								class="btn btn-sm btn-square btn-ghost {isRunning ? 'text-primary' : ''}"
+								class="btn btn-sm btn-square btn-ghost {isRunning ? 'text-primary' : 'text-base-content/60'}"
 								disabled={!isRunning || reloadingModId === mod.Id}
 								onclick={() => handleReload(mod)}
 								title="Reload DLLs"
