@@ -10,6 +10,7 @@
 		Terminal,
 	} from "@lucide/svelte";
 	import { openPath } from "@tauri-apps/plugin-opener";
+	import CrystalIcon from "$lib/components/ui/CrystalIcon.svelte";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
@@ -23,7 +24,7 @@
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
-	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
+	import { getContrastColor, getInstanceColor, getMutedInstanceColor } from "$lib/utils/color";
 	import type { ModRecord } from "$lib/core/mods";
 
 	let activeTab = $state<"content">("content");
@@ -106,7 +107,7 @@
 		tabs={[{ name: m.instance_content(), value: "content" }]}
 		{activeTab}
 		onSelectTab={(tab) => (activeTab = tab)}
-		iconBg={getInstanceColor(instance)}
+		iconBg={getMutedInstanceColor(instance)}
 	>
 		{#snippet icon()}
 			{#if isSettingUp}
@@ -115,7 +116,7 @@
 					style="color: {getContrastColor(getInstanceColor(instance))};"
 				></span>
 			{:else}
-				<img src="/img/crystal.png" alt="" class="w-10 h-10 object-contain" />
+				<CrystalIcon class="w-11 h-11" />
 			{/if}
 		{/snippet}
 		{#snippet actions()}

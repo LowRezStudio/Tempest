@@ -22,6 +22,10 @@ export function getInstanceColor(instance: Instance | undefined): string {
 	return `#${f(0)}${f(8)}${f(4)}`;
 }
 
+export function getMutedInstanceColor(instance: Instance | undefined): string {
+	return `color-mix(in oklab, ${getInstanceColor(instance)} 45%, var(--color-base-content))`;
+}
+
 export function getContrastColor(hex: string | undefined): string {
 	if (!hex) return "#ffffff";
 	const color = hex.replace("#", "");

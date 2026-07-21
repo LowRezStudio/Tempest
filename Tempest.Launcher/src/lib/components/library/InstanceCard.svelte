@@ -1,9 +1,10 @@
 <script lang="ts">
+	import CrystalIcon from "$lib/components/ui/CrystalIcon.svelte";
 	import { Gamepad2, Pause, Trash2 } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { m } from "$lib/paraglide/messages";
 	import { queueItems } from "$lib/rigby/stores.svelte";
-	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
+	import { getContrastColor, getInstanceColor, getMutedInstanceColor } from "$lib/utils/color";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import { deleteInstance } from "$lib/core/instance-delete";
 	import InstanceMenu from "./InstanceMenu.svelte";
@@ -19,6 +20,7 @@
 	let isDownloading = $derived(instance.state.type === "downloading");
 	let isPaused = $derived(instance.state.type === "paused");
 	let isActive = $derived(isDownloading || isPaused);
+	let mutedColor = $derived(getMutedInstanceColor(instance));
 
 	let queueItem = $derived(
 		queueItems.value.find(
@@ -54,7 +56,7 @@
 		<div class="flex items-center gap-3">
 			<div
 				class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
-				style="background-color: {getInstanceColor(instance)}"
+				style="background-color: {mutedColor}"
 			>
 				{#if queueItem?.status === "pending" || !isDownloading}
 					<Pause
@@ -128,7 +130,7 @@
 		<div class="flex items-center gap-3">
 			<div
 				class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
-				style="background-color: {getInstanceColor(instance)}"
+				style="background-color: {mutedColor}"
 			>
 				{#if isSettingUp}
 					<span
@@ -136,7 +138,7 @@
 						style="color: {getContrastColor(getInstanceColor(instance))};"
 					></span>
 				{:else}
-					<img src="/img/crystal.png" alt="" class="w-9 h-9 object-contain" />
+					<CrystalIcon class="w-10 h-10" />
 				{/if}
 			</div>
 			<div class="flex-1 min-w-0">

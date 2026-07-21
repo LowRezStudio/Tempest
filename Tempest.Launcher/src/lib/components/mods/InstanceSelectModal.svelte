@@ -1,9 +1,10 @@
 <script lang="ts">
+	import CrystalIcon from "$lib/components/ui/CrystalIcon.svelte";
 	import { PackageX } from "@lucide/svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { instanceMap } from "$lib/stores/instance.svelte";
-	import { getInstanceColor } from "$lib/utils/color";
+	import { getInstanceColor, getMutedInstanceColor } from "$lib/utils/color";
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
@@ -47,9 +48,9 @@
 						>
 							<div
 								class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
-								style="background-color: {getInstanceColor(inst)}"
+								style="background-color: {getMutedInstanceColor(inst)}"
 							>
-								<img src="/img/crystal.png" alt="" class="w-9 h-9 object-contain" />
+								<CrystalIcon class="w-10 h-10" />
 							</div>
 							<div class="list-col-grow min-w-0">
 								<h4 class="font-bold text-base truncate mb-0.5">{inst.label}</h4>

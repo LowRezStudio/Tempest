@@ -15,13 +15,14 @@
 
 	let isActive = $derived(active ?? page.url.pathname === href);
 	let color = $derived(getInstanceColor(instance));
+	let muted = $derived(`color-mix(in oklab, ${color} 45%, var(--color-base-content))`);
 	let label = $derived(instance.label?.trim() || "?");
 	let version = $derived(instance.version?.trim() || "");
 
 	let style = $derived(
 		isActive
-			? `background-color: ${color}; color: ${getContrastColor(color)};`
-			: `color: color-mix(in oklab, ${color} 45%, var(--color-base-content));`,
+			? `background-color: ${muted}; color: ${getContrastColor(color)};`
+			: `color: ${muted};`,
 	);
 </script>
 
