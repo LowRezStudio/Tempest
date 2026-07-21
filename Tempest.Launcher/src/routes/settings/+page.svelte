@@ -5,7 +5,7 @@
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createAboutInfoQuery } from "$lib/queries/about";
-	import { defaultInstancePath, theme, username } from "$lib/stores/settings.svelte";
+	import { customThemeCSS, defaultInstancePath, theme, username } from "$lib/stores/settings.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import WineSettings from "$lib/wine/WineSettings.svelte";
 
@@ -86,8 +86,30 @@
 								<option value="mocha">{m.settings_theme_mocha()}</option>
 								<option value="latte">{m.settings_theme_latte()}</option>
 								<option value="legacy">{m.settings_theme_legacy()}</option>
+								<option value="custom">{m.settings_theme_custom()}</option>
 						</select>
 					</div>
+
+					{#if theme.value === "custom"}
+						<div class="form-control">
+							<label for="custom-css-input" class="label py-0.5">
+								<span class="label-text text-sm">{m.settings_theme_custom_css()}</span>
+							</label>
+							<textarea
+								id="custom-css-input"
+								class="textarea textarea-bordered w-full font-mono text-xs"
+								rows="20"
+								bind:value={customThemeCSS.value}
+								placeholder="Paste a daisyUI @plugin &quot;daisyui/theme&quot; block..."
+							></textarea>
+						</div>
+						<div class="bg-base-200 rounded-box px-3 py-2 mt-2">
+							<p class="text-xs">
+								<a href="https://daisyui.com/theme-generator/" target="_blank" rel="noreferrer" class="no-underline hover:underline">daisyui.com/theme-generator</a>
+								{m.settings_theme_custom_themes_link()}
+							</p>
+						</div>
+					{/if}
 
 						<div class="form-control">
 							<label for="path-input" class="label py-0.5">
