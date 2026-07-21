@@ -1,5 +1,3 @@
-const Parser = @This();
-
 const std = @import("std");
 const Io = std.Io;
 const mem = std.mem;
@@ -12,19 +10,22 @@ const constants = @import("constants.zig");
 const core = @import("core.zig");
 const objects = @import("objects.zig");
 
+const Parser = @This();
+
+pub const ParserOptions = struct {
+    verbose: bool = false,
+};
+
+options: ParserOptions = .{},
 allocator: std.mem.Allocator,
 file_buffer: []u8,
+
 summary: archive.FPackageFileSummary = .{},
 names_table: []archive.FNameEntry = &.{},
 imports_table: []archive.FObjectImport = &.{},
 exports_table: []archive.FObjectExport = &.{},
 depends_table: [][]u32 = &.{},
 data_buffer: []u8 = &.{},
-options: ParserOptions = .{},
-
-pub const ParserOptions = struct {
-    verbose: bool = false,
-};
 
 pub fn init(io: Io, allocator: mem.Allocator, filepath: []const u8, options: ParserOptions) !Parser {
     const file_buffer = try Io.Dir.readFileAlloc(Io.Dir.cwd(), io, filepath, allocator, .unlimited);
@@ -38,11 +39,17 @@ pub fn init(io: Io, allocator: mem.Allocator, filepath: []const u8, options: Par
 
 pub fn deinit(parser: *Parser) void {
     parser.allocator.free(parser.file_buffer);
+    parser.summary.deinit(parser.allocator);
+
+    for (parser.names_table) |*entry| entry.deinit(parser.allocator);
     parser.allocator.free(parser.names_table);
+
     parser.allocator.free(parser.imports_table);
     parser.allocator.free(parser.exports_table);
+
     for (parser.depends_table) |d| parser.allocator.free(d);
     parser.allocator.free(parser.depends_table);
+
     parser.allocator.free(parser.data_buffer);
     parser.* = undefined;
 }
@@ -139,35 +146,13 @@ pub fn parse(self: *Parser) !void {
     }
 
     self.imports_table = try self.allocator.alloc(archive.FObjectImport, self.summary.import_count + 1);
-    self.imports_table[0] = .{
-        .class_package = 0,
-        .class_name = 0,
-        .outer_index = 0,
-        .unk1 = 0,
-        .owner_ref = 0,
-        .object_name = 0,
-        .unk2 = 0,
-    };
+    self.imports_table[0] = .{};
     for (self.imports_table[1..]) |*import| {
         import.* = try archive.FObjectImport.take(reader);
     }
 
     self.exports_table = try self.allocator.alloc(archive.FObjectExport, self.summary.export_count + 1);
-    self.exports_table[0] = .{
-        .class_index = 0,
-        .super_index = 0,
-        .outer_index = 0,
-        .object_name = 0,
-        .archetype_index = 0,
-        .archetype = 0,
-        .object_flags = 0,
-        .serial_size = 0,
-        .serial_offset = 0,
-        .export_flags = 0,
-        .generation_net_object_count = 0,
-        .package_guid = .{},
-        .package_flags = 0,
-    };
+    self.exports_table[0] = .{};
     for (self.exports_table[1..]) |*entry| {
         entry.* = try archive.FObjectExport.take(reader, self.allocator);
     }
