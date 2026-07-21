@@ -6,9 +6,9 @@
 	import { instanceMap, instanceOrder, setInstanceOrder } from "$lib/stores/instance.svelte";
 	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
 	import { commandsPageOpen, instanceWizardOpen } from "$lib/stores/ui.svelte";
-	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import { createReorderable } from "$lib/utils/reorder.svelte";
 	import LanguageSelector from "./LanguageSelector.svelte";
+	import SidebarInstanceItem from "./SidebarInstanceItem.svelte";
 	import SidebarItem from "./SidebarItem.svelte";
 	import type { Instance } from "$lib/types/instance";
 
@@ -65,15 +65,12 @@
 				style:transform={reorder.shiftFor(i)}
 				class:is-ghost={reorder.drag?.id === instance.id}
 			>
-				<SidebarItem
-					label={instance.label}
-					active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
+				<SidebarInstanceItem
+					{instance}
 					href={`/instance/${instance.id}`}
-					color={getInstanceColor(instance)}
+					active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
 					onpointerdown={reorder.pointerdown(instance.id, i, instance)}
-				>
-					<span class="text-[10px] font-bold leading-none">{instance.version}</span>
-				</SidebarItem>
+				/>
 			</div>
 		{/each}
 
@@ -121,14 +118,11 @@
 			aria-hidden="true"
 			inert
 		>
-			<SidebarItem
-					label={reorder.drag.item.label}
+			<SidebarInstanceItem
+					instance={reorder.drag.item}
 					href={`/instance/${reorder.drag.item.id}`}
-					color={getInstanceColor(reorder.drag.item)}
 					active={true}
-				>
-					<span class="text-[10px] font-bold leading-none">{reorder.drag.item.version}</span>
-				</SidebarItem>
+				/>
 		</div>
 	{/if}
 </aside>
