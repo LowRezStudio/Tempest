@@ -15,16 +15,24 @@ pub const ArchiveError = error{
 };
 
 pub const FObjectImport = extern struct {
-    class_package: u32 = 0,
-    class_name: u32 = 0,
-    outer_index: u32 = 0,
-    unk1: u32 = 0,
-    owner_ref: i32 = 0,
-    object_name: u32 = 0,
-    unk2: u32 = 0,
+    class_package: FName = .{},
+    class_name: FName = .{},
+    outer_index: i32 = 0,
+    object_name: FName = .{},
 
-    pub fn take(r: *std.Io.Reader) !FObjectImport {
-        return try r.takeStruct(FObjectImport, .little);
+    pub fn take(r: *std.Io.Reader, allocator: mem.Allocator) !FObjectImport {
+        const class_package = try FName.take(r, allocator, false);
+        const class_name = try FName.take(r, allocator, false);
+        const outer_index = try r.takeInt(i32, .little);
+        const object_name = try FName.take(r, allocator, false);
+
+        return FObjectImport{
+            .class_package = class_package,
+            .class_name = class_name,
+            .outer_index = outer_index,
+            .object_name = object_name,
+        };
+        // return try r.takeStruct(FObjectImport, .little);
     }
 
     pub fn takeArray(r: *std.Io.Reader, allocator: mem.Allocator) ![]FObjectImport {
@@ -33,7 +41,7 @@ pub const FObjectImport = extern struct {
         errdefer allocator.free(imports);
 
         for (imports) |*import| {
-            import.* = try FObjectImport.take(r);
+            import.* = try FObjectImport.take(r, allocator);
         }
         return imports.toOwnedSlice();
     }
@@ -52,23 +60,20 @@ pub const FObjectImport = extern struct {
     pub fn format(self: FObjectImport, writer: *std.Io.Writer) !void {
         try writer.print(
             \\FObjectImport:
-            \\  class_package: {d}
-            \\  class_name: {d}
+            \\  class_package: {d} ({d})
+            \\  class_name: {d} ({d})
             \\  outer_index: {d}
-            \\  unk1: {d}
-            \\  owner_ref: {d}
-            \\  object_name: {d}
-            \\  unk2: {d}
+            \\  object_name: {d} ({d})
             \\
             \\
         , .{
-            self.class_package,
-            self.class_name,
+            self.class_package.index,
+            self.class_package.num,
+            self.class_name.index,
+            self.class_name.num,
             self.outer_index,
-            self.unk1,
-            self.owner_ref,
-            self.object_name,
-            self.unk2,
+            self.object_name.index,
+            self.object_name.num,
         });
     }
 };

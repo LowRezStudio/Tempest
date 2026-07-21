@@ -162,7 +162,7 @@ pub fn parse(self: *Parser) !void {
     self.imports_table = try self.allocator.alloc(archive.FObjectImport, self.summary.import_count + 1);
     self.imports_table[0] = .{};
     for (self.imports_table[1..]) |*import| {
-        import.* = try archive.FObjectImport.take(reader);
+        import.* = try archive.FObjectImport.take(reader, self.allocator);
     }
 
     self.exports_table = try self.allocator.alloc(archive.FObjectExport, self.summary.export_count + 1);

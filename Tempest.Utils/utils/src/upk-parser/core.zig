@@ -72,8 +72,8 @@ pub const FName = extern struct {
     len: u32 = 0,
     data: ?[*:0]u8 = null,
     // in objects
-    index: u32 = 0,
-    num: u32 = 0,
+    index: i32 = 0,
+    num: i32 = 0,
 
     pub fn deinit(self: FName, allocator: mem.Allocator) void {
         if (self.len > 0) {
@@ -92,8 +92,8 @@ pub const FName = extern struct {
             };
         }
 
-        const index = try reader.takeInt(u32, .little);
-        const num = try reader.takeInt(u32, .little);
+        const index = try reader.takeInt(i32, .little);
+        const num = try reader.takeInt(i32, .little);
         return FName{
             .index = index,
             .num = num,
@@ -117,8 +117,8 @@ pub const FName = extern struct {
             try w.writeInt(u32, self.len, .little);
             try w.writeAll(self.data.?[0..self.len]);
         } else {
-            try w.writeInt(u32, self.index, .little);
-            try w.writeInt(u32, self.num, .little);
+            try w.writeInt(i32, self.index, .little);
+            try w.writeInt(i32, self.num, .little);
         }
     }
 

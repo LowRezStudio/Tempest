@@ -26,7 +26,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("{f}\n", .{imports});
     }
 
-    for (p.names_table) |name_entry| {
-        std.debug.print("{f}\n", .{name_entry.name});
-    }
+    // for (p.names_table) |name_entry| {
+    //     std.debug.print("{f}\n", .{name_entry.name});
+    // }
 }
