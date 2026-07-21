@@ -45,6 +45,8 @@ pub fn deinit(parser: *Parser) void {
     parser.allocator.free(parser.names_table);
 
     parser.allocator.free(parser.imports_table);
+
+    for (parser.exports_table) |*entry| entry.deinit(parser.allocator);
     parser.allocator.free(parser.exports_table);
 
     for (parser.depends_table) |d| parser.allocator.free(d);
@@ -56,7 +58,13 @@ pub fn deinit(parser: *Parser) void {
 
 pub fn decompress(parser: *Parser, reader: *Io.Reader) !void {
     var decompressed_data: std.ArrayList([]u8) = .empty;
-    errdefer decompressed_data.deinit(parser.allocator);
+
+    errdefer {
+        for (decompressed_data.items) |chunk| {
+            parser.allocator.free(chunk);
+        }
+        decompressed_data.deinit(parser.allocator);
+    }
 
     for (parser.summary.compressed_chunks) |chunk| {
         reader.seek = chunk.CompressedOffset;
@@ -106,6 +114,7 @@ pub fn decompress(parser: *Parser, reader: *Io.Reader) !void {
     const obscured = parser.summary.compression_flags.obscured;
     parser.summary.compression_flags = .{ .obscured = obscured };
     parser.summary.package_flags.store_compressed = false;
+    parser.allocator.free(parser.summary.compressed_chunks);
     parser.summary.compressed_chunks = &.{};
 
     var decompressed_size: usize = 0;
@@ -117,10 +126,15 @@ pub fn decompress(parser: *Parser, reader: *Io.Reader) !void {
     @memcpy(new_buffer[0..parser.summary.name_offset], parser.file_buffer[0..parser.summary.name_offset]);
 
     var offset: usize = parser.summary.name_offset;
+
     for (decompressed_data.items) |chunk| {
         @memcpy(new_buffer[offset..][0..chunk.len], chunk);
         offset += chunk.len;
+
+        parser.allocator.free(chunk);
     }
+
+    decompressed_data.deinit(parser.allocator);
 
     parser.allocator.free(parser.file_buffer);
     parser.file_buffer = new_buffer;

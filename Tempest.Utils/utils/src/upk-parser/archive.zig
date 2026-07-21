@@ -7,8 +7,8 @@ pub const EObjectFlags = @import("flags.zig").EObjectFlags;
 pub const EPackageFlags = @import("flags.zig").EPackageFlags;
 pub const FGuid = @import("core.zig").FGuid;
 pub const FName = @import("core.zig").FName;
-pub const FString = @import("core.zig").FString;
 pub const FNameEntry = @import("core.zig").FNameEntry;
+pub const FString = @import("core.zig").FString;
 
 pub const ArchiveError = error{
     InvalidPackageFileTag,
@@ -272,6 +272,11 @@ pub const FObjectExport = extern struct {
     generation_net_objects: [*]u32 = &.{},
     package_guid: FGuid = .{},
     package_flags: u32 = 0,
+
+    pub fn deinit(self: *FObjectExport, allocator: mem.Allocator) void {
+        allocator.free(self.generation_net_objects[0..self.generation_net_object_count]);
+        self.* = .{};
+    }
 
     pub fn take(r: *std.Io.Reader, allocator: mem.Allocator) !FObjectExport {
         var @"export": FObjectExport = .{

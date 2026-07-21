@@ -12,8 +12,10 @@ pub fn build(b: *std.Build) void {
     const mod = b.addModule("Tempest_Utils", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
+        .imports = &.{
+            .{ .name = "minilzo", .module = minilzo_dep.module("minilzo_wrapper") },
+        },
     });
-    mod.addImport("minilzo", minilzo_dep.module("minilzo_wrapper"));
 
     const parser_exe = b.addExecutable(.{
         .name = "upk-parser",
