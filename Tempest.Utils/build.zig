@@ -122,16 +122,4 @@ pub fn build(b: *std.Build) void {
     });
 
     b.installArtifact(upkpatcher_exe);
-
-    const mctsparser_exe = b.addExecutable(.{
-        .name = b.fmt("mctsparser-{s}-{s}", .{ @tagName(target.result.os.tag), @tagName(target.result.cpu.arch) }),
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .root_source_file = b.path("src/mctsparser/root.zig"),
-        }),
-    });
-    mctsparser_exe.root_module.addImport("clap", clap.module("clap"));
-
-    b.installArtifact(mctsparser_exe);
 }
