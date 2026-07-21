@@ -1,6 +1,6 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const Io = std.Io;
+const builtin = @import("builtin");
 
 const Parser = @import("parser.zig");
 
@@ -17,7 +17,16 @@ pub fn main(init: std.process.Init) !void {
     defer p.deinit();
 
     try p.parse();
-    for (p.exports_table) |exports| {
+
+    for (p.exports_table[1..]) |exports| {
         std.debug.print("{f}\n", .{exports});
+    }
+
+    for (p.imports_table[1..]) |imports| {
+        std.debug.print("{f}\n", .{imports});
+    }
+
+    for (p.names_table) |name_entry| {
+        std.debug.print("{f}\n", .{name_entry.name});
     }
 }

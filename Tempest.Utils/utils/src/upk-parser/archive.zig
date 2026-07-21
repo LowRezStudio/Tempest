@@ -15,13 +15,13 @@ pub const ArchiveError = error{
 };
 
 pub const FObjectImport = extern struct {
-    class_package: u32,
-    class_name: u32,
-    outer_index: u32,
-    unk1: u32,
-    owner_ref: i32,
-    object_name: u32,
-    unk2: u32,
+    class_package: u32 = 0,
+    class_name: u32 = 0,
+    outer_index: u32 = 0,
+    unk1: u32 = 0,
+    owner_ref: i32 = 0,
+    object_name: u32 = 0,
+    unk2: u32 = 0,
 
     pub fn take(r: *std.Io.Reader) !FObjectImport {
         return try r.takeStruct(FObjectImport, .little);
@@ -30,7 +30,7 @@ pub const FObjectImport = extern struct {
     pub fn takeArray(r: *std.Io.Reader, allocator: mem.Allocator) ![]FObjectImport {
         const count = try r.takeInt(u32, .little);
         const imports = try allocator.alloc(FObjectImport, count);
-        errdefer imports.deinit();
+        errdefer allocator.free(imports);
 
         for (imports) |*import| {
             import.* = try FObjectImport.take(r);
@@ -457,6 +457,33 @@ pub const FPackageFileSummary = struct {
     package_source: u32 = 0,
     additional_packages: []FName = &.{},
     texture_allocations: []FTextureAllocation = &.{},
+
+    pub fn deinit(self: *FPackageFileSummary, allocator: mem.Allocator) void {
+        // FString inside
+        self.folder_name.deinit(allocator);
+
+        // Generations
+        allocator.free(self.generations);
+
+        // Compressed chunks
+        allocator.free(self.compressed_chunks);
+
+        // Additional packages (FName)
+        for (self.additional_packages) |*name| {
+            name.deinit(allocator);
+        }
+        allocator.free(self.additional_packages);
+
+        // Texture allocations
+        for (self.texture_allocations) |*alloc| {
+            if (alloc.export_indices_count > 0) {
+                allocator.free(alloc.export_indices[0..alloc.export_indices_count]);
+            }
+        }
+        allocator.free(self.texture_allocations);
+
+        self.* = .{};
+    }
 
     pub fn take(r: *std.Io.Reader, allocator: mem.Allocator) !FPackageFileSummary {
         const tag = try r.takeInt(u32, .little);

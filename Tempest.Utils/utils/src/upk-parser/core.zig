@@ -51,6 +51,10 @@ pub const FNameEntry = extern struct {
     name: FName,
     flags: u64,
 
+    pub fn deinit(self: FNameEntry, allocator: mem.Allocator) void {
+        self.name.deinit(allocator);
+    }
+
     pub fn take(reader: *std.Io.Reader, allocator: mem.Allocator, header: bool) !FNameEntry {
         const name = try FName.take(reader, allocator, header);
         const flags = try reader.takeInt(u64, .little);
@@ -70,6 +74,14 @@ pub const FName = extern struct {
     // in objects
     index: u32 = 0,
     num: u32 = 0,
+
+    pub fn deinit(self: FName, allocator: mem.Allocator) void {
+        if (self.len > 0) {
+            if (self.data) |ptr| {
+                allocator.free(ptr[0..self.len]);
+            }
+        }
+    }
 
     pub fn take(reader: *std.Io.Reader, allocator: mem.Allocator, header: bool) !FName {
         if (header) {
@@ -122,8 +134,8 @@ pub const FName = extern struct {
     }
 
     pub fn format(self: FName, writer: *std.Io.Writer) !void {
-        if (self.len != 0) {
-            try writer.print("{s}", .{self.toString()});
+        if (self.len > 0 and self.data != null) {
+            try writer.print("{s}", .{self.data.?[0..self.len]});
         } else {
             try writer.print("{d}_{d}", .{ self.index, self.num });
         }
@@ -133,6 +145,12 @@ pub const FName = extern struct {
 pub const FString = extern struct {
     len: u32 = 0,
     data: [*:0]u8 = undefined,
+
+    pub fn deinit(self: FString, allocator: mem.Allocator) void {
+        if (self.len > 0) {
+            allocator.free(self.data[0..self.len]);
+        }
+    }
 
     pub fn take(reader: *std.Io.Reader, allocator: mem.Allocator) !FString {
         const len: u32 = try reader.takeInt(u32, .little);
