@@ -205,11 +205,18 @@ public class ModV2Installer : IModInstaller
                             }
                         }
 
+                        // Write mod file to game directory
                         await using (var srcStream = await entry.OpenAsync())
                         await using (var destStream = File.Create(destGamePath))
                         {
                             await srcStream.CopyToAsync(destStream);
                         }
+
+                        // Keep a snapshot in mod dir for re-enable
+                        var modSnapshotPath = Path.Combine(targetModDir, "files", relativeInFiles);
+                        var modSnapshotDir = Path.GetDirectoryName(modSnapshotPath);
+                        if (modSnapshotDir != null) Directory.CreateDirectory(modSnapshotDir);
+                        File.Copy(destGamePath, modSnapshotPath, overwrite: true);
 
                         installedFiles.Add(destGamePath);
                     }
@@ -380,6 +387,151 @@ public class ModV2Installer : IModInstaller
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Warning: Failed to delete directories during uninstall: {ex.Message}");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task DisableAsync(string gamePath, ModRecord mod)
+    {
+        var resolvedGame = GameFolderResolver.Resolve(gamePath);
+        var modId = mod.Id;
+
+        var targetModDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, modId);
+        var targetFilesDir = Path.Combine(targetModDir, "files");
+
+        // Restore INI patches (keep the .ini files in mod dir, keep ini-backups intact)
+        if (Directory.Exists(targetFilesDir))
+        {
+            var filesInFilesDir = Directory.GetFiles(targetFilesDir, "*.ini", SearchOption.AllDirectories);
+            foreach (var modIniFile in filesInFilesDir)
+            {
+                var relativePathFromFiles = Path.GetRelativePath(targetFilesDir, modIniFile);
+                var destGamePath = Path.Combine(resolvedGame, relativePathFromFiles);
+
+                if (!File.Exists(destGamePath)) continue;
+
+                var gameIniLines = IniPatcher.Parse(destGamePath);
+                var modIniLines = IniPatcher.Parse(modIniFile);
+
+                var iniBackupPath = TempestPathUtility.GetLocalV2IniBackupPath(resolvedGame, modId, relativePathFromFiles);
+                var backupLines = File.Exists(iniBackupPath) ? IniPatcher.Parse(iniBackupPath) : [];
+
+                RestoreGameIni(gameIniLines, modIniLines, backupLines);
+
+                IniPatcher.Save(destGamePath, gameIniLines);
+            }
+        }
+
+        // Restore non-ini files: COPY from backup (keep backup intact for re-enable)
+        foreach (var file in mod.InstalledFiles)
+        {
+            var ext = Path.GetExtension(file).ToLowerInvariant();
+            if (ext == ".ini") continue;
+
+            var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
+            var backupPath = TempestPathUtility.GetLocalV2BackupPath(resolvedGame, relativePathFromGame);
+
+            if (!File.Exists(backupPath)) continue;
+
+            try
+            {
+                var destDir = Path.GetDirectoryName(file);
+                if (destDir != null) Directory.CreateDirectory(destDir);
+
+                if (File.Exists(file)) File.Delete(file);
+                File.Copy(backupPath, file);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Warning: Failed to restore backup {backupPath} to {file}: {ex.Message}");
+            }
+        }
+
+        // Keep mod dir, backup dirs, and ini-backup dirs intact for re-enable
+
+        return Task.CompletedTask;
+    }
+
+    public Task EnableAsync(string gamePath, ModRecord mod)
+    {
+        var resolvedGame = GameFolderResolver.Resolve(gamePath);
+        var modId = mod.Id;
+
+        var targetModDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, modId);
+        var snapshotFilesDir = Path.Combine(targetModDir, "files");
+
+        if (!Directory.Exists(targetModDir))
+        {
+            Console.Error.WriteLine($"Warning: Mod directory not found for '{modId}'. Cannot enable.");
+            return Task.CompletedTask;
+        }
+
+        // Re-apply non-INI files from the mod snapshot directory
+        foreach (var file in mod.InstalledFiles)
+        {
+            var ext = Path.GetExtension(file).ToLowerInvariant();
+            if (ext == ".ini") continue;
+
+            var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
+            var snapshotPath = Path.Combine(snapshotFilesDir, relativePathFromGame);
+
+            if (!File.Exists(snapshotPath))
+            {
+                Console.Error.WriteLine($"Warning: Snapshot file not found for '{relativePathFromGame}'. Mod may have been installed before snapshot support was added.");
+                continue;
+            }
+
+            try
+            {
+                var destDir = Path.GetDirectoryName(file);
+                if (destDir != null) Directory.CreateDirectory(destDir);
+
+                if (File.Exists(file)) File.Delete(file);
+                File.Copy(snapshotPath, file);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Warning: Failed to enable file {file}: {ex.Message}");
+            }
+        }
+
+        // Re-apply INI patches
+        if (Directory.Exists(snapshotFilesDir))
+        {
+            var filesInFilesDir = Directory.GetFiles(snapshotFilesDir, "*.ini", SearchOption.AllDirectories);
+            foreach (var modIniFile in filesInFilesDir)
+            {
+                var relativePathFromFiles = Path.GetRelativePath(snapshotFilesDir, modIniFile);
+                var destGamePath = Path.Combine(resolvedGame, relativePathFromFiles);
+
+                if (File.Exists(destGamePath))
+                {
+                    var gameIniLines = IniPatcher.Parse(destGamePath);
+                    var modIniLines = IniPatcher.Parse(modIniFile);
+                    var backupLines = new List<IniLine>();
+
+                    ApplyModIniToGameIni(gameIniLines, modIniLines, backupLines);
+
+                    var iniBackupPath = TempestPathUtility.GetLocalV2IniBackupPath(resolvedGame, modId, relativePathFromFiles);
+                    var iniBackupDir = Path.GetDirectoryName(iniBackupPath);
+                    if (iniBackupDir != null) Directory.CreateDirectory(iniBackupDir);
+
+                    if (backupLines.Count > 0)
+                    {
+                        IniPatcher.Save(iniBackupPath, backupLines);
+                    }
+
+                    IniPatcher.Save(destGamePath, gameIniLines);
+                }
+                else
+                {
+                    // Game INI didn't exist before — just copy the mod's snapshot
+                    var destDir = Path.GetDirectoryName(destGamePath);
+                    if (destDir != null) Directory.CreateDirectory(destDir);
+                    File.Copy(modIniFile, destGamePath);
+                }
+            }
         }
 
         return Task.CompletedTask;

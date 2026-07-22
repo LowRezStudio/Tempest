@@ -118,7 +118,75 @@ public class ModV1Installer : IModInstaller
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var backupDir = Path.Combine(resolvedGame, "ChaosGame", "CookedAssetBackup");
 
-        // Delete copied files and restore backups if available
+        await RemoveModFiles(resolvedGame, backupDir, mod);
+
+        // Unregister in INI if non-asset mod
+        await UnregisterIni(resolvedGame, mod);
+    }
+
+    public async Task DisableAsync(string gamePath, ModRecord mod)
+    {
+        var resolvedGame = GameFolderResolver.Resolve(gamePath);
+        var backupDir = Path.Combine(resolvedGame, "ChaosGame", "CookedAssetBackup");
+
+        await RemoveModFiles(resolvedGame, backupDir, mod);
+
+        // Keep the record intact
+    }
+
+    public async Task EnableAsync(string gamePath, ModRecord mod)
+    {
+        var resolvedGame = GameFolderResolver.Resolve(gamePath);
+
+        // Re-copy mod files from backup or original path
+        var backupDir = Path.Combine(resolvedGame, "ChaosGame", "CookedAssetBackup");
+
+        foreach (var file in mod.InstalledFiles)
+        {
+            var fileName = Path.GetFileName(file);
+            var backupPath = Path.Combine(backupDir, fileName);
+
+            if (File.Exists(backupPath))
+            {
+                try
+                {
+                    var destDir = Path.GetDirectoryName(file);
+                    if (destDir != null) Directory.CreateDirectory(destDir);
+
+                    if (File.Exists(file)) File.Delete(file);
+                    File.Copy(backupPath, file);
+                }
+                catch (Exception ex)
+                {
+                    await Console.Error.WriteLineAsync($"Warning: Failed to restore file {backupPath} to {file}: {ex.Message}");
+                }
+            }
+            else if (File.Exists(mod.OriginalPath))
+            {
+                try
+                {
+                    var destDir = Path.GetDirectoryName(file);
+                    if (destDir != null) Directory.CreateDirectory(destDir);
+
+                    File.Copy(mod.OriginalPath, file, overwrite: true);
+                }
+                catch (Exception ex)
+                {
+                    await Console.Error.WriteLineAsync($"Warning: Failed to re-install mod from {mod.OriginalPath}: {ex.Message}");
+                }
+            }
+            else
+            {
+                await Console.Error.WriteLineAsync($"Warning: Cannot enable mod '{mod.Name}': no backup or original file found at {backupPath} or {mod.OriginalPath}");
+            }
+        }
+
+        // Re-register in INI
+        await RegisterIni(resolvedGame, mod);
+    }
+
+    private static async Task RemoveModFiles(string resolvedGame, string backupDir, ModRecord mod)
+    {
         foreach (var file in mod.InstalledFiles)
         {
             var fileName = Path.GetFileName(file);
@@ -139,7 +207,7 @@ public class ModV1Installer : IModInstaller
             else
             {
                 if (!File.Exists(file)) continue;
-                
+
                 try
                 {
                     File.Delete(file);
@@ -150,17 +218,19 @@ public class ModV1Installer : IModInstaller
                 }
             }
         }
+    }
 
-        // Unregister in INI if non-asset mod
+    private static async Task UnregisterIni(string resolvedGame, ModRecord mod)
+    {
         var shouldUnregisterIni = !mod.Name.Contains("_SF", StringComparison.OrdinalIgnoreCase) &&
                                   !mod.Name.Contains("WWB", StringComparison.OrdinalIgnoreCase);
 
         if (!shouldUnregisterIni) return;
-        
+
         var iniPath = Path.Combine(resolvedGame, "ChaosGame", "Config", "DefaultEngine.ini");
-        
+
         if (!File.Exists(iniPath)) return;
-        
+
         try
         {
             var lines = IniPatcher.Parse(iniPath);
@@ -171,6 +241,30 @@ public class ModV1Installer : IModInstaller
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"Warning: Failed to unpatch DefaultEngine.ini: {ex.Message}");
+        }
+    }
+
+    private static async Task RegisterIni(string resolvedGame, ModRecord mod)
+    {
+        var shouldRegisterIni = !mod.Name.Contains("_SF", StringComparison.OrdinalIgnoreCase) &&
+                                !mod.Name.Contains("WWB", StringComparison.OrdinalIgnoreCase);
+
+        if (!shouldRegisterIni) return;
+
+        var iniPath = Path.Combine(resolvedGame, "ChaosGame", "Config", "DefaultEngine.ini");
+
+        if (!File.Exists(iniPath)) return;
+
+        try
+        {
+            var lines = IniPatcher.Parse(iniPath);
+            var packageName = Path.GetFileNameWithoutExtension(mod.Name);
+            IniPatcher.AddNativePackage(lines, packageName);
+            IniPatcher.Save(iniPath, lines);
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Warning: Failed to patch DefaultEngine.ini: {ex.Message}");
         }
     }
 }

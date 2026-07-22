@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Box, FolderOpen, Pencil, RefreshCw, RotateCw, Trash2 } from "@lucide/svelte";
+	import { Box, FolderOpen, PackageX, Pencil, RefreshCw, RotateCw, Trash2 } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { reloadModDll } from "$lib/core/mods";
 	import type { ModRecord } from "$lib/core/mods";
@@ -7,7 +7,7 @@
 	import { path } from "@tauri-apps/api";
 	import { openPath } from "@tauri-apps/plugin-opener";
 	import Modal from "$lib/components/ui/Modal.svelte";
-	import { createRenameModMutation } from "$lib/queries/mods";
+	import { createRenameModMutation, createEnableModMutation, createDisableModMutation } from "$lib/queries/mods";
 
 	interface Props {
 		mods: ModRecord[];
@@ -56,6 +56,9 @@
 	let editingMod = $state<{ name: string } | null>(null);
 	let isRenameModalOpen = $state(false);
 	const renameMutation = createRenameModMutation();
+	const enableMutation = createEnableModMutation();
+	const disableMutation = createDisableModMutation();
+	let togglingModId = $state<string | null>(null);
 	let editName = $state("");
 
 	function openRename(mod: ModRecord) {
@@ -92,6 +95,15 @@
 		reloadingModId = mod.Id;
 		try { await reloadModDll(gamePath, mod.Id); } finally { reloadingModId = null; }
 	};
+
+	const handleToggle = async (mod: ModRecord) => {
+		togglingModId = mod.Id;
+		try {
+			await (mod.Enabled ? disableMutation : enableMutation).mutateAsync({ gamePath, modName: mod.Name });
+		} finally {
+			togglingModId = null;
+		}
+	};
 </script>
 
 <table class="table">
@@ -118,14 +130,18 @@
 	<tbody>
 		{#each mods as mod (mod.Id)}
 			<tr class="hover">
-				<td>
+				<td class={!mod.Enabled ? 'opacity-40' : ''}>
 					<div class="flex items-center gap-3">
 						<button
 							class="w-10 h-10 rounded-lg bg-base-200 hover:bg-base-300 flex items-center justify-center shrink-0 transition-all text-primary hover:scale-105 active:scale-95 cursor-pointer"
 							onclick={() => onOpenDetails(mod)}
 							title={m.mod_updated_files()}
 						>
-							<Box size={20} class="opacity-75" />
+							{#if mod.Enabled}
+								<Box size={20} class="opacity-75" />
+							{:else}
+								<PackageX size={20} class="opacity-75" />
+							{/if}
 						</button>
 						<div class="flex-1 min-w-0">
 							<div class="flex items-center gap-2">
@@ -141,7 +157,7 @@
 						</div>
 					</div>
 				</td>
-				<td>
+				<td class={!mod.Enabled ? 'opacity-40' : ''}>
 					<p class="font-semibold text-sm">{mod.Version || "Unknown"}</p>
 				</td>
 				<td>
@@ -160,6 +176,20 @@
 								{/if}
 							</button>
 						{/if}
+						<button
+							class="btn btn-sm btn-square btn-ghost {mod.Enabled ? 'text-success' : 'text-error'}"
+							disabled={togglingModId === mod.Id}
+							onclick={() => handleToggle(mod)}
+							title={mod.Enabled ? 'Disable mod' : 'Enable mod'}
+						>
+							{#if togglingModId === mod.Id}
+								<span class="loading loading-spinner loading-xs"></span>
+							{:else if mod.Enabled}
+								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+							{:else}
+								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+							{/if}
+						</button>
 						<button
 							class="btn btn-sm btn-square btn-ghost hover:text-error"
 							disabled={isRemoving}

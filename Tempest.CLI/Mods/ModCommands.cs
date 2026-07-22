@@ -282,23 +282,7 @@ internal class ModCommands
                 return;
             }
 
-            IModInstaller installer;
-            if (string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
-            {
-                installer = new ModV2Installer();
-            }
-            else
-            {
-                try
-                {
-                    installer = ModInstallerFactory.CreateForFile(mod.Name);
-                }
-                catch
-                {
-                    installer = new ModV1Installer();
-                }
-            }
-
+            var installer = CreateInstaller(mod);
             await installer.RemoveAsync(path, mod);
             mods.Remove(mod);
             SaveMetadata(path, mods);
@@ -310,6 +294,101 @@ internal class ModCommands
         {
             var fail = new ModInstallResult { Success = false, Message = ex.Message };
             PrintResult(fail, json);
+        }
+    }
+
+    /// <summary>Enables a mod in the game instance, applying its files back to the game directory</summary>
+    /// <param name="path">Path to the game folder or executable</param>
+    /// <param name="modName">Name of the mod to enable</param>
+    /// <param name="json">Output as JSON</param>
+    public async Task Enable([Argument] string path, [Argument] string modName, bool json = false)
+    {
+        try
+        {
+            var mods = LoadMetadata(path);
+            var mod = mods.FirstOrDefault(m => string.Equals(m.Name, modName, StringComparison.OrdinalIgnoreCase));
+
+            if (mod == null)
+            {
+                var fail = new ModInstallResult { Success = false, Message = $"Mod not found: {modName}" };
+                PrintResult(fail, json);
+                return;
+            }
+
+            if (mod.Enabled)
+            {
+                var ok = new ModInstallResult { Success = true, Message = $"Mod '{modName}' is already enabled." };
+                PrintResult(ok, json);
+                return;
+            }
+
+            var installer = CreateInstaller(mod);
+            await installer.EnableAsync(path, mod);
+            mod.Enabled = true;
+            SaveMetadata(path, mods);
+
+            var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' enabled successfully." };
+            PrintResult(result, json);
+        }
+        catch (Exception ex)
+        {
+            var fail = new ModInstallResult { Success = false, Message = ex.Message };
+            PrintResult(fail, json);
+        }
+    }
+
+    /// <summary>Disables a mod in the game instance, reverting its file changes while keeping the mod data</summary>
+    /// <param name="path">Path to the game folder or executable</param>
+    /// <param name="modName">Name of the mod to disable</param>
+    /// <param name="json">Output as JSON</param>
+    public async Task Disable([Argument] string path, [Argument] string modName, bool json = false)
+    {
+        try
+        {
+            var mods = LoadMetadata(path);
+            var mod = mods.FirstOrDefault(m => string.Equals(m.Name, modName, StringComparison.OrdinalIgnoreCase));
+
+            if (mod == null)
+            {
+                var fail = new ModInstallResult { Success = false, Message = $"Mod not found: {modName}" };
+                PrintResult(fail, json);
+                return;
+            }
+
+            if (!mod.Enabled)
+            {
+                var ok = new ModInstallResult { Success = true, Message = $"Mod '{modName}' is already disabled." };
+                PrintResult(ok, json);
+                return;
+            }
+
+            var installer = CreateInstaller(mod);
+            await installer.DisableAsync(path, mod);
+            mod.Enabled = false;
+            SaveMetadata(path, mods);
+
+            var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' disabled successfully." };
+            PrintResult(result, json);
+        }
+        catch (Exception ex)
+        {
+            var fail = new ModInstallResult { Success = false, Message = ex.Message };
+            PrintResult(fail, json);
+        }
+    }
+
+    private static IModInstaller CreateInstaller(ModRecord mod)
+    {
+        if (string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
+            return new ModV2Installer();
+
+        try
+        {
+            return ModInstallerFactory.CreateForFile(mod.Name);
+        }
+        catch
+        {
+            return new ModV1Installer();
         }
     }
 
