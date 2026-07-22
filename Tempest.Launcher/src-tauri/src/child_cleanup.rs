@@ -15,6 +15,7 @@ pub fn setup() {
 	use std::sync::OnceLock;
 	use windows::Win32::Foundation::{CloseHandle, HANDLE};
 
+	#[allow(dead_code)]
 	struct SafeHandle(HANDLE);
 	unsafe impl Send for SafeHandle {}
 	unsafe impl Sync for SafeHandle {}
