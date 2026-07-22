@@ -176,20 +176,22 @@
 								{/if}
 							</button>
 						{/if}
-						<button
-							class="btn btn-sm btn-square btn-ghost {mod.Enabled ? 'text-success' : 'text-error'}"
-							disabled={togglingModId === mod.Id}
-							onclick={() => handleToggle(mod)}
-							title={mod.Enabled ? 'Disable mod' : 'Enable mod'}
-						>
-							{#if togglingModId === mod.Id}
-								<span class="loading loading-spinner loading-xs"></span>
-							{:else if mod.Enabled}
-								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-							{:else}
-								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-							{/if}
-						</button>
+						{#if mod.Kind === "V2"}
+							<button
+								class="btn btn-sm btn-square btn-ghost {mod.Enabled ? 'text-success' : 'text-error'}"
+								disabled={togglingModId === mod.Id}
+								onclick={() => handleToggle(mod)}
+								title={mod.Enabled ? 'Disable mod' : 'Enable mod'}
+							>
+								{#if togglingModId === mod.Id}
+									<span class="loading loading-spinner loading-xs"></span>
+								{:else if mod.Enabled}
+									<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+								{:else}
+									<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+								{/if}
+							</button>
+						{/if}
 						<button
 							class="btn btn-sm btn-square btn-ghost hover:text-error"
 							disabled={isRemoving}
