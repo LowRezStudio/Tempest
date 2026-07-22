@@ -39,6 +39,7 @@
 
 	const modsQuery = createModsQuery(() => instance?.path ?? "");
 	let modsList = $derived(modsQuery.data ?? []);
+	let isInitialLoading = $derived(modsQuery.isPending);
 	let isQueryLoading = $derived(modsQuery.isFetching);
 
 	const removeModMutation = createRemoveModMutation();
@@ -207,7 +208,14 @@
 		{#if activeTab === "content"}
 			<div class="flex-1 overflow-y-auto">
 				<div class="px-4 py-6">
-					{#if modsList.length === 0}
+					{#if isInitialLoading}
+						<div class="flex flex-col items-center justify-center h-80 gap-4 text-center">
+							<span class="loading loading-spinner loading-lg opacity-30"></span>
+							<p class="text-lg font-semibold text-base-content/70">
+								{m.common_loading()}
+							</p>
+						</div>
+					{:else if modsList.length === 0}
 						<EmptyState
 							title={m.instance_no_content()}
 							description={m.instance_drag_import_hint()}
