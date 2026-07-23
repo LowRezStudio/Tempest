@@ -41,10 +41,10 @@ public class ModV1Installer : IModInstaller
                 };
             }
 
-            // Backup existing file to ChaosGame/CookedAssetBackup
-            var backupDir = Path.Combine(resolvedGame, "ChaosGame", "CookedAssetBackup");
+            // Backup existing file to .tempest/v1/backup
+            var backupDir = TempestPathUtility.GetLocalV1BackupDirectory(resolvedGame);
             Directory.CreateDirectory(backupDir);
-            var backupPath = Path.Combine(backupDir, fileName);
+            var backupPath = TempestPathUtility.GetLocalV1BackupPath(resolvedGame, fileName);
             try
             {
                 if (File.Exists(backupPath))
@@ -69,9 +69,18 @@ public class ModV1Installer : IModInstaller
         // Copy mod file
         File.Copy(modFilePath, destPath, overwrite: true);
 
+        var modId = Guid.NewGuid().ToString();
+
+        // Save snapshot for future re-enable
+        var v1ModDir = TempestPathUtility.GetLocalV1ModDirectory(resolvedGame, modId);
+        var snapshotDir = Path.Combine(v1ModDir, "files");
+        Directory.CreateDirectory(snapshotDir);
+        var snapshotPath = Path.Combine(snapshotDir, fileName);
+        File.Copy(destPath, snapshotPath, overwrite: true);
+
         var modRecord = new ModRecord
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = modId,
             Name = fileName,
             Author = "Unknown",
             Version = string.Empty,
@@ -116,68 +125,89 @@ public class ModV1Installer : IModInstaller
     public async Task RemoveAsync(string gamePath, ModRecord mod)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
-        var backupDir = Path.Combine(resolvedGame, "ChaosGame", "CookedAssetBackup");
+        var backupDir = TempestPathUtility.GetLocalV1BackupDirectory(resolvedGame);
 
         await RemoveModFiles(resolvedGame, backupDir, mod);
 
         // Unregister in INI if non-asset mod
         await UnregisterIni(resolvedGame, mod);
+
+        // Clean up snapshot and backup dirs
+        var v1ModDir = TempestPathUtility.GetLocalV1ModDirectory(resolvedGame, mod.Id);
+        try
+        {
+            if (Directory.Exists(v1ModDir)) Directory.Delete(v1ModDir, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Warning: Failed to clean up mod directory: {ex.Message}");
+        }
+
+        foreach (var file in mod.InstalledFiles)
+        {
+            var fileName = Path.GetFileName(file);
+            var backupPath = TempestPathUtility.GetLocalV1BackupPath(resolvedGame, fileName);
+            try
+            {
+                if (File.Exists(backupPath)) File.Delete(backupPath);
+            }
+            catch (Exception ex)
+            {
+                await Console.Error.WriteLineAsync($"Warning: Failed to clean up backup {backupPath}: {ex.Message}");
+            }
+        }
     }
 
     public async Task DisableAsync(string gamePath, ModRecord mod)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
-        var backupDir = Path.Combine(resolvedGame, "ChaosGame", "CookedAssetBackup");
+        var backupDir = TempestPathUtility.GetLocalV1BackupDirectory(resolvedGame);
 
-        await RemoveModFiles(resolvedGame, backupDir, mod);
+        // Copy backup back (keep backup intact for re-enable), delete mod file
+        await DisableModFiles(resolvedGame, backupDir, mod);
 
-        // Keep the record intact
+        // Unregister INI entry
+        await UnregisterIni(resolvedGame, mod);
     }
 
     public async Task EnableAsync(string gamePath, ModRecord mod)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
-
-        // Re-copy mod files from backup or original path
-        var backupDir = Path.Combine(resolvedGame, "ChaosGame", "CookedAssetBackup");
+        var v1ModDir = TempestPathUtility.GetLocalV1ModDirectory(resolvedGame, mod.Id);
+        var snapshotDir = Path.Combine(v1ModDir, "files");
 
         foreach (var file in mod.InstalledFiles)
         {
             var fileName = Path.GetFileName(file);
-            var backupPath = Path.Combine(backupDir, fileName);
+            var snapshotPath = Path.Combine(snapshotDir, fileName);
 
-            if (File.Exists(backupPath))
+            string? sourcePath = null;
+
+            if (File.Exists(snapshotPath))
             {
-                try
-                {
-                    var destDir = Path.GetDirectoryName(file);
-                    if (destDir != null) Directory.CreateDirectory(destDir);
-
-                    if (File.Exists(file)) File.Delete(file);
-                    File.Copy(backupPath, file);
-                }
-                catch (Exception ex)
-                {
-                    await Console.Error.WriteLineAsync($"Warning: Failed to restore file {backupPath} to {file}: {ex.Message}");
-                }
+                sourcePath = snapshotPath;
             }
             else if (File.Exists(mod.OriginalPath))
             {
-                try
-                {
-                    var destDir = Path.GetDirectoryName(file);
-                    if (destDir != null) Directory.CreateDirectory(destDir);
-
-                    File.Copy(mod.OriginalPath, file, overwrite: true);
-                }
-                catch (Exception ex)
-                {
-                    await Console.Error.WriteLineAsync($"Warning: Failed to re-install mod from {mod.OriginalPath}: {ex.Message}");
-                }
+                sourcePath = mod.OriginalPath;
             }
-            else
+
+            if (sourcePath == null)
             {
-                await Console.Error.WriteLineAsync($"Warning: Cannot enable mod '{mod.Name}': no backup or original file found at {backupPath} or {mod.OriginalPath}");
+                await Console.Error.WriteLineAsync($"Warning: Cannot enable mod '{mod.Name}': no snapshot or original file found. Try re-installing the mod.");
+                continue;
+            }
+
+            try
+            {
+                var destDir = Path.GetDirectoryName(file);
+                if (destDir != null) Directory.CreateDirectory(destDir);
+
+                File.Copy(sourcePath, file, overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                await Console.Error.WriteLineAsync($"Warning: Failed to enable file {file}: {ex.Message}");
             }
         }
 
@@ -198,6 +228,44 @@ public class ModV1Installer : IModInstaller
                 {
                     if (File.Exists(file)) File.Delete(file);
                     File.Move(backupPath, file);
+                }
+                catch (Exception ex)
+                {
+                    await Console.Error.WriteLineAsync($"Warning: Failed to restore backup file {backupPath} to {file}: {ex.Message}");
+                }
+            }
+            else
+            {
+                if (!File.Exists(file)) continue;
+
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception ex)
+                {
+                    await Console.Error.WriteLineAsync($"Warning: Failed to delete installed file {file}: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    private static async Task DisableModFiles(string resolvedGame, string backupDir, ModRecord mod)
+    {
+        foreach (var file in mod.InstalledFiles)
+        {
+            var fileName = Path.GetFileName(file);
+            var backupPath = Path.Combine(backupDir, fileName);
+
+            if (File.Exists(backupPath))
+            {
+                try
+                {
+                    var destDir = Path.GetDirectoryName(file);
+                    if (destDir != null) Directory.CreateDirectory(destDir);
+
+                    if (File.Exists(file)) File.Delete(file);
+                    File.Copy(backupPath, file);
                 }
                 catch (Exception ex)
                 {

@@ -28,4 +28,13 @@ public static class TempestPathUtility
 
     public static string GetLocalV2IniBackupDirectory(string resolvedGame, string modId) =>
         Path.Combine(resolvedGame, ".tempest", "v2", "ini-backup", modId);
+
+    public static string GetLocalV1ModDirectory(string resolvedGame, string modId) =>
+        Path.Combine(resolvedGame, ".tempest", "v1", "mods", modId);
+
+    public static string GetLocalV1BackupDirectory(string resolvedGame) =>
+        Path.Combine(resolvedGame, ".tempest", "v1", "backup");
+
+    public static string GetLocalV1BackupPath(string resolvedGame, string fileName) =>
+        Path.Combine(resolvedGame, ".tempest", "v1", "backup", fileName);
 }
