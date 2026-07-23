@@ -125,7 +125,12 @@ internal class LauncherCommands
             {
                 var input = await reader.ReadLineAsync();
 
-                if (input == null || !input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase)) continue;
+                if (input == null)
+                {
+                    // Launcher disconnected — exit without killing the game
+                    Environment.Exit(0);
+                }
+                if (!input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase)) continue;
 
                 process.Kill(true);
                 Environment.Exit(0);

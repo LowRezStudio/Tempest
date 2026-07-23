@@ -1,12 +1,14 @@
 <script lang="ts">
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
-	import { Gamepad2, Pause, Trash2 } from "@lucide/svelte";
+	import { Gamepad2, Pause, Play, Square, Trash2 } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { m } from "$lib/paraglide/messages";
 	import { queueItems } from "$lib/rigby/stores.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import { deleteInstance } from "$lib/core/instance-delete";
+	import { processesList } from "$lib/stores/processes.svelte";
+	import { createLaunchGameMutation, createKillGameMutation } from "$lib/queries/core";
 	import InstanceMenu from "./InstanceMenu.svelte";
 	import type { Instance } from "$lib/types/instance";
 
@@ -29,6 +31,14 @@
 	);
 
 	let downloadProgress = $derived(queueItem?.progress?.percent ?? 0);
+
+	const launchMutation = createLaunchGameMutation();
+	const killMutation = createKillGameMutation();
+	let isLaunching = $derived(launchMutation.isPending);
+	let isKilling = $derived(killMutation.isPending);
+	let isBusy = $derived(isLaunching || isKilling);
+
+	let isRunning = $derived(processesList.value.some((p) => p.instance.id === instance.id));
 
 	let showDeleteConfirm = $state(false);
 
@@ -156,6 +166,26 @@
 				</div>
 			</div>
 			<div class="flex items-center gap-1">
+				<button
+					class="btn btn-square {isRunning ? 'text-error' : 'text-accent'}"
+					disabled={isBusy}
+					onclick={(e) => {
+						e.stopPropagation();
+						if (isRunning) {
+							killMutation.mutate(instance);
+						} else {
+							launchMutation.mutate(instance);
+						}
+					}}
+				>
+					{#if isBusy}
+						<span class="loading loading-spinner loading-xs"></span>
+					{:else if isRunning}
+						<Square size={14} />
+					{:else}
+						<Play size={14} />
+					{/if}
+				</button>
 				<button
 					class="btn btn-square text-error delete-instance-btn"
 					onclick={(e) => {
