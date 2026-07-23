@@ -115,7 +115,7 @@
 			</div>
 			<div class="flex items-center gap-1">
 				<button
-					class="btn btn-square text-error delete-instance-btn"
+					class="btn btn-sm btn-square btn-ghost hover:text-error delete-instance-btn"
 					onclick={(e) => {
 						e.stopPropagation();
 						showDeleteConfirm = true;
@@ -167,7 +167,7 @@
 			</div>
 			<div class="flex items-center gap-1">
 				<button
-					class="btn btn-square {isRunning ? 'text-error' : 'text-accent'}"
+					class="btn btn-sm btn-square btn-ghost"
 					disabled={isBusy}
 					onclick={(e) => {
 						e.stopPropagation();
@@ -187,7 +187,7 @@
 					{/if}
 				</button>
 				<button
-					class="btn btn-square text-error delete-instance-btn"
+					class="btn btn-sm btn-square btn-ghost hover:text-error delete-instance-btn"
 					onclick={(e) => {
 						e.stopPropagation();
 						showDeleteConfirm = true;

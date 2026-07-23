@@ -126,7 +126,7 @@
 		{#if trigger}
 			{@render trigger()}
 		{:else}
-			<button class="btn btn-square">
+			<button class="btn btn-sm btn-square btn-ghost">
 				<EllipsisVertical size={16} />
 			</button>
 		{/if}
