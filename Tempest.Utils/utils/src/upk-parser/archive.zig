@@ -60,10 +60,10 @@ pub const FObjectImport = extern struct {
     pub fn format(self: FObjectImport, writer: *std.Io.Writer) !void {
         try writer.print(
             \\FObjectImport:
-            \\  class_package: {d} ({d})
-            \\  class_name: {d} ({d})
+            \\  class_package: {d}_{d}
+            \\  class_name: {d}_{d}
             \\  outer_index: {d}
-            \\  object_name: {d} ({d})
+            \\  object_name: {d}_{d}
             \\
             \\
         , .{
@@ -266,12 +266,11 @@ pub const FObjectExport = extern struct {
     class_index: i32 = 0,
     super_index: i32 = 0,
     outer_index: i32 = 0,
-    object_name: u32 = 0,
-    archetype_index: u32 = 0,
-    archetype: u32 = 0,
+    object_name: FName = .{},
+    archetype_index: i32 = 0,
     object_flags: u64 = 0,
-    serial_size: u32 = 0,
-    serial_offset: u32 = 0,
+    serial_size: i32 = 0,
+    serial_offset: i32 = 0,
     export_flags: u32 = 0,
     generation_net_object_count: u32 = 0,
     generation_net_objects: [*]u32 = &.{},
@@ -288,12 +287,11 @@ pub const FObjectExport = extern struct {
             .class_index = try r.takeInt(i32, .little),
             .super_index = try r.takeInt(i32, .little),
             .outer_index = try r.takeInt(i32, .little),
-            .object_name = try r.takeInt(u32, .little),
-            .archetype_index = try r.takeInt(u32, .little),
-            .archetype = try r.takeInt(u32, .little),
+            .object_name = try FName.take(r, allocator, false),
+            .archetype_index = try r.takeInt(i32, .little),
             .object_flags = try r.takeInt(u64, .little),
-            .serial_size = try r.takeInt(u32, .little),
-            .serial_offset = try r.takeInt(u32, .little),
+            .serial_size = try r.takeInt(i32, .little),
+            .serial_offset = try r.takeInt(i32, .little),
             .export_flags = try r.takeInt(u32, .little),
             .generation_net_object_count = try r.takeInt(u32, .little),
         };
@@ -331,12 +329,11 @@ pub const FObjectExport = extern struct {
         try w.writeInt(i32, self.class_index, .little);
         try w.writeInt(i32, self.super_index, .little);
         try w.writeInt(i32, self.outer_index, .little);
-        try w.writeInt(u32, self.object_name, .little);
-        try w.writeInt(u32, self.archetype_index, .little);
-        try w.writeInt(u32, self.archetype, .little);
+        try FName.write(self.object_name, w, false);
+        try w.writeInt(i32, self.archetype_index, .little);
         try w.writeInt(u64, self.object_flags, .little);
-        try w.writeInt(u32, self.serial_size, .little);
-        try w.writeInt(u32, self.serial_offset, .little);
+        try w.writeInt(i32, self.serial_size, .little);
+        try w.writeInt(i32, self.serial_offset, .little);
         try w.writeInt(u32, self.export_flags, .little);
         try w.writeInt(u32, self.generation_net_object_count, .little);
         if (self.generation_net_object_count > 0) {
@@ -361,9 +358,8 @@ pub const FObjectExport = extern struct {
             \\  class_index: {d}
             \\  super_index: {d}
             \\  outer_index: {d}
-            \\  object_name: {d}
+            \\  object_name: {d}_{d}
             \\  archetype_index: {d}
-            \\  archetype: {d}
             \\  object_flags: {d}
             \\  serial_size: {d}
             \\  serial_offset: {d}
@@ -377,9 +373,9 @@ pub const FObjectExport = extern struct {
             self.class_index,
             self.super_index,
             self.outer_index,
-            self.object_name,
+            self.object_name.index,
+            self.object_name.num,
             self.archetype_index,
-            self.archetype,
             self.object_flags,
             self.serial_size,
             self.serial_offset,

@@ -38,6 +38,11 @@ pub const FGuid = extern struct {
     }
 
     pub fn format(self: FGuid, writer: *std.Io.Writer) !void {
+        if (self.a == 0 and self.b == 0 and self.c == 0 and self.d == 0) {
+            try writer.print("{s}", .{"None"});
+            return;
+        }
+
         try writer.print("{X}-{X}-{X}-{X}", .{
             self.a,
             self.b,
