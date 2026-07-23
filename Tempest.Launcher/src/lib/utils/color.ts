@@ -23,7 +23,7 @@ export function getInstanceColor(instance: Instance | undefined): string {
 }
 
 export function getMutedInstanceColor(instance: Instance | undefined): string {
-	return `color-mix(in oklab, ${getInstanceColor(instance)} 45%, var(--color-base-content))`;
+	return `color-mix(in oklab, ${getInstanceColor(instance)} 60%, var(--color-base-content))`;
 }
 
 export function getContrastColor(hex: string | undefined): string {

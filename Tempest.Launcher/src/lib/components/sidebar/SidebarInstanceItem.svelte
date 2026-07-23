@@ -15,7 +15,7 @@
 
 	let isActive = $derived(active ?? page.url.pathname === href);
 	let color = $derived(getInstanceColor(instance));
-	let muted = $derived(`color-mix(in oklab, ${color} 45%, var(--color-base-content))`);
+	let muted = $derived(`color-mix(in oklab, ${color} 60%, var(--color-base-content))`);
 	let label = $derived(instance.label?.trim() || "?");
 	let version = $derived(instance.version?.trim() || "");
 

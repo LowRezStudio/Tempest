@@ -1,7 +1,7 @@
 import { theme, customThemeCSS } from "$lib/stores/settings.svelte";
 
 function injectCustomThemeStyle(css: string) {
-	const existing = document.getElementById("custom-theme-style");
+	const existing = document.querySelector("#custom-theme-style");
 	if (existing) existing.remove();
 
 	if (!css.trim()) return;
@@ -19,7 +19,7 @@ function injectCustomThemeStyle(css: string) {
 	const style = document.createElement("style");
 	style.id = "custom-theme-style";
 	style.textContent = `[data-theme="custom"] {\n${vars.join("\n")}\n}`;
-	document.head.appendChild(style);
+	document.head.append(style);
 }
 
 $effect.root(() => {

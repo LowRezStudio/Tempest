@@ -47,8 +47,9 @@
 			const info = await stat(targetPath);
 			if (info.isFile) resolvedFolder = await path.dirname(targetPath);
 		} catch {
-			if (targetPath.includes(".") && !targetPath.endsWith("/") && !targetPath.endsWith("\\"))
+			if (targetPath.includes(".") && !targetPath.endsWith("/") && !targetPath.endsWith("\\")) {
 				resolvedFolder = await path.dirname(targetPath);
+			}
 		}
 		await openPath(resolvedFolder);
 	}
