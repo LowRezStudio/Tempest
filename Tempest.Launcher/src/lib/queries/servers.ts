@@ -64,11 +64,12 @@ async function fetchLanServers(): Promise<ServerListing[]> {
 	return servers;
 }
 
-export function createServersQuery() {
+export function createServersQuery(enabled: () => boolean = () => true) {
 	return createQuery(() => ({
 		queryKey: ["servers"],
 		queryFn: fetchServers,
 		refetchInterval: 60000,
+		enabled: enabled(),
 	}));
 }
 

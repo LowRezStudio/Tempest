@@ -5,6 +5,7 @@
 	import LayoutDialogs from "$lib/components/ui/LayoutDialogs.svelte";
 	import ToastStack from "$lib/components/ui/ToastStack.svelte";
 	import "$lib/platform/init.svelte";
+	import "$lib/stores/flags.svelte";
 	import { isDraggingFiles, showInstanceSelect, handleInstanceSelected, setOnModsInstalled } from "$lib/mods/drop.svelte";
 	import "$lib/lobby/close-guard.svelte";
 	import "$lib/theme/theme.svelte";

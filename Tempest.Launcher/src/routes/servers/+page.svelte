@@ -11,24 +11,34 @@
 	import ServerDetailsDialog from "$lib/components/server-list/ServerDetailsDialog.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createServersQuery, createLanServersQuery } from "$lib/queries/servers";
+	import { isFlagEnabled } from "$lib/stores/flags.svelte";
 	import { hostServerWizardOpen, joinServerWizardOpen } from "$lib/stores/ui.svelte";
 	import type { ServerListing } from "$lib/rpc";
 	import { untrack } from "svelte";
 
 	let searchQuery = $state("");
 
-	let activeTab = $state<"internet" | "lan">("internet");
-	const tabs = [
-		{ name: m.serverlist_tab_internet(), value: "internet" as const },
-		{ name: m.serverlist_tab_lan(), value: "lan" as const },
-	];
+	const publicServersEnabled = $derived(isFlagEnabled("public-servers"));
 
-	const serversQuery = createServersQuery();
+	let activeTab = $state<"internet" | "lan">(
+		untrack(() => (isFlagEnabled("public-servers") ? "internet" : "lan")),
+	);
+	const tabs = $derived([
+		...(publicServersEnabled
+			? [{ name: m.serverlist_tab_internet(), value: "internet" as const }]
+			: []),
+		{ name: m.serverlist_tab_lan(), value: "lan" as const },
+	]);
+
+	const serversQuery = createServersQuery(() => publicServersEnabled);
 	const lanQuery = createLanServersQuery();
 
 	$effect(() => {
 		if (activeTab === "lan") {
 			untrack(() => lanQuery.refetch());
+		}
+		if (!publicServersEnabled && activeTab === "internet") {
+			activeTab = "lan";
 		}
 	});
 
