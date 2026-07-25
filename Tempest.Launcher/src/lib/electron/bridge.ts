@@ -170,22 +170,36 @@ export function resolveResource(...paths: string[]): Promise<string> {
 // ---- @tauri-apps/api/window ----
 // ponytail: drag-drop uses DOM events + webUtils.getPathForFile from preload
 
+type CloseRequestedHandler = (event: { preventDefault: () => void }) => Promise<void>;
+
+const closeRequestedHandlers = new Set<CloseRequestedHandler>();
+
+function ensureCloseHook(): void {
+	if ((window as any).__closeHook) return;
+	(window as any).__closeHook = async () => {
+		let prevented = false;
+		const event = {
+			preventDefault: () => {
+				prevented = true;
+			},
+		};
+		for (const handler of closeRequestedHandlers) {
+			await handler(event);
+		}
+		return !prevented;
+	};
+}
+
 export function getCurrentWindow() {
 	return {
-		onCloseRequested(
-			handler: (event: { preventDefault: () => void }) => Promise<void>,
-		): Promise<() => void> {
-			(window as any).__closeHook = async () => {
-				let prevented = false;
-				await handler({
-					preventDefault: () => {
-						prevented = true;
-					},
-				});
-				return !prevented;
-			};
+		onCloseRequested(handler: CloseRequestedHandler): Promise<() => void> {
+			closeRequestedHandlers.add(handler);
+			ensureCloseHook();
 			return Promise.resolve(() => {
-				(window as any).__closeHook = undefined;
+				closeRequestedHandlers.delete(handler);
+				if (closeRequestedHandlers.size === 0) {
+					(window as any).__closeHook = undefined;
+				}
 			});
 		},
 
