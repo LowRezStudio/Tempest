@@ -21,7 +21,9 @@ export function injectOs(window) {
 	const version = os.release();
 
 	const payload = JSON.stringify({ platform, arch, type, version });
-	void window.webContents.executeJavaScript(
-		`Object.defineProperty(window,'__os',{value:Object.freeze(${payload}),writable:!1,configurable:!1})`,
-	);
+	void window.webContents
+		.executeJavaScript(
+			`Object.defineProperty(window,'__os',{value:Object.freeze(${payload}),writable:!1,configurable:!1});void 0`,
+		)
+		.catch(() => {});
 }

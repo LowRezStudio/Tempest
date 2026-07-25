@@ -231,6 +231,22 @@ export function getCurrentWindow() {
 		async destroy(): Promise<void> {
 			await eio().invoke("window:destroy");
 		},
+
+		async hide(): Promise<void> {
+			await eio().invoke("window:hide");
+		},
+
+		async show(): Promise<void> {
+			await eio().invoke("window:show");
+		},
+
+		async setFocus(): Promise<void> {
+			await eio().invoke("window:set-focus");
+		},
+
+		async unminimize(): Promise<void> {
+			await eio().invoke("window:unminimize");
+		},
 	};
 }
 
@@ -238,6 +254,132 @@ export function getCurrentWindow() {
 
 export function getVersion(): Promise<string> {
 	return eio().invoke("app:version");
+}
+
+// ---- @tauri-apps/api/menu ----
+// ponytail: actions stay in the renderer; only serializable items cross IPC
+
+export interface MenuItemOptions {
+	id?: string;
+	text: string;
+	enabled?: boolean;
+	action?: (id: string) => void;
+}
+
+export interface PredefinedMenuItemOptions {
+	text?: string;
+	item: string;
+}
+
+type NativeMenuItemOptions = MenuItemOptions | PredefinedMenuItemOptions;
+
+type SerializedMenuItem =
+	| { kind: "separator" }
+	| { kind: "item"; id: string; text: string; enabled: boolean };
+
+let menuSeq = 0;
+const menuItemActions = new Map<string, (id: string) => void>();
+
+function serializeMenuItems(items: NativeMenuItemOptions[]): SerializedMenuItem[] {
+	return items.map((item) => {
+		if ("item" in item) {
+			if (item.item !== "Separator") {
+				throw new Error(`Unsupported predefined menu item: ${item.item}`);
+			}
+			return { kind: "separator" };
+		}
+		const id = item.id ?? `item-${menuSeq++}`;
+		if (item.action) menuItemActions.set(id, item.action);
+		return { kind: "item", id, text: item.text, enabled: item.enabled ?? true };
+	});
+}
+
+export class Menu {
+	id: string;
+	_items: SerializedMenuItem[];
+
+	private constructor(id: string, items: SerializedMenuItem[]) {
+		this.id = id;
+		this._items = items;
+	}
+
+	static new(opts?: { id?: string; items?: NativeMenuItemOptions[] }): Promise<Menu> {
+		return Promise.resolve(
+			new Menu(opts?.id ?? `menu-${menuSeq++}`, serializeMenuItems(opts?.items ?? [])),
+		);
+	}
+}
+
+// ---- @tauri-apps/api/tray ----
+
+export type MouseButton = "Left" | "Right" | "Middle";
+export type MouseButtonState = "Up" | "Down";
+
+export type TrayIconEvent = {
+	type: "Click" | "DoubleClick" | "Enter" | "Move" | "Leave";
+	id: string;
+	button?: MouseButton;
+	buttonState?: MouseButtonState;
+	position?: { x: number; y: number };
+	rect?: { position: { x: number; y: number }; size: { width: number; height: number } };
+};
+
+export interface TrayIconOptions {
+	id?: string;
+	menu?: Menu;
+	tooltip?: string;
+	showMenuOnLeftClick?: boolean;
+	action?: (event: TrayIconEvent) => void;
+}
+
+const trayActions = new Map<string, (event: TrayIconEvent) => void>();
+
+let trayEventsBound = false;
+
+function bindTrayEvents(): void {
+	if (trayEventsBound) return;
+	trayEventsBound = true;
+	eio().on("tray:menu-event", ({ id }: { id: string }) => {
+		menuItemActions.get(id)?.(id);
+	});
+	eio().on("tray:event", ({ id, event }: { id: string; event: TrayIconEvent }) => {
+		trayActions.get(id)?.(event);
+	});
+}
+
+export class TrayIcon {
+	id: string;
+
+	private constructor(id: string) {
+		this.id = id;
+	}
+
+	static async new(options?: TrayIconOptions): Promise<TrayIcon> {
+		bindTrayEvents();
+		const id = options?.id ?? `tray-${menuSeq++}`;
+		if (options?.action) trayActions.set(id, options.action);
+		await eio().invoke("tray:new", {
+			id,
+			tooltip: options?.tooltip,
+			showMenuOnLeftClick: options?.showMenuOnLeftClick ?? true,
+		});
+		const tray = new TrayIcon(id);
+		if (options?.menu) await tray.setMenu(options.menu);
+		return tray;
+	}
+
+	static async removeById(id: string): Promise<void> {
+		trayActions.delete(id);
+		await eio().invoke("tray:remove", { id });
+	}
+
+	async setMenu(menu: Menu | null): Promise<void> {
+		await eio().invoke("tray:set-menu", { id: this.id, items: menu?._items ?? [] });
+	}
+
+	async setTooltip(tooltip: string | null): Promise<void> {
+		await eio().invoke("tray:set-tooltip", { id: this.id, tooltip });
+	}
 }
 
 // ---- @tauri-apps/plugin-fs ----

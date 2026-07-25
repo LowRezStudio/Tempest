@@ -13,6 +13,7 @@ import "./window.js";
 import "./scopes.js";
 import "./sql.js";
 import "./updater.js";
+import "./tray.js";
 
 let mainWindow = null;
 
@@ -21,6 +22,21 @@ process.chdir(process.cwd());
 // Pin to the same dir Tauri uses so SQL/localStorage survive across runs.
 if (process.platform === "linux") {
 	app.setPath("userData", path.join(os.homedir(), ".local", "share", "com.lowrezstudio.tempest"));
+}
+
+// A second instance shares the pinned userData profile but cannot acquire its
+// localStorage LevelDB lock, so it would silently run with empty, ephemeral
+// storage. Refuse to start and surface the existing window instead.
+const hasInstanceLock = app.requestSingleInstanceLock();
+if (!hasInstanceLock) {
+	app.quit();
+} else {
+	app.on("second-instance", () => {
+		if (!mainWindow) return;
+		if (mainWindow.isMinimized()) mainWindow.restore();
+		mainWindow.show();
+		mainWindow.focus();
+	});
 }
 
 const loadURL = serve({ directory: "build" });
@@ -85,6 +101,7 @@ function createWindow() {
 
 app.whenReady()
 	.then(() => {
+		if (!hasInstanceLock) return;
 		const upsert = (obj, key, value) => {
 			const lower = key.toLowerCase();
 			for (const k of Object.keys(obj)) {

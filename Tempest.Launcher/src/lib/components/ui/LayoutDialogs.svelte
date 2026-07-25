@@ -1,6 +1,5 @@
 <script lang="ts">
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
-	import AppCloseLobbyWizard from "$lib/components/lobby/AppCloseLobbyWizard.svelte";
 	import InstallModOverlay from "$lib/components/mods/InstallModOverlay.svelte";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import ReplaceModDialog from "$lib/components/mods/ReplaceModDialog.svelte";
@@ -16,7 +15,6 @@
 	} from "$lib/mods/ui.svelte";
 	import type { Instance } from "$lib/types/instance";
 	import {
-		appCloseLobbyWizardOpen,
 		hostServerWizardOpen,
 		instanceWizardOpen,
 		joinServerWizardOpen,
@@ -41,7 +39,6 @@
 <InstanceWizard bind:open={instanceWizardOpen.value} />
 <HostServerWizard bind:open={hostServerWizardOpen.value} />
 <JoinServerWizard bind:open={joinServerWizardOpen.value} />
-<AppCloseLobbyWizard bind:open={appCloseLobbyWizardOpen.value} />
 <InstanceSelectModal bind:open={showInstanceSelect} {onselect} {oncancel} />
 <ReplaceModDialog
 	bind:open={replaceDialogStore.value.open}

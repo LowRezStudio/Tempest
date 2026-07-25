@@ -16,6 +16,27 @@ export const lastLaunchedInstance = {
 	},
 };
 
+/** Prepared instances sorted by the user's sidebar order. */
+export const preparedInstances = {
+	get value() {
+		const order = instanceOrder.value;
+		const all = Object.values(instanceMap.value).filter(
+			(i) => !!i && i.state?.type === "prepared",
+		);
+		const byId = new Map(all.map((i) => [i.id, i]));
+		const sorted: Instance[] = [];
+		for (const id of order) {
+			const inst = byId.get(id);
+			if (inst) {
+				sorted.push(inst);
+				byId.delete(id);
+			}
+		}
+		for (const inst of byId.values()) sorted.push(inst);
+		return sorted;
+	},
+};
+
 export const addInstance = (instance: Instance) => instanceMap.setKey(instance.id, instance);
 
 export const updateInstance = (id: string, updates: Partial<Instance>) => {

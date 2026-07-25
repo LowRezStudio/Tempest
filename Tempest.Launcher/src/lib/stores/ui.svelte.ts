@@ -1,7 +1,6 @@
 export const instanceWizardOpen = $state({ value: false });
 export const hostServerWizardOpen = $state({ value: false });
 export const joinServerWizardOpen = $state({ value: false });
-export const appCloseLobbyWizardOpen = $state({ value: false });
 
 export const commandsPageOpen = $state({ value: false });
 

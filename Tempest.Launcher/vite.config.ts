@@ -10,6 +10,8 @@ const electronAliases: Record<string, string> = process.env.ELECTRON
 	? {
 			// Most specific paths first — Vite prefix-matches and appends the remainder
 			"@tauri-apps/api/window": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/api/tray": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/api/menu": path.resolve("src/lib/electron/bridge"),
 			"@tauri-apps/api/path": path.resolve("src/lib/electron/bridge"),
 			"@tauri-apps/api/core": path.resolve("src/lib/electron/bridge"),
 			"@tauri-apps/api/app": path.resolve("src/lib/electron/bridge"),

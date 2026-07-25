@@ -3,7 +3,7 @@
 	import { page } from "$app/state";
 	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { instanceMap, instanceOrder, setInstanceOrder } from "$lib/stores/instance.svelte";
+	import { preparedInstances, setInstanceOrder } from "$lib/stores/instance.svelte";
 	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
 	import { commandsPageOpen, instanceWizardOpen } from "$lib/stores/ui.svelte";
 	import { createReorderable } from "$lib/utils/reorder.svelte";
@@ -12,27 +12,9 @@
 	import SidebarItem from "./SidebarItem.svelte";
 	import type { Instance } from "$lib/types/instance";
 
-	let preparedInstances = $derived.by(() => {
-		const order = instanceOrder.value;
-		const all = Object.values(instanceMap.value).filter(
-			(i) => !!i && i.state?.type === "prepared",
-		);
-		const byId = new Map(all.map((i) => [i.id, i]));
-		const sorted: Instance[] = [];
-		for (const id of order) {
-			const inst = byId.get(id);
-			if (inst) {
-				sorted.push(inst);
-				byId.delete(id);
-			}
-		}
-		for (const inst of byId.values()) sorted.push(inst);
-		return sorted;
-	});
-
 	let listEl: HTMLDivElement | undefined = $state();
 	const reorder = createReorderable<Instance>({
-		ids: () => preparedInstances.map((i) => i.id),
+		ids: () => preparedInstances.value.map((i) => i.id),
 		container: () => listEl,
 		onReorder: setInstanceOrder,
 	});
@@ -58,7 +40,7 @@
 		bind:this={listEl}
 		class="instance-list flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none"
 	>
-		{#each preparedInstances as instance, i (instance.id)}
+		{#each preparedInstances.value as instance, i (instance.id)}
 			<div
 				data-id={instance.id}
 				class="instance-slot"

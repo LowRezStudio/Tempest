@@ -7,7 +7,7 @@
 	import "$lib/platform/init.svelte";
 	import "$lib/stores/flags.svelte";
 	import { isDraggingFiles, showInstanceSelect, handleInstanceSelected, setOnModsInstalled } from "$lib/mods/drop.svelte";
-	import "$lib/lobby/close-guard.svelte";
+	import "$lib/platform/tray.svelte";
 	import "$lib/theme/theme.svelte";
 	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores.svelte";
 	import { localeState } from "$lib/stores/locale.svelte";
