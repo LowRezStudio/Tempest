@@ -38,8 +38,7 @@
 		"resources": {
 			"binaries/asmloader-windows_x86.dll": "asmloader-windows_x86.dll",
 			"binaries/asmloader-windows_x86_64.dll": "asmloader-windows_x86_64.dll",
-			"binaries/blake3_dotnet.dll": "blake3_dotnet.dll",
-			"binaries/e_sqlite3.dll": "e_sqlite3.dll",
+			"binaries/*": "",
 			"resources/Tempest Mod.tempest": "Tempest Mod.tempest"
 		},
 		"targets": ["msi", "dmg", "appimage", "deb", "rpm"],

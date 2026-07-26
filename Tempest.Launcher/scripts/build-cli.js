@@ -7,7 +7,6 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(dirname, "..");
 const binariesDir = path.join(root, "electron", "resources", "binaries");
 
-fs.rmSync(binariesDir, { recursive: true, force: true });
 fs.mkdirSync(binariesDir, { recursive: true });
 
 await $`dotnet publish ../Tempest.CLI -c Release -o ${binariesDir}`.cwd(root);
