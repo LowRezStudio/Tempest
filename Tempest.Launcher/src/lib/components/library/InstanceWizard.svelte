@@ -204,7 +204,7 @@
 
 		if (enableConsole) {
 			try {
-				const modFile = await resolveResource("Tempest Mod.tempest");
+				const modFile = await resolveResource("Console Mod.tempest");
 				await installMod(instancePath, modFile, true, true);
 			} catch (error) {
 				console.error("Failed to install Console mod:", error);

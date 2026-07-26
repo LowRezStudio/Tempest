@@ -44,7 +44,9 @@
 	let argsInput = $state("");
 	let editEnableConsole = $state(false);
 	let initialEnableConsole = false;
-	let hasInitializedConsole = false;
+	let editEnableMultiplayer = $state(false);
+	let initialEnableMultiplayer = false;
+	let hasInitializedMods = false;
 
 	const modsQuery = createModsQuery(() => editPath);
 
@@ -58,17 +60,29 @@
 			editArgs = instance.launchOptions?.args ?? [];
 			editColor = getInstanceColor(instance);
 			argsInput = "";
-			hasInitializedConsole = false;
+			hasInitializedMods = false;
 		}
 	});
 
-	// ponytail: check if tgmod is installed using createModsQuery
+	let showMultiplayer = $derived(editVersion === "0.56" || editVersion === "0.57");
+
+	// ponytail: detect installed console/multiplayer mods using createModsQuery
 	$effect(() => {
-		if (open && modsQuery.data && !hasInitializedConsole) {
-			const isInstalled = modsQuery.data.some((m) => m.OriginalPath.includes("Tempest Mod.tempest") || m.Name === "Tempest Mod (Console + Multiplayer)");
-			editEnableConsole = isInstalled;
-			initialEnableConsole = isInstalled;
-			hasInitializedConsole = true;
+		if (open && modsQuery.data && !hasInitializedMods) {
+			const consoleInstalled = modsQuery.data.some(
+				(m) => m.OriginalPath.includes("Console Mod.tempest") || m.Name === "Tempest Mod (Console)"
+					|| m.OriginalPath.includes("Tempest Mod.tempest") || m.Name === "Tempest Mod (Console + Multiplayer)"
+			);
+			editEnableConsole = consoleInstalled;
+			initialEnableConsole = consoleInstalled;
+
+			const mpInstalled = modsQuery.data.some(
+				(m) => m.OriginalPath.includes("Multiplayer Mod.tempest") || m.Name === "Tempest Mod (Multiplayer)"
+			);
+			editEnableMultiplayer = mpInstalled;
+			initialEnableMultiplayer = mpInstalled;
+
+			hasInitializedMods = true;
 		}
 	});
 
@@ -140,14 +154,30 @@
 		if (editEnableConsole !== initialEnableConsole) {
 			try {
 				if (editEnableConsole) {
-					const modFile = await resolveResource("Tempest Mod.tempest");
+					const modFile = await resolveResource("Console Mod.tempest");
 					await installMod(editPath, modFile, true, true);
 				} else {
-					await removeMod(editPath, "Tempest Mod (Console + Multiplayer)");
+					await removeMod(editPath, "Tempest Mod (Console)");
+					try { await removeMod(editPath, "Tempest Mod (Console + Multiplayer)"); } catch {}
 				}
 				queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
 			} catch (error) {
 				console.error("Failed to toggle Console mod:", error);
+			}
+		}
+
+		// ponytail: install or remove Multiplayer mod if checkbox toggled
+		if (showMultiplayer && editEnableMultiplayer !== initialEnableMultiplayer) {
+			try {
+				if (editEnableMultiplayer) {
+					const modFile = await resolveResource("Multiplayer Mod.tempest");
+					await installMod(editPath, modFile, true, true);
+				} else {
+					await removeMod(editPath, "Tempest Mod (Multiplayer)");
+				}
+				queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
+			} catch (error) {
+				console.error("Failed to toggle Multiplayer mod:", error);
 			}
 		}
 
@@ -338,6 +368,19 @@
 				<span class="label-text text-sm font-semibold">Enable Console</span>
 			</label>
 		</div>
+
+		{#if showMultiplayer}
+			<div class="form-control">
+				<label class="label cursor-pointer justify-start gap-3 py-0.5">
+					<input
+						type="checkbox"
+						class="checkbox checkbox-accent checkbox-sm"
+						bind:checked={editEnableMultiplayer}
+					/>
+					<span class="label-text text-sm font-semibold">Enable Multiplayer</span>
+				</label>
+			</div>
+		{/if}
 	</div>
 
 	{#snippet actions()}
