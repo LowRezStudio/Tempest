@@ -27,10 +27,12 @@ export const launchGame = async (instance: Instance) => {
 			{ "--gamescope-args": gamescopeArgs.get() || undefined },
 			{
 				"--homedir":
-					`${instance.version ? `${instance.version}_` : ""}${instance.label}`.replaceAll(
-						/[^a-zA-Z0-9-_]/g,
-						"_",
-					),
+					instance.version === "8.1"
+						? "paladinslive"
+						: `${instance.version ? `${instance.version}_` : ""}${instance.label}`.replaceAll(
+								/[^a-zA-Z0-9-_]/g,
+								"_",
+							),
 			},
 			...(options.dllList ? options.dllList.map((dll) => ({ "--dll": dll })) : []),
 			...(options.args ? ["--", ...processArgs(options.args)] : []),
