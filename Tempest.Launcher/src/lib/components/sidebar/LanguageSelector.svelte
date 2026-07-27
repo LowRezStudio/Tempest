@@ -12,6 +12,7 @@
 		es: { flag: "🇪🇸", label: "Español" },
 		pl: { flag: "🇵🇱", label: "Polski" },
 		ru: { flag: "🇷🇺", label: "Русский" },
+		tr: { flag: "🇹🇷", label: "Türkçe" },
 	};
 
 	let open = $state(false);
