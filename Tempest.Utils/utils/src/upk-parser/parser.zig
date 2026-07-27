@@ -27,6 +27,25 @@ exports_table: []archive.FObjectExport = &.{},
 depends_table: [][]u32 = &.{},
 data_buffer: []u8 = &.{},
 
+pub const ObjectRef = union(enum) {
+    none,
+    import: *const archive.FObjectImport,
+    @"export": *const archive.FObjectExport,
+};
+
+pub fn resolveIndex(self: *const Parser, index: i32) ObjectRef {
+    if (index == 0) return .none;
+    if (index > 0) return .{ .@"export" = &self.exports_table[@intCast(index - 1)] };
+    return .{ .import = &self.imports_table[@intCast(-index - 1)] };
+}
+
+pub fn resolveName(self: *const Parser, index: i32) ![]const u8 {
+    if (index == 0) return "None";
+    if (index > self.names_table.len) return error.BadIndex;
+
+    return self.names_table[@intCast(index)].name.toString();
+}
+
 pub fn init(io: Io, allocator: mem.Allocator, filepath: []const u8, options: ParserOptions) !Parser {
     const file_buffer = try Io.Dir.readFileAlloc(Io.Dir.cwd(), io, filepath, allocator, .unlimited);
 
@@ -159,15 +178,13 @@ pub fn parse(self: *Parser) !void {
         name_entry.* = try archive.FNameEntry.take(reader, self.allocator, true);
     }
 
-    self.imports_table = try self.allocator.alloc(archive.FObjectImport, self.summary.import_count + 1);
-    self.imports_table[0] = .{};
-    for (self.imports_table[1..]) |*import| {
+    self.imports_table = try self.allocator.alloc(archive.FObjectImport, self.summary.import_count);
+    for (self.imports_table) |*import| {
         import.* = try archive.FObjectImport.take(reader, self.allocator);
     }
 
-    self.exports_table = try self.allocator.alloc(archive.FObjectExport, self.summary.export_count + 1);
-    self.exports_table[0] = .{};
-    for (self.exports_table[1..]) |*entry| {
+    self.exports_table = try self.allocator.alloc(archive.FObjectExport, self.summary.export_count);
+    for (self.exports_table) |*entry| {
         entry.* = try archive.FObjectExport.take(reader, self.allocator);
     }
 
@@ -182,4 +199,46 @@ pub fn parse(self: *Parser) !void {
 
     const remaining = self.file_buffer.len - reader.seek;
     self.data_buffer = try reader.readAlloc(self.allocator, remaining);
+}
+
+pub fn save(self: *Parser, io: std.Io, filepath: []const u8) !void {
+    const file = try Io.Dir.createFile(std.Io.Dir.cwd(), io, filepath, .{});
+    defer file.close(io);
+
+    var buffer: [4096]u8 = undefined;
+    var writer = file.writer(io, &buffer);
+    const w = &writer.interface;
+
+    // Write the summary
+    // NOTE: if obscured, and we still want to save, remove the flag
+    self.summary.compression_flags.obscured = false;
+    try self.summary.write(w);
+
+    // Write the names table
+    for (self.names_table) |*name_entry| {
+        try name_entry.write(w, true);
+    }
+
+    // Write the imports table (skip the first dummy entry)
+    for (self.imports_table) |*import| {
+        try import.write(w);
+    }
+
+    // Write the exports table (skip the first dummy entry)
+    for (self.exports_table) |*@"export"| {
+        try @"export".write(w);
+    }
+
+    // Write the depends table
+    try w.writeInt(u32, @intCast(self.depends_table.len), .little);
+    for (self.depends_table) |depends| {
+        try w.writeInt(u32, @intCast(depends.len), .little);
+        for (depends) |d| {
+            try w.writeInt(u32, d, .little);
+        }
+    }
+
+    // Write the data
+    try w.writeAll(self.data_buffer);
+    try w.flush();
 }

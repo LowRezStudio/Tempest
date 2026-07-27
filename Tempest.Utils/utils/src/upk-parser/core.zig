@@ -197,3 +197,49 @@ pub const FString = extern struct {
         try writer.print("{s}", .{self.toString()});
     }
 };
+
+pub const FPropertyTag = extern struct {
+    name: FName = .{},
+    type: FName = .{},
+    size: u32 = 0,
+    array_index: i32 = 0,
+    // NOTE: maybe have an enum for this
+    bool_val: u8 = 0,
+    struct_name: FName = .{},
+    enum_name: FName = .{},
+
+    pub fn take(r: *std.Io.Reader, allocator: mem.Allocator) !FPropertyTag {
+        _ = r;
+        _ = allocator;
+
+        return error.NotImplemented;
+    }
+
+    pub fn takeArray(r: *std.Io.Reader, allocator: mem.Allocator) ![]FPropertyTag {
+        _ = r;
+        _ = allocator;
+
+        return error.NotImplemented;
+    }
+
+    pub fn write(self: FPropertyTag, w: *std.Io.Writer) !void {
+        _ = self;
+        _ = w;
+
+        return error.NotImplemented;
+    }
+
+    pub fn writeArray(self: []const FPropertyTag, w: *std.Io.Writer) !void {
+        _ = self;
+        _ = w;
+
+        return error.NotImplemented;
+    }
+
+    pub fn format(self: FPropertyTag, writer: *std.Io.Writer) !void {
+        _ = self;
+        _ = writer;
+
+        return error.NotImplemented;
+    }
+};

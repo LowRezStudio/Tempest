@@ -47,7 +47,10 @@ pub const FObjectImport = extern struct {
     }
 
     pub fn write(self: FObjectImport, w: *std.Io.Writer) !void {
-        try w.writeStruct(self, .little);
+        try FName.write(self.class_package, w, false);
+        try FName.write(self.class_name, w, false);
+        try w.writeInt(i32, self.outer_index, .little);
+        try FName.write(self.object_name, w, false);
     }
 
     pub fn writeArray(self: []const FObjectImport, w: *std.Io.Writer) !void {
