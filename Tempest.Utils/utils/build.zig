@@ -31,18 +31,16 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(parser_exe);
 
-    // tests
-    const mod_tests = b.addTest(.{
-        .root_module = mod,
-    });
+    const run_cmd = b.addRunArtifact(parser_exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    run_cmd.addPassthruArgs();
+    const run_step = b.step("run", "Run the upk-parser with a file path");
+    run_step.dependOn(&run_cmd.step);
+
+    // Module unit tests
+    const mod_tests = b.addTest(.{ .root_module = mod });
     const run_mod_tests = b.addRunArtifact(mod_tests);
 
-    const parser_tests = b.addTest(.{
-        .root_module = parser_exe.root_module,
-    });
-    const run_parser_tests = b.addRunArtifact(parser_tests);
-
-    const test_step = b.step("test", "Run tests");
+    const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_mod_tests.step);
-    test_step.dependOn(&run_parser_tests.step);
 }
