@@ -7,23 +7,8 @@ pub const Error = std.Io.Reader.Error || std.mem.Allocator.Error || error{
     UnsupportedTag,
     UnsupportedVersion,
     UnsupportedEncoding,
+    InvalidArraySize,
 };
-
-pub fn TArray(comptime T: type) type {
-    return struct {
-        data: []T,
-
-        const Self = @This();
-
-        pub fn read() Error!Self {
-            return error.NotImplemented;
-        }
-
-        pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
-            allocator.free(self.data);
-        }
-    };
-}
 
 pub const FString = struct {
     data: []const u8,
@@ -126,6 +111,48 @@ pub const EPackageFlags = packed struct(u32) {
     }
 };
 
+pub const FGenerationInfo = extern struct {
+    export_count: i32,
+    name_count: i32,
+    net_object_count: i32,
+
+    pub fn take(reader: *std.Io.Reader) Error!FGenerationInfo {
+        return try reader.takeStruct(FGenerationInfo, .little);
+    }
+
+    pub fn takeArray(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error![]FGenerationInfo {
+        const count = try reader.takeInt(i32, .little);
+        if (count == 0) return &.{};
+        if (count < 0) return error.InvalidArraySize;
+
+        const generations = try allocator.alloc(FGenerationInfo, @intCast(count));
+        errdefer allocator.free(generations);
+
+        const self = @This();
+        for (generations) |*generation| {
+            generation.* = try self.take(reader);
+        }
+
+        return generations;
+    }
+
+    pub fn format(
+        self: @This(),
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        try writer.print(
+            \\    export_count: {d}
+            \\    name_count: {d}
+            \\    net_object_count: {d}
+            \\
+        , .{
+            self.export_count,
+            self.name_count,
+            self.net_object_count,
+        });
+    }
+};
+
 pub const FPackageFileSummary = struct {
     tag: u32,
     file_version: i32,
@@ -144,9 +171,13 @@ pub const FPackageFileSummary = struct {
     export_guids_count: i32,
     thumbnail_table_offset: i32,
     guid: FGuid,
+    generations: []FGenerationInfo,
 
     pub fn deinit(self: FPackageFileSummary, allocator: std.mem.Allocator) void {
         allocator.free(self.folder_name.data);
+        if (self.generations.len > 0) {
+            allocator.free(self.generations);
+        }
     }
 
     pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FPackageFileSummary {
@@ -173,6 +204,7 @@ pub const FPackageFileSummary = struct {
         const export_guids_count = try reader.takeInt(i32, .little);
         const thumbnail_table_offset = try reader.takeInt(i32, .little);
         const guid = try FGuid.take(reader);
+        const generations = try FGenerationInfo.takeArray(reader, allocator);
 
         return .{
             .tag = tag,
@@ -192,6 +224,7 @@ pub const FPackageFileSummary = struct {
             .export_guids_count = export_guids_count,
             .thumbnail_table_offset = thumbnail_table_offset,
             .guid = guid,
+            .generations = generations,
         };
     }
 
@@ -225,6 +258,8 @@ pub const FPackageFileSummary = struct {
             \\  export_guids_count: {d}
             \\  thumbnail_table_offset: {d}
             \\  guid: {f}
+            \\  generation_count: {d}
+            \\
         , .{
             self.tag,
             self.getVersion(),
@@ -244,6 +279,14 @@ pub const FPackageFileSummary = struct {
             self.export_guids_count,
             self.thumbnail_table_offset,
             self.guid,
+            self.generations.len,
         });
+
+        if (self.generations.len > 0) {
+            try writer.print("  generations:\n", .{});
+            for (self.generations) |generation| {
+                try writer.print("{f}\n", .{generation});
+            }
+        }
     }
 };
