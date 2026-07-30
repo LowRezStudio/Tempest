@@ -3,9 +3,6 @@ const Io = std.Io;
 const builtin = @import("builtin");
 
 const Parser = @import("parser.zig");
-const TArray = @import("unreal.zig").TArray;
-
-const EPackageFlags = @import("package.zig").EPackageFlags;
 
 pub fn main(init: std.process.Init) !void {
     var allocator = init.arena.allocator();

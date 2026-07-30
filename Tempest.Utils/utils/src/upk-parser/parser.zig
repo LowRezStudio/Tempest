@@ -1,6 +1,8 @@
 const std = @import("std");
 
-const FPackageFileSummary = @import("package.zig").FPackageFileSummary;
+const unreal = @import("unreal.zig");
+const FPackageFileSummary = unreal.FPackageFileSummary;
+
 const Parser = @This();
 
 allocator: std.mem.Allocator,
