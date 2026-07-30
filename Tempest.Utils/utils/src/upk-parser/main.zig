@@ -2,6 +2,7 @@ const std = @import("std");
 const Io = std.Io;
 const builtin = @import("builtin");
 
+const debug = @import("debug.zig");
 const Parser = @import("parser.zig");
 
 pub fn main(init: std.process.Init) !void {
@@ -24,4 +25,8 @@ pub fn main(init: std.process.Init) !void {
     try p.parse();
 
     std.debug.print("{f}\n", .{p.package_file_summary});
+
+    // if (args.len >= 3 and std.mem.eql(u8, args[2], "-report")) {
+    //     debug.generatePackageReport(p);
+    // }
 }

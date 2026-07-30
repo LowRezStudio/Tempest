@@ -172,6 +172,8 @@ pub const FPackageFileSummary = struct {
     thumbnail_table_offset: i32,
     guid: FGuid,
     generations: []FGenerationInfo,
+    engine_version: i32,
+    cooked_content_version: i32,
 
     pub fn deinit(self: FPackageFileSummary, allocator: std.mem.Allocator) void {
         allocator.free(self.folder_name.data);
@@ -205,6 +207,8 @@ pub const FPackageFileSummary = struct {
         const thumbnail_table_offset = try reader.takeInt(i32, .little);
         const guid = try FGuid.take(reader);
         const generations = try FGenerationInfo.takeArray(reader, allocator);
+        const engine_version = try reader.takeInt(i32, .little);
+        const cooked_content_version = try reader.takeInt(i32, .little);
 
         return .{
             .tag = tag,
@@ -225,13 +229,22 @@ pub const FPackageFileSummary = struct {
             .thumbnail_table_offset = thumbnail_table_offset,
             .guid = guid,
             .generations = generations,
+            .engine_version = engine_version,
+            .cooked_content_version = cooked_content_version,
         };
     }
 
-    pub fn getVersion(self: FPackageFileSummary) struct { epic: i16, licensee: i16 } {
+    pub fn getFileVersion(self: FPackageFileSummary) struct { version: i16, licensee: i16 } {
         return .{
-            .epic = @intCast(self.file_version >> 16),
-            .licensee = @intCast(self.file_version & 0xFFFF),
+            .version = @intCast(self.file_version & 0xFFFF),
+            .licensee = @intCast(self.file_version >> 16),
+        };
+    }
+
+    pub fn getCookedContentVersion(self: FPackageFileSummary) struct { version: i16, licensee: i16 } {
+        return .{
+            .version = @intCast(self.cooked_content_version & 0xFFFF),
+            .licensee = @intCast(self.cooked_content_version >> 16),
         };
     }
 
@@ -258,11 +271,12 @@ pub const FPackageFileSummary = struct {
             \\  export_guids_count: {d}
             \\  thumbnail_table_offset: {d}
             \\  guid: {f}
-            \\  generation_count: {d}
+            \\  engine_version: {d}
+            \\  cooked_content_version: {any}
             \\
         , .{
             self.tag,
-            self.getVersion(),
+            self.getFileVersion(),
             self.total_header_size,
             self.folder_name.data,
             @as(u32, @bitCast(self.package_flags)),
@@ -279,11 +293,12 @@ pub const FPackageFileSummary = struct {
             self.export_guids_count,
             self.thumbnail_table_offset,
             self.guid,
-            self.generations.len,
+            self.engine_version,
+            self.getCookedContentVersion(),
         });
 
         if (self.generations.len > 0) {
-            try writer.print("  generations:\n", .{});
+            try writer.print("  generations ({d}):\n", .{self.generations.len});
             for (self.generations) |generation| {
                 try writer.print("{f}\n", .{generation});
             }
