@@ -3,7 +3,7 @@ const std = @import("std");
 pub const package_file_tag = 0x9E2A83C1;
 pub const package_file_tag_swapped = 0xC1832A9E;
 
-pub const Error = std.Io.Reader.Error || std.mem.Allocator.Error || error{
+pub const Error = std.Io.Reader.Error || std.Io.Reader.TakeEnumError || std.mem.Allocator.Error || error{
     UnsupportedTag,
     UnsupportedVersion,
     UnsupportedEncoding,
@@ -30,6 +30,22 @@ pub const FString = struct {
             // WIDECHAR
             return error.UnsupportedEncoding;
         }
+    }
+
+    pub fn takeArray(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error![]FString {
+        const count = try reader.takeInt(i32, .little);
+        if (count == 0) return &.{};
+        if (count < 0) return error.InvalidArraySize;
+
+        const strings = try allocator.alloc(FString, @intCast(count));
+        errdefer allocator.free(strings);
+
+        const self = @This();
+        for (strings) |*string| {
+            string.* = try self.take(reader, allocator);
+        }
+
+        return strings;
     }
 };
 
@@ -111,6 +127,37 @@ pub const EPackageFlags = packed struct(u32) {
     }
 };
 
+pub const ECompressionFlags = packed struct(u32) {
+    type: enum(u3) {
+        none = 0,
+        zlib = 1,
+        lzo = 2,
+        lzx = 4,
+    } = .none,
+    _pad1: u1 = 0,
+    bias_memory: bool = false,
+    bias_speed: bool = false,
+    _pad2: u1 = 0,
+    force_ppu_decompress_zlib: bool = false,
+    no_stats: bool = false,
+    obscured: bool = false,
+    _pad3: u22 = 0,
+
+    pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("{s}", .{@tagName(self.type)});
+
+        const info = @typeInfo(@This()).@"struct";
+        inline for (info.field_names, info.field_types) |name, field_type| {
+            if (comptime std.mem.startsWith(u8, name, "_pad")) continue;
+            if (field_type == bool) {
+                if (@field(self, name)) {
+                    try writer.print(", {s}", .{name});
+                }
+            }
+        }
+    }
+};
+
 pub const FGenerationInfo = extern struct {
     export_count: i32,
     name_count: i32,
@@ -153,6 +200,175 @@ pub const FGenerationInfo = extern struct {
     }
 };
 
+pub const FCompressedChunk = extern struct {
+    uncompressed_offset: i32,
+    uncompressed_size: i32,
+    compressed_offset: i32,
+    compressed_size: i32,
+
+    pub fn take(reader: *std.Io.Reader) Error!FCompressedChunk {
+        return try reader.takeStruct(FCompressedChunk, .little);
+    }
+
+    pub fn takeArray(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error![]FCompressedChunk {
+        const count = try reader.takeInt(i32, .little);
+        if (count == 0) return &.{};
+        if (count < 0) return error.InvalidArraySize;
+
+        const chunks = try allocator.alloc(FCompressedChunk, @intCast(count));
+        errdefer allocator.free(chunks);
+
+        const self = @This();
+        for (chunks) |*chunk| {
+            chunk.* = try self.take(reader);
+        }
+
+        return chunks;
+    }
+
+    pub fn format(
+        self: @This(),
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        try writer.print(
+            \\    uncompressed_offset: {d}
+            \\    uncompressed_size: {d}
+            \\    compressed_offset: {d}
+            \\    compressed_size: {d}
+            \\
+        , .{
+            self.uncompressed_offset,
+            self.uncompressed_size,
+            self.compressed_offset,
+            self.compressed_size,
+        });
+    }
+};
+
+pub const EPixelFormat = enum(u32) {
+    unknown = 0x0,
+    a32b32g32r32f = 0x1,
+    a8r8g8b8 = 0x2,
+    g8 = 0x3,
+    g16 = 0x4,
+    dxt1 = 0x5,
+    dxt3 = 0x6,
+    dxt5 = 0x7,
+    uyvy = 0x8,
+    float_rgb = 0x9,
+    float_rgba = 0xa,
+    depth_stencil = 0xb,
+    shadow_depth = 0xc,
+    filtered_shadow_depth = 0xd,
+    r32f = 0xe,
+    g16r16 = 0xf,
+    g16r16f = 0x10,
+    g16r16f_filter = 0x11,
+    g32r32f = 0x12,
+    a2b10g10r10 = 0x13,
+    a16b16g16r16 = 0x14,
+    d24 = 0x15,
+    r16f = 0x16,
+    r16f_filter = 0x17,
+    bc5 = 0x18,
+    v8u8 = 0x19,
+    a1 = 0x1a,
+    float_r11g11b10 = 0x1b,
+    a4r4g4b4 = 0x1c,
+    g8r8 = 0x1d,
+    b8g8r8a8 = 0x1e,
+    max = 0x1f,
+};
+
+pub const FTextureAllocations = struct {
+    size_x: i32,
+    size_y: i32,
+    num_mips: i32,
+    tex_format: EPixelFormat,
+    text_create_flags: u32,
+    export_indices: []i32,
+
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FTextureAllocations {
+        const size_x = try reader.takeInt(i32, .little);
+        const size_y = try reader.takeInt(i32, .little);
+        const num_mips = try reader.takeInt(i32, .little);
+        const tex_format = try reader.takeEnum(EPixelFormat, .little);
+        const text_create_flags = try reader.takeInt(u32, .little);
+
+        const num_export_indices = try reader.takeInt(u32, .little);
+        if (num_export_indices > 0) {
+            const indices = try allocator.alloc(i32, num_export_indices);
+            errdefer allocator.free(indices);
+
+            for (indices) |*index| {
+                index.* = try reader.takeInt(i32, .little);
+            }
+
+            return .{
+                .size_x = size_x,
+                .size_y = size_y,
+                .num_mips = num_mips,
+                .tex_format = tex_format,
+                .text_create_flags = text_create_flags,
+                .export_indices = indices,
+            };
+        }
+
+        return .{
+            .size_x = size_x,
+            .size_y = size_y,
+            .num_mips = num_mips,
+            .tex_format = tex_format,
+            .text_create_flags = text_create_flags,
+            .export_indices = &.{},
+        };
+    }
+
+    pub fn takeArray(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error![]FTextureAllocations {
+        const count = try reader.takeInt(i32, .little);
+        if (count == 0) return &.{};
+        if (count < 0) return error.InvalidArraySize;
+
+        const allocations = try allocator.alloc(FTextureAllocations, @intCast(count));
+        errdefer allocator.free(allocations);
+
+        const self = @This();
+        for (allocations) |*allocation| {
+            allocation.* = try self.take(reader, allocator);
+        }
+
+        return allocations;
+    }
+
+    pub fn format(
+        self: @This(),
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        try writer.print(
+            \\    size_x: {d}
+            \\    size_y: {d}
+            \\    num_mips: {d}
+            \\    format: 0x{X:0>8} ({s})
+            \\    text_create_flags: 0x{X:0>8}
+            \\
+        , .{
+            self.size_x,
+            self.size_y,
+            self.num_mips,
+            @as(u32, @bitCast(self.tex_format)),
+            @tagName(self.tex_format),
+            self.text_create_flags,
+        });
+
+        if (self.export_indices.len > 0) {
+            try writer.print("    export_indices ({d}):\n", .{self.export_indices.len});
+            for (self.export_indices) |index| {
+                try writer.print("      {d}\n", .{index});
+            }
+        }
+    }
+};
+
 pub const FPackageFileSummary = struct {
     tag: u32,
     file_version: i32,
@@ -174,11 +390,35 @@ pub const FPackageFileSummary = struct {
     generations: []FGenerationInfo,
     engine_version: i32,
     cooked_content_version: i32,
+    compression_flags: ECompressionFlags,
+    compressed_chunks: []FCompressedChunk,
+    package_source: u32,
+    additional_packages_to_cook: []FString,
+    texture_allocations: []FTextureAllocations,
 
     pub fn deinit(self: FPackageFileSummary, allocator: std.mem.Allocator) void {
         allocator.free(self.folder_name.data);
+
         if (self.generations.len > 0) {
             allocator.free(self.generations);
+        }
+
+        if (self.compressed_chunks.len > 0) {
+            allocator.free(self.compressed_chunks);
+        }
+
+        if (self.additional_packages_to_cook.len > 0) {
+            for (self.additional_packages_to_cook) |*package| {
+                allocator.free(package.data);
+            }
+            allocator.free(self.additional_packages_to_cook);
+        }
+
+        if (self.texture_allocations.len > 0) {
+            for (self.texture_allocations) |*allocation| {
+                allocator.free(allocation.export_indices);
+            }
+            allocator.free(self.texture_allocations);
         }
     }
 
@@ -209,6 +449,11 @@ pub const FPackageFileSummary = struct {
         const generations = try FGenerationInfo.takeArray(reader, allocator);
         const engine_version = try reader.takeInt(i32, .little);
         const cooked_content_version = try reader.takeInt(i32, .little);
+        const compression_flags = try reader.takeStruct(ECompressionFlags, .little);
+        const compressed_chunks = try FCompressedChunk.takeArray(reader, allocator);
+        const package_source = try reader.takeInt(u32, .little);
+        const additional_packages_to_cook = try FString.takeArray(reader, allocator);
+        const texture_allocations = try FTextureAllocations.takeArray(reader, allocator);
 
         return .{
             .tag = tag,
@@ -231,6 +476,11 @@ pub const FPackageFileSummary = struct {
             .generations = generations,
             .engine_version = engine_version,
             .cooked_content_version = cooked_content_version,
+            .compression_flags = compression_flags,
+            .compressed_chunks = compressed_chunks,
+            .package_source = package_source,
+            .additional_packages_to_cook = additional_packages_to_cook,
+            .texture_allocations = texture_allocations,
         };
     }
 
@@ -273,6 +523,9 @@ pub const FPackageFileSummary = struct {
             \\  guid: {f}
             \\  engine_version: {d}
             \\  cooked_content_version: {any}
+            \\  compression_flags: 0x{X:0>8} ({f})
+            \\  package_source: {X:0>8}
+            \\
             \\
         , .{
             self.tag,
@@ -295,12 +548,36 @@ pub const FPackageFileSummary = struct {
             self.guid,
             self.engine_version,
             self.getCookedContentVersion(),
+            @as(u32, @bitCast(self.compression_flags)),
+            self.compression_flags,
+            self.package_source,
         });
 
         if (self.generations.len > 0) {
             try writer.print("  generations ({d}):\n", .{self.generations.len});
             for (self.generations) |generation| {
                 try writer.print("{f}\n", .{generation});
+            }
+        }
+
+        if (self.compressed_chunks.len > 0) {
+            try writer.print("  compressed_chunks ({d}):\n", .{self.compressed_chunks.len});
+            for (self.compressed_chunks) |chunk| {
+                try writer.print("{f}\n", .{chunk});
+            }
+        }
+
+        if (self.additional_packages_to_cook.len > 0) {
+            try writer.print("  additional_packages_to_cook ({d}):\n", .{self.additional_packages_to_cook.len});
+            for (self.additional_packages_to_cook) |package| {
+                try writer.print("    {s}\n", .{package.data});
+            }
+        }
+
+        if (self.texture_allocations.len > 0) {
+            try writer.print("  texture_allocations ({d}):\n", .{self.texture_allocations.len});
+            for (self.texture_allocations) |allocation| {
+                try writer.print("{f}\n", .{allocation});
             }
         }
     }
