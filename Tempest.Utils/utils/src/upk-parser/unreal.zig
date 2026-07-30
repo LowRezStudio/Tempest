@@ -10,6 +10,25 @@ pub const Error = std.Io.Reader.Error || std.Io.Reader.TakeEnumError || std.mem.
     InvalidArraySize,
 };
 
+pub fn takeArray(
+    comptime T: type,
+    reader: *std.Io.Reader,
+    allocator: std.mem.Allocator,
+) Error![]T {
+    const count = try reader.takeInt(i32, .little);
+    if (count == 0) return &.{};
+    if (count < 0) return error.InvalidArraySize;
+
+    const array = try allocator.alloc(T, @intCast(count));
+    errdefer allocator.free(array);
+
+    for (array) |*item| {
+        item.* = try T.take(reader, allocator);
+    }
+
+    return array;
+}
+
 pub const FString = struct {
     data: []const u8,
 
@@ -31,22 +50,6 @@ pub const FString = struct {
             return error.UnsupportedEncoding;
         }
     }
-
-    pub fn takeArray(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error![]FString {
-        const count = try reader.takeInt(i32, .little);
-        if (count == 0) return &.{};
-        if (count < 0) return error.InvalidArraySize;
-
-        const strings = try allocator.alloc(FString, @intCast(count));
-        errdefer allocator.free(strings);
-
-        const self = @This();
-        for (strings) |*string| {
-            string.* = try self.take(reader, allocator);
-        }
-
-        return strings;
-    }
 };
 
 pub const FGuid = extern struct {
@@ -55,7 +58,8 @@ pub const FGuid = extern struct {
     c: i32,
     d: i32,
 
-    pub fn take(reader: *std.Io.Reader) Error!FGuid {
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FGuid {
+        _ = allocator;
         return try reader.takeStruct(FGuid, .little);
     }
 
@@ -163,24 +167,9 @@ pub const FGenerationInfo = extern struct {
     name_count: i32,
     net_object_count: i32,
 
-    pub fn take(reader: *std.Io.Reader) Error!FGenerationInfo {
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FGenerationInfo {
+        _ = allocator;
         return try reader.takeStruct(FGenerationInfo, .little);
-    }
-
-    pub fn takeArray(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error![]FGenerationInfo {
-        const count = try reader.takeInt(i32, .little);
-        if (count == 0) return &.{};
-        if (count < 0) return error.InvalidArraySize;
-
-        const generations = try allocator.alloc(FGenerationInfo, @intCast(count));
-        errdefer allocator.free(generations);
-
-        const self = @This();
-        for (generations) |*generation| {
-            generation.* = try self.take(reader);
-        }
-
-        return generations;
     }
 
     pub fn format(
@@ -206,24 +195,9 @@ pub const FCompressedChunk = extern struct {
     compressed_offset: i32,
     compressed_size: i32,
 
-    pub fn take(reader: *std.Io.Reader) Error!FCompressedChunk {
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FCompressedChunk {
+        _ = allocator;
         return try reader.takeStruct(FCompressedChunk, .little);
-    }
-
-    pub fn takeArray(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error![]FCompressedChunk {
-        const count = try reader.takeInt(i32, .little);
-        if (count == 0) return &.{};
-        if (count < 0) return error.InvalidArraySize;
-
-        const chunks = try allocator.alloc(FCompressedChunk, @intCast(count));
-        errdefer allocator.free(chunks);
-
-        const self = @This();
-        for (chunks) |*chunk| {
-            chunk.* = try self.take(reader);
-        }
-
-        return chunks;
     }
 
     pub fn format(
@@ -322,22 +296,6 @@ pub const FTextureAllocations = struct {
             .text_create_flags = text_create_flags,
             .export_indices = &.{},
         };
-    }
-
-    pub fn takeArray(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error![]FTextureAllocations {
-        const count = try reader.takeInt(i32, .little);
-        if (count == 0) return &.{};
-        if (count < 0) return error.InvalidArraySize;
-
-        const allocations = try allocator.alloc(FTextureAllocations, @intCast(count));
-        errdefer allocator.free(allocations);
-
-        const self = @This();
-        for (allocations) |*allocation| {
-            allocation.* = try self.take(reader, allocator);
-        }
-
-        return allocations;
     }
 
     pub fn format(
@@ -445,15 +403,15 @@ pub const FPackageFileSummary = struct {
         const import_guids_count = try reader.takeInt(i32, .little);
         const export_guids_count = try reader.takeInt(i32, .little);
         const thumbnail_table_offset = try reader.takeInt(i32, .little);
-        const guid = try FGuid.take(reader);
-        const generations = try FGenerationInfo.takeArray(reader, allocator);
+        const guid = try FGuid.take(reader, allocator);
+        const generations = try takeArray(FGenerationInfo, reader, allocator);
         const engine_version = try reader.takeInt(i32, .little);
         const cooked_content_version = try reader.takeInt(i32, .little);
         const compression_flags = try reader.takeStruct(ECompressionFlags, .little);
-        const compressed_chunks = try FCompressedChunk.takeArray(reader, allocator);
+        const compressed_chunks = try takeArray(FCompressedChunk, reader, allocator);
         const package_source = try reader.takeInt(u32, .little);
-        const additional_packages_to_cook = try FString.takeArray(reader, allocator);
-        const texture_allocations = try FTextureAllocations.takeArray(reader, allocator);
+        const additional_packages_to_cook = try takeArray(FString, reader, allocator);
+        const texture_allocations = try takeArray(FTextureAllocations, reader, allocator);
 
         return .{
             .tag = tag,
