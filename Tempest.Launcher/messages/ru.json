@@ -346,7 +346,7 @@
 	"home_get_started": "Начать",
 	"home_get_started_subtitle": "Добавьте первый инстанс",
 	"toast_unsupported_file_title": "Неподдерживаемый файл",
-	"toast_unsupported_file_message": "Поддерживаются только файлы модов .upk и .pck.",
+	"toast_unsupported_file_message": "Поддерживаются только файлы модов .upk .pck и .tempest.",
 	"toast_mod_installed_title": "Мод установлен",
 	"toast_mod_installed_message": "Успешно установлен {name}.",
 	"toast_mod_installed_fallback": "мод",
@@ -426,5 +426,35 @@
 	"updater_btn_update_now": "Обновить сейчас",
 	"updater_btn_updating": "Обновление...",
 	"updater_btn_retry": "Повторить",
-	"updater_btn_check_again": "Проверить снова"
+	"updater_btn_check_again": "Проверить снова",
+	"converter_title": "Приготовить мод",
+	"converter_drop_hint": "Перетащите файлы {tempest}, {upk}, {pck} или {ini} сюда",
+	"converter_drop_browse_hint": "или используйте кнопку Обзор",
+	"converter_source_files": "Исходные файлы",
+	"converter_importing": "Импорт {name}...",
+	"converter_sources": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "источник",
+				"countPlural=other": "источники"
+			}
+		}
+	],
+	"converter_mod_name_label": "Название мода",
+	"converter_mod_name_placeholder": "назовите ваш мод",
+	"converter_version_placeholder": "укажите версию",
+	"converter_authors_label": "Авторы",
+	"converter_author_name_placeholder": "введите имя",
+	"converter_author_link_placeholder": "добавьте ссылку",
+	"converter_readme_label": "Readme",
+	"converter_readme_placeholder": "опишите ваш мод",
+	"converter_cook": "Приготовить",
+	"converter_cooking": "Приготовление...",
+	"converter_download": "Скачать",
+	"converter_add_to_instance": "Добавить в экземпляр",
+	"converter_toast_saved_title": "Мод сохранён",
+	"converter_toast_saved_message": "Сохранён в {path}",
+	"converter_toast_installed_message": "\"{name}\" установлен в {instance}"
 }

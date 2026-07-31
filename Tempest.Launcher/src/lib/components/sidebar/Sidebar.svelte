@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Compass, Download, House, Library, Plus, ScrollText, Server, Settings, SquareTerminal, Terminal } from "@lucide/svelte";
+	import { Compass, Download, FlaskConical, House, Library, Plus, ScrollText, Server, Settings, SquareTerminal, Terminal } from "@lucide/svelte";
 	import { page } from "$app/state";
 	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
@@ -29,6 +29,7 @@
 		<SidebarItem href="/library" label={m.sidebar_library()}><Library size={20} /></SidebarItem>
 		<SidebarItem href="/downloads" label={m.sidebar_downloads()}><Download size={20} /></SidebarItem>
 		<SidebarItem href="/servers" label={m.sidebar_servers()}><Server size={20} /></SidebarItem>
+		<SidebarItem href="/converter" label="Cook Mod"><FlaskConical size={20} /></SidebarItem>
 		{#if lobbyHost.value}
 			<SidebarItem href="/lobby" label={m.sidebar_lobby()}><Compass size={20} /></SidebarItem>
 		{/if}

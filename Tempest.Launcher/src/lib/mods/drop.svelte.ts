@@ -1,3 +1,4 @@
+import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { installMod } from "$lib/core/mods";
@@ -7,7 +8,9 @@ import { instanceMap } from "$lib/stores/instance.svelte";
 import { addToast, removeToast } from "$lib/stores/ui.svelte";
 
 export const isDraggingFiles = $state({ value: false });
+export const isDraggingConverterFiles = $state({ value: false });
 export const showInstanceSelect = $state({ value: false });
+export const converterPendingPaths = $state<string[]>([]);
 
 let onModsInstalled: ((path: string) => void) | undefined;
 export function setOnModsInstalled(fn: (path: string) => void) {
@@ -59,6 +62,8 @@ async function handleModFileDrop(filePaths: string[]) {
 
 async function proceedWithInstall() {
 	if (!targetInstance || droppedFilePaths.length === 0) return;
+
+	void goto(`/instance/${targetInstance.id}`);
 
 	let successCount = 0;
 	let lastInstalledName = "";
@@ -149,15 +154,26 @@ $effect.root(() => {
 	const appWindow = getCurrentWindow();
 	void appWindow
 		.onDragDropEvent((event) => {
+			const onConverter = page.url.pathname === "/converter";
 			if (event.payload.type === "enter" || event.payload.type === "over") {
-				isDraggingFiles.value = true;
+				if (onConverter) {
+					isDraggingConverterFiles.value = true;
+				} else {
+					isDraggingFiles.value = true;
+				}
 			} else if (event.payload.type === "drop") {
+				isDraggingConverterFiles.value = false;
 				isDraggingFiles.value = false;
 				const paths = event.payload.paths;
 				if (paths && paths.length > 0) {
-					void handleModFileDrop(paths);
+					if (onConverter) {
+						converterPendingPaths.push(...paths);
+					} else {
+						void handleModFileDrop(paths);
+					}
 				}
 			} else if (event.payload.type === "leave") {
+				isDraggingConverterFiles.value = false;
 				isDraggingFiles.value = false;
 			}
 		})

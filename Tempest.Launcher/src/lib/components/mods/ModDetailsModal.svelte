@@ -1,12 +1,9 @@
 <script lang="ts">
-	import { File } from "@lucide/svelte";
 	import { Tabs } from "bits-ui";
 	import ModFileTree from "$lib/components/mods/ModFileTree.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { marked } from "marked";
-	import { readDir } from "@tauri-apps/plugin-fs";
-	import { path } from "@tauri-apps/api";
 	import type { ModRecord } from "$lib/core/mods";
 
 	interface Props {
@@ -17,7 +14,7 @@
 
 	let { mod, open = $bindable(false), instancePath }: Props = $props();
 
-	let tab = $state<"details" | "readme" | "files" | "dlls">("details");
+	let tab = $state<"details" | "readme" | "files">("details");
 
 	$effect(() => {
 		if (open) tab = "details";
@@ -29,13 +26,6 @@
 		mod?.ReadmeContent && isReadmeMarkdown ? (marked.parse(mod.ReadmeContent, { async: false }) as string) : "",
 	);
 
-	let dllFiles = $state<string[]>([]);
-
-	$effect(() => {
-		if (!mod || mod.Kind?.toLowerCase() !== "v2" || !instancePath) { dllFiles = []; return; }
-		const dllDir = `${instancePath}/.tempest/v2/mods/${mod.Id}/dlls`;
-		readDir(dllDir).then(entries => { dllFiles = entries.filter(e => !e.name?.endsWith("/")).map(e => e.name!); }).catch(() => { dllFiles = []; });
-	});
 </script>
 
 <Modal bind:open title={mod?.Name || "Mod Details"} class="max-w-2xl">
@@ -61,14 +51,6 @@
 					>
 						Changed Files ({mod.InstalledFiles?.length ?? 0})
 					</Tabs.Trigger>
-					{#if mod.Kind?.toLowerCase() === "v2"}
-						<Tabs.Trigger
-							value="dlls"
-							class="tab rounded-lg transition-all data-[state=active]:tab-active"
-						>
-							DLLs ({dllFiles.length})
-						</Tabs.Trigger>
-					{/if}
 				</Tabs.List>
 			</Tabs.Root>
 
@@ -168,29 +150,6 @@
 							</div>
 						{:else}
 							<ModFileTree files={mod.InstalledFiles} basePath={instancePath} />
-						{/if}
-					</div>
-				{:else if tab === "dlls"}
-					<div class="h-full flex flex-col justify-start overflow-hidden">
-						{#if dllFiles.length === 0}
-							<div
-								class="bg-base-200/20 border border-dashed border-base-300 text-center py-8 text-base-content/60 h-full flex items-center justify-center rounded-box"
-							>
-								<p>No DLLs found for this mod.</p>
-							</div>
-						{:else}
-							<div class="overflow-y-auto pr-1 bg-base-200 rounded-box p-3 h-full">
-								<ul class="menu menu-xs p-0 font-mono w-full">
-									{#each dllFiles as file}
-										<li>
-											<span class="flex items-center gap-2 py-1 select-none">
-												<File size={14} class="text-primary shrink-0 opacity-80" />
-												<span class="truncate">{file}</span>
-											</span>
-										</li>
-									{/each}
-								</ul>
-							</div>
 						{/if}
 					</div>
 				{/if}

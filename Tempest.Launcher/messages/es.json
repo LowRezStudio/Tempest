@@ -339,7 +339,7 @@
 	"home_get_started": "Comenzar",
 	"home_get_started_subtitle": "Añade tu primera instancia",
 	"toast_unsupported_file_title": "Archivo no soportado",
-	"toast_unsupported_file_message": "Solo se admiten archivos de mod .upk y .pck.",
+	"toast_unsupported_file_message": "Solo se admiten archivos de mod .upk .pck y .tempest.",
 	"toast_mod_installed_title": "Mod instalado",
 	"toast_mod_installed_message": "Instalado con éxito {name}.",
 	"toast_mod_installed_fallback": "mod",
@@ -419,5 +419,35 @@
 	"updater_btn_update_now": "Actualizar ahora",
 	"updater_btn_updating": "Actualizando...",
 	"updater_btn_retry": "Reintentar",
-	"updater_btn_check_again": "Buscar de nuevo"
+	"updater_btn_check_again": "Buscar de nuevo",
+	"converter_title": "Cocinar mod",
+	"converter_drop_hint": "Suelte los archivos {tempest}, {upk}, {pck} o {ini} aquí",
+	"converter_drop_browse_hint": "o use el botón Examinar",
+	"converter_source_files": "Archivos fuente",
+	"converter_importing": "Importando {name}...",
+	"converter_sources": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "fuente",
+				"countPlural=other": "fuentes"
+			}
+		}
+	],
+	"converter_mod_name_label": "Nombre del mod",
+	"converter_mod_name_placeholder": "nombre su mod",
+	"converter_version_placeholder": "establezca la versión",
+	"converter_authors_label": "Autores",
+	"converter_author_name_placeholder": "ingrese un nombre",
+	"converter_author_link_placeholder": "agregue un enlace",
+	"converter_readme_label": "Léame",
+	"converter_readme_placeholder": "describa su mod",
+	"converter_cook": "Cocinar",
+	"converter_cooking": "Cocinando...",
+	"converter_download": "Descargar",
+	"converter_add_to_instance": "Agregar a la instancia",
+	"converter_toast_saved_title": "Mod guardado",
+	"converter_toast_saved_message": "Guardado en {path}",
+	"converter_toast_installed_message": "\"{name}\" instalado en {instance}"
 }

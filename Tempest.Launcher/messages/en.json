@@ -343,7 +343,7 @@
 	"home_get_started": "Get Started",
 	"home_get_started_subtitle": "Add your first instance",
 	"toast_unsupported_file_title": "Unsupported File",
-	"toast_unsupported_file_message": "Only .upk and .pck mod files are supported.",
+	"toast_unsupported_file_message": "Only .upk .pck and .tempest mod files are supported.",
 	"toast_mod_installed_title": "Mod Installed",
 	"toast_mod_installed_message": "Successfully installed {name}.",
 	"toast_mod_installed_fallback": "mod",
@@ -429,5 +429,35 @@
 	"updater_btn_update_now": "Update Now",
 	"updater_btn_updating": "Updating...",
 	"updater_btn_retry": "Retry",
-	"updater_btn_check_again": "Check Again"
+	"updater_btn_check_again": "Check Again",
+	"converter_title": "Cook Mod",
+	"converter_drop_hint": "Drop {tempest}, {upk}, {pck}, or {ini} files here",
+	"converter_drop_browse_hint": "or use the Browse button",
+	"converter_source_files": "Source Files",
+	"converter_importing": "Importing {name}...",
+	"converter_sources": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "source",
+				"countPlural=other": "sources"
+			}
+		}
+	],
+	"converter_mod_name_label": "Mod Name",
+	"converter_mod_name_placeholder": "name your mod",
+	"converter_version_placeholder": "set the version",
+	"converter_authors_label": "Authors",
+	"converter_author_name_placeholder": "enter a name",
+	"converter_author_link_placeholder": "add a link",
+	"converter_readme_label": "Read Me",
+	"converter_readme_placeholder": "describe your mod",
+	"converter_cook": "Cook",
+	"converter_cooking": "Cooking...",
+	"converter_download": "Download",
+	"converter_add_to_instance": "Add to Instance",
+	"converter_toast_saved_title": "Mod saved",
+	"converter_toast_saved_message": "Saved to {path}",
+	"converter_toast_installed_message": "\"{name}\" installed to {instance}"
 }

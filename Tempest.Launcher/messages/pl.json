@@ -346,7 +346,7 @@
 	"home_get_started": "Rozpocznij",
 	"home_get_started_subtitle": "Dodaj pierwszą instancję",
 	"toast_unsupported_file_title": "Nieobsługiwany plik",
-	"toast_unsupported_file_message": "Obsługiwane są tylko pliki modów .upk i .pck.",
+	"toast_unsupported_file_message": "Obsługiwane są tylko pliki modów .upk .pck i .tempest.",
 	"toast_mod_installed_title": "Modyfikacja zainstalowana",
 	"toast_mod_installed_message": "Pomyślnie zainstalowano {name}.",
 	"toast_mod_installed_fallback": "modyfikacja",
@@ -426,5 +426,35 @@
 	"updater_btn_update_now": "Aktualizuj teraz",
 	"updater_btn_updating": "Aktualizowanie...",
 	"updater_btn_retry": "Ponów próbę",
-	"updater_btn_check_again": "Sprawdź ponownie"
+	"updater_btn_check_again": "Sprawdź ponownie",
+	"converter_title": "Przygotuj mod",
+	"converter_drop_hint": "Upuść pliki {tempest}, {upk}, {pck} lub {ini} tutaj",
+	"converter_drop_browse_hint": "lub użyj przycisku Przeglądaj",
+	"converter_source_files": "Pliki źródłowe",
+	"converter_importing": "Importowanie {name}...",
+	"converter_sources": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "źródło",
+				"countPlural=other": "źródła"
+			}
+		}
+	],
+	"converter_mod_name_label": "Nazwa moda",
+	"converter_mod_name_placeholder": "nazwij swojego moda",
+	"converter_version_placeholder": "ustaw wersję",
+	"converter_authors_label": "Autorzy",
+	"converter_author_name_placeholder": "wprowadź nazwę",
+	"converter_author_link_placeholder": "dodaj link",
+	"converter_readme_label": "Readme",
+	"converter_readme_placeholder": "opisz swojego moda",
+	"converter_cook": "Przygotuj",
+	"converter_cooking": "Przygotowywanie...",
+	"converter_download": "Pobierz",
+	"converter_add_to_instance": "Dodaj do instancji",
+	"converter_toast_saved_title": "Mod zapisany",
+	"converter_toast_saved_message": "Zapisano w {path}",
+	"converter_toast_installed_message": "\"{name}\" zainstalowano w {instance}"
 }

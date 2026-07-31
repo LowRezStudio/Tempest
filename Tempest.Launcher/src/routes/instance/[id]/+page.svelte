@@ -94,7 +94,6 @@
 
 	let isFilesDialogOpen = $state(false);
 	let selectedModForFiles = $state<ModRecord | null>(null);
-
 	function handleOpenFiles(mod: ModRecord) {
 		selectedModForFiles = mod;
 		isFilesDialogOpen = true;
@@ -256,3 +255,4 @@
 	bind:open={isFilesDialogOpen}
 	instancePath={instance?.path}
 />
+

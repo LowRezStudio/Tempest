@@ -343,7 +343,7 @@
 	"home_get_started": "Başlayın",
 	"home_get_started_subtitle": "İlk sürümünüzü ekleyin",
 	"toast_unsupported_file_title": "Desteklenmiyen Dosya",
-	"toast_unsupported_file_message": "Sadece .upk ve .pck mod dosyaları desteklenmektedir.",
+	"toast_unsupported_file_message": "Sadece .upk .pck ve .tempest mod dosyaları desteklenmektedir.",
 	"toast_mod_installed_title": "Mod Yüklendi",
 	"toast_mod_installed_message": "{name} başarıyla yüklendi.",
 	"toast_mod_installed_fallback": "mod",
@@ -429,5 +429,35 @@
 	"updater_btn_update_now": "Şimdi Güncelle",
 	"updater_btn_updating": "Güncelleniyor...",
 	"updater_btn_retry": "Yeniden Dene",
-	"updater_btn_check_again": "Yeniden Kontrol Et"
+	"updater_btn_check_again": "Yeniden Kontrol Et",
+	"converter_title": "Mod Pişir",
+	"converter_drop_hint": "{tempest}, {upk}, {pck} veya {ini} dosyalarını buraya sürükleyin",
+	"converter_drop_browse_hint": "veya Gözat düğmesini kullanın",
+	"converter_source_files": "Kaynak Dosyalar",
+	"converter_importing": "{name} içe aktarılıyor...",
+	"converter_sources": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "kaynak",
+				"countPlural=other": "kaynaklar"
+			}
+		}
+	],
+	"converter_mod_name_label": "Mod Adı",
+	"converter_mod_name_placeholder": "modunuzu adlandırın",
+	"converter_version_placeholder": "sürümü belirleyin",
+	"converter_authors_label": "Yazarlar",
+	"converter_author_name_placeholder": "bir isim girin",
+	"converter_author_link_placeholder": "bir bağlantı ekleyin",
+	"converter_readme_label": "Beni Oku",
+	"converter_readme_placeholder": "modunuzu tanımlayın",
+	"converter_cook": "Pişir",
+	"converter_cooking": "Pişiriliyor...",
+	"converter_download": "İndir",
+	"converter_add_to_instance": "Örneğe Ekle",
+	"converter_toast_saved_title": "Mod kaydedildi",
+	"converter_toast_saved_message": "{path} konumuna kaydedildi",
+	"converter_toast_installed_message": "\"{name}\", {instance} örneğine kuruldu"
 }

@@ -285,7 +285,7 @@ public class ModV2Installer : IModInstaller
                 Name = manifest.Name,
                 Author = authorString,
                 Authors = manifest.Authors,
-                Version = "1.0.0",
+			Version = string.IsNullOrEmpty(manifest.Version) ? "1.0.0" : manifest.Version,
                 Enabled = true,
                 Kind = "V2",
                 OriginalPath = modFilePath,
@@ -810,8 +810,9 @@ public class ModV2Installer : IModInstaller
             if (model != null && model.TryGetValue("mod", out var modObj) && modObj is TomlTable modTable)
             {
                 if (modTable.TryGetValue("id", out var idVal)) manifest.Id = idVal?.ToString() ?? "";
-                if (modTable.TryGetValue("name", out var nameVal)) manifest.Name = nameVal?.ToString() ?? "";
-                if (modTable.TryGetValue("icon", out var iconVal)) manifest.Icon = iconVal?.ToString() ?? "";
+			if (modTable.TryGetValue("name", out var nameVal)) manifest.Name = nameVal?.ToString() ?? "";
+				if (modTable.TryGetValue("version", out var versionVal)) manifest.Version = versionVal?.ToString() ?? "1.0.0";
+				if (modTable.TryGetValue("icon", out var iconVal)) manifest.Icon = iconVal?.ToString() ?? "";
                 if (modTable.TryGetValue("readme", out var readmeVal)) manifest.Readme = readmeVal?.ToString() ?? "";
 
                 if (modTable.TryGetValue("authors", out var authorsVal))
@@ -884,11 +885,12 @@ public class ModV2Installer : IModInstaller
 
 public class ModManifest
 {
-    public string Id { get; set; } = string.Empty;
-    public string Name { get; set; } = string.Empty;
-    public string Icon { get; set; } = string.Empty;
-    public string Readme { get; set; } = string.Empty;
-    public List<ModAuthor> Authors { get; set; } = [];
+	public string Id { get; set; } = string.Empty;
+	public string Name { get; set; } = string.Empty;
+	public string Version { get; set; } = "1.0.0";
+	public string Icon { get; set; } = string.Empty;
+	public string Readme { get; set; } = string.Empty;
+	public List<ModAuthor> Authors { get; set; } = [];
 }
 
 public class ModAuthor

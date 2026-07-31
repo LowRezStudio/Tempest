@@ -337,7 +337,7 @@
 	"home_get_started": "Commencer",
 	"home_get_started_subtitle": "Ajouter votre première instance",
 	"toast_unsupported_file_title": "Fichier non supporté",
-	"toast_unsupported_file_message": "Seuls les fichiers de mod .upk et .pck sont supportés.",
+	"toast_unsupported_file_message": "Seuls les fichiers de mod .upk .pck et .tempest sont supportés.",
 	"toast_mod_installed_title": "Mod installé",
 	"toast_mod_installed_message": "Installation réussie de {name}.",
 	"toast_mod_installed_fallback": "mod",
@@ -417,5 +417,35 @@
 	"updater_btn_update_now": "Mettre à jour maintenant",
 	"updater_btn_updating": "Mise à jour...",
 	"updater_btn_retry": "Réessayer",
-	"updater_btn_check_again": "Vérifier à nouveau"
+	"updater_btn_check_again": "Vérifier à nouveau",
+	"converter_title": "Cuisiner un mod",
+	"converter_drop_hint": "Déposez les fichiers {tempest}, {upk}, {pck} ou {ini} ici",
+	"converter_drop_browse_hint": "ou utilisez le bouton Parcourir",
+	"converter_source_files": "Fichiers sources",
+	"converter_importing": "Import de {name}...",
+	"converter_sources": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "source",
+				"countPlural=other": "sources"
+			}
+		}
+	],
+	"converter_mod_name_label": "Nom du mod",
+	"converter_mod_name_placeholder": "nommez votre mod",
+	"converter_version_placeholder": "définissez la version",
+	"converter_authors_label": "Auteurs",
+	"converter_author_name_placeholder": "entrez un nom",
+	"converter_author_link_placeholder": "ajoutez un lien",
+	"converter_readme_label": "Lisez-moi",
+	"converter_readme_placeholder": "décrivez votre mod",
+	"converter_cook": "Cuisiner",
+	"converter_cooking": "Cuisson...",
+	"converter_download": "Télécharger",
+	"converter_add_to_instance": "Ajouter à l'instance",
+	"converter_toast_saved_title": "Mod sauvegardé",
+	"converter_toast_saved_message": "Sauvegardé vers {path}",
+	"converter_toast_installed_message": "\"{name}\" installé sur {instance}"
 }
