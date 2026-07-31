@@ -418,6 +418,14 @@ export function remove(p: string, options?: { recursive?: boolean }): Promise<vo
 	return unwrap(eio().invoke("fs:remove", { path: p, options })) as Promise<void>;
 }
 
+export function readFile(p: string): Promise<Uint8Array> {
+	return unwrap(eio().invoke("fs:read-file", { path: p }));
+}
+
+export async function writeFile(p: string, data: Uint8Array): Promise<void> {
+	await unwrap(eio().invoke("fs:write-file", { path: p, data: Array.from(data) }));
+}
+
 // ---- @tauri-apps/plugin-dialog ----
 
 export function open(options?: {
@@ -427,6 +435,14 @@ export function open(options?: {
 	title?: string;
 }): Promise<string | string[] | null> {
 	return eio().invoke("dialog:open", { options });
+}
+
+export function save(options?: {
+	defaultPath?: string;
+	filters?: { name: string; extensions: string[] }[];
+	title?: string;
+}): Promise<string | null> {
+	return eio().invoke("dialog:save", { options });
 }
 
 // ---- @tauri-apps/plugin-opener ----

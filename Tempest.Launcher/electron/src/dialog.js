@@ -13,3 +13,14 @@ ipcMain.handle("dialog:open", async (event, { options }) => {
 	if (result.canceled) return null;
 	return options?.multiple ? result.filePaths : (result.filePaths[0] ?? null);
 });
+
+ipcMain.handle("dialog:save", async (event, { options }) => {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	const result = await dialog.showSaveDialog(win, {
+		title: options?.title,
+		defaultPath: options?.defaultPath,
+		filters: options?.filters,
+	});
+	if (result.canceled) return null;
+	return result.filePath;
+});

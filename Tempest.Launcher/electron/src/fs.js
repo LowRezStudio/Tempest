@@ -72,3 +72,21 @@ ipcMain.handle("fs:remove", async (_event, { path: p, options }) => {
 		return fail("failed to remove path:", p, error);
 	}
 });
+
+ipcMain.handle("fs:read-file", async (_event, { path: p }) => {
+	try {
+		const data = await fs.promises.readFile(p);
+		return { ok: true, data: Array.from(data) };
+	} catch (error) {
+		return fail("failed to read file at path:", p, error);
+	}
+});
+
+ipcMain.handle("fs:write-file", async (_event, { path: p, data }) => {
+	try {
+		await fs.promises.writeFile(p, Uint8Array.from(data));
+		return { ok: true, data: null };
+	} catch (error) {
+		return fail("failed to write file at path:", p, error);
+	}
+});
