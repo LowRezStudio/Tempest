@@ -1,6 +1,6 @@
 {
 	"name": "tempest.launcher",
-	"version": "1.0.0-35",
+	"version": "1.0.0-36",
 	"private": true,
 	"type": "module",
 	"scripts": {
