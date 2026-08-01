@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const minilzo = @import("minilzo");
 
 pub const LZOError = error{
+    OutOfMemory,
     InitFailed,
     InvalidSize,
     OutputOverrun,
@@ -12,6 +13,7 @@ pub const LZOError = error{
     EOFNotFound,
     InputNotConsumed,
     DecompressionFailed,
+    CompressionFailed,
 };
 
 var lzo_inititalized: bool = false;
@@ -81,7 +83,9 @@ pub fn decompressMemory(
     }
 }
 
-fn compressBuffer(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
+/// Compress `data` with LZO1X-1, returning an owned buffer of the compressed
+/// bytes (trimmed to the real output length).
+pub fn compress(allocator: std.mem.Allocator, data: []const u8) LZOError![]u8 {
     const workmem_size = 16384 * @sizeOf(?*anyopaque);
     const wrkmem = try allocator.alloc(u8, workmem_size);
     defer allocator.free(wrkmem);
@@ -96,7 +100,7 @@ fn compressBuffer(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
         &out_len,
         wrkmem.ptr,
     );
-    if (result != minilzo.LZO_E_OK) return error.CompressionFailed;
+    if (result != minilzo.LZO_E_OK) return LZOError.CompressionFailed;
 
     return allocator.realloc(out, out_len);
 }

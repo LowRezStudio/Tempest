@@ -3,52 +3,97 @@ const std = @import("std");
 pub const package_file_tag = 0x9E2A83C1;
 pub const package_file_tag_swapped = 0xC1832A9E;
 
-pub const Error = std.Io.Reader.Error || std.Io.Reader.TakeEnumError || std.mem.Allocator.Error || error{
+/// Oldest package file version this parser understands (VER_COLORGRADING2).
+/// The Paladins packages in the wild are v893.
+pub const min_supported_version = 800;
+
+/// Version gates from UnObjVer.h (see PARSING.md §19.12). The checks in the
+/// Paladins binary are strict `>` against these values.
+pub const ver_guid_maps = 622; // GUID-map fields present when v > 622
+pub const ver_thumbnails = 583; // ThumbnailTableOffset present when v > 583
+pub const ver_additional_packages_to_cook = 515; // AdditionalPackagesToCook when v > 515
+pub const ver_texture_allocations_save = 766; // TextureAllocations save gate (v > 766)
+pub const ver_texture_allocations_load = 892; // TextureAllocations load gate (v > 892, Paladins fork)
+
+pub const Error = std.Io.Reader.Error || std.Io.Reader.TakeEnumError || std.unicode.Utf16LeToUtf8AllocError || error{
     UnsupportedTag,
     UnsupportedVersion,
+    UnsupportedEndianness,
     UnsupportedEncoding,
     InvalidArraySize,
 };
 
+/// Serialized as `ArrayNum (INT)` followed by `ArrayNum` element serializations.
+/// For cooked Paladins packages, empty arrays are very common; a zero-length
+/// static slice is returned for them (never a heap allocation).
 pub fn takeArray(
     comptime T: type,
     reader: *std.Io.Reader,
     allocator: std.mem.Allocator,
 ) Error![]T {
     const count = try reader.takeInt(i32, .little);
-    if (count == 0) return &.{};
     if (count < 0) return error.InvalidArraySize;
+    if (count == 0) return &.{};
 
     const array = try allocator.alloc(T, @intCast(count));
     errdefer allocator.free(array);
 
-    for (array) |*item| {
-        item.* = try T.take(reader, allocator);
+    if (comptime @typeInfo(T) == .int) {
+        // Primitive element type (e.g. TArray<INT>): each element is a raw int.
+        for (array) |*item| {
+            item.* = try reader.takeInt(T, .little);
+        }
+    } else {
+        for (array) |*item| {
+            item.* = try T.take(reader, allocator);
+        }
     }
 
     return array;
 }
 
+/// Read `len` ANSI bytes, dropping the trailing `\0` that UE3 always serializes.
+fn takeAnsiName(reader: *std.Io.Reader, allocator: std.mem.Allocator, len: usize) Error![]u8 {
+    if (len == 0) return allocator.alloc(u8, 0);
+
+    const raw = try reader.readAlloc(allocator, len);
+    defer allocator.free(raw);
+
+    const str_len = if (raw[len - 1] == 0) len - 1 else len;
+    return allocator.dupe(u8, raw[0..str_len]);
+}
+
+/// Read `units` UTF-16-LE code units (2 bytes each), decoding to UTF-8 and
+/// dropping the trailing null code unit UE3 serializes.
+fn takeWideName(reader: *std.Io.Reader, allocator: std.mem.Allocator, units: usize) Error![]u8 {
+    if (units == 0) return allocator.alloc(u8, 0);
+
+    const utf16 = try allocator.alloc(u16, units);
+    defer allocator.free(utf16);
+
+    for (utf16) |*c| {
+        c.* = try reader.takeInt(u16, .little);
+    }
+
+    const real_units = if (utf16[units - 1] == 0) units - 1 else units;
+    return std.unicode.utf16LeToUtf8Alloc(allocator, utf16[0..real_units]);
+}
+
 pub const FString = struct {
+    /// Owned UTF-8, trailing null stripped.
     data: []const u8,
 
     pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FString {
         const count = try reader.takeInt(i32, .little);
+        if (count == std.math.minInt(i32)) return error.InvalidArraySize;
         if (count == 0) return .{ .data = try allocator.alloc(u8, 0) };
 
-        // ANSICHAR
-        if (count > 0) {
-            const len: usize = @intCast(count);
-            const data = try reader.readAlloc(allocator, @intCast(len));
-            defer allocator.free(data);
-
-            // strip trailing null
-            const str_len = if (len > 0 and data[len - 1] == 0) len - 1 else len;
-            return .{ .data = try allocator.dupe(u8, data[0..str_len]) };
-        } else {
-            // WIDECHAR
-            return error.UnsupportedEncoding;
-        }
+        // count < 0 means the string was stored as UTF-16 (see PARSING.md §4.5).
+        return .{ .data = if (count > 0)
+            try takeAnsiName(reader, allocator, @intCast(count))
+        else
+            try takeWideName(reader, allocator, @intCast(-@as(i64, count)))
+        };
     }
 };
 
@@ -219,6 +264,159 @@ pub const FCompressedChunk = extern struct {
     }
 };
 
+/// FName is a reference into the package name map: an index + instance number.
+/// Resolve the base string via the parsed name map (see Parser.resolveName).
+pub const FName = struct {
+    name_index: i32,
+    number: i32,
+
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FName {
+        _ = allocator;
+        return .{
+            .name_index = try reader.takeInt(i32, .little),
+            .number = try reader.takeInt(i32, .little),
+        };
+    }
+
+    pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (self.number == 0) {
+            try writer.print("{d}", .{self.name_index});
+        } else {
+            try writer.print("{d}_{d}", .{ self.name_index, self.number - 1 });
+        }
+    }
+};
+
+/// One entry of the name map. Serialized as StringLen (INT, negative = UTF-16),
+/// the string bytes (null-terminated on disk), then an 8-byte Flags field
+/// (PARSING.md §4.8 / §19.4).
+pub const FNameEntry = struct {
+    /// Owned UTF-8, trailing null stripped.
+    name: []const u8,
+    flags: u64,
+
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FNameEntry {
+        const string_len = try reader.takeInt(i32, .little);
+        if (string_len == std.math.minInt(i32)) return error.InvalidArraySize;
+
+        const name = if (string_len >= 0)
+            try takeAnsiName(reader, allocator, @intCast(string_len))
+        else
+            try takeWideName(reader, allocator, @intCast(-@as(i64, string_len)));
+        errdefer allocator.free(name);
+
+        const flags = try reader.takeInt(u64, .little);
+        return .{ .name = name, .flags = flags };
+    }
+
+    pub fn deinit(self: FNameEntry, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+    }
+};
+
+/// FObjectImport — 28 bytes flat (3 × FName + 1 × INT), PARSING.md §6 / §19.3.
+pub const FObjectImport = struct {
+    class_package: FName,
+    class_name: FName,
+    outer_index: i32,
+    object_name: FName,
+
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FObjectImport {
+        return .{
+            .class_package = try FName.take(reader, allocator),
+            .class_name = try FName.take(reader, allocator),
+            .outer_index = try reader.takeInt(i32, .little),
+            .object_name = try FName.take(reader, allocator),
+        };
+    }
+};
+
+/// FObjectExport — PARSING.md §7 / §19.2. The LegacyComponentMap (TMap<FName,INT>)
+/// only exists for file version < 543 and is never present for our range (v >= 800).
+pub const FObjectExport = struct {
+    class_index: i32,
+    super_index: i32,
+    outer_index: i32,
+    object_name: FName,
+    archetype_index: i32,
+    object_flags: u64,
+    serial_size: i32,
+    serial_offset: i32,
+    export_flags: u32,
+    generation_net_object_count: []i32,
+    package_guid: FGuid,
+    package_flags: u32,
+
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FObjectExport {
+        const class_index = try reader.takeInt(i32, .little);
+        const super_index = try reader.takeInt(i32, .little);
+        const outer_index = try reader.takeInt(i32, .little);
+        const object_name = try FName.take(reader, allocator);
+        const archetype_index = try reader.takeInt(i32, .little);
+        const object_flags = try reader.takeInt(u64, .little);
+        const serial_size = try reader.takeInt(i32, .little);
+        const serial_offset = try reader.takeInt(i32, .little);
+        const export_flags = try reader.takeInt(u32, .little);
+        const generation_net_object_count = try takeArray(i32, reader, allocator);
+        errdefer allocator.free(generation_net_object_count);
+        const package_guid = try FGuid.take(reader, allocator);
+        const package_flags = try reader.takeInt(u32, .little);
+
+        return .{
+            .class_index = class_index,
+            .super_index = super_index,
+            .outer_index = outer_index,
+            .object_name = object_name,
+            .archetype_index = archetype_index,
+            .object_flags = object_flags,
+            .serial_size = serial_size,
+            .serial_offset = serial_offset,
+            .export_flags = export_flags,
+            .generation_net_object_count = generation_net_object_count,
+            .package_guid = package_guid,
+            .package_flags = package_flags,
+        };
+    }
+
+    pub fn deinit(self: FObjectExport, allocator: std.mem.Allocator) void {
+        if (self.generation_net_object_count.len > 0) {
+            allocator.free(self.generation_net_object_count);
+        }
+    }
+};
+
+/// One import-GUID entry: a level name and the GUIDs of objects in that level
+/// (PARSING.md §9 / §19.10).
+pub const FLevelGuids = struct {
+    level_name: FString,
+    guids: []FGuid,
+
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FLevelGuids {
+        return .{
+            .level_name = try FString.take(reader, allocator),
+            .guids = try takeArray(FGuid, reader, allocator),
+        };
+    }
+
+    pub fn deinit(self: FLevelGuids, allocator: std.mem.Allocator) void {
+        allocator.free(self.level_name.data);
+        if (self.guids.len > 0) allocator.free(self.guids);
+    }
+};
+
+/// One export-GUID entry: object GUID → export index (PARSING.md §9).
+pub const ExportGuid = struct {
+    guid: FGuid,
+    export_index: i32,
+
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!ExportGuid {
+        return .{
+            .guid = try FGuid.take(reader, allocator),
+            .export_index = try reader.takeInt(i32, .little),
+        };
+    }
+};
+
 pub const EPixelFormat = enum(u32) {
     unknown = 0x0,
     a32b32g32r32f = 0x1,
@@ -254,47 +452,41 @@ pub const EPixelFormat = enum(u32) {
     max = 0x1f,
 };
 
-pub const FTextureAllocations = struct {
+/// Safe EPixelFormat → name lookup (does not trap on out-of-range values).
+pub fn pixelFormatName(format: u32) []const u8 {
+    const info = @typeInfo(EPixelFormat).@"enum";
+    inline for (info.field_names, info.field_values) |name, value| {
+        if (value == format) return name;
+    }
+    return "unknown";
+}
+
+/// A single FTextureType entry. FTextureAllocations serializes as a plain
+/// TArray<FTextureType> (PARSING.md §11 / §19.8); the summary therefore stores
+/// `texture_allocations: []FTextureType`.
+pub const FTextureType = struct {
     size_x: i32,
     size_y: i32,
     num_mips: i32,
-    tex_format: EPixelFormat,
-    text_create_flags: u32,
+    pixel_format: u32,
+    tex_create_flags: u32,
     export_indices: []i32,
 
-    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FTextureAllocations {
+    pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FTextureType {
         const size_x = try reader.takeInt(i32, .little);
         const size_y = try reader.takeInt(i32, .little);
         const num_mips = try reader.takeInt(i32, .little);
-        const tex_format = try reader.takeEnum(EPixelFormat, .little);
-        const text_create_flags = try reader.takeInt(u32, .little);
-
-        const num_export_indices = try reader.takeInt(u32, .little);
-        if (num_export_indices > 0) {
-            const indices = try allocator.alloc(i32, num_export_indices);
-            errdefer allocator.free(indices);
-
-            for (indices) |*index| {
-                index.* = try reader.takeInt(i32, .little);
-            }
-
-            return .{
-                .size_x = size_x,
-                .size_y = size_y,
-                .num_mips = num_mips,
-                .tex_format = tex_format,
-                .text_create_flags = text_create_flags,
-                .export_indices = indices,
-            };
-        }
+        const pixel_format = try reader.takeInt(u32, .little);
+        const tex_create_flags = try reader.takeInt(u32, .little);
+        const export_indices = try takeArray(i32, reader, allocator);
 
         return .{
             .size_x = size_x,
             .size_y = size_y,
             .num_mips = num_mips,
-            .tex_format = tex_format,
-            .text_create_flags = text_create_flags,
-            .export_indices = &.{},
+            .pixel_format = pixel_format,
+            .tex_create_flags = tex_create_flags,
+            .export_indices = export_indices,
         };
     }
 
@@ -307,15 +499,15 @@ pub const FTextureAllocations = struct {
             \\    size_y: {d}
             \\    num_mips: {d}
             \\    format: 0x{X:0>8} ({s})
-            \\    text_create_flags: 0x{X:0>8}
+            \\    tex_create_flags: 0x{X:0>8}
             \\
         , .{
             self.size_x,
             self.size_y,
             self.num_mips,
-            @as(u32, @bitCast(self.tex_format)),
-            @tagName(self.tex_format),
-            self.text_create_flags,
+            self.pixel_format,
+            pixelFormatName(self.pixel_format),
+            self.tex_create_flags,
         });
 
         if (self.export_indices.len > 0) {
@@ -352,7 +544,7 @@ pub const FPackageFileSummary = struct {
     compressed_chunks: []FCompressedChunk,
     package_source: u32,
     additional_packages_to_cook: []FString,
-    texture_allocations: []FTextureAllocations,
+    texture_allocations: []FTextureType,
 
     pub fn deinit(self: FPackageFileSummary, allocator: std.mem.Allocator) void {
         allocator.free(self.folder_name.data);
@@ -374,7 +566,9 @@ pub const FPackageFileSummary = struct {
 
         if (self.texture_allocations.len > 0) {
             for (self.texture_allocations) |*allocation| {
-                allocator.free(allocation.export_indices);
+                if (allocation.export_indices.len > 0) {
+                    allocator.free(allocation.export_indices);
+                }
             }
             allocator.free(self.texture_allocations);
         }
@@ -382,12 +576,12 @@ pub const FPackageFileSummary = struct {
 
     pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FPackageFileSummary {
         const tag = try reader.takeInt(u32, .little);
-        if (tag != package_file_tag) {
-            return error.UnsupportedTag;
-        }
+        if (tag == package_file_tag_swapped) return error.UnsupportedEndianness;
+        if (tag != package_file_tag) return error.UnsupportedTag;
 
         const file_version = try reader.takeInt(i32, .little);
-        if (file_version & 0xFFFF < 870) return error.UnsupportedVersion;
+        const epic_version: i32 = file_version & 0xFFFF;
+        if (epic_version < min_supported_version) return error.UnsupportedVersion;
 
         const total_header_size = try reader.takeInt(i32, .little);
         const folder_name = try FString.take(reader, allocator);
@@ -399,19 +593,43 @@ pub const FPackageFileSummary = struct {
         const import_count = try reader.takeInt(i32, .little);
         const import_offset = try reader.takeInt(i32, .little);
         const depends_offset = try reader.takeInt(i32, .little);
-        const import_export_guids_offset = try reader.takeInt(i32, .little);
-        const import_guids_count = try reader.takeInt(i32, .little);
-        const export_guids_count = try reader.takeInt(i32, .little);
-        const thumbnail_table_offset = try reader.takeInt(i32, .little);
+
+        // v > 622: cross-level reference GUID maps appear.
+        var import_export_guids_offset: i32 = -1;
+        var import_guids_count: i32 = 0;
+        var export_guids_count: i32 = 0;
+        if (epic_version > ver_guid_maps) {
+            import_export_guids_offset = try reader.takeInt(i32, .little);
+            import_guids_count = try reader.takeInt(i32, .little);
+            export_guids_count = try reader.takeInt(i32, .little);
+        }
+
+        // v > 583: thumbnail table offset.
+        var thumbnail_table_offset: i32 = 0;
+        if (epic_version > ver_thumbnails) {
+            thumbnail_table_offset = try reader.takeInt(i32, .little);
+        }
+
         const guid = try FGuid.take(reader, allocator);
         const generations = try takeArray(FGenerationInfo, reader, allocator);
         const engine_version = try reader.takeInt(i32, .little);
+        // CookedContentVersion is always serialized on load.
         const cooked_content_version = try reader.takeInt(i32, .little);
         const compression_flags = try reader.takeStruct(ECompressionFlags, .little);
         const compressed_chunks = try takeArray(FCompressedChunk, reader, allocator);
         const package_source = try reader.takeInt(u32, .little);
-        const additional_packages_to_cook = try takeArray(FString, reader, allocator);
-        const texture_allocations = try takeArray(FTextureAllocations, reader, allocator);
+
+        // v > 515: streaming level dependencies.
+        var additional_packages_to_cook: []FString = &.{};
+        if (epic_version > ver_additional_packages_to_cook) {
+            additional_packages_to_cook = try takeArray(FString, reader, allocator);
+        }
+
+        // Paladins fork load gate: v > 892 (save would only need v > 766).
+        var texture_allocations: []FTextureType = &.{};
+        if (epic_version > ver_texture_allocations_save and epic_version > ver_texture_allocations_load) {
+            texture_allocations = try takeArray(FTextureType, reader, allocator);
+        }
 
         return .{
             .tag = tag,
@@ -442,17 +660,19 @@ pub const FPackageFileSummary = struct {
         };
     }
 
-    pub fn getFileVersion(self: FPackageFileSummary) struct { version: i16, licensee: i16 } {
+    pub fn getFileVersion(self: FPackageFileSummary) struct { version: u16, licensee: u16 } {
+        const v: u32 = @bitCast(self.file_version);
         return .{
-            .version = @intCast(self.file_version & 0xFFFF),
-            .licensee = @intCast(self.file_version >> 16),
+            .version = @intCast(v & 0xFFFF),
+            .licensee = @intCast(v >> 16),
         };
     }
 
-    pub fn getCookedContentVersion(self: FPackageFileSummary) struct { version: i16, licensee: i16 } {
+    pub fn getCookedContentVersion(self: FPackageFileSummary) struct { version: u16, licensee: u16 } {
+        const v: u32 = @bitCast(self.cooked_content_version);
         return .{
-            .version = @intCast(self.cooked_content_version & 0xFFFF),
-            .licensee = @intCast(self.cooked_content_version >> 16),
+            .version = @intCast(v & 0xFFFF),
+            .licensee = @intCast(v >> 16),
         };
     }
 

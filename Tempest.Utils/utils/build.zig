@@ -25,6 +25,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "Tempest_Utils", .module = mod },
+                .{ .name = "minilzo", .module = minilzo_dep.module("minilzo_wrapper") },
             },
         }),
     });

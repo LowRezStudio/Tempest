@@ -37,8 +37,8 @@
             .hash = "translate_c-0.0.0-Q_BUWp84BwD-R_KrWywVjsMETfqkMv4iPdnBUx48FS6y",
         },
         .minilzo = .{
-            .url = "../minilzo/",
-            .hash = "minilzo-1.0.0-e-UpLNsABgCUL3mxFKg0nHuCN0-p1EbsL8B7Cu5Rbikm",
+            .url = "../minilzo",
+            .hash = "minilzo-1.0.0-e-UpLIkBBgA60dImsp-tdG661YfU8JsQn8Rsg1MwXEf6",
         },
     },
     .paths = .{
