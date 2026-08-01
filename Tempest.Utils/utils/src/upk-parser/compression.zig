@@ -1,14 +1,3 @@
-//! Package / file compression support for UE3 (Paladins fork) packages.
-//!
-//! On-disk layouts per PARSING.md §20:
-//!   - `COMPRESS_Obscured` (0x200) XORs every byte of a *compressed* payload
-//!     with 0x2A, applied on top of whatever codec produced it.
-//!   - The codec is selected by `Flags & 0xF` (1 = zlib, 2 = LZO1X).
-//!   - `SerializeCompressed` streams (§20.2) are the universal container for
-//!     compressed regions (whole files, chunks of a compressed package).
-//!   - Package-level compression (§20.3) stores a plain summary followed by
-//!     per-chunk compressed bodies described by `Summary.CompressedChunks`.
-
 const std = @import("std");
 const minilzo = @import("minilzo");
 const unreal = @import("unreal.zig");
@@ -21,10 +10,7 @@ pub const COMPRESS_BiasMemory: u32 = 0x10;
 pub const COMPRESS_BiasSpeed: u32 = 0x20;
 pub const COMPRESS_Obscured: u32 = 0x200;
 
-/// Paladins default codec (GBaseCompressionMethod = 2).
 pub const default_codec = COMPRESS_LZO;
-
-/// `SerializeCompressed` default chunk size (GSavingCompressionChunkSize).
 pub const default_chunk_size: u32 = 0x20000;
 
 pub const Error = std.mem.Allocator.Error || std.Io.Reader.Error || error{
@@ -52,7 +38,7 @@ fn mapLZOError(err: anyerror) Error {
     };
 }
 
-/// XOR every byte in place with 0x2A (COMPRESS_Obscured). Symmetric — the same
+/// XOR every byte in place with 0x2A (COMPRESS_Obscured). Symmetric - the same
 /// transform both obscures and de-obscures.
 pub fn obscure(buf: []u8) void {
     for (buf) |*b| b.* ^= 0x2A;
@@ -60,7 +46,7 @@ pub fn obscure(buf: []u8) void {
 
 /// Decompress one buffer with the codec selected by `flags`, returning an owned
 /// buffer of `uncompressed_size` bytes. Handles the COMPRESS_Obscured XOR
-/// layer automatically (PARSING.md §20.1).
+/// layer automatically.
 pub fn decompressMemory(
     allocator: std.mem.Allocator,
     flags: u32,
@@ -82,7 +68,7 @@ pub fn decompressMemory(
             flags & COMPRESS_Obscured != 0,
         ),
         COMPRESS_None => blk: {
-            // Raw copy — used by uncompressed chunks.
+            // Raw copy - used by uncompressed chunks.
             if (compressed.len != uncompressed_size) return error.CorruptData;
             break :blk try allocator.dupe(u8, compressed);
         },
@@ -91,7 +77,7 @@ pub fn decompressMemory(
 }
 
 /// Compress `data` with the codec selected by `flags`, applying the
-/// COMPRESS_Obscured XOR layer on top (PARSING.md §20.1). Returns an owned
+/// COMPRESS_Obscured XOR layer on top. Returns an owned
 /// buffer of the compressed bytes.
 pub fn compressMemory(allocator: std.mem.Allocator, flags: u32, data: []const u8) Error![]u8 {
     const codec = flags & 0xF;
@@ -127,8 +113,6 @@ fn zlibDecompress(
     defer out.deinit();
 
     var decompress: std.compress.flate.Decompress = .init(&in, .zlib, &.{});
-    // The flate reader surfaces every decode error as `ReadFailed`; the real
-    // error is kept in `decompress.err` for diagnostics.
     const written = decompress.reader.streamRemaining(&out.writer) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
         error.ReadFailed => {
@@ -160,14 +144,7 @@ pub const CompressedChunkInfo = struct {
     uncompressed_size: i32,
 };
 
-/// Decompress a `SerializeCompressed` stream (§20.2) into one owned buffer.
-///
-/// On-disk layout (per FArchive::SerializeCompressed in UnArchive.cpp):
-///   { CompressedSize = PACKAGE_FILE_TAG, UncompressedSize = ChunkSize }  (8B)
-///   { CompressedSize = TotalCompressedSize, UncompressedSize = TotalUncompressedSize }  (8B)
-///   N × { CompressedSize, UncompressedSize }                             (2 × i32 each)
-///   N payload blobs
-/// where N = ceil(TotalUncompressedSize / ChunkSize) — derived on load, NOT stored.
+/// Decompress a `SerializeCompressed` stream into one owned buffer.
 /// A chunk with a negative CompressedSize is stored raw (not compressed).
 pub fn decompressStream(allocator: std.mem.Allocator, data: []const u8, flags: u32) Error![]u8 {
     var r: std.Io.Reader = .fixed(data);
@@ -180,9 +157,7 @@ pub fn decompressStream(allocator: std.mem.Allocator, data: []const u8, flags: u
     if (chunk_size == 0) return error.CorruptData;
     const total_compressed_size = try r.takeInt(u32, .little);
     const total_uncompressed_size = try r.takeInt(u32, .little);
-    // The chunk count is not serialized — it is derived from the total
-    // uncompressed size (UnArchive.cpp: `(Summary.UncompressedSize +
-    // LoadingCompressionChunkSize - 1) / LoadingCompressionChunkSize`).
+
     const chunk_count = (total_uncompressed_size + chunk_size - 1) / chunk_size;
     if (chunk_count == 0 or chunk_count > 1 << 20) return error.CorruptData;
 
@@ -192,8 +167,6 @@ pub fn decompressStream(allocator: std.mem.Allocator, data: []const u8, flags: u
     for (chunks) |*chunk| {
         chunk.compressed_size = try r.takeInt(i32, .little);
         chunk.uncompressed_size = try r.takeInt(i32, .little);
-        // Negative CompressedSize marks a raw-stored chunk; its payload length
-        // is the absolute value.
         sum_compressed += @abs(@as(i64, chunk.compressed_size));
     }
     if (sum_compressed != @as(u64, total_compressed_size)) return error.CorruptData;
@@ -212,7 +185,6 @@ pub fn decompressStream(allocator: std.mem.Allocator, data: []const u8, flags: u
         defer allocator.free(payload);
 
         if (is_raw) {
-            // Raw-stored chunk: bytes are copied verbatim (never obscured).
             if (cs != us) return error.CorruptData;
             @memcpy(result[pos .. pos + us], payload);
         } else {
@@ -272,14 +244,7 @@ test "zlib round trip" {
     try std.testing.expectEqualSlices(u8, &data, dec);
 }
 
-/// Build a SerializeCompressed stream in memory, matching the on-disk layout
-/// (UnArchive.cpp): {tag, chunk_size} + {total_comp, total_uncomp} + N ×
-/// {comp, uncomp} + payloads, with N derived, no count field. `data` is split
-/// into sub-chunks of `default_chunk_size` (0x20000), each compressed with
-/// `flags` (codec + optional COMPRESS_Obscured).
 pub fn compressStream(a: std.mem.Allocator, flags: u32, data: []const u8) ![]u8 {
-    // Split into sub-chunks of default_chunk_size so N > 1 for large inputs,
-    // exercising the derived-count path in decompressStream.
     const sub: usize = default_chunk_size;
     const n = (data.len + sub - 1) / sub;
     const infos = try a.alloc(CompressedChunkInfo, n);
@@ -345,14 +310,6 @@ test "stream round trip obscured" {
     try std.testing.expectEqualSlices(u8, &data, dec);
 }
 
-/// Reconstruct the uncompressed package image for a `PKG_StoreCompressed`
-/// package (§20.3). The summary's plain header section is copied through
-/// unchanged; each `CompressedChunks` entry is decompressed into place at its
-/// uncompressed offset. Returns an owned buffer.
-///
-/// In this Paladins build (CompressArchive path) each non-raw chunk payload is
-/// a full `SerializeCompressed` stream (§20.2), not a bare codec buffer — the
-/// payload starts with PACKAGE_FILE_TAG and contains its own sub-chunk table.
 pub fn decompressPackage(
     allocator: std.mem.Allocator,
     file: []const u8,

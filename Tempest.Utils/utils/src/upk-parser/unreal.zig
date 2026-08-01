@@ -3,17 +3,12 @@ const std = @import("std");
 pub const package_file_tag = 0x9E2A83C1;
 pub const package_file_tag_swapped = 0xC1832A9E;
 
-/// Oldest package file version this parser understands (VER_COLORGRADING2).
-/// The Paladins packages in the wild are v893.
 pub const min_supported_version = 800;
-
-/// Version gates from UnObjVer.h (see PARSING.md §19.12). The checks in the
-/// Paladins binary are strict `>` against these values.
-pub const ver_guid_maps = 622; // GUID-map fields present when v > 622
-pub const ver_thumbnails = 583; // ThumbnailTableOffset present when v > 583
-pub const ver_additional_packages_to_cook = 515; // AdditionalPackagesToCook when v > 515
-pub const ver_texture_allocations_save = 766; // TextureAllocations save gate (v > 766)
-pub const ver_texture_allocations_load = 892; // TextureAllocations load gate (v > 892, Paladins fork)
+pub const ver_guid_maps = 622;
+pub const ver_thumbnails = 583;
+pub const ver_additional_packages_to_cook = 515;
+pub const ver_texture_allocations_save = 766;
+pub const ver_texture_allocations_load = 892;
 
 pub const Error = std.Io.Reader.Error || std.Io.Reader.TakeEnumError || std.unicode.Utf16LeToUtf8AllocError || error{
     UnsupportedTag,
@@ -23,15 +18,11 @@ pub const Error = std.Io.Reader.Error || std.Io.Reader.TakeEnumError || std.unic
     InvalidArraySize,
 };
 
-/// Error set for the `write`/`writeArray` mirror helpers. `InvalidUtf8` only
-/// fires when re-encoding a wide name that is no longer valid UTF-8.
 pub const WriteError = std.Io.Writer.Error || std.mem.Allocator.Error || error{
     InvalidUtf8,
 };
 
 /// Serialized as `ArrayNum (INT)` followed by `ArrayNum` element serializations.
-/// For cooked Paladins packages, empty arrays are very common; a zero-length
-/// static slice is returned for them (never a heap allocation).
 pub fn takeArray(
     comptime T: type,
     reader: *std.Io.Reader,
@@ -45,7 +36,6 @@ pub fn takeArray(
     errdefer allocator.free(array);
 
     if (comptime @typeInfo(T) == .int) {
-        // Primitive element type (e.g. TArray<INT>): each element is a raw int.
         for (array) |*item| {
             item.* = try reader.takeInt(T, .little);
         }
@@ -58,9 +48,6 @@ pub fn takeArray(
     return array;
 }
 
-/// Mirror of `takeArray`: serialize `ArrayNum (INT)` followed by each element.
-/// For `int` element types each element is a raw int; otherwise the element's
-/// own `write` is used.
 pub fn writeArray(
     comptime T: type,
     writer: *std.Io.Writer,
@@ -143,12 +130,11 @@ pub const FString = struct {
         if (count == std.math.minInt(i32)) return error.InvalidArraySize;
         if (count == 0) return .{ .data = try allocator.alloc(u8, 0) };
 
-        // count < 0 means the string was stored as UTF-16 (see PARSING.md §4.5).
+        // count < 0 means the string was stored as UTF-16.
         return .{ .data = if (count > 0)
             try takeAnsiName(reader, allocator, @intCast(count))
         else
-            try takeWideName(reader, allocator, @intCast(-@as(i64, count)))
-        };
+            try takeWideName(reader, allocator, @intCast(-@as(i64, count))) };
     }
 
     pub fn write(self: FString, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
@@ -379,7 +365,6 @@ pub const FName = struct {
 
 /// One entry of the name map. Serialized as StringLen (INT, negative = UTF-16),
 /// the string bytes (null-terminated on disk), then an 8-byte Flags field
-/// (PARSING.md §4.8 / §19.4).
 pub const FNameEntry = struct {
     /// Owned UTF-8, trailing null stripped.
     name: []const u8,
@@ -409,7 +394,6 @@ pub const FNameEntry = struct {
     }
 };
 
-/// FObjectImport — 28 bytes flat (3 × FName + 1 × INT), PARSING.md §6 / §19.3.
 pub const FObjectImport = struct {
     class_package: FName,
     class_name: FName,
@@ -433,7 +417,7 @@ pub const FObjectImport = struct {
     }
 };
 
-/// FObjectExport — PARSING.md §7 / §19.2. The LegacyComponentMap (TMap<FName,INT>)
+/// FObjectExport. The LegacyComponentMap (TMap<FName,INT>)
 /// only exists for file version < 543 and is never present for our range (v >= 800).
 pub const FObjectExport = struct {
     class_index: i32,
@@ -503,7 +487,6 @@ pub const FObjectExport = struct {
 };
 
 /// One import-GUID entry: a level name and the GUIDs of objects in that level
-/// (PARSING.md §9 / §19.10).
 pub const FLevelGuids = struct {
     level_name: FString,
     guids: []FGuid,
@@ -526,7 +509,7 @@ pub const FLevelGuids = struct {
     }
 };
 
-/// One export-GUID entry: object GUID → export index (PARSING.md §9).
+/// One export-GUID entry.
 pub const ExportGuid = struct {
     guid: FGuid,
     export_index: i32,
@@ -579,7 +562,6 @@ pub const EPixelFormat = enum(u32) {
     max = 0x1f,
 };
 
-/// Safe EPixelFormat → name lookup (does not trap on out-of-range values).
 pub fn pixelFormatName(format: u32) []const u8 {
     const info = @typeInfo(EPixelFormat).@"enum";
     inline for (info.field_names, info.field_values) |name, value| {
@@ -589,7 +571,7 @@ pub fn pixelFormatName(format: u32) []const u8 {
 }
 
 /// A single FTextureType entry. FTextureAllocations serializes as a plain
-/// TArray<FTextureType> (PARSING.md §11 / §19.8); the summary therefore stores
+/// TArray<FTextureType>; the summary therefore stores
 /// `texture_allocations: []FTextureType`.
 pub const FTextureType = struct {
     size_x: i32,
@@ -730,7 +712,7 @@ pub const FPackageFileSummary = struct {
         const import_offset = try reader.takeInt(i32, .little);
         const depends_offset = try reader.takeInt(i32, .little);
 
-        // v > 622: cross-level reference GUID maps appear.
+        // v > 622: cross-level reference GUID maps.
         var import_export_guids_offset: i32 = -1;
         var import_guids_count: i32 = 0;
         var export_guids_count: i32 = 0;
@@ -749,7 +731,6 @@ pub const FPackageFileSummary = struct {
         const guid = try FGuid.take(reader, allocator);
         const generations = try takeArray(FGenerationInfo, reader, allocator);
         const engine_version = try reader.takeInt(i32, .little);
-        // CookedContentVersion is always serialized on load.
         const cooked_content_version = try reader.takeInt(i32, .little);
         const compression_flags = try reader.takeStruct(ECompressionFlags, .little);
         const compressed_chunks = try takeArray(FCompressedChunk, reader, allocator);
@@ -761,7 +742,7 @@ pub const FPackageFileSummary = struct {
             additional_packages_to_cook = try takeArray(FString, reader, allocator);
         }
 
-        // Paladins fork load gate: v > 892 (save would only need v > 766).
+        // Paladins fork v > 892 (save would only need v > 766).
         var texture_allocations: []FTextureType = &.{};
         if (epic_version > ver_texture_allocations_save and epic_version > ver_texture_allocations_load) {
             texture_allocations = try takeArray(FTextureType, reader, allocator);
@@ -796,10 +777,6 @@ pub const FPackageFileSummary = struct {
         };
     }
 
-    /// Mirror of `take`: serialize the summary in the exact order and with the
-    /// exact version gates the loader expects (PARSING.md §3 / §19.1). The
-    /// gates are strict `>` against the same constants used by `take`, so a
-    /// summary written here parses back to an identical struct.
     pub fn write(self: FPackageFileSummary, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
         const epic_version = self.getFileVersion().version;
 
@@ -829,8 +806,6 @@ pub const FPackageFileSummary = struct {
         try self.guid.write(writer, allocator);
         try writeArray(FGenerationInfo, writer, self.generations, allocator);
         try writer.writeInt(i32, self.engine_version, .little);
-        // The loader always reads CookedContentVersion (ArIsLoading), which is
-        // what a parser-side writer is: unconditionally serialize it.
         try writer.writeInt(i32, self.cooked_content_version, .little);
         try self.compression_flags.write(writer, allocator);
         try writeArray(FCompressedChunk, writer, self.compressed_chunks, allocator);

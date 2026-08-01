@@ -23,14 +23,12 @@ pub fn generatePackageReport(p: *const Parser) void {
     line("    Compression:  {s}", .{if (s.package_flags.store_compressed or s.package_flags.store_fully_compressed) "stored compressed" else "none"});
     line("    CompressionFlags: 0x{X:0>8} ({f})", .{ @as(u32, @bitCast(s.compression_flags)), s.compression_flags });
 
-    // --- Name map ---
     line("", .{});
     line("Name Map ({d}):", .{p.name_map.len});
     for (p.name_map, 0..) |entry, i| {
         line("  [{d}] {s} (flags 0x{X})", .{ i, entry.name, entry.flags });
     }
 
-    // --- Import map ---
     line("", .{});
     line("Import Map ({d}):", .{p.import_map.len});
     var buf: [512]u8 = undefined;
@@ -41,7 +39,6 @@ pub fn generatePackageReport(p: *const Parser) void {
         line("       outer:   {d}", .{imp.outer_index});
     }
 
-    // --- Export map ---
     line("", .{});
     line("Export Map ({d}):", .{p.export_map.len});
     const max_exports = 25;
@@ -59,7 +56,6 @@ pub fn generatePackageReport(p: *const Parser) void {
         line("  ... ({d} more)", .{p.export_map.len - max_exports});
     }
 
-    // --- Export data stats ---
     var total_bytes: u64 = 0;
     var with_data: usize = 0;
     for (p.export_data) |blob| {
