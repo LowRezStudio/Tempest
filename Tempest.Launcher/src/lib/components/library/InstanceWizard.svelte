@@ -113,8 +113,11 @@
 	}
 
 	async function getInstancePath() {
-		if (selectedPath) return selectedPath;
 		if (!selectedVersion?.version) return "";
+		if (selectedTab === "download" && selectedPath) {
+			return await path.join(selectedPath, selectedVersion.version);
+		}
+		if (selectedPath) return selectedPath;
 		if (defaultInstancePath.value) {
 			return await path.join(defaultInstancePath.value, selectedVersion.version);
 		}

@@ -9,6 +9,7 @@
 	import { Progress } from "bits-ui";
 	import { platform } from "@tauri-apps/plugin-os";
 	import { m } from "$lib/paraglide/messages";
+	import { cachedReleaseNotes } from "$lib/queries/release";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import Modal from "../ui/Modal.svelte";
 
@@ -67,7 +68,7 @@
 					>
 				</div>
 
-				{#if updaterStore.update.body}
+				{#if cachedReleaseNotes.value?.body}
 					<div class="flex flex-col gap-1.5">
 						<span class="text-xs font-semibold text-base-content/70"
 							>{m.updater_release_notes()}</span
@@ -75,7 +76,7 @@
 						<div
 							class="bg-base-200 border border-base-300 rounded-lg p-3 max-h-32 overflow-y-auto font-sans text-xs leading-relaxed whitespace-pre-wrap"
 						>
-							{updaterStore.update.body}
+							{cachedReleaseNotes.value.body}
 						</div>
 					</div>
 				{/if}

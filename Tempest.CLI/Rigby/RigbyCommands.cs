@@ -114,7 +114,7 @@ internal sealed class RigbyCommands
             },
             async (task, ct) =>
             {
-                var result = await RigbyRestoreEngine.RestoreOneAsync(task, chunksRoot, baseUrl, noDownload, http, ct);
+                var result = await RigbyRestoreEngine.RestoreOneAsync(task, chunksRoot, baseUrl, noDownload, http, progress, ct);
                 stats.Add(result);
                 progress.FileCompleted(result);
             });

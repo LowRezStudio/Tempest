@@ -13,19 +13,23 @@ internal static class RigbyRestoreEngine
         string? baseUrl,
         bool noDownload,
         HttpClient http,
+        IRestoreProgress progress,
         CancellationToken cancellationToken)
     {
         if (await IsFileValidAsync(task.OutputPath, task.File, cancellationToken))
+        {
+            progress.BytesReused(task.File.Size);
             return new RestoreResult(false, 0, task.File.Size);
+        }
 
         if (File.Exists(task.OutputPath) && new FileInfo(task.OutputPath).Length == task.File.Size)
         {
-            var patchedBytes = await PatchMismatchedChunksAsync(task, chunksRoot, baseUrl, noDownload, http, cancellationToken);
+            var patchedBytes = await PatchMismatchedChunksAsync(task, chunksRoot, baseUrl, noDownload, http, progress, cancellationToken);
             if (await IsFileValidAsync(task.OutputPath, task.File, cancellationToken))
                 return new RestoreResult(true, patchedBytes, Math.Max(0, task.File.Size - patchedBytes));
         }
 
-        return await RebuildFileAsync(task, chunksRoot, baseUrl, noDownload, http, cancellationToken);
+        return await RebuildFileAsync(task, chunksRoot, baseUrl, noDownload, http, progress, cancellationToken);
     }
 
     private static async Task<RestoreResult> RebuildFileAsync(
@@ -34,6 +38,7 @@ internal static class RigbyRestoreEngine
         string? baseUrl,
         bool noDownload,
         HttpClient http,
+        IRestoreProgress progress,
         CancellationToken cancellationToken)
     {
         RigbyOutputLayout.EnsureParent(task.OutputPath);
@@ -48,6 +53,7 @@ internal static class RigbyRestoreEngine
             if (await IsFileValidAsync(tempPath, task.File, cancellationToken))
             {
                 File.Move(tempPath, task.OutputPath, true);
+                progress.BytesReused(task.File.Size);
                 return new RestoreResult(false, 0, task.File.Size);
             }
             File.Delete(tempPath);
@@ -121,6 +127,7 @@ internal static class RigbyRestoreEngine
             }
 
             output.Position = existingBytes;
+            progress.BytesReused(existingBytes);
         }
 
         for (var i = startChunkIndex; i < task.File.ChunkEnd; i++)
@@ -142,6 +149,7 @@ internal static class RigbyRestoreEngine
             fileBlake3.Update(raw);
             written += raw.Length;
             newBytesWritten += raw.Length;
+            progress.BytesWritten(raw.Length);
         }
 
         fileSha256.TransformFinalBlock([], 0, 0);
@@ -177,6 +185,7 @@ internal static class RigbyRestoreEngine
         string? baseUrl,
         bool noDownload,
         HttpClient http,
+        IRestoreProgress progress,
         CancellationToken cancellationToken)
     {
         await using var stream = new FileStream(task.OutputPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
@@ -194,6 +203,7 @@ internal static class RigbyRestoreEngine
             if (RigbyChunkStore.ChunkMatches(existing, chunk))
             {
                 position += chunk.Length;
+                progress.BytesReused(chunk.Length);
                 continue;
             }
 
@@ -207,6 +217,7 @@ internal static class RigbyRestoreEngine
             await stream.WriteAsync(raw, cancellationToken);
             patchedBytes += raw.Length;
             position += raw.Length;
+            progress.BytesWritten(raw.Length);
         }
 
         await stream.FlushAsync(cancellationToken);

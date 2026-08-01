@@ -31,19 +31,37 @@ internal sealed class RestoreProgress : IRestoreProgress
         Render(force: true);
     }
 
+    public void BytesWritten(long count)
+    {
+        ReportBytes(count, 0);
+    }
+
+    public void BytesReused(long count)
+    {
+        ReportBytes(0, count);
+    }
+
+    private void ReportBytes(long written, long reused)
+    {
+        lock (gate)
+        {
+            diskWriteBytes += written;
+            reusedBytes += reused;
+            completedBytes += written + reused;
+            Render();
+        }
+    }
+
     public void FileCompleted(RestoreResult result)
     {
         lock (gate)
         {
             completedFiles += 1;
-            completedBytes += result.DiskWriteBytes + result.ReusedBytes;
             if (result.Repaired)
                 repairedFiles += 1;
             else
                 verifiedFiles += 1;
 
-            diskWriteBytes += result.DiskWriteBytes;
-            reusedBytes += result.ReusedBytes;
             Render();
         }
     }
@@ -66,7 +84,7 @@ internal sealed class RestoreProgress : IRestoreProgress
         lastRenderedAt = now;
 
         var elapsed = Math.Max(0.001, stopwatch.Elapsed.TotalSeconds);
-        var percent = totalFiles == 0 ? 100.0 : completedFiles * 100.0 / totalFiles;
+        var percent = totalBytes == 0 ? 100.0 : completedBytes * 100.0 / totalBytes;
         var filled = (int)Math.Round(percent / 100.0 * BarWidth);
         var bar = new string('=', Math.Clamp(filled, 0, BarWidth)) + new string(' ', Math.Max(0, BarWidth - filled));
         var spinner = SpinnerFrames[(int)(now.TotalMilliseconds / 180) % SpinnerFrames.Length];
