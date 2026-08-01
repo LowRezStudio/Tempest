@@ -272,10 +272,12 @@ test "zlib round trip" {
     try std.testing.expectEqualSlices(u8, &data, dec);
 }
 
-/// Build a single-chunk SerializeCompressed stream in memory, matching the
-/// on-disk layout (UnArchive.cpp): {tag, chunk_size} + {total_comp, total_uncomp}
-/// + N × {comp, uncomp} + payloads, with N derived, no count field.
-fn buildStream(a: std.mem.Allocator, flags: u32, data: []const u8) ![]u8 {
+/// Build a SerializeCompressed stream in memory, matching the on-disk layout
+/// (UnArchive.cpp): {tag, chunk_size} + {total_comp, total_uncomp} + N ×
+/// {comp, uncomp} + payloads, with N derived, no count field. `data` is split
+/// into sub-chunks of `default_chunk_size` (0x20000), each compressed with
+/// `flags` (codec + optional COMPRESS_Obscured).
+pub fn compressStream(a: std.mem.Allocator, flags: u32, data: []const u8) ![]u8 {
     // Split into sub-chunks of default_chunk_size so N > 1 for large inputs,
     // exercising the derived-count path in decompressStream.
     const sub: usize = default_chunk_size;
@@ -321,10 +323,24 @@ test "stream round trip" {
     var data: [70000]u8 = undefined; // spans multiple 0x20000 chunks if chunked
     for (&data, 0..) |*b, i| b.* = @truncate(i * 11);
 
-    const stream = try buildStream(a, COMPRESS_LZO, &data);
+    const stream = try compressStream(a, COMPRESS_LZO, &data);
     defer a.free(stream);
 
     const dec = try decompressStream(a, stream, COMPRESS_LZO);
+    defer a.free(dec);
+    try std.testing.expectEqualSlices(u8, &data, dec);
+}
+
+test "stream round trip obscured" {
+    const a = std.testing.allocator;
+    var data: [70000]u8 = undefined;
+    for (&data, 0..) |*b, i| b.* = @truncate(i * 13);
+
+    const flags = COMPRESS_LZO | COMPRESS_Obscured;
+    const stream = try compressStream(a, flags, &data);
+    defer a.free(stream);
+
+    const dec = try decompressStream(a, stream, flags);
     defer a.free(dec);
     try std.testing.expectEqualSlices(u8, &data, dec);
 }

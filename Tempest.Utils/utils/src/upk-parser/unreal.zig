@@ -23,6 +23,12 @@ pub const Error = std.Io.Reader.Error || std.Io.Reader.TakeEnumError || std.unic
     InvalidArraySize,
 };
 
+/// Error set for the `write`/`writeArray` mirror helpers. `InvalidUtf8` only
+/// fires when re-encoding a wide name that is no longer valid UTF-8.
+pub const WriteError = std.Io.Writer.Error || std.mem.Allocator.Error || error{
+    InvalidUtf8,
+};
+
 /// Serialized as `ArrayNum (INT)` followed by `ArrayNum` element serializations.
 /// For cooked Paladins packages, empty arrays are very common; a zero-length
 /// static slice is returned for them (never a heap allocation).
@@ -50,6 +56,55 @@ pub fn takeArray(
     }
 
     return array;
+}
+
+/// Mirror of `takeArray`: serialize `ArrayNum (INT)` followed by each element.
+/// For `int` element types each element is a raw int; otherwise the element's
+/// own `write` is used.
+pub fn writeArray(
+    comptime T: type,
+    writer: *std.Io.Writer,
+    array: []const T,
+    allocator: std.mem.Allocator,
+) WriteError!void {
+    try writer.writeInt(i32, @intCast(array.len), .little);
+
+    if (comptime @typeInfo(T) == .int) {
+        for (array) |item| {
+            try writer.writeInt(T, item, .little);
+        }
+    } else {
+        for (array) |*item| {
+            try T.write(item.*, writer, allocator);
+        }
+    }
+}
+
+/// Write `name` in UE3's length-prefixed string form shared by FString and
+/// FNameEntry: positive count = ANSI bytes, negative count = UTF-16 code
+/// units, and the count always includes the trailing null terminator.
+fn writeName(writer: *std.Io.Writer, allocator: std.mem.Allocator, name: []const u8) WriteError!void {
+    var wide = false;
+    for (name) |c| {
+        if (c >= 0x80) {
+            wide = true;
+            break;
+        }
+    }
+
+    if (wide) {
+        const units = try std.unicode.utf8ToUtf16LeAlloc(allocator, name);
+        defer allocator.free(units);
+        try writer.writeInt(i32, -@as(i32, @intCast(units.len + 1)), .little);
+        for (units) |u| {
+            try writer.writeInt(u16, u, .little);
+        }
+        try writer.writeInt(u16, 0, .little);
+    } else {
+        try writer.writeInt(i32, @intCast(name.len + 1), .little);
+        try writer.writeAll(name);
+        try writer.writeByte(0);
+    }
 }
 
 /// Read `len` ANSI bytes, dropping the trailing `\0` that UE3 always serializes.
@@ -95,6 +150,10 @@ pub const FString = struct {
             try takeWideName(reader, allocator, @intCast(-@as(i64, count)))
         };
     }
+
+    pub fn write(self: FString, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        try writeName(writer, allocator, self.data);
+    }
 };
 
 pub const FGuid = extern struct {
@@ -106,6 +165,11 @@ pub const FGuid = extern struct {
     pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FGuid {
         _ = allocator;
         return try reader.takeStruct(FGuid, .little);
+    }
+
+    pub fn write(self: FGuid, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        _ = allocator;
+        try writer.writeStruct(self, .little);
     }
 
     pub fn eql(a: FGuid, b: FGuid) bool {
@@ -157,6 +221,11 @@ pub const EPackageFlags = packed struct(u32) {
     stripped_source: bool = false,
     filter_editor_only: bool = false,
 
+    pub fn write(self: @This(), writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        _ = allocator;
+        try writer.writeStruct(self, .little);
+    }
+
     pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const info = @typeInfo(@This()).@"struct";
 
@@ -192,6 +261,11 @@ pub const ECompressionFlags = packed struct(u32) {
     obscured: bool = false,
     _pad3: u22 = 0,
 
+    pub fn write(self: @This(), writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        _ = allocator;
+        try writer.writeStruct(self, .little);
+    }
+
     pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("{s}", .{@tagName(self.type)});
 
@@ -215,6 +289,11 @@ pub const FGenerationInfo = extern struct {
     pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FGenerationInfo {
         _ = allocator;
         return try reader.takeStruct(FGenerationInfo, .little);
+    }
+
+    pub fn write(self: FGenerationInfo, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        _ = allocator;
+        try writer.writeStruct(self, .little);
     }
 
     pub fn format(
@@ -243,6 +322,11 @@ pub const FCompressedChunk = extern struct {
     pub fn take(reader: *std.Io.Reader, allocator: std.mem.Allocator) Error!FCompressedChunk {
         _ = allocator;
         return try reader.takeStruct(FCompressedChunk, .little);
+    }
+
+    pub fn write(self: FCompressedChunk, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        _ = allocator;
+        try writer.writeStruct(self, .little);
     }
 
     pub fn format(
@@ -278,6 +362,12 @@ pub const FName = struct {
         };
     }
 
+    pub fn write(self: FName, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        _ = allocator;
+        try writer.writeInt(i32, self.name_index, .little);
+        try writer.writeInt(i32, self.number, .little);
+    }
+
     pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
         if (self.number == 0) {
             try writer.print("{d}", .{self.name_index});
@@ -309,6 +399,11 @@ pub const FNameEntry = struct {
         return .{ .name = name, .flags = flags };
     }
 
+    pub fn write(self: FNameEntry, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        try writeName(writer, allocator, self.name);
+        try writer.writeInt(u64, self.flags, .little);
+    }
+
     pub fn deinit(self: FNameEntry, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
     }
@@ -328,6 +423,13 @@ pub const FObjectImport = struct {
             .outer_index = try reader.takeInt(i32, .little),
             .object_name = try FName.take(reader, allocator),
         };
+    }
+
+    pub fn write(self: FObjectImport, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        try self.class_package.write(writer, allocator);
+        try self.class_name.write(writer, allocator);
+        try writer.writeInt(i32, self.outer_index, .little);
+        try self.object_name.write(writer, allocator);
     }
 };
 
@@ -378,6 +480,21 @@ pub const FObjectExport = struct {
         };
     }
 
+    pub fn write(self: FObjectExport, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        try writer.writeInt(i32, self.class_index, .little);
+        try writer.writeInt(i32, self.super_index, .little);
+        try writer.writeInt(i32, self.outer_index, .little);
+        try self.object_name.write(writer, allocator);
+        try writer.writeInt(i32, self.archetype_index, .little);
+        try writer.writeInt(u64, self.object_flags, .little);
+        try writer.writeInt(i32, self.serial_size, .little);
+        try writer.writeInt(i32, self.serial_offset, .little);
+        try writer.writeInt(u32, self.export_flags, .little);
+        try writeArray(i32, writer, self.generation_net_object_count, allocator);
+        try self.package_guid.write(writer, allocator);
+        try writer.writeInt(u32, self.package_flags, .little);
+    }
+
     pub fn deinit(self: FObjectExport, allocator: std.mem.Allocator) void {
         if (self.generation_net_object_count.len > 0) {
             allocator.free(self.generation_net_object_count);
@@ -398,6 +515,11 @@ pub const FLevelGuids = struct {
         };
     }
 
+    pub fn write(self: FLevelGuids, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        try self.level_name.write(writer, allocator);
+        try writeArray(FGuid, writer, self.guids, allocator);
+    }
+
     pub fn deinit(self: FLevelGuids, allocator: std.mem.Allocator) void {
         allocator.free(self.level_name.data);
         if (self.guids.len > 0) allocator.free(self.guids);
@@ -414,6 +536,11 @@ pub const ExportGuid = struct {
             .guid = try FGuid.take(reader, allocator),
             .export_index = try reader.takeInt(i32, .little),
         };
+    }
+
+    pub fn write(self: ExportGuid, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        try self.guid.write(writer, allocator);
+        try writer.writeInt(i32, self.export_index, .little);
     }
 };
 
@@ -488,6 +615,15 @@ pub const FTextureType = struct {
             .tex_create_flags = tex_create_flags,
             .export_indices = export_indices,
         };
+    }
+
+    pub fn write(self: FTextureType, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        try writer.writeInt(i32, self.size_x, .little);
+        try writer.writeInt(i32, self.size_y, .little);
+        try writer.writeInt(i32, self.num_mips, .little);
+        try writer.writeInt(u32, self.pixel_format, .little);
+        try writer.writeInt(u32, self.tex_create_flags, .little);
+        try writeArray(i32, writer, self.export_indices, allocator);
     }
 
     pub fn format(
@@ -658,6 +794,55 @@ pub const FPackageFileSummary = struct {
             .additional_packages_to_cook = additional_packages_to_cook,
             .texture_allocations = texture_allocations,
         };
+    }
+
+    /// Mirror of `take`: serialize the summary in the exact order and with the
+    /// exact version gates the loader expects (PARSING.md §3 / §19.1). The
+    /// gates are strict `>` against the same constants used by `take`, so a
+    /// summary written here parses back to an identical struct.
+    pub fn write(self: FPackageFileSummary, writer: *std.Io.Writer, allocator: std.mem.Allocator) WriteError!void {
+        const epic_version = self.getFileVersion().version;
+
+        try writer.writeInt(u32, self.tag, .little);
+        try writer.writeInt(i32, self.file_version, .little);
+        try writer.writeInt(i32, self.total_header_size, .little);
+        try self.folder_name.write(writer, allocator);
+        try self.package_flags.write(writer, allocator);
+        try writer.writeInt(i32, self.name_count, .little);
+        try writer.writeInt(i32, self.name_offset, .little);
+        try writer.writeInt(i32, self.export_count, .little);
+        try writer.writeInt(i32, self.export_offset, .little);
+        try writer.writeInt(i32, self.import_count, .little);
+        try writer.writeInt(i32, self.import_offset, .little);
+        try writer.writeInt(i32, self.depends_offset, .little);
+
+        if (epic_version > ver_guid_maps) {
+            try writer.writeInt(i32, self.import_export_guids_offset, .little);
+            try writer.writeInt(i32, self.import_guids_count, .little);
+            try writer.writeInt(i32, self.export_guids_count, .little);
+        }
+
+        if (epic_version > ver_thumbnails) {
+            try writer.writeInt(i32, self.thumbnail_table_offset, .little);
+        }
+
+        try self.guid.write(writer, allocator);
+        try writeArray(FGenerationInfo, writer, self.generations, allocator);
+        try writer.writeInt(i32, self.engine_version, .little);
+        // The loader always reads CookedContentVersion (ArIsLoading), which is
+        // what a parser-side writer is: unconditionally serialize it.
+        try writer.writeInt(i32, self.cooked_content_version, .little);
+        try self.compression_flags.write(writer, allocator);
+        try writeArray(FCompressedChunk, writer, self.compressed_chunks, allocator);
+        try writer.writeInt(u32, self.package_source, .little);
+
+        if (epic_version > ver_additional_packages_to_cook) {
+            try writeArray(FString, writer, self.additional_packages_to_cook, allocator);
+        }
+
+        if (epic_version > ver_texture_allocations_save and epic_version > ver_texture_allocations_load) {
+            try writeArray(FTextureType, writer, self.texture_allocations, allocator);
+        }
     }
 
     pub fn getFileVersion(self: FPackageFileSummary) struct { version: u16, licensee: u16 } {

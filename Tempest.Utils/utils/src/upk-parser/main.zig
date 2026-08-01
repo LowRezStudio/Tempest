@@ -15,7 +15,7 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     if (args.len < 2) {
-        std.debug.print("Usage: {s} <file.upk> [-report] [-dump <out.upk>]\n", .{args[0]});
+        std.debug.print("Usage: {s} <file.upk> [-report] [-save <compressed|uncompressed> <out.upk>]\n", .{args[0]});
         return;
     }
 
@@ -24,13 +24,53 @@ pub fn main(init: std.process.Init) !void {
 
     try p.parse();
 
-    if (args.len >= 4 and std.mem.eql(u8, args[2], "-dump")) {
+    // Parse flags after the file path.
+    var save_mode: ?Parser.SaveMode = null;
+    var save_path: ?[]const u8 = null;
+
+    var i: usize = 2;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "-report")) {
+            debug.generatePackageReport(&p);
+        } else if (std.mem.eql(u8, args[i], "-dump-image")) {
+            const path = args[i + 1];
+            try std.Io.Dir.cwd().writeFile(init.io, .{
+                .sub_path = path,
+                .data = p.data_buffer,
+                .flags = .{ .truncate = true },
+            });
+            std.debug.print("dumped {d} byte uncompressed image to {s}\n", .{ p.data_buffer.len, path });
+            i += 1;
+        } else if (std.mem.eql(u8, args[i], "-save")) {
+            if (i + 2 >= args.len) {
+                std.debug.print("error: -save needs <compressed|uncompressed> <out.upk>\n", .{});
+                return;
+            }
+            if (std.mem.eql(u8, args[i + 1], "compressed")) {
+                save_mode = .compressed;
+            } else if (std.mem.eql(u8, args[i + 1], "uncompressed")) {
+                save_mode = .uncompressed;
+            } else {
+                std.debug.print("error: unknown -save mode '{s}' (expected 'compressed' or 'uncompressed')\n", .{args[i + 1]});
+                return;
+            }
+            save_path = args[i + 2];
+            i += 2;
+        } else {
+            std.debug.print("error: unknown argument '{s}'\n", .{args[i]});
+            return;
+        }
+    }
+
+    if (save_mode) |mode| {
+        const bytes = try p.save(mode);
+        defer p.allocator.free(bytes);
         try std.Io.Dir.cwd().writeFile(init.io, .{
-            .sub_path = args[3],
-            .data = p.data_buffer,
+            .sub_path = save_path.?,
+            .data = bytes,
             .flags = .{ .truncate = true },
         });
-        std.debug.print("dumped {d} bytes to {s}\n", .{ p.data_buffer.len, args[3] });
+        std.debug.print("saved {d} bytes ({s}) to {s}\n", .{ bytes.len, @tagName(mode), save_path.? });
     }
 
     std.debug.print("{f}\n", .{p.package_file_summary});
@@ -40,8 +80,4 @@ pub fn main(init: std.process.Init) !void {
         p.import_map.len,
         p.export_map.len,
     });
-
-    if (args.len >= 3 and std.mem.eql(u8, args[2], "-report")) {
-        debug.generatePackageReport(&p);
-    }
 }
