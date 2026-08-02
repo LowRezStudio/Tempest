@@ -3,11 +3,11 @@ const std = @import("std");
 const unreal = @import("unreal.zig");
 const compression = @import("compression.zig");
 
-const FPackageFileSummary = unreal.FPackageFileSummary;
-const FNameEntry = unreal.FNameEntry;
-const FObjectImport = unreal.FObjectImport;
-const FObjectExport = unreal.FObjectExport;
-const FLevelGuids = unreal.FLevelGuids;
+const PackageFileSummary = unreal.PackageFileSummary;
+const NameEntry = unreal.NameEntry;
+const ObjectImport = unreal.ObjectImport;
+const ObjectExport = unreal.ObjectExport;
+const LevelGuids = unreal.LevelGuids;
 const ExportGuid = unreal.ExportGuid;
 
 pub const Error = error{
@@ -21,13 +21,13 @@ file_buffer: []u8,
 data_buffer: []u8,
 data_owned: bool,
 
-package_file_summary: FPackageFileSummary,
+package_file_summary: PackageFileSummary,
 summary_parsed: bool,
 
-name_map: []FNameEntry,
-import_map: []FObjectImport,
-export_map: []FObjectExport,
-import_guids: []FLevelGuids,
+name_map: []NameEntry,
+import_map: []ObjectImport,
+export_map: []ObjectExport,
+import_guids: []LevelGuids,
 export_guids: []ExportGuid,
 depends_bytes: []const u8,
 export_data: [][]const u8,
@@ -53,32 +53,32 @@ pub fn init(io: std.Io, filepath: []const u8, allocator: std.mem.Allocator) !Par
 }
 
 pub fn deinit(self: *Parser) void {
-    const a = self.allocator;
+    const allocator = self.allocator;
 
-    a.free(self.file_buffer);
-    if (self.data_owned) a.free(self.data_buffer);
+    allocator.free(self.file_buffer);
+    if (self.data_owned) allocator.free(self.data_buffer);
 
-    if (self.summary_parsed) self.package_file_summary.deinit(a);
+    if (self.summary_parsed) self.package_file_summary.deinit(allocator);
 
-    for (self.name_map) |*entry| entry.deinit(a);
-    if (self.name_map.len > 0) a.free(self.name_map);
+    for (self.name_map) |*entry| entry.deinit(allocator);
+    if (self.name_map.len > 0) allocator.free(self.name_map);
 
-    if (self.import_map.len > 0) a.free(self.import_map);
+    if (self.import_map.len > 0) allocator.free(self.import_map);
 
-    for (self.export_map) |*exp| exp.deinit(a);
-    if (self.export_map.len > 0) a.free(self.export_map);
+    for (self.export_map) |*exp| exp.deinit(allocator);
+    if (self.export_map.len > 0) allocator.free(self.export_map);
 
-    for (self.import_guids) |*lg| lg.deinit(a);
-    if (self.import_guids.len > 0) a.free(self.import_guids);
+    for (self.import_guids) |*lg| lg.deinit(allocator);
+    if (self.import_guids.len > 0) allocator.free(self.import_guids);
 
-    if (self.export_guids.len > 0) a.free(self.export_guids);
+    if (self.export_guids.len > 0) allocator.free(self.export_guids);
 
-    if (self.export_data.len > 0) a.free(self.export_data);
+    if (self.export_data.len > 0) allocator.free(self.export_data);
 }
 
 pub fn parse(self: *Parser) !void {
     var r: std.Io.Reader = .fixed(self.file_buffer);
-    self.package_file_summary = try FPackageFileSummary.take(&r, self.allocator);
+    self.package_file_summary = try PackageFileSummary.take(&r, self.allocator);
     self.summary_parsed = true;
 
     const summary = &self.package_file_summary;
@@ -113,20 +113,20 @@ pub fn parse(self: *Parser) !void {
 fn parseNameMap(self: *Parser) !void {
     const summary = &self.package_file_summary;
     if (summary.name_count <= 0) return;
-    const a = self.allocator;
+    const allocator = self.allocator;
 
     const offset: usize = @intCast(summary.name_offset);
     if (offset >= self.data_buffer.len) return error.InvalidOffset;
     var r: std.Io.Reader = .fixed(self.data_buffer[offset..]);
 
-    const map = try a.alloc(FNameEntry, @intCast(summary.name_count));
+    const map = try allocator.alloc(NameEntry, @intCast(summary.name_count));
     var parsed: usize = 0;
     errdefer {
-        for (map[0..parsed]) |*entry| entry.deinit(a);
-        a.free(map);
+        for (map[0..parsed]) |*entry| entry.deinit(allocator);
+        allocator.free(map);
     }
     for (map) |*entry| {
-        entry.* = try FNameEntry.take(&r, a);
+        entry.* = try NameEntry.take(&r, allocator);
         parsed += 1;
     }
     self.name_map = map;
@@ -135,16 +135,16 @@ fn parseNameMap(self: *Parser) !void {
 fn parseImportMap(self: *Parser) !void {
     const summary = &self.package_file_summary;
     if (summary.import_count <= 0) return;
-    const a = self.allocator;
+    const allocator = self.allocator;
 
     const offset: usize = @intCast(summary.import_offset);
     if (offset >= self.data_buffer.len) return error.InvalidOffset;
     var r: std.Io.Reader = .fixed(self.data_buffer[offset..]);
 
-    const map = try a.alloc(FObjectImport, @intCast(summary.import_count));
-    errdefer a.free(map);
+    const map = try allocator.alloc(ObjectImport, @intCast(summary.import_count));
+    errdefer allocator.free(map);
     for (map) |*imp| {
-        imp.* = try FObjectImport.take(&r, a);
+        imp.* = try ObjectImport.take(&r, allocator);
     }
     self.import_map = map;
 }
@@ -152,20 +152,20 @@ fn parseImportMap(self: *Parser) !void {
 fn parseExportMap(self: *Parser) !void {
     const summary = &self.package_file_summary;
     if (summary.export_count <= 0) return;
-    const a = self.allocator;
+    const allocator = self.allocator;
 
     const offset: usize = @intCast(summary.export_offset);
     if (offset >= self.data_buffer.len) return error.InvalidOffset;
     var r: std.Io.Reader = .fixed(self.data_buffer[offset..]);
 
-    const map = try a.alloc(FObjectExport, @intCast(summary.export_count));
+    const map = try allocator.alloc(ObjectExport, @intCast(summary.export_count));
     var parsed: usize = 0;
     errdefer {
-        for (map[0..parsed]) |*exp| exp.deinit(a);
-        a.free(map);
+        for (map[0..parsed]) |*exp| exp.deinit(allocator);
+        allocator.free(map);
     }
     for (map) |*exp| {
-        exp.* = try FObjectExport.take(&r, a);
+        exp.* = try ObjectExport.take(&r, allocator);
         parsed += 1;
     }
     self.export_map = map;
@@ -200,31 +200,31 @@ fn parseGuidMaps(self: *Parser) !void {
     const summary = &self.package_file_summary;
     if (summary.import_export_guids_offset < 0) return;
     if (summary.import_guids_count <= 0 and summary.export_guids_count <= 0) return;
-    const a = self.allocator;
+    const allocator = self.allocator;
 
     const offset: usize = @intCast(summary.import_export_guids_offset);
     if (offset >= self.data_buffer.len) return error.InvalidOffset;
     var r: std.Io.Reader = .fixed(self.data_buffer[offset..]);
 
     if (summary.import_guids_count > 0) {
-        const guids = try a.alloc(FLevelGuids, @intCast(summary.import_guids_count));
+        const guids = try allocator.alloc(LevelGuids, @intCast(summary.import_guids_count));
         var parsed: usize = 0;
         errdefer {
-            for (guids[0..parsed]) |*lg| lg.deinit(a);
-            a.free(guids);
+            for (guids[0..parsed]) |*lg| lg.deinit(allocator);
+            allocator.free(guids);
         }
         for (guids) |*lg| {
-            lg.* = try FLevelGuids.take(&r, a);
+            lg.* = try LevelGuids.take(&r, allocator);
             parsed += 1;
         }
         self.import_guids = guids;
     }
 
     if (summary.export_guids_count > 0) {
-        const guids = try a.alloc(ExportGuid, @intCast(summary.export_guids_count));
-        errdefer a.free(guids);
+        const guids = try allocator.alloc(ExportGuid, @intCast(summary.export_guids_count));
+        errdefer allocator.free(guids);
         for (guids) |*eg| {
-            eg.* = try ExportGuid.take(&r, a);
+            eg.* = try ExportGuid.take(&r, allocator);
         }
         self.export_guids = guids;
     }
@@ -232,10 +232,10 @@ fn parseGuidMaps(self: *Parser) !void {
 
 fn extractExportData(self: *Parser) !void {
     if (self.export_map.len == 0) return;
-    const a = self.allocator;
+    const allocator = self.allocator;
 
-    const data = try a.alloc([]const u8, self.export_map.len);
-    errdefer a.free(data);
+    const data = try allocator.alloc([]const u8, self.export_map.len);
+    errdefer allocator.free(data);
 
     for (self.export_map, data) |exp, *blob| {
         if (exp.serial_size <= 0 or exp.serial_offset < 0) {
@@ -266,43 +266,43 @@ const SaveError = unreal.WriteError || compression.Error || error{
     InvalidOffset,
 };
 
-/// Chunk size used by FFileCompressionHelper::CompressArchive for package-level
+/// Chunk size used by FileCompressionHelper::CompressArchive for package-level
 /// compression: each chunk is ≤ 1 MiB uncompressed.
 const package_chunk_size: usize = 0x100000;
 
 /// Rebuild the package from the parsed structs and return the serialized file,
 pub fn save(self: *Parser, mode: SaveMode) SaveError![]u8 {
-    const a = self.allocator;
+    const allocator = self.allocator;
     const original = &self.package_file_summary;
     const epic_version = original.getFileVersion().version;
 
-    var name_buf: std.Io.Writer.Allocating = .init(a);
+    var name_buf: std.Io.Writer.Allocating = .init(allocator);
     defer name_buf.deinit();
-    try self.writeNameMap(&name_buf.writer, a);
+    try self.writeNameMap(&name_buf.writer, allocator);
     const name_bytes = try name_buf.toOwnedSlice();
-    defer a.free(name_bytes);
+    defer allocator.free(name_bytes);
 
-    var import_buf: std.Io.Writer.Allocating = .init(a);
+    var import_buf: std.Io.Writer.Allocating = .init(allocator);
     defer import_buf.deinit();
-    try self.writeImportMap(&import_buf.writer, a);
+    try self.writeImportMap(&import_buf.writer, allocator);
     const import_bytes = try import_buf.toOwnedSlice();
-    defer a.free(import_bytes);
+    defer allocator.free(import_bytes);
 
-    var export_measure: std.Io.Writer.Allocating = .init(a);
-    defer export_measure.deinit();
-    try self.writeExportMap(&export_measure.writer, a, self.export_map);
-    const export_size = export_measure.writer.end;
+    var export_measure_buf: std.Io.Writer.Allocating = .init(allocator);
+    defer export_measure_buf.deinit();
+    try self.writeExportMap(&export_measure_buf.writer, allocator, self.export_map);
+    const export_size = export_measure_buf.writer.end;
 
-    var guid_buf: std.Io.Writer.Allocating = .init(a);
+    var guid_buf: std.Io.Writer.Allocating = .init(allocator);
     defer guid_buf.deinit();
-    try self.writeGuidMaps(&guid_buf.writer, a);
+    try self.writeGuidMaps(&guid_buf.writer, allocator);
     const guid_bytes = try guid_buf.toOwnedSlice();
-    defer a.free(guid_bytes);
+    defer allocator.free(guid_bytes);
 
     const maps_len = name_bytes.len + import_bytes.len + export_size + self.depends_bytes.len + guid_bytes.len;
 
     const chunk_ends: []usize = if (mode == .compressed) try self.exportChunkEnds() else &.{};
-    defer if (chunk_ends.len > 0) a.free(chunk_ends);
+    defer if (chunk_ends.len > 0) allocator.free(chunk_ends);
     const export_chunks: usize = chunk_ends.len;
     const chunk_count: usize = if (mode == .compressed) 1 + export_chunks else 0;
 
@@ -321,20 +321,20 @@ pub fn save(self: *Parser, mode: SaveMode) SaveError![]u8 {
     summary_copy.thumbnail_table_offset = 0;
     summary_copy.compression_flags = .{};
     // Placeholder entries: only the array count affects the serialized size.
-    const placeholder_chunks = try a.alloc(unreal.FCompressedChunk, chunk_count);
-    defer a.free(placeholder_chunks);
+    const placeholder_chunks = try allocator.alloc(unreal.CompressedChunk, chunk_count);
+    defer allocator.free(placeholder_chunks);
     summary_copy.compressed_chunks = placeholder_chunks;
 
-    var size_buf: std.Io.Writer.Allocating = .init(a);
+    var size_buf: std.Io.Writer.Allocating = .init(allocator);
     defer size_buf.deinit();
-    try summary_copy.write(&size_buf.writer, a);
+    try summary_copy.write(&size_buf.writer, allocator);
     const summary_size = size_buf.writer.end;
 
     // Serialize once more with an empty chunk table for `summary_size_plain`.
     summary_copy.compressed_chunks = &.{};
-    var plain_buf: std.Io.Writer.Allocating = .init(a);
+    var plain_buf: std.Io.Writer.Allocating = .init(allocator);
     defer plain_buf.deinit();
-    try summary_copy.write(&plain_buf.writer, a);
+    try summary_copy.write(&plain_buf.writer, allocator);
     const summary_size_plain = plain_buf.writer.end;
 
     const name_offset = summary_size_plain;
@@ -346,38 +346,38 @@ pub fn save(self: *Parser, mode: SaveMode) SaveError![]u8 {
     const total_header_size = if (has_guid_region) guid_offset + guid_bytes.len else guid_offset;
 
     const exports = try self.buildExportsForSave(total_header_size);
-    defer a.free(exports);
+    defer allocator.free(exports);
 
     // Rebuilt export-map bytes (offsets recorded in the package must match the
     // chunked layout; serial offsets are fixed-size fields so this is exactly
     // `export_size` bytes).
-    var export_buf: std.Io.Writer.Allocating = .init(a);
+    var export_buf: std.Io.Writer.Allocating = .init(allocator);
     defer export_buf.deinit();
-    try self.writeExportMap(&export_buf.writer, a, exports);
+    try self.writeExportMap(&export_buf.writer, allocator, exports);
     const export_bytes = try export_buf.toOwnedSlice();
-    defer a.free(export_bytes);
+    defer allocator.free(export_bytes);
 
-    const export_data_concat = try self.concatExportData(a);
-    defer a.free(export_data_concat);
+    const export_data_concat = try self.concatExportData(allocator);
+    defer allocator.free(export_data_concat);
 
-    const chunk_table = try a.alloc(unreal.FCompressedChunk, chunk_count);
-    defer a.free(chunk_table);
-    var streams_buf: std.Io.Writer.Allocating = .init(a);
+    const chunk_table = try allocator.alloc(unreal.CompressedChunk, chunk_count);
+    defer allocator.free(chunk_table);
+    var streams_buf: std.Io.Writer.Allocating = .init(allocator);
     defer streams_buf.deinit();
     if (mode == .compressed) {
         const flags = self.compressionFlagsForSave();
         var chunk_idx: usize = 0;
         var compressed_cursor: usize = summary_size;
 
-        const maps_buf = try a.alloc(u8, maps_len);
-        defer a.free(maps_buf);
-        var moff: usize = 0;
+        const maps_buf = try allocator.alloc(u8, maps_len);
+        defer allocator.free(maps_buf);
+        var map_offset: usize = 0;
         for ([_][]const u8{ name_bytes, import_bytes, export_bytes, self.depends_bytes, guid_bytes }) |part| {
-            @memcpy(maps_buf[moff .. moff + part.len], part);
-            moff += part.len;
+            @memcpy(maps_buf[map_offset .. map_offset + part.len], part);
+            map_offset += part.len;
         }
-        const maps_stream = try compression.compressStream(a, flags, maps_buf);
-        defer a.free(maps_stream);
+        const maps_stream = try compression.compressStream(allocator, flags, maps_buf);
+        defer allocator.free(maps_stream);
         chunk_table[0] = .{
             .uncompressed_offset = @intCast(name_offset),
             .uncompressed_size = @intCast(maps_len),
@@ -388,25 +388,25 @@ pub fn save(self: *Parser, mode: SaveMode) SaveError![]u8 {
         compressed_cursor += maps_stream.len;
         chunk_idx = 1;
 
-        var prev: usize = 0;
+        var prev_end: usize = 0;
         for (chunk_ends) |end| {
-            const us = end - prev;
-            const stream = try compression.compressStream(a, flags, export_data_concat[prev..end]);
-            defer a.free(stream);
+            const uncompressed_size = end - prev_end;
+            const stream = try compression.compressStream(allocator, flags, export_data_concat[prev_end..end]);
+            defer allocator.free(stream);
             chunk_table[chunk_idx] = .{
-                .uncompressed_offset = @intCast(total_header_size + prev),
-                .uncompressed_size = @intCast(us),
+                .uncompressed_offset = @intCast(total_header_size + prev_end),
+                .uncompressed_size = @intCast(uncompressed_size),
                 .compressed_offset = @intCast(compressed_cursor),
                 .compressed_size = @intCast(stream.len),
             };
             try streams_buf.writer.writeAll(stream);
             compressed_cursor += stream.len;
-            prev = end;
+            prev_end = end;
             chunk_idx += 1;
         }
     }
     const streams = try streams_buf.toOwnedSlice();
-    defer a.free(streams);
+    defer allocator.free(streams);
 
     var summary_final = original.*;
     summary_final.name_count = @intCast(self.name_map.len);
@@ -426,10 +426,10 @@ pub fn save(self: *Parser, mode: SaveMode) SaveError![]u8 {
     summary_final.compression_flags = if (mode == .compressed) self.compressionFlagsStruct() else .{};
     summary_final.compressed_chunks = chunk_table;
 
-    var out_buf: std.Io.Writer.Allocating = .init(a);
+    var out_buf: std.Io.Writer.Allocating = .init(allocator);
     defer out_buf.deinit();
     const w = &out_buf.writer;
-    try summary_final.write(w, a);
+    try summary_final.write(w, allocator);
     if (mode == .compressed) {
         try w.writeAll(streams);
     } else {
@@ -461,7 +461,7 @@ fn concatExportData(self: *const Parser, allocator: std.mem.Allocator) ![]u8 {
 }
 
 fn exportChunkEnds(self: *const Parser) ![]usize {
-    const a = self.allocator;
+    const allocator = self.allocator;
 
     // First pass: count the chunks.
     var count: usize = 0;
@@ -485,7 +485,7 @@ fn exportChunkEnds(self: *const Parser) ![]usize {
     if (chunk_len > 0) count += 1;
 
     // Second pass: fill the cumulative end offset of each chunk.
-    const ends = try a.alloc(usize, count);
+    const ends = try allocator.alloc(usize, count);
     var idx: usize = 0;
     var cursor: usize = 0; // end of the export data covered so far
     chunk_len = 0;
@@ -516,10 +516,10 @@ fn exportChunkEnds(self: *const Parser) ![]usize {
 /// A shallow copy of the export map with `serial_offset`/`serial_size` updated
 /// to point into the rebuilt layout (export data starts at `total_header_size`
 /// and runs contiguously in export order).
-fn buildExportsForSave(self: *Parser, total_header_size: usize) ![]unreal.FObjectExport {
-    const a = self.allocator;
-    const exports = try a.alloc(unreal.FObjectExport, self.export_map.len);
-    errdefer a.free(exports);
+fn buildExportsForSave(self: *Parser, total_header_size: usize) ![]unreal.ObjectExport {
+    const allocator = self.allocator;
+    const exports = try allocator.alloc(unreal.ObjectExport, self.export_map.len);
+    errdefer allocator.free(exports);
     var cursor: usize = total_header_size;
     for (self.export_map, self.export_data, exports) |*src, blob, *dst| {
         dst.* = src.*;
@@ -551,7 +551,7 @@ fn writeExportMap(
     self: *Parser,
     writer: *std.Io.Writer,
     allocator: std.mem.Allocator,
-    exports: []const unreal.FObjectExport,
+    exports: []const unreal.ObjectExport,
 ) SaveError!void {
     _ = self;
     for (exports) |*exp| {
@@ -568,11 +568,11 @@ fn writeGuidMaps(self: *Parser, writer: *std.Io.Writer, allocator: std.mem.Alloc
     }
 }
 
-fn compressionFlagsStruct(self: *const Parser) unreal.ECompressionFlags {
+fn compressionFlagsStruct(self: *const Parser) unreal.CompressionFlags {
     var flags = self.package_file_summary.compression_flags;
-    switch (flags.type) {
+    switch (flags.codec) {
         .zlib, .lzo => {},
-        .none, .lzx => flags.type = .lzo,
+        .none, .lzx => flags.codec = .lzo,
     }
     return flags;
 }
@@ -588,8 +588,8 @@ pub fn resolveName(self: *const Parser, name_index: i32) []const u8 {
     return self.name_map[@intCast(name_index)].name;
 }
 
-/// Format an FName, appending the instance number (`number - 1`) when nonzero.
-pub fn formatFName(self: *const Parser, name: unreal.FName, buf: []u8) []const u8 {
+/// Format a Name, appending the instance number (`number - 1`) when nonzero.
+pub fn formatName(self: *const Parser, name: unreal.Name, buf: []u8) []const u8 {
     const base = self.resolveName(name.name_index);
     if (name.number == 0) return base;
     return std.fmt.bufPrint(buf, "{s}_{d}", .{ base, name.number - 1 }) catch base;
@@ -602,13 +602,13 @@ pub fn resolvePackageIndex(self: *const Parser, index: i32, buf: []u8) []const u
     if (index > 0) {
         const idx: usize = @intCast(index - 1);
         if (idx < self.export_map.len) {
-            return self.formatFName(self.export_map[idx].object_name, buf);
+            return self.formatName(self.export_map[idx].object_name, buf);
         }
         return "<bad export>";
     }
     const idx: usize = @intCast(-index - 1);
     if (idx < self.import_map.len) {
-        return self.formatFName(self.import_map[idx].object_name, buf);
+        return self.formatName(self.import_map[idx].object_name, buf);
     }
     return "<bad import>";
 }

@@ -11,9 +11,9 @@ fn line(comptime fmt: []const u8, args: anytype) void {
 /// Cap on how many exports have their property streams shown in -report.
 const max_property_exports = 6;
 
-fn formatFNameCtx(p: *const anyopaque, name: unreal.FName, buf: []u8) []const u8 {
+fn formatNameCtx(p: *const anyopaque, name: unreal.Name, buf: []u8) []const u8 {
     const parser: *const Parser = @ptrCast(@alignCast(p));
-    return parser.formatFName(name, buf);
+    return parser.formatName(name, buf);
 }
 
 fn resolveObjectCtx(p: *const anyopaque, index: i32, buf: []u8) []const u8 {
@@ -26,7 +26,7 @@ fn propertyCtx(p: *const Parser) property.Ctx {
     return .{
         .ctx = p,
         .allocator = p.allocator,
-        .formatFName = &formatFNameCtx,
+        .formatName = &formatNameCtx,
         .resolveObject = &resolveObjectCtx,
     };
 }
@@ -47,7 +47,7 @@ fn printExportPropertiesResult(
     var buf: [512]u8 = undefined;
     line("  --- export {d}: {s} (class {s}, {d} bytes) ---", .{
         export_index,
-        p.formatFName(exp.object_name, &buf),
+        p.formatName(exp.object_name, &buf),
         p.resolveClassIndex(exp.class_index, &buf),
         blob.len,
     });
@@ -141,9 +141,9 @@ pub fn generatePackageReport(p: *const Parser) void {
     line("Import Map ({d}):", .{p.import_map.len});
     var buf: [512]u8 = undefined;
     for (p.import_map, 0..) |imp, i| {
-        line("  [{d}] package: {s}", .{ i, p.formatFName(imp.class_package, &buf) });
-        line("       class:   {s}", .{p.formatFName(imp.class_name, &buf)});
-        line("       object:  {s}", .{p.formatFName(imp.object_name, &buf)});
+        line("  [{d}] package: {s}", .{ i, p.formatName(imp.class_package, &buf) });
+        line("       class:   {s}", .{p.formatName(imp.class_name, &buf)});
+        line("       object:  {s}", .{p.formatName(imp.object_name, &buf)});
         line("       outer:   {d}", .{imp.outer_index});
     }
 
@@ -152,7 +152,7 @@ pub fn generatePackageReport(p: *const Parser) void {
     const max_exports = 25;
     const shown = @min(p.export_map.len, max_exports);
     for (p.export_map[0..shown], 0..shown) |exp, i| {
-        line("  [{d}] {s}", .{ i, p.formatFName(exp.object_name, &buf) });
+        line("  [{d}] {s}", .{ i, p.formatName(exp.object_name, &buf) });
         line("       class: {s}", .{p.resolveClassIndex(exp.class_index, &buf)});
         line("       outer: {s}", .{p.resolvePackageIndex(exp.outer_index, &buf)});
         line("       super: {s}", .{p.resolvePackageIndex(exp.super_index, &buf)});
@@ -178,7 +178,7 @@ pub fn generatePackageReport(p: *const Parser) void {
     var counters = property.SkipCounter.init(p.allocator);
     defer counters.deinit();
     var prop_shown: usize = 0;
-    var first_thin: ?usize = null;
+    var first_truncated: ?usize = null;
     line("", .{});
     line("Properties ({d} exports shown):", .{max_property_exports});
     var i: usize = 0;
@@ -195,21 +195,21 @@ pub fn generatePackageReport(p: *const Parser) void {
             // Not a clean property stream (native/class data, or no properties):
             // remember the first one as a fallback, but don't count toward the cap.
             property.deinitProperties(result.properties, p.allocator);
-            if (first_thin == null) first_thin = i;
+            if (first_truncated == null) first_truncated = i;
             continue;
         }
         prop_shown += 1;
         printExportPropertiesResult(p, i, result, &ctx, &counters);
     }
     if (prop_shown == 0) {
-        if (first_thin) |fi| {
+        if (first_truncated) |first_idx| {
             const ctx = propertyCtx(p);
-            const base: usize = @intCast(@max(p.export_map[fi].serial_offset, 0));
-            const result = property.parseExport(p.export_data[fi], base, &ctx, p.allocator) catch {
+            const base: usize = @intCast(@max(p.export_map[first_idx].serial_offset, 0));
+            const result = property.parseExport(p.export_data[first_idx], base, &ctx, p.allocator) catch {
                 line("  (no parseable property streams)", .{});
                 return;
             };
-            printExportPropertiesResult(p, fi, result, &ctx, &counters);
+            printExportPropertiesResult(p, first_idx, result, &ctx, &counters);
         } else {
             line("  (no parseable property streams)", .{});
         }

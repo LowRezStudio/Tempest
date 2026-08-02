@@ -2,7 +2,7 @@ const std = @import("std");
 const minilzo = @import("minilzo");
 const unreal = @import("unreal.zig");
 
-/// UE ECompressionFlags bit values (from Core/UnFile.h).
+/// UE CompressionFlags bit values (from Core/UnFile.h).
 pub const compress_none: u32 = 0x00;
 pub const compress_zlib: u32 = 0x01;
 pub const compress_lzo: u32 = 0x02;
@@ -23,7 +23,7 @@ pub const Error = std.mem.Allocator.Error || std.Io.Reader.Error || error{
     InvalidFormat,
 };
 
-fn mapLZOError(err: anyerror) Error {
+fn mapLzoError(err: anyerror) Error {
     return switch (err) {
         error.InvalidSize => error.InvalidSize,
         error.InitFailed, error.DecompressionFailed => error.DecompressionFailed,
@@ -61,7 +61,7 @@ pub fn decompressMemory(
             compressed,
             uncompressed_size,
             flags & compress_obscured != 0,
-        ) catch |err| return mapLZOError(err),
+        ) catch |err| return mapLzoError(err),
         compress_zlib => zlibDecompress(
             allocator,
             compressed,
@@ -83,7 +83,7 @@ pub fn decompressMemory(
 pub fn compressMemory(allocator: std.mem.Allocator, flags: u32, data: []const u8) Error![]u8 {
     const codec = flags & 0xF;
     const out: []u8 = switch (codec) {
-        compress_lzo => minilzo.compress(allocator, data) catch |err| return mapLZOError(err),
+        compress_lzo => minilzo.compress(allocator, data) catch |err| return mapLzoError(err),
         compress_zlib => try zlibCompress(allocator, data),
         else => return error.UnsupportedCompression,
     };
@@ -178,22 +178,22 @@ pub fn decompressStream(allocator: std.mem.Allocator, data: []const u8, flags: u
     var pos: usize = 0;
     for (chunks) |chunk| {
         const is_raw = chunk.compressed_size < 0;
-        const cs: usize = @intCast(if (is_raw) -@as(i64, chunk.compressed_size) else chunk.compressed_size);
-        const us: usize = @intCast(chunk.uncompressed_size);
-        if (pos + us > total_uncompressed_size) return error.CorruptData;
+        const compressed_size: usize = @intCast(if (is_raw) -@as(i64, chunk.compressed_size) else chunk.compressed_size);
+        const uncompressed_size: usize = @intCast(chunk.uncompressed_size);
+        if (pos + uncompressed_size > total_uncompressed_size) return error.CorruptData;
 
-        const payload = try r.readAlloc(allocator, cs);
+        const payload = try r.readAlloc(allocator, compressed_size);
         defer allocator.free(payload);
 
         if (is_raw) {
-            if (cs != us) return error.CorruptData;
-            @memcpy(result[pos .. pos + us], payload);
+            if (compressed_size != uncompressed_size) return error.CorruptData;
+            @memcpy(result[pos .. pos + uncompressed_size], payload);
         } else {
-            const dec = try decompressMemory(allocator, flags, payload, us);
+            const dec = try decompressMemory(allocator, flags, payload, uncompressed_size);
             defer allocator.free(dec);
-            @memcpy(result[pos .. pos + us], dec);
+            @memcpy(result[pos .. pos + uncompressed_size], dec);
         }
-        pos += us;
+        pos += uncompressed_size;
     }
 
     if (pos != total_uncompressed_size) return error.CorruptData;
@@ -245,28 +245,28 @@ test "zlib round trip" {
     try std.testing.expectEqualSlices(u8, &data, dec);
 }
 
-pub fn compressStream(a: std.mem.Allocator, flags: u32, data: []const u8) ![]u8 {
-    const sub: usize = default_chunk_size;
-    const n = (data.len + sub - 1) / sub;
-    const infos = try a.alloc(CompressedChunkInfo, n);
-    defer a.free(infos);
-    const payloads = try a.alloc([]u8, n);
-    defer a.free(payloads);
-    errdefer for (payloads) |p| if (p.len > 0) a.free(p);
+pub fn compressStream(allocator: std.mem.Allocator, flags: u32, data: []const u8) ![]u8 {
+    const chunk_size: usize = default_chunk_size;
+    const n = (data.len + chunk_size - 1) / chunk_size;
+    const infos = try allocator.alloc(CompressedChunkInfo, n);
+    defer allocator.free(infos);
+    const payloads = try allocator.alloc([]u8, n);
+    defer allocator.free(payloads);
+    errdefer for (payloads) |p| if (p.len > 0) allocator.free(p);
 
     var total_compressed: usize = 0;
     var off: usize = 0;
     for (infos, 0..) |*info, i| {
-        const us = @min(sub, data.len - off);
-        const compressed = try compressMemory(a, flags, data[off .. off + us]);
+        const uncompressed_size = @min(chunk_size, data.len - off);
+        const compressed = try compressMemory(allocator, flags, data[off .. off + uncompressed_size]);
         payloads[i] = compressed;
         info.compressed_size = @intCast(compressed.len);
-        info.uncompressed_size = @intCast(us);
+        info.uncompressed_size = @intCast(uncompressed_size);
         total_compressed += compressed.len;
-        off += us;
+        off += uncompressed_size;
     }
 
-    var out: std.Io.Writer.Allocating = .init(a);
+    var out: std.Io.Writer.Allocating = .init(allocator);
     defer out.deinit();
     const w = &out.writer;
     try w.writeInt(u32, unreal.package_file_tag, .little);
@@ -279,7 +279,7 @@ pub fn compressStream(a: std.mem.Allocator, flags: u32, data: []const u8) ![]u8 
     }
     for (payloads) |p| {
         try w.writeAll(p);
-        a.free(p);
+        allocator.free(p);
     }
     return out.toOwnedSlice();
 }
@@ -314,7 +314,7 @@ test "stream round trip obscured" {
 pub fn decompressPackage(
     allocator: std.mem.Allocator,
     file: []const u8,
-    chunks: []const unreal.FCompressedChunk,
+    chunks: []const unreal.CompressedChunk,
     flags: u32,
 ) Error![]u8 {
     if (chunks.len == 0) return error.CorruptData;
@@ -338,22 +338,22 @@ pub fn decompressPackage(
 
     for (chunks) |chunk| {
         const is_raw = chunk.compressed_size < 0;
-        const cs: usize = @intCast(if (is_raw) -@as(i64, chunk.compressed_size) else chunk.compressed_size);
-        const co: usize = @intCast(chunk.compressed_offset);
-        const uo: usize = @intCast(chunk.uncompressed_offset);
-        const us: usize = @intCast(chunk.uncompressed_size);
+        const compressed_size: usize = @intCast(if (is_raw) -@as(i64, chunk.compressed_size) else chunk.compressed_size);
+        const compressed_offset: usize = @intCast(chunk.compressed_offset);
+        const uncompressed_offset: usize = @intCast(chunk.uncompressed_offset);
+        const uncompressed_size: usize = @intCast(chunk.uncompressed_size);
 
-        if (co + cs > file.len or uo + us > total) return error.CorruptData;
-        const payload = file[co .. co + cs];
+        if (compressed_offset + compressed_size > file.len or uncompressed_offset + uncompressed_size > total) return error.CorruptData;
+        const payload = file[compressed_offset .. compressed_offset + compressed_size];
 
         if (is_raw) {
-            if (cs != us) return error.CorruptData;
-            @memcpy(result[uo .. uo + us], payload);
+            if (compressed_size != uncompressed_size) return error.CorruptData;
+            @memcpy(result[uncompressed_offset .. uncompressed_offset + uncompressed_size], payload);
         } else {
             const dec = try decompressStream(allocator, payload, flags);
             defer allocator.free(dec);
-            if (dec.len != us) return error.CorruptData;
-            @memcpy(result[uo .. uo + us], dec);
+            if (dec.len != uncompressed_size) return error.CorruptData;
+            @memcpy(result[uncompressed_offset .. uncompressed_offset + uncompressed_size], dec);
         }
     }
 

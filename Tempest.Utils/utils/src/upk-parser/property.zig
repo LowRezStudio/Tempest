@@ -8,7 +8,7 @@ pub const Error = unreal.Error || error{
 };
 
 /// Cap on properties parsed from a single stream.
-/// guards against data that never reaches a None terminator.
+/// Guards against data that never reaches a None terminator.
 const max_properties: usize = 10_000;
 
 /// Name/object resolution context provided by the host parser. The parser wires
@@ -17,9 +17,9 @@ const max_properties: usize = 10_000;
 pub const Ctx = struct {
     ctx: *const anyopaque,
     allocator: std.mem.Allocator,
-    /// Format an FName (name index + instance number) into `buf`, returning a
+    /// Format a Name (name index + instance number) into `buf`, returning a
     /// slice borrowed from `buf` or the name map.
-    formatFName: *const fn (*const anyopaque, unreal.FName, []u8) []const u8,
+    formatName: *const fn (*const anyopaque, unreal.Name, []u8) []const u8,
     /// Resolve a package object index (0 -> "None", >0 export, <0 import) into
     /// display text.
     resolveObject: *const fn (*const anyopaque, i32, []u8) []const u8,
@@ -33,28 +33,28 @@ pub const Value = union(enum) {
     boolean: bool,
     /// Plain byte (no enum).
     byte: u8,
-    /// Enum-backed byte: `value_name` is the FName of the enum entry.
-    enum_byte: struct { enum_name: unreal.FName, value_name: unreal.FName },
-    name: unreal.FName,
-    /// Owned string (decoded from the FString in the blob).
+    /// Enum-backed byte: `value_name` is the Name of the enum entry.
+    enum_byte: struct { enum_name: unreal.Name, value_name: unreal.Name },
+    name: unreal.Name,
+    /// Owned string (decoded from the String in the blob).
     string: []const u8,
     /// Package object index (0 -> None, >0 export, <0 import).
     object: i32,
-    delegate: struct { object: i32, function: unreal.FName },
+    delegate: struct { object: i32, function: unreal.Name },
     /// Array elements are opaque: the inner property type is script metadata,
     /// not present in the tag, so `data` (borrowed from the blob) is kept raw.
     array: struct { count: i32, data: []const u8 },
     /// Script struct serialized as a nested tagged property list.
-    tagged_struct: struct { struct_name: unreal.FName, members: []Property },
+    tagged_struct: struct { struct_name: unreal.Name, members: []Property },
     /// Native/immutable struct serialized as raw bytes (borrowed from blob).
-    raw_struct: struct { struct_name: unreal.FName, data: []const u8 },
+    raw_struct: struct { struct_name: unreal.Name, data: []const u8 },
     /// Non-core / unimplemented property type: bytes skipped by size, kept raw.
-    unknown: struct { type_name: unreal.FName, data: []const u8 },
+    unknown: struct { type_name: unreal.Name, data: []const u8 },
 };
 
 pub const Property = struct {
-    name: unreal.FName,
-    type_name: unreal.FName,
+    name: unreal.Name,
+    type_name: unreal.Name,
     array_index: i32,
     size: i32,
     /// Absolute image offset of this property's tag (the Name field).
@@ -75,21 +75,21 @@ pub const ParseResult = struct {
 /// Parse an export's object data: a net-index INT prefix followed by a tagged
 /// property stream terminated by a None tag. `base` is the image offset of
 /// `blob[0]`, used for absolute tag offsets in the report.
-pub fn parseExport(blob: []const u8, base: usize, c: *const Ctx, a: std.mem.Allocator) Error!ParseResult {
+pub fn parseExport(blob: []const u8, base: usize, ctx: *const Ctx, allocator: std.mem.Allocator) Error!ParseResult {
     if (blob.len < 4) {
         return .{ .net_index = 0, .properties = &.{}, .truncated = true, .property_bytes = 0 };
     }
     const net_index = std.mem.readInt(i32, blob[0..4], .little);
 
-    var list = try std.ArrayList(Property).initCapacity(a, 0);
-    defer list.deinit(a);
+    var list = try std.ArrayList(Property).initCapacity(allocator, 0);
+    defer list.deinit(allocator);
 
-    const consumed: ?usize = parseTagged(blob[4..], base + 4, c, a, &list) catch |err| switch (err) {
+    const consumed: ?usize = parseTagged(blob[4..], base + 4, ctx, allocator, &list) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => null,
     };
 
-    const properties = try list.toOwnedSlice(a);
+    const properties = try list.toOwnedSlice(allocator);
     return .{
         .net_index = net_index,
         .properties = properties,
@@ -98,15 +98,15 @@ pub fn parseExport(blob: []const u8, base: usize, c: *const Ctx, a: std.mem.Allo
     };
 }
 
-pub fn deinitProperties(properties: []Property, a: std.mem.Allocator) void {
-    for (properties) |prop| deinitProperty(prop, a);
-    if (properties.len > 0) a.free(properties);
+pub fn deinitProperties(properties: []Property, allocator: std.mem.Allocator) void {
+    for (properties) |prop| deinitProperty(prop, allocator);
+    if (properties.len > 0) allocator.free(properties);
 }
 
-fn deinitProperty(prop: Property, a: std.mem.Allocator) void {
+fn deinitProperty(prop: Property, allocator: std.mem.Allocator) void {
     switch (prop.value) {
-        .string => |s| a.free(s),
-        .tagged_struct => |ts| deinitProperties(ts.members, a),
+        .string => |s| allocator.free(s),
+        .tagged_struct => |ts| deinitProperties(ts.members, allocator),
         else => {},
     }
 }
@@ -117,8 +117,8 @@ fn deinitProperty(prop: Property, a: std.mem.Allocator) void {
 fn parseTagged(
     slice: []const u8,
     base: usize,
-    c: *const Ctx,
-    a: std.mem.Allocator,
+    ctx: *const Ctx,
+    allocator: std.mem.Allocator,
     list: *std.ArrayList(Property),
 ) Error!usize {
     var off: usize = 0;
@@ -127,33 +127,33 @@ fn parseTagged(
 
     while (off + 8 <= slice.len and list.items.len < max_properties) {
         const tag_offset = off;
-        const name = try unreal.FName.take(&reader, a);
+        const name = try unreal.Name.take(&reader, allocator);
         off += 8;
 
-        // Terminator: the FName whose resolved string is "None".
-        if (std.mem.eql(u8, c.formatFName(c.ctx, name, &buf), "None")) return off;
+        // Terminator: the Name whose resolved string is "None".
+        if (std.mem.eql(u8, ctx.formatName(ctx.ctx, name, &buf), "None")) return off;
 
         if (off + 16 > slice.len) return error.PropertyStreamOob;
-        const type_name = try unreal.FName.take(&reader, a);
+        const type_name = try unreal.Name.take(&reader, allocator);
         off += 8;
         const size = try reader.takeInt(i32, .little);
         const array_index = try reader.takeInt(i32, .little);
         off += 8;
         if (size < 0) return error.CorruptProperty;
 
-        const type_str = c.formatFName(c.ctx, type_name, &buf);
+        const type_str = ctx.formatName(ctx.ctx, type_name, &buf);
 
-        var struct_name: unreal.FName = .{ .name_index = 0, .number = 0 };
+        var struct_name: unreal.Name = .{ .name_index = 0, .number = 0 };
         var bool_val: u8 = 0;
-        var enum_name: unreal.FName = .{ .name_index = 0, .number = 0 };
+        var enum_name: unreal.Name = .{ .name_index = 0, .number = 0 };
         if (std.mem.eql(u8, type_str, "StructProperty")) {
-            struct_name = try unreal.FName.take(&reader, a);
+            struct_name = try unreal.Name.take(&reader, allocator);
             off += 8;
         } else if (std.mem.eql(u8, type_str, "BoolProperty")) {
             bool_val = try reader.takeInt(u8, .little);
             off += 1;
         } else if (std.mem.eql(u8, type_str, "ByteProperty")) {
-            enum_name = try unreal.FName.take(&reader, a);
+            enum_name = try unreal.Name.take(&reader, allocator);
             off += 8;
         }
 
@@ -161,8 +161,8 @@ fn parseTagged(
         off += @intCast(size);
 
         const prop = try parseValue(
-            c,
-            a,
+            ctx,
+            allocator,
             base,
             name,
             type_name,
@@ -174,30 +174,30 @@ fn parseTagged(
             bool_val,
             enum_name,
         );
-        try list.append(a, prop);
+        try list.append(allocator, prop);
     }
     if (list.items.len >= max_properties) return error.PropertyStreamOob;
     return error.PropertyStreamOob;
 }
 
 fn parseValue(
-    c: *const Ctx,
-    a: std.mem.Allocator,
+    ctx: *const Ctx,
+    allocator: std.mem.Allocator,
     base: usize,
-    name: unreal.FName,
-    type_name: unreal.FName,
+    name: unreal.Name,
+    type_name: unreal.Name,
     array_index: i32,
     size: i32,
     tag_offset: usize,
     value_slice: []const u8,
-    struct_name: unreal.FName,
+    struct_name: unreal.Name,
     bool_val: u8,
-    enum_name: unreal.FName,
+    enum_name: unreal.Name,
 ) Error!Property {
     var buf: [256]u8 = undefined;
-    const type_str = c.formatFName(c.ctx, type_name, &buf);
+    const type_str = ctx.formatName(ctx.ctx, type_name, &buf);
 
-    const mk = Property{
+    const template = Property{
         .name = name,
         .type_name = type_name,
         .array_index = array_index,
@@ -208,32 +208,32 @@ fn parseValue(
 
     if (std.mem.eql(u8, type_str, "IntProperty")) {
         if (value_slice.len < 4) return error.CorruptProperty;
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .int = std.mem.readInt(i32, value_slice[0..4], .little) } };
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .int = std.mem.readInt(i32, value_slice[0..4], .little) } };
     }
     if (std.mem.eql(u8, type_str, "FloatProperty")) {
         if (value_slice.len < 4) return error.CorruptProperty;
         const bits = std.mem.readInt(u32, value_slice[0..4], .little);
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .float = @bitCast(bits) } };
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .float = @bitCast(bits) } };
     }
     if (std.mem.eql(u8, type_str, "BoolProperty")) {
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .boolean = bool_val != 0 } };
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .boolean = bool_val != 0 } };
     }
     if (std.mem.eql(u8, type_str, "ByteProperty")) {
-        if (std.mem.eql(u8, c.formatFName(c.ctx, enum_name, &buf), "None")) {
+        if (std.mem.eql(u8, ctx.formatName(ctx.ctx, enum_name, &buf), "None")) {
             if (value_slice.len < 1) return error.CorruptProperty;
-            return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .byte = value_slice[0] } };
+            return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .byte = value_slice[0] } };
         }
         if (value_slice.len < 8) return error.CorruptProperty;
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .enum_byte = .{ .enum_name = enum_name, .value_name = readFName(value_slice) } } };
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .enum_byte = .{ .enum_name = enum_name, .value_name = readName(value_slice) } } };
     }
     if (std.mem.eql(u8, type_str, "NameProperty")) {
         if (value_slice.len < 8) return error.CorruptProperty;
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .name = readFName(value_slice) } };
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .name = readName(value_slice) } };
     }
     if (std.mem.eql(u8, type_str, "StrProperty")) {
-        var r: std.Io.Reader = .fixed(value_slice);
-        const fs = try unreal.FString.take(&r, a);
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .string = fs.data } };
+        var reader: std.Io.Reader = .fixed(value_slice);
+        const fs = try unreal.String.take(&reader, allocator);
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .string = fs.data } };
     }
     if (std.mem.eql(u8, type_str, "ObjectProperty") or
         std.mem.eql(u8, type_str, "ClassProperty") or
@@ -241,49 +241,49 @@ fn parseValue(
         std.mem.eql(u8, type_str, "InterfaceProperty"))
     {
         if (value_slice.len < 4) return error.CorruptProperty;
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .object = std.mem.readInt(i32, value_slice[0..4], .little) } };
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .object = std.mem.readInt(i32, value_slice[0..4], .little) } };
     }
     if (std.mem.eql(u8, type_str, "DelegateProperty")) {
         if (value_slice.len < 12) return error.CorruptProperty;
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .delegate = .{
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .delegate = .{
             .object = std.mem.readInt(i32, value_slice[0..4], .little),
-            .function = readFName(value_slice[4..]),
+            .function = readName(value_slice[4..]),
         } } };
     }
     if (std.mem.eql(u8, type_str, "ArrayProperty")) {
         if (value_slice.len < 4) return error.CorruptProperty;
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .array = .{
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .array = .{
             .count = std.mem.readInt(i32, value_slice[0..4], .little),
             .data = value_slice[4..],
         } } };
     }
     if (std.mem.eql(u8, type_str, "StructProperty")) {
-        var members = try std.ArrayList(Property).initCapacity(a, 0);
-        const consumed = parseTagged(value_slice, base + tag_offset, c, a, &members) catch {
+        var members = try std.ArrayList(Property).initCapacity(allocator, 0);
+        const consumed = parseTagged(value_slice, base + tag_offset, ctx, allocator, &members) catch {
             // Native/immutable struct (or corrupt): keep the raw bytes.
-            deinitProperties(members.items, a);
-            members.deinit(a);
-            return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .raw_struct = .{ .struct_name = struct_name, .data = value_slice } } };
+            deinitProperties(members.items, allocator);
+            members.deinit(allocator);
+            return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .raw_struct = .{ .struct_name = struct_name, .data = value_slice } } };
         };
         if (consumed == value_slice.len) {
-            const owned = try members.toOwnedSlice(a);
-            members.deinit(a);
-            return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .tagged_struct = .{ .struct_name = struct_name, .members = owned } } };
+            const owned = try members.toOwnedSlice(allocator);
+            members.deinit(allocator);
+            return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .tagged_struct = .{ .struct_name = struct_name, .members = owned } } };
         }
         // Tagged parse succeeded but didn't span the whole body: keep raw.
-        deinitProperties(members.items, a);
-        members.deinit(a);
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .raw_struct = .{ .struct_name = struct_name, .data = value_slice } } };
+        deinitProperties(members.items, allocator);
+        members.deinit(allocator);
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .raw_struct = .{ .struct_name = struct_name, .data = value_slice } } };
     }
     if (std.mem.eql(u8, type_str, "MapProperty")) {
-        return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .none };
+        return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .none };
     }
 
     // Non-core / unimplemented type: bytes already skipped by size, kept raw.
-    return .{ .name = mk.name, .type_name = mk.type_name, .array_index = mk.array_index, .size = mk.size, .offset = mk.offset, .value = .{ .unknown = .{ .type_name = type_name, .data = value_slice } } };
+    return .{ .name = template.name, .type_name = template.type_name, .array_index = template.array_index, .size = template.size, .offset = template.offset, .value = .{ .unknown = .{ .type_name = type_name, .data = value_slice } } };
 }
 
-fn readFName(bytes: []const u8) unreal.FName {
+fn readName(bytes: []const u8) unreal.Name {
     return .{
         .name_index = std.mem.readInt(i32, bytes[0..4], .little),
         .number = std.mem.readInt(i32, bytes[4..8], .little),
@@ -302,19 +302,19 @@ fn paddedName(buf: *[32]u8, s: []const u8) []const u8 {
 }
 
 /// Print one property line plus indented recursion for tagged structs.
-fn printProperty(prop: Property, c: *const Ctx, indent: usize) void {
+fn printProperty(prop: Property, ctx: *const Ctx, indent: usize) void {
     var namebuf: [128]u8 = undefined;
     var pad: [32]u8 = undefined;
     var vbuf: [2048]u8 = undefined;
     var typebuf: [128]u8 = undefined;
     var tabsbuf: [64]u8 = undefined;
 
-    const name_str = c.formatFName(c.ctx, prop.name, &namebuf);
-    const type_str = c.formatFName(c.ctx, prop.type_name, &typebuf);
+    const name_str = ctx.formatName(ctx.ctx, prop.name, &namebuf);
+    const type_str = ctx.formatName(ctx.ctx, prop.type_name, &typebuf);
     const pad_len = @min(indent, tabsbuf.len);
     @memset(tabsbuf[0..pad_len], '\t');
     const tabs = tabsbuf[0..pad_len];
-    const value_text = formatValue(prop, c, &vbuf);
+    const value_text = formatValue(prop, ctx, &vbuf);
 
     std.debug.print("{s}{s} {s}  [{s} size={d} @{d}]\n", .{
         tabs,
@@ -326,15 +326,15 @@ fn printProperty(prop: Property, c: *const Ctx, indent: usize) void {
     });
 
     if (prop.value == .tagged_struct) {
-        printProperties(prop.value.tagged_struct.members, c, indent + 1);
+        printProperties(prop.value.tagged_struct.members, ctx, indent + 1);
     }
 }
 
-pub fn printProperties(properties: []const Property, c: *const Ctx, indent: usize) void {
-    for (properties) |prop| printProperty(prop, c, indent);
+pub fn printProperties(properties: []const Property, ctx: *const Ctx, indent: usize) void {
+    for (properties) |prop| printProperty(prop, ctx, indent);
 }
 
-fn formatValue(prop: Property, c: *const Ctx, buf: []u8) []const u8 {
+fn formatValue(prop: Property, ctx: *const Ctx, buf: []u8) []const u8 {
     switch (prop.value) {
         .none => return "none",
         .int => |v| return std.fmt.bufPrint(buf, "{d}", .{v}) catch "?",
@@ -342,45 +342,45 @@ fn formatValue(prop: Property, c: *const Ctx, buf: []u8) []const u8 {
         .boolean => |v| return if (v) "True" else "False",
         .byte => |v| return std.fmt.bufPrint(buf, "{d}", .{v}) catch "?",
         .enum_byte => |v| {
-            var nb: [128]u8 = undefined;
-            return std.fmt.bufPrint(buf, "{s}", .{c.formatFName(c.ctx, v.value_name, &nb)}) catch "?";
+            var name_buf: [128]u8 = undefined;
+            return std.fmt.bufPrint(buf, "{s}", .{ctx.formatName(ctx.ctx, v.value_name, &name_buf)}) catch "?";
         },
         .name => |v| {
-            var nb: [128]u8 = undefined;
-            return std.fmt.bufPrint(buf, "{s}", .{c.formatFName(c.ctx, v, &nb)}) catch "?";
+            var name_buf: [128]u8 = undefined;
+            return std.fmt.bufPrint(buf, "{s}", .{ctx.formatName(ctx.ctx, v, &name_buf)}) catch "?";
         },
         .string => |s| return capped(buf, s, 200),
         .object => |idx| {
-            var nb: [128]u8 = undefined;
-            return std.fmt.bufPrint(buf, "{s}", .{c.resolveObject(c.ctx, idx, &nb)}) catch "?";
+            var name_buf: [128]u8 = undefined;
+            return std.fmt.bufPrint(buf, "{s}", .{ctx.resolveObject(ctx.ctx, idx, &name_buf)}) catch "?";
         },
         .delegate => |d| {
-            var nb: [128]u8 = undefined;
-            var fb: [128]u8 = undefined;
+            var name_buf: [128]u8 = undefined;
+            var function_buf: [128]u8 = undefined;
             return std.fmt.bufPrint(buf, "{s}.{s}", .{
-                c.resolveObject(c.ctx, d.object, &nb),
-                c.formatFName(c.ctx, d.function, &fb),
+                ctx.resolveObject(ctx.ctx, d.object, &name_buf),
+                ctx.formatName(ctx.ctx, d.function, &function_buf),
             }) catch "?";
         },
         .array => |arr| {
-            var hb: [48]u8 = undefined;
-            const preview = hexPreviewOf(arr.data, 8, &hb);
+            var hex_buf: [48]u8 = undefined;
+            const preview = hexPreviewOf(arr.data, 8, &hex_buf);
             if (preview.len == 0) {
                 return std.fmt.bufPrint(buf, "[{d} elements, {d} bytes]", .{ arr.count, arr.data.len }) catch "?";
             }
             return std.fmt.bufPrint(buf, "[{d} elements, {d} bytes] {s}", .{ arr.count, arr.data.len, preview }) catch "?";
         },
         .tagged_struct => |ts| {
-            var nb: [128]u8 = undefined;
-            return std.fmt.bufPrint(buf, "{s} ({d} members)", .{ c.formatFName(c.ctx, ts.struct_name, &nb), ts.members.len }) catch "?";
+            var name_buf: [128]u8 = undefined;
+            return std.fmt.bufPrint(buf, "{s} ({d} members)", .{ ctx.formatName(ctx.ctx, ts.struct_name, &name_buf), ts.members.len }) catch "?";
         },
         .raw_struct => |rs| {
-            var nb: [128]u8 = undefined;
-            return std.fmt.bufPrint(buf, "{s} (raw {d} bytes)", .{ c.formatFName(c.ctx, rs.struct_name, &nb), rs.data.len }) catch "?";
+            var name_buf: [128]u8 = undefined;
+            return std.fmt.bufPrint(buf, "{s} (raw {d} bytes)", .{ ctx.formatName(ctx.ctx, rs.struct_name, &name_buf), rs.data.len }) catch "?";
         },
         .unknown => |u| {
-            var nb: [128]u8 = undefined;
-            return std.fmt.bufPrint(buf, "{s} (skipped {d} bytes)", .{ c.formatFName(c.ctx, u.type_name, &nb), u.data.len }) catch "?";
+            var name_buf: [128]u8 = undefined;
+            return std.fmt.bufPrint(buf, "{s} (skipped {d} bytes)", .{ ctx.formatName(ctx.ctx, u.type_name, &name_buf), u.data.len }) catch "?";
         },
     }
 }
@@ -411,8 +411,8 @@ pub const SkipCounter = struct {
     map: std.StringHashMap(u32),
     allocator: std.mem.Allocator,
 
-    pub fn init(a: std.mem.Allocator) SkipCounter {
-        return .{ .map = std.StringHashMap(u32).init(a), .allocator = a };
+    pub fn init(allocator: std.mem.Allocator) SkipCounter {
+        return .{ .map = std.StringHashMap(u32).init(allocator), .allocator = allocator };
     }
 
     pub fn deinit(self: *SkipCounter) void {
@@ -421,12 +421,12 @@ pub const SkipCounter = struct {
         self.map.deinit();
     }
 
-    pub fn collect(self: *SkipCounter, properties: []const Property, c: *const Ctx) void {
+    pub fn collect(self: *SkipCounter, properties: []const Property, ctx: *const Ctx) void {
         for (properties) |prop| {
             switch (prop.value) {
                 .unknown => |u| {
                     var buf: [128]u8 = undefined;
-                    const key = self.allocator.dupe(u8, c.formatFName(c.ctx, u.type_name, &buf)) catch return;
+                    const key = self.allocator.dupe(u8, ctx.formatName(ctx.ctx, u.type_name, &buf)) catch return;
                     const gop = self.map.getOrPut(key) catch {
                         self.allocator.free(key);
                         return;
@@ -438,7 +438,7 @@ pub const SkipCounter = struct {
                         gop.value_ptr.* = 1;
                     }
                 },
-                .tagged_struct => |ts| self.collect(ts.members, c),
+                .tagged_struct => |ts| self.collect(ts.members, ctx),
                 else => {},
             }
         }
@@ -461,7 +461,7 @@ const test_names = [_][]const u8{
     "BoolProperty", // 12
 };
 
-fn testFormatFName(ctx: *const anyopaque, name: unreal.FName, buf: []u8) []const u8 {
+fn testFormatName(ctx: *const anyopaque, name: unreal.Name, buf: []u8) []const u8 {
     _ = ctx;
     _ = buf;
     if (name.name_index < 0 or name.name_index >= test_names.len) return "<bad>";
@@ -481,7 +481,7 @@ test "parse a synthetic tagged property stream" {
     const ctx = Ctx{
         .ctx = undefined,
         .allocator = a,
-        .formatFName = &testFormatFName,
+        .formatName = &testFormatName,
         .resolveObject = &testResolveObject,
     };
 

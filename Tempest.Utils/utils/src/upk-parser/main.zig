@@ -23,7 +23,6 @@ pub fn main(init: std.process.Init) !void {
 
     try p.parse();
 
-    // Parse flags after the file path.
     var save_mode: ?Parser.SaveMode = null;
     var save_path: ?[]const u8 = null;
 
@@ -82,8 +81,6 @@ pub fn main(init: std.process.Init) !void {
         });
         std.debug.print("saved {d} bytes ({s}) to {s}\n", .{ bytes.len, @tagName(mode), save_path.? });
     }
-
-    // std.debug.print("{f}\n", .{p.package_file_summary});
 
     std.debug.print("parsed: {d} names, {d} imports, {d} exports\n", .{
         p.name_map.len,
