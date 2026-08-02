@@ -41,15 +41,6 @@ pub fn main(init: std.process.Init) !void {
             };
             debug.printExportProperties(&p, index);
             i += 1;
-        } else if (std.mem.eql(u8, args[i], "-dump-image")) {
-            const path = args[i + 1];
-            try std.Io.Dir.cwd().writeFile(init.io, .{
-                .sub_path = path,
-                .data = p.data_buffer,
-                .flags = .{ .truncate = true },
-            });
-            std.debug.print("dumped {d} byte uncompressed image to {s}\n", .{ p.data_buffer.len, path });
-            i += 1;
         } else if (std.mem.eql(u8, args[i], "-save")) {
             if (i + 2 >= args.len) {
                 std.debug.print("error: -save needs <compressed|uncompressed> <out.upk>\n", .{});
