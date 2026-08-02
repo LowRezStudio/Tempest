@@ -9,8 +9,9 @@
 	import { customThemeCSS, defaultInstancePath, theme, username } from "$lib/stores/settings.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import WineSettings from "$lib/wine/WineSettings.svelte";
+	import KeybindsTab from "$lib/settings/KeybindsTab.svelte";
 
-	let activeTab = $state<"general" | "wine" | "advanced" | "flags">("general");
+	let activeTab = $state<"general" | "keybinds" | "wine" | "advanced" | "flags">("general");
 
 	const buildType = import.meta.env.DEV ? "Development" : "Production";
 
@@ -41,6 +42,7 @@
 	const isWindows = platform() === "windows";
 	const tabs = $derived([
 		{ name: m.settings_general(), value: "general" as const },
+		{ name: m.settings_keybinds(), value: "keybinds" as const },
 		...(isWindows ? [] : [{ name: m.settings_wine(), value: "wine" as const }]),
 		{ name: m.settings_advanced(), value: "advanced" as const },
 		...(import.meta.env.DEV
@@ -139,6 +141,8 @@
 					</div>
 				{:else if activeTab === "wine"}
 					<WineSettings />
+				{:else if activeTab === "keybinds"}
+					<KeybindsTab />
 				{:else if activeTab === "flags" && import.meta.env.DEV}
 					<FeatureFlagsTab />
 				{:else if activeTab === "advanced"}
