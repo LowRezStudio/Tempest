@@ -1,9 +1,117 @@
 const std = @import("std");
 
+const unreal = @import("unreal.zig");
+const property = @import("property.zig");
 const Parser = @import("Parser.zig");
 
 fn line(comptime fmt: []const u8, args: anytype) void {
     std.debug.print(fmt ++ "\n", args);
+}
+
+/// Cap on how many exports have their property streams shown in -report.
+const max_property_exports = 6;
+
+fn formatFNameCtx(p: *const anyopaque, name: unreal.FName, buf: []u8) []const u8 {
+    const parser: *const Parser = @ptrCast(@alignCast(p));
+    return parser.formatFName(name, buf);
+}
+
+fn resolveObjectCtx(p: *const anyopaque, index: i32, buf: []u8) []const u8 {
+    const parser: *const Parser = @ptrCast(@alignCast(p));
+    if (index == 0) return "None";
+    return parser.resolvePackageIndex(index, buf);
+}
+
+fn propertyCtx(p: *const Parser) property.Ctx {
+    return .{
+        .ctx = p,
+        .allocator = p.allocator,
+        .formatFName = &formatFNameCtx,
+        .resolveObject = &resolveObjectCtx,
+    };
+}
+
+/// Print an already-parsed export's property stream. Takes ownership of
+/// `result.properties` (frees it).
+fn printExportPropertiesResult(
+    p: *const Parser,
+    export_index: usize,
+    result: property.ParseResult,
+    ctx: *const property.Ctx,
+    counters: *property.SkipCounter,
+) void {
+    defer property.deinitProperties(result.properties, p.allocator);
+    const blob = p.export_data[export_index];
+    const exp = p.export_map[export_index];
+
+    var buf: [512]u8 = undefined;
+    line("  --- export {d}: {s} (class {s}, {d} bytes) ---", .{
+        export_index,
+        p.formatFName(exp.object_name, &buf),
+        p.resolveClassIndex(exp.class_index, &buf),
+        blob.len,
+    });
+
+    line("      net_index: {d}", .{result.net_index});
+
+    // A truncated stream is by definition not a valid property stream: its
+    // partial tags may be native-serialized bytes misread as properties, so
+    // don't print or count them.
+    if (result.truncated) {
+        line("      (property stream truncated)", .{});
+        return;
+    }
+    if (result.properties.len == 0) {
+        line("      (no tagged properties)", .{});
+    } else {
+        property.printProperties(result.properties, ctx, 1);
+        counters.collect(result.properties, ctx);
+    }
+    if (blob.len > 4 + result.property_bytes) {
+        line("      ({d} bytes of non-property data follow)", .{blob.len - 4 - result.property_bytes});
+    }
+}
+
+/// Print the sorted summary of skipped (non-core) property types.
+fn printSkipSummary(p: *const Parser, counters: *property.SkipCounter) void {
+    const SkipEntry = struct { name: []const u8, count: u32 };
+    var skip_entries = std.ArrayList(SkipEntry).initCapacity(p.allocator, 0) catch return;
+    defer skip_entries.deinit(p.allocator);
+    var it = counters.map.iterator();
+    while (it.next()) |entry| {
+        skip_entries.append(p.allocator, .{ .name = entry.key_ptr.*, .count = entry.value_ptr.* }) catch {};
+    }
+    std.sort.block(SkipEntry, skip_entries.items, {}, struct {
+        fn lessThan(_: void, a: SkipEntry, b: SkipEntry) bool {
+            return a.count > b.count;
+        }
+    }.lessThan);
+    line("", .{});
+    line("Skipped / non-core property types encountered:", .{});
+    if (skip_entries.items.len == 0) {
+        line("  (none)", .{});
+    }
+    for (skip_entries.items) |entry| {
+        line("  {s}: {d}", .{ entry.name, entry.count });
+    }
+}
+
+/// Parse and print the property stream of a single export (`-props <index>`).
+pub fn printExportProperties(p: *const Parser, export_index: usize) void {
+    if (export_index >= p.export_data.len) {
+        line("error: export index {d} out of range ({d} exports)", .{ export_index, p.export_data.len });
+        return;
+    }
+    var counters = property.SkipCounter.init(p.allocator);
+    defer counters.deinit();
+    const ctx = propertyCtx(p);
+    const base: usize = @intCast(@max(p.export_map[export_index].serial_offset, 0));
+    const result = property.parseExport(p.export_data[export_index], base, &ctx, p.allocator) catch {
+        line("  (property parse failed)", .{});
+        return;
+    };
+    printExportPropertiesResult(p, export_index, result, &ctx, &counters);
+    printSkipSummary(p, &counters);
 }
 
 /// Print a human-readable dump of the parsed package: summary, name map,
@@ -64,4 +172,48 @@ pub fn generatePackageReport(p: *const Parser) void {
     }
     line("", .{});
     line("Export data: {d}/{d} exports have data, {d} total bytes", .{ with_data, p.export_data.len, total_bytes });
+
+    // Property streams: show the first few exports that have a non-empty
+    // property list; if none do, show the first data-bearing export.
+    var counters = property.SkipCounter.init(p.allocator);
+    defer counters.deinit();
+    var prop_shown: usize = 0;
+    var first_thin: ?usize = null;
+    line("", .{});
+    line("Properties ({d} exports shown):", .{max_property_exports});
+    var i: usize = 0;
+    while (i < p.export_data.len and prop_shown < max_property_exports) : (i += 1) {
+        const blob = p.export_data[i];
+        if (blob.len < 4) continue;
+        // Exports with ClassIndex 0 are UClass/Function/ScriptStruct definitions,
+        // serialized in a different (non-tagged-property) format.
+        if (p.export_map[i].class_index == 0) continue;
+        const ctx = propertyCtx(p);
+        const base: usize = @intCast(@max(p.export_map[i].serial_offset, 0));
+        const result = property.parseExport(blob, base, &ctx, p.allocator) catch continue;
+        if (result.truncated or result.properties.len == 0) {
+            // Not a clean property stream (native/class data, or no properties):
+            // remember the first one as a fallback, but don't count toward the cap.
+            property.deinitProperties(result.properties, p.allocator);
+            if (first_thin == null) first_thin = i;
+            continue;
+        }
+        prop_shown += 1;
+        printExportPropertiesResult(p, i, result, &ctx, &counters);
+    }
+    if (prop_shown == 0) {
+        if (first_thin) |fi| {
+            const ctx = propertyCtx(p);
+            const base: usize = @intCast(@max(p.export_map[fi].serial_offset, 0));
+            const result = property.parseExport(p.export_data[fi], base, &ctx, p.allocator) catch {
+                line("  (no parseable property streams)", .{});
+                return;
+            };
+            printExportPropertiesResult(p, fi, result, &ctx, &counters);
+        } else {
+            line("  (no parseable property streams)", .{});
+        }
+    }
+
+    printSkipSummary(p, &counters);
 }

@@ -31,6 +31,17 @@ pub fn main(init: std.process.Init) !void {
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "-report")) {
             debug.generatePackageReport(&p);
+        } else if (std.mem.eql(u8, args[i], "-props")) {
+            if (i + 1 >= args.len) {
+                std.debug.print("error: -props needs an export index\n", .{});
+                return;
+            }
+            const index = std.fmt.parseInt(usize, args[i + 1], 10) catch {
+                std.debug.print("error: -props expects a number, got '{s}'\n", .{args[i + 1]});
+                return;
+            };
+            debug.printExportProperties(&p, index);
+            i += 1;
         } else if (std.mem.eql(u8, args[i], "-dump-image")) {
             const path = args[i + 1];
             try std.Io.Dir.cwd().writeFile(init.io, .{
@@ -72,7 +83,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("saved {d} bytes ({s}) to {s}\n", .{ bytes.len, @tagName(mode), save_path.? });
     }
 
-    std.debug.print("{f}\n", .{p.package_file_summary});
+    // std.debug.print("{f}\n", .{p.package_file_summary});
 
     std.debug.print("parsed: {d} names, {d} imports, {d} exports\n", .{
         p.name_map.len,
