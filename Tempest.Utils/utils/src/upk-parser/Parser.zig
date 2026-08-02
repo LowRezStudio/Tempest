@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const unreal = @import("unreal.zig");
-const Compression = @import("compression.zig");
+const compression = @import("compression.zig");
 
 const FPackageFileSummary = unreal.FPackageFileSummary;
 const FNameEntry = unreal.FNameEntry;
@@ -84,7 +84,7 @@ pub fn parse(self: *Parser) !void {
     const summary = &self.package_file_summary;
 
     if (summary.package_flags.store_compressed) {
-        self.data_buffer = try Compression.decompressPackage(
+        self.data_buffer = try compression.decompressPackage(
             self.allocator,
             self.file_buffer,
             summary.compressed_chunks,
@@ -92,7 +92,7 @@ pub fn parse(self: *Parser) !void {
         );
         self.data_owned = true;
     } else if (summary.package_flags.store_fully_compressed) {
-        self.data_buffer = try Compression.decompressStream(
+        self.data_buffer = try compression.decompressStream(
             self.allocator,
             self.file_buffer,
             @bitCast(summary.compression_flags),
@@ -262,7 +262,7 @@ pub const SaveMode = enum {
     uncompressed,
 };
 
-const SaveError = unreal.WriteError || Compression.Error || error{
+const SaveError = unreal.WriteError || compression.Error || error{
     InvalidOffset,
 };
 
@@ -270,7 +270,6 @@ const SaveError = unreal.WriteError || Compression.Error || error{
 /// compression: each chunk is ≤ 1 MiB uncompressed.
 const package_chunk_size: usize = 0x100000;
 
-// TODO: cleanup (ty deepseek)
 /// Rebuild the package from the parsed structs and return the serialized file,
 pub fn save(self: *Parser, mode: SaveMode) SaveError![]u8 {
     const a = self.allocator;
@@ -377,7 +376,7 @@ pub fn save(self: *Parser, mode: SaveMode) SaveError![]u8 {
             @memcpy(maps_buf[moff .. moff + part.len], part);
             moff += part.len;
         }
-        const maps_stream = try Compression.compressStream(a, flags, maps_buf);
+        const maps_stream = try compression.compressStream(a, flags, maps_buf);
         defer a.free(maps_stream);
         chunk_table[0] = .{
             .uncompressed_offset = @intCast(name_offset),
@@ -392,7 +391,7 @@ pub fn save(self: *Parser, mode: SaveMode) SaveError![]u8 {
         var prev: usize = 0;
         for (chunk_ends) |end| {
             const us = end - prev;
-            const stream = try Compression.compressStream(a, flags, export_data_concat[prev..end]);
+            const stream = try compression.compressStream(a, flags, export_data_concat[prev..end]);
             defer a.free(stream);
             chunk_table[chunk_idx] = .{
                 .uncompressed_offset = @intCast(total_header_size + prev),

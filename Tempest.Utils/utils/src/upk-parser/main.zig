@@ -1,9 +1,8 @@
 const std = @import("std");
-const Io = std.Io;
 const builtin = @import("builtin");
 
 const debug = @import("debug.zig");
-const Parser = @import("parser.zig");
+const Parser = @import("Parser.zig");
 
 pub fn main(init: std.process.Init) !void {
     var allocator = init.arena.allocator();

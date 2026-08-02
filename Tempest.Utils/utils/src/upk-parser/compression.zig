@@ -2,15 +2,16 @@ const std = @import("std");
 const minilzo = @import("minilzo");
 const unreal = @import("unreal.zig");
 
-pub const COMPRESS_None: u32 = 0x00;
-pub const COMPRESS_ZLIB: u32 = 0x01;
-pub const COMPRESS_LZO: u32 = 0x02;
-pub const COMPRESS_LZX: u32 = 0x04;
-pub const COMPRESS_BiasMemory: u32 = 0x10;
-pub const COMPRESS_BiasSpeed: u32 = 0x20;
-pub const COMPRESS_Obscured: u32 = 0x200;
+/// UE ECompressionFlags bit values (from Core/UnFile.h).
+pub const compress_none: u32 = 0x00;
+pub const compress_zlib: u32 = 0x01;
+pub const compress_lzo: u32 = 0x02;
+pub const compress_lzx: u32 = 0x04;
+pub const compress_bias_memory: u32 = 0x10;
+pub const compress_bias_speed: u32 = 0x20;
+pub const compress_obscured: u32 = 0x200;
 
-pub const default_codec = COMPRESS_LZO;
+pub const default_codec = compress_lzo;
 pub const default_chunk_size: u32 = 0x20000;
 
 pub const Error = std.mem.Allocator.Error || std.Io.Reader.Error || error{
@@ -38,14 +39,14 @@ fn mapLZOError(err: anyerror) Error {
     };
 }
 
-/// XOR every byte in place with 0x2A (COMPRESS_Obscured). Symmetric - the same
+/// XOR every byte in place with 0x2A (compress_obscured). Symmetric - the same
 /// transform both obscures and de-obscures.
 pub fn obscure(buf: []u8) void {
     for (buf) |*b| b.* ^= 0x2A;
 }
 
 /// Decompress one buffer with the codec selected by `flags`, returning an owned
-/// buffer of `uncompressed_size` bytes. Handles the COMPRESS_Obscured XOR
+/// buffer of `uncompressed_size` bytes. Handles the compress_obscured XOR
 /// layer automatically.
 pub fn decompressMemory(
     allocator: std.mem.Allocator,
@@ -55,19 +56,19 @@ pub fn decompressMemory(
 ) Error![]u8 {
     const codec = flags & 0xF;
     return switch (codec) {
-        COMPRESS_LZO => minilzo.decompressMemory(
+        compress_lzo => minilzo.decompressMemory(
             allocator,
             compressed,
             uncompressed_size,
-            flags & COMPRESS_Obscured != 0,
+            flags & compress_obscured != 0,
         ) catch |err| return mapLZOError(err),
-        COMPRESS_ZLIB => zlibDecompress(
+        compress_zlib => zlibDecompress(
             allocator,
             compressed,
             uncompressed_size,
-            flags & COMPRESS_Obscured != 0,
+            flags & compress_obscured != 0,
         ),
-        COMPRESS_None => blk: {
+        compress_none => blk: {
             // Raw copy - used by uncompressed chunks.
             if (compressed.len != uncompressed_size) return error.CorruptData;
             break :blk try allocator.dupe(u8, compressed);
@@ -77,18 +78,18 @@ pub fn decompressMemory(
 }
 
 /// Compress `data` with the codec selected by `flags`, applying the
-/// COMPRESS_Obscured XOR layer on top. Returns an owned
+/// compress_obscured XOR layer on top. Returns an owned
 /// buffer of the compressed bytes.
 pub fn compressMemory(allocator: std.mem.Allocator, flags: u32, data: []const u8) Error![]u8 {
     const codec = flags & 0xF;
     const out: []u8 = switch (codec) {
-        COMPRESS_LZO => minilzo.compress(allocator, data) catch |err| return mapLZOError(err),
-        COMPRESS_ZLIB => try zlibCompress(allocator, data),
+        compress_lzo => minilzo.compress(allocator, data) catch |err| return mapLZOError(err),
+        compress_zlib => try zlibCompress(allocator, data),
         else => return error.UnsupportedCompression,
     };
     errdefer allocator.free(out);
 
-    if (flags & COMPRESS_Obscured != 0) obscure(out);
+    if (flags & compress_obscured != 0) obscure(out);
     return out;
 }
 
@@ -212,9 +213,9 @@ test "lzo round trip" {
     var data: [2048]u8 = undefined;
     for (&data, 0..) |*b, i| b.* = @truncate(i * 7 + 3);
 
-    const compressed = try compressMemory(a, COMPRESS_LZO, &data);
+    const compressed = try compressMemory(a, compress_lzo, &data);
     defer a.free(compressed);
-    const dec = try decompressMemory(a, COMPRESS_LZO, compressed, data.len);
+    const dec = try decompressMemory(a, compress_lzo, compressed, data.len);
     defer a.free(dec);
     try std.testing.expectEqualSlices(u8, &data, dec);
 }
@@ -224,7 +225,7 @@ test "lzo obscured round trip" {
     var data: [512]u8 = undefined;
     for (&data, 0..) |*b, i| b.* = @truncate(i + 1);
 
-    const flags = COMPRESS_LZO | COMPRESS_Obscured;
+    const flags = compress_lzo | compress_obscured;
     const compressed = try compressMemory(a, flags, &data);
     defer a.free(compressed);
     const dec = try decompressMemory(a, flags, compressed, data.len);
@@ -237,9 +238,9 @@ test "zlib round trip" {
     var data: [1024]u8 = undefined;
     for (&data, 0..) |*b, i| b.* = @truncate(i * 3);
 
-    const compressed = try compressMemory(a, COMPRESS_ZLIB, &data);
+    const compressed = try compressMemory(a, compress_zlib, &data);
     defer a.free(compressed);
-    const dec = try decompressMemory(a, COMPRESS_ZLIB, compressed, data.len);
+    const dec = try decompressMemory(a, compress_zlib, compressed, data.len);
     defer a.free(dec);
     try std.testing.expectEqualSlices(u8, &data, dec);
 }
@@ -288,10 +289,10 @@ test "stream round trip" {
     var data: [70000]u8 = undefined; // spans multiple 0x20000 chunks if chunked
     for (&data, 0..) |*b, i| b.* = @truncate(i * 11);
 
-    const stream = try compressStream(a, COMPRESS_LZO, &data);
+    const stream = try compressStream(a, compress_lzo, &data);
     defer a.free(stream);
 
-    const dec = try decompressStream(a, stream, COMPRESS_LZO);
+    const dec = try decompressStream(a, stream, compress_lzo);
     defer a.free(dec);
     try std.testing.expectEqualSlices(u8, &data, dec);
 }
@@ -301,7 +302,7 @@ test "stream round trip obscured" {
     var data: [70000]u8 = undefined;
     for (&data, 0..) |*b, i| b.* = @truncate(i * 13);
 
-    const flags = COMPRESS_LZO | COMPRESS_Obscured;
+    const flags = compress_lzo | compress_obscured;
     const stream = try compressStream(a, flags, &data);
     defer a.free(stream);
 

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Parser = @import("parser.zig");
+const Parser = @import("Parser.zig");
 
 fn line(comptime fmt: []const u8, args: anytype) void {
     std.debug.print(fmt ++ "\n", args);
