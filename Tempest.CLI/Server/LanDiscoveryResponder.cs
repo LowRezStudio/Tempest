@@ -114,7 +114,7 @@ internal sealed class LanDiscoveryResponder(
             Gamemode = options.GameMode ?? "",
             Game = "Paladins",
             Version = options.Version ?? "",
-            Players = (uint)info.Players.Count,
+            Players = (uint)state.PlayerCount,
             MaxPlayers = (uint)options.MaxPlayers,
             Bots = 0,
             MaxSpectators = 0,

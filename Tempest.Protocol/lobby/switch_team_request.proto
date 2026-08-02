@@ -1,0 +1,8 @@
+syntax = "proto3";
+package tempest.lobby;
+option csharp_namespace = "Tempest.Protocol.Lobby";
+
+message SwitchTeamRequest {
+  // Target team: 1 = left team, 2 = right team, 0 = spectator (neither team)
+  int32 team = 1;
+}

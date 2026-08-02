@@ -5,6 +5,7 @@
 	import LobbyChat from "$lib/components/lobby/LobbyChat.svelte";
 	import LobbyMapVote from "$lib/components/lobby/LobbyMapVote.svelte";
 	import LobbyOverlay from "$lib/components/lobby/LobbyOverlay.svelte";
+	import LobbySpectator from "$lib/components/lobby/LobbySpectator.svelte";
 	import LobbyWaiting from "$lib/components/lobby/LobbyWaiting.svelte";
 	import { killGame } from "$lib/core";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
@@ -17,12 +18,14 @@
 		isInChampionSelect,
 		isInGame,
 		isInMapVote,
+		isSpectator,
 		isWaiting,
 		joinErrorCode,
 		lobbyPassword,
 		state as lobbyState,
 		lobbyStaticInfo,
 		ownChampion,
+		playerCount,
 		playerId,
 		players,
 		teamLeft,
@@ -46,10 +49,11 @@
 	);
 
 	const launchGameMutation = createLaunchGameMutation();
+	const canLaunchGame = $derived(ownChampion.value || isSpectator.value);
 	const runAfkDetection = $derived(
 		!!(
 			lobbyState.value.inGame?.gameServerOpen &&
-			ownChampion.value &&
+			canLaunchGame &&
 			!gameRunning &&
 			!launchGameMutation.isPending
 		),
@@ -60,7 +64,7 @@
 			isGameServerOpen.value &&
 			!gameRunning &&
 			!launchGameMutation.isPending &&
-			ownChampion &&
+			canLaunchGame &&
 			!currentInstance.value
 		) {
 			console.log("Trying to launch the game!");
@@ -150,7 +154,7 @@
 		<!-- TODO: Remove 0.57 placeholder -->
 		<LobbyMapVote
 			{handleLeave}
-			playerCount={players.value.length}
+		playerCount={playerCount.value}
 			{handleMapSelect}
 			votes={lobbyState.value.mapVote?.votes}
 			gameVersion={lobbyStaticInfo.value?.version ?? "0.57"}
@@ -170,6 +174,7 @@
 		disabled={connectionStatus.value !== "connected"}
 		{handleSendChatMessage}
 	/>
+	<LobbySpectator />
 	<LobbyOverlay
 		disconnected={connectionStatus.value === "disconnected"}
 		gameServerError={!!lobbyState.value.inGame?.gameServerError}
@@ -178,7 +183,7 @@
 		{handleJoin}
 		lobbyVersion={lobbyStaticInfo.value?.version || "unknown"}
 		maxPlayerCount={lobbyStaticInfo.value?.maxPlayers || 0}
-		playerCount={players.value.length}
+		playerCount={playerCount.value}
 	/>
 	<AfkDetector {runAfkDetection} onAfk={handleLeave} />
 </div>

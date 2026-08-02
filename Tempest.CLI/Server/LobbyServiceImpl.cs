@@ -95,7 +95,7 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
             Gamemode = options.GameMode ?? string.Empty,
             Game = "Paladins",
             Version = options.Version,
-            Players = (uint)info.Players.Count,
+            Players = (uint)state.PlayerCount,
             MaxPlayers = (uint)options.MaxPlayers,
             HasPassword = !string.IsNullOrEmpty(options.Password),
         };
@@ -173,6 +173,16 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
         return Task.FromResult(new MapVoteResponse());
     }
 
+    public override Task<SwitchTeamResponse> SwitchTeam(SwitchTeamRequest request, ServerCallContext context)
+    {
+        if (TryGetPlayerId(context, out var playerId))
+        {
+            logger.LogInformation("Player {PlayerId} requested team switch to {Team}", playerId, request.Team);
+            state.TrySwitchTeam(playerId, request.Team);
+        }
+        return Task.FromResult(new SwitchTeamResponse());
+    }
+
     public override Task<SendChatMessageResponse> SendChatMessage(SendChatMessageRequest request, ServerCallContext context)
     {
         if (string.IsNullOrWhiteSpace(request.Content))
@@ -200,7 +210,7 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
             });
         }
 
-        if (request.Channel is not "global" and not "team")
+        if (request.Channel is not "global")
         {
             return Task.FromResult(new SendChatMessageResponse
             {

@@ -18,6 +18,8 @@ import { SendCommandRequest } from "./send_command_request";
 // @generated from protobuf file "lobby/lobby_service.proto" (package "tempest.lobby", syntax proto3)
 // tslint:disable
 import { SendCommandResponse } from "./send_command_response";
+import { SwitchTeamRequest } from "./switch_team_request";
+import { SwitchTeamResponse } from "./switch_team_response";
 /**
  * @generated ServiceType for protobuf service tempest.lobby.Lobby
  */
@@ -34,6 +36,7 @@ export const Lobby = new ServiceType("tempest.lobby.Lobby", [
 	},
 	{ name: "ChampionSelect", options: {}, I: ChampionSelectRequest, O: ChampionSelectResponse },
 	{ name: "MapVote", options: {}, I: MapVoteRequest, O: MapVoteResponse },
+	{ name: "SwitchTeam", options: {}, I: SwitchTeamRequest, O: SwitchTeamResponse },
 	{ name: "SendChatMessage", options: {}, I: SendChatMessageRequest, O: SendChatMessageResponse },
 	{ name: "SendCommand", options: {}, I: SendCommandRequest, O: SendCommandResponse },
 ]);

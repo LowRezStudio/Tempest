@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { ChevronLeft, ChevronRight } from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages";
 	// ponytail: Slanted border drawn as SVG polygons with perfectly horizontal Y-axis caps to match the background slants
 	interface Props {
 		displayName: string;
@@ -6,6 +8,8 @@
 		status: string;
 		team?: "left" | "right";
 		compact?: boolean;
+		canSwitchTeam?: boolean;
+		onSwitchTeam?: () => void;
 	}
 
 	let {
@@ -14,6 +18,8 @@
 		status,
 		team = "left",
 		compact = false,
+		canSwitchTeam = false,
+		onSwitchTeam = () => {},
 	}: Props = $props();
 
 	let hasChampion = $derived(!!champion);
@@ -57,6 +63,15 @@
 		<svg class="absolute right-0 top-0 bottom-0 h-full w-6 text-blue-500 z-20" viewBox="0 0 24 100" preserveAspectRatio="none">
 			<polygon points="0,0 8,0 24,100 16,100" fill="currentColor" />
 		</svg>
+		{#if canSwitchTeam}
+			<button
+				class="btn btn-ghost btn-circle btn-xs absolute right-1 top-1/2 -translate-y-1/2 z-30 text-blue-300 hover:text-blue-100 hover:bg-blue-500/20"
+				title={m.lobby_switch_team()}
+				onclick={onSwitchTeam}
+			>
+				<ChevronRight size={16} />
+			</button>
+		{/if}
 	</div>
 {:else}
 	<div
@@ -96,5 +111,14 @@
 		<svg class="absolute top-0 left-0 bottom-0 h-full w-6 text-red-500 z-20" viewBox="0 0 24 100" preserveAspectRatio="none">
 			<polygon points="16,0 24,0 8,100 0,100" fill="currentColor" />
 		</svg>
+		{#if canSwitchTeam}
+			<button
+				class="btn btn-ghost btn-circle btn-xs absolute left-1 top-1/2 -translate-y-1/2 z-30 text-red-300 hover:text-red-100 hover:bg-red-500/20"
+				title={m.lobby_switch_team()}
+				onclick={onSwitchTeam}
+			>
+				<ChevronLeft size={16} />
+			</button>
+		{/if}
 	</div>
 {/if}

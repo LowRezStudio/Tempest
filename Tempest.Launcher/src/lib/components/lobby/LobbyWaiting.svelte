@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Users } from "@lucide/svelte";
 	import champions from "$lib/data/champions.json";
-	import { lobbyWaitingState, teamLeft, teamRight } from "$lib/lobby/stores.svelte";
+	import { lobbyManager } from "$lib/lobby/lobby-manager";
+	import { lobbyWaitingState, playerId, teamLeft, teamRight } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import ChampionSelect from "../champions/ChampionSelect.svelte";
 	import Header from "../ui/Header.svelte";
@@ -116,6 +117,8 @@
 					status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
 					team="left"
 					compact={true}
+					canSwitchTeam={player.id === playerId.value}
+					onSwitchTeam={() => lobbyManager.switchTeam(2)}
 				/>
 			{/each}
 		</div>
@@ -131,6 +134,8 @@
 					status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
 					team="right"
 					compact={true}
+					canSwitchTeam={player.id === playerId.value}
+					onSwitchTeam={() => lobbyManager.switchTeam(1)}
 				/>
 			{/each}
 		</div>

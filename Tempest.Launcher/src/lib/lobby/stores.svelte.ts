@@ -63,21 +63,33 @@ export const lobbyStaticInfo = $state({ value: null as LobbyStaticInfo | null })
 
 export const debugPlayersStore = $state({ value: new Map<string, string>() });
 
-export const ownTeam = {
-	get value() {
-		return players.value.find((p) => p.id === playerId.value)?.taskForce;
-	},
-};
-
 export const teamLeft = {
 	get value() {
-		return players.value.filter((p) => p.taskForce === (ownTeam.value ?? 1));
+		return players.value.filter((p) => p.taskForce === 1);
 	},
 };
 
 export const teamRight = {
 	get value() {
-		return players.value.filter((p) => p.taskForce !== (ownTeam.value ?? 1));
+		return players.value.filter((p) => p.taskForce === 2);
+	},
+};
+
+export const spectators = {
+	get value() {
+		return players.value.filter((p) => p.taskForce === 0);
+	},
+};
+
+export const playerCount = {
+	get value() {
+		return players.value.filter((p) => p.taskForce !== 0).length;
+	},
+};
+
+export const isSpectator = {
+	get value() {
+		return players.value.find((p) => p.id === playerId.value)?.taskForce === 0;
 	},
 };
 
@@ -161,9 +173,9 @@ export const lobbyWaitingState = {
 			canRejoinGame: !!(isGameServerOpen.value && ownChampion.value),
 			canRejoinLobby:
 				!players.value.some((p) => p.id === playerId.value) &&
-				players.value.length < (lobbyStaticInfo.value?.maxPlayers ?? 0),
+				playerCount.value < (lobbyStaticInfo.value?.maxPlayers ?? 0),
 			canJoinInProgress: !!lobbyStaticInfo.value?.enableJoinInProgress && !ownChampion.value,
-			playerCount: players.value.length,
+			playerCount: playerCount.value,
 			minimumPlayerCount: state.value.waiting?.minPlayers ?? 0,
 			countdownSeconds: currentCountdownSeconds.value,
 			gameVersion: version,

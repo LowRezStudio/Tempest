@@ -42,14 +42,14 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             response = Error(JoinLobbyErrorCode.InvalidPassword, "Invalid password");
             return false;
         }
-        if (_players.Count >= options.MaxPlayers)
+        if (PlayerCount >= options.MaxPlayers)
         {
-            logger.LogWarning("Player {DisplayName} failed to join: lobby full ({PlayerCount}/{MaxPlayers})", displayName, _players.Count, options.MaxPlayers);
+            logger.LogWarning("Player {DisplayName} failed to join: lobby full ({PlayerCount}/{MaxPlayers})", displayName, PlayerCount, options.MaxPlayers);
             response = Error(JoinLobbyErrorCode.LobbyFull, "Lobby full");
             return false;
         }
         //simple balancing that puts the new player into the team that has less players
-        var team = _players.Values.Count(p => p.TaskForce == 1) > _players.Count / 2.0 ? 2 : 1;
+        var team = TeamCount(1) > PlayerCount / 2.0 ? 2 : 1;
         var player = new LobbyPlayer
         {
             Id = id,
@@ -65,7 +65,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             return false;
         }
 
-        logger.LogInformation("Player {DisplayName} joined lobby (team {Team}, {PlayerCount}/{MaxPlayers})", displayName, team, _players.Count, options.MaxPlayers);
+        logger.LogInformation("Player {DisplayName} joined lobby (team {Team}, {PlayerCount}/{MaxPlayers})", displayName, team, PlayerCount, options.MaxPlayers);
 
         Publish(new LobbyEvent
         {
@@ -83,7 +83,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     {
         if (_players.TryRemove(id, out var player))
         {
-            logger.LogInformation("Player {DisplayName} left lobby ({PlayerCount}/{MaxPlayers})", player.DisplayName, _players.Count, options.MaxPlayers);
+            logger.LogInformation("Player {DisplayName} left lobby ({PlayerCount}/{MaxPlayers})", player.DisplayName, PlayerCount, options.MaxPlayers);
             ticketStore.RevokeTickets(id);
             if (_state.MapVote != null)
             {
@@ -150,18 +150,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             }
         };
 
-        if (channel == "team" && _players.TryGetValue(playerId, out var sender))
-        {
-            var teamPlayers = _players.Values
-                .Where(p => p.TaskForce == sender.TaskForce)
-                .Select(p => p.Id)
-                .ToHashSet();
-            PublishTo(teamPlayers, evt);
-        }
-        else
-        {
-            Publish(evt);
-        }
+        Publish(evt);
     }
 
     public bool TrySelectChampion(string playerId, string champion)
@@ -175,6 +164,19 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             PlayerUpdate = new LobbyEventPlayerUpdate { Player = player }
         });
         StateMachine();
+        return true;
+    }
+    public bool TrySwitchTeam(string playerId, int team)
+    {
+        if (team is not (0 or 1 or 2)) return false;
+        if (!_players.TryGetValue(playerId, out var player)) return false;
+        logger.LogInformation("Player {DisplayName} switched to team {Team}", player.DisplayName, team);
+        player.TaskForce = team;
+        Publish(new LobbyEvent
+        {
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            PlayerUpdate = new LobbyEventPlayerUpdate { Player = player }
+        });
         return true;
     }
     public void Vote(string playerId, string mapId)
@@ -206,21 +208,22 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         {
             if (_state.Waiting != null)
             {
-                var enoughPlayers = _players.Count >= options.MinPlayers;
+                var enoughPlayers = PlayerCount >= options.MinPlayers;
                 if (enoughPlayers && _countdown == null) StartCountdown(10, EndWaiting);
                 else if (!enoughPlayers) CancelCountdown();
             }
             else if (_state.MapVote != null)
             {
-                var everyoneHasVoted = _state.MapVote.Votes.Count >= _players.Count && _state.MapVote.Votes.Count > 0;
+                var everyoneHasVoted = _state.MapVote.Votes.Count >= PlayerCount && _state.MapVote.Votes.Count > 0;
                 var oneHasVoted = _state.MapVote.Votes.Count > 0;
                 if (everyoneHasVoted) StartCountdown(5, EndMapVote);
                 else if (_countdown == null && oneHasVoted) StartCountdown(15, EndMapVote);
             }
             else if (_state.ChampionSelect != null)
             {
-                var allHaveSelected = _players.Values.All(p => p.Champion != null && p.Champion.Length > 0);
-                var oneHasSelected = _players.Values.Any(p => p.Champion != null && p.Champion.Length > 0);
+                var nonSpectators = _players.Values.Where(p => p.TaskForce != 0).ToList();
+                var allHaveSelected = nonSpectators.All(p => p.Champion != null && p.Champion.Length > 0);
+                var oneHasSelected = nonSpectators.Any(p => p.Champion != null && p.Champion.Length > 0);
                 if (allHaveSelected) StartCountdown(5, EndChampionSelect);
                 else if (_countdown == null && oneHasSelected) StartCountdown(60, EndChampionSelect);
             }
@@ -256,13 +259,14 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         var mapId = _state.ChampionSelect.MapId;
         foreach (var player in _players.Values)
         {
+            if (player.TaskForce == 0) continue; // spectators don't need a champion
             if (player.Champion == null || player.Champion.Length == 0)
             {
                 logger.LogInformation("Player {DisplayName} did not select a champion and was kicked", player.DisplayName);
                 KickPlayer(player.Id);
             }
         }
-        logger.LogInformation("Champion select ended, starting game server on map {MapId} with {PlayerCount} players", mapId, _players.Count);
+        logger.LogInformation("Champion select ended, starting game server on map {MapId} with {PlayerCount} players", mapId, PlayerCount);
         SetState(new Protocol.Lobby.LobbyState
         {
             InGame = new LobbyStateInGame
@@ -280,7 +284,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             player.Champion = string.Empty;
         }
         //not using SetState because it would cause an unnecessary state update
-        if (_players.Count >= options.MinPlayers)
+        if (PlayerCount >= options.MinPlayers)
         {
             _state = new Protocol.Lobby.LobbyState { MapVote = new LobbyStateMapVote() };
         }
@@ -440,6 +444,11 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         };
     }
 
+    // spectators (taskForce == 0) are not actual players, so they are excluded from player counts
+    public int PlayerCount => _players.Values.Count(p => p.TaskForce != 0);
+    public int TeamCount(int team) => _players.Values.Count(p => p.TaskForce == team);
+    public int SpectatorCount => _players.Values.Count(p => p.TaskForce == 0);
+
     private static JoinLobbyResponse Error(JoinLobbyErrorCode code, string message) => new()
     {
         Error = new JoinLobbyError
@@ -457,21 +466,6 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             foreach (var (_, s) in _subscribers.ToArray())
             {
                 try { s.OnNext(evt); } catch { /* ignore */ }
-            }
-        }
-    }
-
-    private void PublishTo(HashSet<string> playerIds, LobbyEvent evt)
-    {
-        lock (_gate)
-        {
-            _eventBuffer.Enqueue(evt);
-            foreach (var playerId in playerIds)
-            {
-                if (_subscribers.TryGetValue(playerId, out var s))
-                {
-                    try { s.OnNext(evt); } catch { /* ignore */ }
-                }
             }
         }
     }

@@ -64,30 +64,28 @@
 			<Plus size={20} />
 		</button>
 	</div>
-	<div class="flex flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none">
-		{#if commandsPageOpen.value}
-			<SidebarItem
-					label={m.commands_page_title()}
-					active={page.url.pathname === "/commands"}
-					href="/commands"
-				>
-					<Terminal size={20} />
-				</SidebarItem>
-		{/if}
-		{#each lobbyServerProcessesList.value as lobbyServer}
-			<SidebarItem
-					label={lobbyServer.createOptions.name}
-					active={page.route.id == "/lobby-admin/[pid]" &&
-						page.params.pid == String(lobbyServer.child.pid)}
-					href={`/lobby-admin/${lobbyServer.child.pid}`}
-				>
-					<SquareTerminal size={20} />
-				</SidebarItem>
-		{/each}
-	</div>
 	<div class="divider mx-4 my-4 opacity-50"></div>
 
 	<div class="mt-auto flex flex-col gap-2">
+		{#if commandsPageOpen.value}
+			<SidebarItem
+				label={m.commands_page_title()}
+				active={page.url.pathname === "/commands"}
+				href="/commands"
+			>
+				<Terminal size={20} />
+			</SidebarItem>
+		{/if}
+		{#each lobbyServerProcessesList.value as lobbyServer}
+			<SidebarItem
+				label={lobbyServer.createOptions.name}
+				active={page.route.id == "/lobby-admin/[pid]" &&
+					page.params.pid == String(lobbyServer.child.pid)}
+				href={`/lobby-admin/${lobbyServer.child.pid}`}
+			>
+				<SquareTerminal size={20} />
+			</SidebarItem>
+		{/each}
 		<LanguageSelector />
 		<SidebarItem href="/logs" label={m.sidebar_logs()}><ScrollText size={20} /></SidebarItem>
 		<SidebarItem href="/settings" label={m.sidebar_settings()}><Settings size={20} /></SidebarItem>

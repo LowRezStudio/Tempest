@@ -110,7 +110,7 @@ Makes it possible to add players, vote maps and select champions
 		const resp = await client.sendChatMessage(
 			{
 				content: content,
-				channel: "",
+				channel: "global",
 			},
 			rpcOptions(id),
 		);

@@ -134,7 +134,7 @@ internal class CommandHandler
 		Console.WriteLine($"Server:   {info.Name}");
 		Console.WriteLine($"Game:     {info.Game} v{info.Version}");
 		Console.WriteLine($"Gamemode: {info.Gamemode}");
-		Console.WriteLine($"Players:  {info.Players.Count}/{info.MaxPlayers}");
+		Console.WriteLine($"Players:  {_state.PlayerCount}/{info.MaxPlayers}");
 		Console.WriteLine($"Password: {(info.PasswordRequired ? "Yes" : "No")}");
 
 		var banCount = _banStore.GetAllBans().Count;
@@ -151,7 +151,7 @@ internal class CommandHandler
 			return;
 		}
 
-		Console.WriteLine($"Players ({info.Players.Count}/{info.MaxPlayers}):");
+		Console.WriteLine($"Players ({_state.PlayerCount}/{info.MaxPlayers}):");
 		foreach (var player in info.Players)
 		{
 			var champ = !string.IsNullOrEmpty(player.Champion) ? $" [{player.Champion}]" : "";

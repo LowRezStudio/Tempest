@@ -180,7 +180,7 @@ class LobbyManager {
 			joinErrorCode.value = JoinLobbyClientErrorCode.PASSWORD_REQUIRED;
 			return;
 		}
-		if (eventPlayers.length >= maxPlayers) {
+		if (eventPlayers.filter((p) => p.taskForce !== 0).length >= maxPlayers) {
 			joinErrorCode.value = JoinLobbyErrorCode.LOBBY_FULL;
 			return;
 		}
@@ -248,7 +248,8 @@ class LobbyManager {
 
 		const player = players.value.find((p) => p.id === playerId.value);
 		const isRunning = processesList.value.some((p) => p.instance.id === instance?.id);
-		if (!player || isRunning || !player.champion || !instance) return null;
+		if (!player || isRunning || !instance) return null;
+		if (player.taskForce !== 0 && !player.champion) return null;
 
 		const host = lobbyHost.value;
 		let ip = "";
@@ -262,7 +263,7 @@ class LobbyManager {
 
 		const name = username.value;
 		const character = player.champion.toLowerCase();
-		const team = player.taskForce;
+		const team = player.taskForce === 0 ? "spec" : player.taskForce;
 		let arg = `${ip}:${gameServerPort}?name=${name}?class=${character}?team=${team}?horse=2`;
 		if (lobbyPassword.value.length > 0) {
 			arg += `?password=${lobbyPassword.value}`;
@@ -287,7 +288,7 @@ class LobbyManager {
 		this.countdown = event.seconds === 0 ? undefined : event;
 	}
 
-	async sendChatMessage(content: string, channel = ""): Promise<void> {
+	async sendChatMessage(content: string, channel = "global"): Promise<void> {
 		if (!content.trim()) return;
 		const response = await this.getClient().sendChatMessage({ content, channel }).response;
 		if (response.result.oneofKind === "error") {
@@ -315,6 +316,14 @@ class LobbyManager {
 			console.log("Vote response:", response);
 		} catch (error) {
 			console.error("Error voting for map:", error);
+		}
+	}
+
+	async switchTeam(team: number): Promise<void> {
+		try {
+			await this.getClient().switchTeam({ team }).response;
+		} catch (error) {
+			console.error("Error switching team:", error);
 		}
 	}
 
