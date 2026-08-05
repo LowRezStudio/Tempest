@@ -53,7 +53,7 @@ internal sealed class JsonRestoreProgress(int totalFiles, long totalBytes) : IRe
             else
                 verifiedFiles += 1;
 
-            Emit(force: true);
+            Emit(force: false);
         }
     }
 

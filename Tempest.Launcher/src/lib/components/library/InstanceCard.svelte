@@ -1,6 +1,6 @@
 <script lang="ts">
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
-	import { Gamepad2, Pause, Play, Square, Trash2 } from "@lucide/svelte";
+	import { Gamepad2, Play, Square, Trash2 } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { m } from "$lib/paraglide/messages";
 	import { queueItems } from "$lib/rigby/stores.svelte";
@@ -62,41 +62,25 @@
 </script>
 
 {#if isActive}
-	<div class="bg-base-200 rounded-lg p-4 opacity-80">
+	<div class="bg-base-200 rounded-lg p-4 opacity-80 relative overflow-hidden">
 		<div class="flex items-center gap-3">
 			<div
 				class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
 				style="background-color: {iconBg}"
 			>
-				{#if queueItem?.status === "pending" || !isDownloading}
-					<Pause
-						size={24}
-						style="color: {getContrastColor(getInstanceColor(instance))};"
-					/>
-				{:else}
-					<div
-						class="radial-progress"
-						style="--value:{downloadProgress}; --size:3rem; --thickness:4px; color: {getContrastColor(
-							getInstanceColor(instance),
-						)};"
+				{#if isDownloading}
+					<span
+						class="text-xs font-bold tabular-nums"
+						style="color: {getContrastColor(iconBg)};"
+						>{Math.round(downloadProgress)}%</span
 					>
-						<span
-							class="text-xs font-semibold"
-							style="color: {getContrastColor(getInstanceColor(instance))};"
-							>{Math.round(downloadProgress)}%</span
-						>
-					</div>
+				{:else}
+					<PaladinsIcon size={40} color={getContrastColor(iconBg)} />
 				{/if}
 			</div>
 			<div class="flex-1 min-w-0">
 				<h3 class="font-bold text-base truncate mb-0.5">{instance.label}</h3>
 				<div class="flex items-center gap-2 text-sm">
-					{#if instance.version && !isDownloading}
-						<span class="opacity-70 font-mono flex items-center gap-1.5">
-							<Gamepad2 size={12} />
-							{instance.version}
-						</span>
-					{/if}
 					{#if isDownloading}
 						{#if queueItem?.status === "pending"}
 							<span class="text-accent">{m.common_waiting_in_queue()}</span>
@@ -126,6 +110,11 @@
 				<InstanceMenu {instance} />
 			</div>
 		</div>
+
+		<div
+			class="absolute bottom-0 left-0 h-1 rounded-full"
+			style="width: {downloadProgress}%; background-color: {iconBg}; transition: width 0.3s ease;"
+		></div>
 	</div>
 {:else}
 	<div

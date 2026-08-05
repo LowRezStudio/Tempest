@@ -10,6 +10,7 @@
 		Trash2,
 	} from "@lucide/svelte";
 	import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import InstanceSettingsModal from "$lib/components/library/InstanceSettingsModal.svelte";
@@ -109,6 +110,10 @@
 		updateInstance(instance.id, {
 			state: { type: "downloading" },
 		});
+
+		if (isOnInstancePage) {
+			goto("/downloads");
+		}
 	}
 
 	let isSettingsModalOpen = $state(false);

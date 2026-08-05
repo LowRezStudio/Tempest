@@ -102,6 +102,7 @@
 	"downloads_no_downloads": "Нет загрузок в очереди",
 	"downloads_no_downloads_hint": "Добавьте операции восстановления из библиотеки",
 	"downloads_pending": "в очереди",
+	"downloads_verifying": "проверка",
 	"downloads_paused": "на паузе",
 	"downloads_complete": "готово",
 	"downloads_failed": "ошибка",

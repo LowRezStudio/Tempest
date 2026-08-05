@@ -100,6 +100,7 @@
 	"downloads_no_downloads": "Sin descargas en cola",
 	"downloads_no_downloads_hint": "Añade operaciones de restauración desde la biblioteca",
 	"downloads_pending": "pendientes",
+	"downloads_verifying": "verificando",
 	"downloads_paused": "pausadas",
 	"downloads_complete": "completadas",
 	"downloads_failed": "fallidas",

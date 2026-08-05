@@ -187,7 +187,7 @@
 					</EmptyState>
 				{:else}
 					<div class="space-y-2">
-						{#each queueItems.value as item (item.id)}
+						{#each [...queueItems.value].reverse() as item (item.id)}
 							<div class="bg-base-200 rounded-lg p-4">
 								<div class="flex items-start justify-between gap-4">
 									<div class="flex-1 min-w-0">

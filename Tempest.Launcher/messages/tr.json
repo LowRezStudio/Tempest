@@ -101,6 +101,7 @@
 	"downloads_no_downloads": "Sırada bekleyen bir indirme yok",
 	"downloads_no_downloads_hint": "Kütüphaneden veri döndürme işlemlerini ekle",
 	"downloads_pending": "bekleniyor",
+	"downloads_verifying": "doğrulanıyor",
 	"downloads_paused": "durduruldu",
 	"downloads_complete": "tamamlandı",
 	"downloads_failed": "başarısız oldu",

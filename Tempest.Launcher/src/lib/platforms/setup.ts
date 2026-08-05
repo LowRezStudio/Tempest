@@ -1,6 +1,7 @@
 import { path as tauriPath } from "@tauri-apps/api";
 import { readDir } from "@tauri-apps/plugin-fs";
 import { createCommand } from "$lib/core/command";
+import { installAutoMods } from "$lib/core/mods";
 import { getInstanceAssemblyDbPath, getInstanceTokensDir } from "$lib/core/paths";
 import { allowScopeDirectory } from "$lib/tauri/scopes";
 import type { Instance, InstancePlatform } from "$lib/types/instance";
@@ -9,6 +10,8 @@ const defaultGameExe = "Paladins.exe";
 const fallbackTokenDll = "MctsInterface.dll";
 
 export const setupInstance = async (instance: Instance): Promise<void> => {
+	await installAutoMods(instance);
+
 	await allowScopeDirectory(instance.path, true);
 
 	const tokensDir = await getInstanceTokensDir(instance.id);

@@ -1,5 +1,8 @@
+import { resolveResource } from "@tauri-apps/api/path";
+import { getQueryClient } from "$lib/queries/client";
 import { appendProcessLogs } from "$lib/stores/processes.svelte";
 import { createCommand } from "./command";
+import type { Instance } from "$lib/types/instance";
 
 export type ModAuthor = {
 	Name: string;
@@ -32,6 +35,29 @@ export type ModInstallResult = {
 
 export type ModListResult = {
 	Mods: ModRecord[];
+};
+
+const MULTIPLAYER_MOD_VERSIONS = new Set(["0.56", "0.57"]);
+
+export const installAutoMods = async (instance: Instance): Promise<void> => {
+	const gamePath = instance?.path;
+	if (!gamePath) return;
+
+	const resources = ["Console Mod.tempest"];
+	if (instance.version && MULTIPLAYER_MOD_VERSIONS.has(instance.version)) {
+		resources.push("Multiplayer Mod.tempest");
+	}
+
+	for (const resource of resources) {
+		try {
+			const modFile = await resolveResource(resource);
+			await installMod(gamePath, modFile, true, true);
+		} catch (error) {
+			console.error(`Failed to install ${resource}:`, error);
+		}
+	}
+
+	void getQueryClient()?.invalidateQueries({ queryKey: ["mods", gamePath] });
 };
 
 export const listMods = async (gamePath: string): Promise<ModRecord[]> => {

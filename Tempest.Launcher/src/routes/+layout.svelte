@@ -6,10 +6,12 @@
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
 	import favicon from "$lib/assets/favicon.ico?url";
 	import AppShell from "$lib/components/layout/AppShell.svelte";
+	import { setQueryClient } from "$lib/queries/client";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 
 	const { children } = $props();
 	const queryClient = new QueryClient();
+	setQueryClient(queryClient);
 
 	$effect(() => {
 		updaterStore.checkForUpdates(true);

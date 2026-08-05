@@ -2,12 +2,10 @@
 	import { AlertCircle, BookOpen, CloudDownload, Code, Folder, Loader2 } from "@lucide/svelte";
 	import { Tabs } from "bits-ui";
 	import { path } from "@tauri-apps/api";
-	import { resolveResource } from "@tauri-apps/api/path";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { platform } from "@tauri-apps/plugin-os";
 	import Modal from "$lib/components/ui/Modal.svelte";
-	import { installMod } from "$lib/core/mods";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
 	import { createIdentifyBuildMutation } from "$lib/queries/core";
@@ -21,7 +19,7 @@
 		WIKI_BASE_URL,
 	} from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
-	import { addInstance, updateInstance } from "$lib/stores/instance.svelte";
+	import { addInstance, instanceMap, updateInstance } from "$lib/stores/instance.svelte";
 	import { defaultInstancePath } from "$lib/stores/settings.svelte";
 	import type { Instance, InstanceState } from "$lib/types/instance";
 
@@ -44,7 +42,6 @@
 	let selectedVersionId = $state("");
 	let selectedPath = $state("");
 	let showAdvanced = $state(false);
-	let enableConsole = $state(true);
 	let copyStatus = $state<"idle" | "copied" | "failed">("idle");
 
 	let detectionError = $state("");
@@ -134,6 +131,14 @@
 		}
 	};
 
+	function findExistingInstance(targetPath: string) {
+		const target = targetPath.trim().replace(/[\\/]+$/, "").toLowerCase();
+		return Object.values(instanceMap.value).find((i) => {
+			if (!i?.path) return false;
+			return i.path.trim().replace(/[\\/]+$/, "").toLowerCase() === target;
+		});
+	}
+
 	async function handleCreate() {
 		if (!isValid) return;
 
@@ -151,6 +156,19 @@
 
 		if (selectedTab === "download") {
 			if (!selectedVersion?.version || !supportsCloudDownload) return;
+
+			const existing = findExistingInstance(instancePath);
+			if (existing) {
+				const manifestId = existing.manifestId ?? selectedVersion.id;
+				restoreQueue.add({
+					manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", manifestId)],
+					outDir: existing.path,
+					baseUrl: RIGBY_BASE_URL,
+				});
+				updateInstance(existing.id, { state: { type: "downloading" } });
+				open = false;
+				return;
+			}
 
 			const newInstance: Instance = {
 				id: crypto.randomUUID(),
@@ -205,15 +223,6 @@
 		addInstance(newInstance);
 		void runSetup(newInstance);
 
-		if (enableConsole) {
-			try {
-				const modFile = await resolveResource("Console Mod.tempest");
-				await installMod(instancePath, modFile, true, true);
-			} catch (error) {
-				console.error("Failed to install Console mod:", error);
-			}
-		}
-
 		open = false;
 	}	
 
@@ -224,7 +233,6 @@
 			selectedVersionId = "";
 			selectedPath = "";
 			showAdvanced = false;
-			enableConsole = true;
 			hasDetected = false;
 			detectionError = "";
 			loginMethod = undefined;
@@ -510,13 +518,6 @@
 						</div>
 					</div>
 				{/if}
-
-				<div class="form-control">
-					<label class="label cursor-pointer justify-start gap-3 py-1">
-						<input type="checkbox" class="checkbox checkbox-accent checkbox-sm" bind:checked={enableConsole} />
-						<span class="label-text text-sm">Enable Console</span>
-					</label>
-				</div>
 			{/if}
 		</div>
 	</div>

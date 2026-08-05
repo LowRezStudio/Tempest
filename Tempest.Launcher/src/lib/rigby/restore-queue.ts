@@ -1,4 +1,5 @@
 import { createCommand } from "$lib/core/command";
+import { installAutoMods } from "$lib/core/mods";
 import { m } from "$lib/paraglide/messages";
 import { instanceMap, updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, logCommandOutput } from "$lib/stores/processes.svelte";
@@ -278,6 +279,7 @@ export class RestoreQueue {
 								progress: undefined,
 							});
 							this.updateInstanceState(item.outDir, "prepared");
+							this.installModsForOutDir(item.outDir);
 						}
 					} catch {
 						console.warn("Failed to parse JSON line:", line);
@@ -351,6 +353,7 @@ export class RestoreQueue {
 									progress: undefined,
 								});
 								this.updateInstanceState(item.outDir, "prepared");
+								this.installModsForOutDir(item.outDir);
 								finish();
 								return;
 							}
@@ -405,6 +408,16 @@ export class RestoreQueue {
 			updateInstance(instance.id, {
 				state: { type: stateType },
 			});
+		}
+	}
+
+	private installModsForOutDir(outDir: string): void {
+		const instances = instanceMap.get();
+		const instance = Object.values(instances).find((inst) => inst?.path === outDir) as
+			| Instance
+			| undefined;
+		if (instance?.id) {
+			void installAutoMods(instance);
 		}
 	}
 

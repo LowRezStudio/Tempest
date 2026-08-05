@@ -101,6 +101,7 @@
 	"downloads_no_downloads": "No downloads in queue",
 	"downloads_no_downloads_hint": "Add restore operations from the library",
 	"downloads_pending": "pending",
+	"downloads_verifying": "verifying",
 	"downloads_paused": "paused",
 	"downloads_complete": "complete",
 	"downloads_failed": "failed",

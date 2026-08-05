@@ -102,6 +102,7 @@
 	"downloads_no_downloads": "Brak plików do pobrania w kolejce",
 	"downloads_no_downloads_hint": "Dodaj operacje przywracania z biblioteki",
 	"downloads_pending": "oczekujące",
+	"downloads_verifying": "weryfikacja",
 	"downloads_paused": "wstrzymane",
 	"downloads_complete": "zakończone",
 	"downloads_failed": "nieudane",
