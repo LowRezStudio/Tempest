@@ -183,6 +183,16 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
         return Task.FromResult(new SwitchTeamResponse());
     }
 
+    public override Task<SetReadyResponse> SetReady(SetReadyRequest request, ServerCallContext context)
+    {
+        if (TryGetPlayerId(context, out var playerId))
+        {
+            logger.LogInformation("Player {PlayerId} set ready to {Ready}", playerId, request.Ready);
+            state.TrySetReady(playerId, request.Ready);
+        }
+        return Task.FromResult(new SetReadyResponse());
+    }
+
     public override Task<SendChatMessageResponse> SendChatMessage(SendChatMessageRequest request, ServerCallContext context)
     {
         if (string.IsNullOrWhiteSpace(request.Content))

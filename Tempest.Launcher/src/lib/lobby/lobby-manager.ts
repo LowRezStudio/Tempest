@@ -327,7 +327,19 @@ class LobbyManager {
 		}
 	}
 
+	async setReady(ready: boolean): Promise<void> {
+		try {
+			await this.getClient().setReady({ ready }).response;
+		} catch (error) {
+			console.error("Error setting ready:", error);
+		}
+	}
+
 	async joinLobby(): Promise<void> {
+		if (players.value.some((p) => p.id === playerId.value)) {
+			console.log("Already in lobby, skipping joinLobby");
+			return;
+		}
 		joinErrorCode.value = null;
 		const joinResp = await this.getClient().joinLobby({
 			authMethod: AuthMethod.PLAIN,

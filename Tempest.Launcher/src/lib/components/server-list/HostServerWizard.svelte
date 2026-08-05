@@ -28,7 +28,6 @@
 	let selectedPublic = $state(false);
 	let selectedGameMode = $state<GameMode>("TempestMp.Siege");
 	let selectedMaxPlayers = $state<number>(10);
-	let selectedMinPlayers = $state<number>(1);
 	let selectedMaxSpectators = $state<number>(5);
 	let selectedPort = $state<number>(50051);
 	let selectedGameServerPort = $state<number>(7000);
@@ -51,7 +50,6 @@
 			tags: selectedTags,
 			version: instance.version || "?",
 			"max-players": String(selectedMaxPlayers),
-			"min-players": String(selectedMinPlayers),
 			"public-server": selectedPublic,
 			gamemode: selectedGameMode,
 			password: selectedPassword || undefined,
@@ -79,7 +77,6 @@
 			selectedPassword = "";
 			selectedTags = "";
 			selectedMaxPlayers = 10;
-			selectedMinPlayers = 1;
 			selectedMaxSpectators = 5;
 			selectedPort = 50051;
 			selectedGameServerPort = 7000;
@@ -210,21 +207,6 @@
 					max="30"
 					placeholder={m.hostserver_players_range()}
 					bind:value={selectedMaxPlayers}
-				/>
-			</div>
-			<div class="form-control">
-				<label for="server-min-players" class="label py-0.5">
-					<span class="label-text text-sm">{m.hostserver_min_players()}</span>
-				</label>
-				<input
-					id="server-min-players"
-					type="number"
-					class="input input-bordered w-full user-invalid:validator"
-					required
-					min="1"
-					max="30"
-					placeholder={m.hostserver_players_range_min()}
-					bind:value={selectedMinPlayers}
 				/>
 			</div>
 			<div class="form-control">

@@ -18,7 +18,6 @@ internal class ServerCommands
         string map = "",
         string version = "0.57",
         uint maxPlayers = 10,
-        uint minPlayers = 4,
         bool joinInProgress = false,
         bool publicServer = false,
         string? gamemode = null,
@@ -47,7 +46,6 @@ internal class ServerCommands
         {
             Name = name,
             MaxPlayers = (int)maxPlayers,
-            MinPlayers = (int)minPlayers,
             Password = password,
             Map = map,
             Version = version,

@@ -31,7 +31,8 @@ export interface LobbyWaitingState {
 	canRejoinLobby: boolean;
 	canJoinInProgress: boolean;
 	playerCount: number;
-	minimumPlayerCount: number;
+	readyCount: number;
+	ownReady: boolean;
 	countdownSeconds: number;
 	gameVersion: string;
 	currentMap?: LobbyMap;
@@ -125,6 +126,18 @@ export const ownChampion = {
 	},
 };
 
+export const ownReady = {
+	get value() {
+		return players.value.find((p) => p.id === playerId.value)?.ready ?? false;
+	},
+};
+
+export const readyCount = {
+	get value() {
+		return players.value.filter((p) => p.taskForce !== 0 && p.ready).length;
+	},
+};
+
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
 
 export function clearStaleConnectionIfNeeded(): void {
@@ -176,7 +189,8 @@ export const lobbyWaitingState = {
 				playerCount.value < (lobbyStaticInfo.value?.maxPlayers ?? 0),
 			canJoinInProgress: !!lobbyStaticInfo.value?.enableJoinInProgress && !ownChampion.value,
 			playerCount: playerCount.value,
-			minimumPlayerCount: state.value.waiting?.minPlayers ?? 0,
+			readyCount: readyCount.value,
+			ownReady: ownReady.value,
 			countdownSeconds: currentCountdownSeconds.value,
 			gameVersion: version,
 			currentMap,

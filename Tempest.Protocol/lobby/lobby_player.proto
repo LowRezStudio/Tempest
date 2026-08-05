@@ -7,4 +7,5 @@ message LobbyPlayer {
   string display_name = 2;
   int32 task_force = 3;
   string champion = 4;
+  bool ready = 5;
 }

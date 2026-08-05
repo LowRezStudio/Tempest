@@ -2,5 +2,6 @@ syntax = "proto3";
 package tempest.lobby;
 option csharp_namespace = "Tempest.Protocol.Lobby";
 
-message LobbyStateWaiting {
+message SetReadyRequest {
+  bool ready = 1;
 }

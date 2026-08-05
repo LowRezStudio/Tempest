@@ -48,6 +48,14 @@
 				>{m.lobby_rejoin_game()}</button
 			>
 		{/if}
+		{#if lobbyWaitingState.value.isWaiting && lobbyWaitingState.value.countdownSeconds <= 0}
+			<button
+				class="btn {lobbyWaitingState.value.ownReady ? 'btn-success' : 'btn-accent'}"
+				onclick={() => lobbyManager.setReady(!lobbyWaitingState.value.ownReady)}
+			>
+				{lobbyWaitingState.value.ownReady ? m.lobby_ready() : m.lobby_ready_up()}
+			</button>
+		{/if}
 		{#if !lobbyWaitingState.value.canRejoinLobby}
 			<button class="btn btn-error" onclick={handleLeave}> {m.lobby_leave_lobby()} </button>
 		{:else}
@@ -58,8 +66,8 @@
 		{#if lobbyWaitingState.value.isWaiting}
 			<span>
 				{m.lobby_waiting_for_players({
-					current: lobbyWaitingState.value.playerCount,
-					min: lobbyWaitingState.value.minimumPlayerCount ?? 0,
+					ready: lobbyWaitingState.value.readyCount,
+					total: lobbyWaitingState.value.playerCount,
 				})}
 			</span>
 		{:else if lobbyWaitingState.value.isPendingConnection}
@@ -114,7 +122,8 @@
 				<LobbyPlayerCard
 					displayName={player.displayName}
 					championIconFolderName={getChampionDisplayName(player.champion)}
-					status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
+					status={player.ready ? m.lobby_ready() : m.lobby_not_ready()}
+					ready={player.ready}
 					team="left"
 					compact={true}
 					canSwitchTeam={player.id === playerId.value}
@@ -131,7 +140,8 @@
 				<LobbyPlayerCard
 					displayName={player.displayName}
 					championIconFolderName={getChampionDisplayName(player.champion)}
-					status={getChampionDisplayName(player.champion) || m.lobby_not_ready()}
+					status={player.ready ? m.lobby_ready() : m.lobby_not_ready()}
+					ready={player.ready}
 					team="right"
 					compact={true}
 					canSwitchTeam={player.id === playerId.value}

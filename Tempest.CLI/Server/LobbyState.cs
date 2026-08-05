@@ -15,10 +15,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     private readonly Lock _gate = new();
     private Protocol.Lobby.LobbyState _state = new()
     {
-        Waiting = new LobbyStateWaiting
-        {
-            MinPlayers = (uint)options.MinPlayers
-        }
+        Waiting = new LobbyStateWaiting()
     };
     private CancellationTokenSource? _countdownCts;
     private LobbyEventCountdown? _countdown;
@@ -179,6 +176,19 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         });
         return true;
     }
+    public bool TrySetReady(string playerId, bool ready)
+    {
+        if (!_players.TryGetValue(playerId, out var player)) return false;
+        logger.LogInformation("Player {DisplayName} set ready to {Ready}", player.DisplayName, ready);
+        player.Ready = ready;
+        Publish(new LobbyEvent
+        {
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            PlayerUpdate = new LobbyEventPlayerUpdate { Player = player }
+        });
+        StateMachine();
+        return true;
+    }
     public void Vote(string playerId, string mapId)
     {
         if (_state.MapVote == null) return;
@@ -208,9 +218,10 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         {
             if (_state.Waiting != null)
             {
-                var enoughPlayers = PlayerCount >= options.MinPlayers;
-                if (enoughPlayers && _countdown == null) StartCountdown(10, EndWaiting);
-                else if (!enoughPlayers) CancelCountdown();
+                var nonSpectators = _players.Values.Where(p => p.TaskForce != 0).ToList();
+                var allReady = nonSpectators.Count > 0 && nonSpectators.All(p => p.Ready);
+                if (allReady && _countdown == null) StartCountdown(10, EndWaiting);
+                else if (!allReady) CancelCountdown();
             }
             else if (_state.MapVote != null)
             {
@@ -284,19 +295,13 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             player.Champion = string.Empty;
         }
         //not using SetState because it would cause an unnecessary state update
-        if (PlayerCount >= options.MinPlayers)
+        if (PlayerCount > 0)
         {
             _state = new Protocol.Lobby.LobbyState { MapVote = new LobbyStateMapVote() };
         }
         else
         {
-            _state = new Protocol.Lobby.LobbyState
-            {
-                Waiting = new LobbyStateWaiting
-                {
-                    MinPlayers = (uint)options.MinPlayers
-                }
-            };
+            _state = new Protocol.Lobby.LobbyState { Waiting = new LobbyStateWaiting() };
         }
         StateMachine();
         Publish(GetInfoEvent());
