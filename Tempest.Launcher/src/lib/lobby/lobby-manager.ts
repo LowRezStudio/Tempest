@@ -285,7 +285,12 @@ class LobbyManager {
 
 	private handleCountdownEvent(event: LobbyEventCountdown): void {
 		console.log(`Countdown: ${event.seconds} seconds`);
-		this.countdown = event.seconds === 0 ? undefined : event;
+		if (event.seconds === 0) {
+			this.countdown = undefined;
+			currentCountdownSeconds.value = -1;
+		} else {
+			this.countdown = event;
+		}
 	}
 
 	async sendChatMessage(content: string, channel = "global"): Promise<void> {
@@ -319,6 +324,14 @@ class LobbyManager {
 		}
 	}
 
+	async setDefaultMap(mapId: string): Promise<void> {
+		try {
+			await this.getClient().setDefaultMap({ mapId }).response;
+		} catch (error) {
+			console.error("Error setting default map:", error);
+		}
+	}
+
 	async switchTeam(team: number): Promise<void> {
 		try {
 			await this.getClient().switchTeam({ team }).response;
@@ -332,6 +345,14 @@ class LobbyManager {
 			await this.getClient().setReady({ ready }).response;
 		} catch (error) {
 			console.error("Error setting ready:", error);
+		}
+	}
+
+	async forceStart(): Promise<void> {
+		try {
+			await this.getClient().forceStart({}).response;
+		} catch (error) {
+			console.error("Error forcing start:", error);
 		}
 	}
 

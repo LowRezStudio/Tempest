@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { LogOut, Users } from "@lucide/svelte";
 	import champions from "$lib/data/champions.json";
+	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import { m } from "$lib/paraglide/messages";
+	import { getMapsForVersion } from "$lib/utils/versions";
+	import { onMount } from "svelte";
 	import MapSelect from "../maps/MapSelect.svelte";
 	import Header from "../ui/Header.svelte";
 	import LobbyPlayerCard from "./LobbyPlayerCard.svelte";
@@ -29,6 +32,15 @@
 	function getChampionDisplayName(champion: string | undefined): string {
 		return champions.find((c) => c.name === champion)?.displayName || "";
 	}
+
+	onMount(() => {
+		const defaultMap = getMapsForVersion(gameVersion).find((m) =>
+			gamemode.toLowerCase().includes(m.mode),
+		);
+		if (defaultMap) {
+			lobbyManager.setDefaultMap(defaultMap.id);
+		}
+	});
 </script>
 
 <div class="relative h-full w-full">

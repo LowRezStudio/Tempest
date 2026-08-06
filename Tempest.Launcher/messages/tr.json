@@ -184,6 +184,8 @@
 	"lobby_become_spectator": "İzle",
 	"lobby_join_team": "Bir takıma katıl",
 	"lobby_spectators": "İzleyiciler",
+	"lobby_spectating": "İzleniyor",
+	"lobby_start_countdown": "Geri Sayımı Başlat",
 	"lobby_voted": "Oylandı",
 	"lobby_players": [
 		{

@@ -187,6 +187,8 @@
 	"lobby_become_spectator": "Obserwuj",
 	"lobby_join_team": "Dołącz do drużyny",
 	"lobby_spectators": "Obserwatorzy",
+	"lobby_spectating": "Obserwowanie",
+	"lobby_start_countdown": "Rozpocznij odliczanie",
 	"lobby_voted": "Zagłosowano",
 	"lobby_players": [
 		{

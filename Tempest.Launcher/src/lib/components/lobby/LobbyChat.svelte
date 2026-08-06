@@ -8,9 +8,10 @@
 		messages: readonly ChatMessage[];
 		disabled: boolean;
 		handleSendChatMessage: (message: string, channel: string) => void;
+		children?: import("svelte").Snippet;
 	}
 
-	let { messages, disabled, handleSendChatMessage }: Props = $props();
+	let { messages, disabled, handleSendChatMessage, children }: Props = $props();
 
 	let unread = $state(false);
 	let prevCount = 0;
@@ -107,7 +108,7 @@
 		</div>
 	</div>
 {:else}
-	<div class="absolute bottom-8 left-8 z-20 flex flex-row gap-2">
+	<div class="absolute bottom-8 left-8 z-20 flex flex-row items-end gap-2">
 		<button
 			class="btn btn-sm shadow-none justify-start"
 			class:btn-accent={unread}
@@ -116,5 +117,6 @@
 			<MessageSquare size={16} />
 			{m.lobby_channel_global()}
 		</button>
+		{@render children?.()}
 	</div>
 {/if}

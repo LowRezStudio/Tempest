@@ -2,7 +2,7 @@
 	import { Users } from "@lucide/svelte";
 	import champions from "$lib/data/champions.json";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
-	import { lobbyWaitingState, playerId, teamLeft, teamRight } from "$lib/lobby/stores.svelte";
+	import { lobbyWaitingState, isSpectator, playerId, teamLeft, teamRight } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import ChampionSelect from "../champions/ChampionSelect.svelte";
 	import Header from "../ui/Header.svelte";
@@ -48,13 +48,18 @@
 				>{m.lobby_rejoin_game()}</button
 			>
 		{/if}
-		{#if lobbyWaitingState.value.isWaiting && lobbyWaitingState.value.countdownSeconds <= 0}
+		{#if lobbyWaitingState.value.isWaiting && !isSpectator.value}
 			<button
 				class="btn {lobbyWaitingState.value.ownReady ? 'btn-success' : 'btn-accent'}"
 				onclick={() => lobbyManager.setReady(!lobbyWaitingState.value.ownReady)}
 			>
 				{lobbyWaitingState.value.ownReady ? m.lobby_ready() : m.lobby_ready_up()}
 			</button>
+		{/if}
+		{#if lobbyWaitingState.value.isWaiting}
+			<button class="btn btn-primary" onclick={() => lobbyManager.forceStart()}
+				>{m.lobby_start_countdown()}</button
+			>
 		{/if}
 		{#if !lobbyWaitingState.value.canRejoinLobby}
 			<button class="btn btn-error" onclick={handleLeave}> {m.lobby_leave_lobby()} </button>

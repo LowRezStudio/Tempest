@@ -23,6 +23,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     private bool _gameServerKilledIntentionally;
     private readonly Lock _stateMachineLock = new();
     private Task? _gameServerTask;
+    private bool _forceStartActive;
+    private string? _defaultMapId;
 
     public bool TryJoin(string id, string displayName, string? password, out JoinLobbyResponse response)
     {
@@ -153,6 +155,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     public bool TrySelectChampion(string playerId, string champion)
     {
         if (!_players.TryGetValue(playerId, out var player)) return false;
+        if (player.TaskForce == 0) return false; // spectators cannot select a champion
         logger.LogInformation("Player {DisplayName} selected champion {Champion}", player.DisplayName, champion);
         player.Champion = champion;
         Publish(new LobbyEvent
@@ -169,16 +172,20 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         if (!_players.TryGetValue(playerId, out var player)) return false;
         logger.LogInformation("Player {DisplayName} switched to team {Team}", player.DisplayName, team);
         player.TaskForce = team;
+        // spectators are never ready, their ready doesn't count
+        if (team == 0) player.Ready = false;
         Publish(new LobbyEvent
         {
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
             PlayerUpdate = new LobbyEventPlayerUpdate { Player = player }
         });
+        StateMachine();
         return true;
     }
     public bool TrySetReady(string playerId, bool ready)
     {
         if (!_players.TryGetValue(playerId, out var player)) return false;
+        if (player.TaskForce == 0) return false; // spectators cannot ready up
         logger.LogInformation("Player {DisplayName} set ready to {Ready}", player.DisplayName, ready);
         player.Ready = ready;
         Publish(new LobbyEvent
@@ -194,11 +201,17 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         if (_state.MapVote == null) return;
         if (_players.TryGetValue(playerId, out var player))
         {
+            if (player.TaskForce == 0) return; // spectators cannot vote
             logger.LogInformation("Player {DisplayName} voted for map {MapId}", player.DisplayName, mapId);
         }
         _state.MapVote.Votes[playerId] = mapId;
         PublishState();
         StateMachine();
+    }
+
+    public void SetDefaultMap(string mapId)
+    {
+        _defaultMapId = mapId;
     }
 
     public bool TryGetPlayerIdFromTicket(string ticket, out string playerId) => ticketStore.TryGetPlayerId(ticket, out playerId);
@@ -218,6 +231,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         {
             if (_state.Waiting != null)
             {
+                if (_forceStartActive) return;
                 var nonSpectators = _players.Values.Where(p => p.TaskForce != 0).ToList();
                 var allReady = nonSpectators.Count > 0 && nonSpectators.All(p => p.Ready);
                 if (allReady && _countdown == null) StartCountdown(10, EndWaiting);
@@ -225,10 +239,12 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             }
             else if (_state.MapVote != null)
             {
+                var nonSpectators = _players.Values.Where(p => p.TaskForce != 0).ToList();
                 var everyoneHasVoted = _state.MapVote.Votes.Count >= PlayerCount && _state.MapVote.Votes.Count > 0;
                 var oneHasVoted = _state.MapVote.Votes.Count > 0;
                 if (everyoneHasVoted) StartCountdown(5, EndMapVote);
                 else if (_countdown == null && oneHasVoted) StartCountdown(15, EndMapVote);
+                else if (_countdown == null && nonSpectators.Count == 0) StartCountdown(5, EndMapVote);
             }
             else if (_state.ChampionSelect != null)
             {
@@ -240,7 +256,8 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             }
             else if (_state.InGame != null)
             {
-                var everyoneHasLeft = _players.Values.All(p => p.Champion == null || p.Champion.Length == 0);
+                var nonSpectators = _players.Values.Where(p => p.TaskForce != 0).ToList();
+                var everyoneHasLeft = nonSpectators.Count > 0 && nonSpectators.All(p => p.Champion == null || p.Champion.Length == 0);
                 if (everyoneHasLeft && !_state.InGame.GameServerFinishedRunning)
                     KillGameServer();
                 if (_state.InGame.GameServerFinishedRunning && _countdown == null)
@@ -257,12 +274,20 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     private void EndMapVote()
     {
         //selecting the most voted map and breaking ties by choosing randomly
+        if (_state.MapVote.Votes.Count == 0)
+        {
+            //no one voted (e.g. lobby only has spectators); fall back to the default map
+            var mapId = _defaultMapId ?? "TMM_Beach_P_v04";
+            logger.LogInformation("Map vote ended with no votes, selected default map {MapId}", mapId);
+            SetState(new Protocol.Lobby.LobbyState { ChampionSelect = new LobbyStateChampionSelect { MapId = mapId } });
+            return;
+        }
         var groups = _state.MapVote.Votes.GroupBy(t => t.Value).ToList();
         var maxVotes = groups.Max(g => g.Count());
         var topMaps = groups.Where(g => g.Count() == maxVotes).ToList();
-        var mapId = topMaps[Random.Shared.Next(topMaps.Count)].Key;
-        logger.LogInformation("Map vote ended, selected map {MapId} with {VoteCount} votes", mapId, maxVotes);
-        SetState(new Protocol.Lobby.LobbyState { ChampionSelect = new LobbyStateChampionSelect { MapId = mapId } });
+        var mapId2 = topMaps[Random.Shared.Next(topMaps.Count)].Key;
+        logger.LogInformation("Map vote ended, selected map {MapId} with {VoteCount} votes", mapId2, maxVotes);
+        SetState(new Protocol.Lobby.LobbyState { ChampionSelect = new LobbyStateChampionSelect { MapId = mapId2 } });
     }
 
     private void EndChampionSelect()
@@ -387,6 +412,17 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         });
         _countdownCts?.Cancel();
         _countdown = null;
+        _forceStartActive = false;
+    }
+
+    public bool ForceStart()
+    {
+        if (_state.Waiting == null) return false;
+        if (_forceStartActive) return true;
+        logger.LogInformation("Force starting lobby countdown");
+        _forceStartActive = true;
+        StartCountdown(10, EndWaiting);
+        return true;
     }
 
     private Task StartCountdown(uint seconds, Action? onExpired = null)

@@ -31,7 +31,6 @@
 		teamLeft,
 		teamRight,
 	} from "$lib/lobby/stores.svelte";
-	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { getMapsForVersion } from "$lib/utils/versions";
@@ -138,29 +137,42 @@
 	}
 </script>
 
-<div class="flex flex-col h-full bg-base-100">
+	{#snippet spectatorOverlay()}
+		{#if isSpectator.value}
+			<div
+				class="absolute inset-0 z-50"
+				style="backdrop-filter: grayscale(1); -webkit-backdrop-filter: grayscale(1);"
+			></div>
+		{/if}
+	{/snippet}
+
+	<div class="flex flex-col h-full bg-base-100">
 	{#if isInChampionSelect.value}
-		<!-- TODO: Remove 0.57 placeholder -->
-		<LobbyChampionSelect
-			teamLeft={teamLeft.value}
-			teamRight={teamRight.value}
-			{currentMap}
-			confirmedChampion={ownChampion.value}
-			{handleChampionSelect}
-			gameVersion={lobbyStaticInfo.value?.version ?? "0.57"}
-			countdownSeconds={currentCountdownSeconds.value}
-		/>
+		<div class="relative h-full w-full">
+			<LobbyChampionSelect
+				teamLeft={teamLeft.value}
+				teamRight={teamRight.value}
+				{currentMap}
+				confirmedChampion={ownChampion.value}
+				{handleChampionSelect}
+				gameVersion={lobbyStaticInfo.value?.version ?? "0.57"}
+				countdownSeconds={currentCountdownSeconds.value}
+			/>
+			{@render spectatorOverlay()}
+		</div>
 	{:else if isInMapVote.value}
-		<!-- TODO: Remove 0.57 placeholder -->
-		<LobbyMapVote
-			{handleLeave}
-		playerCount={playerCount.value}
-			{handleMapSelect}
-			votes={lobbyState.value.mapVote?.votes}
-			gameVersion={lobbyStaticInfo.value?.version ?? "0.57"}
-			gamemode={lobbyStaticInfo.value?.gamemode || "siege"}
-			countdownSeconds={currentCountdownSeconds.value}
-		/>
+		<div class="relative h-full w-full">
+			<LobbyMapVote
+				{handleLeave}
+			playerCount={playerCount.value}
+				{handleMapSelect}
+				votes={lobbyState.value.mapVote?.votes}
+				gameVersion={lobbyStaticInfo.value?.version ?? "0.57"}
+				gamemode={lobbyStaticInfo.value?.gamemode || "siege"}
+				countdownSeconds={currentCountdownSeconds.value}
+			/>
+			{@render spectatorOverlay()}
+		</div>
 	{:else}
 		<LobbyWaiting
 			handleRejoinGame={handleJoinGame}
@@ -173,8 +185,9 @@
 		messages={chatMessages.value}
 		disabled={connectionStatus.value !== "connected"}
 		{handleSendChatMessage}
-	/>
-	<LobbySpectator />
+	>
+		<LobbySpectator />
+	</LobbyChat>
 	<LobbyOverlay
 		disconnected={connectionStatus.value === "disconnected"}
 		gameServerError={!!lobbyState.value.inGame?.gameServerError}

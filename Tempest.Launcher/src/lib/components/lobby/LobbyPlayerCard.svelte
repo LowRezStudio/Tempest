@@ -72,16 +72,10 @@
 			<p class="font-semibold truncate text-white leading-tight {compact ? 'text-sm' : 'text-base'}">
 				{displayName}
 			</p>
-			<p class="text-xs opacity-75 truncate leading-none mt-1 {hasChampion ? 'text-blue-400' : 'text-white/50'}">
+			<p class="text-xs truncate leading-none mt-1 {ready ? 'text-green-500' : hasChampion ? 'text-blue-400 opacity-75' : 'text-white/50'}">
 				{status}
 			</p>
 		</div>
-		{#if ready}
-			<div
-				class="absolute right-[40px] top-1/2 -translate-y-1/2 z-30 size-3 rounded-full bg-green-500"
-				title={status}
-			></div>
-		{/if}
 		<!-- Slanted Edge Border (unclipped z-20 overlay with horizontal Y-axis caps) -->
 		<svg class="absolute right-0 top-0 bottom-0 h-full w-[80px] text-blue-500 z-20" viewBox="0 0 80 100" preserveAspectRatio="none">
 			<polygon points="0,0 26,0 80,100 54,100" fill="currentColor" />
@@ -130,16 +124,10 @@
 			<p class="font-semibold truncate text-white leading-tight {compact ? 'text-sm' : 'text-base'}">
 				{displayName}
 			</p>
-			<p class="text-xs opacity-75 truncate leading-none mt-1 {hasChampion ? 'text-red-400' : 'text-white/50'}">
+			<p class="text-xs truncate leading-none mt-1 {ready ? 'text-green-500' : hasChampion ? 'text-red-400 opacity-75' : 'text-white/50'}">
 				{status}
 			</p>
 		</div>
-		{#if ready}
-			<div
-				class="absolute left-[40px] top-1/2 -translate-y-1/2 z-30 size-3 rounded-full bg-green-500"
-				title={status}
-			></div>
-		{/if}
 		<!-- Slanted Edge Border (unclipped z-20 overlay with horizontal Y-axis caps) -->
 		<svg class="absolute top-0 left-0 bottom-0 h-full w-[80px] text-red-500 z-20" viewBox="0 0 80 100" preserveAspectRatio="none">
 			<polygon points="54,0 80,0 26,100 0,100" fill="currentColor" />

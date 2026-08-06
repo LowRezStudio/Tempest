@@ -193,6 +193,20 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
         return Task.FromResult(new SetReadyResponse());
     }
 
+    public override Task<SetDefaultMapResponse> SetDefaultMap(SetDefaultMapRequest request, ServerCallContext context)
+    {
+        logger.LogInformation("Default map set to {MapId}", request.MapId);
+        state.SetDefaultMap(request.MapId);
+        return Task.FromResult(new SetDefaultMapResponse());
+    }
+
+    public override Task<ForceStartResponse> ForceStart(ForceStartRequest request, ServerCallContext context)
+    {
+        logger.LogInformation("Force start requested");
+        state.ForceStart();
+        return Task.FromResult(new ForceStartResponse());
+    }
+
     public override Task<SendChatMessageResponse> SendChatMessage(SendChatMessageRequest request, ServerCallContext context)
     {
         if (string.IsNullOrWhiteSpace(request.Content))

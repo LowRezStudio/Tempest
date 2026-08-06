@@ -2,6 +2,8 @@ import { stackIntercept } from "@protobuf-ts/runtime-rpc";
 import { Lobby } from "./lobby_service";
 import type { ChampionSelectRequest } from "./champion_select_request";
 import type { ChampionSelectResponse } from "./champion_select_response";
+import type { ForceStartRequest } from "./force_start_request";
+import type { ForceStartResponse } from "./force_start_response";
 import type { GetInfoRequest } from "./get_info_request";
 import type { GetInfoResponse } from "./get_info_response";
 import type { JoinLobbyRequest } from "./join_lobby_request";
@@ -16,6 +18,8 @@ import type { SendChatMessageRequest } from "./send_chat_message_request";
 import type { SendChatMessageResponse } from "./send_chat_message_response";
 import type { SendCommandRequest } from "./send_command_request";
 import type { SendCommandResponse } from "./send_command_response";
+import type { SetDefaultMapRequest } from "./set_default_map_request";
+import type { SetDefaultMapResponse } from "./set_default_map_response";
 import type { SetReadyRequest } from "./set_ready_request";
 import type { SetReadyResponse } from "./set_ready_response";
 import type { SwitchTeamRequest } from "./switch_team_request";
@@ -88,6 +92,20 @@ export interface ILobbyClient {
 		input: SetReadyRequest,
 		options?: RpcOptions,
 	): UnaryCall<SetReadyRequest, SetReadyResponse>;
+	/**
+	 * @generated from protobuf rpc: SetDefaultMap
+	 */
+	setDefaultMap(
+		input: SetDefaultMapRequest,
+		options?: RpcOptions,
+	): UnaryCall<SetDefaultMapRequest, SetDefaultMapResponse>;
+	/**
+	 * @generated from protobuf rpc: ForceStart
+	 */
+	forceStart(
+		input: ForceStartRequest,
+		options?: RpcOptions,
+	): UnaryCall<ForceStartRequest, ForceStartResponse>;
 	/**
 	 * @generated from protobuf rpc: SendChatMessage
 	 */
@@ -248,13 +266,47 @@ export class LobbyClient implements ILobbyClient, ServiceInfo {
 		);
 	}
 	/**
+	 * @generated from protobuf rpc: SetDefaultMap
+	 */
+	setDefaultMap(
+		input: SetDefaultMapRequest,
+		options?: RpcOptions,
+	): UnaryCall<SetDefaultMapRequest, SetDefaultMapResponse> {
+		const method = this.methods[8],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<SetDefaultMapRequest, SetDefaultMapResponse>(
+			"unary",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
+	}
+	/**
+	 * @generated from protobuf rpc: ForceStart
+	 */
+	forceStart(
+		input: ForceStartRequest,
+		options?: RpcOptions,
+	): UnaryCall<ForceStartRequest, ForceStartResponse> {
+		const method = this.methods[9],
+			opt = this._transport.mergeOptions(options);
+		return stackIntercept<ForceStartRequest, ForceStartResponse>(
+			"unary",
+			this._transport,
+			method,
+			opt,
+			input,
+		);
+	}
+	/**
 	 * @generated from protobuf rpc: SendChatMessage
 	 */
 	sendChatMessage(
 		input: SendChatMessageRequest,
 		options?: RpcOptions,
 	): UnaryCall<SendChatMessageRequest, SendChatMessageResponse> {
-		const method = this.methods[8],
+		const method = this.methods[10],
 			opt = this._transport.mergeOptions(options);
 		return stackIntercept<SendChatMessageRequest, SendChatMessageResponse>(
 			"unary",
@@ -271,7 +323,7 @@ export class LobbyClient implements ILobbyClient, ServiceInfo {
 		input: SendCommandRequest,
 		options?: RpcOptions,
 	): UnaryCall<SendCommandRequest, SendCommandResponse> {
-		const method = this.methods[9],
+		const method = this.methods[11],
 			opt = this._transport.mergeOptions(options);
 		return stackIntercept<SendCommandRequest, SendCommandResponse>(
 			"unary",

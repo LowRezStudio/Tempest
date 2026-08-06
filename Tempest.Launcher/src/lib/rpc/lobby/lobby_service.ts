@@ -1,6 +1,8 @@
 import { ServiceType } from "@protobuf-ts/runtime-rpc";
 import { ChampionSelectRequest } from "./champion_select_request";
 import { ChampionSelectResponse } from "./champion_select_response";
+import { ForceStartRequest } from "./force_start_request";
+import { ForceStartResponse } from "./force_start_response";
 import { GetInfoRequest } from "./get_info_request";
 import { GetInfoResponse } from "./get_info_response";
 import { JoinLobbyRequest } from "./join_lobby_request";
@@ -18,6 +20,8 @@ import { SendCommandRequest } from "./send_command_request";
 // @generated from protobuf file "lobby/lobby_service.proto" (package "tempest.lobby", syntax proto3)
 // tslint:disable
 import { SendCommandResponse } from "./send_command_response";
+import { SetDefaultMapRequest } from "./set_default_map_request";
+import { SetDefaultMapResponse } from "./set_default_map_response";
 import { SetReadyRequest } from "./set_ready_request";
 import { SetReadyResponse } from "./set_ready_response";
 import { SwitchTeamRequest } from "./switch_team_request";
@@ -40,6 +44,8 @@ export const Lobby = new ServiceType("tempest.lobby.Lobby", [
 	{ name: "MapVote", options: {}, I: MapVoteRequest, O: MapVoteResponse },
 	{ name: "SwitchTeam", options: {}, I: SwitchTeamRequest, O: SwitchTeamResponse },
 	{ name: "SetReady", options: {}, I: SetReadyRequest, O: SetReadyResponse },
+	{ name: "SetDefaultMap", options: {}, I: SetDefaultMapRequest, O: SetDefaultMapResponse },
+	{ name: "ForceStart", options: {}, I: ForceStartRequest, O: ForceStartResponse },
 	{ name: "SendChatMessage", options: {}, I: SendChatMessageRequest, O: SendChatMessageResponse },
 	{ name: "SendCommand", options: {}, I: SendCommandRequest, O: SendCommandResponse },
 ]);

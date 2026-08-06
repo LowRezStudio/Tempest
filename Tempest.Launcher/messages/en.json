@@ -159,7 +159,7 @@
 	"lobby_game_in_progress": "Game in Progress",
 	"lobby_leave_lobby": "Leave Lobby",
 	"lobby_rejoin_game": "Rejoin Game",
-	"lobby_channel_global": "Lobby chat",
+	"lobby_channel_global": "Lobby Chat",
 	"lobby_no_messages": "No messages yet",
 	"lobby_type_message": "Type a message...",
 	"lobby_close_chat": "Close chat",
@@ -184,6 +184,8 @@
 	"lobby_become_spectator": "Spectate",
 	"lobby_join_team": "Join a Team",
 	"lobby_spectators": "Spectators",
+	"lobby_spectating": "Spectating",
+	"lobby_start_countdown": "Start Countdown",
 	"lobby_voted": "Voted",
 	"lobby_players": [
 		{
