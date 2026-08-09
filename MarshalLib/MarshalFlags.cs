@@ -9,4 +9,7 @@ public enum MarshalFlags
     None = 0,
     Utf16 = 1 << 0,
     Utf32 = 1 << 1,
+    Utf8 = 1 << 2,
+    // One byte per character (the game's "truncated UTF-16" string encoding).
+    Ascii = 1 << 3,
 }

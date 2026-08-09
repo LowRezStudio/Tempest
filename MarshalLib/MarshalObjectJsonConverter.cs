@@ -78,6 +78,8 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
             FieldType.Short => Convert.ToUInt16(ReadNumber(element)),
             FieldType.Int => Convert.ToUInt32(ReadNumber(element)),
             FieldType.Long => Convert.ToUInt64(ReadNumber(element)),
+            FieldType.Float => Convert.ToUInt32(ReadNumber(element)), // raw IEEE-754 bit pattern, as stored by the game
+            FieldType.Double => Convert.ToUInt64(ReadNumber(element)), // raw IEEE-754 bit pattern, as stored by the game
             FieldType.Guid => ReadGuid(element),
             FieldType.Blob => ReadBlob(element),
             FieldType.String => element.ValueKind == JsonValueKind.Null ? string.Empty : element.GetString() ?? string.Empty,

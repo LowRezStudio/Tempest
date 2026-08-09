@@ -9,24 +9,6 @@ public class MarshalObject(FieldType type, object value, MarshalFlags flags = Ma
     public MarshalFlags Flags { get; set; } = flags;
     public object Value { get; set; } = value;
 
-    public ushort GetEntryHeader(ushort param)
-    {
-        ushort headerType = Type switch
-        {
-            FieldType.Byte => 1,
-            FieldType.Short => 2,
-            FieldType.Int => 3,
-            FieldType.Long => 4,
-            FieldType.DataSet => 6,
-            FieldType.Guid => 7,
-            FieldType.Blob => 8,
-            FieldType.String => 10,
-            _ => throw new ArgumentOutOfRangeException(nameof(Type), Type, null)
-        };
-
-        return (ushort)((headerType << 12) | (param & 0x3F));
-    }
-
     public MarshalObject(byte value) : this(FieldType.Byte, value)
     {
     }

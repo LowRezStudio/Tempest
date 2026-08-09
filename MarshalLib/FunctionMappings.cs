@@ -15,6 +15,16 @@ public class FunctionMappings
         return mappings;
     }
 
+    /// <summary>
+    /// Reads the game's embedded function token table (s_pbyFunctionData, decompressed).
+    /// Entry layout, verified against CMarshal::PlatInitialize:
+    /// <code>
+    /// u16  legacy index / sort index (big-endian, ignored by the game at runtime)
+    /// u16  flags (big-endian)
+    /// u32  FNV-1 hash of the function name (big-endian)
+    /// name null-terminated ASCII
+    /// </code>
+    /// </summary>
     public void Read(Stream stream)
     {
         using var reader = new BinaryReader(stream);
@@ -24,17 +34,18 @@ public class FunctionMappings
             if (reader.BaseStream.Position == reader.BaseStream.Length)
                 break;
 
-            var header = reader.ReadUInt32BigEndian();
+            var header = reader.ReadUInt16BigEndian();
+            var flags = reader.ReadUInt16BigEndian();
+            var hash = reader.ReadUInt32BigEndian();
             var name = reader.ReadCString();
 
-            var function = new FunctionDescriptor
+            _functions.Add(new FunctionDescriptor
             {
                 Header = header,
-                Hash = Fnv1_32.ComputeHash(name),
+                Flags = flags,
+                Hash = hash,
                 Name = name,
-            };
-
-            _functions.Add(function);
+            });
         }
     }
 

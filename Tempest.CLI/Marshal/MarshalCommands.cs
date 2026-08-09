@@ -81,7 +81,7 @@ internal partial class MarshalCommands
     /// <param name="output">Output file path, if not specified it's outputted to stdout</param>
     /// <param name="version">Marshal format version (Modern or Legacy)</param>
     /// <param name="obscure">Applies a 0x2A XOR to the output</param>
-    public static void Serialize(string fields, string functions, string path, string? output = null, MarshalSerializerVersion version = MarshalSerializerVersion.Modern, bool obscure = false)
+    public void Serialize(string fields, string functions, string path, string? output = null, MarshalSerializerVersion version = MarshalSerializerVersion.Modern, bool obscure = false)
     {
         using var fieldsFile = File.OpenRead(fields);
         using var functionsFile = File.OpenRead(functions);
