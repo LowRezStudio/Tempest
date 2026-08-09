@@ -330,14 +330,28 @@ ORDER BY {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.RowIdColumn)};
 
             for (var i = 0; i < columns.Count; i++)
             {
-                var raw = reader.GetValue(5 + i);
-                values[columns[i].Name] = raw is DBNull ? null : raw;
+                values[columns[i].Name] = ReadValue(reader, 5 + i, columns[i]);
             }
 
             rows.Add(new DataSetRow(rowId, parentRowId, parentTable, fieldOrdinal, entryOrder, values));
         }
 
         return rows;
+    }
+
+    /// <summary>Reads one cell with its storage type, avoiding boxing.</summary>
+    private static object? ReadValue(SqliteDataReader reader, int ordinal, Column column)
+    {
+        if (reader.IsDBNull(ordinal))
+            return null;
+
+        return column.Type switch
+        {
+            FieldType.Byte or FieldType.Short or FieldType.Int or FieldType.Long => reader.GetInt64(ordinal),
+            FieldType.Float or FieldType.Double => reader.GetDouble(ordinal),
+            FieldType.Blob => reader.GetFieldValue<byte[]>(ordinal),
+            _ => reader.GetString(ordinal)
+        };
     }
 
     private sealed record FunctionMetadata(

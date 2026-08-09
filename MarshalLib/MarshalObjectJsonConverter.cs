@@ -8,17 +8,52 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
 {
     public override MarshalObject Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        using var document = JsonDocument.ParseValue(ref reader);
-        var root = document.RootElement;
+        if (reader.TokenType != JsonTokenType.StartObject)
+            throw new JsonException("MarshalObject must be an object.");
 
-        var type = ReadFieldType(root, "Type");
-        var flags = ReadFlags(root, "Flags");
+        FieldType? type = null;
+        var flags = MarshalFlags.None;
+        object? value = null;
+        var hasValue = false;
 
-        if (!root.TryGetProperty("Value", out var valueElement))
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject)
+                break;
+
+            if (reader.TokenType != JsonTokenType.PropertyName)
+                throw new JsonException("Unexpected token in MarshalObject.");
+
+            var property = reader.GetString();
+            reader.Read();
+
+            switch (property)
+            {
+                case "Type":
+                    type = ReadFieldType(ref reader);
+                    break;
+                case "Flags":
+                    flags = ReadFlags(ref reader);
+                    break;
+                case "Value":
+                    if (type is null)
+                        throw new JsonException("MarshalObject Value appears before Type.");
+
+                    value = ReadValue(ref reader, type.Value, options);
+                    hasValue = true;
+                    break;
+                default:
+                    reader.Skip();
+                    break;
+            }
+        }
+
+        if (type is null)
+            throw new JsonException("MarshalObject is missing Type property.");
+        if (!hasValue)
             throw new JsonException("MarshalObject is missing Value property.");
 
-        var value = ReadValue(type, valueElement, options);
-        return new MarshalObject(type, value, flags);
+        return new MarshalObject(type.Value, value!, flags);
     }
 
     public override void Write(Utf8JsonWriter writer, MarshalObject value, JsonSerializerOptions options)
@@ -43,58 +78,44 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
         writer.WriteEndObject();
     }
 
-    private static FieldType ReadFieldType(JsonElement root, string propertyName)
+    private static FieldType ReadFieldType(ref Utf8JsonReader reader)
     {
-        if (!root.TryGetProperty(propertyName, out var element))
-            throw new JsonException("MarshalObject is missing Type property.");
-
-        return element.ValueKind switch
+        return reader.TokenType switch
         {
-            JsonValueKind.String => Enum.Parse<FieldType>(element.GetString() ?? string.Empty, ignoreCase: true),
-            JsonValueKind.Number => (FieldType)element.GetUInt16(),
+            JsonTokenType.String => Enum.Parse<FieldType>(reader.GetString() ?? string.Empty, ignoreCase: true),
+            JsonTokenType.Number => (FieldType)reader.GetUInt16(),
             _ => throw new JsonException("MarshalObject Type must be a string or number.")
         };
     }
 
-    private static MarshalFlags ReadFlags(JsonElement root, string propertyName)
+    private static MarshalFlags ReadFlags(ref Utf8JsonReader reader)
     {
-        if (!root.TryGetProperty(propertyName, out var element))
-            return MarshalFlags.None;
-
-        return element.ValueKind switch
+        return reader.TokenType switch
         {
-            JsonValueKind.String => Enum.Parse<MarshalFlags>(element.GetString() ?? string.Empty, ignoreCase: true),
-            JsonValueKind.Number => (MarshalFlags)element.GetUInt16(),
-            JsonValueKind.Null => MarshalFlags.None,
+            JsonTokenType.String => Enum.Parse<MarshalFlags>(reader.GetString() ?? string.Empty, ignoreCase: true),
+            JsonTokenType.Number => (MarshalFlags)reader.GetUInt16(),
+            JsonTokenType.Null => MarshalFlags.None,
             _ => throw new JsonException("MarshalObject Flags must be a string or number.")
         };
     }
 
-    private static object ReadValue(FieldType type, JsonElement element, JsonSerializerOptions options)
+    private object ReadValue(ref Utf8JsonReader reader, FieldType type, JsonSerializerOptions options)
     {
         return type switch
         {
-            FieldType.Byte => Convert.ToByte(ReadNumber(element)),
-            FieldType.Short => Convert.ToUInt16(ReadNumber(element)),
-            FieldType.Int => Convert.ToUInt32(ReadNumber(element)),
-            FieldType.Long => Convert.ToUInt64(ReadNumber(element)),
-            FieldType.Float => ReadFloat(element),
-            FieldType.Double => ReadDouble(element),
-            FieldType.Guid => ReadGuid(element),
-            FieldType.Blob => ReadBlob(element),
-            FieldType.String => element.ValueKind == JsonValueKind.Null ? string.Empty : element.GetString() ?? string.Empty,
-            FieldType.DataSet => ReadDataSet(element, options),
-            FieldType.DateTime => ReadDateTime(element),
+            FieldType.Byte => reader.GetByte(),
+            FieldType.Short => reader.GetUInt16(),
+            FieldType.Int => reader.GetUInt32(),
+            FieldType.Long => reader.GetUInt64(),
+            FieldType.Float => ReadFloat(ref reader),
+            FieldType.Double => ReadDouble(ref reader),
+            FieldType.Guid => ReadGuid(ref reader),
+            FieldType.Blob => ReadBlob(ref reader),
+            FieldType.String => reader.TokenType == JsonTokenType.Null ? string.Empty : reader.GetString() ?? string.Empty,
+            FieldType.DataSet => ReadDataSet(ref reader, options),
+            FieldType.DateTime => ReadDateTime(ref reader),
             _ => throw new JsonException($"Unsupported field type: {type}")
         };
-    }
-
-    private static ulong ReadNumber(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.Number)
-            throw new JsonException("Value must be a number.");
-
-        return element.GetUInt64();
     }
 
     /// <summary>
@@ -102,14 +123,14 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
     /// pattern (as written by deserialization), any other number is the actual
     /// float value and is converted to bits for the wire.
     /// </summary>
-    private static object ReadFloat(JsonElement element)
+    private static object ReadFloat(ref Utf8JsonReader reader)
     {
-        if (element.ValueKind != JsonValueKind.Number)
+        if (reader.TokenType != JsonTokenType.Number)
             throw new JsonException("Value must be a number.");
 
-        return element.TryGetUInt32(out var bits)
+        return reader.TryGetUInt32(out var bits)
             ? bits
-            : BitConverter.SingleToUInt32Bits(element.GetSingle());
+            : BitConverter.SingleToUInt32Bits(reader.GetSingle());
     }
 
     /// <summary>
@@ -117,43 +138,43 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
     /// pattern (as written by deserialization), any other number is the actual
     /// double value and is converted to bits for the wire.
     /// </summary>
-    private static object ReadDouble(JsonElement element)
+    private static object ReadDouble(ref Utf8JsonReader reader)
     {
-        if (element.ValueKind != JsonValueKind.Number)
+        if (reader.TokenType != JsonTokenType.Number)
             throw new JsonException("Value must be a number.");
 
-        return element.TryGetUInt64(out var bits)
+        return reader.TryGetUInt64(out var bits)
             ? bits
-            : BitConverter.DoubleToUInt64Bits(element.GetDouble());
+            : BitConverter.DoubleToUInt64Bits(reader.GetDouble());
     }
 
-    private static object ReadGuid(JsonElement element)
+    private static object ReadGuid(ref Utf8JsonReader reader)
     {
-        if (element.ValueKind != JsonValueKind.String)
+        if (reader.TokenType != JsonTokenType.String)
             throw new JsonException("Guid value must be a string.");
 
-        return Guid.Parse(element.GetString() ?? string.Empty);
+        return Guid.Parse(reader.GetString() ?? string.Empty);
     }
 
-    private static object ReadDateTime(JsonElement element)
+    private static object ReadDateTime(ref Utf8JsonReader reader)
     {
-        if (element.ValueKind != JsonValueKind.String)
+        if (reader.TokenType != JsonTokenType.String)
             throw new JsonException("DateTime value must be a string.");
 
-        return DateTime.Parse(element.GetString() ?? string.Empty, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        return DateTime.Parse(reader.GetString() ?? string.Empty, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
     }
 
-    private static object ReadBlob(JsonElement element)
+    private static object ReadBlob(ref Utf8JsonReader reader)
     {
-        if (element.ValueKind == JsonValueKind.String)
-            return Convert.FromBase64String(element.GetString() ?? string.Empty);
+        if (reader.TokenType == JsonTokenType.String)
+            return Convert.FromBase64String(reader.GetString() ?? string.Empty);
 
-        if (element.ValueKind == JsonValueKind.Array)
+        if (reader.TokenType == JsonTokenType.StartArray)
         {
             var bytes = new List<byte>();
-            foreach (var item in element.EnumerateArray())
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
             {
-                bytes.Add(Convert.ToByte(ReadNumber(item)));
+                bytes.Add(reader.GetByte());
             }
 
             return bytes.ToArray();
@@ -162,13 +183,36 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
         throw new JsonException("Blob value must be a base64 string or number array.");
     }
 
-    private static object ReadDataSet(JsonElement element, JsonSerializerOptions options)
+    private object ReadDataSet(ref Utf8JsonReader reader, JsonSerializerOptions options)
     {
-        if (element.ValueKind == JsonValueKind.Null)
-            return new List<Dictionary<string, MarshalObject>>();
+        var rows = new List<Dictionary<string, MarshalObject>>();
 
-        var typeInfo = (System.Text.Json.Serialization.Metadata.JsonTypeInfo<IList<Dictionary<string, MarshalObject>>>)options.GetTypeInfo(typeof(IList<Dictionary<string, MarshalObject>>));
-        return JsonSerializer.Deserialize(element, typeInfo)
-            ?? [];
+        if (reader.TokenType == JsonTokenType.Null)
+            return rows;
+
+        if (reader.TokenType != JsonTokenType.StartArray)
+            throw new JsonException("DataSet value must be an array.");
+
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+                throw new JsonException("DataSet rows must be objects.");
+
+            var row = new Dictionary<string, MarshalObject>();
+
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                    throw new JsonException("Unexpected token in DataSet row.");
+
+                var name = reader.GetString() ?? string.Empty;
+                reader.Read();
+                row[name] = Read(ref reader, typeof(MarshalObject), options);
+            }
+
+            rows.Add(row);
+        }
+
+        return rows;
     }
 }

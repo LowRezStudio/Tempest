@@ -16,7 +16,7 @@ public static class MarshalSerializer
     /// </remarks>
     public static MarshalFunction DeserializeFunction(Stream stream, MarshalSerializerOptions options)
     {
-        var reader = new BinaryReader(stream);
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         var packet = new MarshalFunction();
 
         FunctionDescriptor? function;
@@ -52,7 +52,7 @@ public static class MarshalSerializer
 
         while (i < fieldCount)
         {
-            var field = Deserialize(stream, options);
+            var field = Deserialize(reader, options);
 
             foreach (var entry in field)
             {
@@ -89,8 +89,13 @@ public static class MarshalSerializer
     /// </remarks>
     public static Dictionary<string, MarshalObject> Deserialize(Stream stream, MarshalSerializerOptions options)
     {
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        return Deserialize(reader, options);
+    }
+
+    private static Dictionary<string, MarshalObject> Deserialize(BinaryReader reader, MarshalSerializerOptions options)
+    {
         var result = new Dictionary<string, MarshalObject>();
-        var reader = new BinaryReader(stream);
 
         var entryHeader = reader.ReadUInt16();
 
@@ -177,7 +182,7 @@ public static class MarshalSerializer
 
                         while (j < entryCount)
                         {
-                            var entry = Deserialize(stream, options);
+                            var entry = Deserialize(reader, options);
 
                             foreach (var (key, value) in entry)
                             {

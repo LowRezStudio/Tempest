@@ -32,7 +32,12 @@ internal partial class MarshalCommands
         Stream stream;
         if (obscure)
         {
-            var decoded = File.ReadAllBytes(path).Select(b => (byte)(b ^ 0x2A)).ToArray();
+            var decoded = File.ReadAllBytes(path);
+            for (var i = 0; i < decoded.Length; i++)
+            {
+                decoded[i] ^= 0x2A;
+            }
+
             stream = new MemoryStream(decoded);
         }
         else
@@ -113,21 +118,21 @@ internal partial class MarshalCommands
             using var buffer = new MemoryStream();
             MarshalSerializer.SerializeFunction(buffer, packet, options);
 
-            var bytes = buffer.ToArray();
-            for (var i = 0; i < bytes.Length; i++)
+            var bytes = buffer.GetBuffer();
+            for (var i = 0; i < buffer.Length; i++)
             {
-                bytes[i] = (byte)(bytes[i] ^ 0x2A);
+                bytes[i] ^= 0x2A;
             }
 
             if (output != null)
             {
                 using var outputStream = File.Open(output, FileMode.Create, FileAccess.Write, FileShare.None);
-                outputStream.Write(bytes, 0, bytes.Length);
+                outputStream.Write(bytes, 0, (int)buffer.Length);
             }
             else
             {
                 var stdout = Console.OpenStandardOutput();
-                stdout.Write(bytes, 0, bytes.Length);
+                stdout.Write(bytes, 0, (int)buffer.Length);
             }
 
             return;
