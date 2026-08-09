@@ -423,7 +423,7 @@ export function readFile(p: string): Promise<Uint8Array> {
 }
 
 export async function writeFile(p: string, data: Uint8Array): Promise<void> {
-	await unwrap(eio().invoke("fs:write-file", { path: p, data: Array.from(data) }));
+	await unwrap(eio().invoke("fs:write-file", { path: p, data: [...data] }));
 }
 
 // ---- @tauri-apps/plugin-dialog ----

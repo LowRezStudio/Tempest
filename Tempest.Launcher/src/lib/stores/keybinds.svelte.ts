@@ -50,7 +50,7 @@ export function buildDefaultInputIni(config: KeybindsConfig): string {
 		if (!name || !command) continue;
 		lines.push(`+Bindings=(Name="${name}",    Command="${command}")`);
 	}
-	return lines.join("\n") + "\n";
+	return `${lines.join("\n")}\n`;
 }
 
 export interface KeybindModOptions {
@@ -60,7 +60,7 @@ export interface KeybindModOptions {
 	readme?: string;
 }
 
-export async function cookKeybindsMod(config: KeybindsConfig, options: KeybindModOptions) {
+export function cookKeybindsMod(config: KeybindsConfig, options: KeybindModOptions) {
 	const zip = new JSZip();
 	zip.file("files/ChaosGame/Config/DefaultInput.ini", buildDefaultInputIni(config));
 
@@ -68,7 +68,7 @@ export async function cookKeybindsMod(config: KeybindsConfig, options: KeybindMo
 	lines.push("[mod]");
 	lines.push(`id = "${options.name.trim()}"`);
 	lines.push(`name = "${options.name.trim()}"`);
-	lines.push(`version = "${options.version?.trim() || "1.0.0"}"`);
+	lines.push(`version = "${options.version?.trim() ?? "1.0.0"}"`);
 	lines.push("");
 	for (const author of options.authors ?? []) {
 		if (!author.name.trim()) continue;

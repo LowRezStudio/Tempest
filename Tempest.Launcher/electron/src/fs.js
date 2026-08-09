@@ -76,7 +76,7 @@ ipcMain.handle("fs:remove", async (_event, { path: p, options }) => {
 ipcMain.handle("fs:read-file", async (_event, { path: p }) => {
 	try {
 		const data = await fs.promises.readFile(p);
-		return { ok: true, data: Array.from(data) };
+		return { ok: true, data: [...data] };
 	} catch (error) {
 		return fail("failed to read file at path:", p, error);
 	}

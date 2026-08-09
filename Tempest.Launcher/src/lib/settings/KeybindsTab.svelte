@@ -92,18 +92,24 @@
 
 	function mouseKeyLabel(button: number): string | null {
 		switch (button) {
-			case 0:
+			case 0: {
 				return "LeftMouseButton";
-			case 1:
+			}
+			case 1: {
 				return "MiddleMouseButton";
-			case 2:
+			}
+			case 2: {
 				return "RightMouseButton";
-			case 3:
+			}
+			case 3: {
 				return "ThumbMouseButton";
-			case 4:
+			}
+			case 4: {
 				return "ThumbMouseButton2";
-			default:
+			}
+			default: {
 				return null;
+			}
 		}
 	}
 
