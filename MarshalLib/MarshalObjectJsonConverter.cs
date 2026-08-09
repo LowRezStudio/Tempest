@@ -78,8 +78,8 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
             FieldType.Short => Convert.ToUInt16(ReadNumber(element)),
             FieldType.Int => Convert.ToUInt32(ReadNumber(element)),
             FieldType.Long => Convert.ToUInt64(ReadNumber(element)),
-            FieldType.Float => Convert.ToUInt32(ReadNumber(element)), // raw IEEE-754 bit pattern, as stored by the game
-            FieldType.Double => Convert.ToUInt64(ReadNumber(element)), // raw IEEE-754 bit pattern, as stored by the game
+            FieldType.Float => ReadFloat(element),
+            FieldType.Double => ReadDouble(element),
             FieldType.Guid => ReadGuid(element),
             FieldType.Blob => ReadBlob(element),
             FieldType.String => element.ValueKind == JsonValueKind.Null ? string.Empty : element.GetString() ?? string.Empty,
@@ -95,6 +95,36 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
             throw new JsonException("Value must be a number.");
 
         return element.GetUInt64();
+    }
+
+    /// <summary>
+    /// Reads a float field value: an integer number is the raw IEEE-754 bit
+    /// pattern (as written by deserialization), any other number is the actual
+    /// float value and is converted to bits for the wire.
+    /// </summary>
+    private static object ReadFloat(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Number)
+            throw new JsonException("Value must be a number.");
+
+        return element.TryGetUInt32(out var bits)
+            ? bits
+            : BitConverter.SingleToUInt32Bits(element.GetSingle());
+    }
+
+    /// <summary>
+    /// Reads a double field value: an integer number is the raw IEEE-754 bit
+    /// pattern (as written by deserialization), any other number is the actual
+    /// double value and is converted to bits for the wire.
+    /// </summary>
+    private static object ReadDouble(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Number)
+            throw new JsonException("Value must be a number.");
+
+        return element.TryGetUInt64(out var bits)
+            ? bits
+            : BitConverter.DoubleToUInt64Bits(element.GetDouble());
     }
 
     private static object ReadGuid(JsonElement element)

@@ -55,7 +55,7 @@ internal partial class MarshalCommands
                 throw new Exception("Sqlite format requires an output database path.");
 
             var connectionString = $"Data Source={output}";
-            SqliteMarshalFunctionExporter.Export(connectionString, result);
+            SqliteMarshalFunctionExporter.Export(connectionString, result, fieldMappings);
         }
         else
         {
@@ -74,14 +74,15 @@ internal partial class MarshalCommands
         stream.Close();
     }
 
-    /// <summary>Serializes JSON into a marshal binary</summary>
+    /// <summary>Serializes JSON or a SQLite database into a marshal binary</summary>
     /// <param name="fields">Path of the exported fields.dat file</param>
     /// <param name="functions">Path of the exported functions.dat file</param>
-    /// <param name="path">JSON input file path</param>
+    /// <param name="path">JSON or SQLite input file path</param>
     /// <param name="output">Output file path, if not specified it's outputted to stdout</param>
     /// <param name="version">Marshal format version (Modern or Legacy)</param>
     /// <param name="obscure">Applies a 0x2A XOR to the output</param>
-    public void Serialize(string fields, string functions, string path, string? output = null, MarshalSerializerVersion version = MarshalSerializerVersion.Modern, bool obscure = false)
+    /// <param name="format">Input format (Json or Sqlite)</param>
+    public void Serialize(string fields, string functions, string path, string? output = null, MarshalSerializerVersion version = MarshalSerializerVersion.Modern, bool obscure = false, MarshalSerializeFormat format = MarshalSerializeFormat.Json)
     {
         using var fieldsFile = File.OpenRead(fields);
         using var functionsFile = File.OpenRead(functions);
@@ -89,8 +90,17 @@ internal partial class MarshalCommands
         var fieldMappings = FieldMappings.OpenRead(fieldsFile);
         var functionMappings = FunctionMappings.OpenRead(functionsFile);
 
-        using var inputStream = File.OpenRead(path);
-        var packet = JsonSerializer.Deserialize(inputStream, MarshalSourceGenerationContext.Default.MarshalFunction) ?? throw new Exception("Failed to deserialize marshal JSON.");
+        MarshalFunction packet;
+        if (format == MarshalSerializeFormat.Sqlite)
+        {
+            packet = SqliteMarshalFunctionImporter.Import($"Data Source={path}");
+        }
+        else
+        {
+            using var inputStream = File.OpenRead(path);
+            packet = JsonSerializer.Deserialize(inputStream, MarshalSourceGenerationContext.Default.MarshalFunction) ?? throw new Exception("Failed to deserialize marshal JSON.");
+        }
+
         var options = new MarshalSerializerOptions
         {
             FieldMappings = fieldMappings,
@@ -137,6 +147,12 @@ internal partial class MarshalCommands
 }
 
 internal enum MarshalDeserializeFormat
+{
+    Json,
+    Sqlite
+}
+
+internal enum MarshalSerializeFormat
 {
     Json,
     Sqlite

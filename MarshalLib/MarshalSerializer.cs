@@ -433,6 +433,10 @@ public static class MarshalSerializer
         {
             if (marshalObject.Value is DateTime dateTime)
                 return (ulong)new DateTimeOffset(dateTime.ToUniversalTime()).ToUnixTimeSeconds();
+            if (marshalObject.Value is float f)
+                return BitConverter.SingleToUInt32Bits(f);
+            if (marshalObject.Value is double d)
+                return BitConverter.DoubleToUInt64Bits(d);
 
             return Convert.ToUInt64(marshalObject.Value);
         }

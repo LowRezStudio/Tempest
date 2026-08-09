@@ -15,6 +15,8 @@ namespace MarshalLib;
 [JsonSerializable(typeof(IList<Dictionary<string, MarshalObject>>))]
 [JsonSerializable(typeof(Guid))]
 [JsonSerializable(typeof(DateTime))]
+[JsonSerializable(typeof(float))]
+[JsonSerializable(typeof(double))]
 [JsonSerializable(typeof(byte))]
 [JsonSerializable(typeof(ushort))]
 [JsonSerializable(typeof(uint))]
