@@ -34,18 +34,15 @@ public static class SqliteMarshalFunctionExporter
     {
         using var transaction = connection.BeginTransaction();
 
-        EnsureForeignKeys(connection, transaction);
-        DropAllTables(connection, transaction);
-        EnsureFunctionMetadataTable(connection, transaction);
-        EnsureDataSetFieldsTable(connection, transaction);
+        DropAndRecreateSchema(connection, transaction);
 
-        var context = new ExportContext { FieldMappings = fieldMappings };
+        var context = new ExportContext(connection, transaction, fieldMappings);
 
         // Pre-scan the whole function so every column is declared with the widest
         // type present in its rows (the wire width varies per value).
-        var metadataColumns = CollectRowColumns(function.Rows, MarshalSqliteSchema.FunctionMetadataTable, context);
+        var metadataColumns = context.CollectFunctionColumns(function.Rows);
 
-        var functionId = InsertFunctionMetadata(connection, transaction, function, metadataColumns);
+        var functionId = InsertFunctionMetadata(connection, transaction, function, metadataColumns, context);
 
         var ordinal = 0;
 
@@ -53,7 +50,7 @@ public static class SqliteMarshalFunctionExporter
         {
             if (marshalObject.Type == FieldType.DataSet)
             {
-                ExportDataSet(connection, transaction, functionId, null, null, fieldName, marshalObject, ordinal, context);
+                context.GetDataSetWriter(fieldName).Write(functionId, parentRowId: null, parentTable: null, marshalObject, ordinal);
             }
 
             ordinal++;
@@ -62,33 +59,12 @@ public static class SqliteMarshalFunctionExporter
         transaction.Commit();
     }
 
-    private sealed class ExportContext
+    private static void DropAndRecreateSchema(SqliteConnection connection, SqliteTransaction transaction)
     {
-        public required FieldMappings? FieldMappings { get; init; }
-
-        /// <summary>Table name -> column name -> declared column type.</summary>
-        public Dictionary<string, Dictionary<string, string>> Schema { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        public HashSet<string> CreatedTables { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        public Dictionary<string, TableInsert> InsertCache { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>Field name -> normalized column name (field names repeat across rows).</summary>
-        public Dictionary<string, string> NormalizedNames { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>Table name -> next row id to assign (ids are per-table only).</summary>
-        public Dictionary<string, long> NextRowIds { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        public string Normalize(string fieldName)
-        {
-            if (!NormalizedNames.TryGetValue(fieldName, out var normalized))
-            {
-                normalized = MarshalSqliteSchema.NormalizeIdentifier(fieldName);
-                NormalizedNames[fieldName] = normalized;
-            }
-
-            return normalized;
-        }
+        EnsureForeignKeys(connection, transaction);
+        DropAllTables(connection, transaction);
+        EnsureFunctionMetadataTable(connection, transaction);
+        EnsureDataSetFieldsTable(connection, transaction);
     }
 
     private static void EnsureForeignKeys(SqliteConnection connection, SqliteTransaction transaction)
@@ -170,118 +146,12 @@ CREATE TABLE {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.DataSetFie
         createCommand.ExecuteNonQuery();
     }
 
-    /// <summary>
-    /// Collects the widest declared type per column across all rows of one table.
-    /// Data-set fields are skipped here and collected into their own tables.
-    /// </summary>
-    private static Dictionary<string, string> CollectRowColumns(
-        IEnumerable<KeyValuePair<string, MarshalObject>> entries,
-        string tableName,
-        ExportContext context)
-    {
-        var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var (fieldName, marshalObject) in entries)
-        {
-            if (marshalObject.Type == FieldType.DataSet)
-            {
-                CollectDataSetColumns(fieldName, marshalObject, context);
-                continue;
-            }
-
-            AddSchemaColumn(columns, tableName, fieldName, marshalObject, context);
-        }
-
-        return columns;
-    }
-
-    private static void CollectDataSetColumns(string fieldName, MarshalObject marshalObject, ExportContext context)
-    {
-        var tableName = context.Normalize(fieldName);
-        var columns = context.Schema.GetValueOrDefault(tableName);
-
-        foreach (var row in (IList<Dictionary<string, MarshalObject>>)marshalObject.Value)
-        {
-            if (columns == null)
-            {
-                columns = [];
-                context.Schema[tableName] = columns;
-            }
-
-            foreach (var (columnNameRaw, value) in row)
-            {
-                if (value.Type == FieldType.DataSet)
-                {
-                    CollectDataSetColumns(columnNameRaw, value, context);
-                    continue;
-                }
-
-                var columnName = context.Normalize(columnNameRaw);
-                if (MarshalSqliteSchema.DataSetTableColumns.Contains(columnName, StringComparer.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException(
-                        $"Field name \"{columnNameRaw}\" normalizes to reserved column \"{columnName}\" in table \"{tableName}\".");
-                }
-
-                AddColumnType(columns, columnName, columnNameRaw, value, context);
-            }
-        }
-    }
-
-    private static void AddSchemaColumn(
-        Dictionary<string, string> columns,
-        string tableName,
-        string fieldName,
-        MarshalObject marshalObject,
-        ExportContext context)
-    {
-        var columnName = context.Normalize(fieldName);
-
-        if (MarshalSqliteSchema.FunctionMetadataColumns.Contains(columnName, StringComparer.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                $"Field name \"{fieldName}\" normalizes to reserved column \"{columnName}\" in table \"{tableName}\".");
-        }
-
-        AddColumnType(columns, columnName, fieldName, marshalObject, context);
-    }
-
-    private static void AddColumnType(
-        Dictionary<string, string> columns,
-        string columnName,
-        string fieldName,
-        MarshalObject marshalObject,
-        ExportContext context)
-    {
-        var declaredType = MarshalSqliteSchema.GetDeclaredType(marshalObject, fieldName, context.FieldMappings);
-        columns.TryGetValue(columnName, out var existing);
-        columns[columnName] = existing is null ? declaredType : Widen(existing, declaredType);
-    }
-
-    /// <summary>
-    /// Widens integer types (BYTE → SHORT → INT → LONG) so a column can hold any
-    /// value of its rows; the serializer re-derives exact wire widths on import.
-    /// Non-promotable kinds keep the first-seen type.
-    /// </summary>
-    private static string Widen(string existing, string candidate)
-    {
-        if (existing == candidate)
-            return existing;
-
-        var rank = new[] { "BYTE", "SHORT", "INT", "LONG" };
-        var existingRank = Array.IndexOf(rank, existing);
-        var candidateRank = Array.IndexOf(rank, candidate);
-
-        return existingRank >= 0 && candidateRank >= 0
-            ? rank[Math.Max(existingRank, candidateRank)]
-            : existing;
-    }
-
     private static long InsertFunctionMetadata(
         SqliteConnection connection,
         SqliteTransaction transaction,
         MarshalFunction function,
-        IReadOnlyDictionary<string, string> metadataColumns)
+        IReadOnlyDictionary<string, string> metadataColumns,
+        ExportContext context)
     {
         EnsureColumns(connection, transaction, MarshalSqliteSchema.FunctionMetadataTable, metadataColumns);
 
@@ -292,8 +162,7 @@ CREATE TABLE {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.DataSetFie
             if (marshalObject.Type == FieldType.DataSet)
                 continue;
 
-            var columnName = MarshalSqliteSchema.NormalizeIdentifier(fieldName);
-            values[columnName] = MarshalSqliteSchema.ToValue(marshalObject);
+            values[context.Normalize(fieldName)] = MarshalSqliteSchema.ToValue(marshalObject);
         }
 
         var insertColumns = new List<string>(MarshalSqliteSchema.FunctionMetadataColumns);
@@ -327,243 +196,10 @@ SELECT last_insert_rowid();
         return result is long id ? id : Convert.ToInt64(result, System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private static void ExportDataSet(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        long functionId,
-        long? parentRowId,
-        string? parentTable,
-        string fieldName,
-        MarshalObject marshalObject,
-        int fieldOrdinal,
-        ExportContext context)
-    {
-        var tableName = context.Normalize(fieldName);
-        var rows = (IList<Dictionary<string, MarshalObject>>)marshalObject.Value;
-
-        EnsureDataSetTable(connection, transaction, tableName);
-
-        if (context.CreatedTables.Add(tableName) && context.Schema.TryGetValue(tableName, out var columns))
-        {
-            EnsureColumns(connection, transaction, tableName, columns);
-        }
-
-        if (rows.Count == 0)
-        {
-            // A data set without rows stores no per-row ordinals, so record its
-            // position in the parent row here; otherwise the round trip would
-            // lose the field entirely.
-            InsertDataSetField(connection, transaction, functionId, tableName, parentTable, parentRowId, fieldOrdinal);
-            return;
-        }
-
-        foreach (var row in rows)
-        {
-            var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-            var nestedDataSets = new List<(string FieldName, MarshalObject Value, int Ordinal)>();
-
-            var ordinal = 0;
-
-            foreach (var (columnNameRaw, value) in row)
-            {
-                if (value.Type == FieldType.DataSet)
-                {
-                    nestedDataSets.Add((columnNameRaw, value, ordinal));
-                }
-                else
-                {
-                    values[context.Normalize(columnNameRaw)] = MarshalSqliteSchema.ToValue(value);
-                }
-
-                ordinal++;
-            }
-
-            // Row ids only need to be unique per table and rows are inserted in
-            // order, so assign them here instead of reading back last_insert_rowid().
-            var rowId = context.NextRowIds.TryGetValue(tableName, out var nextRowId) ? nextRowId : 1;
-            context.NextRowIds[tableName] = rowId + 1;
-
-            InsertDataSetRow(connection, transaction, tableName, rowId, functionId, parentRowId, parentTable, fieldOrdinal, values,
-                ComputeEntryOrder(row, tableName, context), context);
-
-            foreach (var (nestedFieldName, nestedValue, nestedOrdinal) in nestedDataSets)
-            {
-                ExportDataSet(connection, transaction, functionId, rowId, tableName, nestedFieldName, nestedValue, nestedOrdinal, context);
-            }
-        }
-    }
-
-    private static void EnsureDataSetTable(SqliteConnection connection, SqliteTransaction transaction, string tableName)
-    {
-        using var createCommand = connection.CreateCommand();
-        createCommand.Transaction = transaction;
-        createCommand.CommandText = $@"
-CREATE TABLE IF NOT EXISTS {MarshalSqliteSchema.QuoteIdentifier(tableName)} (
-    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.RowIdColumn)} INTEGER PRIMARY KEY AUTOINCREMENT,
-    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)} INTEGER NOT NULL,
-    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentRowIdColumn)} INTEGER NULL,
-    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentTableColumn)} TEXT NULL,
-    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FieldOrdinalColumn)} INTEGER NOT NULL,
-    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.EntryOrderColumn)} TEXT NULL,
-    FOREIGN KEY ({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)})
-        REFERENCES {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionMetadataTable)}({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)}) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS {MarshalSqliteSchema.QuoteIdentifier("ix_" + tableName + "_function_id")}
-    ON {MarshalSqliteSchema.QuoteIdentifier(tableName)}({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)});
-
-CREATE INDEX IF NOT EXISTS {MarshalSqliteSchema.QuoteIdentifier("ix_" + tableName + "_parent_row_id")}
-    ON {MarshalSqliteSchema.QuoteIdentifier(tableName)}({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentRowIdColumn)});
-";
-        createCommand.ExecuteNonQuery();
-    }
-
-    private static void InsertDataSetField(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        long functionId,
-        string tableName,
-        string? parentTable,
-        long? parentRowId,
-        int fieldOrdinal)
-    {
-        using var insertCommand = connection.CreateCommand();
-        insertCommand.Transaction = transaction;
-        insertCommand.CommandText = $@"
-INSERT OR IGNORE INTO {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.DataSetFieldsTable)}
-    ({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)},
-     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.TableNameColumn)},
-     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentTableColumn)},
-     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentRowIdColumn)},
-     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FieldOrdinalColumn)})
-VALUES ($function_id, $table_name, $parent_table, $parent_row_id, $field_ordinal);
-";
-
-        insertCommand.Parameters.AddWithValue("$function_id", functionId);
-        insertCommand.Parameters.AddWithValue("$table_name", tableName);
-        insertCommand.Parameters.AddWithValue("$parent_table", (object?)parentTable ?? DBNull.Value);
-        insertCommand.Parameters.AddWithValue("$parent_row_id", parentRowId.HasValue ? parentRowId.Value : DBNull.Value);
-        insertCommand.Parameters.AddWithValue("$field_ordinal", fieldOrdinal);
-        insertCommand.ExecuteNonQuery();
-    }
-
     /// <summary>
-    /// Returns the row's data column sequence (normalized names, entry order)
-    /// when it deviates from the table's first-seen column order; otherwise null.
+    /// Adds missing columns to an existing table in schema order, so the column
+    /// order matches the first-seen marshal entry order.
     /// </summary>
-    private static string? ComputeEntryOrder(
-        IReadOnlyDictionary<string, MarshalObject> row,
-        string tableName,
-        ExportContext context)
-    {
-        if (!context.Schema.TryGetValue(tableName, out var columns))
-            return null;
-
-        var present = new List<string>(row.Count);
-        foreach (var (fieldName, value) in row)
-        {
-            if (value.Type != FieldType.DataSet)
-                present.Add(context.Normalize(fieldName));
-        }
-
-        // Fast path: the common case is a uniform row matching the table order.
-        if (present.Count == columns.Count)
-        {
-            var matches = true;
-            var i = 0;
-            foreach (var column in columns.Keys)
-            {
-                if (column != present[i++])
-                {
-                    matches = false;
-                    break;
-                }
-            }
-
-            if (matches)
-                return null;
-        }
-
-        var presentSet = new HashSet<string>(present, StringComparer.OrdinalIgnoreCase);
-        var expected = new List<string>(present.Count);
-        foreach (var column in columns.Keys)
-        {
-            if (presentSet.Contains(column))
-                expected.Add(column);
-        }
-
-        return present.SequenceEqual(expected) ? null : string.Join(",", present);
-    }
-
-    private static void InsertDataSetRow(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        string tableName,
-        long rowId,
-        long functionId,
-        long? parentRowId,
-        string? parentTable,
-        int fieldOrdinal,
-        IReadOnlyDictionary<string, object?> values,
-        string? entryOrder,
-        ExportContext context)
-    {
-        if (!context.InsertCache.TryGetValue(tableName, out var insert))
-        {
-            var tableColumns = context.Schema.TryGetValue(tableName, out var columns) ? (IEnumerable<string>)columns.Keys : [];
-            insert = BuildInsert(connection, transaction, tableName, tableColumns);
-            context.InsertCache[tableName] = insert;
-        }
-
-        for (var i = 0; i < insert.Columns.Count; i++)
-        {
-            insert.Parameters[i].Value = insert.Columns[i] switch
-            {
-                MarshalSqliteSchema.RowIdColumn => rowId,
-                MarshalSqliteSchema.FunctionIdColumn => functionId,
-                MarshalSqliteSchema.ParentRowIdColumn => parentRowId.HasValue ? parentRowId.Value : DBNull.Value,
-                MarshalSqliteSchema.ParentTableColumn => (object?)parentTable ?? DBNull.Value,
-                MarshalSqliteSchema.FieldOrdinalColumn => fieldOrdinal,
-                MarshalSqliteSchema.EntryOrderColumn => (object?)entryOrder ?? DBNull.Value,
-                _ => values.TryGetValue(insert.Columns[i], out var value) ? value ?? DBNull.Value : DBNull.Value
-            };
-        }
-
-        insert.Command.ExecuteNonQuery();
-    }
-
-    /// <summary>
-    /// Builds the insert statement for one table once, with a fixed parameter per
-    /// column, so rows only update parameter values instead of allocating a
-    /// command and its parameters every time.
-    /// </summary>
-    private static TableInsert BuildInsert(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        string tableName,
-        IEnumerable<string> tableColumns)
-    {
-        var columns = new List<string>(MarshalSqliteSchema.DataSetTableColumns);
-        columns.AddRange(tableColumns);
-
-        var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = $@"
-INSERT INTO {MarshalSqliteSchema.QuoteIdentifier(tableName)} ({MarshalSqliteSchema.JoinIdentifiers(columns)})
-VALUES ({string.Join(", ", columns.Select(c => "$" + c))});
-";
-
-        var parameters = new SqliteParameter[columns.Count];
-        for (var i = 0; i < columns.Count; i++)
-        {
-            parameters[i] = command.Parameters.AddWithValue("$" + columns[i], DBNull.Value);
-        }
-
-        return new TableInsert(command, columns, parameters);
-    }
-
-    private sealed record TableInsert(SqliteCommand Command, List<string> Columns, SqliteParameter[] Parameters);
-
     private static void EnsureColumns(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -603,5 +239,402 @@ ADD COLUMN {MarshalSqliteSchema.QuoteIdentifier(columnName)} {declaredType};
         }
 
         return columns;
+    }
+
+    /// <summary>
+    /// Shared state for one export: the open transaction, the per-table schema
+    /// collected by the pre-scan, the field-name normalization cache, and the
+    /// lazily created per-table writers.
+    /// </summary>
+    private sealed class ExportContext
+    {
+        public ExportContext(SqliteConnection connection, SqliteTransaction transaction, FieldMappings? fieldMappings)
+        {
+            Connection = connection;
+            Transaction = transaction;
+            FieldMappings = fieldMappings;
+        }
+
+        public SqliteConnection Connection { get; }
+
+        public SqliteTransaction Transaction { get; }
+
+        public FieldMappings? FieldMappings { get; }
+
+        /// <summary>Table name -> column name -> declared column type (insertion order = column order).</summary>
+        public Dictionary<string, Dictionary<string, string>> Schema { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Field name -> normalized column name (field names repeat across rows).</summary>
+        private readonly Dictionary<string, string> _normalizedNames = new(StringComparer.OrdinalIgnoreCase);
+
+        private readonly Dictionary<string, DataSetTableWriter> _dataSetWriters = new(StringComparer.OrdinalIgnoreCase);
+
+        public string Normalize(string fieldName)
+        {
+            if (!_normalizedNames.TryGetValue(fieldName, out var normalized))
+            {
+                normalized = MarshalSqliteSchema.NormalizeIdentifier(fieldName);
+                _normalizedNames[fieldName] = normalized;
+            }
+
+            return normalized;
+        }
+
+        /// <summary>
+        /// Returns the writer for a data-set field's table, creating the table
+        /// and its prepared insert command on first use.
+        /// </summary>
+        public DataSetTableWriter GetDataSetWriter(string fieldName)
+        {
+            var tableName = Normalize(fieldName);
+
+            if (!_dataSetWriters.TryGetValue(tableName, out var writer))
+            {
+                Schema.TryGetValue(tableName, out var schema);
+                writer = new DataSetTableWriter(this, tableName, schema);
+                _dataSetWriters[tableName] = writer;
+            }
+
+            return writer;
+        }
+
+        /// <summary>
+        /// Collects the widest declared type per column across all rows of the
+        /// function metadata table. Data-set fields are skipped here and
+        /// collected into their own per-table schemas in <see cref="Schema"/>.
+        /// </summary>
+        public Dictionary<string, string> CollectFunctionColumns(IEnumerable<KeyValuePair<string, MarshalObject>> entries)
+        {
+            var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (fieldName, marshalObject) in entries)
+            {
+                if (marshalObject.Type == FieldType.DataSet)
+                {
+                    CollectDataSetColumns(fieldName, marshalObject);
+                    continue;
+                }
+
+                AddSchemaColumn(columns, MarshalSqliteSchema.FunctionMetadataTable, fieldName, marshalObject);
+            }
+
+            return columns;
+        }
+
+        /// <summary>Collects the schema of one data-set table, recursing into nested data sets.</summary>
+        private void CollectDataSetColumns(string fieldName, MarshalObject marshalObject)
+        {
+            var tableName = Normalize(fieldName);
+
+            if (!Schema.TryGetValue(tableName, out var columns))
+            {
+                columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                Schema[tableName] = columns;
+            }
+
+            foreach (var row in (IList<Dictionary<string, MarshalObject>>)marshalObject.Value)
+            {
+                foreach (var (columnNameRaw, value) in row)
+                {
+                    if (value.Type == FieldType.DataSet)
+                    {
+                        CollectDataSetColumns(columnNameRaw, value);
+                        continue;
+                    }
+
+                    var columnName = Normalize(columnNameRaw);
+
+                    if (MarshalSqliteSchema.DataSetTableColumns.Contains(columnName, StringComparer.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException(
+                            $"Field name \"{columnNameRaw}\" normalizes to reserved column \"{columnName}\" in table \"{tableName}\".");
+                    }
+
+                    AddColumnType(columns, columnName, columnNameRaw, value);
+                }
+            }
+        }
+
+        private void AddSchemaColumn(Dictionary<string, string> columns, string tableName, string fieldName, MarshalObject marshalObject)
+        {
+            var columnName = Normalize(fieldName);
+
+            if (MarshalSqliteSchema.FunctionMetadataColumns.Contains(columnName, StringComparer.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Field name \"{fieldName}\" normalizes to reserved column \"{columnName}\" in table \"{tableName}\".");
+            }
+
+            AddColumnType(columns, columnName, fieldName, marshalObject);
+        }
+
+        private void AddColumnType(Dictionary<string, string> columns, string columnName, string fieldName, MarshalObject marshalObject)
+        {
+            var declaredType = MarshalSqliteSchema.GetDeclaredType(marshalObject, fieldName, FieldMappings);
+            columns.TryGetValue(columnName, out var existing);
+            columns[columnName] = existing is null ? declaredType : Widen(existing, declaredType);
+        }
+
+        /// <summary>
+        /// Widens integer types (BYTE → SHORT → INT → LONG) so a column can hold any
+        /// value of its rows; the serializer re-derives exact wire widths on import.
+        /// Non-promotable kinds keep the first-seen type.
+        /// </summary>
+        private static string Widen(string existing, string candidate)
+        {
+            if (existing == candidate)
+                return existing;
+
+            var existingRank = Array.IndexOf(IntegerTypeRank, existing);
+            var candidateRank = Array.IndexOf(IntegerTypeRank, candidate);
+
+            return existingRank >= 0 && candidateRank >= 0
+                ? IntegerTypeRank[Math.Max(existingRank, candidateRank)]
+                : existing;
+        }
+
+        private static readonly string[] IntegerTypeRank = ["BYTE", "SHORT", "INT", "LONG"];
+    }
+
+    /// <summary>
+    /// Writes one data-set table. Owns the table's schema columns, its prepared
+    /// INSERT command with a fixed parameter per column, the column-name →
+    /// parameter-index map, the per-table row-id counter, and the entry-order
+    /// logic. Created lazily on the table's first occurrence and reused for all
+    /// rows of the table, wherever they appear in the function.
+    /// </summary>
+    private sealed class DataSetTableWriter
+    {
+        private readonly ExportContext _context;
+
+        /// <summary>Normalized table name.</summary>
+        public string TableName { get; }
+
+        /// <summary>Data columns in first-seen order (the table's entry order).</summary>
+        private readonly List<string> _schemaColumns;
+
+        private readonly SqliteCommand _insertCommand;
+        private readonly SqliteParameter[] _parameters;
+        private readonly Dictionary<string, int> _dataColumnIndex;
+
+        /// <summary>Per-row scratch: normalized names of the row's data fields, in entry order.</summary>
+        private readonly List<string> _presentColumns = [];
+
+        /// <summary>Per-row scratch: data parameters written for the current row, reset after each insert.</summary>
+        private readonly List<int> _touchedParameters = [];
+
+        /// <summary>Row ids only need to be unique per table and rows are inserted in order.</summary>
+        private long _nextRowId = 1;
+
+        private static readonly int RowIdParameter = Array.IndexOf(MarshalSqliteSchema.DataSetTableColumns, MarshalSqliteSchema.RowIdColumn);
+        private static readonly int FunctionIdParameter = Array.IndexOf(MarshalSqliteSchema.DataSetTableColumns, MarshalSqliteSchema.FunctionIdColumn);
+        private static readonly int ParentRowIdParameter = Array.IndexOf(MarshalSqliteSchema.DataSetTableColumns, MarshalSqliteSchema.ParentRowIdColumn);
+        private static readonly int ParentTableParameter = Array.IndexOf(MarshalSqliteSchema.DataSetTableColumns, MarshalSqliteSchema.ParentTableColumn);
+        private static readonly int FieldOrdinalParameter = Array.IndexOf(MarshalSqliteSchema.DataSetTableColumns, MarshalSqliteSchema.FieldOrdinalColumn);
+        private static readonly int EntryOrderParameter = Array.IndexOf(MarshalSqliteSchema.DataSetTableColumns, MarshalSqliteSchema.EntryOrderColumn);
+
+        public DataSetTableWriter(ExportContext context, string tableName, Dictionary<string, string>? schema)
+        {
+            _context = context;
+            TableName = tableName;
+            _schemaColumns = schema?.Keys.ToList() ?? [];
+
+            CreateTable(schema);
+
+            var columns = new List<string>(MarshalSqliteSchema.DataSetTableColumns);
+            columns.AddRange(_schemaColumns);
+
+            _insertCommand = context.Connection.CreateCommand();
+            _insertCommand.Transaction = context.Transaction;
+            _insertCommand.CommandText = $@"
+INSERT INTO {MarshalSqliteSchema.QuoteIdentifier(tableName)} ({MarshalSqliteSchema.JoinIdentifiers(columns)})
+VALUES ({string.Join(", ", columns.Select(c => "$" + c))});
+";
+
+            _parameters = new SqliteParameter[columns.Count];
+            _dataColumnIndex = new Dictionary<string, int>(_schemaColumns.Count, StringComparer.OrdinalIgnoreCase);
+
+            for (var i = 0; i < columns.Count; i++)
+            {
+                _parameters[i] = _insertCommand.Parameters.AddWithValue("$" + columns[i], DBNull.Value);
+
+                if (i >= MarshalSqliteSchema.DataSetTableColumns.Length)
+                    _dataColumnIndex[columns[i]] = i;
+            }
+        }
+
+        /// <summary>
+        /// Writes one data-set value (all of its rows) with its position within
+        /// the parent row. Nested data sets are written by their own writers.
+        /// </summary>
+        public void Write(long functionId, long? parentRowId, string? parentTable, MarshalObject marshalObject, int fieldOrdinal)
+        {
+            var rows = (IList<Dictionary<string, MarshalObject>>)marshalObject.Value;
+
+            if (rows.Count == 0)
+            {
+                // A data set without rows stores no per-row ordinals, so record its
+                // position in the parent row here; otherwise the round trip would
+                // lose the field entirely.
+                InsertDataSetField(functionId, parentTable, parentRowId, fieldOrdinal);
+                return;
+            }
+
+            foreach (var row in rows)
+            {
+                WriteRow(functionId, parentRowId, parentTable, row, fieldOrdinal);
+            }
+        }
+
+        private void WriteRow(long functionId, long? parentRowId, string? parentTable, Dictionary<string, MarshalObject> row, int fieldOrdinal)
+        {
+            // Only allocated when the row actually nests data sets (the common
+            // case for rows is scalar fields only).
+            List<(string FieldName, MarshalObject Value, int Ordinal)>? nestedDataSets = null;
+
+            _presentColumns.Clear();
+            _touchedParameters.Clear();
+
+            var ordinal = 0;
+
+            // Walk the row once: data values are converted and written straight
+            // into their fixed parameters via the column-name → index map, and
+            // the entry-order sequence is recorded at the same time.
+            foreach (var (fieldName, value) in row)
+            {
+                if (value.Type == FieldType.DataSet)
+                {
+                    (nestedDataSets ??= []).Add((fieldName, value, ordinal));
+                }
+                else
+                {
+                    var columnName = _context.Normalize(fieldName);
+                    _presentColumns.Add(columnName);
+
+                    if (_dataColumnIndex.TryGetValue(columnName, out var parameterIndex))
+                    {
+                        var converted = MarshalSqliteSchema.ToValue(value);
+                        _parameters[parameterIndex].Value = converted ?? DBNull.Value;
+                        _touchedParameters.Add(parameterIndex);
+                    }
+                }
+
+                ordinal++;
+            }
+
+            var rowId = _nextRowId++;
+
+            _parameters[RowIdParameter].Value = rowId;
+            _parameters[FunctionIdParameter].Value = functionId;
+            _parameters[ParentRowIdParameter].Value = parentRowId.HasValue ? parentRowId.Value : DBNull.Value;
+            _parameters[ParentTableParameter].Value = (object?)parentTable ?? DBNull.Value;
+            _parameters[FieldOrdinalParameter].Value = fieldOrdinal;
+            _parameters[EntryOrderParameter].Value = (object?)ComputeEntryOrder() ?? DBNull.Value;
+
+            _insertCommand.ExecuteNonQuery();
+
+            // Reset the data parameters written above so the next row starts
+            // from all-NULL; the reserved parameters are overwritten every row.
+            foreach (var parameterIndex in _touchedParameters)
+            {
+                _parameters[parameterIndex].Value = DBNull.Value;
+            }
+
+            if (nestedDataSets != null)
+            {
+                foreach (var (nestedFieldName, nestedValue, nestedOrdinal) in nestedDataSets)
+                {
+                    _context.GetDataSetWriter(nestedFieldName).Write(functionId, rowId, TableName, nestedValue, nestedOrdinal);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Returns the row's data column sequence (normalized names, entry order)
+        /// when it deviates from the table's first-seen column order; otherwise null.
+        /// </summary>
+        private string? ComputeEntryOrder()
+        {
+            // Fast path: the common case is a uniform row matching the table order.
+            if (_presentColumns.Count == _schemaColumns.Count)
+            {
+                var matches = true;
+
+                for (var i = 0; i < _presentColumns.Count; i++)
+                {
+                    if (_schemaColumns[i] != _presentColumns[i])
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+
+                if (matches)
+                    return null;
+            }
+
+            var presentSet = new HashSet<string>(_presentColumns, StringComparer.OrdinalIgnoreCase);
+            var expected = new List<string>(_presentColumns.Count);
+
+            foreach (var column in _schemaColumns)
+            {
+                if (presentSet.Contains(column))
+                    expected.Add(column);
+            }
+
+            return _presentColumns.SequenceEqual(expected) ? null : string.Join(",", _presentColumns);
+        }
+
+        private void CreateTable(Dictionary<string, string>? schema)
+        {
+            using var createCommand = _context.Connection.CreateCommand();
+            createCommand.Transaction = _context.Transaction;
+            createCommand.CommandText = $@"
+CREATE TABLE IF NOT EXISTS {MarshalSqliteSchema.QuoteIdentifier(TableName)} (
+    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.RowIdColumn)} INTEGER PRIMARY KEY AUTOINCREMENT,
+    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)} INTEGER NOT NULL,
+    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentRowIdColumn)} INTEGER NULL,
+    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentTableColumn)} TEXT NULL,
+    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FieldOrdinalColumn)} INTEGER NOT NULL,
+    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.EntryOrderColumn)} TEXT NULL,
+    FOREIGN KEY ({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)})
+        REFERENCES {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionMetadataTable)}({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)}) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS {MarshalSqliteSchema.QuoteIdentifier("ix_" + TableName + "_function_id")}
+    ON {MarshalSqliteSchema.QuoteIdentifier(TableName)}({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)});
+
+CREATE INDEX IF NOT EXISTS {MarshalSqliteSchema.QuoteIdentifier("ix_" + TableName + "_parent_row_id")}
+    ON {MarshalSqliteSchema.QuoteIdentifier(TableName)}({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentRowIdColumn)});
+";
+            createCommand.ExecuteNonQuery();
+
+            if (schema != null)
+            {
+                EnsureColumns(_context.Connection, _context.Transaction, TableName, schema);
+            }
+        }
+
+        private void InsertDataSetField(long functionId, string? parentTable, long? parentRowId, int fieldOrdinal)
+        {
+            using var insertCommand = _context.Connection.CreateCommand();
+            insertCommand.Transaction = _context.Transaction;
+            insertCommand.CommandText = $@"
+INSERT OR IGNORE INTO {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.DataSetFieldsTable)}
+    ({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)},
+     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.TableNameColumn)},
+     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentTableColumn)},
+     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentRowIdColumn)},
+     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FieldOrdinalColumn)})
+VALUES ($function_id, $table_name, $parent_table, $parent_row_id, $field_ordinal);
+";
+
+            insertCommand.Parameters.AddWithValue("$function_id", functionId);
+            insertCommand.Parameters.AddWithValue("$table_name", TableName);
+            insertCommand.Parameters.AddWithValue("$parent_table", (object?)parentTable ?? DBNull.Value);
+            insertCommand.Parameters.AddWithValue("$parent_row_id", parentRowId.HasValue ? parentRowId.Value : DBNull.Value);
+            insertCommand.Parameters.AddWithValue("$field_ordinal", fieldOrdinal);
+            insertCommand.ExecuteNonQuery();
+        }
     }
 }

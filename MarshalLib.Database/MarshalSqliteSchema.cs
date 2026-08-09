@@ -192,14 +192,23 @@ internal static class MarshalSqliteSchema
         switch (marshalObject.Type)
         {
             case FieldType.Byte:
-                return Convert.ToInt64(marshalObject.Value, CultureInfo.InvariantCulture);
+                // Fast path: the value is the boxed primitive the deserializer produced.
+                return marshalObject.Value is byte byteValue
+                    ? (long)byteValue
+                    : Convert.ToInt64(marshalObject.Value, CultureInfo.InvariantCulture);
             case FieldType.Short:
-                return Convert.ToInt64(marshalObject.Value, CultureInfo.InvariantCulture);
+                return marshalObject.Value is ushort shortValue
+                    ? (long)shortValue
+                    : Convert.ToInt64(marshalObject.Value, CultureInfo.InvariantCulture);
             case FieldType.Int:
-                return Convert.ToInt64(marshalObject.Value, CultureInfo.InvariantCulture);
+                return marshalObject.Value is uint intValue
+                    ? (long)intValue
+                    : Convert.ToInt64(marshalObject.Value, CultureInfo.InvariantCulture);
             case FieldType.Long:
                 // Bit-preserving: u64 values above long.MaxValue round-trip as negative.
-                return unchecked((long)Convert.ToUInt64(marshalObject.Value, CultureInfo.InvariantCulture));
+                return marshalObject.Value is ulong longValue
+                    ? unchecked((long)longValue)
+                    : unchecked((long)Convert.ToUInt64(marshalObject.Value, CultureInfo.InvariantCulture));
             case FieldType.Float:
                 // Stored as a real number so it is editable; bit patterns are
                 // converted back on import.
