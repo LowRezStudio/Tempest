@@ -217,6 +217,8 @@
 	"settings_theme_custom_css": "Własny CSS",
 	"settings_theme_custom_themes_link": "— znajdź i dostosuj motywy",
 	"settings_select_directory": "Wybierz katalog...",
+	"settings_mod_developer": "Twórca modów",
+	"settings_mod_developer_description": "Włącza narzędzia do tworzenia modów, takie jak konwerter Cook Mod.",
 	"settings_saved_successfully": "Pomyślnie zapisano ustawienia",
 	"settings_danger_zone": "Strefa niebezpieczna",
 	"settings_reset_warning": "Resetowanie wyczyści wszystkie twoje ustawienia i przywróci wartości domyślne. Tej akcji nie można cofnąć.",

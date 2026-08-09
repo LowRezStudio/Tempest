@@ -212,6 +212,8 @@
 	"settings_theme_custom_css": "Özel CSS",
 	"settings_theme_custom_themes_link": "— tema bul ve özelleştir",
 	"settings_select_directory": "Bir dizin seçin...",
+	"settings_mod_developer": "Mod geliştirici",
+	"settings_mod_developer_description": "Cook Mod dönüştürücü gibi mod geliştirme araçlarını etkinleştirir.",
 	"settings_saved_successfully": "Ayarlar başarıyla kaydedildi",
 	"settings_danger_zone": "Tehlike Alanı",
 	"settings_reset_warning": "Sıfırlamak, tüm ayarları temizleyip her şeyi varsayılan değerlerine geri döndürecektir. Bu işlem geri alınamaz.",

@@ -5,6 +5,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { preparedInstances, setInstanceOrder } from "$lib/stores/instance.svelte";
 	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
+	import { modDeveloper } from "$lib/stores/settings.svelte";
 	import { commandsPageOpen, instanceWizardOpen } from "$lib/stores/ui.svelte";
 	import { createReorderable } from "$lib/utils/reorder.svelte";
 	import LanguageSelector from "./LanguageSelector.svelte";
@@ -29,7 +30,9 @@
 		<SidebarItem href="/library" label={m.sidebar_library()}><Library size={20} /></SidebarItem>
 		<SidebarItem href="/downloads" label={m.sidebar_downloads()}><Download size={20} /></SidebarItem>
 		<SidebarItem href="/servers" label={m.sidebar_servers()}><Server size={20} /></SidebarItem>
-		<SidebarItem href="/converter" label="Cook Mod"><FlaskConical size={20} /></SidebarItem>
+		{#if modDeveloper.value}
+			<SidebarItem href="/converter" label={m.converter_title()}><FlaskConical size={20} /></SidebarItem>
+		{/if}
 		{#if lobbyHost.value}
 			<SidebarItem href="/lobby" label={m.sidebar_lobby()}><Compass size={20} /></SidebarItem>
 		{/if}

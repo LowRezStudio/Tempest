@@ -209,6 +209,8 @@
 	"settings_theme_custom_css": "CSS personnalisé",
 	"settings_theme_custom_themes_link": "— trouver et personnaliser des thèmes",
 	"settings_select_directory": "Sélectionner un répertoire...",
+	"settings_mod_developer": "Développeur de mods",
+	"settings_mod_developer_description": "Active les outils de développement de mods, comme le convertisseur Cook Mod.",
 	"settings_saved_successfully": "Paramètres enregistrés avec succès",
 	"settings_danger_zone": "Zone de danger",
 	"settings_reset_warning": "La réinitialisation effacera tous vos paramètres et rétablira les valeurs par défaut. Cette action est irréversible.",

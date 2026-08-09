@@ -217,6 +217,8 @@
 	"settings_theme_custom_css": "Пользовательский CSS",
 	"settings_theme_custom_themes_link": "— найти и настроить темы",
 	"settings_select_directory": "Выберите папку...",
+	"settings_mod_developer": "Разработчик модов",
+	"settings_mod_developer_description": "Включает инструменты разработки модов, такие как конвертер Cook Mod.",
 	"settings_saved_successfully": "Настройки успешно сохранены",
 	"settings_danger_zone": "Опасная зона",
 	"settings_reset_warning": "Сброс сотрет все ваши настройки и вернет их к значениям по умолчанию. Это действие нельзя отменить.",

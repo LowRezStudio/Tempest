@@ -6,7 +6,7 @@
 	import FeatureFlagsTab from "$lib/dev/FeatureFlagsTab.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createAboutInfoQuery } from "$lib/queries/about";
-	import { customThemeCSS, defaultInstancePath, theme, username } from "$lib/stores/settings.svelte";
+	import { customThemeCSS, defaultInstancePath, modDeveloper, theme, username } from "$lib/stores/settings.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import WineSettings from "$lib/wine/WineSettings.svelte";
 	import KeybindsTab from "$lib/settings/KeybindsTab.svelte";
@@ -137,6 +137,18 @@
 									onclick={browsePath}>{m.common_browse()}</button
 								>
 							</div>
+						</div>
+
+						<div class="form-control">
+							<label class="label cursor-pointer justify-start gap-3 py-0.5">
+								<input
+									type="checkbox"
+									class="toggle toggle-accent"
+									bind:checked={modDeveloper.value}
+								/>
+								<span class="label-text text-sm">{m.settings_mod_developer()}</span>
+							</label>
+							<p class="text-xs opacity-60 mt-1">{m.settings_mod_developer_description()}</p>
 						</div>
 					</div>
 				{:else if activeTab === "wine"}

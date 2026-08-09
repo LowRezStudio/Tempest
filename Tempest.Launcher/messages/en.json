@@ -212,6 +212,8 @@
 	"settings_theme_custom_css": "Custom CSS",
 	"settings_theme_custom_themes_link": "— find and customize themes",
 	"settings_select_directory": "Select a directory...",
+	"settings_mod_developer": "Mod Developer",
+	"settings_mod_developer_description": "Enables mod development tools, such as the Cook Mod converter.",
 	"settings_saved_successfully": "Settings saved successfully",
 	"settings_danger_zone": "Danger Zone",
 	"settings_reset_warning": "Resetting will clear all your settings and return everything to default values. This action cannot be undone.",
