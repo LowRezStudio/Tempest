@@ -41,6 +41,9 @@ public class FieldMappings
     public FieldDescriptor? Get(ushort index) =>
         _fields.GetValueOrDefault(index);
 
+    /// <summary>All known fields (the game's complete field dictionary).</summary>
+    public IEnumerable<FieldDescriptor> Fields => _fields.Values;
+
     public bool TryGetIndex(string name, [NotNullWhen(true)] out ushort? index)
     {
         if (_fieldNames.TryGetValue(name, out var value))

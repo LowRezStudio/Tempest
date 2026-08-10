@@ -56,7 +56,30 @@ public static class SqliteMarshalFunctionExporter
             ordinal++;
         }
 
+        CreateAllDataSetTables(context, fieldMappings);
+
         transaction.Commit();
+    }
+
+    /// <summary>
+    /// Creates a table for every DATA_SET field in the field mappings, so the
+    /// exported database contains the game's complete dataset dictionary. Fields
+    /// absent from the file become empty tables (e.g. DATA_SET_BOTS); empty tables
+    /// are inert on import (no rows, no entries), so the marshal round trip stays
+    /// byte-exact.
+    /// </summary>
+    private static void CreateAllDataSetTables(ExportContext context, FieldMappings? fieldMappings)
+    {
+        if (fieldMappings is null)
+            return;
+
+        foreach (var field in fieldMappings.Fields)
+        {
+            if (field.Type == FieldType.DataSet)
+            {
+                context.GetDataSetWriter(field.Name);
+            }
+        }
     }
 
     private static void DropAndRecreateSchema(SqliteConnection connection, SqliteTransaction transaction)
