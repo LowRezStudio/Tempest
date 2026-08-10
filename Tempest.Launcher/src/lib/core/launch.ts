@@ -28,14 +28,22 @@ export const launchGame = async (instance: Instance) => {
 			{
 				"--homedir":
 					instance.version === "8.1"
-						? "paladinslive"
+						? "Paladins"
 						: `${instance.version ? `${instance.version}_` : ""}${instance.label}`.replaceAll(
 								/[^a-zA-Z0-9-_]/g,
 								"_",
 							),
 			},
 			...(options.dllList ? options.dllList.map((dll) => ({ "--dll": dll })) : []),
-			...(options.args ? ["--", ...processArgs(options.args)] : []),
+			...(options.args
+				? [
+						"--",
+						...(instance.version === "8.1"
+							? []
+							: ["Shootingrange_P?game=ShootingRange"]),
+						...processArgs(options.args),
+					]
+				: []),
 		],
 		env,
 	);
