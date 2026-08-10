@@ -20,8 +20,6 @@ public class FieldMappings
     {
         using var reader = new BinaryReader(stream);
 
-        ushort index = 0;
-
         while (true)
         {
             if (reader.BaseStream.Position == reader.BaseStream.Length)
@@ -34,10 +32,9 @@ public class FieldMappings
                 Name = reader.ReadCString()
             };
 
-            _fields.Add(index, field);
-            _fieldNames.Add(field.Name, index);
-
-            index++;
+            // The header is the field token used on the wire.
+            _fields[field.Header] = field;
+            _fieldNames[field.Name] = field.Header;
         }
     }
 

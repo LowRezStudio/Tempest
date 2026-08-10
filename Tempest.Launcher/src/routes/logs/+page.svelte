@@ -70,6 +70,9 @@
 			case "mods": {
 				return m.logs_filter_mods();
 			}
+			case "setup": {
+				return m.logs_filter_setup();
+			}
 			default: {
 				return source;
 			}

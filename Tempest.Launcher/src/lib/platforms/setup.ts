@@ -1,27 +1,50 @@
 import { path as tauriPath } from "@tauri-apps/api";
 import { readDir } from "@tauri-apps/plugin-fs";
-import { createCommand } from "$lib/core/command";
+import { createCommand, processArgs, type ArgumentType } from "$lib/core/command";
 import { installAutoMods } from "$lib/core/mods";
 import { getInstanceAssemblyDbPath, getInstanceTokensDir } from "$lib/core/paths";
+import { appendProcessLog, appendProcessLogs } from "$lib/stores/processes.svelte";
 import { allowScopeDirectory } from "$lib/tauri/scopes";
 import type { Instance, InstancePlatform } from "$lib/types/instance";
 
 const defaultGameExe = "Paladins.exe";
 const fallbackTokenDll = "MctsInterface.dll";
 
+const SOURCE = "setup";
+
+const log = (line: string, error = false): void => appendProcessLog(line, error, SOURCE);
+
+const logCommand = (args: ArgumentType[]): void =>
+	log(`Running command: ${processArgs(args).join(" ")}`);
+
+const logResult = (result: { stdout?: string; stderr?: string }): void => {
+	if (result.stdout) {
+		appendProcessLogs(result.stdout.split("\n").filter(Boolean), false, SOURCE);
+	}
+	if (result.stderr) {
+		appendProcessLogs(result.stderr.split("\n").filter(Boolean), true, SOURCE);
+	}
+};
+
 export const setupInstance = async (instance: Instance): Promise<void> => {
+	log(`Setting up instance "${instance.label}" (${instance.path})`);
+
+	log("Installing auto mods...");
 	await installAutoMods(instance);
+	log("Auto mods installed");
 
 	await allowScopeDirectory(instance.path, true);
 
 	const tokensDir = await getInstanceTokensDir(instance.id);
 	await allowScopeDirectory(tokensDir, true);
+	log("File system scopes granted");
 
 	const platform = instance.launchOptions.platform ?? "Win64";
 	const preferredSources = await resolveTokenSources(instance.path, platform);
 	const preferredSucceeded = await tryExtractTokenSources(preferredSources, tokensDir);
 	if (preferredSucceeded) {
 		await exportAssembly(instance.path, instance.id);
+		log("Instance setup complete");
 		return;
 	}
 
@@ -30,11 +53,14 @@ export const setupInstance = async (instance: Instance): Promise<void> => {
 		const win32Succeeded = await tryExtractTokenSources(win32Sources, tokensDir);
 		if (win32Succeeded) {
 			await exportAssembly(instance.path, instance.id);
+			log("Instance setup complete");
 			return;
 		}
 	}
 
-	throw new Error("Failed to extract tokens from Paladins.exe or MctsInterface.dll.");
+	const message = "Failed to extract tokens from Paladins.exe or MctsInterface.dll.";
+	log(message, true);
+	throw new Error(message);
 };
 
 const resolveTokenSources = async (
@@ -45,6 +71,7 @@ const resolveTokenSources = async (
 		? await tauriPath.dirname(instancePath)
 		: instancePath;
 	const gameFolder = await findGameFolder(startPath);
+	log(`Game folder found: ${gameFolder}`);
 	await allowScopeDirectory(gameFolder, true);
 
 	const primaryPath = await tauriPath.join(gameFolder, "Binaries", platform, defaultGameExe);
@@ -76,13 +103,21 @@ const tryExtractTokenSources = async (
 };
 
 const tryExtractTokens = async (path: string, outputDir: string): Promise<boolean> => {
-	const result = await createCommand([
+	log(`Extracting tokens from ${path}`);
+	const args: ArgumentType[] = [
 		"marshal",
 		"extract-tokens",
 		{ "--path": path, "--output": outputDir },
-	]).execute();
+	];
+	logCommand(args);
+	const result = await createCommand(args).execute();
+	logResult(result);
 
-	return result.code === 0;
+	if (result.code !== 0) {
+		log(`Token extraction failed with exit code ${result.code}`, true);
+		return false;
+	}
+	return true;
 };
 
 const exportAssembly = async (instancePath: string, instanceId: string): Promise<void> => {
@@ -101,34 +136,42 @@ const exportAssembly = async (instancePath: string, instanceId: string): Promise
 		"--output": assemblyDbPath,
 	};
 
-	const legacyResult = await createCommand([
+	log(`Exporting assembly database to ${assemblyDbPath}`);
+
+	const legacyArgs: ArgumentType[] = [
 		"marshal",
 		"deserialize",
 		{ ...baseArgs, "--version": "Legacy" },
-	]).execute();
+	];
+	logCommand(legacyArgs);
+	const legacyResult = await createCommand(legacyArgs).execute();
+	logResult(legacyResult);
 	if (legacyResult.code === 0) return;
 
-	const modernResult = await createCommand([
+	const modernArgs: ArgumentType[] = [
 		"marshal",
 		"deserialize",
 		{ ...baseArgs, "--version": "Modern" },
-	]).execute();
+	];
+	logCommand(modernArgs);
+	const modernResult = await createCommand(modernArgs).execute();
+	logResult(modernResult);
 	if (modernResult.code !== 0) {
 		const legacyStdout = legacyResult.stdout?.trim();
 		const legacyStderr = legacyResult.stderr?.trim();
 		const modernStdout = modernResult.stdout?.trim();
 		const modernStderr = modernResult.stderr?.trim();
-		throw new Error(
-			[
-				"Failed to deserialize assembly tokens.",
-				legacyStderr && `Legacy stderr: ${legacyStderr}`,
-				legacyStdout && `Legacy stdout: ${legacyStdout}`,
-				modernStderr && `Modern stderr: ${modernStderr}`,
-				modernStdout && `Modern stdout: ${modernStdout}`,
-			]
-				.filter(Boolean)
-				.join(" "),
-		);
+		const message = [
+			"Failed to deserialize assembly tokens.",
+			legacyStderr && `Legacy stderr: ${legacyStderr}`,
+			legacyStdout && `Legacy stdout: ${legacyStdout}`,
+			modernStderr && `Modern stderr: ${modernStderr}`,
+			modernStdout && `Modern stdout: ${modernStdout}`,
+		]
+			.filter(Boolean)
+			.join(" ");
+		log(message, true);
+		throw new Error(message);
 	}
 };
 
@@ -148,9 +191,10 @@ const findGameFolder = async (startPath: string): Promise<string> => {
 		current = parent;
 	}
 
-	throw new Error(
-		"Couldn't find the Paladins game folder (containing Binaries and Engine folders)",
-	);
+	const message =
+		"Couldn't find the Paladins game folder (containing Binaries and Engine folders)";
+	log(message, true);
+	throw new Error(message);
 };
 
 const hasRequiredGameDirs = async (dirPath: string): Promise<boolean> => {

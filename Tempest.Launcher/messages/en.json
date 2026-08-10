@@ -240,6 +240,7 @@
 	"logs_filter_rigby": "Rigby",
 	"logs_filter_rigby_queue": "Rigby Queue",
 	"logs_filter_mods": "Mods",
+	"logs_filter_setup": "Setup",
 	"wizard_title": "Create New Instance",
 	"wizard_download": "Download",
 	"wizard_import_existing": "Import Existing",

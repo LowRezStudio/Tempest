@@ -237,6 +237,7 @@
 	"logs_filter_rigby": "Rigby",
 	"logs_filter_rigby_queue": "Cola Rigby",
 	"logs_filter_mods": "Mods",
+	"logs_filter_setup": "Configuración",
 	"wizard_title": "Crear nueva instancia",
 	"wizard_download": "Descargar",
 	"wizard_import_existing": "Importar existente",

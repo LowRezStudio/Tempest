@@ -30,7 +30,7 @@ internal static class MarshalSqliteSchema
     public const string DataSetFieldsTable = "DATASET_FIELDS";
 
     public const string RowIdColumn = "row_id";
-    public const string FunctionIdColumn = "function_id";
+    public const string FunctionIdColumn = "marshal_function_id";
     public const string ParentRowIdColumn = "parent_row_id";
     public const string ParentTableColumn = "parent_table";
     public const string FieldOrdinalColumn = "field_ordinal";
@@ -45,9 +45,9 @@ internal static class MarshalSqliteSchema
 
     public const string TableNameColumn = "table_name";
 
-    public const string VersionColumn = "version";
-    public const string FunctionColumn = "function";
-    public const string FunctionNameColumn = "function_name";
+    public const string VersionColumn = "marshal_version";
+    public const string FunctionColumn = "marshal_function";
+    public const string FunctionNameColumn = "marshal_function_name";
 
     /// <summary>Columns present on every data set table.</summary>
     public static readonly string[] DataSetTableColumns =
@@ -237,8 +237,11 @@ internal static class MarshalSqliteSchema
     /// <summary>
     /// Converts a SQLite value back into a marshal value. Integer widths use
     /// unchecked (bit-preserving) conversions so values round-trip exactly.
+    /// For legacy databases, ASCII-able strings stored in UTF-16 columns are
+    /// downgraded to the single-byte flag so the legacy writer reproduces the
+    /// original wire bytes.
     /// </summary>
-    public static MarshalObject FromValue(FieldType type, MarshalFlags flags, object? value)
+    public static MarshalObject FromValue(FieldType type, MarshalFlags flags, object? value, bool downgradeAsciiStrings = false)
     {
         switch (type)
         {
@@ -261,6 +264,13 @@ internal static class MarshalSqliteSchema
             case FieldType.Blob:
                 return new MarshalObject(value as byte[] ?? []);
             case FieldType.String:
+                if (downgradeAsciiStrings && flags == MarshalFlags.Utf16
+                    && Convert.ToString(value, CultureInfo.InvariantCulture) is { } text
+                    && text.All(c => c <= 0xFF))
+                {
+                    flags = MarshalFlags.Ascii;
+                }
+
                 return new MarshalObject(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty, flags);
             default:
                 throw new InvalidOperationException($"Unsupported field type: {type}");

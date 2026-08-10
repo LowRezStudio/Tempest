@@ -30,6 +30,11 @@ public static class SqliteMarshalFunctionImporter
         var metadata = ReadMetadata(connection);
         var dataSetTables = DiscoverDataSetTables(connection);
 
+        // Legacy files mix UTF-16 and single-byte strings in one field; the
+        // single-byte rows are stored in a UTF-16 column, so downgrade the
+        // ASCII-able ones back on import for a byte-exact round trip.
+        var downgradeAsciiStrings = metadata.Version == MarshalSerializerVersion.Legacy;
+
         // (parentTable, parentRowId) -> child data set entries, plus the top-level entries.
         var childrenByParent = new Dictionary<(string, long), List<DataSetEntry>>();
         var topLevel = new List<DataSetEntry>();
@@ -84,7 +89,7 @@ public static class SqliteMarshalFunctionImporter
             }
         }
 
-        var rows = MergeEntries(metadata.Columns, metadata.Values, topLevel, dataSetTables, childrenByParent);
+        var rows = MergeEntries(metadata.Columns, metadata.Values, topLevel, dataSetTables, childrenByParent, downgradeAsciiStrings);
 
         return new MarshalFunction
         {
@@ -100,7 +105,8 @@ public static class SqliteMarshalFunctionImporter
         IReadOnlyDictionary<string, object?> values,
         List<DataSetEntry> dataSets,
         Dictionary<string, DataSetTable> tables,
-        Dictionary<(string, long), List<DataSetEntry>> childrenByParent)
+        Dictionary<(string, long), List<DataSetEntry>> childrenByParent,
+        bool downgradeAsciiStrings)
     {
         var result = new Dictionary<string, MarshalObject>();
 
@@ -115,12 +121,12 @@ public static class SqliteMarshalFunctionImporter
 
             if (dataSet != null)
             {
-                result[dataSet.FieldName] = BuildDataSet(dataSet, tables, childrenByParent);
+                result[dataSet.FieldName] = BuildDataSet(dataSet, tables, childrenByParent, downgradeAsciiStrings);
             }
             else
             {
                 var column = presentColumns[columnIndex++];
-                result[column.Name] = MarshalSqliteSchema.FromValue(column.Type, column.Flags, values[column.Name]);
+                result[column.Name] = MarshalSqliteSchema.FromValue(column.Type, column.Flags, values[column.Name], downgradeAsciiStrings);
             }
         }
 
@@ -130,7 +136,8 @@ public static class SqliteMarshalFunctionImporter
     private static MarshalObject BuildDataSet(
         DataSetEntry entry,
         Dictionary<string, DataSetTable> tables,
-        Dictionary<(string, long), List<DataSetEntry>> childrenByParent)
+        Dictionary<(string, long), List<DataSetEntry>> childrenByParent,
+        bool downgradeAsciiStrings)
     {
         var rows = new List<Dictionary<string, MarshalObject>>(entry.Rows.Count);
         var table = tables.TryGetValue(entry.FieldName, out var found) ? found : new DataSetTable(entry.FieldName, [], []);
@@ -141,7 +148,7 @@ public static class SqliteMarshalFunctionImporter
             var columns = rawRow.EntryOrder is string entryOrder
                 ? ReorderColumns(table.Columns, entryOrder)
                 : table.Columns;
-            rows.Add(MergeEntries(columns, rawRow.Values, children, tables, childrenByParent));
+            rows.Add(MergeEntries(columns, rawRow.Values, children, tables, childrenByParent, downgradeAsciiStrings));
         }
 
         return new MarshalObject(rows);

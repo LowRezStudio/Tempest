@@ -245,6 +245,7 @@
 	"logs_filter_rigby": "Rigby",
 	"logs_filter_rigby_queue": "Очередь Rigby",
 	"logs_filter_mods": "Моды",
+	"logs_filter_setup": "Настройка",
 	"wizard_title": "Создать инстанс",
 	"wizard_download": "Скачать",
 	"wizard_import_existing": "Импортировать существующий",

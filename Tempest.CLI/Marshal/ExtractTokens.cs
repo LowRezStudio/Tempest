@@ -12,7 +12,9 @@ internal partial class MarshalCommands
     {
         Directory.CreateDirectory(output);
 
-        byte[] gzipHeader = [0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00];
+        // Gzip magic only; the header's XFL/OS bytes differ between builds
+        // (e.g. 04 00 vs 00 03), so match on 1F 8B 08 and verify by decoding.
+        byte[] gzipHeader = [0x1F, 0x8B, 0x08];
 
         if (!File.Exists(path))
         {
@@ -28,13 +30,23 @@ internal partial class MarshalCommands
         {
             file.Position = headerIndex;
 
+            byte[] bytes;
+
+            try
+            {
+                using var decompressionStream = new GZipStream(file, CompressionMode.Decompress, leaveOpen: true);
+                using var memoryStream = new MemoryStream();
+                decompressionStream.CopyTo(memoryStream);
+                bytes = memoryStream.ToArray();
+            }
+            catch (InvalidDataException)
+            {
+                // False positive on the gzip magic; keep scanning.
+                file.Position = headerIndex + 1;
+                continue;
+            }
+
             var filename = headerIndex.ToString();
-            using var decompressionStream = new GZipStream(file, CompressionMode.Decompress, leaveOpen: true);
-            using var memoryStream = new MemoryStream();
-
-            decompressionStream.CopyTo(memoryStream);
-
-            var bytes = memoryStream.ToArray();
 
             var helloIndex = bytes.IndexOfBytes("HELLO"u8.ToArray());
             var versionIndex = bytes.IndexOfBytes("VERSION"u8.ToArray());

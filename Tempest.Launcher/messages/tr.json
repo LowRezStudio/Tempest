@@ -240,6 +240,7 @@
 	"logs_filter_rigby": "Rigby",
 	"logs_filter_rigby_queue": "Rigby Sırası",
 	"logs_filter_mods": "Modlar",
+	"logs_filter_setup": "Kurulum",
 	"wizard_title": "Yeni Sürüm Ekle",
 	"wizard_download": "İNDİR",
 	"wizard_import_existing": "Var Olanı İçe Aktar",

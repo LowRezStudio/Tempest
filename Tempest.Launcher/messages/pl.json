@@ -245,6 +245,7 @@
 	"logs_filter_rigby": "Rigby",
 	"logs_filter_rigby_queue": "Kolejka Rigby",
 	"logs_filter_mods": "Mody",
+	"logs_filter_setup": "Konfiguracja",
 	"wizard_title": "Utwórz nową instancję",
 	"wizard_download": "Pobierz",
 	"wizard_import_existing": "Importuj istniejącą",

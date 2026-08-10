@@ -388,12 +388,21 @@ ADD COLUMN {MarshalSqliteSchema.QuoteIdentifier(columnName)} {declaredType};
             var existingRank = Array.IndexOf(IntegerTypeRank, existing);
             var candidateRank = Array.IndexOf(IntegerTypeRank, candidate);
 
+            if (existingRank >= 0 && candidateRank >= 0)
+                return IntegerTypeRank[Math.Max(existingRank, candidateRank)];
+
+            // For strings the lossless UTF-16 encoding wins over the
+            // single-byte ones; the importer downgrades ASCII-able values back.
+            existingRank = Array.IndexOf(StringTypeRank, existing);
+            candidateRank = Array.IndexOf(StringTypeRank, candidate);
+
             return existingRank >= 0 && candidateRank >= 0
-                ? IntegerTypeRank[Math.Max(existingRank, candidateRank)]
+                ? StringTypeRank[Math.Max(existingRank, candidateRank)]
                 : existing;
         }
 
         private static readonly string[] IntegerTypeRank = ["BYTE", "SHORT", "INT", "LONG"];
+        private static readonly string[] StringTypeRank = ["TEXT", "TEXT_ASCII", "TEXT_UTF8", "TEXT_UTF32", "TEXT_UTF16"];
     }
 
     /// <summary>

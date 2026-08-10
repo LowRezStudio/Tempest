@@ -160,7 +160,11 @@ public static class MarshalSerializer
                         break;
                     }
 
-                    result[field.Name] = new MarshalObject(Encoding.UTF8.GetString(reader.ReadBytes(length)));
+                    // Unflagged legacy strings are one byte per character
+                    // (the game reads them as truncated UTF-16), not UTF-8.
+                    result[field.Name] = new MarshalObject(
+                        Encoding.Latin1.GetString(reader.ReadBytes(length)),
+                        MarshalFlags.Ascii);
 
                     break;
                 }
@@ -285,10 +289,6 @@ public static class MarshalSerializer
             {
                 functionIndex = functionIndexFromName.Value;
             }
-            else if (packet.Function != 0 && options.FunctionMappings.TryGetIndex(packet.Function, out var functionIndexFromHash))
-            {
-                functionIndex = functionIndexFromHash.Value;
-            }
             else if (packet.Function != 0 && packet.Function <= ushort.MaxValue)
             {
                 functionIndex = (ushort)packet.Function;
@@ -360,16 +360,18 @@ public static class MarshalSerializer
     {
         private readonly BinaryWriter _writer;
         private readonly MarshalSerializerOptions _options;
+        private readonly bool _legacy;
+
+        public RowWriter(Stream stream, MarshalSerializerOptions options)
+            : this(new BinaryWriter(stream), options)
+        {
+        }
 
         private RowWriter(BinaryWriter writer, MarshalSerializerOptions options)
         {
             _writer = writer;
             _options = options;
-        }
-
-        public RowWriter(Stream stream, MarshalSerializerOptions options)
-            : this(new BinaryWriter(stream), options)
-        {
+            _legacy = options.Version == MarshalSerializerVersion.Legacy;
         }
 
         // One cache per integer width type (1 = byte, 2 = u16, 3 = u32, 4 = u64).
@@ -497,6 +499,12 @@ public static class MarshalSerializer
 
         private void WriteString(ushort fieldIndex, MarshalObject marshalObject)
         {
+            if (_legacy)
+            {
+                WriteLegacyString(fieldIndex, marshalObject);
+                return;
+            }
+
             var value = (string)marshalObject.Value;
 
             byte[] bytes;
@@ -531,6 +539,45 @@ public static class MarshalSerializer
             _writer.Write(fieldIndex);
             _writer.Write(length);
             _writer.Write(bytes);
+        }
+
+        /// <summary>
+        /// Writes a string the way the legacy writer did: strings of at most three
+        /// UTF-16 units are stored inline (header type 9); longer strings use type 5
+        /// with the length high bit selecting UTF-16, otherwise one byte per character.
+        /// </summary>
+        private void WriteLegacyString(ushort fieldIndex, MarshalObject marshalObject)
+        {
+            var value = (string)marshalObject.Value;
+            var units = value.Length;
+
+            if (units <= 3)
+            {
+                _writer.Write((ushort)((9 << 12) | units));
+                _writer.Write(fieldIndex);
+                _writer.Write(Encoding.Unicode.GetBytes(value));
+                return;
+            }
+
+            var utf16 = marshalObject.Flags is MarshalFlags.Utf16 or MarshalFlags.Utf8 or MarshalFlags.Utf32;
+
+            _writer.Write((ushort)((5 << 12) | 1));
+            _writer.Write(fieldIndex);
+
+            if (utf16)
+            {
+                if (units > 0x7FFF)
+                    throw new Exception($"String too long for the legacy format: {units} UTF-16 units.");
+
+                _writer.Write((ushort)(0x8000 | units));
+                _writer.Write(Encoding.Unicode.GetBytes(value));
+            }
+            else
+            {
+                var bytes = Encoding.Latin1.GetBytes(value);
+                _writer.Write((ushort)bytes.Length);
+                _writer.Write(bytes);
+            }
         }
 
         private void WriteDataSet(ushort fieldIndex, MarshalObject marshalObject)

@@ -237,6 +237,7 @@
 	"logs_filter_rigby": "Rigby",
 	"logs_filter_rigby_queue": "File Rigby",
 	"logs_filter_mods": "Mods",
+	"logs_filter_setup": "Configuration",
 	"wizard_title": "Créer une nouvelle instance",
 	"wizard_download": "Télécharger",
 	"wizard_import_existing": "Importer existante",
