@@ -25,20 +25,35 @@ internal partial class MarshalCommands
             return;
         }
 
-        using var file = File.Open(path, FileMode.Open);
+        var fileBytes = File.ReadAllBytes(path);
         var written = new HashSet<string>(StringComparer.Ordinal);
 
-        long headerIndex;
+        // The server-side MFIELD_TOKEN enum (the authoritative numbering for .dat
+        // files) is only present as DWARF debug info in the Linux builds. When
+        // available it wins over the gzip blob, whose tokens use the MCTS protocol
+        // numbering; field types are joined from the blob by name. The MFUNCTION
+        // enum (values = FNV-1 hashes in the modern era) covers binaries with no
+        // gzip function blob (e.g. ShippingPC-ChaosServer).
+        var fieldEnum = DwarfEnumReader.TryReadEnum(fileBytes, "MFIELD_TOKEN");
+        var functionEnum = DwarfEnumReader.TryReadEnum(fileBytes, "MFUNCTION");
+        byte[]? fieldsBlob = null;
 
-        while ((headerIndex = file.IndexOfBytes(gzipHeader)) != -1)
+        var scanPos = 0;
+
+        while (scanPos + gzipHeader.Length <= fileBytes.Length)
         {
-            file.Position = headerIndex;
+            var headerIndex = fileBytes.AsSpan(scanPos).IndexOf(gzipHeader);
+            if (headerIndex < 0)
+                break;
+
+            headerIndex += scanPos;
 
             byte[] bytes;
 
             try
             {
-                using var decompressionStream = new GZipStream(file, CompressionMode.Decompress, leaveOpen: true);
+                using var stream = new MemoryStream(fileBytes, headerIndex, fileBytes.Length - headerIndex);
+                using var decompressionStream = new GZipStream(stream, CompressionMode.Decompress);
                 using var memoryStream = new MemoryStream();
                 decompressionStream.CopyTo(memoryStream);
                 bytes = memoryStream.ToArray();
@@ -46,7 +61,7 @@ internal partial class MarshalCommands
             catch (InvalidDataException)
             {
                 // False positive on the gzip magic; keep scanning.
-                file.Position = headerIndex + 1;
+                scanPos = headerIndex + 1;
                 continue;
             }
 
@@ -62,12 +77,20 @@ internal partial class MarshalCommands
             }
             else if (versionIndex != -1)
             {
+                if (fieldEnum is not null)
+                {
+                    // The DWARF table wins; the blob only supplies field types.
+                    fieldsBlob = bytes;
+                    scanPos = headerIndex + 1;
+                    continue;
+                }
+
                 filename = "fields";
             }
             else
             {
                 // Unrelated compressed data; not a token table.
-                file.Position = headerIndex + 1;
+                scanPos = headerIndex + 1;
                 continue;
             }
 
@@ -76,7 +99,25 @@ internal partial class MarshalCommands
 
             Console.WriteLine($"Wrote all {bytes.Length} bytes to \"{filename}.dat\"");
 
-            file.Position = headerIndex + 1;
+            scanPos = headerIndex + 1;
+        }
+
+        // DWARF-only binaries (e.g. ShippingPC-ChaosServer) have no gzip blobs;
+        // emit both tables from the enums after the scan.
+        if (fieldEnum is not null)
+        {
+            var fields = BuildServerFieldsFile(fieldEnum, fieldsBlob is null ? null : ReadFieldTypes(fieldsBlob));
+            File.WriteAllBytes(Path.Join(output, "fields.dat"), fields);
+            written.Add("fields");
+            Console.WriteLine($"Wrote all {fields.Length} bytes to \"fields.dat\" (server MFIELD_TOKEN enum)");
+        }
+
+        if (functionEnum is not null && !written.Contains("functions"))
+        {
+            var functions = BuildModernFunctionsFile(functionEnum);
+            File.WriteAllBytes(Path.Join(output, "functions.dat"), functions);
+            written.Add("functions");
+            Console.WriteLine($"Wrote all {functions.Length} bytes to \"functions.dat\" (MFUNCTION enum)");
         }
 
         if (written.Count == 0)
@@ -132,5 +173,89 @@ internal partial class MarshalCommands
     {
         var end = Array.IndexOf(data, (byte)0, offset);
         return end < 0 ? string.Empty : System.Text.Encoding.UTF8.GetString(data, offset, end - offset);
+    }
+
+    /// <summary>
+    /// Parses the extracted fields blob ({u16 token BE, u16 type BE, name}) into a
+    /// name → type map, used to type the server enum entries.
+    /// </summary>
+    private static Dictionary<string, ushort> ReadFieldTypes(byte[] blob)
+    {
+        var types = new Dictionary<string, ushort>(StringComparer.Ordinal);
+        var pos = 0;
+
+        while (pos + 4 <= blob.Length)
+        {
+            var type = BinaryPrimitives.ReadUInt16BigEndian(blob.AsSpan(pos + 2));
+            var end = Array.IndexOf(blob, (byte)0, pos + 4);
+            if (end < 0)
+                break;
+
+            types[GetString(blob, pos + 4)] = type;
+            pos = end + 1;
+        }
+
+        return types;
+    }
+
+    /// <summary>
+    /// Builds the server fields table ({u16 token BE, u16 type BE, name}) from the
+    /// DWARF MFIELD_TOKEN enum, with the MFTOK_ prefix stripped and field types
+    /// joined from the client blob by name (defaulting to String).
+    /// </summary>
+    private static byte[] BuildServerFieldsFile((int Value, string Name)[] enumEntries, Dictionary<string, ushort>? types)
+    {
+        var output = new MemoryStream();
+
+        foreach (var (value, rawName) in enumEntries)
+        {
+            if (value < 0 || value > ushort.MaxValue)
+                continue;
+
+            var name = rawName.StartsWith("MFTOK_", StringComparison.Ordinal) ? rawName[6..] : rawName;
+            var type = types is not null && types.TryGetValue(name, out var known) ? known : (ushort)12; // default: String
+
+            output.WriteByte((byte)(value >> 8));
+            output.WriteByte((byte)value);
+            output.WriteByte((byte)(type >> 8));
+            output.WriteByte((byte)type);
+            var nameBytes = System.Text.Encoding.UTF8.GetBytes(name);
+            output.Write(nameBytes);
+            output.WriteByte(0);
+        }
+
+        return output.ToArray();
+    }
+
+    /// <summary>
+    /// Builds a modern functions table ({u16 header, u16 flags, u32 FNV-1 hash BE,
+    /// name}) from the DWARF MFUNCTION enum, whose values are the FNV-1 hashes
+    /// themselves (e.g. GET_DATA_ASSEMBLY = 0x2E2EC0E9).
+    /// </summary>
+    private static byte[] BuildModernFunctionsFile((int Value, string Name)[] enumEntries)
+    {
+        var output = new MemoryStream();
+
+        foreach (var (value, rawName) in enumEntries)
+        {
+            // Values are u32 FNV-1 hashes; a negative int is just a hash with the
+            // top bit set, not an invalid entry.
+            var name = rawName.StartsWith("MFUNC_", StringComparison.Ordinal) ? rawName[6..] : rawName;
+            var hash = unchecked((uint)value);
+
+            output.WriteByte(0);
+            output.WriteByte(0);
+            output.WriteByte(0);
+            output.WriteByte(0);
+            output.WriteByte((byte)(hash >> 24));
+            output.WriteByte((byte)(hash >> 16));
+            output.WriteByte((byte)(hash >> 8));
+            output.WriteByte((byte)hash);
+            var nameBytes = System.Text.Encoding.UTF8.GetBytes(name);
+            output.Write(nameBytes);
+            output.WriteByte(0);
+        }
+
+        return output.ToArray();
     }
 }
