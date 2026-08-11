@@ -32,7 +32,9 @@ public class FieldMappings
                 Name = reader.ReadCString()
             };
 
-            // The header is the field token used on the wire.
+            // The header is the field's wire index: the entry position in the
+            // client blob (rewritten by extract-tokens) or the server-side
+            // MFIELD_TOKEN value for DWARF-derived tables.
             _fields[field.Header] = field;
             _fieldNames[field.Name] = field.Header;
         }
@@ -55,7 +57,4 @@ public class FieldMappings
         index = null;
         return false;
     }
-
-    public ushort GetIndex(string name) =>
-        _fieldNames.GetValueOrDefault(name);
 }

@@ -619,6 +619,10 @@ VALUES ({string.Join(", ", columns.Select(c => "$" + c))});
 
         private void CreateTable(Dictionary<string, string>? schema)
         {
+            var dataColumns = schema is { Count: > 0 }
+                ? "," + string.Join(",", schema.Select(kv => $"{MarshalSqliteSchema.QuoteIdentifier(kv.Key)} {kv.Value}"))
+                : string.Empty;
+
             using var createCommand = _context.Connection.CreateCommand();
             createCommand.Transaction = _context.Transaction;
             createCommand.CommandText = $@"
@@ -628,7 +632,7 @@ CREATE TABLE IF NOT EXISTS {MarshalSqliteSchema.QuoteIdentifier(TableName)} (
     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentRowIdColumn)} INTEGER NULL,
     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentTableColumn)} TEXT NULL,
     {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FieldOrdinalColumn)} INTEGER NOT NULL,
-    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.EntryOrderColumn)} TEXT NULL,
+    {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.EntryOrderColumn)} TEXT NULL{dataColumns},
     FOREIGN KEY ({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)})
         REFERENCES {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionMetadataTable)}({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.FunctionIdColumn)}) ON DELETE CASCADE
 );
@@ -640,11 +644,6 @@ CREATE INDEX IF NOT EXISTS {MarshalSqliteSchema.QuoteIdentifier("ix_" + TableNam
     ON {MarshalSqliteSchema.QuoteIdentifier(TableName)}({MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.ParentRowIdColumn)});
 ";
             createCommand.ExecuteNonQuery();
-
-            if (schema != null)
-            {
-                EnsureColumns(_context.Connection, _context.Transaction, TableName, schema);
-            }
         }
 
         private void InsertDataSetField(long functionId, string? parentTable, long? parentRowId, int fieldOrdinal)

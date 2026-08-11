@@ -277,28 +277,11 @@ internal static class MarshalSqliteSchema
         }
     }
 
-    private static long ToInt64(object? value)
-    {
-        return value switch
-        {
-            long l => l,
-            double d => (long)d,
-            decimal m => (long)m,
-            string s => long.Parse(s, CultureInfo.InvariantCulture),
-            _ => Convert.ToInt64(value, CultureInfo.InvariantCulture)
-        };
-    }
+    private static long ToInt64(object? value) =>
+        Convert.ToInt64(value, CultureInfo.InvariantCulture);
 
-    private static double ToDouble(object? value)
-    {
-        return value switch
-        {
-            double d => d,
-            long l => l,
-            string s => double.Parse(s, CultureInfo.InvariantCulture),
-            _ => Convert.ToDouble(value, CultureInfo.InvariantCulture)
-        };
-    }
+    private static double ToDouble(object? value) =>
+        Convert.ToDouble(value, CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Normalizes a marshal field name into a SQLite-safe identifier. All real

@@ -95,20 +95,6 @@ public class FunctionMappings
         return false;
     }
 
-    public bool TryGetIndex(uint hash, [NotNullWhen(true)] out ushort? index)
-    {
-        var function = _functions.FirstOrDefault(f => f.Hash == hash);
-
-        if (function != null)
-        {
-            index = function.Header;
-            return true;
-        }
-
-        index = null;
-        return false;
-    }
-
     private static string GetString(byte[] data, int offset)
     {
         var end = Array.IndexOf(data, (byte)0, offset);

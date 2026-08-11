@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -17,40 +16,37 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
         object? value = null;
         var hasValue = false;
 
-        while (reader.Read())
-        {
-            if (reader.TokenType == JsonTokenType.EndObject)
-                break;
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject)
+                    break;
 
-            if (reader.TokenType != JsonTokenType.PropertyName)
-                throw new JsonException("Unexpected token in MarshalObject.");
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                    throw new JsonException("Unexpected token in MarshalObject.");
 
-            // Match the known property names against the raw UTF-8 span so the
-            // common case allocates no string at all.
-            if (IsToken(ref reader, "Type"u8))
-            {
-                reader.Read();
-                type = ReadFieldType(ref reader);
-            }
-            else if (IsToken(ref reader, "Flags"u8))
-            {
-                reader.Read();
-                flags = ReadFlags(ref reader);
-            }
-            else if (IsToken(ref reader, "Value"u8))
-            {
-                reader.Read();
-                if (type is null)
-                    throw new JsonException("MarshalObject Value appears before Type.");
+                switch (reader.GetString())
+                {
+                    case "Type":
+                        reader.Read();
+                        type = ReadFieldType(ref reader);
+                        break;
+                    case "Flags":
+                        reader.Read();
+                        flags = ReadFlags(ref reader);
+                        break;
+                    case "Value":
+                        reader.Read();
+                        if (type is null)
+                            throw new JsonException("MarshalObject Value appears before Type.");
 
-                value = ReadValue(ref reader, type.Value, options);
-                hasValue = true;
+                        value = ReadValue(ref reader, type.Value, options);
+                        hasValue = true;
+                        break;
+                    default:
+                        reader.Skip();
+                        break;
+                }
             }
-            else
-            {
-                reader.Skip();
-            }
-        }
 
         if (type is null)
             throw new JsonException("MarshalObject is missing Type property.");
@@ -86,7 +82,7 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
     {
         return reader.TokenType switch
         {
-            JsonTokenType.String => ParseFieldType(ref reader),
+            JsonTokenType.String => Enum.Parse<FieldType>(reader.GetString() ?? string.Empty, ignoreCase: true),
             JsonTokenType.Number => (FieldType)reader.GetUInt16(),
             _ => throw new JsonException("MarshalObject Type must be a string or number.")
         };
@@ -96,89 +92,11 @@ public sealed class MarshalObjectJsonConverter : JsonConverter<MarshalObject>
     {
         return reader.TokenType switch
         {
-            JsonTokenType.String => ParseFlags(ref reader),
+            JsonTokenType.String => Enum.Parse<MarshalFlags>(reader.GetString() ?? string.Empty, ignoreCase: true),
             JsonTokenType.Number => (MarshalFlags)reader.GetUInt16(),
             JsonTokenType.Null => MarshalFlags.None,
             _ => throw new JsonException("MarshalObject Flags must be a string or number.")
         };
-    }
-
-    /// <summary>
-    /// Fast path for the canonical enum names (the only ones that occur in
-    /// practice): match the raw UTF-8 span without allocating. Anything else
-    /// (non-canonical case, comma-joined flags, ...) falls back to
-    /// <see cref="Enum.Parse{TEnum}"/> which preserves the previous behavior.
-    /// </summary>
-    private static FieldType ParseFieldType(ref Utf8JsonReader reader)
-    {
-        if (!reader.HasValueSequence)
-        {
-            var span = reader.ValueSpan;
-            switch (span.Length)
-            {
-                case 3:
-                    if (span.SequenceEqual("Int"u8)) return FieldType.Int;
-                    break;
-                case 4:
-                    if (span.SequenceEqual("Byte"u8)) return FieldType.Byte;
-                    if (span.SequenceEqual("Long"u8)) return FieldType.Long;
-                    if (span.SequenceEqual("Guid"u8)) return FieldType.Guid;
-                    if (span.SequenceEqual("Blob"u8)) return FieldType.Blob;
-                    break;
-                case 5:
-                    if (span.SequenceEqual("Short"u8)) return FieldType.Short;
-                    if (span.SequenceEqual("Float"u8)) return FieldType.Float;
-                    break;
-                case 6:
-                    if (span.SequenceEqual("Double"u8)) return FieldType.Double;
-                    if (span.SequenceEqual("String"u8)) return FieldType.String;
-                    break;
-                case 7:
-                    if (span.SequenceEqual("DataSet"u8)) return FieldType.DataSet;
-                    break;
-                case 8:
-                    if (span.SequenceEqual("DateTime"u8)) return FieldType.DateTime;
-                    break;
-            }
-        }
-        return Enum.Parse<FieldType>(reader.GetString() ?? string.Empty, ignoreCase: true);
-    }
-
-    private static MarshalFlags ParseFlags(ref Utf8JsonReader reader)
-    {
-        if (!reader.HasValueSequence)
-        {
-            var span = reader.ValueSpan;
-            switch (span.Length)
-            {
-                case 4:
-                    if (span.SequenceEqual("None"u8)) return MarshalFlags.None;
-                    break;
-                case 5:
-                    if (span.SequenceEqual("Utf16"u8)) return MarshalFlags.Utf16;
-                    if (span.SequenceEqual("Utf32"u8)) return MarshalFlags.Utf32;
-                    if (span.SequenceEqual("Utf8"u8)) return MarshalFlags.Utf8;
-                    break;
-                case 6:
-                    if (span.SequenceEqual("Ascii"u8)) return MarshalFlags.Ascii;
-                    break;
-            }
-        }
-        return Enum.Parse<MarshalFlags>(reader.GetString() ?? string.Empty, ignoreCase: true);
-    }
-
-    /// <summary>True if the current token's value equals <paramref name="value"/>.</summary>
-    private static bool IsToken(ref Utf8JsonReader reader, ReadOnlySpan<byte> value)
-    {
-        if (!reader.HasValueSequence)
-            return reader.ValueSpan.SequenceEqual(value);
-
-        // The value spans a buffer boundary; compare via a sequence reader.
-        var sequence = reader.ValueSequence;
-        if (sequence.Length != value.Length)
-            return false;
-        var sequenceReader = new SequenceReader<byte>(sequence);
-        return sequenceReader.IsNext(value, advancePast: false);
     }
 
     private object ReadValue(ref Utf8JsonReader reader, FieldType type, JsonSerializerOptions options)

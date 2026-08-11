@@ -21,7 +21,7 @@ internal partial class MarshalCommands
         string? output = null,
         bool obscure = false,
         MarshalSerializerVersion version = MarshalSerializerVersion.Modern,
-        MarshalDeserializeFormat format = MarshalDeserializeFormat.Json)
+        MarshalFormat format = MarshalFormat.Json)
     {
         using var fieldsFile = File.OpenRead(fields);
         using var functionsFile = File.OpenRead(functions);
@@ -53,30 +53,19 @@ internal partial class MarshalCommands
         };
 
         var result = MarshalSerializer.DeserializeFunction(stream, options);
+        stream.Close();
 
-        if (format == MarshalDeserializeFormat.Sqlite)
+        if (format == MarshalFormat.Sqlite)
         {
             if (output == null)
                 throw new Exception("Sqlite format requires an output database path.");
 
-            var connectionString = $"Data Source={output}";
-            SqliteMarshalFunctionExporter.Export(connectionString, result, fieldMappings);
+            SqliteMarshalFunctionExporter.Export($"Data Source={output}", result, fieldMappings);
         }
         else
         {
-            if (output != null)
-            {
-                using var outputStream = File.Open(output, FileMode.Create, FileAccess.Write, FileShare.None);
-                JsonSerializer.Serialize(outputStream, result, MarshalSourceGenerationContext.Default.MarshalFunction);
-            }
-            else
-            {
-                JsonSerializer.Serialize(Console.OpenStandardOutput(), result, MarshalSourceGenerationContext.Default.MarshalFunction);
-            }
+            WriteOutput(output, s => JsonSerializer.Serialize(s, result, MarshalSourceGenerationContext.Default.MarshalFunction));
         }
-
-
-        stream.Close();
     }
 
     /// <summary>Serializes JSON or a SQLite database into a marshal binary</summary>
@@ -87,7 +76,7 @@ internal partial class MarshalCommands
     /// <param name="version">Marshal format version (Modern or Legacy)</param>
     /// <param name="obscure">Applies a 0x2A XOR to the output</param>
     /// <param name="format">Input format (Json or Sqlite)</param>
-    public void Serialize(string fields, string functions, string path, string? output = null, MarshalSerializerVersion version = MarshalSerializerVersion.Modern, bool obscure = false, MarshalSerializeFormat format = MarshalSerializeFormat.Json)
+    public void Serialize(string fields, string functions, string path, string? output = null, MarshalSerializerVersion version = MarshalSerializerVersion.Modern, bool obscure = false, MarshalFormat format = MarshalFormat.Json)
     {
         using var fieldsFile = File.OpenRead(fields);
         using var functionsFile = File.OpenRead(functions);
@@ -96,7 +85,7 @@ internal partial class MarshalCommands
         var functionMappings = FunctionMappings.OpenRead(functionsFile);
 
         MarshalFunction packet;
-        if (format == MarshalSerializeFormat.Sqlite)
+        if (format == MarshalFormat.Sqlite)
         {
             packet = SqliteMarshalFunctionImporter.Import($"Data Source={path}");
         }
@@ -124,40 +113,28 @@ internal partial class MarshalCommands
                 bytes[i] ^= 0x2A;
             }
 
-            if (output != null)
-            {
-                using var outputStream = File.Open(output, FileMode.Create, FileAccess.Write, FileShare.None);
-                outputStream.Write(bytes, 0, (int)buffer.Length);
-            }
-            else
-            {
-                var stdout = Console.OpenStandardOutput();
-                stdout.Write(bytes, 0, (int)buffer.Length);
-            }
-
+            WriteOutput(output, s => s.Write(bytes, 0, (int)buffer.Length));
             return;
         }
 
+        WriteOutput(output, s => MarshalSerializer.SerializeFunction(s, packet, options));
+    }
+
+    private static void WriteOutput(string? output, Action<Stream> write)
+    {
         if (output != null)
         {
             using var outputStream = File.Open(output, FileMode.Create, FileAccess.Write, FileShare.None);
-            MarshalSerializer.SerializeFunction(outputStream, packet, options);
+            write(outputStream);
         }
         else
         {
-            MarshalSerializer.SerializeFunction(Console.OpenStandardOutput(), packet, options);
+            write(Console.OpenStandardOutput());
         }
     }
-
 }
 
-internal enum MarshalDeserializeFormat
-{
-    Json,
-    Sqlite
-}
-
-internal enum MarshalSerializeFormat
+internal enum MarshalFormat
 {
     Json,
     Sqlite

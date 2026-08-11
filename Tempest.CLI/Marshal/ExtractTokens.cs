@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
 using MarshalLib;
-using Tempest.CLI.Extensions;
 
 namespace Tempest.CLI.Marshal;
 
@@ -67,13 +66,13 @@ internal partial class MarshalCommands
 
             var filename = headerIndex.ToString();
 
-            var helloIndex = bytes.IndexOfBytes("HELLO"u8.ToArray());
-            var versionIndex = bytes.IndexOfBytes("VERSION"u8.ToArray());
+            var helloIndex = bytes.AsSpan().IndexOf("HELLO"u8);
+            var versionIndex = bytes.AsSpan().IndexOf("VERSION"u8);
 
             if (helloIndex != -1)
             {
                 filename = "functions";
-                bytes = RewriteLegacyFunctionHeaders(bytes);
+                bytes = RewriteLegacyHeaders(bytes, skipIfModern: true);
             }
             else if (versionIndex != -1)
             {
@@ -86,6 +85,7 @@ internal partial class MarshalCommands
                 }
 
                 filename = "fields";
+                bytes = RewriteLegacyHeaders(bytes, skipIfModern: false);
             }
             else
             {
@@ -135,18 +135,20 @@ internal partial class MarshalCommands
     }
 
     /// <summary>
-    /// The first u16 of each entry in the LEGACY function table is a
+    /// The first u16 of each entry in the LEGACY token table is a
     /// binary-search permutation key (CMarshal::GetFunction sorts by name),
     /// not the wire index - the game resolves names by table POSITION.
     /// Rewrite the header to the entry position so the exported table maps
-    /// wire index → name. The modern layout (u32 FNV-1 hash before the name)
-    /// is left as-is: lookups are hash-based.
+    /// wire index → name. The modern function layout (u32 FNV-1 hash before
+    /// the name, detected the same way as FunctionMappings.Read) is left
+    /// as-is: lookups are hash-based.
     /// </summary>
-    private static byte[] RewriteLegacyFunctionHeaders(byte[] bytes)
+    private static byte[] RewriteLegacyHeaders(byte[] bytes, bool skipIfModern)
     {
         // Modern layout: big-endian FNV-1 hash at offset 4 of the name at
         // offset 8 (same heuristic as FunctionMappings.Read).
-        if (bytes.Length > 12
+        if (skipIfModern
+            && bytes.Length > 12
             && Fnv1_32.ComputeHash(GetString(bytes, 8)) == BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(4, 4)))
         {
             return bytes;
