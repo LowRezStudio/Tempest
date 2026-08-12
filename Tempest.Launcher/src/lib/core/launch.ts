@@ -35,15 +35,7 @@ export const launchGame = async (instance: Instance) => {
 							),
 			},
 			...(options.dllList ? options.dllList.map((dll) => ({ "--dll": dll })) : []),
-			...(options.args
-				? [
-						"--",
-						...(instance.version === "8.1"
-							? []
-							: ["Shootingrange_P?game=ShootingRange"]),
-						...processArgs(options.args),
-					]
-				: []),
+			...(options.args ? ["--", ...processArgs(options.args)] : []),
 		],
 		env,
 	);

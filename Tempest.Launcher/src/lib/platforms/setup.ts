@@ -3,6 +3,7 @@ import { readDir } from "@tauri-apps/plugin-fs";
 import { createCommand, processArgs, type ArgumentType } from "$lib/core/command";
 import { installAutoMods } from "$lib/core/mods";
 import { getInstanceAssemblyDbPath, getInstanceTokensDir } from "$lib/core/paths";
+import { updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, appendProcessLogs } from "$lib/stores/processes.svelte";
 import { allowScopeDirectory } from "$lib/tauri/scopes";
 import type { Instance, InstancePlatform } from "$lib/types/instance";
@@ -17,6 +18,21 @@ const log = (line: string, error = false): void => appendProcessLog(line, error,
 const logCommand = (args: ArgumentType[]): void =>
 	log(`Running command: ${processArgs(args).join(" ")}`);
 
+/** Ensures non-8.1 instances launch into the shooting range, like a user-added arg. */
+const ensureShootingRangeArg = (instance: Instance): void => {
+	if (instance.version === "8.1") return;
+	const args = instance.launchOptions?.args ?? [];
+	if (args.some((a) => a.startsWith("Shootingrange_P"))) return;
+	const updated = {
+		...instance,
+		launchOptions: {
+			...instance.launchOptions,
+			args: ["Shootingrange_P?game=ShootingRange", ...args],
+		},
+	};
+	updateInstance(instance.id, updated);
+};
+
 const logResult = (result: { stdout?: string; stderr?: string }): void => {
 	if (result.stdout) {
 		appendProcessLogs(result.stdout.split("\n").filter(Boolean), false, SOURCE);
@@ -28,6 +44,8 @@ const logResult = (result: { stdout?: string; stderr?: string }): void => {
 
 export const setupInstance = async (instance: Instance): Promise<void> => {
 	log(`Setting up instance "${instance.label}" (${instance.path})`);
+
+	ensureShootingRangeArg(instance);
 
 	log("Installing auto mods...");
 	await installAutoMods(instance);
