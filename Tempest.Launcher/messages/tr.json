@@ -120,7 +120,7 @@
 	"downloads_repaired": "onarıldı",
 	"downloads_verified": "doğrulandı",
 	"downloads_eta": "Tahmini Kalan Süre",
-	"serverlist_title": "Sunucu Listesi",
+	"serverlist_title": "Sunucu LİSTESİ",
 	"serverlist_tab_internet": "İnternet",
 	"serverlist_tab_lan": "Yerel Ağ Bağlantısı (LAN)",
 	"serverlist_host_server": "Sunucu oluştur",
@@ -151,13 +151,13 @@
 			"selectors": ["countPlural"],
 			"match": {
 				"countPlural=one": "sunucu",
-				"countPlural=other": "sunucular"
+				"countPlural=other": "sunucu"
 			}
 		}
 	],
-	"lobby_title": "Lobi",
+	"lobby_title": "LOBİ",
 	"lobby_game_in_progress": "Oyun devam ediyor",
-	"lobby_leave_lobby": "Lobiden Ayrıl",
+	"lobby_leave_lobby": "LOBİDEN AYRIL",
 	"lobby_rejoin_game": "Oyuna Yeniden Katıl",
 	"lobby_channel_global": "Genel",
 	"lobby_no_messages": "Mesaj yok",
@@ -182,10 +182,10 @@
 	"lobby_not_ready": "Hazır Değil",
 	"lobby_switch_team": "Diğer takıma geç",
 	"lobby_become_spectator": "İzle",
-	"lobby_join_team": "Bir takıma katıl",
-	"lobby_spectators": "İzleyiciler",
+	"lobby_join_team": "BİR TAKIMA KATIL",
+	"lobby_spectators": "İZLEYİCİLER",
 	"lobby_spectating": "İzleniyor",
-	"lobby_start_countdown": "Geri Sayımı Başlat",
+	"lobby_start_countdown": "GERİ SAYIMI BAŞLAT",
 	"lobby_voted": "Oylandı",
 	"lobby_players": [
 		{
@@ -193,7 +193,7 @@
 			"selectors": ["countPlural"],
 			"match": {
 				"countPlural=one": "oyuncu",
-				"countPlural=other": "oyuncular"
+				"countPlural=other": "oyuncu"
 			}
 		}
 	],
@@ -212,8 +212,8 @@
 	"settings_theme_custom_css": "Özel CSS",
 	"settings_theme_custom_themes_link": "— tema bul ve özelleştir",
 	"settings_select_directory": "Bir dizin seçin...",
-	"settings_mod_developer": "Mod geliştirici",
-	"settings_mod_developer_description": "Cook Mod dönüştürücü gibi mod geliştirme araçlarını etkinleştirir.",
+	"settings_mod_developer": "Mod oluşturucu",
+	"settings_mod_developer_description": "Mod oluşturma araçlarını etkinleştirir.",
 	"settings_saved_successfully": "Ayarlar başarıyla kaydedildi",
 	"settings_danger_zone": "Tehlike Alanı",
 	"settings_reset_warning": "Sıfırlamak, tüm ayarları temizleyip her şeyi varsayılan değerlerine geri döndürecektir. Bu işlem geri alınamaz.",
@@ -418,7 +418,7 @@
 	"settings_wine_gamescope_not_installed": "Gamescope, PATH'de bulunamadı. Bu seçeneği aktif etmek için lütfen yükleyin.",
 	"settings_check_for_updates": "GÜNCELLEMELERİ KONTROL ET",
 	"settings_keybinds": "Tuş Atamaları",
-	"settings_keybinds_description": "Oyun içi tuş atamalarınızı burada bir kez ayarlayın. Her örneğin yapılandırma dosyasına yazılacaktır.",
+	"settings_keybinds_description": "Öncelikle oyun içi tuş atamalarınızı burada ayarlayın. Her sürümün yapılandırma dosyasına kaydedilecektir.",
 	"settings_keybinds_mouse_sensitivity": "Fare Hassasiyeti",
 	"settings_keybinds_action": "Atamalar",
 	"settings_keybinds_key": "Tuş",
@@ -426,7 +426,7 @@
 	"settings_keybinds_add": "Tuş Ataması Ekle",
 	"settings_keybinds_remove": "Kaldır",
 	"settings_keybinds_press_a_key": "Bir tuşa basın...",
-	"settings_keybinds_unsaved": "Değişiklikler bir sonraki başlatışta örneklere uygulanır.",
+	"settings_keybinds_unsaved": "Değişiklikler, bir sonraki kez oyunu başlattığınızda yüklenen sürümlere uygulanacaktır.",
 	"settings_keybinds_mod_name": "Mod Adı",
 	"settings_keybinds_mod_name_placeholder": "tuş atamaları modunuza ad verin",
 	"settings_keybinds_generate": "Mod Oluştur",
@@ -446,17 +446,17 @@
 	"updater_downloading_package": "Güncelleyici paketi indiriliyor...",
 	"updater_applying_files": "Güncelleme dosyaları uygulanıyor...",
 	"updater_relaunching_title": "Yeniden Başlatılıyor...",
-	"updater_relaunching_desc": "Başlatıcı, güncellemeyi uygulamak için yneiden başlatılıyor.",
+	"updater_relaunching_desc": "Başlatıcı, güncellemeyi uygulamak için yeniden başlatılıyor.",
 	"updater_failed_title": "Güncelleme Başarısız Oldu",
 	"updater_failed_desc": "Güncellerken bir hatayla karşılaşıldı.",
-	"updater_btn_remind": "Bana Sonradan Hatırlat",
+	"updater_btn_remind": "Sonra Hatırlat",
 	"updater_btn_update_now": "Şimdi Güncelle",
 	"updater_btn_updating": "Güncelleniyor...",
 	"updater_btn_retry": "Yeniden Dene",
 	"updater_btn_check_again": "Yeniden Kontrol Et",
-	"converter_title": "Mod Pişir",
-	"converter_drop_hint": "{tempest}, {upk}, {pck} veya {ini} dosyalarını buraya sürükleyin",
-	"converter_drop_browse_hint": "veya Gözat düğmesini kullanın",
+	"converter_title": "Mod Oluştur",
+	"converter_drop_hint": "{tempest}, {upk}, {pck} ya da {ini} dosyalarını buraya sürükleyin",
+	"converter_drop_browse_hint": "veya Göz At düğmesini kullanın",
 	"converter_source_files": "Kaynak Dosyalar",
 	"converter_importing": "{name} içe aktarılıyor...",
 	"converter_sources": [
@@ -465,23 +465,23 @@
 			"selectors": ["countPlural"],
 			"match": {
 				"countPlural=one": "kaynak",
-				"countPlural=other": "kaynaklar"
+				"countPlural=other": "kaynak"
 			}
 		}
 	],
 	"converter_mod_name_label": "Mod Adı",
 	"converter_mod_name_placeholder": "modunuzu adlandırın",
-	"converter_version_placeholder": "sürümü belirleyin",
-	"converter_authors_label": "Yazarlar",
+	"converter_version_placeholder": "sürümü yazın",
+	"converter_authors_label": "Emeği Geçenler",
 	"converter_author_name_placeholder": "bir isim girin",
 	"converter_author_link_placeholder": "bir bağlantı ekleyin",
 	"converter_readme_label": "Beni Oku",
 	"converter_readme_placeholder": "modunuzu tanımlayın",
-	"converter_cook": "Pişir",
-	"converter_cooking": "Pişiriliyor...",
+	"converter_cook": "Oluştur",
+	"converter_cooking": "Oluşturuluyor...",
 	"converter_download": "İndir",
-	"converter_add_to_instance": "Örneğe Ekle",
+	"converter_add_to_instance": "Sürüme Ekle",
 	"converter_toast_saved_title": "Mod kaydedildi",
 	"converter_toast_saved_message": "{path} konumuna kaydedildi",
-	"converter_toast_installed_message": "\"{name}\", {instance} örneğine kuruldu"
+	"converter_toast_installed_message": "\"{name}\", {instance} sürümüne kuruldu"
 }
