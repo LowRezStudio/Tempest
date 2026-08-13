@@ -74,6 +74,8 @@
 		{/if}
 	{/snippet}
 	{#snippet subtitle()}
+		<span>{lobbyWaitingState.value.gameVersion}</span>
+		<span class="opacity-30">|</span>
 		{#if lobbyWaitingState.value.isWaiting}
 			<span>
 				{m.lobby_waiting_for_players({

@@ -8,4 +8,5 @@ message LobbyPlayer {
   int32 task_force = 3;
   string champion = 4;
   bool ready = 5;
+  int32 index = 6;
 }

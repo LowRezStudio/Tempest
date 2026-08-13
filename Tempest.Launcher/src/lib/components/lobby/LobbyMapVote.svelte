@@ -72,6 +72,8 @@
 				</button>
 			{/snippet}
 			{#snippet subtitle()}
+				<span>{gameVersion}</span>
+				<span class="opacity-30">|</span>
 				<span>{playerCount} {m.lobby_players({ count: playerCount })}</span>
 			{/snippet}
 		</Header>

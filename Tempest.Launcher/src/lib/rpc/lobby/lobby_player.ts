@@ -34,6 +34,10 @@ export interface LobbyPlayer {
 	 * @generated from protobuf field: bool ready = 5
 	 */
 	ready: boolean;
+	/**
+	 * @generated from protobuf field: int32 index = 6
+	 */
+	index: number;
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class LobbyPlayer$Type extends MessageType<LobbyPlayer> {
@@ -44,6 +48,7 @@ class LobbyPlayer$Type extends MessageType<LobbyPlayer> {
 			{ no: 3, name: "task_force", kind: "scalar", T: 5 /*ScalarType.INT32*/ },
 			{ no: 4, name: "champion", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
 			{ no: 5, name: "ready", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
+			{ no: 6, name: "index", kind: "scalar", T: 5 /*ScalarType.INT32*/ },
 		]);
 	}
 	create(value?: PartialMessage<LobbyPlayer>): LobbyPlayer {
@@ -53,6 +58,7 @@ class LobbyPlayer$Type extends MessageType<LobbyPlayer> {
 		message.taskForce = 0;
 		message.champion = "";
 		message.ready = false;
+		message.index = 0;
 		if (value !== undefined) reflectionMergePartial<LobbyPlayer>(this, message, value);
 		return message;
 	}
@@ -81,6 +87,9 @@ class LobbyPlayer$Type extends MessageType<LobbyPlayer> {
 					break;
 				case /* bool ready */ 5:
 					message.ready = reader.bool();
+					break;
+				case /* int32 index */ 6:
+					message.index = reader.int32();
 					break;
 				default:
 					let u = options.readUnknownField;
@@ -118,6 +127,8 @@ class LobbyPlayer$Type extends MessageType<LobbyPlayer> {
 			writer.tag(4, WireType.LengthDelimited).string(message.champion);
 		/* bool ready = 5; */
 		if (message.ready !== false) writer.tag(5, WireType.Varint).bool(message.ready);
+		/* int32 index = 6; */
+		if (message.index !== 0) writer.tag(6, WireType.Varint).int32(message.index);
 		let u = options.writeUnknownFields;
 		if (u !== false)
 			(u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

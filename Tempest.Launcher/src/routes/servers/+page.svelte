@@ -6,6 +6,7 @@
 		Server,
 		ServerCrash,
 		ServerOff,
+		X,
 	} from "@lucide/svelte";
 	import { untrack } from "svelte";
 	import ServerDetailsDialog from "$lib/components/server-list/ServerDetailsDialog.svelte";
@@ -14,6 +15,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { createServersQuery, createLanServersQuery } from "$lib/queries/servers";
 	import { isFlagEnabled } from "$lib/stores/flags.svelte";
+	import { dismissExperimentalWarning } from "$lib/stores/settings.svelte";
 	import { hostServerWizardOpen, joinServerWizardOpen } from "$lib/stores/ui.svelte";
 	import type { ServerListing } from "$lib/rpc";
 
@@ -156,10 +158,19 @@
 	</Header>
 
 	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
-		<div role="alert" class="alert alert-warning mx-4 mt-4">
-			<AlertTriangle size={20} />
-			<span>{m.serverlist_experimental_warning()}</span>
-		</div>
+		{#if !dismissExperimentalWarning.value}
+			<div role="alert" class="alert alert-warning mx-4 mt-4">
+				<AlertTriangle size={20} />
+				<span>{m.serverlist_experimental_warning()}</span>
+				<button
+					class="btn btn-ghost btn-sm"
+					onclick={() => (dismissExperimentalWarning.value = true)}
+					aria-label="Dismiss warning"
+				>
+					<X size={16} />
+				</button>
+			</div>
+		{/if}
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">
 				{#if isLoading}

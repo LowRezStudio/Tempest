@@ -9,6 +9,7 @@ namespace Tempest.CLI.Server;
 internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticketStore, ILogger<LobbyState> logger)
 {
     private readonly ConcurrentDictionary<string, LobbyPlayer> _players = new();
+    private readonly List<string> _rosterOrder = new();
     private readonly ConcurrentDictionary<string, byte> _kickedPlayers = new();
     private readonly ConcurrentQueue<LobbyEvent> _eventBuffer = new();
     private readonly ConcurrentDictionary<string, IObserver<LobbyEvent>> _subscribers = new();
@@ -63,8 +64,14 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             response = Error(JoinLobbyErrorCode.LobbyInvalid, "Player already in lobby");
             return false;
         }
+        lock (_gate)
+        {
+            _rosterOrder.Add(id);
+        }
 
-        logger.LogInformation("Player {DisplayName} joined lobby (team {Team}, {PlayerCount}/{MaxPlayers}, guid {Guid})", displayName, team, PlayerCount, options.MaxPlayers, player.Id);
+        logger.LogInformation("Player {DisplayName} joined lobby (team {Team}, {PlayerCount}/{MaxPlayers})", displayName, team, PlayerCount, options.MaxPlayers);
+
+        RefreshPlayerIndices();
 
         Publish(new LobbyEvent
         {
@@ -82,6 +89,10 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
     {
         if (_players.TryRemove(id, out var player))
         {
+            lock (_gate)
+            {
+                _rosterOrder.Remove(id);
+            }
             logger.LogInformation("Player {DisplayName} left lobby ({PlayerCount}/{MaxPlayers})", player.DisplayName, PlayerCount, options.MaxPlayers);
             ticketStore.RevokeTickets(id);
             if (_state.MapVote != null)
@@ -89,6 +100,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
                 _state.MapVote.Votes.Remove(id);
                 PublishState();
             }
+            RefreshPlayerIndices();
             Publish(new LobbyEvent
             {
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
@@ -313,6 +325,45 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
         });
         StartGameServer(mapId);
     }
+
+    private void RefreshPlayerIndices()
+    {
+        var players = OrderedPlayers();
+        for (var i = 0; i < players.Count; i++)
+        {
+            var index = i + 1;
+            if (players[i].Index == index) continue;
+            players[i].Index = index;
+            Publish(new LobbyEvent
+            {
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+                PlayerUpdate = new LobbyEventPlayerUpdate { Player = players[i] }
+            });
+        }
+        LogPlayerRoster(players);
+    }
+
+    private List<LobbyPlayer> OrderedPlayers()
+    {
+        lock (_gate)
+        {
+            return _rosterOrder.Where(id => _players.TryGetValue(id, out _)).Select(id => _players[id]).ToList();
+        }
+    }
+
+    private void LogPlayerRoster(List<LobbyPlayer>? players = null)
+    {
+        players ??= OrderedPlayers();
+        if (players.Count == 0)
+        {
+            logger.LogInformation("Lobby roster: empty");
+            return;
+        }
+        for (var i = 0; i < players.Count; i++)
+        {
+            logger.LogInformation("  {Index}. {DisplayName} (team {Team})", players[i].Index, players[i].DisplayName, players[i].TaskForce);
+        }
+    }
     private void EndInGame()
     {
         foreach (var player in _players.Values.ToList())
@@ -478,7 +529,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             Game = "Paladins",
             EnableJoinInProgress = options.EnableJoinInProgress,
         };
-        info.Players.AddRange(_players.Values);
+        info.Players.AddRange(OrderedPlayers());
         return new LobbyEvent
         {
             Info = info,

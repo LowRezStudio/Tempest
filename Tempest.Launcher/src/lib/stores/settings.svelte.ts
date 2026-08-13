@@ -13,6 +13,10 @@ export const winePath = persistedState<string | undefined>("winePath", undefined
 export const useGamescope = persistedState<boolean>("useGamescope", false);
 export const gamescopeArgs = persistedState<string>("gamescopeArgs", "-f --force-grab-cursor");
 export const modDeveloper = persistedState<boolean>("modDeveloper", false);
+export const dismissExperimentalWarning = persistedState<boolean>(
+	"dismissExperimentalWarning",
+	false,
+);
 
 const getDefaultInstancePath = async () => {
 	const rootDir = platform() === "windows" ? "C:" : await homeDir();

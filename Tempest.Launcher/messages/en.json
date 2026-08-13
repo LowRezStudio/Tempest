@@ -176,7 +176,7 @@
 	"lobby_no_messages": "No messages yet",
 	"lobby_type_message": "Type a message...",
 	"lobby_close_chat": "Close chat",
-	"lobby_waiting_for_players": "Players ready {ready}/{total}",
+	"lobby_waiting_for_players": "Players Ready {ready}/{total}",
 	"lobby_ready_up": "Ready Up",
 	"lobby_ready": "Ready",
 	"lobby_connecting": "Connecting",

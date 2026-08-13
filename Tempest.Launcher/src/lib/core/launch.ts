@@ -1,5 +1,5 @@
 import { lastLaunchedInstanceId } from "../stores/instance.svelte";
-import { logCommandOutput, processesList } from "../stores/processes.svelte";
+import { appendProcessLog, logCommandOutput, processesList } from "../stores/processes.svelte";
 import { gamescopeArgs, useGamescope, winePath } from "../stores/settings.svelte";
 import { createCommand, processArgs } from "./command";
 import type { Instance } from "../types/instance";
@@ -13,6 +13,12 @@ export const launchGame = async (instance: Instance) => {
 
 	console.log("Launching instance", instance.id, instance.version);
 	console.log(instance);
+
+	appendProcessLog(
+		`Launching game client with args: ${processArgs(options.args ?? []).join(" ")}`,
+		false,
+		"launch",
+	);
 
 	const wine = winePath.get();
 	const env: Record<string, string> | undefined = wine ? { WINE: wine } : undefined;
