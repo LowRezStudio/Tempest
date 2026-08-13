@@ -30,8 +30,6 @@
 			: false,
 	);
 
-
-
 	const countryLabel = $derived(server ? formatCountry(server.country) : "");
 
 	function findMapName(s: ServerListing): string {
@@ -96,7 +94,7 @@
 			</div>
 
 			<!-- Players capacity -->
-			<div class="stats stats-horizontal shadow-sm bg-base-200 w-full">
+			<div class="stats stats-horizontal bg-base-200 w-full shadow-sm">
 				<div class="stat">
 					<div class="stat-figure text-base-content/40">
 						<Users size={28} />

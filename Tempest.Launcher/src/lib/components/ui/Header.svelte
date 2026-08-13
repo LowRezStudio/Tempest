@@ -1,6 +1,6 @@
 <script lang="ts" generics="T extends string">
-	import type { Snippet } from "svelte";
 	import { Tabs } from "bits-ui";
+	import type { Snippet } from "svelte";
 
 	interface Props<Tab> {
 		title: string;
@@ -34,18 +34,18 @@
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-3">
 				<div
-					class="w-16 h-16 rounded-xl flex items-center justify-center shrink-0"
+					class="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl"
 					style={iconBg ? `background-color: ${iconBg};` : ""}
 					class:bg-base-300={!iconBg}
 				>
 					{@render icon()}
 				</div>
 				<div>
-					<h1 class="text-2xl font-bold mb-1 uppercase">
+					<h1 class="mb-1 text-2xl font-bold uppercase">
 						{title}
 					</h1>
 					{#if subtitle}
-						<div class="flex items-center gap-3 text-sm text-base-content/70">
+						<div class="text-base-content/70 flex items-center gap-3 text-sm">
 							<div class="flex items-center gap-1.5">
 								{@render subtitle()}
 							</div>
@@ -63,16 +63,10 @@
 	</div>
 	<div class="px-4">
 		{#if tabs && tabs.length > 0}
-			<Tabs.Root
-				value={activeTab}
-				onValueChange={(val) => onSelectTab?.(val as T)}
-			>
+			<Tabs.Root value={activeTab} onValueChange={(val) => onSelectTab?.(val as T)}>
 				<Tabs.List class="tabs tabs-border">
 					{#each tabs as tab (tab.value)}
-						<Tabs.Trigger
-							value={tab.value}
-							class="tab data-[state=active]:tab-active"
-						>
+						<Tabs.Trigger value={tab.value} class="tab data-[state=active]:tab-active">
 							{tab.name}
 						</Tabs.Trigger>
 					{/each}

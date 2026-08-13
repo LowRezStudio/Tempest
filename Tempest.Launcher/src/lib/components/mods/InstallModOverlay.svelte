@@ -11,16 +11,16 @@
 
 {#if visible}
 	<div
-		class="absolute inset-0 z-40 flex flex-col items-center justify-center bg-base-100/90 backdrop-blur-sm pointer-events-none"
+		class="bg-base-100/90 pointer-events-none absolute inset-0 z-40 flex flex-col items-center justify-center backdrop-blur-sm"
 		style="animation: fade-in 0.12s ease forwards;"
 	>
 		<div
-			class="card bg-base-200/95 shadow-2xl max-w-sm w-full text-center border-2 border-dashed border-accent/50"
+			class="card bg-base-200/95 border-accent/50 w-full max-w-sm border-2 border-dashed text-center shadow-2xl"
 			style="animation: pop-in 0.15s var(--ease-spring) forwards;"
 		>
 			<div class="card-body items-center gap-3">
 				<div
-					class="w-16 h-16 rounded-xl bg-accent/10 flex items-center justify-center text-accent"
+					class="bg-accent/10 text-accent flex h-16 w-16 items-center justify-center rounded-xl"
 				>
 					<PackageOpen size={32} />
 				</div>

@@ -1,15 +1,15 @@
 <script lang="ts">
+	import { goto } from "$app/navigation";
 	import { Server, SlidersHorizontal } from "@lucide/svelte";
 	import { Tabs } from "bits-ui";
-	import { goto } from "$app/navigation";
+	import { untrack } from "svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createLaunchLobbyMutation } from "$lib/queries/lobby";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { servicesURL, username } from "$lib/stores/settings.svelte";
-	import { untrack } from "svelte";
-	import type { Instance } from "$lib/types/instance";
 	import { GAMEMODES, type GameModeId as GameMode } from "$lib/types/lobby";
+	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
 		open?: boolean;
@@ -86,19 +86,13 @@
 </script>
 
 <Modal bind:open title={m.hostserver_title()} class="max-w-2xl" onsubmit={handleCreate}>
-	<Tabs.Root bind:value={selectedTab} class="w-full mb-4">
+	<Tabs.Root bind:value={selectedTab} class="mb-4 w-full">
 		<Tabs.List class="tabs tabs-border w-full">
-			<Tabs.Trigger
-				value="general"
-				class="tab gap-2 flex-1 data-[state=active]:tab-active"
-			>
+			<Tabs.Trigger value="general" class="tab data-[state=active]:tab-active flex-1 gap-2">
 				<Server size={16} />
 				<span>General</span>
 			</Tabs.Trigger>
-			<Tabs.Trigger
-				value="advanced"
-				class="tab gap-2 flex-1 data-[state=active]:tab-active"
-			>
+			<Tabs.Trigger value="advanced" class="tab data-[state=active]:tab-active flex-1 gap-2">
 				<SlidersHorizontal size={16} />
 				<span>Advanced</span>
 			</Tabs.Trigger>
@@ -109,8 +103,8 @@
 		<!-- General tab -->
 		<div
 			class={[
-				"space-y-4 row-start-1 col-start-1",
-				selectedTab !== "general" && "invisible pointer-events-none",
+				"col-start-1 row-start-1 space-y-4",
+				selectedTab !== "general" && "pointer-events-none invisible",
 			]}
 		>
 			<div class="form-control">
@@ -121,7 +115,7 @@
 					id="server-name"
 					type="text"
 					required
-					class="input input-bordered w-full user-invalid:validator"
+					class="input input-bordered user-invalid:validator w-full"
 					minlength="3"
 					maxlength="30"
 					bind:value={selectedName}
@@ -190,8 +184,8 @@
 		<!-- Advanced tab -->
 		<div
 			class={[
-				"space-y-4 row-start-1 col-start-1",
-				selectedTab !== "advanced" && "invisible pointer-events-none",
+				"col-start-1 row-start-1 space-y-4",
+				selectedTab !== "advanced" && "pointer-events-none invisible",
 			]}
 		>
 			<div class="form-control">
@@ -201,7 +195,7 @@
 				<input
 					id="server-max-players"
 					type="number"
-					class="input input-bordered w-full user-invalid:validator"
+					class="input input-bordered user-invalid:validator w-full"
 					required
 					min="1"
 					max="30"
@@ -216,7 +210,7 @@
 				<input
 					id="server-max-spectators"
 					type="number"
-					class="input input-bordered w-full user-invalid:validator"
+					class="input input-bordered user-invalid:validator w-full"
 					required
 					min="1"
 					max="30"
@@ -231,7 +225,7 @@
 				<input
 					id="server-port"
 					type="number"
-					class="input input-bordered w-full user-invalid:validator"
+					class="input input-bordered user-invalid:validator w-full"
 					required
 					min="50000"
 					max="65000"
@@ -246,7 +240,7 @@
 				<input
 					id="game-server-port"
 					type="number"
-					class="input input-bordered w-full user-invalid:validator"
+					class="input input-bordered user-invalid:validator w-full"
 					required
 					min="1"
 					max="65535"
@@ -254,24 +248,25 @@
 					bind:value={selectedGameServerPort}
 				/>
 			</div>
-		<div class="form-control">
-			<label class="label cursor-pointer justify-start gap-3 py-0.5">
-				<input
-					type="checkbox"
-					class="toggle toggle-accent"
-					bind:checked={selectedUpnp}
-				/>
-				<span class="label-text text-sm">{m.hostserver_upnp()}</span>
-			</label>
-			<p class="text-xs opacity-60 mt-1">
-				{m.hostserver_upnp_hint()} — <span class="font-mono">{selectedPort}</span>, <span class="font-mono">{selectedGameServerPort}</span>
-			</p>
+			<div class="form-control">
+				<label class="label cursor-pointer justify-start gap-3 py-0.5">
+					<input
+						type="checkbox"
+						class="toggle toggle-accent"
+						bind:checked={selectedUpnp}
+					/>
+					<span class="label-text text-sm">{m.hostserver_upnp()}</span>
+				</label>
+				<p class="mt-1 text-xs opacity-60">
+					{m.hostserver_upnp_hint()} — <span class="font-mono">{selectedPort}</span>,
+					<span class="font-mono">{selectedGameServerPort}</span>
+				</p>
+			</div>
 		</div>
-	</div>
 	</div>
 
 	{#snippet actions()}
-		<div class="flex items-center justify-end w-full">
+		<div class="flex w-full items-center justify-end">
 			<div class="flex gap-2">
 				<button class="btn btn-ghost" type="button" onclick={() => (open = false)}
 					>{m.common_cancel()}</button

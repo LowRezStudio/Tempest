@@ -4,6 +4,7 @@ The purpose of this page is to be a development tool
 Makes it possible to add players, vote maps and select champions
 */
 	import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
+	import { onDestroy, onMount } from "svelte";
 	import allChampions from "$lib/data/champions.json";
 	import {
 		chatMessages,
@@ -14,7 +15,6 @@ Makes it possible to add players, vote maps and select champions
 	import { AuthMethod } from "$lib/rpc";
 	import { LobbyClient } from "$lib/rpc/lobby/lobby_service.client";
 	import { getMapsForVersion } from "$lib/utils/versions";
-	import { onDestroy, onMount } from "svelte";
 	import type { RpcOptions } from "@protobuf-ts/runtime-rpc";
 
 	const transport = new GrpcWebFetchTransport({
@@ -167,12 +167,12 @@ Makes it possible to add players, vote maps and select champions
 	});
 </script>
 
-<div class="flex flex-col h-full bg-base-100 p-6">
-	<div class="flex gap-3 items-center">
+<div class="bg-base-100 flex h-full flex-col p-6">
+	<div class="flex items-center gap-3">
 		<button onclick={createNewPlayer} class="btn">New player</button>
 		<p>State {JSON.stringify(lobbyState.value)}</p>
 	</div>
-	<table class="table table-zebra">
+	<table class="table-zebra table">
 		<thead>
 			<tr>
 				<th>Name</th>
@@ -240,7 +240,8 @@ Makes it possible to add players, vote maps and select champions
 					</td>
 					<td>
 						{#if debugPlayersStore.value.has(player.id)}
-							<button class="btn" onclick={() => handleLeave(player.id)}>Leave</button>
+							<button class="btn" onclick={() => handleLeave(player.id)}>Leave</button
+							>
 						{/if}
 					</td>
 				</tr>

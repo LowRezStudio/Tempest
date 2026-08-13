@@ -93,12 +93,12 @@
 		<li>
 			<details open>
 				<summary
-					class="flex items-center gap-2 py-1 font-semibold select-none text-base-content/90"
+					class="text-base-content/90 flex items-center gap-2 py-1 font-semibold select-none"
 				>
 					<Folder size={14} class="shrink-0 opacity-80" />
 					<span class="truncate">{node.name}</span>
 				</summary>
-				<ul class="before:bg-base-300 pl-4 ml-2">
+				<ul class="before:bg-base-300 ml-2 pl-4">
 					{#each node.children || [] as child}
 						{@render renderNode(child)}
 					{/each}
@@ -108,8 +108,8 @@
 	{/if}
 {/snippet}
 
-<div class="overflow-y-auto pr-1 bg-base-200 rounded-box p-3 h-full">
-	<ul class="menu menu-xs p-0 font-mono w-full">
+<div class="bg-base-200 rounded-box h-full overflow-y-auto p-3 pr-1">
+	<ul class="menu menu-xs w-full p-0 font-mono">
 		{#each tree as node}
 			{@render renderNode(node)}
 		{/each}

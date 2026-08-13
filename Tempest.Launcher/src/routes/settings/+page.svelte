@@ -6,10 +6,16 @@
 	import FeatureFlagsTab from "$lib/dev/FeatureFlagsTab.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createAboutInfoQuery } from "$lib/queries/about";
-	import { customThemeCSS, defaultInstancePath, modDeveloper, theme, username } from "$lib/stores/settings.svelte";
+	import KeybindsTab from "$lib/settings/KeybindsTab.svelte";
+	import {
+		customThemeCSS,
+		defaultInstancePath,
+		modDeveloper,
+		theme,
+		username,
+	} from "$lib/stores/settings.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import WineSettings from "$lib/wine/WineSettings.svelte";
-	import KeybindsTab from "$lib/settings/KeybindsTab.svelte";
 
 	let activeTab = $state<"general" | "keybinds" | "wine" | "advanced" | "flags">("general");
 
@@ -51,7 +57,7 @@
 	]);
 </script>
 
-<div class="flex flex-col h-full bg-base-100">
+<div class="bg-base-100 flex h-full flex-col">
 	<Header title={m.settings_title()} {tabs} {activeTab} onSelectTab={(tab) => (activeTab = tab)}>
 		{#snippet icon()}
 			<Settings size={32} class="opacity-60" />
@@ -61,7 +67,7 @@
 		{/snippet}
 	</Header>
 
-	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
+	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
 		<div class="flex-1 overflow-y-auto">
 			<div class="p-6">
 				{#if activeTab === "general"}
@@ -93,29 +99,37 @@
 								<option value="latte">{m.settings_theme_latte()}</option>
 								<option value="legacy">{m.settings_theme_legacy()}</option>
 								<option value="custom">{m.settings_theme_custom()}</option>
-						</select>
-					</div>
+							</select>
+						</div>
 
-					{#if theme.value === "custom"}
-						<div class="form-control">
-							<label for="custom-css-input" class="label py-0.5">
-								<span class="label-text text-sm">{m.settings_theme_custom_css()}</span>
-							</label>
-							<textarea
-								id="custom-css-input"
-								class="textarea textarea-bordered w-full font-mono text-xs"
-								rows="20"
-								bind:value={customThemeCSS.value}
-								placeholder="Paste a daisyUI @plugin &quot;daisyui/theme&quot; block..."
-							></textarea>
-						</div>
-						<div class="bg-base-200 rounded-box px-3 py-2 mt-2">
-							<p class="text-xs">
-								<a href="https://daisyui.com/theme-generator/" target="_blank" rel="noreferrer" class="no-underline hover:underline">daisyui.com/theme-generator</a>
-								{m.settings_theme_custom_themes_link()}
-							</p>
-						</div>
-					{/if}
+						{#if theme.value === "custom"}
+							<div class="form-control">
+								<label for="custom-css-input" class="label py-0.5">
+									<span class="label-text text-sm"
+										>{m.settings_theme_custom_css()}</span
+									>
+								</label>
+								<textarea
+									id="custom-css-input"
+									class="textarea textarea-bordered w-full font-mono text-xs"
+									rows="20"
+									bind:value={customThemeCSS.value}
+									placeholder="Paste a daisyUI @plugin &quot;daisyui/theme&quot; block..."
+								></textarea>
+							</div>
+							<div class="bg-base-200 rounded-box mt-2 px-3 py-2">
+								<p class="text-xs">
+									<a
+										href="https://daisyui.com/theme-generator/"
+										target="_blank"
+										rel="noreferrer"
+										class="no-underline hover:underline"
+										>daisyui.com/theme-generator</a
+									>
+									{m.settings_theme_custom_themes_link()}
+								</p>
+							</div>
+						{/if}
 
 						<div class="form-control">
 							<label for="path-input" class="label py-0.5">
@@ -148,7 +162,9 @@
 								/>
 								<span class="label-text text-sm">{m.settings_mod_developer()}</span>
 							</label>
-							<p class="text-xs opacity-60 mt-1">{m.settings_mod_developer_description()}</p>
+							<p class="mt-1 text-xs opacity-60">
+								{m.settings_mod_developer_description()}
+							</p>
 						</div>
 					</div>
 				{:else if activeTab === "wine"}
@@ -160,7 +176,7 @@
 				{:else if activeTab === "advanced"}
 					<div class="flex flex-col">
 						<div class="flex flex-col gap-4">
-							<h2 class="text-xl font-semibold text-error">
+							<h2 class="text-error text-xl font-semibold">
 								{m.settings_danger_zone()}
 							</h2>
 							<p class="text-sm">
@@ -195,7 +211,7 @@
 									<span class="font-mono">{architecture}-{osName}</span>
 								</div>
 							</div>
-							<div class="pt-2 flex justify-start">
+							<div class="flex justify-start pt-2">
 								<button
 									type="button"
 									class="btn btn-accent btn-sm"

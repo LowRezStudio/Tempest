@@ -11,11 +11,11 @@
 	let { title, subtitle, loading, children }: Props = $props();
 </script>
 
-<div class="absolute inset-0 flex items-center justify-center z-30 bg-black/50 pointer-events-none">
+<div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/50">
 	<div
-		class="modal-box flex flex-col items-center gap-4 opacity-100 pointer-events-auto text-center"
+		class="modal-box pointer-events-auto flex flex-col items-center gap-4 text-center opacity-100"
 	>
-		<p class="font-semibold text-lg">
+		<p class="text-lg font-semibold">
 			{title}
 		</p>
 

@@ -1,8 +1,8 @@
 <script lang="ts">
+	import { fade } from "svelte/transition";
 	import HomeFloatingActions from "$lib/components/home/HomeFloatingActions.svelte";
 	import { pinnedBackground } from "$lib/stores/settings.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
-	import { fade } from "svelte/transition";
 
 	const backgrounds = Object.keys(import.meta.glob("/static/loading-screens/*.webp")).map((img) =>
 		img.replace("/static", ""),
@@ -42,7 +42,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-	class="absolute inset-0 z-0 select-none overflow-hidden no-drag-select"
+	class="no-drag-select absolute inset-0 z-0 overflow-hidden select-none"
 	role="button"
 	tabindex="-1"
 	onclick={changeBackground}
@@ -53,7 +53,7 @@
 	{#key currentBackground}
 		<img
 			transition:fade={{ duration: 300 }}
-			class="absolute inset-0 h-full w-full object-cover object-center brightness-75 pointer-events-none select-none no-drag-select"
+			class="no-drag-select pointer-events-none absolute inset-0 h-full w-full object-cover object-center brightness-75 select-none"
 			src={currentBackground}
 			alt="background"
 			draggable="false"
@@ -63,7 +63,7 @@
 	{/key}
 </div>
 
-<div class="relative top-0 left-0 z-10 h-full p-2 pointer-events-none"></div>
+<div class="pointer-events-none relative top-0 left-0 z-10 h-full p-2"></div>
 
 <HomeFloatingActions />
 

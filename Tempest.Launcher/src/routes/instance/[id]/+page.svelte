@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from "$app/navigation";
+	import { page } from "$app/state";
 	import {
 		FolderOpen,
 		Gamepad2,
@@ -10,14 +12,12 @@
 		Terminal,
 	} from "@lucide/svelte";
 	import { openPath } from "@tauri-apps/plugin-opener";
-	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
-	import { goto } from "$app/navigation";
-	import { page } from "$app/state";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
 	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
+	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
@@ -100,7 +100,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full bg-base-100">
+<div class="bg-base-100 flex h-full flex-col">
 	<!-- Header -->
 	<Header
 		title={instance?.label || m.common_loading()}
@@ -167,11 +167,11 @@
 				<span>{instance?.version || m.common_unknown_version()}</span>
 				{#if instance?.launchOptions?.args && instance.launchOptions.args.length > 0}
 					<div
-						class="flex items-center gap-1 min-w-0 ml-1.5"
+						class="ml-1.5 flex min-w-0 items-center gap-1"
 						title={instance.launchOptions.args.join(" ")}
 					>
 						<Terminal size={14} class="shrink-0" />
-						<span class="text-xs font-mono truncate max-w-[350px]">
+						<span class="max-w-[350px] truncate font-mono text-xs">
 							{instance.launchOptions.args.join(" ")}
 						</span>
 					</div>
@@ -203,14 +203,16 @@
 	</Header>
 
 	<!-- Content Area -->
-	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
+	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
 		{#if activeTab === "content"}
 			<div class="flex-1 overflow-y-auto">
 				<div class="px-4 py-6">
 					{#if isInitialLoading}
-						<div class="flex flex-col items-center justify-center h-80 gap-4 text-center">
+						<div
+							class="flex h-80 flex-col items-center justify-center gap-4 text-center"
+						>
 							<span class="loading loading-spinner loading-lg opacity-30"></span>
-							<p class="text-lg font-semibold text-base-content/70">
+							<p class="text-base-content/70 text-lg font-semibold">
 								{m.common_loading()}
 							</p>
 						</div>
@@ -255,4 +257,3 @@
 	bind:open={isFilesDialogOpen}
 	instancePath={instance?.path}
 />
-

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { MessageSquare, X } from "@lucide/svelte";
-	import { m } from "$lib/paraglide/messages";
 	import { tick } from "svelte";
+	import { m } from "$lib/paraglide/messages";
 	import type { ChatMessage } from "$lib/lobby/stores.svelte";
 
 	interface Props {
@@ -60,10 +60,10 @@
 
 {#if open}
 	<div
-		class="absolute bottom-8 left-8 z-20 w-96 bg-base-200/95 backdrop-blur-xs rounded-lg shadow-xl flex flex-col h-[300px]"
+		class="bg-base-200/95 absolute bottom-8 left-8 z-20 flex h-[300px] w-96 flex-col rounded-lg shadow-xl backdrop-blur-xs"
 	>
-		<div class="px-2 pt-2 border-b border-base-300 flex items-center justify-between">
-			<span class="text-sm font-semibold px-2">{m.lobby_channel_global()}</span>
+		<div class="border-base-300 flex items-center justify-between border-b px-2 pt-2">
+			<span class="px-2 text-sm font-semibold">{m.lobby_channel_global()}</span>
 			<button
 				class="btn btn-ghost btn-sm btn-square"
 				onclick={closeChat}
@@ -73,9 +73,9 @@
 			</button>
 		</div>
 
-		<div class="flex-1 overflow-y-auto p-3 min-h-0" bind:this={chatContainer}>
+		<div class="min-h-0 flex-1 overflow-y-auto p-3" bind:this={chatContainer}>
 			{#if messages.filter((msg) => msg.channel === "global").length === 0}
-				<p class="text-sm opacity-50 text-center py-2">{m.lobby_no_messages()}</p>
+				<p class="py-2 text-center text-sm opacity-50">{m.lobby_no_messages()}</p>
 			{:else}
 				<div class="flex flex-col gap-1.5">
 					{#each messages.filter((msg) => msg.channel === "global") as msg (msg.sentAt)}
@@ -88,7 +88,7 @@
 			{/if}
 		</div>
 
-		<div class="p-2 border-t border-base-300">
+		<div class="border-base-300 border-t p-2">
 			<input
 				type="text"
 				class="input input-bordered input-sm w-full"
@@ -110,7 +110,7 @@
 {:else}
 	<div class="absolute bottom-8 left-8 z-20 flex flex-row items-end gap-2">
 		<button
-			class="btn btn-sm shadow-none justify-start"
+			class="btn btn-sm justify-start shadow-none"
 			class:btn-accent={unread}
 			onclick={openChat}
 		>

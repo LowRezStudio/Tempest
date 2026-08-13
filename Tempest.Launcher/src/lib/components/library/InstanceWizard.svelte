@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { AlertCircle, BookOpen, CloudDownload, Code, Folder, Loader2 } from "@lucide/svelte";
-	import { Tabs } from "bits-ui";
 	import { path } from "@tauri-apps/api";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { platform } from "@tauri-apps/plugin-os";
+	import { Tabs } from "bits-ui";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
@@ -132,10 +132,18 @@
 	};
 
 	function findExistingInstance(targetPath: string) {
-		const target = targetPath.trim().replace(/[\\/]+$/, "").toLowerCase();
+		const target = targetPath
+			.trim()
+			.replace(/[\\/]+$/, "")
+			.toLowerCase();
 		return Object.values(instanceMap.value).find((i) => {
 			if (!i?.path) return false;
-			return i.path.trim().replace(/[\\/]+$/, "").toLowerCase() === target;
+			return (
+				i.path
+					.trim()
+					.replace(/[\\/]+$/, "")
+					.toLowerCase() === target
+			);
 		});
 	}
 
@@ -224,7 +232,7 @@
 		void runSetup(newInstance);
 
 		open = false;
-	}	
+	}
 
 	$effect(() => {
 		if (!open) {
@@ -255,9 +263,9 @@
 		selectedPath || defaultPathPlaceholder || "<install-path>",
 	);
 	const depotDownloaderCommand = $derived(
-		selectedVersionId ?
-			`${depotDownloaderBinary} -app ${selectedAppId} -depot ${selectedDepotId} -manifest ${selectedVersionId} -os windows -dir "${downloadPathForCommand}" -qr -remember-password`
-		:	"",
+		selectedVersionId
+			? `${depotDownloaderBinary} -app ${selectedAppId} -depot ${selectedDepotId} -manifest ${selectedVersionId} -os windows -dir "${downloadPathForCommand}" -qr -remember-password`
+			: "",
 	);
 
 	async function handleCopyCommand() {
@@ -292,19 +300,13 @@
 </script>
 
 <Modal bind:open title={m.wizard_title()} class="max-w-2xl" onsubmit={handleCreate}>
-	<Tabs.Root bind:value={selectedTab} class="w-full mb-4">
+	<Tabs.Root bind:value={selectedTab} class="mb-4 w-full">
 		<Tabs.List class="tabs tabs-border w-full">
-			<Tabs.Trigger
-				value="download"
-				class="tab gap-2 flex-1 data-[state=active]:tab-active"
-			>
+			<Tabs.Trigger value="download" class="tab data-[state=active]:tab-active flex-1 gap-2">
 				<CloudDownload size={16} />
 				<span>{m.wizard_download()}</span>
 			</Tabs.Trigger>
-			<Tabs.Trigger
-				value="folder"
-				class="tab gap-2 flex-1 data-[state=active]:tab-active"
-			>
+			<Tabs.Trigger value="folder" class="tab data-[state=active]:tab-active flex-1 gap-2">
 				<Folder size={16} />
 				<span>{m.wizard_import_existing()}</span>
 			</Tabs.Trigger>
@@ -313,11 +315,11 @@
 
 	<div class="space-y-4">
 		<div class="alert">
-			<div class="flex gap-2 items-start">
+			<div class="flex items-start gap-2">
 				{#if selectedTab === "download"}
 					<CloudDownload size={16} class="mt-0.5 shrink-0" />
 					<div>
-						<h4 class="font-semibold text-sm">{m.wizard_download_description()}</h4>
+						<h4 class="text-sm font-semibold">{m.wizard_download_description()}</h4>
 						<p class="text-xs opacity-80">
 							{m.wizard_download_hint()}
 						</p>
@@ -325,7 +327,7 @@
 				{:else}
 					<Folder size={16} class="mt-0.5 shrink-0" />
 					<div>
-						<h4 class="font-semibold text-sm">{m.wizard_import_description()}</h4>
+						<h4 class="text-sm font-semibold">{m.wizard_import_description()}</h4>
 						<p class="text-xs opacity-80">
 							{m.wizard_import_hint()}
 						</p>
@@ -365,7 +367,7 @@
 					</div>
 					{#if selectedTab === "download" && selectedVersionId}
 						<div class="mt-2 space-y-1.5">
-							<label class="label py-0.5 justify-between">
+							<label class="label justify-between py-0.5">
 								<span class="label-text text-sm"
 									>{m.wizard_depot_downloader_command()}</span
 								>
@@ -374,13 +376,15 @@
 									type="button"
 									onclick={handleCopyCommand}
 								>
-									{copyStatus === "copied" ? m.common_copied()
-									: copyStatus === "failed" ? m.common_copy_failed()
-									: m.common_copy()}
+									{copyStatus === "copied"
+										? m.common_copied()
+										: copyStatus === "failed"
+											? m.common_copy_failed()
+											: m.common_copy()}
 								</button>
 							</label>
 							<div
-								class="rounded-sm bg-base-200 border border-base-300 px-3 py-2 text-xs font-mono whitespace-pre-wrap select-text"
+								class="bg-base-200 border-base-300 rounded-sm border px-3 py-2 font-mono text-xs whitespace-pre-wrap select-text"
 								style="user-select: text;"
 							>
 								{depotDownloaderCommand}
@@ -425,42 +429,42 @@
 
 			{#if showLoginPrompt}
 				<div class="bg-base-300/30 rounded-box p-4">
-					<h4 class="font-semibold text-sm mb-1">{m.wizard_login_prompt_title()}</h4>
-					<p class="text-xs opacity-70 mb-3">{m.wizard_login_prompt_desc()}</p>
+					<h4 class="mb-1 text-sm font-semibold">{m.wizard_login_prompt_title()}</h4>
+					<p class="mb-3 text-xs opacity-70">{m.wizard_login_prompt_desc()}</p>
 					<div class="flex flex-col gap-2">
 						<button
 							type="button"
-							class="btn justify-start gap-3 h-12"
+							class="btn h-12 justify-start gap-3"
 							class:btn-accent={loginMethod === "steam"}
 							class:btn-ghost={loginMethod !== "steam"}
 							onclick={() => handleLoginSelect("steam")}
 						>
 							<div class="text-left">
-								<div class="font-semibold text-sm">{m.wizard_login_steam()}</div>
+								<div class="text-sm font-semibold">{m.wizard_login_steam()}</div>
 								<div class="text-xs opacity-60">{m.wizard_login_steam_desc()}</div>
 							</div>
 						</button>
 						<button
 							type="button"
-							class="btn justify-start gap-3 h-12"
+							class="btn h-12 justify-start gap-3"
 							class:btn-accent={loginMethod === "epic"}
 							class:btn-ghost={loginMethod !== "epic"}
 							onclick={() => handleLoginSelect("epic")}
 						>
 							<div class="text-left">
-								<div class="font-semibold text-sm">{m.wizard_login_epic()}</div>
+								<div class="text-sm font-semibold">{m.wizard_login_epic()}</div>
 								<div class="text-xs opacity-60">{m.wizard_login_epic_desc()}</div>
 							</div>
 						</button>
 						<button
 							type="button"
-							class="btn justify-start gap-3 h-12"
+							class="btn h-12 justify-start gap-3"
 							class:btn-accent={loginMethod === "hirez"}
 							class:btn-ghost={loginMethod !== "hirez"}
 							onclick={() => handleLoginSelect("hirez")}
 						>
 							<div class="text-left">
-								<div class="font-semibold text-sm">{m.wizard_login_hirez()}</div>
+								<div class="text-sm font-semibold">{m.wizard_login_hirez()}</div>
 								<div class="text-xs opacity-60">{m.wizard_login_hirez_desc()}</div>
 							</div>
 						</button>
@@ -523,7 +527,7 @@
 	</div>
 
 	{#snippet actions()}
-		<div class="flex items-center justify-between w-full">
+		<div class="flex w-full items-center justify-between">
 			<button
 				class="btn btn-ghost"
 				type="button"
@@ -545,9 +549,9 @@
 				>
 					{#if selectedTab === "download"}
 						<CloudDownload size={16} />
-						{supportsCloudDownload ?
-							m.wizard_download_and_create()
-						:	m.wizard_not_available()}
+						{supportsCloudDownload
+							? m.wizard_download_and_create()
+							: m.wizard_not_available()}
 					{:else if isDetecting}
 						<Loader2 size={16} class="animate-spin" />
 						{m.common_identifying()}

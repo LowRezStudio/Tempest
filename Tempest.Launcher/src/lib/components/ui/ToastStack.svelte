@@ -36,7 +36,7 @@
 			{/if}
 			<div class="pr-6">
 				{#if toast.title}
-					<div class="font-semibold text-sm">{toast.title}</div>
+					<div class="text-sm font-semibold">{toast.title}</div>
 				{/if}
 				<div class="text-sm">{toast.message}</div>
 			</div>

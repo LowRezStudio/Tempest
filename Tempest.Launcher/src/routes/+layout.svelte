@@ -2,8 +2,8 @@
 	import "$lib/styles/global.css";
 	// @ts-ignore
 	import "@fontsource-variable/ubuntu-sans-mono";
-	import { Tooltip } from "bits-ui";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
+	import { Tooltip } from "bits-ui";
 	import favicon from "$lib/assets/favicon.ico?url";
 	import AppShell from "$lib/components/layout/AppShell.svelte";
 	import { setQueryClient } from "$lib/queries/client";
@@ -19,7 +19,7 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon}>
+	<link rel="icon" href={favicon} />
 	<title>Tempest Launcher</title>
 </svelte:head>
 

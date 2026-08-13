@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from "$app/navigation";
+	import { page } from "$app/state";
 	import {
 		BookOpen,
 		EllipsisVertical,
@@ -10,8 +12,6 @@
 		Trash2,
 	} from "@lucide/svelte";
 	import { openPath, openUrl } from "@tauri-apps/plugin-opener";
-	import { goto } from "$app/navigation";
-	import { page } from "$app/state";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import InstanceSettingsModal from "$lib/components/library/InstanceSettingsModal.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";

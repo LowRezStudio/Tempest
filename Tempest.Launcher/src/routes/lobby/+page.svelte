@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
+	import { onDestroy, onMount } from "svelte";
 	import AfkDetector from "$lib/components/lobby/AfkDetector.svelte";
 	import LobbyChampionSelect from "$lib/components/lobby/LobbyChampionSelect.svelte";
 	import LobbyChat from "$lib/components/lobby/LobbyChat.svelte";
@@ -34,14 +35,15 @@
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { getMapsForVersion } from "$lib/utils/versions";
-	import { onDestroy, onMount } from "svelte";
 
 	const currentMap = $derived(
-		lobbyStaticInfo.value?.version ?
-			getMapsForVersion(lobbyStaticInfo.value?.version).find(
-				(m) => m.id === lobbyState.value.championSelect?.mapId || m.id === lobbyState.value.inGame?.mapId,
-			)
-		:	undefined,
+		lobbyStaticInfo.value?.version
+			? getMapsForVersion(lobbyStaticInfo.value?.version).find(
+					(m) =>
+						m.id === lobbyState.value.championSelect?.mapId ||
+						m.id === lobbyState.value.inGame?.mapId,
+				)
+			: undefined,
 	);
 	const gameRunning = $derived(
 		processesList.value.some((p) => p.instance.id === currentInstance.value?.id),
@@ -137,16 +139,16 @@
 	}
 </script>
 
-	{#snippet spectatorOverlay()}
-		{#if isSpectator.value}
-			<div
-				class="absolute inset-0 z-50"
-				style="backdrop-filter: grayscale(1); -webkit-backdrop-filter: grayscale(1);"
-			></div>
-		{/if}
-	{/snippet}
+{#snippet spectatorOverlay()}
+	{#if isSpectator.value}
+		<div
+			class="absolute inset-0 z-50"
+			style="backdrop-filter: grayscale(1); -webkit-backdrop-filter: grayscale(1);"
+		></div>
+	{/if}
+{/snippet}
 
-	<div class="flex flex-col h-full bg-base-100">
+<div class="bg-base-100 flex h-full flex-col">
 	{#if isInChampionSelect.value}
 		<div class="relative h-full w-full">
 			<LobbyChampionSelect
@@ -164,7 +166,7 @@
 		<div class="relative h-full w-full">
 			<LobbyMapVote
 				{handleLeave}
-			playerCount={playerCount.value}
+				playerCount={playerCount.value}
 				{handleMapSelect}
 				votes={lobbyState.value.mapVote?.votes}
 				gameVersion={lobbyStaticInfo.value?.version ?? "0.57"}

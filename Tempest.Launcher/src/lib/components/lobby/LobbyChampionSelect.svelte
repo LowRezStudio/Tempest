@@ -2,10 +2,10 @@
 	import champions from "$lib/data/champions.json";
 	import { lobbyStaticInfo } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import ChampionSelect from "../champions/ChampionSelect.svelte";
-	import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
 	import { resolveGamemodeLabel, type Map } from "$lib/types/lobby";
+	import ChampionSelect from "../champions/ChampionSelect.svelte";
 	import LobbyPlayerCard from "./LobbyPlayerCard.svelte";
+	import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
 
 	interface Props {
 		teamLeft: readonly LobbyPlayer[];
@@ -31,15 +31,13 @@
 		return champions.find((c) => c.name === champion)?.displayName || "";
 	}
 
-	let gamemodeName = $derived(
-		resolveGamemodeLabel(lobbyStaticInfo.value?.gamemode),
-	);
+	let gamemodeName = $derived(resolveGamemodeLabel(lobbyStaticInfo.value?.gamemode));
 </script>
 
 <div class="relative h-full w-full overflow-hidden">
 	<!-- Left Side Panel (Blue Gradient) -->
 	<div
-		class="absolute top-0 left-0 bottom-0 w-48 md:w-64 lg:w-80 z-20 bg-gradient-to-r from-blue-950/95 via-blue-900/40 to-transparent flex flex-col p-4 md:p-6 pt-16 gap-3"
+		class="absolute top-0 bottom-0 left-0 z-20 flex w-48 flex-col gap-3 bg-gradient-to-r from-blue-950/95 via-blue-900/40 to-transparent p-4 pt-16 md:w-64 md:p-6 lg:w-80"
 	>
 		{#each teamLeft as player (player.id)}
 			{@const champDisplayName = getChampionDisplayName(player.champion)}
@@ -55,7 +53,7 @@
 
 	<!-- Right Side Panel (Red Gradient) -->
 	<div
-		class="absolute top-0 right-0 bottom-0 w-48 md:w-64 lg:w-80 z-20 bg-gradient-to-l from-red-950/95 via-red-900/40 to-transparent flex flex-col p-4 md:p-6 pt-16 gap-3"
+		class="absolute top-0 right-0 bottom-0 z-20 flex w-48 flex-col gap-3 bg-gradient-to-l from-red-950/95 via-red-900/40 to-transparent p-4 pt-16 md:w-64 md:p-6 lg:w-80"
 	>
 		{#each teamRight as player (player.id)}
 			{@const champDisplayName = getChampionDisplayName(player.champion)}
@@ -71,10 +69,10 @@
 
 	<!-- Floating Map Card -->
 	{#if currentMap}
-		<div class="absolute bottom-8 right-8 z-20 text-right w-48">
-			<p class="text-sm opacity-70 mb-1">{gamemodeName}</p>
+		<div class="absolute right-8 bottom-8 z-20 w-48 text-right">
+			<p class="mb-1 text-sm opacity-70">{gamemodeName}</p>
 			<p class="font-semibold text-white">{currentMap.displayName}</p>
-			<div class="relative w-full h-24 mt-2">
+			<div class="relative mt-2 h-24 w-full">
 				<!-- Clipped Background Container -->
 				<div
 					class="absolute inset-0 overflow-hidden border border-red-500/30"
@@ -83,11 +81,15 @@
 					<img
 						src={currentMap.iconPath}
 						alt={currentMap.displayName}
-						class="w-full h-full object-cover rounded-none"
+						class="h-full w-full rounded-none object-cover"
 					/>
 				</div>
 				<!-- Slanted Edge Border matching the right team's nameplates exactly, with horizontal Y-axis caps -->
-				<svg class="absolute top-0 left-0 bottom-0 h-full w-6 text-red-500 z-20" viewBox="0 0 24 100" preserveAspectRatio="none">
+				<svg
+					class="absolute top-0 bottom-0 left-0 z-20 h-full w-6 text-red-500"
+					viewBox="0 0 24 100"
+					preserveAspectRatio="none"
+				>
 					<polygon points="16,0 24,0 8,100 0,100" fill="currentColor" />
 				</svg>
 			</div>

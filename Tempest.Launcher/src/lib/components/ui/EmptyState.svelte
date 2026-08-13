@@ -12,14 +12,14 @@
 	let { title, description, icon, actions, class: className = "" }: Props = $props();
 </script>
 
-<div class="flex flex-col items-center justify-center h-80 gap-4 text-center {className}">
+<div class="flex h-80 flex-col items-center justify-center gap-4 text-center {className}">
 	<div class="opacity-30">
 		{@render icon()}
 	</div>
 	<div>
-		<p class="text-lg font-semibold text-base-content/70">{title}</p>
+		<p class="text-base-content/70 text-lg font-semibold">{title}</p>
 		{#if description}
-			<p class="text-sm text-base-content/50 max-w-md mt-1">
+			<p class="text-base-content/50 mt-1 max-w-md text-sm">
 				{description}
 			</p>
 		{/if}

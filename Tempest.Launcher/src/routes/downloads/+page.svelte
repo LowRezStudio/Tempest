@@ -68,9 +68,9 @@
 	let selectedItem = $state<QueueItem | null>(null);
 
 	const selectedInstance = $derived(
-		selectedItem ?
-			Object.values(instanceMap.value).find((inst) => inst?.path === selectedItem!.outDir)
-		:	undefined,
+		selectedItem
+			? Object.values(instanceMap.value).find((inst) => inst?.path === selectedItem!.outDir)
+			: undefined,
 	);
 
 	function handleRemove(item: QueueItem): void {
@@ -104,13 +104,13 @@
 	}
 </script>
 
-<div class="flex flex-col h-full bg-base-100">
+<div class="bg-base-100 flex h-full flex-col">
 	<Header title={m.downloads_title()}>
 		{#snippet icon()}
 			<Download size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet actions()}
-			<button class="btn btn-accent" onclick={() => instanceWizardOpen.value = true}>
+			<button class="btn btn-accent" onclick={() => (instanceWizardOpen.value = true)}>
 				<Plus size={16} />
 				{m.wizard_download()}
 			</button>
@@ -164,7 +164,7 @@
 			{/if}
 		{/snippet}
 	</Header>
-	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
+	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">
 				{#if queueItems.value.length === 0}
@@ -178,7 +178,7 @@
 						{#snippet actions()}
 							<button
 								class="btn btn-accent mt-2 gap-2"
-								onclick={() => instanceWizardOpen.value = true}
+								onclick={() => (instanceWizardOpen.value = true)}
 							>
 								<Plus size={20} />
 								{m.wizard_download()}
@@ -190,20 +190,23 @@
 						{#each [...queueItems.value].reverse() as item (item.id)}
 							<div class="bg-base-200 rounded-lg p-4">
 								<div class="flex items-start justify-between gap-4">
-									<div class="flex-1 min-w-0">
-										<div class="flex items-center gap-2 mb-2">
+									<div class="min-w-0 flex-1">
+										<div class="mb-2 flex items-center gap-2">
 											<span
-												class="badge badge-sm {item.status === 'pending' ?
-													'badge-neutral'
-												: item.status === 'running' ? 'badge-accent'
-												: item.status === 'paused' ? 'badge-warning'
-												: item.status === 'complete' ? 'badge-success'
-												: 'badge-error'}"
+												class="badge badge-sm {item.status === 'pending'
+													? 'badge-neutral'
+													: item.status === 'running'
+														? 'badge-accent'
+														: item.status === 'paused'
+															? 'badge-warning'
+															: item.status === 'complete'
+																? 'badge-success'
+																: 'badge-error'}"
 											>
 												{statusText(item.status)}
 											</span>
 											<span
-												class="text-sm font-mono truncate opacity-70"
+												class="truncate font-mono text-sm opacity-70"
 												title={item.outDir}
 											>
 												{item.outDir.split("/").pop() || item.outDir}
@@ -261,7 +264,7 @@
 												</div>
 											</div>
 										{:else if item.status === "complete" && item.result}
-											<div class="text-sm space-y-1">
+											<div class="space-y-1 text-sm">
 												<div class="flex items-center gap-4">
 													<span class="text-success font-semibold"
 														>{item.result.files}
@@ -288,9 +291,9 @@
 												{/if}
 											</div>
 										{:else if item.status === "error" && item.error}
-											<p class="text-sm text-error">{item.error}</p>
+											<p class="text-error text-sm">{item.error}</p>
 										{:else if item.status === "paused"}
-											<p class="text-sm text-warning">
+											<p class="text-warning text-sm">
 												{m.common_paused()}
 											</p>
 										{:else if item.status === "pending"}

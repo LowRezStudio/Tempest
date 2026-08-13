@@ -2,11 +2,7 @@
 	import iconSrc from "$lib/assets/paladins-icon.png";
 	import type { IconProps } from "@lucide/svelte";
 
-	let {
-		size = 24,
-		color = "currentColor",
-		class: className = "",
-	}: IconProps = $props();
+	let { size = 24, color = "currentColor", class: className = "" }: IconProps = $props();
 
 	let sizePx = $derived(typeof size === "number" ? `${size}px` : size);
 

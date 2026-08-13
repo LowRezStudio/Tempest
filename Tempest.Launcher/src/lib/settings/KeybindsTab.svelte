@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from "$app/navigation";
 	import {
 		File,
 		FlaskConical,
@@ -8,10 +9,9 @@
 		RotateCcw,
 		Trash2,
 	} from "@lucide/svelte";
-	import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-	import { path } from "@tauri-apps/api";
 	import { useQueryClient } from "@tanstack/svelte-query";
-	import { goto } from "$app/navigation";
+	import { path } from "@tauri-apps/api";
+	import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import { installMod } from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
@@ -31,7 +31,9 @@
 	let installingLabel = $state<string | null>(null);
 	let capturingIndex = $state<number | null>(null);
 
-	let hasBindings = $derived(keybinds.value.bindings.some((b) => b.name.trim() && b.command.trim()));
+	let hasBindings = $derived(
+		keybinds.value.bindings.some((b) => b.name.trim() && b.command.trim()),
+	);
 
 	function updateSensitivity(e: Event) {
 		const value = Number((e.target as HTMLInputElement).value);
@@ -238,7 +240,10 @@
 			if (result.Success) {
 				addToast({
 					title: m.toast_mod_installed_title(),
-					message: m.converter_toast_installed_message({ name: modName, instance: inst.label }),
+					message: m.converter_toast_installed_message({
+						name: modName,
+						instance: inst.label,
+					}),
 					tone: "success",
 				});
 				queryClient.invalidateQueries({ queryKey: ["mods", inst.path] });
@@ -276,11 +281,11 @@
 		<MousePointer2 size={20} />
 		<div>
 			<p class="text-sm opacity-90">{m.settings_keybinds_description()}</p>
-			<p class="text-xs opacity-60 mt-1">{m.settings_keybinds_unsaved()}</p>
+			<p class="mt-1 text-xs opacity-60">{m.settings_keybinds_unsaved()}</p>
 		</div>
 	</div>
 
-	<section class="flex flex-col gap-2 max-w-sm">
+	<section class="flex max-w-sm flex-col gap-2">
 		<h4 class="text-xs font-semibold uppercase opacity-60">
 			{m.settings_keybinds_mouse_sensitivity()}
 		</h4>
@@ -296,7 +301,7 @@
 			/>
 			<input
 				type="number"
-				class="input input-bordered input-sm w-20 font-mono text-center"
+				class="input input-bordered input-sm w-20 text-center font-mono"
 				value={keybinds.value.mouseSensitivity}
 				oninput={updateSensitivity}
 				min="0"
@@ -318,10 +323,10 @@
 		</div>
 
 		{#each keybinds.value.bindings as binding, i (i)}
-			<div class="flex items-center gap-2 p-2 rounded-box bg-base-200">
+			<div class="rounded-box bg-base-200 flex items-center gap-2 p-2">
 				<button
 					type="button"
-					class="btn btn-sm w-32 font-mono uppercase shrink-0"
+					class="btn btn-sm w-32 shrink-0 font-mono uppercase"
 					class:btn-accent={capturingIndex === i}
 					onclick={() => beginCapture(i)}
 					title={m.settings_keybinds_key()}
@@ -334,7 +339,7 @@
 				</button>
 				<input
 					type="text"
-					class="input input-bordered input-sm flex-1 min-w-0 font-mono"
+					class="input input-bordered input-sm min-w-0 flex-1 font-mono"
 					value={binding.command}
 					placeholder="GBA_..."
 					oninput={(e) =>
@@ -356,7 +361,7 @@
 	<div class="divider my-0"></div>
 
 	<section class="flex flex-col gap-4">
-		<div class="flex flex-col gap-1 max-w-sm">
+		<div class="flex max-w-sm flex-col gap-1">
 			<span class="text-sm font-semibold">{m.settings_keybinds_mod_name()}</span>
 			<input
 				type="text"
@@ -367,7 +372,12 @@
 		</div>
 
 		<div class="flex flex-wrap items-center gap-2">
-			<button type="button" class="btn btn-accent gap-2" disabled={!hasBindings || cooking} onclick={cook}>
+			<button
+				type="button"
+				class="btn btn-accent gap-2"
+				disabled={!hasBindings || cooking}
+				onclick={cook}
+			>
 				{#if cooking}
 					<span class="loading loading-spinner loading-xs"></span>
 					{m.settings_keybinds_generating()}
@@ -382,7 +392,12 @@
 					<FolderOpen size={16} />
 					{m.converter_download()}
 				</button>
-				<button type="button" class="btn btn-accent gap-2" onclick={addToInstance} disabled={!!installingLabel}>
+				<button
+					type="button"
+					class="btn btn-accent gap-2"
+					onclick={addToInstance}
+					disabled={!!installingLabel}
+				>
 					<File size={16} />
 					{m.converter_add_to_instance()}
 				</button>

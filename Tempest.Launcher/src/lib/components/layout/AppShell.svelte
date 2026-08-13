@@ -6,10 +6,15 @@
 	import ToastStack from "$lib/components/ui/ToastStack.svelte";
 	import "$lib/platform/init.svelte";
 	import "$lib/stores/flags.svelte";
-	import { isDraggingFiles, showInstanceSelect, handleInstanceSelected, setOnModsInstalled } from "$lib/mods/drop.svelte";
+	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores.svelte";
 	import "$lib/platform/tray.svelte";
 	import "$lib/theme/theme.svelte";
-	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores.svelte";
+	import {
+		isDraggingFiles,
+		showInstanceSelect,
+		handleInstanceSelected,
+		setOnModsInstalled,
+	} from "$lib/mods/drop.svelte";
 	import { localeState } from "$lib/stores/locale.svelte";
 
 	clearStaleConnectionIfNeeded();
@@ -30,7 +35,7 @@
 {#key localeState.current}
 	<div class="flex h-screen w-full overflow-hidden">
 		<Sidebar />
-		<main class="flex-1 min-w-0 relative overflow-hidden">
+		<main class="relative min-w-0 flex-1 overflow-hidden">
 			{#key page.url.pathname}
 				<div class="page-transition">
 					{@render children?.()}

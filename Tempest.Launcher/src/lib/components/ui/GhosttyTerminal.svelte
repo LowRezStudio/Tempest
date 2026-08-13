@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Terminal, FitAddon, Ghostty } from "ghostty-web";
 	import { onDestroy, onMount } from "svelte";
-	import type { Child, Command } from "@tauri-apps/plugin-shell";
 	import type { ProcessLog } from "$lib/types/process";
+	import type { Child, Command } from "@tauri-apps/plugin-shell";
 
 	// ── Shared WASM (loaded once, reused across terminal instances) ──
 	let ghosttyReady: Promise<Ghostty> | undefined;
@@ -50,7 +50,8 @@
 		let newLastId = lastWrittenId;
 		for (const entry of current) {
 			if (entry.id > lastWrittenId) {
-				const prefix = showPrefix && entry.source ? `\x1b[90m[${entry.source}]\x1b[0m ` : "";
+				const prefix =
+					showPrefix && entry.source ? `\x1b[90m[${entry.source}]\x1b[0m ` : "";
 				const color = entry.error ? "\x1b[31m" : "";
 				chunk += `${prefix}${color}${entry.line}\x1b[0m\r\n`;
 				newLastId = entry.id;

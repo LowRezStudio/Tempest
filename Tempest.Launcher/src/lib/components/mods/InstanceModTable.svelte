@@ -1,13 +1,17 @@
 <script lang="ts">
 	import { Box, FolderOpen, PackageX, Pencil, RefreshCw, RotateCw, Trash2 } from "@lucide/svelte";
-	import { m } from "$lib/paraglide/messages";
-	import { reloadModDll } from "$lib/core/mods";
-	import type { ModRecord } from "$lib/core/mods";
-	import { exists, stat } from "@tauri-apps/plugin-fs";
 	import { path } from "@tauri-apps/api";
+	import { exists, stat } from "@tauri-apps/plugin-fs";
 	import { openPath } from "@tauri-apps/plugin-opener";
 	import Modal from "$lib/components/ui/Modal.svelte";
-	import { createRenameModMutation, createEnableModMutation, createDisableModMutation } from "$lib/queries/mods";
+	import { reloadModDll } from "$lib/core/mods";
+	import { m } from "$lib/paraglide/messages";
+	import {
+		createRenameModMutation,
+		createEnableModMutation,
+		createDisableModMutation,
+	} from "$lib/queries/mods";
+	import type { ModRecord } from "$lib/core/mods";
 
 	interface Props {
 		mods: ModRecord[];
@@ -47,7 +51,11 @@
 			const info = await stat(targetPath);
 			if (info.isFile) resolvedFolder = await path.dirname(targetPath);
 		} catch {
-			if (targetPath.includes(".") && !targetPath.endsWith("/") && !targetPath.endsWith("\\")) {
+			if (
+				targetPath.includes(".") &&
+				!targetPath.endsWith("/") &&
+				!targetPath.endsWith("\\")
+			) {
 				resolvedFolder = await path.dirname(targetPath);
 			}
 		}
@@ -68,15 +76,27 @@
 		isRenameModalOpen = true;
 	}
 
-	function closeRename() { isRenameModalOpen = false; editingMod = null; }
+	function closeRename() {
+		isRenameModalOpen = false;
+		editingMod = null;
+	}
 
-	$effect(() => { if (!isRenameModalOpen && editingMod) editingMod = null; });
+	$effect(() => {
+		if (!isRenameModalOpen && editingMod) editingMod = null;
+	});
 
 	async function handleRename() {
 		if (!editingMod) return;
 		const finalName = editName.trim();
-		if (!finalName || finalName === editingMod.name) { closeRename(); return; }
-		await renameMutation.mutateAsync({ gamePath, oldName: editingMod.name, newName: finalName });
+		if (!finalName || finalName === editingMod.name) {
+			closeRename();
+			return;
+		}
+		await renameMutation.mutateAsync({
+			gamePath,
+			oldName: editingMod.name,
+			newName: finalName,
+		});
 		closeRename();
 	}
 
@@ -88,19 +108,34 @@
 		for (const mod of mods) {
 			if (mod.Kind?.toLowerCase() !== "v2") continue;
 			const id = mod.Id;
-			exists(`${gamePath}/.tempest/v2/mods/${id}/dlls`).then(r => { next.set(id, r); hasDllMap = new Map(next); }).catch(() => { next.set(id, false); hasDllMap = new Map(next); });
+			exists(`${gamePath}/.tempest/v2/mods/${id}/dlls`)
+				.then((r) => {
+					next.set(id, r);
+					hasDllMap = new Map(next);
+				})
+				.catch(() => {
+					next.set(id, false);
+					hasDllMap = new Map(next);
+				});
 		}
 	});
 
 	const handleReload = async (mod: ModRecord) => {
 		reloadingModId = mod.Id;
-		try { await reloadModDll(gamePath, mod.Id); } finally { reloadingModId = null; }
+		try {
+			await reloadModDll(gamePath, mod.Id);
+		} finally {
+			reloadingModId = null;
+		}
 	};
 
 	const handleToggle = async (mod: ModRecord) => {
 		togglingModId = mod.Id;
 		try {
-			await (mod.Enabled ? disableMutation : enableMutation).mutateAsync({ gamePath, modName: mod.Name });
+			await (mod.Enabled ? disableMutation : enableMutation).mutateAsync({
+				gamePath,
+				modName: mod.Name,
+			});
 		} finally {
 			togglingModId = null;
 		}
@@ -111,7 +146,7 @@
 	<thead>
 		<tr>
 			<th>
-				<button class="flex items-center gap-1 font-semibold text-sm">
+				<button class="flex items-center gap-1 text-sm font-semibold">
 					<span>{m.common_name()}</span>
 				</button>
 			</th>
@@ -131,10 +166,10 @@
 	<tbody>
 		{#each mods as mod (mod.Id)}
 			<tr class="hover">
-				<td class={!mod.Enabled ? 'opacity-40' : ''}>
+				<td class={!mod.Enabled ? "opacity-40" : ""}>
 					<div class="flex items-center gap-3">
 						<button
-							class="w-10 h-10 rounded-lg bg-base-200 hover:bg-base-300 flex items-center justify-center shrink-0 transition-all text-primary hover:scale-105 active:scale-95 cursor-pointer"
+							class="bg-base-200 hover:bg-base-300 text-primary flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-all hover:scale-105 active:scale-95"
 							onclick={() => onOpenDetails(mod)}
 							title={m.mod_updated_files()}
 						>
@@ -144,10 +179,10 @@
 								<PackageX size={20} class="opacity-75" />
 							{/if}
 						</button>
-						<div class="flex-1 min-w-0">
+						<div class="min-w-0 flex-1">
 							<div class="flex items-center gap-2">
 								<button
-									class="font-bold text-sm truncate text-left hover:text-primary transition-colors cursor-pointer"
+									class="hover:text-primary cursor-pointer truncate text-left text-sm font-bold transition-colors"
 									onclick={() => onOpenDetails(mod)}
 									title={m.mod_updated_files()}
 								>
@@ -158,14 +193,16 @@
 						</div>
 					</div>
 				</td>
-				<td class={!mod.Enabled ? 'opacity-40' : ''}>
-					<p class="font-semibold text-sm">{mod.Version || "Unknown"}</p>
+				<td class={!mod.Enabled ? "opacity-40" : ""}>
+					<p class="text-sm font-semibold">{mod.Version || "Unknown"}</p>
 				</td>
 				<td>
 					<div class="flex items-center justify-end gap-1">
 						{#if hasDllMap.get(mod.Id)}
 							<button
-								class="btn btn-sm btn-square btn-ghost {isRunning ? 'text-primary' : 'text-base-content/60'}"
+								class="btn btn-sm btn-square btn-ghost {isRunning
+									? 'text-primary'
+									: 'text-base-content/60'}"
 								disabled={!isRunning || reloadingModId === mod.Id}
 								onclick={() => handleReload(mod)}
 								title="Reload DLLs"
@@ -178,17 +215,40 @@
 							</button>
 						{/if}
 						<button
-							class="btn btn-sm btn-square btn-ghost {mod.Enabled ? 'text-success' : 'text-error'}"
+							class="btn btn-sm btn-square btn-ghost {mod.Enabled
+								? 'text-success'
+								: 'text-error'}"
 							disabled={togglingModId === mod.Id}
 							onclick={() => handleToggle(mod)}
-							title={mod.Enabled ? 'Disable mod' : 'Enable mod'}
+							title={mod.Enabled ? "Disable mod" : "Enable mod"}
 						>
 							{#if togglingModId === mod.Id}
 								<span class="loading loading-spinner loading-xs"></span>
 							{:else if mod.Enabled}
-								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="14"
+									height="14"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg
+								>
 							{:else}
-								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="14"
+									height="14"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg
+								>
 							{/if}
 						</button>
 						<button
@@ -231,13 +291,21 @@
 			<label for="mod-name" class="label py-0.5">
 				<span class="label-text text-sm">{m.mod_rename_dialog_label()}</span>
 			</label>
-			<input id="mod-name" type="text" class="input input-bordered w-full" bind:value={editName} />
+			<input
+				id="mod-name"
+				type="text"
+				class="input input-bordered w-full"
+				bind:value={editName}
+			/>
 		</div>
 	</div>
 	{#snippet actions()}
-		<button class="btn btn-ghost" type="button" onclick={closeRename}>{m.common_cancel()}</button>
+		<button class="btn btn-ghost" type="button" onclick={closeRename}
+			>{m.common_cancel()}</button
+		>
 		<button class="btn btn-accent" type="submit" disabled={renameMutation.isPending}>
-			{#if renameMutation.isPending}<span class="loading loading-spinner loading-xs"></span>{/if}
+			{#if renameMutation.isPending}<span class="loading loading-spinner loading-xs"
+				></span>{/if}
 			{m.mod_rename_dialog_button()}
 		</button>
 	{/snippet}

@@ -21,11 +21,11 @@
 
 	// ponytail: extract filename from path for display as placeholder when cleared
 	let actualFilename = $derived(
-		targetPath ?
-			targetPath.substring(
-				Math.max(targetPath.lastIndexOf("/"), targetPath.lastIndexOf("\\")) + 1,
-			)
-		:	"",
+		targetPath
+			? targetPath.substring(
+					Math.max(targetPath.lastIndexOf("/"), targetPath.lastIndexOf("\\")) + 1,
+				)
+			: "",
 	);
 
 	async function showInExplorer() {

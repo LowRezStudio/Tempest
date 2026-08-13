@@ -32,51 +32,71 @@
 			label: "Cheat Manager",
 			categories: [
 				{
-					name: "Bot", key: "cm_bot", color: palette[0],
+					name: "Bot",
+					key: "cm_bot",
+					color: palette[0],
 					commands:
 						"SwitchClass, sc, SwitchWard, PurchaseGod, AddBotsToCustomMatch, JoinMatchQueue, SpawnTestBot, stb, _SpawnBot, SpawnBot, SpawnStillBot, SpawnEmoteTestBot, SpawnDeployable, SpawnEcho, ServerSpawnEcho, _SpawnTemplatePlayer, TestSkinGallery, TestPrecache, PrecacheClass",
 				},
 				{
-					name: "Debug", key: "cm_debug", color: palette[1],
+					name: "Debug",
+					key: "cm_debug",
+					color: palette[1],
 					commands:
 						"ListTickableActors, TestDj, TestPanningRule, TestLanguage, ToggleLoadFailureOutput, ListAllIconReferences, ClearAllIconReferences, CrashGame, ToggleTransitionManifest, AddNotification, ResetQuestsAnimation, separator, TestServerRequestCard, Slomo, Echo, Loc, ServerExec, SimNWCondition, ToggleAIDebug, TestObstacleAvoidance, ToggleDeviceLog, ToggleCustomPhysics, ShowMoveErrors, DebugClientProjectileImpactVerification, DebugProjectileLagCompensationServer, DebugProjectileLagCompensationClient, TestSpawnPoints, SetInstantFireMeshTrace, ToggleWeaponLagPrediction, SetMaximumLagPrediction, DumpWeaponPredictionStats, DumpLastServerAims, DumpLastClientAims, ApplyDebugPropertyMod, ResetDebugPropertyMods, Adjust3pOffset, Log3pOffset, TraceDistanceAtReticle, Query, AllNoah, DBGKoga, DisplayThreatParams, ShowThreats, ReadyCapture, CaptureDone, ForceShowAmmo, DebugExtraChampionInfo, FeistyInfo, TheGoodStuff",
 				},
 				{
-					name: "Player", key: "cm_player", color: palette[2],
+					name: "Player",
+					key: "cm_player",
+					color: palette[2],
 					commands:
 						"Energize, FillEnergy, FillEnergyAll, MaxLevel, ML, God, CharacterEnergy, DisableBaseAmmoRegen, LogAmmoRegen, energy, Cooldown, ForceToggleMount, MaxPower, HookMeUp, GiveRecommendedItems, SetGroundspeed, SetStealth, SetHealth, SetMana, DamageHealth, Heal, SetEnergy, TestStunEffect, TestStun, InvisMe, BeTheBoss, AllowHeadShots, LiveRespawn",
 				},
 				{
-					name: "Targeting", key: "cm_targeting", color: palette[3],
+					name: "Targeting",
+					key: "cm_targeting",
+					color: palette[3],
 					commands:
 						"PossessTarget, DamageTarget, HealTarget, ShieldTarget, TargetEquipDevice, TED, TargetEquipDeviceByName, TEDBN, TargetSetMeshes, TSM, TargetSetBodyMesh, TSBM, TargetSetHeadMesh, TSHM",
 				},
 				{
-					name: "Device", key: "cm_device", color: palette[4],
+					name: "Device",
+					key: "cm_device",
+					color: palette[4],
 					commands:
 						"RefillAmmo, SetMaxAmmo, EquipDeviceByName, EDBN, EquipDevice, ED, UnequipDevice, UD, RemoveDevice, UnequipDeviceAt, RemoveDeviceAt, RemoveAllCards, RemoveAllItems, GiveCard",
 				},
 				{
-					name: "Progression", key: "cm_progression", color: palette[5],
+					name: "Progression",
+					key: "cm_progression",
+					color: palette[5],
 					commands: "AddGold, Obama, SetMeLevel, SL, GainXP, GainCredits, GainTickets",
 				},
 				{
-					name: "Game", key: "cm_game", color: palette[6],
+					name: "Game",
+					key: "cm_game",
+					color: palette[6],
 					commands:
 						"QuickEndGame, QEG, ResetGame, rg, ChangeTaskForce, ct, ToggleTaskForce, CapturePoint, EnemyCapturePoint, ToggleCapturePointOvertime, PickPoint, SetSiegeSpeed, SetRespawnIncrease, SetDefenseRespawn, SetAttackRespawn, SetRespawnCap, SetCardCooldownIncrease, ForceRespawnAll, SkipSetup, ShowProjectileDebug, DisableProximity, ForceLanePusher, EnableScoring, DisableScoring, SetScore, EndGame, HelpMe, QuickSiege, ReinforceDoors, ReinforceSiege, SetGameEnvironmentRule, SetGameRespawnRule, SetGameMode, SetAirFriction, SetFallingFriction, SetFlyingFriction, ForceRoundSetupEnd, FRSE, NextPhase, SetCAPOvertime, PayloadForever, SetAIAccuracy, EnableThreat, EnableOcclusion, EndRound, OpenSpawnGates, CloseSpawnGates, KillAllMinions, KillAllPawnsByClass, RequestRelease, botsgod, FreezeAI, botslevel, EnableAI, KillProjectiles, ToggleAIDifficultyAdjust, StopFog, ResumeFog, SetFogDistance, RespawnFlagball, ToggleFlagballPassing, ClearPayloadTimer, KillAbyssalEcho",
 				},
 				{
-					name: "Camera", key: "cm_camera", color: palette[7],
+					name: "Camera",
+					key: "cm_camera",
+					color: palette[7],
 					commands:
 						"LevelAim, Set1p, Set3p, Toggle3p, SpectatorCamera, ToggleSpectatorCamera, ShowPlayerCircles, TestShowInventory",
 				},
 				{
-					name: "Meshes", key: "cm_meshes", color: palette[8],
+					name: "Meshes",
+					key: "cm_meshes",
+					color: palette[8],
 					commands:
 						"SetBodyMesh, SBM, SetBodyMeshByName, SBMBN, SetHeadMesh, SHM, SetHeadMeshByName, SHBN, RemoveHeadMesh, rhm, decapitate, EnableHeadMesh, ToggleHeadMesh, AllowMount, SetMountSkin, _SetMountSkin, SetVoicePreference, SetEmote, SetSpray, DAEF, DrawActorEncroachmentFire, ToggleDiminishingReturns",
 				},
 				{
-					name: "Misc", key: "cm_misc", color: palette[9],
+					name: "Misc",
+					key: "cm_misc",
+					color: palette[9],
 					commands:
 						"PlayPotG, PlayPotGForAll, ResetPotG, LockPotG, PlayIntroAnim, ToggleShowAllStoreLandingItems, ToggleShowUnobtainableStoreLandingItems, ToggleShowUnfilteredStoreLandingItems, RefreshStoreLandingItems, EnableEffectLagCompensation, DisableEffectLagCompensation, FTPlayerInit, FTZombie, SetPawnLoc, BugItGo, SetVisibilityRanges, SetDamageMultiplier, SetGroundSpeedMultiplier, SetAutoHealingMultiplier, ToggleSiegeEngineRequiresAllies, SetVaultImmuneHealth, StartAutofire, ToggleTickThrottling, SetGuaranteedTickDistance, SetTickGroupCount, TestWaveform, ToggleAimAssist, SetAimAssistTargetWeightVars, ResetAimAssistValues, SetAimAssistValues, AddAimAssistKeyframe, ResetAimAssistKeyframes, StopHP5",
 				},
@@ -86,35 +106,50 @@
 			label: "TgPlayerController",
 			categories: [
 				{
-					name: "Native", key: "tpc_native", color: palette[10],
+					name: "Native",
+					key: "tpc_native",
+					color: palette[10],
 					commands:
 						"LogPerfLeakData, TestVGSPOTG, StoreOfflineData, Bug, _Crash, LogTo, StopLogTo, ToggleInHandTargeting, DisableProfanityFilter, SpectateDamage, SpectateHeals, SpectateCrits, SpectateGold, SpectateXP, SpectateOutlines, ToggleCombatInfo, OutputRelevantActors, ToggleTick, SetPawnTickState, TgPerfTrack, DebugGetLangMsg, DumpLevelStatus, MatchLeave, SpectateGM, Spectate, SpectateStop, LiveSpectate, LiveSpectateStop, ResetKeysToDefault, OnOffhandSlotPressed, OnOffhandSlotReleased, SetAllowParticleSystems, SetAllowAnimationFrameRateLOD, ToggleClient3p, ShowDebugReticle, NextScoreboardDisplayType",
 				},
 				{
-					name: "Input", key: "tpc_input", color: palette[11],
+					name: "Input",
+					key: "tpc_input",
+					color: palette[11],
 					commands:
 						"OnLeftMousePressed, OnLeftMouseReleased, OnRightMousePressed, OnRightMouseReleased, PressJump, DoJump, HoldJump, OnJumpRelease, OnJumpHeldAltPressed, ToggleSprint, LetGoReloadWeapon, ReloadWeapon, ReloadWeaponWithFlourish, AutoMelee, OnPerCharacterAltPressed, OnDefaultCastOffhandSlotPressed, OnDefaultCastOffhandSlotReleased, OnQuickCastOffhandSlotPressed, OnQuickCastOffhandSlotReleased, OnInstantCastOffhandSlotPressed, OnFlourish, OnRespawnBeaconButtonPressed, OnRespawnBeaconButtonReleased, DropFlag",
 				},
 				{
-					name: "Camera", key: "tpc_camera", color: palette[12],
+					name: "Camera",
+					key: "tpc_camera",
+					color: palette[12],
 					commands:
 						"WhereAmI, TestScreenCapturePostProcess, CauseClientEvent, CCE, ResetViewOrientation, ZoomIn, ZoomOut, SetTaskforceLead, ShowBinoculars, ViewPlayerByName, DoSetViewTarget, GoSpectate, StartWatchOthers, StopWatchOthers, ToggleRove, ViewNextTeammate, ViewPreviousTeammate, Camera, SetForced3pFreeCam, FrontFacingCamera, TestShake, TestTgCameraShake, SetServerCorrectionCameraInterpVars, SkipKillCam",
 				},
 				{
-					name: "Progression", key: "tpc_progression", color: palette[13],
-					commands: "ClientPurchaseItem, ClientSellItem, SetAutoPurchase, SetAutoSkillUp, SetToggleZoom, SetCommandBindPC",
+					name: "Progression",
+					key: "tpc_progression",
+					color: palette[13],
+					commands:
+						"ClientPurchaseItem, ClientSellItem, SetAutoPurchase, SetAutoSkillUp, SetToggleZoom, SetCommandBindPC",
 				},
 				{
-					name: "Keybinding", key: "tpc_keybinding", color: palette[14],
+					name: "Keybinding",
+					key: "tpc_keybinding",
+					color: palette[14],
 					commands: "UnbindCommandPC, UnbindCommandAllPC, SetBindPC, SetCommandBindPC",
 				},
 				{
-					name: "Debug", key: "tpc_debug", color: palette[15],
+					name: "Debug",
+					key: "tpc_debug",
+					color: palette[15],
 					commands:
 						"ShowPathToNearestPOI, SetBlur, FireDebugConsoleKismetTestNode, SetReticleColor, SetReticleRainbow, EnablePhysics, SetPhysicsWeight, FixAll, Unfix, ExecSetViewportLocationAndScale, LogLocalPropertyValue, HideMeshes, TestCrash, DumpClassInfo, IgnoreOverlays, ToggleOverlays, ToggleDetailedView, SetOutlines, SetJumpZ, SetServerFlags, SSF",
 				},
 				{
-					name: "Misc", key: "tpc_misc", color: palette[16],
+					name: "Misc",
+					key: "tpc_misc",
+					color: palette[16],
 					commands:
 						"SelfAlert, ServerProfileScript, RequestScoreBoard, SuppressHelpText, ResetGameTips, AllocateDevicePoint, AllocateAbilitySkillPoint, ClientPlayVGS, ClientPlayPing, ClientSurrender, ClientNotifyTutorialUIEvent, TestHelpTip, GiveGoldToFriendlyPlayer",
 				},
@@ -582,26 +617,25 @@ GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerContro
 
 <div class="space-y-3">
 	<label class="input input-bordered flex items-center gap-2">
-		<Search size={16} class="opacity-50 shrink-0" />
-		<input
-			type="text"
-			placeholder="Search commands..."
-			class="grow"
-			bind:value={search}
-		/>
+		<Search size={16} class="shrink-0 opacity-50" />
+		<input type="text" placeholder="Search commands..." class="grow" bind:value={search} />
 		{#if count !== allCommands.length}
-			<span class="text-xs text-base-content/50 shrink-0">{count}/{allCommands.length}</span>
+			<span class="text-base-content/50 shrink-0 text-xs">{count}/{allCommands.length}</span>
 		{/if}
 	</label>
 
 	{#each categoryGroups as group}
 		<div>
-			<span class="text-xs font-semibold uppercase tracking-wider text-base-content/40 mb-1.5 block">
+			<span
+				class="text-base-content/40 mb-1.5 block text-xs font-semibold tracking-wider uppercase"
+			>
 				{group.label}
 			</span>
 			<div class="flex flex-wrap gap-x-3 gap-y-1.5">
 				{#each group.categories as { name, color, key }}
-					<label class="flex items-center gap-1.5 cursor-pointer select-none text-sm group">
+					<label
+						class="group flex cursor-pointer items-center gap-1.5 text-sm select-none"
+					>
 						<input
 							type="checkbox"
 							checked={enabledKeys.has(key)}
@@ -609,14 +643,22 @@ GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerContro
 							class="hidden"
 						/>
 						<span
-							class="inline-flex items-center justify-center w-3.5 h-3.5 rounded transition-colors shrink-0"
+							class="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded transition-colors"
 							style={`
-								background-color: ${enabledKeys.has(key) ? color : 'transparent'};
+								background-color: ${enabledKeys.has(key) ? color : "transparent"};
 								border: 2px solid ${color};
 							`}
 						>
 							{#if enabledKeys.has(key)}
-								<svg class="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+								<svg
+									class="h-2.5 w-2.5 text-white"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="4"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
 									<polyline points="20 6 9 17 4 12" />
 								</svg>
 							{/if}
@@ -629,7 +671,7 @@ GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerContro
 	{/each}
 
 	{#if visible.length > 0}
-		<div class="flex flex-wrap gap-1.5 items-start">
+		<div class="flex flex-wrap items-start gap-1.5">
 			{#each visible as cmd (cmd.name + cmd.catKey)}
 				{@const cat = catMap.get(cmd.catKey)!}
 				{@const key = cmd.name + cmd.catKey}
@@ -646,7 +688,7 @@ GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerContro
 					}}
 					onkeydown={(e) => {
 						if ((e.target as HTMLElement).tagName === "TEXTAREA") return;
-						if (e.key === 'Enter' || e.key === ' ') toggleExpanded(key);
+						if (e.key === "Enter" || e.key === " ") toggleExpanded(key);
 					}}
 					style={`
 						--cat-color: ${cat.color};
@@ -657,21 +699,26 @@ GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerContro
 					{#if expanded}
 						<div class="flex flex-col gap-1.5">
 							<div class="flex items-center gap-2">
-								<span class="font-mono text-xs font-bold shrink-0">{cmd.name}</span>
-								<span class="text-[10px] text-base-content/30 bg-base-300 px-1.5 py-0.5 rounded font-mono">{cat.name}</span>
+								<span class="shrink-0 font-mono text-xs font-bold">{cmd.name}</span>
+								<span
+									class="text-base-content/30 bg-base-300 rounded px-1.5 py-0.5 font-mono text-[10px]"
+									>{cat.name}</span
+								>
 							</div>
-							<div class="bg-base-300/50 rounded-lg p-2 overflow-x-auto">
-								<code class="text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-all">{getSig(cmd.name)}</code>
+							<div class="bg-base-300/50 overflow-x-auto rounded-lg p-2">
+								<code
+									class="font-mono text-[11px] leading-relaxed break-all whitespace-pre-wrap"
+									>{getSig(cmd.name)}</code
+								>
 							</div>
 							<textarea
-								class="w-full text-xs bg-base-300/50 border border-base-300 rounded px-2 py-1 resize-none outline-none focus:outline-none leading-tight"
+								class="bg-base-300/50 border-base-300 w-full resize-none rounded border px-2 py-1 text-xs leading-tight outline-none focus:outline-none"
 								rows={1}
 								placeholder="Add a description..."
 								value={descriptions[key] ?? ""}
 								oninput={(e) => {
 									descriptions[key] = e.currentTarget.value;
-								}}
-							></textarea>
+								}}></textarea>
 						</div>
 					{:else}
 						<span class="font-mono text-xs">{cmd.name}</span>
@@ -680,7 +727,7 @@ GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerContro
 			{/each}
 		</div>
 	{:else}
-		<div class="flex flex-col items-center justify-center h-48 gap-3 text-base-content/50">
+		<div class="text-base-content/50 flex h-48 flex-col items-center justify-center gap-3">
 			<Search size={40} class="opacity-30" />
 			<p class="text-lg">No commands matching "{search}"</p>
 		</div>
@@ -695,7 +742,13 @@ GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerContro
 		border: 1px solid var(--cat-border);
 		background-color: var(--cat-bg);
 		color: var(--cat-color);
-		transition: color 120ms, background-color 120ms, border-color 120ms, transform 120ms, padding 120ms, border-radius 120ms;
+		transition:
+			color 120ms,
+			background-color 120ms,
+			border-color 120ms,
+			transform 120ms,
+			padding 120ms,
+			border-radius 120ms;
 		padding: 0.25rem 0.625rem;
 	}
 	.cmd-badge:not(.expanded):hover {
@@ -708,7 +761,11 @@ GiveGoldToFriendlyPlayer(int PlayerID, int GoldCount) → returns TgPlayerContro
 		transform: scale(0.95);
 	}
 	.cmd-badge.expanded {
-		background-color: color-mix(in srgb, var(--cat-color) 6%, var(--fallback-b2, oklch(var(--b2))));
+		background-color: color-mix(
+			in srgb,
+			var(--cat-color) 6%,
+			var(--fallback-b2, oklch(var(--b2)))
+		);
 		border-color: var(--cat-border);
 		padding: 0.5rem;
 		border-radius: 0.5rem;

@@ -45,7 +45,7 @@
 				<input type="checkbox" class="checkbox checkbox-error" bind:checked={deleteData} />
 				<div>
 					<span class="label-text">{m.delete_from_disk()}</span>
-					<p class="text-xs opacity-60 mt-0.5">
+					<p class="mt-0.5 text-xs opacity-60">
 						{m.delete_from_disk_hint()}
 					</p>
 				</div>

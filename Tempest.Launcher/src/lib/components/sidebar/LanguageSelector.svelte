@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { Globe } from "@lucide/svelte";
+	import { Popover, Tooltip } from "bits-ui";
 	import { m } from "$lib/paraglide/messages";
 	import { locales } from "$lib/paraglide/runtime";
-	import { Popover, Tooltip } from "bits-ui";
-	import type { Locale } from "$lib/paraglide/runtime";
 	import { localeState } from "$lib/stores/locale.svelte";
+	import type { Locale } from "$lib/paraglide/runtime";
 
 	const localeLabels: Record<string, { flag: string; label: string }> = {
 		en: { flag: "🇬🇧", label: "English" },
@@ -40,7 +40,7 @@
 			<Tooltip.Content
 				side="right"
 				sideOffset={8}
-				class="z-50 bg-neutral text-neutral-content text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-md transition-opacity duration-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100"
+				class="bg-neutral text-neutral-content z-50 rounded-lg px-2.5 py-1.5 text-xs font-semibold shadow-md transition-opacity duration-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100"
 			>
 				<Tooltip.Arrow class="fill-neutral" />
 				{m.common_language()}
@@ -49,7 +49,7 @@
 	</Tooltip.Root>
 	<Popover.Portal>
 		<Popover.Content
-			class="z-50 min-w-[10rem] bg-base-300 rounded-box p-1 shadow-xl border border-base-content/10 popover-animate"
+			class="bg-base-300 rounded-box border-base-content/10 popover-animate z-50 min-w-[10rem] border p-1 shadow-xl"
 			align="start"
 			sideOffset={4}
 		>
@@ -77,4 +77,3 @@
 		</Popover.Content>
 	</Popover.Portal>
 </Popover.Root>
-

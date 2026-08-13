@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Tabs } from "bits-ui";
+	import { marked } from "marked";
 	import ModFileTree from "$lib/components/mods/ModFileTree.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { marked } from "marked";
 	import type { ModRecord } from "$lib/core/mods";
 
 	interface Props {
@@ -23,44 +23,45 @@
 	let isReadmeMarkdown = $derived(mod?.Readme ? mod.Readme.toLowerCase().endsWith(".md") : false);
 
 	let readmeContent = $derived(
-		mod?.ReadmeContent && isReadmeMarkdown ? (marked.parse(mod.ReadmeContent, { async: false }) as string) : "",
+		mod?.ReadmeContent && isReadmeMarkdown
+			? (marked.parse(mod.ReadmeContent, { async: false }) as string)
+			: "",
 	);
-
 </script>
 
 <Modal bind:open title={mod?.Name || "Mod Details"} class="max-w-2xl">
 	<div class="space-y-4">
 		{#if mod}
 			<Tabs.Root bind:value={tab}>
-				<Tabs.List class="tabs tabs-box bg-base-200 p-1 rounded-box">
+				<Tabs.List class="tabs tabs-box bg-base-200 rounded-box p-1">
 					<Tabs.Trigger
 						value="details"
-						class="tab rounded-lg transition-all data-[state=active]:tab-active"
+						class="tab data-[state=active]:tab-active rounded-lg transition-all"
 					>
 						Details
 					</Tabs.Trigger>
 					<Tabs.Trigger
 						value="readme"
-						class="tab rounded-lg transition-all data-[state=active]:tab-active"
+						class="tab data-[state=active]:tab-active rounded-lg transition-all"
 					>
 						Readme
 					</Tabs.Trigger>
 					<Tabs.Trigger
 						value="files"
-						class="tab rounded-lg transition-all data-[state=active]:tab-active"
+						class="tab data-[state=active]:tab-active rounded-lg transition-all"
 					>
 						Changed Files ({mod.InstalledFiles?.length ?? 0})
 					</Tabs.Trigger>
 				</Tabs.List>
 			</Tabs.Root>
 
-			<div class="h-[480px] overflow-hidden flex flex-col justify-start mt-4">
+			<div class="mt-4 flex h-[480px] flex-col justify-start overflow-hidden">
 				{#if tab === "details"}
-					<div class="space-y-4 flex flex-col h-full overflow-hidden">
+					<div class="flex h-full flex-col space-y-4 overflow-hidden">
 						<div class="stats bg-base-200 w-full shrink-0">
 							<div class="stat">
 								<div class="stat-title text-xs opacity-75">Version</div>
-								<div class="stat-value text-sm font-mono font-semibold text-accent">
+								<div class="stat-value text-accent font-mono text-sm font-semibold">
 									{mod.Version}
 								</div>
 							</div>
@@ -73,12 +74,12 @@
 						</div>
 
 						<div
-							class="flex flex-col gap-2 bg-base-200 p-4 rounded-box flex-1 overflow-hidden"
+							class="bg-base-200 rounded-box flex flex-1 flex-col gap-2 overflow-hidden p-4"
 						>
-							<span class="text-xs opacity-70 font-semibold uppercase tracking-wider"
+							<span class="text-xs font-semibold tracking-wider uppercase opacity-70"
 								>Mod Authors</span
 							>
-							<div class="space-y-2 overflow-y-auto pr-1 flex-1">
+							<div class="flex-1 space-y-2 overflow-y-auto pr-1">
 								{#if mod.Authors && mod.Authors.length > 0}
 									{#each mod.Authors as author}
 										{#if author.Link}
@@ -86,30 +87,30 @@
 												href={author.Link}
 												target="_blank"
 												rel="noopener noreferrer"
-												class="flex flex-col gap-1 p-3 rounded-xl bg-base-200/50 hover:bg-base-300 transition-all cursor-pointer text-left block border border-transparent hover:border-accent/10"
+												class="bg-base-200/50 hover:bg-base-300 hover:border-accent/10 block flex cursor-pointer flex-col gap-1 rounded-xl border border-transparent p-3 text-left transition-all"
 											>
-												<h4 class="font-bold text-sm truncate">
+												<h4 class="truncate text-sm font-bold">
 													{author.Name}
 												</h4>
 												<span
-													class="text-xs text-accent hover:underline truncate block"
+													class="text-accent block truncate text-xs hover:underline"
 												>
 													{author.Link}
 												</span>
 											</a>
 										{:else}
 											<div
-												class="flex flex-col gap-1 p-3 rounded-xl bg-base-200/50"
+												class="bg-base-200/50 flex flex-col gap-1 rounded-xl p-3"
 											>
-												<h4 class="font-bold text-sm truncate">
+												<h4 class="truncate text-sm font-bold">
 													{author.Name}
 												</h4>
 											</div>
 										{/if}
 									{/each}
 								{:else}
-									<div class="flex flex-col gap-1 p-3 rounded-xl bg-base-200/50">
-										<h4 class="font-bold text-sm truncate">
+									<div class="bg-base-200/50 flex flex-col gap-1 rounded-xl p-3">
+										<h4 class="truncate text-sm font-bold">
 											{mod.Author || "Unknown"}
 										</h4>
 									</div>
@@ -118,33 +119,35 @@
 						</div>
 					</div>
 				{:else if tab === "readme"}
-					<div class="h-full overflow-y-auto overflow-x-hidden pr-3 break-words bg-base-200 rounded-box p-3">
+					<div
+						class="bg-base-200 rounded-box h-full overflow-x-hidden overflow-y-auto p-3 pr-3 break-words"
+					>
 						{#if mod.ReadmeContent}
 							{#if isReadmeMarkdown}
 								<article
-									class="prose prose-sm max-w-full text-base-content"
+									class="prose prose-sm text-base-content max-w-full"
 									style="--tw-prose-body: currentColor; --tw-prose-headings: currentColor; --tw-prose-bold: currentColor; --tw-prose-bullets: currentColor; --tw-prose-quotes: currentColor; --tw-prose-links: currentColor; --tw-prose-code: currentColor;"
 								>
 									{@html readmeContent}
 								</article>
 							{:else}
 								<div
-									class="whitespace-pre-wrap font-mono text-xs opacity-80 bg-base-200/40 p-5 rounded-xl border border-base-300 text-base-content"
+									class="bg-base-200/40 border-base-300 text-base-content rounded-xl border p-5 font-mono text-xs whitespace-pre-wrap opacity-80"
 								>
 									{mod.ReadmeContent}
 								</div>
 							{/if}
 						{:else}
-							<p class="opacity-50 italic text-center py-12">
+							<p class="py-12 text-center italic opacity-50">
 								No readme provided for this mod.
 							</p>
 						{/if}
 					</div>
 				{:else if tab === "files"}
-					<div class="h-full flex flex-col justify-start overflow-hidden">
+					<div class="flex h-full flex-col justify-start overflow-hidden">
 						{#if !mod.InstalledFiles || mod.InstalledFiles.length === 0}
 							<div
-								class="bg-base-200/20 border border-dashed border-base-300 text-center py-8 text-base-content/60 h-full flex items-center justify-center rounded-box"
+								class="bg-base-200/20 border-base-300 text-base-content/60 rounded-box flex h-full items-center justify-center border border-dashed py-8 text-center"
 							>
 								<p>{m.mod_no_files()}</p>
 							</div>

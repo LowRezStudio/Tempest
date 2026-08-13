@@ -38,9 +38,9 @@
 {#if team === "left"}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
-		class="flex items-center gap-3 relative transition-all duration-200
+		class="relative flex items-center gap-3 transition-all duration-200
 			{compact ? 'p-1.5' : 'p-2'}
-			{canSwitchTeam ? 'cursor-pointer group' : ''}"
+			{canSwitchTeam ? 'group cursor-pointer' : ''}"
 		role={canSwitchTeam ? "button" : undefined}
 		tabindex={canSwitchTeam ? 0 : undefined}
 		title={canSwitchTeam ? m.lobby_switch_team() : undefined}
@@ -49,15 +49,17 @@
 	>
 		<!-- Clipped Background -->
 		<div
-			class="absolute inset-0 bg-gradient-to-r from-blue-950/40 via-base-200/90 to-base-200/90 border transition-colors duration-200 {canSwitchTeam ? 'border-blue-400/40 bg-blue-500/5' : 'border-blue-500/20'}"
+			class="via-base-200/90 to-base-200/90 absolute inset-0 border bg-gradient-to-r from-blue-950/40 transition-colors duration-200 {canSwitchTeam
+				? 'border-blue-400/40 bg-blue-500/5'
+				: 'border-blue-500/20'}"
 			style="clip-path: polygon(0% 0%, calc(100% - 80px) 0%, 100% 100%, 0% 100%);"
 		></div>
 
-		<div class="relative flex-shrink-0 z-10">
+		<div class="relative z-10 flex-shrink-0">
 			<img
 				src={`/champions/${champion || "Generic"}/icon.webp`}
 				alt={champion || "No Champion"}
-				class="rounded-none ring-2 ring-blue-500/30 object-cover"
+				class="rounded-none object-cover ring-2 ring-blue-500/30"
 				class:w-10={compact}
 				class:h-10={compact}
 				class:w-12={!compact}
@@ -68,31 +70,45 @@
 				}}
 			/>
 		</div>
-		<div class="min-w-0 flex-1 z-10 pr-[80px]">
-			<p class="font-semibold truncate text-white leading-tight {compact ? 'text-sm' : 'text-base'}">
+		<div class="z-10 min-w-0 flex-1 pr-[80px]">
+			<p
+				class="truncate leading-tight font-semibold text-white {compact
+					? 'text-sm'
+					: 'text-base'}"
+			>
 				{displayName}
 			</p>
-			<p class="text-xs truncate leading-none mt-1 {ready ? 'text-green-500' : hasChampion ? 'text-blue-400 opacity-75' : 'text-white/50'}">
+			<p
+				class="mt-1 truncate text-xs leading-none {ready
+					? 'text-green-500'
+					: hasChampion
+						? 'text-blue-400 opacity-75'
+						: 'text-white/50'}"
+			>
 				{status}
 			</p>
 		</div>
 		<!-- Slanted Edge Border (unclipped z-20 overlay with horizontal Y-axis caps) -->
-		<svg class="absolute right-0 top-0 bottom-0 h-full w-[80px] text-blue-500 z-20" viewBox="0 0 80 100" preserveAspectRatio="none">
+		<svg
+			class="absolute top-0 right-0 bottom-0 z-20 h-full w-[80px] text-blue-500"
+			viewBox="0 0 80 100"
+			preserveAspectRatio="none"
+		>
 			<polygon points="0,0 26,0 80,100 54,100" fill="currentColor" />
 		</svg>
 		{#if canSwitchTeam}
 			<ChevronRight
 				size={16}
-				class="absolute right-[32px] top-1/2 -translate-y-1/2 z-30 text-blue-300/50 group-hover:text-blue-100 group-hover:opacity-100 transition-colors"
+				class="absolute top-1/2 right-[32px] z-30 -translate-y-1/2 text-blue-300/50 transition-colors group-hover:text-blue-100 group-hover:opacity-100"
 			/>
 		{/if}
 	</div>
 {:else}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
-		class="flex flex-row-reverse items-center gap-3 relative transition-all duration-200 text-right
+		class="relative flex flex-row-reverse items-center gap-3 text-right transition-all duration-200
 			{compact ? 'p-1.5' : 'p-2'}
-			{canSwitchTeam ? 'cursor-pointer group' : ''}"
+			{canSwitchTeam ? 'group cursor-pointer' : ''}"
 		role={canSwitchTeam ? "button" : undefined}
 		tabindex={canSwitchTeam ? 0 : undefined}
 		title={canSwitchTeam ? m.lobby_switch_team() : undefined}
@@ -101,15 +117,17 @@
 	>
 		<!-- Clipped Background -->
 		<div
-			class="absolute inset-0 bg-gradient-to-l from-red-950/40 via-base-200/90 to-base-200/90 border transition-colors duration-200 {canSwitchTeam ? 'border-red-400/40 bg-red-500/5' : 'border-red-500/20'}"
+			class="via-base-200/90 to-base-200/90 absolute inset-0 border bg-gradient-to-l from-red-950/40 transition-colors duration-200 {canSwitchTeam
+				? 'border-red-400/40 bg-red-500/5'
+				: 'border-red-500/20'}"
 			style="clip-path: polygon(80px 0%, 100% 0%, 100% 100%, 0% 100%);"
 		></div>
 
-		<div class="relative flex-shrink-0 z-10">
+		<div class="relative z-10 flex-shrink-0">
 			<img
 				src={`/champions/${champion || "Generic"}/icon.webp`}
 				alt={champion || "No Champion"}
-				class="rounded-none ring-2 ring-red-500/30 object-cover"
+				class="rounded-none object-cover ring-2 ring-red-500/30"
 				class:w-10={compact}
 				class:h-10={compact}
 				class:w-12={!compact}
@@ -120,22 +138,36 @@
 				}}
 			/>
 		</div>
-		<div class="min-w-0 flex-1 z-10 pl-[80px]">
-			<p class="font-semibold truncate text-white leading-tight {compact ? 'text-sm' : 'text-base'}">
+		<div class="z-10 min-w-0 flex-1 pl-[80px]">
+			<p
+				class="truncate leading-tight font-semibold text-white {compact
+					? 'text-sm'
+					: 'text-base'}"
+			>
 				{displayName}
 			</p>
-			<p class="text-xs truncate leading-none mt-1 {ready ? 'text-green-500' : hasChampion ? 'text-red-400 opacity-75' : 'text-white/50'}">
+			<p
+				class="mt-1 truncate text-xs leading-none {ready
+					? 'text-green-500'
+					: hasChampion
+						? 'text-red-400 opacity-75'
+						: 'text-white/50'}"
+			>
 				{status}
 			</p>
 		</div>
 		<!-- Slanted Edge Border (unclipped z-20 overlay with horizontal Y-axis caps) -->
-		<svg class="absolute top-0 left-0 bottom-0 h-full w-[80px] text-red-500 z-20" viewBox="0 0 80 100" preserveAspectRatio="none">
+		<svg
+			class="absolute top-0 bottom-0 left-0 z-20 h-full w-[80px] text-red-500"
+			viewBox="0 0 80 100"
+			preserveAspectRatio="none"
+		>
 			<polygon points="54,0 80,0 26,100 0,100" fill="currentColor" />
 		</svg>
 		{#if canSwitchTeam}
 			<ChevronLeft
 				size={16}
-				class="absolute left-[32px] top-1/2 -translate-y-1/2 z-30 text-red-300/50 group-hover:text-red-100 group-hover:opacity-100 transition-colors"
+				class="absolute top-1/2 left-[32px] z-30 -translate-y-1/2 text-red-300/50 transition-colors group-hover:text-red-100 group-hover:opacity-100"
 			/>
 		{/if}
 	</div>

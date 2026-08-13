@@ -30,10 +30,10 @@
 				<ShieldAlert size={24} />
 			</div>
 			<div>
-				<h4 class="font-bold text-base">
+				<h4 class="text-base font-bold">
 					{m.unverified_mod_heading()}
 				</h4>
-				<p class="text-sm opacity-70 mt-1">
+				<p class="mt-1 text-sm opacity-70">
 					{m.unverified_mod_message({ name: modName })}
 				</p>
 			</div>

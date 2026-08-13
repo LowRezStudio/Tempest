@@ -1,16 +1,9 @@
 <script lang="ts">
-	import {
-		Gamepad2,
-		Lock,
-		MapPin,
-		Swords,
-		TriangleAlert,
-		Users,
-	} from "@lucide/svelte";
+	import { Gamepad2, Lock, MapPin, Swords, TriangleAlert, Users } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { CountryCode, type ServerListing } from "$lib/rpc";
-	import { getMapsForVersion } from "$lib/utils/versions";
 	import { instanceMap } from "$lib/stores/instance.svelte";
+	import { getMapsForVersion } from "$lib/utils/versions";
 
 	interface Props {
 		server: ServerListing;
@@ -53,9 +46,7 @@
 	}
 
 	const showFooter = $derived(
-		server.tags.length > 0 ||
-		server.spectators > 0 ||
-		(showCountry && server.country !== 0),
+		server.tags.length > 0 || server.spectators > 0 || (showCountry && server.country !== 0),
 	);
 
 	function handleClick() {
@@ -66,20 +57,20 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <button
 	type="button"
-	class="bg-base-200 hover:bg-base-300 rounded-lg transition-colors text-left w-full cursor-pointer p-4"
+	class="bg-base-200 hover:bg-base-300 w-full cursor-pointer rounded-lg p-4 text-left transition-colors"
 	class:opacity-60={!canJoin}
 	onclick={handleClick}
 >
 	<div class="flex flex-col gap-2.5">
 		<!-- Title + player capacity -->
 		<div class="flex items-start justify-between gap-2">
-			<h3 class="font-bold text-base flex items-center gap-1.5 min-w-0">
+			<h3 class="flex min-w-0 items-center gap-1.5 text-base font-bold">
 				{#if server.hasPassword}
 					<Lock size={14} class="text-warning shrink-0" />
 				{/if}
 				<span class="truncate">{server.name}</span>
 			</h3>
-			<div class="flex items-center gap-1.5 shrink-0">
+			<div class="flex shrink-0 items-center gap-1.5">
 				{#if !canJoin}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<span
@@ -99,7 +90,7 @@
 		</div>
 
 		<!-- Gamemode · Map · Version -->
-		<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-base-content/60">
+		<div class="text-base-content/60 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
 			<span class="inline-flex items-center gap-1">
 				<Swords size={13} />
 				{findGamemodeName()}
@@ -126,12 +117,13 @@
 				{/if}
 				<div class="ml-auto flex items-center gap-2">
 					{#if server.spectators > 0}
-						<span class="text-xs text-base-content/50">
-							+{server.spectators} {m.serverlist_spectators().toLowerCase()}
+						<span class="text-base-content/50 text-xs">
+							+{server.spectators}
+							{m.serverlist_spectators().toLowerCase()}
 						</span>
 					{/if}
 					{#if showCountry && server.country !== 0}
-						<span class="text-xs text-base-content/60">
+						<span class="text-base-content/60 text-xs">
 							{formatCountryLabel(CountryCode[server.country])}
 						</span>
 					{/if}

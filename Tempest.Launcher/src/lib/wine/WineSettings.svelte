@@ -73,7 +73,7 @@
 				<span class="label-text text-sm">{m.settings_wine_use_gamescope()}</span>
 			</label>
 			{#if !isGamescopeInstalled}
-				<p class="text-xs opacity-60 mt-1">{m.settings_wine_gamescope_not_installed()}</p>
+				<p class="mt-1 text-xs opacity-60">{m.settings_wine_gamescope_not_installed()}</p>
 			{/if}
 		</div>
 

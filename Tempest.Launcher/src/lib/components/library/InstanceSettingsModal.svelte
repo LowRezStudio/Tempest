@@ -70,14 +70,19 @@
 	$effect(() => {
 		if (open && modsQuery.data && !hasInitializedMods) {
 			const consoleInstalled = modsQuery.data.some(
-				(m) => m.OriginalPath.includes("Console Mod.tempest") || m.Name === "Tempest Mod (Console)"
-					|| m.OriginalPath.includes("Tempest Mod.tempest") || m.Name === "Tempest Mod (Console + Multiplayer)"
+				(m) =>
+					m.OriginalPath.includes("Console Mod.tempest") ||
+					m.Name === "Tempest Mod (Console)" ||
+					m.OriginalPath.includes("Tempest Mod.tempest") ||
+					m.Name === "Tempest Mod (Console + Multiplayer)",
 			);
 			editEnableConsole = consoleInstalled;
 			initialEnableConsole = consoleInstalled;
 
 			const mpInstalled = modsQuery.data.some(
-				(m) => m.OriginalPath.includes("Multiplayer Mod.tempest") || m.Name === "Tempest Mod (Multiplayer)"
+				(m) =>
+					m.OriginalPath.includes("Multiplayer Mod.tempest") ||
+					m.Name === "Tempest Mod (Multiplayer)",
 			);
 			editEnableMultiplayer = mpInstalled;
 			initialEnableMultiplayer = mpInstalled;
@@ -158,7 +163,9 @@
 					await installMod(editPath, modFile, true, true);
 				} else {
 					await removeMod(editPath, "Tempest Mod (Console)");
-					try { await removeMod(editPath, "Tempest Mod (Console + Multiplayer)"); } catch {}
+					try {
+						await removeMod(editPath, "Tempest Mod (Console + Multiplayer)");
+					} catch {}
 				}
 				queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
 			} catch (error) {
@@ -217,36 +224,36 @@
 			<label for="instance-color" class="label py-0.5">
 				<span class="label-text text-sm">{m.instance_color()}</span>
 			</label>
-			<div class="flex items-center gap-6 w-full">
+			<div class="flex w-full items-center gap-6">
 				<div
-					class="w-20 h-20 rounded-xl flex items-center justify-center shrink-0 overflow-hidden shadow-sm border border-base-content/10"
+					class="border-base-content/10 flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border shadow-sm"
 					style="background-color: {editColor};"
 				>
 					<Box size={40} style="color: {getContrastColor(editColor)};" />
 				</div>
 
-				<div class="flex-1 h-20 flex flex-col justify-between min-w-0">
-					<div class="flex flex-wrap justify-between w-full">
+				<div class="flex h-20 min-w-0 flex-1 flex-col justify-between">
+					<div class="flex w-full flex-wrap justify-between">
 						{#each colorPresets as preset}
 							<button
 								type="button"
-								class="w-7 h-7 rounded-full border border-base-content/10 cursor-pointer transition-transform hover:scale-110 active:scale-95 flex items-center justify-center shrink-0"
+								class="border-base-content/10 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full border transition-transform hover:scale-110 active:scale-95"
 								style="background-color: {preset};"
 								onclick={() => (editColor = preset)}
 								title={preset}
 							>
 								{#if editColor.toLowerCase() === preset.toLowerCase()}
-									<span class="text-white text-[10px] font-bold">✓</span>
+									<span class="text-[10px] font-bold text-white">✓</span>
 								{/if}
 							</button>
 						{/each}
 					</div>
 
-					<div class="flex items-center gap-2 w-full">
+					<div class="flex w-full items-center gap-2">
 						<input
 							id="instance-color"
 							type="color"
-							class="w-16 h-10 p-0.5 rounded border border-base-300 cursor-pointer bg-base-100 shrink-0"
+							class="border-base-300 bg-base-100 h-10 w-16 shrink-0 cursor-pointer rounded border p-0.5"
 							bind:value={editColor}
 						/>
 						<button
@@ -310,7 +317,7 @@
 							<span class="badge badge-ghost badge-neutral gap-1">
 								<button
 									type="button"
-									class="btn btn-ghost btn-xs btn-square p-0 h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content"
+									class="btn btn-ghost btn-xs btn-square text-base-content/60 hover:text-base-content h-4 min-h-0 w-4 p-0"
 									onclick={() => moveArg(i, -1)}
 									disabled={i === 0}
 								>
@@ -319,7 +326,7 @@
 								<span class="font-mono text-xs">{arg}</span>
 								<button
 									type="button"
-									class="btn btn-ghost btn-xs btn-square p-0 h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content"
+									class="btn btn-ghost btn-xs btn-square text-base-content/60 hover:text-base-content h-4 min-h-0 w-4 p-0"
 									onclick={() => moveArg(i, 1)}
 									disabled={i === editArgs.length - 1}
 								>
@@ -327,7 +334,7 @@
 								</button>
 								<button
 									type="button"
-									class="btn btn-ghost btn-xs btn-square p-0 h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content"
+									class="btn btn-ghost btn-xs btn-square text-base-content/60 hover:text-base-content h-4 min-h-0 w-4 p-0"
 									onclick={() => removeArg(i)}
 								>
 									&times;
@@ -384,7 +391,7 @@
 	</div>
 
 	{#snippet actions()}
-		<div class="flex justify-end gap-2 w-full">
+		<div class="flex w-full justify-end gap-2">
 			<button class="btn btn-ghost" type="button" onclick={() => (open = false)}>
 				{m.common_cancel()}
 			</button>

@@ -44,7 +44,7 @@
 			<input
 				id="server-port"
 				type="number"
-				class="input input-bordered w-full user-invalid:validator"
+				class="input input-bordered user-invalid:validator w-full"
 				required
 				min="50000"
 				max="65000"
@@ -55,7 +55,7 @@
 	</div>
 
 	{#snippet actions()}
-		<div class="flex items-center justify-end w-full">
+		<div class="flex w-full items-center justify-end">
 			<div class="flex gap-2">
 				<button class="btn btn-ghost" type="button" onclick={() => (open = false)}
 					>{m.common_cancel()}</button

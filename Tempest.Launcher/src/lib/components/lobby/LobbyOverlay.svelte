@@ -51,9 +51,9 @@
 {:else if joinErrorCode === JoinLobbyErrorCode.LOBBY_FULL}
 	<LobbyOverlayDialog
 		title={freeSpaceInLobby ? m.lobby_can_be_joined() : m.lobby_is_full()}
-		subtitle={freeSpaceInLobby ?
-			m.lobby_players_count({ current: playerCount, max: maxPlayerCount ?? 0 })
-		:	m.lobby_waiting_for_free_space({ current: playerCount, max: maxPlayerCount ?? 0 })}
+		subtitle={freeSpaceInLobby
+			? m.lobby_players_count({ current: playerCount, max: maxPlayerCount ?? 0 })
+			: m.lobby_waiting_for_free_space({ current: playerCount, max: maxPlayerCount ?? 0 })}
 		loading={!freeSpaceInLobby}
 	>
 		{#if freeSpaceInLobby}
@@ -61,15 +61,12 @@
 		{/if}
 	</LobbyOverlayDialog>
 {:else if joinErrorCode === JoinLobbyClientErrorCode.KICKED}
-	<LobbyOverlayDialog
-		title={m.lobby_kicked()}
-		subtitle={m.lobby_kicked_hint()}
-	/>
+	<LobbyOverlayDialog title={m.lobby_kicked()} subtitle={m.lobby_kicked_hint()} />
 {:else if joinErrorCode === JoinLobbyClientErrorCode.PASSWORD_REQUIRED || joinErrorCode === JoinLobbyErrorCode.INVALID_PASSWORD}
 	<LobbyOverlayDialog
-		title={joinErrorCode === JoinLobbyClientErrorCode.PASSWORD_REQUIRED ?
-			m.lobby_password_required()
-		:	m.lobby_incorrect_password()}
+		title={joinErrorCode === JoinLobbyClientErrorCode.PASSWORD_REQUIRED
+			? m.lobby_password_required()
+			: m.lobby_incorrect_password()}
 	>
 		<div class="form-control">
 			<input

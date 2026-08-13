@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from "$app/state";
-	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import { Tooltip } from "bits-ui";
+	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
@@ -35,18 +35,18 @@
 				{onpointerdown}
 				class="btn btn-square"
 				class:btn-active={isActive}
-				style={style}
+				{style}
 				aria-label={instance.label}
 			>
 				<span
-				class="max-w-full truncate px-0.5 text-[10px] font-bold leading-none tracking-tight tabular-nums"
-			>
-				{#if version}
-					{version}
-				{:else}
-					{(label[0] ?? "?").toUpperCase()}
-				{/if}
-			</span>
+					class="max-w-full truncate px-0.5 text-[10px] leading-none font-bold tracking-tight tabular-nums"
+				>
+					{#if version}
+						{version}
+					{:else}
+						{(label[0] ?? "?").toUpperCase()}
+					{/if}
+				</span>
 			</a>
 		{/snippet}
 	</Tooltip.Trigger>
@@ -54,7 +54,7 @@
 		<Tooltip.Content
 			side="right"
 			sideOffset={8}
-			class="z-50 flex items-center gap-1.5 rounded-lg bg-neutral px-2.5 py-1.5 text-xs font-semibold text-neutral-content shadow-md transition-opacity duration-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100"
+			class="bg-neutral text-neutral-content z-50 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold shadow-md transition-opacity duration-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100"
 		>
 			<Tooltip.Arrow class="fill-neutral" />
 			<span>{instance.label}</span>

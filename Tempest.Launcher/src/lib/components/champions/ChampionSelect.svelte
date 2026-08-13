@@ -131,7 +131,7 @@
 	});
 </script>
 
-<div class="relative h-full w-full overflow-hidden bg-base-200">
+<div class="bg-base-200 relative h-full w-full overflow-hidden">
 	<!-- Fullscreen Background -->
 	<div class="absolute inset-0">
 		{#if displayedChampion}
@@ -176,7 +176,7 @@
 
 	<!-- Bottom gradient blur (Full screen width) -->
 	{#if !confirmedChampionName}
-		<div class="pointer-events-none absolute bottom-0 left-0 right-0 h-64 z-10">
+		<div class="pointer-events-none absolute right-0 bottom-0 left-0 z-10 h-64">
 			<div
 				class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"
 			></div>
@@ -188,10 +188,13 @@
 	{/if}
 
 	<!-- Content Layer -->
-	<div class="relative z-20 flex h-full flex-col {sidebarPadding ? 'mx-48 md:mx-64 lg:mx-80' : ''}" style="container-type: inline-size;">
+	<div
+		class="relative z-20 flex h-full flex-col {sidebarPadding ? 'mx-48 md:mx-64 lg:mx-80' : ''}"
+		style="container-type: inline-size;"
+	>
 		<!-- Counter -->
 		{#if countdownSeconds > 0}
-			<div class="pt-4 flex justify-center">
+			<div class="flex justify-center pt-4">
 				<h2
 					class="text-6xl font-bold text-white"
 					style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
@@ -203,23 +206,23 @@
 
 		<!-- Floating Champion Portraits -->
 		{#if !confirmedChampionName}
-			<div class="flex-1 flex flex-col items-center justify-center gap-6 pt-16 pb-8 w-full">
-				<div class="relative w-full max-w-6xl flex justify-center">
+			<div class="flex w-full flex-1 flex-col items-center justify-center gap-6 pt-16 pb-8">
+				<div class="relative flex w-full max-w-6xl justify-center">
 					<div
 						bind:this={scrollContainer}
-						class="relative z-10 grid max-h-[480px] w-full max-w-6xl gap-2 md:gap-3 overflow-y-auto p-4 scrollbar-hide justify-center champ-grid"
+						class="scrollbar-hide champ-grid relative z-10 grid max-h-[480px] w-full max-w-6xl justify-center gap-2 overflow-y-auto p-4 md:gap-3"
 					>
 						{#each champions as champion (champion.name)}
 							<button
 								type="button"
 								class={[
-									"overflow-hidden rounded-none border-2 p-0 transition-all duration-200 cursor-pointer champ-btn",
+									"champ-btn cursor-pointer overflow-hidden rounded-none border-2 p-0 transition-all duration-200",
 									"hover:scale-110 hover:shadow-xl",
-									displayedChampion?.name === champion.name ?
-										"border-accent ring-3 ring-accent shadow-xl"
-									: hoveredChampion?.name === champion.name ?
-										"border-white/50 ring-3 ring-white/50"
-									:	"border-base-300",
+									displayedChampion?.name === champion.name
+										? "border-accent ring-accent shadow-xl ring-3"
+										: hoveredChampion?.name === champion.name
+											? "border-white/50 ring-3 ring-white/50"
+											: "border-base-300",
 								]}
 								class:pointer-events-none={confirmedChampionName}
 								onclick={() => handleChampionClick(champion)}
@@ -232,7 +235,8 @@
 									class="h-full w-full object-cover object-center"
 									loading="lazy"
 									onerror={(e) => {
-										(e.currentTarget as HTMLImageElement).src = "/champions/Generic/icon.webp";
+										(e.currentTarget as HTMLImageElement).src =
+											"/champions/Generic/icon.webp";
 									}}
 								/>
 							</button>
@@ -242,7 +246,7 @@
 					<!-- Scroll indicator -->
 					{#if canScrollDown}
 						<div
-							class="pointer-events-none absolute bottom-0 left-0 right-0 z-20 flex justify-center"
+							class="pointer-events-none absolute right-0 bottom-0 left-0 z-20 flex justify-center"
 							style="text-shadow: 0 2px 8px rgba(0,0,0,0.8);"
 						>
 							<svg
@@ -264,10 +268,10 @@
 				</div>
 
 				<!-- Confirm Button -->
-				<div class="relative w-full text-center flex flex-col items-center gap-3">
+				<div class="relative flex w-full flex-col items-center gap-3 text-center">
 					<button
 						type="button"
-						class="btn btn-xl btn-wide uppercase font-bold relative z-10 shadow-none cursor-pointer"
+						class="btn btn-xl btn-wide relative z-10 cursor-pointer font-bold uppercase shadow-none"
 						class:btn-accent={displayedChampion && !confirmedChampionName}
 						class:btn-disabled={!displayedChampion || !!confirmedChampionName}
 						disabled={!displayedChampion || !!confirmedChampionName}
@@ -277,7 +281,7 @@
 					</button>
 
 					<h2
-						class="mt-4 text-4xl font-bold uppercase text-white select-none pointer-events-none"
+						class="pointer-events-none mt-4 text-4xl font-bold text-white uppercase select-none"
 						class:invisible={!displayedChampion}
 						style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
 					>
@@ -286,10 +290,10 @@
 				</div>
 			</div>
 		{:else}
-			<div class="flex-1 flex flex-col items-center justify-end pb-8">
+			<div class="flex flex-1 flex-col items-center justify-end pb-8">
 				{#if displayedChampion}
 					<h2
-						class="text-4xl font-bold uppercase text-white select-none pointer-events-none"
+						class="pointer-events-none text-4xl font-bold text-white uppercase select-none"
 						style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
 					>
 						{displayedChampion.displayName}

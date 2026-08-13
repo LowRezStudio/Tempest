@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Square, SquareTerminal, Globe } from "@lucide/svelte";
-	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
+	import { Square, SquareTerminal, Globe } from "@lucide/svelte";
+	import { openUrl } from "@tauri-apps/plugin-opener";
 	import GhosttyTerminal from "$lib/components/ui/GhosttyTerminal.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { moveToLobby } from "$lib/core/lobby.svelte";
@@ -14,9 +14,7 @@
 	let activeTab = $state<"logs">("logs");
 
 	const process = $derived(
-		lobbyServerProcessesList.value.find(
-			(p) => String(p.child.pid) === page.params.pid!,
-		),
+		lobbyServerProcessesList.value.find((p) => String(p.child.pid) === page.params.pid!),
 	);
 	const killLobbyMutation = createKillLobbyServerMutation();
 
@@ -25,9 +23,7 @@
 	const returnCode = $derived(process?.returnCode);
 	const isRunning = $derived(returnCode ? returnCode.value === null : false);
 	const hasError = $derived(
-		returnCode
-			? returnCode.value !== null && returnCode.value !== 0
-			: false,
+		returnCode ? returnCode.value !== null && returnCode.value !== 0 : false,
 	);
 
 	function handleStopOrClose() {
@@ -37,10 +33,9 @@
 			killLobbyMutation.mutate(process);
 		} else {
 			//closing
-			lobbyServerProcessesList.value =
-				lobbyServerProcessesList.value.filter(
-					(p) => p.child.pid !== process.child.pid,
-				);
+			lobbyServerProcessesList.value = lobbyServerProcessesList.value.filter(
+				(p) => p.child.pid !== process.child.pid,
+			);
 			killLobbyMutation.reset();
 			goto("/servers");
 		}
@@ -51,7 +46,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full bg-base-100">
+<div class="bg-base-100 flex h-full flex-col">
 	<Header
 		title={process?.createOptions.name || m.common_unknown()}
 		tabs={[{ name: m.lobbyadmin_logs(), value: "logs" }]}
@@ -75,13 +70,13 @@
 			</button>
 
 			{#if isRunning}
-				<button class="btn text-sm btn-accent" onclick={join}>
+				<button class="btn btn-accent text-sm" onclick={join}>
 					{m.common_join()}
 				</button>
 			{/if}
 
 			<button
-				class="btn text-sm btn-error"
+				class="btn btn-error text-sm"
 				disabled={isKilling}
 				aria-busy={isKilling}
 				onclick={handleStopOrClose}
@@ -99,12 +94,9 @@
 		{/snippet}
 	</Header>
 
-	<div class="flex-1 overflow-hidden bg-base-100">
+	<div class="bg-base-100 flex-1 overflow-hidden">
 		{#if activeTab === "logs"}
-			<GhosttyTerminal
-			logs={logsList}
-			child={process?.child}
-		/>
+			<GhosttyTerminal logs={logsList} child={process?.child} />
 		{/if}
 	</div>
 </div>

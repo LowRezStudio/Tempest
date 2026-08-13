@@ -13,12 +13,12 @@
 		resolveUnverifiedMod,
 		unverifiedDialogStore,
 	} from "$lib/mods/ui.svelte";
-	import type { Instance } from "$lib/types/instance";
 	import {
 		hostServerWizardOpen,
 		instanceWizardOpen,
 		joinServerWizardOpen,
 	} from "$lib/stores/ui.svelte";
+	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
 		isDraggingFiles?: boolean;

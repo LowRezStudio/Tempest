@@ -10,7 +10,9 @@
 
 	async function handleCopy() {
 		const textToCopy = filteredLogs
-			.map((log) => (activeSource === "all" && log.source ? `[${log.source}] ${log.line}` : log.line))
+			.map((log) =>
+				activeSource === "all" && log.source ? `[${log.source}] ${log.line}` : log.line,
+			)
 			.join("\n");
 		try {
 			await navigator.clipboard.writeText(textToCopy);
@@ -42,9 +44,9 @@
 	]);
 
 	const filteredLogs = $derived(
-		activeSource === "all" ? processLogs.value : (
-			processLogs.value.filter((log) => log.source === activeSource)
-		),
+		activeSource === "all"
+			? processLogs.value
+			: processLogs.value.filter((log) => log.source === activeSource),
 	);
 
 	$effect(() => {
@@ -80,7 +82,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full bg-base-100">
+<div class="bg-base-100 flex h-full flex-col">
 	<Header
 		title={m.logs_title()}
 		{tabs}
@@ -91,11 +93,7 @@
 			<ScrollText size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet actions()}
-			<button
-				class="btn btn-ghost"
-				onclick={handleCopy}
-				disabled={filteredLogs.length === 0}
-			>
+			<button class="btn btn-ghost" onclick={handleCopy} disabled={filteredLogs.length === 0}>
 				{#if copyStatus === "copied"}
 					<Check size={16} class="text-success" />
 					{m.common_copied()}

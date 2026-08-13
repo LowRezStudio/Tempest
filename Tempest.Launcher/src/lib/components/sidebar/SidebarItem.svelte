@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from "$app/state";
-	import { getContrastColor } from "$lib/utils/color";
 	import { Tooltip } from "bits-ui";
+	import { getContrastColor } from "$lib/utils/color";
 	import type { Snippet } from "svelte";
 
 	interface Props {
@@ -30,9 +30,9 @@
 				class="btn btn-square"
 				class:btn-accent={isActive && !color}
 				class:btn-ghost={!isActive && !color}
-				style={color ?
-					`background-color: ${isActive ? color : `color-mix(in srgb, ${color} 15%, transparent)`}; border-color: ${isActive ? 'white' : color}; color: ${isActive ? getContrastColor(color) : color};`
-				:	''}
+				style={color
+					? `background-color: ${isActive ? color : `color-mix(in srgb, ${color} 15%, transparent)`}; border-color: ${isActive ? "white" : color}; color: ${isActive ? getContrastColor(color) : color};`
+					: ""}
 				aria-label={label}
 			>
 				{@render children()}
@@ -43,7 +43,7 @@
 		<Tooltip.Content
 			side="right"
 			sideOffset={8}
-			class="z-50 bg-neutral text-neutral-content text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-md transition-opacity duration-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100"
+			class="bg-neutral text-neutral-content z-50 rounded-lg px-2.5 py-1.5 text-xs font-semibold shadow-md transition-opacity duration-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100"
 		>
 			<Tooltip.Arrow class="fill-neutral" />
 			{label}

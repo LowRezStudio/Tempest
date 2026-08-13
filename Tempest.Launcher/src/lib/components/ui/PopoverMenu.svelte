@@ -18,7 +18,7 @@
 	</Popover.Trigger>
 	<Popover.Portal>
 		<Popover.Content
-			class="z-50 min-w-[180px] bg-base-300 rounded-box p-1 shadow-xl border border-base-content/10 popover-animate {className}"
+			class="bg-base-300 rounded-box border-base-content/10 popover-animate z-50 min-w-[180px] border p-1 shadow-xl {className}"
 			{align}
 			sideOffset={4}
 		>

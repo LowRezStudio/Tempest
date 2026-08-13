@@ -1,12 +1,7 @@
 <script lang="ts">
 	import { Flag, RotateCcw, Terminal, Trash2 } from "@lucide/svelte";
-	import {
-		FEATURE_FLAGS,
-		flags,
-		isFlagEnabled,
-		type FlagName,
-	} from "$lib/stores/flags.svelte";
 	import { m } from "$lib/paraglide/messages";
+	import { FEATURE_FLAGS, flags, isFlagEnabled, type FlagName } from "$lib/stores/flags.svelte";
 
 	const knownFlagNames = Object.keys(FEATURE_FLAGS) as FlagName[];
 
@@ -57,10 +52,10 @@
 		</h4>
 		{#each knownFlags as flag (flag.name)}
 			<label
-				class="flex items-center justify-between gap-3 p-3 rounded-box bg-base-200 cursor-pointer"
+				class="rounded-box bg-base-200 flex cursor-pointer items-center justify-between gap-3 p-3"
 			>
-				<div class="flex flex-col gap-0.5 min-w-0">
-					<span class="label-text text-sm font-mono">{flag.name}</span>
+				<div class="flex min-w-0 flex-col gap-0.5">
+					<span class="label-text font-mono text-sm">{flag.name}</span>
 					<span class="text-xs opacity-60">{flag.description}</span>
 				</div>
 				<input
@@ -79,16 +74,14 @@
 				{m.settings_feature_flags_unknown()}
 			</h4>
 			{#each unknownFlags as flag (flag.name)}
-				<div
-					class="flex items-center justify-between gap-3 p-3 rounded-box bg-base-200"
-				>
-					<div class="flex flex-col gap-0.5 min-w-0">
-						<span class="label-text text-sm font-mono">{flag.name}</span>
-						<span class="text-xs opacity-60 font-mono">
+				<div class="rounded-box bg-base-200 flex items-center justify-between gap-3 p-3">
+					<div class="flex min-w-0 flex-col gap-0.5">
+						<span class="label-text font-mono text-sm">{flag.name}</span>
+						<span class="font-mono text-xs opacity-60">
 							{m.settings_feature_flags_value()}: {String(flag.value)}
 						</span>
 					</div>
-					<div class="flex items-center gap-2 shrink-0">
+					<div class="flex shrink-0 items-center gap-2">
 						<input
 							type="checkbox"
 							class="toggle toggle-sm toggle-accent"
@@ -122,8 +115,8 @@
 		</button>
 	</div>
 
-	<div class="bg-base-200 rounded-box px-3 py-2 flex items-start gap-2">
-		<Terminal size={16} class="opacity-60 mt-0.5 shrink-0" />
+	<div class="bg-base-200 rounded-box flex items-start gap-2 px-3 py-2">
+		<Terminal size={16} class="mt-0.5 shrink-0 opacity-60" />
 		<p class="text-xs opacity-60">{m.settings_feature_flags_console_hint()}</p>
 	</div>
 </div>

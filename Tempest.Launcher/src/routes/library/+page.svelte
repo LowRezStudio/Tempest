@@ -31,7 +31,7 @@
 	);
 </script>
 
-<div class="flex flex-col h-full bg-base-100">
+<div class="bg-base-100 flex h-full flex-col">
 	<Header title={m.library_title()}>
 		{#snippet icon()}
 			<Library size={32} class="opacity-60" />
@@ -46,7 +46,7 @@
 					bind:value={searchQuery}
 				/>
 			</label>
-			<button class="btn btn-accent" onclick={() => instanceWizardOpen.value = true}>
+			<button class="btn btn-accent" onclick={() => (instanceWizardOpen.value = true)}>
 				<Plus size={16} />
 				{m.library_new_instance()}
 			</button>
@@ -60,7 +60,7 @@
 	</Header>
 
 	<!-- Content Area -->
-	<div class="flex-1 flex flex-col overflow-hidden bg-base-100">
+	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">
 				{#if sortedInstances.length === 0}
@@ -79,10 +79,10 @@
 								<Boxes size={48} />
 							{/snippet}
 							{#snippet actions()}
-							<button
-								class="btn btn-accent gap-2"
-								onclick={() => instanceWizardOpen.value = true}
-							>
+								<button
+									class="btn btn-accent gap-2"
+									onclick={() => (instanceWizardOpen.value = true)}
+								>
 									<Plus size={20} />
 									{m.library_create_first()}
 								</button>
@@ -91,7 +91,7 @@
 					{/if}
 				{:else}
 					<div
-						class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4"
+						class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
 					>
 						{#each sortedInstances as instance (instance.id)}
 							<InstanceCard {instance} />

@@ -1,14 +1,14 @@
 <script lang="ts">
-	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
-	import { Gamepad2, Play, Square, Trash2 } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
-	import { m } from "$lib/paraglide/messages";
-	import { queueItems } from "$lib/rigby/stores.svelte";
-	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
+	import { Gamepad2, Play, Square, Trash2 } from "@lucide/svelte";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
+	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
 	import { deleteInstance } from "$lib/core/instance-delete";
-	import { processesList } from "$lib/stores/processes.svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation, createKillGameMutation } from "$lib/queries/core";
+	import { queueItems } from "$lib/rigby/stores.svelte";
+	import { processesList } from "$lib/stores/processes.svelte";
+	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import InstanceMenu from "./InstanceMenu.svelte";
 	import type { Instance } from "$lib/types/instance";
 
@@ -26,7 +26,9 @@
 
 	let queueItem = $derived(
 		queueItems.value.find(
-			(item) => item.outDir === instance.path && (item.status === "running" || item.status === "pending"),
+			(item) =>
+				item.outDir === instance.path &&
+				(item.status === "running" || item.status === "pending"),
 		),
 	);
 
@@ -62,10 +64,10 @@
 </script>
 
 {#if isActive}
-	<div class="bg-base-200 rounded-lg p-4 opacity-80 relative overflow-hidden">
+	<div class="bg-base-200 relative overflow-hidden rounded-lg p-4 opacity-80">
 		<div class="flex items-center gap-3">
 			<div
-				class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
+				class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg"
 				style="background-color: {iconBg}"
 			>
 				{#if isDownloading}
@@ -78,8 +80,8 @@
 					<PaladinsIcon size={40} color={getContrastColor(iconBg)} />
 				{/if}
 			</div>
-			<div class="flex-1 min-w-0">
-				<h3 class="font-bold text-base truncate mb-0.5">{instance.label}</h3>
+			<div class="min-w-0 flex-1">
+				<h3 class="mb-0.5 truncate text-base font-bold">{instance.label}</h3>
 				<div class="flex items-center gap-2 text-sm">
 					{#if isDownloading}
 						{#if queueItem?.status === "pending"}
@@ -118,7 +120,7 @@
 	</div>
 {:else}
 	<div
-		class="bg-base-200 hover:bg-base-300 rounded-lg transition-all duration-200 p-4 text-left cursor-pointer"
+		class="bg-base-200 hover:bg-base-300 cursor-pointer rounded-lg p-4 text-left transition-all duration-200"
 		onclick={handleCardClick}
 		role="link"
 		tabindex="0"
@@ -128,7 +130,7 @@
 	>
 		<div class="flex items-center gap-3">
 			<div
-				class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
+				class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg"
 				style="background-color: {iconBg}"
 			>
 				{#if isSettingUp}
@@ -140,11 +142,11 @@
 					<PaladinsIcon size={40} color={getContrastColor(getInstanceColor(instance))} />
 				{/if}
 			</div>
-			<div class="flex-1 min-w-0">
-				<h3 class="font-bold text-base truncate mb-0.5">{instance.label}</h3>
+			<div class="min-w-0 flex-1">
+				<h3 class="mb-0.5 truncate text-base font-bold">{instance.label}</h3>
 				<div class="flex items-center gap-2 text-sm">
 					{#if instance.version}
-						<span class="opacity-70 font-mono flex items-center gap-1.5">
+						<span class="flex items-center gap-1.5 font-mono opacity-70">
 							<Gamepad2 size={12} />
 							{instance.version}
 						</span>
