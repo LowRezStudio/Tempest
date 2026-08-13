@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { RefreshCw, Search, Server, ServerCrash, ServerOff } from "@lucide/svelte";
+	import {
+		AlertTriangle,
+		RefreshCw,
+		Search,
+		Server,
+		ServerCrash,
+		ServerOff,
+	} from "@lucide/svelte";
 	import { untrack } from "svelte";
 	import ServerDetailsDialog from "$lib/components/server-list/ServerDetailsDialog.svelte";
 	import ServerRow from "$lib/components/server-list/ServerRow.svelte";
@@ -149,6 +156,10 @@
 	</Header>
 
 	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
+		<div role="alert" class="alert alert-warning mx-4 mt-4">
+			<AlertTriangle size={20} />
+			<span>{m.serverlist_experimental_warning()}</span>
+		</div>
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">
 				{#if isLoading}

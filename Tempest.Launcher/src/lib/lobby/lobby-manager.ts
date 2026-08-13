@@ -264,7 +264,8 @@ class LobbyManager {
 		const name = username.value;
 		const character = player.champion.toLowerCase();
 		const team = player.taskForce === 0 ? "spec" : player.taskForce;
-		let arg = `${ip}:${gameServerPort}?name=${name}?class=${character}?team=${team}?horse=2`;
+		const playerGuid = players.value.findIndex((p) => p.id === player.id);
+		let arg = `${ip}:${gameServerPort}?name=${name}?class=${character}?team=${team}?horse=2?playerguid=${playerGuid}`;
 		if (lobbyPassword.value.length > 0) {
 			arg += `?password=${lobbyPassword.value}`;
 		}

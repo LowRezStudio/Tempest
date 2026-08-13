@@ -120,6 +120,7 @@
 	"downloads_verified": "verificados",
 	"downloads_eta": "ETA",
 	"serverlist_title": "Lista de servidores",
+	"serverlist_experimental_warning": "Esta función es experimental y actualmente solo se admite la versión 0.57.",
 	"serverlist_tab_internet": "Internet",
 	"serverlist_tab_lan": "LAN",
 	"serverlist_host_server": "Alojar servidor",

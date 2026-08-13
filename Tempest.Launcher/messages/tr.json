@@ -121,6 +121,7 @@
 	"downloads_verified": "doğrulandı",
 	"downloads_eta": "Tahmini Kalan Süre",
 	"serverlist_title": "Sunucu LİSTESİ",
+	"serverlist_experimental_warning": "Bu özellik deneyseldir ve şu anda yalnızca 0.57 desteklenmektedir.",
 	"serverlist_tab_internet": "İnternet",
 	"serverlist_tab_lan": "Yerel Ağ Bağlantısı (LAN)",
 	"serverlist_host_server": "Sunucu oluştur",

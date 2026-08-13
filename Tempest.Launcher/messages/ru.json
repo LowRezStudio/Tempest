@@ -124,6 +124,7 @@
 	"downloads_verified": "проверено",
 	"downloads_eta": "Оставшееся время",
 	"serverlist_title": "Список серверов",
+	"serverlist_experimental_warning": "Эта функция является экспериментальной, в настоящее время поддерживается только версия 0.57.",
 	"serverlist_tab_internet": "Интернет",
 	"serverlist_tab_lan": "Локальная сеть (LAN)",
 	"serverlist_host_server": "Создать сервер",

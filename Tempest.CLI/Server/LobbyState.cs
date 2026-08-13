@@ -64,7 +64,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
             return false;
         }
 
-        logger.LogInformation("Player {DisplayName} joined lobby (team {Team}, {PlayerCount}/{MaxPlayers})", displayName, team, PlayerCount, options.MaxPlayers);
+        logger.LogInformation("Player {DisplayName} joined lobby (team {Team}, {PlayerCount}/{MaxPlayers}, guid {Guid})", displayName, team, PlayerCount, options.MaxPlayers, player.Id);
 
         Publish(new LobbyEvent
         {

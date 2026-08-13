@@ -133,6 +133,7 @@
 	"downloads_verified": "verified",
 	"downloads_eta": "ETA",
 	"serverlist_title": "Server List",
+	"serverlist_experimental_warning": "This feature is experimental and only 0.57 is currently supported.",
 	"serverlist_tab_internet": "Internet",
 	"serverlist_tab_lan": "LAN",
 	"serverlist_host_server": "Host server",

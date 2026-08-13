@@ -124,6 +124,7 @@
 	"downloads_verified": "zweryfikowane",
 	"downloads_eta": "Pozostały czas",
 	"serverlist_title": "Lista serwerów",
+	"serverlist_experimental_warning": "Ta funkcja jest eksperymentalna, obecnie obsługiwana jest tylko wersja 0.57.",
 	"serverlist_tab_internet": "Internet",
 	"serverlist_tab_lan": "Sieć lokalna (LAN)",
 	"serverlist_host_server": "Stwórz serwer",
