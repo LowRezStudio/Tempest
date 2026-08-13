@@ -1,6 +1,18 @@
 <script lang="ts">
-	import { Compass, Download, FlaskConical, House, Library, Plus, ScrollText, Server, Settings, SquareTerminal, Swords, Terminal } from "@lucide/svelte";
 	import { page } from "$app/state";
+	import {
+		Compass,
+		Download,
+		FlaskConical,
+		House,
+		Library,
+		Plus,
+		ScrollText,
+		Server,
+		Settings,
+		SquareTerminal,
+		Terminal,
+	} from "@lucide/svelte";
 	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { preparedInstances, setInstanceOrder } from "$lib/stores/instance.svelte";
@@ -22,17 +34,20 @@
 </script>
 
 <aside
-	class="flex h-screen w-16 flex-none flex-col items-center bg-base-300 py-4"
+	class="bg-base-300 flex h-screen w-16 flex-none flex-col items-center py-4"
 	class:dragging={!!reorder.drag}
 >
 	<nav class="flex flex-col gap-2">
 		<SidebarItem href="/" label={m.sidebar_home()}><House size={20} /></SidebarItem>
 		<SidebarItem href="/library" label={m.sidebar_library()}><Library size={20} /></SidebarItem>
-		<SidebarItem href="/downloads" label={m.sidebar_downloads()}><Download size={20} /></SidebarItem>
+		<SidebarItem href="/downloads" label={m.sidebar_downloads()}
+			><Download size={20} /></SidebarItem
+		>
 		<SidebarItem href="/servers" label={m.sidebar_servers()}><Server size={20} /></SidebarItem>
-		<SidebarItem href="/champions" label={m.sidebar_champions()}><Swords size={20} /></SidebarItem>
 		{#if modDeveloper.value}
-			<SidebarItem href="/converter" label={m.converter_title()}><FlaskConical size={20} /></SidebarItem>
+			<SidebarItem href="/converter" label={m.converter_title()}
+				><FlaskConical size={20} /></SidebarItem
+			>
 		{/if}
 		{#if lobbyHost.value}
 			<SidebarItem href="/lobby" label={m.sidebar_lobby()}><Compass size={20} /></SidebarItem>
@@ -43,7 +58,7 @@
 
 	<div
 		bind:this={listEl}
-		class="instance-list flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-visible px-2 scrollbar-none"
+		class="instance-list flex flex-1 scrollbar-none flex-col gap-2 overflow-x-visible overflow-y-auto px-2"
 	>
 		{#each preparedInstances.value as instance, i (instance.id)}
 			<div
@@ -92,7 +107,9 @@
 		{/each}
 		<LanguageSelector />
 		<SidebarItem href="/logs" label={m.sidebar_logs()}><ScrollText size={20} /></SidebarItem>
-		<SidebarItem href="/settings" label={m.sidebar_settings()}><Settings size={20} /></SidebarItem>
+		<SidebarItem href="/settings" label={m.sidebar_settings()}
+			><Settings size={20} /></SidebarItem
+		>
 	</div>
 
 	{#if reorder.drag}
@@ -104,10 +121,10 @@
 			inert
 		>
 			<SidebarInstanceItem
-					instance={reorder.drag.item}
-					href={`/instance/${reorder.drag.item.id}`}
-					active={true}
-				/>
+				instance={reorder.drag.item}
+				href={`/instance/${reorder.drag.item.id}`}
+				active={true}
+			/>
 		</div>
 	{/if}
 </aside>

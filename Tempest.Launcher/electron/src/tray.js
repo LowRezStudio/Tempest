@@ -26,13 +26,26 @@ function sendTrayEvent(entry, event) {
 }
 
 ipcMain.handle("tray:new", (event, { id, tooltip, showMenuOnLeftClick }) => {
-	removeTray(id);
-	const tray = new Tray(trayImage());
-	if (tooltip) tray.setToolTip(tooltip);
-	const entry = { id, tray, owner: event.sender, showMenuOnLeftClick };
-	trays.set(id, entry);
+	// Upsert instead of destroy+recreate: on Linux, Tray#destroy() never
+	// unregisters the StatusNotifierItem (electron/electron#49517), so every
+	// dev hot reload would leave a duplicate icon behind.
+	let entry = trays.get(id);
+	if (!entry) {
+		const tray = new Tray(trayImage());
+		entry = { id, tray, owner: event.sender, showMenuOnLeftClick };
+		trays.set(id, entry);
+		bindTrayEvents(entry);
+	} else {
+		entry.owner = event.sender;
+		entry.showMenuOnLeftClick = showMenuOnLeftClick;
+	}
+	if (tooltip) entry.tray.setToolTip(tooltip);
+});
+
+function bindTrayEvents(entry) {
+	const { id, tray } = entry;
 	tray.on("click", (_e, bounds, position) => {
-		if (showMenuOnLeftClick) {
+		if (entry.showMenuOnLeftClick) {
 			tray.popUpContextMenu();
 			return;
 		}
@@ -56,7 +69,7 @@ ipcMain.handle("tray:new", (event, { id, tooltip, showMenuOnLeftClick }) => {
 	tray.on("double-click", () => {
 		sendTrayEvent(entry, { type: "DoubleClick", id, button: "Left" });
 	});
-});
+}
 
 ipcMain.handle("tray:remove", (_event, { id }) => {
 	removeTray(id);

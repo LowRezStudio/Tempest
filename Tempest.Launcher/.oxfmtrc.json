@@ -21,5 +21,6 @@
 	"semi": true,
 	"singleQuote": false,
 	"sortPackageJson": true,
+	"svelte": true,
 	"ignorePatterns": []
 }

@@ -113,17 +113,16 @@ function withActions(entries: TrayEntry[]): TrayEntry[] {
 	);
 }
 
-// Replace any tray left over from a previous renderer session (dev reloads),
-// then create ours. The tray outlives the window so the app can hide into it.
-const trayPromise: Promise<TrayIcon> = (async () => {
-	await TrayIcon.removeById(TRAY_ID).catch(() => {});
-	return TrayIcon.new({
-		id: TRAY_ID,
-		tooltip: "Tempest Launcher",
-		showMenuOnLeftClick: false,
-		action: handleTrayIconEvent,
-	});
-})();
+// tray:new upserts in the main process: after a dev hot reload (which
+// re-evaluates this module) the existing tray is reused instead of being
+// destroyed and recreated — on Linux, Tray#destroy() leaves a stale
+// StatusNotifierItem behind, so recreating would stack duplicate icons.
+const trayPromise: Promise<TrayIcon> = TrayIcon.new({
+	id: TRAY_ID,
+	tooltip: "Tempest Launcher",
+	showMenuOnLeftClick: false,
+	action: handleTrayIconEvent,
+});
 
 $effect.root(() => {
 	let lastKey = "";

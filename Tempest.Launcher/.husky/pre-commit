@@ -1,2 +1,8 @@
-cd Tempest.Launcher && pnpm fmt
-git add --update
+#!/bin/sh
+
+# Format only staged files, re-stage only those.
+set -e
+files=$(git diff --cached --name-only --diff-filter=ACM -- 'Tempest.Launcher/*.svelte' 'Tempest.Launcher/*.ts' 'Tempest.Launcher/*.js' 'Tempest.Launcher/*.json')
+[ -z "$files" ] && exit 0
+Tempest.Launcher/node_modules/.bin/oxfmt --write $files
+git add $files
