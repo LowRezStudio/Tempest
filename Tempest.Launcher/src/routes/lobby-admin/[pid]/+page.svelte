@@ -26,10 +26,28 @@
 		returnCode ? returnCode.value !== null && returnCode.value !== 0 : false,
 	);
 
+	// After pressing Stop, close the page once the server has actually exited.
+	let autoCloseAfterStop = $state(false);
+
+	// True from the moment Stop is pressed until the process has truly exited,
+	// so the button can show progress for the whole shutdown (not just the RPC).
+	const isStopping = $derived(autoCloseAfterStop && isRunning);
+
+	$effect(() => {
+		if (!autoCloseAfterStop || isRunning) return;
+		if (!process) return;
+		lobbyServerProcessesList.value = lobbyServerProcessesList.value.filter(
+			(p) => p.child.pid !== process.child.pid,
+		);
+		killLobbyMutation.reset();
+		goto("/servers");
+	});
+
 	function handleStopOrClose() {
 		if (!process) return;
 		if (isRunning) {
 			//stopping
+			autoCloseAfterStop = true;
 			killLobbyMutation.mutate(process);
 		} else {
 			//closing
@@ -69,7 +87,7 @@
 				{m.lobbyadmin_whats_my_ip()}
 			</button>
 
-			{#if isRunning}
+			{#if isRunning && !isStopping}
 				<button class="btn btn-accent text-sm" onclick={join}>
 					{m.common_join()}
 				</button>
@@ -77,11 +95,11 @@
 
 			<button
 				class="btn btn-error text-sm"
-				disabled={isKilling}
-				aria-busy={isKilling}
+				disabled={isStopping || isKilling}
+				aria-busy={isStopping || isKilling}
 				onclick={handleStopOrClose}
 			>
-				{#if isKilling}
+				{#if isStopping || isKilling}
 					<span class="loading loading-spinner loading-xs"></span>
 					{m.lobbyadmin_stopping()}
 				{:else if isRunning}

@@ -4,7 +4,7 @@
 	import { resolveResource } from "@tauri-apps/api/path";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import Modal from "$lib/components/ui/Modal.svelte";
-	import { installMod, removeMod } from "$lib/core/mods";
+	import { installMod, removeMod, type ModRecord } from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
 	import { createModsQuery } from "$lib/queries/mods";
@@ -44,8 +44,8 @@
 	let argsInput = $state("");
 	let editEnableConsole = $state(false);
 	let initialEnableConsole = false;
-	let editEnableMultiplayer = $state(false);
-	let initialEnableMultiplayer = false;
+	let editEnableCore = $state(false);
+	let initialEnableCore = false;
 	let hasInitializedMods = false;
 
 	const modsQuery = createModsQuery(() => editPath);
@@ -64,32 +64,41 @@
 		}
 	});
 
-	let showMultiplayer = $derived(editVersion === "0.56" || editVersion === "0.57");
+	let isCoreVersion = $derived(editVersion === "0.56" || editVersion === "0.57");
 
-	// ponytail: detect installed console/multiplayer mods using createModsQuery
+	// Which installed mods count as the bundled Console / Multiplayer mods,
+	// matched by source path or legacy internal name.
+	const isConsoleMod = (mod: ModRecord) =>
+		mod.OriginalPath.includes("Tempest Console.tempest") ||
+		mod.Name === "Tempest Mod (Console)" ||
+		mod.OriginalPath.includes("Tempest Mod.tempest") ||
+		mod.Name === "Tempest Mod (Console + Multiplayer)";
+	const isCoreMod = (mod: ModRecord) => mod.OriginalPath.includes("Tempest Core.tempest");
+
+	// ponytail: detect installed bundled mods using createModsQuery
 	$effect(() => {
 		if (open && modsQuery.data && !hasInitializedMods) {
-			const consoleInstalled = modsQuery.data.some(
-				(m) =>
-					m.OriginalPath.includes("Tempest Console.tempest") ||
-					m.Name === "Tempest Mod (Console)" ||
-					m.OriginalPath.includes("Tempest Mod.tempest") ||
-					m.Name === "Tempest Mod (Console + Multiplayer)",
-			);
+			const consoleInstalled = modsQuery.data.some(isConsoleMod);
 			editEnableConsole = consoleInstalled;
 			initialEnableConsole = consoleInstalled;
 
-			const mpInstalled = modsQuery.data.some(
-				(m) =>
-					m.OriginalPath.includes("Tempest Multiplayer.tempest") ||
-					m.Name === "Tempest Mod (Multiplayer)",
-			);
-			editEnableMultiplayer = mpInstalled;
-			initialEnableMultiplayer = mpInstalled;
+			const coreInstalled = modsQuery.data.some(isCoreMod);
+			editEnableCore = coreInstalled;
+			initialEnableCore = coreInstalled;
 
 			hasInitializedMods = true;
 		}
 	});
+
+	// Remove every installed mod matching the predicate by its real internal name
+	// (removing by a hard-coded name silently fails when the name doesn't match).
+	async function removeMatchingMods(isMatch: (mod: ModRecord) => boolean): Promise<void> {
+		for (const mod of modsQuery.data ?? []) {
+			if (isMatch(mod)) {
+				await removeMod(editPath, mod.Name);
+			}
+		}
+	}
 
 	function addArgs() {
 		if (!argsInput.trim()) return;
@@ -155,36 +164,33 @@
 			},
 		});
 
-		// ponytail: install or remove Console mod if checkbox toggled
-		if (editEnableConsole !== initialEnableConsole) {
+		// ponytail: install or remove the bundled mod if the checkbox toggled.
+		// 0.56/0.57 use a single "Console + Multiplayer" toggle backed by Tempest Core.
+		if (isCoreVersion) {
+			if (editEnableCore !== initialEnableCore) {
+				try {
+					if (editEnableCore) {
+						const modFile = await resolveResource("Tempest Core.tempest");
+						await installMod(editPath, modFile, true, true);
+					} else {
+						await removeMatchingMods(isCoreMod);
+					}
+					queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
+				} catch (error) {
+					console.error("Failed to toggle Core mod:", error);
+				}
+			}
+		} else if (editEnableConsole !== initialEnableConsole) {
 			try {
 				if (editEnableConsole) {
 					const modFile = await resolveResource("Tempest Console.tempest");
 					await installMod(editPath, modFile, true, true);
 				} else {
-					await removeMod(editPath, "Tempest Mod (Console)");
-					try {
-						await removeMod(editPath, "Tempest Mod (Console + Multiplayer)");
-					} catch {}
+					await removeMatchingMods(isConsoleMod);
 				}
 				queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
 			} catch (error) {
 				console.error("Failed to toggle Console mod:", error);
-			}
-		}
-
-		// ponytail: install or remove Multiplayer mod if checkbox toggled
-		if (showMultiplayer && editEnableMultiplayer !== initialEnableMultiplayer) {
-			try {
-				if (editEnableMultiplayer) {
-					const modFile = await resolveResource("Tempest Multiplayer.tempest");
-					await installMod(editPath, modFile, true, true);
-				} else {
-					await removeMod(editPath, "Tempest Mod (Multiplayer)");
-				}
-				queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
-			} catch (error) {
-				console.error("Failed to toggle Multiplayer mod:", error);
 			}
 		}
 
@@ -365,26 +371,28 @@
 			</div>
 		{/if}
 
-		<div class="form-control">
-			<label class="label cursor-pointer justify-start gap-3 py-0.5">
-				<input
-					type="checkbox"
-					class="checkbox checkbox-accent checkbox-sm"
-					bind:checked={editEnableConsole}
-				/>
-				<span class="label-text text-sm font-semibold">Enable Console</span>
-			</label>
-		</div>
-
-		{#if showMultiplayer}
+		{#if isCoreVersion}
 			<div class="form-control">
 				<label class="label cursor-pointer justify-start gap-3 py-0.5">
 					<input
 						type="checkbox"
 						class="checkbox checkbox-accent checkbox-sm"
-						bind:checked={editEnableMultiplayer}
+						bind:checked={editEnableCore}
 					/>
-					<span class="label-text text-sm font-semibold">Enable Multiplayer</span>
+					<span class="label-text text-sm font-semibold"
+						>Enable Console + Multiplayer</span
+					>
+				</label>
+			</div>
+		{:else}
+			<div class="form-control">
+				<label class="label cursor-pointer justify-start gap-3 py-0.5">
+					<input
+						type="checkbox"
+						class="checkbox checkbox-accent checkbox-sm"
+						bind:checked={editEnableConsole}
+					/>
+					<span class="label-text text-sm font-semibold">Enable Console</span>
 				</label>
 			</div>
 		{/if}

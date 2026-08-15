@@ -43,7 +43,7 @@
 	});
 </script>
 
-<div class="relative h-full w-full">
+<div class="relative flex h-full w-full flex-col">
 	<div class="absolute inset-0">
 		<video
 			src="/champions/empty.webm"
@@ -55,29 +55,29 @@
 		></video>
 	</div>
 
-	<div class="relative z-20 flex h-full flex-col">
-		<Header
-			title={countdownSeconds > 0
-				? `${m.lobby_map_vote()} ${countdownSeconds}`
-				: m.lobby_map_vote()}
-			class="bg-base-200/90 backdrop-blur-xs"
-		>
-			{#snippet icon()}
-				<Users size={32} class="opacity-60" />
-			{/snippet}
-			{#snippet actions()}
-				<button class="btn btn-error" onclick={handleLeave}>
-					<LogOut size={18} />
-					{m.lobby_leave_lobby()}
-				</button>
-			{/snippet}
-			{#snippet subtitle()}
-				<span>{gameVersion}</span>
-				<span class="opacity-30">|</span>
-				<span>{playerCount} {m.lobby_players({ count: playerCount })}</span>
-			{/snippet}
-		</Header>
+	<Header
+		title={countdownSeconds > 0
+			? `${m.lobby_map_vote()} ${countdownSeconds}`
+			: m.lobby_map_vote()}
+		class="bg-base-200/90 relative z-[60] backdrop-blur-xs"
+	>
+		{#snippet icon()}
+			<Users size={32} class="opacity-60" />
+		{/snippet}
+		{#snippet actions()}
+			<button class="btn btn-error" onclick={handleLeave}>
+				<LogOut size={18} />
+				{m.lobby_leave_lobby()}
+			</button>
+		{/snippet}
+		{#snippet subtitle()}
+			<span>{gameVersion}</span>
+			<span class="opacity-30">|</span>
+			<span>{playerCount} {m.lobby_players({ count: playerCount })}</span>
+		{/snippet}
+	</Header>
 
+	<div class="relative z-20 flex min-h-0 w-full flex-1 flex-col">
 		<div class="min-h-0 w-full flex-1">
 			<MapSelect
 				onselect={(map) => handleMapSelect(map.id)}

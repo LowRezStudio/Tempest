@@ -377,10 +377,16 @@ class LobbyManager {
 	}
 
 	async leaveLobby(): Promise<void> {
-		try {
-			await this.getClient().leaveLobby({}).response;
-		} catch (error) {
-			console.error("Error leaving lobby", error);
+		// If the connection is already dead, there's no point sending a leave
+		// request to an unreachable host — it would hang until the RPC times out.
+		if (connectionStatus.value === "connected") {
+			try {
+				await this.getClient().leaveLobby({}, { timeout: 2000 }).response;
+			} catch (error) {
+				console.error("Error leaving lobby", error);
+			}
+		} else {
+			console.log("Not connected to lobby, skipping leave request");
 		}
 		this.disconnect();
 		resetLobbyState();

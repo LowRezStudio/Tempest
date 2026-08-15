@@ -44,7 +44,7 @@
 	}
 </script>
 
-<Header title={getTitle()}>
+<Header title={getTitle()} class="relative z-[60]">
 	{#snippet icon()}
 		<Users size={32} class="opacity-60" />
 	{/snippet}
