@@ -1,4 +1,5 @@
 import { goto } from "$app/navigation";
+import { page } from "$app/state";
 import { lobbyManager } from "$lib/lobby/lobby-manager";
 import { lobbyHost, resetLobbyState } from "$lib/lobby/stores.svelte";
 import { appendProcessLog, lobbyServerProcessesList } from "$lib/stores/processes.svelte";
@@ -86,6 +87,18 @@ export const hostLobby = async (options: LobbyServerOptions) => {
 
 export const killLobby = async (process: LobbyServerProcess) => {
 	await process.child.write("exit\n");
+};
+
+// Fully close a hosted server: drop it from the tracked list (removing its
+// sidebar/tray entries) and, if its admin page is currently open, leave it.
+export const removeLobbyServer = (server: LobbyServerProcess) => {
+	const pid = server.child.pid;
+	if (page.url.pathname === `/lobby-admin/${pid}`) {
+		void goto("/servers");
+	}
+	lobbyServerProcessesList.value = lobbyServerProcessesList.value.filter(
+		(p) => p.child.pid !== pid,
+	);
 };
 
 export const moveToLobby = (host: string) => {

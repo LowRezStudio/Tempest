@@ -4,12 +4,15 @@
 	import { Tabs } from "bits-ui";
 	import { untrack } from "svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { killLobby, removeLobbyServer } from "$lib/core/lobby.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createLaunchLobbyMutation } from "$lib/queries/lobby";
 	import { instanceMap } from "$lib/stores/instance.svelte";
-	import { servicesURL, username } from "$lib/stores/settings.svelte";
+	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
+	import { username } from "$lib/stores/settings.svelte";
 	import { GAMEMODES, type GameModeId as GameMode } from "$lib/types/lobby";
 	import type { Instance } from "$lib/types/instance";
+	import type { LobbyServerProcess } from "$lib/types/process";
 
 	interface Props {
 		open?: boolean;
@@ -36,10 +39,35 @@
 	const hasLaunched = $derived(hostLobbyMutation.isSuccess);
 	const valid = $derived(selectedName.trim().length > 0 && selectedInstanceId);
 
+	let showConflictPrompt = $state(false);
+	let isClosing = $state(false);
+	let conflictingProcess: LobbyServerProcess | null = $state(null);
+
+	$effect(() => {
+		if (!showConflictPrompt) {
+			conflictingProcess = null;
+			isClosing = false;
+		}
+	});
+
 	function handleCreate() {
 		if (!valid) return;
 		const instance = instanceMap.get()[selectedInstanceId];
 		if (!instance) return;
+		// A server we're already hosting on this port would crash the new one
+		// at startup, so ask instead of letting it fail.
+		const conflict = lobbyServerProcessesList.value.find(
+			(p) => p.createOptions.port === String(selectedPort) && p.returnCode.value === null,
+		);
+		if (conflict) {
+			conflictingProcess = conflict;
+			showConflictPrompt = true;
+			return;
+		}
+		doCreate(instance);
+	}
+
+	function doCreate(instance: Instance) {
 		const { path, launchOptions: options } = instance;
 		const platform = options.platform ?? "Win64";
 		hostLobbyMutation.mutate({
@@ -61,6 +89,30 @@
 			upnp: selectedUpnp,
 		});
 		open = false;
+	}
+
+	async function waitForExited(process: LobbyServerProcess): Promise<void> {
+		const deadline = Date.now() + 10_000;
+		while (Date.now() < deadline) {
+			if (process.returnCode.value !== null) return;
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+	}
+
+	async function handleCloseAndStart() {
+		const process = conflictingProcess;
+		if (!process) return;
+		isClosing = true;
+		try {
+			await killLobby(process);
+			await waitForExited(process);
+			removeLobbyServer(process);
+			showConflictPrompt = false;
+			const instance = instanceMap.get()[selectedInstanceId];
+			if (instance && valid) doCreate(instance);
+		} finally {
+			isClosing = false;
+		}
 	}
 	$effect(() => {
 		if (hasLaunched) {
@@ -278,3 +330,42 @@
 		</div>
 	{/snippet}
 </Modal>
+
+{#if showConflictPrompt}
+	<Modal
+		bind:open={showConflictPrompt}
+		title={m.hostserver_port_conflict_title()}
+		class="max-w-md"
+		onsubmit={handleCloseAndStart}
+	>
+		<div class="space-y-4">
+			<p class="text-sm">
+				{m.hostserver_port_conflict_message({ port: selectedPort })}
+			</p>
+		</div>
+
+		{#snippet actions()}
+			<div class="flex w-full items-center justify-end">
+				<div class="flex gap-2">
+					<button
+						class="btn btn-ghost"
+						type="button"
+						disabled={isClosing}
+						onclick={() => (showConflictPrompt = false)}>{m.common_no()}</button
+					>
+					<button
+						class="btn btn-accent"
+						type="submit"
+						disabled={isClosing}
+						aria-busy={isClosing}
+					>
+						{#if isClosing}
+							<span class="loading loading-spinner loading-sm"></span>
+						{/if}
+						{m.hostserver_close_and_start()}
+					</button>
+				</div>
+			</div>
+		{/snippet}
+	</Modal>
+{/if}
