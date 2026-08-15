@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/state";
 	import {
-		Compass,
 		Download,
 		FlaskConical,
 		House,
@@ -12,6 +11,7 @@
 		Settings,
 		SquareTerminal,
 		Terminal,
+		Users,
 	} from "@lucide/svelte";
 	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
@@ -50,7 +50,7 @@
 			>
 		{/if}
 		{#if lobbyHost.value}
-			<SidebarItem href="/lobby" label={m.sidebar_lobby()}><Compass size={20} /></SidebarItem>
+			<SidebarItem href="/lobby" label={m.sidebar_lobby()}><Users size={20} /></SidebarItem>
 		{/if}
 	</nav>
 
