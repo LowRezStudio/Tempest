@@ -14,9 +14,10 @@
 
 	interface Props {
 		instance: Instance;
+		onpointerdown?: (e: PointerEvent) => void;
 	}
 
-	let { instance }: Props = $props();
+	let { instance, onpointerdown }: Props = $props();
 
 	let isSettingUp = $derived(instance.state.type === "setup");
 	let isDownloading = $derived(instance.state.type === "downloading");
@@ -124,6 +125,7 @@
 		onclick={handleCardClick}
 		role="link"
 		tabindex="0"
+		{onpointerdown}
 		onkeydown={(e) => {
 			if (e.key === "Enter" || e.key === " ") handleCardClick(e as unknown as MouseEvent);
 		}}

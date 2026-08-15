@@ -1,4 +1,4 @@
-import { computeDropIndex, reorderArray } from "./reorder";
+import { computeDropIndex, computeGridDropIndex, measureGrid, reorderArray } from "./reorder";
 import type { SlotRect } from "./reorder";
 
 export type ReorderDragState<T> = {
@@ -7,15 +7,20 @@ export type ReorderDragState<T> = {
 	readonly item: T;
 	readonly offsetX: number;
 	readonly offsetY: number;
-	readonly pitch: number;
+	readonly width: number;
 	readonly orderedIds: readonly string[];
 	readonly rects: ReadonlyMap<string, SlotRect>;
+	readonly columns: number;
+	readonly xPos: number[];
+	readonly yPos: number[];
 };
 
 export type ReorderableOptions = {
 	readonly ids: () => readonly string[];
 	readonly container: () => HTMLElement | undefined;
 	readonly onReorder: (ids: string[]) => void;
+	/** Enable row-major (multi-column grid) drop semantics instead of a single column. */
+	readonly grid?: boolean;
 };
 
 const DRAG_THRESHOLD = 4;
@@ -50,7 +55,9 @@ export function createReorderable<T>(options: ReorderableOptions) {
 		if (drag) {
 			pointerX = e.clientX;
 			pointerY = e.clientY;
-			toIndex = computeDropIndex(drag.orderedIds, drag.rects, e.clientY);
+			toIndex = options.grid
+				? computeGridDropIndex(drag.orderedIds, drag.rects, e.clientX, e.clientY)
+				: computeDropIndex(drag.orderedIds, drag.rects, e.clientY);
 		}
 	}
 
@@ -61,19 +68,20 @@ export function createReorderable<T>(options: ReorderableOptions) {
 		const slots = container.querySelectorAll<HTMLElement>("[data-id]");
 		const orderedIds: string[] = [];
 		const rects = new Map<string, SlotRect>();
-		let firstTop: number | null = null;
-		let secondTop: number | null = null;
 		for (const slot of slots) {
 			const id = slot.dataset.id;
 			if (!id) continue;
 			const rect = slot.getBoundingClientRect();
 			orderedIds.push(id);
-			rects.set(id, { top: rect.top, mid: rect.top + rect.height / 2 });
-			if (firstTop === null) firstTop = rect.top;
-			else secondTop ??= rect.top;
+			rects.set(id, {
+				top: rect.top,
+				bottom: rect.bottom,
+				left: rect.left,
+				mid: rect.top + rect.height / 2,
+				cx: rect.left + rect.width / 2,
+			});
 		}
-		const fallbackH = slots[0]?.getBoundingClientRect().height ?? 48;
-		const pitch = firstTop !== null && secondTop !== null ? secondTop - firstTop : fallbackH;
+		const { columns, xPos, yPos } = measureGrid(orderedIds, rects);
 		const draggedSlot = container.querySelector<HTMLElement>(
 			`[data-id="${CSS.escape(pending.id)}"]`,
 		);
@@ -85,9 +93,12 @@ export function createReorderable<T>(options: ReorderableOptions) {
 			item: pending.item,
 			offsetX: e.clientX - rect.left,
 			offsetY: e.clientY - rect.top,
-			pitch,
+			width: rect.width,
 			orderedIds,
 			rects,
+			columns,
+			xPos,
+			yPos,
 		};
 		toIndex = pending.index;
 		pointerX = e.clientX;
@@ -134,10 +145,18 @@ export function createReorderable<T>(options: ReorderableOptions) {
 		const from = drag.from;
 		const to = toIndex;
 		if (to === from) return "";
-		const amount = `${drag.pitch}px`;
-		if (to < from && index >= to && index < from) return `translateY(${amount})`;
-		if (to > from && index > from && index <= to) return `translateY(-${amount})`;
-		return "";
+		let moved = index;
+		if (to < from && index >= to && index < from) moved = index + 1;
+		else if (to > from && index > from && index <= to) moved = index - 1;
+		else return "";
+		const c0 = index % drag.columns;
+		const r0 = Math.floor(index / drag.columns);
+		const c1 = moved % drag.columns;
+		const r1 = Math.floor(moved / drag.columns);
+		const dx = (drag.xPos[c1] ?? 0) - (drag.xPos[c0] ?? 0);
+		const dy = (drag.yPos[r1] ?? 0) - (drag.yPos[r0] ?? 0);
+		if (dx === 0 && dy === 0) return "";
+		return `translate(${dx}px, ${dy}px)`;
 	}
 
 	$effect(() => {

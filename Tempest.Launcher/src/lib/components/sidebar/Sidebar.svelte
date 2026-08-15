@@ -143,8 +143,6 @@
 	.instance-slot.is-ghost {
 		z-index: 0;
 		opacity: 0.3;
-		outline: 2px dashed currentColor;
-		outline-offset: -2px;
 		border-radius: 0.5rem;
 	}
 	.drag-clone {
