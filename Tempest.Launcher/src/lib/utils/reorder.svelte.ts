@@ -24,7 +24,7 @@ export type ReorderableOptions = {
 };
 
 const DRAG_THRESHOLD = 4;
-const DRAG_BODY_CLASS = "sidebar-dragging";
+const DRAG_BODY_CLASS = "reorder-dragging";
 
 type Pending<T> = {
 	readonly id: string;
@@ -114,13 +114,17 @@ export function createReorderable<T>(options: ReorderableOptions) {
 				options.onReorder(reorderArray(ids, from, toIndex));
 			}
 			// Suppress the click that follows a drag so we don't navigate.
-			window.addEventListener(
-				"click",
-				(ev) => {
-					ev.preventDefault();
-					ev.stopPropagation();
-				},
-				{ capture: true, once: true },
+			// If pointerup doesn't produce a click (e.g. released off the slot),
+			// the { once: true } listener would stay armed and swallow the next
+			// unrelated click, so also disarm it on a short timer.
+			const suppressClick = (ev: MouseEvent) => {
+				ev.preventDefault();
+				ev.stopPropagation();
+			};
+			window.addEventListener("click", suppressClick, { capture: true, once: true });
+			window.setTimeout(
+				() => window.removeEventListener("click", suppressClick, { capture: true }),
+				500,
 			);
 			// Drop focus so the tooltip (shown on :focus-within) doesn't stick.
 			if (document.activeElement instanceof HTMLElement) {

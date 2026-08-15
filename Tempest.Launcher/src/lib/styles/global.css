@@ -124,8 +124,8 @@
 }
 
 /* Drag-reorder cursor feedback (used by createReorderable). */
-body.sidebar-dragging,
-body.sidebar-dragging * {
+body.reorder-dragging,
+body.reorder-dragging * {
 	cursor: grabbing !important;
 	user-select: none;
 }

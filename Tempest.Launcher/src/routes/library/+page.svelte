@@ -1,52 +1,26 @@
 <script lang="ts">
-	import { Boxes, Library, Plus, Search, X } from "@lucide/svelte";
+	import { ArrowUpNarrowWide, Boxes, Library, Plus, Search, X } from "@lucide/svelte";
 	import InstanceCard from "$lib/components/library/InstanceCard.svelte";
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { instanceMap, instanceOrder, setInstanceOrder } from "$lib/stores/instance.svelte";
+	import {
+		orderedInstances,
+		sortInstancesByVersion,
+		setInstanceOrder,
+	} from "$lib/stores/instance.svelte";
 	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
 	import { createReorderable } from "$lib/utils/reorder.svelte";
 	import type { Instance } from "$lib/types/instance";
 
 	let searchQuery = $state("");
-	let sortBy = $state<"name" | "version" | "date">("date");
-	let groupBy = $state<"none" | "version" | "group">("group");
 
-	const orderedInstances = $derived.by(() => {
-		const order = instanceOrder.value;
-		const all = Object.values(instanceMap.value).filter((i): i is Instance => !!i);
-		const byId = new Map(all.map((i) => [i.id, i]));
-		const sorted: Instance[] = [];
-		for (const id of order) {
-			const inst = byId.get(id);
-			if (inst) {
-				sorted.push(inst);
-				byId.delete(id);
-			}
-		}
-		for (const inst of byId.values()) sorted.push(inst);
-		return sorted;
-	});
-
-	const filteredInstances = $derived(
-		orderedInstances.filter(
+	const sortedInstances = $derived(
+		orderedInstances.value.filter(
 			(instance) =>
 				instance.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
 				instance.version?.toLowerCase().includes(searchQuery.toLowerCase()),
 		),
-	);
-
-	const sortedInstances = $derived(
-		sortBy === "date"
-			? filteredInstances
-			: [...filteredInstances].sort((a, b) => {
-					if (sortBy === "name") return a.label.localeCompare(b.label);
-					if (sortBy === "version") {
-						return (a.version || "").localeCompare(b.version || "");
-					}
-					return 0;
-				}),
 	);
 
 	let gridEl: HTMLDivElement | undefined = $state();
@@ -57,7 +31,7 @@
 		grid: true,
 	});
 
-	const canDrag = $derived(sortBy === "date" && searchQuery.trim() === "");
+	const canDrag = $derived(searchQuery.trim() === "");
 </script>
 
 <div class="bg-base-100 flex h-full flex-col">
@@ -66,6 +40,14 @@
 			<Library size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet actions()}
+			<button
+				class="btn btn-ghost btn-square"
+				title={m.library_sort_version()}
+				aria-label={m.library_sort_version()}
+				onclick={sortInstancesByVersion}
+			>
+				<ArrowUpNarrowWide size={16} />
+			</button>
 			<label class="input input-bordered">
 				<Search size={16} class="opacity-50" />
 				<input
@@ -82,8 +64,8 @@
 		{/snippet}
 		{#snippet subtitle()}
 			<span
-				>{orderedInstances.length}
-				{m.library_instances({ count: orderedInstances.length })}</span
+				>{orderedInstances.value.length}
+				{m.library_instances({ count: orderedInstances.value.length })}</span
 			>
 		{/snippet}
 	</Header>

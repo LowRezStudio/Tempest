@@ -91,6 +91,7 @@
 	"champions_click_to_remove": "Click to remove",
 	"champions_pool_hint": "Click a card to add it to your loadout",
 	"champions_saved_toast": "Loadout saved: {name}",
+	"library_sort_version": "Sort by version",
 	"library_title": "Library",
 	"library_new_instance": "New Instance",
 	"library_no_instances": "No instances yet",
