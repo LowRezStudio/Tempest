@@ -169,7 +169,6 @@
 			currentMap={lobbyWaitingState.value.currentMap}
 			handleChampionSelect={handleJoinInProgress}
 			gameVersion={lobbyWaitingState.value.gameVersion}
-			countdownSeconds={-1}
 		/>
 	{/if}
 </div>

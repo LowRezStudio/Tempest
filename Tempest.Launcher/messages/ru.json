@@ -182,6 +182,8 @@
 	"lobby_lobby_restarting": "Лобби перезапускается...",
 	"lobby_playing_on": "Игра на",
 	"lobby_map_vote": "Голосование за карту",
+	"lobby_map_votes": "Проголосовало {voted}/{total}",
+	"lobby_champions_locked_in": "Выбрано {locked}/{total}",
 	"lobby_selected_champion": "Выбранный чемпион",
 	"lobby_select_champion": "Выберите вашего чемпиона",
 	"lobby_not_ready": "Не готов",

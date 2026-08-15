@@ -179,6 +179,8 @@
 	"lobby_lobby_restarting": "Lobi yeniden başlatılıyor...",
 	"lobby_playing_on": "Oynanıyor",
 	"lobby_map_vote": "Harita Oylaması",
+	"lobby_map_votes": "{voted}/{total} oy verdi",
+	"lobby_champions_locked_in": "{locked}/{total} kilitlendi",
 	"lobby_selected_champion": "Seçilen Şampiyon",
 	"lobby_select_champion": "Şampiyonunuzu Seçin",
 	"lobby_not_ready": "Hazır Değil",

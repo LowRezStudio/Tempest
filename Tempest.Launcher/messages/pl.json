@@ -182,6 +182,8 @@
 	"lobby_lobby_restarting": "Ponowne uruchamianie poczekalni...",
 	"lobby_playing_on": "Grasz na",
 	"lobby_map_vote": "Głosowanie na mapę",
+	"lobby_map_votes": "{voted}/{total} zagłosowało",
+	"lobby_champions_locked_in": "{locked}/{total} potwierdzonych",
 	"lobby_selected_champion": "Wybrany bohater",
 	"lobby_select_champion": "Wybierz swojego bohatera",
 	"lobby_not_ready": "Nie gotowy",

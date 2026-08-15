@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { Users } from "@lucide/svelte";
 	import champions from "$lib/data/champions.json";
 	import { lobbyStaticInfo } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { resolveGamemodeLabel, type Map } from "$lib/types/lobby";
 	import ChampionSelect from "../champions/ChampionSelect.svelte";
+	import Header from "../ui/Header.svelte";
 	import LobbyPlayerCard from "./LobbyPlayerCard.svelte";
 	import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
 
@@ -14,7 +16,7 @@
 		confirmedChampion?: string;
 		handleChampionSelect: (champ: string) => void;
 		gameVersion: string;
-		countdownSeconds: number;
+		countdownSeconds?: number;
 	}
 
 	let {
@@ -24,7 +26,7 @@
 		confirmedChampion,
 		handleChampionSelect,
 		gameVersion,
-		countdownSeconds,
+		countdownSeconds = -1,
 	}: Props = $props();
 
 	function getChampionDisplayName(champion: string | undefined): string {
@@ -32,9 +34,31 @@
 	}
 
 	let gamemodeName = $derived(resolveGamemodeLabel(lobbyStaticInfo.value?.gamemode));
+	let lockedInCount = $derived(
+		[...teamLeft, ...teamRight].filter((p) => p.champion && p.champion.length > 0).length,
+	);
+	let totalCount = $derived(teamLeft.length + teamRight.length);
+	let isStartCountdownRunning = $derived(
+		countdownSeconds > 0 && lockedInCount > 0 && lockedInCount === totalCount,
+	);
 </script>
 
 <div class="relative h-full w-full overflow-hidden">
+	<Header
+		title={isStartCountdownRunning
+			? m.lobby_starting_countdown({ seconds: countdownSeconds })
+			: m.lobby_select_champion()}
+		class="bg-base-200/90 relative z-[60] backdrop-blur-xs"
+	>
+		{#snippet icon()}
+			<Users size={32} class="opacity-60" />
+		{/snippet}
+		{#snippet subtitle()}
+			<span>{gameVersion}</span>
+			<span class="opacity-30">|</span>
+			<span>{m.lobby_champions_locked_in({ locked: lockedInCount, total: totalCount })}</span>
+		{/snippet}
+	</Header>
 	<!-- Left Side Panel (Blue Gradient) -->
 	<div
 		class="absolute top-0 bottom-0 left-0 z-20 flex w-48 flex-col gap-3 bg-gradient-to-r from-blue-950/95 via-blue-900/40 to-transparent p-4 pt-16 md:w-64 md:p-6 lg:w-80"
@@ -99,7 +123,6 @@
 	<ChampionSelect
 		confirmedChampionName={confirmedChampion}
 		onselect={(champ) => handleChampionSelect(champ.name)}
-		{countdownSeconds}
 		{gameVersion}
 		sidebarPadding={true}
 	/>

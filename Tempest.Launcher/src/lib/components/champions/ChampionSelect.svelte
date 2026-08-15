@@ -15,7 +15,6 @@
 		onselect?: (champion: Champion) => void;
 		confirmedChampionName?: string;
 		gameVersion?: string;
-		countdownSeconds?: number;
 		sidebarPadding?: boolean;
 	}
 
@@ -24,7 +23,6 @@
 		confirmedChampionName,
 		// TODO: Remove 0.57 placeholder
 		gameVersion = "0.57",
-		countdownSeconds = -1,
 		sidebarPadding = false,
 	}: Props = $props();
 
@@ -192,18 +190,6 @@
 		class="relative z-20 flex h-full flex-col {sidebarPadding ? 'mx-48 md:mx-64 lg:mx-80' : ''}"
 		style="container-type: inline-size;"
 	>
-		<!-- Counter -->
-		{#if countdownSeconds > 0}
-			<div class="flex justify-center pt-4">
-				<h2
-					class="text-6xl font-bold text-white"
-					style="text-shadow: 0 4px 12px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9);"
-				>
-					{countdownSeconds}
-				</h2>
-			</div>
-		{/if}
-
 		<!-- Floating Champion Portraits -->
 		{#if !confirmedChampionName}
 			<div class="flex w-full flex-1 flex-col items-center justify-center gap-6 pt-16 pb-8">

@@ -191,6 +191,8 @@
 	"lobby_lobby_restarting": "Lobby is restarting...",
 	"lobby_playing_on": "Playing on",
 	"lobby_map_vote": "Map Vote",
+	"lobby_map_votes": "{voted}/{total} Voted",
+	"lobby_champions_locked_in": "{locked}/{total} Locked In",
 	"lobby_selected_champion": "Selected Champion",
 	"lobby_select_champion": "Select Your Champion",
 	"lobby_not_ready": "Not ready",

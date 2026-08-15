@@ -176,6 +176,8 @@
 	"lobby_lobby_restarting": "El lobby se está reiniciando...",
 	"lobby_playing_on": "Jugando en",
 	"lobby_map_vote": "Voto de mapa",
+	"lobby_map_votes": "{voted}/{total} votaron",
+	"lobby_champions_locked_in": "{locked}/{total} bloqueados",
 	"lobby_selected_champion": "Campeón seleccionado",
 	"lobby_select_champion": "Selecciona tu campeón",
 	"lobby_not_ready": "No listo",

@@ -33,6 +33,8 @@
 		return champions.find((c) => c.name === champion)?.displayName || "";
 	}
 
+	let votedCount = $derived(Object.keys(votes ?? {}).length);
+
 	onMount(() => {
 		const defaultMap = getMapsForVersion(gameVersion).find((m) =>
 			gamemode.toLowerCase().includes(m.mode),
@@ -57,7 +59,7 @@
 
 	<Header
 		title={countdownSeconds > 0
-			? `${m.lobby_map_vote()} ${countdownSeconds}`
+			? `${m.lobby_map_vote()} ${countdownSeconds}s`
 			: m.lobby_map_vote()}
 		class="bg-base-200/90 relative z-[60] backdrop-blur-xs"
 	>
@@ -73,7 +75,7 @@
 		{#snippet subtitle()}
 			<span>{gameVersion}</span>
 			<span class="opacity-30">|</span>
-			<span>{playerCount} {m.lobby_players({ count: playerCount })}</span>
+			<span>{m.lobby_map_votes({ voted: votedCount, total: playerCount })}</span>
 		{/snippet}
 	</Header>
 
