@@ -71,7 +71,7 @@
 		if (open && modsQuery.data && !hasInitializedMods) {
 			const consoleInstalled = modsQuery.data.some(
 				(m) =>
-					m.OriginalPath.includes("Console Mod.tempest") ||
+					m.OriginalPath.includes("Tempest Console.tempest") ||
 					m.Name === "Tempest Mod (Console)" ||
 					m.OriginalPath.includes("Tempest Mod.tempest") ||
 					m.Name === "Tempest Mod (Console + Multiplayer)",
@@ -81,7 +81,7 @@
 
 			const mpInstalled = modsQuery.data.some(
 				(m) =>
-					m.OriginalPath.includes("Multiplayer Mod.tempest") ||
+					m.OriginalPath.includes("Tempest Multiplayer.tempest") ||
 					m.Name === "Tempest Mod (Multiplayer)",
 			);
 			editEnableMultiplayer = mpInstalled;
@@ -159,7 +159,7 @@
 		if (editEnableConsole !== initialEnableConsole) {
 			try {
 				if (editEnableConsole) {
-					const modFile = await resolveResource("Console Mod.tempest");
+					const modFile = await resolveResource("Tempest Console.tempest");
 					await installMod(editPath, modFile, true, true);
 				} else {
 					await removeMod(editPath, "Tempest Mod (Console)");
@@ -177,7 +177,7 @@
 		if (showMultiplayer && editEnableMultiplayer !== initialEnableMultiplayer) {
 			try {
 				if (editEnableMultiplayer) {
-					const modFile = await resolveResource("Multiplayer Mod.tempest");
+					const modFile = await resolveResource("Tempest Multiplayer.tempest");
 					await installMod(editPath, modFile, true, true);
 				} else {
 					await removeMod(editPath, "Tempest Mod (Multiplayer)");

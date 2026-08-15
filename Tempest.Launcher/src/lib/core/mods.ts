@@ -43,9 +43,9 @@ export const installAutoMods = async (instance: Instance): Promise<void> => {
 	const gamePath = instance?.path;
 	if (!gamePath) return;
 
-	const resources = ["Console Mod.tempest"];
+	const resources = ["Tempest Console.tempest"];
 	if (instance.version && MULTIPLAYER_MOD_VERSIONS.has(instance.version)) {
-		resources.push("Multiplayer Mod.tempest");
+		resources.push("Tempest Multiplayer.tempest");
 	}
 
 	for (const resource of resources) {

@@ -40,8 +40,8 @@
 			"binaries/asmloader-windows_x86_64.dll": "asmloader-windows_x86_64.dll",
 			"binaries/*": "",
 			"resources/Tempest Mod.tempest": "Tempest Mod.tempest",
-			"resources/Console Mod.tempest": "Console Mod.tempest",
-			"resources/Multiplayer Mod.tempest": "Multiplayer Mod.tempest"
+			"resources/Tempest Console.tempest": "Tempest Console.tempest",
+			"resources/Tempest Multiplayer.tempest": "Tempest Multiplayer.tempest"
 		},
 		"targets": ["msi", "dmg", "appimage", "deb", "rpm"],
 		"linux": {
