@@ -40,14 +40,6 @@
 			<Library size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet actions()}
-			<button
-				class="btn btn-ghost btn-square"
-				title={m.library_sort_version()}
-				aria-label={m.library_sort_version()}
-				onclick={sortInstancesByVersion}
-			>
-				<ArrowUpNarrowWide size={16} />
-			</button>
 			<label class="input input-bordered">
 				<Search size={16} class="opacity-50" />
 				<input
@@ -67,6 +59,14 @@
 				>{orderedInstances.value.length}
 				{m.library_instances({ count: orderedInstances.value.length })}</span
 			>
+			<button
+				class="btn btn-ghost btn-square btn-xs"
+				title={m.library_sort_version()}
+				aria-label={m.library_sort_version()}
+				onclick={sortInstancesByVersion}
+			>
+				<ArrowUpNarrowWide size={14} />
+			</button>
 		{/snippet}
 	</Header>
 
