@@ -37,7 +37,7 @@ export type ModListResult = {
 	Mods: ModRecord[];
 };
 
-/** Versions that get Tempest Core + Tempest Multiplayer instead of Tempest Console. */
+/** Versions that get Tempest Core instead of Tempest Console. */
 const CORE_MOD_VERSIONS = new Set(["0.56", "0.57"]);
 
 export const installAutoMods = async (instance: Instance): Promise<void> => {
@@ -46,9 +46,6 @@ export const installAutoMods = async (instance: Instance): Promise<void> => {
 
 	const isCoreVersion = !!(instance.version && CORE_MOD_VERSIONS.has(instance.version));
 	const resources = isCoreVersion ? ["Tempest Core.tempest"] : ["Tempest Console.tempest"];
-	if (isCoreVersion) {
-		resources.push("Tempest Multiplayer.tempest");
-	}
 
 	for (const resource of resources) {
 		try {
