@@ -48,7 +48,6 @@
 	let hasDetected = $state(false);
 
 	let loginMethod = $state<"steam" | "epic" | "hirez">();
-	let showLoginPrompt = $state(false);
 	let selectedArgs = $state<string[]>([]);
 
 	const selectedVersion = $derived(flatVersions.find((v) => v.id === selectedVersionId));
@@ -64,6 +63,8 @@
 	const isValid = $derived(
 		selectedTab === "download" ? !!selectedVersionId : !!(selectedVersionId && selectedPath),
 	);
+
+	const showLoginPrompt = $derived(selectedVersion?.version === "8.1");
 
 	async function handleBrowse() {
 		const result = await openDialog({
@@ -157,10 +158,7 @@
 			if (!selectedVersionId) return;
 		}
 
-		if (selectedVersion?.version === "8.1" && !loginMethod) {
-			showLoginPrompt = true;
-			return;
-		}
+		if (selectedVersion?.version === "8.1" && !loginMethod) return;
 
 		if (selectedTab === "download") {
 			if (!selectedVersion?.version || !supportsCloudDownload) return;
@@ -244,7 +242,6 @@
 			hasDetected = false;
 			detectionError = "";
 			loginMethod = undefined;
-			showLoginPrompt = false;
 			selectedArgs = [];
 		}
 	});
@@ -545,7 +542,8 @@
 					type="submit"
 					disabled={!isValid ||
 						isDetecting ||
-						(selectedTab === "download" && !supportsCloudDownload)}
+						(selectedTab === "download" && !supportsCloudDownload) ||
+						(selectedVersion?.version === "8.1" && !loginMethod)}
 				>
 					{#if selectedTab === "download"}
 						<CloudDownload size={16} />

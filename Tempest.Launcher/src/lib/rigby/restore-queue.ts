@@ -1,6 +1,6 @@
 import { createCommand } from "$lib/core/command";
-import { installAutoMods } from "$lib/core/mods";
 import { m } from "$lib/paraglide/messages";
+import { setupInstance } from "$lib/platforms/setup";
 import { instanceMap, updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, logCommandOutput } from "$lib/stores/processes.svelte";
 import { addToast } from "$lib/stores/ui.svelte";
@@ -278,8 +278,7 @@ export class RestoreQueue {
 								result: parsed,
 								progress: undefined,
 							});
-							this.updateInstanceState(item.outDir, "prepared");
-							this.installModsForOutDir(item.outDir);
+							this.setupOutDir(item.outDir);
 						}
 					} catch {
 						console.warn("Failed to parse JSON line:", line);
@@ -352,8 +351,7 @@ export class RestoreQueue {
 									result: parsed,
 									progress: undefined,
 								});
-								this.updateInstanceState(item.outDir, "prepared");
-								this.installModsForOutDir(item.outDir);
+								this.setupOutDir(item.outDir);
 								finish();
 								return;
 							}
@@ -411,14 +409,22 @@ export class RestoreQueue {
 		}
 	}
 
-	private installModsForOutDir(outDir: string): void {
+	private setupOutDir(outDir: string): void {
 		const instances = instanceMap.get();
 		const instance = Object.values(instances).find((inst) => inst?.path === outDir) as
 			| Instance
 			| undefined;
-		if (instance?.id) {
-			void installAutoMods(instance);
-		}
+		if (!instance?.id) return;
+		void (async () => {
+			updateInstance(instance.id, { state: { type: "setup" } });
+			try {
+				await setupInstance(instance);
+			} catch (error) {
+				console.error("Instance setup failed:", error);
+			} finally {
+				updateInstance(instance.id, { state: { type: "prepared" } });
+			}
+		})();
 	}
 
 	private instanceName(outDir: string): string {
