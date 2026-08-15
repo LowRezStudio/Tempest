@@ -246,7 +246,7 @@ internal sealed class LobbyState(LobbyServerOptions options, ITicketStore ticket
                 if (_forceStartActive) return;
                 var nonSpectators = _players.Values.Where(p => p.TaskForce != 0).ToList();
                 var allReady = nonSpectators.Count > 0 && nonSpectators.All(p => p.Ready);
-                if (allReady && _countdown == null) StartCountdown(10, EndWaiting);
+                if (allReady && _countdown == null) StartCountdown(5, EndWaiting);
                 else if (!allReady) CancelCountdown();
             }
             else if (_state.MapVote != null)
