@@ -1,6 +1,6 @@
 const std = @import("std");
 const minilzo = @import("minilzo");
-const unreal = @import("unreal.zig");
+const unreal = @import("unreal");
 
 /// UE CompressionFlags bit values (from Core/UnFile.h).
 pub const compress_none: u32 = 0x00;

@@ -12,6 +12,9 @@ mkdir -p "$HOME"
 # Without this, Wine fails with "no driver could be loaded" and game server
 # processes crash immediately on startup.
 export DISPLAY=:99
+# Remove a stale X lock file if the container was restarted by Docker's
+# restart policy (the previous Xvfb died, leaving /tmp/.X99-lock behind).
+rm -f /tmp/.X99-lock
 Xvfb :99 -screen 0 1x1x8 -nolisten tcp -noreset +extension GLX &
 XVFB_PID=$!
 
@@ -52,6 +55,18 @@ echo "=== Restoring Tempest Game Files (Manifest ID: $MANIFEST_ID) ==="
 /app/Tempest.CLI rigby restore "https://tempest-cdn.online/manifests/${MANIFEST_ID}.manifest.json" \
     --out-dir "$GAME_PATH" \
     --base-url "https://tempest-cdn.online/chunks"
+
+# The manifest restore nests files under a version subdirectory (e.g.
+# $GAME_PATH/0.57), so the actual game root (containing Binaries + Engine) may
+# be deeper than $GAME_PATH. Resolve it so the server launches the correct
+# executable -- LauncherUtility.GetExecutablePath only searches upward.
+for candidate in "$GAME_PATH" "$GAME_PATH"/*; do
+    if [ -d "$candidate/Binaries" ] && [ -d "$candidate/Engine" ]; then
+        GAME_PATH="$candidate"
+        break
+    fi
+done
+echo "=== Resolved game root to $GAME_PATH ==="
 
 # 2. Initialize Wine prefix if it doesn't exist
 # We run 'wine init' to set up the wine prefix headlessly.

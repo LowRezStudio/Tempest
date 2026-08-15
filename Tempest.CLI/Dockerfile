@@ -1,16 +1,25 @@
 # =========================================================
 # Stage 1: Build Environment
 # =========================================================
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+# Pin the SDK patch version for reproducible builds (matches local dev SDK
+# 10.0.302). The floating 10.0-alpine tag can move under us at any time.
+FROM mcr.microsoft.com/dotnet/sdk:10.0.302-alpine3.24 AS build
 WORKDIR /src
 
-# Install required build tools for Native AOT on Alpine, plus gcompat (for protoc), utilities, wine (to pre-initialize the prefix), and xvfb-run (headless X server for wine)
+# Build tools for the .NET SDK / Grpc.Tools (protoc needs gcompat on musl),
+# wine (to pre-initialize the prefix), and xvfb-run (headless X server for wine)
 RUN apk add --no-cache clang build-base zlib-dev gcompat xz curl wine freetype libgcc libstdc++ xvfb-run gnutls
 
-# Download and install Zig 0.15.2
-RUN mkdir -p /opt/zig && \
-    curl -L https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz | tar -xJ -C /opt/zig --strip-components=1
-ENV PATH="/opt/zig:${PATH}"
+# Install anyzig — a zig version manager that reads the `minimum_zig_version`
+# from each sub-project's build.zig.zon and invokes the matching zig version.
+# This mirrors local dev (homebrew anyzig), so Tempest.CLI/inject resolves zig
+# 0.16.0 while other zig projects can pin their own versions.
+RUN mkdir -p /opt/anyzig && \
+    curl -L -o /tmp/anyzig.tar.gz https://github.com/marler8997/anyzig/releases/download/v2026_03_26/anyzig-x86_64-linux.tar.gz && \
+    echo "f9d5a09fbd7c019eecef1a397613ce5baec22872a1c3eb5ab4b1132e917c3d71  /tmp/anyzig.tar.gz" | sha256sum -c - && \
+    tar -xz -C /opt/anyzig -f /tmp/anyzig.tar.gz && \
+    rm /tmp/anyzig.tar.gz
+ENV PATH="/opt/anyzig:${PATH}"
 
 # Copy solution and project files for caching package restore
 COPY Tempest.slnx ./
@@ -18,8 +27,6 @@ COPY MarshalLib/MarshalLib.csproj MarshalLib/
 COPY MarshalLib.Database/MarshalLib.Database.csproj MarshalLib.Database/
 COPY Tempest.Protocol/Tempest.Protocol.csproj Tempest.Protocol/
 COPY Tempest.CLI/Tempest.CLI.csproj Tempest.CLI/
-COPY Tempest.Utils/build.zig Tempest.Utils/
-COPY Tempest.Utils/build.zig.zon Tempest.Utils/
 
 # Restore NuGet packages specifically for linux-musl-x64 target using cache mount
 RUN --mount=type=cache,target=/root/.nuget/packages \
@@ -30,27 +37,31 @@ COPY MarshalLib/ MarshalLib/
 COPY MarshalLib.Database/ MarshalLib.Database/
 COPY Tempest.Protocol/ Tempest.Protocol/
 COPY Tempest.CLI/ Tempest.CLI/
-COPY Tempest.Utils/ Tempest.Utils/
 
-# Build native utility tools (specifically asmloader dynamic libraries)
-WORKDIR /src/Tempest.Utils
-RUN --mount=type=cache,target=/src/Tempest.Utils/.zig-cache \
-    --mount=type=cache,target=/root/.cache/zig \
-    zig build -Doptimize=ReleaseSafe
-
-# Publish Tempest.CLI with Native AOT targeting Alpine using NuGet cache mount
+# Publish Tempest.CLI self-contained for linux-musl-x64.
+#
+# This is deliberately NOT NativeAOT: ilc's ILScanner dataflow analysis crashes
+# on this project under the linux-musl-x64 target (NullReferenceException in
+# DataflowAnalyzedMethodNode.HasDynamicDependencies), reproduced with both
+# ilcompiler 10.0.10 and 10.0.11. The same project AOT-compiles fine for
+# osx-arm64, so this is a RID-specific ilc bug, not a project incompatibility.
+# A self-contained (non-AOT) publish sidesteps it entirely; startup speed is
+# irrelevant here since the game server boots under Wine anyway.
+#
+# MSBuild's BuildZigInject target compiles Tempest.CLI/inject (inject32.exe /
+# inject64.exe, embedded as resources) with zig during this publish; anyzig
+# resolves zig 0.16.0 from inject/build.zig.zon. The /root/.cache/zig mount
+# persists anyzig's downloaded zig across rebuilds.
 WORKDIR /src
 RUN --mount=type=cache,target=/root/.nuget/packages \
+    --mount=type=cache,target=/root/.cache/zig \
     dotnet publish Tempest.CLI/Tempest.CLI.csproj \
     -c Release \
     -r linux-musl-x64 \
+    --self-contained true \
     -o /app/publish \
     --no-restore \
-    /p:PublishAot=true
-
-# Copy the built asmloader dlls into the published folder
-RUN cp /src/Tempest.Utils/zig-out/bin/asmloader-windows_x86.dll /app/publish/ && \
-    cp /src/Tempest.Utils/zig-out/bin/asmloader-windows_x86_64.dll /app/publish/
+    /p:PublishAot=false
 
 # Copy versions database so version names/IDs can be resolved
 COPY Tempest.Launcher/src/lib/data/versions.json /app/publish/

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const unreal = @import("unreal.zig");
+const unreal = @import("unreal");
 
 pub const Error = unreal.Error || error{
     CorruptProperty,

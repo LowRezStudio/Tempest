@@ -3,16 +3,25 @@ services:
         build:
             context: ..
             dockerfile: Tempest.CLI/Dockerfile
+        # Alpine's wine package is x86_64-only, and the game server itself is an
+        # x86 Windows binary. On Apple Silicon this must run under amd64
+        # emulation (Docker Desktop / Rosetta); on x86_64 hosts it's native.
+        platform: linux/amd64
         container_name: tempest-server
         security_opt:
             - label:disable
+        # The server's console command loop reads stdin (Console.ReadLine) and
+        # shuts down on EOF. Without stdin_open, detached Docker closes stdin
+        # immediately and the server exits right after the lobby starts.
+        stdin_open: true
         environment:
             - TEMPEST_VERSION=0.57
-            - TEMPEST_API_KEY=tempest_sk_2931530bc2a442f582df501d5093c16a
-            - TEMPEST_NAME=Tempest Public Server (0.57)
-            - TEMPEST_PUBLIC_SERVER=true
+            - TEMPEST_NAME=PIP x Tempest showmatch (0.57 - Siege)
+            - TEMPEST_PUBLIC_SERVER=false
             - TEMPEST_PORT=50051
             - TEMPEST_GAME_SERVER_PORT=7000
+            - TEMPEST_GAMEMODE=TempestMp.Siege
+            - TEMPEST_MIN_PLAYERS=1
             - TEMPEST_DISCOVER=true
             - WINEDEBUG=-all
         ports:

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const unreal = @import("unreal.zig");
+const unreal = @import("unreal");
 const property = @import("property.zig");
 const Parser = @import("Parser.zig");
 
