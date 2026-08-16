@@ -181,6 +181,7 @@
 	"lobby_selected_champion": "Champion sélectionné",
 	"lobby_select_champion": "Sélectionnez votre champion",
 	"lobby_not_ready": "Pas prêt",
+	"lobby_champion_disabled": "Désactivé temporairement",
 	"lobby_switch_team": "Passer dans l'autre équipe",
 	"lobby_become_spectator": "Observer",
 	"lobby_join_team": "Rejoindre une équipe",

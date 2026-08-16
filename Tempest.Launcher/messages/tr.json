@@ -184,6 +184,7 @@
 	"lobby_selected_champion": "Seçilen Şampiyon",
 	"lobby_select_champion": "Şampiyonunuzu Seçin",
 	"lobby_not_ready": "Hazır Değil",
+	"lobby_champion_disabled": "Geçici olarak devre dışı",
 	"lobby_switch_team": "Diğer takıma geç",
 	"lobby_become_spectator": "İzle",
 	"lobby_join_team": "BİR TAKIMA KATIL",

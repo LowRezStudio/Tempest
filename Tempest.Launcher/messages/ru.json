@@ -187,6 +187,7 @@
 	"lobby_selected_champion": "Выбранный чемпион",
 	"lobby_select_champion": "Выберите вашего чемпиона",
 	"lobby_not_ready": "Не готов",
+	"lobby_champion_disabled": "Временно отключён",
 	"lobby_switch_team": "Перейти в другую команду",
 	"lobby_become_spectator": "Наблюдать",
 	"lobby_join_team": "Присоединиться к команде",

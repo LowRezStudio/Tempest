@@ -187,6 +187,7 @@
 	"lobby_selected_champion": "Wybrany bohater",
 	"lobby_select_champion": "Wybierz swojego bohatera",
 	"lobby_not_ready": "Nie gotowy",
+	"lobby_champion_disabled": "Tymczasowo niedostępny",
 	"lobby_switch_team": "Zmień drużynę",
 	"lobby_become_spectator": "Obserwuj",
 	"lobby_join_team": "Dołącz do drużyny",

@@ -9,7 +9,10 @@
 		iconPath: string;
 		fallbackPath: string;
 		videoPath: string;
+		disabled?: boolean;
 	}
+
+	const DISABLED_CHAMPION_NAMES = new Set(["ying"]);
 
 	interface Props {
 		onselect?: (champion: Champion) => void;
@@ -37,6 +40,7 @@
 			iconPath: `/champions/${champ.displayName}/icon.webp`,
 			fallbackPath: `/champions/${champ.displayName}/fallback.webp`,
 			videoPath: `/champions/${champ.displayName}/video.webm`,
+			disabled: DISABLED_CHAMPION_NAMES.has(champ.name),
 		}));
 
 	let selectedChampion = $state<Champion | null>(null);
@@ -199,20 +203,29 @@
 						class="scrollbar-hide champ-grid relative z-10 grid max-h-[480px] w-full max-w-6xl justify-center gap-2 overflow-y-auto p-4 md:gap-3"
 					>
 						{#each champions as champion (champion.name)}
+							{@const isDisabled = !!champion.disabled}
 							<button
 								type="button"
 								class={[
-									"champ-btn cursor-pointer overflow-hidden rounded-none border-2 p-0 transition-all duration-200",
-									"hover:scale-110 hover:shadow-xl",
+									"champ-btn relative overflow-hidden rounded-none border-2 p-0 transition-all duration-200",
+									isDisabled
+										? "cursor-not-allowed opacity-80 saturate-50"
+										: "cursor-pointer hover:scale-110 hover:shadow-xl",
 									displayedChampion?.name === champion.name
 										? "border-accent ring-accent shadow-xl ring-3"
 										: hoveredChampion?.name === champion.name
 											? "border-white/50 ring-3 ring-white/50"
-											: "border-base-300",
+											: isDisabled
+												? "border-red-500 ring-3 ring-red-500/50"
+												: "border-base-300",
 								]}
 								class:pointer-events-none={confirmedChampionName}
-								onclick={() => handleChampionClick(champion)}
-								onmouseenter={() => handleChampionHover(champion)}
+								onclick={() => {
+									if (!isDisabled) handleChampionClick(champion);
+								}}
+								onmouseenter={() => {
+									if (!isDisabled) handleChampionHover(champion);
+								}}
 								onmouseleave={() => handleChampionHover(null)}
 							>
 								<img
@@ -225,6 +238,28 @@
 											"/champions/Generic/icon.webp";
 									}}
 								/>
+								{#if isDisabled}
+									<div
+										class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+										title={m.lobby_champion_disabled()}
+									>
+										<svg
+											class="absolute inset-0 h-full w-full text-red-500"
+											viewBox="0 0 100 100"
+											preserveAspectRatio="none"
+										>
+											<line
+												x1="0"
+												y1="100"
+												x2="100"
+												y2="0"
+												stroke="currentColor"
+												stroke-width="9"
+												style="filter: drop-shadow(0 0 4px rgba(239,68,68,0.9));"
+											></line>
+										</svg>
+									</div>
+								{/if}
 							</button>
 						{/each}
 					</div>
