@@ -1,18 +1,25 @@
-# =========================================================
-# Stage 1: Build Environment
-# =========================================================
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+# Stage 1: build — Zig tools + Native AOT binary
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Install required build tools for Native AOT on Alpine, plus gcompat (for protoc), utilities, wine (to pre-initialize the prefix), and xvfb-run (headless X server for wine)
-RUN apk add --no-cache clang build-base zlib-dev gcompat xz curl wine freetype libgcc libstdc++ xvfb-run gnutls
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && \
+    apt-get install -y --no-install-recommends clang zlib1g-dev curl xz-utils && \
+    rm -rf /var/lib/apt/lists/*
 
-# Download and install Zig 0.15.2
-RUN mkdir -p /opt/zig && \
-    curl -L https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz | tar -xJ -C /opt/zig --strip-components=1
-ENV PATH="/opt/zig:${PATH}"
+# Zig 0.15.2 for Tempest.Utils, 0.16.0 for Tempest.CLI/inject.
+# Archives live in a cache mount, so base-image updates only re-extract.
+RUN --mount=type=cache,target=/var/cache/zig \
+    mkdir -p /opt/zig-0.15 /opt/zig-0.16 && \
+    [ -f /var/cache/zig/zig-0.15.2.tar.xz ] || \
+        curl -fL -o /var/cache/zig/zig-0.15.2.tar.xz https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz && \
+    [ -f /var/cache/zig/zig-0.16.0.tar.xz ] || \
+        curl -fL -o /var/cache/zig/zig-0.16.0.tar.xz https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz && \
+    tar -xJf /var/cache/zig/zig-0.15.2.tar.xz -C /opt/zig-0.15 --strip-components=1 && \
+    tar -xJf /var/cache/zig/zig-0.16.0.tar.xz -C /opt/zig-0.16 --strip-components=1
 
-# Copy solution and project files for caching package restore
+# Project files first, for restore layer caching
 COPY Tempest.slnx ./
 COPY MarshalLib/MarshalLib.csproj MarshalLib/
 COPY MarshalLib.Database/MarshalLib.Database.csproj MarshalLib.Database/
@@ -21,76 +28,63 @@ COPY Tempest.CLI/Tempest.CLI.csproj Tempest.CLI/
 COPY Tempest.Utils/build.zig Tempest.Utils/
 COPY Tempest.Utils/build.zig.zon Tempest.Utils/
 
-# Restore NuGet packages specifically for linux-musl-x64 target using cache mount
 RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet restore Tempest.CLI/Tempest.CLI.csproj -r linux-musl-x64
+    dotnet restore Tempest.CLI/Tempest.CLI.csproj -r linux-x64
 
-# Copy source code files
 COPY MarshalLib/ MarshalLib/
 COPY MarshalLib.Database/ MarshalLib.Database/
 COPY Tempest.Protocol/ Tempest.Protocol/
 COPY Tempest.CLI/ Tempest.CLI/
 COPY Tempest.Utils/ Tempest.Utils/
 
-# Build native utility tools (specifically asmloader dynamic libraries)
+# asmloader DLLs
 WORKDIR /src/Tempest.Utils
 RUN --mount=type=cache,target=/src/Tempest.Utils/.zig-cache \
     --mount=type=cache,target=/root/.cache/zig \
-    zig build -Doptimize=ReleaseSafe
+    PATH="/opt/zig-0.15:${PATH}" zig build -Doptimize=ReleaseSafe
 
-# Publish Tempest.CLI with Native AOT targeting Alpine using NuGet cache mount
+# AOT publish (BuildZigInject compiles inject/ with Zig 0.16.0)
 WORKDIR /src
 RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet publish Tempest.CLI/Tempest.CLI.csproj \
-    -c Release \
-    -r linux-musl-x64 \
-    -o /app/publish \
-    --no-restore \
-    /p:PublishAot=true
+    --mount=type=cache,target=/src/Tempest.CLI/inject/.zig-cache \
+    --mount=type=cache,target=/root/.cache/zig \
+    PATH="/opt/zig-0.16:${PATH}" \
+    dotnet publish Tempest.CLI/Tempest.CLI.csproj -c Release -r linux-x64 \
+    -o /app/publish --no-restore /p:PublishAot=true
 
-# Copy the built asmloader dlls into the published folder
-RUN cp /src/Tempest.Utils/zig-out/bin/asmloader-windows_x86.dll /app/publish/ && \
-    cp /src/Tempest.Utils/zig-out/bin/asmloader-windows_x86_64.dll /app/publish/
-
-# Copy versions database so version names/IDs can be resolved
+RUN cp /src/Tempest.Utils/zig-out/bin/asmloader-windows_x86.dll \
+       /src/Tempest.Utils/zig-out/bin/asmloader-windows_x86_64.dll /app/publish/
 COPY Tempest.Launcher/src/lib/data/versions.json /app/publish/
 
-# Pre-initialize Wine prefix template in the build stage
-ENV WINEPREFIX="/app/wine-prefix-template"
-ENV WINEDLLOVERRIDES="mscoree,mshtml="
-ENV WINEDEBUG="-all"
-RUN mkdir -p /app/wine-prefix-template && \
-    wine wineboot --init
-
-# =========================================================
-# Stage 2: Headless Runner Image
-# =========================================================
-FROM alpine:3.20
+# Stage 2: runtime
+FROM debian:trixie-slim
 WORKDIR /app
 
-# Install Wine (for running Windows game servers), jq (for parsing JSON), bash (for entrypoint),
-# xvfb-run (headless X server so Wine can create windows without a display), gnutls (encryption), and dependencies
-RUN apk add --no-cache wine jq bash freetype gcompat libgcc libstdc++ curl icu-libs xvfb-run gnutls
+# wine32:i386 required for 0.57, the last Win32-only build
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends wine wine32:i386 jq bash ca-certificates libicu76 && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy AOT-compiled binary, native libraries (.so), and resources
+# libpulse in wine aborts without a runtime dir
+ENV XDG_RUNTIME_DIR="/tmp/xdg"
+RUN mkdir -p /tmp/xdg && chmod 700 /tmp/xdg
+
 COPY --from=build /app/publish/ /app/
-COPY --from=build /app/wine-prefix-template/ /app/wine-prefix-template/
+COPY Tempest.Launcher/src-tauri/resources/Tempest*Core.tempest /app/mods/
+COPY Tempest.Launcher/src-tauri/resources/Tempest*Multiplayer.tempest /app/mods/
+COPY --chmod=755 Tempest.CLI/entrypoint.sh /app/entrypoint.sh
 
-# Copy entrypoint script
-COPY Tempest.CLI/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
-# Expose server ports:
-# 50051: gRPC/HTTP server port
-# 7000: Game server port (UDP)
 EXPOSE 50051/tcp
 EXPOSE 7000/udp
-
-# Mount volume for persistence of keys, wine prefix configurations, and runtime database
 VOLUME ["/app/data"]
 
-# Default environment variables
+# TEMPEST_PATH is the games root; the entrypoint appends the version subdir
 ENV TEMPEST_PATH="/app/game" \
+    TEMPEST_SKIP_RESTORE="false" \
+    TEMPEST_GAMEMODE="TempestMp.Siege" \
     TEMPEST_PORT=50051 \
     TEMPEST_GAME_SERVER_PORT=7000 \
     WINEDEBUG="-all"
