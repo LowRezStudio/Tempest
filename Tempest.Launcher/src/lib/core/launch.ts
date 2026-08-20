@@ -1,6 +1,13 @@
 import { lastLaunchedInstanceId } from "../stores/instance.svelte";
 import { appendProcessLog, logCommandOutput, processesList } from "../stores/processes.svelte";
-import { gamescopeArgs, useGamescope, winePath } from "../stores/settings.svelte";
+import {
+	gamescopeArgs,
+	protonPath,
+	useGamescope,
+	useSteamRuntime,
+	winePath,
+	wineRuntime,
+} from "../stores/settings.svelte";
 import { createCommand, processArgs } from "./command";
 import type { Instance } from "../types/instance";
 import type { Process } from "../types/process";
@@ -21,7 +28,13 @@ export const launchGame = async (instance: Instance) => {
 	);
 
 	const wine = winePath.get();
-	const env: Record<string, string> | undefined = wine ? { WINE: wine } : undefined;
+	const runtime = wineRuntime.get();
+	const proton =
+		runtime === "proton" ? protonPath.get() : runtime === "wine" ? "wine" : undefined;
+	const env: Record<string, string> | undefined =
+		wine || proton
+			? { ...(wine ? { WINE: wine } : {}), ...(proton ? { PROTON: proton } : {}) }
+			: undefined;
 
 	const command = createCommand(
 		[
@@ -31,6 +44,7 @@ export const launchGame = async (instance: Instance) => {
 			{ "--no-default-args": options.noDefaultArgs },
 			{ "--gamescope": useGamescope.get() },
 			{ "--gamescope-args": gamescopeArgs.get() || undefined },
+			{ "--steam-runtime": useSteamRuntime.get() || undefined },
 			{
 				"--homedir":
 					instance.version === "8.1"

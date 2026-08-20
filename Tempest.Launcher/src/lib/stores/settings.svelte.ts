@@ -4,12 +4,17 @@ import { platform } from "@tauri-apps/plugin-os";
 import { persistedState } from "./persisted.svelte";
 
 export const username = persistedState<string>("username", "Player");
+export const onboardingCompleted = persistedState<boolean>("onboardingCompleted", false);
 export const servicesURL = persistedState<string>("servicesURL", "https://api.lowrezstudio.com");
 export type Theme = "system" | "mocha" | "latte" | "legacy" | "custom";
 export const theme = persistedState<Theme>("theme", "system");
 export const customThemeCSS = persistedState<string>("customThemeCSS", "");
 export const pinnedBackground = persistedState<string | undefined>("pinnedBackground", undefined);
 export const winePath = persistedState<string | undefined>("winePath", undefined);
+export type WineRuntimeSetting = "auto" | "wine" | "proton";
+export const wineRuntime = persistedState<WineRuntimeSetting>("wineRuntime", "auto");
+export const protonPath = persistedState<string | undefined>("protonPath", undefined);
+export const useSteamRuntime = persistedState<boolean>("useSteamRuntime", true);
 export const useGamescope = persistedState<boolean>("useGamescope", false);
 export const gamescopeArgs = persistedState<string>("gamescopeArgs", "-f --force-grab-cursor");
 export const modDeveloper = persistedState<boolean>("modDeveloper", false);
