@@ -9,6 +9,7 @@
 		children: Snippet;
 		actions?: Snippet;
 		class?: string;
+		dismissible?: boolean;
 		onsubmit?: (e: SubmitEvent) => void;
 	}
 
@@ -18,6 +19,7 @@
 		children,
 		actions,
 		class: className = "",
+		dismissible = true,
 		onsubmit,
 	}: Props = $props();
 </script>
@@ -28,6 +30,12 @@
 		<Dialog.Content
 			class="bg-base-100 rounded-box fixed top-1/2 left-1/2 z-50 max-h-[85vh] w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto p-6 shadow-xl {className}"
 			style="animation: pop-in 0.15s ease forwards;"
+			onEscapeKeydown={(event) => {
+				if (!dismissible) event.preventDefault();
+			}}
+			onInteractOutside={(event) => {
+				if (!dismissible) event.preventDefault();
+			}}
 		>
 			<form
 				onsubmit={(e) => {
@@ -44,9 +52,14 @@
 					</Dialog.Title>
 				{/if}
 
-				<Dialog.Close class="btn btn-circle btn-ghost absolute top-4 right-4" type="button">
-					<X size={16} />
-				</Dialog.Close>
+				{#if dismissible}
+					<Dialog.Close
+						class="btn btn-circle btn-ghost absolute top-4 right-4"
+						type="button"
+					>
+						<X size={16} />
+					</Dialog.Close>
+				{/if}
 
 				{@render children()}
 
