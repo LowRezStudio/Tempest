@@ -3,17 +3,8 @@
 	import { Popover, Tooltip } from "bits-ui";
 	import { m } from "$lib/paraglide/messages";
 	import { locales } from "$lib/paraglide/runtime";
-	import { localeState } from "$lib/stores/locale.svelte";
+	import { localeLabels, localeState } from "$lib/stores/locale.svelte";
 	import type { Locale } from "$lib/paraglide/runtime";
-
-	const localeLabels: Record<string, { flag: string; label: string }> = {
-		en: { flag: "🇬🇧", label: "English" },
-		fr: { flag: "🇫🇷", label: "Français" },
-		es: { flag: "🇪🇸", label: "Español" },
-		pl: { flag: "🇵🇱", label: "Polski" },
-		ru: { flag: "🇷🇺", label: "Русский" },
-		tr: { flag: "🇹🇷", label: "Türkçe" },
-	};
 
 	let open = $state(false);
 

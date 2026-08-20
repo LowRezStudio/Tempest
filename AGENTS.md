@@ -115,6 +115,7 @@ If you change `.proto` files, rebuild the solution and run `pnpm proto-generate`
 
 ## Style / verification conventions
 
+- Do not add or update translations (`messages/*.json` files for `fr`, `es`, `pl`, `ru`) unless explicitly told to. English source strings are fine to touch.
 - `Tempest.Launcher/.editorconfig`: tabs for most files, spaces for `.rs`.
 - Launcher lint: `oxlint` with config in `.oxlintrc.json`. Generated `src/lib/rpc/**` and `.svelte-kit/**` are ignored.
 - Launcher is an SPA: `+layout.ts` disables SSR/prerender and enables CSR. Static adapter with `fallback: "index.html"`.
