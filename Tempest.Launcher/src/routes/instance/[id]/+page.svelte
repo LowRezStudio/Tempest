@@ -7,12 +7,12 @@
 		PackageOpen,
 		Play,
 		Plus,
-		Settings,
 		Square,
 		Terminal,
 	} from "@lucide/svelte";
 	import { openPath } from "@tauri-apps/plugin-opener";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
+	import InstanceSettingsForm from "$lib/components/library/InstanceSettingsForm.svelte";
 	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
@@ -27,7 +27,7 @@
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { ModRecord } from "$lib/core/mods";
 
-	let activeTab = $state<"content">("content");
+	let activeTab = $state<"content" | "settings">("content");
 
 	const instance = $derived(instanceMap.value[page.params.id!]);
 	let isSettingUp = $derived(
@@ -58,8 +58,6 @@
 			goto("/library");
 		}
 	});
-
-	let isSettingsModalOpen = $state(false);
 
 	// Check if this instance is currently running
 	let isRunning = $derived(processesList.value.some((p) => p.instance?.id === instance?.id));
@@ -104,7 +102,10 @@
 	<!-- Header -->
 	<Header
 		title={instance?.label || m.common_loading()}
-		tabs={[{ name: m.instance_content(), value: "content" }]}
+		tabs={[
+			{ name: m.instance_content(), value: "content" },
+			{ name: m.settings_title(), value: "settings" },
+		]}
 		{activeTab}
 		onSelectTab={(tab) => (activeTab = tab)}
 		iconBg={getInstanceColor(instance)}
@@ -142,9 +143,6 @@
 					{m.common_play()}
 				{/if}
 			</button>
-			<button class="btn btn-square" onclick={() => (isSettingsModalOpen = true)}>
-				<Settings size={16} />
-			</button>
 			<button
 				class="btn btn-square"
 				disabled={!instance?.path}
@@ -158,7 +156,7 @@
 				</button>
 			{/if}
 			{#if instance}
-				<InstanceMenu {instance} bind:openSettingsModal={isSettingsModalOpen} />
+				<InstanceMenu {instance} />
 			{/if}
 		{/snippet}
 		{#snippet subtitle()}
@@ -245,6 +243,14 @@
 							onRemoveMod={handleRemoveMod}
 							onOpenDetails={handleOpenFiles}
 						/>
+					{/if}
+				</div>
+			</div>
+		{:else if activeTab === "settings"}
+			<div class="flex-1 overflow-y-auto">
+				<div class="p-6">
+					{#if instance}
+						<InstanceSettingsForm {instance} />
 					{/if}
 				</div>
 			</div>

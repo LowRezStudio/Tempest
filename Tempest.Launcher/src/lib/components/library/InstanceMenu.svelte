@@ -34,10 +34,9 @@
 	interface Props {
 		instance: Instance;
 		trigger?: Snippet;
-		openSettingsModal?: boolean;
 	}
 
-	let { instance, trigger, openSettingsModal = $bindable(false) }: Props = $props();
+	let { instance, trigger }: Props = $props();
 
 	const flatVersions = versions;
 	const versionEntry = $derived(flatVersions.find((v) => v.version === instance.version));
@@ -117,13 +116,6 @@
 	}
 
 	let isSettingsModalOpen = $state(false);
-
-	$effect(() => {
-		if (openSettingsModal) {
-			isSettingsModalOpen = true;
-			openSettingsModal = false;
-		}
-	});
 </script>
 
 <PopoverMenu>
@@ -191,4 +183,6 @@
 	onconfirm={handleDeleteConfirm}
 />
 
-<InstanceSettingsModal {instance} bind:open={isSettingsModalOpen} />
+{#if !isOnInstancePage}
+	<InstanceSettingsModal {instance} bind:open={isSettingsModalOpen} />
+{/if}
