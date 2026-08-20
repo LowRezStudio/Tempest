@@ -5,7 +5,6 @@
 		ChevronDown,
 		ChevronUp,
 		Library,
-		Megaphone,
 		Play,
 		ScrollText,
 		Square,
@@ -20,15 +19,13 @@
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { commandsPageOpen } from "$lib/stores/ui.svelte";
 
-	type TileId = "commands" | "announcement" | "releasenotes";
+	type TileId = "commands" | "releasenotes";
 
 	const commandsMinimized = persistedState("home_commands_minimized", true);
-	const announcementMinimized = persistedState("home_announcement_minimized", true);
 	const releasenotesMinimized = persistedState("home_releasenotes_minimized", true);
 
 	let minimized = $state<Record<TileId, boolean>>({
 		commands: commandsMinimized.value,
-		announcement: announcementMinimized.value,
 		releasenotes: releasenotesMinimized.value,
 	});
 
@@ -36,7 +33,6 @@
 		const next = !minimized[tile];
 		minimized = { ...minimized, [tile]: next };
 		if (tile === "commands") commandsMinimized.value = next;
-		else if (tile === "announcement") announcementMinimized.value = next;
 		else releasenotesMinimized.value = next;
 	}
 
@@ -154,54 +150,6 @@
 				{/if}
 			</div>
 		</div>
-		<div
-			class="card bg-base-200/95 shadow-xl backdrop-blur-sm transition-all duration-150 hover:brightness-90"
-		>
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div
-				class="card-body cursor-pointer p-3 select-none"
-				onclick={() => toggleMinimize("announcement")}
-				role="button"
-				tabindex="0"
-				onkeydown={(e) => {
-					if (e.key === "Enter" || e.key === " ") toggleMinimize("announcement");
-				}}
-			>
-				<div class="mb-2 flex items-center gap-2">
-					<div
-						class="bg-base-300 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-					>
-						<Megaphone size={16} class="opacity-60" />
-					</div>
-					<div class="flex-1">
-						<h3 class="text-xs font-bold">{m.home_announcement_title()}</h3>
-						<p class="text-[10px] opacity-60">{m.home_announcement_subtitle()}</p>
-					</div>
-					<button
-						class="btn btn-ghost btn-xs btn-square shrink-0"
-						onclick={(e) => {
-							e.stopPropagation();
-							toggleMinimize("announcement");
-						}}
-						aria-label={minimized.announcement
-							? m.home_show_section()
-							: m.home_hide_section()}
-					>
-						{#if minimized.announcement}
-							<ChevronUp size={12} />
-						{:else}
-							<ChevronDown size={12} />
-						{/if}
-					</button>
-				</div>
-				{#if !minimized.announcement}
-					<p class="text-xs leading-relaxed opacity-90">
-						{m.home_announcement_message()}
-					</p>
-				{/if}
-			</div>
-		</div>
-
 		<div
 			class="card bg-base-200/95 shadow-xl backdrop-blur-sm transition-all duration-150 hover:brightness-90"
 		>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { fade } from "svelte/transition";
+	import FeedCarousel from "$lib/components/home/FeedCarousel.svelte";
 	import HomeFloatingActions from "$lib/components/home/HomeFloatingActions.svelte";
 	import { pinnedBackground } from "$lib/stores/settings.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
@@ -64,6 +65,8 @@
 </div>
 
 <div class="pointer-events-none relative top-0 left-0 z-10 h-full p-2"></div>
+
+<FeedCarousel />
 
 <HomeFloatingActions />
 

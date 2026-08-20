@@ -20,6 +20,7 @@
 		"electron:build": "pnpm -C electron build"
 	},
 	"dependencies": {
+		"feedsmith": "^2.9.6",
 		"jszip": "^3.10.1"
 	},
 	"devDependencies": {
