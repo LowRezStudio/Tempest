@@ -39,9 +39,8 @@
 	let editVersion = $state("");
 	let editPath = $state("");
 	let editPlatform = $state<InstancePlatform>("Win64");
-	let editArgs = $state<string[]>([]);
+	let editArgsText = $state("");
 	let editColor = $state("");
-	let argsInput = $state("");
 	let editEnableConsole = $state(false);
 	let initialEnableConsole = false;
 	let editEnableCore = $state(false);
@@ -57,9 +56,8 @@
 			editVersion = instance.version || "";
 			editPath = instance.path;
 			editPlatform = instance.launchOptions?.platform ?? "Win64";
-			editArgs = instance.launchOptions?.args ?? [];
+			editArgsText = (instance.launchOptions?.args ?? []).join(" ");
 			editColor = getInstanceColor(instance);
-			argsInput = "";
 			hasInitializedMods = false;
 		}
 	});
@@ -100,32 +98,6 @@
 		}
 	}
 
-	function addArgs() {
-		if (!argsInput.trim()) return;
-		const newArgs = parseArgs(argsInput);
-		editArgs = [...editArgs, ...newArgs];
-		argsInput = "";
-	}
-
-	function removeArg(index: number) {
-		editArgs = editArgs.filter((_, i) => i !== index);
-	}
-
-	function moveArg(index: number, direction: -1 | 1) {
-		const newIndex = index + direction;
-		if (newIndex < 0 || newIndex >= editArgs.length) return;
-		const newArgs = [...editArgs];
-		[newArgs[index], newArgs[newIndex]] = [newArgs[newIndex], newArgs[index]];
-		editArgs = newArgs;
-	}
-
-	function handleArgsKeydown(e: KeyboardEvent) {
-		if (e.key === "Enter") {
-			e.preventDefault();
-			addArgs();
-		}
-	}
-
 	async function handleBrowse() {
 		const result = await openDialog({
 			directory: true,
@@ -160,7 +132,7 @@
 			launchOptions: {
 				...instance.launchOptions,
 				platform: editPlatform,
-				args: editArgs,
+				args: parseArgs(editArgsText),
 			},
 		});
 
@@ -304,51 +276,13 @@
 				<span class="label-text text-sm">{m.instance_launch_arguments()}</span>
 			</label>
 			<div class="space-y-2">
-				<div class="join w-full">
-					<input
-						id="instance-args"
-						type="text"
-						placeholder=""
-						class="input input-bordered join-item flex-1 font-mono text-sm"
-						bind:value={argsInput}
-						onkeydown={handleArgsKeydown}
-					/>
-					<button class="btn btn-accent join-item" onclick={addArgs} type="button">
-						{m.common_add()}
-					</button>
-				</div>
-				{#if editArgs.length > 0}
-					<div class="flex flex-wrap gap-1.5">
-						{#each editArgs as arg, i (i)}
-							<span class="badge badge-ghost badge-neutral gap-1">
-								<button
-									type="button"
-									class="btn btn-ghost btn-xs btn-square text-base-content/60 hover:text-base-content h-4 min-h-0 w-4 p-0"
-									onclick={() => moveArg(i, -1)}
-									disabled={i === 0}
-								>
-									&#8592;
-								</button>
-								<span class="font-mono text-xs">{arg}</span>
-								<button
-									type="button"
-									class="btn btn-ghost btn-xs btn-square text-base-content/60 hover:text-base-content h-4 min-h-0 w-4 p-0"
-									onclick={() => moveArg(i, 1)}
-									disabled={i === editArgs.length - 1}
-								>
-									&#8594;
-								</button>
-								<button
-									type="button"
-									class="btn btn-ghost btn-xs btn-square text-base-content/60 hover:text-base-content h-4 min-h-0 w-4 p-0"
-									onclick={() => removeArg(i)}
-								>
-									&times;
-								</button>
-							</span>
-						{/each}
-					</div>
-				{/if}
+				<input
+					id="instance-args"
+					type="text"
+					placeholder=""
+					class="input input-bordered w-full font-mono text-sm"
+					bind:value={editArgsText}
+				/>
 				<p class="text-xs opacity-60">{m.instance_space_separated()}</p>
 			</div>
 		</div>
