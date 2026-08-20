@@ -43,13 +43,6 @@ internal class LauncherCommands
 
         await process.WaitForExitAsync();
 
-        // If a stop was requested via stdin, the reader thread performs a /proc sweep of the wine
-        // tree; the wrapper may exit before that sweep finishes, so give it a moment to complete.
-        for (var i = 0; WineExtensions.KillInProgress && i < 200; i++)
-        {
-            await Task.Delay(25);
-        }
-
         // The game is gone. Sweep any wine/proton processes (wineserver, CoherentUI renderers,
         // the lsteamclient bridge, winedevice) that can outlive the wrapper, so nothing is left
         // behind after the game stops or its window is closed.
@@ -135,17 +128,15 @@ internal class LauncherCommands
 
                 if (input == null || !input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase)) continue;
 
+                // Kill the wrapper; the launch path sweeps the wine tree once it exits.
                 try
                 {
-                    // Bound the sweep so the CLI always exits even if /proc reads misbehave;
-                    // the launcher relies on this process exiting to mark the game as stopped.
-                    await Task.WhenAny(WineExtensions.KillProcessTree(process), Task.Delay(TimeSpan.FromSeconds(15)));
+                    process.Kill(true);
                 }
-                catch (Exception ex)
+                catch
                 {
-                    Console.Error.WriteLine($"Failed to stop the game: {ex.Message}");
+                    // already gone
                 }
-                Environment.Exit(0);
                 break;
             }
         });

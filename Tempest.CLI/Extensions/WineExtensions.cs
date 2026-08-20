@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Tempest.CLI.Extensions;
 
@@ -226,47 +225,36 @@ internal static class WineExtensions
         return process;
     }
 
-    /// <summary>Set while KillProcessTree is sweeping /proc, so the main launch path doesn't exit early when the wrapper dies mid-sweep.</summary>
-    internal static volatile bool KillInProgress;
-
     public static async Task KillProcessTree(Process process)
     {
-        KillInProgress = true;
-        try
+        var markers = new List<string>();
+        if (process.StartInfo.EnvironmentVariables.ContainsKey("STEAM_COMPAT_DATA_PATH") &&
+            process.StartInfo.EnvironmentVariables["STEAM_COMPAT_DATA_PATH"] is { } compat && !string.IsNullOrEmpty(compat))
+            markers.Add(compat);
+        if (process.StartInfo.EnvironmentVariables.ContainsKey("WINEPREFIX") &&
+            process.StartInfo.EnvironmentVariables["WINEPREFIX"] is { } wpref && !string.IsNullOrEmpty(wpref))
+            markers.Add(wpref);
+
+        if (OperatingSystem.IsLinux() && markers.Count > 0)
         {
-            var markers = new List<string>();
-            if (process.StartInfo.EnvironmentVariables.ContainsKey("STEAM_COMPAT_DATA_PATH") &&
-                process.StartInfo.EnvironmentVariables["STEAM_COMPAT_DATA_PATH"] is { } compat && !string.IsNullOrEmpty(compat))
-                markers.Add(compat);
-            if (process.StartInfo.EnvironmentVariables.ContainsKey("WINEPREFIX") &&
-                process.StartInfo.EnvironmentVariables["WINEPREFIX"] is { } wpref && !string.IsNullOrEmpty(wpref))
-                markers.Add(wpref);
-
-            if (OperatingSystem.IsLinux() && markers.Count > 0)
+            foreach (var procDir in Directory.EnumerateDirectories("/proc"))
             {
-                foreach (var procDir in Directory.EnumerateDirectories("/proc"))
-                {
-                    var pidText = Path.GetFileName(procDir);
-                    if (!int.TryParse(pidText, out var pid) || pid <= 0 || pid == process.Id) continue;
+                var pidText = Path.GetFileName(procDir);
+                if (!int.TryParse(pidText, out var pid) || pid <= 0 || pid == process.Id) continue;
 
-                    try
+                try
+                {
+                    var env = File.ReadAllText(Path.Combine(procDir, "environ"));
+                    if (markers.Any(env.Contains))
                     {
-                        var env = File.ReadAllText(Path.Combine(procDir, "environ"));
-                        if (markers.Any(env.Contains))
-                        {
-                            Process.GetProcessById(pid).Kill(true);
-                        }
-                    }
-                    catch
-                    {
-                        // process already gone or not ours to read
+                        Process.GetProcessById(pid).Kill(true);
                     }
                 }
+                catch
+                {
+                    // process already gone or not ours to read
+                }
             }
-        }
-        finally
-        {
-            KillInProgress = false;
         }
 
         try
@@ -362,23 +350,10 @@ internal static class WineExtensions
         }
 
         if (pids.Count == 0) return 0;
-        if (pids.Count == 1) return pids[0];
 
-        int newestPid = pids[0];
-        DateTime? newestTime = null;
-
-        foreach (var pid in pids)
-        {
-            var startTime = await GetProcessStartTime(pid);
-            if (startTime != null && (newestTime == null || startTime > newestTime))
-            {
-                newestTime = startTime;
-                newestPid = pid;
-            }
-        }
-
-        // wmic is gone in modern Wine; fall back to the highest PID (usually the newest process).
-        return newestTime == null ? pids.Max() : newestPid;
+        // Several instances can run at once (one per prefix); the highest PID is almost always
+        // the newest. (wmic could confirm, but it's gone in modern Wine.)
+        return pids.Max();
     }
 
     public static async Task<bool> IsWinePidAlive(int pid)
@@ -398,7 +373,7 @@ internal static class WineExtensions
         return output.Contains($"\"{pid}\"");
     }
 
-    public static string? ResolveProtonDirectory()
+    private static string? ResolveProtonDirectory()
     {
         var env = Environment.GetEnvironmentVariable("PROTON");
         if (!string.IsNullOrWhiteSpace(env))
@@ -536,7 +511,7 @@ internal static class WineExtensions
         }
     }
 
-    public static string? DetectProtonDirectory() => EnumerateProtonDirectories().FirstOrDefault();
+    private static string? DetectProtonDirectory() => EnumerateProtonDirectories().FirstOrDefault();
 
     private static string GetProtonVersionKey(string dir)
     {
@@ -609,24 +584,8 @@ internal static class WineExtensions
     {
         if (!OperatingSystem.IsLinux()) return null;
 
-        var candidates = new[]
-        {
-            "~/.steam/root",
-            "~/.steam/steam",
-            "~/.local/share/Steam",
-            "~/.var/app/com.valvesoftware.Steam/data/Steam",
-        };
-
-        foreach (var candidate in candidates)
-        {
-            var full = ExpandTilde(candidate);
-            if (Directory.Exists(full) && File.Exists(Path.Combine(full, "steamapps", "libraryfolders.vdf")))
-            {
-                return full;
-            }
-        }
-
-        return null;
+        return SteamInstallRoots()
+            .FirstOrDefault(r => File.Exists(Path.Combine(r, "steamapps", "libraryfolders.vdf")));
     }
 
     /// <summary>Finds Steam Linux Runtime "sniper" across all Steam library folders (from libraryfolders.vdf).</summary>
@@ -776,98 +735,5 @@ internal static class WineExtensions
         {
             process.StartInfo.Arguments = $"\"{filename.Replace("\"", "\\\"")}\" {process.StartInfo.Arguments}";
         }
-    }
-
-    private static void InsertArgumentFirst(Process process, string arg)
-    {
-        if (process.StartInfo.ArgumentList.Count > 0)
-        {
-            process.StartInfo.ArgumentList.Insert(0, arg);
-        }
-        else
-        {
-            process.StartInfo.Arguments = $"{arg} {process.StartInfo.Arguments}";
-        }
-    }
-
-    private static string[] ParseCsvLine(string line)
-    {
-        var result = new List<string>();
-        bool inQuotes = false;
-        var currentField = new StringBuilder();
-
-        for (int i = 0; i < line.Length; i++)
-        {
-            char c = line[i];
-
-            if (c == '"')
-            {
-                inQuotes = !inQuotes;
-            }
-            else if (c == ',' && !inQuotes)
-            {
-                result.Add(currentField.ToString());
-                currentField.Clear();
-            }
-            else
-            {
-                currentField.Append(c);
-            }
-        }
-
-        result.Add(currentField.ToString());
-        return [.. result];
-    }
-
-    private static async Task<DateTime?> GetProcessStartTime(int pid)
-    {
-        try
-        {
-            var process = new Process();
-
-            process.StartInfo.FileName = "wmic.exe";
-            process.StartInfo.Arguments = $"process where processid={pid} get creationdate /format:csv";
-            process.StartInfo.UseShellExecute = false;
-            process.StartInfo.RedirectStandardOutput = true;
-            process.StartInfo.CreateNoWindow = true;
-
-            process.UseWineBinary().Start();
-
-            string output = await process.StandardOutput.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            // Parse WMIC output to get creation date
-            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var line in lines)
-            {
-                if (line.Contains("CreationDate") && !line.StartsWith("Node"))
-                {
-                    var parts = line.Split(',');
-                    if (parts.Length >= 2)
-                    {
-                        var dateStr = parts[1].Trim();
-                        // WMIC format: 20241221143022.123456-480
-                        if (dateStr.Length >= 14)
-                        {
-                            var year = int.Parse(dateStr[..4]);
-                            var month = int.Parse(dateStr.Substring(4, 2));
-                            var day = int.Parse(dateStr.Substring(6, 2));
-                            var hour = int.Parse(dateStr.Substring(8, 2));
-                            var minute = int.Parse(dateStr.Substring(10, 2));
-                            var second = int.Parse(dateStr.Substring(12, 2));
-
-                            return new DateTime(year, month, day, hour, minute, second);
-                        }
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // wmic is deprecated/removed in modern Wine; the caller falls back to max PID.
-            return null;
-        }
-
-        return null;
     }
 }
