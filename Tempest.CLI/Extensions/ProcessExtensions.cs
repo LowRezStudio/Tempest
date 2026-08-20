@@ -82,14 +82,30 @@ internal static class ProcessExtensions
     {
         EnableDebugPrivilege();
         var executable = is64Bit ? GetOrExtractExecutable("inject64.exe") : GetOrExtractExecutable("inject32.exe");
-        var pid = await process.GetProcessId();
+
+        // The game process (and its wineserver) may not be up yet when Proton/Wine is cold-starting
+        // a prefix; poll until it shows up or the wrapper exits.
+        var pid = 0;
+        for (var i = 0; i < 90 && !process.HasExited; i++)
+        {
+            pid = await process.GetProcessId();
+            if (pid > 0) break;
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+
+        if (pid == 0)
+        {
+            Console.Error.WriteLine($"[inject] failed to find the game process (is it Wine/Proton?): {path}");
+            return false;
+        }
+
         Console.Error.WriteLine($"[inject] {Path.GetFileName(executable)} -> PID {pid}: {path}");
         var inject = new Process();
         inject.StartInfo.FileName = executable;
         inject.StartInfo.Arguments = $"{pid} \"{path}\"";
         inject.StartInfo.RedirectStandardError = true;
         inject.StartInfo.UseShellExecute = false;
-        inject.UseWine().Start();
+        inject.UseWineBinary().Start();
         var stderr = inject.StandardError.ReadToEndAsync();
         await inject.WaitForExitAsync();
         var err = await stderr;

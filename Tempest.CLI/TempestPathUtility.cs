@@ -2,11 +2,19 @@ namespace Tempest.CLI;
 
 public static class TempestPathUtility
 {
+    /// <summary>Steam AppId used to name Proton's compat data directory (protonfixes parses digits from the path).</summary>
+    public const int SteamAppId = 444090;
+
     public static string GetGlobalKeysDirectory() =>
         Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "keys"));
 
     public static string GetWinePrefixDirectory() =>
         Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "prefix"));
+
+    /// <summary>STEAM_COMPAT_DATA_PATH for Proton launches; keeps Proton prefixes separate from system Wine ones.
+    /// Ends with the Steam AppId because Proton's protonfixes extracts a game id from the path's digits.</summary>
+    public static string GetProtonDataDirectory() =>
+        Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", $"prefix-proton-{SteamAppId}"));
 
     public static string GetLocalKeysDirectory(string resolvedGame) =>
         Path.Combine(resolvedGame, ".tempest", "keys");

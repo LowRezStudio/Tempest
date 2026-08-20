@@ -7,10 +7,10 @@ namespace Tempest.CLI.Launcher;
 
 internal class LauncherCommands
 {
-    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor")
+    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false)
     {
         var args = context.EscapedArguments.ToArray();
-        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs);
+        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs, steamRuntime);
 
         if (gamescope && !OperatingSystem.IsWindows())
         {
@@ -33,11 +33,7 @@ internal class LauncherCommands
                         await Task.Delay(TimeSpan.FromSeconds(1));
                         if (!await WineExtensions.IsWinePidAlive(gamePid))
                         {
-                            try
-                            {
-                                process.Kill(true);
-                            }
-                            catch { }
+                            await WineExtensions.KillProcessTree(process);
                             break;
                         }
                     }
@@ -46,10 +42,22 @@ internal class LauncherCommands
         }
 
         await process.WaitForExitAsync();
+
+        // If a stop was requested via stdin, the reader thread performs a /proc sweep of the wine
+        // tree; the wrapper may exit before that sweep finishes, so give it a moment to complete.
+        for (var i = 0; WineExtensions.KillInProgress && i < 200; i++)
+        {
+            await Task.Delay(25);
+        }
+
+        // The game is gone. Sweep any wine/proton processes (wineserver, CoherentUI renderers,
+        // the lsteamclient bridge, winedevice) that can outlive the wrapper, so nothing is left
+        // behind after the game stops or its window is closed.
+        await WineExtensions.KillProcessTree(process);
     }
     public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
                                                 string? platform = null, string? game = null, string[]? dll = null,
-                                                bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor")
+                                                bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false)
     {
         if (isServer) gamescope = false;
 
@@ -111,11 +119,11 @@ internal class LauncherCommands
 
         if (gamescope)
         {
-            process.UseWine().UseGamescope(gamescopeArgs).Start();
+            process.UseWine(isServer, !isServer && steamRuntime).UseGamescope(gamescopeArgs).Start();
         }
         else
         {
-            process.UseWine().Start();
+            process.UseWine(isServer, !isServer && steamRuntime).Start();
         }
 
         _ = Task.Run(async () =>
@@ -127,7 +135,16 @@ internal class LauncherCommands
 
                 if (input == null || !input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase)) continue;
 
-                process.Kill(true);
+                try
+                {
+                    // Bound the sweep so the CLI always exits even if /proc reads misbehave;
+                    // the launcher relies on this process exiting to mark the game as stopped.
+                    await Task.WhenAny(WineExtensions.KillProcessTree(process), Task.Delay(TimeSpan.FromSeconds(15)));
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Failed to stop the game: {ex.Message}");
+                }
                 Environment.Exit(0);
                 break;
             }
