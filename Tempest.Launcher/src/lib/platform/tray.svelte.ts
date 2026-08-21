@@ -9,7 +9,6 @@ import { queueItems, queueRunning } from "$lib/rigby/stores.svelte";
 import { preparedInstances } from "$lib/stores/instance.svelte";
 import { localeState } from "$lib/stores/locale.svelte";
 import { lobbyServerProcessesList, processesList } from "$lib/stores/processes.svelte";
-import trayIconDataUrl from "./tray-icon.png?inline";
 
 const TRAY_ID = "main";
 
@@ -118,16 +117,18 @@ function withActions(entries: TrayEntry[]): TrayEntry[] {
 // re-evaluates this module) the existing tray is reused instead of being
 // destroyed and recreated — on Linux, Tray#destroy() leaves a stale
 // StatusNotifierItem behind, so recreating would stack duplicate icons.
-function createTrayIcon(): Promise<TrayIcon> {
+async function createTrayIcon(): Promise<TrayIcon> {
 	// Pass an explicit icon on Tauri; without one it falls back to the default
 	// window icon which renders as an invisible/blank tray entry on Windows.
-	// The PNG is bundled into the JS as a data URL — a runtime fetch of
-	// /tray-icon.png is unreliable in Windows production builds. Electron's
-	// tray:new proxy ignores `icon` and loads its own icon.png.
+	// Electron proxies tray:new to a native Tray that loads its own icon.png.
 	let icon: Uint8Array | undefined;
 	if ("__TAURI_INTERNALS__" in window) {
-		const base64 = trayIconDataUrl.split(",")[1] ?? "";
-		icon = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+		try {
+			const response = await fetch("/tray-icon.png");
+			icon = new Uint8Array(await response.arrayBuffer());
+		} catch (error) {
+			console.error("Failed to load tray icon:", error);
+		}
 	}
 	return TrayIcon.new({
 		id: TRAY_ID,
