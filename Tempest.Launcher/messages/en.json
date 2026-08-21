@@ -355,7 +355,7 @@
 	"hostserver_port_conflict_title": "Close existing server?",
 	"hostserver_upnp": "UPnP port forwarding",
 	"hostserver_upnp_hint": "Automatically open ports on your router",
-	"instance_content": "Content",
+	"instance_content": "Mods",
 	"instance_no_content": "No content installed",
 	"instance_add_mods_hint": "Add mods to customize your instance",
 	"instance_drag_import_hint": "Drag and drop .upk or .pck files here, or click below to import.",

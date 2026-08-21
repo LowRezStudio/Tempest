@@ -355,7 +355,7 @@
 	"hostserver_port_conflict_title": "Mevcut sunucu kapatılsın mı?",
 	"hostserver_upnp": "UPnP port yönlendirilmesi",
 	"hostserver_upnp_hint": "Yönlendiricinizdeki portları otomatik olarak açın",
-	"instance_content": "İÇERİK",
+	"instance_content": "MODLAR",
 	"instance_no_content": "Hiç bir içerik indirilmedi",
 	"instance_add_mods_hint": "Sürümünüzü kişileştirmek için modlar ekleyin",
 	"instance_drag_import_hint": "Buraya .upk ya da .pck dosyalarını sürükleyip bırakın veya içe aktarmak için aşağıya tıklayın.",

@@ -363,7 +363,7 @@
 	"hostserver_port_conflict_title": "Zamknąć istniejący serwer?",
 	"hostserver_upnp": "Przekierowanie portów UPnP",
 	"hostserver_upnp_hint": "Automatycznie otwiera porty na routerze",
-	"instance_content": "Zawartość",
+	"instance_content": "Mods",
 	"instance_no_content": "Brak zainstalowanej zawartości",
 	"instance_add_mods_hint": "Dodaj mody, aby dostosować swoją instancję",
 	"instance_drag_import_hint": "Przeciągnij i upuść pliki .upk lub .pck tutaj albo kliknij poniżej, aby zaimportować.",

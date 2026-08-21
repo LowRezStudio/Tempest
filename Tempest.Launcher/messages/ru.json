@@ -363,7 +363,7 @@
 	"hostserver_port_conflict_title": "Закрыть существующий сервер?",
 	"hostserver_upnp": "Перенаправление портов UPnP",
 	"hostserver_upnp_hint": "Автоматически открывает порты на роутере",
-	"instance_content": "Контент",
+	"instance_content": "Моды",
 	"instance_no_content": "Нет установленного контента",
 	"instance_add_mods_hint": "Добавьте моды для настройки инстанса",
 	"instance_drag_import_hint": "Перетащите файлы .upk или .pck сюда или нажмите ниже, чтобы импортировать.",

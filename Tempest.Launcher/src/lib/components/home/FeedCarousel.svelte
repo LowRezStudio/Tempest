@@ -171,7 +171,7 @@
 
 <style>
 	.feed-slide-media {
-		transition: transform 150ms var(--ease-snappy);
+		transition: transform 600ms var(--ease-smooth);
 	}
 
 	@media (hover: hover) and (pointer: fine) {
