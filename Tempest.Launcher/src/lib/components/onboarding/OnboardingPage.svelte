@@ -36,9 +36,7 @@
 	type VersionEntry = (typeof versions)[number];
 
 	const multiplayerVersion = versions.find((version) => version.version === "0.57");
-	const otherVersions: VersionEntry[] = [...versions]
-		.filter((entry) => entry !== multiplayerVersion)
-		.reverse();
+	const otherVersions: VersionEntry[] = versions.filter((entry) => entry !== multiplayerVersion);
 
 	const isLinux = getPlatform() === "linux";
 	// Derived so the step labels re-translate when the locale is committed on Next.
@@ -660,7 +658,9 @@
 										>
 											{#each otherVersions as entry (entry.id)}
 												<option value={entry.id}>
-													{entry.version} — {entry.name}
+													{entry.version} - {entry.name} ({entry.date.split(
+														"T",
+													)[0]})
 												</option>
 											{/each}
 										</select>
