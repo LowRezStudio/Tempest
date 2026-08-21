@@ -6,8 +6,10 @@
 	import Header from "$lib/components/ui/Header.svelte";
 	import FeatureFlagsTab from "$lib/dev/FeatureFlagsTab.svelte";
 	import { m } from "$lib/paraglide/messages";
+	import { locales } from "$lib/paraglide/runtime";
 	import { createAboutInfoQuery } from "$lib/queries/about";
 	import KeybindsTab from "$lib/settings/KeybindsTab.svelte";
+	import { localeLabels, localeState } from "$lib/stores/locale.svelte";
 	import {
 		customThemeCSS,
 		defaultInstancePath,
@@ -90,6 +92,24 @@
 								bind:value={username.value}
 								placeholder={m.settings_username_placeholder()}
 							/>
+						</div>
+
+						<div class="form-control">
+							<label for="language-input" class="label py-0.5">
+								<span class="label-text text-sm">{m.common_language()}</span>
+							</label>
+							<select
+								id="language-input"
+								class="select select-bordered w-full"
+								bind:value={localeState.current}
+							>
+								{#each locales as loc}
+									<option value={loc}
+										>{localeLabels[loc]?.flag ?? ""}
+										{localeLabels[loc]?.label ?? loc.toUpperCase()}</option
+									>
+								{/each}
+							</select>
 						</div>
 
 						<div class="form-control">
