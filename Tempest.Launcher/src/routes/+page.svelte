@@ -1,7 +1,8 @@
 <script lang="ts">
+	import { MousePointerClick, Pin } from "@lucide/svelte";
 	import { fade } from "svelte/transition";
-	import FeedCarousel from "$lib/components/home/FeedCarousel.svelte";
 	import HomeFloatingActions from "$lib/components/home/HomeFloatingActions.svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { pinnedBackground } from "$lib/stores/settings.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
 
@@ -66,7 +67,20 @@
 
 <div class="pointer-events-none relative top-0 left-0 z-10 h-full p-2"></div>
 
-<FeedCarousel />
+<div class="pointer-events-none fixed top-6 right-6 z-40 flex flex-col items-end gap-1.5">
+	<div
+		class="bg-base-200/70 text-base-content/80 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm"
+	>
+		<MousePointerClick size={14} class="shrink-0 opacity-60" />
+		<span>{m.home_background_change()}</span>
+	</div>
+	<div
+		class="bg-base-200/70 text-base-content/80 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm"
+	>
+		<Pin size={14} class="shrink-0 opacity-60" />
+		<span>{m.home_background_pin()}</span>
+	</div>
+</div>
 
 <HomeFloatingActions />
 

@@ -71,18 +71,24 @@
 	// Prompt text for the current step, shown as the header subtitle.
 	const stepSubtitle = $derived.by(() => {
 		switch (currentStep.id) {
-			case "language":
+			case "language": {
 				return m.onboarding_language_title();
-			case "username":
+			}
+			case "username": {
 				return m.onboarding_username_title();
-			case "steam":
+			}
+			case "steam": {
 				return m.onboarding_header_steam();
-			case "download":
+			}
+			case "download": {
 				return m.onboarding_header_download();
-			case "done":
+			}
+			case "done": {
 				return m.onboarding_done_title();
-			default:
+			}
+			default: {
 				return currentStep.label;
+			}
 		}
 	});
 	const canGoNext = $derived(currentStep.id !== "username" || usernameDraft.trim().length > 0);

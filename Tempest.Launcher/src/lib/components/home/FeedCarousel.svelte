@@ -1,13 +1,16 @@
 <script lang="ts">
-	import { ChevronLeft, ChevronRight, Rss } from "@lucide/svelte";
+	import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Rss } from "@lucide/svelte";
 	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { m } from "$lib/paraglide/messages";
 	import { createBlogFeedQuery } from "$lib/queries/feed";
 	import { localeState } from "$lib/stores/locale.svelte";
+	import { persistedState } from "$lib/stores/persisted.svelte";
 
 	const feedQuery = createBlogFeedQuery();
 	let posts = $derived(feedQuery.data ?? []);
 	let feedLoading = $derived(feedQuery.isPending && posts.length === 0);
+
+	const feedMinimized = persistedState("home_feed_minimized", false);
 
 	let carouselEl: HTMLElement | undefined = $state();
 	let current = $state(0);
@@ -48,7 +51,7 @@
 
 	$effect(() => {
 		const count = posts.length;
-		if (count <= 1 || paused) return;
+		if (count <= 1 || paused || feedMinimized.value) return;
 		const timer = setInterval(() => {
 			goTo(current + 1);
 		}, 5000);
@@ -57,11 +60,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-	class="fixed top-6 left-6 z-40 w-[380px]"
-	onmouseenter={() => (paused = true)}
-	onmouseleave={() => (paused = false)}
->
+<div onmouseenter={() => (paused = true)} onmouseleave={() => (paused = false)}>
 	<div
 		class="card bg-base-200/85 shadow-xl backdrop-blur-sm transition-[filter] duration-150 hover:brightness-90"
 	>
@@ -76,94 +75,107 @@
 					<h3 class="text-xs font-bold">{m.home_feed_title()}</h3>
 					<p class="text-[10px] opacity-60">{m.home_feed_subtitle()}</p>
 				</div>
+				<button
+					class="btn btn-ghost btn-xs btn-square shrink-0"
+					onclick={() => (feedMinimized.value = !feedMinimized.value)}
+					aria-label={feedMinimized.value ? m.home_show_section() : m.home_hide_section()}
+				>
+					{#if feedMinimized.value}
+						<ChevronUp size={12} />
+					{:else}
+						<ChevronDown size={12} />
+					{/if}
+				</button>
 			</div>
 
-			{#if feedLoading}
-				<div class="skeleton aspect-video w-full rounded-lg"></div>
-			{:else if posts.length > 0}
-				<div class="relative">
-					<div
-						class="carousel carousel-horizontal w-full snap-x snap-mandatory scroll-smooth"
-						bind:this={carouselEl}
-						onscroll={onScroll}
-					>
-						{#each posts as post, i (post.link)}
-							<div
-								class="carousel-item feed-slide relative aspect-video w-full snap-start overflow-hidden rounded-lg"
+			{#if !feedMinimized.value}
+				{#if feedLoading}
+					<div class="skeleton aspect-video w-full rounded-lg"></div>
+				{:else if posts.length > 0}
+					<div class="relative">
+						<div
+							class="carousel carousel-horizontal w-full snap-x snap-mandatory scroll-smooth"
+							bind:this={carouselEl}
+							onscroll={onScroll}
+						>
+							{#each posts as post, i (post.link)}
+								<div
+									class="carousel-item feed-slide relative aspect-video w-full snap-start overflow-hidden rounded-lg"
+								>
+									<div
+										class="from-primary/20 to-base-300 absolute inset-0 flex items-center justify-center bg-gradient-to-br"
+									>
+										<Rss size={24} class="opacity-40" />
+									</div>
+									{#if post.image && !imageFailed[i]}
+										<img
+											src={post.image}
+											alt=""
+											class="feed-slide-media absolute inset-0 h-full w-full object-cover"
+											loading="lazy"
+											decoding="async"
+											onerror={() => markImageFailed(i)}
+										/>
+									{/if}
+									<button
+										type="button"
+										class="absolute inset-0 cursor-pointer"
+										aria-label={post.title}
+										onclick={() => openUrl(post.link)}
+									></button>
+									<div
+										class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-8 text-left"
+									>
+										<p class="text-xs leading-snug font-bold text-white">
+											{post.title}
+										</p>
+										<p class="text-[10px] text-white/75">
+											{formatFeedDate(post.pubDate)}
+										</p>
+									</div>
+								</div>
+							{/each}
+						</div>
+
+						{#if posts.length > 1}
+							<button
+								type="button"
+								class="btn btn-circle btn-ghost btn-xs bg-base-300/70 absolute top-1/2 left-2 -translate-y-1/2 backdrop-blur-sm"
+								aria-label={m.home_feed_prev()}
+								onclick={() => goTo(current - 1)}
 							>
-								<div
-									class="from-primary/20 to-base-300 absolute inset-0 flex items-center justify-center bg-gradient-to-br"
-								>
-									<Rss size={24} class="opacity-40" />
-								</div>
-								{#if post.image && !imageFailed[i]}
-									<img
-										src={post.image}
-										alt=""
-										class="feed-slide-media absolute inset-0 h-full w-full object-cover"
-										loading="lazy"
-										decoding="async"
-										onerror={() => markImageFailed(i)}
-									/>
-								{/if}
-								<button
-									type="button"
-									class="absolute inset-0 cursor-pointer"
-									aria-label={post.title}
-									onclick={() => openUrl(post.link)}
-								></button>
-								<div
-									class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-8 text-left"
-								>
-									<p class="text-xs leading-snug font-bold text-white">
-										{post.title}
-									</p>
-									<p class="text-[10px] text-white/75">
-										{formatFeedDate(post.pubDate)}
-									</p>
-								</div>
-							</div>
-						{/each}
+								<ChevronLeft size={14} />
+							</button>
+							<button
+								type="button"
+								class="btn btn-circle btn-ghost btn-xs bg-base-300/70 absolute top-1/2 right-2 -translate-y-1/2 backdrop-blur-sm"
+								aria-label={m.home_feed_next()}
+								onclick={() => goTo(current + 1)}
+							>
+								<ChevronRight size={14} />
+							</button>
+						{/if}
 					</div>
 
 					{#if posts.length > 1}
-						<button
-							type="button"
-							class="btn btn-circle btn-ghost btn-xs bg-base-300/70 absolute top-1/2 left-2 -translate-y-1/2 backdrop-blur-sm"
-							aria-label={m.home_feed_prev()}
-							onclick={() => goTo(current - 1)}
-						>
-							<ChevronLeft size={14} />
-						</button>
-						<button
-							type="button"
-							class="btn btn-circle btn-ghost btn-xs bg-base-300/70 absolute top-1/2 right-2 -translate-y-1/2 backdrop-blur-sm"
-							aria-label={m.home_feed_next()}
-							onclick={() => goTo(current + 1)}
-						>
-							<ChevronRight size={14} />
-						</button>
+						<div class="flex items-center justify-center gap-1 pt-0.5">
+							{#each posts as _, i (i)}
+								<button
+									type="button"
+									class="h-1.5 cursor-pointer rounded-full transition-all duration-150"
+									class:w-4={i === current}
+									class:w-1.5={i !== current}
+									class:bg-primary={i === current}
+									class:bg-base-300={i !== current}
+									aria-label={`${m.home_feed_go_to()} ${i + 1}`}
+									onclick={() => goTo(i)}
+								></button>
+							{/each}
+						</div>
 					{/if}
-				</div>
-
-				{#if posts.length > 1}
-					<div class="flex items-center justify-center gap-1 pt-0.5">
-						{#each posts as _, i (i)}
-							<button
-								type="button"
-								class="h-1.5 cursor-pointer rounded-full transition-all duration-150"
-								class:w-4={i === current}
-								class:w-1.5={i !== current}
-								class:bg-primary={i === current}
-								class:bg-base-300={i !== current}
-								aria-label={`${m.home_feed_go_to()} ${i + 1}`}
-								onclick={() => goTo(i)}
-							></button>
-						{/each}
-					</div>
+				{:else}
+					<p class="py-4 text-center text-xs opacity-60">{m.home_feed_unavailable()}</p>
 				{/if}
-			{:else}
-				<p class="py-4 text-center text-xs opacity-60">{m.home_feed_unavailable()}</p>
 			{/if}
 		</div>
 	</div>
