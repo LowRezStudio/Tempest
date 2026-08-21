@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from "$app/state";
 	import {
+		Compass,
 		Download,
 		FlaskConical,
 		House,
@@ -15,7 +16,7 @@
 	} from "@lucide/svelte";
 	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { preparedInstances, setInstanceOrder } from "$lib/stores/instance.svelte";
+	import { instanceMap, preparedInstances, setInstanceOrder } from "$lib/stores/instance.svelte";
 	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
 	import { modDeveloper } from "$lib/stores/settings.svelte";
 	import { commandsPageOpen, instanceWizardOpen } from "$lib/stores/ui.svelte";
@@ -38,6 +39,11 @@
 	class:dragging={!!reorder.drag}
 >
 	<nav class="flex flex-col gap-2">
+		{#if Object.keys(instanceMap.value).length === 0}
+			<SidebarItem href="/onboarding" label={m.sidebar_get_started()}
+				><Compass size={20} /></SidebarItem
+			>
+		{/if}
 		<SidebarItem href="/" label={m.sidebar_home()}><House size={20} /></SidebarItem>
 		<SidebarItem href="/library" label={m.sidebar_library()}><Library size={20} /></SidebarItem>
 		<SidebarItem href="/downloads" label={m.sidebar_downloads()}

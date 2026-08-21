@@ -68,15 +68,17 @@
 				{/snippet}
 			</svelte:boundary>
 		</main>
-		<LayoutDialogs
-			isDraggingFiles={isDraggingFiles.value}
-			bind:showInstanceSelect={localShowInstanceSelect}
-			onselect={handleInstanceSelected}
-			oncancel={() => {}}
-		/>
 	</div>
-	<ToastStack />
 {/key}
+<!-- Dialogs live outside the locale key so an in-progress wizard keeps its
+	state when the user commits a language change. -->
+<LayoutDialogs
+	isDraggingFiles={isDraggingFiles.value}
+	bind:showInstanceSelect={localShowInstanceSelect}
+	onselect={handleInstanceSelected}
+	oncancel={() => {}}
+/>
+<ToastStack />
 
 <style>
 	.page-transition {

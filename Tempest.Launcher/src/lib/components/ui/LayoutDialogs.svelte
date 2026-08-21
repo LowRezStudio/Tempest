@@ -4,7 +4,6 @@
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import ReplaceModDialog from "$lib/components/mods/ReplaceModDialog.svelte";
 	import UnverifiedModDialog from "$lib/components/mods/UnverifiedModDialog.svelte";
-	import OnboardingDialog from "$lib/components/onboarding/OnboardingDialog.svelte";
 	import HostServerWizard from "$lib/components/server-list/HostServerWizard.svelte";
 	import JoinServerWizard from "$lib/components/server-list/JoinServerWizard.svelte";
 	import UpdateDialog from "$lib/components/updater/UpdateDialog.svelte";
@@ -54,4 +53,3 @@
 	oncancel={() => resolveUnverifiedMod(false)}
 />
 <UpdateDialog />
-<OnboardingDialog />

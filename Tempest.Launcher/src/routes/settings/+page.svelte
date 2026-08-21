@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from "$app/navigation";
 	import { Settings } from "@lucide/svelte";
 	import { open } from "@tauri-apps/plugin-dialog";
 	import { platform } from "@tauri-apps/plugin-os";
@@ -11,6 +12,7 @@
 		customThemeCSS,
 		defaultInstancePath,
 		modDeveloper,
+		onboardingCompleted,
 		theme,
 		username,
 	} from "$lib/stores/settings.svelte";
@@ -36,6 +38,11 @@
 	function resetAll() {
 		localStorage.clear();
 		location.href = "/";
+	}
+
+	function restartOnboarding() {
+		onboardingCompleted.value = false;
+		void goto("/onboarding");
 	}
 
 	const aboutQuery = createAboutInfoQuery();
@@ -175,6 +182,20 @@
 					<FeatureFlagsTab />
 				{:else if activeTab === "advanced"}
 					<div class="flex flex-col">
+						<div class="flex flex-col gap-4">
+							<h2 class="text-xl font-semibold">{m.settings_onboarding_title()}</h2>
+							<p class="text-sm">
+								{m.settings_onboarding_description()}
+							</p>
+							<div>
+								<button class="btn btn-accent" onclick={restartOnboarding}
+									>{m.settings_restart_onboarding()}</button
+								>
+							</div>
+						</div>
+
+						<div class="divider"></div>
+
 						<div class="flex flex-col gap-4">
 							<h2 class="text-error text-xl font-semibold">
 								{m.settings_danger_zone()}
