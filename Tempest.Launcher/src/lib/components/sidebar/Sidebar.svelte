@@ -21,7 +21,6 @@
 	import { modDeveloper } from "$lib/stores/settings.svelte";
 	import { commandsPageOpen, instanceWizardOpen } from "$lib/stores/ui.svelte";
 	import { createReorderable } from "$lib/utils/reorder.svelte";
-	import LanguageSelector from "./LanguageSelector.svelte";
 	import SidebarInstanceItem from "./SidebarInstanceItem.svelte";
 	import SidebarItem from "./SidebarItem.svelte";
 	import type { Instance } from "$lib/types/instance";
@@ -111,7 +110,6 @@
 				<SquareTerminal size={20} />
 			</SidebarItem>
 		{/each}
-		<LanguageSelector />
 		<SidebarItem href="/logs" label={m.sidebar_logs()}><ScrollText size={20} /></SidebarItem>
 		<SidebarItem href="/settings" label={m.sidebar_settings()}
 			><Settings size={20} /></SidebarItem

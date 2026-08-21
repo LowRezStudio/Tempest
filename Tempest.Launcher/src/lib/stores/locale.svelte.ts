@@ -16,10 +16,14 @@ class LocaleState {
 		return this.#current;
 	}
 
-	set(newLocale: Locale) {
+	set current(newLocale: Locale) {
 		if (newLocale === this.#current) return;
 		this.#current = newLocale;
 		void setLocale(newLocale, { reload: false });
+	}
+
+	set(newLocale: Locale) {
+		this.current = newLocale;
 	}
 }
 
