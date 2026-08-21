@@ -33,8 +33,12 @@
 	type SteamState = "searching" | "found" | "missing";
 	type LoginMethod = "steam" | "epic" | "hirez";
 	type StepId = "language" | "username" | "steam" | "download" | "proton" | "done";
+	type VersionEntry = (typeof versions)[number];
 
 	const multiplayerVersion = versions.find((version) => version.version === "0.57");
+	const otherVersions: VersionEntry[] = [...versions]
+		.filter((entry) => entry !== multiplayerVersion)
+		.reverse();
 
 	const isLinux = getPlatform() === "linux";
 	// Derived so the step labels re-translate when the locale is committed on Next.
@@ -59,7 +63,8 @@
 	let importDone = $state(false);
 	let importedPath = $state<string | null>(null);
 	let downloadBusy = $state(false);
-	let downloadQueued = $state(false);
+	let queuedVersions = $state<string[]>([]);
+	let otherVersionId = $state(otherVersions[0]?.id ?? "");
 	let importError = $state("");
 	let installError = $state("");
 	let steamState = $state<SteamState>("searching");
@@ -68,6 +73,14 @@
 
 	const setupInstanceMutation = createSetupInstanceMutation();
 	const currentStep = $derived(steps[stepIndex]);
+	const downloadQueued = $derived(queuedVersions.length > 0);
+	const multiplayerQueued = $derived(
+		multiplayerVersion !== undefined && queuedVersions.includes(multiplayerVersion.version),
+	);
+	const otherVersion = $derived(versions.find((entry) => entry.id === otherVersionId));
+	const otherVersionQueued = $derived(
+		otherVersion !== undefined && queuedVersions.includes(otherVersion.version),
+	);
 	// Prompt text for the current step, shown as the header subtitle.
 	const stepSubtitle = $derived.by(() => {
 		switch (currentStep.id) {
@@ -295,20 +308,28 @@
 		return await tauriPath.join(root, "Games", "Tempest");
 	}
 
-	async function installMultiplayerVersion() {
-		if (downloadBusy || downloadQueued || !multiplayerVersion) return;
+	async function browseDownloadDirectory() {
+		const selected = await openDirectoryDialog({
+			directory: true,
+			multiple: false,
+			title: m.wizard_select_installation_folder(),
+		});
+		if (typeof selected === "string") defaultInstancePath.value = selected;
+	}
+
+	async function downloadVersion(entry: VersionEntry) {
+		if (downloadBusy || queuedVersions.includes(entry.version)) return;
 		downloadBusy = true;
 		installError = "";
 
 		try {
-			const targetPath = await tauriPath.join(
-				await getDownloadBasePath(),
-				multiplayerVersion.version,
-			);
+			const targetPath = await tauriPath.join(await getDownloadBasePath(), entry.version);
+			const manifests = [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", entry.id)];
 			const existing = findExistingInstance(targetPath);
+
 			if (existing) {
 				restoreQueue.add({
-					manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", multiplayerVersion.id)],
+					manifests,
 					outDir: existing.path,
 					baseUrl: RIGBY_BASE_URL,
 				});
@@ -316,10 +337,11 @@
 			} else {
 				const instance: Instance = {
 					id: crypto.randomUUID(),
-					label: `${multiplayerVersion.name} (Multiplayer)`,
-					version: multiplayerVersion.version,
-					manifestId: multiplayerVersion.id,
-					appId: multiplayerVersion.appId,
+					label:
+						entry === multiplayerVersion ? `${entry.name} (Multiplayer)` : entry.name,
+					version: entry.version,
+					manifestId: entry.id,
+					appId: entry.appId,
 					path: targetPath,
 					launchOptions: {
 						dllList: [],
@@ -331,19 +353,29 @@
 				};
 				addInstance(instance);
 				restoreQueue.add({
-					manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", multiplayerVersion.id)],
+					manifests,
 					outDir: targetPath,
 					baseUrl: RIGBY_BASE_URL,
 				});
 			}
 
-			downloadQueued = true;
+			queuedVersions.push(entry.version);
 		} catch (error) {
-			console.error("[onboarding] multiplayer install failed", error);
+			console.error("[onboarding] download failed", error);
 			installError = m.onboarding_install_error();
 		} finally {
 			downloadBusy = false;
 		}
+	}
+
+	function queueMultiplayerVersion() {
+		if (!multiplayerVersion || multiplayerQueued) return;
+		void downloadVersion(multiplayerVersion);
+	}
+
+	function queueOtherBuild() {
+		if (!otherVersion || otherVersionQueued) return;
+		void downloadVersion(otherVersion);
 	}
 </script>
 
@@ -561,22 +593,47 @@
 									</div>
 								{/if}
 							{:else if currentStep.id === "download"}
+								<div class="form-control">
+									<label for="onboarding-download-path" class="label py-0.5">
+										<span class="label-text text-sm"
+											>{m.onboarding_download_directory_label()}</span
+										>
+									</label>
+									<div class="join w-full">
+										<input
+											id="onboarding-download-path"
+											type="text"
+											class="input input-bordered join-item min-w-0 flex-1 font-mono"
+											bind:value={defaultInstancePath.value}
+										/>
+										<button
+											class="btn btn-accent join-item"
+											type="button"
+											onclick={browseDownloadDirectory}
+										>
+											{m.common_browse()}
+										</button>
+									</div>
+								</div>
+
 								<button
-									class="btn btn-accent h-14 w-full justify-start gap-3"
+									class="btn btn-accent mt-3 h-14 w-full justify-start gap-3"
 									type="button"
-									disabled={downloadBusy || downloadQueued || !multiplayerVersion}
-									onclick={installMultiplayerVersion}
+									disabled={downloadBusy ||
+										multiplayerQueued ||
+										!multiplayerVersion}
+									onclick={queueMultiplayerVersion}
 								>
 									{#if downloadBusy}
 										<Loader2 size={16} class="animate-spin" />
-									{:else if downloadQueued}
+									{:else if multiplayerQueued}
 										<Check size={16} />
 									{:else}
 										<Download size={16} />
 									{/if}
 									<span class="text-left">
 										<span class="block text-sm font-semibold">
-											{downloadQueued
+											{multiplayerQueued
 												? m.onboarding_install_queued()
 												: m.onboarding_download_title()}
 										</span>
@@ -587,6 +644,37 @@
 										</span>
 									</span>
 								</button>
+
+								<div class="divider my-2"></div>
+								<div class="form-control">
+									<label for="onboarding-other-version" class="label py-0.5">
+										<span class="label-text text-sm"
+											>{m.onboarding_download_other_title()}</span
+										>
+									</label>
+									<div class="flex gap-2">
+										<select
+											id="onboarding-other-version"
+											class="select select-bordered min-w-0 flex-1"
+											bind:value={otherVersionId}
+										>
+											{#each otherVersions as entry (entry.id)}
+												<option value={entry.id}>
+													{entry.version} — {entry.name}
+												</option>
+											{/each}
+										</select>
+										<button
+											class="btn btn-accent shrink-0"
+											type="button"
+											disabled={downloadBusy || otherVersionQueued}
+											onclick={queueOtherBuild}
+										>
+											<Download size={16} />
+											{m.onboarding_download_queue()}
+										</button>
+									</div>
+								</div>
 
 								{#if installError}
 									<div class="alert alert-error text-sm" role="alert">
@@ -650,7 +738,9 @@
 											{#if downloadQueued}
 												<span class="flex items-center gap-1">
 													<Check size={14} class="text-success" />
-													{m.onboarding_summary_download()}
+													{m.onboarding_summary_download({
+														versions: queuedVersions.join(", "),
+													})}
 												</span>
 											{:else}
 												<span class="opacity-70"

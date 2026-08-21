@@ -92,39 +92,48 @@
 	let tilePos = $state<TilePos | null>(tilePosStore.value ?? null);
 	let tileStackEl: HTMLDivElement | undefined = $state();
 	let tileDragging = $state(false);
-	let tileDragOffset: TilePos = { x: 0, y: 0 };
 
 	function clampTilePos(pos: TilePos): TilePos {
 		if (!tileStackEl) return pos;
-		const maxX = Math.max(
-			window.innerWidth - tileStackEl.offsetWidth - TILE_MARGIN,
-			TILE_MARGIN,
-		);
-		const maxY = Math.max(
-			window.innerHeight - tileStackEl.offsetHeight - TILE_MARGIN,
-			TILE_MARGIN,
-		);
+		// Fixed positioning resolves against the page transition wrapper (it
+		// carries a transform), so clamp within that frame, not the window.
+		const frame = tileStackEl.offsetParent as HTMLElement | null;
+		const frameW = frame?.clientWidth ?? window.innerWidth;
+		const frameH = frame?.clientHeight ?? window.innerHeight;
+		const maxX = Math.max(frameW - tileStackEl.offsetWidth - TILE_MARGIN, TILE_MARGIN);
+		const maxY = Math.max(frameH - tileStackEl.offsetHeight - TILE_MARGIN, TILE_MARGIN);
 		return {
 			x: Math.min(Math.max(pos.x, TILE_MARGIN), maxX),
 			y: Math.min(Math.max(pos.y, TILE_MARGIN), maxY),
 		};
 	}
 
+	let tileDragStartPos: TilePos = { x: 0, y: 0 };
+	let tileDragStartPointer: TilePos = { x: 0, y: 0 };
+
 	function startTileDrag(event: PointerEvent) {
 		if (!tileStackEl) return;
-		const rect = tileStackEl.getBoundingClientRect();
-		tileDragOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+		if (!tilePos) {
+			// Materialize the stored position from wherever the stack currently
+			// renders, expressed in the same coordinate space as style:left/bottom.
+			const rect = tileStackEl.getBoundingClientRect();
+			tilePos = clampTilePos({
+				x: tileStackEl.offsetLeft,
+				y: window.innerHeight - rect.bottom,
+			});
+		}
+		tileDragStartPos = tilePos;
+		tileDragStartPointer = { x: event.clientX, y: event.clientY };
 		tileDragging = true;
 		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
 	}
 
 	function moveTileDrag(event: PointerEvent) {
-		if (!tileDragging || !tileStackEl) return;
-		const left = event.clientX - tileDragOffset.x;
-		const top = event.clientY - tileDragOffset.y;
+		if (!tileDragging) return;
+		// Pure deltas: immune to any offset between window and layout space.
 		tilePos = clampTilePos({
-			x: left,
-			y: window.innerHeight - top - tileStackEl.offsetHeight,
+			x: tileDragStartPos.x + (event.clientX - tileDragStartPointer.x),
+			y: tileDragStartPos.y - (event.clientY - tileDragStartPointer.y),
 		});
 	}
 
