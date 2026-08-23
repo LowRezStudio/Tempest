@@ -3,6 +3,7 @@
 	import { useQueryClient } from "@tanstack/svelte-query";
 	import { resolveResource } from "@tauri-apps/api/path";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
+	import { onMount, untrack } from "svelte";
 	import { installMod, removeMod, type ModRecord } from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
@@ -16,13 +17,9 @@
 		instance: Instance;
 		// Re-sync the form from the instance whenever this becomes true (modal open / tab shown).
 		active?: boolean;
-		// Called after a successful save (the modal uses it to close itself).
-		onSaved?: () => void;
-		// Called when the user discards edits (the modal uses it to close itself).
-		onCancel?: () => void;
 	}
 
-	let { instance, active = true, onSaved, onCancel }: Props = $props();
+	let { instance, active = true }: Props = $props();
 
 	const colorPresets = [
 		"#ef4444",
@@ -46,10 +43,9 @@
 	let editArgsText = $state("");
 	let editColor = $state("");
 	let editEnableConsole = $state(false);
-	let initialEnableConsole = false;
 	let editEnableCore = $state(false);
-	let initialEnableCore = false;
 	let hasInitializedMods = $state(false);
+	let isTogglingMods = $state(false);
 
 	const modsQuery = createModsQuery(() => editPath);
 
@@ -63,10 +59,11 @@
 		hasInitializedMods = false;
 	}
 
-	// ponytail: reset the form whenever the panel becomes active with the latest instance data
+	// ponytail: reset the form whenever the panel becomes active with the latest instance data.
+	// Untracked so auto-saving (which updates the instance) never re-syncs mid-edit.
 	$effect(() => {
 		if (!active) return;
-		syncFromInstance();
+		untrack(() => syncFromInstance());
 	});
 
 	let isCoreVersion = $derived(editVersion === "0.56" || editVersion === "0.57");
@@ -83,16 +80,68 @@
 	// ponytail: detect installed bundled mods using createModsQuery
 	$effect(() => {
 		if (active && modsQuery.data && !hasInitializedMods) {
-			const consoleInstalled = modsQuery.data.some(isConsoleMod);
-			editEnableConsole = consoleInstalled;
-			initialEnableConsole = consoleInstalled;
-
-			const coreInstalled = modsQuery.data.some(isCoreMod);
-			editEnableCore = coreInstalled;
-			initialEnableCore = coreInstalled;
-
+			editEnableConsole = modsQuery.data.some(isConsoleMod);
+			editEnableCore = modsQuery.data.some(isCoreMod);
 			hasInitializedMods = true;
 		}
+	});
+
+	function buildUpdates() {
+		return {
+			label: editName.trim() || instance.label,
+			version: editVersion,
+			path: editPath,
+			color: editColor,
+			launchOptions: {
+				...instance.launchOptions,
+				platform: editPlatform,
+				args: parseArgs(editArgsText),
+			},
+		};
+	}
+
+	// ponytail: auto-save — persist edits shortly after they stop changing,
+	// skipping writes while the form still matches the stored instance.
+	let pendingUpdates: ReturnType<typeof buildUpdates> | null = null;
+	let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function flushPendingUpdates() {
+		clearTimeout(pendingTimer);
+		if (!pendingUpdates) return;
+		updateInstance(instance.id, pendingUpdates);
+		pendingUpdates = null;
+	}
+
+	onMount(() => flushPendingUpdates);
+
+	$effect(() => {
+		if (!active) {
+			flushPendingUpdates();
+			return;
+		}
+
+		const updates = buildUpdates();
+		const next = {
+			label: updates.label,
+			version: updates.version ?? "",
+			path: updates.path,
+			color: updates.color,
+			platform: updates.launchOptions.platform ?? "Win64",
+			args: updates.launchOptions.args,
+		};
+		const current = {
+			label: instance.label,
+			version: instance.version ?? "",
+			path: instance.path,
+			color: getInstanceColor(instance),
+			platform: instance.launchOptions?.platform ?? "Win64",
+			args: instance.launchOptions?.args ?? [],
+		};
+		if (JSON.stringify(next) === JSON.stringify(current)) return;
+
+		clearTimeout(pendingTimer);
+		pendingUpdates = updates;
+		pendingTimer = setTimeout(flushPendingUpdates, 400);
 	});
 
 	// Remove every installed mod matching the predicate by its real internal name
@@ -102,6 +151,31 @@
 			if (isMatch(mod)) {
 				await removeMod(editPath, mod.Name);
 			}
+		}
+	}
+
+	async function setBundledMod(enable: boolean) {
+		if (isTogglingMods) return;
+		isTogglingMods = true;
+		try {
+			if (isCoreVersion) {
+				if (enable) {
+					const modFile = await resolveResource("Tempest Core.tempest");
+					await installMod(editPath, modFile, true, true);
+				} else {
+					await removeMatchingMods(isCoreMod);
+				}
+			} else if (enable) {
+				const modFile = await resolveResource("Tempest Console.tempest");
+				await installMod(editPath, modFile, true, true);
+			} else {
+				await removeMatchingMods(isConsoleMod);
+			}
+			queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
+		} catch (error) {
+			console.error("Failed to toggle bundled mod:", error);
+		} finally {
+			isTogglingMods = false;
 		}
 	}
 
@@ -129,58 +203,6 @@
 			editPlatform = availablePlatforms[0] ?? "Win64";
 		}
 	});
-
-	async function save() {
-		updateInstance(instance.id, {
-			label: editName,
-			version: editVersion,
-			path: editPath,
-			color: editColor,
-			launchOptions: {
-				...instance.launchOptions,
-				platform: editPlatform,
-				args: parseArgs(editArgsText),
-			},
-		});
-
-		// ponytail: install or remove the bundled mod if the checkbox toggled.
-		// 0.56/0.57 use a single "Console + Multiplayer" toggle backed by Tempest Core.
-		if (isCoreVersion) {
-			if (editEnableCore !== initialEnableCore) {
-				try {
-					if (editEnableCore) {
-						const modFile = await resolveResource("Tempest Core.tempest");
-						await installMod(editPath, modFile, true, true);
-					} else {
-						await removeMatchingMods(isCoreMod);
-					}
-					queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
-				} catch (error) {
-					console.error("Failed to toggle Core mod:", error);
-				}
-			}
-		} else if (editEnableConsole !== initialEnableConsole) {
-			try {
-				if (editEnableConsole) {
-					const modFile = await resolveResource("Tempest Console.tempest");
-					await installMod(editPath, modFile, true, true);
-				} else {
-					await removeMatchingMods(isConsoleMod);
-				}
-				queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
-			} catch (error) {
-				console.error("Failed to toggle Console mod:", error);
-			}
-		}
-
-		onSaved?.();
-	}
-
-	function handleCancel() {
-		// Discard unsaved edits.
-		syncFromInstance();
-		onCancel?.();
-	}
 </script>
 
 <div class="flex flex-col gap-4">
@@ -320,7 +342,17 @@
 	{#if isCoreVersion}
 		<div class="form-control">
 			<label class="label cursor-pointer justify-start gap-3 py-0.5">
-				<input type="checkbox" class="toggle toggle-accent" bind:checked={editEnableCore} />
+				<input
+					type="checkbox"
+					class="toggle toggle-accent"
+					disabled={isTogglingMods}
+					aria-busy={isTogglingMods}
+					checked={editEnableCore}
+					onchange={(event) => {
+						editEnableCore = event.currentTarget.checked;
+						void setBundledMod(editEnableCore);
+					}}
+				/>
 				<span class="label-text text-sm font-semibold">Enable Console + Multiplayer</span>
 			</label>
 		</div>
@@ -330,19 +362,16 @@
 				<input
 					type="checkbox"
 					class="toggle toggle-accent"
-					bind:checked={editEnableConsole}
+					disabled={isTogglingMods}
+					aria-busy={isTogglingMods}
+					checked={editEnableConsole}
+					onchange={(event) => {
+						editEnableConsole = event.currentTarget.checked;
+						void setBundledMod(editEnableConsole);
+					}}
 				/>
 				<span class="label-text text-sm font-semibold">Enable Console</span>
 			</label>
 		</div>
 	{/if}
-</div>
-
-<div class="flex w-full justify-end gap-2 pt-4">
-	<button class="btn btn-ghost" type="button" onclick={handleCancel}>
-		{m.common_cancel()}
-	</button>
-	<button class="btn btn-accent" type="button" onclick={save}>
-		{m.common_save_changes()}
-	</button>
 </div>

@@ -13,10 +13,5 @@
 </script>
 
 <Modal bind:open title={m.instance_instance_settings()} class="max-w-2xl">
-	<InstanceSettingsForm
-		{instance}
-		active={open}
-		onSaved={() => (open = false)}
-		onCancel={() => (open = false)}
-	/>
+	<InstanceSettingsForm {instance} active={open} />
 </Modal>
