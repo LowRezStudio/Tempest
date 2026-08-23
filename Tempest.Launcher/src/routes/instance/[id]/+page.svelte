@@ -30,6 +30,11 @@
 
 	let activeTab = $state<"content" | "settings">("content");
 
+	// Deep-link support: /instance/<id>?tab=settings opens directly on the settings tab.
+	$effect(() => {
+		activeTab = page.url.searchParams.get("tab") === "settings" ? "settings" : "content";
+	});
+
 	const instance = $derived(instanceMap.value[page.params.id!]);
 	let isSettingUp = $derived(
 		(instance?.state as { type?: string } | undefined)?.type === "setup",

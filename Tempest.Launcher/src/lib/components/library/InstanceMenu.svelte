@@ -13,7 +13,6 @@
 	} from "@lucide/svelte";
 	import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
-	import InstanceSettingsModal from "$lib/components/library/InstanceSettingsModal.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { deleteInstance } from "$lib/core/instance-delete";
@@ -114,8 +113,6 @@
 			goto("/downloads");
 		}
 	}
-
-	let isSettingsModalOpen = $state(false);
 </script>
 
 <PopoverMenu>
@@ -130,7 +127,10 @@
 	{/snippet}
 	{#snippet children()}
 		{#if !isOnInstancePage}
-			<PopoverMenuItem onclick={() => (isSettingsModalOpen = true)} disabled={isSettingUp}>
+			<PopoverMenuItem
+				onclick={() => goto(`/instance/${instance.id}?tab=settings`)}
+				disabled={isSettingUp}
+			>
 				<Settings size={16} />
 				{m.instance_instance_settings()}
 			</PopoverMenuItem>
@@ -182,7 +182,3 @@
 	instanceName={instance.label}
 	onconfirm={handleDeleteConfirm}
 />
-
-{#if !isOnInstancePage}
-	<InstanceSettingsModal {instance} bind:open={isSettingsModalOpen} />
-{/if}
