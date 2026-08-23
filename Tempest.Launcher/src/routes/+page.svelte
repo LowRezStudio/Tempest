@@ -4,7 +4,6 @@
 	import HomeFloatingActions from "$lib/components/home/HomeFloatingActions.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { pinnedBackground } from "$lib/stores/settings.svelte";
-	import { addToast } from "$lib/stores/ui.svelte";
 
 	const backgrounds = Object.keys(import.meta.glob("/static/loading-screens/*.webp")).map((img) =>
 		img.replace("/static", ""),
@@ -14,6 +13,13 @@
 
 	let currentBackground = $state(pinnedBackground.value || getRandomBackground());
 
+	// True while the home page shows exactly the background persisted as pinned.
+	let isPinned = $derived(pinnedBackground.value === currentBackground);
+
+	// Flashes the left-click hint icon blue briefly after each background cycle.
+	let clickFlash = $state(false);
+	let clickFlashTimer: ReturnType<typeof setTimeout> | undefined;
+
 	function changeBackground() {
 		if (pinnedBackground.value) return;
 		if (backgrounds.length <= 1) return;
@@ -22,23 +28,15 @@
 			next = getRandomBackground();
 		}
 		currentBackground = next;
+
+		clearTimeout(clickFlashTimer);
+		clickFlash = true;
+		clickFlashTimer = setTimeout(() => (clickFlash = false), 200);
 	}
 
 	function pinBackground(event: MouseEvent) {
 		event.preventDefault();
-		if (pinnedBackground.value === currentBackground) {
-			pinnedBackground.value = undefined;
-			addToast({
-				message: "Background unpinned!",
-				tone: "info",
-			});
-		} else {
-			pinnedBackground.value = currentBackground;
-			addToast({
-				message: "Background pinned as the default one!",
-				tone: "success",
-			});
-		}
+		pinnedBackground.value = isPinned ? undefined : currentBackground;
 	}
 </script>
 
@@ -69,15 +67,18 @@
 
 <div class="pointer-events-none fixed top-6 right-6 z-40 flex flex-col items-end gap-1.5">
 	<div
-		class="bg-base-200/70 text-base-content/80 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm"
+		class="bg-base-200/30 text-base-content/60 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs backdrop-blur-sm"
 	>
-		<MousePointerClick size={14} class="shrink-0 opacity-60" />
+		<MousePointerClick
+			size={14}
+			class={`shrink-0 opacity-60 ${clickFlash ? "text-info" : ""}`}
+		/>
 		<span>{m.home_background_change()}</span>
 	</div>
 	<div
-		class="bg-base-200/70 text-base-content/80 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm"
+		class="bg-base-200/30 text-base-content/60 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs backdrop-blur-sm"
 	>
-		<Pin size={14} class="shrink-0 opacity-60" />
+		<Pin size={14} class={`shrink-0 opacity-60 ${isPinned ? "text-info" : ""}`} />
 		<span>{m.home_background_pin()}</span>
 	</div>
 </div>
