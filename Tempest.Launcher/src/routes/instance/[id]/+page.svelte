@@ -2,6 +2,7 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import {
+		EllipsisVertical,
 		FolderOpen,
 		Gamepad2,
 		PackageOpen,
@@ -156,7 +157,13 @@
 				</button>
 			{/if}
 			{#if instance}
-				<InstanceMenu {instance} />
+				<InstanceMenu {instance}>
+					{#snippet trigger()}
+						<button class="btn btn-square">
+							<EllipsisVertical size={16} />
+						</button>
+					{/snippet}
+				</InstanceMenu>
 			{/if}
 		{/snippet}
 		{#snippet subtitle()}
