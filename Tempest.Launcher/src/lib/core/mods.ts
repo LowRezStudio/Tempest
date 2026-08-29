@@ -40,9 +40,14 @@ export type ModListResult = {
 /** Versions that get Tempest Core instead of Tempest Console. */
 const CORE_MOD_VERSIONS = new Set(["0.56", "0.57"]);
 
+/** Versions that should skip auto-mod installation entirely. */
+const SKIP_AUTO_MOD_VERSIONS = new Set(["8.1"]);
+
 export const installAutoMods = async (instance: Instance): Promise<void> => {
 	const gamePath = instance?.path;
 	if (!gamePath) return;
+
+	if (instance.version && SKIP_AUTO_MOD_VERSIONS.has(instance.version)) return;
 
 	const isCoreVersion = !!(instance.version && CORE_MOD_VERSIONS.has(instance.version));
 	const resources = isCoreVersion ? ["Tempest Core.tempest"] : ["Tempest Console.tempest"];
