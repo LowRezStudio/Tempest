@@ -15,6 +15,7 @@
 		defaultInstancePath,
 		modDeveloper,
 		onboardingCompleted,
+		openSslCapFix,
 		theme,
 		username,
 	} from "$lib/stores/settings.svelte";
@@ -191,6 +192,20 @@
 							</label>
 							<p class="mt-1 text-xs opacity-60">
 								{m.settings_mod_developer_description()}
+							</p>
+						</div>
+
+						<div class="form-control">
+							<label class="label cursor-pointer justify-start gap-3 py-0.5">
+								<input
+									type="checkbox"
+									class="toggle toggle-accent"
+									bind:checked={openSslCapFix.value}
+								/>
+								<span class="label-text text-sm">OpenSSL ICAPIcap fix</span>
+							</label>
+							<p class="mt-1 text-xs opacity-60">
+								{m.settings_open_ssl_fix_description()}
 							</p>
 						</div>
 					</div>

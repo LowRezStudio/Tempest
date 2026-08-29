@@ -22,6 +22,7 @@ export const dismissExperimentalWarning = persistedState<boolean>(
 	"dismissExperimentalWarning",
 	false,
 );
+export const openSslCapFix = persistedState<boolean>("openSslCapFix", true);
 
 const getDefaultInstancePath = async () => {
 	const rootDir = platform() === "windows" ? "C:" : await homeDir();

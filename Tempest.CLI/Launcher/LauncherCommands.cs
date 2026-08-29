@@ -7,10 +7,10 @@ namespace Tempest.CLI.Launcher;
 
 internal class LauncherCommands
 {
-    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false)
+    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true)
     {
         var args = context.EscapedArguments.ToArray();
-        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs, steamRuntime);
+        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs, steamRuntime, enableOpenSslFix);
 
         if (gamescope && !OperatingSystem.IsWindows())
         {
@@ -48,9 +48,9 @@ internal class LauncherCommands
         // behind after the game stops or its window is closed.
         await WineExtensions.KillProcessTree(process);
     }
-    public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
-                                                string? platform = null, string? game = null, string[]? dll = null,
-                                                bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false)
+public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
+                                                 string? platform = null, string? game = null, string[]? dll = null,
+                                                 bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true)
     {
         if (isServer) gamescope = false;
 
@@ -70,16 +70,16 @@ internal class LauncherCommands
                 {
                     Directory.Move(eacPath, eacPathRenamed);
                 }
-            }
 
-            var platformDir = Directory.GetParent(exePath)?.FullName;
-            if (platformDir != null)
-            {
-                var platformEacPath = Path.Combine(platformDir, "EasyAntiCheat");
-                var platformEacPathRenamed = Path.Combine(platformDir, "_EasyAntiCheat");
-                if (Directory.Exists(platformEacPath) && !Directory.Exists(platformEacPathRenamed))
+                var platformDir = Directory.GetParent(exePath)?.FullName;
+                if (platformDir != null)
                 {
-                    Directory.Move(platformEacPath, platformEacPathRenamed);
+                    var platformEacPath = Path.Combine(platformDir, "EasyAntiCheat");
+                    var platformEacPathRenamed = Path.Combine(platformDir, "_EasyAntiCheat");
+                    if (Directory.Exists(platformEacPath) && !Directory.Exists(platformEacPathRenamed))
+                    {
+                        Directory.Move(platformEacPath, platformEacPathRenamed);
+                    }
                 }
             }
         }
@@ -87,7 +87,10 @@ internal class LauncherCommands
         var process = new Process();
 
         process.StartInfo.FileName = exePath;
-        process.StartInfo.Environment["OPENSSL_ia32cap"] = "~0x20000000"; // Fix for the 64bit clients not working on 10th Gen and 11th Gen Intel CPUs
+        if (enableOpenSslFix)
+        {
+            process.StartInfo.Environment["OPENSSL_ia32cap"] = "~0x20000000"; // Fix for the 64bit clients not working on 10th Gen and 11th Gen Intel CPUs
+        }
 
         foreach (var arg in args)
         {

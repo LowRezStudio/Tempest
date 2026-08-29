@@ -277,6 +277,8 @@
 	"settings_select_directory": "Select a directory...",
 	"settings_mod_developer": "Mod Developer",
 	"settings_mod_developer_description": "Enables mod development tools, such as the Cook Mod converter.",
+	"settings_open_ssl_fix": "OpenSSL ICAPIcap fix",
+	"settings_open_ssl_fix_description": "Prevents AVX-512 crashes on 10th/11th/12th Gen Intel CPUs by masking the OpenSSL ICAPIcap bit",
 	"settings_saved_successfully": "Settings saved successfully",
 	"settings_onboarding_title": "Onboarding",
 	"settings_onboarding_description": "Walk through the first-time setup again: language, username, game import and download.",
