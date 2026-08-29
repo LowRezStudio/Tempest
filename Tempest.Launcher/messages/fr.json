@@ -277,6 +277,8 @@
 	"settings_select_directory": "Sélectionner un répertoire...",
 	"settings_mod_developer": "Développeur de mods",
 	"settings_mod_developer_description": "Active les outils de développement de mods, comme le convertisseur Cook Mod.",
+	"settings_open_ssl_fix": "Correctif OpenSSL ICAPIcap",
+	"settings_open_ssl_fix_description": "Empêche les plantages AVX-512 sur les CPU Intel 10e/11e/12e génération en masquant le bit OpenSSL ICAPIcap",
 	"settings_saved_successfully": "Paramètres enregistrés avec succès",
 	"settings_onboarding_title": "Onboarding",
 	"settings_onboarding_description": "Parcourez à nouveau la configuration initiale : langue, nom d'utilisateur, importation et téléchargement du jeu.",

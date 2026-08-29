@@ -285,6 +285,8 @@
 	"settings_select_directory": "Выберите папку...",
 	"settings_mod_developer": "Разработчик модов",
 	"settings_mod_developer_description": "Включает инструменты разработки модов, такие как конвертер Cook Mod.",
+	"settings_open_ssl_fix": "Исправление OpenSSL ICAPIcap",
+	"settings_open_ssl_fix_description": "Предотвращает сбои AVX-512 на процессорах Intel 10/11/12-го поколения за счет маскирования бита OpenSSL ICAPIcap",
 	"settings_saved_successfully": "Настройки успешно сохранены",
 	"settings_onboarding_title": "Первичная настройка",
 	"settings_onboarding_description": "Пройдите первичную настройку заново: язык, имя пользователя, импорт и загрузка игры.",

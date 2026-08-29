@@ -285,6 +285,8 @@
 	"settings_select_directory": "Wybierz katalog...",
 	"settings_mod_developer": "Tryb twórcy modów",
 	"settings_mod_developer_description": "Włącza przydatne narzędzia do tworzenia modów, przydatne do zapakowania modów.",
+	"settings_open_ssl_fix": "Poprawka OpenSSL ICAPIcap",
+	"settings_open_ssl_fix_description": "Zapobiega awariom AVX-512 na procesorach Intel 10/11/12 gen poprzez zakmaskowanie bitu OpenSSL ICAPIcap",
 	"settings_saved_successfully": "Pomyślnie zapisano ustawienia",
 	"settings_onboarding_title": "Onboarding",
 	"settings_onboarding_description": "Przejdź ponownie przez początkową konfigurację: język, nazwa użytkownika, import i pobieranie gry.",
