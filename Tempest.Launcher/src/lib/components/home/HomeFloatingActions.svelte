@@ -16,6 +16,12 @@
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { cachedReleaseNotes, fetchLatestRelease } from "$lib/queries/release";
+	import {
+		tilePosStore,
+		btnPosStore,
+		clampPos,
+		resetAllHomePositions,
+	} from "$lib/stores/homePositions.svelte";
 	import { lastLaunchedInstance, instanceMap } from "$lib/stores/instance.svelte";
 	import { persistedState } from "$lib/stores/persisted.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
@@ -88,27 +94,16 @@
 	// y is the distance from the viewport bottom to the stack's bottom edge,
 	// so the stack stays bottom-anchored: growing shifts it up, shrinking
 	// settles it back down.
-	const tilePosStore = persistedState<TilePos | undefined>("home_tiles_position_v2", undefined);
 	let tilePos = $state<TilePos | null>(tilePosStore.value ?? null);
 	let tileStackEl: HTMLDivElement | undefined = $state();
 	let tileDragging = $state(false);
 
-	function clampTilePos(pos: TilePos): TilePos {
-		if (!tileStackEl) return pos;
-		// Fixed positioning resolves against the page transition wrapper (it
-		// carries a transform), so clamp within that frame, not the window.
-		const frame = tileStackEl.offsetParent as HTMLElement | null;
-		const frameW = frame?.clientWidth ?? window.innerWidth;
-		const frameH = frame?.clientHeight ?? window.innerHeight;
-		const maxX = Math.max(frameW - tileStackEl.offsetWidth - TILE_MARGIN, TILE_MARGIN);
-		const maxY = Math.max(frameH - tileStackEl.offsetHeight - TILE_MARGIN, TILE_MARGIN);
-		return {
-			x: Math.min(Math.max(pos.x, TILE_MARGIN), maxX),
-			y: Math.min(Math.max(pos.y, TILE_MARGIN), maxY),
-		};
-	}
+	// Sync local state when store changes externally (e.g., reset button)
+	$effect(() => {
+		tilePos = tilePosStore.value;
+	});
 
-	let tileDragStartPos: TilePos = { x: 0, y: 0 };
+	let tileDragStartPos: TilePos | null = { x: 0, y: 0 };
 	let tileDragStartPointer: TilePos = { x: 0, y: 0 };
 
 	function startTileDrag(event: PointerEvent) {
@@ -117,10 +112,14 @@
 			// Materialize the stored position from wherever the stack currently
 			// renders, expressed in the same coordinate space as style:left/bottom.
 			const rect = tileStackEl.getBoundingClientRect();
-			tilePos = clampTilePos({
-				x: tileStackEl.offsetLeft,
-				y: window.innerHeight - rect.bottom,
-			});
+			tilePos = clampPos(
+				{
+					x: tileStackEl.offsetLeft,
+					y: window.innerHeight - rect.bottom,
+				},
+				tileStackEl,
+				TILE_MARGIN,
+			);
 		}
 		tileDragStartPos = tilePos;
 		tileDragStartPointer = { x: event.clientX, y: event.clientY };
@@ -131,16 +130,21 @@
 	function moveTileDrag(event: PointerEvent) {
 		if (!tileDragging) return;
 		// Pure deltas: immune to any offset between window and layout space.
-		tilePos = clampTilePos({
-			x: tileDragStartPos.x + (event.clientX - tileDragStartPointer.x),
-			y: tileDragStartPos.y - (event.clientY - tileDragStartPointer.y),
-		});
+		const start = tileDragStartPos!;
+		tilePos = clampPos(
+			{
+				x: start.x + (event.clientX - tileDragStartPointer.x),
+				y: start.y - (event.clientY - tileDragStartPointer.y),
+			},
+			tileStackEl!,
+			TILE_MARGIN,
+		);
 	}
 
 	function endTileDrag() {
 		if (!tileDragging) return;
 		tileDragging = false;
-		tilePosStore.value = tilePos ?? undefined;
+		tilePosStore.value = tilePos;
 	}
 
 	// Safety net: if the stack grows taller than fits (or a saved position no
@@ -150,10 +154,80 @@
 		if (!el) return;
 		const observer = new ResizeObserver(() => {
 			if (!tilePos) return;
-			const clamped = clampTilePos(tilePos);
+			const clamped = clampPos(tilePos, el, TILE_MARGIN);
 			if (clamped.x !== tilePos.x || clamped.y !== tilePos.y) {
 				tilePos = clamped;
 				tilePosStore.value = clamped;
+			}
+		});
+		observer.observe(el);
+		return () => observer.disconnect();
+	});
+
+	// Run game button drag state (right-anchored, bottom-anchored)
+	type BtnPos = { x: number; y: number };
+	const BTN_MARGIN = 8;
+	let btnPos = $state<BtnPos | null>(btnPosStore.value ?? null);
+	let runBtnEl: HTMLDivElement | undefined = $state();
+	let btnDragging = $state(false);
+
+	$effect(() => {
+		btnPos = btnPosStore.value;
+	});
+	let btnDragStartPos: BtnPos | null = { x: 0, y: 0 };
+	let btnDragStartPointer: BtnPos = { x: 0, y: 0 };
+
+	function startBtnDrag(event: PointerEvent) {
+		if (!runBtnEl) return;
+		if (!btnPos) {
+			const rect = runBtnEl.getBoundingClientRect();
+			btnPos = clampPos(
+				{
+					// Right-anchored: distance from right edge = viewport width - rect.right
+					x: window.innerWidth - rect.right,
+					// Bottom-anchored: distance from bottom edge
+					y: window.innerHeight - rect.bottom,
+				},
+				runBtnEl,
+				BTN_MARGIN,
+			);
+		}
+		btnDragStartPos = btnPos;
+		btnDragStartPointer = { x: event.clientX, y: event.clientY };
+		btnDragging = true;
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+	}
+
+	function moveBtnDrag(event: PointerEvent) {
+		if (!btnDragging) return;
+		// Right-anchored: mouse right -> element left (decrease right distance)
+		// Bottom-anchored: mouse up -> element up (increase bottom distance)
+		const start = btnDragStartPos!;
+		btnPos = clampPos(
+			{
+				x: start.x - (event.clientX - btnDragStartPointer.x),
+				y: start.y - (event.clientY - btnDragStartPointer.y),
+			},
+			runBtnEl!,
+			BTN_MARGIN,
+		);
+	}
+
+	function endBtnDrag() {
+		if (!btnDragging) return;
+		btnDragging = false;
+		btnPosStore.value = btnPos;
+	}
+
+	$effect(() => {
+		const el = runBtnEl;
+		if (!el) return;
+		const observer = new ResizeObserver(() => {
+			if (!btnPos) return;
+			const clamped = clampPos(btnPos, el, BTN_MARGIN);
+			if (clamped.x !== btnPos.x || clamped.y !== btnPos.y) {
+				btnPos = clamped;
+				btnPosStore.value = clamped;
 			}
 		});
 		observer.observe(el);
@@ -164,14 +238,14 @@
 <div
 	bind:this={tileStackEl}
 	class="fixed z-50 flex w-[380px] flex-col gap-2 select-none"
-	class:bottom-6={tilePos === null}
-	class:left-6={tilePos === null}
+	class:bottom-8={tilePos === null}
+	class:left-8={tilePos === null}
 	style:bottom={tilePos ? `${tilePos.y}px` : undefined}
 	style:left={tilePos ? `${tilePos.x}px` : undefined}
 >
 	<button
 		type="button"
-		class="btn btn-ghost btn-xs mx-auto h-5 w-24 cursor-grab touch-none rounded-b-lg opacity-60 active:cursor-grabbing"
+		class="flex h-5 w-full cursor-grab touch-none justify-center rounded-b-lg border-0 bg-transparent p-0 opacity-60 focus-visible:ring-0 active:cursor-grabbing"
 		aria-label={m.home_tiles_move()}
 		onpointerdown={startTileDrag}
 		onpointermove={moveTileDrag}
@@ -310,9 +384,27 @@
 	<FeedCarousel />
 </div>
 
-<div class="fixed right-6 bottom-6 z-50 flex flex-col items-end gap-2">
-	{#if currentInstance}
-		<div class="join shadow-lg">
+{#if currentInstance}
+	<div
+		bind:this={runBtnEl}
+		class="fixed z-50 flex flex-col items-end gap-2 select-none"
+		class:bottom-8={btnPos === null}
+		class:right-8={btnPos === null}
+		style:bottom={btnPos ? `${btnPos.y}px` : undefined}
+		style:right={btnPos ? `${btnPos.x}px` : undefined}
+	>
+		<button
+			type="button"
+			class="flex h-5 w-full cursor-grab touch-none justify-center rounded-b-lg border-0 bg-transparent p-0 opacity-60 focus-visible:ring-0 active:cursor-grabbing"
+			aria-label={m.home_tiles_move()}
+			onpointerdown={startBtnDrag}
+			onpointermove={moveBtnDrag}
+			onpointerup={endBtnDrag}
+			onpointercancel={endBtnDrag}
+		>
+			<GripHorizontal size={14} />
+		</button>
+		<div class="join shadow-none">
 			<button
 				class="btn btn-lg join-item min-h-14 gap-2"
 				class:btn-accent={!isRunning}
@@ -349,18 +441,38 @@
 				<Box size={20} />
 			</a>
 		</div>
-		{#if actionError}
-			<div class="pt-2">
-				<div class="alert alert-error">
-					<span>{actionError}</span>
-					<button class="btn btn-ghost btn-sm" onclick={clearActionError}
-						>{m.common_dismiss()}</button
-					>
-				</div>
+	</div>
+	{#if actionError}
+		<div class="pt-2">
+			<div class="alert alert-error">
+				<span>{actionError}</span>
+				<button class="btn btn-ghost btn-sm" onclick={clearActionError}
+					>{m.common_dismiss()}</button
+				>
 			</div>
-		{/if}
-	{:else}
-		<div class="join shadow-lg">
+		</div>
+	{/if}
+{:else}
+	<div
+		bind:this={runBtnEl}
+		class="fixed z-50 flex flex-col items-end gap-2 select-none"
+		class:bottom-8={btnPos === null}
+		class:right-8={btnPos === null}
+		style:bottom={btnPos ? `${btnPos.y}px` : undefined}
+		style:right={btnPos ? `${btnPos.x}px` : undefined}
+	>
+		<button
+			type="button"
+			class="flex h-5 w-full cursor-grab touch-none justify-center rounded-b-lg border-0 bg-transparent p-0 opacity-60 focus-visible:ring-0 active:cursor-grabbing"
+			aria-label={m.home_tiles_move()}
+			onpointerdown={startBtnDrag}
+			onpointermove={moveBtnDrag}
+			onpointerup={endBtnDrag}
+			onpointercancel={endBtnDrag}
+		>
+			<GripHorizontal size={14} />
+		</button>
+		<div class="join shadow-none">
 			<a href="/library" class="btn btn-lg btn-accent join-item min-h-14 gap-2">
 				<Library size={20} />
 				<div class="flex flex-col items-start">
@@ -369,5 +481,5 @@
 				</div>
 			</a>
 		</div>
-	{/if}
-</div>
+	</div>
+{/if}

@@ -62,9 +62,17 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div onmouseenter={() => (paused = true)} onmouseleave={() => (paused = false)}>
 	<div
-		class="card bg-base-200/85 shadow-xl backdrop-blur-sm transition-[filter] duration-150 hover:brightness-90"
+		class="card bg-base-200/85 cursor-pointer shadow-xl backdrop-blur-sm transition-[filter] duration-150 hover:brightness-90"
 	>
-		<div class="card-body gap-2 p-2.5">
+		<div
+			class="card-body cursor-pointer gap-2 p-2.5"
+			onclick={() => (feedMinimized.value = !feedMinimized.value)}
+			role="button"
+			tabindex="0"
+			onkeydown={(e) => {
+				if (e.key === "Enter" || e.key === " ") feedMinimized.value = !feedMinimized.value;
+			}}
+		>
 			<div class="mb-0.5 flex items-center gap-2">
 				<div
 					class="bg-base-300 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
@@ -77,7 +85,10 @@
 				</div>
 				<button
 					class="btn btn-ghost btn-xs btn-square shrink-0"
-					onclick={() => (feedMinimized.value = !feedMinimized.value)}
+					onclick={(e) => {
+						e.stopPropagation();
+						feedMinimized.value = !feedMinimized.value;
+					}}
 					aria-label={feedMinimized.value ? m.home_show_section() : m.home_hide_section()}
 				>
 					{#if feedMinimized.value}
