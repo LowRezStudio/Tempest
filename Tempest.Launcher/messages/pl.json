@@ -94,7 +94,7 @@
 	"library_sort_version": "Sortuj według wersji",
 	"library_title": "Biblioteka",
 	"library_new_instance": "Nowa instancja",
-	"library_no_instances": "Brak instancji",
+	"library_no_instances": "Twoja biblioteka jest pusta",
 	"library_create_first": "Utwórz swoją pierwszą instancję",
 	"library_search_placeholder": "Szukaj",
 	"library_instances": [

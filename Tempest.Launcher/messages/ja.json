@@ -94,7 +94,7 @@
 	"library_sort_version": "バージョン順",
 	"library_title": "ライブラリ",
 	"library_new_instance": "新規インスタンス",
-	"library_no_instances": "インスタンスはまだありません",
+	"library_no_instances": "ライブラリは空です",
 	"library_create_first": "最初のインスタンスを作成",
 	"library_search_placeholder": "検索",
 	"library_instances": [

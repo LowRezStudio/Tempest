@@ -94,7 +94,7 @@
 	"library_sort_version": "Sort by version",
 	"library_title": "Library",
 	"library_new_instance": "New Instance",
-	"library_no_instances": "No instances yet",
+	"library_no_instances": "Your library is empty",
 	"library_create_first": "Create Your First Instance",
 	"library_search_placeholder": "Search",
 	"library_instances": [

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowUpNarrowWide, Boxes, Library, Plus, Search, X } from "@lucide/svelte";
+	import { ArrowUpNarrowWide, Boxes, Library, Plus, Search } from "@lucide/svelte";
 	import InstanceCard from "$lib/components/library/InstanceCard.svelte";
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
@@ -49,10 +49,6 @@
 					bind:value={searchQuery}
 				/>
 			</label>
-			<button class="btn btn-accent" onclick={() => (instanceWizardOpen.value = true)}>
-				<Plus size={16} />
-				{m.library_new_instance()}
-			</button>
 		{/snippet}
 		{#snippet subtitle()}
 			<span
@@ -85,20 +81,36 @@
 							{/snippet}
 						</EmptyState>
 					{:else}
-						<EmptyState title={m.library_no_instances()}>
-							{#snippet icon()}
-								<Boxes size={48} />
-							{/snippet}
-							{#snippet actions()}
+						<div class="flex flex-col gap-6">
+							<div
+								class="grid w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
+							>
 								<button
-									class="btn btn-accent gap-2"
+									type="button"
 									onclick={() => (instanceWizardOpen.value = true)}
+									class="group bg-base-200/50 hover:bg-base-200 border-base-300/25 hover:border-base-300/40 text-base-content/60 hover:text-base-content flex h-[84px] cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 p-4 opacity-80 transition-all duration-200 hover:opacity-100"
+									aria-label={m.library_new_instance()}
 								>
-									<Plus size={20} />
-									{m.library_create_first()}
+									<Plus
+										size={22}
+										class="opacity-70 transition-opacity group-hover:opacity-100"
+									/>
+									<span class="text-sm leading-none font-medium"
+										>{m.library_new_instance()}</span
+									>
 								</button>
-							{/snippet}
-						</EmptyState>
+							</div>
+							<div
+								class="flex flex-col items-center justify-center gap-4 pt-24 opacity-40"
+							>
+								<div class="opacity-30">
+									<Boxes size={64} />
+								</div>
+								<p class="text-base-content/60 text-sm font-medium">
+									{m.library_no_instances()}
+								</p>
+							</div>
+						</div>
 					{/if}
 				{:else}
 					<div
@@ -121,6 +133,20 @@
 								/>
 							</div>
 						{/each}
+						<button
+							type="button"
+							onclick={() => (instanceWizardOpen.value = true)}
+							class="group bg-base-200/50 hover:bg-base-200 border-base-300/25 hover:border-base-300/40 text-base-content/60 hover:text-base-content flex h-[84px] cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 p-4 opacity-80 transition-all duration-200 hover:opacity-100"
+							aria-label={m.library_new_instance()}
+						>
+							<Plus
+								size={22}
+								class="opacity-70 transition-opacity group-hover:opacity-100"
+							/>
+							<span class="text-sm leading-none font-medium"
+								>{m.library_new_instance()}</span
+							>
+						</button>
 					</div>
 				{/if}
 

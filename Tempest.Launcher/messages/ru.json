@@ -94,7 +94,7 @@
 	"library_sort_version": "Сортировать по версии",
 	"library_title": "Библиотека",
 	"library_new_instance": "Новый инстанс",
-	"library_no_instances": "Нет инстансов",
+	"library_no_instances": "Ваша библиотека пуста",
 	"library_create_first": "Создайте свой первый инстанс",
 	"library_search_placeholder": "Поиск",
 	"library_instances": [
