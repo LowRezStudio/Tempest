@@ -3,21 +3,23 @@
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 
+	export type DeleteMode = "library" | "library_mods" | "delete";
+
 	interface Props {
 		open: boolean;
 		instanceName: string;
-		onconfirm: (deleteData: boolean) => Promise<void> | void;
+		onconfirm: (mode: DeleteMode) => Promise<void> | void;
 	}
 
-	let { open = $bindable(), instanceName, onconfirm }: Props = $props();
+	let { open = $bindable(), instanceName: _instanceName, onconfirm }: Props = $props();
 
-	let deleteData = $state(false);
+	let selected: DeleteMode = $state("library");
 	let isDeleting = $state(false);
 
 	async function handleConfirm() {
 		isDeleting = true;
 		try {
-			await onconfirm(deleteData);
+			await onconfirm(selected);
 		} finally {
 			isDeleting = false;
 			open = false;
@@ -26,7 +28,7 @@
 
 	$effect(() => {
 		if (!open) {
-			deleteData = false;
+			selected = "library";
 			isDeleting = false;
 		}
 	});
@@ -34,20 +36,62 @@
 
 <Modal bind:open title={m.delete_title()} onsubmit={handleConfirm}>
 	<div class="space-y-4">
-		<p class="text-sm">
-			{m.delete_confirm_message({ name: instanceName })}
-		</p>
+		<div class="flex flex-col gap-2">
+			<label
+				class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors"
+				class:border-accent={selected === "library"}
+				class:bg-base-200={selected === "library"}
+				class:border-base-300={selected !== "library"}
+			>
+				<input
+					type="radio"
+					class="radio radio-sm radio-accent mt-0.5"
+					bind:group={selected}
+					value="library"
+				/>
+				<div class="flex flex-col">
+					<span class="label-text text-sm font-medium">{m.delete_option_library()}</span>
+					<span class="text-xs opacity-60">{m.delete_option_library_hint()}</span>
+				</div>
+			</label>
 
-		<div class="divider my-0"></div>
+			<label
+				class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors"
+				class:border-accent={selected === "library_mods"}
+				class:bg-base-200={selected === "library_mods"}
+				class:border-base-300={selected !== "library_mods"}
+			>
+				<input
+					type="radio"
+					class="radio radio-sm radio-accent mt-0.5"
+					bind:group={selected}
+					value="library_mods"
+				/>
+				<div class="flex flex-col">
+					<span class="label-text text-sm font-medium"
+						>{m.delete_option_library_mods()}</span
+					>
+					<span class="text-xs opacity-60">{m.delete_option_library_mods_hint()}</span>
+				</div>
+			</label>
 
-		<div class="form-control">
-			<label class="label cursor-pointer justify-start gap-3">
-				<input type="checkbox" class="checkbox checkbox-error" bind:checked={deleteData} />
-				<div>
-					<span class="label-text">{m.delete_from_disk()}</span>
-					<p class="mt-0.5 text-xs opacity-60">
-						{m.delete_from_disk_hint()}
-					</p>
+			<label
+				class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors"
+				class:border-accent={selected === "delete"}
+				class:bg-base-200={selected === "delete"}
+				class:border-base-300={selected !== "delete"}
+			>
+				<input
+					type="radio"
+					class="radio radio-sm radio-error mt-0.5"
+					bind:group={selected}
+					value="delete"
+				/>
+				<div class="flex flex-col">
+					<span class="label-text text-error text-sm font-medium"
+						>{m.delete_option_delete()}</span
+					>
+					<span class="text-error/70 text-xs">{m.delete_option_delete_hint()}</span>
 				</div>
 			</label>
 		</div>

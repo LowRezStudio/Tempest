@@ -83,11 +83,11 @@
 		showDeleteConfirm = true;
 	}
 
-	async function handleDeleteConfirm(deleteData: boolean): Promise<void> {
+	async function handleDeleteConfirm(mode: "library" | "library_mods" | "delete"): Promise<void> {
 		if (!selectedItem) return;
 
 		if (selectedInstance) {
-			await deleteInstance(selectedInstance, deleteData);
+			await deleteInstance(selectedInstance, mode);
 		} else {
 			restoreQueue.remove(selectedItem.id);
 		}

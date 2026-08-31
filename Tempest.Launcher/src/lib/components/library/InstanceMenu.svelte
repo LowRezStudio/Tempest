@@ -66,9 +66,9 @@
 		await openPath(instance.path);
 	}
 
-	async function handleDeleteConfirm(deleteData: boolean) {
+	async function handleDeleteConfirm(mode: "library" | "library_mods" | "delete") {
 		if (!instance) return;
-		await deleteInstance(instance, deleteData);
+		await deleteInstance(instance, mode);
 	}
 
 	function handleRunSetup() {
