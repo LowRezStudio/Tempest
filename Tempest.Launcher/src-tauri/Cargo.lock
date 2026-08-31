@@ -5162,7 +5162,7 @@ dependencies = [
 
 [[package]]
 name = "tempest-launcher"
-version = "1.0.0-51"
+version = "1.0.0-52"
 dependencies = [
  "libc",
  "serde",
