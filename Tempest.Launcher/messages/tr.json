@@ -277,6 +277,8 @@
 	"settings_select_directory": "Bir dizin seçin...",
 	"settings_mod_developer": "Mod oluşturucu",
 	"settings_mod_developer_description": "Mod oluşturma araçlarını etkinleştirir.",
+	"settings_open_ssl_fix": "OpenSSL ICAPIcap düzeltmesi",
+	"settings_open_ssl_fix_description": "OpenSSL ICAPIcap bitini maskeleyerek 10./11./12. Nesil Intel işlemcilerde AVX-512 çökmelerini önler",
 	"settings_saved_successfully": "Ayarlar başarıyla kaydedildi",
 	"settings_onboarding_title": "Kurulum",
 	"settings_onboarding_description": "İlk kurulum adımlarını tekrar izleyin: dil, kullanıcı adı, oyun içe aktarma ve indirme.",

@@ -7,6 +7,7 @@ export const localeLabels: Record<string, { flag: string; label: string }> = {
 	pl: { flag: "🇵🇱", label: "Polski" },
 	ru: { flag: "🇷🇺", label: "Русский" },
 	tr: { flag: "🇹🇷", label: "Türkçe" },
+	ja: { flag: "🇯🇵", label: "日本語" },
 };
 
 class LocaleState {
