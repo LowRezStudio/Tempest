@@ -388,6 +388,9 @@
 	</div>
 
 	<div class="relative z-10 flex h-full flex-col">
+		<button type="button" class="btn btn-accent absolute top-6 right-4 z-20" onclick={finish}>
+			{m.onboarding_skip_all()}
+		</button>
 		{#key localeState.current}
 			<Header title={m.onboarding_title()}>
 				{#snippet icon()}

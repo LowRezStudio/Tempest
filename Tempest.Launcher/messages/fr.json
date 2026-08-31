@@ -251,6 +251,7 @@
 	"onboarding_import_error": "Cette installation n'a pas pu être préparée. Essayez un autre dossier ou passez cette étape.",
 	"onboarding_install_error": "Le téléchargement n'a pas pu démarrer. Réessayez ou passez cette étape.",
 	"onboarding_skip": "Passer",
+	"onboarding_skip_all": "Tout passer",
 	"onboarding_finish": "Terminé",
 	"onboarding_step_language": "Langue",
 	"onboarding_language_title": "Choisissez votre langue",

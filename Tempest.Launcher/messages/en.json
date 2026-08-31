@@ -251,6 +251,7 @@
 	"onboarding_import_error": "This installation could not be prepared. Try another folder or skip onboarding.",
 	"onboarding_install_error": "The download could not be started. Try again or skip onboarding.",
 	"onboarding_skip": "Skip",
+	"onboarding_skip_all": "Skip all",
 	"onboarding_finish": "Done",
 	"onboarding_step_language": "Language",
 	"onboarding_language_title": "Choose your language",

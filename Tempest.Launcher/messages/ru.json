@@ -259,6 +259,7 @@
 	"onboarding_import_error": "Не удалось подготовить эту установку. Попробуйте другую папку или пропустите первоначальную настройку.",
 	"onboarding_install_error": "Не удалось начать скачивание. Попробуйте снова или пропустите первоначальную настройку.",
 	"onboarding_skip": "Пропустить",
+	"onboarding_skip_all": "Пропустить всё",
 	"onboarding_finish": "Готово",
 	"onboarding_step_language": "Язык",
 	"onboarding_language_title": "Выберите язык",

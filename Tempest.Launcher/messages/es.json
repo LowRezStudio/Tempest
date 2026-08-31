@@ -251,6 +251,7 @@
 	"onboarding_import_error": "No se pudo preparar esta instalación. Prueba con otra carpeta u omite este paso.",
 	"onboarding_install_error": "No se pudo iniciar la descarga. Inténtalo de nuevo u omite este paso.",
 	"onboarding_skip": "Omitir",
+	"onboarding_skip_all": "Omitir todo",
 	"onboarding_finish": "Listo",
 	"onboarding_step_language": "Idioma",
 	"onboarding_language_title": "Elige tu idioma",

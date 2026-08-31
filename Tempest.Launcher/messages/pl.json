@@ -259,6 +259,7 @@
 	"onboarding_import_error": "Nie udało się przygotować tej instalacji. Wybierz inny folder lub pomiń konfigurację początkową.",
 	"onboarding_install_error": "Nie udało się rozpocząć pobierania. Spróbuj ponownie lub pomiń konfigurację początkową.",
 	"onboarding_skip": "Pomiń",
+	"onboarding_skip_all": "Pomiń wszystko",
 	"onboarding_finish": "Gotowe",
 	"onboarding_step_language": "Język",
 	"onboarding_language_title": "Wybierz język",

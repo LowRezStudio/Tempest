@@ -247,6 +247,7 @@
 	"onboarding_import_error": "このインストールを準備できませんでした。別のフォルダーを試すか、初期設定をスキップしてください。",
 	"onboarding_install_error": "ダウンロードを開始できませんでした。もう一度試すか、初期設定をスキップしてください。",
 	"onboarding_skip": "スキップ",
+	"onboarding_skip_all": "すべてスキップ",
 	"onboarding_finish": "完了",
 	"onboarding_step_language": "言語",
 	"onboarding_language_title": "言語を選択",

@@ -251,6 +251,7 @@
 	"onboarding_import_error": "Bu kurulum hazırlanamadı. Başka bir klasör deneyin veya ilk kurulumu atlayın.",
 	"onboarding_install_error": "İndirme başlatılamadı. Yeniden deneyin veya ilk kurulumu atlayın.",
 	"onboarding_skip": "Atla",
+	"onboarding_skip_all": "Tümünü atla",
 	"onboarding_finish": "Tamamlandı",
 	"onboarding_step_language": "Dil",
 	"onboarding_language_title": "Dilinizi seçin",
