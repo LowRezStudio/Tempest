@@ -41,11 +41,15 @@
 	let selectedName = $state("");
 	let selectedVersionId = $state("");
 	let selectedPath = $state("");
+	let selectedPaths = $state<string[]>([]);
 	let showAdvanced = $state(false);
 	let copyStatus = $state<"idle" | "copied" | "failed">("idle");
 
 	let detectionError = $state("");
 	let hasDetected = $state(false);
+	let bulkDetections = $state<
+		Array<{ path: string; label: string; error: string; loading: boolean }>
+	>([]);
 
 	let loginMethod = $state<"steam" | "epic" | "hirez">();
 	let selectedArgs = $state<string[]>([]);
@@ -61,7 +65,11 @@
 	const supportsCloudDownload = $derived(!!selectedVersion?.version);
 
 	const isValid = $derived(
-		selectedTab === "download" ? !!selectedVersionId : !!(selectedVersionId && selectedPath),
+		selectedTab === "download"
+			? !!selectedVersionId
+			: selectedPaths.length > 1
+				? !!selectedPath
+				: !!(selectedVersionId && selectedPath),
 	);
 
 	const showLoginPrompt = $derived(selectedVersion?.version === "8.1");
@@ -69,14 +77,101 @@
 	async function handleBrowse() {
 		const result = await openDialog({
 			directory: true,
-			multiple: false,
+			multiple: true,
 			title: m.wizard_select_installation_folder(),
 			defaultPath: defaultInstancePath.value || undefined,
 		});
 		if (result) {
-			selectedPath = result;
-			if (selectedTab === "folder") {
-				await performDetection(result);
+			const paths = (Array.isArray(result) ? result : [result]).filter(Boolean) as string[];
+			selectedPaths = paths;
+			if (paths.length === 1) {
+				selectedPath = paths[0] ?? "";
+				if (selectedTab === "folder") {
+					bulkDetections = [{ path: paths[0]!, label: "", error: "", loading: true }];
+					await performDetection(paths[0]!);
+					if (hasDetected && selectedVersionId) {
+						const v = flatVersions.find((v) => v.id === selectedVersionId);
+						bulkDetections = [
+							{
+								path: paths[0]!,
+								label: v ? `${v.version} - ${v.name}` : "",
+								error: "",
+								loading: false,
+							},
+						];
+					} else if (detectionError) {
+						bulkDetections = [
+							{ path: paths[0]!, label: "", error: detectionError, loading: false },
+						];
+					} else {
+						bulkDetections = [
+							{
+								path: paths[0]!,
+								label: "",
+								error: m.wizard_could_not_identify(),
+								loading: false,
+							},
+						];
+					}
+				} else {
+					bulkDetections = [];
+				}
+			} else {
+				selectedPath = `${paths.length} folders selected`;
+				if (selectedTab === "folder") {
+					hasDetected = false;
+					detectionError = "";
+					selectedVersionId = "";
+					bulkDetections = paths.map((p) => ({
+						path: p,
+						label: "",
+						error: "",
+						loading: true,
+					}));
+					for (let i = 0; i < paths.length; i++) {
+						const p = paths[i]!;
+						try {
+							const info = await identifyBuildMutation.mutateAsync(p);
+							if (info) {
+								const v =
+									flatVersions.find((v) => v.id === info.Id) ??
+									flatVersions.find((v) => v.version === info.VersionGroup);
+								if (v) {
+									bulkDetections[i] = {
+										path: p,
+										label: `${v.version} - ${v.name}`,
+										error: "",
+										loading: false,
+									};
+								} else {
+									bulkDetections[i] = {
+										path: p,
+										label: "",
+										error: m.wizard_build_not_in_database({
+											patchName: info.PatchName,
+											versionGroup: info.VersionGroup,
+										}),
+										loading: false,
+									};
+								}
+							} else {
+								bulkDetections[i] = {
+									path: p,
+									label: "",
+									error: m.wizard_could_not_identify(),
+									loading: false,
+								};
+							}
+						} catch {
+							bulkDetections[i] = {
+								path: p,
+								label: "",
+								error: m.wizard_identify_error(),
+								loading: false,
+							};
+						}
+					}
+				}
 			}
 		}
 	}
@@ -150,6 +245,53 @@
 
 	async function handleCreate() {
 		if (!isValid) return;
+
+		// Bulk import: handle multiple folders without requiring pre-selected version
+		if (selectedTab === "folder" && selectedPaths.length > 1) {
+			for (const folderPath of selectedPaths) {
+				if (findExistingInstance(folderPath)) continue;
+				let versionForPath = selectedVersion;
+				let versionIdForPath = selectedVersionId;
+				let appIdForPath = selectedAppId;
+				if (!versionIdForPath) {
+					try {
+						const info = await identifyBuildMutation.mutateAsync(folderPath);
+						const v =
+							flatVersions.find((v) => v.id === info?.Id) ??
+							flatVersions.find((v) => v.version === info?.VersionGroup);
+						if (v) {
+							versionForPath = v;
+							versionIdForPath = v.id;
+							appIdForPath = v.appId ?? 444090;
+						}
+					} catch {}
+				}
+				const folderName = folderPath.split(/[\\/]/).pop() || folderPath;
+				const bulkInstance: Instance = {
+					id: crypto.randomUUID(),
+					label: selectedName
+						? `${selectedName} - ${folderName}`
+						: versionForPath?.name || versionForPath?.version || folderName,
+					version: versionForPath?.version,
+					manifestId: versionIdForPath,
+					appId: appIdForPath,
+					path: folderPath,
+					launchOptions: {
+						dllList: [],
+						args: selectedArgs,
+						noDefaultArgs: false,
+						log: false,
+					},
+					state: {
+						type: "setup",
+					},
+				};
+				addInstance(bulkInstance);
+				void runSetup(bulkInstance);
+			}
+			open = false;
+			return;
+		}
 
 		const instancePath = await getInstancePath();
 
@@ -238,6 +380,8 @@
 			selectedName = "";
 			selectedVersionId = "";
 			selectedPath = "";
+			selectedPaths = [];
+			bulkDetections = [];
 			showAdvanced = false;
 			hasDetected = false;
 			detectionError = "";
@@ -334,7 +478,7 @@
 		</div>
 
 		<div class="space-y-4">
-			{#if selectedTab === "download" || (selectedTab === "folder" && (hasDetected || !!detectionError))}
+			{#if selectedTab === "download"}
 				<div class="form-control">
 					<label for="game-version" class="label py-0.5">
 						<span class="label-text text-sm">{m.wizard_game_version()}</span>
@@ -413,12 +557,41 @@
 							{m.common_browse()}
 						</button>
 					</div>
-					{#if detectionError}
+					{#if detectionError && bulkDetections.length === 0}
 						<div class="label py-1">
 							<span class="label-text-alt text-error flex items-center gap-1">
 								<AlertCircle size={12} />
 								{detectionError}
 							</span>
+						</div>
+					{/if}
+					{#if bulkDetections.length > 0 && selectedTab === "folder"}
+						<div
+							class="rounded-box border-base-300 bg-base-200/30 mt-2 max-h-40 space-y-1.5 overflow-y-auto border p-2"
+						>
+							{#each bulkDetections as item (item.path)}
+								<div
+									class="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-xs {item.error
+										? 'bg-error/10'
+										: 'bg-base-100'}"
+								>
+									<span class="flex-1 truncate font-mono" title={item.path}
+										>{item.path.split(/[\\/]/).pop() || item.path}</span
+									>
+									{#if item.loading}
+										<span class="loading loading-spinner loading-xs"></span>
+										<span class="opacity-60">{m.common_identifying()}</span>
+									{:else if item.error}
+										<span class="text-error flex items-center gap-1"
+											><AlertCircle size={12} />{item.error}</span
+										>
+									{:else}
+										<span class="badge badge-success badge-sm"
+											>{item.label}</span
+										>
+									{/if}
+								</div>
+							{/each}
 						</div>
 					{/if}
 				</div>
@@ -534,9 +707,6 @@
 				{showAdvanced ? m.wizard_hide_advanced() : m.wizard_advanced_options()}
 			</button>
 			<div class="flex gap-2">
-				<button class="btn btn-ghost" type="button" onclick={() => (open = false)}
-					>{m.common_cancel()}</button
-				>
 				<button
 					class="btn btn-accent"
 					type="submit"

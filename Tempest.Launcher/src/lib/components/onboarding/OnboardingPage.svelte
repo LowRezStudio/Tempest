@@ -294,10 +294,14 @@
 
 		const selected = await openDirectoryDialog({
 			directory: true,
-			multiple: false,
+			multiple: true,
 			title: m.wizard_select_installation_folder(),
 		});
-		if (typeof selected === "string") await importInstallation(selected, "Paladins");
+		if (!selected) return;
+		const paths = Array.isArray(selected) ? selected : [selected];
+		for (const p of paths) {
+			if (typeof p === "string") await importInstallation(p, "Paladins");
+		}
 	}
 
 	async function getDownloadBasePath(): Promise<string> {
