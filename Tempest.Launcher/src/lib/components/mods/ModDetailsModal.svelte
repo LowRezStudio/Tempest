@@ -152,7 +152,11 @@
 								<p>{m.mod_no_files()}</p>
 							</div>
 						{:else}
-							<ModFileTree files={mod.InstalledFiles} basePath={instancePath} />
+							<ModFileTree
+								files={mod.InstalledFiles}
+								basePath={instancePath}
+								modId={mod.Id}
+							/>
 						{/if}
 					</div>
 				{/if}
