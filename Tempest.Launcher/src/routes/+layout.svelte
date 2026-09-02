@@ -9,9 +9,11 @@
 	import favicon from "$lib/assets/favicon.ico?url";
 	import AppShell from "$lib/components/layout/AppShell.svelte";
 	import OnboardingPage from "$lib/components/onboarding/OnboardingPage.svelte";
+	import { checkForCoreUpdatesAndInstall } from "$lib/core/mods";
 	import { setQueryClient } from "$lib/queries/client";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
+	import type { Instance } from "$lib/types/instance";
 
 	const { children } = $props();
 	const queryClient = new QueryClient();
@@ -23,6 +25,21 @@
 
 	$effect(() => {
 		updaterStore.checkForUpdates(true);
+	});
+
+	let coreUpdateChecked = false;
+	$effect(() => {
+		if (coreUpdateChecked) return;
+		const instances = Object.values(instanceMap.value).filter(Boolean) as Instance[];
+		// Wait until instances are loaded (at least one) before checking - also runs if zero but we still want to record version
+		if (
+			!coreUpdateChecked &&
+			instances.length === 0 &&
+			Object.keys(instanceMap.value).length === 0
+		)
+			return;
+		coreUpdateChecked = true;
+		void checkForCoreUpdatesAndInstall(instances);
 	});
 
 	// Once per launch: route through onboarding when no game instances exist yet.

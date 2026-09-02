@@ -1,8 +1,32 @@
+import { join, tempDir } from "@tauri-apps/api/path";
 import { resolveResource } from "@tauri-apps/api/path";
+import { writeFile, mkdir } from "@tauri-apps/plugin-fs";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { getQueryClient } from "$lib/queries/client";
 import { appendProcessLogs } from "$lib/stores/processes.svelte";
 import { createCommand } from "./command";
 import type { Instance } from "$lib/types/instance";
+
+const REMOTE_CORE_URL =
+	"https://github.com/LowRezStudio/TgMod/releases/download/1.0.0/Tempest%20Core.tempest";
+const LATEST_CORE_API = "https://api.github.com/repos/LowRezStudio/TgMod/releases/latest";
+const CORE_VERSION_KEY = "tempest_core_remote_version";
+
+async function downloadRemoteMod(url: string, filename: string): Promise<string> {
+	const tmp = await tempDir();
+	const dest = await join(tmp, filename);
+	try {
+		const res = await tauriFetch(url, { method: "GET" });
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const buf = new Uint8Array(await res.arrayBuffer());
+		await mkdir(tmp, { recursive: true }).catch(() => {});
+		await writeFile(dest, buf);
+		return dest;
+	} catch (e) {
+		console.error(`Failed to download ${url}:`, e);
+		throw e;
+	}
+}
 
 export type ModAuthor = {
 	Name: string;
@@ -50,18 +74,88 @@ export const installAutoMods = async (instance: Instance): Promise<void> => {
 	if (instance.version && SKIP_AUTO_MOD_VERSIONS.has(instance.version)) return;
 
 	const isCoreVersion = !!(instance.version && CORE_MOD_VERSIONS.has(instance.version));
-	const resources = isCoreVersion ? ["Tempest Core.tempest"] : ["Tempest Console.tempest"];
 
-	for (const resource of resources) {
+	if (isCoreVersion) {
+		// Fetch latest Tempest Core from GitHub so you can update it without rebuilding the launcher
 		try {
-			const modFile = await resolveResource(resource);
+			appendProcessLogs([`Fetching Tempest Core from ${REMOTE_CORE_URL}`], false, "mods");
+			const modFile = await downloadRemoteMod(REMOTE_CORE_URL, "Tempest Core.tempest");
 			await installMod(gamePath, modFile, true, true);
 		} catch (error) {
-			console.error(`Failed to install ${resource}:`, error);
+			console.error("Failed to fetch remote Tempest Core, falling back to bundled:", error);
+			try {
+				const fallback = await resolveResource("Tempest Core.tempest");
+				await installMod(gamePath, fallback, true, true);
+			} catch (e) {
+				console.error("Failed to install fallback Tempest Core:", e);
+			}
+		}
+	} else {
+		try {
+			const modFile = await resolveResource("Tempest Console.tempest");
+			await installMod(gamePath, modFile, true, true);
+		} catch (error) {
+			console.error("Failed to install Tempest Console:", error);
 		}
 	}
 
 	void getQueryClient()?.invalidateQueries({ queryKey: ["mods", gamePath] });
+};
+
+export const checkForCoreUpdatesAndInstall = async (instances: Instance[]): Promise<void> => {
+	try {
+		const res = await tauriFetch(LATEST_CORE_API, {
+			method: "GET",
+			headers: { Accept: "application/vnd.github+json" },
+		});
+		if (!res.ok) return;
+		const data = await res.json();
+		const tag: string = data.tag_name;
+		if (!tag) return;
+		const stored = localStorage.getItem(CORE_VERSION_KEY);
+		// If we've already applied this tag, skip
+		if (stored === tag) return;
+		const asset =
+			(data.assets as Array<{ name: string; browser_download_url: string }>)?.find(
+				(a) => a.name === "Tempest Core.tempest",
+			) ?? (data.assets as Array<{ name: string; browser_download_url: string }>)?.[0];
+		if (!asset?.browser_download_url) return;
+		const url = asset.browser_download_url;
+		appendProcessLogs([`New Tempest Core ${tag} found, downloading...`], false, "mods");
+		const modFile = await downloadRemoteMod(url, "Tempest Core.tempest");
+		// Verify corresponding builds: only Core versions (0.56/0.57) get the update
+		const coreInstances = instances.filter(
+			(i) => i.version && CORE_MOD_VERSIONS.has(i.version),
+		);
+		if (coreInstances.length === 0) {
+			localStorage.setItem(CORE_VERSION_KEY, tag);
+			return;
+		}
+		for (const inst of coreInstances) {
+			try {
+				appendProcessLogs(
+					[`Updating ${inst.label} (${inst.version}) to Core ${tag}`],
+					false,
+					"mods",
+				);
+				await installMod(inst.path, modFile, true, true);
+			} catch (e) {
+				console.error(`Failed to update ${inst.label}:`, e);
+			}
+		}
+		localStorage.setItem(CORE_VERSION_KEY, tag);
+		appendProcessLogs(
+			[`Tempest Core updated to ${tag} for ${coreInstances.length} instance(s)`],
+			false,
+			"mods",
+		);
+		// Also refresh mod caches
+		for (const inst of coreInstances) {
+			void getQueryClient()?.invalidateQueries({ queryKey: ["mods", inst.path] });
+		}
+	} catch (e) {
+		console.error("Core update check failed:", e);
+	}
 };
 
 export const listMods = async (gamePath: string): Promise<ModRecord[]> => {
