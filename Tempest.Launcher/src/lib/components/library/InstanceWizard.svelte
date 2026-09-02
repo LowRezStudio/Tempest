@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { AlertCircle, BookOpen, CloudDownload, Code, Folder, Loader2 } from "@lucide/svelte";
 	import { path } from "@tauri-apps/api";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -6,6 +6,7 @@
 	import { platform } from "@tauri-apps/plugin-os";
 	import { Tabs } from "bits-ui";
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { listMods, type ModRecord } from "$lib/core/mods";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
 	import { createIdentifyBuildMutation } from "$lib/queries/core";
@@ -48,7 +49,14 @@
 	let detectionError = $state("");
 	let hasDetected = $state(false);
 	let bulkDetections = $state<
-		Array<{ path: string; label: string; error: string; loading: boolean }>
+		Array<{
+			path: string;
+			label: string;
+			error: string;
+			loading: boolean;
+			mods: ModRecord[];
+			modsLoading: boolean;
+		}>
 	>([]);
 
 	let loginMethod = $state<"steam" | "epic" | "hirez">();
@@ -87,7 +95,16 @@
 			if (paths.length === 1) {
 				selectedPath = paths[0] ?? "";
 				if (selectedTab === "folder") {
-					bulkDetections = [{ path: paths[0]!, label: "", error: "", loading: true }];
+					bulkDetections = [
+						{
+							path: paths[0]!,
+							label: "",
+							error: "",
+							loading: true,
+							mods: [],
+							modsLoading: true,
+						},
+					];
 					await performDetection(paths[0]!);
 					if (hasDetected && selectedVersionId) {
 						const v = flatVersions.find((v) => v.id === selectedVersionId);
@@ -97,12 +114,41 @@
 								label: v ? `${v.version} - ${v.name}` : "",
 								error: "",
 								loading: false,
+								mods: [],
+								modsLoading: true,
 							},
 						];
+						try {
+							const mods = await listMods(paths[0]!);
+							bulkDetections[0] = { ...bulkDetections[0], mods, modsLoading: false };
+						} catch {
+							bulkDetections[0] = {
+								...bulkDetections[0],
+								mods: [],
+								modsLoading: false,
+							};
+						}
 					} else if (detectionError) {
 						bulkDetections = [
-							{ path: paths[0]!, label: "", error: detectionError, loading: false },
+							{
+								path: paths[0]!,
+								label: "",
+								error: detectionError,
+								loading: false,
+								mods: [],
+								modsLoading: true,
+							},
 						];
+						try {
+							const mods = await listMods(paths[0]!);
+							bulkDetections[0] = { ...bulkDetections[0], mods, modsLoading: false };
+						} catch {
+							bulkDetections[0] = {
+								...bulkDetections[0],
+								mods: [],
+								modsLoading: false,
+							};
+						}
 					} else {
 						bulkDetections = [
 							{
@@ -110,8 +156,20 @@
 								label: "",
 								error: m.wizard_could_not_identify(),
 								loading: false,
+								mods: [],
+								modsLoading: true,
 							},
 						];
+						try {
+							const mods = await listMods(paths[0]!);
+							bulkDetections[0] = { ...bulkDetections[0], mods, modsLoading: false };
+						} catch {
+							bulkDetections[0] = {
+								...bulkDetections[0],
+								mods: [],
+								modsLoading: false,
+							};
+						}
 					}
 				} else {
 					bulkDetections = [];
@@ -127,6 +185,8 @@
 						label: "",
 						error: "",
 						loading: true,
+						mods: [] as ModRecord[],
+						modsLoading: true,
 					}));
 					for (let i = 0; i < paths.length; i++) {
 						const p = paths[i]!;
@@ -142,6 +202,8 @@
 										label: `${v.version} - ${v.name}`,
 										error: "",
 										loading: false,
+										mods: [],
+										modsLoading: true,
 									};
 								} else {
 									bulkDetections[i] = {
@@ -152,6 +214,8 @@
 											versionGroup: info.VersionGroup,
 										}),
 										loading: false,
+										mods: [],
+										modsLoading: true,
 									};
 								}
 							} else {
@@ -160,6 +224,8 @@
 									label: "",
 									error: m.wizard_could_not_identify(),
 									loading: false,
+									mods: [],
+									modsLoading: true,
 								};
 							}
 						} catch {
@@ -168,6 +234,18 @@
 								label: "",
 								error: m.wizard_identify_error(),
 								loading: false,
+								mods: [],
+								modsLoading: true,
+							};
+						}
+						try {
+							const mods = await listMods(p);
+							bulkDetections[i] = { ...bulkDetections[i], mods, modsLoading: false };
+						} catch {
+							bulkDetections[i] = {
+								...bulkDetections[i],
+								mods: [],
+								modsLoading: false,
 							};
 						}
 					}
@@ -567,28 +645,48 @@
 					{/if}
 					{#if bulkDetections.length > 0 && selectedTab === "folder"}
 						<div
-							class="rounded-box border-base-300 bg-base-200/30 mt-2 max-h-40 space-y-1.5 overflow-y-auto border p-2"
+							class="rounded-box border-base-300 bg-base-200/30 mt-2 max-h-60 space-y-2 overflow-y-auto border p-2"
 						>
 							{#each bulkDetections as item (item.path)}
 								<div
-									class="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-xs {item.error
+									class="flex flex-col gap-1 rounded px-2 py-2 text-xs {item.error
 										? 'bg-error/10'
 										: 'bg-base-100'}"
 								>
-									<span class="flex-1 truncate font-mono" title={item.path}
-										>{item.path.split(/[\\/]/).pop() || item.path}</span
-									>
-									{#if item.loading}
-										<span class="loading loading-spinner loading-xs"></span>
-										<span class="opacity-60">{m.common_identifying()}</span>
-									{:else if item.error}
-										<span class="text-error flex items-center gap-1"
-											><AlertCircle size={12} />{item.error}</span
-										>
-									{:else}
-										<span class="badge badge-success badge-sm"
-											>{item.label}</span
-										>
+									<div class="flex items-center gap-2">
+										{#if item.loading}
+											<span class="loading loading-spinner loading-xs"></span>
+											<span class="opacity-60">{m.common_identifying()}</span>
+										{:else if item.error}
+											<span class="text-error flex items-center gap-1"
+												><AlertCircle size={12} />{item.error}</span
+											>
+										{:else}
+											<span class="badge badge-success badge-sm"
+												>{item.label}</span
+											>
+										{/if}
+									</div>
+									{#if !item.loading && !item.modsLoading && (item.mods?.length ?? 0) > 0}
+										<div class="flex flex-wrap items-center gap-1">
+											{#each item.mods.slice(0, 6) as mod}
+												<span class="badge badge-ghost badge-xs"
+													>{mod.Name}</span
+												>
+											{/each}
+											{#if item.mods.length > 6}
+												<span class="opacity-60"
+													>+{item.mods.length - 6} more</span
+												>
+											{/if}
+											<span class="opacity-60">• {item.mods.length} mods</span
+											>
+										</div>
+									{:else if !item.loading && item.modsLoading}
+										<div class="flex items-center gap-1 opacity-60">
+											<span class="loading loading-spinner loading-xs"></span> Detecting
+											mods...
+										</div>
 									{/if}
 								</div>
 							{/each}
