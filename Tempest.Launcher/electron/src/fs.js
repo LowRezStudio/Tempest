@@ -73,6 +73,15 @@ ipcMain.handle("fs:remove", async (_event, { path: p, options }) => {
 	}
 });
 
+ipcMain.handle("fs:mkdir", async (_event, { path: p, options }) => {
+	try {
+		await fs.promises.mkdir(p, { recursive: options?.recursive ?? false });
+		return { ok: true, data: null };
+	} catch (error) {
+		return fail("failed to create directory at path:", p, error);
+	}
+});
+
 ipcMain.handle("fs:read-file", async (_event, { path: p }) => {
 	try {
 		const data = await fs.promises.readFile(p);

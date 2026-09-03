@@ -155,6 +155,18 @@ export const path = {
 
 // ---- @tauri-apps/api/path ----
 
+export function join(...paths: string[]): Promise<string> {
+	return eio().invoke("path:join", { paths });
+}
+
+export function dirname(p: string): Promise<string> {
+	return eio().invoke("path:dirname", { path: p });
+}
+
+export function tempDir(): Promise<string> {
+	return eio().invoke("path:temp-dir");
+}
+
 export function appConfigDir(): Promise<string> {
 	return eio().invoke("path:app-config-dir");
 }
@@ -420,6 +432,10 @@ export function remove(p: string, options?: { recursive?: boolean }): Promise<vo
 
 export function readFile(p: string): Promise<Uint8Array> {
 	return unwrap(eio().invoke("fs:read-file", { path: p }));
+}
+
+export async function mkdir(p: string, options?: { recursive?: boolean }): Promise<void> {
+	await unwrap(eio().invoke("fs:mkdir", { path: p, options }));
 }
 
 export async function writeFile(p: string, data: Uint8Array): Promise<void> {
