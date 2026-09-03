@@ -52,7 +52,7 @@ install_mod() {
     fi
 }
 if [ "$VERSION_NAME" = "0.56" ] || [ "$VERSION_NAME" = "0.57" ]; then
-    install_mod "/app/mods/Tempest Core.tempest"
+    install_mod "/app/mods/Tempest.Core.tempest"
 fi
 install_mod "/app/mods/Tempest Multiplayer.tempest"
 

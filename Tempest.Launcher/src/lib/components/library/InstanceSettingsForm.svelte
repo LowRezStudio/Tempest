@@ -75,7 +75,9 @@
 		mod.Name === "Tempest Mod (Console)" ||
 		mod.OriginalPath.includes("Tempest Mod.tempest") ||
 		mod.Name === "Tempest Mod (Console + Multiplayer)";
-	const isCoreMod = (mod: ModRecord) => mod.OriginalPath.includes("Tempest Core.tempest");
+	const isCoreMod = (mod: ModRecord) =>
+		mod.OriginalPath.includes("Tempest.Core.tempest") ||
+		mod.OriginalPath.includes("Tempest Core.tempest");
 
 	// ponytail: detect installed bundled mods using createModsQuery
 	$effect(() => {
@@ -160,7 +162,7 @@
 		try {
 			if (isCoreVersion) {
 				if (enable) {
-					const modFile = await resolveResource("Tempest Core.tempest");
+					const modFile = await resolveResource("Tempest.Core.tempest");
 					await installMod(editPath, modFile, true, true);
 				} else {
 					await removeMatchingMods(isCoreMod);
