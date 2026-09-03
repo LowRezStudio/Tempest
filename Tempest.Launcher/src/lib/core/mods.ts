@@ -8,7 +8,7 @@ import { createCommand } from "./command";
 import type { Instance } from "$lib/types/instance";
 
 const REMOTE_CORE_URL =
-	"https://github.com/LowRezStudio/TgMod/releases/download/1.0.0/Tempest.Core.tempest";
+	"https://github.com/LowRezStudio/TgMod/releases/download/1.0.0/Tempest%20Core.tempest";
 const LATEST_CORE_API = "https://api.github.com/repos/LowRezStudio/TgMod/releases/latest";
 const CORE_VERSION_KEY = "tempest_core_remote_version";
 
@@ -79,12 +79,12 @@ export const installAutoMods = async (instance: Instance): Promise<void> => {
 		// Fetch latest Tempest Core from GitHub so you can update it without rebuilding the launcher
 		try {
 			appendProcessLogs([`Fetching Tempest Core from ${REMOTE_CORE_URL}`], false, "mods");
-			const modFile = await downloadRemoteMod(REMOTE_CORE_URL, "Tempest.Core.tempest");
+			const modFile = await downloadRemoteMod(REMOTE_CORE_URL, "Tempest Core.tempest");
 			await installMod(gamePath, modFile, true, true);
 		} catch (error) {
 			console.error("Failed to fetch remote Tempest Core, falling back to bundled:", error);
 			try {
-				const fallback = await resolveResource("Tempest.Core.tempest");
+				const fallback = await resolveResource("Tempest Core.tempest");
 				await installMod(gamePath, fallback, true, true);
 			} catch (e) {
 				console.error("Failed to install fallback Tempest Core:", e);
@@ -117,16 +117,12 @@ export const checkForCoreUpdatesAndInstall = async (instances: Instance[]): Prom
 		if (stored === tag) return;
 		const asset =
 			(data.assets as Array<{ name: string; browser_download_url: string }>)?.find(
-				(a) => a.name === "Tempest.Core.tempest",
-			) ??
-			(data.assets as Array<{ name: string; browser_download_url: string }>)?.find(
 				(a) => a.name === "Tempest Core.tempest",
-			) ??
-			(data.assets as Array<{ name: string; browser_download_url: string }>)?.[0];
+			) ?? (data.assets as Array<{ name: string; browser_download_url: string }>)?.[0];
 		if (!asset?.browser_download_url) return;
 		const url = asset.browser_download_url;
 		appendProcessLogs([`New Tempest Core ${tag} found, downloading...`], false, "mods");
-		const modFile = await downloadRemoteMod(url, "Tempest.Core.tempest");
+		const modFile = await downloadRemoteMod(url, "Tempest Core.tempest");
 		// Verify corresponding builds: only Core versions (0.56/0.57) get the update
 		const coreInstances = instances.filter(
 			(i) => i.version && CORE_MOD_VERSIONS.has(i.version),
