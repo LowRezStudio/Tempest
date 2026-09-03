@@ -75,7 +75,9 @@
 		mod.Name === "Tempest Mod (Console)" ||
 		mod.OriginalPath.includes("Tempest Mod.tempest") ||
 		mod.Name === "Tempest Mod (Console + Multiplayer)";
-	const isCoreMod = (mod: ModRecord) => mod.OriginalPath.includes("Tempest Core.tempest");
+	const isCoreMod = (mod: ModRecord) =>
+		mod.OriginalPath.includes("Tempest Core.tempest") ||
+		mod.OriginalPath.includes("Tempest.Core.Tempest");
 
 	// ponytail: detect installed bundled mods using createModsQuery
 	$effect(() => {
