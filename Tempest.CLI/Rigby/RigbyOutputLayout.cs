@@ -17,8 +17,12 @@ internal static class RigbyOutputLayout
         if (string.IsNullOrWhiteSpace(manifestPrefix))
             return string.Empty;
 
-        if (ShouldApplyManifestPrefix(outRoot, manifestPrefix))
-            return manifestPrefix;
+        if (!ShouldApplyManifestPrefix(outRoot, manifestPrefix))
+            return string.Empty;
+
+        // Flat Steam / existing game folder: if Binaries+Engine already at outRoot, never nest version subfolder
+        if (Directory.Exists(Path.Combine(outRoot, "Binaries")) && Directory.Exists(Path.Combine(outRoot, "Engine")))
+            return string.Empty;
 
         var sampleCount = Math.Min(files.Count, 256);
         var unprefixedExisting = 0;
