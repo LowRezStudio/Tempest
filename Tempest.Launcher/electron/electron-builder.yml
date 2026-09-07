@@ -1,5 +1,11 @@
 appId: com.lowrezstudio.tempest
 productName: Tempest Launcher
+fileAssociations:
+    - ext: tempest
+      name: Tempest Mod
+      description: Tempest Mod Package
+      mimeType: application/x-tempest-mod
+      role: Viewer
 electronLanguages:
     - en-US
     - fr

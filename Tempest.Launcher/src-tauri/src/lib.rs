@@ -1,7 +1,67 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 use tauri::scope::Scopes;
+use tauri::{Emitter, Manager};
 
 mod child_cleanup;
+
+struct PendingOpenFiles(Mutex<Vec<String>>);
+
+fn tempest_files_from_args(
+    args: impl IntoIterator<Item = String>,
+    working_directory: Option<&Path>,
+) -> Vec<String> {
+    args.into_iter()
+        .filter_map(|argument| {
+            let path = PathBuf::from(argument);
+            let path = if path.is_absolute() {
+                path
+            } else if let Some(working_directory) = working_directory {
+                working_directory.join(path)
+            } else {
+                path
+            };
+
+            let is_tempest_file = path.extension().is_some_and(|extension| {
+                extension
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case("tempest")
+            });
+
+            (is_tempest_file && path.is_file()).then(|| path.to_string_lossy().into_owned())
+        })
+        .collect()
+}
+
+fn queue_open_files(app: &tauri::AppHandle, files: Vec<String>) {
+    if files.is_empty() {
+        return;
+    }
+
+    let pending = app.state::<PendingOpenFiles>();
+    let mut pending = pending
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    pending.extend(files);
+    drop(pending);
+
+    // The frontend drains the queue after receiving this notification. Keeping the
+    // paths in Rust means a launch event cannot be lost while the webview is loading.
+    let _ = app.emit("open-mod-files", ());
+}
+
+#[tauri::command]
+fn take_pending_open_files(state: tauri::State<'_, PendingOpenFiles>) -> Vec<String> {
+    let mut pending = state
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    std::mem::take(&mut *pending)
+}
 
 #[tauri::command]
 fn scopes_allow_directory(
@@ -83,7 +143,29 @@ pub fn run() {
         }
     }
 
-	tauri::Builder::default()
+    let initial_working_directory = std::env::current_dir().ok();
+    let initial_open_files = tempest_files_from_args(
+        std::env::args_os().map(|argument| argument.to_string_lossy().into_owned()),
+        initial_working_directory.as_deref(),
+    );
+
+    tauri::Builder::default()
+        // This must be the first plugin so file opens from later processes can be
+        // forwarded to the already-running launcher before those processes exit.
+        .plugin(tauri_plugin_single_instance::init(
+            |app, args, working_directory| {
+                let files =
+                    tempest_files_from_args(args, Some(Path::new(&working_directory)));
+                queue_open_files(app, files);
+
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            },
+        ))
+        .manage(PendingOpenFiles(Mutex::new(initial_open_files)))
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
@@ -102,6 +184,7 @@ pub fn run() {
             scopes_allow_directory,
             scopes_allow_file,
             scopes_forbid_file,
+            take_pending_open_files,
             relaunch,
             trigger_child_cleanup,
             which,

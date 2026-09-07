@@ -1,14 +1,16 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, shell, session } from "electron";
 import serve from "electron-serve";
-import { injectOs } from "./os.js";
+import { queueOpenFiles } from "./app.js";
 import "./fs.js";
 import "./dialog.js";
 import "./opener.js";
-import { activeChildren } from "./shell.js";
+import { injectOs } from "./os.js";
 import "./path.js";
-import "./app.js";
+import { activeChildren } from "./shell.js";
 import "./window.js";
 import "./scopes.js";
 import "./sql.js";
@@ -17,7 +19,41 @@ import "./tray.js";
 
 let mainWindow = null;
 
+function tempestFilesFromArgs(args, workingDirectory) {
+	return args.flatMap((argument) => {
+		let filePath;
+		try {
+			// Cross-platform support for Linux, Windows, and macOS file paths.
+			filePath = argument.startsWith("file:")
+				? fileURLToPath(argument)
+				: path.isAbsolute(argument)
+					? argument
+					: path.resolve(workingDirectory, argument);
+		} catch {
+			return [];
+		}
+
+		return path.extname(filePath).toLowerCase() === ".tempest" && fs.existsSync(filePath)
+			? [filePath]
+			: [];
+	});
+}
+
+function queueAndNotifyOpenFiles(files) {
+	if (files.length === 0) return;
+	queueOpenFiles(files);
+	if (mainWindow && !mainWindow.webContents.isLoading()) {
+		mainWindow.webContents.send("open-mod-files", null);
+	}
+}
+
 process.chdir(process.cwd());
+queueOpenFiles(tempestFilesFromArgs(process.argv.slice(1), process.cwd()));
+
+app.on("open-file", (event, filePath) => {
+	event.preventDefault();
+	queueAndNotifyOpenFiles(tempestFilesFromArgs([filePath], process.cwd()));
+});
 
 // Pin to the same dir Tauri uses so SQL/localStorage survive across runs.
 if (process.platform === "linux") {
@@ -31,7 +67,8 @@ const hasInstanceLock = app.requestSingleInstanceLock();
 if (!hasInstanceLock) {
 	app.quit();
 } else {
-	app.on("second-instance", () => {
+	app.on("second-instance", (_event, commandLine, workingDirectory) => {
+		queueAndNotifyOpenFiles(tempestFilesFromArgs(commandLine, workingDirectory));
 		if (!mainWindow) return;
 		if (mainWindow.isMinimized()) mainWindow.restore();
 		mainWindow.show();
