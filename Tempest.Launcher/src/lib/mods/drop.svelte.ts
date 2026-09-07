@@ -78,8 +78,17 @@ function handleModFileDrop(filePaths: string[]) {
 }
 
 async function importPendingOpenFiles() {
-	const paths = await invoke<string[]>("take_pending_open_files");
-	if (paths.length > 0) handleModFileDrop(paths);
+	try {
+		const paths = await invoke<string[]>("take_pending_open_files");
+		if (paths.length > 0) handleModFileDrop(paths);
+	} catch (error: unknown) {
+		console.error("Failed to import pending open files:", error);
+		addToast({
+			title: m.toast_installation_failed_title(),
+			message: error instanceof Error ? error.message : m.toast_installation_failed_internal(),
+			tone: "error",
+		});
+	}
 }
 
 async function proceedWithInstall(instance: any, filePaths: string[]) {
