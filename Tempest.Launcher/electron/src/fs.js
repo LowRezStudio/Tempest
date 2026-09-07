@@ -85,7 +85,11 @@ ipcMain.handle("fs:mkdir", async (_event, { path: p, options }) => {
 ipcMain.handle("fs:read-file", async (_event, { path: p }) => {
 	try {
 		const data = await fs.promises.readFile(p);
-		return { ok: true, data: [...data] };
+		// Transfer bytes as an ArrayBuffer (~1x file size via structured clone).
+		// Never spread into a number[]: a 30 MB file becomes a ~1 GB JS array
+		// and OOM-crashes the app on real-world UPK/PCK sizes.
+		const buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+		return { ok: true, data: buf };
 	} catch (error) {
 		return fail("failed to read file at path:", p, error);
 	}
@@ -93,7 +97,18 @@ ipcMain.handle("fs:read-file", async (_event, { path: p }) => {
 
 ipcMain.handle("fs:write-file", async (_event, { path: p, data }) => {
 	try {
-		await fs.promises.writeFile(p, Uint8Array.from(data));
+		// Accept Uint8Array/ArrayBuffer (current renderer) and number[]
+		// (older renderer builds) so mixed-version dev setups keep working.
+		const bytes =
+			data instanceof Uint8Array
+				? data
+				: data instanceof ArrayBuffer
+					? new Uint8Array(data)
+					: Uint8Array.from(data);
+		await fs.promises.writeFile(
+			p,
+			Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+		);
 		return { ok: true, data: null };
 	} catch (error) {
 		return fail("failed to write file at path:", p, error);

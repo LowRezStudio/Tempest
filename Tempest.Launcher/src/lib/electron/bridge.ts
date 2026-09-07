@@ -151,6 +151,11 @@ export function invoke(cmd: string, args?: Record<string, unknown>): Promise<unk
 export const path = {
 	join: (...parts: string[]): Promise<string> => eio().invoke("path:join", { paths: parts }),
 	dirname: (p: string): Promise<string> => eio().invoke("path:dirname", { path: p }),
+	tempDir: (): Promise<string> => eio().invoke("path:temp-dir"),
+	appConfigDir: (): Promise<string> => eio().invoke("path:app-config-dir"),
+	homeDir: (): Promise<string> => eio().invoke("path:home-dir"),
+	resolveResource: (...paths: string[]): Promise<string> =>
+		eio().invoke("path:resolve-resource", { paths }),
 };
 
 // ---- @tauri-apps/api/path ----
@@ -431,7 +436,14 @@ export function remove(p: string, options?: { recursive?: boolean }): Promise<vo
 }
 
 export function readFile(p: string): Promise<Uint8Array> {
-	return unwrap(eio().invoke("fs:read-file", { path: p }));
+	return unwrap<Uint8Array | ArrayBuffer | number[]>(
+		eio().invoke("fs:read-file", { path: p }),
+	).then((data) => {
+		if (data instanceof Uint8Array) return data;
+		if (data instanceof ArrayBuffer) return new Uint8Array(data);
+		// Backward compat: older main-process builds sent a number[].
+		return new Uint8Array(data);
+	});
 }
 
 export async function mkdir(p: string, options?: { recursive?: boolean }): Promise<void> {
@@ -439,7 +451,10 @@ export async function mkdir(p: string, options?: { recursive?: boolean }): Promi
 }
 
 export async function writeFile(p: string, data: Uint8Array): Promise<void> {
-	await unwrap(eio().invoke("fs:write-file", { path: p, data: [...data] }));
+	// Pass the TypedArray directly: structured clone copies the bytes (~1x).
+	// Spreading into a number[] would use ~30x memory and OOM-crash on
+	// real-world mod sizes.
+	await unwrap(eio().invoke("fs:write-file", { path: p, data }));
 }
 
 // ---- @tauri-apps/plugin-dialog ----
