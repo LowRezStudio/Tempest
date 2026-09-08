@@ -50,9 +50,13 @@
 		if (converterPendingPaths.length > 0) {
 			const paths = [...converterPendingPaths];
 			converterPendingPaths.length = 0;
-			for (const p of paths) {
-				void processFile(p);
-			}
+			// Process sequentially: concurrent updates can overwrite each other
+			// and lose files when several are dropped at once.
+			void (async () => {
+				for (const p of paths) {
+					await processFile(p);
+				}
+			})();
 		}
 	});
 
@@ -82,6 +86,8 @@
 					tone: "error",
 				});
 			}
+		} catch (error) {
+			console.error("Failed to import file:", filePath, error);
 		} finally {
 			importingLabel = null;
 		}
