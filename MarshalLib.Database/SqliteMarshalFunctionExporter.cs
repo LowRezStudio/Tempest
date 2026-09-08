@@ -170,6 +170,11 @@ CREATE TABLE {MarshalSqliteSchema.QuoteIdentifier(MarshalSqliteSchema.DataSetFie
 
         foreach (var columnName in values.Keys)
         {
+            // Defense in depth: column names are normalized by MarshalSqliteSchema.NormalizeIdentifier,
+            // but this guard ensures no unsafe characters ever reach the interpolated SQL text below.
+            if (columnName.Length == 0 || !columnName.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
+                throw new InvalidOperationException($"Unsafe column name: '{columnName}'.");
+
             insertColumns.Add(columnName);
             insertValues.Add("$" + columnName);
         }
