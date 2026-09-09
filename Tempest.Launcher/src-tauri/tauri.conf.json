@@ -33,6 +33,15 @@
 		"category": "Game",
 		"shortDescription": "Launcher client for Paladins",
 		"longDescription": "Tempest is an advanced custom launcher, patcher, and utility client for Paladins.",
+		"fileAssociations": [
+			{
+				"ext": ["tempest"],
+				"name": "Tempest Mod",
+				"description": "Tempest Mod Package",
+				"mimeType": "application/x-tempest-mod",
+				"role": "Viewer"
+			}
+		],
 		"createUpdaterArtifacts": true,
 		"externalBin": ["binaries/tempest-cli"],
 		"resources": {

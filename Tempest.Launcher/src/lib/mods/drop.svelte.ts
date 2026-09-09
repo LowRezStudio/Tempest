@@ -1,5 +1,7 @@
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { installMod } from "$lib/core/mods";
 import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui.svelte";
@@ -18,9 +20,24 @@ export function setOnModsInstalled(fn: (path: string) => void) {
 }
 
 let droppedFilePaths = $state<string[]>([]);
-let targetInstance = $state<any>(null);
+let installQueue = Promise.resolve();
 
-async function handleModFileDrop(filePaths: string[]) {
+function queueInstall(filePaths: string[], instance: any) {
+	const queuedPaths = [...filePaths];
+	installQueue = installQueue
+		.then(() => proceedWithInstall(instance, queuedPaths))
+		.catch((error: unknown) => {
+			console.error("Mod install queue failed:", error);
+			addToast({
+				title: m.toast_installation_failed_title(),
+				message:
+					error instanceof Error ? error.message : m.toast_installation_failed_internal(),
+				tone: "error",
+			});
+		});
+}
+
+function handleModFileDrop(filePaths: string[]) {
 	const validPaths: string[] = [];
 	let hadInvalid = false;
 
@@ -43,32 +60,46 @@ async function handleModFileDrop(filePaths: string[]) {
 
 	if (validPaths.length === 0) return;
 
-	droppedFilePaths = validPaths;
-
 	const pathname = page.url.pathname;
 	const match = pathname.match(/^\/instance\/([^/]+)/);
 	if (match) {
 		const instanceId = match[1];
 		const inst = instanceMap.value[instanceId];
 		if (inst && inst.state?.type === "prepared") {
-			targetInstance = inst;
-			await proceedWithInstall();
+			queueInstall(validPaths, inst);
 			return;
 		}
 	}
 
+	// More file-open events may arrive while the instance picker is already open.
+	// Preserve every file so selecting an instance installs the complete batch.
+	droppedFilePaths = [...droppedFilePaths, ...validPaths];
 	showInstanceSelect.value = true;
 }
 
-async function proceedWithInstall() {
-	if (!targetInstance || droppedFilePaths.length === 0) return;
+async function importPendingOpenFiles() {
+	try {
+		const paths = await invoke<string[]>("take_pending_open_files");
+		if (paths.length > 0) handleModFileDrop(paths);
+	} catch (error: unknown) {
+		console.error("Failed to import pending open files:", error);
+		addToast({
+			title: m.toast_installation_failed_title(),
+			message: error instanceof Error ? error.message : m.toast_installation_failed_internal(),
+			tone: "error",
+		});
+	}
+}
 
-	void goto(`/instance/${targetInstance.id}`);
+async function proceedWithInstall(instance: any, filePaths: string[]) {
+	if (!instance || filePaths.length === 0) return;
+
+	void goto(`/instance/${instance.id}`);
 
 	let successCount = 0;
 	let lastInstalledName = "";
 
-	for (const filePath of droppedFilePaths) {
+	for (const filePath of filePaths) {
 		const modFileName = filePath.split(/[/\\]/).pop() ?? filePath;
 		let installingToastId: string | undefined;
 		try {
@@ -80,12 +111,12 @@ async function proceedWithInstall() {
 			});
 
 			let allowedUnsigned = false;
-			let res = await installMod(targetInstance.path, filePath, false, false);
+			let res = await installMod(instance.path, filePath, false, false);
 			if (res.Unverified) {
 				const confirmed = await confirmUnverifiedMod(modFileName);
 				if (confirmed) {
 					allowedUnsigned = true;
-					res = await installMod(targetInstance.path, filePath, false, true);
+					res = await installMod(instance.path, filePath, false, true);
 				} else {
 					if (installingToastId) removeToast(installingToastId);
 					continue;
@@ -95,7 +126,7 @@ async function proceedWithInstall() {
 			if (res.Conflict) {
 				const confirmed = await confirmReplaceMod(modFileName, res.IsModConflict);
 				if (confirmed) {
-					res = await installMod(targetInstance.path, filePath, true, allowedUnsigned);
+					res = await installMod(instance.path, filePath, true, allowedUnsigned);
 				} else {
 					if (installingToastId) removeToast(installingToastId);
 					continue;
@@ -139,19 +170,27 @@ async function proceedWithInstall() {
 				tone: "success",
 			});
 		}
-		onModsInstalled?.(targetInstance.path);
+		onModsInstalled?.(instance.path);
 	}
 }
 
 export function handleInstanceSelected(inst: any) {
-	targetInstance = inst;
+	const filePaths = droppedFilePaths;
+	droppedFilePaths = [];
 	showInstanceSelect.value = false;
-	void proceedWithInstall();
+	queueInstall(filePaths, inst);
 }
 
 $effect.root(() => {
 	let unlistenDrop: (() => void) | undefined;
+	let unlistenOpenFiles: (() => void) | undefined;
 	const appWindow = getCurrentWindow();
+	void listen("open-mod-files", () => {
+		void importPendingOpenFiles();
+	}).then((fn) => {
+		unlistenOpenFiles = fn;
+		void importPendingOpenFiles();
+	});
 	void appWindow
 		.onDragDropEvent((event) => {
 			const onConverter = page.url.pathname === "/converter";
@@ -180,5 +219,8 @@ $effect.root(() => {
 		.then((fn) => {
 			unlistenDrop = fn;
 		});
-	return () => unlistenDrop?.();
+	return () => {
+		unlistenDrop?.();
+		unlistenOpenFiles?.();
+	};
 });

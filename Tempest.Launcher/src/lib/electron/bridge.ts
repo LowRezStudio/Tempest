@@ -141,8 +141,19 @@ export class Command {
 
 // ---- @tauri-apps/api/core ----
 
-export function invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
-	return eio().invoke(cmd, args);
+export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+	return eio().invoke(cmd, args) as Promise<T>;
+}
+
+// ---- @tauri-apps/api/event ----
+
+export type Event<T> = { event: string; id: number; payload: T };
+
+export function listen<T>(event: string, handler: (event: Event<T>) => void): Promise<() => void> {
+	const unlisten = eio().on(event, (payload: T) => {
+		handler({ event, id: 0, payload });
+	});
+	return Promise.resolve(unlisten);
 }
 
 // ---- @tauri-apps/api (path module) ----
