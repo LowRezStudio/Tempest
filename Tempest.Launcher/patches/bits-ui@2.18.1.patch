@@ -1,0 +1,43 @@
+diff --git a/dist/bits/utilities/dismissible-layer/use-dismissable-layer.svelte.js b/dist/bits/utilities/dismissible-layer/use-dismissable-layer.svelte.js
+index 924869bdb3eedccf57345314adb7c1a9b2a12b20..79b852a79ad5beb6ddda6dc8dafbb55f6d40295e 100644
+--- a/dist/bits/utilities/dismissible-layer/use-dismissable-layer.svelte.js
++++ b/dist/bits/utilities/dismissible-layer/use-dismissable-layer.svelte.js
+@@ -33,7 +33,16 @@ export class DismissibleLayerState {
+             this.#documentObj = getOwnerDocument(this.opts.ref.current);
+         });
+         let unsubEvents = noop;
++        let pendingTimer = null;
++        let destroyed = false;
++        const clearPendingTimer = () => {
++            if (pendingTimer != null) {
++                clearTimeout(pendingTimer);
++                pendingTimer = null;
++            }
++        };
+         const cleanup = () => {
++            clearPendingTimer();
+             this.#resetState();
+             globalThis.bitsDismissableLayers.delete(this);
+             this.#handleInteractOutside.destroy();
+@@ -42,8 +51,10 @@ export class DismissibleLayerState {
+         watch([() => this.opts.enabled.current, () => this.opts.ref.current], () => {
+             if (!this.opts.enabled.current || !this.opts.ref.current)
+                 return;
+-            afterSleep(1, () => {
+-                if (!this.opts.ref.current)
++            clearPendingTimer();
++            pendingTimer = afterSleep(1, () => {
++                pendingTimer = null;
++                if (destroyed || !this.opts.ref.current)
+                     return;
+                 globalThis.bitsDismissableLayers.set(this, this.#behaviorType);
+                 unsubEvents();
+@@ -52,6 +63,8 @@ export class DismissibleLayerState {
+             return cleanup;
+         });
+         onDestroyEffect(() => {
++            destroyed = true;
++            clearPendingTimer();
+             this.#resetState.destroy();
+             globalThis.bitsDismissableLayers.delete(this);
+             this.#handleInteractOutside.destroy();

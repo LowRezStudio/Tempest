@@ -96,6 +96,42 @@ fn trigger_child_cleanup() {
 }
 
 #[tauri::command]
+fn is_process_running(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+        use windows::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+
+        let Ok(process) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) })
+        else {
+            return false;
+        };
+        let mut exit_code = 0;
+        let running = unsafe { GetExitCodeProcess(process, &mut exit_code) }.is_ok()
+            && exit_code == STILL_ACTIVE.0 as u32;
+        unsafe {
+            let _ = CloseHandle(process);
+        }
+        return running;
+    }
+
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+        return result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+    }
+
+    #[allow(unreachable_code)]
+    false
+}
+
+#[tauri::command]
 fn which(name: String) -> Result<Option<String>, String> {
     let path = std::env::var_os("PATH").ok_or("PATH environment variable is not set")?;
 
@@ -187,6 +223,7 @@ pub fn run() {
             take_pending_open_files,
             relaunch,
             trigger_child_cleanup,
+            is_process_running,
             which,
         ])
         .run(tauri::generate_context!())
