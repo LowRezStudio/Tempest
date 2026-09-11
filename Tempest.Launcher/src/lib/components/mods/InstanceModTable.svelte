@@ -152,7 +152,11 @@
 			</th>
 			<th class="w-48">{m.common_version()}</th>
 			<th class="w-auto text-right">
-				<button class="btn btn-ghost btn-sm" onclick={onRefresh} disabled={isLoading}>
+				<button
+					class="hover:text-primary inline-flex cursor-pointer items-center gap-1 text-sm font-semibold transition-colors disabled:opacity-40"
+					onclick={onRefresh}
+					disabled={isLoading}
+				>
 					{#if isLoading}
 						<span class="loading loading-spinner loading-xs"></span>
 					{:else}
