@@ -15,6 +15,14 @@ public class ModRecord
     public string ReadmeContent { get; set; } = string.Empty;
 }
 
+public class ModConflictInfo
+{
+    public string ModId { get; set; } = string.Empty;
+    public string ModName { get; set; } = string.Empty;
+    public string ModVersion { get; set; } = string.Empty;
+    public List<string> ConflictingFiles { get; set; } = [];
+}
+
 public class ModInstallResult
 {
     public bool Success { get; set; }
@@ -23,6 +31,8 @@ public class ModInstallResult
     public bool Conflict { get; set; }
     public bool IsModConflict { get; set; }
     public bool Unverified { get; set; }
+    public List<ModConflictInfo>? ConflictingMods { get; set; }
+    public string? NewModName { get; set; }
 }
 
 public class ModListResult

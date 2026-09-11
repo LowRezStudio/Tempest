@@ -581,5 +581,56 @@
 	"converter_add_to_instance": "Sürüme Ekle",
 	"converter_toast_saved_title": "Mod kaydedildi",
 	"converter_toast_saved_message": "{path} konumuna kaydedildi",
-	"converter_toast_installed_message": "\"{name}\", {instance} sürümüne kuruldu"
+	"converter_toast_installed_message": "\"{name}\", {instance} sürümüne kuruldu",
+	"conflict_header_title": "MOD ÇAKIŞMASI",
+	"conflict_header_subtitle": "Bunlar aynı oyun dosyalarını değiştiriyor",
+	"conflict_badge_new": "YENİ",
+	"conflict_badge_installed": "YÜKLÜ",
+	"conflict_tap_hide": "Dosyaları gizlemek için dokunun",
+	"conflict_tap_inspect": "Dosyaları incelemek için dokunun",
+	"conflict_will_be_installed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} dosya • yüklenecek"
+			}
+		}
+	],
+	"conflict_will_be_removed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} dosya • kaldırılacak"
+			}
+		}
+	],
+	"conflict_overlapping_components": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} çakışan bileşen"
+			}
+		}
+	],
+	"conflict_mods_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} mod"
+			}
+		}
+	],
+	"conflict_row_overlapping_files": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} çakışan dosya"
+			}
+		}
+	]
 }

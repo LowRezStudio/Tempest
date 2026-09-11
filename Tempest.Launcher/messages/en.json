@@ -462,6 +462,62 @@
 	"conflict_mod_message": "A mod named {name} is already installed on this instance.",
 	"conflict_overwrite_warning": "Do you want to overwrite it with the new file? This will replace the files in your game directory.",
 	"conflict_replace_mod_btn": "Replace Mod",
+	"conflict_header_title": "MOD CONFLICT",
+	"conflict_header_subtitle": "These modify the same game files",
+	"conflict_badge_new": "NEW",
+	"conflict_badge_installed": "INSTALLED",
+	"conflict_will_be_installed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} file • will be installed",
+				"countPlural=other": "{count} files • will be installed"
+			}
+		}
+	],
+	"conflict_will_be_removed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} file • will be removed",
+				"countPlural=other": "{count} files • will be removed"
+			}
+		}
+	],
+	"conflict_overlapping_components": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} overlapping component",
+				"countPlural=other": "{count} overlapping components"
+			}
+		}
+	],
+	"conflict_tap_hide": "Tap to hide files",
+	"conflict_tap_inspect": "Tap to inspect files",
+	"conflict_mods_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} mod",
+				"countPlural=other": "{count} mods"
+			}
+		}
+	],
+	"conflict_row_overlapping_files": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} overlapping file",
+				"countPlural=other": "{count} overlapping files"
+			}
+		}
+	],
 	"unverified_mod_title": "Unsigned Native Code Warning",
 	"unverified_mod_heading": "Unsigned Native Code",
 	"unverified_mod_message": "The mod \"{name}\" contains unsigned native code (DLLs).",

@@ -576,5 +576,56 @@
 	"converter_add_to_instance": "添加到实例",
 	"converter_toast_saved_title": "模组已保存",
 	"converter_toast_saved_message": "已保存到 {path}",
-	"converter_toast_installed_message": "“{name}”已安装到 {instance}"
+	"converter_toast_installed_message": "“{name}”已安装到 {instance}",
+	"conflict_header_title": "模组冲突",
+	"conflict_header_subtitle": "这些模组修改了相同的游戏文件",
+	"conflict_badge_new": "新的",
+	"conflict_badge_installed": "已安装",
+	"conflict_tap_hide": "点击隐藏文件",
+	"conflict_tap_inspect": "点击查看文件",
+	"conflict_will_be_installed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} 个文件 • 将被安装"
+			}
+		}
+	],
+	"conflict_will_be_removed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} 个文件 • 将被移除"
+			}
+		}
+	],
+	"conflict_overlapping_components": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} 个冲突组件"
+			}
+		}
+	],
+	"conflict_mods_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} 个模组"
+			}
+		}
+	],
+	"conflict_row_overlapping_files": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} 个冲突文件"
+			}
+		}
+	]
 }

@@ -117,54 +117,120 @@ public class ModV2Installer : IModInstaller
 
             var targetModDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, modId);
 
+            // Collect new mod's component files (INI exempt) for overlap detection
+            var newRelativeFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var newRelativeFilesList = new List<string>();
+            foreach (var entry in archive.Entries)
+            {
+                if (IsDirectoryEntry(entry)) continue;
+                var relativePath = NormalizeEntryPath(entry.FullName);
+                if (!relativePath.StartsWith("files/", StringComparison.OrdinalIgnoreCase)) continue;
+                var relativeInFiles = relativePath["files/".Length..];
+                var ext = Path.GetExtension(entry.Name).ToLowerInvariant();
+                if (ext == ".ini") continue;
+                if (string.IsNullOrWhiteSpace(relativeInFiles)) continue;
+                var normalized = relativeInFiles.Replace('\\', '/');
+                if (newRelativeFiles.Add(normalized))
+                    newRelativeFilesList.Add(normalized);
+            }
+
+            // ID collision — same modId already installed (component-level conflict)
             if (Directory.Exists(targetModDir))
             {
                 if (!replace)
                 {
+                    var existingForId = ModCommands.LoadMetadata(gamePath).FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
+                    var conflictIdInfo = new ModConflictInfo
+                    {
+                        ModId = existingForId?.Id ?? modId,
+                        ModName = existingForId?.Name ?? modId,
+                        ModVersion = existingForId?.Version ?? "",
+                        ConflictingFiles = newRelativeFilesList.ToList()
+                    };
                     return new ModInstallResult
                     {
                         Success = false,
                         Conflict = true,
                         IsModConflict = true,
-                        Message = $"Mod with ID '{modId}' is already installed."
+                        Message = $"Mod '{manifest.Name}' conflicts with '{conflictIdInfo.ModName}' (same ID '{modId}').",
+                        ConflictingMods = [conflictIdInfo],
+                        NewModName = manifest.Name
                     };
                 }
 
-                var existingMods = ModCommands.LoadMetadata(gamePath);
-                var existingMod = existingMods.FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
-                if (existingMod != null)
+                var existingModsForId = ModCommands.LoadMetadata(gamePath);
+                var existingModForId = existingModsForId.FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
+                if (existingModForId != null)
                 {
-                    await RemoveAsync(gamePath, existingMod);
+                    await RemoveAsync(gamePath, existingModForId);
+                    existingModsForId.Remove(existingModForId);
+                    ModCommands.SaveMetadata(gamePath, existingModsForId);
+                }
+                else
+                {
+                    try { Directory.Delete(targetModDir, recursive: true); } catch { }
                 }
             }
 
+            // File-overlap detection: compare new mod's files against every installed mod's InstalledFiles
             var metadataMods = ModCommands.LoadMetadata(gamePath);
-            foreach (var entry in archive.Entries)
+            var conflicts = new List<ModConflictInfo>();
+            foreach (var existingMod in metadataMods)
             {
-                if (IsDirectoryEntry(entry)) continue;
+                if (string.Equals(existingMod.Id, modId, StringComparison.OrdinalIgnoreCase)) continue;
 
-                var relativePath = NormalizeEntryPath(entry.FullName);
-                if (!relativePath.StartsWith("files/")) continue;
-
-                var relativeInFiles = relativePath["files/".Length..];
-                var ext = Path.GetExtension(entry.Name).ToLowerInvariant();
-
-                if (ext == ".ini") continue;
-
-                var destGamePath = Path.Combine(resolvedGame, relativeInFiles);
-                if (!File.Exists(destGamePath)) continue;
-
-                if (replace) continue;
-
-                var isMod = metadataMods.Any(m => m.InstalledFiles.Any(f => string.Equals(f, destGamePath, StringComparison.OrdinalIgnoreCase)));
-
-                return new ModInstallResult
+                var overlapping = new List<string>();
+                foreach (var installedFile in existingMod.InstalledFiles)
                 {
-                    Success = false,
-                    Conflict = true,
-                    IsModConflict = isMod,
-                    Message = $"File '{relativeInFiles}' already exists in destination."
-                };
+                    var ext = Path.GetExtension(installedFile).ToLowerInvariant();
+                    if (ext == ".ini") continue;
+                    string relativeExisting;
+                    try { relativeExisting = Path.GetRelativePath(resolvedGame, installedFile).Replace('\\', '/'); }
+                    catch { continue; }
+                    if (newRelativeFiles.Contains(relativeExisting))
+                        overlapping.Add(relativeExisting);
+                }
+                if (overlapping.Count > 0)
+                {
+                    conflicts.Add(new ModConflictInfo
+                    {
+                        ModId = existingMod.Id,
+                        ModName = existingMod.Name,
+                        ModVersion = existingMod.Version,
+                        ConflictingFiles = overlapping
+                    });
+                }
+            }
+
+            if (conflicts.Count > 0)
+            {
+                if (!replace)
+                {
+                    var names = string.Join(", ", conflicts.Select(c => $"'{c.ModName}'"));
+                    var files = string.Join(", ", conflicts.SelectMany(c => c.ConflictingFiles).Distinct(StringComparer.OrdinalIgnoreCase));
+                    return new ModInstallResult
+                    {
+                        Success = false,
+                        Conflict = true,
+                        IsModConflict = true,
+                        Message = $"Mod '{manifest.Name}' conflicts with {names} (overlapping files: {files}).",
+                        ConflictingMods = conflicts,
+                        NewModName = manifest.Name
+                    };
+                }
+
+                // replace requested — remove all conflicting mods before installing new one
+                var allMods = ModCommands.LoadMetadata(gamePath);
+                foreach (var c in conflicts)
+                {
+                    var modToRemove = allMods.FirstOrDefault(m => string.Equals(m.Id, c.ModId, StringComparison.OrdinalIgnoreCase));
+                    if (modToRemove != null)
+                    {
+                        await RemoveAsync(gamePath, modToRemove);
+                        allMods.Remove(modToRemove);
+                    }
+                }
+                ModCommands.SaveMetadata(gamePath, allMods);
             }
 
             Directory.CreateDirectory(targetModDir);

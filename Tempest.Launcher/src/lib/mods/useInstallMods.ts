@@ -56,7 +56,12 @@ export function useInstallMods(instancePath: () => string | undefined) {
 					}
 
 					if (res.Conflict) {
-						const confirmed = await confirmReplaceMod(modFileName, res.IsModConflict);
+						const confirmed = await confirmReplaceMod(
+							modFileName,
+							res.IsModConflict,
+							res.ConflictingMods ?? [],
+							res.NewModName ?? modFileName,
+						);
 						if (confirmed) {
 							res = await installMod(gamePath, filePath, true, allowedUnsigned);
 						} else {

@@ -23,25 +23,82 @@ public class ModV1Installer : IModInstaller
 
         Directory.CreateDirectory(destDir);
         var destPath = Path.Combine(destDir, fileName);
+        var newRelative = Path.GetRelativePath(resolvedGame, destPath).Replace('\\', '/');
 
-        if (File.Exists(destPath))
+        // Component overlap detection: check if any installed mod already edits this file
+        var metadataMods = ModCommands.LoadMetadata(gamePath);
+        var conflicts = new List<ModConflictInfo>();
+        foreach (var existingMod in metadataMods)
+        {
+            var overlapping = existingMod.InstalledFiles
+                .Where(f => {
+                    var ext = Path.GetExtension(f).ToLowerInvariant();
+                    if (ext == ".ini") return false;
+                    return string.Equals(f, destPath, StringComparison.OrdinalIgnoreCase);
+                })
+                .Select(f => {
+                    try { return Path.GetRelativePath(resolvedGame, f).Replace('\\', '/'); }
+                    catch { return f; }
+                })
+                .ToList();
+            if (overlapping.Count > 0)
+            {
+                conflicts.Add(new ModConflictInfo
+                {
+                    ModId = existingMod.Id,
+                    ModName = existingMod.Name,
+                    ModVersion = existingMod.Version,
+                    ConflictingFiles = overlapping
+                });
+            }
+            else if (string.Equals(existingMod.Name, fileName, StringComparison.OrdinalIgnoreCase))
+            {
+                // fallback: same filename mod (V1 name collision) even if InstalledFiles not matched due to path normalization
+                conflicts.Add(new ModConflictInfo
+                {
+                    ModId = existingMod.Id,
+                    ModName = existingMod.Name,
+                    ModVersion = existingMod.Version,
+                    ConflictingFiles = [newRelative]
+                });
+            }
+        }
+
+        if (conflicts.Count > 0)
         {
             if (!replace)
             {
-                var mods = ModCommands.LoadMetadata(gamePath);
-                var isMod = mods.Any(m => string.Equals(m.Name, fileName, StringComparison.OrdinalIgnoreCase) ||
-                                          m.InstalledFiles.Any(f => string.Equals(f, destPath, StringComparison.OrdinalIgnoreCase)));
-
+                var names = string.Join(", ", conflicts.Select(c => $"'{c.ModName}'"));
+                var files = string.Join(", ", conflicts.SelectMany(c => c.ConflictingFiles).Distinct(StringComparer.OrdinalIgnoreCase));
                 return new ModInstallResult
                 {
                     Success = false,
                     Conflict = true,
-                    IsModConflict = isMod,
-                    Message = $"Mod with filename '{fileName}' already exists in destination."
+                    IsModConflict = true,
+                    Message = $"Mod '{fileName}' conflicts with {names} (overlapping files: {files}).",
+                    ConflictingMods = conflicts,
+                    NewModName = fileName
                 };
             }
 
-            // Backup existing file to .tempest/v1/backup
+            // replace requested — remove all conflicting mods before installing
+            var allMods = ModCommands.LoadMetadata(gamePath);
+            foreach (var c in conflicts)
+            {
+                var modToRemove = allMods.FirstOrDefault(m => string.Equals(m.Id, c.ModId, StringComparison.OrdinalIgnoreCase));
+                if (modToRemove != null)
+                {
+                    var installer = ModCommands.CreateInstaller(modToRemove);
+                    await installer.RemoveAsync(gamePath, modToRemove);
+                    allMods.Remove(modToRemove);
+                }
+            }
+            ModCommands.SaveMetadata(gamePath, allMods);
+        }
+
+        // Backup handling: preserve pristine original before overwriting (vanilla or previously restored)
+        if (File.Exists(destPath))
+        {
             var backupDir = TempestPathUtility.GetLocalV1BackupDirectory(resolvedGame);
             Directory.CreateDirectory(backupDir);
             var backupPath = TempestPathUtility.GetLocalV1BackupPath(resolvedGame, fileName);
@@ -49,9 +106,6 @@ public class ModV1Installer : IModInstaller
             {
                 if (File.Exists(backupPath))
                 {
-                    // If a file already exists in backup, it's considered priority (the pristine original)
-                    // and we do NOT make a new backup of the already-modified destPath.
-                    // Instead, we just delete the existing destPath before copying the new mod file.
                     File.Delete(destPath);
                 }
                 else
@@ -61,7 +115,6 @@ public class ModV1Installer : IModInstaller
             }
             catch (Exception ex)
             {
-                // Non-fatal if backup/deletion fails
                 await Console.Error.WriteLineAsync($"Warning: Failed to handle backup or deletion of existing file: {ex.Message}");
             }
         }

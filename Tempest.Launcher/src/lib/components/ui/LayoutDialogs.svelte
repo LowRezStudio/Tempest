@@ -43,6 +43,8 @@
 <ReplaceModDialog
 	bind:open={replaceDialogStore.value.open}
 	modName={replaceDialogStore.value.modName}
+	newModName={replaceDialogStore.value.newModName}
+	conflictingMods={replaceDialogStore.value.conflictingMods}
 	onconfirm={() => resolveReplaceMod(true)}
 	oncancel={() => resolveReplaceMod(false)}
 />

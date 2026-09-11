@@ -1,10 +1,28 @@
+export type ConflictModInfo = {
+	ModId: string;
+	ModName: string;
+	ModVersion?: string;
+	ConflictingFiles: string[];
+};
+
 export const replaceDialogStore = $state({
-	value: { open: false, modName: "", isModConflict: true },
+	value: {
+		open: false,
+		modName: "",
+		newModName: "",
+		conflictingMods: [] as ConflictModInfo[],
+		isModConflict: true,
+	},
 });
 
 let activeResolver: ((value: boolean) => void) | undefined = undefined;
 
-export const confirmReplaceMod = (modName: string, isModConflict = true): Promise<boolean> => {
+export const confirmReplaceMod = (
+	modName: string,
+	isModConflict = true,
+	conflictingMods: ConflictModInfo[] = [],
+	newModName?: string,
+): Promise<boolean> => {
 	if (!isModConflict) {
 		return Promise.resolve(true);
 	}
@@ -12,6 +30,8 @@ export const confirmReplaceMod = (modName: string, isModConflict = true): Promis
 		replaceDialogStore.value = {
 			open: true,
 			modName,
+			newModName: newModName ?? modName,
+			conflictingMods,
 			isModConflict,
 		};
 		activeResolver = resolve;
@@ -21,7 +41,13 @@ export const confirmReplaceMod = (modName: string, isModConflict = true): Promis
 export const resolveReplaceMod = (value: boolean) => {
 	const resolve = activeResolver;
 	activeResolver = undefined;
-	replaceDialogStore.value = { open: false, modName: "", isModConflict: true };
+	replaceDialogStore.value = {
+		open: false,
+		modName: "",
+		newModName: "",
+		conflictingMods: [],
+		isModConflict: true,
+	};
 	resolve?.(value);
 };
 

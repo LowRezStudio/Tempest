@@ -589,5 +589,71 @@
 	"converter_add_to_instance": "Dodaj do instancji",
 	"converter_toast_saved_title": "Mod zapisany",
 	"converter_toast_saved_message": "Zapisano w {path}",
-	"converter_toast_installed_message": "\"{name}\" zainstalowano w {instance}"
+	"converter_toast_installed_message": "\"{name}\" zainstalowano w {instance}",
+	"conflict_header_title": "KONFLIKT MODYFIKACJI",
+	"conflict_header_subtitle": "Modyfikują te same pliki gry",
+	"conflict_badge_new": "NOWY",
+	"conflict_badge_installed": "ZAINSTALOWANY",
+	"conflict_tap_hide": "Dotknij, aby ukryć pliki",
+	"conflict_tap_inspect": "Dotknij, aby sprawdzić pliki",
+	"conflict_will_be_installed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} plik • zostanie zainstalowany",
+				"countPlural=few": "{count} pliki • zostaną zainstalowane",
+				"countPlural=many": "{count} plików • zostanie zainstalowanych",
+				"countPlural=other": "{count} pliku • zostanie zainstalowany"
+			}
+		}
+	],
+	"conflict_will_be_removed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} plik • zostanie usunięty",
+				"countPlural=few": "{count} pliki • zostaną usunięte",
+				"countPlural=many": "{count} plików • zostanie usuniętych",
+				"countPlural=other": "{count} pliku • zostanie usunięty"
+			}
+		}
+	],
+	"conflict_overlapping_components": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} komponent w konflikcie",
+				"countPlural=few": "{count} komponenty w konflikcie",
+				"countPlural=many": "{count} komponentów w konflikcie",
+				"countPlural=other": "{count} komponentu w konflikcie"
+			}
+		}
+	],
+	"conflict_mods_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} mod",
+				"countPlural=few": "{count} mody",
+				"countPlural=many": "{count} modów",
+				"countPlural=other": "{count} moda"
+			}
+		}
+	],
+	"conflict_row_overlapping_files": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} plik w konflikcie",
+				"countPlural=few": "{count} pliki w konflikcie",
+				"countPlural=many": "{count} plików w konflikcie",
+				"countPlural=other": "{count} pliku w konflikcie"
+			}
+		}
+	]
 }

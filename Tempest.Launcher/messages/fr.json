@@ -581,5 +581,61 @@
 	"converter_add_to_instance": "Ajouter à l'instance",
 	"converter_toast_saved_title": "Mod sauvegardé",
 	"converter_toast_saved_message": "Sauvegardé vers {path}",
-	"converter_toast_installed_message": "\"{name}\" installé sur {instance}"
+	"converter_toast_installed_message": "\"{name}\" installé sur {instance}",
+	"conflict_header_title": "CONFLIT DE MOD",
+	"conflict_header_subtitle": "Ceux-ci modifient les mêmes fichiers du jeu",
+	"conflict_badge_new": "NOUVEAU",
+	"conflict_badge_installed": "INSTALLÉ",
+	"conflict_tap_hide": "Appuyer pour masquer les fichiers",
+	"conflict_tap_inspect": "Appuyer pour inspecter les fichiers",
+	"conflict_will_be_installed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} fichier • sera installé",
+				"countPlural=other": "{count} fichiers • seront installés"
+			}
+		}
+	],
+	"conflict_will_be_removed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} fichier • sera supprimé",
+				"countPlural=other": "{count} fichiers • seront supprimés"
+			}
+		}
+	],
+	"conflict_overlapping_components": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} composant en conflit",
+				"countPlural=other": "{count} composants en conflit"
+			}
+		}
+	],
+	"conflict_mods_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} mod",
+				"countPlural=other": "{count} mods"
+			}
+		}
+	],
+	"conflict_row_overlapping_files": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} fichier en conflit",
+				"countPlural=other": "{count} fichiers en conflit"
+			}
+		}
+	]
 }

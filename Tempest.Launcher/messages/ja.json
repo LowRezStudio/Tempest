@@ -576,5 +576,56 @@
 	"converter_add_to_instance": "インスタンスに追加",
 	"converter_toast_saved_title": "Modを保存しました",
 	"converter_toast_saved_message": "{path}に保存しました",
-	"converter_toast_installed_message": "「{name}」を{instance}にインストールしました"
+	"converter_toast_installed_message": "「{name}」を{instance}にインストールしました",
+	"conflict_header_title": "MODの競合",
+	"conflict_header_subtitle": "これらは同じゲームファイルを編集します",
+	"conflict_badge_new": "新規",
+	"conflict_badge_installed": "インストール済み",
+	"conflict_tap_hide": "タップしてファイルを非表示",
+	"conflict_tap_inspect": "タップしてファイルを検査",
+	"conflict_will_be_installed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} ファイル • インストールされます"
+			}
+		}
+	],
+	"conflict_will_be_removed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} ファイル • 削除されます"
+			}
+		}
+	],
+	"conflict_overlapping_components": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} 個の競合コンポーネント"
+			}
+		}
+	],
+	"conflict_mods_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} 個のMOD"
+			}
+		}
+	],
+	"conflict_row_overlapping_files": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=other": "{count} 個の競合ファイル"
+			}
+		}
+	]
 }

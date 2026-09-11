@@ -48,6 +48,13 @@ export type ModRecord = {
 	ReadmeContent?: string;
 };
 
+export type ModConflictInfo = {
+	ModId: string;
+	ModName: string;
+	ModVersion?: string;
+	ConflictingFiles: string[];
+};
+
 export type ModInstallResult = {
 	Success: boolean;
 	Message: string;
@@ -55,6 +62,8 @@ export type ModInstallResult = {
 	Conflict?: boolean;
 	IsModConflict?: boolean;
 	Unverified?: boolean;
+	ConflictingMods?: ModConflictInfo[];
+	NewModName?: string;
 };
 
 export type ModListResult = {

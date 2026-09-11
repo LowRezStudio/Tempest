@@ -78,7 +78,7 @@ internal class ModCommands
         }
     }
 
-    private static void SaveMetadata(string gamePath, List<ModRecord> mods)
+    internal static void SaveMetadata(string gamePath, List<ModRecord> mods)
     {
         var path = GetMetadataPath(gamePath);
         try
@@ -377,7 +377,7 @@ internal class ModCommands
         }
     }
 
-    private static IModInstaller CreateInstaller(ModRecord mod)
+    internal static IModInstaller CreateInstaller(ModRecord mod)
     {
         if (string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
             return new ModV2Installer();

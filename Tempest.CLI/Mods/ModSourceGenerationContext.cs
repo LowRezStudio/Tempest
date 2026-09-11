@@ -6,6 +6,8 @@ namespace Tempest.CLI.Mods;
 [JsonSerializable(typeof(ModAuthor))]
 [JsonSerializable(typeof(List<ModAuthor>))]
 [JsonSerializable(typeof(ModInstallResult))]
+[JsonSerializable(typeof(ModConflictInfo))]
+[JsonSerializable(typeof(List<ModConflictInfo>))]
 [JsonSerializable(typeof(ModListResult))]
 [JsonSerializable(typeof(ModBulkResult))]
 [JsonSerializable(typeof(List<ModRecord>))]
