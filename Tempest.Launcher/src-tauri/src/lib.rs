@@ -132,6 +132,35 @@ fn is_executable(path: &std::path::Path) -> bool {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn invalidate_icon_cache() {
+    use std::env;
+    use std::fs;
+    use std::path::PathBuf;
+    use windows::Win32::UI::Shell::{SHChangeNotify, SHCNE_ASSOCCHANGED};
+    use windows::Win32::Foundation::NULL;
+
+    let local_app = env::var("LOCALAPPDATA").unwrap_or_default();
+    let cache_dir = PathBuf::from(local_app).join("Microsoft\\Windows\\Explorer");
+
+    if cache_dir.exists() {
+        for entry in fs::read_dir(&cache_dir).unwrap_or_default() {
+            if let Ok(entry) = entry {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with("iconcache") || name_str.starts_with("thumbcache") {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+
+    unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, 0, NULL, NULL); }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn invalidate_icon_cache() {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
@@ -175,9 +204,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|_app| {
+        .setup(|app| {
             #[cfg(not(target_os = "windows"))]
             child_cleanup::setup();
+            invalidate_icon_cache();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
