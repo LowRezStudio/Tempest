@@ -11,6 +11,7 @@
 		class?: string;
 		dismissible?: boolean;
 		onsubmit?: (e: SubmitEvent) => void;
+		onclose?: () => void;
 	}
 
 	let {
@@ -21,10 +22,18 @@
 		class: className = "",
 		dismissible = true,
 		onsubmit,
+		onclose,
 	}: Props = $props();
+
+	function handleOpenChange(isOpen: boolean) {
+		if (!isOpen && onclose) {
+			onclose();
+		}
+		open = isOpen;
+	}
 </script>
 
-<Dialog.Root bind:open>
+<Dialog.Root bind:open onOpenChange={handleOpenChange}>
 	<Dialog.Portal>
 		<Dialog.Overlay class="fixed inset-0 z-50 bg-black/50" />
 		<Dialog.Content

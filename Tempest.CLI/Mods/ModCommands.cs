@@ -36,6 +36,17 @@ internal class ModCommands
                     }
                 }
 
+                // Migration: initialize OwnedFiles from InstalledFiles for older mods (MetadataVersion < 2)
+                // Only for non-INI files (INI files use per-mod ini-backup with merge semantics)
+                // Only run once for mods that predate the ownership system (MetadataVersion < 2)
+                if (mod.MetadataVersion < 2 && mod.OwnedFiles.Count == 0 && mod.InstalledFiles.Count > 0)
+                {
+                    mod.OwnedFiles = mod.InstalledFiles
+                        .Where(f => Path.GetExtension(f).ToLowerInvariant() != ".ini")
+                        .ToList();
+                    mod.MetadataVersion = 2;
+                }
+
                 if (!string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase)) continue;
                 
                 var modDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id);
@@ -121,9 +132,10 @@ internal class ModCommands
     /// <param name="path">Path to the game folder or executable</param>
     /// <param name="modFile">Path to the mod file (.upk, .pck)</param>
     /// <param name="replace">Overwrite the mod if it already exists</param>
+    /// <param name="stack">Add mod alongside conflicting mods, transferring ownership of conflicting files</param>
     /// <param name="allowUnsigned">Allow installing unsigned or unverified mods</param>
     /// <param name="json">Output as JSON</param>
-    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool allowUnsigned = false, bool json = false)
+    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool stack = false, bool allowUnsigned = false, bool json = false)
     {
         try
         {
@@ -135,7 +147,7 @@ internal class ModCommands
             }
 
             var installer = ModInstallerFactory.CreateForFile(modFile);
-            var result = await installer.InstallAsync(path, modFile, replace, allowUnsigned);
+            var result = await installer.InstallAsync(path, modFile, replace, stack, allowUnsigned);
 
             if (result.Success && result.Mod != null)
             {
@@ -429,9 +441,10 @@ internal class ModCommands
     /// <param name="path">Path to the game folder or executable</param>
     /// <param name="modFiles">List of mod files to install</param>
     /// <param name="replace">Overwrite existing mods</param>
+    /// <param name="stack">Add mods alongside conflicting mods, transferring ownership of conflicting files</param>
     /// <param name="allowUnsigned">Allow installing unsigned or unverified mods</param>
     /// <param name="json">Output as JSON</param>
-    public async Task InstallBulk([Argument] string path, string[] modFiles, bool replace = false, bool allowUnsigned = false, bool json = false)
+    public async Task InstallBulk([Argument] string path, string[] modFiles, bool replace = false, bool stack = false, bool allowUnsigned = false, bool json = false)
     {
         var results = new List<ModInstallResult>();
         foreach (var file in modFiles)
@@ -445,7 +458,7 @@ internal class ModCommands
                 }
 
                 var installer = ModInstallerFactory.CreateForFile(file);
-                var result = await installer.InstallAsync(path, file, replace, allowUnsigned);
+                var result = await installer.InstallAsync(path, file, replace, stack, allowUnsigned);
 
                 if (result.Success && result.Mod != null)
                 {

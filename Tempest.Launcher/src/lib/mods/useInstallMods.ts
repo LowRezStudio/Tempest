@@ -56,13 +56,21 @@ export function useInstallMods(instancePath: () => string | undefined) {
 					}
 
 					if (res.Conflict) {
-						const confirmed = await confirmReplaceMod(
+						const choice = await confirmReplaceMod(
 							modFileName,
 							res.IsModConflict,
 							res.ConflictingMods ?? [],
 							res.NewModName ?? modFileName,
 						);
-						if (confirmed) {
+						if (choice === "stack") {
+							res = await installMod(
+								gamePath,
+								filePath,
+								false,
+								allowedUnsigned,
+								true,
+							);
+						} else if (choice === "replace") {
 							res = await installMod(gamePath, filePath, true, allowedUnsigned);
 						} else {
 							if (installingToastId) removeToast(installingToastId);

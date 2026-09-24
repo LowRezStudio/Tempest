@@ -8,9 +8,11 @@ public class ModRecord
     public List<ModAuthor> Authors { get; set; } = [];
     public string Version { get; set; } = "1.0.0";
     public bool Enabled { get; set; } = true;
-    public string Kind { get; set; } = string.Empty; // "Voice", "Asset", "NativePackage"
+    public string Kind { get; set; } = string.Empty;
     public string OriginalPath { get; set; } = string.Empty;
     public List<string> InstalledFiles { get; set; } = [];
+    public List<string> OwnedFiles { get; set; } = [];
+    public int MetadataVersion { get; set; } = 1;
     public string Readme { get; set; } = string.Empty;
     public string ReadmeContent { get; set; } = string.Empty;
 }

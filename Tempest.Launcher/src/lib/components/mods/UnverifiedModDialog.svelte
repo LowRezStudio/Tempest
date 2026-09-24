@@ -23,7 +23,7 @@
 	}
 </script>
 
-<Modal bind:open title={m.unverified_mod_title()} class="max-w-md" onsubmit={handleConfirm}>
+<Modal bind:open title={m.unverified_mod_title()} class="max-w-md" onclose={handleCancel}>
 	<div class="space-y-4">
 		<div class="flex items-start gap-3">
 			<div class="text-warning mt-0.5 shrink-0">
@@ -44,10 +44,7 @@
 	</div>
 
 	{#snippet actions()}
-		<button class="btn btn-ghost" type="button" onclick={handleCancel}>
-			{m.common_cancel()}
-		</button>
-		<button class="btn btn-error" type="submit">
+		<button class="btn btn-error" type="button" onclick={handleConfirm}>
 			<AlertTriangle size={16} />
 			{m.unverified_mod_btn()}
 		</button>

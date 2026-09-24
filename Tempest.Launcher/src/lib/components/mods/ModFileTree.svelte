@@ -6,30 +6,39 @@
 		files: string[];
 		basePath?: string;
 		modId?: string;
+		ownedFiles?: string[];
 	}
 
-	let { files, basePath, modId }: Props = $props();
+	let { files, basePath, modId, ownedFiles = [] }: Props = $props();
+
+	function normalizePath(path: string): string {
+		return path.replaceAll("\\", "/");
+	}
 
 	interface TreeNode {
 		name: string;
 		children?: TreeNode[];
 		isFile: boolean;
 		fullPath?: string;
+		transferred?: boolean;
 	}
 
 	function buildFileTree(files: string[], instancePath: string | undefined): TreeNode[] {
 		const root: TreeNode = { name: "root", children: [], isFile: false };
 
+		// Normalize ownedFiles for comparison
+		const ownedSet = new Set(ownedFiles.map((f) => normalizePath(f).toLowerCase()));
+
 		let normalizedBase = "";
 		if (instancePath) {
-			normalizedBase = instancePath.replaceAll("\\", "/");
+			normalizedBase = normalizePath(instancePath);
 			if (!normalizedBase.endsWith("/")) {
 				normalizedBase += "/";
 			}
 		}
 
 		for (const file of files) {
-			let normalized = file.replaceAll("\\", "/");
+			let normalized = normalizePath(file);
 			if (normalizedBase && normalized.startsWith(normalizedBase)) {
 				normalized = normalized.slice(normalizedBase.length);
 			}
@@ -48,10 +57,15 @@
 					(child) => child.name === part && child.isFile === isLast,
 				);
 				if (!found) {
+					const fullPath = isLast ? file : undefined;
+					// Check if this file is in ownedFiles (normalize path for comparison)
+					const normalizedFullPath = normalizePath(fullPath ?? "").toLowerCase();
+					const isTransferred = isLast ? !ownedSet.has(normalizedFullPath) : false;
 					found = {
 						name: part,
 						isFile: isLast,
-						fullPath: isLast ? file : undefined,
+						fullPath,
+						transferred: isTransferred,
 					};
 					if (!isLast) {
 						found.children = [];
@@ -200,7 +214,8 @@
 		{@const key = node.fullPath ?? node.name}
 		{@const isExpanded = expandedPaths.has(key)}
 		{@const state = fileContents.get(key)}
-		<li>
+		{@const isTransferred = node.transferred === true}
+		<li class={isTransferred ? "line-through opacity-40" : ""}>
 			{#if txt}
 				<button
 					type="button"

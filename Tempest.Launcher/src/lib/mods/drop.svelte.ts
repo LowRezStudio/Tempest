@@ -125,13 +125,15 @@ async function proceedWithInstall(instance: any, filePaths: string[]) {
 			}
 
 			if (res.Conflict) {
-				const confirmed = await confirmReplaceMod(
+				const choice = await confirmReplaceMod(
 					modFileName,
 					res.IsModConflict,
 					res.ConflictingMods ?? [],
 					res.NewModName ?? modFileName,
 				);
-				if (confirmed) {
+				if (choice === "stack") {
+					res = await installMod(instance.path, filePath, false, allowedUnsigned, true);
+				} else if (choice === "replace") {
 					res = await installMod(instance.path, filePath, true, allowedUnsigned);
 				} else {
 					if (installingToastId) removeToast(installingToastId);

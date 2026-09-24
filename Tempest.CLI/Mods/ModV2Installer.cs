@@ -47,7 +47,7 @@ public class ModV2Installer : IModInstaller
     private static bool IsDirectoryEntry(ZipArchiveEntry entry) =>
         entry.FullName.EndsWith('/') || string.IsNullOrEmpty(entry.Name);
 
-    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool allowUnsigned)
+    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUnsigned)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var isSignedAndVerified = false;
@@ -172,7 +172,8 @@ public class ModV2Installer : IModInstaller
                 }
             }
 
-            // File-overlap detection: compare new mod's files against every installed mod's InstalledFiles
+            // File-overlap detection: compare new mod's files against every installed mod's OwnedFiles
+            // (files they currently manage, not just historically installed)
             var metadataMods = ModCommands.LoadMetadata(gamePath);
             var conflicts = new List<ModConflictInfo>();
             foreach (var existingMod in metadataMods)
@@ -180,12 +181,12 @@ public class ModV2Installer : IModInstaller
                 if (string.Equals(existingMod.Id, modId, StringComparison.OrdinalIgnoreCase)) continue;
 
                 var overlapping = new List<string>();
-                foreach (var installedFile in existingMod.InstalledFiles)
+                foreach (var ownedFile in existingMod.OwnedFiles)
                 {
-                    var ext = Path.GetExtension(installedFile).ToLowerInvariant();
+                    var ext = Path.GetExtension(ownedFile).ToLowerInvariant();
                     if (ext == ".ini") continue;
                     string relativeExisting;
-                    try { relativeExisting = Path.GetRelativePath(resolvedGame, installedFile).Replace('\\', '/'); }
+                    try { relativeExisting = Path.GetRelativePath(resolvedGame, ownedFile).Replace('\\', '/'); }
                     catch { continue; }
                     if (newRelativeFiles.Contains(relativeExisting))
                         overlapping.Add(relativeExisting);
@@ -204,7 +205,7 @@ public class ModV2Installer : IModInstaller
 
             if (conflicts.Count > 0)
             {
-                if (!replace)
+                if (!replace && !stack)
                 {
                     var names = string.Join(", ", conflicts.Select(c => $"'{c.ModName}'"));
                     var files = string.Join(", ", conflicts.SelectMany(c => c.ConflictingFiles).Distinct(StringComparer.OrdinalIgnoreCase));
@@ -219,18 +220,34 @@ public class ModV2Installer : IModInstaller
                     };
                 }
 
-                // replace requested — remove all conflicting mods before installing new one
-                var allMods = ModCommands.LoadMetadata(gamePath);
-                foreach (var c in conflicts)
+                if (replace)
                 {
-                    var modToRemove = allMods.FirstOrDefault(m => string.Equals(m.Id, c.ModId, StringComparison.OrdinalIgnoreCase));
-                    if (modToRemove != null)
+                    // replace requested — remove all conflicting mods before installing new one
+                    var allMods = ModCommands.LoadMetadata(gamePath);
+                    foreach (var c in conflicts)
                     {
-                        await RemoveAsync(gamePath, modToRemove);
-                        allMods.Remove(modToRemove);
+                        var modToRemove = allMods.FirstOrDefault(m => string.Equals(m.Id, c.ModId, StringComparison.OrdinalIgnoreCase));
+                        if (modToRemove != null)
+                        {
+                            await RemoveAsync(gamePath, modToRemove);
+                            allMods.Remove(modToRemove);
+                        }
                     }
+                    ModCommands.SaveMetadata(gamePath, allMods);
                 }
-                ModCommands.SaveMetadata(gamePath, allMods);
+                else if (stack)
+                {
+                    // stack requested — transfer ownership of conflicting files to new mod
+                    var allMods = ModCommands.LoadMetadata(gamePath);
+                    var conflictingFileSet = new HashSet<string>(conflicts.SelectMany(c => c.ConflictingFiles), StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var existingMod in allMods)
+                    {
+                        // Remove conflicting files from existing mod's OwnedFiles
+                        existingMod.OwnedFiles.RemoveAll(f => conflictingFileSet.Contains(Path.GetRelativePath(resolvedGame, f).Replace('\\', '/')));
+                    }
+                    ModCommands.SaveMetadata(gamePath, allMods);
+                }
             }
 
             Directory.CreateDirectory(targetModDir);
@@ -261,12 +278,14 @@ public class ModV2Installer : IModInstaller
 
                             if (File.Exists(backupPath))
                             {
-                                // ponytail: backup already exists (the pristine original), do not overwrite it.
+                                // Backup already exists (the pristine original), do not overwrite it.
                                 // Just delete the existing destination file to copy/write the new mod file.
                                 File.Delete(destGamePath);
                             }
                             else
                             {
+                                // No backup exists yet - this is the first mod touching this file.
+                                // Copy the current game file (pristine or previously restored) as backup.
                                 File.Copy(destGamePath, backupPath);
                             }
                         }
@@ -342,8 +361,12 @@ public class ModV2Installer : IModInstaller
                 }
             }
 
-            var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
+var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
             if (string.IsNullOrEmpty(authorString)) authorString = "Unknown";
+
+            var ownedFiles = installedFiles
+                .Where(f => Path.GetExtension(f).ToLowerInvariant() != ".ini")
+                .ToList();
 
             var modRecord = new ModRecord
             {
@@ -351,11 +374,13 @@ public class ModV2Installer : IModInstaller
                 Name = manifest.Name,
                 Author = authorString,
                 Authors = manifest.Authors,
-			Version = string.IsNullOrEmpty(manifest.Version) ? "1.0.0" : manifest.Version,
+                Version = string.IsNullOrEmpty(manifest.Version) ? "1.0.0" : manifest.Version,
                 Enabled = true,
                 Kind = "V2",
                 OriginalPath = modFilePath,
                 InstalledFiles = installedFiles,
+                OwnedFiles = ownedFiles,
+                MetadataVersion = 2,
                 Readme = manifest.Readme
             };
 
@@ -406,11 +431,9 @@ public class ModV2Installer : IModInstaller
             }
         }
 
-        foreach (var file in mod.InstalledFiles)
+        // Only restore files this mod currently owns
+        foreach (var file in mod.OwnedFiles)
         {
-            var ext = Path.GetExtension(file).ToLowerInvariant();
-            if (ext == ".ini") continue;
-
             var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
             var backupPath = TempestPathUtility.GetLocalV2BackupPath(resolvedGame, relativePathFromGame);
 
@@ -489,12 +512,9 @@ public class ModV2Installer : IModInstaller
             }
         }
 
-        // Restore non-ini files: COPY from backup (keep backup intact for re-enable)
-        foreach (var file in mod.InstalledFiles)
+        // Restore non-ini files this mod owns: COPY from backup (keep backup intact for re-enable)
+        foreach (var file in mod.OwnedFiles)
         {
-            var ext = Path.GetExtension(file).ToLowerInvariant();
-            if (ext == ".ini") continue;
-
             var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
             var backupPath = TempestPathUtility.GetLocalV2BackupPath(resolvedGame, relativePathFromGame);
 
@@ -533,12 +553,9 @@ public class ModV2Installer : IModInstaller
             return Task.CompletedTask;
         }
 
-        // Re-apply non-INI files from the mod snapshot directory
-        foreach (var file in mod.InstalledFiles)
+        // Re-apply non-INI files this mod owns from the mod snapshot directory
+        foreach (var file in mod.OwnedFiles)
         {
-            var ext = Path.GetExtension(file).ToLowerInvariant();
-            if (ext == ".ini") continue;
-
             var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
             var snapshotPath = Path.Combine(snapshotFilesDir, relativePathFromGame);
 

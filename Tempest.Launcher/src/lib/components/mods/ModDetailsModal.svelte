@@ -50,7 +50,7 @@
 						value="files"
 						class="tab data-[state=active]:tab-active rounded-lg transition-all"
 					>
-						Changed Files ({mod.InstalledFiles?.length ?? 0})
+						Managed Files ({mod.OwnedFiles?.length ?? 0})
 					</Tabs.Trigger>
 				</Tabs.List>
 			</Tabs.Root>
@@ -145,19 +145,12 @@
 					</div>
 				{:else if tab === "files"}
 					<div class="flex h-full flex-col justify-start overflow-hidden">
-						{#if !mod.InstalledFiles || mod.InstalledFiles.length === 0}
-							<div
-								class="bg-base-200/20 border-base-300 text-base-content/60 rounded-box flex h-full items-center justify-center border border-dashed py-8 text-center"
-							>
-								<p>{m.mod_no_files()}</p>
-							</div>
-						{:else}
-							<ModFileTree
-								files={mod.InstalledFiles}
-								basePath={instancePath}
-								modId={mod.Id}
-							/>
-						{/if}
+						<ModFileTree
+							files={mod.InstalledFiles}
+							basePath={instancePath}
+							modId={mod.Id}
+							ownedFiles={mod.OwnedFiles}
+						/>
 					</div>
 				{/if}
 			</div>

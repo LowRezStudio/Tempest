@@ -45,8 +45,8 @@
 	modName={replaceDialogStore.value.modName}
 	newModName={replaceDialogStore.value.newModName}
 	conflictingMods={replaceDialogStore.value.conflictingMods}
-	onconfirm={() => resolveReplaceMod(true)}
-	oncancel={() => resolveReplaceMod(false)}
+	onconfirm={(choice) => resolveReplaceMod(choice)}
+	oncancel={() => resolveReplaceMod("cancel")}
 />
 <UnverifiedModDialog
 	bind:open={unverifiedDialogStore.value.open}

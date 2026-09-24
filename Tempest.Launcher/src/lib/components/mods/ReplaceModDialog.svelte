@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { AlertTriangle, Box, File, Layers, Replace, Swords } from "@lucide/svelte";
+	import { AlertTriangle, Box, File, Layers, Replace, Swords, PlusCircle } from "@lucide/svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
+
+	type Choice = "cancel" | "replace" | "stack";
 
 	interface Props {
 		open: boolean;
@@ -13,7 +15,7 @@
 			ModVersion?: string;
 			ConflictingFiles: string[];
 		}>;
-		onconfirm: () => void;
+		onconfirm: (choice: Choice) => void;
 		oncancel: () => void;
 	}
 
@@ -32,8 +34,8 @@
 	let fileCount = $derived(uniqueFiles.length);
 	let expanded = $state(true);
 
-	function handleConfirm() {
-		onconfirm();
+	function handleConfirm(choice: Choice) {
+		onconfirm(choice);
 		open = false;
 	}
 
@@ -51,7 +53,7 @@
 	}
 </script>
 
-<Modal bind:open class="max-w-xl" onsubmit={handleConfirm}>
+<Modal bind:open class="max-w-xl" onclose={handleCancel}>
 	<div class="space-y-5">
 		{#if hasDetailedConflicts}
 			<!-- Minimal header — left aligned, enlarged -->
@@ -247,10 +249,15 @@
 	</div>
 
 	{#snippet actions()}
-		<button class="btn btn-ghost" type="button" onclick={handleCancel}>
-			{m.common_cancel()}
+		<button class="btn btn-primary" type="button" onclick={() => handleConfirm("stack")}>
+			<PlusCircle size={16} />
+			{m.conflict_stack_mod_btn()}
 		</button>
-		<button class="btn btn-error shadow-md transition-shadow hover:shadow-lg" type="submit">
+		<button
+			class="btn btn-error shadow-md transition-shadow hover:shadow-lg"
+			type="button"
+			onclick={() => handleConfirm("replace")}
+		>
 			<Replace size={16} />
 			{m.conflict_replace_mod_btn()}
 		</button>

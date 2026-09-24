@@ -44,6 +44,7 @@ export type ModRecord = {
 	Kind: string;
 	OriginalPath: string;
 	InstalledFiles: string[];
+	OwnedFiles: string[];
 	Readme?: string;
 	ReadmeContent?: string;
 };
@@ -198,9 +199,11 @@ export const installMod = async (
 	modFile: string,
 	replace = false,
 	allowUnsigned = false,
+	stack = false,
 ): Promise<ModInstallResult> => {
 	const args = ["mod", "install", gamePath, modFile];
 	if (replace) args.push("--replace");
+	if (stack) args.push("--stack");
 	if (allowUnsigned) args.push("--allow-unsigned");
 	args.push("--json");
 
