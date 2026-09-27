@@ -143,6 +143,17 @@ pub fn run() {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        // Set AppUserModelID so Windows identifies this app consistently for taskbar pinning,
+        // jump lists, and icon caching across updates.
+        use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+        use windows::core::PCWSTR;
+        let app_id: Vec<u16> = "com.lowrezstudio.tempest".encode_utf16().chain(std::iter::once(0)).collect();
+        let app_id = PCWSTR::from_raw(app_id.as_ptr());
+        let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(app_id) };
+    }
+
     let initial_working_directory = std::env::current_dir().ok();
     let initial_open_files = tempest_files_from_args(
         std::env::args_os().map(|argument| argument.to_string_lossy().into_owned()),
