@@ -285,7 +285,7 @@
 		</div>
 	</div>
 
-	<section class="flex max-w-sm flex-col gap-2">
+	<section class="flex flex-col gap-2">
 		<h4 class="text-xs font-semibold uppercase opacity-60">
 			{m.settings_keybinds_mouse_sensitivity()}
 		</h4>
@@ -309,6 +309,54 @@
 				step="0.1"
 			/>
 		</div>
+	</section>
+
+	<section class="flex flex-col gap-2">
+		<h4 class="text-xs font-semibold uppercase opacity-60">
+			{m.settings_keybinds_fps_limit()}
+		</h4>
+		<div class="flex items-center gap-3">
+			<input
+				type="range"
+				class="range range-sm flex-1"
+				value={keybinds.value.fpsLimit}
+				oninput={(e) => {
+					keybinds.value = {
+						...keybinds.value,
+						fpsLimit: Number((e.target as HTMLInputElement).value),
+					};
+				}}
+				min="30"
+				max="1000"
+				step="1"
+				disabled={keybinds.value.unlockFps}
+				class:opacity-50={keybinds.value.unlockFps}
+				class:cursor-not-allowed={keybinds.value.unlockFps}
+			/>
+			<input
+				type="number"
+				class="input input-bordered input-sm w-20 text-center font-mono"
+				value={keybinds.value.fpsLimit}
+				oninput={(e) => {
+					keybinds.value = {
+						...keybinds.value,
+						fpsLimit: Number((e.target as HTMLInputElement).value),
+					};
+				}}
+				min="30"
+				max="1000"
+				step="1"
+				disabled={keybinds.value.unlockFps}
+			/>
+		</div>
+		<label class="label cursor-pointer gap-2">
+			<input
+				type="checkbox"
+				class="checkbox checkbox-sm"
+				bind:checked={keybinds.value.unlockFps}
+			/>
+			<span class="label-text">{m.settings_keybinds_unlock_fps()}</span>
+		</label>
 	</section>
 
 	<section class="flex flex-col gap-2">

@@ -8,11 +8,15 @@ export interface Keybind {
 
 export interface KeybindsConfig {
 	mouseSensitivity: number;
+	fpsLimit: number;
+	unlockFps: boolean;
 	bindings: Keybind[];
 }
 
 export const DEFAULT_KEYBINDS: KeybindsConfig = {
 	mouseSensitivity: 25,
+	fpsLimit: 144,
+	unlockFps: false,
 	bindings: [
 		{ name: "W", command: "GBA_MoveForward" },
 		{ name: "A", command: "GBA_StrafeLeft" },
@@ -53,6 +57,19 @@ export function buildDefaultInputIni(config: KeybindsConfig): string {
 	return `${lines.join("\n")}\n`;
 }
 
+export function buildDefaultEngineIni(config: KeybindsConfig): string {
+	const lines: string[] = [];
+	lines.push("[Engine.GameEngine]");
+	if (config.unlockFps) {
+		lines.push("bSmoothFrameRate=FALSE");
+		lines.push("MinSmoothedFrameRate=0");
+		lines.push("MaxSmoothedFrameRate=0");
+	} else {
+		lines.push(`MaxSmoothedFrameRate=${config.fpsLimit}`);
+	}
+	return `${lines.join("\n")}\n`;
+}
+
 export interface KeybindModOptions {
 	name: string;
 	version?: string;
@@ -63,6 +80,7 @@ export interface KeybindModOptions {
 export function cookKeybindsMod(config: KeybindsConfig, options: KeybindModOptions) {
 	const zip = new JSZip();
 	zip.file("files/ChaosGame/Config/DefaultInput.ini", buildDefaultInputIni(config));
+	zip.file("files/ChaosGame/Config/DefaultEngine.ini", buildDefaultEngineIni(config));
 
 	const lines: string[] = [];
 	lines.push("[mod]");

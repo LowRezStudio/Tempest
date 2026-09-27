@@ -520,6 +520,8 @@
 	"settings_keybinds": "Tuş Atamaları",
 	"settings_keybinds_description": "Öncelikle oyun içi tuş atamalarınızı burada ayarlayın. Her sürümün yapılandırma dosyasına kaydedilecektir.",
 	"settings_keybinds_mouse_sensitivity": "Fare Hassasiyeti",
+	"settings_keybinds_fps_limit": "FPS Limiti",
+	"settings_keybinds_unlock_fps": "FPS Kilidini Aç",
 	"settings_keybinds_action": "Atamalar",
 	"settings_keybinds_key": "Tuş",
 	"settings_keybinds_reset": "Varsayılanlara Sıfırla",

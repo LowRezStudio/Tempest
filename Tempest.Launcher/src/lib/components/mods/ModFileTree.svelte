@@ -58,9 +58,12 @@
 				);
 				if (!found) {
 					const fullPath = isLast ? file : undefined;
+					// INI files use merge/patch system, not ownership transfer - never mark as transferred
+					const isIni = isLast && fullPath?.toLowerCase().endsWith(".ini");
 					// Check if this file is in ownedFiles (normalize path for comparison)
 					const normalizedFullPath = normalizePath(fullPath ?? "").toLowerCase();
-					const isTransferred = isLast ? !ownedSet.has(normalizedFullPath) : false;
+					const isTransferred =
+						isLast && !isIni ? !ownedSet.has(normalizedFullPath) : false;
 					found = {
 						name: part,
 						isFile: isLast,

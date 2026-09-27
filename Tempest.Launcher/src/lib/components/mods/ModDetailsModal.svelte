@@ -50,7 +50,7 @@
 						value="files"
 						class="tab data-[state=active]:tab-active rounded-lg transition-all"
 					>
-						Managed Files ({mod.OwnedFiles?.length ?? 0})
+						Managed Files ({mod.InstalledFiles?.length ?? 0})
 					</Tabs.Trigger>
 				</Tabs.List>
 			</Tabs.Root>
