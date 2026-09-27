@@ -26,8 +26,10 @@ async function main() {
 	const ver = await ask("New version", suggested);
 	if (!ver) return (console.log("Aborted."), rl.close());
 
-	const notes = await ask("Patch notes");
-	if (!notes) return (console.log("Aborted."), rl.close());
+	const notes = await ask("Patch notes (optional)");
+	if (!notes) {
+		notes = "";
+	}
 
 	console.log("\n--- Summary ---");
 	console.log(`Version: ${cur} -> ${ver}`);
