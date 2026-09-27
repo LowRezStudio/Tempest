@@ -14,6 +14,7 @@
 			ModName: string;
 			ModVersion?: string;
 			ConflictingFiles: string[];
+			IsSameMod?: boolean;
 		}>;
 		onconfirm: (choice: Choice) => void;
 		oncancel: () => void;
@@ -33,6 +34,7 @@
 	let uniqueFiles = $derived([...new Set(conflictingMods.flatMap((c) => c.ConflictingFiles))]);
 	let fileCount = $derived(uniqueFiles.length);
 	let expanded = $state(true);
+	let isSameModConflict = $derived(conflictingMods.some((c) => c.IsSameMod === true));
 
 	function handleConfirm(choice: Choice) {
 		onconfirm(choice);
@@ -67,7 +69,13 @@
 					<h4 class="text-base leading-none font-bold tracking-wide uppercase">
 						{m.conflict_header_title()}
 					</h4>
-					<p class="text-sm opacity-60">{m.conflict_header_subtitle()}</p>
+					<p class="text-sm opacity-60">
+						{#if isSameModConflict}
+							{m.conflict_same_mod_subtitle()}
+						{:else}
+							{m.conflict_header_subtitle()}
+						{/if}
+					</p>
 				</div>
 			</div>
 
@@ -249,10 +257,12 @@
 	</div>
 
 	{#snippet actions()}
-		<button class="btn btn-primary" type="button" onclick={() => handleConfirm("stack")}>
-			<PlusCircle size={16} />
-			{m.conflict_stack_mod_btn()}
-		</button>
+		{#if !isSameModConflict}
+			<button class="btn btn-primary" type="button" onclick={() => handleConfirm("stack")}>
+				<PlusCircle size={16} />
+				{m.conflict_stack_mod_btn()}
+			</button>
+		{/if}
 		<button
 			class="btn btn-error shadow-md transition-shadow hover:shadow-lg"
 			type="button"

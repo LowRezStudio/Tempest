@@ -145,14 +145,15 @@ public class ModV2Installer : IModInstaller
                         ModId = existingForId?.Id ?? modId,
                         ModName = existingForId?.Name ?? modId,
                         ModVersion = existingForId?.Version ?? "",
-                        ConflictingFiles = newRelativeFilesList.ToList()
+                        ConflictingFiles = newRelativeFilesList.ToList(),
+                        IsSameMod = true
                     };
                     return new ModInstallResult
                     {
                         Success = false,
                         Conflict = true,
                         IsModConflict = true,
-                        Message = $"Mod '{manifest.Name}' conflicts with '{conflictIdInfo.ModName}' (same ID '{modId}').",
+                        Message = $"A mod with this ID is already installed.",
                         ConflictingMods = [conflictIdInfo],
                         NewModName = manifest.Name
                     };

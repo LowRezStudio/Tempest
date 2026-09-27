@@ -68,7 +68,8 @@ public class ModV1Installer : IModInstaller
                     ModId = existingMod.Id,
                     ModName = existingMod.Name,
                     ModVersion = existingMod.Version,
-                    ConflictingFiles = [newRelative]
+                    ConflictingFiles = [newRelative],
+                    IsSameMod = true
                 });
             }
         }
@@ -77,6 +78,21 @@ public class ModV1Installer : IModInstaller
         {
             if (!replace && !stack)
             {
+                // Check if this is a same-mod conflict (same ID or filename)
+                var sameModConflict = conflicts.FirstOrDefault(c => c.IsSameMod);
+                if (sameModConflict != null)
+                {
+                    return new ModInstallResult
+                    {
+                        Success = false,
+                        Conflict = true,
+                        IsModConflict = true,
+                        Message = "A mod with this ID is already installed.",
+                        ConflictingMods = conflicts,
+                        NewModName = fileName
+                    };
+                }
+
                 var names = string.Join(", ", conflicts.Select(c => $"'{c.ModName}'"));
                 var files = string.Join(", ", conflicts.SelectMany(c => c.ConflictingFiles).Distinct(StringComparer.OrdinalIgnoreCase));
                 return new ModInstallResult

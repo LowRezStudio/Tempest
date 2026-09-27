@@ -586,6 +586,7 @@
 	"converter_toast_installed_message": "\"{name}\" installé sur {instance}",
 	"conflict_header_title": "CONFLIT DE MOD",
 	"conflict_header_subtitle": "Ceux-ci modifient les mêmes fichiers du jeu",
+	"conflict_same_mod_subtitle": "Un mod avec cet ID est déjà installé.",
 	"conflict_badge_new": "NOUVEAU",
 	"conflict_badge_installed": "INSTALLÉ",
 	"conflict_tap_hide": "Appuyer pour masquer les fichiers",

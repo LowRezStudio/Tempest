@@ -23,6 +23,7 @@ public class ModConflictInfo
     public string ModName { get; set; } = string.Empty;
     public string ModVersion { get; set; } = string.Empty;
     public List<string> ConflictingFiles { get; set; } = [];
+    public bool IsSameMod { get; set; } = false;
 }
 
 public class ModInstallResult

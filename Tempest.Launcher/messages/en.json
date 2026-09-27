@@ -466,6 +466,7 @@
 	"conflict_stack_mod_btn": "Add Both (Stack)",
 	"conflict_header_title": "MOD CONFLICT",
 	"conflict_header_subtitle": "These modify the same game files",
+	"conflict_same_mod_subtitle": "A mod with this ID is already installed.",
 	"conflict_badge_new": "NEW",
 	"conflict_badge_installed": "INSTALLED",
 	"conflict_will_be_installed": [

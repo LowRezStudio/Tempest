@@ -594,6 +594,7 @@
 	"converter_toast_installed_message": "\"{name}\" установлен в {instance}",
 	"conflict_header_title": "КОНФЛИКТ МОДОВ",
 	"conflict_header_subtitle": "Они изменяют одни и те же файлы игры",
+	"conflict_same_mod_subtitle": "Мод с этим ID уже установлен.",
 	"conflict_badge_new": "НОВЫЙ",
 	"conflict_badge_installed": "УСТАНОВЛЕН",
 	"conflict_tap_hide": "Нажмите, чтобы скрыть файлы",

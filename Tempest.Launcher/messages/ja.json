@@ -581,6 +581,7 @@
 	"converter_toast_installed_message": "「{name}」を{instance}にインストールしました",
 	"conflict_header_title": "MODの競合",
 	"conflict_header_subtitle": "これらは同じゲームファイルを編集します",
+	"conflict_same_mod_subtitle": "このIDのModはすでにインストールされています。",
 	"conflict_badge_new": "新規",
 	"conflict_badge_installed": "インストール済み",
 	"conflict_tap_hide": "タップしてファイルを非表示",

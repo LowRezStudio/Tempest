@@ -586,6 +586,7 @@
 	"converter_toast_installed_message": "\"{name}\", {instance} sürümüne kuruldu",
 	"conflict_header_title": "MOD ÇAKIŞMASI",
 	"conflict_header_subtitle": "Bunlar aynı oyun dosyalarını değiştiriyor",
+	"conflict_same_mod_subtitle": "Bu ID'ye sahip bir mod zaten yüklü.",
 	"conflict_badge_new": "YENİ",
 	"conflict_badge_installed": "YÜKLÜ",
 	"conflict_tap_hide": "Dosyaları gizlemek için dokunun",

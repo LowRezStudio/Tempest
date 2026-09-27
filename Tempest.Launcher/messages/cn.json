@@ -581,6 +581,7 @@
 	"converter_toast_installed_message": "“{name}”已安装到 {instance}",
 	"conflict_header_title": "模组冲突",
 	"conflict_header_subtitle": "这些模组修改了相同的游戏文件",
+	"conflict_same_mod_subtitle": "具有此ID的模组已安装。",
 	"conflict_badge_new": "新的",
 	"conflict_badge_installed": "已安装",
 	"conflict_tap_hide": "点击隐藏文件",

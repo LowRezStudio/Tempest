@@ -594,6 +594,7 @@
 	"converter_toast_installed_message": "\"{name}\" zainstalowano w {instance}",
 	"conflict_header_title": "KONFLIKT MODYFIKACJI",
 	"conflict_header_subtitle": "Modyfikują te same pliki gry",
+	"conflict_same_mod_subtitle": "Mod o tym ID jest już zainstalowany.",
 	"conflict_badge_new": "NOWY",
 	"conflict_badge_installed": "ZAINSTALOWANY",
 	"conflict_tap_hide": "Dotknij, aby ukryć pliki",
