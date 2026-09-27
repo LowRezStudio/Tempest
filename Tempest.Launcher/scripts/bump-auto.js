@@ -1,12 +1,5 @@
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { stdin, stdout } from "node:process";
-import { createInterface } from "node:readline/promises";
-
-const rl = createInterface({ input: stdin, output: stdout });
-const ask = (q, d) =>
-	rl.question(d ? `${q} [${d}]: ` : `${q}: `).then((a) => (a.trim() || d) ?? "");
-const confirm = (q) => rl.question(`${q} [y/N]: `).then((a) => a.trim().toLowerCase() === "y");
 
 async function main() {
 	const pkg = JSON.parse(readFileSync("package.json", "utf8"));
@@ -23,19 +16,12 @@ async function main() {
 
 	console.log(`Suggested: ${suggested}\n`);
 
-	const ver = await ask("New version", suggested);
-	if (!ver) return (console.log("Aborted."), rl.close());
-
-	const notes = await ask("Patch notes (optional)");
-	if (!notes) {
-		notes = "";
-	}
+	const ver = suggested;
+	const notes = "";
 
 	console.log("\n--- Summary ---");
 	console.log(`Version: ${cur} -> ${ver}`);
 	console.log(`Notes: ${notes}\n`);
-
-	if (!(await confirm("Proceed with bump?"))) return (console.log("Aborted."), rl.close());
 
 	pkg.version = ver;
 	writeFileSync("package.json", `${JSON.stringify(pkg, null, "\t")}\n`);
@@ -81,20 +67,10 @@ async function main() {
 	execSync(`git tag -a ${tag} -F -`, { input: notes, stdio: ["pipe", "inherit", "inherit"] });
 	console.log(`  tagged ${tag}`);
 
-	if (await confirm("Push commit and tag to origin?")) {
-		execSync("git push", { stdio: "inherit" });
-		execSync(`git push origin ${tag}`, { stdio: "inherit" });
-		console.log("  pushed");
-	} else {
-		console.log("\nSkipped push. To push later:");
-		console.log(`  git push && git push origin ${tag}`);
-	}
-
-	console.log("\nDone!");
-	rl.close();
+	console.log("\nDone! (skipped push)");
 }
 
-main().catch((_error) => {
+main().catch((e) => {
 	console.error(e);
 	process.exit(1);
 });
