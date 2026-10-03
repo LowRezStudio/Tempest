@@ -153,16 +153,22 @@
 			<th class="w-48">{m.common_version()}</th>
 			<th class="w-auto text-right">
 				<button
-					class="hover:text-primary inline-flex cursor-pointer items-center gap-1 text-sm font-semibold transition-colors disabled:opacity-40"
+					class="hover:text-primary inline-flex cursor-pointer items-center gap-1 text-sm font-semibold whitespace-nowrap tabular-nums transition-colors disabled:opacity-40"
 					onclick={onRefresh}
 					disabled={isLoading}
+					aria-busy={isLoading}
 				>
-					{#if isLoading}
-						<span class="loading loading-spinner loading-xs"></span>
-					{:else}
-						<RefreshCw size={14} />
-					{/if}
-					{m.common_refresh()}
+					<span
+						class="flex size-3.5 shrink-0 items-center justify-center"
+						aria-hidden="true"
+					>
+						{#if isLoading}
+							<span class="loading loading-spinner size-3.5"></span>
+						{:else}
+							<RefreshCw size={14} />
+						{/if}
+					</span>
+					{m.mod_refresh_list({ count: mods.length })}
 				</button>
 			</th>
 		</tr>

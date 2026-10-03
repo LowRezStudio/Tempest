@@ -215,7 +215,7 @@
 	<!-- Content Area -->
 	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
 		{#if activeTab === "content"}
-			<div class="flex-1 overflow-y-auto">
+			<div class="flex-1 [scrollbar-gutter:stable] overflow-y-auto">
 				<div class="px-4 py-6">
 					{#if isInitialLoading}
 						<div
@@ -226,24 +226,6 @@
 								{m.common_loading()}
 							</p>
 						</div>
-					{:else if modsList.length === 0}
-						<EmptyState
-							title={m.instance_no_content()}
-							description={m.instance_drag_import_hint()}
-						>
-							{#snippet icon()}
-								<PackageOpen size={48} />
-							{/snippet}
-							{#snippet actions()}
-								<button
-									class="btn btn-accent btn-sm mt-2"
-									onclick={handleInstallMod}
-								>
-									<PackageOpen size={14} />
-									{m.instancemenu_install_mod()}
-								</button>
-							{/snippet}
-						</EmptyState>
 					{:else}
 						<InstanceModTable
 							mods={modsList}
@@ -255,6 +237,25 @@
 							onRemoveMod={handleRemoveMod}
 							onOpenDetails={handleOpenFiles}
 						/>
+						{#if modsList.length === 0}
+							<EmptyState
+								title={m.instance_no_content()}
+								description={m.instance_drag_import_hint()}
+							>
+								{#snippet icon()}
+									<PackageOpen size={48} />
+								{/snippet}
+								{#snippet actions()}
+									<button
+										class="btn btn-accent btn-sm mt-2"
+										onclick={handleInstallMod}
+									>
+										<PackageOpen size={14} />
+										{m.instancemenu_install_mod()}
+									</button>
+								{/snippet}
+							</EmptyState>
+						{/if}
 					{/if}
 				</div>
 			</div>
