@@ -446,6 +446,10 @@ export function remove(p: string, options?: { recursive?: boolean }): Promise<vo
 	return unwrap(eio().invoke("fs:remove", { path: p, options })) as Promise<void>;
 }
 
+export function rename(oldPath: string, newPath: string): Promise<void> {
+	return unwrap(eio().invoke("fs:rename", { oldPath, newPath })) as Promise<void>;
+}
+
 export function readFile(p: string): Promise<Uint8Array> {
 	return unwrap<Uint8Array | ArrayBuffer | number[]>(
 		eio().invoke("fs:read-file", { path: p }),

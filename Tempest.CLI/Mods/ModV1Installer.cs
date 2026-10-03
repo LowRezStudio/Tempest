@@ -1,6 +1,6 @@
 namespace Tempest.CLI.Mods;
 
-public class ModV1Installer : IModInstaller
+public class ModV1Installer(bool strictRemoval = false) : IModInstaller
 {
     public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUnsigned)
     {
@@ -225,10 +225,10 @@ public class ModV1Installer : IModInstaller
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var backupDir = TempestPathUtility.GetLocalV1BackupDirectory(resolvedGame);
 
-        await RemoveModFiles(resolvedGame, backupDir, mod);
+        if (mod.Enabled) await RemoveModFiles(resolvedGame, backupDir, mod, strictRemoval);
 
         // Unregister in INI if non-asset mod
-        await UnregisterIni(resolvedGame, mod);
+        if (mod.Enabled) await UnregisterIni(resolvedGame, mod, strictRemoval);
 
         // Clean up snapshot and backup dirs
         var v1ModDir = TempestPathUtility.GetLocalV1ModDirectory(resolvedGame, mod.Id);
@@ -239,8 +239,10 @@ public class ModV1Installer : IModInstaller
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"Warning: Failed to clean up mod directory: {ex.Message}");
+            if (strictRemoval) throw;
         }
 
+        if (strictRemoval) return; // Retain backups until cleanup commits all removals.
         foreach (var file in mod.InstalledFiles)
         {
             var fileName = Path.GetFileName(file);
@@ -252,6 +254,7 @@ public class ModV1Installer : IModInstaller
             catch (Exception ex)
             {
                 await Console.Error.WriteLineAsync($"Warning: Failed to clean up backup {backupPath}: {ex.Message}");
+                if (strictRemoval) throw;
             }
         }
     }
@@ -313,7 +316,7 @@ public class ModV1Installer : IModInstaller
         await RegisterIni(resolvedGame, mod);
     }
 
-    private static async Task RemoveModFiles(string resolvedGame, string backupDir, ModRecord mod)
+    private static async Task RemoveModFiles(string resolvedGame, string backupDir, ModRecord mod, bool strict = false)
     {
         foreach (var file in mod.OwnedFiles)
         {
@@ -325,11 +328,13 @@ public class ModV1Installer : IModInstaller
                 try
                 {
                     if (File.Exists(file)) File.Delete(file);
-                    File.Move(backupPath, file);
+                    if (strict) File.Copy(backupPath, file, overwrite: true);
+                    else File.Move(backupPath, file);
                 }
                 catch (Exception ex)
                 {
                     await Console.Error.WriteLineAsync($"Warning: Failed to restore backup file {backupPath} to {file}: {ex.Message}");
+                    if (strict) throw;
                 }
             }
             else
@@ -343,6 +348,7 @@ public class ModV1Installer : IModInstaller
                 catch (Exception ex)
                 {
                     await Console.Error.WriteLineAsync($"Warning: Failed to delete installed file {file}: {ex.Message}");
+                    if (strict) throw;
                 }
             }
         }
@@ -386,7 +392,7 @@ public class ModV1Installer : IModInstaller
         }
     }
 
-    private static async Task UnregisterIni(string resolvedGame, ModRecord mod)
+    private static async Task UnregisterIni(string resolvedGame, ModRecord mod, bool strict = false)
     {
         var shouldUnregisterIni = !mod.Name.Contains("_SF", StringComparison.OrdinalIgnoreCase) &&
                                   !mod.Name.Contains("WWB", StringComparison.OrdinalIgnoreCase);
@@ -407,6 +413,7 @@ public class ModV1Installer : IModInstaller
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"Warning: Failed to unpatch DefaultEngine.ini: {ex.Message}");
+            if (strict) throw;
         }
     }
 
