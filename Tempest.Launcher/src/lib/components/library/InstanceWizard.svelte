@@ -7,6 +7,7 @@
 	import { Tabs } from "bits-ui";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { listMods, type ModRecord } from "$lib/core/mods";
+	import { downloadOwnership } from "$lib/core/uninstall.svelte";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
 	import { createIdentifyBuildMutation } from "$lib/queries/core";
@@ -346,6 +347,7 @@
 				}
 				const folderName = folderPath.split(/[\\/]/).pop() || folderPath;
 				const bulkInstance: Instance = {
+					origin: "import",
 					id: crypto.randomUUID(),
 					label: selectedName
 						? `${selectedName} - ${folderName}`
@@ -397,6 +399,7 @@
 			}
 
 			const newInstance: Instance = {
+				...(await downloadOwnership(instancePath)),
 				id: crypto.randomUUID(),
 				label: selectedName || selectedVersion.name || selectedVersion.version,
 				version: selectedVersion.version,
@@ -425,6 +428,7 @@
 		}
 
 		const newInstance: Instance = {
+			origin: "import",
 			id: crypto.randomUUID(),
 			label:
 				selectedName ||
