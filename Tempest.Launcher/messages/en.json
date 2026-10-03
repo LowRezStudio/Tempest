@@ -41,6 +41,16 @@
 	"common_paused": "Paused",
 	"common_stop": "Stop",
 	"common_refresh": "Refresh",
+	"mod_refresh_list": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Refresh mod list ({count} mod)",
+				"countPlural=other": "Refresh mod list ({count} mods)"
+			}
+		}
+	],
 	"common_remove": "Remove",
 	"common_copy": "Copy",
 	"common_copy_all": "Copy All",
