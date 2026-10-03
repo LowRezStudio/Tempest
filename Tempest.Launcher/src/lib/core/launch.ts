@@ -62,11 +62,19 @@ export const launchGame = async (instance: Instance) => {
 
 	logCommandOutput(command, "launch");
 
+	const launchState = { childPid: undefined as number | undefined, closed: false };
 	command.on("close", () => {
-		processesList.value = processesList.value.filter((p) => p.instance.id !== instance.id);
+		launchState.closed = true;
+		if (launchState.childPid !== undefined) {
+			processesList.value = processesList.value.filter(
+				(p) => p.child.pid !== launchState.childPid,
+			);
+		}
 	});
 
 	const child = await command.spawn();
+	launchState.childPid = child.pid;
+	if (launchState.closed) return;
 
 	const process: Process = {
 		status: "on",
