@@ -12,10 +12,12 @@
 		Trash2,
 	} from "@lucide/svelte";
 	import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+	import { platform } from "@tauri-apps/plugin-os";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { deleteInstance } from "$lib/core/instance-delete";
+	import { installPrerequisites } from "$lib/core/prerequisites";
 	import versions from "$lib/data/versions.json";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
@@ -27,6 +29,7 @@
 	} from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { updateInstance } from "$lib/stores/instance.svelte";
+	import { addToast } from "$lib/stores/ui.svelte";
 	import type { Instance } from "$lib/types/instance";
 	import type { Snippet } from "svelte";
 
@@ -53,6 +56,21 @@
 	const { installMods: handleInstallMod } = useInstallMods(() => instance.path);
 
 	let showDeleteConfirm = $state(false);
+	let installingPrerequisites = $state(false);
+	async function handlePrerequisites() {
+		installingPrerequisites = true;
+		try {
+			await installPrerequisites(instance.path, true);
+		} catch (error) {
+			addToast({
+				title: "Game prerequisite installation failed",
+				message: String(error),
+				tone: "error",
+			});
+		} finally {
+			installingPrerequisites = false;
+		}
+	}
 
 	let isSettingUp = $derived(instance.state.type === "setup");
 	let isReady = $derived(instance.state.type === "prepared");
@@ -158,6 +176,15 @@
 		{/if}
 
 		{#if isReady}
+			{#if platform() === "windows"}
+				<PopoverMenuItem
+					onclick={handlePrerequisites}
+					disabled={installingPrerequisites || isSettingUp}
+				>
+					<Settings size={16} />
+					Install game prerequisites
+				</PopoverMenuItem>
+			{/if}
 			<PopoverMenuItem onclick={handleRunSetup} disabled={isSettingUp}>
 				<RefreshCw size={16} />
 				{m.instancemenu_run_setup()}
