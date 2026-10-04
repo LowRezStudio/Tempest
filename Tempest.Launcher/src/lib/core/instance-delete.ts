@@ -1,4 +1,5 @@
 import { remove } from "@tauri-apps/plugin-fs";
+import { assertIndependentPath } from "$lib/core/instance-storage.svelte";
 import { listMods, removeMod } from "$lib/core/mods";
 import { restoreQueue } from "$lib/rigby/restore-queue";
 import { removeInstance } from "$lib/stores/instance.svelte";
@@ -17,6 +18,7 @@ export async function deleteInstance(
 				? "delete"
 				: "library"
 			: deleteDataOrMode;
+	if (mode !== "library" && instance.path) await assertIndependentPath(instance.path);
 
 	const isActive = instance.state.type === "downloading" || instance.state.type === "paused";
 
