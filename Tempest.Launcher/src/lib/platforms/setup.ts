@@ -45,6 +45,8 @@ const logResult = (result: { stdout?: string; stderr?: string }): void => {
 export const setupInstance = async (instance: Instance): Promise<void> => {
 	log(`Setting up instance "${instance.label}" (${instance.path})`);
 
+	const { assertNoGameSessions } = await import("$lib/core/session-guards");
+	assertNoGameSessions(instance.path);
 	ensureShootingRangeArg(instance);
 
 	log("Installing auto mods...");

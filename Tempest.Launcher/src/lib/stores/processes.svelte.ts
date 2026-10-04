@@ -2,6 +2,7 @@ import { Command } from "@tauri-apps/plugin-shell";
 import type { LobbyServerProcess, Process, ProcessLog } from "$lib/types/process";
 
 export const processesList = $state({ value: [] as Process[] });
+export const launchingInstanceIds = $state({ value: [] as string[] });
 
 export const lobbyServerProcessesList = $state({ value: [] as LobbyServerProcess[] });
 

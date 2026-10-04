@@ -2,6 +2,8 @@ import { remove } from "@tauri-apps/plugin-fs";
 import { listMods, removeMod } from "$lib/core/mods";
 import { restoreQueue } from "$lib/rigby/restore-queue";
 import { removeInstance } from "$lib/stores/instance.svelte";
+import { launchingInstanceIds, processesList } from "$lib/stores/processes.svelte";
+import { assertNoGameSessions } from "./session-guards";
 import type { Instance } from "$lib/types/instance";
 
 export type DeleteMode = "library" | "library_mods" | "delete";
@@ -11,6 +13,15 @@ export async function deleteInstance(
 	instance: Instance,
 	deleteDataOrMode: boolean | DeleteMode,
 ): Promise<void> {
+	if (
+		launchingInstanceIds.value.includes(instance.id) ||
+		processesList.value.some((p) => p.instance.id === instance.id)
+	) {
+		throw new Error("Close all sessions of this instance before removing it.");
+	}
+	if (instance.path && deleteDataOrMode !== false && deleteDataOrMode !== "library") {
+		assertNoGameSessions(instance.path);
+	}
 	const mode: DeleteMode =
 		typeof deleteDataOrMode === "boolean"
 			? deleteDataOrMode

@@ -15,14 +15,18 @@
 
 	let selected: DeleteMode = $state("library");
 	let isDeleting = $state(false);
+	let errorMessage = $state("");
 
 	async function handleConfirm() {
 		isDeleting = true;
+		errorMessage = "";
 		try {
 			await onconfirm(selected);
+			open = false;
+		} catch (error) {
+			errorMessage = String(error);
 		} finally {
 			isDeleting = false;
-			open = false;
 		}
 	}
 
@@ -30,6 +34,7 @@
 		if (!open) {
 			selected = "library";
 			isDeleting = false;
+			errorMessage = "";
 		}
 	});
 </script>
@@ -95,6 +100,7 @@
 				</div>
 			</label>
 		</div>
+		{#if errorMessage}<p class="text-error text-sm" role="alert">{errorMessage}</p>{/if}
 	</div>
 
 	{#snippet actions()}
