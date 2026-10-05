@@ -103,15 +103,23 @@
 				{#if feedLoading}
 					<div class="skeleton aspect-video w-full rounded-lg"></div>
 				{:else if posts.length > 0}
-					<div class="relative">
+					<div
+						class="relative"
+						onclick={(e) => e.stopPropagation()}
+						onkeydown={(e) => e.stopPropagation()}
+					>
 						<div
 							class="carousel carousel-horizontal w-full snap-x snap-mandatory scroll-smooth"
 							bind:this={carouselEl}
 							onscroll={onScroll}
+							onclick={(e) => e.stopPropagation()}
+							onkeydown={(e) => e.stopPropagation()}
 						>
 							{#each posts as post, i (post.link)}
 								<div
 									class="carousel-item feed-slide relative aspect-video w-full snap-start overflow-hidden rounded-lg"
+									onclick={(e) => e.stopPropagation()}
+									onkeydown={(e) => e.stopPropagation()}
 								>
 									<div
 										class="from-primary/20 to-base-300 absolute inset-0 flex items-center justify-center bg-gradient-to-br"
@@ -179,7 +187,10 @@
 									class:bg-primary={i === current}
 									class:bg-base-300={i !== current}
 									aria-label={`${m.home_feed_go_to()} ${i + 1}`}
-									onclick={() => goTo(i)}
+									onclick={(e) => {
+										e.stopPropagation();
+										goTo(i);
+									}}
 								></button>
 							{/each}
 						</div>

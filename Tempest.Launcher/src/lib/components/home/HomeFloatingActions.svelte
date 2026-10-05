@@ -371,6 +371,8 @@
 					</div>
 					<div
 						class="max-h-40 overflow-y-auto text-xs leading-relaxed whitespace-pre-wrap opacity-90"
+						onclick={(e) => e.stopPropagation()}
+						onkeydown={(e) => e.stopPropagation()}
 					>
 						{cachedReleaseNotes.value.body}
 					</div>
