@@ -7,6 +7,20 @@ namespace Tempest.CLI.Build;
 
 internal class BuildCommands
 {
+    /// <summary>Runs the bundled Paladins runtime installers on Windows</summary>
+    /// <param name="path">Path to the game folder</param>
+    /// <param name="force">Run installers again even if previously completed</param>
+    /// <param name="dryRun">List installers without launching or changing anything</param>
+    public async Task InstallPrerequisites([Argument] string path, bool force = false, bool dryRun = false)
+    {
+        try { await PrerequisiteInstaller.InstallAsync(path, force, dryRun); }
+        catch (Exception error)
+        {
+            await Console.Error.WriteLineAsync(error.Message);
+            Environment.ExitCode = 1;
+        }
+    }
+
     /// <summary>Identifies the build using the manifest file</summary>
     /// <param name="path">Path to the game folder</param>
     /// <param name="json">Output as JSON</param>
