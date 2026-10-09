@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  bits-ui@2.18.1: f5fbc7bd2500bd55eab67f505554cb80c98fd863805eb0b8c02774406344653a
+
 importers:
 
   .:
@@ -92,7 +95,7 @@ importers:
         version: 2.10.1
       bits-ui:
         specifier: ^2.18.1
-        version: 2.18.1(@internationalized/date@3.12.0)(@sveltejs/kit@2.66.0(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3)(vite@8.1.0(@types/node@26.1.1)(jiti@2.7.0)))(svelte@5.56.3)(typescript@6.0.3)(vite@8.1.0(@types/node@26.1.1)(jiti@2.7.0)))(svelte@5.56.3)
+        version: 2.18.1(patch_hash=f5fbc7bd2500bd55eab67f505554cb80c98fd863805eb0b8c02774406344653a)(@internationalized/date@3.12.0)(@sveltejs/kit@2.66.0(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3)(vite@8.1.0(@types/node@26.1.1)(jiti@2.7.0)))(svelte@5.56.3)(typescript@6.0.3)(vite@8.1.0(@types/node@26.1.1)(jiti@2.7.0)))(svelte@5.56.3)
       country-flag-emoji-polyfill:
         specifier: ^0.1.8
         version: 0.1.8
@@ -3306,7 +3309,7 @@ snapshots:
 
   base64-js@1.5.1: {}
 
-  bits-ui@2.18.1(@internationalized/date@3.12.0)(@sveltejs/kit@2.66.0(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3)(vite@8.1.0(@types/node@26.1.1)(jiti@2.7.0)))(svelte@5.56.3)(typescript@6.0.3)(vite@8.1.0(@types/node@26.1.1)(jiti@2.7.0)))(svelte@5.56.3):
+  bits-ui@2.18.1(patch_hash=f5fbc7bd2500bd55eab67f505554cb80c98fd863805eb0b8c02774406344653a)(@internationalized/date@3.12.0)(@sveltejs/kit@2.66.0(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3)(vite@8.1.0(@types/node@26.1.1)(jiti@2.7.0)))(svelte@5.56.3)(typescript@6.0.3)(vite@8.1.0(@types/node@26.1.1)(jiti@2.7.0)))(svelte@5.56.3):
     dependencies:
       '@floating-ui/core': 1.7.5
       '@floating-ui/dom': 1.7.6

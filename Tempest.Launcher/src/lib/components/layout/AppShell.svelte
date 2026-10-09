@@ -2,10 +2,12 @@
 	import { page } from "$app/state";
 	import { TriangleAlert } from "@lucide/svelte";
 	import { useQueryClient } from "@tanstack/svelte-query";
+	import { onMount } from "svelte";
 	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
 	import ErrorDetails from "$lib/components/ui/ErrorDetails.svelte";
 	import LayoutDialogs from "$lib/components/ui/LayoutDialogs.svelte";
 	import ToastStack from "$lib/components/ui/ToastStack.svelte";
+	import { startProcessMonitor } from "$lib/core/process-monitor";
 	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores.svelte";
 	import "$lib/platform/init.svelte";
 	import "$lib/stores/flags.svelte";
@@ -21,6 +23,7 @@
 	import { localeState } from "$lib/stores/locale.svelte";
 
 	clearStaleConnectionIfNeeded();
+	onMount(startProcessMonitor);
 
 	const { children } = $props();
 	const queryClient = useQueryClient();
