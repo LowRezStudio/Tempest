@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <ComponentGroup Id="TempestCleanupHooks" />
+    <!-- Immediate, current-user actions: registered game folders are user data.
+         Never run on upgrades, repairs, or installation rollback. -->
+    <CustomAction Id="TempestCleanupInteractive" Directory="INSTALLDIR" Execute="immediate" Return="check"
+      ExeCommand="&quot;[INSTALLDIR]tempest-cli.exe&quot; cleanup run --manifest &quot;[AppDataFolder]com.lowrezstudio.tempest\uninstall-instances.json&quot; --interactive" />
+    <CustomAction Id="TempestCleanupSilent" Directory="INSTALLDIR" Execute="immediate" Return="check"
+      ExeCommand="&quot;[INSTALLDIR]tempest-cli.exe&quot; cleanup run --manifest &quot;[AppDataFolder]com.lowrezstudio.tempest\uninstall-instances.json&quot; --confirm" />
+    <InstallExecuteSequence>
+      <Custom Action="TempestCleanupInteractive" Before="RemoveFiles">Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND UILevel &gt;= 3</Custom>
+      <Custom Action="TempestCleanupSilent" After="TempestCleanupInteractive">Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND UILevel &lt; 3</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

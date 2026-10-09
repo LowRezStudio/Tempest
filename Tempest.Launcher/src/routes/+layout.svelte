@@ -6,16 +6,19 @@
 	import { page } from "$app/state";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
 	import { Tooltip } from "bits-ui";
+	import { onDestroy } from "svelte";
 	import favicon from "$lib/assets/favicon.ico?url";
 	import AppShell from "$lib/components/layout/AppShell.svelte";
 	import OnboardingPage from "$lib/components/onboarding/OnboardingPage.svelte";
 	import { checkForCoreUpdatesAndInstall } from "$lib/core/mods";
+	import { cleanupRegistryState, initializeCleanupRegistry } from "$lib/core/uninstall.svelte";
 	import { setQueryClient } from "$lib/queries/client";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import type { Instance } from "$lib/types/instance";
 
 	const { children } = $props();
+	onDestroy(initializeCleanupRegistry());
 	const queryClient = new QueryClient();
 	setQueryClient(queryClient);
 
@@ -29,6 +32,7 @@
 
 	let coreUpdateChecked = false;
 	$effect(() => {
+		if (!cleanupRegistryState.ready) return;
 		if (coreUpdateChecked) return;
 		const instances = Object.values(instanceMap.value).filter(Boolean) as Instance[];
 		// Wait until instances are loaded (at least one) before checking - also runs if zero but we still want to record version
@@ -44,6 +48,7 @@
 
 	// Once per launch: route through onboarding when no game instances exist yet.
 	$effect(() => {
+		if (!cleanupRegistryState.ready) return;
 		if (checkedLibrary) return;
 		checkedLibrary = true;
 		if (Object.keys(instanceMap.value).length === 0) void goto("/onboarding");
