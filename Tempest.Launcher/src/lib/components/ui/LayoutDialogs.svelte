@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InstanceStoragePreparation from "$lib/components/layout/InstanceStoragePreparation.svelte";
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 	import InstallModOverlay from "$lib/components/mods/InstallModOverlay.svelte";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
@@ -55,3 +56,4 @@
 	oncancel={() => resolveUnverifiedMod(false)}
 />
 <UpdateDialog />
+<InstanceStoragePreparation />

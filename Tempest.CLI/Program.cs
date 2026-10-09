@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using ConsoleAppFramework;
 using Tempest.CLI.Launcher;
+using Tempest.CLI.Instances;
 using Tempest.CLI.Marshal;
 using Tempest.CLI.Server;
 using Tempest.CLI.Build;
@@ -71,6 +72,7 @@ AssemblyLoadContext.Default.ResolvingUnmanagedDll += (assembly, libraryName) =>
 var app = ConsoleApp.Create();
 
 app.Add<LauncherCommands>();
+app.Add<InstanceCommands>("instance");
 app.Add<ServerCommands>("server");
 app.Add<MarshalCommands>("marshal");
 app.Add<BuildCommands>("build");
