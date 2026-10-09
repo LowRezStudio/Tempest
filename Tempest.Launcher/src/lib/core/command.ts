@@ -1,4 +1,5 @@
 import { Command } from "@tauri-apps/plugin-shell";
+import { assertNoGameSessions } from "./session-guards";
 import type { SpawnOptions } from "@tauri-apps/plugin-shell";
 
 export type ArgumentType =
@@ -33,4 +34,16 @@ const createDevCommand = (args: ArgumentType[], env?: SpawnOptions["env"]) =>
 const createProdCommand = (args: ArgumentType[], env?: SpawnOptions["env"]) =>
 	Command.sidecar("binaries/tempest-cli", processArgs(args), { env });
 
-export const createCommand = import.meta.env.DEV ? createDevCommand : createProdCommand;
+const createRuntimeCommand = import.meta.env.DEV ? createDevCommand : createProdCommand;
+
+export const createCommand = (args: ArgumentType[], env?: SpawnOptions["env"]) => {
+	const argumentsList = processArgs(args);
+	if (
+		argumentsList[0] === "mod" &&
+		["install", "remove", "rename", "enable", "disable"].includes(argumentsList[1]) &&
+		argumentsList[2]
+	) {
+		assertNoGameSessions(argumentsList[2]);
+	}
+	return createRuntimeCommand(args, env);
+};

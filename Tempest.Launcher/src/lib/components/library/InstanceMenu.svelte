@@ -33,9 +33,10 @@
 	interface Props {
 		instance: Instance;
 		trigger?: Snippet;
+		isRunning?: boolean;
 	}
 
-	let { instance, trigger }: Props = $props();
+	let { instance, trigger, isRunning = false }: Props = $props();
 
 	const flatVersions = versions;
 	const versionEntry = $derived(flatVersions.find((v) => v.version === instance.version));
@@ -54,7 +55,7 @@
 
 	let showDeleteConfirm = $state(false);
 
-	let isSettingUp = $derived(instance.state.type === "setup");
+	let isSettingUp = $derived(instance.state.type === "setup" || isRunning);
 	let isReady = $derived(instance.state.type === "prepared");
 	let canRestore = $derived(!!((instance?.version || instance?.manifestId) && instance?.path));
 	let isOnInstancePage = $derived(page.route.id === "/instance/[id]");
@@ -170,7 +171,11 @@
 			{/if}
 		{/if}
 
-		<PopoverMenuItem onclick={() => (showDeleteConfirm = true)} class="text-error">
+		<PopoverMenuItem
+			onclick={() => (showDeleteConfirm = true)}
+			class="text-error"
+			disabled={isRunning}
+		>
 			<Trash2 size={16} />
 			{m.instancemenu_delete_instance()}
 		</PopoverMenuItem>

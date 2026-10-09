@@ -3,7 +3,10 @@ import type { LobbyServerOptions } from "./lobby";
 import type { Child, Command } from "@tauri-apps/plugin-shell";
 
 export type Process = {
-	status: "on" | "setup" | "off";
+	status: "on" | "setup" | "off" | "stopping";
+	sessionId: string;
+	sessionNumber: number;
+	startedAt: number;
 	child: Child;
 	command: Command<string>;
 	instance: Instance;
