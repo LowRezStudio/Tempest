@@ -32,11 +32,13 @@
 
 	const flatVersions = versions;
 
-	const versionOptions = flatVersions.map((item) => ({
-		value: item.id,
-		label: `${item.version} - ${item.name} (${item.date.split("T")[0]})`,
-		version: item.version,
-	}));
+	const versionOptions = flatVersions
+		.filter((item) => item.version !== "8.2")
+		.map((item) => ({
+			value: item.id,
+			label: `${item.version} - ${item.name} (${item.date.split("T")[0]})`,
+			version: item.version,
+		}));
 
 	let selectedTab = $state<"download" | "folder">("download");
 	let selectedName = $state("");

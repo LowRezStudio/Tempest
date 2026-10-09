@@ -702,5 +702,13 @@
 		"name": "Wekono's Wake",
 		"version": "8.1",
 		"wikiReference": "Paladins_Version_8.1.5839.0"
+	},
+	{
+		"id": "9182736451928374655",
+		"appId": 444090,
+		"date": "2025-03-15T00:00:00Z",
+		"name": "Unreleased",
+		"version": "8.2",
+		"wikiReference": "Paladins_Version_8.2.5850.0"
 	}
 ]
