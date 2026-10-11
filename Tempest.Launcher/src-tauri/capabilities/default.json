@@ -100,10 +100,10 @@
 			"identifier": "fs:scope",
 			"allow": [
 				{
-					"path": "$APP_CONFIG"
+					"path": "$APPCONFIG"
 				},
 				{
-					"path": "$APP_CONFIG/**/*"
+					"path": "$APPCONFIG/**/*"
 				},
 				{
 					"path": "**"
