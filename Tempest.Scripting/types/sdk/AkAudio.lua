@@ -61,7 +61,7 @@
 
 ---@class AkAudio.SeqAct_AkStopAll : Engine.SequenceAction
 
----@class AkAudio.InterpTrackAkEvent.AkEventTrackKey : Object
+---@class AkAudio.InterpTrackAkEvent.AkEventTrackKey : Struct
 ---@field Time number
 ---@field Event Engine.AkEvent
 

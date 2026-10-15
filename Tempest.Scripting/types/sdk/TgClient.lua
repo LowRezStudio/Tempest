@@ -9855,12 +9855,12 @@
 ---@field m_mcIcon GFxUI.GFxObject
 ---@field m_bChangeRootFrameWithPercent boolean
 
----@class TgClient.InputAction.InputKeyEvent : Object
+---@class TgClient.InputAction.InputKeyEvent : Struct
 ---@field nmKey string
 ---@field eEvent integer
 ---@field sDisplayName string
 
----@class TgClient.InputGroup.UIGroupObject : Object
+---@class TgClient.InputGroup.UIGroupObject : Struct
 ---@field nLocX integer
 ---@field nLocY integer
 ---@field nWidth integer
@@ -9869,22 +9869,22 @@
 ---@field pObj GFxUI.GFxObject
 ---@field pCursorHoverObj GFxUI.GFxObject
 
----@class TgClient.TgClientHUD.SceneInfo : Object
+---@class TgClient.TgClientHUD.SceneInfo : Struct
 ---@field nDepth integer
 ---@field nmName string
 ---@field sPath string
 
----@class TgClient.TgClientHUD.MessageRedirect : Object
+---@class TgClient.TgClientHUD.MessageRedirect : Struct
 ---@field nMsgId integer
 ---@field sKey string
 
----@class TgClient.TgDataObject.UIDataValue : Object
+---@class TgClient.TgDataObject.UIDataValue : Struct
 ---@field eType integer
 ---@field bDirty boolean
 ---@field fValue number
 ---@field sValue string
 
----@class TgClient.TgData_EOM.UIMVPDATA : Object
+---@class TgClient.TgData_EOM.UIMVPDATA : Struct
 ---@field nBot integer
 ---@field nBody integer
 ---@field nPedestal integer
@@ -9895,18 +9895,18 @@
 ---@field nWeapon integer
 ---@field pPlayer TgClient.UIData_PlayerMatchRecord
 
----@class TgClient.TgData_EOM.AccoladeData : Object
+---@class TgClient.TgData_EOM.AccoladeData : Struct
 ---@field nMsgId integer
 ---@field nPlace integer
 ---@field nValue integer
 
----@class TgClient.TgDataChunk.DataField : Object
+---@class TgClient.TgDataChunk.DataField : Struct
 ---@field FieldName string
 ---@field Value GFxUI.GFxMoviePlayer.ASValue
 ---@field Last GFxUI.GFxMoviePlayer.ASValue
 ---@field bDirty boolean
 
----@class TgClient.TgGameDC_Chat.QueueMessage : Object
+---@class TgClient.TgGameDC_Chat.QueueMessage : Struct
 ---@field Id integer
 ---@field Priority integer
 ---@field bHasPlayedSound boolean
@@ -9916,7 +9916,7 @@
 ---@field VoicePackCustomSuffix string
 ---@field SoundObject Engine.AkBaseSoundObject
 
----@class TgClient.TgGameDC_Chat.MessageToken : Object
+---@class TgClient.TgGameDC_Chat.MessageToken : Struct
 ---@field msgId integer
 ---@field MsgIdRed integer
 ---@field MsgIdBlue integer
@@ -9924,11 +9924,11 @@
 
 ---@class TgClient.TgGfxChatModal : GFxUI.GFxObject
 
----@class TgClient.TgGfxScene.UIDisplayData : Object
+---@class TgClient.TgGfxScene.UIDisplayData : Struct
 ---@field eType integer
 ---@field pObj GFxUI.GFxObject
 
----@class TgClient.TgGfxScene.UIITEM_CLIP : Object
+---@class TgClient.TgGfxScene.UIITEM_CLIP : Struct
 ---@field pObj GFxUI.GFxObject
 ---@field pSelected GFxUI.GFxObject
 ---@field pButton GFxUI.GFxObject
@@ -9936,7 +9936,7 @@
 
 ---@class TgClient.UIScene_Dont_Create_Input : TgClient.UIScene
 
----@class TgClient.TgLobbyHUD.MapDetails : Object
+---@class TgClient.TgLobbyHUD.MapDetails : Struct
 ---@field bProcessed boolean
 ---@field nMapId integer
 ---@field sMapName string
@@ -9946,23 +9946,23 @@
 ---@field sLoadingTip string
 ---@field sLoadingTipMessage string
 
----@class TgClient.TgLobbyHUD.LobbyTransitionPlayer : Object
+---@class TgClient.TgLobbyHUD.LobbyTransitionPlayer : Struct
 ---@field nClassId integer
 ---@field sPlayerName string
 ---@field sClassName string
 
----@class TgClient.TgLobbyHUD.LobbyTransitionData : Object
+---@class TgClient.TgLobbyHUD.LobbyTransitionData : Struct
 ---@field FriendlyTeam TgClient.TgLobbyHUD.LobbyTransitionPlayer
 ---@field EnemyTeam TgClient.TgLobbyHUD.LobbyTransitionPlayer
 
----@class TgClient.TgLobbyHUD.CameraSprayPreviewOffset : Object
+---@class TgClient.TgLobbyHUD.CameraSprayPreviewOffset : Struct
 ---@field eCameraTag integer
 ---@field vOffset Vector
 
----@class TgClient.TgMiniMap.LayerIndex : Object
+---@class TgClient.TgMiniMap.LayerIndex : Struct
 ---@field Entries Array<integer>
 
----@class TgClient.TgMiniMap.MiniMapPingInfo : Object
+---@class TgClient.TgMiniMap.MiniMapPingInfo : Struct
 ---@field fServerStartTime number
 ---@field fClientStartTime number
 ---@field pingedPri TgGame.TgRepInfo_Player
@@ -9975,7 +9975,7 @@
 ---@field SourceIndex integer
 ---@field vSourceWorldLocation Vector
 
----@class TgClient.TgMiniMap.FogMaskData : Object
+---@class TgClient.TgMiniMap.FogMaskData : Struct
 ---@field nSize integer
 ---@field nMapDrawLocationX integer
 ---@field nMapDrawLocationY integer
@@ -9983,7 +9983,7 @@
 ---@field bVisionRangeChanged boolean
 ---@field m_MaskPoints Core.Object.BitArray_Mirror
 
----@class TgClient.TgMiniMap.MiniMapEntity : Object
+---@class TgClient.TgMiniMap.MiniMapEntity : Struct
 ---@field vLocation Vector
 ---@field eType integer
 ---@field nSubType integer
@@ -10009,23 +10009,23 @@
 ---@field vRect Vector
 ---@field FogMaskData TgClient.TgMiniMap.FogMaskData
 
----@class TgClient.TgMiniMap.BuffMonsterMIC : Object
+---@class TgClient.TgMiniMap.BuffMonsterMIC : Struct
 ---@field SpawnedMIC Engine.MaterialInstanceConstant
 ---@field DroppedMIC Engine.MaterialInstanceConstant
 ---@field TimerMIC Engine.MaterialInstanceConstant
 
----@class TgClient.UIData_Quest.GoalRewardItem : Object
+---@class TgClient.UIData_Quest.GoalRewardItem : Struct
 ---@field nItemId integer
 ---@field nQuantity integer
 ---@field nLootId integer
 ---@field bRental boolean
 
----@class TgClient.TgSetting.OptionData : Object
+---@class TgClient.TgSetting.OptionData : Struct
 ---@field fValue number
 ---@field fOther number
 ---@field sName string
 
----@class TgClient.TgSettingsManager.TgKeyCommand : Object
+---@class TgClient.TgSettingsManager.TgKeyCommand : Struct
 ---@field bAllowGamepadAxis boolean
 ---@field nPropId integer
 ---@field sKeyCommand string
@@ -10033,23 +10033,23 @@
 ---@field sDefaultKeys Array<string>
 ---@field sDefaultGamepad Array<string>
 
----@class TgClient.TgSettingsManager.TgSettingPropMapping : Object
+---@class TgClient.TgSettingsManager.TgSettingPropMapping : Struct
 ---@field nSettingId integer
 ---@field nPropId integer
 ---@field nPlayerFlag integer
 
----@class TgClient.TgSettingsManager.TgKeyBind : Object
+---@class TgClient.TgSettingsManager.TgKeyBind : Struct
 ---@field nCommandIndex integer
 ---@field bOverridesKeys boolean
 ---@field bOverridesGamepad boolean
 ---@field sKeys Array<string>
 ---@field sGamepadKeys Array<string>
 
----@class TgClient.TgSettingsManager.TgSettingsSet : Object
+---@class TgClient.TgSettingsManager.TgSettingsSet : Struct
 ---@field Keybinds Array<TgClient.TgSettingsManager.TgKeyBind>
 ---@field nCharacterId integer
 
----@class TgClient.TgStreamManager.GameStream : Object
+---@class TgClient.TgStreamManager.GameStream : Struct
 ---@field bLive boolean
 ---@field bFeatured boolean
 ---@field bSpecial boolean
@@ -10060,7 +10060,7 @@
 ---@field Description string
 ---@field Viewers string
 
----@class TgClient.UIAcademy.AcademyVideoButton : Object
+---@class TgClient.UIAcademy.AcademyVideoButton : Struct
 ---@field sImagePath string
 ---@field sVideoURL string
 ---@field pClip GFxUI.GFxObject
@@ -10068,7 +10068,7 @@
 ---@field pTitle GFxUI.GFxObject
 ---@field pSubtitle GFxUI.GFxObject
 
----@class TgClient.UIAchievementPopups.AchievementProgressData : Object
+---@class TgClient.UIAchievementPopups.AchievementProgressData : Struct
 ---@field hasBeenProcessed boolean
 ---@field isCompleted boolean
 ---@field ActivityId integer
@@ -10086,7 +10086,7 @@
 ---@field IconId integer
 ---@field pointValue integer
 
----@class TgClient.UIScene_UIEOMLAcquisition.AcquiredItem : Object
+---@class TgClient.UIScene_UIEOMLAcquisition.AcquiredItem : Struct
 ---@field dwLocalAcquisitionId Core.Object.dword
 ---@field eItemType Core.Object.dword
 ---@field nItemId integer
@@ -10094,7 +10094,7 @@
 ---@field bIsRental boolean
 ---@field eQuestOrigin integer
 
----@class TgClient.UIScene_UIAcquisition.UIAcquiredItem : Object
+---@class TgClient.UIScene_UIAcquisition.UIAcquiredItem : Struct
 ---@field Card TgClient.UIInteractable_Item
 ---@field Avatar TgClient.UIComponent_Avatar
 ---@field mcEquipButton GFxUI.GFxObject
@@ -10131,11 +10131,11 @@
 
 ---@class TgClient.UIScene_UIBackground : TgClient.UIScene
 
----@class TgClient.UIChatScene.ChannelData : Object
+---@class TgClient.UIChatScene.ChannelData : Struct
 ---@field nChannel integer
 ---@field sName string
 
----@class TgClient.UIChatScene.ChatMessage : Object
+---@class TgClient.UIChatScene.ChatMessage : Struct
 ---@field sMessage string
 ---@field bIsPaidBattlePass boolean
 ---@field bIsVerifiedPlayer boolean
@@ -10143,7 +10143,7 @@
 ---@field dwSenderId Core.Object.dword
 ---@field dwSenderPortalId Core.Object.dword
 
----@class TgClient.UIComponent_AcquisitionCarousel.AcquisitionCarouselItem : Object
+---@class TgClient.UIComponent_AcquisitionCarousel.AcquisitionCarouselItem : Struct
 ---@field mcPurchaseItem GFxUI.GFxObject
 ---@field mcPurchaseChest GFxUI.GFxObject
 ---@field mcPurchaseCard TgClient.UIInteractable_Item
@@ -10163,18 +10163,18 @@
 ---@field mcPurchaseItemChampionImage GFxUI.GFxObject
 ---@field mcPurchaseItemAudio GFxUI.GFxObject
 
----@class TgClient.UIComponent_AnimSet.UICompAnimSetAnim : Object
+---@class TgClient.UIComponent_AnimSet.UICompAnimSetAnim : Struct
 ---@field fAnimTimeInSequence number
 ---@field eAnimType integer
 ---@field fValue number
 ---@field eQuad integer
 ---@field fDuration number
 
----@class TgClient.UIComponent_OptionEntryPaged.PagedEntry : Object
+---@class TgClient.UIComponent_OptionEntryPaged.PagedEntry : Struct
 ---@field nValue integer
 ---@field sText string
 
----@class TgClient.UIComponent_List.UICListEntry : Object
+---@class TgClient.UIComponent_List.UICListEntry : Struct
 ---@field pDisplay TgClient.UIComponent_Display
 ---@field pInteractable TgClient.UIComponent_Interactable
 ---@field fOrigX number
@@ -10192,7 +10192,7 @@
 ---@field nNavWidth integer
 ---@field nNavHeight integer
 
----@class TgClient.UIComponent_List.SmoothScrollingAxis : Object
+---@class TgClient.UIComponent_List.SmoothScrollingAxis : Struct
 ---@field bEnable boolean
 ---@field fDelay number
 ---@field fMargin number
@@ -10202,7 +10202,7 @@
 ---@field fSpan number
 ---@field fAnimTime number
 
----@class TgClient.UIComponent_HealFeed.HealSource : Object
+---@class TgClient.UIComponent_HealFeed.HealSource : Struct
 ---@field nPawnId integer
 ---@field mcIconParent GFxUI.GFxObject
 ---@field mcIcon GFxUI.GFxObject
@@ -10211,7 +10211,7 @@
 ---@field fGlowTimer number
 ---@field ActiveEntries Array<TgClient.UIComponent_HealFeedEntry>
 
----@class TgClient.UIComponent_HealFeed.HealAccumulator : Object
+---@class TgClient.UIComponent_HealFeed.HealAccumulator : Struct
 ---@field nProfileId integer
 ---@field nSkinId integer
 ---@field nIconOverrideId integer
@@ -10219,7 +10219,7 @@
 ---@field fChangeAmount number
 ---@field bHealingReduced boolean
 
----@class TgClient.UIComponent_HealthBar.BarTickTypes : Object
+---@class TgClient.UIComponent_HealthBar.BarTickTypes : Struct
 ---@field sMaskName string
 ---@field sContainerName string
 ---@field fWidth number
@@ -10228,21 +10228,21 @@
 ---@field mcLeftBorderTick GFxUI.GFxObject
 ---@field mcRightBorderTick GFxUI.GFxObject
 
----@class TgClient.UIData_Mutator.MutatorPropKeyValue : Object
+---@class TgClient.UIData_Mutator.MutatorPropKeyValue : Struct
 ---@field sKey string
 ---@field sValue string
 
----@class TgClient.UIComponent_PopupManager.SceneData : Object
+---@class TgClient.UIComponent_PopupManager.SceneData : Struct
 ---@field nmSceneName string
 ---@field pData TgClient.UIData
 
----@class TgClient.UIComponent_RewardPanel.ProgressInfo : Object
+---@class TgClient.UIComponent_RewardPanel.ProgressInfo : Struct
 ---@field nLevel integer
 ---@field nCurrentXP integer
 ---@field nRequiredXP integer
 ---@field nXPFloor integer
 
----@class TgClient.UILandingPanelManager.JsonFeatureData : Object
+---@class TgClient.UILandingPanelManager.JsonFeatureData : Struct
 ---@field sId string
 ---@field sHeader string
 ---@field sSubheader string
@@ -10264,13 +10264,13 @@
 ---@field Texture Engine.Texture2DDynamic
 ---@field nLocationId integer
 
----@class TgClient.UIData_EventChallengeSystem.ChallengeRegionConfig : Object
+---@class TgClient.UIData_EventChallengeSystem.ChallengeRegionConfig : Struct
 ---@field Name string
 ---@field RegionIndex integer
 ---@field SortOrder integer
 ---@field ColorIndex integer
 
----@class TgClient.UIData_MatchMember.MatchLobbyPlayerCustomize : Object
+---@class TgClient.UIData_MatchMember.MatchLobbyPlayerCustomize : Struct
 ---@field nBotId integer
 ---@field nSkinId integer
 ---@field nWeaponDeviceId integer
@@ -10280,28 +10280,28 @@
 ---@field nMVPPoseId integer
 ---@field nSprayId integer
 
----@class TgClient.UIDataChatManager.ChannelChatData : Object
+---@class TgClient.UIDataChatManager.ChannelChatData : Struct
 ---@field ChatData Array<TgClient.TgChatData>
 
----@class TgClient.UIDataLoadouts.PendingImportRequest : Object
+---@class TgClient.UIDataLoadouts.PendingImportRequest : Struct
 ---@field sPlayerName string
 ---@field dwBotId Core.Object.dword
 ---@field fTTL number
 
 ---@class TgClient.UIHudAtlas : TgClient.TgGfxScene
 
----@class TgClient.UIHudBinoculars.UIBinocArrowPositions : Object
+---@class TgClient.UIHudBinoculars.UIBinocArrowPositions : Struct
 ---@field vInnerArrowStart Core.Object.Vector2D
 ---@field vInnerArrowEnd Core.Object.Vector2D
 ---@field vOuterArrowStart Core.Object.Vector2D
 ---@field vOuterArrowEnd Core.Object.Vector2D
 
----@class TgClient.UIHudBurns.UIITEMRANK : Object
+---@class TgClient.UIHudBurns.UIITEMRANK : Struct
 ---@field nId integer
 ---@field nRank integer
 ---@field nCost integer
 
----@class TgClient.UIHudBurns.UIITEMDATA : Object
+---@class TgClient.UIHudBurns.UIITEMDATA : Struct
 ---@field Obj GFxUI.GFxObject
 ---@field Icon GFxUI.GFxObject
 ---@field frame GFxUI.GFxObject
@@ -10313,19 +10313,19 @@
 ---@field Selected GFxUI.GFxObject
 ---@field SubTitle GFxUI.GFxObject
 
----@class TgClient.UIHudBurns.UIITEMGROUP : Object
+---@class TgClient.UIHudBurns.UIITEMGROUP : Struct
 ---@field Obj GFxUI.GFxObject
 ---@field Title GFxUI.GFxObject
 ---@field Items GFxUI.GFxObject
 ---@field frame GFxUI.GFxObject
 ---@field Item TgClient.UIHudBurns.UIITEMDATA
 
----@class TgClient.UIHudCards.UICardDisplayGroup : Object
+---@class TgClient.UIHudCards.UICardDisplayGroup : Struct
 ---@field Items TgClient.UIHudCards.UICardDisplayEntry
 ---@field Cards TgClient.UIHudCards.UICardDisplayEntry
 ---@field LastCardsPawnId integer
 
----@class TgClient.UIHudCards.UICardDisplayEntry : Object
+---@class TgClient.UIHudCards.UICardDisplayEntry : Struct
 ---@field Obj GFxUI.GFxObject
 ---@field Card GFxUI.GFxObject
 ---@field Icon GFxUI.GFxObject
@@ -10334,7 +10334,7 @@
 ---@field DeviceID integer
 ---@field IsTemp boolean
 
----@class TgClient.UIHudCenter.HudMarker : Object
+---@class TgClient.UIHudCenter.HudMarker : Struct
 ---@field fOrigBotY number
 ---@field fOrigTopY number
 ---@field fValue number
@@ -10348,7 +10348,7 @@
 ---@field pTop GFxUI.GFxObject
 ---@field pBot GFxUI.GFxObject
 
----@class TgClient.UIHudCenter.MessageClip : Object
+---@class TgClient.UIHudCenter.MessageClip : Struct
 ---@field nIcon integer
 ---@field nType integer
 ---@field nValue integer
@@ -10358,11 +10358,11 @@
 ---@field pTimer GFxUI.GFxObject
 ---@field pTimerBar GFxUI.GFxObject
 
----@class TgClient.UIHudCenter.DamageInstance : Object
+---@class TgClient.UIHudCenter.DamageInstance : Struct
 ---@field fDamage number
 ---@field fTimestamp number
 
----@class TgClient.UIHudCenter.HudProjectile : Object
+---@class TgClient.UIHudCenter.HudProjectile : Struct
 ---@field nId integer
 ---@field nIconTintedColorFrame integer
 ---@field bIsActive boolean
@@ -10376,7 +10376,7 @@
 ---@field pIcons GFxUI.GFxObject
 ---@field pArrow GFxUI.GFxObject
 
----@class TgClient.UIHudCenter.CastingInfo : Object
+---@class TgClient.UIHudCenter.CastingInfo : Struct
 ---@field nWidth integer
 ---@field bActive boolean
 ---@field fPercent number
@@ -10384,7 +10384,7 @@
 ---@field pText GFxUI.GFxObject
 ---@field pAnim GFxUI.GFxObject
 
----@class TgClient.UIHudCenter.HitMarkerInfo : Object
+---@class TgClient.UIHudCenter.HitMarkerInfo : Struct
 ---@field bPlayed boolean
 ---@field DamageAmount number
 ---@field fMaxDamageAmount number
@@ -10393,7 +10393,7 @@
 ---@field ExtraInfo TgGame.TgObject.ExtraDamageInfo
 ---@field fAccumulatedDamage number
 
----@class TgClient.UIHudCredits.UIRewardInfo : Object
+---@class TgClient.UIHudCredits.UIRewardInfo : Struct
 ---@field bIsCombo boolean
 ---@field fAlpha number
 ---@field fTimer number
@@ -10403,13 +10403,13 @@
 ---@field pTitle GFxUI.GFxObject
 ---@field pSubtitle GFxUI.GFxObject
 
----@class TgClient.UIHudDebuff.HudDebuffEffect : Object
+---@class TgClient.UIHudDebuff.HudDebuffEffect : Struct
 ---@field nGroup integer
 ---@field fPercent number
 ---@field nIcon integer
 ---@field sName string
 
----@class TgClient.UIHudTeam.TEAMPLAYER_INFO : Object
+---@class TgClient.UIHudTeam.TEAMPLAYER_INFO : Struct
 ---@field nRespawn integer
 ---@field bHealth boolean
 ---@field bRespawn boolean
@@ -10455,7 +10455,7 @@
 ---@field nAssists integer
 ---@field pKDA GFxUI.GFxObject
 
----@class TgClient.UIHudTeam.TEAMSTAT_INFO : Object
+---@class TgClient.UIHudTeam.TEAMSTAT_INFO : Struct
 ---@field pObj GFxUI.GFxObject
 ---@field pIcon GFxUI.GFxObject
 ---@field pText GFxUI.GFxObject
@@ -10466,7 +10466,7 @@
 ---@field sIcon string
 ---@field fMaskBaseWidth number
 
----@class TgClient.UIHudKillFeed.UIKILLFEED_DATA : Object
+---@class TgClient.UIHudKillFeed.UIKILLFEED_DATA : Struct
 ---@field eType integer
 ---@field pKillEntry GFxUI.GFxObject
 ---@field pPlayer0 GFxUI.GFxObject
@@ -10485,12 +10485,12 @@
 ---@field pHHPickupChampionIcon GFxUI.GFxObject
 ---@field fTimer number
 
----@class TgClient.UIHudMinimap.UIPING_DATA : Object
+---@class TgClient.UIHudMinimap.UIPING_DATA : Struct
 ---@field fTimer number
 ---@field vLocation Vector
 ---@field pObj GFxUI.GFxObject
 
----@class TgClient.UIHudMap.BGTEAM_PLAYER : Object
+---@class TgClient.UIHudMap.BGTEAM_PLAYER : Struct
 ---@field nBotId integer
 ---@field nLives integer
 ---@field eMorph integer
@@ -10504,7 +10504,7 @@
 ---@field pHealthBar GFxUI.GFxObject
 ---@field pHealthTip GFxUI.GFxObject
 
----@class TgClient.UIHudNotify.NotifyData : Object
+---@class TgClient.UIHudNotify.NotifyData : Struct
 ---@field nIcon integer
 ---@field nMsgId integer
 ---@field nSound integer
@@ -10515,7 +10515,7 @@
 ---@field sTarget string
 ---@field sMessage string
 
----@class TgClient.UIHudScore.PayloadStatus : Object
+---@class TgClient.UIHudScore.PayloadStatus : Struct
 ---@field PayloadStatusCon GFxUI.GFxObject
 ---@field Diamond GFxUI.GFxObject
 ---@field DiamondTint GFxUI.GFxObject
@@ -10531,7 +10531,7 @@
 ---@field ContestedRight GFxUI.GFxObject
 ---@field fTargetContestedAlpha number
 
----@class TgClient.UIHudScoreboard.ScoreInfo : Object
+---@class TgClient.UIHudScoreboard.ScoreInfo : Struct
 ---@field nCard integer
 ---@field nCardLevel integer
 ---@field nTalent integer
@@ -10581,13 +10581,13 @@
 ---@field MuteVoice GFxUI.GFxObject
 ---@field Disconnected GFxUI.GFxObject
 
----@class TgClient.UIHudSpectator.BotLifeData : Object
+---@class TgClient.UIHudSpectator.BotLifeData : Struct
 ---@field bAlive boolean
 ---@field nSpawnTime integer
 ---@field nRespawnTime integer
 ---@field m_DeathTimes Array<integer>
 
----@class TgClient.UIHudWaypoint.WaypointObjective : Object
+---@class TgClient.UIHudWaypoint.WaypointObjective : Struct
 ---@field pClip GFxUI.GFxObject
 ---@field pIcon GFxUI.GFxObject
 ---@field pDist GFxUI.GFxObject
@@ -10613,7 +10613,7 @@
 ---@field pBuffIcon GFxUI.GFxObject
 ---@field pHealthText GFxUI.GFxObject
 
----@class TgClient.UILandingPanelManager.JsonHomeFeatureData : Object
+---@class TgClient.UILandingPanelManager.JsonHomeFeatureData : Struct
 ---@field sStartDate string
 ---@field sEndDate string
 ---@field eFeatureType integer
@@ -10626,34 +10626,34 @@
 ---@field fRotationOffset number
 ---@field nLocationId integer
 
----@class TgClient.UILobbyChat.ChannelCloseTimeOverride : Object
+---@class TgClient.UILobbyChat.ChannelCloseTimeOverride : Struct
 ---@field Channel integer
 ---@field AutoCloseTime integer
 
----@class TgClient.UINotificationCenterJsonManager.TabInfo : Object
+---@class TgClient.UINotificationCenterJsonManager.TabInfo : Struct
 ---@field sTitle string
 ---@field sURL string
 
----@class TgClient.UIPatchNotesJsonManager.PatchNotesData : Object
+---@class TgClient.UIPatchNotesJsonManager.PatchNotesData : Struct
 ---@field sPatchIdentifier string
 ---@field PatchVersion TgClient.UIPatchNotesJsonManager.PatchVersionNumber
 ---@field PatchRelevantVersion TgClient.UIPatchNotesJsonManager.PatchVersionNumber
 ---@field vPatchDetails Array<TgClient.UILandingPanelManager.JsonFeatureData>
 
----@class TgClient.UIPatchNotesJsonManager.PatchVersionNumber : Object
+---@class TgClient.UIPatchNotesJsonManager.PatchVersionNumber : Struct
 ---@field nVersionMajor integer
 ---@field nVersionMinor integer
 ---@field nVersionPatch integer
 ---@field nVersionBuild integer
 
----@class TgClient.UIDataAwardsManager.UIAwardData : Object
+---@class TgClient.UIDataAwardsManager.UIAwardData : Struct
 ---@field nType integer
 ---@field nActivity integer
 ---@field nGoalCount integer
 ---@field nGoalGroup integer
 ---@field Goals TgClient.UIDataAwardsManager.UIGoalData
 
----@class TgClient.UIDataHistoryMatch.UIHistoryData : Object
+---@class TgClient.UIDataHistoryMatch.UIHistoryData : Struct
 ---@field nId integer
 ---@field nClass integer
 ---@field sDate string
@@ -10663,7 +10663,7 @@
 ---@field sDuration string
 ---@field dtEvent TgGame.TgObject.DateTimeWrapper
 
----@class TgClient.UIDataAwardsManager.UIGoalData : Object
+---@class TgClient.UIDataAwardsManager.UIGoalData : Struct
 ---@field nDate integer
 ---@field nGoal integer
 ---@field nValue integer
@@ -10678,7 +10678,7 @@
 ---@field sTitle string
 ---@field sSource string
 
----@class TgClient.UIPurchaseGems.UIDurablePack : Object
+---@class TgClient.UIPurchaseGems.UIDurablePack : Struct
 ---@field Obj GFxUI.GFxObject
 ---@field Price GFxUI.GFxObject
 ---@field PurchaseButton GFxUI.GFxObject
@@ -10686,7 +10686,7 @@
 ---@field Refund GFxUI.GFxObject
 ---@field SaleBanner GFxUI.GFxObject
 
----@class TgClient.UIPurchaseGems.UIConsumablePack : Object
+---@class TgClient.UIPurchaseGems.UIConsumablePack : Struct
 ---@field Obj GFxUI.GFxObject
 ---@field Title GFxUI.GFxObject
 ---@field Icon GFxUI.GFxObject
@@ -10695,11 +10695,11 @@
 ---@field Highlight GFxUI.GFxObject
 ---@field SaleBanner GFxUI.GFxObject
 
----@class TgClient.UIScene.UIQueuedSounds : Object
+---@class TgClient.UIScene.UIQueuedSounds : Struct
 ---@field fStartTime number
 ---@field akSound Engine.AkBaseSoundObject
 
----@class TgClient.UIScene.UIAnimData : Object
+---@class TgClient.UIScene.UIAnimData : Struct
 ---@field fStartTime number
 ---@field fEndTime number
 ---@field eType integer
@@ -10708,7 +10708,7 @@
 ---@field fTarget number
 ---@field bAnimating boolean
 
----@class TgClient.UIScene_UIFooterGamepad.FooterOption : Object
+---@class TgClient.UIScene_UIFooterGamepad.FooterOption : Struct
 ---@field nOption integer
 ---@field pObj GFxUI.GFxObject
 ---@field pKey GFxUI.GFxObject
@@ -10719,7 +10719,7 @@
 ---@field pTitleTF GFxUI.GFxObject
 ---@field pFrame GFxUI.GFxObject
 
----@class TgClient.UIScene_UIQuests.EmptyPanel : Object
+---@class TgClient.UIScene_UIQuests.EmptyPanel : Struct
 ---@field mcRoot GFxUI.GFxObject
 ---@field mcTF0 GFxUI.GFxObject
 ---@field mcTF1 GFxUI.GFxObject
@@ -10728,14 +10728,14 @@
 ---@field SpecialQuestsArrowNext TgClient.UIInteractable_Button
 ---@field SpecialQuestsArrowPrev TgClient.UIInteractable_Button
 
----@class TgClient.UIScene_UIQuestsPopup.BaseQuests : Object
+---@class TgClient.UIScene_UIQuestsPopup.BaseQuests : Struct
 ---@field mcQuests GFxUI.GFxObject
 ---@field mcActiveQuests GFxUI.GFxObject
 ---@field QuestsGroup TgClient.InputGroup
 ---@field QuestList TgClient.UIComponent_List
 ---@field nNumQuests integer
 
----@class TgClient.UISettings.KeybindOption : Object
+---@class TgClient.UISettings.KeybindOption : Struct
 ---@field Obj GFxUI.GFxObject
 ---@field Base GFxUI.GFxObject
 ---@field Focus GFxUI.GFxObject
@@ -10743,7 +10743,7 @@
 ---@field Key GFxUI.GFxObject
 ---@field KeyButton GFxUI.GFxObject
 
----@class TgClient.UISettings.SettingOption : Object
+---@class TgClient.UISettings.SettingOption : Struct
 ---@field Obj GFxUI.GFxObject
 ---@field Base GFxUI.GFxObject
 ---@field Type GFxUI.GFxObject
@@ -10756,7 +10756,7 @@
 ---@field SliderTF GFxUI.GFxObject
 ---@field SliderTitle GFxUI.GFxObject
 
----@class TgClient.UIWorldOverlay.QueuedDamageNumber : Object
+---@class TgClient.UIWorldOverlay.QueuedDamageNumber : Struct
 ---@field nTargetId integer
 ---@field nValue integer
 ---@field nSourceItemId integer
@@ -10764,7 +10764,7 @@
 ---@field eTargetType integer
 ---@field eDamageType integer
 
----@class TgClient.UIWorldOverlay.UITargetableOverlay : Object
+---@class TgClient.UIWorldOverlay.UITargetableOverlay : Struct
 ---@field nLastColorFrame integer
 ---@field nTargetId integer
 ---@field bInit boolean
@@ -10841,7 +10841,7 @@
 ---@field nDeployableOverlayDisplayMask integer
 ---@field nIconsParentColorFrame integer
 
----@class TgClient.UIWorldOverlay.OverlayData : Object
+---@class TgClient.UIWorldOverlay.OverlayData : Struct
 ---@field dwDeviceTarget Core.Object.dword
 ---@field bInit boolean
 ---@field fRoll number
@@ -10856,7 +10856,7 @@
 ---@field vScreenLoc Vector
 ---@field PooledOverlayData TgClient.UIWorldOverlay.UIPooledOverlayData
 
----@class TgClient.UIWorldOverlay.UIPooledOverlayData : Object
+---@class TgClient.UIWorldOverlay.UIPooledOverlayData : Struct
 ---@field pClip GFxUI.GFxObject
 ---@field pAnim GFxUI.GFxObject
 ---@field pText GFxUI.GFxObject
@@ -10864,7 +10864,7 @@
 ---@field pTF2 GFxUI.GFxObject
 ---@field PoolType integer
 
----@class TgClient.UIDataGoalsManager.ActivityGoal : Object
+---@class TgClient.UIDataGoalsManager.ActivityGoal : Struct
 ---@field nTargetValue integer
 ---@field nProgressValue integer
 ---@field sDescription string
@@ -10873,27 +10873,27 @@
 ---@field nGoalId integer
 ---@field pLootItems Array<TgClient.UIData_Quest.GoalRewardItem>
 
----@class TgClient.UIDataGoalsManager.ActivityGoalIds : Object
+---@class TgClient.UIDataGoalsManager.ActivityGoalIds : Struct
 ---@field dwActivityId Core.Object.dword
 ---@field dwGoalId Core.Object.dword
 
----@class TgClient.UIStoreLandingSectionsManager.StoreLandingUISectionData : Object
+---@class TgClient.UIStoreLandingSectionsManager.StoreLandingUISectionData : Struct
 ---@field m_sHeaderMessageName string
 ---@field m_Entries Array<TgClient.UIData_StoreLandingEntry>
 
----@class TgClient.UIStoreLandingSectionsManager.StoreLandingUIEntriesPack : Object
+---@class TgClient.UIStoreLandingSectionsManager.StoreLandingUIEntriesPack : Struct
 ---@field m_eSize integer
 ---@field m_Entries Array<TgClient.UIData_StoreLandingEntry>
 
----@class TgClient.UIStoreLandingLayoutAlgorithm2By3.UIStoreLandingLayoutAlgorithm2By3_2By3TilesPack : Object
+---@class TgClient.UIStoreLandingLayoutAlgorithm2By3.UIStoreLandingLayoutAlgorithm2By3_2By3TilesPack : Struct
 ---@field m_Configuration TgClient.UIStoreLandingLayoutAlgorithm2By3.UIStoreLandingLayoutAlgorithm2By3_TileConfiguration
 ---@field m_Tiles Array<TgClient.UIStoreLandingLayoutAlgorithm2By3.UIStoreLandingLayoutAlgorithm2By3_2By3Tile>
 
----@class TgClient.UIStoreLandingLayoutAlgorithm2By3.UIStoreLandingLayoutAlgorithm2By3_2By3Tile : Object
+---@class TgClient.UIStoreLandingLayoutAlgorithm2By3.UIStoreLandingLayoutAlgorithm2By3_2By3Tile : Struct
 ---@field m_Configuration TgClient.UIStoreLandingLayoutAlgorithm2By3.UIStoreLandingLayoutAlgorithm2By3_TileConfiguration
 ---@field m_Entries Array<TgClient.UIData_StoreLandingEntry>
 
----@class TgClient.UIStoreLandingLayoutAlgorithm2By3.UIStoreLandingLayoutAlgorithm2By3_TileConfiguration : Object
+---@class TgClient.UIStoreLandingLayoutAlgorithm2By3.UIStoreLandingLayoutAlgorithm2By3_TileConfiguration : Struct
 ---@field m_eType integer
 ---@field m_TileSizesTemplate Array<integer>
 

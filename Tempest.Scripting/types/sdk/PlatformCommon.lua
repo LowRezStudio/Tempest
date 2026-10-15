@@ -535,7 +535,7 @@
 
 ---@class PlatformCommon.PComNetConn : IpDrv.TcpipConnection
 
----@class PlatformCommon.PComDataDogUploader.DataDogMetricsConfig : Object
+---@class PlatformCommon.PComDataDogUploader.DataDogMetricsConfig : Struct
 ---@field DD_API_TOKEN string
 ---@field serverLink string
 ---@field URL string
@@ -545,20 +545,20 @@
 ---@field writeIntervalTicks integer
 ---@field tags Array<string>
 
----@class PlatformCommon.PComDataDogUploader.MetricPoint : Object
+---@class PlatformCommon.PComDataDogUploader.MetricPoint : Struct
 ---@field unixUTCTimestamp Core.Object.QWord
 ---@field Value number
 
----@class PlatformCommon.PComDataDogUploader.Metric : Object
+---@class PlatformCommon.PComDataDogUploader.Metric : Struct
 ---@field Type integer
 ---@field Points Array<PlatformCommon.PComDataDogUploader.MetricPoint>
 
----@class PlatformCommon.PComOpenBroadcaster.PComOpenBroadcasterSettings : Object
+---@class PlatformCommon.PComOpenBroadcaster.PComOpenBroadcasterSettings : Struct
 ---@field bAllowWebcam boolean
 ---@field bAllowMicrophone boolean
 ---@field bAllowDesktopAudio boolean
 
----@class PlatformCommon.PComImageDownloader.PComImageDownload : Object
+---@class PlatformCommon.PComImageDownloader.PComImageDownload : Struct
 ---@field URL string
 ---@field FilePath string
 ---@field HttpDownloader Core.Object.Pointer
@@ -566,7 +566,7 @@
 ---@field Data Array<integer>
 ---@field bPendingRemoval boolean
 
----@class PlatformCommon.PComInputLightingEffect.PComInputLightingPreset : Object
+---@class PlatformCommon.PComInputLightingEffect.PComInputLightingPreset : Struct
 ---@field PresetName string
 ---@field Curve Core.Object.InterpCurveLinearColor
 ---@field ColorTint Core.Object.LinearColor
@@ -575,17 +575,17 @@
 ---@field BlendInTime number
 ---@field Priority integer
 
----@class PlatformCommon.PComInputLightingEffect.PComActiveInputLightingPreset : Object
+---@class PlatformCommon.PComInputLightingEffect.PComActiveInputLightingPreset : Struct
 ---@field LoopCount integer
 ---@field CurrentTime number
 ---@field PlaybackRate number
 
----@class PlatformCommon.PComMusicTheme.MusicEvent : Object
+---@class PlatformCommon.PComMusicTheme.MusicEvent : Struct
 ---@field EventName string
 ---@field EventTrack Engine.MusicTrackDataStructures.MusicTrackStruct
 ---@field EventDuration number
 
----@class PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureProfile : Object
+---@class PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureProfile : Struct
 ---@field ProfileName string
 ---@field ScalabilityBucket integer
 ---@field ResolutionX integer
@@ -593,15 +593,15 @@
 ---@field VsyncInterval integer
 ---@field bFullScreen boolean
 
----@class PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureStat : Object
+---@class PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureStat : Struct
 ---@field StatName string
 ---@field StatValue Core.Object.Double
 
----@class PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureStatsPerNode : Object
+---@class PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureStatsPerNode : Struct
 ---@field Node Engine.Actor
 ---@field Stats Array<PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureStat>
 
----@class PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureStatsPerSkin : Object
+---@class PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureStatsPerSkin : Struct
 ---@field CharacterName string
 ---@field SkinName string
 ---@field SkeletalMeshPathName string
@@ -610,11 +610,11 @@
 ---@field SkeletalMeshPathNameWeapon string
 ---@field Stats Array<PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureStat>
 
----@class PlatformCommon.PComPerformanceCaptureGame.PComPerformanceCaptureStatCollection : Object
+---@class PlatformCommon.PComPerformanceCaptureGame.PComPerformanceCaptureStatCollection : Struct
 ---@field ProfileName string
 ---@field Stats Array<PlatformCommon.PComPerformanceCaptureBase.PComPerformanceCaptureStat>
 
----@class PlatformCommon.PComPictureInPicture.PComPipViewDesc : Object
+---@class PlatformCommon.PComPictureInPicture.PComPipViewDesc : Struct
 ---@field ViewName string
 ---@field ViewLocation Vector
 ---@field ViewRotation Rotator
@@ -629,7 +629,7 @@
 ---@field LastRenderedTime Core.Object.Double
 ---@field NumFramesSinceRender integer
 
----@class PlatformCommon.PComPlayerProfile.BadgeStruct : Object
+---@class PlatformCommon.PComPlayerProfile.BadgeStruct : Struct
 ---@field BadgeId integer
 ---@field ActivityId integer
 ---@field Icon integer
@@ -640,17 +640,17 @@
 ---@field Title string
 ---@field Description string
 
----@class PlatformCommon.PComPlayerProfile.PropertyPair : Object
+---@class PlatformCommon.PComPlayerProfile.PropertyPair : Struct
 ---@field PropertyId integer
 ---@field Value integer
 
----@class PlatformCommon.PComPlayerProfile.AccoladeStruct : Object
+---@class PlatformCommon.PComPlayerProfile.AccoladeStruct : Struct
 ---@field AccoladeId integer
 ---@field ActivityId integer
 ---@field Type integer
 ---@field Value integer
 
----@class PlatformCommon.PComPositionHistoryServerComponent.PComPositionHistoryData : Object
+---@class PlatformCommon.PComPositionHistoryServerComponent.PComPositionHistoryData : Struct
 ---@field Location Vector
 ---@field Rotation Rotator
 ---@field Velocity Vector
@@ -659,7 +659,7 @@
 ---@field bCollideActors boolean
 ---@field bBlockActors boolean
 
----@class PlatformCommon.PComStructures.CombatMessageInfo : Object
+---@class PlatformCommon.PComStructures.CombatMessageInfo : Struct
 ---@field nMsgId integer
 ---@field nSourceId integer
 ---@field eSourceType integer
@@ -677,7 +677,7 @@
 ---@field nLocationX integer
 ---@field nLocationY integer
 
----@class PlatformCommon.PComUIManagerBase.ManagerImage : Object
+---@class PlatformCommon.PComUIManagerBase.ManagerImage : Struct
 ---@field strImageName string
 ---@field pTexture Engine.Texture2DDynamic
 

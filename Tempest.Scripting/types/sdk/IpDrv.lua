@@ -933,7 +933,7 @@
 ---@field __OnUpdateChallengeUserProgressComplete__Delegate any
 ---@field __OnUpdateChallengeUserRewardComplete__Delegate any
 
----@class IpDrv.McpClashMobBase.McpClashMobChallengeFile : Object
+---@class IpDrv.McpClashMobBase.McpClashMobChallengeFile : Struct
 ---@field should_keep_post_challenge boolean
 ---@field title_id string
 ---@field file_name string
@@ -942,17 +942,17 @@
 ---@field Type string
 ---@field Status integer
 
----@class IpDrv.McpClashMobBase.McpClashMobPushNotificationParams : Object
+---@class IpDrv.McpClashMobBase.McpClashMobPushNotificationParams : Struct
 ---@field bah integer
 
----@class IpDrv.McpClashMobBase.McpClashMobPushNotification : Object
+---@class IpDrv.McpClashMobBase.McpClashMobPushNotification : Struct
 ---@field device_tokens Array<string>
 ---@field badge_type string
 ---@field Sound string
 ---@field Message string
 ---@field Params IpDrv.McpClashMobBase.McpClashMobPushNotificationParams
 
----@class IpDrv.McpClashMobBase.McpClashMobChallengeEvent : Object
+---@class IpDrv.McpClashMobBase.McpClashMobChallengeEvent : Struct
 ---@field unique_challenge_id string
 ---@field Description string
 ---@field visible_date string
@@ -991,7 +991,7 @@
 ---@field twitter_message string
 ---@field wants_twitter_posting boolean
 
----@class IpDrv.McpClashMobBase.McpClashMobChallengeUserStatus : Object
+---@class IpDrv.McpClashMobBase.McpClashMobChallengeUserStatus : Struct
 ---@field unique_challenge_id string
 ---@field unique_user_id string
 ---@field num_attempts integer
@@ -1010,7 +1010,7 @@
 ---@field enrolled_via_twitter boolean
 ---@field retweeted boolean
 
----@class IpDrv.OnlineTitleFileDownloadBase.FileNameToURLMapping : Object
+---@class IpDrv.OnlineTitleFileDownloadBase.FileNameToURLMapping : Struct
 ---@field Filename string
 ---@field UrlMapping string
 
@@ -1060,14 +1060,14 @@
 ---@field FileCache any
 ---@field FileDownloader IpDrv.McpClashMobFileDownload
 
----@class IpDrv.McpClashMobManager.McpChallengeUserRequest : Object
+---@class IpDrv.McpClashMobManager.McpChallengeUserRequest : Struct
 ---@field UniqueUserId string
 ---@field ChallengeStatusRequests Array<IpDrv.McpClashMobManager.McpChallengeRequest>
 ---@field ChallengeAcceptRequests Array<IpDrv.McpClashMobManager.McpChallengeRequest>
 ---@field ChallengeUpdateProgressRequests Array<IpDrv.McpClashMobManager.McpChallengeRequest>
 ---@field ChallengeUpdateRewardRequests Array<IpDrv.McpClashMobManager.McpChallengeRequest>
 
----@class IpDrv.McpClashMobManager.McpChallengeRequest : Object
+---@class IpDrv.McpClashMobManager.McpChallengeRequest : Struct
 ---@field UniqueChallengeId string
 ---@field HTTPRequest Engine.HttpRequestInterface
 
@@ -1106,18 +1106,18 @@
 ---@field __OnQueryGroupInvitesComplete__Delegate any
 ---@field __OnAcceptGroupInviteComplete__Delegate any
 
----@class IpDrv.McpGroupsBase.McpGroupMember : Object
+---@class IpDrv.McpGroupsBase.McpGroupMember : Struct
 ---@field MemberId string
 ---@field AcceptState integer
 
----@class IpDrv.McpGroupsBase.McpGroup : Object
+---@class IpDrv.McpGroupsBase.McpGroup : Struct
 ---@field OwnerId string
 ---@field GroupID string
 ---@field GroupName string
 ---@field AccessLevel integer
 ---@field Members Array<IpDrv.McpGroupsBase.McpGroupMember>
 
----@class IpDrv.McpGroupsBase.McpGroupList : Object
+---@class IpDrv.McpGroupsBase.McpGroupList : Struct
 ---@field RequesterId string
 ---@field Groups Array<IpDrv.McpGroupsBase.McpGroup>
 
@@ -1167,7 +1167,7 @@
 ---@field __OnAddMappingComplete__Delegate any
 ---@field __OnQueryMappingsComplete__Delegate any
 
----@class IpDrv.McpIdMappingBase.McpIdMapping : Object
+---@class IpDrv.McpIdMappingBase.McpIdMapping : Struct
 ---@field McpId string
 ---@field ExternalId string
 ---@field ExternalType string
@@ -1184,13 +1184,13 @@
 ---@field AddMappingRequests Array<IpDrv.McpIdMappingManager.AddMappingRequest>
 ---@field QueryMappingRequests Array<IpDrv.McpIdMappingManager.QueryMappingRequest>
 
----@class IpDrv.McpIdMappingManager.AddMappingRequest : Object
+---@class IpDrv.McpIdMappingManager.AddMappingRequest : Struct
 ---@field McpId string
 ---@field ExternalId string
 ---@field ExternalType string
 ---@field Request Engine.HttpRequestInterface
 
----@class IpDrv.McpIdMappingManager.QueryMappingRequest : Object
+---@class IpDrv.McpIdMappingManager.QueryMappingRequest : Struct
 ---@field ExternalType string
 ---@field Request Engine.HttpRequestInterface
 
@@ -1212,11 +1212,11 @@
 ---@field __OnUpdateValueComplete__Delegate any
 ---@field __OnDeleteValueComplete__Delegate any
 
----@class IpDrv.McpManagedValueManagerBase.ManagedValue : Object
+---@class IpDrv.McpManagedValueManagerBase.ManagedValue : Struct
 ---@field ValueId string
 ---@field Value integer
 
----@class IpDrv.McpManagedValueManagerBase.ManagedValueSaveSlot : Object
+---@class IpDrv.McpManagedValueManagerBase.ManagedValueSaveSlot : Struct
 ---@field OwningMcpId string
 ---@field SaveSlot string
 ---@field Values Array<IpDrv.McpManagedValueManagerBase.ManagedValue>
@@ -1244,7 +1244,7 @@
 ---@field UpdateValueRequests Array<IpDrv.McpManagedValueManager.ValueRequestState>
 ---@field DeleteValueRequests Array<IpDrv.McpManagedValueManager.ValueRequestState>
 
----@class IpDrv.McpManagedValueManager.SaveSlotRequestState : Object
+---@class IpDrv.McpManagedValueManager.SaveSlotRequestState : Struct
 ---@field McpId string
 ---@field SaveSlot string
 ---@field Request Engine.HttpRequestInterface
@@ -1252,7 +1252,7 @@
 ---@class IpDrv.McpManagedValueManager.ValueRequestState : IpDrv.McpManagedValueManager.SaveSlotRequestState
 ---@field ValueId string
 
----@class IpDrv.McpMessageBase.McpMessage : Object
+---@class IpDrv.McpMessageBase.McpMessage : Struct
 ---@field MessageId string
 ---@field TitleId string
 ---@field ToUniqueUserId string
@@ -1262,22 +1262,22 @@
 ---@field ValidUntil string
 ---@field MessageCompressionType integer
 
----@class IpDrv.McpMessageBase.McpMessageList : Object
+---@class IpDrv.McpMessageBase.McpMessageList : Struct
 ---@field ToUniqueUserId string
 ---@field Messages Array<IpDrv.McpMessageBase.McpMessage>
 
----@class IpDrv.McpMessageBase.McpMessageContents : Object
+---@class IpDrv.McpMessageBase.McpMessageContents : Struct
 ---@field MessageId string
 ---@field MessageContents Array<integer>
 
----@class IpDrv.McpMessageManager.McpCompressMessageRequest : Object
+---@class IpDrv.McpMessageManager.McpCompressMessageRequest : Struct
 ---@field SourceBuffer Array<integer>
 ---@field DestBuffer Array<integer>
 ---@field OutCompressedSize integer
 ---@field Request Engine.HttpRequestInterface
 ---@field CompressionWorker Core.Object.Pointer
 
----@class IpDrv.McpMessageManager.McpUncompressMessageRequest : Object
+---@class IpDrv.McpMessageManager.McpUncompressMessageRequest : Struct
 ---@field MessageId string
 ---@field SourceBuffer Array<integer>
 ---@field DestBuffer Array<integer>
@@ -1300,7 +1300,7 @@
 ---@field LastTimeStamp string
 ---@field HTTPRequestServerTime Engine.HttpRequestInterface
 
----@class IpDrv.McpUserCloudFileDownload.McpUserCloudFilesEntry : Object
+---@class IpDrv.McpUserCloudFileDownload.McpUserCloudFilesEntry : Struct
 ---@field UserId string
 ---@field DownloadedFiles Array<IpDrv.OnlineTitleFileDownloadBase.TitleFileWeb>
 ---@field EnumeratedFiles Array<IpDrv.McpUserCloudFileDownload.McpUserCloudFileInfo>
@@ -1348,11 +1348,11 @@
 ---@field __OnDeleteItemComplete__Delegate any
 ---@field __OnRecordIapComplete__Delegate any
 
----@class IpDrv.McpUserInventoryBase.McpInventoryItemAttribute : Object
+---@class IpDrv.McpUserInventoryBase.McpInventoryItemAttribute : Struct
 ---@field AttributeId string
 ---@field Value integer
 
----@class IpDrv.McpUserInventoryBase.McpInventoryItem : Object
+---@class IpDrv.McpUserInventoryBase.McpInventoryItem : Struct
 ---@field InstanceItemId string
 ---@field GlobalItemId string
 ---@field Quantity integer
@@ -1361,11 +1361,11 @@
 ---@field LastUpdateTime string
 ---@field Attributes Array<IpDrv.McpUserInventoryBase.McpInventoryItemAttribute>
 
----@class IpDrv.McpUserInventoryBase.McpInventoryItemContainer : Object
+---@class IpDrv.McpUserInventoryBase.McpInventoryItemContainer : Struct
 ---@field GlobalItemId string
 ---@field Quantity integer
 
----@class IpDrv.McpUserInventoryBase.McpInventorySaveSlot : Object
+---@class IpDrv.McpUserInventoryBase.McpInventorySaveSlot : Struct
 ---@field OwningMcpId string
 ---@field SaveSlotId string
 ---@field Items Array<IpDrv.McpUserInventoryBase.McpInventoryItem>
@@ -1415,7 +1415,7 @@
 ---@field ListItemsRequests Array<IpDrv.McpUserInventoryManager.SaveSlotRequestState>
 ---@field ItemRequests Array<IpDrv.McpUserInventoryManager.InventoryItemRequestState>
 
----@class IpDrv.McpUserInventoryManager.SaveSlotRequestState : Object
+---@class IpDrv.McpUserInventoryManager.SaveSlotRequestState : Struct
 ---@field McpId string
 ---@field SaveSlotId string
 ---@field Request Engine.HttpRequestInterface
@@ -1441,7 +1441,7 @@
 ---@field __OnQueryUsersComplete__Delegate any
 ---@field __OnDeleteUserComplete__Delegate any
 
----@class IpDrv.McpUserManagerBase.McpUserStatus : Object
+---@class IpDrv.McpUserManagerBase.McpUserStatus : Struct
 ---@field McpId string
 ---@field UDID string
 ---@field CountryCode string
@@ -1474,22 +1474,22 @@
 ---@field QueryUsersRequests Array<Engine.HttpRequestInterface>
 ---@field DeleteUserRequests Array<Engine.HttpRequestInterface>
 
----@class IpDrv.McpUserManager.RegisterUserRequest : Object
+---@class IpDrv.McpUserManager.RegisterUserRequest : Struct
 ---@field UDID string
 ---@field McpId string
 ---@field Request Engine.HttpRequestInterface
 
----@class IpDrv.MeshBeacon.ConnectionBandwidthStats : Object
+---@class IpDrv.MeshBeacon.ConnectionBandwidthStats : Struct
 ---@field UpstreamRate integer
 ---@field DownstreamRate integer
 ---@field RoundtripLatency integer
 
----@class IpDrv.MeshBeacon.PlayerMember : Object
+---@class IpDrv.MeshBeacon.PlayerMember : Struct
 ---@field TeamNum integer
 ---@field Skill integer
 ---@field NetId Engine.OnlineSubsystem.UniqueNetId
 
----@class IpDrv.MeshBeaconClient.ClientBandwidthTestData : Object
+---@class IpDrv.MeshBeaconClient.ClientBandwidthTestData : Struct
 ---@field TestType integer
 ---@field CurrentState integer
 ---@field NumBytesToSendTotal integer
@@ -1497,7 +1497,7 @@
 ---@field NumBytesSentLast integer
 ---@field ElapsedTestTime number
 
----@class IpDrv.MeshBeaconClient.ClientConnectionRequest : Object
+---@class IpDrv.MeshBeaconClient.ClientConnectionRequest : Struct
 ---@field PlayerNetId Engine.OnlineSubsystem.UniqueNetId
 ---@field NatType integer
 ---@field bCanHostVs boolean
@@ -1505,7 +1505,7 @@
 ---@field BandwidthHistory Array<IpDrv.MeshBeacon.ConnectionBandwidthStats>
 ---@field MinutesSinceLastTest integer
 
----@class IpDrv.MeshBeaconHost.ClientMeshBeaconConnection : Object
+---@class IpDrv.MeshBeaconHost.ClientMeshBeaconConnection : Struct
 ---@field PlayerNetId Engine.OnlineSubsystem.UniqueNetId
 ---@field ElapsedHeartbeatTime number
 ---@field Socket Core.Object.Pointer
@@ -1517,7 +1517,7 @@
 ---@field BandwidthHistory Array<IpDrv.MeshBeacon.ConnectionBandwidthStats>
 ---@field MinutesSinceLastTest integer
 
----@class IpDrv.MeshBeaconHost.ClientConnectionBandwidthTestData : Object
+---@class IpDrv.MeshBeaconHost.ClientConnectionBandwidthTestData : Struct
 ---@field CurrentState integer
 ---@field TestType integer
 ---@field BytesTotalNeeded integer
@@ -1526,7 +1526,7 @@
 ---@field TestStartTime Core.Object.Double
 ---@field BandwidthStats IpDrv.MeshBeacon.ConnectionBandwidthStats
 
----@class IpDrv.OnlineEventsInterfaceMcp.EventUploadConfig : Object
+---@class IpDrv.OnlineEventsInterfaceMcp.EventUploadConfig : Struct
 ---@field UploadType integer
 ---@field UploadUrl string
 ---@field TimeOut number
@@ -1547,14 +1547,14 @@
 ---@field MaxSimultaneousDownloads integer
 ---@field __OnOnlineImageDownloaded__Delegate any
 
----@class IpDrv.OnlineImageDownloaderWeb.OnlineImageDownload : Object
+---@class IpDrv.OnlineImageDownloaderWeb.OnlineImageDownload : Struct
 ---@field URL string
 ---@field HTTPRequest Engine.HttpRequestInterface
 ---@field State integer
 ---@field bPendingRemoval boolean
 ---@field Texture Engine.Texture2DDynamic
 
----@class IpDrv.OnlineNewsInterfaceMcp.NewsCacheEntry : Object
+---@class IpDrv.OnlineNewsInterfaceMcp.NewsCacheEntry : Struct
 ---@field NewsUrl string
 ---@field ReadState integer
 ---@field NewsType integer
@@ -1563,7 +1563,7 @@
 ---@field bIsUnicode boolean
 ---@field HttpDownloader Core.Object.Pointer
 
----@class IpDrv.OnlinePlaylistManager.Playlist : Object
+---@class IpDrv.OnlinePlaylistManager.Playlist : Struct
 ---@field ConfiguredGames Array<IpDrv.OnlinePlaylistManager.ConfiguredGameSetting>
 ---@field PlaylistId integer
 ---@field LoadBalanceId integer
@@ -1579,25 +1579,25 @@
 ---@field MapCycle Array<string>
 ---@field InventorySwaps Array<IpDrv.OnlinePlaylistManager.InventorySwap>
 
----@class IpDrv.OnlinePlaylistManager.PlaylistPopulation : Object
+---@class IpDrv.OnlinePlaylistManager.PlaylistPopulation : Struct
 ---@field PlaylistId integer
 ---@field WorldwideTotal integer
 ---@field RegionTotal integer
 
----@class IpDrv.OnlinePlaylistManager.ConfiguredGameSetting : Object
+---@class IpDrv.OnlinePlaylistManager.ConfiguredGameSetting : Struct
 ---@field GameSettingId integer
 ---@field GameSettingsClassName string
 ---@field URL string
 ---@field GameSettings Engine.OnlineGameSettings
 
----@class IpDrv.OnlinePlaylistManager.InventorySwap : Object
+---@class IpDrv.OnlinePlaylistManager.InventorySwap : Struct
 ---@field Original string
 ---@field SwapTo string
 
 ---@class IpDrv.OnlineTitleFileDownloadMcp.TitleFileMcp : Engine.OnlineSubsystem.TitleFile
 ---@field HttpDownloader Core.Object.Pointer
 
----@class IpDrv.PartyBeacon.PlayerReservation : Object
+---@class IpDrv.PartyBeacon.PlayerReservation : Struct
 ---@field NetId Engine.OnlineSubsystem.UniqueNetId
 ---@field Skill integer
 ---@field XpLevel integer
@@ -1605,12 +1605,12 @@
 ---@field Sigma Core.Object.Double
 ---@field ElapsedSessionTime number
 
----@class IpDrv.PartyBeacon.PartyReservation : Object
+---@class IpDrv.PartyBeacon.PartyReservation : Struct
 ---@field TeamNum integer
 ---@field PartyLeader Engine.OnlineSubsystem.UniqueNetId
 ---@field PartyMembers Array<IpDrv.PartyBeacon.PlayerReservation>
 
----@class IpDrv.PartyBeaconHost.ClientBeaconConnection : Object
+---@class IpDrv.PartyBeaconHost.ClientBeaconConnection : Struct
 ---@field PartyLeader Engine.OnlineSubsystem.UniqueNetId
 ---@field ElapsedHeartbeatTime number
 ---@field Socket Core.Object.Pointer

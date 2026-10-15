@@ -344,34 +344,34 @@
 ---@class GFxUI.GFxFSCmdHandler_Kismet : GFxUI.GFxFSCmdHandler
 ---@field FSCommand fun(self: GFxUI.GFxFSCmdHandler_Kismet, Movie: GFxUI.GFxMoviePlayer, Event: GFxUI.GFxEvent_FSCommand, Cmd: string, Arg: string): boolean
 
----@class GFxUI.GFxMoviePlayer.SoundThemeBinding : Object
+---@class GFxUI.GFxMoviePlayer.SoundThemeBinding : Struct
 ---@field ThemeName string
 ---@field Theme Engine.UISoundTheme
 ---@field ThemeClassName string
 
----@class GFxUI.GFxMoviePlayer.ASValue : Object
+---@class GFxUI.GFxMoviePlayer.ASValue : Struct
 ---@field Type integer
 ---@field B boolean
 ---@field N number
 ---@field I integer
 ---@field S string
 
----@class GFxUI.GFxMoviePlayer.GFxStoredViewportParams : Object
+---@class GFxUI.GFxMoviePlayer.GFxStoredViewportParams : Struct
 ---@field X integer
 ---@field Y integer
 ---@field Width integer
 ---@field Height integer
 ---@field bInitialized boolean
 
----@class GFxUI.GFxMoviePlayer.GFxWidgetBinding : Object
+---@class GFxUI.GFxMoviePlayer.GFxWidgetBinding : Struct
 ---@field WidgetName string
 ---@field WidgetClass Core.Class
 
----@class GFxUI.GFxMoviePlayer.ExternalTexture : Object
+---@class GFxUI.GFxMoviePlayer.ExternalTexture : Struct
 ---@field Resource string
 ---@field Texture Engine.Texture
 
----@class GFxUI.GFxObject.ASDisplayInfo : Object
+---@class GFxUI.GFxObject.ASDisplayInfo : Struct
 ---@field X number
 ---@field Y number
 ---@field Z number
@@ -395,7 +395,7 @@
 ---@field hasAlpha boolean
 ---@field hasVisible boolean
 
----@class GFxUI.GFxObject.ASColorTransform : Object
+---@class GFxUI.GFxObject.ASColorTransform : Struct
 ---@field Multiply Core.Object.LinearColor
 ---@field Add Core.Object.LinearColor
 
@@ -410,7 +410,7 @@
 ---@field __EventListener__Delegate any
 ---@field EventListener fun(self: GFxUI.GFxClikWidget, Data: GFxUI.GFxClikWidget.EventData)
 
----@class GFxUI.GFxClikWidget.EventData : Object
+---@class GFxUI.GFxClikWidget.EventData : Struct
 ---@field _this GFxUI.GFxObject
 ---@field Target GFxUI.GFxObject
 ---@field Type string
@@ -420,7 +420,7 @@
 ---@field Index integer
 ---@field lastIndex integer
 
----@class GFxUI.GFxEngine.GCReference : Object
+---@class GFxUI.GFxEngine.GCReference : Struct
 ---@field m_object Core.Object
 ---@field m_count integer
 ---@field m_statid integer

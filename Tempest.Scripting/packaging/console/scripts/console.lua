@@ -4,19 +4,25 @@
 -- creating the Console interaction. This does what TgModGameViewportClient
 -- does: new a Console inside the viewport, register it as an interaction,
 -- and point it at player 0. Open it with the key below.
-local CONSOLE_KEY = "F2"   -- any UE3 key name: Tilde, F2, ...
-local TYPE_KEY = "Tab"     -- single-line input bar
+local CONSOLE_KEY = "F2" -- any UE3 key name: Tilde, F2, ...
+local TYPE_KEY = "Tab" -- single-line input bar
 
 local function enable_console()
 	local engine = tempest.engine()
 	local viewport = engine and engine.GameViewport
-	if not viewport then return false end
+	if not viewport then
+		return false
+	end
 	if viewport.ViewportConsole then
 		print("console: already present (" .. tostring(viewport.ViewportConsole) .. ")")
 		return true
 	end
+
+	---@type Engine.Console
 	local console = tempest.new("Engine.Console", viewport)
-	if not console then return false end
+	if not console then
+		return false
+	end
 	viewport.ViewportConsole = console
 	-- Index 0: interactions get input in array order and the GFx UI one
 	-- swallows keys, so the console must come first (TgMod inserts it during
@@ -33,6 +39,10 @@ end
 local id
 id = tempest.on("PostRender", function()
 	local ok, done = pcall(enable_console)
-	if not ok then print("console: " .. tostring(done)) end
-	if ok and done then tempest.off(id) end
+	if not ok then
+		print("console: " .. tostring(done))
+	end
+	if ok and done then
+		tempest.off(id)
+	end
 end)

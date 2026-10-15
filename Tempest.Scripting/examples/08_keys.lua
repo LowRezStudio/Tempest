@@ -3,7 +3,9 @@
 --   tempest.dump_sdk()               write LuaLS stubs for every game class to <mod>/types/sdk
 tempest.on_key("F5", function()
 	local pc = tempest.local_player()
-	if pc then pc:ClientMessage("F5 from Lua") end
+	if pc then
+		pc:ClientMessage("F5 from Lua")
+	end
 	print("F5 pressed")
 end)
 
@@ -18,11 +20,17 @@ tempest.on_key("Ctrl+F5", function()
 end)
 
 -- Release + mouse + wheel bindings.
-tempest.on_key("F6", function() print("F6 released") end, { up = true })
-tempest.on_key("Shift+MouseMiddle", function() print("shift + middle click") end)
+tempest.on_key("F6", function()
+	print("F6 released")
+end, { up = true })
+tempest.on_key("Shift+MouseMiddle", function()
+	print("shift + middle click")
+end)
 tempest.on_key("WheelDown", function()
 	local pc = tempest.local_player()
-	if pc and pc.Pawn then print("wheel down at " .. tostring(pc.Pawn.Location.z)) end
+	if pc and pc.Pawn then
+		print("wheel down at " .. tostring(pc.Pawn.Location.z))
+	end
 end)
 
 -- Spawn an actor in front of the player: `spawn Engine.KActorSpawnable` in
@@ -31,7 +39,10 @@ end)
 -- classes exist precisely for runtime spawning.
 tempest.command("spawn", function(pc, rest, argv)
 	local pawn = pc.Pawn
-	if not pawn or not argv[1] then pc:ClientMessage("spawn <Pkg.Class>") return end
+	if not pawn or not argv[1] then
+		pc:ClientMessage("spawn <Pkg.Class>")
+		return
+	end
 	local l = pawn.Location
 	local a = tempest.spawn(argv[1], { x = l.x + 200, y = l.y, z = l.z })
 	pc:ClientMessage("spawned " .. tostring(a))
@@ -41,5 +52,7 @@ end, "spawn <Pkg.Class>  (200 units ahead on X; e.g. Engine.KActorSpawnable)")
 tempest.on_key("F9", function()
 	local classes, files = tempest.dump_sdk()
 	local pc = tempest.local_player()
-	if pc then pc:ClientMessage(string.format("SDK: %d classes in %d files", classes, files)) end
+	if pc then
+		pc:ClientMessage(string.format("SDK: %d classes in %d files", classes, files))
+	end
 end)

@@ -20,7 +20,7 @@ output.bin
 # Rust build artifacts
 target/
 
-# Tempest.Scripting local packaging (rebuilt via scripts/package-*.sh/ps1)
+# Tempest.Scripting build output (scripts/package.sh)
 Tempest.Scripting/dist/
 *.tempest
 

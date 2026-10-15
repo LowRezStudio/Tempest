@@ -198,7 +198,9 @@ examples/      00_status .. 08_keys: reference scripts (dev/ starts as a copy)
 examples/mods/ tempest-scripting-lib: a DLL-less library mod (dist/lib.tempest)
 packaging/     scripting/ (runtime manifest + core.lua), console/ (console mod)
 dev/           the scratch mod (dist/dev.tempest): edit freely
-types/         tempest.d.lua (LuaLS API definitions, shipped in scripting and dev)
+types/         tempest.d.lua (LuaLS API definitions, shipped in scripting and dev);
+               types/sdk/ is the in-game `tempest_sdk` output for 8.1 (regenerate after a game update)
+.luarc.json    LuaLS config for this repo: completion in examples/ and dev/ against types/
 scripts/       package.sh (macOS/Linux), package.ps1 (Windows), pack.py (zip + CHECKSUMS)
 ```
 

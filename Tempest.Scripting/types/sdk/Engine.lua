@@ -15260,44 +15260,44 @@
 ---@field UseCustomCostMod boolean
 ---@field m_CostModifier Core.Object.Pointer
 
----@class Engine.Actor.AnimSlotDesc : Object
+---@class Engine.Actor.AnimSlotDesc : Struct
 ---@field SlotName string
 ---@field NumChannels integer
 
----@class Engine.Actor.RigidBodyState : Object
+---@class Engine.Actor.RigidBodyState : Struct
 ---@field Position Vector
 ---@field Quaternion Core.Object.Quat
 ---@field LinVel Vector
 ---@field AngVel Vector
 ---@field bNewData integer
 
----@class Engine.Actor.RigidBodyContactInfo : Object
+---@class Engine.Actor.RigidBodyContactInfo : Struct
 ---@field ContactPosition Vector
 ---@field ContactNormal Vector
 ---@field ContactPenetration number
 ---@field ContactVelocity Vector
 ---@field PhysMaterial Engine.PhysicalMaterial
 
----@class Engine.Actor.CollisionImpactData : Object
+---@class Engine.Actor.CollisionImpactData : Struct
 ---@field ContactInfos Array<Engine.Actor.RigidBodyContactInfo>
 ---@field TotalNormalForceVector Vector
 ---@field TotalFrictionForceVector Vector
 
----@class Engine.Actor.PhysEffectInfo : Object
+---@class Engine.Actor.PhysEffectInfo : Struct
 ---@field Threshold number
 ---@field ReFireDelay number
 ---@field Effect Engine.ParticleSystem
 ---@field Sound Engine.SoundCue
 
----@class Engine.Actor.ActorReference : Object
+---@class Engine.Actor.ActorReference : Struct
 ---@field Actor Engine.Actor
 ---@field Guid Core.Object.Guid
 
----@class Engine.Actor.NavReference : Object
+---@class Engine.Actor.NavReference : Struct
 ---@field Nav Engine.NavigationPoint
 ---@field Guid Core.Object.Guid
 
----@class Engine.Actor.BasedPosition : Object
+---@class Engine.Actor.BasedPosition : Struct
 ---@field Base Engine.Actor
 ---@field Position Vector
 ---@field CachedBaseLocation Vector
@@ -15306,7 +15306,7 @@
 
 ---@class Engine.SeqEvent_HitWall : Engine.SequenceEvent
 
----@class Engine.Actor.TraceHitInfo : Object
+---@class Engine.Actor.TraceHitInfo : Struct
 ---@field Material Engine.Material
 ---@field PhysMaterial Engine.PhysicalMaterial
 ---@field Item integer
@@ -15314,7 +15314,7 @@
 ---@field BoneName string
 ---@field HitComponent Engine.PrimitiveComponent
 
----@class Engine.Actor.ImpactInfo : Object
+---@class Engine.Actor.ImpactInfo : Struct
 ---@field HitActor Engine.Actor
 ---@field HitLocation Vector
 ---@field HitNormal Vector
@@ -15367,7 +15367,7 @@
 ---@field VelocityMag number
 ---@field bVelocityRelativeToActorRotation boolean
 
----@class Engine.SequenceOp.SeqOpInputLink : Object
+---@class Engine.SequenceOp.SeqOpInputLink : Struct
 ---@field LinkDesc string
 ---@field bHasImpulse boolean
 ---@field QueuedActivations integer
@@ -15397,11 +15397,11 @@
 
 ---@class Engine.SeqEvent_MobileTouch : Engine.SequenceEvent
 
----@class Engine.Actor.AnimSlotInfo : Object
+---@class Engine.Actor.AnimSlotInfo : Struct
 ---@field SlotName string
 ---@field ChannelWeights Array<number>
 
----@class Engine.Actor.TimerData : Object
+---@class Engine.Actor.TimerData : Struct
 ---@field bLoop boolean
 ---@field bPaused boolean
 ---@field FuncName string
@@ -15410,11 +15410,11 @@
 ---@field TimerTimeDilation number
 ---@field TimerObj Core.Object
 
----@class Engine.Info.KeyValuePair : Object
+---@class Engine.Info.KeyValuePair : Struct
 ---@field Key string
 ---@field Value string
 
----@class Engine.Info.PlayerResponseLine : Object
+---@class Engine.Info.PlayerResponseLine : Struct
 ---@field PlayerNum integer
 ---@field PlayerID integer
 ---@field PlayerName string
@@ -15423,7 +15423,7 @@
 ---@field StatsID integer
 ---@field PlayerInfo Array<Engine.Info.KeyValuePair>
 
----@class Engine.Info.ServerResponseLine : Object
+---@class Engine.Info.ServerResponseLine : Struct
 ---@field ServerID integer
 ---@field IP string
 ---@field Port integer
@@ -15437,17 +15437,17 @@
 ---@field ServerInfo Array<Engine.Info.KeyValuePair>
 ---@field PlayerInfo Array<Engine.Info.PlayerResponseLine>
 
----@class Engine.OnlineSubsystem.UniqueNetId : Object
+---@class Engine.OnlineSubsystem.UniqueNetId : Struct
 ---@field Uid Core.Object.QWord
 
----@class Engine.OnlineSubsystem.NamedSession : Object
+---@class Engine.OnlineSubsystem.NamedSession : Struct
 ---@field SessionName string
 ---@field SessionInfo Core.Object.Pointer
 ---@field GameSettings Engine.OnlineGameSettings
 ---@field Registrants Array<Engine.OnlineSubsystem.OnlineRegistrant>
 ---@field ArbitrationRegistrants Array<Engine.OnlineSubsystem.OnlineArbitrationRegistrant>
 
----@class Engine.OnlineSubsystem.OnlineRegistrant : Object
+---@class Engine.OnlineSubsystem.OnlineRegistrant : Struct
 ---@field PlayerNetId Engine.OnlineSubsystem.UniqueNetId
 
 ---@class Engine.OnlineSubsystem.OnlineArbitrationRegistrant : Engine.OnlineSubsystem.OnlineRegistrant
@@ -15617,7 +15617,7 @@
 ---@field OnLoginCancelled fun(self: Engine.OnlinePlayerInterface)
 ---@field OnLoginChange fun(self: Engine.OnlinePlayerInterface, LocalUserNum: integer)
 
----@class Engine.OnlineSubsystem.NamedInterface : Object
+---@class Engine.OnlineSubsystem.NamedInterface : Struct
 ---@field InterfaceName string
 ---@field InterfaceObject Core.Object
 
@@ -16195,7 +16195,7 @@
 ---@field OnCreateOnlineAccountCompleted fun(self: Engine.OnlineAccountInterface, ErrorStatus: integer)
 ---@field CreateOnlineAccount fun(self: Engine.OnlineAccountInterface, UserName: string, Password: string, EmailAddress: string, ProductKey?: string): boolean
 
----@class Engine.OnlineSubsystem.SessionUpdateInfo : Object
+---@class Engine.OnlineSubsystem.SessionUpdateInfo : Struct
 ---@field MembersJoined Array<Engine.OnlineSubsystem.SessionMemberInfo>
 ---@field MembersLeft Array<Engine.OnlineSubsystem.SessionMemberInfo>
 ---@field bHostDeviceTokenChanged boolean
@@ -16211,31 +16211,31 @@
 ---@field TitleURL string
 ---@field PictureURL string
 
----@class Engine.OnlineSubsystem.SocialPostImageInfo : Object
+---@class Engine.OnlineSubsystem.SocialPostImageInfo : Struct
 ---@field Flags Engine.OnlineSubsystem.SocialPostImageFlags
 ---@field MessageText string
 ---@field TitleText string
 ---@field PictureCaption string
 ---@field PictureDescription string
 
----@class Engine.OnlineSubsystem.SessionMemberInfo : Object
+---@class Engine.OnlineSubsystem.SessionMemberInfo : Struct
 ---@field PlayerNetId Engine.OnlineSubsystem.UniqueNetId
 ---@field MemberStatus integer
 ---@field SecureAddress string
 ---@field NickName string
 ---@field Muted boolean
 
----@class Engine.OnlineSubsystem.SocialPostImageFlags : Object
+---@class Engine.OnlineSubsystem.SocialPostImageFlags : Struct
 ---@field bIsUserGeneratedImage boolean
 ---@field bIsGameGeneratedImage boolean
 ---@field bIsAchievementImage boolean
 ---@field bIsMediaImage boolean
 
----@class Engine.OnlineSubsystem.SocialPostPrivileges : Object
+---@class Engine.OnlineSubsystem.SocialPostPrivileges : Struct
 ---@field bCanPostImage boolean
 ---@field bCanPostLink boolean
 
----@class Engine.OnlineSubsystem.OnlinePartyMember : Object
+---@class Engine.OnlineSubsystem.OnlinePartyMember : Struct
 ---@field UniqueId Engine.OnlineSubsystem.UniqueNetId
 ---@field NickName string
 ---@field LocalUserNum integer
@@ -16252,15 +16252,15 @@
 ---@field Data3 integer
 ---@field Data4 integer
 
----@class Engine.OnlineSubsystem.PermissionsResultByUniqueNetId : Object
+---@class Engine.OnlineSubsystem.PermissionsResultByUniqueNetId : Struct
 ---@field User Engine.OnlineSubsystem.UniqueNetId
 ---@field bHasPermission boolean
 
----@class Engine.OnlineSubsystem.PermissionsResult : Object
+---@class Engine.OnlineSubsystem.PermissionsResult : Struct
 ---@field User Engine.OnlineSubsystem.SessionMemberInfo
 ---@field bHasPermission boolean
 
----@class Engine.OnlineSubsystem.MarketplaceInventoryItem : Object
+---@class Engine.OnlineSubsystem.MarketplaceInventoryItem : Struct
 ---@field ProductID string
 ---@field MediaItemType integer
 ---@field ItemState integer
@@ -16274,7 +16274,7 @@
 ---@field ConsumableUrl string
 ---@field Receipt string
 
----@class Engine.OnlineSubsystem.MarketplaceProductImage : Object
+---@class Engine.OnlineSubsystem.MarketplaceProductImage : Struct
 ---@field Id string
 ---@field Height integer
 ---@field Width integer
@@ -16282,7 +16282,7 @@
 ---@field Purposes Array<string>
 ---@field ResizeURL string
 
----@class Engine.OnlineSubsystem.MarketplaceProductDetails : Object
+---@class Engine.OnlineSubsystem.MarketplaceProductDetails : Struct
 ---@field StandardId string
 ---@field MediaItemType integer
 ---@field ProductName string
@@ -16299,7 +16299,7 @@
 ---@field ProductDescription string
 ---@field IncludeTaxMessage string
 
----@class Engine.OnlineSubsystem.MarketplaceProductAvailability : Object
+---@class Engine.OnlineSubsystem.MarketplaceProductAvailability : Struct
 ---@field AcceptablePaymentInstrumentTypes Array<string>
 ---@field Description string
 ---@field Title string
@@ -16316,7 +16316,7 @@
 ---@field PromotionalText string
 ---@field SignedOffer string
 
----@class Engine.OnlineSubsystem.AchievementDetails : Object
+---@class Engine.OnlineSubsystem.AchievementDetails : Struct
 ---@field Id integer
 ---@field StringId string
 ---@field AchievementName string
@@ -16346,34 +16346,34 @@
 ---@field ServiceConfigurationID string
 ---@field TitleAssociations Array<Engine.OnlineSubsystem.AchievementTitleAssociation>
 
----@class Engine.OnlineSubsystem.AchievementTitleAssociation : Object
+---@class Engine.OnlineSubsystem.AchievementTitleAssociation : Struct
 ---@field LocalizedTitleName string
 ---@field TitleId integer
 
----@class Engine.OnlineSubsystem.AchievementReward : Object
+---@class Engine.OnlineSubsystem.AchievementReward : Struct
 ---@field RewardName string
 ---@field Description string
 ---@field Data string
 ---@field RewardType integer
 
----@class Engine.OnlineSubsystem.AchievementMediaAsset : Object
+---@class Engine.OnlineSubsystem.AchievementMediaAsset : Struct
 ---@field AssetName string
 ---@field AssetType integer
 ---@field AssetURL string
 
----@class Engine.OnlineSubsystem.UserAccountInfo : Object
+---@class Engine.OnlineSubsystem.UserAccountInfo : Struct
 ---@field DateOfBirth string
 ---@field Email string
 ---@field FirstName string
 ---@field LastName string
 ---@field Gamertag string
 
----@class Engine.OnlineSubsystem.CommunityContentMetadata : Object
+---@class Engine.OnlineSubsystem.CommunityContentMetadata : Struct
 ---@field ContentType integer
 ---@field RemotePath string
 ---@field DisplayName string
 
----@class Engine.OnlineSubsystem.CommunityContentFile : Object
+---@class Engine.OnlineSubsystem.CommunityContentFile : Struct
 ---@field ContentId integer
 ---@field RemoteContentPath string
 ---@field ContentType integer
@@ -16385,22 +16385,22 @@
 ---@field LastRatingGiven integer
 ---@field LocalFilePath string
 
----@class Engine.OnlineSubsystem.TitleFile : Object
+---@class Engine.OnlineSubsystem.TitleFile : Struct
 ---@field Filename string
 ---@field AsyncState integer
 ---@field Data Array<integer>
 
----@class Engine.OnlineSubsystem.EmsFile : Object
+---@class Engine.OnlineSubsystem.EmsFile : Struct
 ---@field Hash string
 ---@field DLName string
 ---@field Filename string
 ---@field FileSize integer
 
----@class Engine.OnlineSubsystem.NamedInterfaceDef : Object
+---@class Engine.OnlineSubsystem.NamedInterfaceDef : Struct
 ---@field InterfaceName string
 ---@field InterfaceClassName string
 
----@class Engine.OnlineSubsystem.OnlineFriendMessage : Object
+---@class Engine.OnlineSubsystem.OnlineFriendMessage : Struct
 ---@field SendingPlayerId Engine.OnlineSubsystem.UniqueNetId
 ---@field SendingPlayerNick string
 ---@field bIsFriendInvite boolean
@@ -16409,7 +16409,7 @@
 ---@field bWasDenied boolean
 ---@field Message string
 
----@class Engine.OnlineSubsystem.RemoteTalker : Object
+---@class Engine.OnlineSubsystem.RemoteTalker : Struct
 ---@field TalkerId Engine.OnlineSubsystem.UniqueNetId
 ---@field LastNotificationTime number
 ---@field bWasTalking boolean
@@ -16418,7 +16418,7 @@
 ---@field TimeSinceLastPacket number
 ---@field TimeSinceJoining number
 
----@class Engine.OnlineSubsystem.LocalTalker : Object
+---@class Engine.OnlineSubsystem.LocalTalker : Struct
 ---@field bHasVoice boolean
 ---@field bHasNetworkedVoice boolean
 ---@field bIsRecognizingSpeech boolean
@@ -16427,12 +16427,12 @@
 ---@field bIsRegistered boolean
 ---@field TimeSinceLastPacket number
 
----@class Engine.OnlineSubsystem.OnlinePlayerScore : Object
+---@class Engine.OnlineSubsystem.OnlinePlayerScore : Struct
 ---@field PlayerID Engine.OnlineSubsystem.UniqueNetId
 ---@field TeamID integer
 ---@field Score integer
 
----@class Engine.OnlineSubsystem.SpeechRecognizedWord : Object
+---@class Engine.OnlineSubsystem.SpeechRecognizedWord : Struct
 ---@field WordId integer
 ---@field WordText string
 ---@field Confidence number
@@ -16440,7 +16440,7 @@
 ---@class Engine.OnlineSubsystem.OnlineCrossTitleContent : Engine.OnlineSubsystem.OnlineContent
 ---@field TitleId integer
 
----@class Engine.OnlineSubsystem.OnlineContent : Object
+---@class Engine.OnlineSubsystem.OnlineContent : Struct
 ---@field ContentType integer
 ---@field UserIndex integer
 ---@field bIsCorrupt boolean
@@ -16452,7 +16452,7 @@
 ---@field ContentPackages Array<string>
 ---@field ContentFiles Array<string>
 
----@class Engine.OnlineSubsystem.OnlineFriend : Object
+---@class Engine.OnlineSubsystem.OnlineFriend : Struct
 ---@field UniqueId Engine.OnlineSubsystem.UniqueNetId
 ---@field SessionId Core.Object.QWord
 ---@field NickName string
@@ -16468,7 +16468,7 @@
 ---@field bHaveInvited boolean
 ---@field bHasInvitedYou boolean
 
----@class Engine.OnlineSubsystem.OnlineProfile : Object
+---@class Engine.OnlineSubsystem.OnlineProfile : Struct
 ---@field UserId string
 ---@field AccountTier integer
 ---@field Gamerscore integer
@@ -16477,11 +16477,11 @@
 ---@field ApplicationDisplayPictureResizeURL string
 ---@field GameDisplayPictureResizeURL string
 
----@class Engine.OnlineSubsystem.FriendsQuery : Object
+---@class Engine.OnlineSubsystem.FriendsQuery : Struct
 ---@field UniqueId Engine.OnlineSubsystem.UniqueNetId
 ---@field bIsFriend boolean
 
----@class Engine.OnlineAuthInterface.BaseAuthSession : Object
+---@class Engine.OnlineAuthInterface.BaseAuthSession : Struct
 ---@field EndPointIP Core.Object.IpAddr
 ---@field EndPointPort integer
 ---@field EndPointUID Engine.OnlineSubsystem.UniqueNetId
@@ -16558,13 +16558,13 @@
 ---@field ListenAuthTicketUID integer
 ---@field ListenAuthRetryCount integer
 
----@class Engine.AccessControl.PendingClientAuth : Object
+---@class Engine.AccessControl.PendingClientAuth : Struct
 ---@field ClientConnection Engine.Player
 ---@field ClientUID Engine.OnlineSubsystem.UniqueNetId
 ---@field AuthTimestamp number
 ---@field AuthRetryCount integer
 
----@class Engine.AccessControl.ServerAuthRetry : Object
+---@class Engine.AccessControl.ServerAuthRetry : Struct
 ---@field ClientUID Engine.OnlineSubsystem.UniqueNetId
 ---@field AuthRetryCount integer
 
@@ -16589,7 +16589,7 @@
 ---@class Engine.OnlineAuthInterface.LocalAuthSession : Engine.OnlineAuthInterface.BaseAuthSession
 ---@field SessionUID integer
 
----@class Engine.PrimitiveComponent.RBCollisionChannelContainer : Object
+---@class Engine.PrimitiveComponent.RBCollisionChannelContainer : Struct
 ---@field Default boolean
 ---@field Nothing boolean
 ---@field Pawn boolean
@@ -16610,7 +16610,7 @@
 ---@field Clothing boolean
 ---@field ClothingCollision boolean
 
----@class Engine.LightComponent.LightingChannelContainer : Object
+---@class Engine.LightComponent.LightingChannelContainer : Struct
 ---@field bInitialized boolean
 ---@field BSP boolean
 ---@field Static boolean
@@ -16639,7 +16639,7 @@
 ---@field Gameplay_4 boolean
 ---@field Crowd boolean
 
----@class Engine.PrimitiveComponent.ParticleSysParam : Object
+---@class Engine.PrimitiveComponent.ParticleSysParam : Struct
 ---@field Name string
 ---@field ParamType integer
 ---@field Scalar number
@@ -16651,7 +16651,7 @@
 ---@field Material Engine.MaterialInterface
 ---@field ValueName string
 
----@class Engine.PrimitiveComponent.MaterialViewRelevance : Object
+---@class Engine.PrimitiveComponent.MaterialViewRelevance : Struct
 ---@field bOpaque boolean
 ---@field bTranslucent boolean
 ---@field bDistortion boolean
@@ -16670,7 +16670,7 @@
 
 ---@class Engine.ActorFactorySkeletalMeshMAT : Engine.ActorFactorySkeletalMesh
 
----@class Engine.Controller.VisiblePortalInfo : Object
+---@class Engine.Controller.VisiblePortalInfo : Struct
 ---@field Source Engine.Actor
 ---@field Destination Engine.Actor
 
@@ -16678,29 +16678,29 @@
 
 ---@class Engine.SeqAct_ToggleGodMode : Engine.SequenceAction
 
----@class Engine.Camera.TViewTarget : Object
+---@class Engine.Camera.TViewTarget : Struct
 ---@field Target Engine.Actor
 ---@field Controller Engine.Controller
 ---@field POV Core.Object.TPOV
 ---@field AspectRatio number
 ---@field PRI Engine.PlayerReplicationInfo
 
----@class Engine.Camera.TCameraCache : Object
+---@class Engine.Camera.TCameraCache : Struct
 ---@field TimeStamp number
 ---@field POV Core.Object.TPOV
 
----@class Engine.Camera.ViewTargetTransitionParams : Object
+---@class Engine.Camera.ViewTargetTransitionParams : Struct
 ---@field BlendTime number
 ---@field BlendFunction integer
 ---@field BlendExp number
 ---@field bLockOutgoing boolean
 
----@class Engine.PostProcessVolume.LUTBlender : Object
+---@class Engine.PostProcessVolume.LUTBlender : Struct
 ---@field LUTTextures Array<Engine.Texture>
 ---@field LUTWeights Array<number>
 ---@field bHasChanged boolean
 
----@class Engine.PostProcessVolume.MobileColorGradingParams : Object
+---@class Engine.PostProcessVolume.MobileColorGradingParams : Struct
 ---@field TransitionTime number
 ---@field Blend number
 ---@field Desaturation number
@@ -16708,7 +16708,7 @@
 ---@field MidTones Core.Object.LinearColor
 ---@field Shadows Core.Object.LinearColor
 
----@class Engine.PostProcessVolume.MobilePostProcessSettings : Object
+---@class Engine.PostProcessVolume.MobilePostProcessSettings : Struct
 ---@field bOverride_Mobile_BlurAmount boolean
 ---@field bOverride_Mobile_TransitionTime boolean
 ---@field bOverride_Mobile_Bloom_Scale boolean
@@ -16730,7 +16730,7 @@
 ---@field Mobile_DOF_NearBlurFactor number
 ---@field Mobile_DOF_FarBlurFactor number
 
----@class Engine.PostProcessVolume.PostProcessSettings : Object
+---@class Engine.PostProcessVolume.PostProcessSettings : Struct
 ---@field bOverride_EnableBloom boolean
 ---@field bOverride_EnableDOF boolean
 ---@field bOverride_EnableMotionBlur boolean
@@ -16823,14 +16823,14 @@
 ---@field ColorBlind_Mode integer
 ---@field ColorBlind_Intensity number
 
----@class Engine.EngineBaseTypes.RenderingPerformanceOverrides : Object
+---@class Engine.EngineBaseTypes.RenderingPerformanceOverrides : Struct
 ---@field bAllowAmbientOcclusion boolean
 ---@field bAllowDominantWholeSceneDynamicShadows boolean
 ---@field bAllowMotionBlurSkinning boolean
 ---@field bAllowTemporalAA boolean
 ---@field bAllowLightShafts boolean
 
----@class Engine.SequenceOp.SeqOpOutputLink : Object
+---@class Engine.SequenceOp.SeqOpOutputLink : Struct
 ---@field Links Array<Engine.SequenceOp.SeqOpOutputInputLink>
 ---@field LinkDesc string
 ---@field bHasImpulse boolean
@@ -16845,7 +16845,7 @@
 ---@field bClampedMin boolean
 ---@field bIsActivated boolean
 
----@class Engine.SequenceOp.SeqVarLink : Object
+---@class Engine.SequenceOp.SeqVarLink : Struct
 ---@field ExpectedType Core.Class
 ---@field LinkedVariables Array<Engine.SequenceVariable>
 ---@field LinkDesc string
@@ -16864,7 +16864,7 @@
 ---@field bClampedMax boolean
 ---@field bClampedMin boolean
 
----@class Engine.SequenceOp.SeqEventLink : Object
+---@class Engine.SequenceOp.SeqEventLink : Struct
 ---@field ExpectedType Core.Class
 ---@field LinkedEvents Array<Engine.SequenceEvent>
 ---@field LinkDesc string
@@ -16874,7 +16874,7 @@
 ---@field bClampedMax boolean
 ---@field bClampedMin boolean
 
----@class Engine.SequenceOp.SeqOpOutputInputLink : Object
+---@class Engine.SequenceOp.SeqOpOutputInputLink : Struct
 ---@field LinkedOp Engine.SequenceOp
 ---@field InputLinkIdx integer
 
@@ -16882,37 +16882,37 @@
 ---@field Activated fun(self: Engine.SeqAct_ControlMovieTexture)
 ---@field MovieTexture Engine.TextureMovie
 
----@class Engine.Settings.IdToStringMapping : Object
+---@class Engine.Settings.IdToStringMapping : Struct
 ---@field Id integer
 ---@field Name string
 
----@class Engine.Settings.LocalizedStringSetting : Object
+---@class Engine.Settings.LocalizedStringSetting : Struct
 ---@field Id integer
 ---@field ValueIndex integer
 ---@field AdvertisementType integer
 
----@class Engine.Settings.SettingsProperty : Object
+---@class Engine.Settings.SettingsProperty : Struct
 ---@field PropertyId integer
 ---@field Data Engine.Settings.SettingsData
 ---@field AdvertisementType integer
 
----@class Engine.Settings.SettingsData : Object
+---@class Engine.Settings.SettingsData : Struct
 ---@field Type integer
 ---@field Value1 integer
 ---@field Value2 Core.Object.Pointer
 
----@class Engine.Settings.StringIdToStringMapping : Object
+---@class Engine.Settings.StringIdToStringMapping : Struct
 ---@field Id integer
 ---@field Name string
 ---@field bIsWildcard boolean
 
----@class Engine.Settings.LocalizedStringSettingMetaData : Object
+---@class Engine.Settings.LocalizedStringSettingMetaData : Struct
 ---@field Id integer
 ---@field Name string
 ---@field ColumnHeaderText string
 ---@field ValueMappings Array<Engine.Settings.StringIdToStringMapping>
 
----@class Engine.Settings.SettingsPropertyPropertyMetaData : Object
+---@class Engine.Settings.SettingsPropertyPropertyMetaData : Struct
 ---@field Id integer
 ---@field Name string
 ---@field ColumnHeaderText string
@@ -16923,40 +16923,40 @@
 ---@field MaxVal number
 ---@field RangeIncrement number
 
----@class Engine.OnlineGameSearch.OnlineGameSearchQuery : Object
+---@class Engine.OnlineGameSearch.OnlineGameSearchQuery : Struct
 ---@field OrClauses Array<Engine.OnlineGameSearch.OnlineGameSearchORClause>
 ---@field SortClauses Array<Engine.OnlineGameSearch.OnlineGameSearchSortClause>
 
----@class Engine.OnlineGameSearch.OverrideSkill : Object
+---@class Engine.OnlineGameSearch.OverrideSkill : Struct
 ---@field LeaderboardId integer
 ---@field Players Array<Engine.OnlineSubsystem.UniqueNetId>
 ---@field Mus Array<Core.Object.Double>
 ---@field Sigmas Array<Core.Object.Double>
 
----@class Engine.OnlineGameSearch.OnlineGameSearchORClause : Object
+---@class Engine.OnlineGameSearch.OnlineGameSearchORClause : Struct
 ---@field OrParams Array<Engine.OnlineGameSearch.OnlineGameSearchParameter>
 
----@class Engine.OnlineGameSearch.OnlineGameSearchSortClause : Object
+---@class Engine.OnlineGameSearch.OnlineGameSearchSortClause : Struct
 ---@field EntryId integer
 ---@field ObjectPropertyName string
 ---@field EntryType integer
 ---@field SortType integer
 
----@class Engine.OnlineGameSearch.OnlineGameSearchParameter : Object
+---@class Engine.OnlineGameSearch.OnlineGameSearchParameter : Struct
 ---@field EntryId integer
 ---@field ObjectPropertyName string
 ---@field EntryType integer
 ---@field ComparisonType integer
 
----@class Engine.OnlineGameSearch.NamedObjectProperty : Object
+---@class Engine.OnlineGameSearch.NamedObjectProperty : Struct
 ---@field ObjectPropertyName string
 ---@field ObjectPropertyValue string
 
----@class Engine.OnlineGameSearch.OnlineGameSearchResult : Object
+---@class Engine.OnlineGameSearch.OnlineGameSearchResult : Struct
 ---@field GameSettings Engine.OnlineGameSettings
 ---@field PlatformData Core.Object.Pointer
 
----@class Engine.PlayerController.DebugTextInfo : Object
+---@class Engine.PlayerController.DebugTextInfo : Struct
 ---@field SrcActor Engine.Actor
 ---@field SrcActorOffset Vector
 ---@field SrcActorDesiredOffset Vector
@@ -16992,12 +16992,12 @@
 ---@field PurgeOldEntries fun(self: Engine.CoverReplicator)
 ---@field CoverReplicationData Array<Engine.CoverReplicator.CoverReplicationInfo>
 
----@class Engine.PlayerController.ConnectedPeerInfo : Object
+---@class Engine.PlayerController.ConnectedPeerInfo : Struct
 ---@field PlayerID Engine.OnlineSubsystem.UniqueNetId
 ---@field NatType integer
 ---@field bLostConnectionToHost boolean
 
----@class Engine.PlayerController.ClientAdjustment : Object
+---@class Engine.PlayerController.ClientAdjustment : Struct
 ---@field TimeStamp number
 ---@field newPhysics integer
 ---@field NewLoc Vector
@@ -17038,7 +17038,7 @@
 ---@field bToggleMovement boolean
 ---@field bToggleTurning boolean
 
----@class Engine.HUD.KismetDrawTextInfo : Object
+---@class Engine.HUD.KismetDrawTextInfo : Struct
 ---@field MessageText string
 ---@field AppendedText string
 ---@field MessageFont Engine.Font
@@ -17047,13 +17047,13 @@
 ---@field MessageColor Core.Object.Color
 ---@field MessageEndTime number
 
----@class Engine.HUD.ConsoleMessage : Object
+---@class Engine.HUD.ConsoleMessage : Struct
 ---@field Text string
 ---@field TextColor Core.Object.Color
 ---@field MessageLife number
 ---@field PRI Engine.PlayerReplicationInfo
 
----@class Engine.HUD.HudLocalizedMessage : Object
+---@class Engine.HUD.HudLocalizedMessage : Struct
 ---@field Message Core.Class
 ---@field StringMessage string
 ---@field Switch integer
@@ -17092,7 +17092,7 @@
 ---@field Command string
 ---@field Commands Array<string>
 
----@class Engine.PlayerReplicationInfo.AutomatedTestingDatum : Object
+---@class Engine.PlayerReplicationInfo.AutomatedTestingDatum : Struct
 ---@field NumberOfMatchesPlayed integer
 ---@field NumMapListCyclesDone integer
 
@@ -17104,7 +17104,7 @@
 ---@field SoundMode Engine.SoundMode
 ---@field bTopPriority boolean
 
----@class Engine.PlayerController.InputMatchRequest : Object
+---@class Engine.PlayerController.InputMatchRequest : Struct
 ---@field Inputs Array<Engine.PlayerController.InputEntry>
 ---@field MatchActor Engine.Actor
 ---@field MatchFuncName string
@@ -17114,34 +17114,34 @@
 ---@field MatchIdx integer
 ---@field LastMatchTime number
 
----@class Engine.PlayerController.InputEntry : Object
+---@class Engine.PlayerController.InputEntry : Struct
 ---@field Type integer
 ---@field Value number
 ---@field TimeDelta number
 ---@field Action integer
 
----@class Engine.NavigationPoint.DebugNavCost : Object
+---@class Engine.NavigationPoint.DebugNavCost : Struct
 ---@field Desc string
 ---@field Cost integer
 
----@class Engine.NavigationPoint.NavigationOctreeObject : Object
+---@class Engine.NavigationPoint.NavigationOctreeObject : Struct
 ---@field BoundingBox Core.Object.Box
 ---@field BoxCenter Vector
 ---@field OctreeNode Core.Object.Pointer
 ---@field Owner Core.Object
 ---@field OwnerType integer
 
----@class Engine.NavigationPoint.CheckpointRecord : Object
+---@class Engine.NavigationPoint.CheckpointRecord : Struct
 ---@field bDisabled boolean
 ---@field bBlocked boolean
 
----@class Engine.KMeshProps.KSphereElem : Object
+---@class Engine.KMeshProps.KSphereElem : Struct
 ---@field TM Core.Object.Matrix
 ---@field Radius number
 ---@field bNoRBCollision boolean
 ---@field bPerPolyShape boolean
 
----@class Engine.KMeshProps.KBoxElem : Object
+---@class Engine.KMeshProps.KBoxElem : Struct
 ---@field TM Core.Object.Matrix
 ---@field X number
 ---@field Y number
@@ -17149,14 +17149,14 @@
 ---@field bNoRBCollision boolean
 ---@field bPerPolyShape boolean
 
----@class Engine.KMeshProps.KSphylElem : Object
+---@class Engine.KMeshProps.KSphylElem : Struct
 ---@field TM Core.Object.Matrix
 ---@field Radius number
 ---@field Length number
 ---@field bNoRBCollision boolean
 ---@field bPerPolyShape boolean
 
----@class Engine.KMeshProps.KConvexElem : Object
+---@class Engine.KMeshProps.KConvexElem : Struct
 ---@field VertexData Array<Vector>
 ---@field PermutedVertexData Array<Core.Object.Plane>
 ---@field FaceTriData Array<integer>
@@ -17165,7 +17165,7 @@
 ---@field FacePlaneData Array<Core.Object.Plane>
 ---@field ElemBox Core.Object.Box
 
----@class Engine.KMeshProps.KAggregateGeom : Object
+---@class Engine.KMeshProps.KAggregateGeom : Struct
 ---@field SphereElems Array<Engine.KMeshProps.KSphereElem>
 ---@field BoxElems Array<Engine.KMeshProps.KBoxElem>
 ---@field SphylElems Array<Engine.KMeshProps.KSphylElem>
@@ -17173,27 +17173,27 @@
 ---@field RenderInfo Core.Object.Pointer
 ---@field bSkipCloseAndParallelChecks boolean
 
----@class Engine.Pylon.PolyReference : Object
+---@class Engine.Pylon.PolyReference : Struct
 ---@field OwningPylon Engine.Actor.ActorReference
 ---@field PolyId integer
 ---@field CachedPoly Core.Object.Pointer
 
----@class Engine.Scout.PathSizeInfo : Object
+---@class Engine.Scout.PathSizeInfo : Struct
 ---@field Desc string
 ---@field Radius number
 ---@field Height number
 ---@field CrouchHeight number
 ---@field PathColor integer
 
----@class Engine.BrushComponent.KCachedConvexData_Mirror : Object
+---@class Engine.BrushComponent.KCachedConvexData_Mirror : Struct
 ---@field CachedConvexElements Array<integer>
 
----@class Engine.Brush.GeomSelection : Object
+---@class Engine.Brush.GeomSelection : Struct
 ---@field Type integer
 ---@field Index integer
 ---@field SelectionIndex integer
 
----@class Engine.ReverbVolume.InteriorSettings : Object
+---@class Engine.ReverbVolume.InteriorSettings : Struct
 ---@field bIsWorldInfo boolean
 ---@field ExteriorVolume number
 ---@field ExteriorTime number
@@ -17207,23 +17207,23 @@
 ---@field InsulationDistanceMax number
 ---@field InsulationTime number
 
----@class Engine.ReverbVolume.ReverbSettings : Object
+---@class Engine.ReverbVolume.ReverbSettings : Struct
 ---@field bApplyReverb boolean
 ---@field ReverbType integer
 ---@field Volume number
 ---@field FadeTime number
 
----@class Engine.AudioComponent.AudioComponentParam : Object
+---@class Engine.AudioComponent.AudioComponentParam : Struct
 ---@field ParamName string
 ---@field FloatParam number
 ---@field WaveParam Engine.SoundNodeWave
 
----@class Engine.EngineTypes.SubtitleCue : Object
+---@class Engine.EngineTypes.SubtitleCue : Struct
 ---@field Text string
 ---@field Time number
 ---@field m_nMsgId integer
 
----@class Engine.AudioDevice.Listener : Object
+---@class Engine.AudioDevice.Listener : Struct
 ---@field PortalVolume Engine.PortalVolume
 ---@field Location Vector
 ---@field Up Vector
@@ -17231,33 +17231,33 @@
 ---@field Front Vector
 ---@field Velocity Vector
 
----@class Engine.AudioDevice.AudioClassInfo : Object
+---@class Engine.AudioDevice.AudioClassInfo : Struct
 ---@field NumResident integer
 ---@field SizeResident integer
 ---@field NumRealTime integer
 ---@field SizeRealTime integer
 
----@class Engine.SoundCue.SoundNodeEditorData : Object
+---@class Engine.SoundCue.SoundNodeEditorData : Struct
 ---@field NodePosX integer
 ---@field NodePosY integer
 
----@class Engine.SoundNodeAmbient.AmbientSoundSlot : Object
+---@class Engine.SoundNodeAmbient.AmbientSoundSlot : Struct
 ---@field Wave Engine.SoundNodeWave
 ---@field PitchScale number
 ---@field VolumeScale number
 ---@field Weight number
 
----@class Engine.AmbientSoundSimpleToggleable.CheckpointRecord : Object
+---@class Engine.AmbientSoundSimpleToggleable.CheckpointRecord : Struct
 ---@field bCurrentlyPlaying boolean
 
 ---@class Engine.SplineComponentSimplified : Engine.SplineComponent
 
----@class Engine.SplineAudioComponent.InterpPointOnSpline : Object
+---@class Engine.SplineAudioComponent.InterpPointOnSpline : Struct
 ---@field Position Vector
 ---@field InVal number
 ---@field Length number
 
----@class Engine.SimpleSplineAudioComponent.SplineSoundSlot : Object
+---@class Engine.SimpleSplineAudioComponent.SplineSoundSlot : Struct
 ---@field Wave Engine.SoundNodeWave
 ---@field PitchScale number
 ---@field VolumeScale number
@@ -17272,7 +17272,7 @@
 
 ---@class Engine.AmbientSoundSimpleSplineNonLoop : Engine.AmbientSoundSimpleSpline
 
----@class Engine.MultiCueSplineAudioComponent.MultiCueSplineSoundSlot : Object
+---@class Engine.MultiCueSplineAudioComponent.MultiCueSplineSoundSlot : Struct
 ---@field SoundCue Engine.SoundCue
 ---@field PitchScale number
 ---@field VolumeScale number
@@ -17285,10 +17285,10 @@
 ---@field CurrentInteriorLPF number
 ---@field bPlaying boolean
 
----@class Engine.PlatformInterfaceBase.DelegateArray : Object
+---@class Engine.PlatformInterfaceBase.DelegateArray : Struct
 ---@field Delegates Array<any>
 
----@class Engine.PlatformInterfaceBase.PlatformInterfaceData : Object
+---@class Engine.PlatformInterfaceBase.PlatformInterfaceData : Struct
 ---@field DataName string
 ---@field Type integer
 ---@field IntValue integer
@@ -17297,54 +17297,54 @@
 ---@field StringValue2 string
 ---@field ObjectValue Core.Object
 
----@class Engine.PlatformInterfaceBase.PlatformInterfaceDelegateResult : Object
+---@class Engine.PlatformInterfaceBase.PlatformInterfaceDelegateResult : Struct
 ---@field bSuccessful boolean
 ---@field Data Engine.PlatformInterfaceBase.PlatformInterfaceData
 
----@class Engine.AnalyticEventsBase.EventStringParam : Object
+---@class Engine.AnalyticEventsBase.EventStringParam : Struct
 ---@field ParamName string
 ---@field ParamValue string
 
----@class Engine.AnimSequence.CompressedTrack : Object
+---@class Engine.AnimSequence.CompressedTrack : Struct
 ---@field ByteStream Array<integer>
 ---@field Times Array<number>
 ---@field Mins number
 ---@field Ranges number
 
----@class Engine.AnimSequence.CurveTrack : Object
+---@class Engine.AnimSequence.CurveTrack : Struct
 ---@field CurveName string
 ---@field CurveWeights Array<number>
 
----@class Engine.AnimSequence.RotationTrack : Object
+---@class Engine.AnimSequence.RotationTrack : Struct
 ---@field RotKeys Array<Core.Object.Quat>
 ---@field Times Array<number>
 
----@class Engine.AnimSequence.TranslationTrack : Object
+---@class Engine.AnimSequence.TranslationTrack : Struct
 ---@field PosKeys Array<Vector>
 ---@field Times Array<number>
 
----@class Engine.AnimSequence.SkelControlModifier : Object
+---@class Engine.AnimSequence.SkelControlModifier : Struct
 ---@field SkelControlName string
 ---@field Modifiers Array<Engine.AnimSequence.TimeModifier>
 
----@class Engine.AnimSequence.TimeModifier : Object
+---@class Engine.AnimSequence.TimeModifier : Struct
 ---@field Time number
 ---@field TargetStrength number
 
----@class Engine.AnimSequence.RawAnimSequenceTrack : Object
+---@class Engine.AnimSequence.RawAnimSequenceTrack : Struct
 ---@field PosKeys Array<Vector>
 ---@field RotKeys Array<Core.Object.Quat>
 
----@class Engine.AnimSequence.AnimNotifyEvent : Object
+---@class Engine.AnimSequence.AnimNotifyEvent : Struct
 ---@field Time number
 ---@field Notify Engine.AnimNotify
 ---@field Duration number
 
----@class Engine.AnimNode.CurveKey : Object
+---@class Engine.AnimNode.CurveKey : Struct
 ---@field CurveName string
 ---@field Weight number
 
----@class Engine.AnimNodeBlendBase.AnimBlendChild : Object
+---@class Engine.AnimNodeBlendBase.AnimBlendChild : Struct
 ---@field Name string
 ---@field Anim Engine.AnimNode
 ---@field Weight number
@@ -17352,27 +17352,27 @@
 ---@field bMirrorSkeleton boolean
 ---@field bIsAdditive boolean
 
----@class Engine.AnimNodeBlendBase.AnimationEndInformation : Object
+---@class Engine.AnimNodeBlendBase.AnimationEndInformation : Struct
 ---@field TreeBranchToLeaf Array<Engine.AnimNode>
 ---@field PlayedTime number
 ---@field ExcessTime number
 
----@class Engine.AnimNode_MultiBlendPerBone.WeightNodeRule : Object
+---@class Engine.AnimNode_MultiBlendPerBone.WeightNodeRule : Struct
 ---@field NodeName string
 ---@field CachedNode Engine.AnimNodeBlendBase
 ---@field CachedSlotNode Engine.AnimNodeSlot
 ---@field WeightCheck integer
 ---@field ChildIndex integer
 
----@class Engine.AnimNode_MultiBlendPerBone.WeightRule : Object
+---@class Engine.AnimNode_MultiBlendPerBone.WeightRule : Struct
 ---@field FirstNode Engine.AnimNode_MultiBlendPerBone.WeightNodeRule
 ---@field SecondNode Engine.AnimNode_MultiBlendPerBone.WeightNodeRule
 
----@class Engine.AnimNode_MultiBlendPerBone.BranchInfo : Object
+---@class Engine.AnimNode_MultiBlendPerBone.BranchInfo : Struct
 ---@field BoneName string
 ---@field PerBoneWeightIncrease number
 
----@class Engine.AnimNode_MultiBlendPerBone.PerBoneMaskInfo : Object
+---@class Engine.AnimNode_MultiBlendPerBone.PerBoneMaskInfo : Struct
 ---@field BranchList Array<Engine.AnimNode_MultiBlendPerBone.BranchInfo>
 ---@field DesiredWeight number
 ---@field BlendTimeToGo number
@@ -17384,11 +17384,11 @@
 ---@field TransformReqBone Array<integer>
 ---@field TransformReqBoneIndex integer
 
----@class Engine.AnimNodeAimOffset.AimTransform : Object
+---@class Engine.AnimNodeAimOffset.AimTransform : Struct
 ---@field Quaternion Core.Object.Quat
 ---@field Translation Vector
 
----@class Engine.AnimNodeAimOffset.AimComponent : Object
+---@class Engine.AnimNodeAimOffset.AimComponent : Struct
 ---@field BoneName string
 ---@field LU Engine.AnimNodeAimOffset.AimTransform
 ---@field LC Engine.AnimNodeAimOffset.AimTransform
@@ -17400,7 +17400,7 @@
 ---@field RC Engine.AnimNodeAimOffset.AimTransform
 ---@field RD Engine.AnimNodeAimOffset.AimTransform
 
----@class Engine.AnimNodeAimOffset.AimOffsetProfile : Object
+---@class Engine.AnimNodeAimOffset.AimOffsetProfile : Struct
 ---@field ProfileName string
 ---@field HorizontalRange Core.Object.Vector2D
 ---@field VerticalRange Core.Object.Vector2D
@@ -17415,7 +17415,7 @@
 ---@field AnimName_RC string
 ---@field AnimName_RD string
 
----@class Engine.AnimNodeBlendMultiBone.ChildBoneBlendInfo : Object
+---@class Engine.AnimNodeBlendMultiBone.ChildBoneBlendInfo : Struct
 ---@field TargetPerBoneWeight Array<number>
 ---@field InitTargetStartBone string
 ---@field InitPerBoneIncrease number
@@ -17423,17 +17423,17 @@
 ---@field OldBoneIncrease number
 ---@field TargetRequiredBones Array<integer>
 
----@class Engine.AnimNodeSequence.DeferredAnimNotifyTickInformation : Object
+---@class Engine.AnimNodeSequence.DeferredAnimNotifyTickInformation : Struct
 ---@field Notify Engine.AnimNotify
 ---@field CurrentTime number
 ---@field TimeStep number
 ---@field TotalDuration number
 
----@class Engine.AnimNodeSequence.DeferredAnimNotifyEndInformation : Object
+---@class Engine.AnimNodeSequence.DeferredAnimNotifyEndInformation : Struct
 ---@field Notify Engine.AnimNotify
 ---@field CurrentTime number
 
----@class Engine.AnimNodeRandom.RandomAnimInfo : Object
+---@class Engine.AnimNodeRandom.RandomAnimInfo : Struct
 ---@field Chance number
 ---@field LoopCountMin integer
 ---@field LoopCountMax integer
@@ -17443,24 +17443,24 @@
 ---@field LoopCount integer
 ---@field LastPosition number
 
----@class Engine.AnimNodeSequenceBlendBase.AnimBlendInfo : Object
+---@class Engine.AnimNodeSequenceBlendBase.AnimBlendInfo : Struct
 ---@field AnimName string
 ---@field AnimInfo Engine.AnimNodeSequenceBlendBase.AnimInfo
 ---@field Weight number
 
----@class Engine.AnimNodeSequenceBlendBase.AnimInfo : Object
+---@class Engine.AnimNodeSequenceBlendBase.AnimInfo : Struct
 ---@field AnimSeqName string
 ---@field AnimSeq Engine.AnimSequence
 ---@field AnimLinkupIndex integer
 
----@class Engine.AnimNodeSynch.SynchGroup : Object
+---@class Engine.AnimNodeSynch.SynchGroup : Struct
 ---@field SeqNodes Array<Engine.AnimNodeSequence>
 ---@field MasterNode Engine.AnimNodeSequence
 ---@field GroupName string
 ---@field bFireSlaveNotifies boolean
 ---@field RateScale number
 
----@class Engine.ParticleSystem.ParticleChannelContainer : Object
+---@class Engine.ParticleSystem.ParticleChannelContainer : Struct
 ---@field bInitialized boolean
 ---@field Default boolean
 ---@field Friendly boolean
@@ -17481,40 +17481,40 @@
 ---@field CustomFilter6 boolean
 ---@field CustomFilter7 boolean
 
----@class Engine.ParticleSystem.LODSoloTrack : Object
+---@class Engine.ParticleSystem.LODSoloTrack : Struct
 ---@field SoloEnableSetting Array<integer>
 
----@class Engine.ParticleSystem.ParticleSystemLOD : Object
+---@class Engine.ParticleSystem.ParticleSystemLOD : Struct
 ---@field bLit boolean
 
----@class Engine.SkeletalMeshComponent.BonePair : Object
+---@class Engine.SkeletalMeshComponent.BonePair : Struct
 ---@field Bones string
 
----@class Engine.SkeletalMeshComponent.SkelMeshComponentLODInfo : Object
+---@class Engine.SkeletalMeshComponent.SkelMeshComponentLODInfo : Struct
 ---@field HiddenMaterials Array<boolean>
 ---@field bNeedsInstanceWeightUpdate boolean
 ---@field bAlwaysUseInstanceWeights boolean
 ---@field InstanceWeightUsage integer
 ---@field InstanceWeightIdx integer
 
----@class Engine.SkeletalMeshComponent.Attachment : Object
+---@class Engine.SkeletalMeshComponent.Attachment : Struct
 ---@field Component Engine.ActorComponent
 ---@field BoneName string
 ---@field RelativeLocation Vector
 ---@field RelativeRotation Rotator
 ---@field RelativeScale Vector
 
----@class Engine.SkeletalMeshComponent.ActiveMorph : Object
+---@class Engine.SkeletalMeshComponent.ActiveMorph : Struct
 ---@field Target Engine.MorphTarget
 ---@field Weight number
 
----@class Engine.Pawn.ScalarParameterInterpStruct : Object
+---@class Engine.Pawn.ScalarParameterInterpStruct : Struct
 ---@field ParameterName string
 ---@field ParameterValue number
 ---@field InterpTime number
 ---@field WarmupTime number
 
----@class Engine.AnimTree.AnimGroup : Object
+---@class Engine.AnimTree.AnimGroup : Struct
 ---@field SeqNodes Array<Engine.AnimNodeSequence>
 ---@field SynchMaster Engine.AnimNodeSequence
 ---@field NotifyMaster Engine.AnimNodeSequence
@@ -17537,34 +17537,34 @@
 ---@field bClearExisting boolean
 ---@field bForceReplace boolean
 
----@class Engine.EngineTypes.RootMotionCurve : Object
+---@class Engine.EngineTypes.RootMotionCurve : Struct
 ---@field AnimName string
 ---@field Curve Core.Object.InterpCurveVector
 ---@field MaxCurveTime number
 
----@class Engine.EngineTypes.SwarmDebugOptions : Object
+---@class Engine.EngineTypes.SwarmDebugOptions : Struct
 ---@field bDistributionEnabled boolean
 ---@field bForceContentExport boolean
 ---@field bInitialized boolean
 
----@class Engine.EngineTypes.LocalizedSubtitle : Object
+---@class Engine.EngineTypes.LocalizedSubtitle : Struct
 ---@field LanguageExt string
 ---@field Subtitles Array<Engine.EngineTypes.SubtitleCue>
 ---@field bMature boolean
 ---@field bManualWordWrap boolean
 ---@field bSingleLine boolean
 
----@class Engine.EngineTypes.LightMapRef : Object
+---@class Engine.EngineTypes.LightMapRef : Struct
 ---@field Reference Core.Object.Pointer
 
----@class Engine.EngineTypes.DominantShadowInfo : Object
+---@class Engine.EngineTypes.DominantShadowInfo : Struct
 ---@field WorldToLight Core.Object.Matrix
 ---@field LightToWorld Core.Object.Matrix
 ---@field LightSpaceImportanceBounds Core.Object.Box
 ---@field ShadowMapSizeX integer
 ---@field ShadowMapSizeY integer
 
----@class Engine.EngineTypes.LightmassLightSettings : Object
+---@class Engine.EngineTypes.LightmassLightSettings : Struct
 ---@field IndirectLightingScale number
 ---@field IndirectLightingSaturation number
 ---@field ShadowExponent number
@@ -17575,7 +17575,7 @@
 ---@class Engine.EngineTypes.LightmassDirectionalLightSettings : Engine.EngineTypes.LightmassLightSettings
 ---@field LightSourceAngle number
 
----@class Engine.EngineTypes.LightmassPrimitiveSettings : Object
+---@class Engine.EngineTypes.LightmassPrimitiveSettings : Struct
 ---@field bUseTwoSidedLighting boolean
 ---@field bShadowIndirectOnly boolean
 ---@field bUseEmissiveForStaticLighting boolean
@@ -17586,7 +17586,7 @@
 ---@field SpecularBoost number
 ---@field FullyOccludedSamplesFraction number
 
----@class Engine.EngineTypes.LightmassDebugOptions : Object
+---@class Engine.EngineTypes.LightmassDebugOptions : Struct
 ---@field bDebugMode boolean
 ---@field bStatsEnabled boolean
 ---@field bGatherBSPSurfacesAcrossComponents boolean
@@ -17616,53 +17616,53 @@
 ---@field bOverridePlayingAnim boolean
 ---@field PlayFrequency number
 
----@class Engine.AnimNotify_Trails.TrailSamplePoint : Object
+---@class Engine.AnimNotify_Trails.TrailSamplePoint : Struct
 ---@field RelativeTime number
 ---@field FirstEdgeSample Engine.AnimNotify_Trails.TrailSocketSamplePoint
 ---@field ControlPointSample Engine.AnimNotify_Trails.TrailSocketSamplePoint
 ---@field SecondEdgeSample Engine.AnimNotify_Trails.TrailSocketSamplePoint
 
----@class Engine.AnimNotify_Trails.TrailSample : Object
+---@class Engine.AnimNotify_Trails.TrailSample : Struct
 ---@field RelativeTime number
 ---@field FirstEdgeSample Vector
 ---@field ControlPointSample Vector
 ---@field SecondEdgeSample Vector
 
----@class Engine.AnimNotify_Trails.TrailSocketSamplePoint : Object
+---@class Engine.AnimNotify_Trails.TrailSocketSamplePoint : Struct
 ---@field Position Vector
 ---@field Velocity Vector
 
----@class Engine.AnimSet.AnimSetMeshLinkup : Object
+---@class Engine.AnimSet.AnimSetMeshLinkup : Struct
 ---@field SkelMesh Core.Object.Pointer
 ---@field BoneToTrackTable Array<integer>
 
----@class Engine.AnimTree.SkelControlListHead : Object
+---@class Engine.AnimTree.SkelControlListHead : Struct
 ---@field BoneName string
 ---@field ControlHead Engine.SkelControlBase
 
----@class Engine.AnimTree.HelmetMorphRestrictions : Object
+---@class Engine.AnimTree.HelmetMorphRestrictions : Struct
 ---@field MorphName string
 ---@field Weight number
 
----@class Engine.AnimTree.PreviewSkelMeshStruct : Object
+---@class Engine.AnimTree.PreviewSkelMeshStruct : Struct
 ---@field DisplayName string
 ---@field PreviewSkelMesh Engine.SkeletalMesh
 ---@field PreviewMorphSets Array<Engine.MorphTargetSet>
 
----@class Engine.AnimTree.PreviewSocketStruct : Object
+---@class Engine.AnimTree.PreviewSocketStruct : Struct
 ---@field DisplayName string
 ---@field SocketName string
 ---@field PreviewSkelMesh Engine.SkeletalMesh
 ---@field PreviewStaticMesh Engine.StaticMesh
 
----@class Engine.AnimTree.PreviewAnimSetsStruct : Object
+---@class Engine.AnimTree.PreviewAnimSetsStruct : Struct
 ---@field DisplayName string
 ---@field PreviewAnimSets Array<Engine.AnimSet>
 
----@class Engine.ApexClothingAsset.ClothingLodInfo : Object
+---@class Engine.ApexClothingAsset.ClothingLodInfo : Struct
 ---@field LODMaterialMap Array<integer>
 
----@class Engine.ApexDestructibleAsset.NxDestructibleParameters : Object
+---@class Engine.ApexDestructibleAsset.NxDestructibleParameters : Struct
 ---@field DamageParameters Engine.ApexDestructibleAsset.NxDestructibleDamageParameters
 ---@field DebrisParameters Engine.ApexDestructibleAsset.NxDestructibleDebrisParameters
 ---@field AdvancedParameters Engine.ApexDestructibleAsset.NxDestructibleAdvancedParameters
@@ -17696,7 +17696,7 @@
 ---@field DynamicChunksChannel integer
 ---@field DynamicChunksCollideWithChannels Engine.PrimitiveComponent.RBCollisionChannelContainer
 
----@class Engine.ApexDestructibleAsset.NxDestructibleDepthParameters : Object
+---@class Engine.ApexDestructibleAsset.NxDestructibleDepthParameters : Struct
 ---@field TAKE_IMPACT_DAMAGE boolean
 ---@field IGNORE_POSE_UPDATES boolean
 ---@field IGNORE_RAYCAST_CALLBACKS boolean
@@ -17707,7 +17707,7 @@
 ---@field USER_FLAG_3 boolean
 ---@field ImpactDamageOverride integer
 
----@class Engine.ApexDestructibleAsset.NxDestructibleParametersFlag : Object
+---@class Engine.ApexDestructibleAsset.NxDestructibleParametersFlag : Struct
 ---@field ACCUMULATE_DAMAGE boolean
 ---@field ASSET_DEFINED_SUPPORT boolean
 ---@field WORLD_SUPPORT boolean
@@ -17718,21 +17718,21 @@
 ---@field USE_VALID_BOUNDS boolean
 ---@field FORM_EXTENDED_STRUCTURES boolean
 
----@class Engine.ApexDestructibleAsset.NxDestructibleDamageParameters : Object
+---@class Engine.ApexDestructibleAsset.NxDestructibleDamageParameters : Struct
 ---@field DamageThreshold number
 ---@field DamageSpread number
 ---@field ImpactDamage number
 ---@field ImpactResistance number
 ---@field DefaultImpactDamageDepth integer
 
----@class Engine.ApexDestructibleAsset.NxDestructibleDebrisParameters : Object
+---@class Engine.ApexDestructibleAsset.NxDestructibleDebrisParameters : Struct
 ---@field DebrisLifetimeMin number
 ---@field DebrisLifetimeMax number
 ---@field DebrisMaxSeparationMin number
 ---@field DebrisMaxSeparationMax number
 ---@field ValidBounds Core.Object.Box
 
----@class Engine.ApexDestructibleAsset.NxDestructibleAdvancedParameters : Object
+---@class Engine.ApexDestructibleAsset.NxDestructibleAdvancedParameters : Struct
 ---@field DamageCap number
 ---@field ImpactVelocityThreshold number
 ---@field MaxChunkSpeed number
@@ -17740,27 +17740,27 @@
 ---@field MassScale number
 ---@field FractureImpulseScale number
 
----@class Engine.ApexDestructibleDamageParameters.DamagePair : Object
+---@class Engine.ApexDestructibleDamageParameters.DamagePair : Struct
 ---@field DamageCauserName string
 ---@field Params Engine.ApexDestructibleDamageParameters.DamageParameters
 
----@class Engine.ApexDestructibleDamageParameters.DamageParameters : Object
+---@class Engine.ApexDestructibleDamageParameters.DamageParameters : Struct
 ---@field OverrideMode integer
 ---@field BaseDamage number
 ---@field Radius number
 ---@field Momentum number
 
----@class Engine.AppNotificationsBase.NotificationMessageInfo : Object
+---@class Engine.AppNotificationsBase.NotificationMessageInfo : Struct
 ---@field Key string
 ---@field Value string
 
----@class Engine.AppNotificationsBase.NotificationInfo : Object
+---@class Engine.AppNotificationsBase.NotificationInfo : Struct
 ---@field bIsLocal boolean
 ---@field MessageBody string
 ---@field BadgeNumber integer
 ---@field MessageInfo Array<Engine.AppNotificationsBase.NotificationMessageInfo>
 
----@class Engine.AppNotificationsBase.LaunchNotificationInfo : Object
+---@class Engine.AppNotificationsBase.LaunchNotificationInfo : Struct
 ---@field bWasLaunchedViaNotification boolean
 ---@field Notification Engine.AppNotificationsBase.NotificationInfo
 
@@ -17776,26 +17776,26 @@
 ---@field SentText integer
 ---@field bMuteSpectators boolean
 
----@class Engine.CameraShake.FOscillator : Object
+---@class Engine.CameraShake.FOscillator : Struct
 ---@field Amplitude number
 ---@field Frequency number
 ---@field InitialOffset integer
 
----@class Engine.CameraShake.V2DOscillator : Object
+---@class Engine.CameraShake.V2DOscillator : Struct
 ---@field X Engine.CameraShake.FOscillator
 ---@field Y Engine.CameraShake.FOscillator
 
----@class Engine.CameraShake.VOscillator : Object
+---@class Engine.CameraShake.VOscillator : Struct
 ---@field X Engine.CameraShake.FOscillator
 ---@field Y Engine.CameraShake.FOscillator
 ---@field Z Engine.CameraShake.FOscillator
 
----@class Engine.CameraShake.ROscillator : Object
+---@class Engine.CameraShake.ROscillator : Struct
 ---@field Pitch Engine.CameraShake.FOscillator
 ---@field Yaw Engine.CameraShake.FOscillator
 ---@field Roll Engine.CameraShake.FOscillator
 
----@class Engine.CameraModifier_CameraShake.CameraShakeInstance : Object
+---@class Engine.CameraModifier_CameraShake.CameraShakeInstance : Struct
 ---@field SourceShake Engine.CameraShake
 ---@field SourceShakeName string
 ---@field OscillatorTimeRemaining number
@@ -17812,14 +17812,14 @@
 ---@field PlaySpace integer
 ---@field UserPlaySpaceMatrix Core.Object.Matrix
 
----@class Engine.Canvas.CanvasIcon : Object
+---@class Engine.Canvas.CanvasIcon : Struct
 ---@field Texture Engine.Texture
 ---@field U number
 ---@field V number
 ---@field UL number
 ---@field VL number
 
----@class Engine.Texture.TextureGroupContainer : Object
+---@class Engine.Texture.TextureGroupContainer : Struct
 ---@field TEXTUREGROUP_World boolean
 ---@field TEXTUREGROUP_WorldNormalMap boolean
 ---@field TEXTUREGROUP_WorldSpecular boolean
@@ -17855,24 +17855,24 @@
 ---@field TEXTUREGROUP_TitleScreenPreview boolean
 ---@field TEXTUREGROUP_UIStreamable boolean
 
----@class Engine.Texture2D.Texture2DMipMap : Object
+---@class Engine.Texture2D.Texture2DMipMap : Struct
 ---@field Data Core.Object.UntypedBulkData_Mirror
 ---@field SizeX integer
 ---@field SizeY integer
 ---@field FileNameOverride Core.Object.Pointer
 
----@class Engine.Texture2D.TextureLinkedListMirror : Object
+---@class Engine.Texture2D.TextureLinkedListMirror : Struct
 ---@field Element Core.Object.Pointer
 ---@field Next Core.Object.Pointer
 ---@field PrevLink Core.Object.Pointer
 
----@class Engine.Canvas.DepthFieldGlowInfo : Object
+---@class Engine.Canvas.DepthFieldGlowInfo : Struct
 ---@field bEnableGlow boolean
 ---@field GlowColor Core.Object.LinearColor
 ---@field GlowOuterRadius Core.Object.Vector2D
 ---@field GlowInnerRadius Core.Object.Vector2D
 
----@class Engine.Canvas.MobileDistanceFieldParams : Object
+---@class Engine.Canvas.MobileDistanceFieldParams : Struct
 ---@field Gamma number
 ---@field AlphaRefVal number
 ---@field SmoothWidth number
@@ -17883,12 +17883,12 @@
 ---@field GlowInfo Engine.Canvas.DepthFieldGlowInfo
 ---@field BlendMode integer
 
----@class Engine.Canvas.FontRenderInfo : Object
+---@class Engine.Canvas.FontRenderInfo : Struct
 ---@field bClipText boolean
 ---@field bEnableShadow boolean
 ---@field GlowInfo Engine.Canvas.DepthFieldGlowInfo
 
----@class Engine.Canvas.CanvasUVTri : Object
+---@class Engine.Canvas.CanvasUVTri : Struct
 ---@field V0_Pos Core.Object.Vector2D
 ---@field V0_UV Core.Object.Vector2D
 ---@field V1_Pos Core.Object.Vector2D
@@ -17896,7 +17896,7 @@
 ---@field V2_Pos Core.Object.Vector2D
 ---@field V2_UV Core.Object.Vector2D
 
----@class Engine.Canvas.TextSizingParameters : Object
+---@class Engine.Canvas.TextSizingParameters : Struct
 ---@field DrawX number
 ---@field DrawY number
 ---@field DrawXL number
@@ -17906,7 +17906,7 @@
 ---@field SpacingAdjust Core.Object.Vector2D
 ---@field ViewportHeight number
 
----@class Engine.Canvas.WrappedStringElement : Object
+---@class Engine.Canvas.WrappedStringElement : Struct
 ---@field Value string
 ---@field LineExtent Core.Object.Vector2D
 
@@ -17914,11 +17914,11 @@
 ---@field CreateRequest fun(self: Engine.HttpFactory): Engine.HttpRequestInterface
 ---@field HttpRequestClassName string
 
----@class Engine.CloudSaveSystem.SetSaveDataCallbackStruct : Object
+---@class Engine.CloudSaveSystem.SetSaveDataCallbackStruct : Struct
 ---@field SlotIndex integer
 ---@field Callback any
 
----@class Engine.CloudSaveSystem.SaveSlotOperation : Object
+---@class Engine.CloudSaveSystem.SaveSlotOperation : Struct
 ---@field SlotIndex integer
 ---@field SlotOperation integer
 
@@ -17934,7 +17934,7 @@
 ---@field GetDataBlob fun(self: Engine.CloudSaveSystemDataBlobStoreInterface, StorageID: string, BlobName: string)
 ---@field GetDataBlobCallbackDelegate fun(self: Engine.CloudSaveSystemDataBlobStoreInterface, bWasSuccessful: boolean, StorageID: string, BlobName: string, DataBlob: any, Error: string)
 
----@class Engine.CloudSaveSystem.GetSaveDataCallbackStruct : Object
+---@class Engine.CloudSaveSystem.GetSaveDataCallbackStruct : Struct
 ---@field SlotIndex integer
 ---@field Callback any
 
@@ -17951,26 +17951,26 @@
 ---@field ColorScale Vector
 ---@field InterpTime number
 
----@class Engine.UIRoot.UIRangeData : Object
+---@class Engine.UIRoot.UIRangeData : Struct
 ---@field CurrentValue number
 ---@field MinValue number
 ---@field MaxValue number
 ---@field NudgeValue number
 ---@field bIntRange boolean
 
----@class Engine.UIRoot.TextureCoordinates : Object
+---@class Engine.UIRoot.TextureCoordinates : Struct
 ---@field U number
 ---@field V number
 ---@field UL number
 ---@field VL number
 
----@class Engine.UIRoot.InputKeyAction : Object
+---@class Engine.UIRoot.InputKeyAction : Struct
 ---@field InputKeyName string
 ---@field InputKeyState integer
 ---@field TriggeredOps Array<Engine.SequenceOp.SeqOpOutputInputLink>
 ---@field ActionsToExecute Array<Engine.SequenceOp>
 
----@class Engine.UIRoot.InputEventParameters : Object
+---@class Engine.UIRoot.InputEventParameters : Struct
 ---@field PlayerIndex integer
 ---@field ControllerId integer
 ---@field InputKeyName string
@@ -17984,26 +17984,26 @@
 ---@class Engine.UIRoot.SubscribedInputEventParameters : Engine.UIRoot.InputEventParameters
 ---@field InputAliasName string
 
----@class Engine.UIRoot.UIAxisEmulationDefinition : Object
+---@class Engine.UIRoot.UIAxisEmulationDefinition : Struct
 ---@field AxisInputKey string
 ---@field AdjacentAxisInputKey string
 ---@field bEmulateButtonPress boolean
 ---@field InputKeyToEmulate string
 
----@class Engine.UIRoot.RawInputKeyEventData : Object
+---@class Engine.UIRoot.RawInputKeyEventData : Struct
 ---@field InputKeyName string
 ---@field ModifierKeyFlags integer
 
----@class Engine.Console.AutoCompleteCommand : Object
+---@class Engine.Console.AutoCompleteCommand : Struct
 ---@field Command string
 ---@field Desc string
 
----@class Engine.Console.AutoCompleteNode : Object
+---@class Engine.Console.AutoCompleteNode : Struct
 ---@field IndexChar integer
 ---@field AutoCompleteListIndices Array<integer>
 ---@field ChildNodes Array<Core.Object.Pointer>
 
----@class Engine.CoverLink.CovPosInfo : Object
+---@class Engine.CoverLink.CovPosInfo : Struct
 ---@field Link Engine.CoverLink
 ---@field LtSlotIdx integer
 ---@field RtSlotIdx integer
@@ -18012,35 +18012,35 @@
 ---@field Normal Vector
 ---@field Tangent Vector
 
----@class Engine.CoverLink.FireLinkItem : Object
+---@class Engine.CoverLink.FireLinkItem : Struct
 ---@field SrcType integer
 ---@field SrcAction integer
 ---@field DestType integer
 ---@field DestAction integer
 
----@class Engine.CoverLink.FireLink : Object
+---@class Engine.CoverLink.FireLink : Struct
 ---@field Interactions Array<integer>
 ---@field PackedProperties_CoverPairRefAndDynamicInfo integer
 ---@field bFallbackLink boolean
 ---@field bDynamicIndexInited boolean
 
----@class Engine.CoverLink.DynamicLinkInfo : Object
+---@class Engine.CoverLink.DynamicLinkInfo : Struct
 ---@field LastTargetLocation Vector
 ---@field LastSrcLocation Vector
 
----@class Engine.CoverLink.ExposedLink : Object
+---@class Engine.CoverLink.ExposedLink : Struct
 ---@field TargetActor Engine.CoverLink.CoverReference
 ---@field ExposedScale integer
 
 ---@class Engine.CoverLink.CoverReference : Engine.Actor.ActorReference
 ---@field SlotIdx integer
 
----@class Engine.CoverLink.SlotMoveRef : Object
+---@class Engine.CoverLink.SlotMoveRef : Struct
 ---@field Poly Engine.Pylon.PolyReference
 ---@field Dest Engine.Actor.BasedPosition
 ---@field Direction integer
 
----@class Engine.CoverLink.CoverSlot : Object
+---@class Engine.CoverLink.CoverSlot : Struct
 ---@field SlotOwner Engine.Pawn
 ---@field SlotValidAfterTime number
 ---@field ForceCoverType integer
@@ -18080,23 +18080,23 @@
 ---@field bSelected boolean
 ---@field bFailedToFindSurface boolean
 
----@class Engine.CoverLink.CoverInfo : Object
+---@class Engine.CoverLink.CoverInfo : Struct
 ---@field Link Engine.CoverLink
 ---@field SlotIdx integer
 
----@class Engine.StaticMeshComponent.StaticMeshComponentLODInfo : Object
+---@class Engine.StaticMeshComponent.StaticMeshComponentLODInfo : Struct
 ---@field ShadowMaps Array<Engine.ShadowMap2D>
 ---@field ShadowVertexBuffers Array<Core.Object>
 ---@field LightMap Core.Object.Pointer
 ---@field OverrideVertexColors Core.Object.Pointer
 ---@field PaintedVertices Array<Engine.StaticMeshComponent.PaintedVertex>
 
----@class Engine.StaticMeshComponent.PaintedVertex : Object
+---@class Engine.StaticMeshComponent.PaintedVertex : Struct
 ---@field Position Vector
 ---@field Normal Core.Object.PackedNormal
 ---@field Color Core.Object.Color
 
----@class Engine.CoverMeshComponent.CoverMeshes : Object
+---@class Engine.CoverMeshComponent.CoverMeshes : Struct
 ---@field Base Engine.StaticMesh
 ---@field LeanLeft Engine.StaticMesh
 ---@field LeanRight Engine.StaticMesh
@@ -18111,22 +18111,22 @@
 ---@field PopUp Engine.StaticMesh
 ---@field PlayerOnly Engine.StaticMesh
 
----@class Engine.CoverReplicator.CoverReplicationInfo : Object
+---@class Engine.CoverReplicator.CoverReplicationInfo : Struct
 ---@field Link Engine.CoverLink
 ---@field SlotsEnabled Array<integer>
 ---@field SlotsDisabled Array<integer>
 ---@field SlotsAdjusted Array<integer>
 ---@field SlotsCoverTypeChanged Array<Engine.CoverReplicator.ManualCoverTypeInfo>
 
----@class Engine.CoverReplicator.ManualCoverTypeInfo : Object
+---@class Engine.CoverReplicator.ManualCoverTypeInfo : Struct
 ---@field SlotIndex integer
 ---@field ManualCoverType integer
 
----@class Engine.CullDistanceVolume.CullDistanceSizePair : Object
+---@class Engine.CullDistanceVolume.CullDistanceSizePair : Struct
 ---@field Size number
 ---@field CullDistance number
 
----@class Engine.CurveEdPresetCurve.PresetGeneratedPoint : Object
+---@class Engine.CurveEdPresetCurve.PresetGeneratedPoint : Struct
 ---@field KeyIn number
 ---@field KeyOut number
 ---@field TangentsValid boolean
@@ -18134,19 +18134,19 @@
 ---@field TangentOut number
 ---@field IntepMode integer
 
----@class Engine.DataStoreClient.PlayerDataStoreGroup : Object
+---@class Engine.DataStoreClient.PlayerDataStoreGroup : Struct
 ---@field PlayerOwner Engine.LocalPlayer
 ---@field DataStores Array<Engine.UIDataStore>
 
----@class Engine.DecalComponent.DecalReceiver : Object
+---@class Engine.DecalComponent.DecalReceiver : Struct
 ---@field Component Engine.PrimitiveComponent
 ---@field RenderData Core.Object.Pointer
 
----@class Engine.DecalManager.ActiveDecalInfo : Object
+---@class Engine.DecalManager.ActiveDecalInfo : Struct
 ---@field Decal Engine.DecalComponent
 ---@field LifetimeRemaining number
 
----@class Engine.MaterialInterface.LightmassMaterialInterfaceSettings : Object
+---@class Engine.MaterialInterface.LightmassMaterialInterfaceSettings : Struct
 ---@field bCastShadowAsMasked boolean
 ---@field EmissiveBoost number
 ---@field DiffuseBoost number
@@ -18160,7 +18160,7 @@
 ---@field bOverrideExportResolutionScale boolean
 ---@field bOverrideDistanceFieldPenumbraScale boolean
 
----@class Engine.Material.MaterialInput : Object
+---@class Engine.Material.MaterialInput : Struct
 ---@field Expression Engine.MaterialExpression
 ---@field OutputIndex integer
 ---@field InputName string
@@ -18171,7 +18171,7 @@
 ---@field MaskA integer
 ---@field GCC64_Padding integer
 
----@class Engine.Material.MaterialFunctionInfo : Object
+---@class Engine.Material.MaterialFunctionInfo : Struct
 ---@field StateId Core.Object.Guid
 ---@field Function Engine.MaterialFunction
 
@@ -18192,7 +18192,7 @@
 ---@field ConstantX number
 ---@field ConstantY number
 
----@class Engine.PhysicsVolume.CheckpointRecord : Object
+---@class Engine.PhysicsVolume.CheckpointRecord : Struct
 ---@field bPainCausing boolean
 ---@field bActive boolean
 
@@ -18204,7 +18204,7 @@
 ---@class Engine.SeqAct_SetDamageInstigator : Engine.SequenceAction
 ---@field DamageInstigator Engine.Actor
 
----@class Engine.DynamicBlockingVolume.CheckpointRecord : Object
+---@class Engine.DynamicBlockingVolume.CheckpointRecord : Struct
 ---@field Location Vector
 ---@field Rotation Rotator
 ---@field bCollideActors boolean
@@ -18223,7 +18223,7 @@
 
 ---@class Engine.ParticleSystemComponent.ParticleEventSpawnData : Engine.ParticleSystemComponent.ParticleEventData
 
----@class Engine.ParticleSystemComponent.ParticleEventData : Object
+---@class Engine.ParticleSystemComponent.ParticleEventData : Struct
 ---@field Type integer
 ---@field EventName string
 ---@field EmitterTime number
@@ -18241,7 +18241,7 @@
 ---@field Item integer
 ---@field BoneName string
 
----@class Engine.ParticleSystemComponent.ViewParticleEmitterInstanceMotionBlurInfo : Object
+---@class Engine.ParticleSystemComponent.ViewParticleEmitterInstanceMotionBlurInfo : Struct
 ---@field EmitterInstanceMBInfoMap Core.Object.Map_Mirror
 
 ---@class Engine.ParticleSystemComponent.ParticleEventKismetData : Engine.ParticleSystemComponent.ParticleEventData
@@ -18250,12 +18250,12 @@
 
 ---@class Engine.ParticleSystemComponent.ParticleEventAttractorCollideData : Engine.ParticleSystemComponent.ParticleEventCollideData
 
----@class Engine.ParticleSystemComponent.ParticleEmitterInstance : Object
+---@class Engine.ParticleSystemComponent.ParticleEmitterInstance : Struct
 
----@class Engine.ParticleSystemComponent.ParticleEmitterInstanceMotionBlurInfo : Object
+---@class Engine.ParticleSystemComponent.ParticleEmitterInstanceMotionBlurInfo : Struct
 ---@field ParticleMBInfoMap Core.Object.Map_Mirror
 
----@class Engine.Emitter.CheckpointRecord : Object
+---@class Engine.Emitter.CheckpointRecord : Struct
 ---@field bIsActive boolean
 
 ---@class Engine.SeqAct_SetParticleSysParam : Engine.SequenceAction
@@ -18263,40 +18263,40 @@
 ---@field bOverrideScalar boolean
 ---@field ScalarValue number
 
----@class Engine.EmitterPool.EmitterBaseInfo : Object
+---@class Engine.EmitterPool.EmitterBaseInfo : Struct
 ---@field PSC Engine.ParticleSystemComponent
 ---@field Base Engine.Actor
 ---@field RelativeLocation Vector
 ---@field RelativeRotation Rotator
 ---@field bInheritBaseScale boolean
 
----@class Engine.Engine.StatColorMapping : Object
+---@class Engine.Engine.StatColorMapping : Struct
 ---@field StatName string
 ---@field ColorMap Array<Engine.Engine.StatColorMapEntry>
 ---@field DisableBlend boolean
 
----@class Engine.Engine.DropNoteInfo : Object
+---@class Engine.Engine.DropNoteInfo : Struct
 ---@field Location Vector
 ---@field Rotation Rotator
 ---@field Comment string
 
----@class Engine.Engine.StatColorMapEntry : Object
+---@class Engine.Engine.StatColorMapEntry : Struct
 ---@field In number
 ---@field Out Core.Object.Color
 
----@class Engine.EngineTypes.PrimitiveMaterialRef : Object
+---@class Engine.EngineTypes.PrimitiveMaterialRef : Struct
 ---@field Primitive Engine.PrimitiveComponent
 ---@field MaterialIndex integer
 
----@class Engine.EngineTypes.PostProcessMaterialRef : Object
+---@class Engine.EngineTypes.PostProcessMaterialRef : Struct
 ---@field Effect Engine.MaterialEffect
 
----@class Engine.EngineTypes.MaterialReferenceList : Object
+---@class Engine.EngineTypes.MaterialReferenceList : Struct
 ---@field TargetMaterial Engine.MaterialInterface
 ---@field AffectedMaterialRefs Array<Engine.EngineTypes.PrimitiveMaterialRef>
 ---@field AffectedPPChainMaterialRefs Array<Engine.EngineTypes.PostProcessMaterialRef>
 
----@class Engine.EngineTypes.VelocityObstacleStat : Object
+---@class Engine.EngineTypes.VelocityObstacleStat : Struct
 ---@field Position Vector
 ---@field Velocity Vector
 ---@field Radius number
@@ -18309,7 +18309,7 @@
 ---@field Component Engine.ExponentialHeightFogComponent
 ---@field bEnabled boolean
 
----@class Engine.FacebookIntegration.FacebookFriend : Object
+---@class Engine.FacebookIntegration.FacebookFriend : Struct
 ---@field Name string
 ---@field Id string
 
@@ -18318,10 +18318,10 @@
 ---@field GetFailSwitch fun(self: Engine.FailedConnect, FailString: string): integer
 ---@field FailMessage string
 
----@class Engine.FogVolumeDensityInfo.CheckpointRecord : Object
+---@class Engine.FogVolumeDensityInfo.CheckpointRecord : Struct
 ---@field bEnabled boolean
 
----@class Engine.FontImportOptions.FontImportOptionsData : Object
+---@class Engine.FontImportOptions.FontImportOptionsData : Struct
 ---@field FontName string
 ---@field Height number
 ---@field bEnableAntialiasing boolean
@@ -18352,7 +18352,7 @@
 ---@field DistanceFieldScaleFactor integer
 ---@field DistanceFieldScanRadiusScale number
 
----@class Engine.Font.FontCharacter : Object
+---@class Engine.Font.FontCharacter : Struct
 ---@field StartU integer
 ---@field StartV integer
 ---@field USize integer
@@ -18360,7 +18360,7 @@
 ---@field TextureIndex integer
 ---@field VerticalOffset integer
 
----@class Engine.ForceFeedbackManager.ForceFeedbackPlayingInfo : Object
+---@class Engine.ForceFeedbackManager.ForceFeedbackPlayingInfo : Struct
 ---@field WaveForm Engine.ForceFeedbackWaveform
 ---@field Instigator Engine.Actor
 ---@field CurrentSample integer
@@ -18368,7 +18368,7 @@
 ---@field ScaleDuration number
 ---@field ScaleMagnitude number
 
----@class Engine.ForceFeedbackWaveform.WaveformSample : Object
+---@class Engine.ForceFeedbackWaveform.WaveformSample : Struct
 ---@field LeftAmplitude integer
 ---@field RightAmplitude integer
 ---@field LeftTriggerAmplitude integer
@@ -18379,22 +18379,22 @@
 ---@field RightTriggerFunction integer
 ---@field Duration number
 
----@class Engine.FracturedStaticMeshComponent.FragmentGroup : Object
+---@class Engine.FracturedStaticMeshComponent.FragmentGroup : Struct
 ---@field FragmentIndices Array<integer>
 ---@field bGroupIsRooted boolean
 
----@class Engine.WorldInfo.NavMeshPathGoalEvaluatorCacheDatum : Object
+---@class Engine.WorldInfo.NavMeshPathGoalEvaluatorCacheDatum : Struct
 ---@field ListIdx integer
 ---@field List Engine.NavMeshPathGoalEvaluator
 
----@class Engine.WorldInfo.HostMigrationState : Object
+---@class Engine.WorldInfo.HostMigrationState : Struct
 ---@field HostMigrationProgress integer
 ---@field HostMigrationElapsedTime number
 ---@field HostMigrationTravelCountdown number
 ---@field HostMigrationTravelURL string
 ---@field bHostMigrationEnabled boolean
 
----@class Engine.MusicTrackDataStructures.MusicTrackStruct : Object
+---@class Engine.MusicTrackDataStructures.MusicTrackStruct : Struct
 ---@field TheSoundCue Engine.SoundCue
 ---@field bAutoPlay boolean
 ---@field bPersistentAcrossLevels boolean
@@ -18404,10 +18404,10 @@
 ---@field FadeOutVolumeLevel number
 ---@field MP3Filename string
 
----@class Engine.WorldInfo.PhysXVerticalProperties : Object
+---@class Engine.WorldInfo.PhysXVerticalProperties : Struct
 ---@field Emitters Engine.WorldInfo.PhysXEmitterVerticalProperties
 
----@class Engine.WorldInfo.WorldFractureSettings : Object
+---@class Engine.WorldInfo.WorldFractureSettings : Struct
 ---@field ChanceOfPhysicsChunkOverride number
 ---@field bEnableChanceOfPhysicsChunkOverride boolean
 ---@field bLimitExplosionChunkSize boolean
@@ -18417,11 +18417,11 @@
 ---@field MaxNumFacturedChunksToSpawnInAFrame integer
 ---@field FractureExplosionVelScale number
 
----@class Engine.WorldInfo.NavMeshPathConstraintCacheDatum : Object
+---@class Engine.WorldInfo.NavMeshPathConstraintCacheDatum : Struct
 ---@field ListIdx integer
 ---@field List Engine.NavMeshPathConstraint
 
----@class Engine.WorldInfo.LightmassWorldInfoSettings : Object
+---@class Engine.WorldInfo.LightmassWorldInfoSettings : Struct
 ---@field StaticLightingLevelScale number
 ---@field NumIndirectLightingBounces integer
 ---@field EnvironmentColor Core.Object.Color
@@ -18446,14 +18446,14 @@
 ---@field bVisualizeAmbientOcclusion boolean
 ---@field bCompressShadowmap boolean
 
----@class Engine.WorldInfo.ScreenMessageString : Object
+---@class Engine.WorldInfo.ScreenMessageString : Struct
 ---@field Key Core.Object.QWord
 ---@field ScreenMessage string
 ---@field DisplayColor Core.Object.Color
 ---@field TimeToDisplay number
 ---@field CurrentTimeDisplayed number
 
----@class Engine.WorldInfo.PhysXEmitterVerticalProperties : Object
+---@class Engine.WorldInfo.PhysXEmitterVerticalProperties : Struct
 ---@field bDisableLod boolean
 ---@field ParticlesLodMin integer
 ---@field ParticlesLodMax integer
@@ -18461,33 +18461,33 @@
 ---@field bApplyCylindricalPacketCulling boolean
 ---@field SpawnLodVsFifoBias number
 
----@class Engine.WorldInfo.ApexModuleDestructibleSettings : Object
+---@class Engine.WorldInfo.ApexModuleDestructibleSettings : Struct
 ---@field MaxChunkIslandCount integer
 ---@field MaxShapeCount integer
 ---@field MaxRrbActorCount integer
 ---@field MaxChunkSeparationLOD number
 ---@field bOverrideMaxChunkSeparationLOD boolean
 
----@class Engine.WorldInfo.PhysXSceneProperties : Object
+---@class Engine.WorldInfo.PhysXSceneProperties : Struct
 ---@field PrimaryScene Engine.WorldInfo.PhysXSimulationProperties
 ---@field CompartmentRigidBody Engine.WorldInfo.PhysXSimulationProperties
 ---@field CompartmentFluid Engine.WorldInfo.PhysXSimulationProperties
 ---@field CompartmentCloth Engine.WorldInfo.PhysXSimulationProperties
 ---@field CompartmentSoftBody Engine.WorldInfo.PhysXSimulationProperties
 
----@class Engine.WorldInfo.PhysXSimulationProperties : Object
+---@class Engine.WorldInfo.PhysXSimulationProperties : Struct
 ---@field bUseHardware boolean
 ---@field bFixedTimeStep boolean
 ---@field TimeStep number
 ---@field MaxSubSteps integer
 
----@class Engine.WorldInfo.CompartmentRunList : Object
+---@class Engine.WorldInfo.CompartmentRunList : Struct
 ---@field RigidBody boolean
 ---@field Fluid boolean
 ---@field Cloth boolean
 ---@field SoftBody boolean
 
----@class Engine.WorldInfo.NetViewer : Object
+---@class Engine.WorldInfo.NetViewer : Struct
 ---@field InViewer Engine.PlayerController
 ---@field Viewer Engine.Actor
 ---@field ViewLocation Vector
@@ -18495,14 +18495,14 @@
 ---@field ViewDir Vector
 ---@field bHasAlternateViewLocation boolean
 
----@class Engine.FracturedStaticMeshActor.DeferredPartToSpawn : Object
+---@class Engine.FracturedStaticMeshActor.DeferredPartToSpawn : Struct
 ---@field ChunkIndex integer
 ---@field InitialVel Vector
 ---@field InitialAngVel Vector
 ---@field RelativeScale number
 ---@field bExplosion boolean
 
----@class Engine.FracturedStaticMeshActor.CheckpointRecord : Object
+---@class Engine.FracturedStaticMeshActor.CheckpointRecord : Struct
 ---@field bIsShutdown boolean
 ---@field FragmentVis Array<integer>
 
@@ -18510,26 +18510,26 @@
 
 ---@class Engine.FracturedStaticMeshActor_Spawnable : Engine.FracturedStaticMeshActor
 
----@class Engine.GameEngine.LevelStreamingStatus : Object
+---@class Engine.GameEngine.LevelStreamingStatus : Struct
 ---@field PackageName string
 ---@field bShouldBeLoaded boolean
 ---@field bShouldBeVisible boolean
 
----@class Engine.GameEngine.FullyLoadedPackagesInfo : Object
+---@class Engine.GameEngine.FullyLoadedPackagesInfo : Struct
 ---@field FullyLoadType integer
 ---@field Tag string
 ---@field PackagesToLoad Array<string>
 ---@field LoadedObjects Array<Core.Object>
 
----@class Engine.GameEngine.NamedNetDriver : Object
+---@class Engine.GameEngine.NamedNetDriver : Struct
 ---@field NetDriverName string
 ---@field NetDriver Core.Object.Pointer
 
----@class Engine.GameEngine.AnimTag : Object
+---@class Engine.GameEngine.AnimTag : Struct
 ---@field Tag string
 ---@field Contains Array<string>
 
----@class Engine.GameEngine.URL : Object
+---@class Engine.GameEngine.URL : Struct
 ---@field Protocol string
 ---@field Host string
 ---@field Port integer
@@ -18539,11 +18539,11 @@
 ---@field SecureAddress string
 ---@field Valid integer
 
----@class Engine.GameInfo.GameClassShortName : Object
+---@class Engine.GameInfo.GameClassShortName : Struct
 ---@field ShortName string
 ---@field GameClassName string
 
----@class Engine.GameInfo.GameTypePrefix : Object
+---@class Engine.GameInfo.GameTypePrefix : Struct
 ---@field Prefix string
 ---@field bUsesCommonPackage boolean
 ---@field GameType string
@@ -18553,13 +18553,13 @@
 ---@class Engine.SeqEvent_PlayerSpawned : Engine.SequenceEvent
 ---@field SpawnPoint Core.Object
 
----@class Engine.GamePadLightbarSubsystem.ColorDefinition : Object
+---@class Engine.GamePadLightbarSubsystem.ColorDefinition : Struct
 ---@field Id string
 ---@field R integer
 ---@field G integer
 ---@field B integer
 
----@class Engine.GamePadLightbarSubsystem.LerpToInstruction : Object
+---@class Engine.GamePadLightbarSubsystem.LerpToInstruction : Struct
 ---@field Id string
 ---@field Time number
 ---@field LerpToId string
@@ -18569,7 +18569,7 @@
 
 ---@class Engine.GamePadLightbarSubsystem.PulseInstruction : Engine.GamePadLightbarSubsystem.SetAndLerpInstruction
 
----@class Engine.GameplayEvents.PlayerInformation : Object
+---@class Engine.GameplayEvents.PlayerInformation : Struct
 ---@field ControllerName string
 ---@field PlayerName string
 ---@field UniqueId Engine.OnlineSubsystem.UniqueNetId
@@ -18578,35 +18578,35 @@
 ---@field BotName string
 ---@field Taskforce integer
 
----@class Engine.GameplayEvents.TeamInformation : Object
+---@class Engine.GameplayEvents.TeamInformation : Struct
 ---@field TeamIndex integer
 ---@field TeamName string
 ---@field TeamColor Core.Object.Color
 ---@field MaxSize integer
 
----@class Engine.GameplayEvents.GameplayEventMetaData : Object
+---@class Engine.GameplayEvents.GameplayEventMetaData : Struct
 ---@field EventID integer
 ---@field EventName string
 ---@field StatGroup Engine.GameplayEvents.GameStatGroup
 ---@field EventDataType integer
 
----@class Engine.GameplayEvents.WeaponClassEventData : Object
+---@class Engine.GameplayEvents.WeaponClassEventData : Struct
 ---@field WeaponClassName string
 
----@class Engine.GameplayEvents.DamageClassEventData : Object
+---@class Engine.GameplayEvents.DamageClassEventData : Struct
 ---@field DamageClassName string
 
----@class Engine.GameplayEvents.ProjectileClassEventData : Object
+---@class Engine.GameplayEvents.ProjectileClassEventData : Struct
 ---@field ProjectileClassName string
 
----@class Engine.GameplayEvents.PawnClassEventData : Object
+---@class Engine.GameplayEvents.PawnClassEventData : Struct
 ---@field PawnClassName string
 
----@class Engine.GameplayEvents.GameStatGroup : Object
+---@class Engine.GameplayEvents.GameStatGroup : Struct
 ---@field Group integer
 ---@field Level integer
 
----@class Engine.GameplayEvents.GameplayEventsHeader : Object
+---@class Engine.GameplayEvents.GameplayEventsHeader : Struct
 ---@field EngineVersion integer
 ---@field StatsWriterVersion integer
 ---@field StreamOffset integer
@@ -18617,7 +18617,7 @@
 ---@field FilterClass string
 ---@field Flags integer
 
----@class Engine.GameplayEvents.GameSessionInformation : Object
+---@class Engine.GameplayEvents.GameSessionInformation : Struct
 ---@field AppTitleID integer
 ---@field PlatformType integer
 ---@field Language string
@@ -18634,23 +18634,23 @@
 ---@field OwningNetId Engine.OnlineSubsystem.UniqueNetId
 ---@field PlaylistId integer
 
----@class Engine.GameViewportClient.TitleSafeZoneArea : Object
+---@class Engine.GameViewportClient.TitleSafeZoneArea : Struct
 ---@field MaxPercentX number
 ---@field MaxPercentY number
 ---@field RecommendedPercentX number
 ---@field RecommendedPercentY number
 
----@class Engine.GameViewportClient.SplitscreenData : Object
+---@class Engine.GameViewportClient.SplitscreenData : Struct
 ---@field PlayerData Array<Engine.GameViewportClient.PerPlayerSplitscreenData>
 
----@class Engine.GameViewportClient.DebugDisplayProperty : Object
+---@class Engine.GameViewportClient.DebugDisplayProperty : Struct
 ---@field Obj Core.Object
 ---@field PropertyName string
 ---@field PropertyString string
 ---@field nNumPropertyStrings integer
 ---@field eDisplayType integer
 
----@class Engine.GameViewportClient.PerPlayerSplitscreenData : Object
+---@class Engine.GameViewportClient.PerPlayerSplitscreenData : Struct
 ---@field SizeX number
 ---@field SizeY number
 ---@field OriginX number
@@ -18658,16 +18658,16 @@
 
 ---@class Engine.GameViewportClient.ExportShowFlags_Mirror : Engine.GameViewportClient.ShowFlags_Mirror
 
----@class Engine.GameViewportClient.ShowFlags_Mirror : Object
+---@class Engine.GameViewportClient.ShowFlags_Mirror : Struct
 ---@field flags0 Core.Object.QWord
 ---@field flags1 Core.Object.QWord
 
----@class Engine.NavigationHandle.PolySegmentSpan : Object
+---@class Engine.NavigationHandle.PolySegmentSpan : Struct
 ---@field Poly Core.Object.Pointer
 ---@field P1 Vector
 ---@field P2 Vector
 
----@class Engine.NavigationHandle.NavMeshPathParams : Object
+---@class Engine.NavigationHandle.NavMeshPathParams : Struct
 ---@field Interface Core.Object.Pointer
 ---@field bCanMantle boolean
 ---@field bNeedsMantleValidityTest boolean
@@ -18680,26 +18680,26 @@
 ---@field MaxHoverDistance number
 ---@field MaxPathLength number
 
----@class Engine.NavigationHandle.PathStore : Object
+---@class Engine.NavigationHandle.PathStore : Struct
 ---@field EdgeList Array<Engine.NavigationHandle.EdgePointer>
 
----@class Engine.NavigationHandle.EdgePointer : Object
+---@class Engine.NavigationHandle.EdgePointer : Struct
 ---@field Dummy Core.Object.Pointer
 
----@class Engine.HavokNavigationHandle.CachedPathItem : Object
+---@class Engine.HavokNavigationHandle.CachedPathItem : Struct
 ---@field CachedKey integer
 ---@field Location Vector
 ---@field EdgeType integer
 ---@field bTerminatedPath boolean
 
----@class Engine.HavokNavMeshActor.NavMeshLayerInfo : Object
+---@class Engine.HavokNavMeshActor.NavMeshLayerInfo : Struct
 ---@field Desc string
 ---@field Radius number
 ---@field Height number
 ---@field CrouchHeight number
 ---@field PathColor integer
 
----@class Engine.HavokNavMeshActor.UserEdgeData : Object
+---@class Engine.HavokNavMeshActor.UserEdgeData : Struct
 ---@field StartA Vector
 ---@field EndA Vector
 ---@field StartB Vector
@@ -18707,7 +18707,7 @@
 ---@field TraversalType integer
 ---@field EdgeCost number
 
----@class Engine.HeadTrackingComponent.ActorToLookAt : Object
+---@class Engine.HeadTrackingComponent.ActorToLookAt : Struct
 ---@field Actor Engine.Actor
 ---@field Rating number
 ---@field EnteredTime number
@@ -18722,14 +18722,14 @@
 ---@field Component Engine.HeightFogComponent
 ---@field bEnabled boolean
 
----@class Engine.IniLocPatcher.IniLocFileEntry : Object
+---@class Engine.IniLocPatcher.IniLocFileEntry : Struct
 ---@field Filename string
 ---@field DLName string
 ---@field HashCode string
 ---@field bIsUnicode boolean
 ---@field ReadState integer
 
----@class Engine.Input.KeyBind : Object
+---@class Engine.Input.KeyBind : Struct
 ---@field Name string
 ---@field Command string
 ---@field Control boolean
@@ -18746,14 +18746,14 @@
 ---@field RightThumbStick boolean
 ---@field bIgnorePadModifier boolean
 
----@class Engine.Input.TouchTracker : Object
+---@class Engine.Input.TouchTracker : Struct
 ---@field Handle integer
 ---@field TouchpadIndex integer
 ---@field Location Core.Object.Vector2D
 ---@field EventType integer
 ---@field bTrapInput boolean
 
----@class Engine.InstancedFoliageActor.InstancedMeshStreamGroup : Object
+---@class Engine.InstancedFoliageActor.InstancedMeshStreamGroup : Struct
 ---@field bDataInSeperateFile boolean
 ---@field bAddedToStreamingSystem boolean
 ---@field FilenameIndex integer
@@ -18771,25 +18771,25 @@
 ---@field MeshOffset integer
 ---@field MeshSize integer
 
----@class Engine.InstancedFoliageActor.InstancedMeshStreamCookerHelper : Object
+---@class Engine.InstancedFoliageActor.InstancedMeshStreamCookerHelper : Struct
 ---@field Dummy integer
 
----@class Engine.InstancedStaticMeshComponent.InstancedStaticMeshInstanceData : Object
+---@class Engine.InstancedStaticMeshComponent.InstancedStaticMeshInstanceData : Struct
 ---@field Transform Core.Object.Matrix
 ---@field LightmapUVBias Core.Object.Vector2D
 ---@field ShadowmapUVBias Core.Object.Vector2D
 
----@class Engine.InstancedStaticMeshComponent.InstancedStaticMeshMappingInfo : Object
+---@class Engine.InstancedStaticMeshComponent.InstancedStaticMeshMappingInfo : Struct
 ---@field Mapping Core.Object.Pointer
 ---@field LightMap Core.Object.Pointer
 ---@field LightmapTexture Engine.Texture2D
 ---@field ShadowmapTexture Engine.ShadowMap2D
 
----@class Engine.StaticMeshActor.VertexColorPhysicalMaterialMapping : Object
+---@class Engine.StaticMeshActor.VertexColorPhysicalMaterialMapping : Struct
 ---@field PhysMat Engine.PhysicalMaterial
 ---@field MappingColor Core.Object.Color
 
----@class Engine.InterpActor.CheckpointRecord : Object
+---@class Engine.InterpActor.CheckpointRecord : Struct
 ---@field Location Vector
 ---@field Rotation Rotator
 ---@field CollisionType integer
@@ -18799,7 +18799,7 @@
 
 ---@class Engine.InterpActor_ForCinematic : Engine.InterpActor
 
----@class Engine.InterpCurveEdSetup.CurveEdTab : Object
+---@class Engine.InterpCurveEdSetup.CurveEdTab : Struct
 ---@field TabName string
 ---@field Curves Array<Engine.InterpCurveEdSetup.CurveEdEntry>
 ---@field ViewStartInput number
@@ -18807,7 +18807,7 @@
 ---@field ViewStartOutput number
 ---@field ViewEndOutput number
 
----@class Engine.InterpCurveEdSetup.CurveEdEntry : Object
+---@class Engine.InterpCurveEdSetup.CurveEdEntry : Struct
 ---@field CurveObject Core.Object
 ---@field CurveColor Core.Object.Color
 ---@field CurveName string
@@ -18818,19 +18818,19 @@
 ---@field ClampLow number
 ---@field ClampHigh number
 
----@class Engine.InterpData.AnimSetBakeAndPruneStatus : Object
+---@class Engine.InterpData.AnimSetBakeAndPruneStatus : Struct
 ---@field AnimSetName string
 ---@field bReferencedButUnused boolean
 ---@field bSkipBakeAndPrune boolean
 ---@field bSkipCooking boolean
 
----@class Engine.InterpGroup.InterpEdSelKey : Object
+---@class Engine.InterpGroup.InterpEdSelKey : Struct
 ---@field Group Engine.InterpGroup
 ---@field Track Engine.InterpTrack
 ---@field KeyIndex integer
 ---@field UnsnappedPosition number
 
----@class Engine.InterpGroupCamera.CameraPreviewInfo : Object
+---@class Engine.InterpGroupCamera.CameraPreviewInfo : Struct
 ---@field PawnClass Core.Class
 ---@field PreviewAnimSets Array<Engine.AnimSet>
 ---@field AnimSeqName string
@@ -18838,18 +18838,18 @@
 ---@field Rotation Rotator
 ---@field PawnInst Engine.Pawn
 
----@class Engine.InterpTrack.SubTrackGroup : Object
+---@class Engine.InterpTrack.SubTrackGroup : Struct
 ---@field GroupName string
 ---@field TrackIndices Array<integer>
 ---@field bIsCollapsed boolean
 ---@field bIsSelected boolean
 
----@class Engine.InterpTrack.SupportedSubTrackInfo : Object
+---@class Engine.InterpTrack.SupportedSubTrackInfo : Struct
 ---@field SupportedClass Core.Class
 ---@field SubTrackName string
 ---@field GroupIndex integer
 
----@class Engine.InterpTrackAnimControl.AnimControlTrackKey : Object
+---@class Engine.InterpTrackAnimControl.AnimControlTrackKey : Struct
 ---@field StartTime number
 ---@field AnimSeqName string
 ---@field AnimStartOffset number
@@ -18858,130 +18858,130 @@
 ---@field bLooping boolean
 ---@field bReverse boolean
 
----@class Engine.InterpTrackBoolProp.BoolTrackKey : Object
+---@class Engine.InterpTrackBoolProp.BoolTrackKey : Struct
 ---@field Time number
 ---@field Value boolean
 
----@class Engine.InterpTrackDirector.DirectorTrackCut : Object
+---@class Engine.InterpTrackDirector.DirectorTrackCut : Struct
 ---@field Time number
 ---@field TransitionTime number
 ---@field TargetCamGroup string
 ---@field ShotNumber integer
 
----@class Engine.InterpTrackEvent.EventTrackKey : Object
+---@class Engine.InterpTrackEvent.EventTrackKey : Struct
 ---@field Time number
 ---@field EventName string
 
----@class Engine.InterpTrackFaceFX.FaceFXTrackKey : Object
+---@class Engine.InterpTrackFaceFX.FaceFXTrackKey : Struct
 ---@field StartTime number
 ---@field FaceFXGroupName string
 ---@field FaceFXSeqName string
 
----@class Engine.InterpTrackFaceFX.FaceFXSoundCueKey : Object
+---@class Engine.InterpTrackFaceFX.FaceFXSoundCueKey : Struct
 ---@field FaceFXSoundCue Engine.SoundCue
 ---@field FaceFXAkEvent Engine.AkEvent
 
----@class Engine.InterpTrackHeadTracking.HeadTrackingKey : Object
+---@class Engine.InterpTrackHeadTracking.HeadTrackingKey : Struct
 ---@field Time number
 ---@field Action integer
 
----@class Engine.InterpTrackInstFloatMaterialParam.FloatMaterialParamMICData : Object
+---@class Engine.InterpTrackInstFloatMaterialParam.FloatMaterialParamMICData : Struct
 ---@field MICs Array<Engine.MaterialInstanceConstant>
 ---@field MICResetFloats Array<number>
 
----@class Engine.InterpTrackToggle.ToggleTrackKey : Object
+---@class Engine.InterpTrackToggle.ToggleTrackKey : Struct
 ---@field Time number
 ---@field ToggleAction integer
 
----@class Engine.InterpTrackInstVectorMaterialParam.VectorMaterialParamMICData : Object
+---@class Engine.InterpTrackInstVectorMaterialParam.VectorMaterialParamMICData : Struct
 ---@field MICs Array<Engine.MaterialInstanceConstant>
 ---@field MICResetVectors Array<Vector>
 
----@class Engine.InterpTrackVisibility.VisibilityTrackKey : Object
+---@class Engine.InterpTrackVisibility.VisibilityTrackKey : Struct
 ---@field Time number
 ---@field Action integer
 ---@field ActiveCondition integer
 
----@class Engine.InterpTrackMove.InterpLookupTrack : Object
+---@class Engine.InterpTrackMove.InterpLookupTrack : Struct
 ---@field Points Array<Engine.InterpTrackMove.InterpLookupPoint>
 
----@class Engine.InterpTrackMove.InterpLookupPoint : Object
+---@class Engine.InterpTrackMove.InterpLookupPoint : Struct
 ---@field GroupName string
 ---@field Time number
 
----@class Engine.InterpTrackNotify.NotifyTrackKey : Object
+---@class Engine.InterpTrackNotify.NotifyTrackKey : Struct
 ---@field Time number
 ---@field Notify Engine.AnimNotify
 
----@class Engine.InterpTrackParticleReplay.ParticleReplayTrackKey : Object
+---@class Engine.InterpTrackParticleReplay.ParticleReplayTrackKey : Struct
 ---@field Time number
 ---@field Duration number
 ---@field ClipIDNumber integer
 
----@class Engine.InterpTrackSound.SoundTrackKey : Object
+---@class Engine.InterpTrackSound.SoundTrackKey : Struct
 ---@field Time number
 ---@field Volume number
 ---@field Pitch number
 ---@field Sound Engine.SoundCue
 
----@class Engine.LandscapeProxy.LandscapeLayerStruct : Object
+---@class Engine.LandscapeProxy.LandscapeLayerStruct : Struct
 ---@field LayerInfoObj Engine.LandscapeLayerInfoObject
 ---@field bSelected boolean
 
----@class Engine.LandscapeProxy.LandscapeWeightmapUsage : Object
+---@class Engine.LandscapeProxy.LandscapeWeightmapUsage : Struct
 ---@field ChannelUsage Engine.LandscapeComponent
 
----@class Engine.Landscape.LandscapeLayerInfo : Object
+---@class Engine.Landscape.LandscapeLayerInfo : Struct
 ---@field LayerName string
 ---@field Hardness number
 ---@field bNoWeightBlend boolean
 ---@field PhysMaterial Engine.PhysicalMaterial
 ---@field bSelected boolean
 
----@class Engine.LandscapeComponent.WeightmapLayerAllocationInfo : Object
+---@class Engine.LandscapeComponent.WeightmapLayerAllocationInfo : Struct
 ---@field LayerName string
 ---@field WeightmapTextureIndex integer
 ---@field WeightmapTextureChannel integer
 
----@class Engine.LandscapeGizmoActiveActor.GizmoSelectData : Object
+---@class Engine.LandscapeGizmoActiveActor.GizmoSelectData : Struct
 
----@class Engine.LandscapeInfo.LandscapeAddCollision : Object
+---@class Engine.LandscapeInfo.LandscapeAddCollision : Struct
 
----@class Engine.MaterialInstanceConstant.FontParameterValue : Object
+---@class Engine.MaterialInstanceConstant.FontParameterValue : Struct
 ---@field ParameterName string
 ---@field FontValue Engine.Font
 ---@field FontPage integer
 ---@field ExpressionGUID Core.Object.Guid
 
----@class Engine.MaterialInstanceConstant.ScalarParameterValue : Object
+---@class Engine.MaterialInstanceConstant.ScalarParameterValue : Struct
 ---@field ParameterName string
 ---@field ParameterValue number
 ---@field ExpressionGUID Core.Object.Guid
 
----@class Engine.MaterialInstanceConstant.TextureParameterValue : Object
+---@class Engine.MaterialInstanceConstant.TextureParameterValue : Struct
 ---@field ParameterName string
 ---@field ParameterValue Engine.Texture
 ---@field ExpressionGUID Core.Object.Guid
 
----@class Engine.MaterialInstanceConstant.VectorParameterValue : Object
+---@class Engine.MaterialInstanceConstant.VectorParameterValue : Struct
 ---@field ParameterName string
 ---@field ParameterValue Core.Object.LinearColor
 ---@field ExpressionGUID Core.Object.Guid
 
----@class Engine.MaterialInstanceConstant.MICStateParams : Object
+---@class Engine.MaterialInstanceConstant.MICStateParams : Struct
 ---@field nmStateName string
 ---@field ScalarParameterValues Array<Engine.MaterialInstanceConstant.StateScalarParameterValue>
 ---@field VectorParameterValues Array<Engine.MaterialInstanceConstant.StateVectorParameterValue>
 
----@class Engine.MaterialInstanceConstant.StateScalarParameterValue : Object
+---@class Engine.MaterialInstanceConstant.StateScalarParameterValue : Struct
 ---@field ParameterName string
 ---@field ParameterValue number
 
----@class Engine.MaterialInstanceConstant.StateVectorParameterValue : Object
+---@class Engine.MaterialInstanceConstant.StateVectorParameterValue : Struct
 ---@field ParameterName string
 ---@field ParameterValue Core.Object.LinearColor
 
----@class Engine.LensFlare.LensFlareElement : Object
+---@class Engine.LensFlare.LensFlareElement : Struct
 ---@field ElementName string
 ---@field RayDistance number
 ---@field bIsEnabled boolean
@@ -19002,24 +19002,24 @@
 ---@field DistMap_Color Core.DistributionVector.RawDistributionVector
 ---@field DistMap_Alpha Core.DistributionFloat.RawDistributionFloat
 
----@class Engine.LensFlare.LensFlareElementCurvePair : Object
+---@class Engine.LensFlare.LensFlareElementCurvePair : Struct
 ---@field CurveName string
 ---@field CurveObject Core.Object
 
----@class Engine.LensFlareComponent.LensFlareElementMaterials : Object
+---@class Engine.LensFlareComponent.LensFlareElementMaterials : Struct
 ---@field ElementMaterials Array<Engine.MaterialInterface>
 
----@class Engine.LensFlareComponent.LensFlareElementInstance : Object
+---@class Engine.LensFlareComponent.LensFlareElementInstance : Struct
 
----@class Engine.LevelGridVolume.LevelGridCellCoordinate : Object
+---@class Engine.LevelGridVolume.LevelGridCellCoordinate : Struct
 ---@field X integer
 ---@field Y integer
 ---@field Z integer
 
----@class Engine.LevelStreamingVolume.CheckpointRecord : Object
+---@class Engine.LevelStreamingVolume.CheckpointRecord : Struct
 ---@field bDisabled boolean
 
----@class Engine.LocalPlayer.PostProcessSettingsOverride : Object
+---@class Engine.LocalPlayer.PostProcessSettingsOverride : Struct
 ---@field Settings Engine.PostProcessVolume.PostProcessSettings
 ---@field bBlendingIn boolean
 ---@field bBlendingOut boolean
@@ -19030,17 +19030,17 @@
 ---@field BlendStartTime number
 ---@field TimeAlphaCurve Core.Object.InterpCurveFloat
 
----@class Engine.LocalPlayer.CurrentPostProcessVolumeInfo : Object
+---@class Engine.LocalPlayer.CurrentPostProcessVolumeInfo : Struct
 ---@field LastSettings Engine.PostProcessVolume.PostProcessSettings
 ---@field LastVolumeUsed Engine.PostProcessVolume
 ---@field BlendStartTime number
 ---@field LastBlendTime number
 
----@class Engine.LocalPlayer.SynchronizedActorVisibilityHistory : Object
+---@class Engine.LocalPlayer.SynchronizedActorVisibilityHistory : Struct
 ---@field State Core.Object.Pointer
 ---@field CriticalSection Core.Object.Pointer
 
----@class Engine.MaterialExpression.ExpressionOutput : Object
+---@class Engine.MaterialExpression.ExpressionOutput : Struct
 ---@field OutputName string
 ---@field Mask integer
 ---@field MaskR integer
@@ -19048,7 +19048,7 @@
 ---@field MaskB integer
 ---@field MaskA integer
 
----@class Engine.MaterialExpression.ExpressionInput : Object
+---@class Engine.MaterialExpression.ExpressionInput : Struct
 ---@field Expression Engine.MaterialExpression
 ---@field OutputIndex integer
 ---@field InputName string
@@ -19059,11 +19059,11 @@
 ---@field MaskA integer
 ---@field GCC64_Padding integer
 
----@class Engine.MaterialExpressionCustom.CustomInput : Object
+---@class Engine.MaterialExpressionCustom.CustomInput : Struct
 ---@field InputName string
 ---@field Input Engine.MaterialExpression.ExpressionInput
 
----@class Engine.MaterialExpressionLandscapeLayerBlend.LayerBlendInput : Object
+---@class Engine.MaterialExpressionLandscapeLayerBlend.LayerBlendInput : Struct
 ---@field LayerName string
 ---@field BlendType integer
 ---@field LayerInput Engine.MaterialExpression.ExpressionInput
@@ -19071,17 +19071,17 @@
 ---@field PreviewWeight number
 ---@field InstanceOverride Core.Object.Pointer
 
----@class Engine.MaterialExpressionMaterialFunctionCall.FunctionExpressionInput : Object
+---@class Engine.MaterialExpressionMaterialFunctionCall.FunctionExpressionInput : Struct
 ---@field ExpressionInput Engine.MaterialExpressionFunctionInput
 ---@field ExpressionInputId Core.Object.Guid
 ---@field Input Engine.MaterialExpression.ExpressionInput
 
----@class Engine.MaterialExpressionMaterialFunctionCall.FunctionExpressionOutput : Object
+---@class Engine.MaterialExpressionMaterialFunctionCall.FunctionExpressionOutput : Struct
 ---@field ExpressionOutput Engine.MaterialExpressionFunctionOutput
 ---@field ExpressionOutputId Core.Object.Guid
 ---@field Output Engine.MaterialExpression.ExpressionOutput
 
----@class Engine.MaterialInstanceTimeVarying.ParameterValueOverTime : Object
+---@class Engine.MaterialInstanceTimeVarying.ParameterValueOverTime : Struct
 ---@field ExpressionGUID Core.Object.Guid
 ---@field StartTime number
 ---@field ParameterName string
@@ -19114,29 +19114,29 @@
 ---@class Engine.MaterialInstanceTimeVaryingActor : Engine.Actor
 ---@field MatInst Engine.MaterialInstanceTimeVarying
 
----@class Engine.MicroTransactionBase.PurchaseInfo : Object
+---@class Engine.MicroTransactionBase.PurchaseInfo : Struct
 ---@field Identifier string
 ---@field DisplayName string
 ---@field DisplayDescription string
 ---@field DisplayPrice string
 ---@field CurrencyType string
 
----@class Engine.MorphNodeWeightBase.MorphNodeConn : Object
+---@class Engine.MorphNodeWeightBase.MorphNodeConn : Struct
 ---@field ChildNodes Array<Engine.MorphNodeBase>
 ---@field ConnName string
 ---@field DrawY integer
 
----@class Engine.MorphNodeWeightByBoneAngle.BoneAngleMorph : Object
+---@class Engine.MorphNodeWeightByBoneAngle.BoneAngleMorph : Struct
 ---@field Angle number
 ---@field TargetWeight number
 
 ---@class Engine.NavMeshBoundsVolume : Engine.Volume
 
----@class Engine.NavMeshPathGoalEvaluator.BiasedGoalActor : Object
+---@class Engine.NavMeshPathGoalEvaluator.BiasedGoalActor : Struct
 ---@field Goal Engine.Actor
 ---@field ExtraCost integer
 
----@class Engine.NavMeshObstacle.CheckpointRecord : Object
+---@class Engine.NavMeshObstacle.CheckpointRecord : Struct
 ---@field bEnabled boolean
 
 ---@class Engine.OnlineEventsInterface : Core.Interface
@@ -19162,11 +19162,11 @@
 ---@field IsChunkComplete fun(self: Engine.OnlineGameDownloadInterface, InChunkIndex: integer, bRequireFastAccess: boolean): boolean
 ---@field IsGameComplete fun(self: Engine.OnlineGameDownloadInterface): boolean
 
----@class Engine.OnlineMatchmakingStats.MMStats_Timer : Object
+---@class Engine.OnlineMatchmakingStats.MMStats_Timer : Struct
 ---@field bInProgress boolean
 ---@field MSecs Core.Object.Double
 
----@class Engine.OnlinePlayerStorage.OnlineProfileSetting : Object
+---@class Engine.OnlinePlayerStorage.OnlineProfileSetting : Struct
 ---@field Owner integer
 ---@field ProfileSetting Engine.Settings.SettingsProperty
 
@@ -19201,22 +19201,22 @@
 ---@field RecentPartiesAddIndex integer
 ---@field CurrentPlayers Array<Engine.OnlineRecentPlayersList.CurrentPlayerMet>
 
----@class Engine.OnlineRecentPlayersList.RecentParty : Object
+---@class Engine.OnlineRecentPlayersList.RecentParty : Struct
 ---@field PartyLeader Engine.OnlineSubsystem.UniqueNetId
 ---@field PartyMembers Array<Engine.OnlineSubsystem.UniqueNetId>
 
----@class Engine.OnlineRecentPlayersList.CurrentPlayerMet : Object
+---@class Engine.OnlineRecentPlayersList.CurrentPlayerMet : Struct
 ---@field TeamNum integer
 ---@field Skill integer
 ---@field NetId Engine.OnlineSubsystem.UniqueNetId
 
----@class Engine.OnlineStats.OnlineStatsRow : Object
+---@class Engine.OnlineStats.OnlineStatsRow : Struct
 ---@field PlayerID Engine.OnlineSubsystem.UniqueNetId
 ---@field Rank Engine.Settings.SettingsData
 ---@field NickName string
 ---@field StatValues Array<Engine.Settings.SettingsData>
 
----@class Engine.OnlineStats.ColumnMetaData : Object
+---@class Engine.OnlineStats.ColumnMetaData : Struct
 ---@field ColumnName string
 ---@field StatName string
 
@@ -19227,36 +19227,36 @@
 ---@field ShowOnlineStatsUI fun(self: Engine.OnlineSuppliedUIInterface, Players: any, StatsRead: Engine.OnlineStatsRead): boolean
 ---@field OnShowOnlineStatsUIComplete fun(self: Engine.OnlineSuppliedUIInterface)
 
----@class Engine.ParticleEmitter.ParticleBurst : Object
+---@class Engine.ParticleEmitter.ParticleBurst : Struct
 ---@field Count integer
 ---@field CountLow integer
 ---@field Time number
 
----@class Engine.ParticleModule.ParticleCurvePair : Object
+---@class Engine.ParticleModule.ParticleCurvePair : Struct
 ---@field CurveName string
 ---@field CurveObject Core.Object
 
----@class Engine.ParticleModule.ParticleRandomSeedInfo : Object
+---@class Engine.ParticleModule.ParticleRandomSeedInfo : Struct
 ---@field ParameterName string
 ---@field bGetSeedFromInstance boolean
 ---@field bInstanceSeedIsIndex boolean
 ---@field bResetSeedOnEmitterLooping boolean
 ---@field RandomSeeds Array<integer>
 
----@class Engine.ParticleModuleAttractorBoneSocket.AttractLocationBoneSocketInfo : Object
+---@class Engine.ParticleModuleAttractorBoneSocket.AttractLocationBoneSocketInfo : Struct
 ---@field BoneSocketName string
 ---@field Offset Vector
 
----@class Engine.ParticleModuleBeamModifier.BeamModifierOptions : Object
+---@class Engine.ParticleModuleBeamModifier.BeamModifierOptions : Struct
 ---@field bModify boolean
 ---@field bScale boolean
 ---@field bLock boolean
 
----@class Engine.ParticleModuleCollision.ParticleAttractorCollisionAction : Object
+---@class Engine.ParticleModuleCollision.ParticleAttractorCollisionAction : Struct
 ---@field Type integer
 ---@field EventName string
 
----@class Engine.ParticleModuleEventGenerator.ParticleEvent_GenerateInfo : Object
+---@class Engine.ParticleModuleEventGenerator.ParticleEvent_GenerateInfo : Struct
 ---@field Type integer
 ---@field Frequency integer
 ---@field LowFreq integer
@@ -19267,16 +19267,16 @@
 ---@field CustomName string
 ---@field ParticleModuleEventsToSendToGame Array<Engine.ParticleModuleEventSendToGame>
 
----@class Engine.ParticleModuleLocationBoneSocket.LocationBoneSocketInfo : Object
+---@class Engine.ParticleModuleLocationBoneSocket.LocationBoneSocketInfo : Struct
 ---@field BoneSocketName string
 ---@field Offset Vector
 
----@class Engine.ParticleModuleOrbit.OrbitOptions : Object
+---@class Engine.ParticleModuleOrbit.OrbitOptions : Struct
 ---@field bProcessDuringSpawn boolean
 ---@field bProcessDuringUpdate boolean
 ---@field bUseEmitterTime boolean
 
----@class Engine.ParticleModuleParameterDynamic.EmitterDynamicParameter : Object
+---@class Engine.ParticleModuleParameterDynamic.EmitterDynamicParameter : Struct
 ---@field ParamName string
 ---@field bUseEmitterTime boolean
 ---@field bSpawnTimeOnly boolean
@@ -19284,20 +19284,20 @@
 ---@field bScaleVelocityByParamValue boolean
 ---@field ParamValue Core.DistributionFloat.RawDistributionFloat
 
----@class Engine.ParticleModuleTypeDataBeam2.BeamTargetData : Object
+---@class Engine.ParticleModuleTypeDataBeam2.BeamTargetData : Struct
 ---@field TargetName string
 ---@field TargetPercentage number
 
----@class Engine.ParticleModuleTypeDataPhysX.PhysXEmitterVerticalLodProperties : Object
+---@class Engine.ParticleModuleTypeDataPhysX.PhysXEmitterVerticalLodProperties : Struct
 ---@field WeightForFifo number
 ---@field WeightForSpawnLod number
 ---@field SpawnLodRateVsLifeBias number
 ---@field RelativeFadeoutTime number
 
----@class Engine.ParticleSystemReplay.ParticleSystemReplayFrame : Object
+---@class Engine.ParticleSystemReplay.ParticleSystemReplayFrame : Struct
 ---@field Emitters Array<Engine.ParticleSystemReplay.ParticleEmitterReplayFrame>
 
----@class Engine.ParticleSystemReplay.ParticleEmitterReplayFrame : Object
+---@class Engine.ParticleSystemReplay.ParticleEmitterReplayFrame : Struct
 ---@field EmitterType integer
 ---@field OriginalEmitterIndex integer
 ---@field FrameState Core.Object.Pointer
@@ -19307,31 +19307,31 @@
 
 ---@class Engine.SeqEvent_AIReachedRouteActor : Engine.SequenceEvent
 
----@class Engine.PBRuleNodeBase.PBRuleLink : Object
+---@class Engine.PBRuleNodeBase.PBRuleLink : Struct
 ---@field NextRule Engine.PBRuleNodeBase
 ---@field LinkName string
 
----@class Engine.ProcBuildingRuleset.PBParamSwatch : Object
+---@class Engine.ProcBuildingRuleset.PBParamSwatch : Struct
 ---@field SwatchName string
 ---@field Params Array<Engine.ProcBuilding.PBMaterialParam>
 
----@class Engine.ProcBuildingRuleset.PBVariationInfo : Object
+---@class Engine.ProcBuildingRuleset.PBVariationInfo : Struct
 ---@field VariationName string
 ---@field bMeshOnTopOfFacePoly boolean
 
----@class Engine.ProcBuilding.PBMaterialParam : Object
+---@class Engine.ProcBuilding.PBMaterialParam : Struct
 ---@field ParamName string
 ---@field Color Core.Object.LinearColor
 
----@class Engine.ProcBuilding.PBFracMeshCompInfo : Object
+---@class Engine.ProcBuilding.PBFracMeshCompInfo : Struct
 ---@field FracMeshComp Engine.FracturedStaticMeshComponent
 ---@field TopLevelScopeIndex integer
 
----@class Engine.ProcBuilding.PBFaceUVInfo : Object
+---@class Engine.ProcBuilding.PBFaceUVInfo : Struct
 ---@field Offset Core.Object.Vector2D
 ---@field Size Core.Object.Vector2D
 
----@class Engine.ProcBuilding.PBMemUsageInfo : Object
+---@class Engine.ProcBuilding.PBMemUsageInfo : Struct
 ---@field Building Engine.ProcBuilding
 ---@field Ruleset Engine.ProcBuildingRuleset
 ---@field NumStaticMeshComponent integer
@@ -19342,11 +19342,11 @@
 ---@field LODDiffuseMemBytes integer
 ---@field LODLightingMemBytes integer
 
----@class Engine.ProcBuilding.PBMeshCompInfo : Object
+---@class Engine.ProcBuilding.PBMeshCompInfo : Struct
 ---@field MeshComp Engine.StaticMeshComponent
 ---@field TopLevelScopeIndex integer
 
----@class Engine.ProcBuilding.PBEdgeInfo : Object
+---@class Engine.ProcBuilding.PBEdgeInfo : Struct
 ---@field EdgeEnd Vector
 ---@field EdgeStart Vector
 ---@field ScopeAIndex integer
@@ -19355,26 +19355,26 @@
 ---@field ScopeBEdge integer
 ---@field EdgeAngle number
 
----@class Engine.ProcBuilding.PBScopeProcessInfo : Object
+---@class Engine.ProcBuilding.PBScopeProcessInfo : Struct
 ---@field OwningBuilding Engine.ProcBuilding
 ---@field Ruleset Engine.ProcBuildingRuleset
 ---@field RulesetVariation string
 ---@field bGenerateLODPoly boolean
 ---@field bPartOfNonRect boolean
 
----@class Engine.ProcBuilding.PBScope2D : Object
+---@class Engine.ProcBuilding.PBScope2D : Struct
 ---@field ScopeFrame Core.Object.Matrix
 ---@field DimX number
 ---@field DimZ number
 
----@class Engine.PBRuleNodeCorner.RBCornerAngleInfo : Object
+---@class Engine.PBRuleNodeCorner.RBCornerAngleInfo : Struct
 ---@field Angle number
 ---@field CornerSize number
 
----@class Engine.PBRuleNodeEdgeAngle.RBEdgeAngleInfo : Object
+---@class Engine.PBRuleNodeEdgeAngle.RBEdgeAngleInfo : Struct
 ---@field Angle number
 
----@class Engine.PBRuleNodeMesh.BuildingMeshInfo : Object
+---@class Engine.PBRuleNodeMesh.BuildingMeshInfo : Struct
 ---@field Mesh Engine.StaticMesh
 ---@field DimX number
 ---@field DimZ number
@@ -19387,10 +19387,10 @@
 ---@field MaterialOverrides Array<Engine.MaterialInterface>
 ---@field SectionOverrides Array<Engine.PBRuleNodeMesh.BuildingMatOverrides>
 
----@class Engine.PBRuleNodeMesh.BuildingMatOverrides : Object
+---@class Engine.PBRuleNodeMesh.BuildingMatOverrides : Struct
 ---@field MaterialOptions Array<Engine.MaterialInterface>
 
----@class Engine.PBRuleNodeSplit.RBSplitInfo : Object
+---@class Engine.PBRuleNodeSplit.RBSplitInfo : Struct
 ---@field bFixSize boolean
 ---@field FixedSize number
 ---@field ExpandRatio number
@@ -19398,23 +19398,23 @@
 
 ---@class Engine.SeqEvent_PickupStatusChange : Engine.SequenceEvent
 
----@class Engine.PlayerReplicationInfo.PRIAudioDeviceInfo : Object
+---@class Engine.PlayerReplicationInfo.PRIAudioDeviceInfo : Struct
 ---@field Valid boolean
 ---@field DeviceCategory integer
 ---@field DeviceType integer
 ---@field Id string
 ---@field Sharing integer
 
----@class Engine.PointLightToggleable.CheckpointRecord : Object
+---@class Engine.PointLightToggleable.CheckpointRecord : Struct
 ---@field bEnabled boolean
 
----@class Engine.Sequence.ActivateOp : Object
+---@class Engine.Sequence.ActivateOp : Struct
 ---@field ActivatorOp Engine.SequenceOp
 ---@field Op Engine.SequenceOp
 ---@field InputIdx integer
 ---@field RemainingDelay number
 
----@class Engine.Sequence.QueuedActivationInfo : Object
+---@class Engine.Sequence.QueuedActivationInfo : Struct
 ---@field ActivatedEvent Engine.SequenceEvent
 ---@field InOriginator Engine.Actor
 ---@field InInstigator Engine.Actor
@@ -19424,10 +19424,10 @@
 ---@class Engine.RadialBlurActor : Engine.Actor
 ---@field RadialBlur Engine.RadialBlurComponent
 
----@class Engine.RB_BodySetup.KCachedConvexData : Object
+---@class Engine.RB_BodySetup.KCachedConvexData : Struct
 ---@field CachedConvexElements Array<Engine.RB_BodySetup.KCachedConvexDataElement>
 
----@class Engine.RB_BodySetup.KCachedConvexDataElement : Object
+---@class Engine.RB_BodySetup.KCachedConvexDataElement : Struct
 ---@field ConvexElementData Array<integer>
 
 ---@class Engine.SeqAct_ToggleConstraintDrive : Engine.SequenceAction
@@ -19436,7 +19436,7 @@
 ---@field bEnableLinearPositionDrive boolean
 ---@field bEnableLinearvelocityDrive boolean
 
----@class Engine.RB_ConstraintSetup.LinearDOFSetup : Object
+---@class Engine.RB_ConstraintSetup.LinearDOFSetup : Struct
 ---@field bLimited integer
 ---@field LimitSize number
 
@@ -19453,7 +19453,7 @@
 ---@class Engine.ReverbVolumeToggleable : Engine.ReverbVolume
 ---@field OnToggle fun(self: Engine.ReverbVolumeToggleable, Action: Engine.SeqAct_Toggle)
 
----@class Engine.SavedMove.SavedChargeState : Object
+---@class Engine.SavedMove.SavedChargeState : Struct
 ---@field m_bWantsCharge boolean
 ---@field m_fCurrentTimeInCharge number
 ---@field m_bUsePhysFlyingForCharge boolean
@@ -19477,11 +19477,11 @@
 ---@field ConcatenateWithSpace boolean
 ---@field StrResult string
 
----@class Engine.SeqAct_Interp.CameraCutInfo : Object
+---@class Engine.SeqAct_Interp.CameraCutInfo : Struct
 ---@field Location Vector
 ---@field TimeStamp number
 
----@class Engine.SeqAct_Interp.SavedTransform : Object
+---@class Engine.SeqAct_Interp.SavedTransform : Struct
 ---@field Location Vector
 ---@field Rotation Rotator
 
@@ -19490,11 +19490,11 @@
 ---@field GetObjClassVersion fun(self: Engine.SeqAct_MITV_Activate): integer
 ---@field DurationOfMITV number
 
----@class Engine.SeqAct_MultiLevelStreaming.LevelStreamingNameCombo : Object
+---@class Engine.SeqAct_MultiLevelStreaming.LevelStreamingNameCombo : Struct
 ---@field Level Engine.LevelStreaming
 ---@field LevelName string
 
----@class Engine.SeqAct_RangeSwitch.SwitchRange : Object
+---@class Engine.SeqAct_RangeSwitch.SwitchRange : Struct
 ---@field Min integer
 ---@field Max integer
 
@@ -19517,7 +19517,7 @@
 ---@field Activated fun(self: Engine.SeqAct_SetVector)
 ---@field DefaultValue Vector
 
----@class Engine.WorldAttractor.WorldAttractorData : Object
+---@class Engine.WorldAttractor.WorldAttractorData : Struct
 ---@field bEnabled boolean
 ---@field Location Vector
 ---@field FalloffType integer
@@ -19530,11 +19530,11 @@
 ---@class Engine.SeqAct_UpdatePhysBonesFromAnim : Engine.SequenceAction
 ---@field GetObjClassVersion fun(self: Engine.SeqAct_UpdatePhysBonesFromAnim): integer
 
----@class Engine.SeqCond_SwitchClass.SwitchClassInfo : Object
+---@class Engine.SeqCond_SwitchClass.SwitchClassInfo : Struct
 ---@field ClassName string
 ---@field bFallThru integer
 
----@class Engine.SeqCond_SwitchObject.SwitchObjectCase : Object
+---@class Engine.SeqCond_SwitchObject.SwitchObjectCase : Struct
 ---@field ObjectValue Core.Object
 ---@field bFallThru boolean
 ---@field bDefaultValue boolean
@@ -19551,21 +19551,21 @@
 
 ---@class Engine.SeqVar_Union : Engine.SequenceVariable
 
----@class Engine.SkeletalMesh.SoftBodyTetraLink : Object
+---@class Engine.SkeletalMesh.SoftBodyTetraLink : Struct
 ---@field Index integer
 ---@field Bary Vector
 
----@class Engine.SkeletalMesh.SoftBodySpecialBoneInfo : Object
+---@class Engine.SkeletalMesh.SoftBodySpecialBoneInfo : Struct
 ---@field BoneName string
 ---@field BoneType integer
 ---@field AttachedVertexIndices Array<integer>
 
----@class Engine.SkeletalMesh.ClothSpecialBoneInfo : Object
+---@class Engine.SkeletalMesh.ClothSpecialBoneInfo : Struct
 ---@field BoneName string
 ---@field BoneType integer
 ---@field AttachedVertexIndices Array<integer>
 
----@class Engine.SkeletalMesh.SkeletalMeshOptimizationSettings : Object
+---@class Engine.SkeletalMesh.SkeletalMeshOptimizationSettings : Struct
 ---@field MaxDeviationPercentage number
 ---@field SilhouetteImportance integer
 ---@field TextureImportance integer
@@ -19580,7 +19580,7 @@
 ---@field bRecalcNormals boolean
 ---@field NormalsThreshold number
 
----@class Engine.SkeletalMesh.SkeletalMeshLODInfo : Object
+---@class Engine.SkeletalMesh.SkeletalMeshLODInfo : Struct
 ---@field DisplayFactor number
 ---@field LODHysteresis number
 ---@field LODMaterialMap Array<integer>
@@ -19591,43 +19591,43 @@
 ---@field bHasBeenSimplified boolean
 ---@field BonesToRemove Array<Engine.SkeletalMesh.BoneToRemove>
 
----@class Engine.SkeletalMesh.BoneToRemove : Object
+---@class Engine.SkeletalMesh.BoneToRemove : Struct
 ---@field BoneName string
 ---@field BoneId integer
 
----@class Engine.SkeletalMesh.TriangleSortSettings : Object
+---@class Engine.SkeletalMesh.TriangleSortSettings : Struct
 ---@field TriangleSorting integer
 ---@field CustomLeftRightAxis integer
 ---@field CustomLeftRightBoneName string
 
----@class Engine.SkeletalMesh.BoneMirrorExport : Object
+---@class Engine.SkeletalMesh.BoneMirrorExport : Struct
 ---@field BoneName string
 ---@field SourceBoneName string
 ---@field BoneFlipAxis integer
 
----@class Engine.SkeletalMesh.BoneMirrorInfo : Object
+---@class Engine.SkeletalMesh.BoneMirrorInfo : Struct
 ---@field SourceIndex integer
 ---@field BoneFlipAxis integer
 
----@class Engine.SkeletalMesh.ApexClothingAssetInfo : Object
+---@class Engine.SkeletalMesh.ApexClothingAssetInfo : Struct
 ---@field ClothingLodInfo Array<Engine.SkeletalMesh.ApexClothingLodInfo>
 ---@field ClothingAssetName string
 
----@class Engine.SkeletalMesh.ApexClothingLodInfo : Object
+---@class Engine.SkeletalMesh.ApexClothingLodInfo : Struct
 ---@field ClothingSectionInfo Array<integer>
 
----@class Engine.SkeletalMeshActor.SkelMeshActorControlTarget : Object
+---@class Engine.SkeletalMeshActor.SkelMeshActorControlTarget : Struct
 ---@field ControlName string
 ---@field TargetActor Engine.Actor
 
----@class Engine.SkeletalMeshActor.CheckpointRecord : Object
+---@class Engine.SkeletalMeshActor.CheckpointRecord : Struct
 ---@field bReplicated boolean
 ---@field bHidden boolean
 ---@field bSavedPosition boolean
 ---@field Location Vector
 ---@field Rotation Rotator
 
----@class Engine.SkeletalMeshActorBasedOnExtremeContent.SkelMaterialSetterDatum : Object
+---@class Engine.SkeletalMeshActorBasedOnExtremeContent.SkelMaterialSetterDatum : Struct
 ---@field MaterialIndex integer
 ---@field TheMaterial Engine.MaterialInterface
 
@@ -19635,11 +19635,11 @@
 
 ---@class Engine.SkeletalMeshActorMATWalkable : Engine.SkeletalMeshActorMAT
 
----@class Engine.SoundClass.SoundClassEditorData : Object
+---@class Engine.SoundClass.SoundClassEditorData : Struct
 ---@field NodePosX integer
 ---@field NodePosY integer
 
----@class Engine.SoundClass.SoundClassProperties : Object
+---@class Engine.SoundClass.SoundClassProperties : Struct
 ---@field Volume number
 ---@field Pitch number
 ---@field StereoBleed number
@@ -19659,7 +19659,7 @@
 ---@field m_fNonLocalPriorityBoost number
 ---@field m_fLocalPriorityBoost number
 
----@class Engine.SoundMode.SoundClassAdjuster : Object
+---@class Engine.SoundMode.SoundClassAdjuster : Struct
 ---@field SoundClassName integer
 ---@field SoundClass string
 ---@field VolumeAdjuster number
@@ -19667,7 +19667,7 @@
 ---@field bApplyToChildren boolean
 ---@field VoiceCenterChannelVolumeAdjuster number
 
----@class Engine.SoundMode.AudioEQEffect : Object
+---@class Engine.SoundMode.AudioEQEffect : Struct
 ---@field RootTime Core.Object.Double
 ---@field HFFrequency number
 ---@field HFGain number
@@ -19677,7 +19677,7 @@
 ---@field LFFrequency number
 ---@field LFGain number
 
----@class Engine.SoundNodeDistanceCrossFade.DistanceDatum : Object
+---@class Engine.SoundNodeDistanceCrossFade.DistanceDatum : Struct
 ---@field FadeInDistanceStart number
 ---@field FadeInDistanceEnd number
 ---@field FadeOutDistanceStart number
@@ -19686,7 +19686,7 @@
 ---@field FadeInDistance Core.DistributionFloat.RawDistributionFloat
 ---@field FadeOutDistance Core.DistributionFloat.RawDistributionFloat
 
----@class Engine.SpeechRecognition.RecogVocabulary : Object
+---@class Engine.SpeechRecognition.RecogVocabulary : Struct
 ---@field WhoDictionary Array<Engine.SpeechRecognition.RecognisableWord>
 ---@field WhatDictionary Array<Engine.SpeechRecognition.RecognisableWord>
 ---@field WhereDictionary Array<Engine.SpeechRecognition.RecognisableWord>
@@ -19694,16 +19694,16 @@
 ---@field VocabData Array<integer>
 ---@field WorkingVocabData Array<integer>
 
----@class Engine.SpeechRecognition.RecognisableWord : Object
+---@class Engine.SpeechRecognition.RecognisableWord : Struct
 ---@field Id integer
 ---@field ReferenceWord string
 ---@field PhoneticWord string
 
----@class Engine.SpeechRecognition.RecogUserData : Object
+---@class Engine.SpeechRecognition.RecogUserData : Struct
 ---@field ActiveVocabularies integer
 ---@field UserData Array<integer>
 
----@class Engine.SpeedTreeComponent.SpeedTreeStaticLight : Object
+---@class Engine.SpeedTreeComponent.SpeedTreeStaticLight : Struct
 ---@field Guid Core.Object.Guid
 ---@field BranchShadowMap Engine.ShadowMap1D
 ---@field FrondShadowMap Engine.ShadowMap1D
@@ -19711,11 +19711,11 @@
 ---@field LeafCardShadowMap Engine.ShadowMap1D
 ---@field BillboardShadowMap Engine.ShadowMap1D
 
----@class Engine.SplineActor.SplineConnection : Object
+---@class Engine.SplineActor.SplineConnection : Struct
 ---@field SplineComponent Engine.SplineComponent
 ---@field ConnectTo Engine.SplineActor
 
----@class Engine.SplineMeshComponent.SplineMeshParams : Object
+---@class Engine.SplineMeshComponent.SplineMeshParams : Struct
 ---@field StartPos Vector
 ---@field StartTangent Vector
 ---@field StartScale Core.Object.Vector2D
@@ -19727,14 +19727,14 @@
 ---@field EndRoll number
 ---@field EndOffset Core.Object.Vector2D
 
----@class Engine.SpotLightToggleable.CheckpointRecord : Object
+---@class Engine.SpotLightToggleable.CheckpointRecord : Struct
 ---@field bEnabled boolean
 
----@class Engine.StaticMeshActorBasedOnExtremeContent.SMMaterialSetterDatum : Object
+---@class Engine.StaticMeshActorBasedOnExtremeContent.SMMaterialSetterDatum : Struct
 ---@field MaterialIndex integer
 ---@field TheMaterial Engine.MaterialInterface
 
----@class Engine.SVehicle.VehicleState : Object
+---@class Engine.SVehicle.VehicleState : Struct
 ---@field RBState Engine.Actor.RigidBodyState
 ---@field ServerBrake integer
 ---@field ServerGas integer
@@ -19743,11 +19743,11 @@
 ---@field bServerHandbrake boolean
 ---@field ServerView integer
 
----@class Engine.Terrain.TerrainHeight : Object
+---@class Engine.Terrain.TerrainHeight : Struct
 
----@class Engine.Terrain.TerrainInfoData : Object
+---@class Engine.Terrain.TerrainInfoData : Struct
 
----@class Engine.Terrain.TerrainLayer : Object
+---@class Engine.Terrain.TerrainLayer : Struct
 ---@field Name string
 ---@field Setup Engine.TerrainLayerSetup
 ---@field AlphaMapIndex integer
@@ -19761,28 +19761,28 @@
 ---@field MaxX integer
 ---@field MaxY integer
 
----@class Engine.Terrain.TerrainDecoLayer : Object
+---@class Engine.Terrain.TerrainDecoLayer : Struct
 ---@field Name string
 ---@field Decorations Array<Engine.Terrain.TerrainDecoration>
 ---@field AlphaMapIndex integer
 
----@class Engine.Terrain.AlphaMap : Object
+---@class Engine.Terrain.AlphaMap : Struct
 
----@class Engine.Terrain.TerrainWeightedMaterial : Object
+---@class Engine.Terrain.TerrainWeightedMaterial : Struct
 
----@class Engine.Terrain.SelectedTerrainVertex : Object
+---@class Engine.Terrain.SelectedTerrainVertex : Struct
 ---@field X integer
 ---@field Y integer
 ---@field Weight integer
 
----@class Engine.Terrain.TerrainDecorationInstance : Object
+---@class Engine.Terrain.TerrainDecorationInstance : Struct
 ---@field Component Engine.PrimitiveComponent
 ---@field X number
 ---@field Y number
 ---@field Scale number
 ---@field Yaw integer
 
----@class Engine.Terrain.TerrainDecoration : Object
+---@class Engine.Terrain.TerrainDecoration : Struct
 ---@field Factory Engine.PrimitiveComponentFactory
 ---@field MinScale number
 ---@field MaxScale number
@@ -19791,24 +19791,24 @@
 ---@field RandSeed integer
 ---@field Instances Array<Engine.Terrain.TerrainDecorationInstance>
 
----@class Engine.Terrain.TerrainMaterialResource : Object
+---@class Engine.Terrain.TerrainMaterialResource : Struct
 
----@class Engine.Terrain.CachedTerrainMaterialArray : Object
+---@class Engine.Terrain.CachedTerrainMaterialArray : Struct
 ---@field CachedMaterials Array<Core.Object.Pointer>
 
----@class Engine.TerrainComponent.TerrainPatchBounds : Object
+---@class Engine.TerrainComponent.TerrainPatchBounds : Struct
 ---@field MinHeight number
 ---@field MaxHeight number
 ---@field MaxDisplacement number
 
----@class Engine.TerrainComponent.TerrainMaterialMask : Object
+---@class Engine.TerrainComponent.TerrainMaterialMask : Struct
 ---@field BitMask Core.Object.QWord
 ---@field NumBits integer
 
----@class Engine.TerrainComponent.TerrainBVTree : Object
+---@class Engine.TerrainComponent.TerrainBVTree : Struct
 ---@field Nodes Array<integer>
 
----@class Engine.TerrainLayerSetup.TerrainFilteredMaterial : Object
+---@class Engine.TerrainLayerSetup.TerrainFilteredMaterial : Struct
 ---@field UseNoise boolean
 ---@field NoiseScale number
 ---@field NoisePercent number
@@ -19819,15 +19819,15 @@
 ---@field Alpha number
 ---@field Material Engine.TerrainMaterial
 
----@class Engine.TerrainLayerSetup.FilterLimit : Object
+---@class Engine.TerrainLayerSetup.FilterLimit : Struct
 ---@field Enabled boolean
 ---@field Base number
 ---@field NoiseScale number
 ---@field NoiseAmount number
 
----@class Engine.TerrainWeightMapTexture.TerrainWeightedMaterial : Object
+---@class Engine.TerrainWeightMapTexture.TerrainWeightedMaterial : Struct
 
----@class Engine.Texture2DComposite.SourceTexture2DRegion : Object
+---@class Engine.Texture2DComposite.SourceTexture2DRegion : Struct
 ---@field OffsetX integer
 ---@field OffsetY integer
 ---@field SizeX integer
@@ -19836,7 +19836,7 @@
 ---@field DestOffsetY integer
 ---@field Texture2D Engine.Texture2D
 
----@class Engine.Trigger.CheckpointRecord : Object
+---@class Engine.Trigger.CheckpointRecord : Struct
 ---@field bCollideActors boolean
 
 ---@class Engine.Trigger_Dynamic : Engine.Trigger
@@ -19856,7 +19856,7 @@
 ---@field Touch fun(self: Engine.TriggerStreamingLevel, Other: Engine.Actor, OtherComp: Engine.PrimitiveComponent, HitLocation: Vector, HitNormal: Vector)
 ---@field Levels Array<Engine.TriggerStreamingLevel.LevelStreamingData>
 
----@class Engine.TriggerStreamingLevel.LevelStreamingData : Object
+---@class Engine.TriggerStreamingLevel.LevelStreamingData : Struct
 ---@field bShouldBeLoaded boolean
 ---@field bShouldBeVisible boolean
 ---@field bShouldBlockOnLoad boolean
@@ -19868,30 +19868,30 @@
 ---@field CharacterBio string
 ---@field bIsDisabled boolean
 
----@class Engine.UIDataProvider_OnlinePlayerStorage.PlayerStorageArrayProvider : Object
+---@class Engine.UIDataProvider_OnlinePlayerStorage.PlayerStorageArrayProvider : Struct
 ---@field PlayerStorageId integer
 ---@field Provider Engine.UIDataProvider_OnlinePlayerStorageArray
 
----@class Engine.UIDataStore_DynamicResource.DynamicResourceProviderDefinition : Object
+---@class Engine.UIDataStore_DynamicResource.DynamicResourceProviderDefinition : Struct
 ---@field ProviderTag string
 ---@field ProviderClassName string
 ---@field ProviderClass Core.Class
 
----@class Engine.UIDataStore_GameResource.GameResourceDataProvider : Object
+---@class Engine.UIDataStore_GameResource.GameResourceDataProvider : Struct
 ---@field ProviderTag string
 ---@field ProviderClassName string
 ---@field bExpandProviders boolean
 ---@field ProviderClass Core.Class
 
----@class Engine.UIDataStore_InputAlias.UIDataStoreInputAlias : Object
+---@class Engine.UIDataStore_InputAlias.UIDataStoreInputAlias : Struct
 ---@field AliasName string
 ---@field PlatformInputKeys Engine.UIDataStore_InputAlias.UIInputKeyData
 
----@class Engine.UIDataStore_InputAlias.UIInputKeyData : Object
+---@class Engine.UIDataStore_InputAlias.UIInputKeyData : Struct
 ---@field InputKeyData Engine.UIRoot.RawInputKeyEventData
 ---@field ButtonFontMarkupString string
 
----@class Engine.UIDataStore_OnlineGameSearch.GameSearchCfg : Object
+---@class Engine.UIDataStore_OnlineGameSearch.GameSearchCfg : Struct
 ---@field GameSearchClass Core.Class
 ---@field DefaultGameSettingsClass Core.Class
 ---@field SearchResultsProviderClass Core.Class
@@ -19899,25 +19899,25 @@
 ---@field Search Engine.OnlineGameSearch
 ---@field SearchName string
 
----@class Engine.UIDataStore_OnlineGameSettings.GameSettingsCfg : Object
+---@class Engine.UIDataStore_OnlineGameSettings.GameSettingsCfg : Struct
 ---@field GameSettingsClass Core.Class
 ---@field Provider Engine.UIDataProvider_Settings
 ---@field GameSettings Engine.OnlineGameSettings
 ---@field SettingsName string
 
----@class Engine.UIDataStore_OnlineStats.RankMetaData : Object
+---@class Engine.UIDataStore_OnlineStats.RankMetaData : Struct
 ---@field RankName string
 ---@field RankColumnName string
 
----@class Engine.UIDataStore_OnlineStats.PlayerNickMetaData : Object
+---@class Engine.UIDataStore_OnlineStats.PlayerNickMetaData : Struct
 ---@field PlayerNickName string
 ---@field PlayerNickColumnName string
 
----@class Engine.UIDataStore_Registry.RegistryKeyValuePair : Object
+---@class Engine.UIDataStore_Registry.RegistryKeyValuePair : Struct
 ---@field Key string
 ---@field Value string
 
----@class Engine.UIDataStore_StringAliasMap.UIMenuInputMap : Object
+---@class Engine.UIDataStore_StringAliasMap.UIMenuInputMap : Struct
 ---@field FieldName string
 ---@field Set string
 ---@field MappedText string
@@ -19935,7 +19935,7 @@
 ---@class Engine.UIInteraction.UIAxisEmulationData : Engine.UIInteraction.UIKeyRepeatData
 ---@field bEnabled boolean
 
----@class Engine.UIInteraction.UIKeyRepeatData : Object
+---@class Engine.UIInteraction.UIKeyRepeatData : Struct
 ---@field CurrentRepeatKey string
 ---@field NextRepeatTime Core.Object.Double
 
@@ -19945,7 +19945,7 @@
 ---@field DisplayName string
 ---@field Description string
 
----@class Engine.UISoundTheme.SoundEventMapping : Object
+---@class Engine.UISoundTheme.SoundEventMapping : Struct
 ---@field SoundEventName string
 ---@field SoundToPlay Engine.SoundCue
 
@@ -19987,11 +19987,11 @@
 ---@class Engine.WindDirectionalSource : Engine.Info
 ---@field Component Engine.WindDirectionalSourceComponent
 
----@class Engine.StaticMesh.StaticMeshLODElement : Object
+---@class Engine.StaticMesh.StaticMeshLODElement : Struct
 ---@field bEnableCollision boolean
 ---@field bEnableShadowCasting boolean
 ---@field Material Engine.MaterialInterface
 
----@class Engine.StaticMesh.StaticMeshLODInfo : Object
+---@class Engine.StaticMesh.StaticMeshLODInfo : Struct
 ---@field Elements Array<Engine.StaticMesh.StaticMeshLODElement>
 

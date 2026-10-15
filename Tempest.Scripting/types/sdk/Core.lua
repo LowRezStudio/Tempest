@@ -462,22 +462,22 @@
 
 ---@class Core.Class : Core.State
 
----@class Core.Object.Guid : Object
+---@class Core.Object.Guid : Struct
 ---@field A integer
 ---@field B integer
 ---@field C integer
 ---@field D integer
 
----@class Core.Object.InlinePointerArray_Mirror : Object
+---@class Core.Object.InlinePointerArray_Mirror : Struct
 ---@field InlineData Core.Object.Pointer
 ---@field SecondaryData Core.Object.Array_Mirror
 
----@class Core.Object.Rotator : Object
+---@class Core.Object.Rotator : Struct
 ---@field Pitch integer
 ---@field Yaw integer
 ---@field Roll integer
 
----@class Core.Object.Vector : Object
+---@class Core.Object.Vector : Struct
 ---@field X number
 ---@field Y number
 ---@field Z number
@@ -485,78 +485,78 @@
 ---@class Core.Object.Plane : Core.Object.Vector
 ---@field W number
 
----@class Core.Object.Vector2D : Object
+---@class Core.Object.Vector2D : Struct
 ---@field X number
 ---@field Y number
 
----@class Core.Object.Vector4 : Object
+---@class Core.Object.Vector4 : Struct
 ---@field X number
 ---@field Y number
 ---@field Z number
 ---@field W number
 
----@class Core.Object.LinearColor : Object
+---@class Core.Object.LinearColor : Struct
 ---@field R number
 ---@field G number
 ---@field B number
 ---@field A number
 
----@class Core.Object.Color : Object
+---@class Core.Object.Color : Struct
 ---@field B integer
 ---@field G integer
 ---@field R integer
 ---@field A integer
 
----@class Core.Object.InterpCurveVector2D : Object
+---@class Core.Object.InterpCurveVector2D : Struct
 ---@field Points Array<Core.Object.InterpCurvePointVector2D>
 ---@field InterpMethod integer
 
----@class Core.Object.InterpCurvePointVector2D : Object
+---@class Core.Object.InterpCurvePointVector2D : Struct
 ---@field InVal number
 ---@field OutVal Core.Object.Vector2D
 ---@field ArriveTangent Core.Object.Vector2D
 ---@field LeaveTangent Core.Object.Vector2D
 ---@field InterpMode integer
 
----@class Core.Object.InterpCurveFloat : Object
+---@class Core.Object.InterpCurveFloat : Struct
 ---@field Points Array<Core.Object.InterpCurvePointFloat>
 ---@field InterpMethod integer
 
----@class Core.Object.Cylinder : Object
+---@class Core.Object.Cylinder : Struct
 ---@field Radius number
 ---@field Height number
 
----@class Core.Object.InterpCurveVector : Object
+---@class Core.Object.InterpCurveVector : Struct
 ---@field Points Array<Core.Object.InterpCurvePointVector>
 ---@field InterpMethod integer
 
----@class Core.Object.InterpCurvePointVector : Object
+---@class Core.Object.InterpCurvePointVector : Struct
 ---@field InVal number
 ---@field OutVal Vector
 ---@field ArriveTangent Vector
 ---@field LeaveTangent Vector
 ---@field InterpMode integer
 
----@class Core.Object.InterpCurvePointFloat : Object
+---@class Core.Object.InterpCurvePointFloat : Struct
 ---@field InVal number
 ---@field OutVal number
 ---@field ArriveTangent number
 ---@field LeaveTangent number
 ---@field InterpMode integer
 
----@class Core.Object.Quat : Object
+---@class Core.Object.Quat : Struct
 ---@field X number
 ---@field Y number
 ---@field Z number
 ---@field W number
 
----@class Core.Object.Matrix : Object
+---@class Core.Object.Matrix : Struct
 ---@field XPlane Core.Object.Plane
 ---@field YPlane Core.Object.Plane
 ---@field ZPlane Core.Object.Plane
 ---@field WPlane Core.Object.Plane
 
----@class Core.Object.TAlphaBlend : Object
+---@class Core.Object.TAlphaBlend : Struct
 ---@field AlphaIn number
 ---@field AlphaOut number
 ---@field AlphaTarget number
@@ -564,31 +564,31 @@
 ---@field BlendTimeToGo number
 ---@field BlendType integer
 
----@class Core.Object.BoxSphereBounds : Object
+---@class Core.Object.BoxSphereBounds : Struct
 ---@field Origin Vector
 ---@field BoxExtent Vector
 ---@field SphereRadius number
 
----@class Core.Object.TwoVectors : Object
+---@class Core.Object.TwoVectors : Struct
 ---@field v1 Vector
 ---@field v2 Vector
 
----@class Core.Object.BoneAtom : Object
+---@class Core.Object.BoneAtom : Struct
 ---@field Rotation Core.Object.Quat
 ---@field Translation Vector
 ---@field Scale number
 
----@class Core.Object.OctreeElementId : Object
+---@class Core.Object.OctreeElementId : Struct
 ---@field Node Core.Object.Pointer
 ---@field ElementIndex integer
 
----@class Core.Object.RenderCommandFence : Object
+---@class Core.Object.RenderCommandFence : Struct
 ---@field NumPendingFences integer
 
----@class Core.Object.Pointer : Object
+---@class Core.Object.Pointer : Struct
 ---@field Dummy integer
 
----@class Core.Object.RawDistribution : Object
+---@class Core.Object.RawDistribution : Struct
 ---@field Type integer
 ---@field Op integer
 ---@field LookupTableNumElements integer
@@ -597,90 +597,90 @@
 ---@field LookupTableTimeScale number
 ---@field LookupTableStartTime number
 
----@class Core.Object.InterpCurveLinearColor : Object
+---@class Core.Object.InterpCurveLinearColor : Struct
 ---@field Points Array<Core.Object.InterpCurvePointLinearColor>
 ---@field InterpMethod integer
 
----@class Core.Object.InterpCurvePointLinearColor : Object
+---@class Core.Object.InterpCurvePointLinearColor : Struct
 ---@field InVal number
 ---@field OutVal Core.Object.LinearColor
 ---@field ArriveTangent Core.Object.LinearColor
 ---@field LeaveTangent Core.Object.LinearColor
 ---@field InterpMode integer
 
----@class Core.Object.InterpCurveQuat : Object
+---@class Core.Object.InterpCurveQuat : Struct
 ---@field Points Array<Core.Object.InterpCurvePointQuat>
 ---@field InterpMethod integer
 
----@class Core.Object.InterpCurvePointQuat : Object
+---@class Core.Object.InterpCurvePointQuat : Struct
 ---@field InVal number
 ---@field OutVal Core.Object.Quat
 ---@field ArriveTangent Core.Object.Quat
 ---@field LeaveTangent Core.Object.Quat
 ---@field InterpMode integer
 
----@class Core.Object.InterpCurveTwoVectors : Object
+---@class Core.Object.InterpCurveTwoVectors : Struct
 ---@field Points Array<Core.Object.InterpCurvePointTwoVectors>
 ---@field InterpMethod integer
 
----@class Core.Object.InterpCurvePointTwoVectors : Object
+---@class Core.Object.InterpCurvePointTwoVectors : Struct
 ---@field InVal number
 ---@field OutVal Core.Object.TwoVectors
 ---@field ArriveTangent Core.Object.TwoVectors
 ---@field LeaveTangent Core.Object.TwoVectors
 ---@field InterpMode integer
 
----@class Core.Object.Box : Object
+---@class Core.Object.Box : Struct
 ---@field Min Vector
 ---@field Max Vector
 ---@field IsValid integer
 
----@class Core.Object.TPOV : Object
+---@class Core.Object.TPOV : Struct
 ---@field Location Vector
 ---@field Rotation Rotator
 ---@field FOV number
 ---@field HUDOffset Core.Object.Vector2D
 
----@class Core.Object.SHVectorRGB : Object
+---@class Core.Object.SHVectorRGB : Struct
 ---@field R Core.Object.SHVector
 ---@field G Core.Object.SHVector
 ---@field B Core.Object.SHVector
 
----@class Core.Object.SHVector : Object
+---@class Core.Object.SHVector : Struct
 ---@field V number
 ---@field Padding number
 
----@class Core.Object.IntPoint : Object
+---@class Core.Object.IntPoint : Struct
 ---@field X integer
 ---@field Y integer
 
----@class Core.Object.PackedNormal : Object
+---@class Core.Object.PackedNormal : Struct
 ---@field X integer
 ---@field Y integer
 ---@field Z integer
 ---@field W integer
 
----@class Core.Object.Array_Mirror : Object
+---@class Core.Object.Array_Mirror : Struct
 ---@field Data Core.Object.Pointer
 ---@field ArrayNum integer
 ---@field ArrayMax integer
 
----@class Core.Object.IndirectArray_Mirror : Object
+---@class Core.Object.IndirectArray_Mirror : Struct
 ---@field Data Core.Object.Pointer
 ---@field ArrayNum integer
 ---@field ArrayMax integer
 
----@class Core.Object.FColorVertexBuffer_Mirror : Object
+---@class Core.Object.FColorVertexBuffer_Mirror : Struct
 ---@field VfTable Core.Object.Pointer
 ---@field VertexData Core.Object.Pointer
 ---@field Data integer
 ---@field Stride integer
 ---@field NumVertices integer
 
----@class Core.Object.RenderCommandFence_Mirror : Object
+---@class Core.Object.RenderCommandFence_Mirror : Struct
 ---@field NumPendingFences integer
 
----@class Core.Object.UntypedBulkData_Mirror : Object
+---@class Core.Object.UntypedBulkData_Mirror : Struct
 ---@field VfTable Core.Object.Pointer
 ---@field BulkDataFlags integer
 ---@field ElementCount integer
@@ -695,52 +695,52 @@
 ---@field AttachedAr Core.Object.Pointer
 ---@field bShouldFreeOnEmpty integer
 
----@class Core.Object.MultiMap_Mirror : Object
+---@class Core.Object.MultiMap_Mirror : Struct
 ---@field Pairs Core.Object.Set_Mirror
 
----@class Core.Object.Map_Mirror : Object
+---@class Core.Object.Map_Mirror : Struct
 ---@field Pairs Core.Object.Set_Mirror
 
----@class Core.Object.Set_Mirror : Object
+---@class Core.Object.Set_Mirror : Struct
 ---@field Elements Core.Object.SparseArray_Mirror
 ---@field InlineHash integer
 ---@field Hash Core.Object.Pointer
 ---@field HashSize integer
 
----@class Core.Object.SparseArray_Mirror : Object
+---@class Core.Object.SparseArray_Mirror : Struct
 ---@field Elements Array<integer>
 ---@field AllocationFlags Core.Object.BitArray_Mirror
 ---@field FirstFreeIndex integer
 ---@field NumFreeIndices integer
 
----@class Core.Object.BitArray_Mirror : Object
+---@class Core.Object.BitArray_Mirror : Struct
 ---@field IndirectData Core.Object.Pointer
 ---@field InlineData integer
 ---@field NumBits integer
 ---@field MaxBits integer
 
----@class Core.Object.ThreadSafeCounter : Object
+---@class Core.Object.ThreadSafeCounter : Struct
 ---@field Value integer
 
----@class Core.Object.Double : Object
+---@class Core.Object.Double : Struct
 ---@field A integer
 ---@field B integer
 
----@class Core.Object.IpAddr : Object
+---@class Core.Object.IpAddr : Struct
 ---@field AddrA integer
 ---@field AddrB integer
 ---@field AddrC integer
 ---@field AddrD integer
 ---@field Port integer
 
----@class Core.Object.QWord : Object
+---@class Core.Object.QWord : Struct
 ---@field A integer
 ---@field B integer
 
----@class Core.Object.dword : Object
+---@class Core.Object.dword : Struct
 ---@field A integer
 
----@class Core.Object.HatPointer : Object
+---@class Core.Object.HatPointer : Struct
 ---@field Dummy integer
 
 ---@class Core.DistributionFloat.RawDistributionFloat : Core.Object.RawDistribution
@@ -753,7 +753,7 @@
 ---@class Core.DistributionVector.RawDistributionVector : Core.Object.RawDistribution
 ---@field Distribution Core.DistributionVector
 
----@class Core.Default__ScriptStruct : Object
+---@class Core.Default__ScriptStruct : Struct
 
 ---@class Core.Default__Class : Object
 

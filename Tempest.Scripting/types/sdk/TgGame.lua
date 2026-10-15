@@ -25606,7 +25606,7 @@
 
 ---@class TgGame.TgCallbackInterface : Core.Interface
 
----@class TgGame.OcclusionBuilderVolume.OcclusionBuilderSample : Object
+---@class TgGame.OcclusionBuilderVolume.OcclusionBuilderSample : Struct
 ---@field Normal Vector
 ---@field Position Vector
 ---@field visible_samples Core.Object.Map_Mirror
@@ -25614,70 +25614,70 @@
 ---@class TgGame.TgAbyssalEchoSpawnPoint : Engine.Actor
 ---@field m_nTaskForceId integer
 
----@class TgGame.TgAchievement_DeviceHitCombo.DeviceHitComboEntry : Object
+---@class TgGame.TgAchievement_DeviceHitCombo.DeviceHitComboEntry : Struct
 ---@field pTarget TgGame.TgPawn_Character
 ---@field fTime number
 
----@class TgGame.TgAchievement_FastDamage.FastDamageEntry : Object
+---@class TgGame.TgAchievement_FastDamage.FastDamageEntry : Struct
 ---@field nDamage integer
 ---@field fTime number
 
----@class TgGame.TgAchievement_FastHealDifferentPlayers.FastHealDifferentPlayersEntry : Object
+---@class TgGame.TgAchievement_FastHealDifferentPlayers.FastHealDifferentPlayersEntry : Struct
 ---@field pTarget TgGame.TgPawn_Character
 ---@field fTime number
 
----@class TgGame.TgAchievement_KillWithCombo.KillWithComboEntry : Object
+---@class TgGame.TgAchievement_KillWithCombo.KillWithComboEntry : Struct
 ---@field pTarget TgGame.TgPawn_Character
 ---@field fTime number
 
----@class TgGame.TgAchievement_MaldambaSpecificChallenge.MaldambaSpecificChallengeEntry : Object
+---@class TgGame.TgAchievement_MaldambaSpecificChallenge.MaldambaSpecificChallengeEntry : Struct
 ---@field Type integer
 ---@field fTime number
 
----@class TgGame.TgObject.LootData : Object
+---@class TgGame.TgObject.LootData : Struct
 ---@field nBot integer
 ---@field nTier integer
 ---@field nType integer
 ---@field nDevice integer
 
----@class TgGame.TgObject.WeaponMeshSwapStrategy : Object
+---@class TgGame.TgObject.WeaponMeshSwapStrategy : Struct
 ---@field bPlayPutAway boolean
 ---@field RetrieveStrategy integer
 ---@field bClearEquipPoint boolean
 
----@class TgGame.TgObject.SavedRewindVals : Object
+---@class TgGame.TgObject.SavedRewindVals : Struct
 ---@field fHealth number
 ---@field vLocation Vector
 ---@field rRotation Rotator
 ---@field fTime number
 ---@field bCollideWorld boolean
 
----@class TgGame.TgObject.CardInfo : Object
+---@class TgGame.TgObject.CardInfo : Struct
 ---@field Id integer
 ---@field Count integer
 ---@field Owner integer
 ---@field sOwner string
 
----@class TgGame.TgObject.TgAbilityInfo : Object
+---@class TgGame.TgObject.TgAbilityInfo : Struct
 ---@field DeviceIds integer
 
----@class TgGame.TgObject.ChargeHitInfo : Object
+---@class TgGame.TgObject.ChargeHitInfo : Struct
 ---@field HitActor Engine.Actor
 ---@field TimeStamp number
 
----@class TgGame.TgObject.DiminishedEffectInfo : Object
+---@class TgGame.TgObject.DiminishedEffectInfo : Struct
 ---@field fMaxPosValue number
 ---@field fPosTotal number
 ---@field fMaxNegValue number
 ---@field fNegTotal number
 
----@class TgGame.TgObject.AdjustHealParams : Object
+---@class TgGame.TgObject.AdjustHealParams : Struct
 ---@field Dev TgGame.TgDevice
 ---@field Impact Engine.Actor.ImpactInfo
 ---@field fBaseHeal number
 ---@field nPropertyId integer
 
----@class TgGame.TgObject.AdjustDamageParams : Object
+---@class TgGame.TgObject.AdjustDamageParams : Struct
 ---@field Dev TgGame.TgDevice
 ---@field Impact Engine.Actor.ImpactInfo
 ---@field fBaseDamage number
@@ -25685,7 +25685,7 @@
 ---@field bCritical boolean
 ---@field ExtraInfo TgGame.TgObject.ExtraDamageInfo
 
----@class TgGame.TgObject.OnHealedParams : Object
+---@class TgGame.TgObject.OnHealedParams : Struct
 ---@field Healer TgGame.TgPawn
 ---@field Dev TgGame.TgDevice
 ---@field eg TgGame.TgEffectGroup
@@ -25695,7 +25695,7 @@
 ---@field nPropertyId integer
 ---@field bPlayCameraHealEffect boolean
 
----@class TgGame.TgObject.ExtraDamageInfo : Object
+---@class TgGame.TgObject.ExtraDamageInfo : Struct
 ---@field bCritical boolean
 ---@field bHeadShot boolean
 ---@field bKillingBlow boolean
@@ -25705,14 +25705,14 @@
 ---@field bCapped boolean
 ---@field bNoInstigator boolean
 
----@class TgGame.TgObject.sPingInfo : Object
+---@class TgGame.TgObject.sPingInfo : Struct
 ---@field nPlayerId integer
 ---@field fStartTime number
 ---@field vPingedLoc Vector
 ---@field bPinging boolean
 ---@field eType integer
 
----@class TgGame.TgObject.OnDamagedParams : Object
+---@class TgGame.TgObject.OnDamagedParams : Struct
 ---@field attacker TgGame.TgPawn
 ---@field Dev TgGame.TgDevice
 ---@field eg TgGame.TgEffectGroup
@@ -25724,12 +25724,12 @@
 ---@field ExtraInfo TgGame.TgObject.ExtraDamageInfo
 ---@field nPropertyId integer
 
----@class TgGame.TgObject.OffhandAnimation : Object
+---@class TgGame.TgObject.OffhandAnimation : Struct
 ---@field m_OffhandUseType string
 ---@field m_AnimName string
 ---@field m_bFullBody boolean
 
----@class TgGame.TgObject.ScoreKillData : Object
+---@class TgGame.TgObject.ScoreKillData : Struct
 ---@field Killer Engine.Controller
 ---@field KillerPRI TgGame.TgRepInfo_Player
 ---@field KillerPawn TgGame.TgPawn
@@ -25755,17 +25755,17 @@
 ---@field bFakeDeath boolean
 ---@field AssistingPlayers Array<TgGame.TgRepInfo_Player>
 
----@class TgGame.TgObject.TG_HUD_INFO : Object
+---@class TgGame.TgObject.TG_HUD_INFO : Struct
 ---@field bEnemy boolean
 ---@field bShowNameplate boolean
 ---@field bShowOverlays boolean
 ---@field bIsTargeted boolean
 ---@field bLocalPlayerHasLOS boolean
 
----@class TgGame.TgObject.DateTimeWrapper : Object
+---@class TgGame.TgObject.DateTimeWrapper : Struct
 ---@field qTime Core.Object.QWord
 
----@class TgGame.TgObject.RewardInfo : Object
+---@class TgGame.TgObject.RewardInfo : Struct
 ---@field RequestedReward integer
 ---@field BoostReward integer
 ---@field ActualReward integer
@@ -25773,20 +25773,20 @@
 ---@field BoostRewardAccum integer
 ---@field ErrorMessage integer
 
----@class TgGame.TgObject.MeshAssets : Object
+---@class TgGame.TgObject.MeshAssets : Struct
 ---@field m_sSkeletalMesh string
 ---@field m_sPhysicsAsset string
 ---@field m_sAnimTreeTemplate string
 ---@field m_sAnimSets string
 
----@class TgGame.TgObject.ObjectiveMICInfo : Object
+---@class TgGame.TgObject.ObjectiveMICInfo : Struct
 ---@field MyTeam integer
 ---@field AmountFilled number
 ---@field ObjStatus integer
 ---@field IsContested integer
 ---@field Flip integer
 
----@class TgGame.TgObject.AimData : Object
+---@class TgGame.TgObject.AimData : Struct
 ---@field StartTrace Vector
 ---@field EndTrace Vector
 ---@field AimVector Vector
@@ -25794,7 +25794,7 @@
 ---@field ClientMovementTimeStamp number
 ---@field bResult boolean
 
----@class TgGame.TgObject.EquipDeviceInfo : Object
+---@class TgGame.TgObject.EquipDeviceInfo : Struct
 ---@field nDeviceId integer
 ---@field nDeviceInstanceId integer
 ---@field nMode integer
@@ -25809,26 +25809,26 @@
 
 ---@class TgGame.TgEmitterSpawnable_TeamColor : TgGame.TgEmitter_TeamColor
 
----@class TgGame.TgAIController.ThreatStruct : Object
+---@class TgGame.TgAIController.ThreatStruct : Struct
 ---@field Threatener Engine.Actor
 ---@field fThreat number
 
 ---@class TgGame.TgSeqAct_SetTaskforce : Engine.SequenceAction
 ---@field TaskForceNumber integer
 
----@class TgGame.TgAIBehaviorNode.BehaviorStateData : Object
+---@class TgGame.TgAIBehaviorNode.BehaviorStateData : Struct
 ---@field LastTickTime number
 ---@field NodeToken integer
 ---@field Status integer
 
----@class TgGame.TgAIController_Behavior.DeferredNode : Object
+---@class TgGame.TgAIController_Behavior.DeferredNode : Struct
 ---@field WorldTime number
 ---@field CurrentNode Core.Object.Pointer
 ---@field CachedStatus Core.Object.Pointer
 ---@field StorageMemory Core.Object.Pointer
 ---@field WorkingMemory Core.Object.Pointer
 
----@class TgGame.TgAIController_Behavior.IncomingDamageEntry : Object
+---@class TgGame.TgAIController_Behavior.IncomingDamageEntry : Struct
 ---@field attacker TgGame.TgPawn
 ---@field DeviceSlot integer
 ---@field SourceInitialLocation Vector
@@ -25837,12 +25837,12 @@
 ---@field RemovalTime number
 ---@field Weight number
 
----@class TgGame.TgAIController_Behavior.FollowLaneState : Object
+---@class TgGame.TgAIController_Behavior.FollowLaneState : Struct
 ---@field LastLaneIndex integer
 ---@field bFinalApproach boolean
 ---@field bLockedToMarker boolean
 
----@class TgGame.TgAIController_Behavior.NavigationQueueEntry : Object
+---@class TgGame.TgAIController_Behavior.NavigationQueueEntry : Struct
 ---@field TargetPawn TgGame.TgPawn
 ---@field TargetActor Engine.Actor
 ---@field TargetLocation Vector
@@ -25972,39 +25972,39 @@
 
 ---@class TgGame.TgAIBehaviorAction_PauseAI : TgGame.TgAIBehaviorAction
 
----@class TgGame.TgPawn.DeathInfo : Object
+---@class TgGame.TgPawn.DeathInfo : Struct
 ---@field bDead boolean
 ---@field Momentum Vector
 ---@field dmgType Core.Class
 ---@field HitLoc Vector
 
----@class TgGame.TgPawn.EEmoteAbilityChance : Object
+---@class TgGame.TgPawn.EEmoteAbilityChance : Struct
 ---@field fDefault number
 ---@field fAbility1 number
 ---@field fAbility2 number
 ---@field fAbility3 number
 ---@field fMount number
 
----@class TgGame.TgPawn.PawnHealMitigator : Object
+---@class TgGame.TgPawn.PawnHealMitigator : Struct
 ---@field MitigatingPawn TgGame.TgPawn
 ---@field eReason integer
 
----@class TgGame.TgPawn.OverlayInfo : Object
+---@class TgGame.TgPawn.OverlayInfo : Struct
 ---@field OverlayMesh TgGame.TgSkeletalMeshComponent
 ---@field ParentMesh Engine.SkeletalMeshComponent
 ---@field bIs1POverlay boolean
 ---@field bIsVisible boolean
 ---@field OverlayMICInstances TgGame.TgPawn.OverlayMICList
 
----@class TgGame.TgPawn.RigidBodyImpactInfo : Object
+---@class TgGame.TgPawn.RigidBodyImpactInfo : Struct
 ---@field LastImpactTime number
 ---@field PhysMat Engine.PhysicalMaterial
 
----@class TgGame.TgPawn.KnockbackHit : Object
+---@class TgGame.TgPawn.KnockbackHit : Struct
 ---@field vHitNormal Vector
 ---@field aHitActor Engine.Actor
 
----@class TgGame.TgProperty.TgPropertyInstance : Object
+---@class TgGame.TgProperty.TgPropertyInstance : Struct
 ---@field m_nPropIndex integer
 ---@field m_nPropertyId integer
 ---@field m_fBase number
@@ -26013,7 +26013,7 @@
 ---@field m_fMaximum number
 ---@field m_fScalingFactor number
 
----@class TgGame.TgPawn.PostureStack : Object
+---@class TgGame.TgPawn.PostureStack : Struct
 ---@field GUIDs Array<integer>
 ---@field Postures Array<integer>
 ---@field NewPostureGUID integer
@@ -26041,7 +26041,7 @@
 
 ---@class TgGame.TgDamageType_FallOutOfWorld : TgGame.TgDamageType
 
----@class TgGame.TgSpecialFx.Fx_Sound : Object
+---@class TgGame.TgSpecialFx.Fx_Sound : Struct
 ---@field c_nId integer
 ---@field c_SoundObject Engine.AkBaseSoundObject
 ---@field c_acSound Engine.AudioComponent
@@ -26082,7 +26082,7 @@
 ---@field m_fDefaultRadius number
 ---@field m_fDefaultHeight number
 
----@class TgGame.TgSpecialFx.Fx_PSC : Object
+---@class TgGame.TgSpecialFx.Fx_PSC : Struct
 ---@field c_nId integer
 ---@field c_PSC Engine.ParticleSystemComponent
 ---@field c_PSCTemplate Engine.ParticleSystem
@@ -26097,7 +26097,7 @@
 ---@field GetCamLocationOffset fun(self: TgGame.TgCameraModule_FallOutOfWorld, P: Engine.Pawn): any
 ---@field UpdateCamera fun(self: TgGame.TgCameraModule_FallOutOfWorld, P: Engine.Pawn, CameraActor: TgGame.TgPlayerCamera, DeltaTime: number, OutVT: Engine.Camera.TViewTarget)
 
----@class TgGame.TgPawn.EEmoteCategoryChance : Object
+---@class TgGame.TgPawn.EEmoteCategoryChance : Struct
 ---@field fDefault number
 ---@field fPlayerVGS number
 ---@field fAbilityOnCooldown number
@@ -26110,7 +26110,7 @@
 ---@field fOverride number
 ---@field fMovement number
 
----@class TgGame.TgRepInfo_Player.TrackedProjectileInitData : Object
+---@class TgGame.TgRepInfo_Player.TrackedProjectileInitData : Struct
 ---@field FireModeID integer
 ---@field ProjectileId integer
 ---@field SpawnLocation Vector
@@ -26118,42 +26118,42 @@
 ---@field SpawnVelocity Vector
 ---@field SpawnServerTime number
 
----@class TgGame.TgRepInfo_Player.TrackedProjectileUpdateData : Object
+---@class TgGame.TgRepInfo_Player.TrackedProjectileUpdateData : Struct
 ---@field Location Vector
 ---@field Velocity Vector
 ---@field UpdateServerTime number
 
----@class TgGame.TgRepInfo_Game_TeamDeathMatch_Roulette.CachedPlayerSkins : Object
+---@class TgGame.TgRepInfo_Game_TeamDeathMatch_Roulette.CachedPlayerSkins : Struct
 ---@field BotId integer
 ---@field SkinId integer
 ---@field WeaponSkinId integer
 
----@class TgGame.TgPawn.HealingInfo : Object
+---@class TgGame.TgPawn.HealingInfo : Struct
 ---@field HealerPawn TgGame.TgPawn
 ---@field HealAmount number
 ---@field TimeStamp number
 
----@class TgGame.TgPawn.SilhouetteInfo : Object
+---@class TgGame.TgPawn.SilhouetteInfo : Struct
 ---@field Silhouette any
 ---@field ParentMesh Engine.MeshComponent
 ---@field CurrentState integer
 
----@class TgGame.TgPawn.OverlayMICList : Object
+---@class TgGame.TgPawn.OverlayMICList : Struct
 ---@field MICs Array<Engine.MaterialInstanceConstant>
 
----@class TgGame.TgPawn.PawnDamageMitigator : Object
+---@class TgGame.TgPawn.PawnDamageMitigator : Struct
 ---@field MitigatingPawn TgGame.TgPawn
 ---@field eReason integer
 
----@class TgGame.TgPawn.PawnDamagerStruct : Object
+---@class TgGame.TgPawn.PawnDamagerStruct : Struct
 ---@field DamagerPawn TgGame.TgPawn
 ---@field fTimestamp number
 
----@class TgGame.TgPawn.TGEQUIP_SLOTS_STRUCT : Object
+---@class TgGame.TgPawn.TGEQUIP_SLOTS_STRUCT : Struct
 ---@field SlotIndices integer
 ---@field MiscItems integer
 
----@class TgGame.TgPawn.DebugPropertyMod : Object
+---@class TgGame.TgPawn.DebugPropertyMod : Struct
 ---@field sProperty string
 ---@field fModifier number
 ---@field bPercent boolean
@@ -26487,18 +26487,18 @@
 
 ---@class TgGame.TgAIBehaviorCondition_IsCombatTargetVisible : TgGame.TgAIBehaviorCondition_VisibilityBase
 
----@class TgGame.TgCustomCharacterComponent.CompositeTextureType : Object
+---@class TgGame.TgCustomCharacterComponent.CompositeTextureType : Struct
 ---@field CompTexture Engine.Texture2DComposite
 ---@field TextureParamName string
 
----@class TgGame.TgCustomCharacterComponent.CompositePartInfo : Object
+---@class TgGame.TgCustomCharacterComponent.CompositePartInfo : Struct
 ---@field MeshAsmId integer
 ---@field DestOffsetX integer
 ---@field DestOffsetY integer
 ---@field RegionSizeX integer
 ---@field RegionSizeY integer
 
----@class TgGame.TgPawn_Character.ForceFaceTargetActor : Object
+---@class TgGame.TgPawn_Character.ForceFaceTargetActor : Struct
 ---@field TargetActor Engine.Actor
 ---@field HeightOffset number
 ---@field InitialQuat Core.Object.Quat
@@ -26510,7 +26510,7 @@
 ---@field rLastForcedViewRot Rotator
 ---@field eReason integer
 
----@class TgGame.TgPawn_Character.WeaponDOF : Object
+---@class TgGame.TgPawn_Character.WeaponDOF : Struct
 ---@field IsActive boolean
 ---@field DOFType integer
 ---@field Falloff number
@@ -26522,7 +26522,7 @@
 ---@field MinBlurAmount number
 ---@field MaxFarBlurAmount number
 
----@class TgGame.TgPawn_Character.TeleportParams : Object
+---@class TgGame.TgPawn_Character.TeleportParams : Struct
 ---@field vTargetLocation Vector
 ---@field rTargetRotation Rotator
 ---@field bPlayFx boolean
@@ -26769,7 +26769,7 @@
 
 ---@class TgGame.TgAIController_BehaviorAerialDrone : TgGame.TgAIController_Behavior
 
----@class TgGame.TgAIController_BehaviorMapNpc.ThreatEntry : Object
+---@class TgGame.TgAIController_BehaviorMapNpc.ThreatEntry : Struct
 ---@field attacker TgGame.TgPawn
 ---@field ThreatLevel number
 
@@ -26777,7 +26777,7 @@
 
 ---@class TgGame.TgAILocalPositionSolver_Pet : TgGame.TgAILocalPositionSolver
 
----@class TgGame.TgAIDirector.SkillLevelPercentageData : Object
+---@class TgGame.TgAIDirector.SkillLevelPercentageData : Struct
 ---@field NumDeathsPercentage number
 ---@field DamagePercentage number
 ---@field KillsPercentage number
@@ -26789,7 +26789,7 @@
 ---@field ShieldingPercentage number
 ---@field KillstreakMultiplier number
 
----@class TgGame.TgAIDirector.SkillLevelRawData : Object
+---@class TgGame.TgAIDirector.SkillLevelRawData : Struct
 ---@field NumDeaths number
 ---@field Damage number
 ---@field Kills number
@@ -26801,11 +26801,11 @@
 ---@field ObjectiveTime number
 ---@field Shielding number
 
----@class TgGame.TgGame_Paladins.TeamDifficultyData : Object
+---@class TgGame.TgGame_Paladins.TeamDifficultyData : Struct
 ---@field CurrentBotDifficultyLevel integer
 ---@field TeamSkillLevel number
 
----@class TgGame.TgRepInfo_Game.BotDifficultyDebugData : Object
+---@class TgGame.TgRepInfo_Game.BotDifficultyDebugData : Struct
 ---@field CurrentlyActive boolean
 ---@field DisparityDetected boolean
 ---@field ChangesLockedOut boolean
@@ -26816,17 +26816,17 @@
 ---@field TaskForce2Skill number
 ---@field SkillPercentages TgGame.TgAIDirector.SkillLevelPercentageData
 
----@class TgGame.TgAILocalPositionSolver.DefaultRepulsorData : Object
+---@class TgGame.TgAILocalPositionSolver.DefaultRepulsorData : Struct
 ---@field TargetType integer
 ---@field MaxEnemyWeight number
 ---@field MaxFriendlyWeight number
 ---@field SolverType integer
 
----@class TgGame.TgAimAssistKeyframe.AimAssistKeyframeData : Object
+---@class TgGame.TgAimAssistKeyframe.AimAssistKeyframeData : Struct
 ---@field KeyframeName string
 ---@field Distance number
 
----@class TgGame.TgAIObstacleAvoidance.ObstacleQueryCache : Object
+---@class TgGame.TgAIObstacleAvoidance.ObstacleQueryCache : Struct
 ---@field RealGoalPos Vector
 ---@field ModifiedGoalPos Vector
 ---@field IntermediatePoints Array<Vector>
@@ -26888,64 +26888,64 @@
 
 ---@class TgGame.TgAIUtilityFunction_RandomUtility : TgGame.TgAIUtilityFunction
 
----@class TgGame.TgAIUtilityHandle.UtilityFunctionList : Object
+---@class TgGame.TgAIUtilityHandle.UtilityFunctionList : Struct
 ---@field UtilityFunctionList Core.Object.Pointer
 ---@field UtilityFunctionListCount integer
 ---@field StaticMemory Core.Object.Pointer
 ---@field CachedUtilities Core.Object.Pointer
 ---@field DynamicStorageMemory Core.Object.Pointer
 
----@class TgGame.TgAIUtilityHandle.UtilityPair : Object
+---@class TgGame.TgAIUtilityHandle.UtilityPair : Struct
 ---@field FilteredAnnotationPoints Map
 
----@class TgGame.TgAIUtilityHandle.UtilitySet : Object
+---@class TgGame.TgAIUtilityHandle.UtilitySet : Struct
 ---@field Functions TgGame.TgAIUtilityHandle.UtilityFunctionList
 ---@field Filters TgGame.TgAIUtilityHandle.UtilityFunctionList
 
----@class TgGame.TgAkAudioManagement.AkMeterCallbackState : Object
+---@class TgGame.TgAkAudioManagement.AkMeterCallbackState : Struct
 ---@field dwBusID Core.Object.dword
 ---@field bActive boolean
 ---@field fLevel number
 ---@field fTimestamp number
 
----@class TgGame.TgAnimNodeBlendList.ChildBlendParam : Object
+---@class TgGame.TgAnimNodeBlendList.ChildBlendParam : Struct
 ---@field FromChild integer
 ---@field ToChild integer
 ---@field BlendTime number
 ---@field MaxBlendTime number
 
----@class TgGame.TgAnimBlendByAmmo.AmmoBlendParams : Object
+---@class TgGame.TgAnimBlendByAmmo.AmmoBlendParams : Struct
 ---@field MinAmmo integer
 ---@field MaxAmmo integer
 ---@field ChildNum integer
 
----@class TgGame.TgAnimBlendByEmote.EmoteChildAnimInfo : Object
+---@class TgGame.TgAnimBlendByEmote.EmoteChildAnimInfo : Struct
 ---@field nDeviceId integer
 ---@field nChildIndex integer
 
----@class TgGame.TgAnimBlendByFire.DeviceParameters : Object
+---@class TgGame.TgAnimBlendByFire.DeviceParameters : Struct
 ---@field SlotName string
 ---@field bShouldInterruptIfStopped boolean
 ---@field bShouldInterruptIfInterrupted boolean
 ---@field bShouldInterruptIfJumping boolean
 
----@class TgGame.TgAnimBlendByHeadSkin.HeadSkinChildInfo : Object
+---@class TgGame.TgAnimBlendByHeadSkin.HeadSkinChildInfo : Struct
 ---@field nHeadSkinId integer
 ---@field nChildIndex integer
 
----@class TgGame.TgAnimBlendByMountSkin.MountSkinChildInfo : Object
+---@class TgGame.TgAnimBlendByMountSkin.MountSkinChildInfo : Struct
 ---@field nMountSkinId integer
 ---@field nChildIndex integer
 
----@class TgGame.TgAnimBlendByNodeName.NodeNameToChildIndex : Object
+---@class TgGame.TgAnimBlendByNodeName.NodeNameToChildIndex : Struct
 ---@field NodeName string
 ---@field ChildIndex integer
 
----@class TgGame.TgAnimBlendByNodeName.RelevantNodeNameNodes : Object
+---@class TgGame.TgAnimBlendByNodeName.RelevantNodeNameNodes : Struct
 ---@field CachedNode Engine.AnimNode
 ---@field ChildIndex integer
 
----@class TgGame.TgAnimBlendByPaladinsCharacter.ChildAnimParameters : Object
+---@class TgGame.TgAnimBlendByPaladinsCharacter.ChildAnimParameters : Struct
 ---@field SlotName string
 ---@field EquipSlot integer
 ---@field ChildIndex integer
@@ -26968,18 +26968,18 @@
 ---@field nInterruptExceptionsByChildIndex Array<integer>
 ---@field nCustomRetrieveIndex integer
 
----@class TgGame.TgAnimBlendByPercent.BlendByPercentValues : Object
+---@class TgGame.TgAnimBlendByPercent.BlendByPercentValues : Struct
 ---@field fPercent number
 
----@class TgGame.TgAnimBlendByPhase.m_PhaseProfile : Object
+---@class TgGame.TgAnimBlendByPhase.m_PhaseProfile : Struct
 ---@field m_Phase integer
 ---@field m_TransitionAnimSets Array<TgGame.TgAnimBlendByPhase.m_PhaseTransitionAnimSet>
 
----@class TgGame.TgAnimBlendByPhase.m_PhaseTransitionAnimSet : Object
+---@class TgGame.TgAnimBlendByPhase.m_PhaseTransitionAnimSet : Struct
 ---@field m_TransitionToPhase integer
 ---@field m_TransitionAnimName string
 
----@class TgGame.TgAnimBlendByPosture.m_PostureProfile : Object
+---@class TgGame.TgAnimBlendByPosture.m_PostureProfile : Struct
 ---@field m_Posture integer
 ---@field m_TransitionAnimSets Array<TgGame.TgAnimBlendByPosture.m_TransitionAnimSet>
 ---@field m_CameraAnim Engine.CameraAnim
@@ -27001,21 +27001,21 @@
 ---@field r_CurrentPosture integer
 ---@field m_PostureBlendNodes Array<TgGame.TgAnimBlendByPosture>
 
----@class TgGame.TgAnimBlendByPosture.m_TransitionAnimSet : Object
+---@class TgGame.TgAnimBlendByPosture.m_TransitionAnimSet : Struct
 ---@field m_TransitionToPosture integer
 ---@field m_TransitionAnimName string
 
----@class TgGame.TgAnimBlendBySkin.SkinChildInfo : Object
+---@class TgGame.TgAnimBlendBySkin.SkinChildInfo : Struct
 ---@field nSkinId integer
 ---@field nChildIndex integer
 
----@class TgGame.TgAnimBlendBySpeed.ResetSynchGroup : Object
+---@class TgGame.TgAnimBlendBySpeed.ResetSynchGroup : Struct
 ---@field AnimNodeSynchName string
 ---@field SynchNode Engine.AnimNodeSynch
 ---@field GroupName string
 ---@field ResetChannels Array<integer>
 
----@class TgGame.TgAnimBlendByTag.TagInfo : Object
+---@class TgGame.TgAnimBlendByTag.TagInfo : Struct
 ---@field nmTag string
 ---@field nChildIndex integer
 
@@ -27024,19 +27024,19 @@
 ---@field Deploy fun(self: TgGame.TgAnimBlendByTeleportBeacon, fDeployTime: number)
 ---@field m_bDeployed boolean
 
----@class TgGame.TgAnimBlendByWeaponSkin.WeaponSkinChildInfo : Object
+---@class TgGame.TgAnimBlendByWeaponSkin.WeaponSkinChildInfo : Struct
 ---@field nWeaponSkinId integer
 ---@field nChildIndex integer
 
----@class TgGame.TgAnimMetaData_Keyframed.MetaDataKeyFrame : Object
+---@class TgGame.TgAnimMetaData_Keyframed.MetaDataKeyFrame : Struct
 ---@field Time number
 ---@field TargetValue number
 
----@class TgGame.TgAnimMetaData_MICScalarParameterExtended.AlternateMaterialOverride : Object
+---@class TgGame.TgAnimMetaData_MICScalarParameterExtended.AlternateMaterialOverride : Struct
 ---@field MaterialToFind Engine.MaterialInstanceConstant
 ---@field MaterialToReplace Engine.MaterialInstanceConstant
 
----@class TgGame.TgAnimMetaData_MeshAccessory.MeshPlacement : Object
+---@class TgGame.TgAnimMetaData_MeshAccessory.MeshPlacement : Struct
 ---@field nSkinId integer
 ---@field nMeshId integer
 ---@field SocketName string
@@ -27060,11 +27060,11 @@
 ---@field Attack fun(self: TgGame.TgAnimNodeBlendByAbilitySmash)
 ---@field BeginChargeUp fun(self: TgGame.TgAnimNodeBlendByAbilitySmash)
 
----@class TgGame.TgDevice.TrackedFiringAmmoConsumption : Object
+---@class TgGame.TgDevice.TrackedFiringAmmoConsumption : Struct
 ---@field FiringRequestID integer
 ---@field AmmoConsumed integer
 
----@class TgGame.TgTimerManager.TgTimerData : Object
+---@class TgGame.TgTimerManager.TgTimerData : Struct
 ---@field nIndex integer
 ---@field byTimer integer
 ---@field fStartTime number
@@ -27074,12 +27074,12 @@
 ---@field Rate number
 ---@field CallbackRegistry TgGame.TgTimerManager.TGT_REG_LINK
 
----@class TgGame.TgTimerManager.TGT_REG_LINK : Object
+---@class TgGame.TgTimerManager.TGT_REG_LINK : Struct
 ---@field NextLink Core.Object.Pointer
 ---@field RegObject Core.Object
 ---@field RegFunction Core.Function
 
----@class TgGame.TgDevice.TgQueuedSimulatedProjectileSpawn : Object
+---@class TgGame.TgDevice.TgQueuedSimulatedProjectileSpawn : Struct
 ---@field TimeStampToSpawn number
 ---@field FireRequestId integer
 ---@field FireMode TgGame.TgDeviceFire
@@ -27096,7 +27096,7 @@
 ---@field AccuracyValue number
 ---@field ExtraInfo integer
 
----@class TgGame.TgDevice.TgQueuedProjectileExplosion : Object
+---@class TgGame.TgDevice.TgQueuedProjectileExplosion : Struct
 ---@field ClientFireRequestId integer
 ---@field Target Engine.Actor
 ---@field HitLocation Vector
@@ -27105,7 +27105,7 @@
 ---@field MovementTimeStamp number
 ---@field AoeRewindTimeStamp number
 
----@class TgGame.TgDevice.ImpactToValidate : Object
+---@class TgGame.TgDevice.ImpactToValidate : Struct
 ---@field PackedAssociatedShotIDs integer
 ---@field ImpactTimeStamp number
 ---@field Impact Engine.Actor.ImpactInfo
@@ -27114,13 +27114,13 @@
 ---@field byOffsetY integer
 ---@field byOffsetZ integer
 
----@class TgGame.TgDevice.TgQueuedRefire : Object
+---@class TgGame.TgDevice.TgQueuedRefire : Struct
 ---@field ClientFireRequestId integer
 ---@field DesiredFireMode integer
 ---@field AttackSpeedPercChange number
 ---@field Aim TgGame.TgObject.AimData
 
----@class TgGame.TgDevice.TgQueuedInstantFireShot : Object
+---@class TgGame.TgDevice.TgQueuedInstantFireShot : Struct
 ---@field FireRequestId integer
 ---@field Aim TgGame.TgObject.AimData
 ---@field PrimaryImpact TgGame.TgDevice.ImpactToValidate
@@ -27130,7 +27130,7 @@
 ---@field AccuracyRandomValue2 number
 ---@field AccuracyValue number
 
----@class TgGame.TgDevice.AccuracySettings : Object
+---@class TgGame.TgDevice.AccuracySettings : Struct
 ---@field bUsesAdvancedAccuracy boolean
 ---@field fMaxAccuracy number
 ---@field fMinAccuracy number
@@ -27139,13 +27139,13 @@
 ---@field fAccuracyGainDelay number
 ---@field nNumFreeShots integer
 
----@class TgGame.TgDevice.RecoilSettings : Object
+---@class TgGame.TgDevice.RecoilSettings : Struct
 ---@field bUsesRecoil boolean
 ---@field fRecoilReductionPerSec number
 ---@field fRecoilCenterDelay number
 ---@field fRecoilSmoothRate number
 
----@class TgGame.TgDevice.AttackSpeedModifier : Object
+---@class TgGame.TgDevice.AttackSpeedModifier : Struct
 ---@field nSourceId integer
 ---@field fPercChange number
 ---@field fExpirationTime number
@@ -27157,11 +27157,11 @@
 ---@field m_bAlwaysIgnoreCD boolean
 ---@field m_fChanceToIgnoreCD number
 
----@class TgGame.TgDeviceFire.WeaponFireResults : Object
+---@class TgGame.TgDeviceFire.WeaponFireResults : Struct
 ---@field bDidServerValidation boolean
 ---@field Impact Engine.Actor.ImpactInfo
 
----@class TgGame.TgProjectile.TrackingSettings : Object
+---@class TgGame.TgProjectile.TrackingSettings : Struct
 ---@field bUsesTracking boolean
 ---@field mTarget Engine.Actor
 ---@field fTurnStrength number
@@ -27173,29 +27173,29 @@
 ---@field bInfiniteRangeWhileTracking boolean
 ---@field bDestroyIfTargetDied boolean
 
----@class TgGame.TgDevice.AmmoTransaction : Object
+---@class TgGame.TgDevice.AmmoTransaction : Struct
 ---@field TransactionTimestamp number
 ---@field TransactionId integer
 ---@field AmmoAmountChanged integer
 ---@field FilledClip boolean
 
----@class TgGame.TgDevice_Charge.TimestampedActor : Object
+---@class TgGame.TgDevice_Charge.TimestampedActor : Struct
 ---@field fTimestamp number
 ---@field pActor Engine.Actor
 
----@class TgGame.TgAnimNodeBlendByAndroxusDrift.DriftInfo : Object
+---@class TgGame.TgAnimNodeBlendByAndroxusDrift.DriftInfo : Struct
 ---@field fStartTime number
 ---@field fEndTime number
 
----@class TgGame.TgAnimNodeBlendByDrogozFlying.BoosterFlightInfo : Object
+---@class TgGame.TgAnimNodeBlendByDrogozFlying.BoosterFlightInfo : Struct
 ---@field fStartTime number
 ---@field fEndTime number
 
----@class TgGame.TgAnimNodeBlendByPhysics.ChildrenBlendInfo : Object
+---@class TgGame.TgAnimNodeBlendByPhysics.ChildrenBlendInfo : Struct
 ---@field m_PhysicsState integer
 ---@field m_ChildBlendInfo Array<TgGame.TgAnimNodeBlendByPhysics.ChildBlendInfo>
 
----@class TgGame.TgAnimNodeBlendByPhysics.ChildBlendInfo : Object
+---@class TgGame.TgAnimNodeBlendByPhysics.ChildBlendInfo : Struct
 ---@field m_PhysicsState integer
 ---@field m_fBlendTime number
 
@@ -27223,7 +27223,7 @@
 
 ---@class TgGame.TgAnimNodeBlendPerBone_Bakasura_ConsumeMinion : Engine.AnimNodeBlendPerBone
 
----@class TgGame.TgDeviceForm.ModeData : Object
+---@class TgGame.TgDeviceForm.ModeData : Struct
 ---@field c_fBuildupTime number
 ---@field c_bContinuousFire boolean
 ---@field c_FxInstantFire boolean
@@ -27235,21 +27235,21 @@
 ---@field c_nDamageOverrideDeviceId integer
 ---@field c_WhileFiringCameraAnim Engine.CameraAnim
 
----@class TgGame.TgDeviceForm.SyntheticImpactEffectArgs : Object
+---@class TgGame.TgDeviceForm.SyntheticImpactEffectArgs : Struct
 ---@field vHitLocation Vector
 ---@field nEquipSlot integer
 ---@field nSocketIndex integer
 ---@field bSuccessfulHit boolean
 
----@class TgGame.TgAnimNodeEmoteSequence.EmoteAnimInfo : Object
+---@class TgGame.TgAnimNodeEmoteSequence.EmoteAnimInfo : Struct
 ---@field nDeviceId integer
 ---@field nAnimArrayIndex integer
 
----@class TgGame.TgAnimNodeHitReactionOffset.HitReactionInfo : Object
+---@class TgGame.TgAnimNodeHitReactionOffset.HitReactionInfo : Struct
 ---@field vDesiredAngle Core.Object.Vector2D
 ---@field fHitTime number
 
----@class TgGame.TgAnimNodeRandom.TgRandomAnimInfo : Object
+---@class TgGame.TgAnimNodeRandom.TgRandomAnimInfo : Struct
 ---@field Chance number
 ---@field LoopCountMin integer
 ---@field LoopCountMax integer
@@ -27268,43 +27268,43 @@
 ---@field BoneAxis integer
 ---@field AnimList Array<TgGame.TgAnimNodeSequenceByBoneRotation.AnimByRotation>
 
----@class TgGame.TgAnimNodeSequenceByBoneRotation.AnimByRotation : Object
+---@class TgGame.TgAnimNodeSequenceByBoneRotation.AnimByRotation : Struct
 ---@field DesiredRotation Rotator
 ---@field AnimName string
 
----@class TgGame.TgAnimNodeStanceTransitionerSynchronized.StanceTransitionParam : Object
+---@class TgGame.TgAnimNodeStanceTransitionerSynchronized.StanceTransitionParam : Struct
 ---@field FromChild integer
 ---@field ToChild integer
 
----@class TgGame.TgAnimNodeStanceTransitioner.CachedTgAnimNodeStanceInfo : Object
+---@class TgGame.TgAnimNodeStanceTransitioner.CachedTgAnimNodeStanceInfo : Struct
 ---@field Index integer
 ---@field Node TgGame.TgAnimNodeStance
 
----@class TgGame.TgAnimNodeStanceTransitioner.CachedTgAnimNodeStanceTransitionInfo : Object
+---@class TgGame.TgAnimNodeStanceTransitioner.CachedTgAnimNodeStanceTransitionInfo : Struct
 ---@field Index integer
 ---@field Node TgGame.TgAnimNodeStanceTransition
 
----@class TgGame.TgAnimNotify_AkEvent.PSE_SkinAk : Object
+---@class TgGame.TgAnimNotify_AkEvent.PSE_SkinAk : Struct
 ---@field nSkinId integer
 ---@field AkEvent Engine.AkEvent
 
----@class TgGame.TgAnimNotify_PlayParticleEffect_Skinned.PPE_Skin : Object
+---@class TgGame.TgAnimNotify_PlayParticleEffect_Skinned.PPE_Skin : Struct
 ---@field nSkinId integer
 ---@field PSTemplate Engine.ParticleSystem
 
----@class TgGame.TgAnimNotify_Sound.PSE_Skin : Object
+---@class TgGame.TgAnimNotify_Sound.PSE_Skin : Struct
 ---@field nSkinId integer
 ---@field SoundCue Engine.SoundCue
 
----@class TgGame.TgAnimTurnInPlace.RotTransitionInfo : Object
+---@class TgGame.TgAnimTurnInPlace.RotTransitionInfo : Struct
 ---@field RotationOffset number
 ---@field TransName string
 
----@class TgGame.TgAnimTurnInPlace_Player.TIP_Transition : Object
+---@class TgGame.TgAnimTurnInPlace_Player.TIP_Transition : Struct
 ---@field TransName string
 ---@field AnimName string
 
----@class TgGame.TgAudioConversations.VoxConversation : Object
+---@class TgGame.TgAudioConversations.VoxConversation : Struct
 ---@field sTypeSpokenFirst string
 ---@field sTypeSpokenSecond string
 ---@field nTypeSpokenFirst integer
@@ -27312,11 +27312,11 @@
 
 ---@class TgGame.TgHavokNavigationHandleAudio : Engine.HavokNavigationHandle
 
----@class TgGame.TgAudioPawnDialogue.ChatterEvent : Object
+---@class TgGame.TgAudioPawnDialogue.ChatterEvent : Struct
 ---@field nChatterTypeId integer
 ---@field nAkEventSuffixId integer
 
----@class TgGame.TgAudioPawnDialogue.DialogueEvent : Object
+---@class TgGame.TgAudioPawnDialogue.DialogueEvent : Struct
 ---@field fRequestTime number
 ---@field nPriority integer
 ---@field fRelevance number
@@ -27325,7 +27325,7 @@
 ---@field EEmote integer
 ---@field eCat integer
 
----@class TgGame.TgPlayerInput.AimAssistTargetWeightVars : Object
+---@class TgGame.TgPlayerInput.AimAssistTargetWeightVars : Struct
 ---@field CurrentTargetBonus number
 ---@field NotCurrentTargetPenalty number
 ---@field MinAccuracyBonus number
@@ -27334,13 +27334,13 @@
 ---@field MaxInaccuracyPenalty number
 ---@field MaxWeight number
 
----@class TgGame.TgMaterialStack.MaterialStackInstance : Object
+---@class TgGame.TgMaterialStack.MaterialStackInstance : Struct
 ---@field nId integer
 ---@field nPriority integer
 ---@field MICs Array<Engine.MaterialInstanceConstant>
 ---@field bTimelapse boolean
 
----@class TgGame.TgSpecialFx.Fx_Decal : Object
+---@class TgGame.TgSpecialFx.Fx_Decal : Struct
 ---@field c_nId integer
 ---@field c_MITV Engine.MaterialInstanceTimeVarying
 ---@field c_fWidth number
@@ -27354,11 +27354,11 @@
 ---@field c_eState integer
 ---@field c_fHideAtTimeSeconds number
 
----@class TgGame.TgSpecialFx.AppliedMaterialHandle : Object
+---@class TgGame.TgSpecialFx.AppliedMaterialHandle : Struct
 ---@field nHandle integer
 ---@field pAppliedMesh any
 
----@class TgGame.TgSpecialFx.Fx_AssemblyData : Object
+---@class TgGame.TgSpecialFx.Fx_AssemblyData : Struct
 ---@field m_nmSocketName string
 ---@field m_nmDisplayGroup string
 ---@field m_nDisplayMode integer
@@ -27368,14 +27368,14 @@
 ---@field m_bAppliesToAllModes boolean
 ---@field m_bAttachToGround boolean
 
----@class TgGame.TgSpecialFx.Fx_Material : Object
+---@class TgGame.TgSpecialFx.Fx_Material : Struct
 ---@field nFxMatId integer
 ---@field c_MITV Engine.MaterialInstanceTimeVarying
 ---@field nFxMatTypeCode integer
 ---@field nmMIC string
 ---@field bApplyIfSameTeam boolean
 
----@class TgGame.TgBotFactory.SpawnQueueEntry : Object
+---@class TgGame.TgBotFactory.SpawnQueueEntry : Struct
 ---@field fSpawnTime number
 ---@field nBotId integer
 ---@field nSkinId integer
@@ -27390,7 +27390,7 @@
 
 ---@class TgGame.TgBotStart : TgGame.TgNavigationPoint
 
----@class TgGame.TgCallbackContainer.FunctionWrapperInfo : Object
+---@class TgGame.TgCallbackContainer.FunctionWrapperInfo : Struct
 ---@field FunctionWrapper Core.Object.Pointer
 ---@field CallbackType integer
 ---@field HandleOwner TgGame.TgCallbackContainer
@@ -27406,7 +27406,7 @@
 ---@field GetCamLocationOffset fun(self: TgGame.TgCameraModule_Dead, P: Engine.Pawn): any
 ---@field GetCamLocationOffsetWS fun(self: TgGame.TgCameraModule_Dead, PawnRot: Rotator, vInCameraSpaceTranslation: Vector): any
 
----@class TgGame.TgCameraModule_ThirdPerson.ServerCorrectionSmoothingParams : Object
+---@class TgGame.TgCameraModule_ThirdPerson.ServerCorrectionSmoothingParams : Struct
 ---@field fServerCorrectSnapDist number
 ---@field fMinBaseSpeed number
 ---@field fMaxBaseSpeed number
@@ -27449,7 +27449,7 @@
 ---@field ZoomIncrement number
 ---@field CurrentWorldViewTargetIndex integer
 
----@class TgGame.TgCameraModule_SpectatorOverview.CameraPitchInfo : Object
+---@class TgGame.TgCameraModule_SpectatorOverview.CameraPitchInfo : Struct
 ---@field ZHeight number
 ---@field Pitch number
 
@@ -27472,7 +27472,7 @@
 ---@field m_BaseFlag TgGame.TgDeploy_CTF_Flag
 ---@field m_CTFGame TgGame.TgGame_Paladins_CTF
 
----@class TgGame.TgChampionTickManager.ChampionEntry : Object
+---@class TgGame.TgChampionTickManager.ChampionEntry : Struct
 ---@field m_nId integer
 ---@field m_fLastDeltaTime number
 
@@ -27483,7 +27483,7 @@
 
 ---@class TgGame.TgMobileAmbientSound : AkAudio.AkAmbientSound
 
----@class TgGame.TgGame.PlayOfTheGameEventConfig : Object
+---@class TgGame.TgGame.PlayOfTheGameEventConfig : Struct
 ---@field EventType integer
 ---@field BaseRating number
 ---@field MultMod number
@@ -27493,11 +27493,11 @@
 ---@field Threshold number
 ---@field ThresholdTimeOut number
 
----@class TgGame.TgGame.PlayOfTheGameInfo : Object
+---@class TgGame.TgGame.PlayOfTheGameInfo : Struct
 ---@field PRI TgGame.TgRepInfo_Player
 ---@field Rating number
 
----@class TgGame.TgGame.TgAIBotPlayersToSpawn : Object
+---@class TgGame.TgGame.TgAIBotPlayersToSpawn : Struct
 ---@field fsName string
 ---@field nBotId integer
 ---@field dwPlayerId Core.Object.dword
@@ -27506,7 +27506,7 @@
 
 ---@class TgGame.TgOnlineGameSettings : Engine.OnlineGameSettings
 
----@class TgGame.TgCharacterPerformance.DeviceToCharacterID : Object
+---@class TgGame.TgCharacterPerformance.DeviceToCharacterID : Struct
 ---@field CharacterID integer
 ---@field DeviceID integer
 
@@ -27632,15 +27632,15 @@
 ---@field WeaponPreference Core.Class
 ---@field NumChecked number
 
----@class TgGame.TgPlayerController.CameraStackInfo : Object
+---@class TgGame.TgPlayerController.CameraStackInfo : Struct
 ---@field ePosture integer
 ---@field nStackId integer
 
----@class TgGame.TgPlayerController.DefaultAudioSwitch : Object
+---@class TgGame.TgPlayerController.DefaultAudioSwitch : Struct
 ---@field sSwitchName string
 ---@field sSwitchValue string
 
----@class TgGame.TgPlayerController.sSimProjectileFireInfo : Object
+---@class TgGame.TgPlayerController.sSimProjectileFireInfo : Struct
 ---@field nOwnerFireModeId integer
 ---@field vLocation Vector
 ---@field vVelocity Vector
@@ -27652,13 +27652,13 @@
 ---@field fGeneric2 number
 ---@field fTimeDilation number
 
----@class TgGame.TgPlayerController.DebugAimAssistArgs : Object
+---@class TgGame.TgPlayerController.DebugAimAssistArgs : Struct
 ---@field eMode integer
 ---@field fValueMax number
 ---@field fTemporalSmoothing number
 ---@field bExponentialSmoothing boolean
 
----@class TgGame.TgPlayerController.BinocularSettings : Object
+---@class TgGame.TgPlayerController.BinocularSettings : Struct
 ---@field nTargets integer
 ---@field rHeading Rotator
 ---@field fRange number
@@ -27669,7 +27669,7 @@
 ---@field fRefireTimerPercent number
 ---@field fDurationPercent number
 
----@class TgGame.TgPlayerController.CLIENT_PAWN_FUNCTION_ARGS : Object
+---@class TgGame.TgPlayerController.CLIENT_PAWN_FUNCTION_ARGS : Struct
 ---@field fArg1 number
 ---@field fArg2 number
 ---@field fArg3 number
@@ -27686,7 +27686,7 @@
 ---@field PlayerAction integer
 ---@field EventData integer
 
----@class TgGame.TgGameTipManager.GameTipInfo : Object
+---@class TgGame.TgGameTipManager.GameTipInfo : Struct
 ---@field nTipId integer
 ---@field nPriority integer
 ---@field bSelfSuppress boolean
@@ -27720,7 +27720,7 @@
 ---@field m_FatalityMeshActor TgGame.TgFatalityMeshActor
 ---@field m_LightingChannels Engine.LightComponent.LightingChannelContainer
 
----@class TgGame.TgDeployable.CollisionSettingsDeployable : Object
+---@class TgGame.TgDeployable.CollisionSettingsDeployable : Struct
 ---@field mCollisionMode integer
 ---@field bUseMeshForCollision boolean
 ---@field bPawnsCanBaseOnMe boolean
@@ -27733,13 +27733,13 @@
 ---@field fExplosionAllowanceRadius number
 ---@field bProjectilesPassThrough boolean
 
----@class TgGame.TgPlayerController.InventoryChangeFlags : Object
+---@class TgGame.TgPlayerController.InventoryChangeFlags : Struct
 ---@field bDevice boolean
 ---@field bComponent boolean
 ---@field bEquipped boolean
 ---@field bDeviceFailed boolean
 
----@class TgGame.TgPlayerController.SZombieInfo : Object
+---@class TgGame.TgPlayerController.SZombieInfo : Struct
 ---@field bEnabled boolean
 ---@field Mode integer
 ---@field RemoveNextTime boolean
@@ -27758,27 +27758,27 @@
 ---@field bFiringAltFire boolean
 ---@field fSecondsUntilChangeMove number
 
----@class TgGame.TgPlayerController.AnnouncerEvent : Object
+---@class TgGame.TgPlayerController.AnnouncerEvent : Struct
 ---@field akSound Engine.AkEvent
 
----@class TgGame.TgPlayerController.FLOOD : Object
+---@class TgGame.TgPlayerController.FLOOD : Struct
 ---@field m_nCount integer
 ---@field m_fLastUpdate number
 
----@class TgGame.TgPlayerController.TG_LAST_PURCHASE : Object
+---@class TgGame.TgPlayerController.TG_LAST_PURCHASE : Struct
 ---@field nItemId integer
 ---@field nCount integer
 
 ---@class TgGame.TgSeqEvent_PlayIntro : Engine.SequenceEvent
 
----@class TgGame.TgSpectatorController.BroadcastChannel : Object
+---@class TgGame.TgSpectatorController.BroadcastChannel : Struct
 ---@field Channel integer
 ---@field PlayerID integer
 
 ---@class TgGame.TgSeqEvent_SpectatorReady : Engine.SequenceEvent
 ---@field TriggerGlobal fun(self: TgGame.TgSeqEvent_SpectatorReady, InInstigator: TgGame.TgSpectatorController): boolean
 
----@class TgGame.TgSpectatorController.SpectatorBookmark : Object
+---@class TgGame.TgSpectatorController.SpectatorBookmark : Struct
 ---@field ViewTarget Engine.Actor
 ---@field ViewMode integer
 ---@field POV Core.Object.TPOV
@@ -27791,16 +27791,16 @@
 ---@field bIsViewTarget boolean
 ---@field bIsBookmark boolean
 
----@class TgGame.TgDemoRecSpectator.SpectatorCommand : Object
+---@class TgGame.TgDemoRecSpectator.SpectatorCommand : Struct
 ---@field nFrame integer
 ---@field bUseIndex boolean
 ---@field fSpeed number
 
----@class TgGame.TgDemoRecSpectator.DilationData : Object
+---@class TgGame.TgDemoRecSpectator.DilationData : Struct
 ---@field fValue number
 ---@field sName string
 
----@class TgGame.TgDeploy_EffectField.ActorEffectPair : Object
+---@class TgGame.TgDeploy_EffectField.ActorEffectPair : Struct
 ---@field pActor Engine.Actor
 ---@field nFireModeId integer
 
@@ -27809,20 +27809,20 @@
 ---@field OnLinkDevice fun(self: TgGame.TgDevice_BoobyTrap, TgP: TgGame.TgPawn)
 ---@field CheckExplode fun(self: TgGame.TgDevice_BoobyTrap, ImpactList: any, Ward: TgGame.TgDeployable): boolean
 
----@class TgGame.TgDeploy_DarkConvergence.PullData : Object
+---@class TgGame.TgDeploy_DarkConvergence.PullData : Struct
 ---@field Character TgGame.TgPawn_Character
 ---@field SourceLocation Vector
 ---@field TargetLocation Vector
 
----@class TgGame.TgDeploy_DredgeF.TargetToTeleport : Object
+---@class TgGame.TgDeploy_DredgeF.TargetToTeleport : Struct
 ---@field fTime number
 ---@field pTarget TgGame.TgPawn
 
----@class TgGame.TgDeploy_EffectSpots.EffectSpotTarget : Object
+---@class TgGame.TgDeploy_EffectSpots.EffectSpotTarget : Struct
 ---@field Target Engine.Actor
 ---@field bNeedsRefresh boolean
 
----@class TgGame.TgDeploy_EffectSpots.EffectSpotInfo : Object
+---@class TgGame.TgDeploy_EffectSpots.EffectSpotInfo : Struct
 ---@field bIsActive boolean
 ---@field vLocation Vector
 ---@field rRotation Rotator
@@ -27831,7 +27831,7 @@
 ---@field nFXIndex integer
 ---@field nIntensityLevel integer
 
----@class TgGame.TgDeploy_EffectSpots.EffectSpotFXInfo : Object
+---@class TgGame.TgDeploy_EffectSpots.EffectSpotFXInfo : Struct
 ---@field Fx TgGame.TgSpecialFx
 ---@field nFXIndex integer
 
@@ -27860,14 +27860,14 @@
 ---@field m_fDestroyTimer number
 ---@field SphericalDensityComponent Engine.FogVolumeSphericalDensityComponent
 
----@class TgGame.TgDeploy_Molotov.MolotovPointInfo : Object
+---@class TgGame.TgDeploy_Molotov.MolotovPointInfo : Struct
 ---@field vLocation Vector
 ---@field rRotation Rotator
 ---@field nEffectSpotIndex integer
 ---@field fHeatLevel number
 ---@field nTriNeighbors Array<integer>
 
----@class TgGame.TgDeploy_Molotov.MolotovTriangleInfo : Object
+---@class TgGame.TgDeploy_Molotov.MolotovTriangleInfo : Struct
 ---@field index1 integer
 ---@field index2 integer
 ---@field index3 integer
@@ -27879,20 +27879,20 @@
 ---@field vTriCenter Vector
 ---@field vCenterDirection Vector
 
----@class TgGame.TgDeploy_Molotov.MolotovStrandInfo : Object
+---@class TgGame.TgDeploy_Molotov.MolotovStrandInfo : Struct
 ---@field vStartDirection Vector
 ---@field fAllowanceWeight number
 ---@field nHeadIndex integer
 ---@field nAllowableSize integer
 ---@field nStrandTrace Array<integer>
 
----@class TgGame.TgDeploy_Molotov.MolotovGeneralSettings : Object
+---@class TgGame.TgDeploy_Molotov.MolotovGeneralSettings : Struct
 ---@field vBiasDirection Vector
 ---@field fUpFactor number
 ---@field fSpotRadius number
 ---@field fSpotHeight number
 
----@class TgGame.TgDeploy_Molotov.MolotovGrowthInfo : Object
+---@class TgGame.TgDeploy_Molotov.MolotovGrowthInfo : Struct
 ---@field nStrandAllotment integer
 ---@field nMaxSpots integer
 ---@field nMaxInitialStrands integer
@@ -27901,7 +27901,7 @@
 ---@field nCenterGrowthVariance integer
 ---@field nSpreadsPerTick integer
 
----@class TgGame.TgDeploy_Molotov.MolotovCenterInfo : Object
+---@class TgGame.TgDeploy_Molotov.MolotovCenterInfo : Struct
 ---@field ChildrenFront integer
 ---@field ChildrenFrontLeft integer
 ---@field ChildrenFrontRight integer
@@ -27909,12 +27909,12 @@
 ---@field ChildrenBackLeft integer
 ---@field ChildrenBackRight integer
 
----@class TgGame.TgDeploy_Molotov.MolotovEligibilityRecord : Object
+---@class TgGame.TgDeploy_Molotov.MolotovEligibilityRecord : Struct
 ---@field bIsEligible boolean
 ---@field vLocation Vector
 ---@field vHitNormal Vector
 
----@class TgGame.TgDeploy_MoonShardTween.AffectedPawn : Object
+---@class TgGame.TgDeploy_MoonShardTween.AffectedPawn : Struct
 ---@field pPawn TgGame.TgPawn_Character
 ---@field vRelativeOffsetAtGrab Vector
 ---@field fInvPullInTimeTotal number
@@ -27930,7 +27930,7 @@
 ---@field m_bInProximityRange boolean
 ---@field r_nExplosionCount integer
 
----@class TgGame.TgDeploy_SaatiCoin.HeadTailTargetLocation : Object
+---@class TgGame.TgDeploy_SaatiCoin.HeadTailTargetLocation : Struct
 ---@field bIsValidHit integer
 ---@field bHitPosition Vector
 
@@ -27957,7 +27957,7 @@
 ---@field GetSimulatedBeamTarget fun(self: TgGame.TgWeaponMeshActor_GauntletInhand, HitLocation: Vector, nEquipSlot?: integer): boolean
 ---@field UpdateTransform fun(self: TgGame.TgWeaponMeshActor_GauntletInhand, DeltaTime: number, bFromCameraUpdate?: boolean)
 
----@class TgGame.TgDevice_ArcingBeam.ArcingInfo : Object
+---@class TgGame.TgDevice_ArcingBeam.ArcingInfo : Struct
 ---@field ArcTime number
 ---@field RemainingArcTime number
 ---@field JumpsRemaining integer
@@ -27965,7 +27965,7 @@
 ---@field PreviousTargets Array<Engine.Actor>
 ---@field ArcFiremode TgGame.TgDeviceFire
 
----@class TgGame.TgDevice_ArcingBeam.PotentialTargetInfo : Object
+---@class TgGame.TgDevice_ArcingBeam.PotentialTargetInfo : Struct
 ---@field Target Engine.Actor
 ---@field NumHits integer
 ---@field Dist number
@@ -27989,7 +27989,7 @@
 ---@class TgGame.TgDevice_AtlasQ : TgGame.TgDevice
 ---@field CanBeCanceled fun(self: TgGame.TgDevice_AtlasQ): boolean
 
----@class TgGame.TgDevice_AtlasRMB.QueuedRewind : Object
+---@class TgGame.TgDevice_AtlasRMB.QueuedRewind : Struct
 ---@field pTarget TgGame.TgPawn
 ---@field fDelay number
 ---@field fDuration number
@@ -28008,7 +28008,7 @@
 ---@class TgGame.TgDevice_IceBlock : TgGame.TgDevice
 ---@field CanBeCanceled fun(self: TgGame.TgDevice_IceBlock): boolean
 
----@class TgGame.TgDevice_BombKingInhand.StickyBombPendingDetonate : Object
+---@class TgGame.TgDevice_BombKingInhand.StickyBombPendingDetonate : Struct
 ---@field nProjID integer
 ---@field nDeployID integer
 ---@field vExplodeLocation Vector
@@ -28032,14 +28032,14 @@
 ---@field OnUnlinkDevice fun(self: TgGame.TgDevice_BombQueenTalent3, TgP: TgGame.TgPawn)
 ---@field OnLinkDevice fun(self: TgGame.TgDevice_BombQueenTalent3, TgP: TgGame.TgPawn)
 
----@class TgGame.TgPawn_Bunny.SpiritLink : Object
+---@class TgGame.TgPawn_Bunny.SpiritLink : Struct
 ---@field LinkedPawn TgGame.TgPawn
 ---@field fAddedTimestamp number
 ---@field LinkBeam1P TgGame.TgBeamHelper
 ---@field LinkBeam3P TgGame.TgBeamHelper
 ---@field fSecondsUntilBreak number
 
----@class TgGame.TgDevice_BunnyHeal.BunnyHealHistoryEntry : Object
+---@class TgGame.TgDevice_BunnyHeal.BunnyHealHistoryEntry : Struct
 ---@field TargetPawn TgGame.TgPawn
 ---@field fBounceDelay number
 ---@field HealProj TgGame.TgProj_BunnyHeal
@@ -28055,7 +28055,7 @@
 ---@field OnUnlinkDevice fun(self: TgGame.TgDevice_CaspianTalentTwo, TgP: TgGame.TgPawn)
 ---@field OnLinkDevice fun(self: TgGame.TgDevice_CaspianTalentTwo, TgP: TgGame.TgPawn)
 
----@class TgGame.TgPawn_Caspian.CaspianSword : Object
+---@class TgGame.TgPawn_Caspian.CaspianSword : Struct
 ---@field nNonce integer
 ---@field nId integer
 ---@field nPosition integer
@@ -28085,7 +28085,7 @@
 ---@field LinkedDeviceEquipped fun(self: TgGame.TgDevice_Compensator, Dev: TgGame.TgDevice)
 ---@field ApplyRecoilReduction fun(self: TgGame.TgDevice_Compensator, Dev: TgGame.TgDevice, bShouldApply: boolean)
 
----@class TgGame.TgPawn_Corvus.BeaconInfo : Object
+---@class TgGame.TgPawn_Corvus.BeaconInfo : Struct
 ---@field BeaconTarget TgGame.TgRepInfo_Player
 ---@field BeaconPawn TgGame.TgPawn
 ---@field BeaconImpactInfo Engine.Actor.ImpactInfo
@@ -28118,12 +28118,12 @@
 ---@class TgGame.TgDevice_Devastation : TgGame.TgDevice
 ---@field FireAmmunition fun(self: TgGame.TgDevice_Devastation)
 
----@class TgGame.TgDevice_DimensionalLink.DLTeleportTargets : Object
+---@class TgGame.TgDevice_DimensionalLink.DLTeleportTargets : Struct
 ---@field TargetPosition Vector
 ---@field TargetRotation Rotator
 ---@field TargetIllusion Engine.Actor
 
----@class TgGame.TgDevice_DimensionalLink.DLDeadTeleportTargets : Object
+---@class TgGame.TgDevice_DimensionalLink.DLDeadTeleportTargets : Struct
 ---@field TargetPosition Vector
 ---@field TargetRotation Rotator
 ---@field ValidTimeRemaining number
@@ -28133,7 +28133,7 @@
 ---@field DoRewindCardLogic fun(self: TgGame.TgDevice_Rewind, dimensionalLinkDevice: TgGame.TgDevice_DimensionalLink)
 ---@field m_CachedIllusionDevice TgGame.TgDevice_Illusion
 
----@class TgGame.TgDevice_DimensionalLink.DLRewindTargets : Object
+---@class TgGame.TgDevice_DimensionalLink.DLRewindTargets : Struct
 ---@field RewindPosition Vector
 ---@field RewindRotation Rotator
 
@@ -28164,7 +28164,7 @@
 
 ---@class TgGame.TgDevice_DrogozLeg2 : TgGame.TgDevice
 
----@class TgGame.TgDevice_DruidRMB.DelayedImpactInfo : Object
+---@class TgGame.TgDevice_DruidRMB.DelayedImpactInfo : Struct
 ---@field fDeliveryDelayRemaining number
 ---@field Impact Engine.Actor.ImpactInfo
 
@@ -28306,7 +28306,7 @@
 ---@class TgGame.TgWeaponMeshActor_Sniper : TgGame.TgWeaponMeshActor
 ---@field SetLoopingMuzzleEffects fun(self: TgGame.TgWeaponMeshActor_Sniper, bSetActive: boolean, nEquipSlot?: integer, nFireMode?: integer)
 
----@class TgGame.TgDevice_LazarusInhand.HitSoundData : Object
+---@class TgGame.TgDevice_LazarusInhand.HitSoundData : Struct
 ---@field fAngle number
 ---@field pHitActor Engine.Actor
 
@@ -28321,7 +28321,7 @@
 ---@field m_bPlayingPlantedFireSFX boolean
 ---@field m_bPlayingUltimateFireSFX boolean
 
----@class TgGame.TgDevice_LongReach.NuggetPullVals : Object
+---@class TgGame.TgDevice_LongReach.NuggetPullVals : Struct
 ---@field nugget Engine.Actor
 ---@field fPullTime number
 ---@field fCheckTime number
@@ -28437,12 +28437,12 @@
 ---@field OnUnlinkDevice fun(self: TgGame.TgDevice_SevenExplosiveUltTalent, TgP: TgGame.TgPawn)
 ---@field OnLinkDevice fun(self: TgGame.TgDevice_SevenExplosiveUltTalent, TgP: TgGame.TgPawn)
 
----@class TgGame.TgDevice_SevenMaskedFear.FearTarget : Object
+---@class TgGame.TgDevice_SevenMaskedFear.FearTarget : Struct
 ---@field HitActor Engine.Actor
 ---@field TimeFeared number
 ---@field MarkedForFear boolean
 
----@class TgGame.TgPawn_Lazarus.BloodStoneTarget : Object
+---@class TgGame.TgPawn_Lazarus.BloodStoneTarget : Struct
 ---@field pTarget TgGame.TgPawn
 ---@field fTime number
 
@@ -28478,7 +28478,7 @@
 
 ---@class TgGame.TgDevice_VanguardInhand : TgGame.TgDevice
 
----@class TgGame.TgDevice_Vengeance_Lex.TargetScoreInfo : Object
+---@class TgGame.TgDevice_Vengeance_Lex.TargetScoreInfo : Struct
 ---@field Score integer
 ---@field Index integer
 
@@ -28499,7 +28499,7 @@
 ---@field GetSimulatedBeamTarget fun(self: TgGame.TgWeaponMeshActor_YingInhand, HitLocation: Vector, nEquipSlot?: integer): boolean
 ---@field InitializeForWeapon fun(self: TgGame.TgWeaponMeshActor_YingInhand, EquipPoint: integer, DeviceID: integer, bClearEquipPoint?: boolean)
 
----@class TgGame.TgDeviceFire.AoeActorInRangeData : Object
+---@class TgGame.TgDeviceFire.AoeActorInRangeData : Struct
 ---@field Actor Engine.Actor
 ---@field Location Vector
 
@@ -28564,7 +28564,7 @@
 ---@class TgGame.TgDeviceFire_ShieldFernando : TgGame.TgDeviceFire
 ---@field GetCooldownTime fun(self: TgGame.TgDeviceFire_ShieldFernando): number
 
----@class TgGame.TgDeviceFire_SnakeToss.RecentStunnedTarget : Object
+---@class TgGame.TgDeviceFire_SnakeToss.RecentStunnedTarget : Struct
 ---@field Target Engine.Actor
 ---@field fTimestamp number
 
@@ -28591,7 +28591,7 @@
 ---@field Generic2 fun(self: TgGame.TgDeviceForm_Advance, byExtraData?: integer)
 ---@field Generic1 fun(self: TgGame.TgDeviceForm_Advance, byExtraData?: integer)
 
----@class TgGame.TgDeviceForm_ArcingBeam.ArcingFXInfo : Object
+---@class TgGame.TgDeviceForm_ArcingBeam.ArcingFXInfo : Struct
 ---@field Source Engine.Actor
 ---@field Target Engine.Actor
 ---@field ArcingFX TgGame.TgSpecialFx
@@ -28683,7 +28683,7 @@
 ---@field m_DragonSlamBlendList1P Array<TgGame.TgAnimNodeBlendByAbilityDragonSlam>
 ---@field m_DragonSlamBlendList3P Array<TgGame.TgAnimNodeBlendByAbilityDragonSlam>
 
----@class TgGame.TgDeviceForm_DruidRMB.DruidHealBeam : Object
+---@class TgGame.TgDeviceForm_DruidRMB.DruidHealBeam : Struct
 ---@field fDeliveryDelayRemaining number
 ---@field Beam TgGame.TgBeamHelper
 
@@ -28805,7 +28805,7 @@
 ---@field RecoverDeviceState fun(self: TgGame.TgDeviceForm_KingBomb, DesiredState: integer)
 ---@field m_bKingBombActive boolean
 
----@class TgGame.TgDeviceForm_LazarusInhand.HitPawn : Object
+---@class TgGame.TgDeviceForm_LazarusInhand.HitPawn : Struct
 ---@field nPawnId integer
 ---@field fTimeHit number
 
@@ -28946,7 +28946,7 @@
 
 ---@class TgGame.TgDeviceForm_SplittingIce : TgGame.TgDeviceForm_ArcingBeam
 
----@class TgGame.TgDeviceForm_Spray.SpraySetup : Object
+---@class TgGame.TgDeviceForm_Spray.SpraySetup : Struct
 ---@field nDeviceId integer
 ---@field Texture Engine.Texture
 ---@field nMaterialIndex integer
@@ -29039,7 +29039,7 @@
 ---@field m_SaatiUltNodes3p Array<TgGame.TgAnimNodeBlendByAbilitySaatiUlt>
 ---@field m_SaatiUltNodes1p Array<TgGame.TgAnimNodeBlendByAbilitySaatiUlt>
 
----@class TgGame.TgDeviceForm_WallBangFire.SaatiAimInfo : Object
+---@class TgGame.TgDeviceForm_WallBangFire.SaatiAimInfo : Struct
 ---@field CachedAimVector Vector
 ---@field CachedStartLocation Vector
 
@@ -29064,21 +29064,21 @@
 
 ---@class TgGame.TgGame_Paladins_Payload_Practice : TgGame.TgGame_Paladins_Payload
 
----@class TgGame.TgDistributionFloatSoundAttenuation.AttenuationGroup : Object
+---@class TgGame.TgDistributionFloatSoundAttenuation.AttenuationGroup : Struct
 ---@field GroupName string
 ---@field AttenuationDistance number
 
----@class TgGame.TgEffectDamage_AstroDOT.EffectInstanceInfo : Object
+---@class TgGame.TgEffectDamage_AstroDOT.EffectInstanceInfo : Struct
 ---@field fTimestamp number
 ---@field fDamageValue number
 
 ---@class TgGame.TgEffectDamage_NoLifeSteal : TgGame.TgEffectDamage
 
----@class TgGame.TgEffectDamage_PresenceDoT.PresenceDoTInstanceInfo : Object
+---@class TgGame.TgEffectDamage_PresenceDoT.PresenceDoTInstanceInfo : Struct
 ---@field fTimestamp number
 ---@field fDamageValue number
 
----@class TgGame.TgEffectForm_WithMeshes.EffectMeshInfo : Object
+---@class TgGame.TgEffectForm_WithMeshes.EffectMeshInfo : Struct
 ---@field Mesh Engine.MeshComponent
 ---@field nMeshId integer
 ---@field DisplayGroup string
@@ -29090,7 +29090,7 @@
 ---@field rAdditiveRotation Rotator
 ---@field fScaleMultipler number
 
----@class TgGame.TgEffectGroup.LifeTimeCalcInfo : Object
+---@class TgGame.TgEffectGroup.LifeTimeCalcInfo : Struct
 ---@field bInitialized boolean
 ---@field fReductionFromPawnProtections number
 ---@field fReductionFromCCProtectionsPerc number
@@ -29100,7 +29100,7 @@
 ---@field bCrowdControlImmune boolean
 ---@field m_fCalculatedLifeTime number
 
----@class TgGame.TgEffectManager.ReduceActiveCooldownEntry : Object
+---@class TgGame.TgEffectManager.ReduceActiveCooldownEntry : Struct
 ---@field nDeviceId integer
 ---@field nFireMode integer
 ---@field fValue number
@@ -29109,27 +29109,27 @@
 ---@field fCooldownFloor number
 ---@field bIgnoreChargeScaling boolean
 
----@class TgGame.TgEffectManager.DiminishingReturnsStackInfo : Object
+---@class TgGame.TgEffectManager.DiminishingReturnsStackInfo : Struct
 ---@field StackType integer
 ---@field DevicesApplyingThisTick Array<integer>
 ---@field Timestamps Array<number>
 ---@field nStackCount integer
 ---@field fRelevancyTime number
 
----@class TgGame.TgEffectManager.EnergyStunStackEntry : Object
+---@class TgGame.TgEffectManager.EnergyStunStackEntry : Struct
 ---@field Effect TgGame.TgEffect
 
----@class TgGame.TgEffectManager.StunStackEntry : Object
+---@class TgGame.TgEffectManager.StunStackEntry : Struct
 ---@field Effect TgGame.TgEffect
 ---@field StunType integer
 
----@class TgGame.TgEffectManager.EffectListEntry : Object
+---@class TgGame.TgEffectManager.EffectListEntry : Struct
 ---@field nEffectGroupID integer
 ---@field byNumStacks integer
 ---@field fInitTimeRemaining number
 ---@field nExtraInfo integer
 
----@class TgGame.TgEffectManager.EffectQueueEntry : Object
+---@class TgGame.TgEffectManager.EffectQueueEntry : Struct
 ---@field nEffectGroupID integer
 ---@field nExtraInfo integer
 ---@field vHitLocation Vector
@@ -29207,7 +29207,7 @@
 ---@field m_LensFlare Engine.LensFlareComponent
 ---@field m_AudioComponent Engine.AudioComponent
 
----@class TgGame.TgExplosionLight.LightValues : Object
+---@class TgGame.TgExplosionLight.LightValues : Struct
 ---@field StartTime number
 ---@field Radius number
 ---@field Brightness number
@@ -29215,22 +29215,22 @@
 ---@field EnemyLightColor Core.Object.Color
 ---@field LocalLightColor Core.Object.Color
 
----@class TgGame.TgSkeletalMeshComponent.AnimNotifyParticleCacheEntry : Object
+---@class TgGame.TgSkeletalMeshComponent.AnimNotifyParticleCacheEntry : Struct
 ---@field bCached boolean
 ---@field Notify Engine.AnimNotify_PlayParticleEffect
 ---@field PSC Engine.ParticleSystemComponent
 
----@class TgGame.TgSkeletalMeshComponent.MeshAccessoryStorage : Object
+---@class TgGame.TgSkeletalMeshComponent.MeshAccessoryStorage : Struct
 ---@field m_Accessory TgGame.TgSkeletalMeshComponent
 ---@field m_Source TgGame.TgAnimMetaData_MeshAccessory
 
----@class TgGame.TgSkeletalMeshComponent.MICScalarParamMetaDataStorage : Object
+---@class TgGame.TgSkeletalMeshComponent.MICScalarParamMetaDataStorage : Struct
 ---@field m_Source TgGame.TgAnimMetaData_MICScalarParameterExtended
 ---@field MaterialsToReset Array<TgGame.TgSkeletalMeshComponent.SwappedMeshResetInfo>
 ---@field CurrentModifiedMICs Array<Engine.MaterialInstanceConstant>
 ---@field bHasSetMICs boolean
 
----@class TgGame.TgSkeletalMeshComponent.MICStateParamInterpData : Object
+---@class TgGame.TgSkeletalMeshComponent.MICStateParamInterpData : Struct
 ---@field nMaterialIndex integer
 ---@field nmToStateName string
 ---@field nmFromStateName string
@@ -29238,12 +29238,12 @@
 ---@field fEndTime number
 ---@field SavedState Engine.MaterialInstanceConstant.MICStateParams
 
----@class TgGame.TgSkeletalMeshComponent.SwappedMeshResetInfo : Object
+---@class TgGame.TgSkeletalMeshComponent.SwappedMeshResetInfo : Struct
 ---@field SkelMeshComp Engine.SkeletalMeshComponent
 ---@field MaterialIndex integer
 ---@field OrigMatInst Engine.MaterialInstanceConstant
 
----@class TgGame.TgProjectile.CollisionSettingsProjectile : Object
+---@class TgGame.TgProjectile.CollisionSettingsProjectile : Struct
 ---@field bPassThroughFriends boolean
 ---@field bPassThroughEnemies boolean
 ---@field bPassThroughShieldsEnemies boolean
@@ -29255,7 +29255,7 @@
 ---@field bHitOnTick boolean
 ---@field bOnlyHitOnceOnPassThrough boolean
 
----@class TgGame.TgImpactFx.IMPACT_FX : Object
+---@class TgGame.TgImpactFx.IMPACT_FX : Struct
 ---@field nmMaterialType string
 ---@field Sound Engine.SoundCue
 ---@field DecalMaterial Engine.MaterialInterface
@@ -29265,7 +29265,7 @@
 ---@field Particles Engine.ParticleSystem
 ---@field SpecialFx TgGame.TgSpecialFx
 
----@class TgGame.TgSilhouetteComponentPaladins.SilhouetteColorSettings : Object
+---@class TgGame.TgSilhouetteComponentPaladins.SilhouetteColorSettings : Struct
 ---@field bUsesMultipleColors boolean
 ---@field bUsesEnemyRangeColorVariance boolean
 ---@field BlueColor Core.Object.Color
@@ -29277,7 +29277,7 @@
 ---@field RedColor Core.Object.Color
 ---@field AbyssalEchoColor Core.Object.Color
 
----@class TgGame.TgSilhouetteComponentPaladins.SilhouettePulseSettings : Object
+---@class TgGame.TgSilhouetteComponentPaladins.SilhouettePulseSettings : Struct
 ---@field bUsesPulse boolean
 ---@field bUsePulseAlpha boolean
 ---@field bPulseMaintainsDistanceDimming boolean
@@ -29290,7 +29290,7 @@
 ---@field fPulseDuration number
 ---@field fPulseWaveTime number
 
----@class TgGame.TgSilhouetteComponentPaladins.SilhouetteFadeSettings : Object
+---@class TgGame.TgSilhouetteComponentPaladins.SilhouetteFadeSettings : Struct
 ---@field bUsesDistanceFade boolean
 ---@field fAlphaFadeNearDist number
 ---@field fAlphaFadeNear number
@@ -29309,11 +29309,11 @@
 ---@field m_nTaskForceId integer
 ---@field m_Volumes Array<Engine.Volume>
 
----@class TgGame.TgFlagContentData.FlagMeshData : Object
+---@class TgGame.TgFlagContentData.FlagMeshData : Struct
 ---@field ContentDataType integer
 ---@field MainMeshInfo TgGame.TgMenuMeshInfo
 
----@class TgGame.TgRepInfo_Game.GraphData : Object
+---@class TgGame.TgRepInfo_Game.GraphData : Struct
 ---@field XP integer
 ---@field Gold integer
 ---@field Time integer
@@ -29326,7 +29326,7 @@
 
 ---@class TgGame.TgSeqEvent_CaptureAndPayloadSuccessfulDefenseTF2 : Engine.SequenceEvent
 
----@class TgGame.TgGame_Mission.TimeDilationWindow : Object
+---@class TgGame.TgGame_Mission.TimeDilationWindow : Struct
 ---@field nWindowId integer
 ---@field fRampUpTime number
 ---@field fRampDownTime number
@@ -29335,11 +29335,11 @@
 ---@field fCurrentTimeDilation number
 ---@field fTimeLeft number
 
----@class TgGame.TgGame_Mission.SurrenderVote : Object
+---@class TgGame.TgGame_Mission.SurrenderVote : Struct
 ---@field nPlayerId integer
 ---@field bSurrender boolean
 
----@class TgGame.TgGame_Mission.SurrenderData : Object
+---@class TgGame.TgGame_Mission.SurrenderData : Struct
 ---@field fLastSurrenderTime number
 ---@field SurrenderVotes Array<TgGame.TgGame_Mission.SurrenderVote>
 ---@field nSurrenderTotal integer
@@ -29347,13 +29347,13 @@
 ---@field nSurrenderVoteCount integer
 ---@field nNoSurrenderVoteCount integer
 
----@class TgGame.TgGame_Paladins.CurrencyBonus : Object
+---@class TgGame.TgGame_Paladins.CurrencyBonus : Struct
 ---@field m_BonusSourceType integer
 ---@field m_BonusType integer
 ---@field m_fBonusValue number
 ---@field m_fBonusTotal number
 
----@class TgGame.TgGame_Paladins.CurrencyEntry : Object
+---@class TgGame.TgGame_Paladins.CurrencyEntry : Struct
 ---@field m_dwCurrencyId Core.Object.dword
 ---@field m_dwCharacterId Core.Object.dword
 ---@field m_fBaseValue number
@@ -29839,7 +29839,7 @@
 
 ---@class TgGame.TgGameplayCurvesSet_StackDamageMultiplier : TgGame.TgGameplayCurvesSet_Simple
 
----@class TgGame.TgGameplayCurvesSet_TargetAimTracking.TargetAimTrackingDebugVals : Object
+---@class TgGame.TgGameplayCurvesSet_TargetAimTracking.TargetAimTrackingDebugVals : Struct
 ---@field DebugState integer
 ---@field trackingCurveSetName string
 ---@field strengthMultiplier number
@@ -29859,7 +29859,7 @@
 
 ---@class TgGame.TgGameplayCurvesSet_YagorathmovementPassiveDeceleration : TgGame.TgGameplayCurvesSet_Simple
 
----@class TgGame.TgGameTipManager.TipSavedState : Object
+---@class TgGame.TgGameTipManager.TipSavedState : Struct
 ---@field nTipId integer
 ---@field nMatchVisibleCount integer
 ---@field nTotalVisibleCount integer
@@ -29887,7 +29887,7 @@
 ---@field m_fCurrentInterpValue number
 ---@field m_fTargetInterpValue number
 
----@class TgGame.TgInterpolatingCameraActor.InterpolatingCameraInfo : Object
+---@class TgGame.TgInterpolatingCameraActor.InterpolatingCameraInfo : Struct
 ---@field m_bInterpLocation boolean
 ---@field m_bInterpRotation boolean
 ---@field m_bInterpFOVAngle boolean
@@ -29899,7 +29899,7 @@
 ---@field m_fTargetFOVAngle number
 ---@field m_fInterpSpeed number
 
----@class TgGame.TgInventoryManager.InventoryData : Object
+---@class TgGame.TgInventoryManager.InventoryData : Struct
 ---@field nInvId Core.Object.QWord
 ---@field nItemId integer
 ---@field nPower integer
@@ -29909,7 +29909,7 @@
 ---@field fAcquiredDatetime number
 ---@field nEquipSlotValueId integer
 
----@class TgGame.TgInventoryObject.sInventoryReq : Object
+---@class TgGame.TgInventoryObject.sInventoryReq : Struct
 ---@field m_bLevelFail boolean
 ---@field m_bSkillFail boolean
 ---@field m_nSkillLevelReq integer
@@ -29927,29 +29927,29 @@
 
 ---@class TgGame.TgInventoryObject_Listen_BlastShotHitSelfEffect : TgGame.TgInventoryObject_Listen_BlastShotHitEffect
 
----@class TgGame.TgInventoryObject_Listen_Combo_Barik.ComboInfo : Object
+---@class TgGame.TgInventoryObject_Listen_Combo_Barik.ComboInfo : Struct
 ---@field Target Engine.Actor
 ---@field Instigator Engine.Actor
 ---@field fMarkTime number
 
----@class TgGame.TgInventoryObject_Listen_Combo_Barik.UIMarkInfo : Object
+---@class TgGame.TgInventoryObject_Listen_Combo_Barik.UIMarkInfo : Struct
 ---@field Target Engine.Actor
 ---@field nUIMarkCount integer
 
----@class TgGame.TgInventoryObject_Listen_Combo_Barik.BurningMarkInfo : Object
+---@class TgGame.TgInventoryObject_Listen_Combo_Barik.BurningMarkInfo : Struct
 ---@field Target Engine.Actor
 ---@field nMarkCount integer
 
----@class TgGame.TgInventoryObject_Listen_Combo_BombKing.StickyHitInfo : Object
+---@class TgGame.TgInventoryObject_Listen_Combo_BombKing.StickyHitInfo : Struct
 ---@field HitActor Engine.Actor
 ---@field NumHits integer
 
----@class TgGame.TgInventoryObject_Listen_Combo_Makoa.MarkedTargetHook : Object
+---@class TgGame.TgInventoryObject_Listen_Combo_Makoa.MarkedTargetHook : Struct
 ---@field aActor Engine.Actor
 ---@field fTime number
 ---@field bFiredSince boolean
 
----@class TgGame.TgInventoryObject_Listen_Combo_Viktor.TimedMarkedTarget : Object
+---@class TgGame.TgInventoryObject_Listen_Combo_Viktor.TimedMarkedTarget : Struct
 ---@field Target Engine.Actor
 ---@field EndTimestamp number
 
@@ -29969,34 +29969,34 @@
 
 ---@class TgGame.TgInventoryObject_Listen_MountEnd : TgGame.TgInventoryObject_Listen_AbilityEnd
 
----@class TgGame.TgInventoryObject_Listen_PoisonBolts.PoisonBoltInfo : Object
+---@class TgGame.TgInventoryObject_Listen_PoisonBolts.PoisonBoltInfo : Struct
 ---@field pawnTarget TgGame.TgPawn
 ---@field DeployableTarget TgGame.TgDeployable
 ---@field bEffectActive boolean
 
----@class TgGame.TgInvListener_ConsecutiveHitsForDamageBonusByCredits.TrackedDamagedTargets : Object
+---@class TgGame.TgInvListener_ConsecutiveHitsForDamageBonusByCredits.TrackedDamagedTargets : Struct
 ---@field pTarget Engine.Actor
 ---@field fBonusDamageEndTime number
 
----@class TgGame.TgInvListener_ConsecutiveInhandHits.CIHStack : Object
+---@class TgGame.TgInvListener_ConsecutiveInhandHits.CIHStack : Struct
 ---@field pTarget TgGame.TgPawn
 ---@field nStackCount integer
 ---@field fLifetime number
 
----@class TgGame.TgInvListener_CrackShot.CrackShotBonusDamageTarget : Object
+---@class TgGame.TgInvListener_CrackShot.CrackShotBonusDamageTarget : Struct
 ---@field pTarget Engine.Actor
 ---@field fBonusDamageEndTime number
 
----@class TgGame.TgInvListener_RiderShield.RiderShieldPerTargetHistory : Object
+---@class TgGame.TgInvListener_RiderShield.RiderShieldPerTargetHistory : Struct
 ---@field HitTarget Engine.Actor
 ---@field fLockOutTime number
 
----@class TgGame.TgInvListener_TargetOverHealed.TOHInfo : Object
+---@class TgGame.TgInvListener_TargetOverHealed.TOHInfo : Struct
 ---@field pTarget Engine.Actor
 ---@field fAccumulator integer
 ---@field fResetTimer number
 
----@class TgGame.TgInvListener_TakingHitsForDamageBonusByCredits.TrackedBullies : Object
+---@class TgGame.TgInvListener_TakingHitsForDamageBonusByCredits.TrackedBullies : Struct
 ---@field pTarget Engine.Actor
 ---@field fBonusDamageEndTime number
 
@@ -30032,24 +30032,24 @@
 
 ---@class TgGame.TgSeqEvent_LobbyCameraSetActive : Engine.SequenceEvent
 
----@class TgGame.TgMarkComponent.TargetMark : Object
+---@class TgGame.TgMarkComponent.TargetMark : Struct
 ---@field Target Engine.Actor
 ---@field fTimeLeft number
 ---@field nNumMarks integer
 ---@field AppliedEffects Array<TgGame.TgEffectGroup>
 
----@class TgGame.TgMenuContentData.MeshData : Object
+---@class TgGame.TgMenuContentData.MeshData : Struct
 ---@field ContentDataType integer
 ---@field MainMeshInfo TgGame.TgMenuMeshInfo
 ---@field nBotId integer
 ---@field nSkinId integer
 ---@field nDeviceSkinId integer
 
----@class TgGame.TgMenuMeshInfo.ParticleSystemInfo : Object
+---@class TgGame.TgMenuMeshInfo.ParticleSystemInfo : Struct
 ---@field ParticleSystem Engine.ParticleSystem
 ---@field SocketName string
 
----@class TgGame.TgMenuMeshInfo.LobbyMeshInfo : Object
+---@class TgGame.TgMenuMeshInfo.LobbyMeshInfo : Struct
 ---@field Translation Vector
 ---@field Rotation Rotator
 ---@field Scale number
@@ -30068,7 +30068,7 @@
 
 ---@class TgGame.TgMenuTransitionActor_Chest : TgGame.TgMenuTransitionActor
 
----@class TgGame.TgMinimapManager.MiniMapServerEntity : Object
+---@class TgGame.TgMinimapManager.MiniMapServerEntity : Struct
 ---@field vLocation Vector
 ---@field eType integer
 ---@field nSubType integer
@@ -30110,41 +30110,41 @@
 ---@class TgGame.TgSeqAct_ParentAnimComponent : Engine.SequenceAction
 ---@field bDetach boolean
 
----@class TgGame.TgPawn_Atlas.RewindingPawn : Object
+---@class TgGame.TgPawn_Atlas.RewindingPawn : Struct
 ---@field pPawn TgGame.TgPawn
 ---@field nRMBFireMode integer
 ---@field fStartTime number
 ---@field fFailsafeTTL number
 ---@field nCallbackHandle integer
 
----@class TgGame.TgPawn_BarrierTank.WallPlacementInfo : Object
+---@class TgGame.TgPawn_BarrierTank.WallPlacementInfo : Struct
 ---@field bIsValidLocation boolean
 ---@field vSpawnLocation Vector
 
----@class TgGame.TgPawn_Blades.DjBladesFaceConfig : Object
+---@class TgGame.TgPawn_Blades.DjBladesFaceConfig : Struct
 ---@field fShiftX number
 ---@field fShiftY number
 
----@class TgGame.TgPawn_Blades.DjBladesVGSFace : Object
+---@class TgGame.TgPawn_Blades.DjBladesVGSFace : Struct
 ---@field nVgsId integer
 ---@field eFace integer
 
----@class TgGame.TgPawn_Bunny.BreakingSpiritLink : Object
+---@class TgGame.TgPawn_Bunny.BreakingSpiritLink : Struct
 ---@field LinkedPawn TgGame.TgPawn
 ---@field fAddedTimestamp number
 ---@field LinkBreakBeam1P TgGame.TgBeamHelper
 ---@field fLinkBreakBeamTTL number
 
----@class TgGame.TgPawn_Caspian.CaspianStackCountHistoryEntry : Object
+---@class TgGame.TgPawn_Caspian.CaspianStackCountHistoryEntry : Struct
 ---@field fTimestamp number
 ---@field eSource integer
 ---@field nCount integer
 
----@class TgGame.TgPawn_Caspian.CaspianPassiveStack : Object
+---@class TgGame.TgPawn_Caspian.CaspianPassiveStack : Struct
 ---@field fCreatedTimestamp number
 ---@field eSource integer
 
----@class TgGame.TgPawn_Caspian.CaspianStackConfig : Object
+---@class TgGame.TgPawn_Caspian.CaspianStackConfig : Struct
 ---@field nMaxStacks integer
 ---@field fStackExpirationTime number
 
@@ -30160,19 +30160,19 @@
 ---@field c_fShieldRotationErrorCorrectionRate number
 ---@field m_CachedShieldDevice TgGame.TgDevice
 
----@class TgGame.TgPawn_Imani.DigitizedImaniConfig : Object
+---@class TgGame.TgPawn_Imani.DigitizedImaniConfig : Struct
 ---@field fShiftX number
 ---@field fShiftY number
 
----@class TgGame.TgPawn_LanePusherBase.ServerSplineSync : Object
+---@class TgGame.TgPawn_LanePusherBase.ServerSplineSync : Struct
 ---@field SplineDist number
 ---@field bMoving boolean
 
----@class TgGame.TgPawn_Kasumi.KasumiMarkedTargetInfo : Object
+---@class TgGame.TgPawn_Kasumi.KasumiMarkedTargetInfo : Struct
 ---@field nTargetPawnId integer
 ---@field nMarkedCount integer
 
----@class TgGame.TgPawn_Raum.RaumShard : Object
+---@class TgGame.TgPawn_Raum.RaumShard : Struct
 ---@field nNonce integer
 ---@field nId integer
 ---@field bIsActive boolean
@@ -30181,23 +30181,23 @@
 ---@field fTTL number
 ---@field aShardActor TgGame.TgRaumShard
 
----@class TgGame.TgPawn_Rider.RiderLastMaxMarkedTarget : Object
+---@class TgGame.TgPawn_Rider.RiderLastMaxMarkedTarget : Struct
 ---@field nTargetPawnId integer
 ---@field nMaxMarksTimestamp number
 
----@class TgGame.TgPawn_Rider.RiderMarkedTargetInfo : Object
+---@class TgGame.TgPawn_Rider.RiderMarkedTargetInfo : Struct
 ---@field nTargetPawnId integer
 ---@field nMarkedCount integer
 ---@field bReachedMaxMarks boolean
 ---@field pMarkDeploy TgGame.TgDeploy_MagicMark
 
----@class TgGame.TgPawn_Seven.SevenMarkedTargetInfo : Object
+---@class TgGame.TgPawn_Seven.SevenMarkedTargetInfo : Struct
 ---@field nTargetPawnId integer
 ---@field nMarkedCount integer
 
 ---@class TgGame.TgPawn_SiegeEngine_ImmuneWhileTraveling : TgGame.TgPawn_Juggernaut
 
----@class TgGame.TgPawn_TowerBase.NavMeshBorderEdges : Object
+---@class TgGame.TgPawn_TowerBase.NavMeshBorderEdges : Struct
 ---@field P1 Vector
 ---@field P2 Vector
 
@@ -30214,13 +30214,13 @@
 
 ---@class TgGame.TgPawn_Turret_DefaultCone : TgGame.TgPawn_Turret
 
----@class TgGame.TgPawn_Vampire.VampMark : Object
+---@class TgGame.TgPawn_Vampire.VampMark : Struct
 ---@field MarkedPawn TgGame.TgPawn
 ---@field fAddedTimestamp number
 ---@field fSecondsUntilBreak number
 ---@field fSecondsApplyNextInterval number
 
----@class TgGame.TgPawnMod_FxAudio.ModFxAudioValues : Object
+---@class TgGame.TgPawnMod_FxAudio.ModFxAudioValues : Struct
 ---@field bApplyToBodyParam boolean
 ---@field nmParamName string
 ---@field fOnBeatMultiplier number
@@ -30292,7 +30292,7 @@
 ---@field PickupMessage string
 ---@field RespawnTime number
 
----@class TgGame.TgPlayerCamera.PropertyDecayParams : Object
+---@class TgGame.TgPlayerCamera.PropertyDecayParams : Struct
 ---@field LambdaImpulse number
 ---@field LambdaAccumulation number
 ---@field DecayImpulse number
@@ -30304,19 +30304,19 @@
 ---@field Touch fun(self: TgGame.TgWeatherVolume, Other: Engine.Actor, OtherComp: Engine.PrimitiveComponent, HitLocation: Vector, HitNormal: Vector)
 ---@field m_Template Engine.ParticleSystem
 
----@class TgGame.TgPlayerCamera.PropertyDecayState : Object
+---@class TgGame.TgPlayerCamera.PropertyDecayState : Struct
 ---@field PropertyLevel number
 ---@field PropertyMax number
 ---@field LastDecayTimestamp number
 
----@class TgGame.TgPlayerInput.AimAssistTargetWeight : Object
+---@class TgGame.TgPlayerInput.AimAssistTargetWeight : Struct
 ---@field Target any
 ---@field Weight number
 ---@field horizAssistVal number
 ---@field vertAssistVal number
 ---@field lastUpdateTimestamp number
 
----@class TgGame.TgPlayerInput.AimAssistHistoryRecord : Object
+---@class TgGame.TgPlayerInput.AimAssistHistoryRecord : Struct
 ---@field Time number
 ---@field DeltaTime number
 ---@field Strength number
@@ -30327,7 +30327,7 @@
 
 ---@class TgGame.TgProj_Bombardment_Fire : TgGame.TgProj_Bombardment
 
----@class TgGame.TgProj_ExtraColliders.TrackedCollision : Object
+---@class TgGame.TgProj_ExtraColliders.TrackedCollision : Struct
 ---@field IsColliding boolean
 ---@field Target Engine.Actor
 ---@field TargetComp Engine.PrimitiveComponent
@@ -30361,7 +30361,7 @@
 ---@field m_fRetargetingTimer number
 ---@field m_fRetargetTime number
 
----@class TgGame.TgProj_FuriaF.FuriaFTrackingTargets : Object
+---@class TgGame.TgProj_FuriaF.FuriaFTrackingTargets : Struct
 ---@field PotentialTarget Engine.Actor
 ---@field fScore number
 
@@ -30392,11 +30392,11 @@
 
 ---@class TgGame.TgProj_MalDambaInhand : TgGame.TgProj_FreeGrenade
 
----@class TgGame.TgProj_MoonShard.MoonShardPawnRecord : Object
+---@class TgGame.TgProj_MoonShard.MoonShardPawnRecord : Struct
 ---@field pCharacter TgGame.TgPawn_Character
 ---@field eWithin integer
 
----@class TgGame.TgProj_NonSimulated.LagCompedQueuedHitInfo : Object
+---@class TgGame.TgProj_NonSimulated.LagCompedQueuedHitInfo : Struct
 ---@field HitActor Engine.Actor
 ---@field HitLocation Vector
 ---@field HitNormal Vector
@@ -30408,13 +30408,13 @@
 
 ---@class TgGame.TgProj_PotionLauncherProjectile_HighFireAngleTest : TgGame.TgProj_PotionLauncherProjectile
 
----@class TgGame.TgProj_RaumStomp.StompElement : Object
+---@class TgGame.TgProj_RaumStomp.StompElement : Struct
 ---@field fTangentToVelocity number
 ---@field pStompRep TgGame.TgPropActor
 
 ---@class TgGame.TgProj_SaatiUlt : TgGame.TgProj_SpeedOverTime
 
----@class TgGame.TgProj_ShadowStickyBombHoming.HomingBombTrackingTargets : Object
+---@class TgGame.TgProj_ShadowStickyBombHoming.HomingBombTrackingTargets : Struct
 ---@field PotentialTarget Engine.Actor
 ---@field fScore number
 
@@ -30424,7 +30424,7 @@
 
 ---@class TgGame.TgProj_SoulOrb : TgGame.TgProj_Fireball
 
----@class TgGame.TgProj_TigronChakram.HistoricPosition : Object
+---@class TgGame.TgProj_TigronChakram.HistoricPosition : Struct
 ---@field fTimestamp number
 ---@field vPosition Vector
 
@@ -30447,27 +30447,27 @@
 ---@field OwnershipPercent number
 ---@field PointIndex integer
 
----@class TgGame.TgRepInfo_Player.DeckCardData : Object
+---@class TgGame.TgRepInfo_Player.DeckCardData : Struct
 ---@field nDeviceId integer
 ---@field nPlayerId integer
 
----@class TgGame.TgRepInfo_Player.PlayOfTheGameEventData : Object
+---@class TgGame.TgRepInfo_Player.PlayOfTheGameEventData : Struct
 ---@field EventType integer
 ---@field TimeStamp number
 ---@field WeightedRating number
 
----@class TgGame.TgRepInfo_Player.PlayOfTheGameEventCounter : Object
+---@class TgGame.TgRepInfo_Player.PlayOfTheGameEventCounter : Struct
 ---@field EventType integer
 ---@field Threshold number
 ---@field Counter number
 ---@field TimeOut number
 ---@field Timer number
 
----@class TgGame.TgRepInfo_Player.MarkedTargetInfo : Object
+---@class TgGame.TgRepInfo_Player.MarkedTargetInfo : Struct
 ---@field PawnId integer
 ---@field Count integer
 
----@class TgGame.TgRepInfo_Player.DeviceTeamInfo : Object
+---@class TgGame.TgRepInfo_Player.DeviceTeamInfo : Struct
 ---@field Power integer
 ---@field Level integer
 ---@field CurrentDeviceId integer
@@ -30475,7 +30475,7 @@
 ---@field CurrentDeviceCount integer
 ---@field LastKnownDeviceCount integer
 
----@class TgGame.TgRepInfo_Player.SimulatedProjectileOverrides : Object
+---@class TgGame.TgRepInfo_Player.SimulatedProjectileOverrides : Struct
 ---@field FireModeID integer
 ---@field RemoteProximityDist number
 ---@field Range number
@@ -30483,12 +30483,12 @@
 ---@field GravityScale number
 ---@field FireAngle number
 
----@class TgGame.TgRepInfo_Player.TempItemInfo : Object
+---@class TgGame.TgRepInfo_Player.TempItemInfo : Struct
 ---@field nDevId integer
 ---@field nRank integer
 ---@field nCost integer
 
----@class TgGame.TgRepInfo_TaskForce.TGTEAM_ENTRY : Object
+---@class TgGame.TgRepInfo_TaskForce.TGTEAM_ENTRY : Struct
 ---@field fsName string
 ---@field fsMapName string
 ---@field nHealth integer
@@ -30496,15 +30496,15 @@
 ---@field bLeader boolean
 ---@field pPrep TgGame.TgRepInfo_Player
 
----@class TgGame.TgRepInfo_TaskForce.TEAMTIMEMANAGER_ENTRY : Object
+---@class TgGame.TgRepInfo_TaskForce.TEAMTIMEMANAGER_ENTRY : Struct
 ---@field m_TimerManager TgGame.TgTimerManager
 ---@field m_nDeviceId integer
 
----@class TgGame.TgRepInfo_TaskForce.GLOBALEFFECT_ENTRY : Object
+---@class TgGame.TgRepInfo_TaskForce.GLOBALEFFECT_ENTRY : Struct
 ---@field eg TgGame.TgEffectGroup
 ---@field pawnInstigator TgGame.TgPawn
 
----@class TgGame.TgRepInfo_TaskForce.sPredefinedLevelDeployInfo : Object
+---@class TgGame.TgRepInfo_TaskForce.sPredefinedLevelDeployInfo : Struct
 ---@field m_Id integer
 ---@field m_Location Vector
 
@@ -30512,7 +30512,7 @@
 ---@field DefenderTaskForce integer
 ---@field currentScore integer
 
----@class TgGame.TgRespawnBeaconEntrance.PendingTeleportInfo : Object
+---@class TgGame.TgRespawnBeaconEntrance.PendingTeleportInfo : Struct
 ---@field PendingActor Engine.Actor
 ---@field TouchTimestamp number
 ---@field HasPlayedPreTeleport boolean
@@ -30597,7 +30597,7 @@
 ---@field Points Array<Core.Object>
 ---@field PlayerReceived Engine.Actor
 
----@class TgGame.TgSpawnTeleporterEntrance.ExitInfo : Object
+---@class TgGame.TgSpawnTeleporterEntrance.ExitInfo : Struct
 ---@field Exit TgGame.TgSpawnTeleporterExit
 ---@field Rating number
 ---@field bEnemyHasLOS boolean
@@ -30670,45 +30670,45 @@
 ---@field m_CurrentPushState integer
 ---@field m_fPendingReverseTime number
 
----@class TgGame.TgSilhouetteManager.TgSilhouetteInfo : Object
+---@class TgGame.TgSilhouetteManager.TgSilhouetteInfo : Struct
 ---@field Silhouette any
 ---@field ParentMesh Engine.MeshComponent
 
----@class TgGame.TgSkelCon_CCD_IK_FootPlacement.JointConstraintInformation : Object
+---@class TgGame.TgSkelCon_CCD_IK_FootPlacement.JointConstraintInformation : Struct
 ---@field AngleConstraint number
 ---@field StretchConstraint number
 
----@class TgGame.TgSkelCon_Gate.SkelControlGateChild : Object
+---@class TgGame.TgSkelCon_Gate.SkelControlGateChild : Struct
 ---@field SkelControl Engine.SkelControlBase
 ---@field DrawY number
 
----@class TgGame.TgSkelCon_HitReaction.RecoilInfo : Object
+---@class TgGame.TgSkelCon_HitReaction.RecoilInfo : Struct
 ---@field Min GameFramework.GameSkelCtrl_Recoil.RecoilDef
 ---@field Max GameFramework.GameSkelCtrl_Recoil.RecoilDef
 
----@class TgGame.TgSkelCon_SkinGate.SkelControlSkinGateChild : Object
+---@class TgGame.TgSkelCon_SkinGate.SkelControlSkinGateChild : Struct
 ---@field SkelControl Engine.SkelControlBase
 ---@field nSkinId integer
 ---@field nSkinLevel integer
 ---@field DrawY number
 
----@class TgGame.TgSkelControlSingleBone_DisplayGroup.DisplayGroupInfo : Object
+---@class TgGame.TgSkelControlSingleBone_DisplayGroup.DisplayGroupInfo : Struct
 ---@field DisplayGroupName string
 ---@field WhenDisplayGroupOn integer
 ---@field Strength number
 ---@field bOn boolean
 ---@field ForceOffIfMeshHidden boolean
 
----@class TgGame.TgSkelControlSingleBone_Skinned.SkinStrengthOverride : Object
+---@class TgGame.TgSkelControlSingleBone_Skinned.SkinStrengthOverride : Struct
 ---@field nSkinId integer
 ---@field fDesiredStrength number
 
----@class TgGame.TgSkeletalMeshActor_Loader.LobbySMAMeterBus : Object
+---@class TgGame.TgSkeletalMeshActor_Loader.LobbySMAMeterBus : Struct
 ---@field dwBusID Core.Object.dword
 ---@field eIntent integer
 ---@field akOnStop Engine.AkEvent
 
----@class TgGame.TgSkeletalMeshActor_Loader.CharacterSpecificData_Maeve : Object
+---@class TgGame.TgSkeletalMeshActor_Loader.CharacterSpecificData_Maeve : Struct
 ---@field fMaterialAnimationValue number
 ---@field fMaterialAnimationTarget number
 ---@field fMaterialAnimationTimer number
@@ -30717,34 +30717,34 @@
 ---@field fDjSwapChompTimer number
 ---@field eDjCurrentFace integer
 
----@class TgGame.TgSkeletalMeshActor_Loader.CharacterSpecificData : Object
+---@class TgGame.TgSkeletalMeshActor_Loader.CharacterSpecificData : Struct
 ---@field MaeveData TgGame.TgSkeletalMeshActor_Loader.CharacterSpecificData_Maeve
 
 ---@class TgGame.TgSkeletalMeshComponent_WeaponFirstPerson : TgGame.TgSkeletalMeshComponent_Weapon
 
 ---@class TgGame.TgSkeletalMeshComponent_WeaponFirstPersonLance : TgGame.TgSkeletalMeshComponent_WeaponFirstPerson
 
----@class TgGame.TgSoundEventsManager.TimestampedGameObjectId : Object
+---@class TgGame.TgSoundEventsManager.TimestampedGameObjectId : Struct
 ---@field fTimestamp number
 ---@field qwGameObjectId Core.Object.QWord
 
----@class TgGame.TgSoundEventsManager.QueuedSoundEvent : Object
+---@class TgGame.TgSoundEventsManager.QueuedSoundEvent : Struct
 ---@field fDelay number
 ---@field SNActor any
 ---@field eSound integer
 
----@class TgGame.TgSoundGroup.FootstepSoundInfo : Object
+---@class TgGame.TgSoundGroup.FootstepSoundInfo : Struct
 ---@field MaterialType string
 ---@field Sound Engine.SoundCue
 
 ---@class TgGame.TgSoundInsulationVolume : Engine.ReverbVolume
 
----@class TgGame.TgSpecialFxLightManager.TgFxLight : Object
+---@class TgGame.TgSpecialFxLightManager.TgFxLight : Struct
 ---@field m_FxEmitter Core.Object.Pointer
 ---@field m_OwnerSpecialFx TgGame.TgSpecialFx
 ---@field m_Score number
 
----@class TgGame.TgSpectatorDirector.ViewTargetInfo : Object
+---@class TgGame.TgSpectatorDirector.ViewTargetInfo : Struct
 ---@field Pawn TgGame.TgPawn
 ---@field ClosestEnemyTower TgGame.TgPawn_Tower
 ---@field Rating integer
@@ -30762,7 +30762,7 @@
 ---@field m_TargetScale3D Vector
 ---@field m_fScaleTransitionTime number
 
----@class TgGame.TgSubtitledMessages.QueuedSubtitle : Object
+---@class TgGame.TgSubtitledMessages.QueuedSubtitle : Struct
 ---@field CurrentlyPlaying boolean
 ---@field SubtitleMessageId integer
 ---@field SubtitleText string
@@ -30785,7 +30785,7 @@
 
 ---@class TgGame.TgWaterVolume : Engine.WaterVolume
 
----@class TgGame.TgWeaponMeshActor.QueuedImpactEffect : Object
+---@class TgGame.TgWeaponMeshActor.QueuedImpactEffect : Struct
 ---@field HitLocation Vector
 ---@field bSuccessfulHit boolean
 ---@field HitActor Engine.Actor
@@ -30793,7 +30793,7 @@
 ---@field FireOrigin Vector
 ---@field nEquipSlot integer
 
----@class TgGame.TgWeaponMeshActor.QueuedImpactDecal : Object
+---@class TgGame.TgWeaponMeshActor.QueuedImpactDecal : Struct
 ---@field ImpactFx TgGame.TgSpecialFx
 ---@field HitLocation Vector
 ---@field HitNormal Vector
@@ -30884,16 +30884,16 @@
 ---@field m_bSpawnAttempt3 boolean
 ---@field m_nHighestOnslaughtScore integer
 
----@class TgGame.TgInvListener_Glimmer.GlimmerPerTargetHistory : Object
+---@class TgGame.TgInvListener_Glimmer.GlimmerPerTargetHistory : Struct
 ---@field HitTarget Engine.Actor
 ---@field fLockOutTime number
 
----@class TgGame.TgPawn_Omen.OmenActiveMark : Object
+---@class TgGame.TgPawn_Omen.OmenActiveMark : Struct
 ---@field pEnemyRepInfo TgGame.TgRepInfo_Player
 ---@field TimeRemaining number
 ---@field CurrentEffect integer
 
----@class TgGame.TgSkelCon_MountType.SkelControlMountTypeChild : Object
+---@class TgGame.TgSkelCon_MountType.SkelControlMountTypeChild : Struct
 ---@field SkelControl Engine.SkelControlBase
 ---@field DrawY number
 

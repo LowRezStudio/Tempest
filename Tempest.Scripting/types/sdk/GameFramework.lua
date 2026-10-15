@@ -1431,7 +1431,7 @@
 ---@class GameFramework.DebugCameraInput : Engine.PlayerInput
 ---@field InputKey fun(self: GameFramework.DebugCameraInput, ControllerId: integer, Key: string, Event: integer, AmountDepressed?: number, bGamepad?: boolean): boolean
 
----@class GameFramework.GameTypes.CrowdSpawnInfoItem : Object
+---@class GameFramework.GameTypes.CrowdSpawnInfoItem : Struct
 ---@field SeqSpawner GameFramework.SeqAct_GameCrowdPopulationManagerToggle
 ---@field bSpawningActive boolean
 ---@field SpawnRate number
@@ -1459,39 +1459,39 @@
 ---@field PrioritizedSpawnPoints Array<GameFramework.GameCrowdDestination>
 ---@field PlayerPositionPredictionTime number
 
----@class GameFramework.GameTypes.AgentArchetypeInfo : Object
+---@class GameFramework.GameTypes.AgentArchetypeInfo : Struct
 ---@field AgentArchetype Core.Object
 ---@field FrequencyModifier number
 ---@field MaxAllowed integer
 ---@field CurrSpawned integer
 ---@field GroupMembers Array<Core.Object>
 
----@class GameFramework.GameTypes.CrowdSpawnerPlayerInfo : Object
+---@class GameFramework.GameTypes.CrowdSpawnerPlayerInfo : Struct
 ---@field ViewLocation Vector
 ---@field ViewRotation Rotator
 ---@field PredictLocation Vector
 ---@field PC Engine.PlayerController
 
----@class GameFramework.GameTypes.NearbyDynamicItem : Object
+---@class GameFramework.GameTypes.NearbyDynamicItem : Struct
 ---@field Dynamic Engine.Actor
 
----@class GameFramework.GameTypes.AICmdHistoryItem : Object
+---@class GameFramework.GameTypes.AICmdHistoryItem : Struct
 ---@field CmdClass Core.Class
 ---@field TimeStamp number
 ---@field VerboseString string
 
----@class GameFramework.GameTypes.SpecialMoveStruct : Object
+---@class GameFramework.GameTypes.SpecialMoveStruct : Struct
 ---@field SpecialMoveName string
 ---@field InteractionPawn GameFramework.GamePawn
 ---@field InteractionActor Engine.Actor
 ---@field Flags integer
 
----@class GameFramework.GameTypes.GameSpecialMoveInfo : Object
+---@class GameFramework.GameTypes.GameSpecialMoveInfo : Struct
 ---@field SpecialMoveName string
 ---@field SpecialMoveClass Core.Class
 ---@field SpecialMoveInstance GameFramework.GameSpecialMove
 
----@class GameFramework.GameTypes.TakeHitInfo : Object
+---@class GameFramework.GameTypes.TakeHitInfo : Struct
 ---@field HitLocation Vector
 ---@field Momentum Vector
 ---@field DamageType Core.Class
@@ -1501,7 +1501,7 @@
 ---@field Damage number
 ---@field RadialDamageOrigin Vector
 
----@class GameFramework.GameTypes.ScreenShakeStruct : Object
+---@class GameFramework.GameTypes.ScreenShakeStruct : Struct
 ---@field TimeToGo number
 ---@field TimeDuration number
 ---@field RotAmplitude Vector
@@ -1520,13 +1520,13 @@
 ---@field bOverrideTargetingDampening boolean
 ---@field TargetingDampening number
 
----@class GameFramework.GameTypes.ShakeParams : Object
+---@class GameFramework.GameTypes.ShakeParams : Struct
 ---@field X integer
 ---@field Y integer
 ---@field Z integer
 ---@field Padding integer
 
----@class GameFramework.GameTypes.ScreenShakeAnimStruct : Object
+---@class GameFramework.GameTypes.ScreenShakeAnimStruct : Struct
 ---@field Anim Engine.CameraAnim
 ---@field bUseDirectionalAnimVariants boolean
 ---@field Anim_Left Engine.CameraAnim
@@ -1540,16 +1540,16 @@
 ---@field RandomSegmentDuration number
 ---@field bSingleInstance boolean
 
----@class GameFramework.GameCrowdAgent.AvoidOtherSampleItem : Object
+---@class GameFramework.GameCrowdAgent.AvoidOtherSampleItem : Struct
 ---@field RotOffset integer
 ---@field NumMagSamples integer
 ---@field bFallbackOnly boolean
 
----@class GameFramework.GameCrowdAgent.RecentInteraction : Object
+---@class GameFramework.GameCrowdAgent.RecentInteraction : Struct
 ---@field InteractionTag string
 ---@field InteractionDelay number
 
----@class GameFramework.GameCrowdAgent.BehaviorEntry : Object
+---@class GameFramework.GameCrowdAgent.BehaviorEntry : Struct
 ---@field BehaviorArchetype GameFramework.GameCrowdAgentBehavior
 ---@field LookAtActor Engine.Actor
 ---@field BehaviorFrequency number
@@ -1566,7 +1566,7 @@
 
 ---@class GameFramework.DynamicGameCrowdDestination : GameFramework.GameCrowdDestination
 
----@class GameFramework.FrameworkGame.RequiredMobileInputConfig : Object
+---@class GameFramework.FrameworkGame.RequiredMobileInputConfig : Struct
 ---@field GroupName string
 ---@field RequireZoneNames Array<string>
 ---@field bIsAttractModeGroup boolean
@@ -1622,11 +1622,11 @@
 ---@class GameFramework.GameCrowd_ListOfAgents : Core.Object
 ---@field ListOfAgents Array<GameFramework.GameTypes.AgentArchetypeInfo>
 
----@class GameFramework.GameCrowdAgentSkeletal.GameCrowdAttachmentList : Object
+---@class GameFramework.GameCrowdAgentSkeletal.GameCrowdAttachmentList : Struct
 ---@field SocketName string
 ---@field List Array<GameFramework.GameCrowdAgentSkeletal.GameCrowdAttachmentInfo>
 
----@class GameFramework.GameCrowdAgentSkeletal.GameCrowdAttachmentInfo : Object
+---@class GameFramework.GameCrowdAgentSkeletal.GameCrowdAttachmentInfo : Struct
 ---@field StaticMesh Engine.StaticMesh
 ---@field Chance number
 ---@field Scale3D Vector
@@ -1664,13 +1664,13 @@
 ---@field FellOutOfWorld fun(self: GameFramework.GameKActorSpawnableEffect, dmgType: Core.Class)
 ---@field PostBeginPlay fun(self: GameFramework.GameKActorSpawnableEffect)
 
----@class GameFramework.GameSkelCtrl_Recoil.RecoilParams : Object
+---@class GameFramework.GameSkelCtrl_Recoil.RecoilParams : Struct
 ---@field X integer
 ---@field Y integer
 ---@field Z integer
 ---@field Padding integer
 
----@class GameFramework.GameSkelCtrl_Recoil.RecoilDef : Object
+---@class GameFramework.GameSkelCtrl_Recoil.RecoilDef : Struct
 ---@field TimeToGo number
 ---@field TimeDuration number
 ---@field RotAmplitude Vector
@@ -1684,22 +1684,22 @@
 ---@field LocParams GameFramework.GameSkelCtrl_Recoil.RecoilParams
 ---@field LocOffset Vector
 
----@class GameFramework.GameStateObject.TeamState : Object
+---@class GameFramework.GameStateObject.TeamState : Struct
 ---@field TeamIndex integer
 ---@field PlayerIndices Array<integer>
 
----@class GameFramework.GameStateObject.PlayerState : Object
+---@class GameFramework.GameStateObject.PlayerState : Struct
 ---@field PlayerIndex integer
 ---@field CurrentTeamIndex integer
 ---@field TimeSpawned number
 ---@field TimeAliveSinceLastDeath number
 
----@class GameFramework.GameStatsAggregator.AggregateEventMapping : Object
+---@class GameFramework.GameStatsAggregator.AggregateEventMapping : Struct
 ---@field EventID integer
 ---@field AggregateID integer
 ---@field TargetAggregateID integer
 
----@class GameFramework.GameStatsAggregator.TeamEvents : Object
+---@class GameFramework.GameStatsAggregator.TeamEvents : Struct
 ---@field TotalEvents GameFramework.GameStatsAggregator.GameEvents
 ---@field WeaponEvents GameFramework.GameStatsAggregator.WeaponEvents
 ---@field DamageAsPlayerEvents GameFramework.GameStatsAggregator.DamageEvents
@@ -1707,7 +1707,7 @@
 ---@field ProjectileEvents GameFramework.GameStatsAggregator.ProjectileEvents
 ---@field PawnEvents GameFramework.GameStatsAggregator.PawnEvents
 
----@class GameFramework.GameStatsAggregator.PlayerEvents : Object
+---@class GameFramework.GameStatsAggregator.PlayerEvents : Struct
 ---@field TotalEvents GameFramework.GameStatsAggregator.GameEvents
 ---@field WeaponEvents GameFramework.GameStatsAggregator.WeaponEvents
 ---@field DamageAsPlayerEvents GameFramework.GameStatsAggregator.DamageEvents
@@ -1717,14 +1717,14 @@
 
 ---@class GameFramework.GameStatsAggregator.WeaponEvents : GameFramework.GameStatsAggregator.EventsBase
 
----@class GameFramework.GameStatsAggregator.EventsBase : Object
+---@class GameFramework.GameStatsAggregator.EventsBase : Struct
 ---@field TotalEvents GameFramework.GameStatsAggregator.GameEvents
 ---@field EventsByClass Array<GameFramework.GameStatsAggregator.GameEvents>
 
----@class GameFramework.GameStatsAggregator.GameEvents : Object
+---@class GameFramework.GameStatsAggregator.GameEvents : Struct
 ---@field Events Core.Object.Map_Mirror
 
----@class GameFramework.GameStatsAggregator.GameEvent : Object
+---@class GameFramework.GameStatsAggregator.GameEvent : Struct
 ---@field EventCountByTimePeriod Array<number>
 
 ---@class GameFramework.GameStatsAggregator.ProjectileEvents : GameFramework.GameStatsAggregator.EventsBase
@@ -1733,7 +1733,7 @@
 
 ---@class GameFramework.GameStatsAggregator.PawnEvents : GameFramework.GameStatsAggregator.EventsBase
 
----@class GameFramework.GameThirdPersonCamera.PenetrationAvoidanceFeeler : Object
+---@class GameFramework.GameThirdPersonCamera.PenetrationAvoidanceFeeler : Struct
 ---@field AdjustmentRot Rotator
 ---@field WorldWeight number
 ---@field PawnWeight number
@@ -1741,7 +1741,7 @@
 ---@field TraceInterval integer
 ---@field FramesUntilNextTrace integer
 
----@class GameFramework.GameThirdPersonCamera.CamFocusPointParams : Object
+---@class GameFramework.GameThirdPersonCamera.CamFocusPointParams : Struct
 ---@field FocusActor Engine.Actor
 ---@field FocusBoneName string
 ---@field FocusWorldLoc Vector
@@ -1753,7 +1753,7 @@
 ---@field bIgnoreTrace boolean
 ---@field FocusPitchOffsetDeg number
 
----@class GameFramework.GameThirdPersonCameraMode.ViewOffsetData : Object
+---@class GameFramework.GameThirdPersonCameraMode.ViewOffsetData : Struct
 ---@field OffsetHigh Vector
 ---@field OffsetMid Vector
 ---@field OffsetLow Vector
@@ -1776,13 +1776,13 @@
 ---@field PostBeginPlay fun(self: GameFramework.MobileDebugCameraHUD)
 ---@field bDrawDebugText boolean
 
----@class GameFramework.MobileInputZone.TextureUVs : Object
+---@class GameFramework.MobileInputZone.TextureUVs : Struct
 ---@field U number
 ---@field V number
 ---@field UL number
 ---@field VL number
 
----@class GameFramework.MobilePlayerInput.TouchData : Object
+---@class GameFramework.MobilePlayerInput.TouchData : Struct
 ---@field Handle integer
 ---@field TouchpadIndex integer
 ---@field Location Core.Object.Vector2D
@@ -1797,21 +1797,21 @@
 ---@field Events Array<GameFramework.MobilePlayerInput.TouchDataEvent>
 ---@field LastActiveTime number
 
----@class GameFramework.MobilePlayerInput.MobileInputGroup : Object
+---@class GameFramework.MobilePlayerInput.MobileInputGroup : Struct
 ---@field GroupName string
 ---@field AssociatedZones Array<GameFramework.MobileInputZone>
 
----@class GameFramework.MobilePlayerInput.MobileInputZoneClassMap : Object
+---@class GameFramework.MobilePlayerInput.MobileInputZoneClassMap : Struct
 ---@field Name string
 ---@field ClassType Core.Class
 
----@class GameFramework.MobilePlayerInput.TouchDataEvent : Object
+---@class GameFramework.MobilePlayerInput.TouchDataEvent : Struct
 ---@field EventType integer
 ---@field TouchpadIndex integer
 ---@field Location Core.Object.Vector2D
 ---@field DeviceTime Core.Object.Double
 
----@class GameFramework.MobileMenuObject.UVCoords : Object
+---@class GameFramework.MobileMenuObject.UVCoords : Struct
 ---@field bCustomCoords boolean
 ---@field U number
 ---@field V number
@@ -1894,11 +1894,11 @@
 ---@field __DoCanPutItemInSlot__Delegate any
 ---@field __OnUpdateDrag__Delegate any
 
----@class GameFramework.MobileMenuInventory.RenderElementInfo : Object
+---@class GameFramework.MobileMenuInventory.RenderElementInfo : Struct
 ---@field bIsDragItem boolean
 ---@field Index integer
 
----@class GameFramework.MobileMenuInventory.DragElementInfo : Object
+---@class GameFramework.MobileMenuInventory.DragElementInfo : Struct
 ---@field bIsDragging boolean
 ---@field IndexFrom integer
 ---@field bIsOver boolean
@@ -1957,16 +1957,16 @@
 ---@field Width number
 ---@field Height number
 
----@class GameFramework.MobileMenuList.SelectedMenuItem : Object
+---@class GameFramework.MobileMenuList.SelectedMenuItem : Struct
 ---@field Index integer
 ---@field Offset number
 ---@field bEndOfList boolean
 
----@class GameFramework.MobileMenuList.DragHistoryData : Object
+---@class GameFramework.MobileMenuList.DragHistoryData : Struct
 ---@field TouchTime number
 ---@field TouchCoord number
 
----@class GameFramework.MobileMenuList.MenuListDragInfo : Object
+---@class GameFramework.MobileMenuList.MenuListDragInfo : Struct
 ---@field bIsDragging boolean
 ---@field TouchedItem GameFramework.MobileMenuListItem
 ---@field OrigSelectedItem GameFramework.MobileMenuList.SelectedMenuItem
@@ -1978,7 +1978,7 @@
 ---@field NumUpdates integer
 ---@field bHasSelectedChanged boolean
 
----@class GameFramework.MobileMenuList.MenuListMovementInfo : Object
+---@class GameFramework.MobileMenuList.MenuListMovementInfo : Struct
 ---@field bIsMoving boolean
 ---@field OrigSelectedItem GameFramework.MobileMenuList.SelectedMenuItem
 ---@field FullMovement number
@@ -2016,7 +2016,7 @@
 ---@class GameFramework.PMESTG_LeaveADecalBase : Engine.ParticleModuleEventSendToGame
 ---@field PhysicalMaterialPropertyClass Core.Class
 
----@class GameFramework.SeqAct_ModifyProperty.PropertyInfo : Object
+---@class GameFramework.SeqAct_ModifyProperty.PropertyInfo : Struct
 ---@field PropertyName string
 ---@field bModifyProperty boolean
 ---@field PropertyValue string

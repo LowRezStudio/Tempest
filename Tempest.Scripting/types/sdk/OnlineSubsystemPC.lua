@@ -321,7 +321,7 @@
 ---@field __OnPlayerTalkingStateChange__Delegate any
 ---@field __OnRecognitionComplete__Delegate any
 
----@class OnlineSubsystemPC.OnlineVoiceInterfacePC.LocalTalkerPC : Object
+---@class OnlineSubsystemPC.OnlineVoiceInterfacePC.LocalTalkerPC : Struct
 ---@field bHasVoice boolean
 ---@field bHasNetworkedVoice boolean
 ---@field bIsRecognizingSpeech boolean
