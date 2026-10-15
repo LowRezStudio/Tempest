@@ -84,6 +84,11 @@ ipcMain.handle("shell:stdin-write", (_event, { pid, data }) => {
 	if (child?.stdin?.writable) child.stdin.write(data);
 });
 
+ipcMain.handle("is_process_running", (_event, { pid }) => {
+	const child = activeChildren.get(pid);
+	return child !== undefined && child.exitCode === null && child.signalCode === null;
+});
+
 ipcMain.handle("which", (_event, { name }) => {
 	const ext = process.platform === "win32" ? ".exe" : "";
 	const dirs = (process.env.PATH ?? "").split(path.delimiter);

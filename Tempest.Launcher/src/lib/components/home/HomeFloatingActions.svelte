@@ -13,6 +13,7 @@
 	} from "@lucide/svelte";
 	import { onMount } from "svelte";
 	import FeedCarousel from "$lib/components/home/FeedCarousel.svelte";
+	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { cachedReleaseNotes, fetchLatestRelease } from "$lib/queries/release";
@@ -24,7 +25,7 @@
 	} from "$lib/stores/homePositions.svelte";
 	import { lastLaunchedInstance, instanceMap } from "$lib/stores/instance.svelte";
 	import { persistedState } from "$lib/stores/persisted.svelte";
-	import { processesList } from "$lib/stores/processes.svelte";
+	import { launchingInstanceIds, processesList } from "$lib/stores/processes.svelte";
 	import { commandsPageOpen } from "$lib/stores/ui.svelte";
 
 	type TileId = "commands" | "releasenotes";
@@ -65,7 +66,10 @@
 
 	const launchGameMutation = createLaunchGameMutation();
 	const killGameMutation = createKillGameMutation();
-	let isLaunching = $derived(launchGameMutation.isPending);
+	let isLaunching = $derived(
+		launchGameMutation.isPending ||
+			launchingInstanceIds.value.includes(currentInstance?.id ?? ""),
+	);
 	let isKilling = $derived(killGameMutation.isPending);
 	let actionError = $derived(
 		launchGameMutation.error?.message || killGameMutation.error?.message || "",
@@ -155,7 +159,7 @@
 		const observer = new ResizeObserver(() => {
 			if (!tilePos) return;
 			const clamped = clampPos(tilePos, el, TILE_MARGIN);
-			if (clamped.x !== tilePos.x || clamped.y !== tilePos.y) {
+			if (clamped && (clamped.x !== tilePos.x || clamped.y !== tilePos.y)) {
 				tilePos = clamped;
 				tilePosStore.value = clamped;
 			}
@@ -225,7 +229,7 @@
 		const observer = new ResizeObserver(() => {
 			if (!btnPos) return;
 			const clamped = clampPos(btnPos, el, BTN_MARGIN);
-			if (clamped.x !== btnPos.x || clamped.y !== btnPos.y) {
+			if (clamped && (clamped.x !== btnPos.x || clamped.y !== btnPos.y)) {
 				btnPos = clamped;
 				btnPosStore.value = clamped;
 			}
@@ -406,15 +410,15 @@
 		>
 			<GripHorizontal size={14} />
 		</button>
-		<div class="join shadow-none">
+		<div class="flex items-center gap-2 shadow-none">
 			<button
-				class="btn btn-lg join-item min-h-14 gap-2"
+				class="btn btn-lg min-h-14 gap-2"
 				class:btn-accent={!isRunning}
 				class:btn-error={isRunning}
 				disabled={isLaunching || isKilling}
 				aria-busy={isLaunching || isKilling}
 				onclick={handleLaunchToggle}
-				aria-label={isRunning ? m.home_stop_game() : m.home_run_game()}
+				aria-label={isRunning ? "Stop all sessions of this instance" : m.home_run_game()}
 			>
 				{#if isLaunching}
 					<span class="loading loading-spinner loading-xs"></span>
@@ -432,14 +436,15 @@
 							: isKilling
 								? m.common_stopping_label()
 								: isRunning
-									? m.home_stop_game()
+									? "Stop all"
 									: m.home_run_game()}
 					</span>
 					<span class="text-xs opacity-80">{currentInstance.label}</span>
 				</div>
 			</button>
+			<InstanceSessionControls instance={currentInstance} busy={isLaunching || isKilling} />
 
-			<a href={`/instance/${currentInstance.id}`} class="btn btn-lg join-item min-h-14">
+			<a href={`/instance/${currentInstance.id}`} class="btn btn-lg min-h-14">
 				<Box size={20} />
 			</a>
 		</div>

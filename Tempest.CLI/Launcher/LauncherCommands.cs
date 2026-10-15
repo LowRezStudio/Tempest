@@ -33,7 +33,7 @@ internal class LauncherCommands
                         await Task.Delay(TimeSpan.FromSeconds(1));
                         if (!await WineExtensions.IsWinePidAlive(gamePid))
                         {
-                            await WineExtensions.KillProcessTree(process);
+                            await WineExtensions.KillProcessTree(process, sweepPrefix: false);
                             break;
                         }
                     }
@@ -43,10 +43,8 @@ internal class LauncherCommands
 
         await process.WaitForExitAsync();
 
-        // The game is gone. Sweep any wine/proton processes (wineserver, CoherentUI renderers,
-        // the lsteamclient bridge, winedevice) that can outlive the wrapper, so nothing is left
-        // behind after the game stops or its window is closed.
-        await WineExtensions.KillProcessTree(process);
+        // A Wine prefix can host other sessions. Only stop this launch's process tree.
+        await WineExtensions.KillProcessTree(process, sweepPrefix: false);
     }
 public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
                                                  string? platform = null, string? game = null, string[]? dll = null,
@@ -129,17 +127,10 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
             {
                 var input = await reader.ReadLineAsync();
 
-                if (input == null || !input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase)) continue;
+                if (input == null) break;
+                if (!input.Trim().Equals("kill", StringComparison.OrdinalIgnoreCase)) continue;
 
-                // Kill the wrapper; the launch path sweeps the wine tree once it exits.
-                try
-                {
-                    process.Kill(true);
-                }
-                catch
-                {
-                    // already gone
-                }
+                await WineExtensions.KillProcessTree(process, sweepPrefix: false);
                 break;
             }
         });

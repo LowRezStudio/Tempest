@@ -13,6 +13,7 @@
 	} from "@lucide/svelte";
 	import { openPath } from "@tauri-apps/plugin-opener";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
+	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
 	import InstanceSettingsForm from "$lib/components/library/InstanceSettingsForm.svelte";
 	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
@@ -24,7 +25,7 @@
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
 	import { instanceMap } from "$lib/stores/instance.svelte";
-	import { processesList } from "$lib/stores/processes.svelte";
+	import { launchingInstanceIds, processesList } from "$lib/stores/processes.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { ModRecord } from "$lib/core/mods";
 
@@ -69,7 +70,9 @@
 	let isRunning = $derived(processesList.value.some((p) => p.instance?.id === instance?.id));
 	const launchGameMutation = createLaunchGameMutation();
 	const killGameMutation = createKillGameMutation();
-	let isLaunching = $derived(launchGameMutation.isPending);
+	let isLaunching = $derived(
+		launchGameMutation.isPending || launchingInstanceIds.value.includes(instance?.id ?? ""),
+	);
 	let isKilling = $derived(killGameMutation.isPending);
 	let launchError = $derived(launchGameMutation.error?.message ?? "");
 	let killError = $derived(killGameMutation.error?.message ?? "");
@@ -134,6 +137,7 @@
 				disabled={isLaunching || isKilling || isSettingUp}
 				aria-busy={isLaunching || isKilling || isSettingUp}
 				onclick={handleLaunchToggle}
+				title={isRunning ? "Stop all sessions of this instance" : "Play"}
 			>
 				{#if isLaunching}
 					<span class="loading loading-spinner loading-xs"></span>
@@ -143,12 +147,16 @@
 					{m.common_stopping_label()}
 				{:else if isRunning}
 					<Square size={16} />
-					{m.common_stop()}
+					Stop all
 				{:else}
 					<Play size={16} />
 					{m.common_play()}
 				{/if}
 			</button>
+			{#if instance}<InstanceSessionControls
+					{instance}
+					busy={isLaunching || isKilling}
+				/>{/if}
 			<button
 				class="btn btn-square"
 				disabled={!instance?.path}
@@ -162,7 +170,7 @@
 				</button>
 			{/if}
 			{#if instance}
-				<InstanceMenu {instance}>
+				<InstanceMenu {instance} isRunning={isRunning || isLaunching}>
 					{#snippet trigger()}
 						<button class="btn btn-square">
 							<EllipsisVertical size={16} />
