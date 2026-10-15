@@ -8,6 +8,20 @@ namespace Tempest.CLI.Mods;
 
 internal class ModCommands
 {
+    /// <summary>Compresses a UPK using upk-parser without modifying the source</summary>
+    /// <param name="input">Source UPK path</param>
+    /// <param name="output">New output UPK path</param>
+    /// <param name="tool">Path to the upk-parser executable</param>
+    public async Task CompressUpk([Argument] string input, string output, string tool)
+    {
+        try { await UpkCompression.CompressAsync(input, output, tool); }
+        catch (Exception error)
+        {
+            await Console.Error.WriteLineAsync(error.Message);
+            Environment.ExitCode = 1;
+        }
+    }
+
     internal static string GetMetadataPath(string gamePath)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);

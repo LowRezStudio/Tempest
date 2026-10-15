@@ -9,6 +9,7 @@
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { installMod } from "$lib/core/mods";
+	import { compressUpk } from "$lib/core/upk-compression";
 	import { converterPendingPaths, isDraggingConverterFiles } from "$lib/mods/drop.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { converter } from "$lib/stores/converter.svelte";
@@ -229,7 +230,10 @@
 
 			for (const source of converter.sources) {
 				for (const file of source.files) {
-					zip.file(`files/${file.path}`, file.data);
+					const data = file.path.toLowerCase().endsWith(".upk")
+						? await compressUpk(file.data)
+						: file.data;
+					zip.file(`files/${file.path}`, data);
 				}
 			}
 
@@ -258,6 +262,7 @@
 			});
 		} catch (error) {
 			console.error("Failed to cook mod:", error);
+			addToast({ title: "Mod cooking failed", message: String(error), tone: "error" });
 		} finally {
 			cooking = false;
 		}
@@ -541,6 +546,10 @@
 						placeholder={m.converter_readme_placeholder()}></textarea>
 				</div>
 
+				<p class="mb-3 text-sm opacity-70">
+					UPK files are compressed automatically when cooking. Source files are kept
+					unchanged.
+				</p>
 				<div class="flex items-center justify-between">
 					<button
 						class="btn btn-accent gap-2"

@@ -1,0 +1,6 @@
+UPK compression tool supplied by thprinkleth from UPK Compression.zip.
+SHA-256: EBE7B637FEF4F92C38E6E2164FD0D6BA4152C89B1CEBECF965F2C27457893C5E
+
+Invocation: upk-parser.exe input.upk -save compressed output.upk
+The cooker uses temporary copies and never overwrites the imported source.
+On macOS/Linux the Windows executable uses the configured Wine/Proton runtime.
