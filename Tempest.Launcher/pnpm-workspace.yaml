@@ -11,3 +11,6 @@ minimumReleaseAgeExclude:
 onlyBuiltDependencies:
     - "@tailwindcss/oxide"
     - esbuild
+
+patchedDependencies:
+    bits-ui@2.18.1: patches/bits-ui@2.18.1.patch

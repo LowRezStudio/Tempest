@@ -6,9 +6,23 @@ export const processesList = $state({ value: [] as Process[] });
 export const lobbyServerProcessesList = $state({ value: [] as LobbyServerProcess[] });
 
 const MAX_LOGS = 5000;
+const LOG_FLUSH_DELAY_MS = 50;
 let nextLogId = 0;
+let pendingLogs: ProcessLog[] = [];
+let flushTimer: ReturnType<typeof setTimeout> | undefined;
 
 export const processLogs = $state({ value: [] as ProcessLog[] });
+
+function flushProcessLogs(): void {
+	if (flushTimer !== undefined) {
+		clearTimeout(flushTimer);
+		flushTimer = undefined;
+	}
+	if (pendingLogs.length === 0) return;
+
+	processLogs.value = [...processLogs.value, ...pendingLogs].slice(-MAX_LOGS);
+	pendingLogs = [];
+}
 
 export function appendProcessLog(line: string, error = false, source = ""): void {
 	appendProcessLogs([line], error, source);
@@ -17,10 +31,15 @@ export function appendProcessLog(line: string, error = false, source = ""): void
 export function appendProcessLogs(lines: string[], error = false, source = ""): void {
 	if (lines.length === 0) return;
 	const entries = lines.map((line) => ({ id: nextLogId++, line, error, source }));
-	processLogs.value = [...processLogs.value, ...entries].slice(-MAX_LOGS);
+	pendingLogs.push(...entries);
+	if (pendingLogs.length > MAX_LOGS) pendingLogs = pendingLogs.slice(-MAX_LOGS);
+	flushTimer ??= setTimeout(flushProcessLogs, LOG_FLUSH_DELAY_MS);
 }
 
 export function clearProcessLogs(): void {
+	if (flushTimer !== undefined) clearTimeout(flushTimer);
+	flushTimer = undefined;
+	pendingLogs = [];
 	processLogs.value = [];
 }
 
@@ -36,17 +55,28 @@ function appendLines(buffer: string, data: string, source: string, error: boolea
 export function logCommandOutput(command: Command<string>, source: string): void {
 	let stdoutBuffer = "";
 	let stderrBuffer = "";
+	// Tauri emits one newline-stripped line per event; Electron forwards raw stream chunks.
+	const receivesOutputChunks = typeof window !== "undefined" && window.electronAPI !== undefined;
 
 	command.stdout.on("data", (data) => {
-		stdoutBuffer = appendLines(stdoutBuffer, data, source, false);
+		if (receivesOutputChunks) {
+			stdoutBuffer = appendLines(stdoutBuffer, data, source, false);
+		} else {
+			appendProcessLog(data, false, source);
+		}
 	});
 
 	command.stderr.on("data", (data) => {
-		stderrBuffer = appendLines(stderrBuffer, data, source, true);
+		if (receivesOutputChunks) {
+			stderrBuffer = appendLines(stderrBuffer, data, source, true);
+		} else {
+			appendProcessLog(data, true, source);
+		}
 	});
 
 	command.on("close", () => {
 		if (stdoutBuffer) appendProcessLog(stdoutBuffer, false, source);
 		if (stderrBuffer) appendProcessLog(stderrBuffer, true, source);
+		flushProcessLogs();
 	});
 }
