@@ -67,9 +67,10 @@ Artifacts land in `Tempest.Utils/zig-out/bin/`. The launcher bundle consumes the
 ```bash
 just scripting-test              # cargo test (host, no game image)
 just scripting-check             # clippy, host + x86_64-pc-windows-gnu
-just scripting-build             # Tempest.Scripting/scripts/package.sh -> dist/Tempest.Scripting64.dll + dist/testmod.tempest
-just scripting-run <game> [args] # build, then `tempest launch <game> --dll dist/testmod/dlls/Tempest.Scripting64.dll`
-just scripting-install <game>    # build, then `tempest mod install <game> dist/testmod.tempest --replace --allow-unsigned`
+just scripting-build             # Tempest.Scripting/scripts/package.sh -> dist/{scripting,console,dev,lib}.tempest
+just scripting-run <game> [args] # build, then `tempest launch <game> --dll dist/scripting/dlls/Tempest.Scripting64.dll`
+just scripting-install <game>    # build, then install all four packages
+just scripting-dev <game>        # repack + reinstall only dev/ (the scratch mod), no Rust build
 ```
 
 The Win64 DLL cross-compiles with MinGW-w64 (`brew install mingw-w64`); `cross`/Docker is only the fallback. Logs go to `%TEMP%\tempest-scripting.log` (inside the Wine prefix when the game runs under Wine); the console window doubles as a Lua REPL. See `Tempest.Scripting/README.md`.
