@@ -1,0 +1,11 @@
+[package]
+name = "tempest-upk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Unreal Engine 3 package (UPK) reader/writer for Paladins (file version 893)"
+
+[lib]
+name = "tempest_upk"
+
+[dependencies]

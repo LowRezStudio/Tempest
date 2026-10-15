@@ -1,0 +1,16 @@
+[package]
+name = "tempest-unrealscript"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "UnrealScript compiler / decompiler for Paladins (UE3 build 10897)"
+
+[lib]
+name = "tempest_unrealscript"
+
+[[bin]]
+name = "uscript"
+path = "src/bin/uscript.rs"
+
+[dependencies]
+tempest-upk = { path = "../tempest-upk" }
