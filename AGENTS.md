@@ -86,6 +86,10 @@ pnpm install
 # Dev desktop app (Tauri + Vite)
 # Build Tempest.CLI first; dev commands run it directly via `dotnet exec`
 dotnet build Tempest.slnx
+# Build the Zig utils first (`zig build` inside Tempest.Utils/), then copy the asmloader DLLs into src-tauri/binaries/ (gitignored).
+# Without them `pnpm tauri dev` fails: resource path `binaries\asmloader-windows_x86.dll` doesn't exist
+mkdir -p src-tauri/binaries
+cp ../Tempest.Utils/zig-out/bin/asmloader-windows_x86*.dll src-tauri/binaries/
 pnpm tauri dev
 # Vite dev server is fixed to http://localhost:1420
 
