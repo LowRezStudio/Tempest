@@ -1,0 +1,10 @@
+# Static-link the MinGW runtime into our DLL.
+#
+# The injection target (Paladins.exe via LoadLibraryA) resolves DLL
+# dependencies from the game folder + system dirs only. A default
+# windows-gnu build would depend on libgcc_s_seh-1.dll / libstdc++-6.dll /
+# libwinpthread-1.dll, which aren't there — LoadLibrary would fail.
+# These flags fold the runtime libs in while system libs stay dynamic.
+# MSVC and host builds are unaffected.
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-arg=-static-libgcc", "-C", "link-arg=-static-libstdc++"]

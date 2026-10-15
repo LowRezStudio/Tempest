@@ -1,14 +1,133 @@
-# Builds the project with a custom optimize level
-[group("dev")]
-dev optimize="Debug":
-  zig build --build-file Tempest.Utils/build.zig -Doptimize={{optimize}}
+# Tempest task runner. `just` lists everything; recipes are grouped per project.
+#
+# Override tools via env: ZIG=zign just utils   (zig <0.16 on macOS 26 needs the zign wrapper)
 
-# Builds the project for fast release
-[group("release")]
-fast:
-  zig build --build-file Tempest.Utils/build.zig -Doptimize=ReleaseFast
+zig_detected := `command -v zign >/dev/null 2>&1 && echo zign || echo zig`
+zig := env("ZIG", zig_detected)
+scripting := "Tempest.Scripting"
+launcher := "Tempest.Launcher"
 
-# Builds the project for small release
-[group("release")]
-small:
-  zig build --build-file Tempest.Utils/build.zig -Doptimize=ReleaseSmall
+default:
+    @just --list --unsorted
+
+# ---------------------------------------------------------------------------
+# Tempest.Utils (Zig): asmloader, upkpatcher, mctsparser -> Tempest.Utils/zig-out/bin
+# ---------------------------------------------------------------------------
+
+# Build the native utils (Debug by default; ReleaseFast / ReleaseSmall / ReleaseSafe)
+[group("utils")]
+utils optimize="Debug":
+    {{zig}} build --build-file Tempest.Utils/build.zig -Doptimize={{optimize}}
+
+# Release utils, size-optimised (what the launcher bundle ships)
+[group("utils")]
+utils-release: (utils "ReleaseSmall")
+
+# ---------------------------------------------------------------------------
+# Tempest.Scripting (Rust): Lua modding DLL for the Paladins 8.1 Win64 client
+# ---------------------------------------------------------------------------
+
+# Host tests (no game image needed)
+[group("scripting")]
+scripting-test:
+    cd {{scripting}} && cargo test -p tempest-scripting
+
+# Clippy for the host and the Win64 target
+[group("scripting")]
+scripting-check:
+    cd {{scripting}} && cargo clippy -p tempest-scripting --all-targets
+    cd {{scripting}} && cargo clippy -p tempest-scripting --target x86_64-pc-windows-gnu
+
+# Build Tempest.Scripting64.dll and stage dist/ (DLL + testmod/ + testmod.tempest)
+[group("scripting")]
+scripting-build:
+    {{scripting}}/scripts/package.sh
+
+# Launch the game with the freshly built DLL injected directly (no mod install)
+[group("scripting")]
+scripting-run game *args: scripting-build
+    dotnet run --project Tempest.CLI -- launch "{{game}}" --dll "{{justfile_directory()}}/{{scripting}}/dist/testmod/dlls/Tempest.Scripting64.dll" {{args}}
+
+# Install the staged test mod into a game folder (persists across launches)
+[group("scripting")]
+scripting-install game: scripting-build
+    dotnet run --project Tempest.CLI -- mod install "{{game}}" "{{scripting}}/dist/testmod.tempest" --replace --allow-unsigned
+    dotnet run --project Tempest.CLI -- mod install "{{game}}" "{{scripting}}/dist/testmod-lib.tempest" --replace --allow-unsigned
+
+# ---------------------------------------------------------------------------
+# .NET: Tempest.CLI, Tempest.Services, MarshalLib, Tempest.Protocol
+# ---------------------------------------------------------------------------
+
+# Build the whole solution (also compiles Tempest.CLI/inject via zig)
+[group("dotnet")]
+build:
+    dotnet build Tempest.slnx
+
+# Run the CLI, e.g. `just cli mod list <game>` / `just cli launch <game>`
+[group("dotnet")]
+cli *args:
+    dotnet run --project Tempest.CLI -- {{args}}
+
+# AOT publish of the CLI -> Tempest.CLI/bin/Release/net10.0/publish/
+[group("dotnet")]
+publish-cli:
+    dotnet publish -c Release Tempest.CLI
+
+# Run the gRPC services server
+[group("dotnet")]
+services:
+    dotnet run --project Tempest.Services
+
+# ---------------------------------------------------------------------------
+# Tempest.Launcher (Tauri / Electron + SvelteKit)
+# ---------------------------------------------------------------------------
+
+# pnpm install (enables corepack first)
+[group("launcher")]
+launcher-install:
+    corepack enable
+    cd {{launcher}} && pnpm install
+
+# Tauri dev app (needs the CLI built first)
+[group("launcher")]
+launcher-dev: build
+    cd {{launcher}} && pnpm tauri dev
+
+# Electron dev app (macOS / Linux)
+[group("launcher")]
+launcher-electron-dev: build
+    cd {{launcher}} && pnpm electron:dev
+
+# Production Tauri build -> src-tauri/target/release/bundle/
+[group("launcher")]
+launcher-build:
+    cd {{launcher}} && pnpm tauri build
+
+# svelte-check + oxlint
+[group("launcher")]
+launcher-check:
+    cd {{launcher}} && pnpm check
+    cd {{launcher}} && pnpm lint
+
+# oxfmt
+[group("launcher")]
+launcher-fmt:
+    cd {{launcher}} && pnpm fmt
+
+# Regenerate TS protobuf clients from Tempest.Protocol
+[group("launcher")]
+launcher-proto: build
+    cd {{launcher}} && pnpm proto-generate
+
+# Version bump + annotated tag (prompts; see AGENTS.md "Releasing")
+[group("launcher")]
+bump:
+    cd {{launcher}} && pnpm bump
+
+# ---------------------------------------------------------------------------
+# Everything
+# ---------------------------------------------------------------------------
+
+# All verification that runs without a game: .NET build, scripting tests + clippy, launcher check
+[group("all")]
+check: build scripting-test scripting-check launcher-check

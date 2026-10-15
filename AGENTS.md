@@ -12,13 +12,14 @@ Mixed stack, split by directory:
   - `Tempest.CLI` — console app / launcher backend, references `MarshalLib`, `MarshalLib.Database`, `Tempest.Protocol`
   - `Tempest.Services` — ASP.NET Core gRPC server
 - `Tempest.Utils/` — Zig 0.15.2 native tools (`asmloader`, `upkpatcher`, `mctsparser`)
+- `Tempest.Scripting/` — Rust Lua modding API DLL for Paladins 8.1 Win64 (`Tempest.Scripting64.dll`, built from macOS with MinGW-w64 via `scripts/package.sh`), standalone Cargo workspace; see its `README.md`
 - `Tempest.Launcher/` — Tauri v2 (Windows) / Electron (macOS + Linux) + SvelteKit 5 + Vite + TypeScript desktop frontend
 
 ## Required tooling
 
 - .NET SDK `10.0.100` (see `global.json`, `rollForward: latestFeature`)
 - Zig `0.15.2`
-- Rust stable (only for the launcher)
+- Rust stable (launcher + `Tempest.Scripting` Lua modding DLL)
 - Node.js `>= 22` with Corepack enabled (only for the launcher)
 
 ## .NET commands
@@ -45,25 +46,37 @@ Notes:
 - Building `Tempest.CLI` triggers an MSBuild target (`BuildZigInject`) that compiles `Tempest.CLI/inject/` with `zig build -Doptimize=ReleaseSmall`. Zig must be on `PATH`.
 - `Tempest.Services` uses the default ASP.NET Core URL (`http://localhost:5000`) unless overridden by `Properties/launchSettings.json` or `ASPNETCORE_URLS`/`HTTP_PORTS`. The Dockerfile exposes ports 80/443; `docker-compose.yml` sets `ASPNETCORE_URLS=http://+:8080`.
 
+## Task runner
+
+The root `justfile` wraps every project's commands, grouped `utils` / `scripting` / `dotnet` / `launcher`; `just` lists them. `just check` runs all verification that needs no game (.NET build, scripting tests + clippy, launcher check + lint). The raw commands below are what the recipes run.
+
 ## Zig / native utils commands
 
 ```bash
-# Fast development build
-just dev
+just utils                 # Debug
+just utils ReleaseFast     # any -Doptimize value
+just utils-release         # ReleaseSmall (what the launcher bundle ships)
 # or explicitly
 zig build --build-file Tempest.Utils/build.zig -Doptimize=Debug
-
-# Release builds
-just fast     # ReleaseFast
-just small    # ReleaseSmall
-zig build --build-file Tempest.Utils/build.zig -Doptimize=ReleaseSafe
 ```
 
-Artifacts land in `Tempest.Utils/zig-out/bin/`. The launcher bundle consumes the `asmloader-windows_*.dll` outputs.
+Artifacts land in `Tempest.Utils/zig-out/bin/`. The launcher bundle consumes the `asmloader-windows_*.dll` outputs. On macOS 26 with zig <0.16 the `zign` wrapper is needed; the justfile picks it up automatically when it is on `PATH` (`ZIG=... just utils` overrides).
+
+## Tempest.Scripting commands
+
+```bash
+just scripting-test              # cargo test (host, no game image)
+just scripting-check             # clippy, host + x86_64-pc-windows-gnu
+just scripting-build             # Tempest.Scripting/scripts/package.sh -> dist/Tempest.Scripting64.dll + dist/testmod.tempest
+just scripting-run <game> [args] # build, then `tempest launch <game> --dll dist/testmod/dlls/Tempest.Scripting64.dll`
+just scripting-install <game>    # build, then `tempest mod install <game> dist/testmod.tempest --replace --allow-unsigned`
+```
+
+The Win64 DLL cross-compiles with MinGW-w64 (`brew install mingw-w64`); `cross`/Docker is only the fallback. Logs go to `%TEMP%\tempest-scripting.log` (inside the Wine prefix when the game runs under Wine); the console window doubles as a Lua REPL. See `Tempest.Scripting/README.md`.
 
 ## Launcher commands
 
-All run from `Tempest.Launcher/`:
+All run from `Tempest.Launcher/` (or via `just launcher-*` from the root):
 
 ```bash
 corepack enable        # one-time

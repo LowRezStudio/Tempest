@@ -16,3 +16,12 @@ Properties/launchSettings.json
 extracted/
 output.bin
 .env
+
+# Rust build artifacts
+target/
+
+# Tempest.Scripting local packaging (rebuilt via scripts/package-*.sh/ps1)
+Tempest.Scripting/dist/
+*.tempest
+
+.serena/
