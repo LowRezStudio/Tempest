@@ -8,6 +8,7 @@
 	import { onMount } from "svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { identifyBuild } from "$lib/core/build";
+	import { downloadOwnership } from "$lib/core/uninstall.svelte";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
 	import { locales, type Locale } from "$lib/paraglide/runtime";
@@ -338,6 +339,7 @@
 				updateInstance(existing.id, { state: { type: "downloading" } });
 			} else {
 				const instance: Instance = {
+					...(await downloadOwnership(targetPath)),
 					id: crypto.randomUUID(),
 					label:
 						entry === multiplayerVersion ? `${entry.name} (Multiplayer)` : entry.name,

@@ -3,6 +3,7 @@
 	import { Settings } from "@lucide/svelte";
 	import { open } from "@tauri-apps/plugin-dialog";
 	import { platform } from "@tauri-apps/plugin-os";
+	import UninstallCleanupDialog from "$lib/components/library/UninstallCleanupDialog.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import FeatureFlagsTab from "$lib/dev/FeatureFlagsTab.svelte";
 	import { m } from "$lib/paraglide/messages";
@@ -21,6 +22,7 @@
 	} from "$lib/stores/settings.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import WineSettings from "$lib/wine/WineSettings.svelte";
+	let showCleanup = $state(false);
 
 	let activeTab = $state<"general" | "keybinds" | "wine" | "advanced" | "flags">("general");
 
@@ -242,6 +244,12 @@
 								<button class="btn btn-error" onclick={resetAll}
 									>{m.settings_clear_all()}</button
 								>
+								<button
+									class="btn btn-outline"
+									type="button"
+									onclick={() => (showCleanup = true)}
+									>Prepare to uninstall Tempest</button
+								>
 							</div>
 						</div>
 
@@ -283,3 +291,5 @@
 		</div>
 	</div>
 </div>
+
+<UninstallCleanupDialog bind:open={showCleanup} />

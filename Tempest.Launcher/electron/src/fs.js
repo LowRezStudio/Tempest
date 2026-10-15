@@ -30,6 +30,15 @@ function fail(prefix, p, e) {
 
 ipcMain.handle("fs:exists", (_event, { path: p }) => fs.existsSync(p));
 
+ipcMain.handle("fs:rename", async (_event, { oldPath, newPath }) => {
+	try {
+		await fs.promises.rename(oldPath, newPath);
+		return { ok: true, data: null };
+	} catch (error) {
+		return fail("failed to rename path:", oldPath, error);
+	}
+});
+
 ipcMain.handle("fs:read-dir", async (_event, { path: p }) => {
 	try {
 		const entries = await fs.promises.readdir(p, { withFileTypes: true });

@@ -17,7 +17,7 @@ internal partial class ModTomlContext : TomlSerializerContext
 {
 }
 
-public class ModV2Installer : IModInstaller
+public class ModV2Installer(bool strictRemoval = false) : IModInstaller
 {
     private static readonly string[] OfficialKeys = [
         // Kyiro
@@ -410,73 +410,79 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
         var targetModDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, modId);
         var targetFilesDir = Path.Combine(targetModDir, "files");
 
-        if (Directory.Exists(targetFilesDir))
+        if (mod.Enabled)
         {
-            var filesInFilesDir = Directory.GetFiles(targetFilesDir, "*.ini", SearchOption.AllDirectories);
-            foreach (var modIniFile in filesInFilesDir)
+            if (Directory.Exists(targetFilesDir))
             {
-                var relativePathFromFiles = Path.GetRelativePath(targetFilesDir, modIniFile);
-                var destGamePath = Path.Combine(resolvedGame, relativePathFromFiles);
+                var filesInFilesDir = Directory.GetFiles(targetFilesDir, "*.ini", SearchOption.AllDirectories);
+                foreach (var modIniFile in filesInFilesDir)
+                {
+                    var relativePathFromFiles = Path.GetRelativePath(targetFilesDir, modIniFile);
+                    var destGamePath = Path.Combine(resolvedGame, relativePathFromFiles);
 
-                if (!File.Exists(destGamePath)) continue;
+                    if (!File.Exists(destGamePath)) continue;
 
-                var gameIniLines = IniPatcher.Parse(destGamePath);
-                var modIniLines = IniPatcher.Parse(modIniFile);
+                    var gameIniLines = IniPatcher.Parse(destGamePath);
+                    var modIniLines = IniPatcher.Parse(modIniFile);
 
-                var iniBackupPath = TempestPathUtility.GetLocalV2IniBackupPath(resolvedGame, modId, relativePathFromFiles);
-                var backupLines = File.Exists(iniBackupPath) ? IniPatcher.Parse(iniBackupPath) : [];
+                    var iniBackupPath = TempestPathUtility.GetLocalV2IniBackupPath(resolvedGame, modId, relativePathFromFiles);
+                    var backupLines = File.Exists(iniBackupPath) ? IniPatcher.Parse(iniBackupPath) : [];
 
-                RestoreGameIni(gameIniLines, modIniLines, backupLines);
+                    RestoreGameIni(gameIniLines, modIniLines, backupLines);
 
-                IniPatcher.Save(destGamePath, gameIniLines);
+                    IniPatcher.Save(destGamePath, gameIniLines);
+                }
             }
+
+            // Only restore files this mod currently owns
+            foreach (var file in mod.OwnedFiles)
+            {
+                var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
+                var backupPath = TempestPathUtility.GetLocalV2BackupPath(resolvedGame, relativePathFromGame);
+
+                if (File.Exists(backupPath))
+                {
+                    try
+                    {
+                        var destDir = Path.GetDirectoryName(file);
+                        if (destDir != null) Directory.CreateDirectory(destDir);
+
+                        if (File.Exists(file)) File.Delete(file);
+                        if (strictRemoval) File.Copy(backupPath, file, overwrite: true);
+                        else File.Move(backupPath, file, overwrite: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Warning: Failed to restore backup {backupPath} to {file}: {ex.Message}");
+                        if (strictRemoval) throw;
+                    }
+                }
+                else
+                {
+                    if (!File.Exists(file)) continue;
+
+                    try { File.Delete(file); }
+                    catch
+                    {
+                        if (strictRemoval) throw;
+                    }
+                }
+            }
+
         }
-
-        // Only restore files this mod currently owns
-        foreach (var file in mod.OwnedFiles)
-        {
-            var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
-            var backupPath = TempestPathUtility.GetLocalV2BackupPath(resolvedGame, relativePathFromGame);
-
-            if (File.Exists(backupPath))
-            {
-                try
-                {
-                    var destDir = Path.GetDirectoryName(file);
-                    if (destDir != null) Directory.CreateDirectory(destDir);
-
-                    if (File.Exists(file)) File.Delete(file);
-                    File.Move(backupPath, file, overwrite: true);
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Warning: Failed to restore backup {backupPath} to {file}: {ex.Message}");
-                }
-            }
-            else
-            {
-                if (!File.Exists(file)) continue;
-
-                try { File.Delete(file); }
-                catch
-                {
-                    // ignored
-                }
-            }
-        }
-
         var modV2BackupDir = TempestPathUtility.GetLocalV2BackupDirectory(resolvedGame, modId);
         var modV2IniBackupDir = TempestPathUtility.GetLocalV2IniBackupDirectory(resolvedGame, modId);
 
         try
         {
             if (Directory.Exists(targetModDir)) Directory.Delete(targetModDir, recursive: true);
-            if (Directory.Exists(modV2BackupDir)) Directory.Delete(modV2BackupDir, recursive: true);
-            if (Directory.Exists(modV2IniBackupDir)) Directory.Delete(modV2IniBackupDir, recursive: true);
+            if (!strictRemoval && Directory.Exists(modV2BackupDir)) Directory.Delete(modV2BackupDir, recursive: true);
+            if (!strictRemoval && Directory.Exists(modV2IniBackupDir)) Directory.Delete(modV2IniBackupDir, recursive: true);
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Warning: Failed to delete directories during uninstall: {ex.Message}");
+            if (strictRemoval) throw;
         }
 
         return Task.CompletedTask;

@@ -7,6 +7,7 @@ using Tempest.CLI.Server;
 using Tempest.CLI.Build;
 using Tempest.CLI.Rigby;
 using Tempest.CLI.Mods;
+using Tempest.CLI.Cleanup;
 
 // ponytail: register native DLL resolver to locate bundled Tauri resources (like blake3 or sqlite native libs) on all platforms.
 AssemblyLoadContext.Default.ResolvingUnmanagedDll += (assembly, libraryName) =>
@@ -76,6 +77,7 @@ app.Add<MarshalCommands>("marshal");
 app.Add<BuildCommands>("build");
 app.Add<RigbyCommands>("rigby");
 app.Add<ModCommands>("mod");
+app.Add<CleanupCommands>("cleanup");
 
 if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 {
