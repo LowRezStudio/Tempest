@@ -1,0 +1,10 @@
+[workspace]
+members = ["crates/tempest-scripting"]
+resolver = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+# panic = "unwind" (default) on purpose: the ProcessEvent hook wraps script
+# dispatch in catch_unwind so a Rust panic is logged instead of killing the game.

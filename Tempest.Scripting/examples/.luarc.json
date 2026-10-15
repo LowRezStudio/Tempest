@@ -1,0 +1,6 @@
+{
+  "runtime.version": "Lua 5.4",
+  "workspace.library": ["types"],
+  "workspace.checkThirdParty": false,
+  "diagnostics.globals": ["MOD", "shared"]
+}

@@ -1,0 +1,25 @@
+[package]
+name = "tempest-scripting"
+version = "0.1.0"
+edition = "2021"
+description = "Lua modding API DLL for Paladins 8.1 (UE3, Win64)"
+license = "MIT"
+
+[lib]
+name = "tempest_scripting"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# `send`: the VM is shared between the init thread and the game threads that
+# fire ProcessEvent; mlua serialises access with an internal reentrant lock.
+mlua = { version = "0.10", default-features = false, features = ["vendored", "lua54", "send"] }
+# mods.json (which V2 mods are enabled)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# manifest.toml ([scripting] after = [...] load order)
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+
+[target.'cfg(windows)'.dependencies]
+# default-features off: retour's default `nightly` feature needs an unstable
+# toolchain. GenericDetour + `extern "system"` is the stable path.
+retour = { version = "0.2", default-features = false }
