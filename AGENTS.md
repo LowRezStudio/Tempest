@@ -14,12 +14,13 @@ Mixed stack, split by directory:
 - `Tempest.Utils/` — Zig 0.15.2 native tools (`asmloader`, `upkpatcher`, `mctsparser`)
 - `Tempest.Scripting/` — Rust Lua modding API DLL for Paladins 8.1 Win64 (`Tempest.Scripting64.dll`, built from macOS with MinGW-w64 via `scripts/package.sh`), standalone Cargo workspace; see its `README.md`
 - `Tempest.Launcher/` — Tauri v2 (Windows) / Electron (macOS + Linux) + SvelteKit 5 + Vite + TypeScript desktop frontend
+- `Tempest.UnrealScript/` — Rust UnrealScript compiler/decompiler for the game's UPK packages (CLI `uscript`), standalone Cargo workspace; see its `AGENTS.md` before touching it
 
 ## Required tooling
 
 - .NET SDK `10.0.100` (see `global.json`, `rollForward: latestFeature`)
 - Zig `0.15.2`
-- Rust stable (launcher + `Tempest.Scripting` Lua modding DLL)
+- Rust stable (launcher, `Tempest.Scripting` Lua modding DLL, `Tempest.UnrealScript`)
 - Node.js `>= 22` with Corepack enabled (only for the launcher)
 
 ## .NET commands
@@ -48,7 +49,7 @@ Notes:
 
 ## Task runner
 
-The root `justfile` wraps every project's commands, grouped `utils` / `scripting` / `dotnet` / `launcher`; `just` lists them. `just check` runs all verification that needs no game (.NET build, scripting tests + clippy, launcher check + lint). The raw commands below are what the recipes run.
+The root `justfile` wraps every project's commands, grouped `utils` / `scripting` / `dotnet` / `launcher`; `just` lists them. `just check` runs all verification that needs no game (.NET build, scripting tests + clippy, unrealscript tests + clippy, launcher check + lint). The raw commands below are what the recipes run.
 
 ## Zig / native utils commands
 
@@ -74,6 +75,17 @@ just scripting-dev <game>        # repack + reinstall only dev/ (the scratch mod
 ```
 
 The Win64 DLL cross-compiles with MinGW-w64 (`brew install mingw-w64`); `cross`/Docker is only the fallback. Logs go to `%TEMP%\tempest-scripting.log` (inside the Wine prefix when the game runs under Wine); the console window doubles as a Lua REPL. See `Tempest.Scripting/README.md`.
+
+## Tempest.UnrealScript commands
+
+```bash
+just unrealscript-build          # cargo build --release -> Tempest.UnrealScript/target/release/uscript
+just unrealscript-check          # cargo test + clippy (part of `just check`)
+just unrealscript-verify <dir>   # decompile + recompile every script package of a cooked game dir, diff against originals
+just uscript <args>              # run the CLI, e.g. `just uscript project init <cooked-dir> <project-dir>`
+```
+
+Correctness is defined as byte-identical output versus the game's own packages; `scripts/verify.sh` is the test suite. `Tempest.UnrealScript/AGENTS.md` documents the layout, the CLI, the verification loop and the game-specific compiler rules that must be preserved.
 
 ## Launcher commands
 

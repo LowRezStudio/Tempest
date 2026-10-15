@@ -5,6 +5,7 @@
 zig_detected := `command -v zign >/dev/null 2>&1 && echo zign || echo zig`
 zig := env("ZIG", zig_detected)
 scripting := "Tempest.Scripting"
+unrealscript := "Tempest.UnrealScript"
 launcher := "Tempest.Launcher"
 
 default:
@@ -61,6 +62,31 @@ scripting-dev game:
     cp {{scripting}}/dist/scripting/.luarc.json {{scripting}}/dist/dev/.luarc.json
     python3 {{scripting}}/scripts/pack.py {{scripting}}/dist/dev {{scripting}}/dist/dev.tempest
     dotnet run --project Tempest.CLI -- mod install "{{game}}" "{{scripting}}/dist/dev.tempest" --replace --allow-unsigned
+
+# ---------------------------------------------------------------------------
+# Tempest.UnrealScript (Rust UnrealScript compiler / decompiler, CLI `uscript`)
+# ---------------------------------------------------------------------------
+
+# Release build of the `uscript` CLI (target/release/uscript)
+[group("unrealscript")]
+unrealscript-build:
+    cd {{unrealscript}} && cargo build --release
+
+# Unit tests + clippy
+[group("unrealscript")]
+unrealscript-check:
+    cd {{unrealscript}} && cargo test --release
+    cd {{unrealscript}} && cargo clippy --release --all-targets
+
+# Round-trip every script package of a cooked game dir and compare with the originals
+[group("unrealscript")]
+unrealscript-verify cooked:
+    {{unrealscript}}/scripts/verify.sh "{{cooked}}"
+
+# Run the CLI: just uscript info <pkg>, just uscript project build <dir> ...
+[group("unrealscript")]
+uscript *args: unrealscript-build
+    {{unrealscript}}/target/release/uscript {{args}}
 
 # ---------------------------------------------------------------------------
 # .NET: Tempest.CLI, Tempest.Services, MarshalLib, Tempest.Protocol
@@ -138,4 +164,4 @@ bump:
 
 # All verification that runs without a game: .NET build, scripting tests + clippy, launcher check
 [group("all")]
-check: build scripting-test scripting-check launcher-check
+check: build scripting-test scripting-check unrealscript-check launcher-check

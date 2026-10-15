@@ -1,2 +1,4 @@
 target/
 *.decompiled/
+# the root .gitignore excludes bin/ (.NET output); the CLI source lives in src/bin
+!crates/*/src/bin/
