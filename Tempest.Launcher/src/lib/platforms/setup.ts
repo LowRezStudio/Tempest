@@ -1,10 +1,13 @@
 import { path as tauriPath } from "@tauri-apps/api";
 import { readDir } from "@tauri-apps/plugin-fs";
+import { platform as hostPlatform } from "@tauri-apps/plugin-os";
 import { createCommand, processArgs, type ArgumentType } from "$lib/core/command";
 import { installAutoMods } from "$lib/core/mods";
 import { getInstanceAssemblyDbPath, getInstanceTokensDir } from "$lib/core/paths";
+import { installPrerequisites } from "$lib/core/prerequisites";
 import { updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, appendProcessLogs } from "$lib/stores/processes.svelte";
+import { addToast } from "$lib/stores/ui.svelte";
 import { allowScopeDirectory } from "$lib/tauri/scopes";
 import type { Instance, InstancePlatform } from "$lib/types/instance";
 
@@ -42,8 +45,23 @@ const logResult = (result: { stdout?: string; stderr?: string }): void => {
 	}
 };
 
-export const setupInstance = async (instance: Instance): Promise<void> => {
+export const setupInstance = async (
+	instance: Instance,
+	options: { installPrerequisites?: boolean } = {},
+): Promise<void> => {
 	log(`Setting up instance "${instance.label}" (${instance.path})`);
+	if (options.installPrerequisites && hostPlatform() === "windows") {
+		try {
+			await installPrerequisites(instance.path);
+		} catch (error) {
+			log(String(error), true);
+			addToast({
+				title: "Game prerequisites need attention",
+				message: `${String(error)} Use Install game prerequisites in the instance menu to retry.`,
+				tone: "error",
+			});
+		}
+	}
 
 	ensureShootingRangeArg(instance);
 

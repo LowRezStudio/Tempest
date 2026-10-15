@@ -260,7 +260,8 @@ export class RestoreQueue {
 			};
 
 			command.stdout.on("data", (data) => {
-				stdout += data;
+				// Tauri emits complete lines without newlines; Electron emits raw chunks.
+				stdout += data + ("__TAURI_INTERNALS__" in window ? "\n" : "");
 				console.log("stdout chunk:", data);
 
 				const lines = stdout.split("\n");
@@ -418,7 +419,7 @@ export class RestoreQueue {
 		void (async () => {
 			updateInstance(instance.id, { state: { type: "setup" } });
 			try {
-				await setupInstance(instance);
+				await setupInstance(instance, { installPrerequisites: true });
 			} catch (error) {
 				console.error("Instance setup failed:", error);
 			} finally {
