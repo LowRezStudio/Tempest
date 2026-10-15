@@ -38,7 +38,7 @@ scripting-check:
     cd {{scripting}} && cargo clippy -p tempest-scripting --all-targets
     cd {{scripting}} && cargo clippy -p tempest-scripting --target x86_64-pc-windows-gnu
 
-# Build Tempest.Scripting64.dll and stage dist/ (DLL + testmod/ + testmod.tempest)
+# Build Tempest.Scripting64.dll and stage dist/: scripting / console / dev / lib .tempest packages
 [group("scripting")]
 scripting-build:
     {{scripting}}/scripts/package.sh
@@ -46,13 +46,21 @@ scripting-build:
 # Launch the game with the freshly built DLL injected directly (no mod install)
 [group("scripting")]
 scripting-run game *args: scripting-build
-    dotnet run --project Tempest.CLI -- launch "{{game}}" --dll "{{justfile_directory()}}/{{scripting}}/dist/testmod/dlls/Tempest.Scripting64.dll" {{args}}
+    dotnet run --project Tempest.CLI -- launch "{{game}}" --dll "{{justfile_directory()}}/{{scripting}}/dist/scripting/dlls/Tempest.Scripting64.dll" {{args}}
 
-# Install the staged test mod into a game folder (persists across launches)
+# Install all four packages into a game folder (runtime, console, dev scratch mod, example lib)
 [group("scripting")]
 scripting-install game: scripting-build
-    dotnet run --project Tempest.CLI -- mod install "{{game}}" "{{scripting}}/dist/testmod.tempest" --replace --allow-unsigned
-    dotnet run --project Tempest.CLI -- mod install "{{game}}" "{{scripting}}/dist/testmod-lib.tempest" --replace --allow-unsigned
+    for p in scripting console lib dev; do dotnet run --project Tempest.CLI -- mod install "{{game}}" "{{scripting}}/dist/$p.tempest" --replace --allow-unsigned; done
+
+# Repack and reinstall only the dev scratch mod (no Rust build)
+[group("scripting")]
+scripting-dev game:
+    rm -rf {{scripting}}/dist/dev && cp -R {{scripting}}/dev {{scripting}}/dist/dev
+    mkdir -p {{scripting}}/dist/dev/types && cp {{scripting}}/types/tempest.d.lua {{scripting}}/dist/dev/types/
+    cp {{scripting}}/dist/scripting/.luarc.json {{scripting}}/dist/dev/.luarc.json
+    python3 {{scripting}}/scripts/pack.py {{scripting}}/dist/dev {{scripting}}/dist/dev.tempest
+    dotnet run --project Tempest.CLI -- mod install "{{game}}" "{{scripting}}/dist/dev.tempest" --replace --allow-unsigned
 
 # ---------------------------------------------------------------------------
 # .NET: Tempest.CLI, Tempest.Services, MarshalLib, Tempest.Protocol

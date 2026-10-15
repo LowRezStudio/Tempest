@@ -1,5 +1,5 @@
 #Requires -Version 7
-# Native Windows build (MSVC) + stage dist/ exactly like scripts/package.sh.
+# Native Windows build (MSVC) + the same four packages as scripts/package.sh.
 param(
     [string]$Target = "x86_64-pc-windows-msvc",
     [string]$Out = "$PSScriptRoot/../dist"
@@ -10,35 +10,29 @@ Push-Location $Root
 try {
     cargo build --release --target $Target -p tempest-scripting
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
-
     New-Item -ItemType Directory -Force -Path $Out | Out-Null
     $Out = Resolve-Path $Out
     Copy-Item "target/$Target/release/tempest_scripting.dll" "$Out/Tempest.Scripting64.dll" -Force
+    $Luarc = '{ "runtime.version": "Lua 5.4", "workspace.library": ["types"], "workspace.checkThirdParty": false, "diagnostics.globals": ["MOD", "shared"] }'
 
-    $Stage = Join-Path $Out "testmod"
-    if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
-    New-Item -ItemType Directory -Force -Path "$Stage/dlls", "$Stage/scripts" | Out-Null
-    Copy-Item "$Out/Tempest.Scripting64.dll" "$Stage/dlls/" -Force
-    Copy-Item "examples/*.lua" "$Stage/scripts/" -Force
-    Copy-Item "packaging/manifest.toml" "$Stage/manifest.toml" -Force
-
-    # CHECKSUMS: "<sha256> <relpath>", ordinal order, LF-joined, no trailing
-    # newline — what Tempest.CLI `mod pack` writes.
-    [string[]]$files = Get-ChildItem $Stage -Recurse -File |
-        Where-Object { $_.Name -notin @("CHECKSUMS", "CHECKSUMS.asc") } |
-        ForEach-Object { $_.FullName.Substring($Stage.Length + 1).Replace('\', '/') }
-    [Array]::Sort($files, [System.StringComparer]::Ordinal)
-    $lines = foreach ($rel in $files) {
-        $hash = (Get-FileHash (Join-Path $Stage $rel) -Algorithm SHA256).Hash.ToLowerInvariant()
-        "$hash $rel"
+    function Stage([string]$Name, [string]$Source, [bool]$Dll, [bool]$Types) {
+        $S = Join-Path $Out $Name
+        if (Test-Path $S) { Remove-Item $S -Recurse -Force }
+        Copy-Item $Source $S -Recurse
+        if ($Dll) { New-Item -ItemType Directory -Force -Path "$S/dlls" | Out-Null; Copy-Item "$Out/Tempest.Scripting64.dll" "$S/dlls/" }
+        if ($Types) {
+            New-Item -ItemType Directory -Force -Path "$S/types" | Out-Null
+            Copy-Item "types/tempest.d.lua" "$S/types/"
+            [System.IO.File]::WriteAllText((Join-Path $S ".luarc.json"), $Luarc)
+        }
+        python scripts/pack.py $S (Join-Path $Out "$Name.tempest")
+        if ($LASTEXITCODE -ne 0) { throw "pack failed for $Name" }
+        Write-Host "packed: $Out/$Name.tempest"
     }
-    [System.IO.File]::WriteAllText((Join-Path $Stage "CHECKSUMS"), ($lines -join "`n"))
-
-    $Zip = Join-Path $Out "testmod.tempest"
-    if (Test-Path $Zip) { Remove-Item $Zip -Force }
-    Compress-Archive -Path (Join-Path $Stage "*") -DestinationPath $Zip -CompressionLevel Optimal
-    Write-Host "staged: $Out/Tempest.Scripting64.dll"
-    Write-Host "packed: $Zip"
+    Stage "scripting" "packaging/scripting" $true $true
+    Stage "console" "packaging/console" $false $false
+    Stage "dev" "dev" $false $true
+    Stage "lib" "examples/mods/tempest-scripting-lib" $false $false
 }
 finally {
     Pop-Location

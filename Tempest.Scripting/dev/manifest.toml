@@ -1,0 +1,9 @@
+[mod]
+id = "tempest-dev"
+name = "Tempest Dev"
+version = "0.1.0"
+authors = ["Tempest"]
+readme = "Scratch mod: whatever is being worked on right now. Built from Tempest.Scripting/dev/."
+
+[scripting]
+after = ["tempest-scripting-lib"]

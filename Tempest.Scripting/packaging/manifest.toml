@@ -1,6 +1,0 @@
-[mod]
-id = "tempest-scripting-test"
-name = "Tempest Scripting Test"
-version = "0.1.0"
-authors = ["Tempest"]
-readme = "Smoke test for the Lua scripting DLL: prints resolution status."

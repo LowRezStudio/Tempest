@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Build Tempest.Scripting64.dll for the Win64 client from macOS/Linux and
-# stage an installable test mod:
+# stage four installable packages (same format as `tempest mod pack`: a zip
+# of the mod folder with manifest.toml at the root plus a CHECKSUMS file):
 #
-#   dist/Tempest.Scripting64.dll
-#   dist/testmod/            manifest.toml + dlls/ + scripts/ + CHECKSUMS
-#   dist/testmod.tempest     zip of the above (same format as `tempest mod pack`)
+#   dist/scripting.tempest   runtime: the DLL, core console commands, editor types
+#   dist/console.tempest     enables the in-game console (F2)
+#   dist/dev.tempest         whatever is in dev/ — the scratch mod being worked on
+#   dist/lib.tempest         example library mod (exports `greet` for dev's 07_shared.lua)
 #
 # Uses the local MinGW-w64 toolchain when x86_64-w64-mingw32-gcc is on PATH
 # (`brew install mingw-w64`), otherwise falls back to `cross` (needs Docker).
@@ -36,77 +38,51 @@ fi
 
 mkdir -p "$OUT"
 cp "$DLL" "$OUT/Tempest.Scripting64.dll"
+rm -rf "$OUT/testmod" "$OUT/testmod-lib" "$OUT"/testmod*.tempest
 
-STAGE="$OUT/testmod"
-rm -rf "$STAGE"
-mkdir -p "$STAGE/dlls" "$STAGE/scripts"
-cp "$OUT/Tempest.Scripting64.dll" "$STAGE/dlls/"
-cp examples/*.lua "$STAGE/scripts/"
-cp packaging/manifest.toml "$STAGE/manifest.toml"
-# Editor support: API stubs + a LuaLS config pointing at them (and at the
-# in-game `tempest.dump_sdk()` output, written to types/sdk).
-mkdir -p "$STAGE/types"
-cp types/tempest.d.lua "$STAGE/types/"
-cat > "$STAGE/.luarc.json" <<'JSON'
-{
+# pack <staged folder> <out.tempest>: CHECKSUMS ("<sha256> <relpath>" lines,
+# ordinal order, LF-joined, no trailing newline) + zip, like Tempest.CLI.
+pack() {
+    python3 "$ROOT/scripts/pack.py" "$1" "$2"
+    echo "packed: $2"
+}
+
+LUARC='{
   "runtime.version": "Lua 5.4",
   "workspace.library": ["types"],
   "workspace.checkThirdParty": false,
   "diagnostics.globals": ["MOD", "shared"]
-}
-JSON
+}'
 
-# CHECKSUMS: "<sha256> <relpath>" lines, ordinal order, LF-joined, no
-# trailing newline — byte-for-byte what Tempest.CLI `mod pack` writes.
-python3 - "$STAGE" "$OUT/testmod.tempest" <<'EOF'
-import hashlib, os, sys, zipfile
-stage, outzip = sys.argv[1], sys.argv[2]
-files = sorted(
-    os.path.relpath(os.path.join(d, f), stage).replace(os.sep, "/")
-    for d, _, fs in os.walk(stage) for f in fs
-    if f not in ("CHECKSUMS", "CHECKSUMS.asc")
-)
-lines = []
-for rel in files:
-    with open(os.path.join(stage, *rel.split("/")), "rb") as fh:
-        lines.append(f"{hashlib.sha256(fh.read()).hexdigest()} {rel}")
-with open(os.path.join(stage, "CHECKSUMS"), "w", newline="\n") as fh:
-    fh.write("\n".join(lines))
-if os.path.exists(outzip):
-    os.remove(outzip)
-with zipfile.ZipFile(outzip, "w", zipfile.ZIP_DEFLATED) as z:
-    for d, _, fs in os.walk(stage):
-        for f in fs:
-            full = os.path.join(d, f)
-            z.write(full, os.path.relpath(full, stage).replace(os.sep, "/"))
-EOF
+# --- scripting.tempest: the runtime --------------------------------------
+S="$OUT/scripting"
+rm -rf "$S"
+cp -R packaging/scripting "$S"
+mkdir -p "$S/dlls" "$S/types"
+cp "$OUT/Tempest.Scripting64.dll" "$S/dlls/"
+cp types/tempest.d.lua "$S/types/"
+printf '%s\n' "$LUARC" > "$S/.luarc.json"
+pack "$S" "$OUT/scripting.tempest"
 
-# --- second, DLL-less mod exercising the multi-mod runtime ---------------
-LIB="$OUT/testmod-lib"
-rm -rf "$LIB"
-cp -R examples/mods/tempest-scripting-lib "$LIB"
-python3 - "$LIB" "$OUT/testmod-lib.tempest" <<'EOF'
-import hashlib, os, sys, zipfile
-stage, outzip = sys.argv[1], sys.argv[2]
-files = sorted(
-    os.path.relpath(os.path.join(d, f), stage).replace(os.sep, "/")
-    for d, _, fs in os.walk(stage) for f in fs
-    if f not in ("CHECKSUMS", "CHECKSUMS.asc")
-)
-lines = []
-for rel in files:
-    with open(os.path.join(stage, *rel.split("/")), "rb") as fh:
-        lines.append(f"{hashlib.sha256(fh.read()).hexdigest()} {rel}")
-with open(os.path.join(stage, "CHECKSUMS"), "w", newline="\n") as fh:
-    fh.write("\n".join(lines))
-if os.path.exists(outzip):
-    os.remove(outzip)
-with zipfile.ZipFile(outzip, "w", zipfile.ZIP_DEFLATED) as z:
-    for d, _, fs in os.walk(stage):
-        for f in fs:
-            full = os.path.join(d, f)
-            z.write(full, os.path.relpath(full, stage).replace(os.sep, "/"))
-EOF
+# --- console.tempest ------------------------------------------------------
+C="$OUT/console"
+rm -rf "$C"
+cp -R packaging/console "$C"
+pack "$C" "$OUT/console.tempest"
+
+# --- dev.tempest: the scratch mod ------------------------------------------
+D="$OUT/dev"
+rm -rf "$D"
+cp -R dev "$D"
+mkdir -p "$D/types"
+cp types/tempest.d.lua "$D/types/"
+printf '%s\n' "$LUARC" > "$D/.luarc.json"
+pack "$D" "$OUT/dev.tempest"
+
+# --- lib.tempest: example library mod ----------------------------------------
+L="$OUT/lib"
+rm -rf "$L"
+cp -R examples/mods/tempest-scripting-lib "$L"
+pack "$L" "$OUT/lib.tempest"
 
 echo "staged: $OUT/Tempest.Scripting64.dll"
-echo "packed: $OUT/testmod.tempest + $OUT/testmod-lib.tempest"

@@ -20,10 +20,25 @@ brew install mingw-w64            # one-time
 
 On Windows: `.\scripts\package.ps1` (MSVC toolchain).
 
+## Packages
+
+`scripts/package.sh` (or `just scripting-build`) stages four installable
+`.tempest` files in `dist/`:
+
+| package | id | contents |
+|---------|----|----------|
+| `scripting.tempest` | `tempest-scripting` | the DLL, `scripts/core.lua` (diagnostic console commands), `types/tempest.d.lua`, `.luarc.json` |
+| `console.tempest` | `tempest-console` | `console.lua`: enables the in-game console (F2) |
+| `dev.tempest` | `tempest-dev` | whatever is in `dev/`: the scratch mod being worked on (`just scripting-dev <game>` repacks and reinstalls just this one, no Rust build) |
+| `lib.tempest` | `tempest-scripting-lib` | example library mod exporting `greet` |
+
+Package and folder names are free; the `id` in each `manifest.toml` is what
+the launcher and the runtime key on. Only the runtime package carries the
+DLL; any number of script-only mods can sit next to it.
+
 ## Install and test
 
-Install `dist/testmod.tempest` through the launcher (or copy the staged
-`dist/testmod/` folder as a V2 mod). The launcher injects every
+`just scripting-install <game>` installs all four. The launcher injects every
 `dlls/*.dll` of enabled V2 mods about a second after the game starts.
 
 On inject the DLL opens a console and logs to `%TEMP%\tempest-scripting.log`.
@@ -40,12 +55,12 @@ The boot sequence, in order, with what each step must print:
 | arrays live | `resolve` | `GNames/GObjects live` (waits up to 90 s) |
 | hook | `hook` | `ProcessEvent detour live at 0x..` |
 | engine loaded | `resolve` | `GEngine live; objects=.. names=..` (waits up to 120 s) |
-| scripts | `loader`, `lua` | `00_status.lua` prints `ok=true` everywhere, no `NOTE:` lines |
+| scripts | `loader`, `lua` | `4 mod(s): tempest-console, tempest-scripting, tempest-scripting-lib, tempest-dev` (dev last: its manifest says `after = ["tempest-scripting-lib"]`); `00_status.lua` prints `ok=true` everywhere, no `NOTE:` lines |
 | engine internals | `resolve`, `hook` | `GMalloc slot`, `GNatives`, `ProcessInternal at ..`, `ProcessInternal detour live` |
 | events | `lua` | `first PostRender on Object(...)` once a match starts |
 | calls | `lua` | `03_calls.lua` prints `GetHumanReadableName() = ...` and two chat messages appear |
 | script/native hooks | `lua` | `native hook on Engine.PlayerController.ConsoleCommand`; typing `hello` in the game console answers in chat |
-| console | `lua` | `05_console.lua` prints `console: enabled (F2 opens it)` (or `already present` with TgMod) |
+| console | `lua` | `console.lua` prints `console: enabled (F2 opens it)` (or `already present` with TgMod) |
 | containers | `lua` | `06_containers.lua` lists key bindings (array of structs) and HUD scenes (map) |
 | mods | `loader`, `lua` | `2 mod(s): tempest-scripting-lib, tempest-scripting-test`, `LIB_PRIVATE visible here? nil`; `greet` works in the console |
 | keys | `input`, `lua` | `WndProc hook installed`; F5 prints a chat line, Ctrl+F5 hops the pawn, F9 writes `types/sdk/*.lua` |
@@ -179,11 +194,12 @@ crates/tempest-scripting/src/
   unreal.rs    signatures, names/objects, reflection, subscriptions, hook
   lua_api.rs   tempest.* / memory.* / Object proxy
   loader.rs    scripts/ discovery, run, reload
-examples/      00_status .. 08_keys (shipped as the test mod's scripts/)
-types/         tempest.d.lua (LuaLS API definitions, shipped with the test mod)
-examples/mods/ tempest-scripting-lib: a DLL-less second mod (packed as dist/testmod-lib.tempest)
-packaging/     manifest.toml for the test mod
-scripts/       package.sh (macOS/Linux), package.ps1 (Windows)
+examples/      00_status .. 08_keys: reference scripts (dev/ starts as a copy)
+examples/mods/ tempest-scripting-lib: a DLL-less library mod (dist/lib.tempest)
+packaging/     scripting/ (runtime manifest + core.lua), console/ (console mod)
+dev/           the scratch mod (dist/dev.tempest): edit freely
+types/         tempest.d.lua (LuaLS API definitions, shipped in scripting and dev)
+scripts/       package.sh (macOS/Linux), package.ps1 (Windows), pack.py (zip + CHECKSUMS)
 ```
 
 ## Limits
