@@ -42,6 +42,9 @@ corepack enable
 pnpm install
 
 # If you want to work on the launcher in development mode
+# First build the utils (see "Building the utils") and copy the asmloader DLLs, otherwise it fails with "resource path `binaries\asmloader-windows_x86.dll` doesn't exist"
+mkdir -p src-tauri/binaries
+cp ../Tempest.Utils/zig-out/bin/asmloader-windows_x86*.dll src-tauri/binaries/
 pnpm tauri dev
 
 # If you want to build the production version
