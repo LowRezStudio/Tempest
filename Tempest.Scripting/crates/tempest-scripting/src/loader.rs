@@ -276,6 +276,9 @@ pub fn run_all(lua: &Lua) {
     if let Ok(t) = lua.create_table() {
         let _ = lua.globals().set("shared", t);
     }
+    // dllimport functions of the loaded script packages call into Lua from
+    // now on (zero results until a tempest.native handler claims them).
+    crate::unreal::bind_dll_imports();
     let mods = mods();
     crate::log::line(
         "loader",

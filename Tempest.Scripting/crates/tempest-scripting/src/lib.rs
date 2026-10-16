@@ -56,10 +56,11 @@ pub fn boot() {
     log::line(
         "boot",
         &format!(
-            "Tempest.Scripting {} pid={} log={}",
+            "Tempest.Scripting {} pid={} log={} dll={}",
             env!("CARGO_PKG_VERSION"),
             std::process::id(),
-            log::path().unwrap_or_default()
+            log::path().unwrap_or_default(),
+            log::module_offset(boot as *const () as usize)
         ),
     );
     let g = unreal::resolve();
@@ -70,9 +71,46 @@ pub fn boot() {
         unreal::wait_for_engine(std::time::Duration::from_secs(120));
         unreal::install_script_hook();
     }
-    loader::run_all(lua());
+    run_scripts();
     log::line("boot", "ready");
     repl();
+}
+
+/// Run every mod's scripts on the game thread. Scripts walk the object
+/// table (class lookups, `tempest.objects`), and the game thread grows and
+/// reallocates that table while a map loads; iterating it from this thread
+/// at the same time reads freed memory. The game thread picks the job up at
+/// its next `ProcessEvent`; without the hook (or no event for a minute) the
+/// scripts run here instead.
+fn run_scripts() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Condvar, Mutex};
+    let run = || loader::run_all(lua());
+    if !unreal::globals().hook_installed {
+        run();
+        return;
+    }
+    let claimed = Arc::new(AtomicBool::new(false));
+    let done = Arc::new((Mutex::new(false), Condvar::new()));
+    {
+        let (claimed, done) = (claimed.clone(), done.clone());
+        unreal::queue(Box::new(move || {
+            if claimed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+                run();
+            }
+            *done.0.lock().unwrap() = true;
+            done.1.notify_all();
+        }));
+    }
+    let guard = done.0.lock().unwrap();
+    let (_g, _) = done
+        .1
+        .wait_timeout_while(guard, std::time::Duration::from_secs(60), |finished| !*finished)
+        .unwrap();
+    if claimed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+        log::line("boot", "no game-thread event within 60 s; running scripts on the boot thread");
+        run();
+    }
 }
 
 /// One runtime per process: several mods may ship this DLL (different

@@ -176,7 +176,10 @@ struct ExceptionPointers {
 
 #[cfg(windows)]
 unsafe extern "system" fn veh_handler(ptrs: *mut std::ffi::c_void) -> i32 {
+    use std::sync::atomic::{AtomicBool, Ordering};
     const CONTINUE_SEARCH: i32 = 0;
+    // A fault while reporting (bad stack, unmapped frame) must not recurse.
+    static BUSY: AtomicBool = AtomicBool::new(false);
     if ptrs.is_null() {
         return CONTINUE_SEARCH;
     }
@@ -195,12 +198,90 @@ unsafe extern "system" fn veh_handler(ptrs: *mut std::ffi::c_void) -> i32 {
         // C++ exceptions, breakpoints, guard pages: the game's business.
         _ => return CONTINUE_SEARCH,
     };
+    if BUSY.swap(true, Ordering::AcqRel) {
+        return CONTINUE_SEARCH;
+    }
     let addr = (*rec).address as usize;
     let (p0, p1) = ((*rec).info[0], (*rec).info[1]);
-    emit(&format!(
-        "[VEH][crash] {name} code=0x{code:08X} at=0x{addr:x} info=(0x{p0:x}, 0x{p1:x})\n"
-    ));
+    let mut text = format!(
+        "[VEH][crash] {name} code=0x{code:08X} at={} info=(0x{p0:x}, 0x{p1:x}) thread=t{}\n",
+        module_offset(addr),
+        GetCurrentThreadId()
+    );
+    let ctx = (*(ptrs as *const ExceptionPointers)).context;
+    if !ctx.is_null() {
+        text.push_str("[VEH][stack]");
+        for (i, pc) in backtrace(ctx).into_iter().enumerate() {
+            text.push_str(&format!(" #{i} {}", module_offset(pc)));
+        }
+        text.push('\n');
+    }
+    emit(&text);
+    BUSY.store(false, Ordering::Release);
     CONTINUE_SEARCH
+}
+
+/// `module.dll+0x1234` for an address inside a loaded module, else the raw address.
+#[cfg(windows)]
+pub fn module_offset(addr: usize) -> String {
+    const FROM_ADDRESS: u32 = 0x4;
+    const UNCHANGED_REFCOUNT: u32 = 0x2;
+    unsafe {
+        let mut module: *mut std::ffi::c_void = std::ptr::null_mut();
+        if addr != 0 && GetModuleHandleExW(FROM_ADDRESS | UNCHANGED_REFCOUNT, addr as *const u16, &mut module) != 0 && !module.is_null() {
+            let mut buf = [0u16; 512];
+            let n = GetModuleFileNameW(module, buf.as_mut_ptr(), buf.len() as u32) as usize;
+            let path = String::from_utf16_lossy(&buf[..n.min(buf.len())]);
+            let file = path.rsplit(['\\', '/']).next().unwrap_or(&path).to_string();
+            return format!("{file}+0x{:x}", addr - module as usize);
+        }
+    }
+    format!("0x{addr:x}")
+}
+
+#[cfg(not(windows))]
+pub fn module_offset(addr: usize) -> String {
+    format!("0x{addr:x}")
+}
+
+/// Return addresses above the faulting frame, from the exception CONTEXT,
+/// unwound with the loader's own tables (`RtlVirtualUnwind`).
+#[cfg(windows)]
+unsafe fn backtrace(ctx: *mut std::ffi::c_void) -> Vec<usize> {
+    const CONTEXT_SIZE: usize = 0x4D0;
+    const RSP: usize = 0x98;
+    const RIP: usize = 0xF8;
+    #[repr(C, align(16))]
+    struct Ctx([u8; CONTEXT_SIZE]);
+    let mut c = Ctx([0; CONTEXT_SIZE]);
+    std::ptr::copy_nonoverlapping(ctx as *const u8, c.0.as_mut_ptr(), CONTEXT_SIZE);
+    let get = |c: &Ctx, off: usize| std::ptr::read_unaligned(c.0.as_ptr().add(off) as *const u64) as usize;
+    let set = |c: &mut Ctx, off: usize, v: usize| std::ptr::write_unaligned(c.0.as_mut_ptr().add(off) as *mut u64, v as u64);
+    let mut out = Vec::new();
+    for _ in 0..24 {
+        let pc = get(&c, RIP);
+        if pc == 0 {
+            break;
+        }
+        out.push(pc);
+        let mut image_base: u64 = 0;
+        let entry = RtlLookupFunctionEntry(pc as u64, &mut image_base, std::ptr::null_mut());
+        if entry.is_null() {
+            // Leaf function: the return address sits at [rsp].
+            let rsp = get(&c, RSP);
+            if !crate::memory::is_readable(rsp, 8) {
+                break;
+            }
+            let ret = *(rsp as *const u64) as usize;
+            set(&mut c, RIP, ret);
+            set(&mut c, RSP, rsp + 8);
+        } else {
+            let mut handler_data: *mut std::ffi::c_void = std::ptr::null_mut();
+            let mut establisher: u64 = 0;
+            RtlVirtualUnwind(0, image_base, pc as u64, entry, c.0.as_mut_ptr() as *mut std::ffi::c_void, &mut handler_data, &mut establisher, std::ptr::null_mut());
+        }
+    }
+    out
 }
 
 #[cfg(windows)]
@@ -220,5 +301,18 @@ extern "system" {
     fn AddVectoredExceptionHandler(
         first: u32,
         handler: Option<unsafe extern "system" fn(*mut std::ffi::c_void) -> i32>,
+    ) -> *mut std::ffi::c_void;
+    fn GetModuleHandleExW(flags: u32, name: *const u16, module: *mut *mut std::ffi::c_void) -> i32;
+    fn GetModuleFileNameW(module: *mut std::ffi::c_void, buf: *mut u16, len: u32) -> u32;
+    fn RtlLookupFunctionEntry(pc: u64, image_base: *mut u64, history: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn RtlVirtualUnwind(
+        handler_type: u32,
+        image_base: u64,
+        pc: u64,
+        entry: *mut std::ffi::c_void,
+        context: *mut std::ffi::c_void,
+        handler_data: *mut *mut std::ffi::c_void,
+        establisher: *mut u64,
+        pointers: *mut std::ffi::c_void,
     ) -> *mut std::ffi::c_void;
 }

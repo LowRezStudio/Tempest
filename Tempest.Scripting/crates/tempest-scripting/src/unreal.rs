@@ -118,6 +118,14 @@ pub mod layout {
     pub const CPF_OUT_PARM: u64 = 0x100;
     pub const CPF_RETURN_PARM: u64 = 0x400;
     pub const FUNC_NATIVE: u32 = 0x400;
+    /// The function has a body. Without it (and without FUNC_Native)
+    /// `CallFunction` skips the call entirely (`SkipFunction`: arguments
+    /// consumed, result zeroed) and never reaches `ProcessInternal` or `Func`.
+    pub const FUNC_DEFINED: u32 = 0x2;
+    /// `dllimport` function of a `DLLBind` class: no body, no C++; Lua implements it.
+    pub const FUNC_DLL_IMPORT: u32 = 0x0200_0000;
+    /// `FString` = `TArray<TCHAR>`: Data, Count, Max.
+    pub const FSTRING_SIZE: usize = 0x10;
     /// `ProcessEvent` runs the per-optional-parm default prologue when set.
     pub const FUNC_HAS_OPTIONAL_PARMS: u32 = 0x404000;
     /// `GRuntimeUCFlags` bit: the caller skipped the optional parm being evaluated.
@@ -618,9 +626,10 @@ pub fn objects() -> impl Iterator<Item = usize> {
 /// First object whose `GetFullName()` is `full` (e.g. `"Class TgGame.TgGame"`).
 pub fn find_object(full: &str) -> Option<usize> {
     let (class_name, path) = full.split_once(' ')?;
+    // FName semantics: names compare case-insensitively.
     objects().find(|&o| {
-        object_class(o).and_then(object_name).as_deref() == Some(class_name)
-            && object_path(o).as_deref() == Some(path)
+        object_class(o).and_then(object_name).is_some_and(|n| n.eq_ignore_ascii_case(class_name))
+            && object_path(o).is_some_and(|p| p.eq_ignore_ascii_case(path))
     })
 }
 
@@ -1257,15 +1266,27 @@ fn copy_bytes(src: usize, dst: usize, n: usize) {
     }
 }
 
-/// Copy the (POD) return value of `func` from one frame/slot to another.
-/// Strings and arrays are skipped: they need assignment, not a byte copy.
+/// Copy the return value of `func` from one frame/slot to another. POD
+/// kinds are copied; an `FString` is moved (its three words copied, the
+/// source zeroed) so exactly one side owns the buffer. Arrays are skipped:
+/// they need assignment, not a byte copy.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn copy_return(func: usize, from: usize, from_is_frame: bool, to: usize) {
     let Some(p) = function_params(func).into_iter().find(|p| p.is_return()) else { return };
-    if matches!(p.prop.kind, PropKind::Str | PropKind::Array | PropKind::Other) {
+    if matches!(p.prop.kind, PropKind::Array | PropKind::Other) {
         return;
     }
     let src = if from_is_frame { from + p.prop.offset } else { from };
+    if src == to || to == 0 {
+        return;
+    }
+    if p.prop.kind == PropKind::Str {
+        copy_bytes(src, to, FSTRING_SIZE);
+        for i in 0..FSTRING_SIZE {
+            unsafe { memory::write(src + i, 0u8) };
+        }
+        return;
+    }
     copy_bytes(src, to, p.prop.elem_size.max(1));
 }
 
@@ -1834,6 +1855,68 @@ pub fn native_hooks() -> Vec<String> {
     Vec::new()
 }
 
+/// Make `func` (a `dllimport` function, or a native the engine left
+/// unbound) call into Lua: `tempest.native` handlers implement it.
+pub fn bind_lua_native(func: usize) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        native::bind_lua(func)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = func;
+        Err("host build".into())
+    }
+}
+
+/// Is `func` something Lua may implement: flagged `dllimport`, or native
+/// with no implementation bound?
+pub fn function_is_lua_bindable(func: usize) -> bool {
+    let flags: u32 = unsafe { memory::read(func + UFUNCTION_FLAGS) }.unwrap_or(0);
+    let bound: usize = unsafe { memory::read(func + UFUNCTION_FUNC) }.unwrap_or(0);
+    flags & FUNC_DLL_IMPORT != 0 || (flags & FUNC_NATIVE != 0 && bound == 0)
+}
+
+/// Full names of the functions currently implemented from Lua.
+pub fn lua_natives() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        native::lua_natives().into_iter().filter_map(object_full_name).collect()
+    }
+    #[cfg(not(windows))]
+    Vec::new()
+}
+
+/// Bind every loaded `dllimport` function to a Lua-native thunk, so a call
+/// before (or without) a `tempest.native` handler returns zero instead of
+/// running the engine's empty stub. Idempotent; returns how many are bound.
+pub fn bind_dll_imports() -> usize {
+    if !globals().gobjects_ok {
+        return 0;
+    }
+    let Some(function_class) = find_class("Core.Function") else { return 0 };
+    let mut bound = 0;
+    let mut failed = 0;
+    for obj in objects() {
+        if object_class(obj) != Some(function_class) || !function_is_lua_bindable(obj) {
+            continue;
+        }
+        match bind_lua_native(obj) {
+            Ok(()) => bound += 1,
+            Err(e) => {
+                failed += 1;
+                if failed <= 3 {
+                    crate::log::line("hook", &format!("cannot bind {}: {e}", object_full_name(obj).unwrap_or_default()));
+                }
+            }
+        }
+    }
+    if bound > 0 {
+        crate::log::line("hook", &format!("{bound} dllimport function(s) bound to Lua natives"));
+    }
+    bound
+}
+
 /// Swap a native `UFunction.Func` for one of our thunks (idempotent).
 pub fn hook_native(func: usize) -> Result<(), String> {
     #[cfg(windows)]
@@ -1994,12 +2077,21 @@ mod script_hook {
                     .map(|(i, _)| i);
                 prev_object == Some(o) && prev_name == super::object_fname(func).map(|(i, _)| i)
             });
+        // `out` arguments live behind the frame's OutParms chain, not in
+        // Locals: show handlers their incoming values, and copy a cancelling
+        // handler's assignments back to the caller's variables.
+        let params = super::function_params(func);
+        super::native::for_each_out_parm(s, func, &params, |p, addr| super::copy_bytes(addr, locals + p.prop.offset, p.prop.elem_size.max(1)));
         let proceed = catch_unwind(AssertUnwindSafe(|| super::on_process_event_before(o, func, locals, inner)))
             .unwrap_or(true);
         if !proceed {
+            super::native::for_each_out_parm(s, func, &params, |p, addr| super::copy_bytes(locals + p.prop.offset, addr, p.prop.elem_size.max(1)));
             // The caller still expects its return slot filled.
             super::copy_return(func, locals, true, r);
             return;
+        }
+        if super::native::is_lua_native(func) {
+            super::native::warn_unimplemented(func);
         }
         h.call(this, stack, result);
         let _ = catch_unwind(AssertUnwindSafe(|| super::on_process_event_after(o, func, locals, inner)));
@@ -2060,8 +2152,19 @@ mod native {
 
     extern "system" fn thunk<const N: usize>(this: *mut c_void, stack: *mut c_void, result: *mut c_void) {
         let func = TABLE[N].func.load(Ordering::Acquire);
-        let original: NativeFn = unsafe { std::mem::transmute(TABLE[N].original.load(Ordering::Acquire)) };
+        let raw = TABLE[N].original.load(Ordering::Acquire);
         let (o, s, r) = (this as usize, stack as usize, result as usize);
+        if raw == 0 {
+            // A Lua-implemented native (dllimport): nothing to fall back to.
+            if func == 0 || s == 0 {
+                return;
+            }
+            if catch_unwind(AssertUnwindSafe(|| dispatch_lua_native(func, o, s, r))).is_err() {
+                crate::log::line("hook", "lua native thunk panicked; call skipped");
+            }
+            return;
+        }
+        let original: NativeFn = unsafe { std::mem::transmute(raw) };
         if func == 0 || s == 0 || !super::any_sub_for(func) {
             original(this, stack, result);
             return;
@@ -2071,22 +2174,25 @@ mod native {
         }
     }
 
-    fn dispatch(func: usize, original: NativeFn, this: usize, stack: usize, result: usize) {
-        let params = function_params(func);
-        let size = parms_frame_size(func, &params);
+    /// Evaluate the caller's argument expressions (the frame's `Code` points
+    /// at them) into a fresh params frame, as the native itself would. An
+    /// omitted optional arg is `EX_EmptyParmValue`, which raises
+    /// RUC_SkippedOptionalParm; that is remembered per param so the default
+    /// prologue applies defaults to exactly those. Also captures each `out`
+    /// param's caller l-value (0 = unknown) for the write-back.
+    fn evaluate_args(func: usize, this: usize, stack: usize, params: &[super::Param]) -> (Vec<u64>, Vec<bool>, Vec<usize>) {
+        let size = parms_frame_size(func, params);
         let mut frame = vec![0u64; size.div_ceil(8).max(1)];
         let buf = frame.as_mut_ptr() as usize;
         let g = globals();
         let gnatives = g.gnatives;
         let context = unsafe { memory::read::<usize>(stack + FRAME_OBJECT) }.unwrap_or(this);
-
-        // Evaluate the caller's argument expressions into our frame. An
-        // omitted optional arg is `EX_EmptyParmValue`, which raises
-        // RUC_SkippedOptionalParm; remember that per param so the default
-        // prologue below applies defaults to exactly those.
         let mut omitted = vec![false; params.len()];
-        // Caller l-value address of each `out` param (0 = none / unknown).
         let mut out_addrs = vec![0usize; params.len()];
+        if gnatives == 0 {
+            crate::log::line("hook", "native thunk: GNatives unresolved; arguments left zero");
+            return (frame, omitted, out_addrs);
+        }
         for (i, p) in params.iter().enumerate().filter(|(_, p)| !p.is_return()) {
             let Some(code) = (unsafe { memory::read::<usize>(stack + FRAME_CODE) }) else { break };
             let Some(op) = (unsafe { memory::read::<u8>(code) }) else { break };
@@ -2114,8 +2220,162 @@ mod native {
                 unsafe { memory::write(stack + FRAME_CODE, code + 1) };
             }
         }
+        (frame, omitted, out_addrs)
+    }
 
+    fn dispatch(func: usize, original: NativeFn, this: usize, stack: usize, result: usize) {
+        let params = function_params(func);
+        let (mut frame, omitted, out_addrs) = evaluate_args(func, this, stack, &params);
+        let buf = frame.as_mut_ptr() as usize;
         run(func, original, this, stack, buf, result, &params, &omitted, &out_addrs);
+    }
+
+    // ----- Lua-implemented natives (dllimport functions) -------------------
+    //
+    // Two ways in. When the engine treats the function as script (its
+    // `FunctionFlags` lack FUNC_Native, which is what `dllimport` compiles
+    // to), `CallFunction`/`ProcessEvent` build the params frame themselves
+    // and call `Func` with a frame whose `Node` is the function and whose
+    // `Locals` hold the arguments; `out` arguments live behind the frame's
+    // `OutParms` chain. When the flags do say native, the thunk gets the
+    // caller's frame and evaluates the arguments itself. Either way the
+    // handlers see a `Params` proxy over the frame, a cancelling `before`
+    // handler's `ReturnValue` becomes the result, and `out` params are
+    // written back to the caller's variables.
+
+    fn dispatch_lua_native(func: usize, this: usize, stack: usize, result: usize) {
+        let params = function_params(func);
+        let node = unsafe { memory::read::<usize>(stack + FRAME_NODE) }.unwrap_or(0);
+        if node == func {
+            let locals = unsafe { memory::read::<usize>(stack + FRAME_LOCALS) }.unwrap_or(0);
+            if locals == 0 {
+                return;
+            }
+            // Incoming values of `out` params are only behind OutParms: show them.
+            for_each_out_parm(stack, func, &params, |p, addr| super::copy_bytes(addr, locals + p.prop.offset, p.prop.elem_size.max(1)));
+            run_lua_native(func, this, locals, result, &params);
+            for_each_out_parm(stack, func, &params, |p, addr| super::copy_bytes(locals + p.prop.offset, addr, p.prop.elem_size.max(1)));
+            return;
+        }
+        let (mut frame, _omitted, out_addrs) = evaluate_args(func, this, stack, &params);
+        let buf = frame.as_mut_ptr() as usize;
+        run_lua_native(func, this, buf, result, &params);
+        for (i, p) in params.iter().enumerate() {
+            let dst = out_addrs.get(i).copied().unwrap_or(0);
+            if dst != 0 && p.is_out() && !p.is_return() && is_pod(p) {
+                super::copy_bytes(buf + p.prop.offset, dst, p.prop.elem_size.max(1));
+            }
+        }
+    }
+
+    pub fn is_pod(p: &super::Param) -> bool {
+        !matches!(p.prop.kind, PropKind::Str | PropKind::Array | PropKind::Map | PropKind::Other)
+    }
+
+    /// Is `func` bound to Lua (a dllimport function with no native behind it)?
+    pub fn is_lua_native(func: usize) -> bool {
+        func != 0
+            && TABLE
+                .iter()
+                .any(|s| s.func.load(Ordering::Acquire) == func && s.original.load(Ordering::Acquire) == 0)
+    }
+
+    /// Log once per function that it ran without a `tempest.native` handler.
+    pub fn warn_unimplemented(func: usize) {
+        static WARNED: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+        let mut warned = WARNED.lock().unwrap();
+        if !warned.contains(&func) {
+            warned.push(func);
+            crate::log::line(
+                "lua",
+                &format!("{} has no Lua implementation (tempest.native); returning zero", super::object_full_name(func).unwrap_or_default()),
+            );
+        }
+    }
+
+    /// Walk the frame's `FOutParmRec` chain and call `f(param, caller_addr)`
+    /// for every POD `out` param of `func` found in it.
+    ///
+    /// The engine (`ProcessEvent`, `CallFunction`) allocas one record per
+    /// `out` param and links them, but never null-terminates the last
+    /// record's `NextOutParm`: its own lookups stop at the property they
+    /// want. So this walks at most as many records as the function has
+    /// `out` params and never trusts a pointer before checking it.
+    pub fn for_each_out_parm(stack: usize, func: usize, params: &[super::Param], mut f: impl FnMut(&super::Param, usize)) {
+        let n_out = params.iter().filter(|p| p.is_out() && !p.is_return()).count();
+        if stack == 0 || n_out == 0 {
+            return;
+        }
+        let valid = |p: usize, len: usize| p != 0 && p.is_multiple_of(8) && memory::is_readable(p, len);
+        let mut rec = unsafe { memory::read::<usize>(stack + FRAME_OUT_PARMS) }.unwrap_or(0);
+        let mut seen = 0;
+        while seen < n_out && valid(rec, OUTPARM_SIZE) {
+            seen += 1;
+            let prop = unsafe { memory::read::<usize>(rec + OUTPARM_PROPERTY) }.unwrap_or(0);
+            let addr = unsafe { memory::read::<usize>(rec + OUTPARM_ADDR) }.unwrap_or(0);
+            if valid(prop, 8) && addr != 0 {
+                if let Some(p) = params.iter().find(|p| p.is_out() && !p.is_return() && super::find_property_object_in(func, &p.name) == Some(prop)) {
+                    if is_pod(p) && memory::is_readable(addr, p.prop.elem_size.max(1)) {
+                        f(p, addr);
+                    }
+                }
+            }
+            rec = unsafe { memory::read::<usize>(rec + OUTPARM_NEXT) }.unwrap_or(0);
+        }
+    }
+
+    /// Handlers against a filled frame: a cancelling `before` handler is the
+    /// implementation (its `ReturnValue` goes to `result`); when none cancels
+    /// the function is unimplemented and returns zero, logged once.
+    fn run_lua_native(func: usize, this: usize, buf: usize, result: usize, params: &[super::Param]) {
+        if super::on_process_event_before(this, func, buf, false) {
+            warn_unimplemented(func);
+        }
+        if let Some(p) = params.iter().find(|p| p.is_return()) {
+            if result != 0 && result != buf + p.prop.offset {
+                super::copy_return(func, buf, true, result);
+            }
+        }
+        super::on_process_event_after(this, func, buf, false);
+    }
+
+    /// Bind a `dllimport` (or otherwise unimplemented native) function to a
+    /// Lua-native thunk. Idempotent; an already hooked function stays as is.
+    pub fn bind_lua(func: usize) -> Result<(), String> {
+        let _guard = INSTALL.lock().unwrap();
+        if is_hooked(func) {
+            return Ok(());
+        }
+        let slot = TABLE
+            .iter()
+            .position(|s| s.func.load(Ordering::Acquire) == 0)
+            .ok_or_else(|| format!("all {SLOTS} native hook slots in use"))?;
+        TABLE[slot].original.store(0, Ordering::Release);
+        TABLE[slot].func.store(func, Ordering::Release);
+        if !unsafe { memory::write(func + UFUNCTION_FUNC, THUNKS[slot] as usize) } {
+            TABLE[slot].func.store(0, Ordering::Release);
+            return Err("cannot write UFunction.Func".into());
+        }
+        // UDK leaves `dllimport` functions without FUNC_Defined, and
+        // `CallFunction` skips a bodiless non-native function outright. With
+        // the flag, bytecode calls take the script path into ProcessInternal
+        // (our detour) and ProcessEvent calls reach the thunk above.
+        if let Some(flags) = unsafe { memory::read::<u32>(func + UFUNCTION_FLAGS) } {
+            if flags & FUNC_DEFINED == 0 {
+                unsafe { memory::write(func + UFUNCTION_FLAGS, flags | FUNC_DEFINED) };
+            }
+        }
+        Ok(())
+    }
+
+    /// Functions bound through `bind_lua`.
+    pub fn lua_natives() -> Vec<usize> {
+        TABLE
+            .iter()
+            .filter(|s| s.original.load(Ordering::Acquire) == 0)
+            .map(|s| s.func.load(Ordering::Acquire))
+            .filter(|&f| f != 0)
+            .collect()
     }
 
     fn skipped_flag(addr: usize) -> bool {
@@ -2228,8 +2488,14 @@ mod native {
     /// the native here against the caller-built frame instead.
     pub fn call_with_frame(func: usize, this: usize, buf: usize, omitted_inputs: &[bool]) -> bool {
         let Some(slot) = TABLE.iter().find(|s| s.func.load(Ordering::Acquire) == func) else { return false };
-        let original: NativeFn = unsafe { std::mem::transmute(slot.original.load(Ordering::Acquire)) };
+        let raw = slot.original.load(Ordering::Acquire);
         let params = function_params(func);
+        if raw == 0 {
+            // Lua native called from Lua: the result lives in the frame itself.
+            run_lua_native(func, this, buf, 0, &params);
+            return true;
+        }
+        let original: NativeFn = unsafe { std::mem::transmute(raw) };
         let result = params.iter().find(|p| p.is_return()).map(|p| buf + p.prop.offset).unwrap_or(0);
         // `omitted_inputs` is indexed over non-return params; spread it over all.
         let mut omitted = vec![false; params.len()];

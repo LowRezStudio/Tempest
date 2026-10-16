@@ -90,6 +90,11 @@ fn host_smoke() {
     assert_eq!(unsafe { std::ptr::read((p + 10) as *const u16) }, 0);
     eval(&format!("assert(memory.write_str({p}, 'abc')); assert(memory.free({p})); assert(not memory.free({p})); return true"));
     assert_eq!(eval("return pcall(memory.alloc, 0)"), mlua::Value::Boolean(false));
+    // Lua natives: a class that is not loaded registers lazily; a bare name is an error.
+    assert_eq!(eval("return pcall(tempest.native, 'NoClassHere', function() end)"), mlua::Value::Boolean(false));
+    eval("local id = tempest.native('Mod.Class.Func', function(this, p) return 1 end); \
+          assert(tempest.status().subscriptions[id] == 'before Mod.Class.Func'); tempest.off(id); return true");
+    assert_eq!(eval("return #tempest.status().lua_natives"), mlua::Value::Integer(0));
     assert_eq!(eval("return memory.write_str(0, 'x')"), mlua::Value::Boolean(false));
 
     // The shipped examples at least parse and run with nothing resolved.
@@ -105,6 +110,7 @@ fn host_smoke() {
         include_str!("../../../examples/07_shared.lua"),
         include_str!("../../../examples/08_keys.lua"),
         include_str!("../../../examples/09_address_hook.lua"),
+        include_str!("../../../examples/10_lua_natives.lua"),
     ] {
         lua.load(src).exec().expect("example runs on host");
     }

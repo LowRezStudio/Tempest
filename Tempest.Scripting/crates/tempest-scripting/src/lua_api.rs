@@ -228,6 +228,31 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         "local_player",
         lua.create_function(|_, ()| Ok(local_player_controller().map(Object)))?,
     )?;
+    // Backs tempest.native (prelude): make "Pkg.Class.Func" call into Lua.
+    // Returns true when bound, false (with a log line) when the class is not
+    // loaded yet; raises when the function exists but Lua cannot implement it.
+    t.set(
+        "_bind_native",
+        lua.create_function(|_, spec: String| {
+            let Some((class_path, name)) = spec.rsplit_once('.') else {
+                return Err(mlua::Error::external(format!("tempest.native: `{spec}` must be Package.Class.Func")));
+            };
+            let Some(class) = unreal::find_class(class_path) else {
+                crate::log::line("lua", &format!("tempest.native: class {class_path} is not loaded; `{name}` binds when it is"));
+                return Ok(false);
+            };
+            let Some(func) = unreal::find_function(class, name) else {
+                return Err(mlua::Error::external(format!("tempest.native: {class_path} has no function `{name}`")));
+            };
+            if !unreal::function_is_lua_bindable(func) && !unreal::lua_natives().iter().any(|n| n.ends_with(&format!("{class_path}.{name}"))) {
+                return Err(mlua::Error::external(format!(
+                    "tempest.native: {spec} is not a dllimport function (declare it `dllimport final function` in a DLLBind class)"
+                )));
+            }
+            unreal::bind_lua_native(func).map_err(|e| mlua::Error::external(format!("tempest.native: {e}")))?;
+            Ok(true)
+        })?,
+    )?;
     // tempest.object(ptr) -> Object proxy for a raw UObject* (nil unless the
     // pointer and its class pointer are readable), for address-hook arguments.
     t.set(
@@ -271,6 +296,7 @@ fn status(lua: &Lua) -> mlua::Result<Table> {
     t.set("gnatives", addr(g.gnatives))?;
     t.set("native_hooks", unreal::native_hooks())?;
     t.set("address_hooks", address_hooks(lua)?)?;
+    t.set("lua_natives", unreal::lua_natives())?;
     t.set("mods", crate::loader::mods().into_iter().map(|m| m.id).collect::<Vec<_>>())?;
     t.set("key_hook_installed", crate::input::installed())?;
     t.set("game_thread", unreal::game_thread_id())?;
@@ -793,8 +819,9 @@ impl Params {
         let params = unreal::function_params(self.func);
         match key {
             Value::String(s) => {
+                // FName semantics: `p.PlayerId` finds the `PlayerID` parameter.
                 let s = s.to_string_lossy();
-                params.into_iter().find(|p| p.name == *s)
+                params.into_iter().find(|p| p.name.eq_ignore_ascii_case(&s))
             }
             Value::Integer(i) if *i >= 1 => params.into_iter().nth(*i as usize - 1),
             _ => None,

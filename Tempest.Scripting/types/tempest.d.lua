@@ -129,7 +129,7 @@ tempest = {}
 ---@param msg string
 function tempest.log(msg) end
 
----@return { gobjects: integer|nil, gnames: integer|nil, engine: integer|nil, process_event: integer|nil, process_internal: integer|nil, gmalloc: integer|nil, gnatives: integer|nil, xor_mask: integer|nil, gnames_ok: boolean, gobjects_ok: boolean, hook_installed: boolean, script_hook_installed: boolean, key_hook_installed: boolean, game_thread: integer|nil, object_count: integer|nil, name_count: integer|nil, notes: string[], subscriptions: table<integer, string>, native_hooks: string[], address_hooks: AddressHook[], mods: string[] }
+---@return { gobjects: integer|nil, gnames: integer|nil, engine: integer|nil, process_event: integer|nil, process_internal: integer|nil, gmalloc: integer|nil, gnatives: integer|nil, xor_mask: integer|nil, gnames_ok: boolean, gobjects_ok: boolean, hook_installed: boolean, script_hook_installed: boolean, key_hook_installed: boolean, game_thread: integer|nil, object_count: integer|nil, name_count: integer|nil, notes: string[], subscriptions: table<integer, string>, native_hooks: string[], address_hooks: AddressHook[], lua_natives: string[], mods: string[] }
 function tempest.status() end
 
 --- After the original ran. `spec` = "Func" (any class, once per logical call) or "Pkg.Class.Func" (that exact function).
@@ -146,6 +146,13 @@ function tempest.before(spec, fn) end
 
 ---@param id integer
 function tempest.off(id) end
+
+--- Implement a mod package's `dllimport` function (declared in a `DLLBind` class) in Lua.
+--- `fn` returns the function's result; assign `out` parameters into `params`.
+---@param spec string   # "Package.Class.Func"
+---@param fn fun(this: Object, params: Params): any
+---@return integer id
+function tempest.native(spec, fn) end
 
 --- Run `fn` on the game thread at the next event.
 ---@param fn fun()

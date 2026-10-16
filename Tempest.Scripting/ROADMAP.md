@@ -98,6 +98,11 @@ reach script → script and script → native calls.
 - [~] `memory.call(addr, ...)`, `memory.alloc/free`, `memory.write_str/write_wstr`, and
   `tempest.object(ptr)` so a C++ entry (e.g. `UObject::LoadPackage(NULL, TCHAR*, flags)`) can be
   called and its `UObject*` arguments inspected from Lua.
+- [~] **Lua-implemented natives**: `dllimport` functions of a `DLLBind` class (UDK-compilable, no
+  C++) are rebound at startup from the engine's empty stub to a Lua-native thunk;
+  `tempest.native(spec, fn)` supplies the body (return value → caller's result slot, `out`
+  params → `OutParms` chain or GPropAddr-captured l-values). Test bed: TgMod
+  `TmLuaTest.TmLuaGame` + `examples/10_lua_natives.lua`.
 - [ ] Float arguments/results (would need an asm thunk that spills XMM0-3).
 - [ ] Signature helpers for common engine entries (`LoadPackage`, `StaticLoadObject`,
   `GPackageFileCache->CachePackage`) so scripts do not carry byte patterns.

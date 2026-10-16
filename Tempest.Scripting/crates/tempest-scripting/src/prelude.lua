@@ -123,6 +123,21 @@ function tempest.spawn(class, location, rotation, owner, context)
 	return actor:Spawn(cls, owner, nil, location or actor.Location, rotation or actor.Rotation, nil, true)
 end
 
+-- tempest.native("Pkg.Class.Func", fn): implement a `dllimport` function
+-- of a mod's UnrealScript package in Lua. fn(this, params) runs instead of
+-- the (empty) function; its return value becomes the function's result and
+-- `out` params are whatever fn assigned into `params`. Returns the hook id
+-- (tempest.off removes the implementation; the function then returns zero).
+function tempest.native(spec, fn)
+	assert(type(spec) == "string" and type(fn) == "function", "tempest.native(spec, fn)")
+	tempest._bind_native(spec)
+	return tempest.before(spec, function(this, params)
+		local r = fn(this, params)
+		if r ~= nil then params.ReturnValue = r end
+		return false
+	end)
+end
+
 -- Drop everything a mod registered here (per-mod reload).
 function tempest._forget(mod)
 	for k, c in pairs(commands) do

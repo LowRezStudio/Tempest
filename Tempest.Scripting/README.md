@@ -65,6 +65,7 @@ The boot sequence, in order, with what each step must print:
 | mods | `loader`, `lua` | `2 mod(s): tempest-scripting-lib, tempest-scripting-test`, `LIB_PRIVATE visible here? nil`; `greet` works in the console |
 | keys | `input`, `lua` | `WndProc hook installed`; F5 prints a chat line, Ctrl+F5 hops the pawn, F9 writes `types/sdk/*.lua` |
 | address hooks | `hook`, `lua` | `tempest_memhook Engine.PlayerController.ConsoleCommand` in the console logs `address hook #1 on 0x..`, then one line per console command with the `this` object |
+| lua natives | `hook`, `lua` | `4 dllimport function(s) bound to Lua natives` at boot (TgMod installed); `open Shootingrange_P?game=TmLuaTest.TmLuaGame` prints `LuaAdd(2, 3) = 5` and the greeting in chat, `LuaHeartbeat #n` every 5 s in the log, `luatest` round-trips from the console |
 
 Environment: `TEMPEST_SCRIPT_DIR` (scripts folder), `TEMPEST_SCRIPT_LOG`
 (log path), `TEMPEST_SCRIPT_CONSOLE=0` (no console window).
@@ -120,6 +121,9 @@ tempest.on_key("Ctrl+F5", fn, opts?) / tempest.off_key(id) -- fn() on key down; 
                                      -- opts {up=true} = on release, {repeat=true} = also auto-repeat;
                                      -- MouseLeft/Right/Middle, Mouse4/5, WheelUp/Down work as keys
 tempest.spawn("Engine.PointLight", location?, rotation?, owner?, context?) -- Actor.Spawn from the local player
+tempest.native("TmLuaTest.TmLuaGame.LuaAdd", fn) -> id -- implement a mod package's `dllimport` function:
+                                     --   fn(this, params) -> return value; assign `out` params into params
+                                     --   (every dllimport function is bound at startup; unimplemented = zero)
 tempest.dump_sdk(dir?)               -- LuaLS stubs for every game class/struct -> <mod>/types/sdk/*.lua
 
 memory.base() memory.size()
@@ -141,7 +145,11 @@ tempest.object(ptr)                  -- wrap a raw UObject* argument (nil unless
 
 Unknown property reads return `nil` (logged once per call site); writes
 raise a Lua error. Handler errors are logged and never reach the game.
-Calls from the console REPL are queued to the game thread automatically.
+Scripts run on the game thread (the boot thread queues them to the first
+`ProcessEvent` after `GEngine` exists), as do hook handlers, key bindings and
+console commands; calls from the console REPL are queued there automatically.
+Object-table walks (`find_class`, `objects`) are only safe from that thread:
+a map load grows and reallocates the table underneath anyone else.
 
 Where hooks attach, by function kind:
 
@@ -151,6 +159,22 @@ Where hooks attach, by function kind:
 | native called from UnrealScript or Lua | `UFunction.Func` swap to a thunk | `Package.Class.Func` | `out` params are captured and written back (POD kinds); 64 hook slots |
 | native called from C++ via `ProcessEvent` | `ProcessEvent` detour | name, class optional | |
 | any C++ function (not a UFunction) | inline detour on its entry (`memory.hook`) | address, from `memory.scan` or a resolved pointer | integer args/result only; handlers run on the calling thread |
+
+**Lua-implemented natives.** A mod's UnrealScript package can declare
+functions with no body for Lua to implement: `class X extends Y
+DLLBind(TempestScripting);` plus `dllimport final function int Foo(int A);`
+(UDK compiles this; parameters are limited to int/float/byte/bool/string
+and structs of those, no object references). The Paladins engine binds such
+a function to its empty script stub but, lacking `FUNC_Defined`, skips every
+call to it (`CallFunction` → `SkipFunction`: zero result). At startup the
+runtime sets `FUNC_Defined` on every `dllimport` function and rebinds its
+`Func` to a thunk: bytecode calls then take the script path into the
+`ProcessInternal` detour, engine/Lua calls reach the thunk, and either way
+`tempest.native` handlers run against the live params frame, the handler's
+return lands in the caller's result slot and `out` params are written back
+through the frame's `OutParms` chain. Without a handler the call returns
+zero and logs once. See `examples/10_lua_natives.lua`
+and TgMod's `TmLuaTest.TmLuaGame`.
 
 `memory.hook` sees the Win64 integer argument registers (RCX, RDX, R8, R9)
 and then the caller's stack slots, so `this` is `a1` for a method; float
@@ -217,7 +241,7 @@ crates/tempest-scripting/src/
   unreal.rs    signatures, names/objects, reflection, subscriptions, hook
   lua_api.rs   tempest.* / memory.* / Object proxy
   loader.rs    scripts/ discovery, run, reload
-examples/      00_status .. 09_address_hook: reference scripts (dev/ starts as a copy)
+examples/      00_status .. 10_lua_natives: reference scripts (dev/ starts as a copy)
 examples/mods/ tempest-scripting-lib: a DLL-less library mod (dist/lib.tempest)
 packaging/     scripting/ (runtime manifest + core.lua), console/ (console mod)
 dev/           the scratch mod (dist/dev.tempest): edit freely
