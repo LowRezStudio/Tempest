@@ -229,8 +229,12 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|_, ()| Ok(local_player_controller().map(Object)))?,
     )?;
     // Backs tempest.native (prelude): make "Pkg.Class.Func" call into Lua.
-    // Returns true when bound, false (with a log line) when the class is not
-    // loaded yet; raises when the function exists but Lua cannot implement it.
+    // Two kinds of function qualify: a `dllimport` declaration (no body; the
+    // runtime rebinds it to a Lua-native thunk) and an ordinary script
+    // function with a stub body (any parameter types; the ProcessInternal
+    // detour's cancelling `before` handler is the implementation and the
+    // body is the fallback). Returns true when ready, false (with a log
+    // line) when the class is not loaded yet; raises for a real native.
     t.set(
         "_bind_native",
         lua.create_function(|_, spec: String| {
@@ -244,12 +248,19 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
             let Some(func) = unreal::find_function(class, name) else {
                 return Err(mlua::Error::external(format!("tempest.native: {class_path} has no function `{name}`")));
             };
-            if !unreal::function_is_lua_bindable(func) && !unreal::lua_natives().iter().any(|n| n.ends_with(&format!("{class_path}.{name}"))) {
+            if unreal::is_lua_native(func) {
+                return Ok(true);
+            }
+            if unreal::function_is_lua_bindable(func) {
+                unreal::bind_lua_native(func).map_err(|e| mlua::Error::external(format!("tempest.native: {e}")))?;
+                return Ok(true);
+            }
+            if unreal::function_is_native(func) {
                 return Err(mlua::Error::external(format!(
-                    "tempest.native: {spec} is not a dllimport function (declare it `dllimport final function` in a DLLBind class)"
+                    "tempest.native: {spec} is a native with a C++ implementation; hook it with tempest.before instead, \
+                     or declare your own function (`dllimport`, or a script function with a stub body)"
                 )));
             }
-            unreal::bind_lua_native(func).map_err(|e| mlua::Error::external(format!("tempest.native: {e}")))?;
             Ok(true)
         })?,
     )?;

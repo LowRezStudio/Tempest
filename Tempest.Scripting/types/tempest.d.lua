@@ -147,8 +147,9 @@ function tempest.before(spec, fn) end
 ---@param id integer
 function tempest.off(id) end
 
---- Implement a mod package's `dllimport` function (declared in a `DLLBind` class) in Lua.
---- `fn` returns the function's result; assign `out` parameters into `params`.
+--- Implement a function of a mod package in Lua: a `dllimport` declaration (DLLBind class, no body,
+--- no object parameters) or a plain script function with a stub body (any types; the body is the
+--- fallback). `fn` returns the function's result; assign `out` parameters into `params`.
 ---@param spec string   # "Package.Class.Func"
 ---@param fn fun(this: Object, params: Params): any
 ---@return integer id

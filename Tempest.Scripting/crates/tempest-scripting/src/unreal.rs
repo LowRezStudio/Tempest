@@ -1877,6 +1877,19 @@ pub fn function_is_lua_bindable(func: usize) -> bool {
     flags & FUNC_DLL_IMPORT != 0 || (flags & FUNC_NATIVE != 0 && bound == 0)
 }
 
+/// Is `func` already bound to a Lua-native thunk?
+pub fn is_lua_native(func: usize) -> bool {
+    #[cfg(windows)]
+    {
+        native::is_lua_native(func)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = func;
+        false
+    }
+}
+
 /// Full names of the functions currently implemented from Lua.
 pub fn lua_natives() -> Vec<String> {
     #[cfg(windows)]

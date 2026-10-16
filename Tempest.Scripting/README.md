@@ -173,7 +173,9 @@ runtime sets `FUNC_Defined` on every `dllimport` function and rebinds its
 `tempest.native` handlers run against the live params frame, the handler's
 return lands in the caller's result slot and `out` params are written back
 through the frame's `OutParms` chain. Without a handler the call returns
-zero and logs once. See `examples/10_lua_natives.lua`
+zero and logs once. For parameter types UDK refuses on `dllimport` (object
+references), declare an ordinary function with a stub body: `tempest.native`
+implements it through the same handler path and the body is the fallback. See `examples/10_lua_natives.lua`
 and TgMod's `TmLuaTest.TmLuaGame`.
 
 `memory.hook` sees the Win64 integer argument registers (RCX, RDX, R8, R9)

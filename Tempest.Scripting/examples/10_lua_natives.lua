@@ -32,6 +32,21 @@ tempest.native(GAME .. ".LuaHeartbeat", function(game, p)
 	print(string.format("LuaHeartbeat #%d at %.1fs on %s", p.Count, p.Elapsed, tostring(game)))
 end)
 
+-- Stub-bodied functions take any types: object in, object out. The body in
+-- the .uc ("not implemented in Lua" / false) runs when these are not here.
+tempest.native(GAME .. ".LuaDescribe", function(game, p)
+	local a = p.A
+	if not a then return "none" end
+	return a:class():name() .. " " .. tostring(a:name()) .. " at " .. tostring(a.Location and a.Location.z)
+end)
+
+tempest.native(GAME .. ".LuaControllerOf", function(game, p)
+	local pawn = p.P
+	if not pawn or not pawn.Controller then return false end
+	p.C = pawn.Controller
+	return true
+end)
+
 -- Lua -> Lua-native round trip through the normal call path.
 tempest.command("luatest", function(pc)
 	local game = pc.WorldInfo and pc.WorldInfo.Game
@@ -43,5 +58,8 @@ tempest.command("luatest", function(pc)
 	pc:ClientMessage("LuaGreet = " .. tostring(game:LuaGreet("console")))
 	local ok, boost = game:LuaOnPlayerSpawned(pc.PlayerReplicationInfo.PlayerID)
 	pc:ClientMessage(string.format("LuaOnPlayerSpawned = %s, boost z = %s", tostring(ok), tostring(boost and boost.z)))
+	pc:ClientMessage("LuaDescribe(pc) = " .. tostring(game:LuaDescribe(pc)))
+	local found, controller = game:LuaControllerOf(pc.Pawn)
+	pc:ClientMessage(string.format("LuaControllerOf(pawn) = %s, %s", tostring(found), tostring(controller)))
 	pc:ClientMessage("lua natives: " .. table.concat(tempest.status().lua_natives, ", "))
 end, "luatest  (call the TmLuaGame Lua natives from the console)")

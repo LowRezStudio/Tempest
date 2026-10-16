@@ -123,11 +123,14 @@ function tempest.spawn(class, location, rotation, owner, context)
 	return actor:Spawn(cls, owner, nil, location or actor.Location, rotation or actor.Rotation, nil, true)
 end
 
--- tempest.native("Pkg.Class.Func", fn): implement a `dllimport` function
--- of a mod's UnrealScript package in Lua. fn(this, params) runs instead of
--- the (empty) function; its return value becomes the function's result and
--- `out` params are whatever fn assigned into `params`. Returns the hook id
--- (tempest.off removes the implementation; the function then returns zero).
+-- tempest.native("Pkg.Class.Func", fn): implement a function of a mod's
+-- UnrealScript package in Lua: a `dllimport` declaration (no body, UDK
+-- limits its parameter types) or a plain script function with a stub body
+-- (any types, objects included; the body runs when no Lua handler is
+-- registered). fn(this, params) runs instead of the function; its return
+-- value becomes the function's result and `out` params are whatever fn
+-- assigned into `params`. Returns the hook id (tempest.off removes the
+-- implementation).
 function tempest.native(spec, fn)
 	assert(type(spec) == "string" and type(fn) == "function", "tempest.native(spec, fn)")
 	tempest._bind_native(spec)
