@@ -64,6 +64,7 @@ The boot sequence, in order, with what each step must print:
 | containers | `lua` | `06_containers.lua` lists key bindings (array of structs) and HUD scenes (map) |
 | mods | `loader`, `lua` | `2 mod(s): tempest-scripting-lib, tempest-scripting-test`, `LIB_PRIVATE visible here? nil`; `greet` works in the console |
 | keys | `input`, `lua` | `WndProc hook installed`; F5 prints a chat line, Ctrl+F5 hops the pawn, F9 writes `types/sdk/*.lua` |
+| address hooks | `hook`, `lua` | `tempest_memhook Engine.PlayerController.ConsoleCommand` in the console logs `address hook #1 on 0x..`, then one line per console command with the `this` object |
 
 Environment: `TEMPEST_SCRIPT_DIR` (scripts folder), `TEMPEST_SCRIPT_LOG`
 (log path), `TEMPEST_SCRIPT_CONSOLE=0` (no console window).
@@ -126,6 +127,16 @@ memory.read_u8/u16/u32/u64/i8/i16/i32/i64/f32/f64/ptr(addr)
 memory.write_u8/u16/u32/u64/i32/i64/f32/f64(addr, v)
 memory.read_str(addr, max) memory.read_wstr(addr, max)
 memory.scan("48 8B 05 ? ? ? ?", limit) -- absolute addresses
+
+memory.hook(addr, fn, {args=N}) -> id -- detour any function entry: fn(original, a1..aN)
+                                     --   r = original(a1, nil, x) runs the real function (nil keeps
+                                     --   an argument); return an integer to set the result, or
+                                     --   nothing to pass through. N defaults to 4, max 8.
+memory.unhook(id)  memory.hooks()    -- { {id, addr, mod}, ... }
+memory.call(addr, ...)               -- call any address: integer/boolean/Object args, integer result
+memory.alloc(n) memory.free(p)       -- zeroed scratch buffer for pointer arguments
+memory.write_str(p, s) memory.write_wstr(p, s) -- NUL-terminated ANSI / UTF-16 (TCHAR*)
+tempest.object(ptr)                  -- wrap a raw UObject* argument (nil unless it looks live)
 ```
 
 Unknown property reads return `nil` (logged once per call site); writes
@@ -139,6 +150,17 @@ Where hooks attach, by function kind:
 | script function (any caller: C++ event or UnrealScript) | `ProcessInternal` detour | name, class optional | cancel fills the caller's return slot with `params.ReturnValue` |
 | native called from UnrealScript or Lua | `UFunction.Func` swap to a thunk | `Package.Class.Func` | `out` params are captured and written back (POD kinds); 64 hook slots |
 | native called from C++ via `ProcessEvent` | `ProcessEvent` detour | name, class optional | |
+| any C++ function (not a UFunction) | inline detour on its entry (`memory.hook`) | address, from `memory.scan` or a resolved pointer | integer args/result only; handlers run on the calling thread |
+
+`memory.hook` sees the Win64 integer argument registers (RCX, RDX, R8, R9)
+and then the caller's stack slots, so `this` is `a1` for a method; float
+arguments and results (XMM) are invisible. Several hooks on one address
+chain, newest first; each `original` runs the next one. There is no limit on
+how many addresses can be hooked: each one gets a small stub generated at
+runtime, and the slot stays bound to its address after `unhook` (disabled,
+reused by the next hook on it). The target must be a function entry point
+whose first instructions the detour can relocate; otherwise `memory.hook`
+raises.
 
 Matching: a qualified spec (`Pkg.Class.Func`) binds to that exact `UFunction`
 and fires whenever that function body runs (also inside a `Super` chain);
@@ -190,11 +212,12 @@ crates/tempest-scripting/src/
   lib.rs       DllMain → boot thread: log, resolve, hook, run scripts
   log.rs       file + console + OutputDebugString; panic hook; crash VEH
   memory.rs    module, safe region scan, read/write, RIP/call math
+  hooks.rs     address hooks (memory.hook: runtime stubs + detours + handler chain) and raw calls
   tls.rs       anti-cheat XOR key (WolperMod EngineTls port)
   unreal.rs    signatures, names/objects, reflection, subscriptions, hook
   lua_api.rs   tempest.* / memory.* / Object proxy
   loader.rs    scripts/ discovery, run, reload
-examples/      00_status .. 08_keys: reference scripts (dev/ starts as a copy)
+examples/      00_status .. 09_address_hook: reference scripts (dev/ starts as a copy)
 examples/mods/ tempest-scripting-lib: a DLL-less library mod (dist/lib.tempest)
 packaging/     scripting/ (runtime manifest + core.lua), console/ (console mod)
 dev/           the scratch mod (dist/dev.tempest): edit freely
@@ -215,3 +238,8 @@ scripts/       package.sh (macOS/Linux), package.ps1 (Windows), pack.py (zip + C
   from those kinds (verified for name → object).
 - `PostLogin` and other `GameInfo` events only fire where the game is
   authoritative (listen/dedicated server).
+- `memory.hook` handlers run on the thread that called the function and
+  take the Lua VM lock; hooking code that runs on the render, audio or
+  async-loading threads while the game thread sits inside a Lua handler
+  that waits on those threads would deadlock. Hot functions (allocator,
+  per-vertex math) are a bad fit: every call round-trips through Lua.

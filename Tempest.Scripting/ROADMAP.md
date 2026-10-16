@@ -87,6 +87,21 @@ reach script → script and script → native calls.
   Super` blocks, typed `---@field`s for properties and `fun(self, ...)` fields for functions,
   from live reflection. Bound to F9 in `08_keys.lua`.
 
+## Phase 7 — raw addresses
+
+- [~] `memory.hook(addr, fn, {args=N})`: inline detour (`retour`) on any function entry. Each
+  hooked address gets a runtime-generated stub (`mov r10d, slot; jmp common`) into a shared
+  assembly entry that spills the integer arguments, so there is no slot limit; handlers chain
+  newest-first with `original(...)` to continue. Integer argument registers + stack slots only
+  (no XMM). `memory.unhook`, `memory.hooks()`, `tempest.status().address_hooks`; per-mod reload
+  drops a mod's hooks.
+- [~] `memory.call(addr, ...)`, `memory.alloc/free`, `memory.write_str/write_wstr`, and
+  `tempest.object(ptr)` so a C++ entry (e.g. `UObject::LoadPackage(NULL, TCHAR*, flags)`) can be
+  called and its `UObject*` arguments inspected from Lua.
+- [ ] Float arguments/results (would need an asm thunk that spills XMM0-3).
+- [ ] Signature helpers for common engine entries (`LoadPackage`, `StaticLoadObject`,
+  `GPackageFileCache->CachePackage`) so scripts do not carry byte patterns.
+
 ## Deferred / not planned
 
 - Win32 client, patches other than 8.1 (signatures are per build)

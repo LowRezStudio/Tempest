@@ -73,6 +73,25 @@ fn host_smoke() {
     assert_eq!(eval("return shared.__providers.greet"), mlua::Value::String(lua.create_string("local").unwrap()));
     assert_eq!(eval("return #tempest.status().native_hooks"), mlua::Value::Integer(0));
 
+    // Address hooks: refused on the host (no code to detour), bookkeeping intact.
+    assert_eq!(eval("return pcall(memory.hook, 0x1000, function() end)"), mlua::Value::Boolean(false));
+    assert_eq!(eval("return pcall(memory.hook, 0x1000, function() end, { args = 9 })"), mlua::Value::Boolean(false));
+    assert_eq!(eval("return #memory.hooks() + #tempest.status().address_hooks"), mlua::Value::Integer(0));
+    assert_eq!(eval("return memory.unhook(42)"), mlua::Value::Boolean(false));
+    assert!(eval("return memory.call(0, 1, 2)").is_nil());
+    assert!(eval("return tempest.object(0)").is_nil());
+    // Scratch buffers work everywhere (plain heap memory); memory.read_* stays
+    // stubbed on the host, so the round trip is checked from Rust.
+    let p = eval("local p = memory.alloc(64); assert(p > 0); \
+          assert(memory.write_wstr(p, 'héllo')); assert(not memory.write_wstr(p + 60, 'too long')); \
+          return p").as_integer().unwrap() as usize;
+    let units: Vec<u16> = (0..5).map(|i| unsafe { std::ptr::read((p + i * 2) as *const u16) }).collect();
+    assert_eq!(String::from_utf16_lossy(&units), "héllo");
+    assert_eq!(unsafe { std::ptr::read((p + 10) as *const u16) }, 0);
+    eval(&format!("assert(memory.write_str({p}, 'abc')); assert(memory.free({p})); assert(not memory.free({p})); return true"));
+    assert_eq!(eval("return pcall(memory.alloc, 0)"), mlua::Value::Boolean(false));
+    assert_eq!(eval("return memory.write_str(0, 'x')"), mlua::Value::Boolean(false));
+
     // The shipped examples at least parse and run with nothing resolved.
     for src in [
         include_str!("../../../examples/00_status.lua"),
@@ -85,6 +104,7 @@ fn host_smoke() {
         include_str!("../../../examples/06_containers.lua"),
         include_str!("../../../examples/07_shared.lua"),
         include_str!("../../../examples/08_keys.lua"),
+        include_str!("../../../examples/09_address_hook.lua"),
     ] {
         lua.load(src).exec().expect("example runs on host");
     }

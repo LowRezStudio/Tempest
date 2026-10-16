@@ -20,6 +20,7 @@
 #[cfg(all(windows, not(target_pointer_width = "64")))]
 compile_error!("Tempest.Scripting targets the Win64 client only");
 
+pub mod hooks;
 pub mod input;
 pub mod loader;
 pub mod log;

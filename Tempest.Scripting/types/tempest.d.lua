@@ -129,7 +129,7 @@ tempest = {}
 ---@param msg string
 function tempest.log(msg) end
 
----@return { gobjects: integer|nil, gnames: integer|nil, engine: integer|nil, process_event: integer|nil, process_internal: integer|nil, gmalloc: integer|nil, gnatives: integer|nil, xor_mask: integer|nil, gnames_ok: boolean, gobjects_ok: boolean, hook_installed: boolean, script_hook_installed: boolean, key_hook_installed: boolean, game_thread: integer|nil, object_count: integer|nil, name_count: integer|nil, notes: string[], subscriptions: table<integer, string>, native_hooks: string[], mods: string[] }
+---@return { gobjects: integer|nil, gnames: integer|nil, engine: integer|nil, process_event: integer|nil, process_internal: integer|nil, gmalloc: integer|nil, gnatives: integer|nil, xor_mask: integer|nil, gnames_ok: boolean, gobjects_ok: boolean, hook_installed: boolean, script_hook_installed: boolean, key_hook_installed: boolean, game_thread: integer|nil, object_count: integer|nil, name_count: integer|nil, notes: string[], subscriptions: table<integer, string>, native_hooks: string[], address_hooks: AddressHook[], mods: string[] }
 function tempest.status() end
 
 --- After the original ran. `spec` = "Func" (any class, once per logical call) or "Pkg.Class.Func" (that exact function).
@@ -180,6 +180,10 @@ function tempest.find_class(path) end
 function tempest.engine() end
 ---@return Engine.PlayerController|nil   # the local PlayerController, nil out of a match
 function tempest.local_player() end
+--- Wrap a raw UObject* (e.g. an address-hook argument); nil unless it looks like a live object.
+---@param ptr integer
+---@return Object|nil
+function tempest.object(ptr) end
 ---@param class string|Object
 ---@param outer Object|nil
 ---@param name? string
@@ -314,3 +318,50 @@ function memory.read_wstr(addr, max) end
 ---@param limit? integer
 ---@return integer[]
 function memory.scan(pattern, limit) end
+
+---@class AddressHook
+---@field id integer
+---@field addr integer
+---@field mod string
+
+--- Runs the rest of the hook chain (or the real function). Nil/missing arguments keep the caller's values.
+--- Only valid while the handler that received it runs.
+---@alias HookOriginal fun(...: integer|boolean|Object|nil): integer
+
+--- Detour the function at `addr` (a function entry point). The handler runs in its place with the
+--- first `opts.args` integer arguments (default 4, max 8: RCX, RDX, R8, R9, then the stack; floats
+--- are not visible). Return an integer to set the result, return nothing to use whatever
+--- `original` returned (or pass the call through untouched). Handlers run on the calling thread.
+--- Raises when the address cannot be detoured.
+---@param addr integer
+---@param fn fun(original: HookOriginal, ...: integer): integer|boolean|Object|nil
+---@param opts? { args?: integer }
+---@return integer id
+function memory.hook(addr, fn, opts) end
+---@param id integer
+---@return boolean removed
+function memory.unhook(id) end
+---@return AddressHook[]
+function memory.hooks() end
+--- Call any address with up to 8 integer/boolean/Object arguments; integer result (nil on the host build).
+---@param addr integer
+---@param ... integer|boolean|Object|nil
+---@return integer|nil
+function memory.call(addr, ...) end
+--- Zeroed heap buffer (1 byte .. 16 MiB) for pointer arguments; release with memory.free.
+---@param size integer
+---@return integer addr
+function memory.alloc(size) end
+---@param addr integer
+---@return boolean
+function memory.free(addr) end
+--- NUL-terminated ANSI string at `addr` (false when the destination is not writable).
+---@param addr integer
+---@param s string
+---@return boolean
+function memory.write_str(addr, s) end
+--- NUL-terminated UTF-16 string at `addr` (what the engine's TCHAR* parameters expect).
+---@param addr integer
+---@param s string
+---@return boolean
+function memory.write_wstr(addr, s) end

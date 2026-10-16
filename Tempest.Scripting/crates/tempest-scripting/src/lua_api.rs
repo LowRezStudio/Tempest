@@ -15,8 +15,12 @@
 //! Object properties go through live `UProperty` reflection, so they track
 //! patches; unknown names read as `nil` (logged once) and raise on write.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
 use mlua::{AnyUserData, Function, IntoLua, Lua, MetaMethod, Table, UserData, UserDataMethods, Value};
 
+use crate::hooks;
 use crate::memory;
 use crate::unreal::{self, Event, Phase, Prop, PropKind};
 
@@ -24,8 +28,13 @@ fn registry_key(id: u64) -> String {
     format!("tempest.sub.{id}")
 }
 
+fn hook_key(id: u64) -> String {
+    format!("tempest.hook.{id}")
+}
+
 pub fn register(lua: &Lua) -> mlua::Result<()> {
     unreal::set_dispatcher(deliver);
+    hooks::set_dispatcher(deliver_address_hook);
 
     // `print` → log, so script output lands in the file and the console.
     lua.globals().set(
@@ -219,6 +228,18 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         "local_player",
         lua.create_function(|_, ()| Ok(local_player_controller().map(Object)))?,
     )?;
+    // tempest.object(ptr) -> Object proxy for a raw UObject* (nil unless the
+    // pointer and its class pointer are readable), for address-hook arguments.
+    t.set(
+        "object",
+        lua.create_function(|_, ptr: i64| {
+            let ptr = ptr as usize;
+            let ok = ptr != 0
+                && memory::is_readable(ptr, unreal::layout::UOBJECT_CLASS + 8)
+                && unreal::object_class(ptr).is_some_and(|c| memory::is_readable(c, unreal::layout::UOBJECT_CLASS + 8));
+            Ok(ok.then_some(Object(ptr)))
+        })?,
+    )?;
     lua.globals().set("tempest", t)?;
     lua.globals().set("memory", memory_table(lua)?)?;
     run_prelude(lua)
@@ -249,6 +270,7 @@ fn status(lua: &Lua) -> mlua::Result<Table> {
     t.set("gmalloc", addr(g.gmalloc))?;
     t.set("gnatives", addr(g.gnatives))?;
     t.set("native_hooks", unreal::native_hooks())?;
+    t.set("address_hooks", address_hooks(lua)?)?;
     t.set("mods", crate::loader::mods().into_iter().map(|m| m.id).collect::<Vec<_>>())?;
     t.set("key_hook_installed", crate::input::installed())?;
     t.set("game_thread", unreal::game_thread_id())?;
@@ -308,6 +330,103 @@ fn deliver(ev: Event) -> bool {
             let tag = if owner.is_empty() { String::new() } else { format!("[{owner}] ") };
             crate::log::line("lua", &format!("{tag}{:?} handler for {name} failed: {e}", ev.phase));
             true
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Address hooks (memory.hook): the handler chain for one intercepted call
+// ---------------------------------------------------------------------------
+
+/// `{ {id, addr, mod}, ... }` for `memory.hooks()` and `tempest.status()`.
+fn address_hooks(lua: &Lua) -> mlua::Result<Table> {
+    let out = lua.create_table()?;
+    for (i, h) in hooks::list().iter().enumerate() {
+        let e = lua.create_table()?;
+        e.set("id", h.id)?;
+        e.set("addr", h.addr as i64)?;
+        e.set("mod", h.owner.as_str())?;
+        out.set(i + 1, e)?;
+    }
+    Ok(out)
+}
+
+/// A Lua value as a machine word: integers, booleans and Object proxies
+/// (their pointer). `None` for anything else.
+fn to_word(v: &Value) -> Option<usize> {
+    match v {
+        Value::Integer(n) => Some(*n as usize),
+        Value::Number(n) => Some(*n as i64 as usize),
+        Value::Boolean(b) => Some(*b as usize),
+        Value::UserData(ud) => ud.borrow::<Object>().ok().map(|o| o.0),
+        _ => None,
+    }
+}
+
+/// Entry from the detour thunk: run the chain from its newest handler.
+fn deliver_address_hook(call: hooks::Call) -> usize {
+    let args = call.args;
+    run_hook_level(crate::lua(), Arc::new(call), 0, args)
+}
+
+/// Run handler `level` of the chain with `args`. The handler gets
+/// `(original, a1, ..., aN)`; `original(...)` runs the rest of the chain (nil
+/// or missing arguments keep the incoming ones) and is only valid while the
+/// handler runs. The handler's integer result is the call's result; `nil`
+/// means "whatever `original` returned", or a plain pass-through when it was
+/// never called.
+fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, args: hooks::Args) -> usize {
+    let Some(h) = call.handlers.get(level).cloned() else {
+        return hooks::call_original(call.slot, args);
+    };
+    let Ok(cb) = lua.named_registry_value::<Function>(&hook_key(h.id)) else {
+        return run_hook_level(lua, call, level + 1, args); // unhooked since the snapshot
+    };
+    let alive = Arc::new(AtomicBool::new(true));
+    let forwarded: Arc<Mutex<Option<usize>>> = Arc::new(Mutex::new(None));
+    let original = {
+        let (call, alive, forwarded) = (call.clone(), alive.clone(), forwarded.clone());
+        lua.create_function(move |lua, over: mlua::Variadic<Value>| {
+            if !alive.load(Ordering::Acquire) {
+                return Err(mlua::Error::external("original() is only valid while the hook handler runs"));
+            }
+            let mut merged = args;
+            for (i, v) in over.iter().enumerate().take(hooks::MAX_ARGS) {
+                if v.is_nil() {
+                    continue;
+                }
+                merged[i] = to_word(v).ok_or_else(|| {
+                    mlua::Error::external(format!("original(): argument {} must be an integer, boolean or Object, not {}", i + 1, v.type_name()))
+                })?;
+            }
+            let r = run_hook_level(lua, call.clone(), level + 1, merged);
+            *forwarded.lock().unwrap() = Some(r);
+            Ok(r as i64)
+        })
+    };
+    let Ok(original) = original else {
+        return run_hook_level(lua, call, level + 1, args);
+    };
+    let mut lua_args: Vec<Value> = Vec::with_capacity(1 + h.nargs);
+    lua_args.push(Value::Function(original));
+    lua_args.extend(args.iter().take(h.nargs).map(|&a| Value::Integer(a as i64)));
+    let result = crate::loader::with_mod(&h.owner, || cb.call::<Value>(mlua::MultiValue::from_vec(lua_args)));
+    alive.store(false, Ordering::Release);
+    let forwarded = *forwarded.lock().unwrap();
+    let pass_through = |lua: &Lua| forwarded.unwrap_or_else(|| run_hook_level(lua, call.clone(), level + 1, args));
+    let tag = if h.owner.is_empty() { String::new() } else { format!("[{}] ", h.owner) };
+    match result {
+        Ok(Value::Nil) => pass_through(lua),
+        Ok(v) => match to_word(&v) {
+            Some(w) => w,
+            None => {
+                crate::log::line("lua", &format!("{tag}hook #{} on 0x{:x} returned a {}; expected an integer or nil", h.id, h.addr, v.type_name()));
+                pass_through(lua)
+            }
+        },
+        Err(e) => {
+            crate::log::line("lua", &format!("{tag}hook #{} on 0x{:x} failed: {e}", h.id, h.addr));
+            pass_through(lua)
         }
     }
 }
@@ -902,5 +1021,137 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
             Ok(out)
         })?,
     )?;
+
+    // memory.hook(addr, fn, opts?) -> id. fn(original, a1..aN); opts.args = N (default 4, max 8).
+    m.set(
+        "hook",
+        lua.create_function(|lua, (addr, cb, opts): (i64, Function, Option<Table>)| {
+            let nargs = match &opts {
+                Some(t) => t.get::<Option<usize>>("args")?.unwrap_or(4),
+                None => 4,
+            };
+            if nargs > hooks::MAX_ARGS {
+                return Err(mlua::Error::external(format!("memory.hook: at most {} arguments are visible", hooks::MAX_ARGS)));
+            }
+            let id = hooks::add(addr as usize, &crate::loader::current_mod(), nargs)
+                .map_err(|e| mlua::Error::external(format!("memory.hook: {e}")))?;
+            lua.set_named_registry_value(&hook_key(id), cb)?;
+            Ok(id)
+        })?,
+    )?;
+    m.set(
+        "unhook",
+        lua.create_function(|lua, id: u64| {
+            let found = hooks::remove(id);
+            lua.unset_named_registry_value(&hook_key(id))?;
+            Ok(found)
+        })?,
+    )?;
+    m.set("hooks", lua.create_function(|lua, ()| address_hooks(lua))?)?;
+    // memory.call(addr, ...) -> integer result; integer/boolean/Object args (max 8).
+    m.set(
+        "call",
+        lua.create_function(|_, (addr, args): (i64, mlua::Variadic<Value>)| {
+            if args.len() > hooks::MAX_ARGS {
+                return Err(mlua::Error::external(format!("memory.call: at most {} arguments", hooks::MAX_ARGS)));
+            }
+            let mut words = [0usize; hooks::MAX_ARGS];
+            for (i, v) in args.iter().enumerate() {
+                if v.is_nil() {
+                    continue;
+                }
+                words[i] = to_word(v).ok_or_else(|| {
+                    mlua::Error::external(format!("memory.call: argument {} must be an integer, boolean or Object, not {}", i + 1, v.type_name()))
+                })?;
+            }
+            Ok(hooks::call_raw(addr as usize, words).map(|r| r as i64))
+        })?,
+    )?;
+
+    // Scratch buffers for call arguments: memory.alloc(n) -> addr (zeroed),
+    // memory.free(addr), memory.write_str(addr, s) / write_wstr(addr, s) (NUL-terminated).
+    m.set(
+        "alloc",
+        lua.create_function(|_, size: usize| {
+            buffers::alloc(size).map(|a| a as i64).ok_or_else(|| mlua::Error::external("memory.alloc: size must be 1..=16 MiB"))
+        })?,
+    )?;
+    m.set(
+        "free",
+        lua.create_function(|_, addr: i64| Ok(buffers::free(addr as usize)))?,
+    )?;
+    m.set(
+        "write_str",
+        lua.create_function(|_, (addr, s): (i64, mlua::String)| {
+            let bytes = s.as_bytes();
+            Ok(write_bytes(addr as usize, &bytes, 1))
+        })?,
+    )?;
+    m.set(
+        "write_wstr",
+        lua.create_function(|_, (addr, s): (i64, String)| {
+            let units: Vec<u8> = s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+            Ok(write_bytes(addr as usize, &units, 2))
+        })?,
+    )?;
     Ok(m)
+}
+
+/// `bytes` then `nul` zero bytes at `addr`; `false` when the destination is
+/// neither one of our buffers nor committed memory (so a bad address fails
+/// instead of faulting).
+fn write_bytes(addr: usize, bytes: &[u8], nul: usize) -> bool {
+    let len = bytes.len() + nul;
+    if addr == 0 || !(buffers::owns(addr, len) || memory::is_readable(addr, len)) {
+        return false;
+    }
+    // SAFETY: `len` bytes at `addr` are ours or committed, checked just above.
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), addr as *mut u8, bytes.len());
+        std::ptr::write_bytes((addr + bytes.len()) as *mut u8, 0, nul);
+    }
+    true
+}
+
+/// Heap buffers handed to Lua by address (`memory.alloc` / `memory.free`).
+mod buffers {
+    use std::alloc::{alloc_zeroed, dealloc, Layout};
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    static LIVE: Mutex<Option<HashMap<usize, Layout>>> = Mutex::new(None);
+    const MAX: usize = 16 << 20;
+
+    pub fn alloc(size: usize) -> Option<usize> {
+        if size == 0 || size > MAX {
+            return None;
+        }
+        let layout = Layout::from_size_align(size, 16).ok()?;
+        // SAFETY: non-zero size; freed in `free` with the same layout.
+        let p = unsafe { alloc_zeroed(layout) } as usize;
+        if p == 0 {
+            return None;
+        }
+        LIVE.lock().unwrap().get_or_insert_with(HashMap::new).insert(p, layout);
+        Some(p)
+    }
+
+    /// Is `[addr, addr+len)` inside a live buffer?
+    pub fn owns(addr: usize, len: usize) -> bool {
+        LIVE.lock().unwrap().as_ref().is_some_and(|m| {
+            m.iter().any(|(&p, l)| addr >= p && addr + len <= p + l.size())
+        })
+    }
+
+    pub fn free(addr: usize) -> bool {
+        let layout = LIVE.lock().unwrap().as_mut().and_then(|m| m.remove(&addr));
+        match layout {
+            // SAFETY: `addr` came from `alloc` with this layout and is removed from LIVE first.
+            Some(l) => {
+                unsafe { dealloc(addr as *mut u8, l) };
+                true
+            }
+            None => false,
+        }
+    }
 }

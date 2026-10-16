@@ -290,8 +290,8 @@ pub fn run_all(lua: &Lua) {
     }
 }
 
-/// Reload one mod (its subscriptions and commands go first) or, with
-/// `None`, everything (prelude included, `shared` reset).
+/// Reload one mod (its subscriptions, address hooks and commands go first)
+/// or, with `None`, everything (prelude included, `shared` reset).
 pub fn reload(lua: &Lua, only: Option<&str>) {
     match only {
         Some(id) => {
@@ -302,6 +302,9 @@ pub fn reload(lua: &Lua, only: Option<&str>) {
             for sub in crate::unreal::clear_subscriptions_of(&m.id) {
                 let _ = lua.unset_named_registry_value(&format!("tempest.sub.{sub}"));
             }
+            for hook in crate::hooks::clear_of(&m.id) {
+                let _ = lua.unset_named_registry_value(&format!("tempest.hook.{hook}"));
+            }
             if let Ok(forget) = lua.globals().get::<Table>("tempest").and_then(|t| t.get::<mlua::Function>("_forget")) {
                 let _ = forget.call::<()>(m.id.as_str());
             }
@@ -311,6 +314,9 @@ pub fn reload(lua: &Lua, only: Option<&str>) {
         None => {
             for id in crate::unreal::clear_subscriptions() {
                 let _ = lua.unset_named_registry_value(&format!("tempest.sub.{id}"));
+            }
+            for id in crate::hooks::clear_all() {
+                let _ = lua.unset_named_registry_value(&format!("tempest.hook.{id}"));
             }
             crate::log::line("loader", "reload all");
             if let Err(e) = crate::lua_api::run_prelude(lua) {

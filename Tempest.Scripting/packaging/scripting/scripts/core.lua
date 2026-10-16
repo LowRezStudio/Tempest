@@ -40,7 +40,11 @@ tempest.command("tempest_hooks", function(pc)
 	for _, id in ipairs(ids) do
 		pc:ClientMessage(string.format("#%d %s", id, subs[id]))
 	end
-	if #ids == 0 then
+	local addrs = memory.hooks()
+	for _, h in ipairs(addrs) do
+		pc:ClientMessage(string.format("address #%d 0x%x [%s]", h.id, h.addr, h.mod))
+	end
+	if #ids == 0 and #addrs == 0 then
 		pc:ClientMessage("no hooks")
 	end
 end, "list hooks")
