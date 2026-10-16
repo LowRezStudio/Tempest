@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, shell, session } from "electron";
+import { app, BrowserWindow, session } from "electron";
 import serve from "electron-serve";
 import { queueOpenFiles } from "./app.js";
 import "./fs.js";
@@ -106,16 +106,13 @@ function createWindow() {
 
 	mainWindow.webContents.on("will-navigate", (event, url) => {
 		const allowed = app.isPackaged ? ["app://"] : ["http://localhost:1420"];
-		if (!allowed.some((p) => url.startsWith(p))) {
-			event.preventDefault();
-			void shell.openExternal(url);
-		}
+		if (!allowed.some((p) => url.startsWith(p))) event.preventDefault();
 	});
 
-	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-		void shell.openExternal(url);
-		return { action: "deny" };
-	});
+	// Never hand webview window requests (Ctrl/Cmd/Shift+click, middle-click,
+	// target="_blank") to the system browser. External links are opened
+	// explicitly from the renderer via openUrl().
+	mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
 	if (!app.isPackaged) {
 		void mainWindow.loadURL("http://localhost:1420");

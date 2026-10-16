@@ -183,7 +183,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_opener::init())
+        // Disable the opener plugin's injected script: it hands links to the
+        // system browser on Ctrl/Shift+click or `target="_blank"`. Links are
+        // opened explicitly via openUrl() from the renderer instead, which
+        // keeps modified and middle-clicks from launching a browser.
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|_app| {
