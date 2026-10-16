@@ -12,9 +12,14 @@ internal class LauncherCommands
         var args = context.EscapedArguments.ToArray();
         var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs, steamRuntime, enableOpenSslFix);
 
-        if (gamescope && !OperatingSystem.IsWindows())
+        // Proton (and gamescope) wrappers can outlive the game itself. The launcher only marks
+        // the game as stopped when this process exits, so on Linux watch the real game process and
+        // tear the wine tree down as soon as it disappears instead of waiting on the wrapper.
+        if (!OperatingSystem.IsWindows())
         {
-            var nativeFilename = Path.GetFileName(process.StartInfo.EnvironmentVariables["NATIVE_FILENAME"]);
+            var env = process.StartInfo.EnvironmentVariables;
+            var nativePath = env.ContainsKey("NATIVE_FILENAME") ? env["NATIVE_FILENAME"] : null;
+            var nativeFilename = Path.GetFileName(nativePath);
             if (!string.IsNullOrEmpty(nativeFilename))
             {
                 int gamePid = 0;

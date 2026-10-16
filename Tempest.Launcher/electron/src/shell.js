@@ -25,19 +25,29 @@ ipcMain.handle("shell:spawn", (event, { program, args, options, sidecar }) => {
 	const id = nextPid++;
 	activeChildren.set(id, child);
 
+	let closed = false;
+	const notifyClose = (code, signal) => {
+		if (closed) return;
+		closed = true;
+		event.sender.send(`shell:process:${id}:close`, {
+			code: code ?? null,
+			signal: signal ?? null,
+		});
+		activeChildren.delete(id);
+	};
+
 	child.stdout.on("data", (data) => {
 		event.sender.send(`shell:process:${id}:stdout`, data.toString());
 	});
 	child.stderr.on("data", (data) => {
 		event.sender.send(`shell:process:${id}:stderr`, data.toString());
 	});
-	child.on("close", (code, signal) => {
-		event.sender.send(`shell:process:${id}:close`, {
-			code: code ?? null,
-			signal: signal ?? null,
-		});
-		activeChildren.delete(id);
-	});
+	// The child's own termination ('exit') is the reliable "launch is over" signal.
+	// 'close' waits for the stdio pipes to close, and on Proton/Wine the wrapper's
+	// grandchildren inherit those fds and can hold them open long after the game is
+	// gone, so 'close' may never fire and the game stays marked as running forever.
+	child.on("exit", (code, signal) => notifyClose(code, signal));
+	child.on("close", (code, signal) => notifyClose(code, signal));
 	child.on("error", (err) => {
 		event.sender.send(`shell:process:${id}:error`, err.message);
 		activeChildren.delete(id);
