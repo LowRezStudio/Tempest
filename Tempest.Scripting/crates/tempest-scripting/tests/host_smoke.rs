@@ -39,6 +39,30 @@ fn fake_game_dir() -> std::path::PathBuf {
     )
     .unwrap();
     std::fs::write(dir.join("ChaosGame/Config/tempest.toml"), "[dev]\nhot_reload = false\n[ui]\nscale = 1.5\n").unwrap();
+    // The launcher's registry: a Lua V2 mod, a disabled Lua V2 mod, a DLL+content V2 mod, a V1 asset mod.
+    std::fs::create_dir_all(dir.join(".tempest/mods")).unwrap();
+    for (id, scripts, dll, files) in [("lua-mod", true, false, false), ("off-mod", true, false, false), ("skinpack", false, true, true)] {
+        let m = dir.join(".tempest/v2/mods").join(id);
+        std::fs::create_dir_all(&m).unwrap();
+        if scripts {
+            std::fs::create_dir_all(m.join("scripts")).unwrap();
+            std::fs::write(m.join("scripts/main.lua"), format!("shared.ran_{} = true\n", id.replace('-', "_"))).unwrap();
+        }
+        if dll {
+            std::fs::create_dir_all(m.join("dlls")).unwrap();
+            std::fs::write(m.join("dlls/Thing.dll"), "MZ").unwrap();
+        }
+        if files {
+            std::fs::create_dir_all(m.join("files/ChaosGame/CookedPCConsole")).unwrap();
+            std::fs::write(m.join("files/ChaosGame/CookedPCConsole/Skin.upk"), "x").unwrap();
+        }
+    }
+    std::fs::write(dir.join(".tempest/mods/mods.json"), r#"[
+      {"Id":"lua-mod","Name":"Lua Mod","Version":"1.2.0","Authors":[{"Name":"Tom"}],"Enabled":true,"Kind":"V2","InstalledFiles":[]},
+      {"Id":"off-mod","Name":"Off","Version":"0.1","Enabled":false,"Kind":"V2","InstalledFiles":[]},
+      {"Id":"skinpack","Name":"Skins","Version":"2.0","Author":"Someone","Enabled":true,"Kind":"V2","InstalledFiles":["ChaosGame/CookedPCConsole/Skin.upk"]},
+      {"Id":"oldvoice","Name":"Old voice pack","Version":"1.0","Enabled":true,"Kind":"Voice","InstalledFiles":["a.upk","b.upk"]}
+    ]"#).unwrap();
     dir
 }
 
@@ -190,7 +214,15 @@ fn host_smoke() {
     let cfg = game.join("mods/devmod/config.toml");
     let written = std::fs::read_to_string(&cfg).expect("mod config written");
     assert!(written.contains("speed = 2") && written.contains("[nested]"), "{written}");
-    assert!(eval("return tempest.status().dev_mods[1] == 'devmod'").as_boolean().unwrap());
+    assert!(eval("for _, id in ipairs(tempest.mods()) do if id == 'devmod' then return true end end return false").as_boolean().unwrap());
+    // Installed mods from the registry: Lua ones run (enabled only), others are listed with their kind.
+    assert!(eval("return shared.ran_lua_mod == true and shared.ran_off_mod == nil").as_boolean().unwrap());
+    assert!(eval("local by = {}; for _, m in ipairs(tempest.installed()) do by[m.id] = m end; \
+                  return by['lua-mod'].lua and by['lua-mod'].loaded and by['lua-mod'].authors[1] == 'Tom' and by['lua-mod'].version == '1.2.0' \
+                     and by['off-mod'].lua and not by['off-mod'].enabled and not by['off-mod'].loaded \
+                     and by['skinpack'].dll and not by['skinpack'].lua and by['skinpack'].files == 1 and by['skinpack'].authors[1] == 'Someone' \
+                     and by['oldvoice'].kind == 'Voice' and by['oldvoice'].files == 2 and not by['oldvoice'].lua \
+                     and by['devmod'].dev and by['devmod'].kind == 'dev' and by['devmod'].loaded").as_boolean().unwrap());
     // The user edits the file; the mod sees the new value on reload (what hot reload triggers).
     std::fs::write(&cfg, "speed = 5\ngreeting = \"yo\"\n").unwrap();
     eval("tempest.reload('devmod'); return true");
@@ -228,7 +260,7 @@ fn host_smoke() {
 
     // The watcher: a saved script or config file reloads its mod after the quiet period;
     // files outside a mod (types/) are ignored.
-    let mut w = tempest_scripting::watch::Watcher::new(Some(game.join("mods")), Some(game.join("ChaosGame/Config/mods")), std::time::Duration::from_millis(50));
+    let mut w = tempest_scripting::watch::Watcher::new(Some(game.join("mods")), Some(game.join("ChaosGame/Config/mods")), true, std::time::Duration::from_millis(50));
     assert!(w.tracked() >= 4);
     assert!(w.poll().is_empty());
     std::thread::sleep(std::time::Duration::from_millis(20));
@@ -251,6 +283,26 @@ fn host_smoke() {
     tempest_scripting::watch::reload(ready);
     assert_eq!(eval("return shared.hot_label"), mlua::Value::String(lua.create_string("changed").unwrap()));
     assert!(w.poll().is_empty(), "nothing pending afterwards");
+    // A config the mod writes itself (tempest.save_config) is not an edit.
+    std::fs::write(hot.join("scripts/main.lua"), "local cfg = tempest.config({ label = 'default' })\nshared.hot_label = cfg.label\nshared.hot_save = function(v) cfg.label = v; tempest.save_config(cfg) end\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    while !w.poll().is_empty() {}
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    let ready = w.poll();
+    if !ready.is_empty() {
+        tempest_scripting::watch::reload(ready);
+    }
+    eval("tempest.reload('hot-reload'); tempest._with_mod('hot-reload', shared.hot_save, 'saved by mod'); return true");
+    assert!(std::fs::read_to_string(hot.join("config.toml")).unwrap().contains("saved by mod"));
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    assert!(w.poll().is_empty());
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    assert!(w.poll().is_empty(), "the mod's own save must not reload it");
+    // With reload_on_config off, a hand edit of config.toml is ignored too.
+    let mut quiet = tempest_scripting::watch::Watcher::new(Some(game.join("mods")), Some(game.join("ChaosGame/Config/mods")), false, std::time::Duration::from_millis(50));
+    std::fs::write(hot.join("config.toml"), "label = \"hand edit\"\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    assert!(quiet.poll().is_empty() && quiet.poll().is_empty());
     // An installed mod's user file lives in Config/mods and is watched as well.
     std::fs::create_dir_all(game.join("ChaosGame/Config/mods")).unwrap();
     assert!(w.poll().is_empty());

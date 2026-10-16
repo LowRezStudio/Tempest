@@ -45,7 +45,8 @@ Install the `.tempest` files through the launcher (or `tempest mod install`).
 It injects every `dlls/*.dll` of enabled V2 mods about a second after the
 game starts.
 
-On inject the DLL opens a console and logs to `%TEMP%\tempest-scripting.log`.
+On inject the DLL opens a console and logs to `%TEMP%\tempest-scripting.log`
+(fresh every run; the previous run is kept as `tempest-scripting.prev.log`).
 The console is also a Lua REPL: type `tempest.reload()` after editing a
 script, or `=tempest.status().gnames_ok` to print an expression. (A loaded
 DLL stays loaded, so `tempest mod reload-dll` cannot swap the binary; a new
@@ -85,6 +86,7 @@ jit = true                # LuaJIT trace compiler
 [dev]
 mods = "mods"             # <game>/mods: dev mods, hot-reloaded on save
 hot_reload = true
+reload_on_config = true   # hand edits of config files reload the mod (a mod's own save never does)
 hot_reload_delay_ms = 300
 [mods]
 configs = "ChaosGame/Config/mods"   # <configs>/<mod-id>.toml, see tempest.config()
@@ -118,7 +120,8 @@ tempest.version
 tempest.log(msg)                     -- print() goes to the same log
 tempest.status()                     -- { gobjects, gnames, engine, process_event, xor_mask,
                                      --   gnames_ok, gobjects_ok, hook_installed, game_thread,
-                                     --   object_count, name_count, notes = {...}, subscriptions = {[id]=spec} }
+                                     --   object_count, name_count, notes = {...}, subscriptions = {[id]=spec},
+                                     --   native_hooks, address_hooks, lua_natives, ui_backend, ui_ready }
 tempest.on(spec, fn) -> id           -- after the original: fn(this, params)
 tempest.before(spec, fn) -> id       -- before the original: edit params, `return false` to cancel
                                      -- spec: "PostLogin" (any class) or "TgGame.TgGame.PostLogin" (IsA gate)
@@ -126,7 +129,9 @@ tempest.off(id)
 tempest.queue(fn)                    -- run fn on the game thread at the next event
 tempest.on_game_thread()
 tempest.reload(modId?)               -- re-run every mod (or just one); subscriptions/commands of the reloaded mods are dropped first
-tempest.mod() / tempest.mods()       -- current mod id / all loaded mod ids
+tempest.mod() / tempest.mods()       -- current mod id / the Lua mods running, in load order
+tempest.installed()                  -- every mod the launcher installed, Lua or not: { id, name, version,
+                                     --   authors, kind, enabled, lua, dll, files, dev, loaded, path }
 tempest.config(defaults?) -> table   -- this mod's config (defaults <- <mod>/config.toml <- <configs>/<id>.toml)
 tempest.save_config(tbl) -> path     -- write it back; tempest.config_path()
 tempest.settings() / tempest.game_dir() -- runtime settings (read-only) / the game folder
@@ -267,9 +272,9 @@ fires once per logical call, at the outermost frame of a `Super` chain.
 Lua-initiated calls (`obj:Func()`) bypass `ProcessEvent`-level hooks but do
 pass through native thunks and `ProcessInternal`, so they are observable.
 
-**Mods.** The DLL finds every enabled V2 mod next to its own
-(`<game>/.tempest/v2/mods/*/scripts/`, enabled state from
-`<game>/.tempest/mods.json`) and runs each in its own sandbox: globals a mod
+**Mods.** The DLL finds every enabled V2 mod in `<game>/.tempest/v2/mods/*/scripts/`
+(enabled state from the CLI's `<game>/.tempest/mods/mods.json`, whose records
+`tempest.installed()` exposes for every mod, Lua or not) and runs each in its own sandbox: globals a mod
 sets are private, reads fall through to the API and standard library. A mod
 needs no DLL of its own if any enabled mod ships one; if several do, the
 first to load runs everything and the others stay idle. `shared` is the
@@ -286,7 +291,7 @@ returns are typed where the class is fixed (`tempest.local_player()` is an
 them: `---@cast this Engine.HUD` as the first line of the handler, or
 `---@type Engine.Pawn` above a local.
 
-Built-in console commands: `tempest_help`, `tempest_reload [mod-id]`, `tempest_config`,
+Built-in console commands: `tempest_help`, `tempest_reload [mod-id]`, `tempest_config`, `tempest_mods`,
 `lua <code>` / `lua =<expr>` (run Lua from the game console), `ui_status`,
 `ui_demo`, `ui_capture [0|1]`.
 

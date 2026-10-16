@@ -4,10 +4,11 @@
 //!
 //! 1. `$TEMPEST_SCRIPT_DIR` — one mod, id `local`.
 //! 2. `<dll dir>/scripts` — drop-in next to the DLL, id `local`.
-//! 3. The V2 layout: this DLL lives at `<game>/.tempest/v2/mods/<id>/dlls/`,
-//!    so every sibling `<game>/.tempest/v2/mods/*/scripts/` is a mod. Mods
-//!    marked disabled in `<game>/.tempest/mods.json` are skipped (the DLL's
-//!    own mod is always loaded).
+//! 3. The V2 layout: `<game>/.tempest/v2/mods/*/scripts/` (found next to
+//!    this DLL, or from the game folder). Mods marked disabled in the CLI's
+//!    `<game>/.tempest/mods/mods.json` are skipped (the DLL's own mod is
+//!    always loaded). `installed()` lists every record of that registry,
+//!    Lua or not.
 //! 4. Dev mods: every folder of `<game>/mods/` (`[dev] mods` in the runtime
 //!    settings) with a `scripts/` directory or `.lua` files, manifest
 //!    optional. They are hot-reloaded on save and a dev mod with the id of
@@ -154,34 +155,82 @@ pub fn with_mod<R>(id: &str, f: impl FnOnce() -> R) -> R {
 // Discovery
 // ---------------------------------------------------------------------------
 
-#[derive(serde::Deserialize)]
+/// One entry of the CLI's `mods.json` (PascalCase, written by Tempest.CLI).
+#[derive(serde::Deserialize, Default)]
 #[allow(non_snake_case)]
 struct ModRecord {
     #[serde(alias = "id")]
     Id: String,
+    #[serde(alias = "name", default)]
+    Name: String,
+    #[serde(alias = "version", default)]
+    Version: String,
+    #[serde(alias = "author", default)]
+    Author: String,
+    #[serde(alias = "authors", default)]
+    Authors: Vec<ModAuthor>,
     #[serde(alias = "enabled", default = "yes")]
     Enabled: bool,
     #[serde(alias = "kind", default)]
     Kind: String,
+    #[serde(alias = "installedFiles", default)]
+    InstalledFiles: Vec<String>,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[allow(non_snake_case)]
+struct ModAuthor {
+    #[serde(alias = "name", default)]
+    Name: String,
 }
 
 fn yes() -> bool {
     true
 }
 
-/// Ids (lowercase) of enabled V2 mods, or `None` when the file is absent
-/// or unreadable (then every mod folder counts).
-fn enabled_ids(mods_json: &Path) -> Option<HashSet<String>> {
-    let text = std::fs::read_to_string(mods_json).ok()?;
-    let records: Vec<ModRecord> = match serde_json::from_str(&text) {
-        Ok(r) => r,
-        Err(e) => {
-            crate::log::line("loader", &format!("{}: {e}; loading every mod folder", mods_json.display()));
-            return None;
+/// `<game>/.tempest`: next to the installed mods when this DLL is one of
+/// them, else from the game folder.
+fn tempest_dir() -> Option<PathBuf> {
+    if let Some(dll) = dll_dir() {
+        // <game>/.tempest/v2/mods/<id>/dlls
+        if let Some(t) = dll.ancestors().nth(4) {
+            if t.file_name().is_some_and(|n| n == ".tempest") {
+                return Some(t.to_path_buf());
+            }
         }
-    };
+    }
+    crate::config::game_dir().map(|g| g.join(".tempest"))
+}
+
+/// The CLI's mod registry (`.tempest/mods/mods.json`; older layouts kept it
+/// one level up).
+fn mods_json_path() -> Option<PathBuf> {
+    let t = tempest_dir()?;
+    let new = t.join("mods").join("mods.json");
+    if new.is_file() {
+        return Some(new);
+    }
+    let old = t.join("mods.json");
+    old.is_file().then_some(old).or(Some(new))
+}
+
+fn read_records() -> Option<Vec<ModRecord>> {
+    let path = mods_json_path()?;
+    let text = std::fs::read_to_string(&path).ok()?;
+    match serde_json::from_str(&text) {
+        Ok(r) => Some(r),
+        Err(e) => {
+            crate::log::line("loader", &format!("{}: {e}", path.display()));
+            None
+        }
+    }
+}
+
+/// Ids (lowercase) of enabled V2 mods, or `None` when the registry is
+/// absent or unreadable (then every mod folder counts).
+fn enabled_ids() -> Option<HashSet<String>> {
     Some(
-        records
+        read_records()?
             .into_iter()
             .filter(|r| r.Enabled && r.Kind.eq_ignore_ascii_case("v2"))
             .map(|r| r.Id.to_ascii_lowercase())
@@ -189,39 +238,121 @@ fn enabled_ids(mods_json: &Path) -> Option<HashSet<String>> {
     )
 }
 
+/// Every mod the launcher installed, Lua or not, plus the dev folder.
+#[derive(Debug, Clone)]
+pub struct Installed {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub authors: Vec<String>,
+    /// `"V2"`, `"NativePackage"`, `"Asset"`, `"Voice"` (CLI kinds) or `"dev"`.
+    pub kind: String,
+    pub enabled: bool,
+    /// Ships `scripts/` (a Lua mod).
+    pub lua: bool,
+    /// Ships `dlls/`.
+    pub dll: bool,
+    /// Game files it installs (content: packages, inis, assets).
+    pub files: usize,
+    pub dev: bool,
+    /// Its scripts are running (enabled Lua mod, or dev).
+    pub loaded: bool,
+    pub path: Option<PathBuf>,
+}
+
+pub fn installed() -> Vec<Installed> {
+    let loaded: HashSet<String> = mods().into_iter().map(|m| m.id.to_ascii_lowercase()).collect();
+    let v2_root = tempest_dir().map(|t| t.join("v2").join("mods"));
+    let mut out = Vec::new();
+    for r in read_records().unwrap_or_default() {
+        let is_v2 = r.Kind.eq_ignore_ascii_case("v2");
+        let path = if is_v2 { v2_root.as_ref().map(|root| root.join(&r.Id)).filter(|p| p.is_dir()) } else { None };
+        let lua = path.as_ref().is_some_and(|p| p.join("scripts").is_dir());
+        let dll = path.as_ref().is_some_and(|p| {
+            std::fs::read_dir(p.join("dlls")).map(|d| d.flatten().any(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("dll")))).unwrap_or(false)
+        });
+        let mut authors: Vec<String> = r.Authors.iter().map(|a| a.Name.clone()).filter(|n| !n.is_empty()).collect();
+        if authors.is_empty() && !r.Author.is_empty() && r.Author != "Unknown" {
+            authors.push(r.Author.clone());
+        }
+        let lower = r.Id.to_ascii_lowercase();
+        out.push(Installed {
+            loaded: loaded.contains(&lower),
+            id: r.Id,
+            name: r.Name,
+            version: r.Version,
+            authors,
+            kind: if r.Kind.is_empty() { "unknown".into() } else { r.Kind },
+            enabled: r.Enabled,
+            lua,
+            dll,
+            files: r.InstalledFiles.len(),
+            dev: false,
+            path,
+        });
+    }
+    for m in mods().into_iter().filter(|m| m.dev) {
+        // A dev mod replacing an installed id: mark the record instead of listing twice.
+        if let Some(rec) = out.iter_mut().find(|r| r.id.eq_ignore_ascii_case(&m.id)) {
+            rec.dev = true;
+            rec.loaded = true;
+            rec.path = Some(m.root.clone());
+            continue;
+        }
+        out.push(Installed {
+            id: m.id.clone(),
+            name: m.id.clone(),
+            version: String::new(),
+            authors: Vec::new(),
+            kind: "dev".into(),
+            enabled: true,
+            lua: true,
+            dll: false,
+            files: 0,
+            dev: true,
+            loaded: true,
+            path: Some(m.root.clone()),
+        });
+    }
+    out
+}
+
 pub fn mods() -> Vec<Mod> {
     if let Ok(dir) = std::env::var("TEMPEST_SCRIPT_DIR") {
         return vec![Mod::new("local", PathBuf::from(dir))];
     }
     let mut out = Vec::new();
-    if let Some(dll) = dll_dir() {
+    let dll = dll_dir();
+    if let Some(dll) = &dll {
         let local = dll.join("scripts");
         if local.is_dir() {
             out.push(Mod::new("local", local));
         }
-        if let Some((mod_root, mods_root)) = dll.parent().and_then(|m| m.parent().map(|r| (m, r))) {
-            let own = mod_root.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase());
-            let enabled = mods_root
-                .parent()
-                .and_then(|v2| v2.parent())
-                .and_then(|tempest| enabled_ids(&tempest.join("mods.json")));
-            if let Ok(entries) = std::fs::read_dir(mods_root) {
-                for entry in entries.flatten() {
-                    let dir = entry.path();
-                    let scripts = dir.join("scripts");
-                    if !scripts.is_dir() {
-                        continue;
-                    }
-                    let id = entry.file_name().to_string_lossy().to_string();
-                    let lower = id.to_ascii_lowercase();
-                    let is_own = own.as_deref() == Some(lower.as_str());
-                    if !is_own && enabled.as_ref().is_some_and(|set| !set.contains(&lower)) {
-                        crate::log::line("loader", &format!("mod {id}: disabled, skipped"));
-                        continue;
-                    }
-                    let (_, after) = manifest(&dir);
-                    out.push(Mod { id, scripts, root: dir, after, dev: false });
+    }
+    // Installed V2 mods: <game>/.tempest/v2/mods/*/scripts, enabled ones only
+    // (this DLL's own mod always counts).
+    if let Some(mods_root) = tempest_dir().map(|t| t.join("v2").join("mods")) {
+        let own = dll
+            .as_ref()
+            .and_then(|d| d.parent())
+            .and_then(|m| m.file_name())
+            .map(|n| n.to_string_lossy().to_ascii_lowercase());
+        let enabled = enabled_ids();
+        if let Ok(entries) = std::fs::read_dir(&mods_root) {
+            for entry in entries.flatten() {
+                let dir = entry.path();
+                let scripts = dir.join("scripts");
+                if !scripts.is_dir() {
+                    continue;
                 }
+                let id = entry.file_name().to_string_lossy().to_string();
+                let lower = id.to_ascii_lowercase();
+                let is_own = own.as_deref() == Some(lower.as_str());
+                if !is_own && enabled.as_ref().is_some_and(|set| !set.contains(&lower)) {
+                    continue;
+                }
+                let (_, after) = manifest(&dir);
+                out.push(Mod { id, scripts, root: dir, after, dev: false });
             }
         }
     }
@@ -359,6 +490,26 @@ pub fn run_all(lua: &Lua) {
             mods.iter().map(|m| if m.dev { format!("{} (dev)", m.id) } else { m.id.clone() }).collect::<Vec<_>>().join(", ")
         ),
     );
+    let all = installed();
+    if !all.is_empty() {
+        let describe = |m: &Installed| {
+            let mut tags = Vec::new();
+            if m.lua {
+                tags.push("lua");
+            }
+            if m.dll {
+                tags.push("dll");
+            }
+            if m.files > 0 {
+                tags.push("content");
+            }
+            if !m.kind.eq_ignore_ascii_case("v2") && !m.dev {
+                tags.push(m.kind.as_str());
+            }
+            format!("{}{}{}", m.id, if tags.is_empty() { String::new() } else { format!(" [{}]", tags.join(" ")) }, if m.enabled { "" } else { " (disabled)" })
+        };
+        crate::log::line("loader", &format!("installed: {} mod(s): {}", all.len(), all.iter().map(describe).collect::<Vec<_>>().join(", ")));
+    }
     for m in &mods {
         run_mod(lua, m);
     }

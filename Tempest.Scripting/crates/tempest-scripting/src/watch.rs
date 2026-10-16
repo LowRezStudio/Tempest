@@ -2,21 +2,45 @@
 //! config directory. A changed `.lua`/`.toml` under `<dev>/<folder>/`
 //! reloads that mod; a changed `<configs>/<id>.toml` reloads mod `<id>`.
 //! Reloads run on the game thread (queued), after a quiet period so an
-//! editor's save burst counts once.
+//! editor's save burst counts once. Files the runtime writes itself
+//! (`tempest.save_config`, generated defaults) are announced through
+//! [`expect`] so they never count as edits.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
 const POLL: Duration = Duration::from_millis(500);
 
-type Snapshot = BTreeMap<PathBuf, (SystemTime, u64)>;
+type Stamp = (SystemTime, u64);
+type Snapshot = BTreeMap<PathBuf, Stamp>;
 
-fn watched(path: &Path) -> bool {
-    matches!(path.extension().and_then(|e| e.to_str()), Some("lua") | Some("toml"))
+/// Files written by the runtime itself, with the stamp they got: the next
+/// change the watcher sees on them with that stamp is not an edit.
+static EXPECTED: Mutex<Option<HashMap<PathBuf, Stamp>>> = Mutex::new(None);
+
+fn stamp_of(path: &Path) -> Option<Stamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().unwrap_or(SystemTime::UNIX_EPOCH), meta.len()))
 }
 
-fn scan_into(dir: &Path, depth: usize, out: &mut Snapshot) {
+/// Tell the watcher the runtime just wrote `path`.
+pub fn expect(path: &Path) {
+    if let Some(stamp) = stamp_of(path) {
+        EXPECTED.lock().unwrap().get_or_insert_default().insert(path.to_path_buf(), stamp);
+    }
+}
+
+fn watched(path: &Path, configs: bool) -> bool {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("lua") => true,
+        Some("toml") => configs,
+        _ => false,
+    }
+}
+
+fn scan_into(dir: &Path, depth: usize, configs: bool, out: &mut Snapshot) {
     if depth > 8 {
         return;
     }
@@ -24,8 +48,8 @@ fn scan_into(dir: &Path, depth: usize, out: &mut Snapshot) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            scan_into(&path, depth + 1, out);
-        } else if watched(&path) {
+            scan_into(&path, depth + 1, configs, out);
+        } else if watched(&path, configs) {
             // Fresh metadata: a directory listing can report a stale write
             // time on Windows while an editor still holds the file.
             let Ok(meta) = std::fs::metadata(&path) else { continue };
@@ -40,6 +64,8 @@ fn scan_into(dir: &Path, depth: usize, out: &mut Snapshot) {
 pub struct Watcher {
     dev: Option<PathBuf>,
     configs: Option<PathBuf>,
+    /// Do `.toml` changes (dev mods' config.toml, the configs dir) reload?
+    reload_on_config: bool,
     delay: Duration,
     last: Snapshot,
     pending: HashSet<String>,
@@ -47,18 +73,19 @@ pub struct Watcher {
 }
 
 impl Watcher {
-    pub fn new(dev: Option<PathBuf>, configs: Option<PathBuf>, delay: Duration) -> Watcher {
-        let last = Self::snapshot(dev.as_deref(), configs.as_deref());
-        Watcher { dev, configs, delay, last, pending: HashSet::new(), quiet_since: None }
+    pub fn new(dev: Option<PathBuf>, configs: Option<PathBuf>, reload_on_config: bool, delay: Duration) -> Watcher {
+        let configs = if reload_on_config { configs } else { None };
+        let last = Self::snapshot(dev.as_deref(), configs.as_deref(), reload_on_config);
+        Watcher { dev, configs, reload_on_config, delay, last, pending: HashSet::new(), quiet_since: None }
     }
 
-    fn snapshot(dev: Option<&Path>, configs: Option<&Path>) -> Snapshot {
+    fn snapshot(dev: Option<&Path>, configs: Option<&Path>, reload_on_config: bool) -> Snapshot {
         let mut s = Snapshot::new();
         if let Some(d) = dev {
-            scan_into(d, 0, &mut s);
+            scan_into(d, 0, reload_on_config, &mut s);
         }
         if let Some(c) = configs {
-            scan_into(c, 0, &mut s);
+            scan_into(c, 0, true, &mut s);
         }
         s
     }
@@ -88,11 +115,19 @@ impl Watcher {
     /// One poll: rescan, note changes, and return the mods ready to reload
     /// (none while files are still changing or the quiet period runs).
     pub fn poll(&mut self) -> Vec<String> {
-        let now = Self::snapshot(self.dev.as_deref(), self.configs.as_deref());
+        let now = Self::snapshot(self.dev.as_deref(), self.configs.as_deref(), self.reload_on_config);
         let mut changed: Vec<PathBuf> = now.iter().filter(|(p, s)| self.last.get(*p) != Some(s)).map(|(p, _)| p.clone()).collect();
         changed.extend(self.last.keys().filter(|p| !now.contains_key(*p)).cloned());
         if !changed.is_empty() {
+            let mut expected = EXPECTED.lock().unwrap();
             for path in &changed {
+                // The runtime's own write (save_config, generated defaults): not an edit.
+                if let Some(e) = expected.as_mut() {
+                    if e.get(path).is_some_and(|stamp| now.get(path) == Some(stamp)) {
+                        e.remove(path);
+                        continue;
+                    }
+                }
                 match self.owner(path) {
                     Some(id) => {
                         if self.pending.insert(id.clone()) {
@@ -129,16 +164,17 @@ pub fn start() -> Option<String> {
         return None;
     }
     let delay = Duration::from_millis(cfg.hot_reload_delay_ms);
-    let watcher = Watcher::new(dev.clone(), configs.clone(), delay);
+    let watcher = Watcher::new(dev.clone(), configs.clone(), cfg.reload_on_config, delay);
     let what = format!(
-        "{} ({} files, {} ms quiet period)",
-        [dev.as_ref().map(|d| d.display().to_string()), configs.as_ref().map(|c| c.display().to_string())]
+        "{} ({} files, {} ms quiet period{})",
+        [dev.as_ref().map(|d| d.display().to_string()), configs.as_ref().filter(|_| cfg.reload_on_config).map(|c| c.display().to_string())]
             .into_iter()
             .flatten()
             .collect::<Vec<_>>()
             .join(", "),
         watcher.tracked(),
-        cfg.hot_reload_delay_ms
+        cfg.hot_reload_delay_ms,
+        if cfg.reload_on_config { "" } else { ", config files excluded" }
     );
     std::thread::spawn(move || run(watcher));
     Some(what)

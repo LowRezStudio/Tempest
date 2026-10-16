@@ -72,7 +72,7 @@ just scripting-build             # Tempest.Scripting/scripts/package.sh -> dist/
 just scripting-run <game> [args] # build, then `tempest launch <game> --dll dist/scripting/dlls/Tempest.Scripting64.dll`
 ```
 
-The Win64 DLL cross-compiles with MinGW-w64 (`brew install mingw-w64`, C and C++); `cross`/Docker is only the fallback. The host build also needs a C++ compiler (ImGui is compiled for `cargo test`). Logs go to `%TEMP%\tempest-scripting.log` (inside the Wine prefix when the game runs under Wine); the console window doubles as a Lua REPL. Runtime settings: `<game>/ChaosGame/Config/tempest.toml`; dev mods hot-reload from `<game>/mods/`; per-mod configs in `<game>/ChaosGame/Config/mods/<id>.toml`. See `Tempest.Scripting/README.md`.
+The Win64 DLL cross-compiles with MinGW-w64 (`brew install mingw-w64`, C and C++); `cross`/Docker is only the fallback. The host build also needs a C++ compiler (ImGui is compiled for `cargo test`). Logs go to `%TEMP%\tempest-scripting.log` (fresh each run, previous run in `tempest-scripting.prev.log`; inside the Wine prefix when the game runs under Wine); the console window doubles as a Lua REPL. Runtime settings: `<game>/ChaosGame/Config/tempest.toml`; dev mods hot-reload from `<game>/mods/`; per-mod configs in `<game>/ChaosGame/Config/mods/<id>.toml`. See `Tempest.Scripting/README.md`.
 
 ## Tempest.UnrealScript commands
 

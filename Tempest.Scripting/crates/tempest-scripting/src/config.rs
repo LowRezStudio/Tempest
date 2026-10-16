@@ -37,6 +37,9 @@ mods = "mods"
 # Reload a dev mod when one of its files is saved, and any mod when its config
 # file changes.
 hot_reload = true
+# Also reload a mod when its config file is edited by hand. Files written by
+# the mod itself (tempest.save_config) never trigger a reload either way.
+reload_on_config = true
 # Quiet time after the last change before reloading, in milliseconds.
 hot_reload_delay_ms = 300
 
@@ -60,6 +63,7 @@ pub struct Config {
     pub jit: bool,
     pub dev_mods: String,
     pub hot_reload: bool,
+    pub reload_on_config: bool,
     pub hot_reload_delay_ms: u64,
     pub mod_configs: String,
     pub ui_scale: f32,
@@ -77,6 +81,7 @@ impl Default for Config {
             jit: true,
             dev_mods: "mods".into(),
             hot_reload: true,
+            reload_on_config: true,
             hot_reload_delay_ms: 300,
             mod_configs: "ChaosGame/Config/mods".into(),
             ui_scale: 1.0,
@@ -178,6 +183,9 @@ fn apply(c: &mut Config, t: &toml::Table) {
         }
         if let Some(b) = d.get("hot_reload").and_then(|v| v.as_bool()) {
             c.hot_reload = b;
+        }
+        if let Some(b) = d.get("reload_on_config").and_then(|v| v.as_bool()) {
+            c.reload_on_config = b;
         }
         if let Some(n) = d.get("hot_reload_delay_ms").and_then(|v| v.as_integer()) {
             c.hot_reload_delay_ms = n.max(0) as u64;
@@ -294,7 +302,9 @@ pub fn write_table(path: &Path, table: &toml::Table) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     let text = toml::to_string_pretty(table).map_err(|e| e.to_string())?;
-    std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
+    std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+    crate::watch::expect(path);
+    Ok(())
 }
 
 /// Save a mod's config (the whole table replaces the file).

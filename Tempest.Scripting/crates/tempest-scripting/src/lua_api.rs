@@ -157,6 +157,32 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         "mods",
         lua.create_function(|_, ()| Ok(crate::loader::mods().into_iter().map(|m| m.id).collect::<Vec<_>>()))?,
     )?;
+    // tempest.installed() -> every mod the launcher knows (Lua or not) plus dev mods:
+    // { id, name, version, authors, kind, enabled, lua, dll, files, dev, loaded, path }.
+    // tempest.mods() above is the cheap view: the Lua mods running, in load order.
+    t.set(
+        "installed",
+        lua.create_function(|lua, ()| {
+            let out = lua.create_table()?;
+            for (i, m) in crate::loader::installed().into_iter().enumerate() {
+                let e = lua.create_table()?;
+                e.set("id", m.id)?;
+                e.set("name", m.name)?;
+                e.set("version", m.version)?;
+                e.set("authors", m.authors)?;
+                e.set("kind", m.kind)?;
+                e.set("enabled", m.enabled)?;
+                e.set("lua", m.lua)?;
+                e.set("dll", m.dll)?;
+                e.set("files", m.files)?;
+                e.set("dev", m.dev)?;
+                e.set("loaded", m.loaded)?;
+                e.set("path", m.path.map(|p| p.display().to_string()))?;
+                out.set(i + 1, e)?;
+            }
+            Ok(out)
+        })?,
+    )?;
     // Cross-mod values: `shared` is a plain global table every mod sees;
     // export/import add a log trail and a clear "not provided" message.
     t.set(
@@ -369,6 +395,7 @@ fn register_config(lua: &Lua, t: &Table) -> mlua::Result<()> {
             s.set("jit", c.jit)?;
             s.set("dev_mods", crate::config::dev_mods_dir().map(|p| p.display().to_string()))?;
             s.set("hot_reload", c.hot_reload)?;
+            s.set("reload_on_config", c.reload_on_config)?;
             s.set("hot_reload_delay_ms", c.hot_reload_delay_ms)?;
             s.set("mod_configs", crate::config::mod_configs_dir().map(|p| p.display().to_string()))?;
             s.set("ui_scale", c.ui_scale)?;
@@ -492,8 +519,6 @@ fn status(lua: &Lua) -> mlua::Result<Table> {
     t.set("native_hooks", unreal::native_hooks())?;
     t.set("address_hooks", address_hooks(lua)?)?;
     t.set("lua_natives", unreal::lua_natives())?;
-    t.set("mods", crate::loader::mods().into_iter().map(|m| m.id).collect::<Vec<_>>())?;
-    t.set("dev_mods", crate::loader::mods().into_iter().filter(|m| m.dev).map(|m| m.id).collect::<Vec<_>>())?;
     t.set("key_hook_installed", crate::input::installed())?;
     t.set("ui_backend", crate::overlay::backend())?;
     t.set("ui_ready", crate::overlay::ready())?;

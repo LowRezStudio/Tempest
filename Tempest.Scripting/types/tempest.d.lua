@@ -168,6 +168,22 @@ function tempest.reload(mod_id) end
 function tempest.mod() end
 ---@return string[]
 function tempest.mods() end
+---@class InstalledMod
+---@field id string
+---@field name string
+---@field version string
+---@field authors string[]
+---@field kind string "V2" | "NativePackage" | "Asset" | "Voice" | "dev"
+---@field enabled boolean
+---@field lua boolean ships scripts/
+---@field dll boolean ships dlls/
+---@field files integer game files it installs (content)
+---@field dev boolean from the dev folder
+---@field loaded boolean its scripts are running
+---@field path string?
+--- Every mod the launcher installed (from its mods.json), Lua or not, plus the dev folder.
+---@return InstalledMod[]
+function tempest.installed() end
 ---@param name string
 ---@param value any
 function tempest.export(name, value) end
@@ -423,7 +439,7 @@ function tempest.config_path() end
 ---@return string? the game folder
 function tempest.game_dir() end
 --- The runtime settings (tempest.toml), read-only.
----@return { path: string?, game_dir: string?, log: string?, console: boolean, jit: boolean, dev_mods: string?, hot_reload: boolean, hot_reload_delay_ms: integer, mod_configs: string?, ui_scale: number }
+---@return { path: string?, game_dir: string?, log: string?, console: boolean, jit: boolean, dev_mods: string?, hot_reload: boolean, reload_on_config: boolean, hot_reload_delay_ms: integer, mod_configs: string?, ui_scale: number }
 function tempest.settings() end
 --- Log `msg` and show it in chat when a local player exists.
 ---@param msg string

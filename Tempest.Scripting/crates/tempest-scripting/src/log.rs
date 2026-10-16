@@ -3,7 +3,8 @@
 //! Every line goes to three sinks, each flushed immediately so the last line
 //! before a crash is preserved:
 //!
-//! 1. `%TEMP%\tempest-scripting.log` (override: `TEMPEST_SCRIPT_LOG=<path>`)
+//! 1. `%TEMP%\tempest-scripting.log` (override: `TEMPEST_SCRIPT_LOG=<path>`),
+//!    started fresh on every run; the previous run is kept as `*.prev.log`
 //! 2. `OutputDebugStringA` (DebugView / WinDbg)
 //! 3. the console allocated at init (skip with `TEMPEST_SCRIPT_CONSOLE=0`)
 //!
@@ -39,12 +40,27 @@ fn default_path() -> String {
         .into_owned()
 }
 
-/// Open the sinks. Idempotent.
-pub fn init() {
+/// Open the sinks. Idempotent. `fresh` starts a new log file (the previous
+/// one is kept as `<name>.prev.log`); an idle second runtime appends instead.
+pub fn init(fresh: bool) {
     let _ = start();
     let path = PATH.get_or_init(default_path).clone();
     if FILE.get().is_none() {
-        if let Ok(f) = OpenOptions::new().create(true).append(true).open(&path) {
+        if fresh {
+            let prev = match path.rsplit_once(".log") {
+                Some((stem, "")) => format!("{stem}.prev.log"),
+                _ => format!("{path}.prev"),
+            };
+            let _ = std::fs::rename(&path, prev);
+        }
+        let mut opts = OpenOptions::new();
+        opts.create(true);
+        if fresh {
+            opts.write(true).truncate(true);
+        } else {
+            opts.append(true);
+        }
+        if let Ok(f) = opts.open(&path) {
             let _ = FILE.set(Mutex::new(f));
         }
     }

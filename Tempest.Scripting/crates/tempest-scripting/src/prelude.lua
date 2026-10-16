@@ -231,6 +231,22 @@ tempest.command("lua", function(pc, rest)
 	for i = 2, results.n do pc:ClientMessage(tostring(results[i])) end
 end, "lua <code>  |  lua =<expr>")
 
+tempest.command("tempest_mods", function(pc)
+	pc:ClientMessage("running: " .. table.concat(tempest.mods(), ", "))
+	local all = tempest.installed()
+	if #all == 0 then pc:ClientMessage("no mods registered by the launcher") return end
+	for _, m in ipairs(all) do
+		local tags = {}
+		if m.lua then tags[#tags + 1] = "lua" end
+		if m.dll then tags[#tags + 1] = "dll" end
+		if m.files > 0 then tags[#tags + 1] = "content" end
+		if m.dev then tags[#tags + 1] = "dev" elseif m.kind ~= "V2" then tags[#tags + 1] = m.kind end
+		if #tags == 0 then tags[1] = "no files" end
+		pc:ClientMessage(string.format("%s %s: %s%s%s", m.id, m.version, table.concat(tags, ", "),
+			m.enabled and "" or ", disabled", (m.lua and m.enabled and not m.loaded) and ", not loaded" or ""))
+	end
+end, "list every installed mod with its kind (lua, dll, content, v1)")
+
 tempest.command("tempest_config", function(pc, rest)
 	local s = tempest.settings()
 	pc:ClientMessage("settings: " .. tostring(s.path))

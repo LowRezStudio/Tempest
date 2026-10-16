@@ -24,11 +24,6 @@ tempest.command("tempest_status", function(pc)
 	end
 end, "runtime status")
 
--- tempest_mods: loaded mods in load order.
-tempest.command("tempest_mods", function(pc)
-	pc:ClientMessage("mods: " .. table.concat(tempest.mods(), ", "))
-end, "list loaded Lua mods")
-
 -- tempest_hooks: every subscription with its owning mod.
 tempest.command("tempest_hooks", function(pc)
 	local subs = tempest.status().subscriptions

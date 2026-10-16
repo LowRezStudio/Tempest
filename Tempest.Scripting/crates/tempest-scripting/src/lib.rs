@@ -63,16 +63,19 @@ pub fn lua() -> &'static Lua {
 
 /// Full startup. Safe to call from the host build (everything stubs out).
 pub fn boot() {
-    log::init();
+    // The first runtime in the process starts a fresh log; a second copy
+    // (another mod shipping the DLL) only appends its one line.
+    let primary = claim_runtime();
+    log::init(primary);
+    if !primary {
+        log::line("boot", "another Tempest.Scripting instance already runs in this process; this copy stays idle");
+        return;
+    }
     for note in &config::get().notes {
         log::line("config", note);
     }
     if let Some(p) = &config::get().path {
         log::line("config", &format!("settings: {}", p.display()));
-    }
-    if !claim_runtime() {
-        log::line("boot", "another Tempest.Scripting instance already runs in this process; this copy stays idle");
-        return;
     }
     log::line(
         "boot",
