@@ -18,11 +18,16 @@ cargo build --release --quiet || exit 1
 rm -rf "$WORK"; mkdir -p "$WORK/dumps"
 $U project init "$COOKED" "$WORK/proj" >"$WORK/init.log" 2>&1 || { echo "init failed:"; tail -5 "$WORK/init.log"; exit 1; }
 $U project build "$WORK/proj" -o "$WORK/out" >"$WORK/build.log" 2>&1 || { echo "build failed:"; grep -v '^warning' "$WORK/build.log" | tail -8; exit 1; }
+# Dumps are independent: run them all at once, then compare in manifest order.
+while read -r kind name ext cooked _; do
+    [ "$kind" = package ] || continue
+    $U dump "$COOKED/$name.$ext" "$WORK/dumps/$name.orig" -I "$COOKED" --no-pos --hash >/dev/null 2>&1 &
+    $U dump "$WORK/out/$name.$ext" "$WORK/dumps/$name.ours" -I "$WORK/out" -I "$COOKED" --no-pos --hash >/dev/null 2>&1 &
+done < "$WORK/proj/uscript-project.txt"
+wait
 status=0
 while read -r kind name ext cooked _; do
     [ "$kind" = package ] || continue
-    $U dump "$COOKED/$name.$ext" "$WORK/dumps/$name.orig" -I "$COOKED" --no-pos --hash >/dev/null 2>&1
-    $U dump "$WORK/out/$name.$ext" "$WORK/dumps/$name.ours" -I "$WORK/out" -I "$COOKED" --no-pos --hash >/dev/null 2>&1
     n=$(diff "$WORK/dumps/$name.orig" "$WORK/dumps/$name.ours" | grep -c '^[<>]')
     note=""
     if [ "$n" != 0 ]; then

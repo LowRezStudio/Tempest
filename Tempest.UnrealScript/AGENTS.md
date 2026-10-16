@@ -23,6 +23,7 @@ crates/tempest-unrealscript/
   src/objects.rs               Serialised forms of UField/UStruct/UClass/UProperty/UEnum/UConst… (reader + exact inverse writer)
   src/bytecode.rs              Token tree, disassembler, assembler (tracks in-memory offsets: object refs are 8 bytes in memory, 4 on disk)
   src/context.rs               Multi-package object database: loads packages from search paths, resolves imports, class hierarchy, natives
+  src/par.rs                   Thread helpers (parallel map, dependency scheduler) over std::thread::scope; `-j` / USCRIPT_JOBS
   src/compiler/                Port of FScriptCompiler (UnScrCom.cpp) + SavePackage ordering
     preprocess.rs              Header pre-scan (class/extends/dependson), cpptext/defaultproperties split, comment stripping
     lexer.rs                   FScriptCompiler::GetToken (incl. #linenumber)
@@ -71,12 +72,14 @@ uscript info|names|imports|exports <pkg>              header tables
 uscript disasm <pkg> <idx|path>                       token tree of one struct
 uscript dump <pkg> [out.txt] [-I dir]... [--no-pos] [--hash|--hash-full]
                                                       normalised dump of every export, for diffing
-uscript decompile <pkg> [-I dir]... [-o outdir] [Class]...
+uscript decompile <pkg> [-I dir]... [-o outdir] [-j N] [Class]...
                                                       writes <outdir>/<Pkg>/Classes/*.uc
 uscript compile <srcdir/Pkg> -o out.upk [-I dir]... [-P dep]... [flags]
-uscript project init <cooked-dir> <project-dir>
-uscript project build <project-dir> [-o outdir] [Pkg]...
+uscript project init <cooked-dir> <project-dir> [-j N]
+uscript project build <project-dir> [-o outdir] [-j N] [Pkg]...
 ```
+
+Parallelism (`-j N`, default all cores; `USCRIPT_JOBS` env overrides the default): `decompile` renders classes concurrently against the shared read-only context, `project init` scans package headers concurrently (`Package::load_tables`, no content decompression), and `project build` runs packages whose dependencies are built concurrently. A single `compile` is deliberately single-threaded: name interning and import creation order determine the bytes, so the compiler passes and the emitter must stay sequential. Output is identical at every `-j`; `-j 1` is the reference when in doubt.
 
 Compile flags:
 

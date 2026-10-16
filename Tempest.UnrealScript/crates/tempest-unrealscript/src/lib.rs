@@ -6,5 +6,6 @@ pub mod compiler;
 pub mod context;
 pub mod decompile;
 pub mod objects;
+pub mod par;
 
 pub use tempest_upk as upk;

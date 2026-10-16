@@ -255,22 +255,35 @@ impl Package {
     }
 
     pub fn parse(bytes: &[u8]) -> Result<Package> {
+        Package::parse_image(bytes, true)
+    }
+
+    /// Summary and header tables only: `export_data` stays empty and only the
+    /// compressed chunks covering the header are expanded. For scanning a
+    /// directory of packages without decompressing their content.
+    pub fn load_tables(path: impl AsRef<Path>) -> Result<Package> {
+        let bytes = std::fs::read(path)?;
+        Package::parse_image(&bytes, false)
+    }
+
+    fn parse_image(bytes: &[u8], payloads: bool) -> Result<Package> {
         let mut r = Reader::new(bytes);
         let summary = Summary::read(&mut r)?;
         let image: Vec<u8>;
         let was_compressed = !summary.compressed_chunks.is_empty();
         let data: &[u8] = if was_compressed {
-            image = decompress_image(bytes, &summary)?;
+            let limit = if payloads { usize::MAX } else { summary.total_header_size.max(0) as usize };
+            image = decompress_image(bytes, &summary, limit)?;
             &image
         } else {
             bytes
         };
         let mut pkg = Package { summary, was_compressed, ..Default::default() };
-        pkg.parse_tables(data)?;
+        pkg.parse_tables(data, payloads)?;
         Ok(pkg)
     }
 
-    fn parse_tables(&mut self, data: &[u8]) -> Result<()> {
+    fn parse_tables(&mut self, data: &[u8], payloads: bool) -> Result<()> {
         let s = &self.summary;
         let mut r = Reader::new(data);
 
@@ -346,6 +359,10 @@ impl Package {
         let header_end = s.total_header_size as usize;
         if header_end > tables_end && header_end <= data.len() {
             self.header_tail = data[tables_end..header_end].to_vec();
+        }
+        if !payloads {
+            self.rebuild_name_lookup();
+            return Ok(());
         }
 
         let mut max_end = header_end;
@@ -682,7 +699,9 @@ pub fn split_name_number(text: &str) -> (&str, u32) {
 
 /// Expand compressed chunks into a flat file image: the raw header bytes
 /// (up to the first chunk) followed by each chunk at its uncompressed offset.
-fn decompress_image(bytes: &[u8], summary: &Summary) -> Result<Vec<u8>> {
+/// Chunks starting at or beyond `limit` are left out (and the image ends with
+/// the last chunk kept), so a header-only read skips the content.
+fn decompress_image(bytes: &[u8], summary: &Summary, limit: usize) -> Result<Vec<u8>> {
     let ctype = summary.compression_flags & compression::TYPE_MASK;
     if ctype != compression::LZO {
         return Err(Error::Compression(format!(
@@ -691,18 +710,14 @@ fn decompress_image(bytes: &[u8], summary: &Summary) -> Result<Vec<u8>> {
         )));
     }
     let obscured = summary.compression_flags & compression::OBSCURED != 0;
-    let total = summary
-        .compressed_chunks
-        .iter()
-        .map(|c| (c.uncompressed_offset + c.uncompressed_size) as usize)
-        .max()
-        .unwrap_or(0);
+    let chunks: Vec<&CompressedChunk> = summary.compressed_chunks.iter().filter(|c| (c.uncompressed_offset as usize) < limit).collect();
+    let total = chunks.iter().map(|c| (c.uncompressed_offset + c.uncompressed_size) as usize).max().unwrap_or(0);
     let first = summary.compressed_chunks.iter().map(|c| c.uncompressed_offset as usize).min().unwrap_or(0);
     let mut image = vec![0u8; total.max(first)];
     let head = first.min(bytes.len());
     image[..head].copy_from_slice(&bytes[..head]);
 
-    for chunk in &summary.compressed_chunks {
+    for chunk in chunks {
         let mut r = Reader::new(bytes);
         r.seek(chunk.compressed_offset as usize);
         let tag = r.u32()?;

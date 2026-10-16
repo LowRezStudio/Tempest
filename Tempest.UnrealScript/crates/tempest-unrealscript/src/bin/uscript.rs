@@ -17,11 +17,12 @@ fn usage() -> ExitCode {
            uscript hexdump <pkg> <idx|path>   dump one export payload\n  \
            uscript bytecode-check <pkg> [-v]  disassemble + reassemble every struct's bytecode\n  \
            uscript disasm <pkg> <idx|path>    print the token tree of one struct\n  \
-           uscript decompile <pkg> [-I dir]... [-o outdir] [Class]...  decompile classes to .uc\n  \
+           uscript decompile <pkg> [-I dir]... [-o outdir] [-j N] [Class]...  decompile classes to .uc\n  \
            uscript compile <srcdir/Pkg> -o out.u [-I dir]... [-P dep]... [--server] [--strip-source] [--cooked] [--compress] [--conform pkg] [--allow-config-defaults] [-v]  compile a package
   uscript dump <pkg> [out.txt] [-I dir]... [--no-pos] [--hash|--hash-full]  normalised dump of every export (for diffing)
-  uscript project init <cooked-dir> <project-dir>   decompile every script package into <project-dir>/Development/Src/<Pkg>/Classes
-  uscript project build <project-dir> [-o outdir] [Pkg]...  recompile the project in dependency order, each package conformed to its original"
+  uscript project init <cooked-dir> <project-dir> [-j N]   decompile every script package into <project-dir>/Development/Src/<Pkg>/Classes
+  uscript project build <project-dir> [-o outdir] [-j N] [Pkg]...  recompile the project in dependency order, each package conformed to its original
+  -j N limits the worker threads (default: all cores, or USCRIPT_JOBS)"
     );
     ExitCode::from(2)
 }
@@ -432,9 +433,11 @@ pub mod bccmds {
 }
 
 pub mod dccmds {
+    use std::collections::{BTreeSet, HashMap};
     use std::path::PathBuf;
     use tempest_unrealscript::context::{Context, ObjRef};
     use tempest_unrealscript::decompile::Decompiler;
+    use tempest_unrealscript::par;
 
     pub fn decompile(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let mut ctx = Context::new();
@@ -446,6 +449,7 @@ pub mod dccmds {
             match args[i].as_str() {
                 "-I" => { ctx.add_search_path(&args[i + 1]); i += 2; }
                 "-o" => { out = Some(PathBuf::from(&args[i + 1])); i += 2; }
+                "-j" => { par::set_jobs(args[i + 1].parse()?); i += 2; }
                 a => { if pkg_path.is_none() { pkg_path = Some(a.to_string()); } else { classes.push(a.to_string()); } i += 1; }
             }
         }
@@ -455,9 +459,9 @@ pub mod dccmds {
         }
         let slot = ctx.load_file(&pkg_path)?;
         ctx.preload_imports(slot);
+        let ctx = &ctx;
         let pkg_name = ctx.packages[slot].name.clone();
         let n = ctx.packages[slot].pkg.exports.len();
-        let mut count = 0;
         // Every class of the package, and which same-package classes each one's
         // declarations depend on (first render), to plan the `dependson` lists.
         let mut all: Vec<ObjRef> = Vec::new();
@@ -467,35 +471,50 @@ pub mod dccmds {
             if ctx.packages[slot].pkg.exports[e].serial_size == 0 && ctx.name(r).eq_ignore_ascii_case("None") { continue; }
             all.push(r);
         }
-        let by_name: std::collections::HashMap<String, ObjRef> = all.iter().map(|&r| (ctx.name(r).to_ascii_lowercase(), r)).collect();
-        let mut refs: std::collections::HashMap<ObjRef, std::collections::BTreeSet<ObjRef>> = std::collections::HashMap::new();
-        for &r in &all {
-            let d = Decompiler::new(&ctx, r);
+        let by_name: HashMap<String, ObjRef> = all.iter().map(|&r| (ctx.name(r).to_ascii_lowercase(), r)).collect();
+        // Each class renders independently against the shared, immutable context.
+        let refs: HashMap<ObjRef, BTreeSet<ObjRef>> = par::map(&all, |&r| {
+            let d = Decompiler::new(ctx, r);
             let _ = d.class_source();
-            let set: std::collections::BTreeSet<ObjRef> = d.depends_on.borrow().iter().filter_map(|n| by_name.get(&n.to_ascii_lowercase()).copied()).collect();
-            refs.insert(r, set);
+            let set: BTreeSet<ObjRef> = d.depends_on.borrow().iter().filter_map(|n| by_name.get(&n.to_ascii_lowercase()).copied()).collect();
+            (r, set)
+        })
+        .into_iter()
+        .collect();
+        let plan = tempest_unrealscript::decompile::plan::plan_dependson(ctx, &all, &refs);
+        let selected: Vec<ObjRef> = all
+            .iter()
+            .copied()
+            .filter(|&r| classes.is_empty() || classes.iter().any(|c| c.eq_ignore_ascii_case(&ctx.name(r))))
+            .collect();
+        let classes_dir = out.as_ref().map(|dir| dir.join(&pkg_name).join("Classes"));
+        if let Some(d) = &classes_dir {
+            std::fs::create_dir_all(d)?;
         }
-        let plan = tempest_unrealscript::decompile::plan::plan_dependson(&ctx, &all, &refs);
-        for &r in &all {
+        // Render (and write) in parallel; printing to stdout keeps the class order.
+        let rendered: Vec<(String, Result<Option<String>, String>)> = par::map(&selected, |&r| {
             let name = ctx.name(r);
-            if !classes.is_empty() && !classes.iter().any(|c| c.eq_ignore_ascii_case(&name)) { continue; }
             let depends: Vec<String> = plan.depends.get(&r).map(|v| v.iter().map(|o| ctx.name(*o)).collect()).unwrap_or_default();
-            let src = Decompiler::with_depends(&ctx, r, depends).class_source();
-            count += 1;
-            match &out {
-                Some(dir) => {
-                    let d = dir.join(&pkg_name).join("Classes");
-                    std::fs::create_dir_all(&d)?;
-                    std::fs::write(d.join(format!("{name}.uc")), src)?;
+            let src = Decompiler::with_depends(ctx, r, depends).class_source();
+            let result = match &classes_dir {
+                Some(d) => {
+                    let path = d.join(format!("{name}.uc"));
+                    std::fs::write(&path, src).map(|_| None).map_err(|e| format!("cannot write {}: {e}", path.display()))
                 }
-                None => {
-                    println!("// ===== {name}.uc =====");
-                    println!("{src}");
-                }
+                None => Ok(Some(src)),
+            };
+            (name, result)
+        });
+        let mut count = 0;
+        for (name, result) in rendered {
+            if let Some(src) = result? {
+                println!("// ===== {name}.uc =====");
+                println!("{src}");
             }
+            count += 1;
         }
-        if let Some(dir) = &out {
-            println!("wrote {count} classes to {}", dir.join(&pkg_name).join("Classes").display());
+        if let Some(d) = &classes_dir {
+            println!("wrote {count} classes to {}", d.display());
         }
         Ok(())
     }
@@ -954,15 +973,16 @@ pub mod textcmds {
 pub mod projcmds {
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::{Path, PathBuf};
+    use tempest_unrealscript::par;
     use tempest_upk::{Package, PackageIndex};
 
     const MANIFEST: &str = "uscript-project.txt";
 
     pub fn project(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         match args[0].as_str() {
-            "init" if args.len() >= 3 => init(Path::new(&args[1]), Path::new(&args[2])),
+            "init" if args.len() >= 3 => init(&args[1..]),
             "build" if args.len() >= 2 => build(&args[1..]),
-            _ => Err("usage: uscript project init <cooked-dir> <project-dir> | build <project-dir> [-o outdir] [Pkg]...".into()),
+            _ => Err("usage: uscript project init <cooked-dir> <project-dir> [-j N] | build <project-dir> [-o outdir] [-j N] [Pkg]...".into()),
         }
     }
 
@@ -975,18 +995,22 @@ pub mod projcmds {
             .filter(|p| p.extension().map(|x| matches!(x.to_string_lossy().to_ascii_lowercase().as_str(), "upk" | "u")).unwrap_or(false))
             .collect();
         files.sort();
-        let mut found: BTreeMap<String, (String, BTreeSet<String>, bool)> = BTreeMap::new();
-        // Packages whose classes are imported, and by whom: these must be present.
-        let mut class_deps: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for p in &files {
+        // Header tables of every package, read in parallel: (name, ext, class count,
+        // packages whose classes are imported, every imported package, cooked).
+        struct Scan {
+            name: String,
+            ext: String,
+            own_classes: usize,
+            class_deps: BTreeSet<String>,
+            deps: BTreeSet<String>,
+            cooked: bool,
+        }
+        let scanned: Vec<Result<Option<Scan>, String>> = par::map(&files, |p| {
             let name = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
             let ext = p.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-            let pkg = match Package::load(p) {
+            let pkg = match Package::load_tables(p) {
                 Ok(pkg) => pkg,
-                Err(e) => {
-                    eprintln!("skipping {}: {e}", p.display());
-                    continue;
-                }
+                Err(e) => return Err(format!("skipping {}: {e}", p.display())),
             };
             let own_classes = pkg
                 .exports
@@ -995,9 +1019,10 @@ pub mod projcmds {
                 .filter(|(i, e)| e.outer.is_null() && e.serial_size > 0 && pkg.class_name_of(PackageIndex::export(*i)) == "Class")
                 .count();
             if own_classes == 0 {
-                continue;
+                return Ok(None);
             }
             // Packages this one imports from (outermost outer of every import).
+            let mut class_deps: BTreeSet<String> = BTreeSet::new();
             let mut deps: BTreeSet<String> = BTreeSet::new();
             for (i, _) in pkg.imports.iter().enumerate() {
                 if pkg.class_name_of(PackageIndex::import(i)) == "Class" {
@@ -1006,7 +1031,7 @@ pub mod projcmds {
                         if pkg.imports[ii].outer.is_null() {
                             let n = pkg.fname_to_string(pkg.imports[ii].object_name);
                             if !n.eq_ignore_ascii_case(&name) {
-                                class_deps.entry(n).or_default().insert(name.clone());
+                                class_deps.insert(n);
                             }
                             break;
                         }
@@ -1032,8 +1057,25 @@ pub mod projcmds {
                 }
             }
             let cooked = pkg.summary.package_flags & tempest_upk::flags::pkg::COOKED != 0;
-            eprintln!("{name}: {own_classes} classes{}", if cooked { "" } else { " (not cooked)" });
-            found.insert(name, (ext, deps, cooked));
+            Ok(Some(Scan { name, ext, own_classes, class_deps, deps, cooked }))
+        });
+        let mut found: BTreeMap<String, (String, BTreeSet<String>, bool)> = BTreeMap::new();
+        // Packages whose classes are imported, and by whom: these must be present.
+        let mut class_deps: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for r in scanned {
+            let scan = match r {
+                Ok(Some(scan)) => scan,
+                Ok(None) => continue,
+                Err(msg) => {
+                    eprintln!("{msg}");
+                    continue;
+                }
+            };
+            for d in scan.class_deps {
+                class_deps.entry(d).or_default().insert(scan.name.clone());
+            }
+            eprintln!("{}: {} classes{}", scan.name, scan.own_classes, if scan.cooked { "" } else { " (not cooked)" });
+            found.insert(scan.name, (scan.ext, scan.deps, scan.cooked));
         }
         // Only dependencies that are script packages themselves (content is found by name).
         let names: BTreeSet<String> = found.keys().map(|k| k.to_ascii_lowercase()).collect();
@@ -1082,8 +1124,24 @@ pub mod projcmds {
         Ok(done.into_iter().map(|n| (n.clone(), found[&n].0.clone(), closure[&n].clone(), found[&n].2)).collect())
     }
 
-    fn init(cooked: &Path, project: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        let cooked = cooked.canonicalize()?;
+    fn init(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        let mut positional: Vec<&str> = Vec::new();
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "-j" => {
+                    par::set_jobs(args[i + 1].parse()?);
+                    i += 2;
+                }
+                a => {
+                    positional.push(a);
+                    i += 1;
+                }
+            }
+        }
+        let [cooked, project] = positional[..] else { return Err("usage: uscript project init <cooked-dir> <project-dir> [-j N]".into()) };
+        let project = Path::new(project);
+        let cooked = Path::new(cooked).canonicalize()?;
         let found = script_packages(&cooked)?;
         let ordered = order(&found)?;
         let src = project.join("Development").join("Src");
@@ -1112,6 +1170,10 @@ pub mod projcmds {
                     out = Some(PathBuf::from(&args[i + 1]));
                     i += 2;
                 }
+                "-j" => {
+                    par::set_jobs(args[i + 1].parse()?);
+                    i += 2;
+                }
                 a => {
                     only.push(a.to_string());
                     i += 1;
@@ -1134,11 +1196,17 @@ pub mod projcmds {
         }
         let cooked = cooked.ok_or("manifest has no cooked directory")?;
         let src = project.join("Development").join("Src");
-        for (name, ext, deps, is_cooked) in &packages {
-            if !only.is_empty() && !only.iter().any(|o| o.eq_ignore_ascii_case(name)) {
-                continue;
-            }
+        packages.retain(|(name, ..)| only.is_empty() || only.iter().any(|o| o.eq_ignore_ascii_case(name)));
+        // A package waits for the dependencies built in this run (its `-I` search
+        // path lists the output directory first); the rest come from the game dir.
+        let deps: Vec<Vec<usize>> = packages
+            .iter()
+            .map(|(_, _, d, _)| d.iter().filter_map(|d| packages.iter().position(|(n, ..)| n.eq_ignore_ascii_case(d))).collect())
+            .collect();
+        let errors = par::schedule(&deps, |i| {
+            let (name, ext, deps, is_cooked) = &packages[i];
             eprintln!("compiling {name}...");
+            let started = std::time::Instant::now();
             let mut args: Vec<String> = vec![
                 src.join(name).to_string_lossy().to_string(),
                 "-o".into(),
@@ -1164,8 +1232,13 @@ pub mod projcmds {
                 args.push((*f).into());
             }
             args.push(cooked.join(format!("{name}.{ext}")).to_string_lossy().to_string());
-            super::cccmds::compile(&args).map_err(|e| format!("{name}: {e}"))?;
+            let r = super::cccmds::compile(&args).map_err(|e| format!("{name}: {e}"));
+            eprintln!("compiled {name} in {:.1}s", started.elapsed().as_secs_f64());
+            r
+        });
+        match errors.into_iter().next() {
+            Some((_, e)) => Err(e.into()),
+            None => Ok(()),
         }
-        Ok(())
     }
 }
