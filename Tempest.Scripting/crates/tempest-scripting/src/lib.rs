@@ -11,7 +11,9 @@
 //! 4. [`unreal::wait_for_engine`] — waits for `*GEngine`, i.e. the Engine
 //!    package is loaded (injection happens while only `Core` exists), then
 //!    resolves `ProcessInternal` and detours it (script→script hooks).
-//! 5. [`loader::run_all`] — runs every `scripts/*.lua`.
+//! 5. [`overlay::install_async`] — hooks Present on the game's D3D9/D3D11
+//!    device (polling until the renderer exists) for the Lua `ui` module.
+//! 6. [`loader::run_all`] — runs every `scripts/*.lua`.
 //!
 //! Everything degrades to "unresolved + a note in `tempest.status()`" rather
 //! than crashing; the host (macOS/Linux) build has no game image and is only
@@ -21,11 +23,13 @@
 compile_error!("Tempest.Scripting targets the Win64 client only");
 
 pub mod hooks;
+mod imgui_syms;
 pub mod input;
 pub mod loader;
 pub mod log;
 pub mod lua_api;
 pub mod memory;
+pub mod overlay;
 pub mod tls;
 pub mod unreal;
 
@@ -43,6 +47,7 @@ pub fn lua() -> &'static Lua {
         // mlua's safe default would give adds nothing here.
         // SAFETY: the unsafe libraries are the point; nothing untrusted runs.
         let lua = unsafe { Lua::unsafe_new() };
+        overlay::init();
         if let Err(e) = lua_api::register(&lua) {
             log::line("lua", &format!("API registration failed: {e}"));
         }
@@ -75,6 +80,8 @@ pub fn boot() {
         unreal::wait_for_engine(std::time::Duration::from_secs(120));
         unreal::install_script_hook();
     }
+    // The renderer is up by now (or soon); the UI hooks poll for it.
+    overlay::install_async();
     run_scripts();
     log::line("boot", "ready");
     repl();

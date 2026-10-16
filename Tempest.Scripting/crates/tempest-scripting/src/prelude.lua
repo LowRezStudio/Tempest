@@ -149,6 +149,7 @@ function tempest._forget(mod)
 	for k, b in pairs(keys) do
 		if b.mod == mod then keys[k] = nil end
 	end
+	if ui and ui._forget then ui._forget(mod) end
 end
 
 -- tempest.trace(spec, n): log the first n firings of an event with the

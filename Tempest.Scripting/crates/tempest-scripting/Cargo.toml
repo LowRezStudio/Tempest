@@ -19,6 +19,10 @@ serde_json = "1"
 # manifest.toml ([scripting] after = [...] load order)
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 
+[build-dependencies]
+# native/: Dear ImGui + cimgui (+ the Win32/DX9/DX11 backends on Windows)
+cc = "1"
+
 [target.'cfg(windows)'.dependencies]
 # default-features off: retour's default `nightly` feature needs an unstable
 # toolchain. GenericDetour + `extern "system"` is the stable path.

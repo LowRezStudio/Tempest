@@ -58,7 +58,7 @@ scripting-install game: scripting-build
 [group("scripting")]
 scripting-dev game:
     rm -rf {{scripting}}/dist/dev && cp -R {{scripting}}/mods/dev {{scripting}}/dist/dev
-    mkdir -p {{scripting}}/dist/dev/types && cp {{scripting}}/types/tempest.d.lua {{scripting}}/dist/dev/types/
+    mkdir -p {{scripting}}/dist/dev/types && cp {{scripting}}/types/tempest.d.lua {{scripting}}/types/imgui.d.lua {{scripting}}/dist/dev/types/
     cp {{scripting}}/dist/scripting/.luarc.json {{scripting}}/dist/dev/.luarc.json
     python3 {{scripting}}/scripts/pack.py {{scripting}}/dist/dev {{scripting}}/dist/dev.tempest
     dotnet run --project Tempest.CLI -- mod install "{{game}}" "{{scripting}}/dist/dev.tempest" --replace --allow-unsigned

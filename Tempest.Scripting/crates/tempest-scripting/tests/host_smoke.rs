@@ -108,6 +108,35 @@ fn host_smoke() {
     assert_eq!(eval("return #tempest.status().lua_natives"), mlua::Value::Integer(0));
     assert_eq!(eval("return memory.write_str(0, 'x')"), mlua::Value::Boolean(false));
 
+    // UI: a backend-less ImGui context; the Lua layer builds real frames.
+    assert_eq!(eval("return ui.backend()"), mlua::Value::String(lua.create_string("").unwrap()));
+    assert_eq!(eval("return ui.WindowFlags.NoTitleBar + ui.Cond.Once"), mlua::Value::Integer(1 + 2));
+    assert!(eval("return require('ffi').string(ui.C.igGetVersion()) == '1.91.9'").as_boolean().unwrap());
+    assert_eq!(eval("return pcall(ui.text, 'outside a frame')"), mlua::Value::Boolean(false));
+    assert!(eval("return tempest._ui_headless(1280, 720) and ui.ready()").as_boolean().unwrap());
+    eval("ui.on_draw(function() \
+            ui.window('Test', function() \
+                ui.text('hello %d', 42) \
+                local v, c = ui.slider_float('s', 0.5, 0, 1); assert(v == 0.5 and c == false) \
+                local s, ch = ui.input_text('t', 'abc'); assert(s == 'abc' and ch == false) \
+                local i = ui.combo('c', 2, { 'a', 'b', 'c' }); assert(i == 2) \
+                local col = ui.color_edit('col', { 1, 0.5, 0, 1 }); assert(#col == 4 and col[2] > 0.49 and col[2] < 0.51) \
+                ui.table('tbl', 2, function() ui.table_next_row(); ui.table_next_column(); ui.text('a'); ui.table_next_column(); ui.text('b') end) \
+                ui.fg.line(0, 0, 10, 10, ui.rgb(0xff0000)) \
+                ui.dl.rect_filled(0, 0, 5, 5, ui.color(0, 1, 0, 0.5)) \
+            end) \
+          end); return true");
+    assert!(eval("return tempest._ui_build_frame()").as_boolean().unwrap());
+    assert!(eval("local s = ui.stats(); return s.built == 1 and s.vertices > 0 and s.lists > 0").as_boolean().unwrap());
+    // Failing handlers are recovered (window stack rebalanced) and the frame still completes.
+    eval("ui.on_draw(function() ui.window('Broken', function() ui.text('x'); error('boom') end) end); \
+          ui.on_draw(function() error('bad handler') end); return true");
+    assert!(eval("return tempest._ui_build_frame() and tempest._ui_build_frame()").as_boolean().unwrap());
+    assert_eq!(eval("return ui.stats().built"), mlua::Value::Integer(3));
+    // Reload re-runs ui.lua on the cached FFI bindings; frames keep building.
+    assert!(eval("tempest.reload(); return ui.C ~= nil and tempest._ui_build_frame()").as_boolean().unwrap());
+    assert_eq!(eval("return #tempest.status().subscriptions > 0 and ui.capturing()"), mlua::Value::Boolean(false));
+
     // The shipped examples at least parse and run with nothing resolved.
     for src in [
         include_str!("../../../examples/00_status.lua"),
@@ -122,6 +151,7 @@ fn host_smoke() {
         include_str!("../../../examples/08_keys.lua"),
         include_str!("../../../examples/09_address_hook.lua"),
         include_str!("../../../examples/10_lua_natives.lua"),
+        include_str!("../../../examples/11_ui.lua"),
     ] {
         lua.load(src).exec().expect("example runs on host");
     }

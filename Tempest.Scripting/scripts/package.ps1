@@ -22,7 +22,7 @@ try {
         if ($Dll) { New-Item -ItemType Directory -Force -Path "$S/dlls" | Out-Null; Copy-Item "$Out/Tempest.Scripting64.dll" "$S/dlls/" }
         if ($Types) {
             New-Item -ItemType Directory -Force -Path "$S/types" | Out-Null
-            Copy-Item "types/tempest.d.lua" "$S/types/"
+            Copy-Item "types/tempest.d.lua", "types/imgui.d.lua" "$S/types/"
             [System.IO.File]::WriteAllText((Join-Path $S ".luarc.json"), $Luarc)
         }
         python scripts/pack.py $S (Join-Path $Out "$Name.tempest")

@@ -373,3 +373,453 @@ function memory.write_str(addr, s) end
 ---@param s string
 ---@return boolean
 function memory.write_wstr(addr, s) end
+
+-- ===========================================================================
+-- ui: Dear ImGui (see types/imgui.d.lua for the raw ui.C API)
+-- ===========================================================================
+
+--- Packed ImU32 colour (ui.color / ui.rgb) for the draw-list functions.
+---@alias ui.Color integer
+
+--- Draw-list helpers: ui.fg (over everything), ui.bg (behind windows), ui.dl (current window).
+---@class ui.DrawList
+local DrawList = {}
+---@param x1 number @param y1 number @param x2 number @param y2 number @param color ui.Color @param thickness? number
+function DrawList.line(x1, y1, x2, y2, color, thickness) end
+---@param x1 number @param y1 number @param x2 number @param y2 number @param color ui.Color @param rounding? number @param thickness? number @param flags? integer
+function DrawList.rect(x1, y1, x2, y2, color, rounding, thickness, flags) end
+---@param x1 number @param y1 number @param x2 number @param y2 number @param color ui.Color @param rounding? number @param flags? integer
+function DrawList.rect_filled(x1, y1, x2, y2, color, rounding, flags) end
+---@param x number @param y number @param radius number @param color ui.Color @param segments? integer @param thickness? number
+function DrawList.circle(x, y, radius, color, segments, thickness) end
+---@param x number @param y number @param radius number @param color ui.Color @param segments? integer
+function DrawList.circle_filled(x, y, radius, color, segments) end
+---@param x1 number @param y1 number @param x2 number @param y2 number @param x3 number @param y3 number @param color ui.Color @param thickness? number
+function DrawList.triangle(x1, y1, x2, y2, x3, y3, color, thickness) end
+---@param x1 number @param y1 number @param x2 number @param y2 number @param x3 number @param y3 number @param color ui.Color
+function DrawList.triangle_filled(x1, y1, x2, y2, x3, y3, color) end
+---@param x number @param y number @param color ui.Color @param text string @param ... any string.format arguments
+function DrawList.text(x, y, color, text, ...) end
+---@param size number @param x number @param y number @param color ui.Color @param text string @param ... any
+function DrawList.text_sized(size, x, y, color, text, ...) end
+---@param points number[] x1, y1, x2, y2, ... @param color ui.Color @param closed? boolean @param thickness? number
+function DrawList.polyline(points, color, closed, thickness) end
+---@return ImDrawList
+function DrawList.list() end
+
+--- The in-game UI. Widgets are only valid inside a ui.on_draw handler (one
+--- call per rendered frame, on the game thread). Enums: ui.WindowFlags,
+--- ui.Cond, ui.Col, ui.StyleVar, ui.Key, ui.TableFlags, ui.InputTextFlags,
+--- ui.TreeNodeFlags, ui.SelectableFlags, ui.HoveredFlags, ui.MouseButton, ...
+--- (every ImGui enum, prefix stripped: ImGuiWindowFlags_NoTitleBar -> ui.WindowFlags.NoTitleBar).
+---@class ui
+---@field C imgui.C the raw cimgui API (LuaJIT FFI)
+---@field fg ui.DrawList
+---@field bg ui.DrawList
+---@field dl ui.DrawList
+---@field WindowFlags table<string, integer>
+---@field ChildFlags table<string, integer>
+---@field Cond table<string, integer>
+---@field Col table<string, integer>
+---@field StyleVar table<string, integer>
+---@field Key table<string, integer>
+---@field MouseButton table<string, integer>
+---@field Dir table<string, integer>
+---@field TableFlags table<string, integer>
+---@field TableColumnFlags table<string, integer>
+---@field TableRowFlags table<string, integer>
+---@field TableBgTarget table<string, integer>
+---@field InputTextFlags table<string, integer>
+---@field TreeNodeFlags table<string, integer>
+---@field SelectableFlags table<string, integer>
+---@field ComboFlags table<string, integer>
+---@field TabBarFlags table<string, integer>
+---@field TabItemFlags table<string, integer>
+---@field HoveredFlags table<string, integer>
+---@field FocusedFlags table<string, integer>
+---@field PopupFlags table<string, integer>
+---@field SliderFlags table<string, integer>
+---@field ColorEditFlags table<string, integer>
+---@field ButtonFlags table<string, integer>
+---@field DrawFlags table<string, integer>
+ui = {}
+
+---@param fn fun() runs every frame
+---@return integer id
+function ui.on_draw(fn) end
+---@param id integer
+function ui.off_draw(id) end
+---@return boolean backend initialised (a Present has happened)
+function ui.ready() end
+---@return string "d3d11" | "d3d9" | "" (none yet)
+function ui.backend() end
+---@return { built: integer, rendered: integer, vertices: integer, lists: integer }
+function ui.stats() end
+--- Give the mouse to the UI: ImGui draws its cursor, mouse messages stay away
+--- from the game, the local player's look input is parked until capture(false).
+---@param on? boolean default true
+function ui.capture(on) end
+---@return boolean
+function ui.capturing() end
+---@return boolean mouse, boolean keyboard, boolean text ImGui's WantCapture* flags
+function ui.want() end
+---@param s? number set when given
+---@return number scale fonts and paddings (1 = default)
+function ui.scale(s) end
+---@return ImGuiIO
+function ui.io() end
+---@return ImGuiStyle
+function ui.style() end
+---@return number width, number height
+function ui.screen() end
+---@return number x, number y
+function ui.mouse() end
+---@return number
+function ui.framerate() end
+---@return number
+function ui.delta_time() end
+---@param key integer ui.Key.*
+---@return boolean
+function ui.key_down(key) end
+---@param key integer ui.Key.* @param repeat_? boolean
+---@return boolean
+function ui.key_pressed(key, repeat_) end
+---@param key integer
+---@return boolean
+function ui.key_released(key) end
+---@param button? integer 0 left, 1 right, 2 middle
+---@return boolean
+function ui.mouse_down(button) end
+---@param button? integer @param repeat_? boolean
+---@return boolean
+function ui.mouse_clicked(button, repeat_) end
+---@param button? integer
+---@return boolean
+function ui.mouse_released(button) end
+function ui.demo() end
+function ui.metrics() end
+---@param x number @param y number
+---@return ImVec2
+function ui.vec2(x, y) end
+---@param x number @param y number @param z number @param w number
+---@return ImVec4
+function ui.vec4(x, y, z, w) end
+---@param r number 0..1 @param g number @param b number @param a? number
+---@return ui.Color
+function ui.color(r, g, b, a) end
+---@param hex integer 0xRRGGBB @param a? number 0..1
+---@return ui.Color
+function ui.rgb(hex, a) end
+
+---@param title string @param open? boolean @param flags? integer
+---@return boolean visible, boolean? open
+function ui.begin_window(title, open, flags) end
+function ui.end_window() end
+--- ui.window(title, fn) or ui.window(title, { open = bool, flags = n }, fn); End is always called.
+---@param title string
+---@param opts fun()|{ open?: boolean, flags?: integer }
+---@param fn? fun()
+---@return boolean? open false when the close button was clicked
+function ui.window(title, opts, fn) end
+---@param id string @param w number @param h number
+---@param opts fun()|{ child_flags?: integer, flags?: integer }
+---@param fn? fun()
+function ui.child(id, w, h, opts, fn) end
+---@param x number @param y number @param cond? integer ui.Cond.* @param pivot_x? number @param pivot_y? number
+function ui.set_next_window_pos(x, y, cond, pivot_x, pivot_y) end
+---@param w number @param h number @param cond? integer
+function ui.set_next_window_size(w, h, cond) end
+---@param collapsed boolean @param cond? integer
+function ui.set_next_window_collapsed(collapsed, cond) end
+function ui.set_next_window_focus() end
+---@param alpha number
+function ui.set_next_window_bg_alpha(alpha) end
+---@param w number
+function ui.set_next_item_width(w) end
+---@param open boolean @param cond? integer
+function ui.set_next_item_open(open, cond) end
+---@return number x, number y
+function ui.window_pos() end
+---@return number w, number h
+function ui.window_size() end
+---@return number
+function ui.window_width() end
+---@return number
+function ui.window_height() end
+---@param x number @param y number @param cond? integer
+function ui.set_window_pos(x, y, cond) end
+---@param w number @param h number @param cond? integer
+function ui.set_window_size(w, h, cond) end
+function ui.set_window_focus() end
+---@param flags? integer
+---@return boolean
+function ui.is_window_hovered(flags) end
+---@param flags? integer
+---@return boolean
+function ui.is_window_focused(flags) end
+---@return boolean
+function ui.is_window_collapsed() end
+---@return number w, number h
+function ui.content_region_avail() end
+---@return number x, number y
+function ui.cursor_pos() end
+---@param x number @param y number
+function ui.set_cursor_pos(x, y) end
+---@return number x, number y
+function ui.cursor_screen_pos() end
+---@param x number @param y number
+function ui.set_cursor_screen_pos(x, y) end
+---@return number
+function ui.scroll_y() end
+---@param y number
+function ui.set_scroll_y(y) end
+---@return number
+function ui.scroll_max_y() end
+---@param ratio? number
+function ui.set_scroll_here_y(ratio) end
+
+function ui.separator() end
+---@param label string
+function ui.separator_text(label) end
+---@param offset? number @param spacing? number
+function ui.same_line(offset, spacing) end
+function ui.new_line() end
+function ui.spacing() end
+---@param w number @param h number
+function ui.dummy(w, h) end
+---@param w? number
+function ui.indent(w) end
+---@param w? number
+function ui.unindent(w) end
+function ui.align_text_to_frame_padding() end
+---@return number
+function ui.text_line_height() end
+---@return number
+function ui.text_line_height_with_spacing() end
+---@return number
+function ui.frame_height() end
+---@param text string
+---@return number w, number h
+function ui.calc_text_size(text) end
+---@param fn fun()
+function ui.group(fn) end
+---@param id string|integer
+function ui.push_id(id) end
+function ui.pop_id() end
+---@param w number
+function ui.push_item_width(w) end
+function ui.pop_item_width() end
+---@param idx integer ui.Col.* @param r number @param g number @param b number @param a? number
+function ui.push_color(idx, r, g, b, a) end
+---@param n? integer
+function ui.pop_color(n) end
+---@param idx integer ui.StyleVar.* @param a number @param b? number second component for Vec2 vars
+function ui.push_var(idx, a, b) end
+---@param n? integer
+function ui.pop_var(n) end
+---@param x? number
+function ui.push_text_wrap_pos(x) end
+function ui.pop_text_wrap_pos() end
+---@param disabled? boolean
+function ui.begin_disabled(disabled) end
+function ui.end_disabled() end
+
+---@param text string @param ... any string.format arguments when given
+function ui.text(text, ...) end
+---@param r number @param g number @param b number @param a number @param text string @param ... any
+function ui.text_colored(r, g, b, a, text, ...) end
+---@param text string @param ... any
+function ui.text_disabled(text, ...) end
+---@param text string @param ... any
+function ui.text_wrapped(text, ...) end
+---@param label string @param text string @param ... any
+function ui.label_text(label, text, ...) end
+---@param text string @param ... any
+function ui.bullet_text(text, ...) end
+function ui.bullet() end
+
+---@param label string @param w? number @param h? number
+---@return boolean clicked
+function ui.button(label, w, h) end
+---@param label string
+---@return boolean clicked
+function ui.small_button(label) end
+---@param id string @param w number @param h number @param flags? integer
+---@return boolean clicked
+function ui.invisible_button(id, w, h, flags) end
+---@param id string @param dir integer ui.Dir.*
+---@return boolean clicked
+function ui.arrow_button(id, dir) end
+---@param label string @param value boolean
+---@return boolean value, boolean changed
+function ui.checkbox(label, value) end
+---@param label string @param active boolean
+---@return boolean clicked
+function ui.radio(label, active) end
+---@param label string @param current integer @param value integer
+---@return integer current, boolean clicked
+function ui.radio_value(label, current, value) end
+---@param fraction number 0..1 @param w? number @param h? number @param overlay? string
+function ui.progress_bar(fraction, w, h, overlay) end
+---@param label string @param selected? boolean @param flags? integer @param w? number @param h? number
+---@return boolean clicked
+function ui.selectable(label, selected, flags, w, h) end
+---@param label string @param v number @param min number @param max number @param format? string @param flags? integer
+---@return number v, boolean changed
+function ui.slider_float(label, v, min, max, format, flags) end
+---@param label string @param v integer @param min integer @param max integer @param format? string @param flags? integer
+---@return integer v, boolean changed
+function ui.slider_int(label, v, min, max, format, flags) end
+---@param label string @param radians number @param min_deg? number @param max_deg? number @param format? string @param flags? integer
+---@return number radians, boolean changed
+function ui.slider_angle(label, radians, min_deg, max_deg, format, flags) end
+---@param label string @param v number @param speed? number @param min? number @param max? number @param format? string @param flags? integer
+---@return number v, boolean changed
+function ui.drag_float(label, v, speed, min, max, format, flags) end
+---@param label string @param v integer @param speed? number @param min? integer @param max? integer @param format? string @param flags? integer
+---@return integer v, boolean changed
+function ui.drag_int(label, v, speed, min, max, format, flags) end
+---@param label string @param values number[] 2 to 4 @param min number @param max number @param format? string @param flags? integer
+---@return number[] values, boolean changed
+function ui.slider_floats(label, values, min, max, format, flags) end
+---@param label string @param values number[] 2 to 4 @param speed? number @param min? number @param max? number @param format? string @param flags? integer
+---@return number[] values, boolean changed
+function ui.drag_floats(label, values, speed, min, max, format, flags) end
+---@param label string @param values number[] 2 to 4 @param format? string @param flags? integer
+---@return number[] values, boolean changed
+function ui.input_floats(label, values, format, flags) end
+---@param label string @param value string @param maxlen? integer default 255 @param flags? integer ui.InputTextFlags.*
+---@return string value, boolean changed
+function ui.input_text(label, value, maxlen, flags) end
+---@param label string @param value string @param w? number @param h? number @param maxlen? integer default 4095 @param flags? integer
+---@return string value, boolean changed
+function ui.input_text_multiline(label, value, w, h, maxlen, flags) end
+---@param label string @param hint string @param value string @param maxlen? integer @param flags? integer
+---@return string value, boolean changed
+function ui.input_text_with_hint(label, hint, value, maxlen, flags) end
+---@param label string @param v integer @param step? integer @param step_fast? integer @param flags? integer
+---@return integer v, boolean changed
+function ui.input_int(label, v, step, step_fast, flags) end
+---@param label string @param v number @param step? number @param step_fast? number @param format? string @param flags? integer
+---@return number v, boolean changed
+function ui.input_float(label, v, step, step_fast, format, flags) end
+---@param label string @param index integer 1-based @param items string[] @param flags? integer
+---@return integer index, boolean changed
+function ui.combo(label, index, items, flags) end
+---@param label string @param index integer 1-based @param items string[] @param height? integer rows
+---@return integer index, boolean changed
+function ui.list_box(label, index, items, height) end
+---@param label string @param color number[] {r, g, b[, a]} 0..1 @param flags? integer
+---@return number[] color, boolean changed
+function ui.color_edit(label, color, flags) end
+---@param label string @param color number[] {r, g, b[, a]} @param flags? integer
+---@return number[] color, boolean changed
+function ui.color_picker(label, color, flags) end
+---@param id string @param r number @param g number @param b number @param a number @param flags? integer @param w? number @param h? number
+---@return boolean clicked
+function ui.color_button(id, r, g, b, a, flags, w, h) end
+
+---@param label string @param flags? integer ui.TreeNodeFlags.*
+---@return boolean open
+function ui.collapsing_header(label, flags) end
+---@param label string @param flags? integer
+---@return boolean open (call ui.tree_pop when true)
+function ui.tree_node(label, flags) end
+function ui.tree_pop() end
+---@param label string @param fn fun() @param flags? integer
+---@return boolean open
+function ui.tree(label, fn, flags) end
+---@param id string @param fn fun() @param flags? integer
+---@return boolean visible
+function ui.tab_bar(id, fn, flags) end
+---@param label string @param opts fun()|{ open?: boolean, flags?: integer } @param fn? fun()
+---@return boolean? open, boolean selected
+function ui.tab_item(label, opts, fn) end
+---@param fn fun()
+---@return boolean
+function ui.menu_bar(fn) end
+---@param fn fun()
+---@return boolean
+function ui.main_menu_bar(fn) end
+---@param label string @param fn fun() @param enabled? boolean
+---@return boolean open
+function ui.menu(label, fn, enabled) end
+---@param label string @param shortcut? string @param selected? boolean @param enabled? boolean
+---@return boolean clicked
+function ui.menu_item(label, shortcut, selected, enabled) end
+---@param id string @param flags? integer
+function ui.open_popup(id, flags) end
+function ui.close_current_popup() end
+---@param id string @param fn fun() @param flags? integer
+---@return boolean open
+function ui.popup(id, fn, flags) end
+---@param title string @param opts fun()|{ open?: boolean, flags?: integer } @param fn? fun()
+---@return boolean? open
+function ui.popup_modal(title, opts, fn) end
+---@param id string @param fn fun() @param flags? integer
+---@return boolean open
+function ui.popup_context_item(id, fn, flags) end
+---@param id string @param columns integer @param opts fun()|{ flags?: integer, w?: number, h?: number, inner_width?: number } @param fn? fun()
+---@return boolean visible
+function ui.table(id, columns, opts, fn) end
+---@param label string @param flags? integer @param width? number @param user_id? integer
+function ui.table_setup_column(label, flags, width, user_id) end
+---@param cols integer @param rows integer
+function ui.table_setup_scroll_freeze(cols, rows) end
+function ui.table_headers_row() end
+---@param flags? integer @param min_height? number
+function ui.table_next_row(flags, min_height) end
+---@return boolean visible
+function ui.table_next_column() end
+---@param i integer
+---@return boolean visible
+function ui.table_set_column_index(i) end
+---@return integer
+function ui.table_column_index() end
+---@return integer
+function ui.table_row_index() end
+---@param target integer ui.TableBgTarget.* @param color ui.Color @param column? integer
+function ui.table_set_bg_color(target, color, column) end
+
+---@param flags? integer ui.HoveredFlags.*
+---@return boolean
+function ui.is_item_hovered(flags) end
+---@return boolean
+function ui.is_item_active() end
+---@return boolean
+function ui.is_item_focused() end
+---@param button? integer
+---@return boolean
+function ui.is_item_clicked(button) end
+---@return boolean
+function ui.is_item_visible() end
+---@return boolean
+function ui.is_item_edited() end
+---@return boolean
+function ui.is_item_activated() end
+---@return boolean
+function ui.is_item_deactivated() end
+---@return boolean
+function ui.is_item_deactivated_after_edit() end
+---@return boolean
+function ui.is_any_item_hovered() end
+---@return boolean
+function ui.is_any_item_active() end
+---@return number x, number y
+function ui.item_rect_min() end
+---@return number x, number y
+function ui.item_rect_max() end
+---@return number w, number h
+function ui.item_rect_size() end
+function ui.set_item_default_focus() end
+---@param offset? integer
+function ui.set_keyboard_focus_here(offset) end
+---@param text string @param ... any
+function ui.set_tooltip(text, ...) end
+---@param fn fun()
+---@return boolean shown
+function ui.tooltip(fn) end
+---@param label string @param values number[] @param opts? { overlay?: string, min?: number, max?: number, w?: number, h?: number }
+function ui.plot_lines(label, values, opts) end
+---@param label string @param values number[] @param opts? { overlay?: string, min?: number, max?: number, w?: number, h?: number }
+function ui.plot_histogram(label, values, opts) end

@@ -277,15 +277,67 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
             Ok(ok.then_some(Object(ptr)))
         })?,
     )?;
+    register_ui(lua, &t)?;
     lua.globals().set("tempest", t)?;
     lua.globals().set("memory", memory_table(lua)?)?;
     run_prelude(lua)
 }
 
-/// Built-in Lua layer (`tempest.command` & co). Re-run on every reload
-/// because reload drops the subscriptions it depends on.
+/// Built-in Lua layer (`tempest.command` & co, then the `ui` module). Re-run
+/// on every reload because reload drops the subscriptions it depends on.
 pub fn run_prelude(lua: &Lua) -> mlua::Result<()> {
-    lua.load(include_str!("prelude.lua")).set_name("=prelude").exec()
+    lua.load(include_str!("prelude.lua")).set_name("=prelude").exec()?;
+    lua.load(include_str!("ui.lua")).set_name("=ui").exec()
+}
+
+/// `tempest._ui_*`: the Rust side of the `ui` module (ui.lua), plus the
+/// generated cimgui declarations in `tempest._imgui`.
+fn register_ui(lua: &Lua, t: &Table) -> mlua::Result<()> {
+    let spec: Table = lua.load(include_str!("imgui_cdef.lua")).set_name("=imgui_cdef").eval()?;
+    t.set("_imgui", spec)?;
+    t.set(
+        "_ui_syms",
+        lua.create_function(|lua, ()| {
+            let out = lua.create_table()?;
+            for (name, addr) in crate::imgui_syms::table() {
+                out.set(name, addr as i64)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    t.set("_ui_ready", lua.create_function(|_, ()| Ok(crate::overlay::ready()))?)?;
+    t.set("_ui_backend", lua.create_function(|_, ()| Ok(crate::overlay::backend()))?)?;
+    t.set("_ui_hwnd", lua.create_function(|_, ()| Ok(crate::overlay::hwnd() as i64))?)?;
+    t.set("_ui_stats", lua.create_function(|_, ()| Ok(crate::overlay::stats()))?)?;
+    t.set(
+        "_ui_capture",
+        lua.create_function(|_, on: bool| {
+            crate::overlay::set_capture(on);
+            Ok(())
+        })?,
+    )?;
+    t.set("_ui_capturing", lua.create_function(|_, ()| Ok(crate::overlay::capturing()))?)?;
+    t.set("_ui_want", lua.create_function(|_, ()| Ok(crate::overlay::want()))?)?;
+    t.set(
+        "_ui_scale",
+        lua.create_function(|_, s: Option<f32>| {
+            if let Some(s) = s {
+                crate::overlay::set_scale(s);
+            }
+            Ok(crate::overlay::scale())
+        })?,
+    )?;
+    // Run one draw handler under ImGui's error recovery; returns the error text.
+    t.set(
+        "_ui_protect",
+        lua.create_function(|_, (f, owner): (Function, Option<String>)| {
+            Ok(crate::overlay::run_handler(&f, owner.as_deref().unwrap_or("")))
+        })?,
+    )?;
+    // Tests / diagnostics: a backend-less context, and an immediate frame.
+    t.set("_ui_headless", lua.create_function(|_, (w, h): (f32, f32)| Ok(crate::overlay::init_headless(w, h)))?)?;
+    t.set("_ui_build_frame", lua.create_function(|_, ()| Ok(crate::overlay::build_frame()))?)?;
+    Ok(())
 }
 
 fn status(lua: &Lua) -> mlua::Result<Table> {
@@ -311,6 +363,8 @@ fn status(lua: &Lua) -> mlua::Result<Table> {
     t.set("lua_natives", unreal::lua_natives())?;
     t.set("mods", crate::loader::mods().into_iter().map(|m| m.id).collect::<Vec<_>>())?;
     t.set("key_hook_installed", crate::input::installed())?;
+    t.set("ui_backend", crate::overlay::backend())?;
+    t.set("ui_ready", crate::overlay::ready())?;
     t.set("game_thread", unreal::game_thread_id())?;
     t.set("object_count", unreal::object_count())?;
     t.set("name_count", unreal::name_count())?;

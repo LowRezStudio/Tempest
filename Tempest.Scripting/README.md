@@ -3,7 +3,8 @@
 A Rust `cdylib` (`Tempest.Scripting64.dll`) injected like any other V2 mod
 DLL. It hosts a LuaJIT 2.1 VM (Lua 5.1 plus the 5.2 extensions, GC64, with
 `ffi`, `bit` and `jit` loaded), finds the UE3 object model through
-signatures, hooks `UObject::ProcessEvent`, and runs `scripts/*.lua`.
+signatures, hooks `UObject::ProcessEvent`, runs `scripts/*.lua`, and draws
+Dear ImGui on the game's D3D9 or D3D11 device for the Lua `ui` module.
 
 Deliberately small: each layer can be checked on its own before the next
 one is trusted. See `examples/` for the three incremental checks.
@@ -15,7 +16,7 @@ one is trusted. See `examples/` for the three incremental checks.
 cargo test -p tempest-scripting
 
 # Win64 DLL + the four .tempest packages (local MinGW-w64, or cross/Docker as fallback)
-brew install mingw-w64            # one-time
+brew install mingw-w64            # one-time (gcc + g++: ImGui is C++)
 ./scripts/package.sh              # -> dist/Tempest.Scripting64.dll, dist/*.tempest
 ```
 
@@ -66,6 +67,7 @@ The boot sequence, in order, with what each step must print:
 | containers | `lua` | `06_containers.lua` lists key bindings (array of structs) and HUD scenes (map) |
 | mods | `loader`, `lua` | `2 mod(s): tempest-scripting-lib, tempest-scripting-test`, `LIB_PRIVATE visible here? nil`; `greet` works in the console |
 | keys | `input`, `lua` | `WndProc hook installed`; F5 prints a chat line, Ctrl+F5 hops the pawn, F9 writes `types/sdk/*.lua` |
+| ui | `ui`, `lua` | `IDXGISwapChain::Present detour live` (or `IDirect3DDevice9::Present`), then `d3d11 backend ready` (or `d3d9`) on the first frame; the corner overlay from `11_ui.lua` shows the backend and fps; Insert opens the panel with the mouse, `ui_demo` opens ImGui's demo, `ui_status` reports frames built/rendered |
 | address hooks | `hook`, `lua` | `tempest_memhook Engine.PlayerController.ConsoleCommand` in the console logs `address hook #1 on 0x..`, then one line per console command with the `this` object |
 | lua natives | `hook`, `lua` | `4 dllimport function(s) bound to Lua natives` at boot (TgMod installed); `open Shootingrange_P?game=TmLuaTest.TmLuaGame` prints `LuaAdd(2, 3) = 5` and the greeting in chat, `LuaHeartbeat #n` every 5 s in the log, `luatest` round-trips from the console |
 
@@ -128,6 +130,20 @@ tempest.native("TmLuaTest.TmLuaGame.LuaAdd", fn) -> id -- implement a mod packag
                                      --   fn(this, params) -> return value; assign `out` params into params
                                      --   (every dllimport function is bound at startup; unimplemented = zero)
 tempest.dump_sdk(dir?)               -- LuaLS stubs for every game class/struct -> <mod>/types/sdk/*.lua
+
+ui.on_draw(fn) -> id / ui.off_draw(id) -- fn() runs every frame on the game thread (widgets only valid here)
+ui.window("Title", { open = true, flags = ui.WindowFlags.NoResize }, function() ... end) -> open
+ui.text("fps %.0f", ui.framerate())  ui.button("Go")  ui.checkbox("On", v) -> v, changed
+ui.slider_float / slider_int / drag_float / input_text / input_int / combo / list_box / color_edit ...
+                                     -- every widget returns the new value (+ changed): no pointers
+ui.child / tab_bar / tab_item / tree / menu_bar / menu / popup / popup_modal / table(id, cols, fn)
+ui.same_line() separator() spacing() push_color() push_var() push_id() set_next_window_pos/size()
+ui.fg.line/rect/rect_filled/circle/text(...)  ui.bg.*  ui.dl.*  -- draw lists; ui.color(r,g,b,a) / ui.rgb(0xRRGGBB)
+ui.capture(bool) / ui.capturing()    -- give the mouse to the UI (software cursor, look input parked)
+ui.want() -> mouse, keyboard, text   -- ImGui's WantCapture* flags
+ui.key_pressed(ui.Key.Escape) ui.mouse() ui.screen() ui.scale(s) ui.ready() ui.backend() ui.stats()
+ui.WindowFlags / Cond / Col / StyleVar / Key / TableFlags / ... -- every ImGui enum, prefix stripped
+ui.C.igXxx(...)                      -- the whole cimgui API through LuaJIT's FFI (types/imgui.d.lua)
 
 memory.base() memory.size()
 memory.read_u8/u16/u32/u64/i8/i16/i32/i64/f32/f64/ptr(addr)
@@ -222,7 +238,30 @@ them: `---@cast this Engine.HUD` as the first line of the handler, or
 `---@type Engine.Pawn` above a local.
 
 Built-in console commands: `tempest_help`, `tempest_reload [mod-id]`,
-`lua <code>` / `lua =<expr>` (run Lua from the game console).
+`lua <code>` / `lua =<expr>` (run Lua from the game console), `ui_status`,
+`ui_demo`, `ui_capture [0|1]`.
+
+**UI.** Dear ImGui 1.91.9 is compiled into the DLL (vendored cimgui under
+`crates/tempest-scripting/native/`). `overlay.rs` detours
+`IDXGISwapChain::Present`/`ResizeBuffers` or `IDirect3DDevice9::Present`/`Reset`,
+whichever module the game loaded (polled for up to 3 min after inject), and
+the first Present initialises the matching ImGui backend. Frames are *not*
+built on the render thread: each Present asks for one, the game thread
+builds it at its next `ProcessEvent` (`ui.on_draw` handlers run there, so
+game objects are safe to read and call), and the render thread draws a copy
+of the finished draw lists. A handler that raises is logged once per
+distinct message and ImGui's error recovery rebalances the window stack.
+Input: the WndProc hook feeds ImGui every message; key bindings
+(`tempest.on_key`) still fire while the UI holds the mouse, so a toggle key
+works from inside a menu. `ui.capture(true)` draws ImGui's cursor, swallows
+mouse messages (and keys while a text field is active) and calls
+`IgnoreLookInput(true)` on the local player; `ui.capture(false)` undoes it.
+`ui.C` exposes the complete cimgui API (`ffi.cast` on addresses the DLL
+hands out, so no export table); the curated `ui.*` layer above it keeps Lua
+values on both sides. Custom fonts are not supported yet (the atlas is built
+once on the render thread); `ui.scale(s)` scales the default font and the
+style together. Regenerate the bindings with `scripts/gen_imgui.py` after
+updating `native/cimgui/`.
 
 Roadmap and known gaps: `ROADMAP.md`.
 
@@ -251,6 +290,12 @@ crates/tempest-scripting/src/
   unreal.rs    signatures, names/objects, reflection, subscriptions, hook
   lua_api.rs   tempest.* / memory.* / Object proxy
   loader.rs    scripts/ discovery, run, reload
+  overlay.rs   D3D9/D3D11 Present detours, frame cadence, Lua bridge for ui.lua
+  ui.lua       the `ui` module: FFI binding of cimgui + the curated widget API
+  imgui_cdef.lua, imgui_syms.rs  generated by scripts/gen_imgui.py (cdef text, enums, addresses)
+crates/tempest-scripting/native/
+  overlay.cpp  ImGui context, Win32/DX9/DX11 backends, vtable probes, parked frame copy
+  cimgui/      vendored cimgui + Dear ImGui 1.91.9 (see VENDORED.txt); build.rs compiles it
 mods/          one folder per shipped mod (manifest.toml + scripts/), packed to dist/<name>.tempest:
   scripting/   the runtime: manifest + core.lua (the DLL and types/ are added at pack time)
   console/     enables the in-game console
@@ -260,7 +305,8 @@ examples/      00_status .. 10_lua_natives: reference scripts, run by the host s
 types/         tempest.d.lua (LuaLS API definitions, shipped in scripting and dev);
                types/sdk/ is the in-game `tempest_sdk` output for 8.1 (regenerate after a game update)
 .luarc.json    LuaLS config for this repo: completion in examples/ and mods/ against types/
-scripts/       package.sh (macOS/Linux), package.ps1 (Windows), pack.py (zip + CHECKSUMS)
+scripts/       package.sh (macOS/Linux), package.ps1 (Windows), pack.py (zip + CHECKSUMS),
+               gen_imgui.py (regenerates the ImGui bindings and types/imgui.d.lua)
 ```
 
 ## Limits
@@ -274,6 +320,9 @@ scripts/       package.sh (macOS/Linux), package.ps1 (Windows), pack.py (zip + C
   from those kinds (verified for name → object).
 - `PostLogin` and other `GameInfo` events only fire where the game is
   authoritative (listen/dedicated server).
+- UI: one ImGui context, default font only; `ui.*` widgets outside a draw
+  handler raise; D3D9 is wired like D3D11 but has not been exercised on this
+  client (it ships D3D11).
 - `memory.hook` handlers run on the thread that called the function and
   take the Lua VM lock; hooking code that runs on the render, audio or
   async-loading threads while the game thread sits inside a Lua handler

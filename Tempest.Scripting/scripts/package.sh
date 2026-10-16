@@ -34,6 +34,12 @@ if command -v x86_64-w64-mingw32-objdump >/dev/null; then
     exports="$(x86_64-w64-mingw32-objdump -p "$DLL")"
     grep -qE '[[:space:]]DllMain[[:space:]]*$' <<<"$exports" \
         || { echo "ERROR: $DLL does not export DllMain" >&2; exit 1; }
+    # The game folder has no MinGW runtime; everything must be static.
+    if grep -qiE 'DLL Name: (libstdc\+\+|libgcc_s|libwinpthread)' <<<"$exports"; then
+        echo "ERROR: $DLL imports a MinGW runtime DLL:" >&2
+        grep -iE 'DLL Name: (libstdc\+\+|libgcc_s|libwinpthread)' <<<"$exports" >&2
+        exit 1
+    fi
 fi
 
 mkdir -p "$OUT"
@@ -60,7 +66,7 @@ rm -rf "$S"
 cp -R mods/scripting "$S"
 mkdir -p "$S/dlls" "$S/types"
 cp "$OUT/Tempest.Scripting64.dll" "$S/dlls/"
-cp types/tempest.d.lua "$S/types/"
+cp types/tempest.d.lua types/imgui.d.lua "$S/types/"
 printf '%s\n' "$LUARC" > "$S/.luarc.json"
 pack "$S" "$OUT/scripting.tempest"
 
@@ -75,7 +81,7 @@ D="$OUT/dev"
 rm -rf "$D"
 cp -R mods/dev "$D"
 mkdir -p "$D/types"
-cp types/tempest.d.lua "$D/types/"
+cp types/tempest.d.lua types/imgui.d.lua "$D/types/"
 printf '%s\n' "$LUARC" > "$D/.luarc.json"
 pack "$D" "$OUT/dev.tempest"
 

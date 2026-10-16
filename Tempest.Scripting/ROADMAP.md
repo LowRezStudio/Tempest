@@ -139,3 +139,15 @@ reach script → script and script → native calls.
   launcher) for: open the console window / REPL or not, log path and verbosity, the
   development scripts folder above, the default console key for the console-enabling script, and
   a per-mod enable list. Replaces the `TEMPEST_SCRIPT_*` environment variables.
+
+## UI (2026-10-16)
+
+- [~] Dear ImGui 1.91.9 in the DLL (vendored cimgui); `overlay.rs` + `native/overlay.cpp` hook
+  `IDXGISwapChain::Present`/`ResizeBuffers` (D3D11) or `IDirect3DDevice9::Present`/`Reset` (D3D9),
+  frames built on the game thread at the next `ProcessEvent`, a cloned draw list rendered in Present.
+- [~] Lua `ui` module: `ui.on_draw`, curated widgets returning Lua values, draw lists, enums, `ui.C`
+  (whole cimgui API via FFI), `ui.capture` (software cursor + swallowed mouse + `IgnoreLookInput`),
+  error recovery per handler, `ui_demo` / `ui_status` / `ui_capture` commands, `examples/11_ui.lua`.
+- [ ] Custom fonts / icon fonts (needs atlas rebuild on the render thread).
+- [ ] Textures from Lua (`ui.image`): per-backend texture upload.
+- [ ] Persisted window layout (imgui.ini is disabled: the mod folder is checksummed).

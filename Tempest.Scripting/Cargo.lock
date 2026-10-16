@@ -430,6 +430,7 @@ dependencies = [
 name = "tempest-scripting"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "mlua",
  "retour",
  "serde",

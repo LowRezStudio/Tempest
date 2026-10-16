@@ -1816,6 +1816,8 @@ pub(crate) fn drain_queue() {
     for job in jobs {
         job();
     }
+    // One UI frame per Present, built here where game objects are safe.
+    crate::overlay::maybe_build_frame();
 }
 
 #[cfg(windows)]

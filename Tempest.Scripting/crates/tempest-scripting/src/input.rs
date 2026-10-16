@@ -23,6 +23,13 @@ pub fn installed() -> bool {
 #[cfg_attr(not(windows), allow(dead_code))]
 static WANTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Ask for the hook without touching the window from this thread (the UI
+/// backend initialises on the render thread); `maintain` installs it on
+/// the game thread within a couple of seconds.
+pub fn request() {
+    WANTED.store(true, Ordering::Release);
+}
+
 /// Ask for the hook. Idempotent; the actual install happens in `maintain`.
 pub fn install() -> Result<(), String> {
     #[cfg(windows)]
@@ -98,6 +105,15 @@ fn window_class(hwnd: usize) -> String {
     String::from_utf16_lossy(&buf[..n])
 }
 
+/// The hooked window if any, else a fresh search.
+#[cfg(windows)]
+pub fn game_window() -> Option<usize> {
+    match HWND.load(Ordering::Acquire) {
+        0 => find_game_window(),
+        h => Some(h),
+    }
+}
+
 /// The UE3 game window (`LaunchUnrealUWindowsClient`), else the largest
 /// visible top-level window of this process.
 #[cfg(windows)]
@@ -146,6 +162,10 @@ const GWLP_WNDPROC: i32 = -4;
 
 #[cfg(windows)]
 unsafe extern "system" fn wndproc(hwnd: usize, msg: u32, wparam: usize, lparam: isize) -> isize {
+    // ImGui sees every message first (hover works while the game plays);
+    // key bindings still run even when the UI swallows the message, so a
+    // toggle key keeps working while a menu holds the mouse.
+    let ui_swallows = crate::overlay::wndproc(hwnd, msg, wparam, lparam);
     // (vk, is_down, is_repeat) for the messages we forward; mouse buttons map
     // to their VK codes (1,2,4,5,6) and the wheel to synthetic 0xFF01/0xFF02.
     let event: Option<(u32, bool, bool)> = match msg {
@@ -179,6 +199,9 @@ unsafe extern "system" fn wndproc(hwnd: usize, msg: u32, wparam: usize, lparam: 
                 key_event(vk, ctrl, shift, alt, is_down, is_repeat);
             }));
         }
+    }
+    if ui_swallows {
+        return 0;
     }
     let original = ORIGINAL.load(Ordering::Acquire);
     CallWindowProcW(original, hwnd, msg, wparam, lparam)
