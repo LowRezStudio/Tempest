@@ -35,6 +35,9 @@ export type Instance = {
 	manifestId?: string;
 	appId?: number;
 	path: string;
+	origin?: "download" | "import";
+	/** Exact download destination; changing the instance path never transfers ownership. */
+	managedPath?: string;
 	launchOptions: InstanceLaunchOptions;
 	state: InstanceState;
 	color?: string;

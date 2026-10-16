@@ -46,13 +46,9 @@ export const launchGame = async (instance: Instance) => {
 			{ "--gamescope-args": gamescopeArgs.get() || undefined },
 			{ "--steam-runtime": useSteamRuntime.get() || undefined },
 			{
-				"--homedir":
-					instance.version === "8.1"
-						? "Paladins"
-						: `${instance.version ? `${instance.version}_` : ""}${instance.label}`.replaceAll(
-								/[^a-zA-Z0-9-_]/g,
-								"_",
-							),
+				"--homedir": (options.args ?? []).some((arg) => /^-homedir(?:=|$)/i.test(arg))
+					? undefined
+					: "Paladins",
 			},
 			...(options.dllList ? options.dllList.map((dll) => ({ "--dll": dll })) : []),
 			...(options.args ? ["--", ...processArgs(options.args)] : []),

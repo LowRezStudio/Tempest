@@ -91,8 +91,15 @@
 		}
 	}
 
-	function handleRestore() {
+	async function handleRestore() {
 		if (!instance?.path || !canRestore || isSettingUp) return;
+		try {
+			const { assertIndependentPath } = await import("$lib/core/instance-storage.svelte");
+			await assertIndependentPath(instance.path);
+		} catch (error) {
+			console.error("Instance verification blocked:", error);
+			return;
+		}
 
 		const manifestId =
 			instance.manifestId ?? versions.find((i) => i.version === instance.version)?.id;

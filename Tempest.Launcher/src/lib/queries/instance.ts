@@ -1,5 +1,6 @@
 import { createMutation, createQuery } from "@tanstack/svelte-query";
 import { path } from "@tauri-apps/api";
+import { assertIndependentPath } from "$lib/core/instance-storage.svelte";
 import { detectAvailablePlatforms } from "$lib/platforms/detection";
 import { setupInstance } from "$lib/platforms/setup";
 import type { Instance, InstancePlatform } from "$lib/types/instance";
@@ -35,5 +36,8 @@ export const createDefaultInstancePathQuery = (
 
 export const createSetupInstanceMutation = () =>
 	createMutation(() => ({
-		mutationFn: (instance: Instance): Promise<void> => setupInstance(instance),
+		mutationFn: async (instance: Instance): Promise<void> => {
+			await assertIndependentPath(instance.path);
+			await setupInstance(instance);
+		},
 	}));
