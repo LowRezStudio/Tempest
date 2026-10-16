@@ -12,7 +12,7 @@ Mixed stack, split by directory:
   - `Tempest.CLI` — console app / launcher backend, references `MarshalLib`, `MarshalLib.Database`, `Tempest.Protocol`
   - `Tempest.Services` — ASP.NET Core gRPC server
 - `Tempest.Utils/` — Zig 0.15.2 native tools (`asmloader`, `upkpatcher`, `mctsparser`)
-- `Tempest.Scripting/` — Rust Lua modding API DLL for Paladins 8.1 Win64 (`Tempest.Scripting64.dll`, built from macOS with MinGW-w64 via `scripts/package.sh`), standalone Cargo workspace; see its `README.md`
+- `Tempest.Scripting/` — Rust LuaJIT modding API DLL for Paladins 8.1 Win64 (`Tempest.Scripting64.dll`, built from macOS with MinGW-w64 via `scripts/package.sh`; shipped mods live in `mods/<name>/`), standalone Cargo workspace; see its `README.md`
 - `Tempest.Launcher/` — Tauri v2 (Windows) / Electron (macOS + Linux) + SvelteKit 5 + Vite + TypeScript desktop frontend
 - `Tempest.UnrealScript/` — Rust UnrealScript compiler/decompiler for the game's UPK packages (CLI `uscript`), standalone Cargo workspace; see its `AGENTS.md` before touching it
 
@@ -71,7 +71,7 @@ just scripting-check             # clippy, host + x86_64-pc-windows-gnu
 just scripting-build             # Tempest.Scripting/scripts/package.sh -> dist/{scripting,console,dev,lib}.tempest
 just scripting-run <game> [args] # build, then `tempest launch <game> --dll dist/scripting/dlls/Tempest.Scripting64.dll`
 just scripting-install <game>    # build, then install all four packages
-just scripting-dev <game>        # repack + reinstall only dev/ (the scratch mod), no Rust build
+just scripting-dev <game>        # repack + reinstall only mods/dev/ (the scratch mod), no Rust build
 ```
 
 The Win64 DLL cross-compiles with MinGW-w64 (`brew install mingw-w64`); `cross`/Docker is only the fallback. Logs go to `%TEMP%\tempest-scripting.log` (inside the Wine prefix when the game runs under Wine); the console window doubles as a Lua REPL. See `Tempest.Scripting/README.md`.

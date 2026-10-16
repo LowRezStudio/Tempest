@@ -13,7 +13,7 @@ try {
     New-Item -ItemType Directory -Force -Path $Out | Out-Null
     $Out = Resolve-Path $Out
     Copy-Item "target/$Target/release/tempest_scripting.dll" "$Out/Tempest.Scripting64.dll" -Force
-    $Luarc = '{ "runtime.version": "Lua 5.4", "workspace.library": ["types"], "workspace.checkThirdParty": false, "diagnostics.globals": ["MOD", "shared"] }'
+    $Luarc = '{ "runtime.version": "LuaJIT", "workspace.library": ["types"], "workspace.checkThirdParty": false, "diagnostics.globals": ["MOD", "shared"] }'
 
     function Stage([string]$Name, [string]$Source, [bool]$Dll, [bool]$Types) {
         $S = Join-Path $Out $Name
@@ -29,10 +29,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "pack failed for $Name" }
         Write-Host "packed: $Out/$Name.tempest"
     }
-    Stage "scripting" "packaging/scripting" $true $true
-    Stage "console" "packaging/console" $false $false
-    Stage "dev" "dev" $false $true
-    Stage "lib" "examples/mods/tempest-scripting-lib" $false $false
+    Stage "scripting" "mods/scripting" $true $true
+    Stage "console" "mods/console" $false $false
+    Stage "dev" "mods/dev" $false $true
+    Stage "lib" "mods/lib" $false $false
 }
 finally {
     Pop-Location

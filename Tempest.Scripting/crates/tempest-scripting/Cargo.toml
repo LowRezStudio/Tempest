@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # `send`: the VM is shared between the init thread and the game threads that
 # fire ProcessEvent; mlua serialises access with an internal reentrant lock.
-mlua = { version = "0.10", default-features = false, features = ["vendored", "lua54", "send"] }
+mlua = { version = "0.10", default-features = false, features = ["vendored", "luajit52", "send"] }
 # mods.json (which V2 mods are enabled)
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

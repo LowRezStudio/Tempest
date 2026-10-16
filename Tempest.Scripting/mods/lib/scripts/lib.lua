@@ -1,8 +1,11 @@
 -- A library mod: no DLL of its own, just scripts. The runtime DLL from any
 -- enabled mod loads every enabled mod's scripts/ in its own sandbox.
 --
--- `require` is scoped to this mod's scripts/ directory.
+-- `require` is scoped to this mod's scripts/ directory; names with no file
+-- there reach the built-in modules (LuaJIT's ffi, bit, jit).
 local fmt = require("util.format")
+local ffi = require("ffi")
+shared.lib_ffi_ok = ffi.sizeof("void*") == 8
 
 -- Values for other mods go through `shared` (or tempest.export, which also
 -- records which mod provided them). Mods load alphabetically by id, so a

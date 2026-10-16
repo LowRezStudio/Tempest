@@ -12,7 +12,8 @@
 //! Each mod runs in its own environment: globals it sets stay private,
 //! reads fall through to the real globals (`tempest`, `memory`, `shared`,
 //! the standard library). `require("a.b")` resolves `scripts/a/b.lua` inside
-//! the same mod and shares that environment. Scripts run alphabetically,
+//! the same mod and shares that environment; names with no such file go to
+//! the real `require` (`ffi`, `bit`, `jit`, ...). Scripts run alphabetically,
 //! mods alphabetically by id.
 
 use std::collections::HashSet;
@@ -196,7 +197,8 @@ fn list_scripts(dir: &Path) -> Vec<PathBuf> {
 // ---------------------------------------------------------------------------
 
 /// A fresh environment for `m`: private globals, `MOD`, and a `require`
-/// scoped to the mod's `scripts/` directory.
+/// scoped to the mod's `scripts/` directory (falling back to the global one
+/// for built-in modules such as `ffi` and `bit`).
 fn mod_env(lua: &Lua, m: &Mod) -> mlua::Result<Table> {
     let env = lua.create_table()?;
     let mt = lua.create_table()?;
@@ -209,6 +211,7 @@ fn mod_env(lua: &Lua, m: &Mod) -> mlua::Result<Table> {
     let dir = m.scripts.clone();
     let id = m.id.clone();
     let env_for_require = env.clone();
+    let global_require: Option<mlua::Function> = lua.globals().get("require").ok();
     env.set(
         "require",
         lua.create_function(move |lua, name: String| {
@@ -218,6 +221,11 @@ fn mod_env(lua: &Lua, m: &Mod) -> mlua::Result<Table> {
                 }
             }
             let path = dir.join(format!("{}.lua", name.replace('.', "/")));
+            if !path.is_file() {
+                if let Some(req) = &global_require {
+                    return req.call::<Value>(name.as_str());
+                }
+            }
             let src = std::fs::read_to_string(&path)
                 .map_err(|_| mlua::Error::external(format!("module '{name}' not found ({})", path.display())))?;
             let result: Value = with_mod(&id, || {

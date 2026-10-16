@@ -5,7 +5,7 @@
 #
 #   dist/scripting.tempest   runtime: the DLL, core console commands, editor types
 #   dist/console.tempest     enables the in-game console (F2)
-#   dist/dev.tempest         whatever is in dev/ — the scratch mod being worked on
+#   dist/dev.tempest         whatever is in mods/dev/ — the scratch mod being worked on
 #   dist/lib.tempest         example library mod (exports `greet` for dev's 07_shared.lua)
 #
 # Uses the local MinGW-w64 toolchain when x86_64-w64-mingw32-gcc is on PATH
@@ -38,7 +38,7 @@ fi
 
 mkdir -p "$OUT"
 cp "$DLL" "$OUT/Tempest.Scripting64.dll"
-rm -rf "$OUT/testmod" "$OUT/testmod-lib" "$OUT"/testmod*.tempest
+
 
 # pack <staged folder> <out.tempest>: CHECKSUMS ("<sha256> <relpath>" lines,
 # ordinal order, LF-joined, no trailing newline) + zip, like Tempest.CLI.
@@ -48,7 +48,7 @@ pack() {
 }
 
 LUARC='{
-  "runtime.version": "Lua 5.4",
+  "runtime.version": "LuaJIT",
   "workspace.library": ["types"],
   "workspace.checkThirdParty": false,
   "diagnostics.globals": ["MOD", "shared"]
@@ -57,7 +57,7 @@ LUARC='{
 # --- scripting.tempest: the runtime --------------------------------------
 S="$OUT/scripting"
 rm -rf "$S"
-cp -R packaging/scripting "$S"
+cp -R mods/scripting "$S"
 mkdir -p "$S/dlls" "$S/types"
 cp "$OUT/Tempest.Scripting64.dll" "$S/dlls/"
 cp types/tempest.d.lua "$S/types/"
@@ -67,13 +67,13 @@ pack "$S" "$OUT/scripting.tempest"
 # --- console.tempest ------------------------------------------------------
 C="$OUT/console"
 rm -rf "$C"
-cp -R packaging/console "$C"
+cp -R mods/console "$C"
 pack "$C" "$OUT/console.tempest"
 
 # --- dev.tempest: the scratch mod ------------------------------------------
 D="$OUT/dev"
 rm -rf "$D"
-cp -R dev "$D"
+cp -R mods/dev "$D"
 mkdir -p "$D/types"
 cp types/tempest.d.lua "$D/types/"
 printf '%s\n' "$LUARC" > "$D/.luarc.json"
@@ -82,7 +82,7 @@ pack "$D" "$OUT/dev.tempest"
 # --- lib.tempest: example library mod ----------------------------------------
 L="$OUT/lib"
 rm -rf "$L"
-cp -R examples/mods/tempest-scripting-lib "$L"
+cp -R mods/lib "$L"
 pack "$L" "$OUT/lib.tempest"
 
 echo "staged: $OUT/Tempest.Scripting64.dll"

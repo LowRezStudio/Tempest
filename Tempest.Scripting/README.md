@@ -1,8 +1,9 @@
 # Tempest.Scripting — Lua modding DLL for Paladins 8.1 (UE3, Win64)
 
 A Rust `cdylib` (`Tempest.Scripting64.dll`) injected like any other V2 mod
-DLL. It hosts a Lua 5.4 VM, finds the UE3 object model through signatures,
-hooks `UObject::ProcessEvent`, and runs `scripts/*.lua`.
+DLL. It hosts a LuaJIT 2.1 VM (Lua 5.1 plus the 5.2 extensions, GC64, with
+`ffi`, `bit` and `jit` loaded), finds the UE3 object model through
+signatures, hooks `UObject::ProcessEvent`, and runs `scripts/*.lua`.
 
 Deliberately small: each layer can be checked on its own before the next
 one is trusted. See `examples/` for the three incremental checks.
@@ -13,24 +14,25 @@ one is trusted. See `examples/` for the three incremental checks.
 # Host checks (macOS/Linux; no game image, all native paths report "unresolved")
 cargo test -p tempest-scripting
 
-# Win64 DLL + dist/testmod.tempest (local MinGW-w64, or cross/Docker as fallback)
+# Win64 DLL + the four .tempest packages (local MinGW-w64, or cross/Docker as fallback)
 brew install mingw-w64            # one-time
-./scripts/package.sh              # -> dist/Tempest.Scripting64.dll, dist/testmod.tempest
+./scripts/package.sh              # -> dist/Tempest.Scripting64.dll, dist/*.tempest
 ```
 
 On Windows: `.\scripts\package.ps1` (MSVC toolchain).
 
 ## Packages
 
-`scripts/package.sh` (or `just scripting-build`) stages four installable
-`.tempest` files in `dist/`:
+Every shipped mod lives under `mods/<name>/` (a `manifest.toml` plus
+`scripts/`). `scripts/package.sh` (or `just scripting-build`) stages each
+one as an installable `.tempest` in `dist/`:
 
-| package | id | contents |
-|---------|----|----------|
-| `scripting.tempest` | `tempest-scripting` | the DLL, `scripts/core.lua` (diagnostic console commands), `types/tempest.d.lua`, `.luarc.json` |
-| `console.tempest` | `tempest-console` | `console.lua`: enables the in-game console (F2) |
-| `dev.tempest` | `tempest-dev` | whatever is in `dev/`: the scratch mod being worked on (`just scripting-dev <game>` repacks and reinstalls just this one, no Rust build) |
-| `lib.tempest` | `tempest-scripting-lib` | example library mod exporting `greet` |
+| package | source | id | contents |
+|---------|--------|----|----------|
+| `scripting.tempest` | `mods/scripting` | `tempest-scripting` | the DLL, `scripts/core.lua` (diagnostic console commands), `types/tempest.d.lua`, `.luarc.json` |
+| `console.tempest` | `mods/console` | `tempest-console` | `console.lua`: enables the in-game console (F2) |
+| `dev.tempest` | `mods/dev` | `tempest-dev` | the scratch mod being worked on (`just scripting-dev <game>` repacks and reinstalls just this one, no Rust build) |
+| `lib.tempest` | `mods/lib` | `tempest-scripting-lib` | example library mod exporting `greet` |
 
 Package and folder names are free; the `id` in each `manifest.toml` is what
 the launcher and the runtime key on. Only the runtime package carries the
@@ -88,6 +90,7 @@ tempest.reload(modId?)               -- re-run every mod (or just one); subscrip
 tempest.mod() / tempest.mods()       -- current mod id / all loaded mod ids
 tempest.export(name, v) / tempest.import(name) -- cross-mod values (also reachable as the `shared` table)
 MOD                                  -- the running mod's id; require("a.b") loads scripts/a/b.lua of the same mod
+require("ffi") / require("bit")      -- names with no file in the mod reach LuaJIT's built-in modules
 tempest.objects(limit)               -- first N live objects
 tempest.find_object("Class TgGame.TgGame")
 tempest.find_class("TgGame.TgGame")  -- cached
@@ -110,7 +113,7 @@ params.ReturnValue                   -- readable after, settable in a cancelling
 
 s.Field / s.Field = v / s:fields()   -- Struct proxy (any struct but Vector/Rotator); assign a table to set fields
 arr[i], #arr, ipairs(arr), arr:items() -- Array proxy (1-based); arr[i] = v, arr:add(v), arr:remove(i), arr:clear()
-map[key], map:get(key), map:pairs(), #map, map:set(key, v) -- Map proxy (set = existing keys only)
+map[key], map:get(key), map:pairs(), pairs(map), #map, map:set(key, v) -- Map proxy (set = existing keys only)
 obj:map("m_Scenes", "name", "object") -- Map proxy for a `var native Map{}` (no pair types in reflection)
 
 tempest.new("Engine.Console", outer, name?) -- construct an object (engine `new`); nil + log on failure
@@ -145,6 +148,10 @@ tempest.object(ptr)                  -- wrap a raw UObject* argument (nil unless
 
 Unknown property reads return `nil` (logged once per call site); writes
 raise a Lua error. Handler errors are logged and never reach the game.
+Numbers are LuaJIT doubles: addresses and object pointers (48-bit) are
+exact, but `memory.read_u64`/`read_i64` of arbitrary data round above
+2^53 (use `ffi` for full 64-bit arithmetic), and `tostring` of a large
+address prints in exponent form, so format them with `%x`.
 Scripts run on the game thread (the boot thread queues them to the first
 `ProcessEvent` after `GEngine` exists), as do hook handlers, key bindings and
 console commands; calls from the console REPL are queued there automatically.
@@ -204,7 +211,8 @@ first to load runs everything and the others stay idle. `shared` is the
 one table every mod sees.
 
 **Editor support.** `types/tempest.d.lua` describes the whole API for the
-Lua Language Server; the test mod ships it with a `.luarc.json` so VS Code's
+Lua Language Server; the runtime and dev mods ship it with a `.luarc.json`
+(`runtime.version = "LuaJIT"`) so VS Code's
 Lua extension completes `tempest.*`, `memory.*`, objects, arrays and maps.
 Press F9 in game (or call `tempest.dump_sdk()`) to add stubs for every game
 class with its fields and functions, generated from live reflection. API
@@ -243,13 +251,15 @@ crates/tempest-scripting/src/
   unreal.rs    signatures, names/objects, reflection, subscriptions, hook
   lua_api.rs   tempest.* / memory.* / Object proxy
   loader.rs    scripts/ discovery, run, reload
-examples/      00_status .. 10_lua_natives: reference scripts (dev/ starts as a copy)
-examples/mods/ tempest-scripting-lib: a DLL-less library mod (dist/lib.tempest)
-packaging/     scripting/ (runtime manifest + core.lua), console/ (console mod)
-dev/           the scratch mod (dist/dev.tempest): edit freely
+mods/          one folder per shipped mod (manifest.toml + scripts/), packed to dist/<name>.tempest:
+  scripting/   the runtime: manifest + core.lua (the DLL and types/ are added at pack time)
+  console/     enables the in-game console
+  lib/         tempest-scripting-lib: a DLL-less library mod
+  dev/         the scratch mod: edit freely (starts as a copy of examples/)
+examples/      00_status .. 10_lua_natives: reference scripts, run by the host smoke test
 types/         tempest.d.lua (LuaLS API definitions, shipped in scripting and dev);
                types/sdk/ is the in-game `tempest_sdk` output for 8.1 (regenerate after a game update)
-.luarc.json    LuaLS config for this repo: completion in examples/ and dev/ against types/
+.luarc.json    LuaLS config for this repo: completion in examples/ and mods/ against types/
 scripts/       package.sh (macOS/Linux), package.ps1 (Windows), pack.py (zip + CHECKSUMS)
 ```
 

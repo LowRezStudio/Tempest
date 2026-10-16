@@ -38,7 +38,11 @@ static LUA: OnceLock<Lua> = OnceLock::new();
 /// Process-wide Lua VM, created (and the API registered) on first use.
 pub fn lua() -> &'static Lua {
     LUA.get_or_init(|| {
-        let lua = Lua::new();
+        // Every standard library, `ffi`, `jit` and `debug` included: scripts
+        // already have raw memory access through `memory.*`, so the sandbox
+        // mlua's safe default would give adds nothing here.
+        // SAFETY: the unsafe libraries are the point; nothing untrusted runs.
+        let lua = unsafe { Lua::unsafe_new() };
         if let Err(e) = lua_api::register(&lua) {
             log::line("lua", &format!("API registration failed: {e}"));
         }

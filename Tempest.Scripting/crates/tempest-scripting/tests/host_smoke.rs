@@ -34,6 +34,16 @@ fn host_smoke() {
     let lua = tempest_scripting::lua();
     let eval = |src: &str| lua.load(src).eval::<mlua::Value>().expect(src);
 
+    // The VM is LuaJIT with the 5.2 compatibility surface; ffi/bit/jit load
+    // through `require` (also from inside a mod sandbox, see below).
+    assert_eq!(eval("return _VERSION"), mlua::Value::String(lua.create_string("Lua 5.1").unwrap()));
+    assert!(eval("return jit.version:match('^LuaJIT') ~= nil").as_boolean().unwrap());
+    assert!(eval("return type(require('ffi').cast) == 'function' and type(require('bit').band) == 'function'").as_boolean().unwrap());
+    assert!(eval("return type(table.pack) == 'function' and type(table.unpack) == 'function'").as_boolean().unwrap());
+    // Integral doubles arrive as integers (0x7fff_ffff_ffff is a plausible pointer).
+    assert_eq!(eval("return 0x7fffffffffff"), mlua::Value::Integer(0x7fff_ffff_ffff));
+    assert_eq!(eval("return string.format('0x%x', 0x7fffffffffff)"), mlua::Value::String(lua.create_string("0x7fffffffffff").unwrap()));
+
     assert!(eval("return tempest.status().gobjects").is_nil());
     assert_eq!(eval("return tempest.status().gnames_ok"), mlua::Value::Boolean(false));
     assert!(eval("return #tempest.status().notes > 0").as_boolean().unwrap());
@@ -65,11 +75,12 @@ fn host_smoke() {
     assert!(eval("return pcall(tempest.on_key, 'Ctrl+Bogus', function() end)") == mlua::Value::Boolean(false));
     assert_eq!(eval("return tempest.status().key_hook_installed"), mlua::Value::Boolean(false));
     // Sandbox + shared: run the lib mod from its folder and import from it.
-    std::env::set_var("TEMPEST_SCRIPT_DIR", concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/mods/tempest-scripting-lib/scripts"));
+    std::env::set_var("TEMPEST_SCRIPT_DIR", concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/lib/scripts"));
     tempest_scripting::loader::run_all(lua);
     std::env::remove_var("TEMPEST_SCRIPT_DIR");
     assert!(eval("return type(tempest.import('greet')) == 'function'").as_boolean().unwrap());
     assert!(eval("return LIB_PRIVATE == nil").as_boolean().unwrap());
+    assert!(eval("return shared.lib_ffi_ok == true").as_boolean().unwrap());
     assert_eq!(eval("return shared.__providers.greet"), mlua::Value::String(lua.create_string("local").unwrap()));
     assert_eq!(eval("return #tempest.status().native_hooks"), mlua::Value::Integer(0));
 
@@ -104,8 +115,8 @@ fn host_smoke() {
         include_str!("../../../examples/02_post_login.lua"),
         include_str!("../../../examples/03_calls.lua"),
         include_str!("../../../examples/04_native_hook.lua"),
-        include_str!("../../../packaging/console/scripts/console.lua"),
-        include_str!("../../../packaging/scripting/scripts/core.lua"),
+        include_str!("../../../mods/console/scripts/console.lua"),
+        include_str!("../../../mods/scripting/scripts/core.lua"),
         include_str!("../../../examples/06_containers.lua"),
         include_str!("../../../examples/07_shared.lua"),
         include_str!("../../../examples/08_keys.lua"),

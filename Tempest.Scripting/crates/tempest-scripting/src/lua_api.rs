@@ -37,6 +37,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
     hooks::set_dispatcher(deliver_address_hook);
 
     // `print` → log, so script output lands in the file and the console.
+    // Arguments go through `tostring` (`__tostring` included), like Lua's own.
     lua.globals().set(
         "print",
         lua.create_function(|_, args: mlua::MultiValue| {
@@ -44,7 +45,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
                 .iter()
                 .map(|v| match v {
                     Value::String(s) => s.to_string_lossy().to_string(),
-                    other => format!("{other:?}"),
+                    other => other.to_string().unwrap_or_else(|_| format!("{other:?}")),
                 })
                 .collect();
             crate::log::line("lua", &text.join("\t"));
@@ -603,6 +604,19 @@ impl Array {
         }
         unreal::array_elem(self.addr, &self.inner, (i - 1) as usize)
     }
+
+    /// `(iter, nil, 0)` for `ipairs(arr)` / `arr:items()`: a stateless
+    /// 1-based walk that re-reads the live element each step.
+    fn iterator(self, lua: &Lua) -> mlua::Result<(Function, Value, i64)> {
+        let f = lua.create_function(move |lua, (_, i): (Value, i64)| {
+            let next = i + 1;
+            match self.elem(next) {
+                Some(e) => Ok((Value::Integer(next), unreal::read_prop(e, &self.inner).map(|v| to_lua(lua, &v)).unwrap_or(Value::Nil))),
+                None => Ok((Value::Nil, Value::Nil)),
+            }
+        })?;
+        Ok((f, Value::Nil, 0))
+    }
 }
 
 impl UserData for Array {
@@ -642,18 +656,10 @@ impl UserData for Array {
             unreal::array_clear(this.addr, &this.inner);
             Ok(())
         });
-        // for i, v in arr:items() do ... end
-        m.add_method("items", |lua, this, ()| {
-            let arr = *this;
-            let f = lua.create_function(move |lua, (_, i): (Value, i64)| {
-                let next = i + 1;
-                match arr.elem(next) {
-                    Some(e) => Ok((Value::Integer(next), unreal::read_prop(e, &arr.inner).map(|v| to_lua(lua, &v)).unwrap_or(Value::Nil))),
-                    None => Ok((Value::Nil, Value::Nil)),
-                }
-            })?;
-            Ok((f, Value::Nil, 0i64))
-        });
+        // for i, v in arr:items() do ... end  — also what `ipairs(arr)` uses:
+        // LuaJIT's ipairs only accepts userdata through `__ipairs`.
+        m.add_method("items", |lua, this, ()| this.iterator(lua));
+        m.add_meta_method(MetaMethod::IPairs, |lua, this, ()| this.iterator(lua));
     }
 }
 
@@ -710,20 +716,25 @@ impl UserData for Map {
             let p = Prop { offset: 0, ..this.value };
             write_field(slot, &p, "value", &value)
         });
-        // for k, v in map:pairs() do ... end  (snapshot)
-        m.add_method("pairs", |lua, this, ()| {
-            let entries: Vec<(Value, Value)> = unreal::map_entries(this.addr, &this.key, &this.value, this.elem_size)
-                .iter()
-                .map(|(k, v)| (to_lua(lua, k), to_lua(lua, v)))
-                .collect();
-            let mut i = 0usize;
-            let f = lua.create_function_mut(move |_, ()| {
-                let r = entries.get(i).cloned().unwrap_or((Value::Nil, Value::Nil));
-                i += 1;
-                Ok(r)
-            })?;
-            Ok(f)
-        });
+        // for k, v in map:pairs() do ... end  (snapshot); `pairs(map)` too.
+        m.add_method("pairs", |lua, this, ()| this.iterator(lua));
+        m.add_meta_method(MetaMethod::Pairs, |lua, this, ()| Ok((this.iterator(lua)?, Value::Nil, Value::Nil)));
+    }
+}
+
+impl Map {
+    /// Snapshot iterator over the entries at call time.
+    fn iterator(&self, lua: &Lua) -> mlua::Result<Function> {
+        let entries: Vec<(Value, Value)> = unreal::map_entries(self.addr, &self.key, &self.value, self.elem_size)
+            .iter()
+            .map(|(k, v)| (to_lua(lua, k), to_lua(lua, v)))
+            .collect();
+        let mut i = 0usize;
+        lua.create_function_mut(move |_, ()| {
+            let r = entries.get(i).cloned().unwrap_or((Value::Nil, Value::Nil));
+            i += 1;
+            Ok(r)
+        })
     }
 }
 

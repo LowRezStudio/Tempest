@@ -182,7 +182,8 @@ tempest.command("lua", function(pc, rest)
 	src = src and ("return " .. src) or rest
 	local fn, err = load(src, "=console", "t")
 	if not fn then pc:ClientMessage("lua: " .. tostring(err)) return end
-	local results = table.pack(pcall(fn))
+	local function pack(...) return { n = select("#", ...), ... } end
+	local results = pack(pcall(fn))
 	if not results[1] then pc:ClientMessage("lua: " .. tostring(results[2])) return end
 	for i = 2, results.n do pc:ClientMessage(tostring(results[i])) end
 end, "lua <code>  |  lua =<expr>")

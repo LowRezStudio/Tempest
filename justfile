@@ -54,10 +54,10 @@ scripting-run game *args: scripting-build
 scripting-install game: scripting-build
     for p in scripting console lib dev; do dotnet run --project Tempest.CLI -- mod install "{{game}}" "{{scripting}}/dist/$p.tempest" --replace --allow-unsigned; done
 
-# Repack and reinstall only the dev scratch mod (no Rust build)
+# Repack and reinstall only the dev scratch mod, mods/dev (no Rust build)
 [group("scripting")]
 scripting-dev game:
-    rm -rf {{scripting}}/dist/dev && cp -R {{scripting}}/dev {{scripting}}/dist/dev
+    rm -rf {{scripting}}/dist/dev && cp -R {{scripting}}/mods/dev {{scripting}}/dist/dev
     mkdir -p {{scripting}}/dist/dev/types && cp {{scripting}}/types/tempest.d.lua {{scripting}}/dist/dev/types/
     cp {{scripting}}/dist/scripting/.luarc.json {{scripting}}/dist/dev/.luarc.json
     python3 {{scripting}}/scripts/pack.py {{scripting}}/dist/dev {{scripting}}/dist/dev.tempest
