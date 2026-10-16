@@ -374,6 +374,28 @@ function memory.write_str(addr, s) end
 ---@return boolean
 function memory.write_wstr(addr, s) end
 
+--- This mod's config: `defaults`, then the mod's config.toml, then (installed
+--- mods) the user's <game>/ChaosGame/Config/mods/<id>.toml. The editable file
+--- is created from the merged values when missing. Values: strings, numbers,
+--- booleans, tables (arrays or maps).
+---@param defaults? table
+---@return table
+function tempest.config(defaults) end
+--- Write this mod's config file (the table replaces it).
+---@param config table
+---@return string path
+function tempest.save_config(config) end
+---@return string? path of this mod's config file
+function tempest.config_path() end
+---@return string? the game folder
+function tempest.game_dir() end
+--- The runtime settings (tempest.toml), read-only.
+---@return { path: string?, game_dir: string?, log: string?, console: boolean, jit: boolean, dev_mods: string?, hot_reload: boolean, hot_reload_delay_ms: integer, mod_configs: string?, ui_scale: number }
+function tempest.settings() end
+--- Log `msg` and show it in chat when a local player exists.
+---@param msg string
+function tempest.toast(msg) end
+
 -- ===========================================================================
 -- ui: Dear ImGui (see types/imgui.d.lua for the raw ui.C API)
 -- ===========================================================================

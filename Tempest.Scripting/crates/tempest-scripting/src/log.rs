@@ -30,6 +30,9 @@ fn default_path() -> String {
             return p;
         }
     }
+    if let Some(p) = &crate::config::get().log {
+        return p.clone();
+    }
     std::env::temp_dir()
         .join("tempest-scripting.log")
         .to_string_lossy()
@@ -47,7 +50,7 @@ pub fn init() {
     }
     #[cfg(windows)]
     {
-        if std::env::var("TEMPEST_SCRIPT_CONSOLE").as_deref() != Ok("0") {
+        if console_wanted() {
             unsafe { AllocConsole() };
         }
         install_veh();
@@ -58,6 +61,11 @@ pub fn init() {
 
 pub fn path() -> Option<String> {
     PATH.get().cloned()
+}
+
+/// Console window + REPL: `[runtime] console` unless `TEMPEST_SCRIPT_CONSOLE=0`.
+pub fn console_wanted() -> bool {
+    std::env::var("TEMPEST_SCRIPT_CONSOLE").as_deref() != Ok("0") && crate::config::get().console
 }
 
 /// Write one tagged line to every sink.

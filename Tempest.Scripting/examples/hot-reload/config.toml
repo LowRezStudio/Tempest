@@ -1,0 +1,6 @@
+# This dev mod's config (tempest.config() in main.lua declares the defaults; this
+# file overrides them). Edit and save: the mod reloads with the new values. For
+# an installed mod this file ships the defaults and the user's editable copy is
+# <game>/ChaosGame/Config/mods/<id>.toml.
+label = "hello from config.toml"
+color = 0x00ff88

@@ -26,8 +26,26 @@ fn layouts_match_the_sdk() {
     }
 }
 
+/// A fake game folder: a dev mod in mods/, settings and mod configs under ChaosGame/Config.
+fn fake_game_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("tempest-scripting-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("mods/devmod/scripts")).unwrap();
+    std::fs::create_dir_all(dir.join("ChaosGame/Config")).unwrap();
+    std::fs::write(
+        dir.join("mods/devmod/scripts/main.lua"),
+        "local cfg = tempest.config({ speed = 2, greeting = 'hi', nested = { on = true }, list = { 1, 2, 3 } })\n\
+         shared.devmod = { speed = cfg.speed, greeting = cfg.greeting, on = cfg.nested.on, n = #cfg.list, path = tempest.config_path() }\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("ChaosGame/Config/tempest.toml"), "[dev]\nhot_reload = false\n[ui]\nscale = 1.5\n").unwrap();
+    dir
+}
+
 #[test]
 fn host_smoke() {
+    let game = fake_game_dir();
+    std::env::set_var("TEMPEST_GAME_DIR", &game);
     let g = unreal::resolve();
     assert!(!g.gnames_ok && g.process_event == 0 && !g.notes.is_empty());
 
@@ -136,6 +154,70 @@ fn host_smoke() {
     // Reload re-runs ui.lua on the cached FFI bindings; frames keep building.
     assert!(eval("tempest.reload(); return ui.C ~= nil and tempest._ui_build_frame()").as_boolean().unwrap());
     assert_eq!(eval("return #tempest.status().subscriptions > 0 and ui.capturing()"), mlua::Value::Boolean(false));
+
+    // Runtime settings and dev mods: the fake game folder's tempest.toml was read,
+    // the dev mod in mods/ loads with its config defaults written to Config/mods.
+    assert!(eval("local s = tempest.settings(); return s.hot_reload == false and s.ui_scale == 1.5 and s.dev_mods ~= nil").as_boolean().unwrap());
+    assert_eq!(eval("return ui.scale()"), mlua::Value::Number(1.5));
+    eval("tempest.reload(); return true");
+    assert!(eval("return shared.devmod ~= nil and shared.devmod.speed == 2 and shared.devmod.greeting == 'hi' and shared.devmod.on == true and shared.devmod.n == 3").as_boolean().unwrap());
+    // A dev mod's editable config is its own config.toml (installed mods use Config/mods/<id>.toml).
+    let cfg = game.join("mods/devmod/config.toml");
+    let written = std::fs::read_to_string(&cfg).expect("mod config written");
+    assert!(written.contains("speed = 2") && written.contains("[nested]"), "{written}");
+    assert!(eval("return tempest.status().dev_mods[1] == 'devmod'").as_boolean().unwrap());
+    // The user edits the file; the mod sees the new value on reload (what hot reload triggers).
+    std::fs::write(&cfg, "speed = 5\ngreeting = \"yo\"\n").unwrap();
+    eval("tempest.reload('devmod'); return true");
+    assert!(eval("return shared.devmod.speed == 5 and shared.devmod.greeting == 'yo' and shared.devmod.on == true").as_boolean().unwrap());
+    // save_config round-trips a table from Lua.
+    eval("tempest.reload('devmod'); return true");
+    assert!(eval("return shared.devmod.path:find('config.toml', 1, true) ~= nil").as_boolean().unwrap());
+    // The shipped hot-reload example runs as a dev mod too.
+    let hot = game.join("mods/hot-reload");
+    std::fs::create_dir_all(hot.join("scripts")).unwrap();
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/hot-reload/scripts/main.lua"), hot.join("scripts/main.lua")).unwrap();
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/hot-reload/config.toml"), hot.join("config.toml")).unwrap();
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/hot-reload/manifest.toml"), hot.join("manifest.toml")).unwrap();
+    eval("tempest.reload('hot-reload'); tempest.reload('hot-reload'); return true");
+    assert_eq!(eval("return shared.hot_runs"), mlua::Value::Integer(2));
+    assert_eq!(std::fs::read_to_string(hot.join("config.toml")).unwrap().lines().filter(|l| l.contains("label")).count(), 1);
+    let hot_cfg = game.join("ChaosGame/Config/mods/hot-reload.toml");
+    assert!(!hot_cfg.exists(), "dev mods get no Config/mods file");
+
+    // The watcher: a saved script or config file reloads its mod after the quiet period;
+    // files outside a mod (types/) are ignored.
+    let mut w = tempest_scripting::watch::Watcher::new(Some(game.join("mods")), Some(game.join("ChaosGame/Config/mods")), std::time::Duration::from_millis(50));
+    assert!(w.tracked() >= 4);
+    assert!(w.poll().is_empty());
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(hot.join("scripts/main.lua"), "shared.hot_runs = (shared.hot_runs or 0) + 1\nshared.hot_edited = true\n").unwrap();
+    std::fs::create_dir_all(game.join("mods/types")).unwrap();
+    std::fs::write(game.join("mods/types/x.lua"), "-- not a mod").unwrap();
+    assert!(w.poll().is_empty(), "a change starts the quiet period");
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    let ready = w.poll();
+    assert_eq!(ready, vec!["hot-reload".to_string()]);
+    tempest_scripting::watch::reload(ready);
+    assert!(eval("return shared.hot_runs == 3 and shared.hot_edited == true").as_boolean().unwrap());
+    // Editing the dev mod's config.toml reloads it and the new value is what the script sees.
+    std::fs::write(hot.join("scripts/main.lua"), "local cfg = tempest.config({ label = 'default' })\nshared.hot_label = cfg.label\n").unwrap();
+    std::fs::write(hot.join("config.toml"), "label = \"changed\"\n").unwrap();
+    assert!(w.poll().is_empty());
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    let ready = w.poll();
+    assert_eq!(ready, vec!["hot-reload".to_string()]);
+    tempest_scripting::watch::reload(ready);
+    assert_eq!(eval("return shared.hot_label"), mlua::Value::String(lua.create_string("changed").unwrap()));
+    assert!(w.poll().is_empty(), "nothing pending afterwards");
+    // An installed mod's user file lives in Config/mods and is watched as well.
+    std::fs::create_dir_all(game.join("ChaosGame/Config/mods")).unwrap();
+    assert!(w.poll().is_empty());
+    std::fs::write(&hot_cfg, "label = \"user\"\n").unwrap();
+    assert!(w.poll().is_empty());
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    assert_eq!(w.poll(), vec!["hot-reload".to_string()]);
+    let _ = std::fs::remove_dir_all(&game);
 
     // The shipped examples at least parse and run with nothing resolved.
     for src in [

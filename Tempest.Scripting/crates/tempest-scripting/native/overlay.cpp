@@ -117,6 +117,7 @@ static volatile int g_ready = 0;      // backends initialised, font atlas built:
 static volatile int g_building = 0;   // a frame is being built (re-entrancy guard)
 static volatile int g_capture = 0;    // the UI owns the mouse (software cursor, messages swallowed)
 static float g_scale = 1.0f;
+static void apply_scale(float s);
 static const char* g_backend = "";
 static void* g_hwnd = nullptr;
 static unsigned g_frames_built = 0;
@@ -135,6 +136,7 @@ static void common_init(void* hwnd) {
         io.ConfigErrorRecoveryEnableDebugLog = false;
         io.ConfigErrorRecoveryEnableTooltip = true;
         ImGui::StyleColorsDark();
+        if (g_scale != 1.0f) apply_scale(g_scale);
     }
 #ifdef _WIN32
     if (hwnd && hwnd != g_hwnd) {
@@ -180,10 +182,9 @@ void tempest_overlay_want(int* mouse, int* keyboard, int* text) {
     if (text) *text = io.WantTextInput;
 }
 
-// Scale fonts and paddings together, from the pristine dark style.
-void tempest_overlay_set_scale(float s) {
-    if (s <= 0.0f || !ImGui::GetCurrentContext()) return;
-    g_scale = s;
+// Scale fonts and paddings together, from the pristine dark style. Before
+// the context exists the value is kept and applied at init.
+static void apply_scale(float s) {
     ImGuiStyle& style = ImGui::GetStyle();
     ImVec4 colors[ImGuiCol_COUNT];
     memcpy(colors, style.Colors, sizeof colors);
@@ -191,6 +192,12 @@ void tempest_overlay_set_scale(float s) {
     memcpy(style.Colors, colors, sizeof colors);
     style.ScaleAllSizes(s);
     ImGui::GetIO().FontGlobalScale = s;
+}
+
+void tempest_overlay_set_scale(float s) {
+    if (s <= 0.0f) return;
+    g_scale = s;
+    if (ImGui::GetCurrentContext()) apply_scale(s);
 }
 
 float tempest_overlay_get_scale(void) { return g_scale; }

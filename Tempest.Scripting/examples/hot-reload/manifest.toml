@@ -1,0 +1,6 @@
+# Optional for a dev mod: without it the folder name is the id.
+[mod]
+id = "hot-reload"
+name = "Hot Reload Test"
+version = "0.1.0"
+authors = ["Tempest"]

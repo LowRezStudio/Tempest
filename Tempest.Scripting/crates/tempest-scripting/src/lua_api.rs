@@ -115,6 +115,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
     )?;
     // tempest.mod() -> id of the mod whose script/handler is running
     t.set("mod", lua.create_function(|_, ()| Ok(crate::loader::current_mod()))?)?;
+    register_config(lua, &t)?;
     // Backs tempest.on_key (prelude): hook the game window once.
     t.set(
         "_install_keyhook",
@@ -126,11 +127,14 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
     t.set(
         "dump_sdk",
         lua.create_function(|_, dir: Option<String>| {
+            // Default: <game>/mods/types/sdk when the dev folder exists (where the
+            // runtime also drops its own .d.lua files), else the runtime mod's types/.
             let dir = match dir {
                 Some(d) => std::path::PathBuf::from(d),
                 None => {
-                    let base = crate::loader::dll_dir()
-                        .and_then(|d| d.parent().map(|p| p.to_path_buf()))
+                    let base = crate::config::dev_mods_dir()
+                        .filter(|d| d.is_dir())
+                        .or_else(|| crate::loader::dll_dir().and_then(|d| d.parent().map(|p| p.to_path_buf())))
                         .unwrap_or_else(|| std::path::PathBuf::from("."));
                     base.join("types").join("sdk")
                 }
@@ -290,6 +294,69 @@ pub fn run_prelude(lua: &Lua) -> mlua::Result<()> {
     lua.load(include_str!("ui.lua")).set_name("=ui").exec()
 }
 
+/// `tempest.config()` & co: the mod's own config file, and the runtime settings.
+fn register_config(lua: &Lua, t: &Table) -> mlua::Result<()> {
+    // tempest.config(defaults?) -> table: defaults <- <mod>/config.toml <- <configs>/<id>.toml;
+    // the user's file is created from the merged values when missing.
+    t.set(
+        "config",
+        lua.create_function(|lua, defaults: Option<Table>| {
+            let id = crate::loader::current_mod();
+            if id.is_empty() {
+                return Err(mlua::Error::external("tempest.config: no mod is running (call it from a mod script or handler)"));
+            }
+            let defaults = match defaults {
+                Some(d) => crate::config::table_from_lua(&Value::Table(d)).map_err(mlua::Error::external)?,
+                None => toml::Table::new(),
+            };
+            let m = crate::loader::find(&id).ok_or_else(|| mlua::Error::external(format!("tempest.config: mod `{id}` is not loaded")))?;
+            let (merged, _) = crate::config::load_mod_config(&m, defaults).map_err(mlua::Error::external)?;
+            crate::config::to_lua(lua, &toml::Value::Table(merged))
+        })?,
+    )?;
+    // tempest.save_config(table) -> path
+    t.set(
+        "save_config",
+        lua.create_function(|_, table: Table| {
+            let id = crate::loader::current_mod();
+            if id.is_empty() {
+                return Err(mlua::Error::external("tempest.save_config: no mod is running"));
+            }
+            let table = crate::config::table_from_lua(&Value::Table(table)).map_err(mlua::Error::external)?;
+            let m = crate::loader::find(&id).ok_or_else(|| mlua::Error::external(format!("tempest.save_config: mod `{id}` is not loaded")))?;
+            let path = crate::config::save_mod_config(&m, &table).map_err(mlua::Error::external)?;
+            Ok(path.display().to_string())
+        })?,
+    )?;
+    t.set(
+        "config_path",
+        lua.create_function(|_, ()| {
+            Ok(crate::loader::find(&crate::loader::current_mod()).and_then(|m| crate::config::config_file(&m)).map(|p| p.display().to_string()))
+        })?,
+    )?;
+    t.set("game_dir", lua.create_function(|_, ()| Ok(crate::config::get().game_dir.as_ref().map(|p| p.display().to_string())))?)?;
+    // tempest.settings() -> the runtime settings (read-only copy)
+    t.set(
+        "settings",
+        lua.create_function(|lua, ()| {
+            let c = crate::config::get();
+            let s = lua.create_table()?;
+            s.set("path", c.path.as_ref().map(|p| p.display().to_string()))?;
+            s.set("game_dir", c.game_dir.as_ref().map(|p| p.display().to_string()))?;
+            s.set("log", crate::log::path())?;
+            s.set("console", c.console)?;
+            s.set("jit", c.jit)?;
+            s.set("dev_mods", crate::config::dev_mods_dir().map(|p| p.display().to_string()))?;
+            s.set("hot_reload", c.hot_reload)?;
+            s.set("hot_reload_delay_ms", c.hot_reload_delay_ms)?;
+            s.set("mod_configs", crate::config::mod_configs_dir().map(|p| p.display().to_string()))?;
+            s.set("ui_scale", c.ui_scale)?;
+            Ok(s)
+        })?,
+    )?;
+    Ok(())
+}
+
 /// `tempest._ui_*`: the Rust side of the `ui` module (ui.lua), plus the
 /// generated cimgui declarations in `tempest._imgui`.
 fn register_ui(lua: &Lua, t: &Table) -> mlua::Result<()> {
@@ -305,6 +372,7 @@ fn register_ui(lua: &Lua, t: &Table) -> mlua::Result<()> {
             Ok(out)
         })?,
     )?;
+    crate::overlay::set_scale(crate::config::get().ui_scale);
     t.set("_ui_ready", lua.create_function(|_, ()| Ok(crate::overlay::ready()))?)?;
     t.set("_ui_backend", lua.create_function(|_, ()| Ok(crate::overlay::backend()))?)?;
     t.set("_ui_hwnd", lua.create_function(|_, ()| Ok(crate::overlay::hwnd() as i64))?)?;
@@ -362,6 +430,7 @@ fn status(lua: &Lua) -> mlua::Result<Table> {
     t.set("address_hooks", address_hooks(lua)?)?;
     t.set("lua_natives", unreal::lua_natives())?;
     t.set("mods", crate::loader::mods().into_iter().map(|m| m.id).collect::<Vec<_>>())?;
+    t.set("dev_mods", crate::loader::mods().into_iter().filter(|m| m.dev).map(|m| m.id).collect::<Vec<_>>())?;
     t.set("key_hook_installed", crate::input::installed())?;
     t.set("ui_backend", crate::overlay::backend())?;
     t.set("ui_ready", crate::overlay::ready())?;

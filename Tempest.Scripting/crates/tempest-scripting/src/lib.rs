@@ -22,6 +22,7 @@
 #[cfg(all(windows, not(target_pointer_width = "64")))]
 compile_error!("Tempest.Scripting targets the Win64 client only");
 
+pub mod config;
 pub mod hooks;
 mod imgui_syms;
 pub mod input;
@@ -32,6 +33,7 @@ pub mod memory;
 pub mod overlay;
 pub mod tls;
 pub mod unreal;
+pub mod watch;
 
 use std::sync::OnceLock;
 
@@ -48,6 +50,9 @@ pub fn lua() -> &'static Lua {
         // SAFETY: the unsafe libraries are the point; nothing untrusted runs.
         let lua = unsafe { Lua::unsafe_new() };
         overlay::init();
+        if !config::get().jit {
+            let _ = lua.load("jit.off()").exec();
+        }
         if let Err(e) = lua_api::register(&lua) {
             log::line("lua", &format!("API registration failed: {e}"));
         }
@@ -58,6 +63,12 @@ pub fn lua() -> &'static Lua {
 /// Full startup. Safe to call from the host build (everything stubs out).
 pub fn boot() {
     log::init();
+    for note in &config::get().notes {
+        log::line("config", note);
+    }
+    if let Some(p) = &config::get().path {
+        log::line("config", &format!("settings: {}", p.display()));
+    }
     if !claim_runtime() {
         log::line("boot", "another Tempest.Scripting instance already runs in this process; this copy stays idle");
         return;
@@ -83,6 +94,15 @@ pub fn boot() {
     // The renderer is up by now (or soon); the UI hooks poll for it.
     overlay::install_async();
     run_scripts();
+    if let Some(what) = watch::start() {
+        log::line("hot", &format!("watching {what}"));
+    }
+    if let Some(types) = loader::dll_dir().and_then(|d| d.parent().map(|m| m.join("types"))) {
+        let written = config::seed_dev_types(&types);
+        if !written.is_empty() {
+            log::line("config", &format!("editor types for the dev folder: {}", written.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")));
+        }
+    }
     log::line("boot", "ready");
     repl();
 }
@@ -160,7 +180,7 @@ fn repl() {
     use std::io::BufRead;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
-    if std::env::var("TEMPEST_SCRIPT_CONSOLE").as_deref() == Ok("0") {
+    if !log::console_wanted() {
         return;
     }
     let run = |chunk: String| {

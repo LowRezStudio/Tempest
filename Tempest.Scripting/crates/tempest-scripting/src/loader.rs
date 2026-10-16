@@ -8,6 +8,10 @@
 //!    so every sibling `<game>/.tempest/v2/mods/*/scripts/` is a mod. Mods
 //!    marked disabled in `<game>/.tempest/mods.json` are skipped (the DLL's
 //!    own mod is always loaded).
+//! 4. Dev mods: every folder of `<game>/mods/` (`[dev] mods` in the runtime
+//!    settings) with a `scripts/` directory or `.lua` files, manifest
+//!    optional. They are hot-reloaded on save and a dev mod with the id of
+//!    an installed mod replaces it.
 //!
 //! Each mod runs in its own environment: globals it sets stay private,
 //! reads fall through to the real globals (`tempest`, `memory`, `shared`,
@@ -26,14 +30,33 @@ use mlua::{Lua, Table, Value};
 pub struct Mod {
     pub id: String,
     pub scripts: PathBuf,
+    /// The mod folder (manifest.toml, config.toml, scripts/).
+    pub root: PathBuf,
     /// Ids this mod wants loaded before it (`[scripting] after` in manifest.toml).
     pub after: Vec<String>,
+    /// From the dev folder (hot-reloaded, overrides an installed mod of the same id).
+    pub dev: bool,
+}
+
+impl Mod {
+    fn new(id: impl Into<String>, scripts: PathBuf) -> Mod {
+        let root = scripts.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| scripts.clone());
+        Mod { id: id.into(), scripts, root, after: Vec::new(), dev: false }
+    }
 }
 
 #[derive(serde::Deserialize, Default)]
 struct Manifest {
     #[serde(default)]
+    r#mod: ModSection,
+    #[serde(default)]
     scripting: ScriptingSection,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct ModSection {
+    #[serde(default)]
+    id: String,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -42,15 +65,43 @@ struct ScriptingSection {
     after: Vec<String>,
 }
 
-fn manifest_after(mod_root: &Path) -> Vec<String> {
-    let Ok(text) = std::fs::read_to_string(mod_root.join("manifest.toml")) else { return Vec::new() };
+/// `(id, after)` from the folder's manifest.toml; empty when absent or broken.
+fn manifest(mod_root: &Path) -> (String, Vec<String>) {
+    let Ok(text) = std::fs::read_to_string(mod_root.join("manifest.toml")) else { return (String::new(), Vec::new()) };
     match toml::from_str::<Manifest>(&text) {
-        Ok(m) => m.scripting.after.into_iter().map(|s| s.to_ascii_lowercase()).collect(),
+        Ok(m) => (m.r#mod.id, m.scripting.after.into_iter().map(|s| s.to_ascii_lowercase()).collect()),
         Err(e) => {
             crate::log::line("loader", &format!("{}: manifest.toml: {e}", mod_root.display()));
-            Vec::new()
+            (String::new(), Vec::new())
         }
     }
+}
+
+/// Dev mods from `<game>/mods` (or `[dev] mods`): `<dir>/<folder>/scripts/`,
+/// or the folder itself when it holds `.lua` files directly.
+fn dev_mods() -> Vec<Mod> {
+    let mut out = Vec::new();
+    let Some(dir) = crate::config::dev_mods_dir() else { return out };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return out };
+    for entry in entries.flatten() {
+        let root = entry.path();
+        let folder = entry.file_name().to_string_lossy().to_string();
+        // `types/` holds the editor stubs the runtime drops here; dot-folders are editors' own.
+        if !root.is_dir() || folder == "types" || folder.starts_with('.') {
+            continue;
+        }
+        let scripts = if root.join("scripts").is_dir() {
+            root.join("scripts")
+        } else if list_scripts(&root).is_empty() {
+            continue;
+        } else {
+            root.clone()
+        };
+        let (id, after) = manifest(&root);
+        let id = if id.is_empty() { folder } else { id };
+        out.push(Mod { id, scripts, root, after, dev: true });
+    }
+    out
 }
 
 /// Alphabetical by id, then moved so every `after` dependency precedes its
@@ -140,13 +191,13 @@ fn enabled_ids(mods_json: &Path) -> Option<HashSet<String>> {
 
 pub fn mods() -> Vec<Mod> {
     if let Ok(dir) = std::env::var("TEMPEST_SCRIPT_DIR") {
-        return vec![Mod { id: "local".into(), scripts: PathBuf::from(dir), after: Vec::new() }];
+        return vec![Mod::new("local", PathBuf::from(dir))];
     }
     let mut out = Vec::new();
     if let Some(dll) = dll_dir() {
         let local = dll.join("scripts");
         if local.is_dir() {
-            out.push(Mod { id: "local".into(), scripts: local, after: Vec::new() });
+            out.push(Mod::new("local", local));
         }
         if let Some((mod_root, mods_root)) = dll.parent().and_then(|m| m.parent().map(|r| (m, r))) {
             let own = mod_root.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase());
@@ -168,16 +219,26 @@ pub fn mods() -> Vec<Mod> {
                         crate::log::line("loader", &format!("mod {id}: disabled, skipped"));
                         continue;
                     }
-                    let after = manifest_after(&dir);
-                    out.push(Mod { id, scripts, after });
+                    let (_, after) = manifest(&dir);
+                    out.push(Mod { id, scripts, root: dir, after, dev: false });
                 }
             }
         }
     }
+    for dev in dev_mods() {
+        // A dev mod with an installed mod's id replaces it (the summary line says so).
+        out.retain(|m| !m.id.eq_ignore_ascii_case(&dev.id));
+        out.push(dev);
+    }
     if out.is_empty() {
-        out.push(Mod { id: "local".into(), scripts: PathBuf::from("scripts"), after: Vec::new() });
+        out.push(Mod::new("local", PathBuf::from("scripts")));
     }
     order_mods(out)
+}
+
+/// The loaded mod with this id, if any.
+pub fn find(id: &str) -> Option<Mod> {
+    mods().into_iter().find(|m| m.id.eq_ignore_ascii_case(id))
 }
 
 fn list_scripts(dir: &Path) -> Vec<PathBuf> {
@@ -187,6 +248,8 @@ fn list_scripts(dir: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = entries
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "lua"))
+        // `*.d.lua` are LuaLS stubs, never scripts.
+        .filter(|p| !p.file_name().is_some_and(|n| n.to_string_lossy().ends_with(".d.lua")))
         .collect();
     out.sort();
     out
@@ -248,7 +311,7 @@ pub fn run_mod(lua: &Lua, m: &Mod) {
     let scripts = list_scripts(&m.scripts);
     crate::log::line(
         "loader",
-        &format!("mod {}: {} script(s) in {}", m.id, scripts.len(), m.scripts.display()),
+        &format!("mod {}{}: {} script(s) in {}", m.id, if m.dev { " (dev)" } else { "" }, scripts.len(), m.scripts.display()),
     );
     let env = match mod_env(lua, m) {
         Ok(e) => e,
@@ -293,7 +356,7 @@ pub fn run_all(lua: &Lua) {
         &format!(
             "{} mod(s): {}",
             mods.len(),
-            mods.iter().map(|m| m.id.as_str()).collect::<Vec<_>>().join(", ")
+            mods.iter().map(|m| if m.dev { format!("{} (dev)", m.id) } else { m.id.clone() }).collect::<Vec<_>>().join(", ")
         ),
     );
     for m in &mods {

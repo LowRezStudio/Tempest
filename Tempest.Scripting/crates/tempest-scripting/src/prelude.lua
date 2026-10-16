@@ -165,6 +165,13 @@ function tempest.trace(spec, n)
 	return id
 end
 
+-- tempest.toast(msg): log it and, in a match, show it in chat.
+function tempest.toast(msg)
+	tempest.log(msg)
+	local pc = tempest.local_player()
+	if pc then pcall(pc.ClientMessage, pc, msg) end
+end
+
 function tempest.commands()
 	local out = {}
 	for _, c in pairs(commands) do out[#out + 1] = { name = c.name, help = c.help } end
@@ -188,6 +195,14 @@ tempest.command("lua", function(pc, rest)
 	if not results[1] then pc:ClientMessage("lua: " .. tostring(results[2])) return end
 	for i = 2, results.n do pc:ClientMessage(tostring(results[i])) end
 end, "lua <code>  |  lua =<expr>")
+
+tempest.command("tempest_config", function(pc, rest)
+	local s = tempest.settings()
+	pc:ClientMessage("settings: " .. tostring(s.path))
+	pc:ClientMessage("dev mods: " .. tostring(s.dev_mods) .. "  hot reload: " .. tostring(s.hot_reload))
+	pc:ClientMessage("mod configs: " .. tostring(s.mod_configs))
+	pc:ClientMessage("log: " .. tostring(s.log))
+end, "where the runtime and mod config files are")
 
 tempest.command("tempest_help", function(pc)
 	for _, c in ipairs(tempest.commands()) do

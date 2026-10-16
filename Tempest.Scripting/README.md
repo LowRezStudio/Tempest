@@ -32,7 +32,7 @@ one as an installable `.tempest` in `dist/`:
 |---------|--------|----|----------|
 | `scripting.tempest` | `mods/scripting` | `tempest-scripting` | the DLL, `scripts/core.lua` (diagnostic console commands), `types/tempest.d.lua`, `.luarc.json` |
 | `console.tempest` | `mods/console` | `tempest-console` | `console.lua`: enables the in-game console (F2) |
-| `dev.tempest` | `mods/dev` | `tempest-dev` | the scratch mod being worked on (`just scripting-dev <game>` repacks and reinstalls just this one, no Rust build) |
+| `dev.tempest` | `mods/dev` | `tempest-dev` | the scratch mod being worked on (for iteration without packing, use the game's `mods/` folder instead, below) |
 | `lib.tempest` | `mods/lib` | `tempest-scripting-lib` | example library mod exporting `greet` |
 
 Package and folder names are free; the `id` in each `manifest.toml` is what
@@ -41,8 +41,9 @@ DLL; any number of script-only mods can sit next to it.
 
 ## Install and test
 
-`just scripting-install <game>` installs all four. The launcher injects every
-`dlls/*.dll` of enabled V2 mods about a second after the game starts.
+Install the `.tempest` files through the launcher (or `tempest mod install`).
+It injects every `dlls/*.dll` of enabled V2 mods about a second after the
+game starts.
 
 On inject the DLL opens a console and logs to `%TEMP%\tempest-scripting.log`.
 The console is also a Lua REPL: type `tempest.reload()` after editing a
@@ -71,8 +72,44 @@ The boot sequence, in order, with what each step must print:
 | address hooks | `hook`, `lua` | `tempest_memhook Engine.PlayerController.ConsoleCommand` in the console logs `address hook #1 on 0x..`, then one line per console command with the `this` object |
 | lua natives | `hook`, `lua` | `4 dllimport function(s) bound to Lua natives` at boot (TgMod installed); `open Shootingrange_P?game=TmLuaTest.TmLuaGame` prints `LuaAdd(2, 3) = 5` and the greeting in chat, `LuaHeartbeat #n` every 5 s in the log, `luatest` round-trips from the console |
 
-Environment: `TEMPEST_SCRIPT_DIR` (scripts folder), `TEMPEST_SCRIPT_LOG`
-(log path), `TEMPEST_SCRIPT_CONSOLE=0` (no console window).
+## Settings, dev mods, hot reload
+
+The runtime reads `<game>/ChaosGame/Config/tempest.toml` (written as a
+commented template on first run; `TEMPEST_SCRIPT_CONFIG=<path>` overrides):
+
+```toml
+[runtime]
+console = true            # console window + Lua REPL
+jit = true                # LuaJIT trace compiler
+# log = "C:/temp/tempest-scripting.log"
+[dev]
+mods = "mods"             # <game>/mods: dev mods, hot-reloaded on save
+hot_reload = true
+hot_reload_delay_ms = 300
+[mods]
+configs = "ChaosGame/Config/mods"   # <configs>/<mod-id>.toml, see tempest.config()
+[ui]
+scale = 1.0
+```
+
+`<game>/mods/<folder>/scripts/*.lua` (or `.lua` files straight in the
+folder) is a mod; `manifest.toml` is optional, the folder name is the id
+without one, and a dev mod with an installed mod's id replaces it. Saving a
+file in a dev mod reloads that mod on the game thread (and tells the chat);
+saving `<configs>/<id>.toml` reloads mod `<id>`. The runtime drops its
+`types/*.d.lua` and a `.luarc.json` into `<game>/mods/` so the folder has
+completion out of the box, and `tempest.dump_sdk()` writes there too.
+
+Mod configs: `tempest.config({ speed = 1, keys = { toggle = "Insert" } })`
+returns the defaults merged with the mod's shipped `config.toml` and, for
+installed mods, the user's `<configs>/<id>.toml`. The editable file (a dev
+mod's own `config.toml`, an installed mod's `<configs>/<id>.toml`) is created
+from the merged values when missing; `tempest.save_config(tbl)` writes it.
+
+Environment (overrides the file): `TEMPEST_SCRIPT_DIR` (single scripts
+folder, replaces mod discovery), `TEMPEST_SCRIPT_LOG` (log path),
+`TEMPEST_SCRIPT_CONSOLE=0` (no console window), `TEMPEST_GAME_DIR` (game
+folder when the DLL is not injected from `<game>/Binaries/Win64`).
 
 ## Lua API
 
@@ -90,6 +127,10 @@ tempest.queue(fn)                    -- run fn on the game thread at the next ev
 tempest.on_game_thread()
 tempest.reload(modId?)               -- re-run every mod (or just one); subscriptions/commands of the reloaded mods are dropped first
 tempest.mod() / tempest.mods()       -- current mod id / all loaded mod ids
+tempest.config(defaults?) -> table   -- this mod's config (defaults <- <mod>/config.toml <- <configs>/<id>.toml)
+tempest.save_config(tbl) -> path     -- write it back; tempest.config_path()
+tempest.settings() / tempest.game_dir() -- runtime settings (read-only) / the game folder
+tempest.toast(msg)                   -- log + chat message to the local player
 tempest.export(name, v) / tempest.import(name) -- cross-mod values (also reachable as the `shared` table)
 MOD                                  -- the running mod's id; require("a.b") loads scripts/a/b.lua of the same mod
 require("ffi") / require("bit")      -- names with no file in the mod reach LuaJIT's built-in modules
@@ -237,7 +278,7 @@ returns are typed where the class is fixed (`tempest.local_player()` is an
 them: `---@cast this Engine.HUD` as the first line of the handler, or
 `---@type Engine.Pawn` above a local.
 
-Built-in console commands: `tempest_help`, `tempest_reload [mod-id]`,
+Built-in console commands: `tempest_help`, `tempest_reload [mod-id]`, `tempest_config`,
 `lua <code>` / `lua =<expr>` (run Lua from the game console), `ui_status`,
 `ui_demo`, `ui_capture [0|1]`.
 
@@ -289,7 +330,9 @@ crates/tempest-scripting/src/
   tls.rs       anti-cheat XOR key (WolperMod EngineTls port)
   unreal.rs    signatures, names/objects, reflection, subscriptions, hook
   lua_api.rs   tempest.* / memory.* / Object proxy
-  loader.rs    scripts/ discovery, run, reload
+  loader.rs    scripts/ discovery (installed + dev mods), run, reload
+  config.rs    tempest.toml runtime settings, per-mod config files, Lua<->TOML
+  watch.rs     hot reload: polls the dev folder and the mod configs, reloads on the game thread
   overlay.rs   D3D9/D3D11 Present detours, frame cadence, Lua bridge for ui.lua
   ui.lua       the `ui` module: FFI binding of cimgui + the curated widget API
   imgui_cdef.lua, imgui_syms.rs  generated by scripts/gen_imgui.py (cdef text, enums, addresses)
@@ -301,7 +344,8 @@ mods/          one folder per shipped mod (manifest.toml + scripts/), packed to 
   console/     enables the in-game console
   lib/         tempest-scripting-lib: a DLL-less library mod
   dev/         the scratch mod: edit freely (starts as a copy of examples/)
-examples/      00_status .. 10_lua_natives: reference scripts, run by the host smoke test
+examples/      00_status .. 11_ui: reference scripts, run by the host smoke test;
+               hot-reload/ is a dev mod to copy into <game>/mods
 types/         tempest.d.lua (LuaLS API definitions, shipped in scripting and dev);
                types/sdk/ is the in-game `tempest_sdk` output for 8.1 (regenerate after a game update)
 .luarc.json    LuaLS config for this repo: completion in examples/ and mods/ against types/

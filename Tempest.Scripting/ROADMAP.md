@@ -151,3 +151,14 @@ reach script → script and script → native calls.
 - [ ] Custom fonts / icon fonts (needs atlas rebuild on the render thread).
 - [ ] Textures from Lua (`ui.image`): per-backend texture upload.
 - [ ] Persisted window layout (imgui.ini is disabled: the mod folder is checksummed).
+
+## Settings, dev folder, hot reload (2026-10-16)
+
+- [~] `<game>/ChaosGame/Config/tempest.toml` (template written on first run): console, jit, log,
+  dev folder, hot reload, mod config dir, ui scale. `tempest.settings()`, `tempest_config`.
+- [~] Dev mods in `<game>/mods/<folder>` (manifest optional, override installed ids), editor
+  types + `.luarc.json` seeded there, `tempest.dump_sdk()` defaults there.
+- [~] Hot reload: polling watcher (500 ms, debounced) reloads a dev mod on save and any mod when
+  its config file changes; chat toast.
+- [~] Per-mod configs: `tempest.config(defaults)` merges defaults, shipped `config.toml` and the
+  user's file (created on first run); `tempest.save_config`.
