@@ -78,9 +78,19 @@ export const launchGame = async (instance: Instance) => {
 	processesList.value = [...processesList.value, process];
 };
 
-export const killGame = async (instance: Instance) => {
-	const processes = processesList.value;
-	const process = processes.find((p: Process) => p.instance.id === instance.id);
+const KILL_GRACE_MS = 5000;
 
-	if (process) await process.child.write("kill\n");
+export const killGame = async (instance: Instance) => {
+	const process = processesList.value.find((p: Process) => p.instance.id === instance.id);
+	if (!process) return;
+
+	await process.child.write("kill\n").catch(() => {});
+
+	setTimeout(async () => {
+		const stillThere = processesList.value.some((p) => p.child === process.child);
+		if (!stillThere) return;
+		appendProcessLog("Game did not stop in time, killing launcher process", true, "launch");
+		await process.child.kill().catch(() => {});
+		processesList.value = processesList.value.filter((p) => p.child !== process.child);
+	}, KILL_GRACE_MS);
 };
