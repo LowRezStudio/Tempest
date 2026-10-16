@@ -32,6 +32,15 @@ extern "C" {
     fn tempest_overlay_run_handler(cb: extern "C" fn(*mut c_void) -> i32, ud: *mut c_void) -> i32;
     fn tempest_overlay_build_frame(draw: extern "C" fn(*mut c_void), ud: *mut c_void) -> i32;
     fn tempest_overlay_init_headless(w: f32, h: f32) -> i32;
+    fn tempest_overlay_headless_upload() -> i32;
+    fn tempest_overlay_set_ini(path: *const c_char);
+    fn tempest_overlay_add_font(path: *const c_char, size: f32, merge: i32, ranges: *const u16) -> *mut c_void;
+    fn tempest_overlay_set_default_font(font: *mut c_void);
+    fn tempest_overlay_fonts_dirty() -> i32;
+    fn tempest_overlay_load_image_file(path: *const c_char, w: *mut i32, h: *mut i32) -> i32;
+    fn tempest_overlay_load_image_rgba(rgba: *const u8, w: i32, h: i32) -> i32;
+    fn tempest_overlay_texture_id(id: i32) -> u64;
+    fn tempest_overlay_free_texture(id: i32);
     #[cfg_attr(not(windows), allow(dead_code))]
     fn tempest_overlay_wndproc(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> i32;
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -110,6 +119,61 @@ pub fn scale() -> f32 {
 /// Host tests: an ImGui context with no backend, frames build and park.
 pub fn init_headless(w: f32, h: f32) -> bool {
     unsafe { tempest_overlay_init_headless(w, h) != 0 }
+}
+
+/// Host tests: mark pending textures as uploaded. Returns how many.
+pub fn headless_upload() -> i32 {
+    unsafe { tempest_overlay_headless_upload() }
+}
+
+/// Where ImGui persists window layouts (`""` = nowhere).
+pub fn set_ini(path: &str) {
+    let c = std::ffi::CString::new(path).unwrap_or_default();
+    unsafe { tempest_overlay_set_ini(c.as_ptr()) };
+}
+
+/// Add a TTF (`path`), or the built-in font when `path` is empty, at `size`
+/// pixels; `ranges` are (first, last) glyph pairs. Returns the `ImFont*`,
+/// 0 when deferred (called mid-frame) or failed.
+pub fn add_font(path: &str, size: f32, merge: bool, ranges: &[u16]) -> usize {
+    let c = std::ffi::CString::new(path).unwrap_or_default();
+    let mut r: Vec<u16> = ranges.to_vec();
+    r.push(0);
+    r.push(0);
+    unsafe { tempest_overlay_add_font(c.as_ptr(), size, merge as i32, if ranges.is_empty() { std::ptr::null() } else { r.as_ptr() }) as usize }
+}
+
+pub fn set_default_font(font: usize) {
+    unsafe { tempest_overlay_set_default_font(font as *mut c_void) };
+}
+
+pub fn fonts_dirty() -> bool {
+    unsafe { tempest_overlay_fonts_dirty() != 0 }
+}
+
+/// Decode an image file; `(id, width, height)` or `None`.
+pub fn load_image(path: &str) -> Option<(i32, i32, i32)> {
+    let c = std::ffi::CString::new(path).ok()?;
+    let (mut w, mut h) = (0i32, 0i32);
+    let id = unsafe { tempest_overlay_load_image_file(c.as_ptr(), &mut w, &mut h) };
+    (id > 0).then_some((id, w, h))
+}
+
+/// Raw RGBA8 pixels; `id` or `None`.
+pub fn load_image_rgba(rgba: &[u8], w: i32, h: i32) -> Option<i32> {
+    if w <= 0 || h <= 0 || rgba.len() < (w as usize) * (h as usize) * 4 {
+        return None;
+    }
+    let id = unsafe { tempest_overlay_load_image_rgba(rgba.as_ptr(), w, h) };
+    (id > 0).then_some(id)
+}
+
+pub fn texture_id(id: i32) -> u64 {
+    unsafe { tempest_overlay_texture_id(id) }
+}
+
+pub fn free_texture(id: i32) {
+    unsafe { tempest_overlay_free_texture(id) };
 }
 
 // ---------------------------------------------------------------------------

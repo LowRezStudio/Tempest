@@ -141,7 +141,7 @@ tempest.engine()                     -- *GEngine
 tempest.local_player()               -- Engine.GamePlayers[0].Actor, nil in menus
 
 obj:ptr() obj:name() obj:path() obj:full_name() obj:class() obj:outer()
-obj:is_a("TgGame.TgPlayerController")  obj:is_a(classObj)  obj:has("PlayerName")  obj:prop("PlayerName")
+obj:is_a("TgGame.TgPlayerController")  obj:is_a(classObj)  obj:has("PlayerName")  obj:prop("PlayerName")  -- names are case-insensitive (FName)
 obj.PlayerName                       -- reflection read: int/float/byte/bool/name/str/object,
                                      -- Vector {x,y,z}, Rotator {pitch,yaw,roll}; other structs, TArray
                                      -- and TMap come back as live proxies (below)
@@ -166,7 +166,9 @@ tempest.trace(spec, n)               -- log the first n firings (object + params
 tempest.on_key("Ctrl+F5", fn, opts?) / tempest.off_key(id) -- fn() on key down; return true to swallow
                                      -- opts {up=true} = on release, {repeat=true} = also auto-repeat;
                                      -- MouseLeft/Right/Middle, Mouse4/5, WheelUp/Down work as keys
-tempest.spawn("Engine.PointLight", location?, rotation?, owner?, context?) -- Actor.Spawn from the local player
+tempest.spawn("Engine.PointLight", location?, rotation?, owner?, context?, { force = true }?)
+                                     -- Actor.Spawn from the local player; force spawns bStatic/bNoDelete classes
+tempest.default_object(class)        -- the class default object (per-class flags and defaults)
 tempest.native("TmLuaTest.TmLuaGame.LuaAdd", fn) -> id -- implement a mod package's `dllimport` function:
                                      --   fn(this, params) -> return value; assign `out` params into params
                                      --   (every dllimport function is bound at startup; unimplemented = zero)
@@ -180,6 +182,8 @@ ui.slider_float / slider_int / drag_float / input_text / input_int / combo / lis
 ui.child / tab_bar / tab_item / tree / menu_bar / menu / popup / popup_modal / table(id, cols, fn)
 ui.same_line() separator() spacing() push_color() push_var() push_id() set_next_window_pos/size()
 ui.fg.line/rect/rect_filled/circle/text(...)  ui.bg.*  ui.dl.*  -- draw lists; ui.color(r,g,b,a) / ui.rgb(0xRRGGBB)
+ui.add_font(path|nil, size, { merge = true, ranges = "icons" }?) -> font; ui.push_font/pop_font/with_font/set_default_font
+ui.load_image(path) / ui.image_from_rgba(w, h, bytes) -> img; ui.image(img, w, h) ui.image_button(id, img) ui.fg.image(img, x1, y1, x2, y2)
 ui.capture(bool) / ui.capturing()    -- give the mouse to the UI (software cursor, look input parked)
 ui.want() -> mouse, keyboard, text   -- ImGui's WantCapture* flags
 ui.key_pressed(ui.Key.Escape) ui.mouse() ui.screen() ui.scale(s) ui.ready() ui.backend() ui.stats()
@@ -194,10 +198,14 @@ memory.scan("48 8B 05 ? ? ? ?", limit) -- absolute addresses
 
 memory.hook(addr, fn, {args=N}) -> id -- detour any function entry: fn(original, a1..aN)
                                      --   r = original(a1, nil, x) runs the real function (nil keeps
-                                     --   an argument); return an integer to set the result, or
+                                     --   an argument); return a number to set the result, or
                                      --   nothing to pass through. N defaults to 4, max 8.
-memory.unhook(id)  memory.hooks()    -- { {id, addr, mod}, ... }
-memory.call(addr, ...)               -- call any address: integer/boolean/Object args, integer result
+memory.hook(addr, fn, {args={"ptr","f32","f64"}, ret="f32"}) -- typed positions: floats come from
+                                     --   XMM0..3 (stack slots past 4) and a float result goes to XMM0
+memory.unhook(id)  memory.hooks()    -- { {id, addr, mod, args}, ... }
+memory.call(addr, ...)               -- call any address: integer/boolean/Object/memory.f32|f64 args;
+memory.call(addr, a, memory.f32(1.5), { ret = "f64" }) -- typed float result
+memory.read_c(addr, "uint64_t") / memory.write_c(addr, "float", v) -- FFI-typed access (exact 64-bit as cdata)
 memory.alloc(n) memory.free(p)       -- zeroed scratch buffer for pointer arguments
 memory.write_str(p, s) memory.write_wstr(p, s) -- NUL-terminated ANSI / UTF-16 (TCHAR*)
 tempest.object(ptr)                  -- wrap a raw UObject* argument (nil unless it looks live)
@@ -220,7 +228,7 @@ Where hooks attach, by function kind:
 | kind | entry point hooked | spec needed | notes |
 |------|--------------------|-------------|-------|
 | script function (any caller: C++ event or UnrealScript) | `ProcessInternal` detour | name, class optional | cancel fills the caller's return slot with `params.ReturnValue` |
-| native called from UnrealScript or Lua | `UFunction.Func` swap to a thunk | `Package.Class.Func` | `out` params are captured and written back (POD kinds); 64 hook slots |
+| native called from UnrealScript or Lua | `UFunction.Func` swap to a runtime stub | `Package.Class.Func`, or a bare name (every native of that name, rescanned as classes load) | `out` params are captured and written back with assignment semantics (strings and arrays included) |
 | native called from C++ via `ProcessEvent` | `ProcessEvent` detour | name, class optional | |
 | any C++ function (not a UFunction) | inline detour on its entry (`memory.hook`) | address, from `memory.scan` or a resolved pointer | integer args/result only; handlers run on the calling thread |
 
@@ -299,9 +307,12 @@ mouse messages (and keys while a text field is active) and calls
 `IgnoreLookInput(true)` on the local player; `ui.capture(false)` undoes it.
 `ui.C` exposes the complete cimgui API (`ffi.cast` on addresses the DLL
 hands out, so no export table); the curated `ui.*` layer above it keeps Lua
-values on both sides. Custom fonts are not supported yet (the atlas is built
-once on the render thread); `ui.scale(s)` scales the default font and the
-style together. Regenerate the bindings with `scripts/gen_imgui.py` after
+values on both sides. Fonts added with `ui.add_font` mark the atlas dirty; the render
+thread rebuilds the font texture before the next frame is built, so DX9 and
+DX11 stay thread-correct. Images decode on the game thread (`stb_image`) and
+upload in Present; `img:ready()` tells when. Window layouts persist in
+`<game>/ChaosGame/Config/tempest-ui.ini`. `ui.scale(s)` scales the default
+font and the style together. Regenerate the bindings with `scripts/gen_imgui.py` after
 updating `native/cimgui/`.
 
 Roadmap and known gaps: `ROADMAP.md`.
@@ -345,7 +356,7 @@ mods/          one folder per shipped mod (manifest.toml + scripts/), packed to 
   lib/         tempest-scripting-lib: a DLL-less library mod
   dev/         the scratch mod: edit freely (starts as a copy of examples/)
 examples/      00_status .. 11_ui: reference scripts, run by the host smoke test;
-               hot-reload/ is a dev mod to copy into <game>/mods
+               hot-reload/ and fps-limit/ are dev mods to copy into <game>/mods
 types/         tempest.d.lua (LuaLS API definitions, shipped in scripting and dev);
                types/sdk/ is the in-game `tempest_sdk` output for 8.1 (regenerate after a game update)
 .luarc.json    LuaLS config for this repo: completion in examples/ and mods/ against types/
@@ -357,16 +368,15 @@ scripts/       package.sh (macOS/Linux), package.ps1 (Windows), pack.py (zip + C
 
 - Paladins 8.1 Win64 client only; a new patch means re-checking the five
   signatures (start from the matching WolperMod revision).
-- `out` params of hooked natives are written back for POD kinds only (not
-  strings/arrays); `TMap` cannot grow from Lua (`set` on existing keys only).
-- `TMap` is read-only. Native maps (`var native Map{...}`) have no key/value types in
-  reflection, so `obj:map(name, keyKind, valueKind)` names them; the pair layout is computed
-  from those kinds (verified for name → object).
+- `TMap` cannot grow from Lua (`set` on existing keys only): inserting needs
+  the engine's `TSet` rehash. Native maps (`var native Map{...}`) have no
+  key/value types in reflection, so `obj:map(name, keyKind, valueKind)` names
+  them; the pair layout is computed from those kinds (verified for name → object).
+- No gamepad input.
 - `PostLogin` and other `GameInfo` events only fire where the game is
   authoritative (listen/dedicated server).
-- UI: one ImGui context, default font only; `ui.*` widgets outside a draw
-  handler raise; D3D9 is wired like D3D11 but has not been exercised on this
-  client (it ships D3D11).
+- UI: `ui.*` widgets outside a draw handler raise (immediate mode); D3D9 is
+  wired like D3D11 but has not been exercised on this client (it ships D3D11).
 - `memory.hook` handlers run on the thread that called the function and
   take the Lua VM lock; hooking code that runs on the render, audio or
   async-loading threads while the game thread sits inside a Lua handler

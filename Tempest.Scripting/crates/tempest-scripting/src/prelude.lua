@@ -21,7 +21,7 @@ local function ensure_hook()
 		if not cmd then return end
 		local argv = {}
 		for a in rest:gmatch("%S+") do argv[#argv + 1] = a end
-		local ok, err = pcall(cmd.fn, pc, rest, argv)
+		local ok, err = pcall(tempest._with_mod, cmd.mod, cmd.fn, pc, rest, argv)
 		if not ok then tempest.log(string.format("[%s] command %s failed: %s", cmd.mod, cmd.name, tostring(err))) end
 		return false
 	end)
@@ -102,7 +102,7 @@ function tempest._key(vk, ctrl, shift, alt, is_down, is_repeat)
 	for _, b in pairs(keys) do
 		if b.vk == vk and b.ctrl == ctrl and b.shift == shift and b.alt == alt
 			and b.up == (not is_down) and (b.rep or not is_repeat) then
-			local ok, r = pcall(b.fn)
+			local ok, r = pcall(tempest._with_mod, b.mod, b.fn)
 			if not ok then tempest.log(string.format("[%s] key %s failed: %s", b.mod, b.spec, tostring(r)))
 			elseif r == true then swallow = true end
 		end
@@ -110,17 +110,52 @@ function tempest._key(vk, ctrl, shift, alt, is_down, is_repeat)
 	return swallow
 end
 
--- tempest.spawn("Engine.PointLight", location?, rotation?, owner?, context?):
+-- tempest.spawn("Engine.PointLight", location?, rotation?, owner?, context?, opts?):
 -- spawn an Actor through Actor.Spawn (tempest.new refuses Actors by engine
 -- rule). `context` is the actor to spawn from (default: the local player
--- controller); location/rotation default to the context's.
-function tempest.spawn(class, location, rotation, owner, context)
+-- controller); location/rotation default to the context's. The engine
+-- refuses bStatic/bNoDelete classes (lights, static meshes); opts.force
+-- clears both flags on the class default object around the call so they
+-- spawn anyway (the new actor keeps the flags and behaves like a placed one).
+function tempest.spawn(class, location, rotation, owner, context, opts)
 	local actor = context or tempest.local_player()
 	if not actor then error("tempest.spawn: no actor to spawn from (not in a match?)", 2) end
 	local cls = class
 	if type(class) == "string" then cls = tempest.find_class(class) end
 	if not cls then error("tempest.spawn: unknown class " .. tostring(class), 2) end
-	return actor:Spawn(cls, owner, nil, location or actor.Location, rotation or actor.Rotation, nil, true)
+	local restore
+	if opts and opts.force then
+		local cdo = tempest.default_object(cls)
+		if cdo then
+			local was_static, was_nodelete = cdo.bStatic, cdo.bNoDelete
+			if was_static then cdo.bStatic = false end
+			if was_nodelete then cdo.bNoDelete = false end
+			restore = function()
+				if was_static then cdo.bStatic = true end
+				if was_nodelete then cdo.bNoDelete = true end
+			end
+		end
+	end
+	local ok, result = pcall(actor.Spawn, actor, cls, owner, nil, location or actor.Location, rotation or actor.Rotation, nil, true)
+	if restore then restore() end
+	if not ok then error(result, 2) end
+	return result
+end
+
+-- memory.read_c(addr, "uint64_t") / memory.write_c(addr, "float", v): typed
+-- access through the FFI for anything the fixed readers do not cover (exact
+-- 64-bit integers come back as cdata). nil / false when the bytes are not readable.
+local ffi = require("ffi")
+function memory.read_c(addr, ctype)
+	local n = ffi.sizeof(ctype)
+	if not n or not memory.readable(addr, n) then return nil end
+	return ffi.cast(ctype .. "*", addr)[0]
+end
+function memory.write_c(addr, ctype, value)
+	local n = ffi.sizeof(ctype)
+	if not n or not memory.readable(addr, n) then return false end
+	ffi.cast(ctype .. "*", addr)[0] = value
+	return true
 end
 
 -- tempest.native("Pkg.Class.Func", fn): implement a function of a mod's

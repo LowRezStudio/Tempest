@@ -648,6 +648,21 @@ pub fn find_class(path: &str) -> Option<usize> {
     Some(found)
 }
 
+/// The class default object of `class` (`Default__Name` in the class's
+/// package), cached. It carries the per-class flags Spawn consults.
+pub fn default_object(class: usize) -> Option<usize> {
+    static CACHE: Mutex<Option<HashMap<usize, usize>>> = Mutex::new(None);
+    if let Some(hit) = CACHE.lock().unwrap().get_or_insert_default().get(&class) {
+        return Some(*hit);
+    }
+    let name = object_name(class)?;
+    let path = object_path(class)?;
+    let package = path.split('.').next()?;
+    let found = find_object(&format!("{name} {package}.Default__{name}"))?;
+    CACHE.lock().unwrap().get_or_insert_default().insert(class, found);
+    Some(found)
+}
+
 /// `*GEngine`, when the engine exists.
 pub fn engine() -> Option<usize> {
     unsafe { memory::read::<usize>(globals().engine_slot) }.filter(|&p| p != 0)
@@ -702,6 +717,10 @@ pub enum Value {
     /// `TMap` with key/value properties (offsets relative to a pair).
     Map { addr: usize, key: Prop, value: Prop, elem_size: usize },
     Addr(usize),
+    /// An owned copy of an array (results of calls, Lua tables for arrays).
+    List(Vec<Value>),
+    /// An owned copy of a struct, field by field (same uses).
+    Record(Vec<(String, Value)>),
 }
 
 /// Class name of a property object (`"IntProperty"`, `"MapProperty"`, ...).
@@ -768,30 +787,31 @@ fn children(structure: usize) -> impl Iterator<Item = usize> {
 
 /// The `UProperty` object for `name` declared directly on `structure`.
 pub fn find_property_object_in(structure: usize, name: &str) -> Option<usize> {
-    children(structure).find(|&f| object_name(f).as_deref() == Some(name) && prop_class_name(f).is_some_and(|c| c.ends_with("Property")))
+    children(structure).find(|&f| object_name(f).as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name)) && prop_class_name(f).is_some_and(|c| c.ends_with("Property")))
 }
 
 /// The `UProperty` object for `name` on `class` or a superclass (uncached).
 pub fn find_property_object(class: usize, name: &str) -> Option<usize> {
     super_chain(Some(class))
         .flat_map(children)
-        .find(|&f| object_name(f).as_deref() == Some(name) && prop_class_name(f).is_some_and(|c| c.ends_with("Property")))
+        .find(|&f| object_name(f).as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name)) && prop_class_name(f).is_some_and(|c| c.ends_with("Property")))
 }
 
 /// Property `name` on `class` or any superclass, cached per `(class, name)`.
+/// Names compare case-insensitively, like `FName`.
 pub fn find_property(class: usize, name: &str) -> Option<Prop> {
     if class == 0 {
         return None;
     }
     type Cache = HashMap<(usize, String), Option<Prop>>;
     static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
-    let key = (class, name.to_string());
+    let key = (class, name.to_ascii_lowercase());
     if let Some(hit) = CACHE.lock().unwrap().get_or_insert_default().get(&key) {
         return *hit;
     }
     let found = super_chain(Some(class))
         .flat_map(children)
-        .find(|&f| object_name(f).as_deref() == Some(name))
+        .find(|&f| object_name(f).as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name)))
         .and_then(prop_at);
     CACHE.lock().unwrap().get_or_insert_default().insert(key, found);
     found
@@ -947,11 +967,7 @@ pub fn array_push(addr: usize, inner: &Prop) -> Result<usize, String> {
 }
 
 fn release_element(elem: usize, inner: &Prop) {
-    if inner.kind == PropKind::Str {
-        if let Some(data) = unsafe { memory::read::<usize>(elem) } {
-            engine_free(data);
-        }
-    }
+    release_at(elem, inner);
 }
 
 /// Remove element `i` (0-based), shifting the tail down.
@@ -972,6 +988,123 @@ pub fn array_clear(addr: usize, inner: &Prop) {
         }
     }
     unsafe { memory::write(addr + TARRAY_COUNT, 0i32) };
+}
+
+/// Does this struct (or one of its fields, recursively) own engine
+/// memory, i.e. hold a string, array or map? Cached per `UScriptStruct`.
+fn struct_owns_memory(ustruct: usize) -> bool {
+    static CACHE: Mutex<Option<HashMap<usize, bool>>> = Mutex::new(None);
+    if let Some(hit) = CACHE.lock().unwrap().get_or_insert_default().get(&ustruct) {
+        return *hit;
+    }
+    let owns = struct_fields(ustruct).iter().any(|f| match f.kind {
+        PropKind::Str | PropKind::Array | PropKind::Map => true,
+        PropKind::Struct => struct_owns_memory(f.ext),
+        _ => false,
+    });
+    CACHE.lock().unwrap().get_or_insert_default().insert(ustruct, owns);
+    owns
+}
+
+/// Every reflected field of a struct, super structs included.
+fn struct_fields(ustruct: usize) -> Vec<Prop> {
+    super_chain(Some(ustruct)).flat_map(children).filter_map(prop_at).collect()
+}
+
+/// The element property of an array property (offset 0 within an element).
+fn array_inner(prop: &Prop) -> Option<Prop> {
+    prop_at(prop.ext).map(|p| Prop { offset: 0, ..p })
+}
+
+/// Assign the value at `src` to `dst` (absolute addresses, `prop` for the
+/// kind) with ownership semantics: strings and arrays go through the engine
+/// allocator element by element, structs that own memory field by field,
+/// everything else by bytes. Maps are left alone.
+pub fn assign_at(src: usize, dst: usize, prop: &Prop) -> Result<(), String> {
+    if src == dst || src == 0 || dst == 0 {
+        return Ok(());
+    }
+    match prop.kind {
+        PropKind::Str => write_fstring(dst, &read_fstring(src).unwrap_or_default()),
+        PropKind::Array => {
+            let inner = array_inner(prop).ok_or("array with an unknown element type")?;
+            array_clear(dst, &inner);
+            for i in 0..array_len(src) {
+                let s = array_elem(src, &inner, i).ok_or("unreadable array element")?;
+                let d = array_push(dst, &inner)?;
+                assign_at(s, d, &inner)?;
+            }
+            Ok(())
+        }
+        PropKind::Struct if struct_owns_memory(prop.ext) => {
+            for f in struct_fields(prop.ext) {
+                assign_at(src + f.offset, dst + f.offset, &f)?;
+            }
+            Ok(())
+        }
+        PropKind::Map | PropKind::Other => Ok(()),
+        _ => {
+            copy_bytes(src, dst, prop.elem_size.max(1));
+            Ok(())
+        }
+    }
+}
+
+/// Free the engine memory a value in a frame *we* own holds (strings,
+/// arrays, owning structs) and zero it, so the frame can be dropped.
+pub fn release_at(addr: usize, prop: &Prop) {
+    if addr == 0 {
+        return;
+    }
+    match prop.kind {
+        PropKind::Str => {
+            if let Some(data) = unsafe { memory::read::<usize>(addr) } {
+                if data != 0 {
+                    engine_free(data);
+                }
+            }
+            for i in 0..FSTRING_SIZE {
+                unsafe { memory::write(addr + i, 0u8) };
+            }
+        }
+        PropKind::Array => {
+            if let Some(inner) = array_inner(prop) {
+                array_clear(addr, &inner);
+            }
+            if let Some(data) = unsafe { memory::read::<usize>(addr) } {
+                if data != 0 {
+                    engine_free(data);
+                }
+            }
+            for i in 0..FSTRING_SIZE {
+                unsafe { memory::write(addr + i, 0u8) };
+            }
+        }
+        PropKind::Struct if struct_owns_memory(prop.ext) => {
+            for f in struct_fields(prop.ext) {
+                release_at(addr + f.offset, &f);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// An owned copy of the value at `base + prop.offset`: arrays become
+/// `List`, structs (other than Vector/Rotator) `Record`, so the result
+/// outlives the frame it was read from.
+pub fn snapshot_prop(base: usize, prop: &Prop) -> Value {
+    match read_prop(base, prop) {
+        Some(Value::Array { addr, inner }) => Value::List((0..array_len(addr)).map(|i| array_elem(addr, &inner, i).map(|e| snapshot_prop(e, &inner)).unwrap_or(Value::Nil)).collect()),
+        Some(Value::Struct { addr, kind }) => Value::Record(
+            super_chain(Some(kind))
+                .flat_map(children)
+                .filter_map(|f| Some((object_name(f)?, prop_at(f)?)))
+                .map(|(name, f)| (name, snapshot_prop(addr, &f)))
+                .collect(),
+        ),
+        Some(Value::Map { .. }) | Some(Value::Addr(_)) | None => Value::Nil,
+        Some(v) => v,
+    }
 }
 
 /// Address of the value slot for `key`, when the key exists.
@@ -1109,9 +1242,26 @@ pub fn write_prop(base: usize, prop: &Prop, value: &Value) -> Result<(), String>
             }
             // Whole-struct copy from another live struct of the same type.
             (PropKind::Struct, Value::Struct { addr: src, kind }) if *kind == prop.ext => {
-                let n = struct_size(*kind).max(prop.elem_size);
-                copy_bytes(*src, addr, n);
-                true
+                return assign_at(*src, addr, prop);
+            }
+            (PropKind::Struct, Value::Record(fields)) => {
+                for (name, v) in fields {
+                    let f = find_property(prop.ext, name).ok_or_else(|| format!("struct {} has no field `{name}`", struct_name(prop).unwrap_or_default()))?;
+                    write_prop(addr, &f, v)?;
+                }
+                return Ok(());
+            }
+            (PropKind::Array, Value::List(items)) => {
+                let inner = array_inner(prop).ok_or("array with an unknown element type")?;
+                array_clear(addr, &inner);
+                for item in items {
+                    let elem = array_push(addr, &inner)?;
+                    write_prop(elem, &inner, item)?;
+                }
+                return Ok(());
+            }
+            (PropKind::Array, Value::Array { addr: src, .. }) => {
+                return assign_at(*src, addr, prop);
             }
             (kind, v) => return Err(format!("cannot assign {v:?} to a {kind:?} property")),
         }
@@ -1218,19 +1368,20 @@ pub fn function_params(func: usize) -> Vec<Param> {
     params
 }
 
-/// `UFunction*` named `name` on `class` or a superclass, cached.
+/// `UFunction*` named `name` on `class` or a superclass, cached. Names
+/// compare case-insensitively, like `FName`.
 pub fn find_function(class: usize, name: &str) -> Option<usize> {
     if class == 0 {
         return None;
     }
     type Cache = HashMap<(usize, String), Option<usize>>;
     static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
-    let key = (class, name.to_string());
+    let key = (class, name.to_ascii_lowercase());
     if let Some(hit) = CACHE.lock().unwrap().get_or_insert_default().get(&key) {
         return *hit;
     }
     let found = super_chain(Some(class)).flat_map(children).find(|&f| {
-        object_name(f).as_deref() == Some(name)
+        object_name(f).as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name))
             && object_class(f).and_then(object_name).as_deref() == Some("Function")
     });
     CACHE.lock().unwrap().get_or_insert_default().insert(key, found);
@@ -1268,16 +1419,22 @@ fn copy_bytes(src: usize, dst: usize, n: usize) {
 
 /// Copy the return value of `func` from one frame/slot to another. POD
 /// kinds are copied; an `FString` is moved (its three words copied, the
-/// source zeroed) so exactly one side owns the buffer. Arrays are skipped:
-/// they need assignment, not a byte copy.
+/// source zeroed) so exactly one side owns the buffer; arrays and owning
+/// structs are assigned element by element.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn copy_return(func: usize, from: usize, from_is_frame: bool, to: usize) {
     let Some(p) = function_params(func).into_iter().find(|p| p.is_return()) else { return };
-    if matches!(p.prop.kind, PropKind::Array | PropKind::Other) {
+    if matches!(p.prop.kind, PropKind::Map | PropKind::Other) {
         return;
     }
     let src = if from_is_frame { from + p.prop.offset } else { from };
     if src == to || to == 0 {
+        return;
+    }
+    if p.prop.kind == PropKind::Array || (p.prop.kind == PropKind::Struct && struct_owns_memory(p.prop.ext)) {
+        if let Err(e) = assign_at(src, to, &p.prop) {
+            crate::log::line("hook", &format!("return value of {}: {e}", object_name(func).unwrap_or_default()));
+        }
         return;
     }
     if p.prop.kind == PropKind::Str {
@@ -1368,27 +1525,27 @@ pub fn call_function(obj: usize, func: usize, args: &[Value]) -> Result<Vec<(Str
         call_original(obj, func, base)?;
     }
 
+    // Results are owned copies: the frame dies with this call.
     let mut out: Vec<(String, Value)> = params
         .iter()
         .filter(|p| p.is_return())
-        .map(|p| (p.name.clone(), read_prop(base, &p.prop).unwrap_or(Value::Nil)))
+        .map(|p| (p.name.clone(), snapshot_prop(base, &p.prop)))
         .collect();
     out.extend(
         params
             .iter()
             .filter(|p| p.is_out() && !p.is_return())
-            .map(|p| (p.name.clone(), read_prop(base, &p.prop).unwrap_or(Value::Nil))),
+            .map(|p| (p.name.clone(), snapshot_prop(base, &p.prop))),
     );
-    // Every FString in the frame is engine-owned now (args we allocated,
-    // returns/outs the engine allocated): give them back.
+    // Everything in the frame is engine-owned now (args we allocated,
+    // returns/outs the engine allocated): give it back. The script-owned
+    // fallback string buffers are the exception.
     for p in &params {
-        if p.prop.kind == PropKind::Str {
-            if let Some(data) = unsafe { memory::read::<usize>(base + p.prop.offset) } {
-                if data != 0 && !buffers.iter().any(|b| b.as_ptr() as usize == data) {
-                    engine_free(data);
-                }
-            }
+        let addr = base + p.prop.offset;
+        if p.prop.kind == PropKind::Str && unsafe { memory::read::<usize>(addr) }.is_some_and(|d| buffers.iter().any(|b| b.as_ptr() as usize == d)) {
+            continue;
         }
+        release_at(addr, &p.prop);
     }
     drop(buffers);
     Ok(out)
@@ -1475,20 +1632,112 @@ pub fn subscribe(spec: &str, phase: Phase, owner: &str) -> u64 {
         },
     ));
     // Natives only reach a hook through their own `Func` pointer, which needs
-    // the concrete UFunction: resolve it when the spec names the class.
-    if let (Some(cp), Some(func)) = (class_path.as_deref(), func_ptr) {
-        if function_is_native(func) {
-            match hook_native(func) {
-                Ok(()) => crate::log::line("events", &format!("native hook on {cp}.{func_name}")),
-                Err(e) if e.contains("GPropAddr") => {
-                    crate::log::line("events", &format!("native hook on {cp}.{func_name} deferred: {e}"));
-                    PENDING_NATIVE_HOOKS.lock().unwrap().push(func);
+    // the concrete UFunction: resolve it when the spec names the class, or
+    // hook every native of that name when it does not (and again as classes
+    // load, see `rescan_native_names`).
+    match (class_path.as_deref(), func_ptr) {
+        (Some(cp), Some(func)) if function_is_native(func) => match hook_native(func) {
+            Ok(()) => crate::log::line("events", &format!("native hook on {cp}.{func_name}")),
+            Err(e) if e.contains("GPropAddr") => {
+                crate::log::line("events", &format!("native hook on {cp}.{func_name} deferred: {e}"));
+                PENDING_NATIVE_HOOKS.lock().unwrap().push(func);
+            }
+            Err(e) => crate::log::line("events", &format!("cannot hook native {cp}.{func_name}: {e}")),
+        },
+        (None, _) if ready => {
+            hook_natives_named(&func_name);
+            RESCAN.lock().unwrap().1 = object_count().unwrap_or(0);
+        }
+        _ => {}
+    }
+    id
+}
+
+/// `(last scan, object count at that scan)` for `rescan_native_names`.
+static RESCAN: Mutex<(Option<Instant>, usize)> = Mutex::new((None, 0));
+
+/// Every native `UFunction` named `name` on any loaded class. Walks the
+/// object table (cheap: name index and class pointer compares), so game
+/// thread only.
+fn natives_named(name: &str) -> Vec<usize> {
+    let Some(index) = find_name(name) else { return Vec::new() };
+    let Some(function_class) = find_class("Core.Function") else { return Vec::new() };
+    objects()
+        .filter(|&o| object_class(o) == Some(function_class))
+        .filter(|&f| object_fname(f).map(|(i, _)| i) == Some(index))
+        .filter(|&f| function_is_native(f))
+        .collect()
+}
+
+#[cfg(windows)]
+fn native_is_hooked(func: usize) -> bool {
+    native::is_hooked(func)
+}
+
+#[cfg(not(windows))]
+fn native_is_hooked(_func: usize) -> bool {
+    false
+}
+
+/// Hook every native named `name` that is not hooked yet; returns how many
+/// were added. Failures are logged once per function.
+fn hook_natives_named(name: &str) -> usize {
+    static FAILED: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+    let mut added = 0;
+    for func in natives_named(name) {
+        if native_is_hooked(func) {
+            continue;
+        }
+        let full = object_full_name(func).unwrap_or_default();
+        match hook_native(func) {
+            Ok(()) => {
+                added += 1;
+                crate::log::line("events", &format!("native hook on {full} (by name)"));
+            }
+            Err(e) if e.contains("GPropAddr") => {
+                let mut pending = PENDING_NATIVE_HOOKS.lock().unwrap();
+                if !pending.contains(&func) {
+                    crate::log::line("events", &format!("native hook on {full} deferred: {e}"));
+                    pending.push(func);
                 }
-                Err(e) => crate::log::line("events", &format!("cannot hook native {cp}.{func_name}: {e}")),
+            }
+            Err(e) => {
+                let mut failed = FAILED.lock().unwrap();
+                if !failed.contains(&func) {
+                    failed.push(func);
+                    crate::log::line("events", &format!("cannot hook native {full}: {e}"));
+                }
             }
         }
     }
-    id
+    added
+}
+
+/// Game thread, throttled: when unqualified subscriptions exist and the
+/// object table changed, look for natives of their names on classes that
+/// loaded since the last scan.
+fn rescan_native_names() {
+    let names: Vec<String> = {
+        let subs = SUBS.lock().unwrap();
+        let mut names: Vec<String> = subs.iter().filter(|(_, s)| s.class_path.is_none()).map(|(_, s)| s.func_name.to_ascii_lowercase()).collect();
+        names.sort();
+        names.dedup();
+        names
+    };
+    if names.is_empty() || !globals().gnames_ok {
+        return;
+    }
+    let count = object_count().unwrap_or(0);
+    {
+        let mut last = RESCAN.lock().unwrap();
+        if last.1 == count || last.0.is_some_and(|t| t.elapsed() < Duration::from_secs(10)) {
+            return;
+        }
+        *last = (Some(Instant::now()), count);
+    }
+    for name in names {
+        hook_natives_named(&name);
+    }
 }
 
 /// Any subscription (either phase) for this function? Cheap gate for hooks.
@@ -1812,6 +2061,7 @@ pub(crate) fn drain_queue() {
     crate::input::maintain(false);
     #[cfg(windows)]
     service_pending_hooks();
+    rescan_native_names();
     let jobs: Vec<Job> = std::mem::take(&mut *QUEUE.lock().unwrap());
     for job in jobs {
         job();
@@ -2096,11 +2346,11 @@ mod script_hook {
         // Locals: show handlers their incoming values, and copy a cancelling
         // handler's assignments back to the caller's variables.
         let params = super::function_params(func);
-        super::native::for_each_out_parm(s, func, &params, |p, addr| super::copy_bytes(addr, locals + p.prop.offset, p.prop.elem_size.max(1)));
+        super::native::for_each_out_parm(s, func, &params, |p, addr| super::native::assign_logged(addr, locals + p.prop.offset, &p.prop));
         let proceed = catch_unwind(AssertUnwindSafe(|| super::on_process_event_before(o, func, locals, inner)))
             .unwrap_or(true);
         if !proceed {
-            super::native::for_each_out_parm(s, func, &params, |p, addr| super::copy_bytes(locals + p.prop.offset, addr, p.prop.elem_size.max(1)));
+            super::native::for_each_out_parm(s, func, &params, |p, addr| super::native::assign_logged(locals + p.prop.offset, addr, &p.prop));
             // The caller still expects its return slot filled.
             super::copy_return(func, locals, true, r);
             return;
@@ -2148,26 +2398,63 @@ mod native {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
-    pub const SLOTS: usize = 64;
     type NativeFn = extern "system" fn(*mut c_void, *mut c_void, *mut c_void);
     /// `GNatives[op](Context, Stack&, Result)`.
     type ExecFn = extern "system" fn(usize, usize, usize);
 
+    /// One hooked function: its runtime stub is what `UFunction.Func` points
+    /// at. Slots are never freed (the game may be inside one on another
+    /// thread) and never run out: each gets a 32-byte stub from `stubs`.
     struct Slot {
         func: AtomicUsize,
         original: AtomicUsize,
+        stub: usize,
     }
-    static TABLE: [Slot; SLOTS] = [const {
-        Slot {
-            func: AtomicUsize::new(0),
-            original: AtomicUsize::new(0),
-        }
-    }; SLOTS];
+    static TABLE: Mutex<Vec<&'static Slot>> = Mutex::new(Vec::new());
     static INSTALL: Mutex<()> = Mutex::new(());
 
-    extern "system" fn thunk<const N: usize>(this: *mut c_void, stack: *mut c_void, result: *mut c_void) {
-        let func = TABLE[N].func.load(Ordering::Acquire);
-        let raw = TABLE[N].original.load(Ordering::Acquire);
+    fn slots() -> Vec<&'static Slot> {
+        TABLE.lock().unwrap().clone()
+    }
+
+    /// A free slot (func == 0) or a fresh one with a new stub.
+    fn claim_slot() -> Result<&'static Slot, String> {
+        let mut table = TABLE.lock().unwrap();
+        if let Some(s) = table.iter().find(|s| s.func.load(Ordering::Acquire) == 0) {
+            return Ok(s);
+        }
+        let i = table.len();
+        let stub = crate::stubs::make(i, tempest_native_common as *const () as usize)?;
+        let s: &'static Slot = Box::leak(Box::new(Slot { func: AtomicUsize::new(0), original: AtomicUsize::new(0), stub }));
+        table.push(s);
+        Ok(s)
+    }
+
+    // Shared entry for every native stub: R10 = slot, RCX/RDX/R8 = the
+    // native's (this, FFrame*, result). Shift them one register up and tail
+    // jump into `thunk(slot, this, stack, result)`; the caller's shadow
+    // space serves the four-register call as it did the three-register one.
+    std::arch::global_asm!(
+        ".text",
+        ".p2align 4",
+        ".globl tempest_native_common",
+        "tempest_native_common:",
+        "    mov r9, r8",
+        "    mov r8, rdx",
+        "    mov rdx, rcx",
+        "    mov rcx, r10",
+        "    jmp {thunk}",
+        thunk = sym thunk,
+    );
+
+    extern "system" {
+        fn tempest_native_common();
+    }
+
+    extern "system" fn thunk(slot: usize, this: *mut c_void, stack: *mut c_void, result: *mut c_void) {
+        let Some(s) = TABLE.lock().unwrap().get(slot).copied() else { return };
+        let func = s.func.load(Ordering::Acquire);
+        let raw = s.original.load(Ordering::Acquire);
         let (o, s, r) = (this as usize, stack as usize, result as usize);
         if raw == 0 {
             // A Lua-implemented native (dllimport): nothing to fall back to.
@@ -2243,6 +2530,22 @@ mod native {
         let (mut frame, omitted, out_addrs) = evaluate_args(func, this, stack, &params);
         let buf = frame.as_mut_ptr() as usize;
         run(func, original, this, stack, buf, result, &params, &omitted, &out_addrs);
+        release_frame(buf, &params);
+    }
+
+    /// `assign_at` with the failure logged (write-backs have no caller to report to).
+    pub fn assign_logged(src: usize, dst: usize, prop: &super::Prop) {
+        if let Err(e) = super::assign_at(src, dst, prop) {
+            crate::log::line("hook", &format!("out param write-back failed: {e}"));
+        }
+    }
+
+    /// Free what a params frame we built owns (evaluated string/array
+    /// arguments, copied results) before the frame's memory goes away.
+    fn release_frame(buf: usize, params: &[super::Param]) {
+        for p in params {
+            super::release_at(buf + p.prop.offset, &p.prop);
+        }
     }
 
     // ----- Lua-implemented natives (dllimport functions) -------------------
@@ -2267,9 +2570,9 @@ mod native {
                 return;
             }
             // Incoming values of `out` params are only behind OutParms: show them.
-            for_each_out_parm(stack, func, &params, |p, addr| super::copy_bytes(addr, locals + p.prop.offset, p.prop.elem_size.max(1)));
+            for_each_out_parm(stack, func, &params, |p, addr| assign_logged(addr, locals + p.prop.offset, &p.prop));
             run_lua_native(func, this, locals, result, &params);
-            for_each_out_parm(stack, func, &params, |p, addr| super::copy_bytes(locals + p.prop.offset, addr, p.prop.elem_size.max(1)));
+            for_each_out_parm(stack, func, &params, |p, addr| assign_logged(locals + p.prop.offset, addr, &p.prop));
             return;
         }
         let (mut frame, _omitted, out_addrs) = evaluate_args(func, this, stack, &params);
@@ -2277,20 +2580,23 @@ mod native {
         run_lua_native(func, this, buf, result, &params);
         for (i, p) in params.iter().enumerate() {
             let dst = out_addrs.get(i).copied().unwrap_or(0);
-            if dst != 0 && p.is_out() && !p.is_return() && is_pod(p) {
-                super::copy_bytes(buf + p.prop.offset, dst, p.prop.elem_size.max(1));
+            if dst != 0 && p.is_out() && !p.is_return() && is_copyable(p) {
+                assign_logged(buf + p.prop.offset, dst, &p.prop);
             }
         }
+        release_frame(buf, &params);
     }
 
-    pub fn is_pod(p: &super::Param) -> bool {
-        !matches!(p.prop.kind, PropKind::Str | PropKind::Array | PropKind::Map | PropKind::Other)
+    /// Kinds a write-back can assign (everything reflection describes
+    /// except maps).
+    pub fn is_copyable(p: &super::Param) -> bool {
+        !matches!(p.prop.kind, PropKind::Map | PropKind::Other)
     }
 
     /// Is `func` bound to Lua (a dllimport function with no native behind it)?
     pub fn is_lua_native(func: usize) -> bool {
         func != 0
-            && TABLE
+            && slots()
                 .iter()
                 .any(|s| s.func.load(Ordering::Acquire) == func && s.original.load(Ordering::Acquire) == 0)
     }
@@ -2309,7 +2615,7 @@ mod native {
     }
 
     /// Walk the frame's `FOutParmRec` chain and call `f(param, caller_addr)`
-    /// for every POD `out` param of `func` found in it.
+    /// for every copyable `out` param of `func` found in it.
     ///
     /// The engine (`ProcessEvent`, `CallFunction`) allocas one record per
     /// `out` param and links them, but never null-terminates the last
@@ -2330,7 +2636,7 @@ mod native {
             let addr = unsafe { memory::read::<usize>(rec + OUTPARM_ADDR) }.unwrap_or(0);
             if valid(prop, 8) && addr != 0 {
                 if let Some(p) = params.iter().find(|p| p.is_out() && !p.is_return() && super::find_property_object_in(func, &p.name) == Some(prop)) {
-                    if is_pod(p) && memory::is_readable(addr, p.prop.elem_size.max(1)) {
+                    if is_copyable(p) && memory::is_readable(addr, p.prop.elem_size.max(1)) {
                         f(p, addr);
                     }
                 }
@@ -2361,14 +2667,11 @@ mod native {
         if is_hooked(func) {
             return Ok(());
         }
-        let slot = TABLE
-            .iter()
-            .position(|s| s.func.load(Ordering::Acquire) == 0)
-            .ok_or_else(|| format!("all {SLOTS} native hook slots in use"))?;
-        TABLE[slot].original.store(0, Ordering::Release);
-        TABLE[slot].func.store(func, Ordering::Release);
-        if !unsafe { memory::write(func + UFUNCTION_FUNC, THUNKS[slot] as usize) } {
-            TABLE[slot].func.store(0, Ordering::Release);
+        let slot = claim_slot()?;
+        slot.original.store(0, Ordering::Release);
+        slot.func.store(func, Ordering::Release);
+        if !unsafe { memory::write(func + UFUNCTION_FUNC, slot.stub) } {
+            slot.func.store(0, Ordering::Release);
             return Err("cannot write UFunction.Func".into());
         }
         // UDK leaves `dllimport` functions without FUNC_Defined, and
@@ -2385,7 +2688,7 @@ mod native {
 
     /// Functions bound through `bind_lua`.
     pub fn lua_natives() -> Vec<usize> {
-        TABLE
+        slots()
             .iter()
             .filter(|s| s.original.load(Ordering::Acquire) == 0)
             .map(|s| s.func.load(Ordering::Acquire))
@@ -2480,19 +2783,19 @@ mod native {
         }
         original(this as *mut c_void, fake_ptr as *mut c_void, result as *mut c_void);
 
-        // Out params back to the caller's variables (POD kinds only; a
-        // string/array out param would need assignment semantics).
+        // Out params back to the caller's variables, with assignment
+        // semantics for strings, arrays and owning structs.
         for (i, p) in out_params {
             let dst = out_addrs.get(i).copied().unwrap_or(0);
-            if dst != 0 && !matches!(p.prop.kind, PropKind::Str | PropKind::Array | PropKind::Map | PropKind::Other) {
-                super::copy_bytes(buf + p.prop.offset, dst, p.prop.elem_size.max(1));
+            if dst != 0 && is_copyable(p) {
+                assign_logged(buf + p.prop.offset, dst, &p.prop);
             }
         }
-        // Natives write the return value straight to `result`; mirror it so
-        // after-handlers can read `params.ReturnValue`.
+        // Natives write the return value straight to `result`; mirror it (a
+        // copy of its own, so the frame can be released) for after-handlers.
         if let Some(p) = params.iter().find(|p| p.is_return()) {
-            if result != buf + p.prop.offset {
-                super::copy_bytes(result, buf + p.prop.offset, p.prop.elem_size.max(1));
+            if result != 0 && result != buf + p.prop.offset && is_copyable(p) {
+                assign_logged(result, buf + p.prop.offset, &p.prop);
             }
         }
         super::on_process_event_after(this, func, buf, false);
@@ -2502,7 +2805,7 @@ mod native {
     /// native through its own path and skip the thunk, so run handlers and
     /// the native here against the caller-built frame instead.
     pub fn call_with_frame(func: usize, this: usize, buf: usize, omitted_inputs: &[bool]) -> bool {
-        let Some(slot) = TABLE.iter().find(|s| s.func.load(Ordering::Acquire) == func) else { return false };
+        let Some(slot) = slots().into_iter().find(|s| s.func.load(Ordering::Acquire) == func) else { return false };
         let raw = slot.original.load(Ordering::Acquire);
         let params = function_params(func);
         if raw == 0 {
@@ -2526,14 +2829,12 @@ mod native {
         true
     }
 
-    static THUNKS: [NativeFn; SLOTS] = [thunk::<0>, thunk::<1>, thunk::<2>, thunk::<3>, thunk::<4>, thunk::<5>, thunk::<6>, thunk::<7>, thunk::<8>, thunk::<9>, thunk::<10>, thunk::<11>, thunk::<12>, thunk::<13>, thunk::<14>, thunk::<15>, thunk::<16>, thunk::<17>, thunk::<18>, thunk::<19>, thunk::<20>, thunk::<21>, thunk::<22>, thunk::<23>, thunk::<24>, thunk::<25>, thunk::<26>, thunk::<27>, thunk::<28>, thunk::<29>, thunk::<30>, thunk::<31>, thunk::<32>, thunk::<33>, thunk::<34>, thunk::<35>, thunk::<36>, thunk::<37>, thunk::<38>, thunk::<39>, thunk::<40>, thunk::<41>, thunk::<42>, thunk::<43>, thunk::<44>, thunk::<45>, thunk::<46>, thunk::<47>, thunk::<48>, thunk::<49>, thunk::<50>, thunk::<51>, thunk::<52>, thunk::<53>, thunk::<54>, thunk::<55>, thunk::<56>, thunk::<57>, thunk::<58>, thunk::<59>, thunk::<60>, thunk::<61>, thunk::<62>, thunk::<63>];
-
     pub fn is_hooked(func: usize) -> bool {
-        func != 0 && TABLE.iter().any(|s| s.func.load(Ordering::Acquire) == func)
+        func != 0 && slots().iter().any(|s| s.func.load(Ordering::Acquire) == func)
     }
 
     pub fn hooked() -> Vec<usize> {
-        TABLE
+        slots()
             .iter()
             .map(|s| s.func.load(Ordering::Acquire))
             .filter(|&f| f != 0)
@@ -2560,14 +2861,11 @@ mod native {
         if function_params(func).iter().any(|p| p.is_out() && !p.is_return()) && g.gpropaddr == 0 {
             return Err("has `out` params and GPropAddr is not resolved yet (retried once the game thread runs)".into());
         }
-        let slot = TABLE
-            .iter()
-            .position(|s| s.func.load(Ordering::Acquire) == 0)
-            .ok_or_else(|| format!("all {SLOTS} native hook slots in use"))?;
-        TABLE[slot].original.store(original, Ordering::Release);
-        TABLE[slot].func.store(func, Ordering::Release);
-        if !unsafe { memory::write(func + UFUNCTION_FUNC, THUNKS[slot] as usize) } {
-            TABLE[slot].func.store(0, Ordering::Release);
+        let slot = claim_slot()?;
+        slot.original.store(original, Ordering::Release);
+        slot.func.store(func, Ordering::Release);
+        if !unsafe { memory::write(func + UFUNCTION_FUNC, slot.stub) } {
+            slot.func.store(0, Ordering::Release);
             return Err("cannot write UFunction.Func".into());
         }
         Ok(())

@@ -162,3 +162,18 @@ reach script → script and script → native calls.
   its config file changes; chat toast.
 - [~] Per-mod configs: `tempest.config(defaults)` merges defaults, shipped `config.toml` and the
   user's file (created on first run); `tempest.save_config`.
+
+## Limitations removed (2026-10-16, awaiting live test)
+
+- [~] Native hooks: runtime stubs (no 64-slot cap); bare-name specs hook every native of that
+  name and rescan as classes load; `out` strings/arrays/owning structs written back with
+  assignment semantics everywhere (and our evaluated frames released).
+- [~] Address hooks/calls: XMM0..3 captured, typed positions (`args = {"int","f32","f64"}`),
+  float results (`ret`), `memory.f32/f64` arguments, typed results for `memory.call`.
+- [~] `tempest.spawn(..., { force = true })` spawns bStatic/bNoDelete classes via the class
+  default object; `tempest.default_object`.
+- [~] `memory.read_c/write_c` (FFI-typed access, exact 64-bit), `memory.readable`.
+- [~] UI: `ui.add_font` (TTF, merge/icon ranges, atlas rebuilt on the render thread),
+  `ui.load_image` / `ui.image_from_rgba` (stb_image, uploaded in Present), persisted layout in
+  `ChaosGame/Config/tempest-ui.ini`.
+- [ ] Still open by choice: TMap growth, gamepad input.

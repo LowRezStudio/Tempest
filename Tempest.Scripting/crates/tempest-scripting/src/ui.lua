@@ -41,8 +41,8 @@ local int1 = ffi.new("int[1]")
 local int4 = ffi.new("int[4]")
 local float1 = ffi.new("float[1]")
 local float4 = ffi.new("float[4]")
-local v2a, v2b = ffi.new("ImVec2"), ffi.new("ImVec2")
-local v4a = ffi.new("ImVec4")
+local v2a, v2b, v2c, v2d = ffi.new("ImVec2"), ffi.new("ImVec2"), ffi.new("ImVec2"), ffi.new("ImVec2")
+local v4a, v4b = ffi.new("ImVec4"), ffi.new("ImVec4")
 local textbuf, textcap = nil, 0
 
 local function vec2(x, y) v2a.x, v2a.y = x or 0, y or 0 return v2a end
@@ -676,12 +676,100 @@ local function draw_api(get_list)
 		for i = 1, n do arr[i - 1].x, arr[i - 1].y = points[2 * i - 1], points[2 * i] end
 		C.ImDrawList_AddPolyline(get_list(), arr, n, color, closed and 1 or 0, thickness or 1)
 	end
+	-- d.image(image, x1, y1, x2, y2, tint?) tint = packed colour (default white)
+	function d.image(img, x1, y1, x2, y2, tint)
+		check()
+		local tex = tempest._ui_texture(img.id)
+		if tex == 0 then return end
+		local uv0, uv1 = uv()
+		C.ImDrawList_AddImage(get_list(), tex, vec2(x1, y1), vec2b(x2, y2), uv0, uv1, tint or 0xFFFFFFFF)
+	end
 	function d.list() check() return get_list() end
 	return d
 end
 ui.fg = draw_api(function() return C.igGetForegroundDrawList_Nil() end)
 ui.bg = draw_api(function() return C.igGetBackgroundDrawList_Nil() end)
 ui.dl = draw_api(function() return C.igGetWindowDrawList() end)
+
+-- ---------------------------------------------------------------------------
+-- Fonts
+-- ---------------------------------------------------------------------------
+-- ui.add_font(path, size, opts?) -> font: a TTF at `size` pixels. opts.merge
+-- adds its glyphs to the previous font (icon fonts), opts.ranges = "icons"
+-- (U+E000..U+F8FF), or { first, last, ... } pairs. Call it at load, not inside
+-- a draw handler; the font is usable from the next frame on.
+-- ui.add_font(nil, size) is the built-in font at another size.
+local ICON_RANGES = { 0xE000, 0xF8FF }
+function ui.add_font(path, size, opts)
+	opts = opts or {}
+	local ranges = opts.ranges
+	if ranges == "icons" then ranges = ICON_RANGES end
+	local f = tempest._ui_add_font(path, size or 13, opts.merge == true, ranges)
+	if not f then return nil end
+	return ffi.cast("ImFont*", f)
+end
+function ui.set_default_font(font) tempest._ui_set_default_font(tonumber(ffi.cast("uintptr_t", font))) end
+function ui.push_font(font) check() C.igPushFont(font) end
+function ui.pop_font() check() C.igPopFont() end
+function ui.font_size() check() return C.igGetFontSize() end
+-- ui.with_font(font, fn)
+function ui.with_font(font, fn)
+	check()
+	C.igPushFont(font)
+	local ok, err = pcall(fn)
+	C.igPopFont()
+	if not ok then error(err, 0) end
+end
+
+-- ---------------------------------------------------------------------------
+-- Images
+-- ---------------------------------------------------------------------------
+-- ui.load_image(path) -> image { width, height }: PNG/JPEG/BMP/TGA, decoded
+-- now and uploaded by the render thread (image:ready() tells). Draw it with
+-- ui.image(image, w?, h?), ui.image_button(id, image, w?, h?) or
+-- ui.fg.image(image, x1, y1, x2, y2, tint?). image:free() releases it.
+local Image = {}
+Image.__index = Image
+function Image:ready() return tempest._ui_texture(self.id) ~= 0 end
+function Image:free() tempest._ui_free_texture(self.id) end
+function Image:texture() return tempest._ui_texture(self.id) end
+local function new_image(id, w, h) return setmetatable({ id = id, width = w, height = h }, Image) end
+function ui.load_image(path)
+	local id, w, h = tempest._ui_load_image(path)
+	if not id then return nil end
+	return new_image(id, w, h)
+end
+-- ui.image_from_rgba(w, h, bytes): raw RGBA8 pixels in a string (w*h*4 bytes).
+function ui.image_from_rgba(w, h, bytes)
+	local id = tempest._ui_load_image_rgba(bytes, w, h)
+	if not id then return nil end
+	return new_image(id, w, h)
+end
+local function uv(x0, y0, x1, y1)
+	v2c.x, v2c.y, v2d.x, v2d.y = x0 or 0, y0 or 0, x1 == nil and 1 or x1, y1 == nil and 1 or y1
+	return v2c, v2d
+end
+-- ui.image(image, w?, h?, opts?) opts: { uv = {x0, y0, x1, y1} }. Draws a placeholder while uploading.
+function ui.image(img, w, h, opts)
+	check()
+	w, h = w or img.width, h or img.height
+	local tex = tempest._ui_texture(img.id)
+	if tex == 0 then C.igDummy(vec2(w, h)) return end
+	local u = opts and opts.uv or nil
+	local uv0, uv1 = uv(u and u[1], u and u[2], u and u[3], u and u[4])
+	C.igImage(tex, vec2(w, h), uv0, uv1)
+end
+function ui.image_button(id, img, w, h)
+	check()
+	w, h = w or img.width, h or img.height
+	local tex = tempest._ui_texture(img.id)
+	if tex == 0 then C.igDummy(vec2(w, h)) return false end
+	local uv0, uv1 = uv()
+	v4a.x, v4a.y, v4a.z, v4a.w = 0, 0, 0, 0
+	v4b.x, v4b.y, v4b.z, v4b.w = 1, 1, 1, 1
+	return C.igImageButton(id, tex, vec2(w, h), uv0, uv1, v4a, v4b)
+end
+ui.Image = Image
 
 -- ---------------------------------------------------------------------------
 -- Diagnostics

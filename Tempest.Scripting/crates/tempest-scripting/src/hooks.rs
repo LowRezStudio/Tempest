@@ -13,12 +13,14 @@
 //! Handlers on one address chain: the newest runs first and reaches the next
 //! one, or the real function, through the `original` it is handed.
 //!
-//! Only integer/pointer arguments are visible. The stub ABI carries
-//! [`MAX_ARGS`] integer parameters, which on Win64 means RCX, RDX, R8, R9
-//! and then the caller's stack slots, whatever the real function takes;
-//! reading past what the caller passed only picks up its stack, and passing
-//! the extra values back to the original is harmless. Floating-point
-//! arguments and results (XMM registers) are not captured.
+//! The stub ABI carries [`MAX_ARGS`] integer parameters, which on Win64
+//! means RCX, RDX, R8, R9 and then the caller's stack slots, whatever the
+//! real function takes; reading past what the caller passed only picks up
+//! its stack, and passing the extra values back to the original is harmless.
+//! XMM0..XMM3 are captured too, so a hook that declares a float at
+//! position i (`ArgKind::F32`/`F64`) reads it from XMM i (register
+//! positions) or the stack slot (positions 4 and up), and a float result
+//! is returned in XMM0.
 //!
 //! The target must be a function entry point: the detour relocates the
 //! first instructions, and refuses prologues it cannot move.
@@ -28,6 +30,73 @@ use std::sync::{Mutex, OnceLock};
 
 pub const MAX_ARGS: usize = 8;
 pub type Args = [usize; MAX_ARGS];
+/// Raw bits of XMM0..XMM3 at entry (positions 0..4 of a float argument).
+pub type Floats = [u64; 4];
+
+/// How a hook handler reads an argument position (or the result).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArgKind {
+    Int,
+    F32,
+    F64,
+}
+
+impl ArgKind {
+    pub fn parse(s: &str) -> Option<ArgKind> {
+        match s.to_ascii_lowercase().as_str() {
+            "int" | "i64" | "u64" | "ptr" | "pointer" | "bool" | "i32" | "u32" => Some(ArgKind::Int),
+            "f32" | "float" => Some(ArgKind::F32),
+            "f64" | "double" => Some(ArgKind::F64),
+            _ => None,
+        }
+    }
+
+    /// Bits of a float value as it travels in a register or stack slot.
+    pub fn encode(self, v: f64) -> u64 {
+        match self {
+            ArgKind::Int => v as i64 as u64,
+            ArgKind::F32 => (v as f32).to_bits() as u64,
+            ArgKind::F64 => v.to_bits(),
+        }
+    }
+
+    pub fn decode(self, bits: u64) -> f64 {
+        match self {
+            ArgKind::Int => bits as i64 as f64,
+            ArgKind::F32 => f32::from_bits(bits as u32) as f64,
+            ArgKind::F64 => f64::from_bits(bits),
+        }
+    }
+}
+
+/// Everything one call carries: integer slots (registers then stack), the
+/// four XMM registers, and the XMM0 result bits set by a float-returning
+/// handler. Written by the assembly entry and read back on return.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Regs {
+    pub ints: Args,
+    pub xmm: Floats,
+    pub xmm_ret: u64,
+}
+
+impl Regs {
+    /// The value at position `i` as the handler should see it.
+    pub fn get(&self, i: usize, kind: ArgKind) -> f64 {
+        let bits = if i < 4 && kind != ArgKind::Int { self.xmm[i] } else { self.ints[i] as u64 };
+        kind.decode(bits)
+    }
+
+    /// Set position `i` from a number of `kind` (both the integer slot and,
+    /// for register positions, the XMM register).
+    pub fn set(&mut self, i: usize, kind: ArgKind, v: f64) {
+        let bits = kind.encode(v);
+        self.ints[i] = bits as usize;
+        if i < 4 {
+            self.xmm[i] = bits;
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Hook {
@@ -35,8 +104,10 @@ pub struct Hook {
     pub addr: usize,
     /// Mod that installed it (`""` outside any mod).
     pub owner: String,
-    /// How many arguments the Lua handler receives.
-    pub nargs: usize,
+    /// What the Lua handler receives, position by position.
+    pub kinds: Vec<ArgKind>,
+    /// How the handler's return value is delivered.
+    pub ret: ArgKind,
 }
 
 /// One intercepted call, handed to the dispatcher. `handlers` is the chain
@@ -45,23 +116,33 @@ pub struct Hook {
 pub struct Call {
     pub slot: usize,
     pub addr: usize,
-    pub args: Args,
+    pub regs: Regs,
     pub handlers: Vec<Hook>,
+}
+
+/// What a call returns: RAX, and XMM0 for float results.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Ret {
+    pub int: usize,
+    pub xmm0: u64,
 }
 
 static HOOKS: Mutex<Vec<Hook>> = Mutex::new(Vec::new());
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// Runs the Lua chain; returns the value the caller gets back.
-static DISPATCHER: OnceLock<fn(Call) -> usize> = OnceLock::new();
+static DISPATCHER: OnceLock<fn(Call) -> Ret> = OnceLock::new();
 
-pub fn set_dispatcher(f: fn(Call) -> usize) {
+pub fn set_dispatcher(f: fn(Call) -> Ret) {
     let _ = DISPATCHER.set(f);
 }
 
 /// Detour `addr` (or join its existing chain). Returns the hook id.
-pub fn add(addr: usize, owner: &str, nargs: usize) -> Result<u64, String> {
+pub fn add(addr: usize, owner: &str, kinds: Vec<ArgKind>, ret: ArgKind) -> Result<u64, String> {
     if addr == 0 {
         return Err("null address".into());
+    }
+    if kinds.len() > MAX_ARGS {
+        return Err(format!("at most {MAX_ARGS} arguments are visible"));
     }
     let slot = detour::ensure(addr)?;
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
@@ -71,7 +152,8 @@ pub fn add(addr: usize, owner: &str, nargs: usize) -> Result<u64, String> {
             id,
             addr,
             owner: owner.to_string(),
-            nargs: nargs.min(MAX_ARGS),
+            kinds,
+            ret,
         },
     );
     let tag = if owner.is_empty() { String::new() } else { format!("[{owner}] ") };
@@ -123,45 +205,43 @@ pub fn list() -> Vec<Hook> {
 }
 
 /// Call the un-hooked function behind `slot` (the trampoline).
-pub fn call_original(slot: usize, args: Args) -> usize {
-    detour::call_original(slot, args)
+pub fn call_original(slot: usize, regs: &Regs) -> Ret {
+    detour::call_original(slot, regs)
 }
 
-/// Call any address with up to [`MAX_ARGS`] integer arguments. `None` on the
-/// host build or for a null address.
-pub fn call_raw(addr: usize, args: Args) -> Option<usize> {
+/// Call any address with up to [`MAX_ARGS`] arguments (integers in `ints`,
+/// floats mirrored in `xmm`). `None` on the host build or for a null address.
+pub fn call_raw(addr: usize, regs: &Regs) -> Option<Ret> {
     if addr == 0 {
         return None;
     }
-    detour::call_raw(addr, args)
+    detour::call_raw(addr, regs)
 }
 
 /// Stub entry: snapshot the chain and hand it to the dispatcher, or run
 /// the original straight away when nothing is subscribed any more.
 #[cfg_attr(not(windows), allow(dead_code))]
-fn dispatch(slot: usize, args: Args) -> usize {
+fn dispatch(slot: usize, regs: Regs) -> Ret {
     let addr = detour::addr_of(slot);
     let handlers: Vec<Hook> = HOOKS.lock().unwrap().iter().filter(|h| h.addr == addr).cloned().collect();
     if handlers.is_empty() {
-        return detour::call_original(slot, args);
+        return detour::call_original(slot, &regs);
     }
     match DISPATCHER.get() {
-        Some(run) => run(Call { slot, addr, args, handlers }),
-        None => detour::call_original(slot, args),
+        Some(run) => run(Call { slot, addr, regs, handlers }),
+        None => detour::call_original(slot, &regs),
     }
 }
 
 #[cfg(windows)]
 mod detour {
-    use super::{Args, MAX_ARGS};
+    use super::{Regs, Ret, MAX_ARGS};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::Mutex;
 
-    type Fn8 = extern "system" fn(usize, usize, usize, usize, usize, usize, usize, usize) -> usize;
-
     struct Slot {
         addr: usize,
-        detour: retour::GenericDetour<Fn8>,
+        detour: retour::RawDetour,
     }
 
     /// Slot id → slot. Boxes are leaked on purpose: a trampoline may be
@@ -171,11 +251,14 @@ mod detour {
     static INSTALL: Mutex<()> = Mutex::new(());
 
     // Shared entry for every stub. On entry R10 holds the slot id (set by
-    // the stub), RCX/RDX/R8/R9 the first four arguments and the caller's
-    // stack the rest: return address at [rsp], 32 bytes of shadow space,
-    // then argument 5 at [rsp+0x28]. Spill all eight into a local array and
-    // call `dispatch_entry(slot, &args)`. SEH directives describe the frame
-    // so an exception raised below unwinds through it.
+    // the stub), RCX/RDX/R8/R9 the first four integer arguments, XMM0..3
+    // the first four float ones, and the caller's stack the rest: return
+    // address at [rsp], 32 bytes of shadow space, then argument 5 at
+    // [rsp+0x28]. Spill them into a `Regs` on the stack ([rsp+0x20]: ints,
+    // [rsp+0x60]: xmm, [rsp+0x80]: xmm result) and call
+    // `dispatch_entry(slot, &regs)`; RAX comes back as is and XMM0 is loaded
+    // from the result slot. SEH directives describe the frame so an
+    // exception raised below unwinds through it.
     std::arch::global_asm!(
         ".text",
         ".p2align 4",
@@ -186,8 +269,8 @@ mod detour {
         "    .seh_pushreg rbp",
         "    mov rbp, rsp",
         "    .seh_setframe rbp, 0",
-        "    sub rsp, 0x60",
-        "    .seh_stackalloc 0x60",
+        "    sub rsp, 0x90",
+        "    .seh_stackalloc 0x90",
         "    .seh_endprologue",
         "    mov [rsp + 0x20], rcx",
         "    mov [rsp + 0x28], rdx",
@@ -201,9 +284,15 @@ mod detour {
         "    mov [rsp + 0x50], rax",
         "    mov rax, [rbp + 0x48]",
         "    mov [rsp + 0x58], rax",
+        "    movq [rsp + 0x60], xmm0",
+        "    movq [rsp + 0x68], xmm1",
+        "    movq [rsp + 0x70], xmm2",
+        "    movq [rsp + 0x78], xmm3",
+        "    mov qword ptr [rsp + 0x80], 0",
         "    mov rcx, r10",
         "    lea rdx, [rsp + 0x20]",
         "    call {dispatch}",
+        "    movq xmm0, [rsp + 0x80]",
         "    mov rsp, rbp",
         "    pop rbp",
         "    ret",
@@ -211,69 +300,88 @@ mod detour {
         dispatch = sym dispatch_entry,
     );
 
+    // Call `fn` with the integer slots of `regs` in RCX/RDX/R8/R9 and the
+    // stack, XMM0..3 loaded from its float slots; RAX is returned and XMM0
+    // is stored through `xmm_out`.
+    std::arch::global_asm!(
+        ".text",
+        ".p2align 4",
+        ".globl tempest_call_regs",
+        ".seh_proc tempest_call_regs",
+        "tempest_call_regs:",
+        "    push rbp",
+        "    .seh_pushreg rbp",
+        "    mov rbp, rsp",
+        "    .seh_setframe rbp, 0",
+        "    push rbx",
+        "    .seh_pushreg rbx",
+        "    push rsi",
+        "    .seh_pushreg rsi",
+        "    push rdi",
+        "    .seh_pushreg rdi",
+        "    sub rsp, 0x48",
+        "    .seh_stackalloc 0x48",
+        "    .seh_endprologue",
+        "    mov rbx, rcx",
+        "    mov rsi, rdx",
+        "    mov rdi, r8",
+        "    mov [rsp + 0x40], r9",
+        "    mov rax, [rsi + 0x20]",
+        "    mov [rsp + 0x20], rax",
+        "    mov rax, [rsi + 0x28]",
+        "    mov [rsp + 0x28], rax",
+        "    mov rax, [rsi + 0x30]",
+        "    mov [rsp + 0x30], rax",
+        "    mov rax, [rsi + 0x38]",
+        "    mov [rsp + 0x38], rax",
+        "    mov rcx, [rsi]",
+        "    mov rdx, [rsi + 8]",
+        "    mov r8, [rsi + 0x10]",
+        "    mov r9, [rsi + 0x18]",
+        "    movq xmm0, [rdi]",
+        "    movq xmm1, [rdi + 8]",
+        "    movq xmm2, [rdi + 0x10]",
+        "    movq xmm3, [rdi + 0x18]",
+        "    call rbx",
+        "    mov rcx, [rsp + 0x40]",
+        "    movq [rcx], xmm0",
+        "    add rsp, 0x48",
+        "    pop rdi",
+        "    pop rsi",
+        "    pop rbx",
+        "    pop rbp",
+        "    ret",
+        ".seh_endproc",
+    );
+
     extern "system" {
         fn tempest_hook_common();
+        fn tempest_call_regs(f: usize, ints: *const usize, xmm: *const u64, xmm_out: *mut u64) -> usize;
     }
 
-    /// Called from the assembly entry with the slot id and the spilled arguments.
-    extern "system" fn dispatch_entry(slot: usize, args: *const usize) -> usize {
-        // SAFETY: the assembly entry passes a pointer to MAX_ARGS words it just wrote.
-        let args: Args = unsafe { *(args as *const Args) };
-        match catch_unwind(AssertUnwindSafe(|| super::dispatch(slot, args))) {
+    /// Call `f` with `regs`; the result carries RAX and XMM0.
+    fn call_regs(f: usize, regs: &Regs) -> Ret {
+        let mut xmm0 = 0u64;
+        // SAFETY: `f` is a function entry the caller vouches for; the asm
+        // helper follows the Win64 convention for up to MAX_ARGS arguments.
+        let int = unsafe { tempest_call_regs(f, regs.ints.as_ptr(), regs.xmm.as_ptr(), &mut xmm0) };
+        Ret { int, xmm0 }
+    }
+
+    /// Called from the assembly entry with the slot id and the spilled registers.
+    extern "system" fn dispatch_entry(slot: usize, regs: *mut Regs) -> usize {
+        // SAFETY: the assembly entry passes a pointer to the `Regs` it just wrote.
+        let regs_ref = unsafe { &mut *regs };
+        let snapshot = *regs_ref;
+        let r = match catch_unwind(AssertUnwindSafe(|| super::dispatch(slot, snapshot))) {
             Ok(r) => r,
             Err(_) => {
                 crate::log::line("hook", &format!("address hook on 0x{:x} panicked; running the original", addr_of(slot)));
-                call_original(slot, args)
+                call_original(slot, &snapshot)
             }
-        }
-    }
-
-    /// Per-slot entry stubs, written into executable pages as needed:
-    /// `mov r10d, <slot>` (6 bytes), `mov rax, <common>` (10), `jmp rax` (2).
-    mod stubs {
-        use std::ffi::c_void;
-        use std::sync::Mutex;
-
-        const SIZE: usize = 32;
-        const PAGE: usize = 4096;
-        /// Current page and bytes used in it.
-        static CURRENT: Mutex<(usize, usize)> = Mutex::new((0, PAGE));
-
-        pub fn make(slot: usize, common: usize) -> Result<usize, String> {
-            let slot32 = u32::try_from(slot).map_err(|_| "too many hook slots".to_string())?;
-            let mut cur = CURRENT.lock().unwrap();
-            if cur.1 + SIZE > PAGE {
-                const MEM_COMMIT_RESERVE: u32 = 0x1000 | 0x2000;
-                const PAGE_EXECUTE_READWRITE: u32 = 0x40;
-                let page = unsafe { VirtualAlloc(std::ptr::null_mut(), PAGE, MEM_COMMIT_RESERVE, PAGE_EXECUTE_READWRITE) };
-                if page.is_null() {
-                    return Err("VirtualAlloc for a hook stub page failed".into());
-                }
-                *cur = (page as usize, 0);
-            }
-            let stub = cur.0 + cur.1;
-            let mut code = Vec::with_capacity(SIZE);
-            code.extend_from_slice(&[0x41, 0xBA]);
-            code.extend_from_slice(&slot32.to_le_bytes());
-            code.extend_from_slice(&[0x48, 0xB8]);
-            code.extend_from_slice(&(common as u64).to_le_bytes());
-            code.extend_from_slice(&[0xFF, 0xE0]);
-            code.resize(SIZE, 0xCC);
-            // SAFETY: `stub` is inside a page this module allocated RWX and has not handed out yet.
-            unsafe {
-                std::ptr::copy_nonoverlapping(code.as_ptr(), stub as *mut u8, SIZE);
-                FlushInstructionCache(GetCurrentProcess(), stub as *const c_void, SIZE);
-            }
-            cur.1 += SIZE;
-            Ok(stub)
-        }
-
-        #[link(name = "kernel32")]
-        extern "system" {
-            fn VirtualAlloc(addr: *mut c_void, size: usize, kind: u32, protect: u32) -> *mut c_void;
-            fn FlushInstructionCache(process: *mut c_void, addr: *const c_void, size: usize) -> i32;
-            fn GetCurrentProcess() -> *mut c_void;
-        }
+        };
+        regs_ref.xmm_ret = r.xmm0;
+        r.int
     }
 
     fn slot(i: usize) -> Option<&'static Slot> {
@@ -299,13 +407,11 @@ mod detour {
             return Err(format!("0x{addr:x} is not readable code"));
         }
         let i = SLOTS.lock().unwrap().len();
-        let stub = stubs::make(i, tempest_hook_common as *const () as usize)?;
-        // SAFETY: the caller asserts `addr` is the entry of a function taking
-        // integer arguments; the stub and the detour share the Fn8 ABI, which
-        // is a superset of any smaller integer-argument signature on Win64.
-        let original: Fn8 = unsafe { std::mem::transmute(addr) };
-        let hook: Fn8 = unsafe { std::mem::transmute(stub) };
-        let detour = unsafe { retour::GenericDetour::new(original, hook) }
+        let stub = crate::stubs::make(i, tempest_hook_common as *const () as usize)?;
+        // SAFETY: the caller asserts `addr` is a function entry; the stub
+        // preserves every register the real function expects and forwards
+        // the full Win64 argument set, so any signature up to MAX_ARGS works.
+        let detour = unsafe { retour::RawDetour::new(addr as *const (), stub as *const ()) }
             .map_err(|e| format!("cannot detour 0x{addr:x}: {e}"))?;
         unsafe { detour.enable() }.map_err(|e| format!("enable detour at 0x{addr:x}: {e}"))?;
         SLOTS.lock().unwrap().push(Box::leak(Box::new(Slot { addr, detour })));
@@ -325,17 +431,15 @@ mod detour {
         }
     }
 
-    pub fn call_original(i: usize, a: Args) -> usize {
+    pub fn call_original(i: usize, regs: &Regs) -> Ret {
         match slot(i) {
-            Some(s) => s.detour.call(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]),
-            None => 0,
+            Some(s) => call_regs(s.detour.trampoline() as *const () as usize, regs),
+            None => Ret::default(),
         }
     }
 
-    pub fn call_raw(addr: usize, a: Args) -> Option<usize> {
-        // SAFETY: the caller supplies a function address; same ABI note as `ensure`.
-        let f: Fn8 = unsafe { std::mem::transmute(addr) };
-        Some(f(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]))
+    pub fn call_raw(addr: usize, regs: &Regs) -> Option<Ret> {
+        Some(call_regs(addr, regs))
     }
 
     const _: () = assert!(MAX_ARGS == 8, "the assembly entry spills exactly eight arguments");
@@ -343,7 +447,7 @@ mod detour {
 
 #[cfg(not(windows))]
 mod detour {
-    use super::Args;
+    use super::{Regs, Ret};
 
     pub fn addr_of(_slot: usize) -> usize {
         0
@@ -352,10 +456,10 @@ mod detour {
         Err("host build".into())
     }
     pub fn disable(_addr: usize) {}
-    pub fn call_original(_slot: usize, _a: Args) -> usize {
-        0
+    pub fn call_original(_slot: usize, _r: &Regs) -> Ret {
+        Ret::default()
     }
-    pub fn call_raw(_addr: usize, _a: Args) -> Option<usize> {
+    pub fn call_raw(_addr: usize, _r: &Regs) -> Option<Ret> {
         None
     }
 }
@@ -366,11 +470,26 @@ mod tests {
 
     #[test]
     fn host_refuses_hooks_and_keeps_bookkeeping_sane() {
-        assert!(add(0, "t", 4).is_err());
-        assert!(add(0x1000, "t", 4).is_err());
+        assert!(add(0, "t", vec![ArgKind::Int; 4], ArgKind::Int).is_err());
+        assert!(add(0x1000, "t", vec![ArgKind::Int; 4], ArgKind::Int).is_err());
         assert!(list().is_empty());
         assert!(!remove(99));
         assert!(clear_of("t").is_empty());
-        assert!(call_raw(0, [0; MAX_ARGS]).is_none());
+        assert!(call_raw(0, &Regs::default()).is_none());
+    }
+
+    #[test]
+    fn regs_place_floats_by_position() {
+        let mut r = Regs::default();
+        r.set(0, ArgKind::Int, 7.0);
+        r.set(1, ArgKind::F32, 1.5);
+        r.set(5, ArgKind::F64, -2.25);
+        assert_eq!(r.ints[0], 7);
+        assert_eq!(r.xmm[1], (1.5f32).to_bits() as u64);
+        assert_eq!(r.get(1, ArgKind::F32), 1.5);
+        assert_eq!(r.get(5, ArgKind::F64), -2.25);
+        assert_eq!(r.get(0, ArgKind::Int), 7.0);
+        assert_eq!(ArgKind::parse("double"), Some(ArgKind::F64));
+        assert_eq!(ArgKind::parse("nope"), None);
     }
 }

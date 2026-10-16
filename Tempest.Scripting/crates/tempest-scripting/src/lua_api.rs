@@ -83,16 +83,25 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         "queue",
         lua.create_function(|lua, cb: Function| {
             let key = lua.create_registry_value(cb)?;
+            let owner = crate::loader::current_mod();
             unreal::queue(Box::new(move || {
                 let lua = crate::lua();
                 if let Ok(f) = lua.registry_value::<Function>(&key) {
-                    if let Err(e) = f.call::<()>(()) {
-                        crate::log::line("lua", &format!("queued job failed: {e}"));
+                    if let Err(e) = crate::loader::with_mod(&owner, || f.call::<()>(())) {
+                        crate::log::line("lua", &format!("[{owner}] queued job failed: {e}"));
                     }
                 }
                 let _ = lua.remove_registry_value(key);
             }));
             Ok(())
+        })?,
+    )?;
+    // tempest._with_mod(id, fn, ...) -> fn's results, run as mod `id` (key
+    // bindings and console commands dispatch from the prelude, outside any mod).
+    t.set(
+        "_with_mod",
+        lua.create_function(|_, (id, f, args): (String, Function, mlua::MultiValue)| {
+            crate::loader::with_mod(&id, || f.call::<mlua::MultiValue>(args))
         })?,
     )?;
     t.set(
@@ -232,6 +241,18 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
     t.set(
         "local_player",
         lua.create_function(|_, ()| Ok(local_player_controller().map(Object)))?,
+    )?;
+    // tempest.default_object("Engine.PointLight" | classObj) -> the class default object
+    t.set(
+        "default_object",
+        lua.create_function(|_, class: Value| {
+            let class = match &class {
+                Value::String(s) => unreal::find_class(&s.to_string_lossy()),
+                Value::UserData(ud) => ud.borrow::<Object>().ok().map(|o| o.0),
+                _ => None,
+            };
+            Ok(class.and_then(unreal::default_object).map(Object))
+        })?,
     )?;
     // Backs tempest.native (prelude): make "Pkg.Class.Func" call into Lua.
     // Two kinds of function qualify: a `dllimport` declaration (no body; the
@@ -373,7 +394,49 @@ fn register_ui(lua: &Lua, t: &Table) -> mlua::Result<()> {
         })?,
     )?;
     crate::overlay::set_scale(crate::config::get().ui_scale);
+    if let Some(game) = &crate::config::get().game_dir {
+        crate::overlay::set_ini(&game.join("ChaosGame").join("Config").join("tempest-ui.ini").display().to_string());
+    }
     t.set("_ui_ready", lua.create_function(|_, ()| Ok(crate::overlay::ready()))?)?;
+    // Fonts: _ui_add_font(path|"", size, merge, {first, last, ...}?) -> ImFont* address or nil
+    t.set(
+        "_ui_add_font",
+        lua.create_function(|_, (path, size, merge, ranges): (Option<String>, f32, Option<bool>, Option<Vec<u16>>)| {
+            let f = crate::overlay::add_font(path.as_deref().unwrap_or(""), size, merge.unwrap_or(false), ranges.as_deref().unwrap_or(&[]));
+            Ok((f != 0).then_some(f as i64))
+        })?,
+    )?;
+    t.set(
+        "_ui_set_default_font",
+        lua.create_function(|_, font: i64| {
+            crate::overlay::set_default_font(font as usize);
+            Ok(())
+        })?,
+    )?;
+    t.set("_ui_fonts_dirty", lua.create_function(|_, ()| Ok(crate::overlay::fonts_dirty()))?)?;
+    // Images: _ui_load_image(path) -> id, w, h; _ui_load_image_rgba(bytes, w, h) -> id
+    t.set(
+        "_ui_load_image",
+        lua.create_function(|_, path: String| {
+            Ok(match crate::overlay::load_image(&path) {
+                Some((id, w, h)) => (Value::Integer(id as i64), Value::Integer(w as i64), Value::Integer(h as i64)),
+                None => (Value::Nil, Value::Nil, Value::Nil),
+            })
+        })?,
+    )?;
+    t.set(
+        "_ui_load_image_rgba",
+        lua.create_function(|_, (bytes, w, h): (mlua::String, i32, i32)| Ok(crate::overlay::load_image_rgba(&bytes.as_bytes(), w, h)))?,
+    )?;
+    t.set("_ui_texture", lua.create_function(|_, id: i32| Ok(crate::overlay::texture_id(id) as i64))?)?;
+    t.set(
+        "_ui_free_texture",
+        lua.create_function(|_, id: i32| {
+            crate::overlay::free_texture(id);
+            Ok(())
+        })?,
+    )?;
+    t.set("_ui_headless_upload", lua.create_function(|_, ()| Ok(crate::overlay::headless_upload()))?)?;
     t.set("_ui_backend", lua.create_function(|_, ()| Ok(crate::overlay::backend()))?)?;
     t.set("_ui_hwnd", lua.create_function(|_, ()| Ok(crate::overlay::hwnd() as i64))?)?;
     t.set("_ui_stats", lua.create_function(|_, ()| Ok(crate::overlay::stats()))?)?;
@@ -507,9 +570,24 @@ fn address_hooks(lua: &Lua) -> mlua::Result<Table> {
         e.set("id", h.id)?;
         e.set("addr", h.addr as i64)?;
         e.set("mod", h.owner.as_str())?;
+        e.set("args", h.kinds.iter().map(|k| format!("{k:?}").to_ascii_lowercase()).collect::<Vec<_>>())?;
         out.set(i + 1, e)?;
     }
     Ok(out)
+}
+
+/// A float argument for `memory.call` / `original(...)`: `memory.f32(x)`,
+/// `memory.f64(x)`.
+#[derive(Debug, Clone, Copy)]
+pub struct FloatArg {
+    value: f64,
+    kind: hooks::ArgKind,
+}
+
+impl UserData for FloatArg {
+    fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
+        m.add_meta_method(MetaMethod::ToString, |_, this, ()| Ok(format!("{}({})", if this.kind == hooks::ArgKind::F32 { "f32" } else { "f64" }, this.value)));
+    }
 }
 
 /// A Lua value as a machine word: integers, booleans and Object proxies
@@ -524,67 +602,139 @@ fn to_word(v: &Value) -> Option<usize> {
     }
 }
 
-/// Entry from the detour thunk: run the chain from its newest handler.
-fn deliver_address_hook(call: hooks::Call) -> usize {
-    let args = call.args;
-    run_hook_level(crate::lua(), Arc::new(call), 0, args)
+/// Place argument `i` of a call: a `memory.f32/f64` value goes to its XMM
+/// register (and the integer slot), anything word-like to the integer slot,
+/// a plain number to whatever `kind` says.
+fn place_arg(regs: &mut hooks::Regs, i: usize, kind: hooks::ArgKind, v: &Value) -> Result<(), String> {
+    if let Value::UserData(ud) = v {
+        if let Ok(f) = ud.borrow::<FloatArg>() {
+            regs.set(i, f.kind, f.value);
+            return Ok(());
+        }
+    }
+    match (kind, v) {
+        (hooks::ArgKind::Int, _) => {
+            regs.ints[i] = to_word(v).ok_or_else(|| format!("argument {} must be an integer, boolean, Object or memory.f32/f64 value, not {}", i + 1, v.type_name()))?;
+            Ok(())
+        }
+        (k, Value::Integer(n)) => {
+            regs.set(i, k, *n as f64);
+            Ok(())
+        }
+        (k, Value::Number(n)) => {
+            regs.set(i, k, *n);
+            Ok(())
+        }
+        (k, other) => Err(format!("argument {} is declared {k:?} and must be a number, not {}", i + 1, other.type_name())),
+    }
 }
 
-/// Run handler `level` of the chain with `args`. The handler gets
-/// `(original, a1, ..., aN)`; `original(...)` runs the rest of the chain (nil
-/// or missing arguments keep the incoming ones) and is only valid while the
-/// handler runs. The handler's integer result is the call's result; `nil`
-/// means "whatever `original` returned", or a plain pass-through when it was
+/// `args` option of `memory.hook`: a count (that many integers) or a list
+/// of kind names (`"int"`, `"f32"`, `"f64"`, `"ptr"`).
+fn parse_kinds(v: Option<Value>) -> mlua::Result<Vec<hooks::ArgKind>> {
+    match v {
+        None | Some(Value::Nil) => Ok(vec![hooks::ArgKind::Int; 4]),
+        Some(Value::Integer(n)) => Ok(vec![hooks::ArgKind::Int; n.max(0) as usize]),
+        Some(Value::Number(n)) => Ok(vec![hooks::ArgKind::Int; n.max(0.0) as usize]),
+        Some(Value::Table(t)) => {
+            let mut kinds = Vec::new();
+            for pair in t.sequence_values::<String>() {
+                let name = pair?;
+                kinds.push(hooks::ArgKind::parse(&name).ok_or_else(|| mlua::Error::external(format!("memory.hook: unknown argument kind `{name}` (int, ptr, f32, f64)")))?);
+            }
+            Ok(kinds)
+        }
+        Some(other) => Err(mlua::Error::external(format!("memory.hook: `args` must be a count or a list of kinds, not {}", other.type_name()))),
+    }
+}
+
+fn parse_ret(v: Option<String>) -> mlua::Result<hooks::ArgKind> {
+    match v {
+        None => Ok(hooks::ArgKind::Int),
+        Some(name) => hooks::ArgKind::parse(&name).ok_or_else(|| mlua::Error::external(format!("unknown result kind `{name}` (int, f32, f64)"))),
+    }
+}
+
+/// Entry from the detour thunk: run the chain from its newest handler.
+fn deliver_address_hook(call: hooks::Call) -> hooks::Ret {
+    let regs = call.regs;
+    run_hook_level(crate::lua(), Arc::new(call), 0, regs)
+}
+
+/// Run handler `level` of the chain with `regs`. The handler gets
+/// `(original, a1, ..., aN)` typed by its declared kinds; `original(...)`
+/// runs the rest of the chain (nil or missing arguments keep the incoming
+/// ones) and is only valid while the handler runs. The handler's numeric
+/// result is the call's result (in XMM0 for a float `ret`); `nil` means
+/// "whatever `original` returned", or a plain pass-through when it was
 /// never called.
-fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, args: hooks::Args) -> usize {
+fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, regs: hooks::Regs) -> hooks::Ret {
     let Some(h) = call.handlers.get(level).cloned() else {
-        return hooks::call_original(call.slot, args);
+        return hooks::call_original(call.slot, &regs);
     };
     let Ok(cb) = lua.named_registry_value::<Function>(&hook_key(h.id)) else {
-        return run_hook_level(lua, call, level + 1, args); // unhooked since the snapshot
+        return run_hook_level(lua, call, level + 1, regs); // unhooked since the snapshot
     };
     let alive = Arc::new(AtomicBool::new(true));
-    let forwarded: Arc<Mutex<Option<usize>>> = Arc::new(Mutex::new(None));
+    let forwarded: Arc<Mutex<Option<hooks::Ret>>> = Arc::new(Mutex::new(None));
     let original = {
-        let (call, alive, forwarded) = (call.clone(), alive.clone(), forwarded.clone());
+        let (call, alive, forwarded, kinds) = (call.clone(), alive.clone(), forwarded.clone(), h.kinds.clone());
         lua.create_function(move |lua, over: mlua::Variadic<Value>| {
             if !alive.load(Ordering::Acquire) {
                 return Err(mlua::Error::external("original() is only valid while the hook handler runs"));
             }
-            let mut merged = args;
+            let mut merged = regs;
             for (i, v) in over.iter().enumerate().take(hooks::MAX_ARGS) {
                 if v.is_nil() {
                     continue;
                 }
-                merged[i] = to_word(v).ok_or_else(|| {
-                    mlua::Error::external(format!("original(): argument {} must be an integer, boolean or Object, not {}", i + 1, v.type_name()))
-                })?;
+                let kind = kinds.get(i).copied().unwrap_or(hooks::ArgKind::Int);
+                place_arg(&mut merged, i, kind, v).map_err(|e| mlua::Error::external(format!("original(): {e}")))?;
             }
             let r = run_hook_level(lua, call.clone(), level + 1, merged);
             *forwarded.lock().unwrap() = Some(r);
-            Ok(r as i64)
+            Ok(match h.ret {
+                hooks::ArgKind::Int => Value::Integer(r.int as i64),
+                k => Value::Number(k.decode(r.xmm0)),
+            })
         })
     };
     let Ok(original) = original else {
-        return run_hook_level(lua, call, level + 1, args);
+        return run_hook_level(lua, call, level + 1, regs);
     };
-    let mut lua_args: Vec<Value> = Vec::with_capacity(1 + h.nargs);
+    let mut lua_args: Vec<Value> = Vec::with_capacity(1 + h.kinds.len());
     lua_args.push(Value::Function(original));
-    lua_args.extend(args.iter().take(h.nargs).map(|&a| Value::Integer(a as i64)));
+    for (i, kind) in h.kinds.iter().enumerate() {
+        lua_args.push(match kind {
+            hooks::ArgKind::Int => Value::Integer(regs.ints[i] as i64),
+            k => Value::Number(regs.get(i, *k)),
+        });
+    }
     let result = crate::loader::with_mod(&h.owner, || cb.call::<Value>(mlua::MultiValue::from_vec(lua_args)));
     alive.store(false, Ordering::Release);
     let forwarded = *forwarded.lock().unwrap();
-    let pass_through = |lua: &Lua| forwarded.unwrap_or_else(|| run_hook_level(lua, call.clone(), level + 1, args));
+    let pass_through = |lua: &Lua| forwarded.unwrap_or_else(|| run_hook_level(lua, call.clone(), level + 1, regs));
     let tag = if h.owner.is_empty() { String::new() } else { format!("[{}] ", h.owner) };
     match result {
         Ok(Value::Nil) => pass_through(lua),
-        Ok(v) => match to_word(&v) {
-            Some(w) => w,
-            None => {
-                crate::log::line("lua", &format!("{tag}hook #{} on 0x{:x} returned a {}; expected an integer or nil", h.id, h.addr, v.type_name()));
-                pass_through(lua)
+        Ok(v) => {
+            let as_number = match &v {
+                Value::Integer(n) => Some(*n as f64),
+                Value::Number(n) => Some(*n),
+                _ => None,
+            };
+            match (h.ret, as_number, to_word(&v)) {
+                (hooks::ArgKind::Int, _, Some(w)) => hooks::Ret { int: w, xmm0: 0 },
+                (k, Some(n), _) if k != hooks::ArgKind::Int => {
+                    let bits = k.encode(n);
+                    hooks::Ret { int: bits as usize, xmm0: bits }
+                }
+                _ => {
+                    crate::log::line("lua", &format!("{tag}hook #{} on 0x{:x} returned a {}; expected a number or nil", h.id, h.addr, v.type_name()));
+                    pass_through(lua)
+                }
             }
-        },
+        }
         Err(e) => {
             crate::log::line("lua", &format!("{tag}hook #{} on 0x{:x} failed: {e}", h.id, h.addr));
             pass_through(lua)
@@ -616,7 +766,73 @@ fn to_lua(lua: &Lua, v: &unreal::Value) -> Value {
             .map(Value::UserData)
             .unwrap_or(Value::Nil),
         V::Addr(a) => Value::Integer(*a as i64),
+        V::List(items) => match lua.create_table() {
+            Ok(t) => {
+                for (i, item) in items.iter().enumerate() {
+                    let _ = t.set(i + 1, to_lua(lua, item));
+                }
+                Value::Table(t)
+            }
+            Err(_) => Value::Nil,
+        },
+        V::Record(fields) => match lua.create_table() {
+            Ok(t) => {
+                for (k, v) in fields {
+                    let _ = t.set(k.as_str(), to_lua(lua, v));
+                }
+                Value::Table(t)
+            }
+            Err(_) => Value::Nil,
+        },
     }
+}
+
+/// A Lua value with no property kind to guide it (array elements, struct
+/// fields given as tables): tables become Vector/Rotator, List or Record.
+fn from_lua_any(v: &Value) -> Option<unreal::Value> {
+    use unreal::Value as V;
+    Some(match v {
+        Value::Nil => V::Nil,
+        Value::Boolean(b) => V::Bool(*b),
+        Value::Integer(i) => V::Int(*i),
+        Value::Number(n) => V::Float(*n),
+        Value::String(s) => V::Str(s.to_string_lossy().to_string()),
+        Value::UserData(ud) => {
+            if let Ok(o) = ud.borrow::<Object>() {
+                V::Object(o.0)
+            } else if let Ok(s) = ud.borrow::<Struct>() {
+                V::Struct { addr: s.addr, kind: s.kind }
+            } else if let Ok(a) = ud.borrow::<Array>() {
+                V::Array { addr: a.addr, inner: a.inner }
+            } else {
+                return None;
+            }
+        }
+        Value::Table(t) => {
+            if let (Ok(x), Ok(y), Ok(z)) = (t.get::<f32>("x"), t.get::<f32>("y"), t.get::<f32>("z")) {
+                return Some(V::Vector(x, y, z));
+            }
+            if let (Ok(p), Ok(y), Ok(r)) = (t.get::<i32>("pitch"), t.get::<i32>("yaw"), t.get::<i32>("roll")) {
+                return Some(V::Rotator(p, y, r));
+            }
+            let len = t.raw_len();
+            if len > 0 || t.clone().pairs::<Value, Value>().next().is_none() {
+                let mut items = Vec::with_capacity(len);
+                for i in 1..=len {
+                    items.push(from_lua_any(&t.get::<Value>(i).ok()?)?);
+                }
+                V::List(items)
+            } else {
+                let mut fields = Vec::new();
+                for pair in t.clone().pairs::<String, Value>() {
+                    let (k, v) = pair.ok()?;
+                    fields.push((k, from_lua_any(&v)?));
+                }
+                V::Record(fields)
+            }
+        }
+        _ => return None,
+    })
 }
 
 fn triple(lua: &Lua, keys: [&str; 3], vals: [f64; 3]) -> Value {
@@ -641,12 +857,10 @@ fn from_lua(kind: PropKind, v: &Value) -> Option<unreal::Value> {
             let s = ud.borrow::<Struct>().ok()?;
             V::Struct { addr: s.addr, kind: s.kind }
         }
-        (PropKind::Struct, Value::Table(t)) => {
-            if let (Ok(x), Ok(y), Ok(z)) = (t.get::<f32>("x"), t.get::<f32>("y"), t.get::<f32>("z")) {
-                V::Vector(x, y, z)
-            } else {
-                V::Rotator(t.get("pitch").ok()?, t.get("yaw").ok()?, t.get("roll").ok()?)
-            }
+        (PropKind::Struct, Value::Table(_)) | (PropKind::Array, Value::Table(_)) => from_lua_any(v)?,
+        (PropKind::Array, Value::UserData(ud)) => {
+            let a = ud.borrow::<Array>().ok()?;
+            V::Array { addr: a.addr, inner: a.inner }
         }
         _ => return None,
     })
@@ -1169,6 +1383,14 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
     writer!("write_f32", f32, f64);
     writer!("write_f64", f64, f64);
 
+    // memory.readable(addr, len): every byte committed and readable.
+    m.set(
+        "readable",
+        lua.create_function(|_, (addr, len): (i64, Option<usize>)| {
+            let (addr, len) = (addr as usize, len.unwrap_or(1).max(1));
+            Ok(addr != 0 && (buffers::owns(addr, len) || memory::is_readable(addr, len)))
+        })?,
+    )?;
     m.set(
         "read_str",
         lua.create_function(|_, (addr, max): (i64, Option<usize>)| {
@@ -1194,18 +1416,17 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
         })?,
     )?;
 
-    // memory.hook(addr, fn, opts?) -> id. fn(original, a1..aN); opts.args = N (default 4, max 8).
+    // memory.hook(addr, fn, opts?) -> id. fn(original, a1..aN); opts.args = N
+    // integers (default 4, max 8) or a list of kinds {"int", "f32", "f64"};
+    // opts.ret = "int" (default) | "f32" | "f64".
     m.set(
         "hook",
         lua.create_function(|lua, (addr, cb, opts): (i64, Function, Option<Table>)| {
-            let nargs = match &opts {
-                Some(t) => t.get::<Option<usize>>("args")?.unwrap_or(4),
-                None => 4,
+            let (kinds, ret) = match &opts {
+                Some(t) => (parse_kinds(t.get::<Option<Value>>("args")?)?, parse_ret(t.get::<Option<String>>("ret")?)?),
+                None => (vec![hooks::ArgKind::Int; 4], hooks::ArgKind::Int),
             };
-            if nargs > hooks::MAX_ARGS {
-                return Err(mlua::Error::external(format!("memory.hook: at most {} arguments are visible", hooks::MAX_ARGS)));
-            }
-            let id = hooks::add(addr as usize, &crate::loader::current_mod(), nargs)
+            let id = hooks::add(addr as usize, &crate::loader::current_mod(), kinds, ret)
                 .map_err(|e| mlua::Error::external(format!("memory.hook: {e}")))?;
             lua.set_named_registry_value(&hook_key(id), cb)?;
             Ok(id)
@@ -1220,25 +1441,39 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
         })?,
     )?;
     m.set("hooks", lua.create_function(|lua, ()| address_hooks(lua))?)?;
-    // memory.call(addr, ...) -> integer result; integer/boolean/Object args (max 8).
+    // memory.call(addr, ...) -> result; integer/boolean/Object/memory.f32/f64
+    // args (max 8). A trailing table { ret = "f32" | "f64" } types the result.
     m.set(
         "call",
         lua.create_function(|_, (addr, args): (i64, mlua::Variadic<Value>)| {
+            let mut args: Vec<Value> = args.into_iter().collect();
+            let ret = match args.last() {
+                Some(Value::Table(t)) => {
+                    let r = parse_ret(t.get::<Option<String>>("ret")?)?;
+                    args.pop();
+                    r
+                }
+                _ => hooks::ArgKind::Int,
+            };
             if args.len() > hooks::MAX_ARGS {
                 return Err(mlua::Error::external(format!("memory.call: at most {} arguments", hooks::MAX_ARGS)));
             }
-            let mut words = [0usize; hooks::MAX_ARGS];
+            let mut regs = hooks::Regs::default();
             for (i, v) in args.iter().enumerate() {
                 if v.is_nil() {
                     continue;
                 }
-                words[i] = to_word(v).ok_or_else(|| {
-                    mlua::Error::external(format!("memory.call: argument {} must be an integer, boolean or Object, not {}", i + 1, v.type_name()))
-                })?;
+                place_arg(&mut regs, i, hooks::ArgKind::Int, v).map_err(|e| mlua::Error::external(format!("memory.call: {e}")))?;
             }
-            Ok(hooks::call_raw(addr as usize, words).map(|r| r as i64))
+            Ok(hooks::call_raw(addr as usize, &regs).map(|r| match ret {
+                hooks::ArgKind::Int => Value::Integer(r.int as i64),
+                k => Value::Number(k.decode(r.xmm0)),
+            }))
         })?,
     )?;
+    // memory.f32(x) / memory.f64(x): a float argument for memory.call / original().
+    m.set("f32", lua.create_function(|_, v: f64| Ok(FloatArg { value: v, kind: hooks::ArgKind::F32 }))?)?;
+    m.set("f64", lua.create_function(|_, v: f64| Ok(FloatArg { value: v, kind: hooks::ArgKind::F64 }))?)?;
 
     // Scratch buffers for call arguments: memory.alloc(n) -> addr (zeroed),
     // memory.free(addr), memory.write_str(addr, s) / write_wstr(addr, s) (NUL-terminated).

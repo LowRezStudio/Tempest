@@ -108,6 +108,15 @@ fn host_smoke() {
     assert_eq!(eval("return #memory.hooks() + #tempest.status().address_hooks"), mlua::Value::Integer(0));
     assert_eq!(eval("return memory.unhook(42)"), mlua::Value::Boolean(false));
     assert!(eval("return memory.call(0, 1, 2)").is_nil());
+    assert!(eval("return memory.call(0, 1, memory.f32(1.5), { ret = 'f64' })").is_nil());
+    assert_eq!(eval("return tostring(memory.f32(1.5))"), mlua::Value::String(lua.create_string("f32(1.5)").unwrap()));
+    assert_eq!(eval("return pcall(memory.hook, 0x1000, function() end, { args = { 'int', 'bogus' } })"), mlua::Value::Boolean(false));
+    assert_eq!(eval("return pcall(memory.call, 0, 1, { ret = 'nope' })"), mlua::Value::Boolean(false));
+    // Typed memory access: readable on our own buffer, nil elsewhere.
+    assert!(eval("local p = memory.alloc(16); memory.write_c(p, 'uint64_t', 0x123456789ABCDEFULL); local v = memory.read_c(p, 'uint64_t'); memory.free(p); return v == 0x123456789ABCDEFULL").as_boolean().unwrap());
+    assert!(eval("return memory.read_c(0, 'int') == nil and memory.write_c(0, 'int', 1) == false").as_boolean().unwrap());
+    assert!(eval("return tempest.default_object('Engine.Actor')").is_nil());
+    assert_eq!(eval("return pcall(tempest.spawn, 'Engine.PointLight', nil, nil, nil, nil, { force = true })"), mlua::Value::Boolean(false));
     assert!(eval("return tempest.object(0)").is_nil());
     // Scratch buffers work everywhere (plain heap memory); memory.read_* stays
     // stubbed on the host, so the round trip is checked from Rust.
@@ -150,7 +159,23 @@ fn host_smoke() {
     eval("ui.on_draw(function() ui.window('Broken', function() ui.text('x'); error('boom') end) end); \
           ui.on_draw(function() error('bad handler') end); return true");
     assert!(eval("return tempest._ui_build_frame() and tempest._ui_build_frame()").as_boolean().unwrap());
-    assert_eq!(eval("return ui.stats().built"), mlua::Value::Integer(3));
+    assert!(eval("return ui.stats().built == 3").as_boolean().unwrap());
+    // Fonts: the built-in font at another size marks the atlas dirty; the headless
+    // frame builder rebuilds it and the font can be pushed.
+    assert!(eval("local f = ui.add_font(nil, 20); shared.font = f; return f ~= nil and tempest._ui_fonts_dirty()").as_boolean().unwrap());
+    eval("ui.on_draw(function() ui.window('Fonts', function() ui.with_font(shared.font, function() ui.text('big') end) end) end); return true");
+    assert!(eval("return tempest._ui_build_frame() and not tempest._ui_fonts_dirty()").as_boolean().unwrap());
+    assert!(eval("return ui.add_font('/nonexistent/font.ttf', 16) == nil").as_boolean().unwrap());
+    // Images: raw RGBA pixels become a texture once "uploaded"; ui.image draws it.
+    eval("local px = string.rep('\\255\\0\\0\\255', 4); shared.img = ui.image_from_rgba(2, 2, px); \
+          ui.on_draw(function() ui.window('Img', function() ui.image(shared.img, 50, 50); ui.fg.image(shared.img, 0, 0, 10, 10) end) end); return true");
+    assert!(eval("return shared.img ~= nil and shared.img.width == 2 and not shared.img:ready()").as_boolean().unwrap());
+    assert!(eval("return tempest._ui_build_frame()").as_boolean().unwrap());
+    assert_eq!(eval("return tempest._ui_headless_upload()"), mlua::Value::Integer(1));
+    assert!(eval("return shared.img:ready() and tempest._ui_build_frame()").as_boolean().unwrap());
+    eval("shared.img:free(); return true");
+    assert!(eval("return not shared.img:ready() and ui.load_image('/nonexistent.png') == nil").as_boolean().unwrap());
+
     // Reload re-runs ui.lua on the cached FFI bindings; frames keep building.
     assert!(eval("tempest.reload(); return ui.C ~= nil and tempest._ui_build_frame()").as_boolean().unwrap());
     assert_eq!(eval("return #tempest.status().subscriptions > 0 and ui.capturing()"), mlua::Value::Boolean(false));
@@ -185,6 +210,22 @@ fn host_smoke() {
     let hot_cfg = game.join("ChaosGame/Config/mods/hot-reload.toml");
     assert!(!hot_cfg.exists(), "dev mods get no Config/mods file");
 
+    // Key bindings and commands run as the mod that registered them (tempest.config works inside).
+    std::fs::write(hot.join("scripts/ctx.lua"), "tempest.on_key('F11', function() shared.key_mod = tempest.mod(); shared.key_cfg = tempest.config({ a = 1 }).a end) \
+        tempest.command('ctxtest', function() shared.cmd_mod = tempest.mod() end) \
+        tempest.queue(function() shared.queue_mod = tempest.mod() end)\n").unwrap();
+    eval("tempest.reload('hot-reload'); tempest._key(0x7A, false, false, false, true, false); return true");
+    assert!(eval("return shared.key_mod == 'hot-reload' and shared.key_cfg == 1").as_boolean().unwrap());
+    std::fs::remove_file(hot.join("scripts/ctx.lua")).unwrap();
+
+    // The fps-limit example loads as a dev mod (no engine on the host: nothing applied, no error).
+    let fps = game.join("mods/fps-limit");
+    std::fs::create_dir_all(fps.join("scripts")).unwrap();
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/fps-limit/scripts/main.lua"), fps.join("scripts/main.lua")).unwrap();
+    eval("tempest.reload('fps-limit'); return true");
+    assert!(fps.join("config.toml").is_file());
+    assert!(eval("for _, c in ipairs(tempest.commands()) do if c.name == 'fps' then return true end end return false").as_boolean().unwrap());
+
     // The watcher: a saved script or config file reloads its mod after the quiet period;
     // files outside a mod (types/) are ignored.
     let mut w = tempest_scripting::watch::Watcher::new(Some(game.join("mods")), Some(game.join("ChaosGame/Config/mods")), std::time::Duration::from_millis(50));
@@ -199,7 +240,7 @@ fn host_smoke() {
     let ready = w.poll();
     assert_eq!(ready, vec!["hot-reload".to_string()]);
     tempest_scripting::watch::reload(ready);
-    assert!(eval("return shared.hot_runs == 3 and shared.hot_edited == true").as_boolean().unwrap());
+    assert!(eval("return shared.hot_runs == 4 and shared.hot_edited == true").as_boolean().unwrap());
     // Editing the dev mod's config.toml reloads it and the new value is what the script sees.
     std::fs::write(hot.join("scripts/main.lua"), "local cfg = tempest.config({ label = 'default' })\nshared.hot_label = cfg.label\n").unwrap();
     std::fs::write(hot.join("config.toml"), "label = \"changed\"\n").unwrap();

@@ -31,6 +31,7 @@ pub mod log;
 pub mod lua_api;
 pub mod memory;
 pub mod overlay;
+pub mod stubs;
 pub mod tls;
 pub mod unreal;
 pub mod watch;

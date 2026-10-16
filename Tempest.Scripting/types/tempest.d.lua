@@ -220,7 +220,12 @@ function tempest.on_key(spec, fn, opts) end
 ---@param owner? Engine.Actor
 ---@param context? Engine.Actor
 ---@return Engine.Actor|nil
-function tempest.spawn(class, location, rotation, owner, context) end
+---@param opts? { force?: boolean } force: spawn bStatic/bNoDelete classes (flags cleared on the class default object around the call)
+function tempest.spawn(class, location, rotation, owner, context, opts) end
+--- The class default object (`Default__Name`), nil when the class is not loaded.
+---@param class string|Object
+---@return Object?
+function tempest.default_object(class) end
 ---@param id integer
 function tempest.off_key(id) end
 
@@ -341,9 +346,13 @@ function memory.scan(pattern, limit) end
 --- are not visible). Return an integer to set the result, return nothing to use whatever
 --- `original` returned (or pass the call through untouched). Handlers run on the calling thread.
 --- Raises when the address cannot be detoured.
+--- opts.args: a count of integer arguments (default 4, max 8) or a list of
+--- kinds per position ("int"/"ptr", "f32", "f64"); floats at positions 0..3
+--- are read from XMM0..3. opts.ret = "int" (default) | "f32" | "f64" types
+--- the handler's numeric return value (float results go to XMM0).
 ---@param addr integer
----@param fn fun(original: HookOriginal, ...: integer): integer|boolean|Object|nil
----@param opts? { args?: integer }
+---@param fn fun(original: HookOriginal, ...: number): number|boolean|Object|nil
+---@param opts? { args?: integer|string[], ret?: "int"|"f32"|"f64" }
 ---@return integer id
 function memory.hook(addr, fn, opts) end
 ---@param id integer
@@ -351,11 +360,35 @@ function memory.hook(addr, fn, opts) end
 function memory.unhook(id) end
 ---@return AddressHook[]
 function memory.hooks() end
---- Call any address with up to 8 integer/boolean/Object arguments; integer result (nil on the host build).
+--- Call any address with up to 8 integer/boolean/Object/memory.f32/f64 arguments;
+--- integer result, or a float when the last argument is { ret = "f32"|"f64" }. nil on the host build.
 ---@param addr integer
----@param ... integer|boolean|Object|nil
----@return integer|nil
+---@param ... integer|boolean|Object|FloatArg|{ ret: "int"|"f32"|"f64" }|nil
+---@return number|nil
 function memory.call(addr, ...) end
+---@class FloatArg
+--- A float argument for memory.call / original(): passed in the XMM register of its position.
+---@param v number
+---@return FloatArg
+function memory.f32(v) end
+---@param v number
+---@return FloatArg
+function memory.f64(v) end
+--- Every byte of [addr, addr+len) is readable (committed, or one of memory.alloc's buffers).
+---@param addr integer
+---@param len? integer
+---@return boolean
+function memory.readable(addr, len) end
+--- FFI-typed read: memory.read_c(p, "uint64_t") (exact 64-bit as cdata), memory.read_c(p, "ImVec2"), ...; nil when unreadable.
+---@param addr integer
+---@param ctype string
+---@return any
+function memory.read_c(addr, ctype) end
+---@param addr integer
+---@param ctype string
+---@param value any
+---@return boolean
+function memory.write_c(addr, ctype, value) end
 --- Zeroed heap buffer (1 byte .. 16 MiB) for pointer arguments; release with memory.free.
 ---@param size integer
 ---@return integer addr
@@ -426,6 +459,8 @@ function DrawList.text(x, y, color, text, ...) end
 function DrawList.text_sized(size, x, y, color, text, ...) end
 ---@param points number[] x1, y1, x2, y2, ... @param color ui.Color @param closed? boolean @param thickness? number
 function DrawList.polyline(points, color, closed, thickness) end
+---@param img ui.Image @param x1 number @param y1 number @param x2 number @param y2 number @param tint? ui.Color
+function DrawList.image(img, x1, y1, x2, y2, tint) end
 ---@return ImDrawList
 function DrawList.list() end
 
@@ -469,6 +504,44 @@ ui = {}
 ---@param fn fun() runs every frame
 ---@return integer id
 function ui.on_draw(fn) end
+---@class ImFont: ffi.cdata*
+---@class ui.Image
+---@field id integer
+---@field width integer
+---@field height integer
+local Image = {}
+---@return boolean uploaded and drawable
+function Image:ready() end
+function Image:free() end
+---@return integer ImTextureID (0 until uploaded)
+function Image:texture() end
+--- A TTF at `size` pixels (nil path = the built-in font at that size). Call at load time; usable from the next frame.
+---@param path string?
+---@param size number
+---@param opts? { merge?: boolean, ranges?: "icons"|integer[] }
+---@return ImFont?
+function ui.add_font(path, size, opts) end
+---@param font ImFont
+function ui.set_default_font(font) end
+---@param font ImFont
+function ui.push_font(font) end
+function ui.pop_font() end
+---@param font ImFont @param fn fun()
+function ui.with_font(font, fn) end
+---@return number
+function ui.font_size() end
+--- PNG/JPEG/BMP/TGA from disk; decoded now, uploaded by the render thread.
+---@param path string
+---@return ui.Image?
+function ui.load_image(path) end
+---@param w integer @param h integer @param bytes string w*h*4 RGBA bytes
+---@return ui.Image?
+function ui.image_from_rgba(w, h, bytes) end
+---@param img ui.Image @param w? number @param h? number @param opts? { uv?: number[] }
+function ui.image(img, w, h, opts) end
+---@param id string @param img ui.Image @param w? number @param h? number
+---@return boolean clicked
+function ui.image_button(id, img, w, h) end
 ---@param id integer
 function ui.off_draw(id) end
 ---@return boolean backend initialised (a Present has happened)

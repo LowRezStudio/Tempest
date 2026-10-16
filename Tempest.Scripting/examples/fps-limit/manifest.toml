@@ -1,0 +1,6 @@
+[mod]
+id = "fps-limit"
+name = "FPS Limit"
+version = "0.1.0"
+authors = ["Tempest"]
+readme = "Caps the frame rate (Engine.MaxSmoothedFramerate) from a slider; the value is kept in the mod's config."

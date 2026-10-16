@@ -20,6 +20,15 @@
 #include "cimgui/imgui/imgui.h"
 #include "cimgui/imgui/imgui_internal.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_NO_STDIO_DISABLED
+#define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
+#define STBI_ONLY_BMP
+#define STBI_ONLY_TGA
+#define STBI_NO_FAILURE_STRINGS
+#include "stb_image.h"
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -118,6 +127,9 @@ static volatile int g_building = 0;   // a frame is being built (re-entrancy gua
 static volatile int g_capture = 0;    // the UI owns the mouse (software cursor, messages swallowed)
 static float g_scale = 1.0f;
 static void apply_scale(float s);
+static char g_ini_path[1024] = {0};
+static volatile int g_fonts_dirty = 0;  // atlas changed: the render thread rebuilds the font texture
+
 static const char* g_backend = "";
 static void* g_hwnd = nullptr;
 static unsigned g_frames_built = 0;
@@ -127,7 +139,7 @@ static void common_init(void* hwnd) {
     if (!ImGui::GetCurrentContext()) {
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
-        io.IniFilename = nullptr;  // no imgui.ini in the game folder
+        io.IniFilename = g_ini_path[0] ? g_ini_path : nullptr;  // layout file, set by the runtime settings
         io.LogFilename = nullptr;
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;  // the game owns the OS cursor
         io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
@@ -147,6 +159,14 @@ static void common_init(void* hwnd) {
 #else
     (void)hwnd;
 #endif
+}
+
+// Where ImGui persists window positions (empty = nowhere). Before the context exists.
+void tempest_overlay_set_ini(const char* path) {
+    if (!path) path = "";
+    strncpy(g_ini_path, path, sizeof g_ini_path - 1);
+    g_ini_path[sizeof g_ini_path - 1] = 0;
+    if (ImGui::GetCurrentContext()) ImGui::GetIO().IniFilename = g_ini_path[0] ? g_ini_path : nullptr;
 }
 
 const char* tempest_overlay_backend(void) { return g_backend; }
@@ -203,6 +223,157 @@ void tempest_overlay_set_scale(float s) {
 float tempest_overlay_get_scale(void) { return g_scale; }
 
 // ---------------------------------------------------------------------------
+// Fonts (game thread adds, render thread rebuilds the texture)
+// ---------------------------------------------------------------------------
+
+struct FontRequest {
+    char path[1024];
+    float size;
+    int merge;
+    int use_default;
+    ImVector<ImWchar>* ranges;  // leaked on purpose: the atlas keeps the pointer
+    ImFont* result;
+};
+
+static ImVector<FontRequest*> g_font_requests;  // added from inside a frame: applied when it ends
+
+static ImFont* apply_font(FontRequest* r) {
+    ImGuiIO& io = ImGui::GetIO();
+    ImFontConfig cfg;
+    cfg.MergeMode = r->merge != 0;
+    ImFont* f = nullptr;
+    if (r->use_default) {
+        cfg.SizePixels = r->size;
+        f = io.Fonts->AddFontDefault(&cfg);
+    } else {
+        f = io.Fonts->AddFontFromFileTTF(r->path, r->size, &cfg, r->ranges ? r->ranges->Data : nullptr);
+    }
+    if (!f) olog("font %s (%.0f px) could not be loaded", r->use_default ? "<default>" : r->path, r->size);
+    g_fonts_dirty = 1;
+    return f;
+}
+
+// ui.add_font: a TTF (or the built-in font when `path` is empty) at `size`
+// pixels; `ranges` is a 0-terminated list of (first, last) pairs, or NULL.
+// Returns the ImFont* (valid once the atlas was rebuilt), NULL on failure,
+// or the request handle's future font when called inside a draw handler.
+void* tempest_overlay_add_font(const char* path, float size, int merge, const unsigned short* ranges) {
+    if (!ImGui::GetCurrentContext()) {
+        olog("ui.add_font: the UI is not initialised yet (wait for ui.ready())");
+        return nullptr;
+    }
+    FontRequest* r = IM_NEW(FontRequest)();
+    memset(r, 0, sizeof *r);
+    if (path && *path) strncpy(r->path, path, sizeof r->path - 1);
+    r->use_default = !(path && *path);
+    r->size = size;
+    r->merge = merge;
+    if (ranges && ranges[0]) {
+        r->ranges = IM_NEW(ImVector<ImWchar>)();
+        for (const unsigned short* p = ranges; p[0] && p[1]; p += 2) {
+            r->ranges->push_back((ImWchar)p[0]);
+            r->ranges->push_back((ImWchar)p[1]);
+        }
+        r->ranges->push_back(0);
+    }
+    if (g_building) {
+        // Mid-frame: the atlas is in use. Apply once the frame is parked.
+        g_font_requests.push_back(r);
+        return nullptr;
+    }
+    g_frame_lock.lock();
+    ImFont* f = apply_font(r);
+    g_frame_lock.unlock();
+    IM_DELETE(r);
+    return f;
+}
+
+void tempest_overlay_set_default_font(void* font) {
+    if (!ImGui::GetCurrentContext()) return;
+    ImGui::GetIO().FontDefault = (ImFont*)font;
+}
+
+int tempest_overlay_fonts_dirty(void) { return g_fonts_dirty; }
+
+// ---------------------------------------------------------------------------
+// Textures (decoded on the game thread, uploaded in Present)
+// ---------------------------------------------------------------------------
+
+struct Texture {
+    int id;
+    int w, h;
+    unsigned char* pixels;  // RGBA, owned until uploaded
+    ImTextureID tex;        // 0 until uploaded
+    void* native;           // ID3D11ShaderResourceView* / IDirect3DTexture9*
+    int release_in;         // >0: countdown of Presents before the native object goes
+};
+
+static ImVector<Texture*> g_textures;
+static int g_next_texture = 1;
+
+static Texture* find_texture(int id) {
+    for (int i = 0; i < g_textures.Size; ++i)
+        if (g_textures[i]->id == id) return g_textures[i];
+    return nullptr;
+}
+
+static int add_texture(unsigned char* pixels, int w, int h) {
+    Texture* t = IM_NEW(Texture)();
+    memset(t, 0, sizeof *t);
+    t->id = g_next_texture++;
+    t->w = w;
+    t->h = h;
+    t->pixels = pixels;
+    g_frame_lock.lock();
+    g_textures.push_back(t);
+    g_frame_lock.unlock();
+    return t->id;
+}
+
+// ui.load_image(path): PNG/JPEG/BMP/TGA from disk. Returns the handle (>0) or 0.
+int tempest_overlay_load_image_file(const char* path, int* w, int* h) {
+    int iw = 0, ih = 0, n = 0;
+    unsigned char* px = stbi_load(path, &iw, &ih, &n, 4);
+    if (!px) {
+        olog("ui.load_image: cannot decode %s", path ? path : "(null)");
+        return 0;
+    }
+    if (w) *w = iw;
+    if (h) *h = ih;
+    return add_texture(px, iw, ih);
+}
+
+// ui.image_from_rgba(w, h, bytes): raw RGBA8 pixels (copied).
+int tempest_overlay_load_image_rgba(const unsigned char* rgba, int w, int h) {
+    if (!rgba || w <= 0 || h <= 0) return 0;
+    size_t size = (size_t)w * (size_t)h * 4;
+    unsigned char* px = (unsigned char*)malloc(size);
+    if (!px) return 0;
+    memcpy(px, rgba, size);
+    return add_texture(px, w, h);
+}
+
+// The ImTextureID to draw with, 0 while the upload is pending or after free.
+unsigned long long tempest_overlay_texture_id(int id) {
+    g_frame_lock.lock();
+    Texture* t = find_texture(id);
+    unsigned long long r = (t && !t->release_in) ? (unsigned long long)t->tex : 0;
+    g_frame_lock.unlock();
+    return r;
+}
+
+void tempest_overlay_free_texture(int id) {
+    g_frame_lock.lock();
+    Texture* t = find_texture(id);
+    if (t && !t->release_in) {
+        // Parked frames may still reference it: let a few Presents go by.
+        t->release_in = 3;
+        t->tex = 0;
+    }
+    g_frame_lock.unlock();
+}
+
+// ---------------------------------------------------------------------------
 // Frame building (game thread)
 // ---------------------------------------------------------------------------
 
@@ -218,6 +389,13 @@ int tempest_overlay_run_handler(int (*cb)(void*), void* ud) {
 
 int tempest_overlay_build_frame(void (*draw)(void*), void* ud) {
     if (!g_ready || g_building) return 0;
+    if (g_fonts_dirty) {
+        if (strcmp(g_backend, "headless") != 0) return 0;  // the render thread rebuilds first
+        unsigned char* pixels = nullptr;
+        int tw = 0, th = 0;
+        ImGui::GetIO().Fonts->GetTexDataAsRGBA32(&pixels, &tw, &th);
+        g_fonts_dirty = 0;
+    }
     g_building = 1;
 #ifdef _WIN32
     if (g_hwnd) {
@@ -234,7 +412,33 @@ int tempest_overlay_build_frame(void (*draw)(void*), void* ud) {
     park_frame(clone_frame(ImGui::GetDrawData()));
     ++g_frames_built;
     g_building = 0;
+    if (g_font_requests.Size > 0) {
+        g_frame_lock.lock();
+        for (int i = 0; i < g_font_requests.Size; ++i) {
+            apply_font(g_font_requests[i]);
+            IM_DELETE(g_font_requests[i]);
+        }
+        g_font_requests.clear();
+        g_frame_lock.unlock();
+    }
     return 1;
+}
+
+// Headless tests: pretend every pending texture was uploaded.
+int tempest_overlay_headless_upload(void) {
+    int n = 0;
+    g_frame_lock.lock();
+    for (int i = 0; i < g_textures.Size; ++i) {
+        Texture* t = g_textures[i];
+        if (t->pixels && !t->tex) {
+            t->tex = (ImTextureID)(uintptr_t)(0x1000 + t->id);
+            free(t->pixels);
+            t->pixels = nullptr;
+            ++n;
+        }
+    }
+    g_frame_lock.unlock();
+    return n;
 }
 
 // Host tests: a context with no backend. Frames build, nothing renders.
@@ -383,6 +587,46 @@ void tempest_overlay_present11(void* swapchain_ptr, unsigned flags) {
         g_ready = 1;
     }
     dev->Release();
+    g_frame_lock.lock();
+    if (g_fonts_dirty) {
+        ImGui_ImplDX11_InvalidateDeviceObjects();
+        ImGui_ImplDX11_CreateDeviceObjects();
+        g_fonts_dirty = 0;
+    }
+    for (int i = 0; i < g_textures.Size; ++i) {
+        Texture* t = g_textures[i];
+        if (t->pixels && !t->tex) {
+            D3D11_TEXTURE2D_DESC desc{};
+            desc.Width = t->w;
+            desc.Height = t->h;
+            desc.MipLevels = 1;
+            desc.ArraySize = 1;
+            desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.SampleDesc.Count = 1;
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            D3D11_SUBRESOURCE_DATA init{};
+            init.pSysMem = t->pixels;
+            init.SysMemPitch = t->w * 4;
+            ID3D11Texture2D* tex = nullptr;
+            ID3D11ShaderResourceView* srv = nullptr;
+            if (SUCCEEDED(g_device11->CreateTexture2D(&desc, &init, &tex)) && tex) {
+                g_device11->CreateShaderResourceView(tex, nullptr, &srv);
+                tex->Release();
+            }
+            free(t->pixels);
+            t->pixels = nullptr;
+            t->native = srv;
+            t->tex = (ImTextureID)(uintptr_t)srv;
+            if (!srv) olog("texture #%d (%dx%d) upload failed", t->id, t->w, t->h);
+        } else if (t->release_in > 0 && --t->release_in == 0) {
+            if (t->native) ((ID3D11ShaderResourceView*)t->native)->Release();
+            IM_DELETE(t);
+            g_textures.erase(g_textures.Data + i);
+            --i;
+        }
+    }
+    g_frame_lock.unlock();
     ImGui_ImplDX11_NewFrame();
     g_frame_lock.lock();
     if (g_frame && g_frame->data.TotalVtxCount > 0) {
@@ -477,6 +721,45 @@ void tempest_overlay_present9(void* device_ptr, void* hwnd_fallback) {
         olog("d3d9 backend ready: device=%p window=%p", (void*)dev, hwnd);
         g_ready = 1;
     }
+    g_frame_lock.lock();
+    if (g_fonts_dirty) {
+        ImGui_ImplDX9_InvalidateDeviceObjects();
+        ImGui_ImplDX9_CreateDeviceObjects();
+        g_fonts_dirty = 0;
+    }
+    for (int i = 0; i < g_textures.Size; ++i) {
+        Texture* t = g_textures[i];
+        if (t->pixels && !t->tex) {
+            IDirect3DTexture9* tex = nullptr;
+            if (SUCCEEDED(dev->CreateTexture(t->w, t->h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr)) && tex) {
+                D3DLOCKED_RECT rect{};
+                if (SUCCEEDED(tex->LockRect(0, &rect, nullptr, 0))) {
+                    for (int y = 0; y < t->h; ++y) {
+                        unsigned char* dst = (unsigned char*)rect.pBits + y * rect.Pitch;
+                        const unsigned char* src = t->pixels + (size_t)y * t->w * 4;
+                        for (int x = 0; x < t->w; ++x) {  // RGBA -> BGRA
+                            dst[x * 4 + 0] = src[x * 4 + 2];
+                            dst[x * 4 + 1] = src[x * 4 + 1];
+                            dst[x * 4 + 2] = src[x * 4 + 0];
+                            dst[x * 4 + 3] = src[x * 4 + 3];
+                        }
+                    }
+                    tex->UnlockRect(0);
+                }
+            }
+            free(t->pixels);
+            t->pixels = nullptr;
+            t->native = tex;
+            t->tex = (ImTextureID)(uintptr_t)tex;
+            if (!tex) olog("texture #%d (%dx%d) upload failed", t->id, t->w, t->h);
+        } else if (t->release_in > 0 && --t->release_in == 0) {
+            if (t->native) ((IDirect3DTexture9*)t->native)->Release();
+            IM_DELETE(t);
+            g_textures.erase(g_textures.Data + i);
+            --i;
+        }
+    }
+    g_frame_lock.unlock();
     ImGui_ImplDX9_NewFrame();
     g_frame_lock.lock();
     if (g_frame && g_frame->data.TotalVtxCount > 0) {
