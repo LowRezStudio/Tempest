@@ -652,5 +652,11 @@
 	"converter_add_to_instance": "Add to Instance",
 	"converter_toast_saved_title": "Mod saved",
 	"converter_toast_saved_message": "Saved to {path}",
-	"converter_toast_installed_message": "\"{name}\" installed to {instance}"
+	"converter_toast_installed_message": "\"{name}\" installed to {instance}",
+	"sessions_title": "Game windows",
+	"sessions_manage": "Manage game windows",
+	"sessions_window": "Window {number}",
+	"sessions_open_another": "Open another window",
+	"sessions_stop_all": "Stop all",
+	"sessions_launch_failed": "Couldn't open another window"
 }

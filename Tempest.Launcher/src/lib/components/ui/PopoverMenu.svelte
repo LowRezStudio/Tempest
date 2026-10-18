@@ -7,13 +7,27 @@
 		children: Snippet;
 		align?: "start" | "end" | "center";
 		class?: string;
+		triggerClass?: string;
+		triggerLabel?: string;
 	}
 
-	let { trigger, children, align = "end", class: className = "" }: Props = $props();
+	let {
+		trigger,
+		children,
+		align = "end",
+		class: className = "",
+		triggerClass = "",
+		triggerLabel,
+	}: Props = $props();
 </script>
 
 <Popover.Root>
-	<Popover.Trigger class="list-none" onclick={(e) => e.stopPropagation()}>
+	<Popover.Trigger
+		class="list-none {triggerClass}"
+		aria-label={triggerLabel}
+		title={triggerLabel}
+		onclick={(e) => e.stopPropagation()}
+	>
 		{@render trigger()}
 	</Popover.Trigger>
 	<Popover.Portal>

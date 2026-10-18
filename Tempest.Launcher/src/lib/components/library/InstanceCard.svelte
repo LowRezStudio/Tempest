@@ -2,6 +2,7 @@
 	import { goto } from "$app/navigation";
 	import { Gamepad2, Play, Square, Trash2 } from "@lucide/svelte";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
+	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
 	import { deleteInstance } from "$lib/core/instance-delete";
 	import { m } from "$lib/paraglide/messages";
@@ -161,6 +162,7 @@
 				</div>
 			</div>
 			<div class="flex items-center gap-1">
+				<InstanceSessionControls {instance} busy={isBusy} />
 				<button
 					class="btn btn-sm btn-square btn-ghost"
 					disabled={isBusy}

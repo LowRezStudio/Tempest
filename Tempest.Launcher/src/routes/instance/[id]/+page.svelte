@@ -13,6 +13,7 @@
 	} from "@lucide/svelte";
 	import { openPath } from "@tauri-apps/plugin-opener";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
+	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
 	import InstanceSettingsForm from "$lib/components/library/InstanceSettingsForm.svelte";
 	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
@@ -66,7 +67,10 @@
 	});
 
 	// Check if this instance is currently running
-	let isRunning = $derived(processesList.value.some((p) => p.instance?.id === instance?.id));
+	let windowCount = $derived(
+		processesList.value.filter((p) => p.instance?.id === instance?.id).length,
+	);
+	let isRunning = $derived(windowCount > 0);
 	const launchGameMutation = createLaunchGameMutation();
 	const killGameMutation = createKillGameMutation();
 	let isLaunching = $derived(launchGameMutation.isPending);
@@ -127,6 +131,13 @@
 			{/if}
 		{/snippet}
 		{#snippet actions()}
+			{#if instance}
+				<InstanceSessionControls
+					{instance}
+					busy={isLaunching || isKilling}
+					variant="header"
+				/>
+			{/if}
 			<button
 				class="btn text-sm"
 				class:btn-accent={!isRunning}
@@ -143,7 +154,7 @@
 					{m.common_stopping_label()}
 				{:else if isRunning}
 					<Square size={16} />
-					{m.common_stop()}
+					{windowCount > 1 ? m.sessions_stop_all() : m.common_stop()}
 				{:else}
 					<Play size={16} />
 					{m.common_play()}
