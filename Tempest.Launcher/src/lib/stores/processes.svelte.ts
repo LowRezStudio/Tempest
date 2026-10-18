@@ -14,13 +14,28 @@ export function appendProcessLog(line: string, error = false, source = ""): void
 	appendProcessLogs([line], error, source);
 }
 
+// Chatty processes (e.g. Wine) can print hundreds of lines per second; copying the whole log for
+// every line freezes the UI, so new lines are flushed in batches.
+const LOG_FLUSH_MS = 50;
+let pendingLogs: ProcessLog[] = [];
+let flushTimer: ReturnType<typeof setTimeout> | undefined;
+
+function flushProcessLogs(): void {
+	flushTimer = undefined;
+	processLogs.value = [...processLogs.value, ...pendingLogs].slice(-MAX_LOGS);
+	pendingLogs = [];
+}
+
 export function appendProcessLogs(lines: string[], error = false, source = ""): void {
 	if (lines.length === 0) return;
-	const entries = lines.map((line) => ({ id: nextLogId++, line, error, source }));
-	processLogs.value = [...processLogs.value, ...entries].slice(-MAX_LOGS);
+	for (const line of lines) pendingLogs.push({ id: nextLogId++, line, error, source });
+	flushTimer ??= setTimeout(flushProcessLogs, LOG_FLUSH_MS);
 }
 
 export function clearProcessLogs(): void {
+	clearTimeout(flushTimer);
+	flushTimer = undefined;
+	pendingLogs = [];
 	processLogs.value = [];
 }
 

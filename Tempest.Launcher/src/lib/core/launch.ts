@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { lastLaunchedInstanceId } from "../stores/instance.svelte";
 import { appendProcessLog, logCommandOutput, processesList } from "../stores/processes.svelte";
 import {
@@ -76,6 +77,7 @@ export const launchGame = async (instance: Instance) => {
 	};
 
 	processesList.value = [...processesList.value, process];
+	watchForExit(process);
 };
 
 const KILL_GRACE_MS = 5000;
@@ -94,3 +96,24 @@ export const killGame = async (instance: Instance) => {
 		processesList.value = processesList.value.filter((p) => p.child !== process.child);
 	}, KILL_GRACE_MS);
 };
+
+const EXIT_POLL_MS = 2000;
+
+/**
+ * Removes a game whose launcher process has exited even if the shell never reports `close`,
+ * which happens while leftover child processes still hold its output pipes.
+ * @param process The launched game to watch.
+ */
+function watchForExit(process: Process): void {
+	const isTracked = () => processesList.value.some((p) => p.child === process.child);
+	const timer = setInterval(async () => {
+		const running =
+			isTracked() &&
+			(await invoke<boolean>("is_process_running", { pid: process.child.pid }).catch(
+				() => true,
+			));
+		if (running) return;
+		clearInterval(timer);
+		processesList.value = processesList.value.filter((p) => p.child !== process.child);
+	}, EXIT_POLL_MS);
+}
