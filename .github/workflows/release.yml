@@ -27,6 +27,9 @@ jobs:
         id: notes
         shell: bash
         run: |
+          # The checkout only has the commit; fetch the annotated tag object so
+          # %(contents) is the annotation, not the commit message.
+          git fetch --force --depth=1 origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" 2>/dev/null || true
           notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME" 2>/dev/null || echo "")
           echo "notes<<EOF" >> "$GITHUB_OUTPUT"
           echo "$notes" >> "$GITHUB_OUTPUT"
