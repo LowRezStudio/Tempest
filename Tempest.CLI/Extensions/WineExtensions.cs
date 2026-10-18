@@ -225,7 +225,7 @@ internal static class WineExtensions
         return process;
     }
 
-    public static async Task KillProcessTree(Process process)
+    public static async Task KillProcessTree(Process process, bool sweepPrefix = true)
     {
         var markers = new List<string>();
         if (process.StartInfo.EnvironmentVariables.ContainsKey("STEAM_COMPAT_DATA_PATH") &&
@@ -235,7 +235,7 @@ internal static class WineExtensions
             process.StartInfo.EnvironmentVariables["WINEPREFIX"] is { } wpref && !string.IsNullOrEmpty(wpref))
             markers.Add(wpref);
 
-        if (OperatingSystem.IsLinux() && markers.Count > 0)
+        if (sweepPrefix && OperatingSystem.IsLinux() && markers.Count > 0)
         {
             foreach (var procDir in Directory.EnumerateDirectories("/proc"))
             {

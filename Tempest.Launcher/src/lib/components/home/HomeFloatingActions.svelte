@@ -12,6 +12,7 @@
 	} from "@lucide/svelte";
 	import { onMount } from "svelte";
 	import FeedCarousel from "$lib/components/home/FeedCarousel.svelte";
+	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { cachedReleaseNotes, fetchLatestRelease } from "$lib/queries/release";
@@ -41,11 +42,13 @@
 		lastLaunchedInstance.value ?? Object.values(instanceMap.value).find(Boolean),
 	);
 
-	let isRunning = $derived(
+	let windowCount = $derived(
 		currentInstance
-			? processesList.value.some((p) => p.instance.id === currentInstance.id)
-			: false,
+			? processesList.value.filter((p) => p.instance.id === currentInstance.id).length
+			: 0,
 	);
+	let isRunning = $derived(windowCount > 0);
+	let stopLabel = $derived(windowCount > 1 ? m.sessions_stop_all() : m.home_stop_game());
 
 	let loading = $state(false);
 
@@ -226,7 +229,7 @@
 				disabled={isLaunching || isKilling}
 				aria-busy={isLaunching || isKilling}
 				onclick={handleLaunchToggle}
-				aria-label={isRunning ? m.home_stop_game() : m.home_run_game()}
+				aria-label={isRunning ? stopLabel : m.home_run_game()}
 			>
 				{#if isLaunching}
 					<span class="loading loading-spinner loading-xs"></span>
@@ -244,12 +247,17 @@
 							: isKilling
 								? m.common_stopping_label()
 								: isRunning
-									? m.home_stop_game()
+									? stopLabel
 									: m.home_run_game()}
 					</span>
 					<span class="text-xs opacity-80">{currentInstance.label}</span>
 				</div>
 			</button>
+			<InstanceSessionControls
+				instance={currentInstance}
+				busy={isLaunching || isKilling}
+				variant="home"
+			/>
 
 			<a href={`/instance/${currentInstance.id}`} class="btn btn-lg join-item min-h-14">
 				<Box size={20} />

@@ -12,6 +12,14 @@ import { createCommand, processArgs } from "./command";
 import type { Instance } from "../types/instance";
 import type { Process } from "../types/process";
 
+const sessionNumbers = new Map<string, number>();
+
+const nextSessionNumber = (instanceId: string) => {
+	const next = (sessionNumbers.get(instanceId) ?? 0) + 1;
+	sessionNumbers.set(instanceId, next);
+	return next;
+};
+
 export const launchGame = async (instance: Instance) => {
 	const { path, launchOptions: options } = instance;
 	const platform = options.platform ?? "Win64";
@@ -62,14 +70,24 @@ export const launchGame = async (instance: Instance) => {
 
 	logCommandOutput(command, "launch");
 
+	const launchState = { childPid: undefined as number | undefined, closed: false };
 	command.on("close", () => {
-		processesList.value = processesList.value.filter((p) => p.instance.id !== instance.id);
+		launchState.closed = true;
+		if (launchState.childPid !== undefined) {
+			processesList.value = processesList.value.filter(
+				(p) => p.child.pid !== launchState.childPid,
+			);
+		}
 	});
 
 	const child = await command.spawn();
+	launchState.childPid = child.pid;
+	if (launchState.closed) return;
 
 	const process: Process = {
 		status: "on",
+		sessionNumber: nextSessionNumber(instance.id),
+		startedAt: Date.now(),
 		child,
 		command,
 		instance,
@@ -81,8 +99,13 @@ export const launchGame = async (instance: Instance) => {
 const KILL_GRACE_MS = 5000;
 
 export const killGame = async (instance: Instance) => {
-	const process = processesList.value.find((p: Process) => p.instance.id === instance.id);
-	if (!process) return;
+	const windows = processesList.value.filter((p: Process) => p.instance.id === instance.id);
+	await Promise.all(windows.map((p) => stopGameWindow(p)));
+};
+
+export const stopGameWindow = async (process: Process) => {
+	if (process.status === "stopping") return;
+	process.status = "stopping";
 
 	await process.child.write("kill\n").catch(() => {});
 
