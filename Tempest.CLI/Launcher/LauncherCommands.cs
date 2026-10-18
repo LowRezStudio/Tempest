@@ -168,12 +168,9 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
                 {
                     if (mod.Enabled && string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
                     {
+                        // dlls/64 and dlls/32 are per client; dlls/ itself is the legacy layout.
                         var dllsDir = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id), "dlls");
-                        if (Directory.Exists(dllsDir))
-                        {
-                            var files = Directory.GetFiles(dllsDir, "*.dll", SearchOption.AllDirectories);
-                            allDlls.AddRange(files);
-                        }
+                        allDlls.AddRange(ModDlls.ForProcess(dllsDir, is64Bit));
                     }
                 }
             }
@@ -183,9 +180,19 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
             Console.Error.WriteLine($"Warning: Failed to load V2 mod DLLs for injection: {ex.Message}");
         }
 
-        if (allDlls.Count > 0)
+        // `--dll` paths are taken as given, except that a DLL built for the other
+        // client cannot load into this process and is skipped instead.
+        var matchingDlls = allDlls.Distinct(StringComparer.OrdinalIgnoreCase).Where(d =>
         {
-            await Task.WhenAll(allDlls.Distinct(StringComparer.OrdinalIgnoreCase).Select(d => process.InjectLibraryAsync(d, is64Bit)));
+            var dll64 = PeImage.Is64Bit(d);
+            if (dll64 is null || dll64 == is64Bit)
+                return true;
+            Console.Error.WriteLine($"[inject] skipping {Path.GetFileName(d)}: built for {(dll64.Value ? "Win64" : "Win32")}, the game is {(is64Bit ? "Win64" : "Win32")}");
+            return false;
+        }).ToList();
+        if (matchingDlls.Count > 0)
+        {
+            await Task.WhenAll(matchingDlls.Select(d => process.InjectLibraryAsync(d, is64Bit)));
         }
         if (isServer)
         {

@@ -250,10 +250,10 @@ internal class ModCommands
                 return;
             }
 
-            var dlls = Directory.GetFiles(dllsDir, "*.dll", SearchOption.AllDirectories);
-            if (dlls.Length == 0)
+            var dlls = Launcher.ModDlls.ForProcess(dllsDir, is64Bit);
+            if (dlls.Count == 0)
             {
-                var fail = new ModInstallResult { Success = false, Message = $"No DLL files found for mod '{modId}'." };
+                var fail = new ModInstallResult { Success = false, Message = $"No DLL files for a {(is64Bit ? "Win64" : "Win32")} game found for mod '{modId}'." };
                 PrintResult(fail, json);
                 return;
             }
@@ -264,7 +264,7 @@ internal class ModCommands
             {
                 Success = allSucceeded,
                 Message = allSucceeded
-                    ? $"Successfully reloaded {dlls.Length} DLL(s) for mod '{modId}'."
+                    ? $"Successfully reloaded {dlls.Count} DLL(s) for mod '{modId}'."
                     : $"Failed to reload some DLLs for mod '{modId}'."
             };
             PrintResult(ok, json);
