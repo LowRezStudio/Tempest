@@ -1,4 +1,4 @@
-//! Anti-cheat XOR key for `TAntiCheatArray` (port of WolperMod `EngineTls.cpp`).
+//! Anti-cheat XOR key for `TAntiCheatArray`.
 //!
 //! GObjects/GNames entries are stored as `Data[i] ^ key(i)`. The key table
 //! lives in the game main thread's TLS block:

@@ -253,7 +253,7 @@ fn readable_regions(module: Module) -> Vec<(usize, usize)> {
 }
 
 // ---------------------------------------------------------------------------
-// Operand decoding (x64: WolperMod RelativeAddress.h; x86: absolute disp32)
+// Operand decoding (x64: rip-relative disp32; x86: absolute disp32)
 // ---------------------------------------------------------------------------
 
 /// `mov reg, [rip+disp32]` (7 bytes, disp at +3) → address of the global.

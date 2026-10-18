@@ -352,8 +352,8 @@ Roadmap and known gaps: `ROADMAP.md`.
 
 ## How it finds the game
 
-No static game addresses. Five WolperMod signatures (proven on this client
-build) resolve `GObjects`, `GNames`, `GEngine`, `ProcessEvent`, and the
+No static game addresses. Five signatures (proven on this client build)
+resolve `GObjects`, `GNames`, `GEngine`, `ProcessEvent`, and the
 anti-cheat XOR helper; the XOR key table is read from the main thread's TLS
 block (`tls.rs`). `GNames[0] == "None"` is the live self-test.
 
@@ -372,7 +372,7 @@ crates/tempest-scripting/src/
   memory.rs    module, safe region scan, read/write, x64 RIP-relative / x86 absolute operand decoding
   hooks.rs     address hooks (memory.hook: runtime stubs + detours + handler chain) and raw calls;
                Win64 and Win32 (calling conventions) assembly entries
-  tls.rs       anti-cheat XOR key (WolperMod EngineTls port; key table layout per client)
+  tls.rs       anti-cheat XOR key (main-thread TLS key table; layout per client)
   unreal.rs    signatures and layouts for both clients, names/objects, reflection, subscriptions, hooks
   lua_api.rs   tempest.* / memory.* / Object proxy
   loader.rs    scripts/ discovery (installed + dev mods), run, reload
@@ -405,10 +405,9 @@ scripts/       package.sh (macOS/Linux), package.ps1 (Windows), pack.py (zip + C
   versions are untested but the same signatures may well resolve (the log
   says which did). Win32 layouts and signatures were lifted from
   `Paladins-32.exe` in Binary Ninja, see the `unreal.rs` header. When a
-  signature fails on a new build: Win64, start from the matching WolperMod
-  revision; Win32, `ProcessEvent` is the function testing
-  `FunctionFlags & 0x402`, the array accessors the `and edx, 0x3ff` TLS
-  lookups. Bytecode pointer operands are 8 bytes on both clients.
+  signature fails on a new build, `ProcessEvent` is the function testing
+  `FunctionFlags & 0x402` and the array accessors are the `and reg, 0x3ff`
+  TLS lookups (Win64: `xor r8, [rax+rsi*8]`; Win32: `xor eax, [ecx+esi*4]`). Bytecode pointer operands are 8 bytes on both clients.
 - Win32: `panic = "abort"` (see Build), 32-bit `memory.read_u64` reads are
   still exact, pointers are 32-bit.
 - `TMap` cannot grow from Lua (`set` on existing keys only): inserting needs

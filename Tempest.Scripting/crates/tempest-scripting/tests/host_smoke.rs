@@ -8,7 +8,7 @@ fn layouts_match_the_sdk() {
     use unreal::layout::*;
     assert_eq!((CPF_PARM, CPF_OUT_PARM, CPF_RETURN_PARM), (0x80, 0x100, 0x400));
     if PTR == 8 {
-        // Win64 client (WolperMod SDK).
+        // Win64 client (8.1 SDK layouts).
         assert_eq!((UOBJECT_OUTER, UOBJECT_NAME, UOBJECT_CLASS), (0x40, 0x48, 0x50));
         assert_eq!((UFIELD_NEXT, USTRUCT_SUPER, USTRUCT_CHILDREN), (0x60, 0x78, 0x80));
         assert_eq!((UPROP_FLAGS, UPROP_OFFSET, UPROP_EXT), (0x70, 0x7C, 0x98));

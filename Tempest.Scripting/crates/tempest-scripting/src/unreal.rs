@@ -2,17 +2,18 @@
 //!
 //! What is baked in, and where it was verified:
 //!
-//! * Win64: the five bootstrap signatures and the TLS-XOR decrypt come
-//!   verbatim from WolperMod (`runtime/src/Runtime/ModuleEntry.cpp`,
-//!   `EngineTls.cpp`), a working client mod for this exact build.
+//! * Win64: the five bootstrap signatures and the TLS-XOR decrypt were
+//!   live-verified on the 8.1 client (the signatures sit on the GObjects /
+//!   GNames accessors, a GEngine use, a ProcessEvent call site and the
+//!   anti-cheat key check; the key table lives in the main thread's TLS).
 //! * Win32: signatures and layouts were lifted from `Paladins-32.exe` (8.1)
 //!   in Binary Ninja, matched against the Win64 build function by function
 //!   (`ProcessEvent`, the `TAntiCheatArray` accessors, `appRealloc`, the
 //!   Windows message pump for `GEngine`).
 //! * Engine-core layouts (`UObject`, `FName`, `FNameEntry`, `TArray`,
 //!   `TAntiCheatArray`, `UField`/`UStruct`/`UProperty`) match the 8.1 client
-//!   SDK (`WolperMod/runtime/SDK/PL_Basic.hpp`, `PL_Core_classes.hpp`) and
-//!   the 8.2 server debug types in Binary Ninja. They are identical between
+//!   (a generated SDK of that build, live-verified) and the 8.2 server debug
+//!   types in Binary Ninja. They are identical between
 //!   the two builds, unlike game-class field offsets, which is why property
 //!   access walks live `UProperty` reflection instead of hardcoding offsets.
 //!
@@ -46,7 +47,7 @@ use std::time::{Duration, Instant};
 
 use crate::memory;
 
-// --- Win64 signatures (WolperMod) -------------------------------------------
+// --- Win64 signatures (8.1 client) -------------------------------------------
 #[cfg(target_pointer_width = "64")]
 pub const SIG_GOBJECTS: &str = "48 8B 05 ? ? ? ? 4C 8B 04 0A 4C 33 04 F0 44";
 #[cfg(target_pointer_width = "64")]
@@ -66,7 +67,7 @@ pub const SIG_GMALLOC: &str = "48 8B 0D ? ? ? ? 48 8B 01 44 8B CB 44 8B C7 48 8B
 pub const SIG_GNATIVES_LEA: &str = "4C 8D 2D ? ? ? ?";
 /// Inside `ProcessEvent`: `or dword [rip+GRuntimeUCFlags], 2` (RUC_SkippedOptionalParm).
 pub const SIG_RUNTIME_UC_FLAGS: &str = "83 0D ? ? ? ? 02";
-/// WolperMod: `ReadImmediate32(xorFunction + 0x63)` reads the u32 at `+2`.
+/// The key mask is the u32 immediate at `xor_helper + 0x63 + 2` (`and reg, imm32`).
 #[cfg(target_pointer_width = "64")]
 const XOR_MASK_IMM: usize = 0x63 + 2;
 
@@ -474,7 +475,7 @@ fn scan_signatures(m: memory::Module, g: &mut Globals) {
     }
 }
 
-/// Win64 client: WolperMod's signatures.
+/// Win64 client: the five 8.1 signatures.
 #[cfg(target_pointer_width = "64")]
 fn scan_signatures(m: memory::Module, g: &mut Globals) {
     crate::log::line(
