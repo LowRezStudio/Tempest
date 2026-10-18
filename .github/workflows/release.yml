@@ -1,5 +1,5 @@
 name: Release Build
-run-name: Release v${{ github.ref_name }}
+run-name: Release ${{ github.ref_name }}
 
 on:
   push:
@@ -11,7 +11,42 @@ permissions:
   contents: write
 
 jobs:
+  # One draft release per tag, created before any platform builds so that
+  # tauri-action and electron-builder both attach to it instead of each
+  # creating their own. The body is the annotated tag's message, passed
+  # through the environment (notes may contain quotes).
+  release:
+    runs-on: ubuntu-22.04
+    outputs:
+      notes: ${{ steps.notes.outputs.notes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get release notes from tag
+        id: notes
+        shell: bash
+        run: |
+          notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME" 2>/dev/null || echo "")
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$notes" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ steps.notes.outputs.notes }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --draft --notes "$NOTES"
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --title "Tempest Launcher $GITHUB_REF_NAME" --notes "$NOTES"
+          fi
+
   build:
+    needs: release
     strategy:
       fail-fast: false
       matrix:
@@ -143,15 +178,6 @@ jobs:
           rm -rf electron/build
           cp -r build electron/build
 
-      - name: Get release notes from tag
-        id: get_notes
-        shell: bash
-        run: |
-          notes=$(git tag -l --format='%(contents)' "${{ github.ref_name }}" 2>/dev/null || echo "")
-          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$notes" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
       - name: Build Tauri app
         if: matrix.backend == 'tauri'
         uses: tauri-apps/tauri-action@v0
@@ -167,7 +193,7 @@ jobs:
           releaseName: 'Tempest Launcher v__VERSION__'
           releaseDraft: true
           prerelease: false
-          releaseBody: ${{ steps.get_notes.outputs.notes }}
+          releaseBody: ${{ needs.release.outputs.notes }}
 
       - name: Build Electron app
         if: matrix.backend == 'electron'
@@ -175,12 +201,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --publish always
-
-      - name: Set release body (Electron only)
-        if: matrix.backend == 'electron'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ github.ref_name }}" --draft --notes "${{ steps.get_notes.outputs.notes }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

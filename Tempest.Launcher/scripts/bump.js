@@ -27,9 +27,6 @@ async function main() {
 	if (!ver) return (console.log("Aborted."), rl.close());
 
 	const notes = await ask("Patch notes (optional)");
-	if (!notes) {
-		notes = "";
-	}
 
 	console.log("\n--- Summary ---");
 	console.log(`Version: ${cur} -> ${ver}`);
@@ -94,7 +91,7 @@ async function main() {
 	rl.close();
 }
 
-main().catch((_error) => {
-	console.error(e);
+main().catch((error) => {
+	console.error(error);
 	process.exit(1);
 });
