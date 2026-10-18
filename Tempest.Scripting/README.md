@@ -1,10 +1,13 @@
-# Tempest.Scripting — Lua modding DLL for Paladins 8.1 (UE3, Win64)
+# Tempest.Scripting — Lua modding DLL for Paladins 8.1 (UE3, Win64 + Win32)
 
-A Rust `cdylib` (`Tempest.Scripting64.dll`) injected like any other V2 mod
-DLL. It hosts a LuaJIT 2.1 VM (Lua 5.1 plus the 5.2 extensions, GC64, with
-`ffi`, `bit` and `jit` loaded), finds the UE3 object model through
-signatures, hooks `UObject::ProcessEvent`, runs `scripts/*.lua`, and draws
-Dear ImGui on the game's D3D9 or D3D11 device for the Lua `ui` module.
+A Rust `cdylib` injected like any other V2 mod DLL, built twice from the same
+source: `Tempest.Scripting64.dll` for the Win64 client and
+`Tempest.Scripting32.dll` for the Win32 client (the launcher injects the one
+matching the game executable). It hosts a LuaJIT 2.1 VM (Lua 5.1 plus the
+5.2 extensions, GC64 on x64, with `ffi`, `bit` and `jit` loaded), finds the
+UE3 object model through signatures, hooks `UObject::ProcessEvent`, runs
+`scripts/*.lua`, and draws Dear ImGui on the game's D3D9 or D3D11 device for
+the Lua `ui` module.
 
 Deliberately small: each layer can be checked on its own before the next
 one is trusted. See `examples/` for the three incremental checks.
@@ -15,12 +18,26 @@ one is trusted. See `examples/` for the three incremental checks.
 # Host checks (macOS/Linux; no game image, all native paths report "unresolved")
 cargo test -p tempest-scripting
 
-# Win64 DLL + the four .tempest packages (local MinGW-w64, or cross/Docker as fallback)
-brew install mingw-w64            # one-time (gcc + g++: ImGui is C++)
-./scripts/package.sh              # -> dist/Tempest.Scripting64.dll, dist/*.tempest
+# Win64 + Win32 DLLs + the four .tempest packages (local MinGW-w64, or cross/Docker as fallback)
+brew install mingw-w64            # one-time (x86_64 and i686 gcc + g++: ImGui is C++)
+brew install --cask wine-stable   # one-time, Win32 build only (runs LuaJIT's host tools, see below)
+./scripts/package.sh              # -> dist/Tempest.Scripting{64,32}.dll, dist/*.tempest
+TEMPEST_SCRIPTING_TARGETS=64 ./scripts/package.sh   # one client only ("64" or "32")
 ```
 
-On Windows: `.\scripts\package.ps1` (MSVC toolchain).
+On Windows: `.\scripts\package.ps1` (MSVC toolchain, `rustup target add
+i686-pc-windows-msvc` for the Win32 DLL).
+
+The Win32 build has two quirks. LuaJIT's code generator must be compiled
+with the target's pointer size, and Apple Silicon has no 32-bit host
+compiler, so `scripts/luajit-hostcc32.sh` builds those host tools as i686
+executables and runs them under Wine (`HOST_CC="gcc -m32"` works instead
+on a Linux host with multilib). And Homebrew's i686 MinGW uses SJLJ
+exceptions while Rust's i686 std unwinds with DWARF, so the Win32 DLL is
+built with `panic = "abort"` (`.cargo/config.toml`): a Rust panic ends the
+game instead of being logged as on Win64; Lua errors are unaffected. A
+DWARF-2 i686 toolchain (MSYS2, Debian's `gcc-mingw-w64-i686`, the `cross`
+image) lifts that.
 
 ## Packages
 
@@ -30,7 +47,7 @@ one as an installable `.tempest` in `dist/`:
 
 | package | source | id | contents |
 |---------|--------|----|----------|
-| `scripting.tempest` | `mods/scripting` | `tempest-scripting` | the DLL, `scripts/core.lua` (diagnostic console commands), `types/tempest.d.lua`, `.luarc.json` |
+| `scripting.tempest` | `mods/scripting` | `tempest-scripting` | `dlls/64/Tempest.Scripting64.dll`, `dlls/32/Tempest.Scripting32.dll`, `scripts/core.lua` (diagnostic console commands), `types/tempest.d.lua`, `.luarc.json` |
 | `console.tempest` | `mods/console` | `tempest-console` | `console.lua`: enables the in-game console (F2) |
 | `dev.tempest` | `mods/dev` | `tempest-dev` | the scratch mod being worked on (for iteration without packing, use the game's `mods/` folder instead, below) |
 | `lib.tempest` | `mods/lib` | `tempest-scripting-lib` | example library mod exporting `greet` |
@@ -42,8 +59,11 @@ DLL; any number of script-only mods can sit next to it.
 ## Install and test
 
 Install the `.tempest` files through the launcher (or `tempest mod install`).
-It injects every `dlls/*.dll` of enabled V2 mods about a second after the
-game starts.
+It injects the DLLs of enabled V2 mods about a second after the game
+starts: `dlls/64/` into the Win64 client, `dlls/32/` into the Win32 one, and
+anything directly in `dlls/` (the pre-split layout) into either, skipping a
+DLL whose PE header says it was built for the other bitness. `--platform
+Win32` launches the 32-bit client.
 
 On inject the DLL opens a console and logs to `%TEMP%\tempest-scripting.log`
 (fresh every run; the previous run is kept as `tempest-scripting.prev.log`).
@@ -56,7 +76,7 @@ The boot sequence, in order, with what each step must print:
 
 | step | log tag | expected |
 |------|---------|----------|
-| signatures | `resolve` | five addresses, `xor mask=0x..` |
+| signatures | `resolve` | the addresses, `xor mask=0x..` (Win32: two anti-cheat arrays, told apart once live) |
 | arrays live | `resolve` | `GNames/GObjects live` (waits up to 90 s) |
 | hook | `hook` | `ProcessEvent detour live at 0x..` |
 | engine loaded | `resolve` | `GEngine live; objects=.. names=..` (waits up to 120 s) |
@@ -111,7 +131,7 @@ from the merged values when missing; `tempest.save_config(tbl)` writes it.
 Environment (overrides the file): `TEMPEST_SCRIPT_DIR` (single scripts
 folder, replaces mod discovery), `TEMPEST_SCRIPT_LOG` (log path),
 `TEMPEST_SCRIPT_CONSOLE=0` (no console window), `TEMPEST_GAME_DIR` (game
-folder when the DLL is not injected from `<game>/Binaries/Win64`).
+folder when the DLL is not injected from `<game>/Binaries/Win64` or `Win32`).
 
 ## Lua API
 
@@ -255,15 +275,23 @@ references), declare an ordinary function with a stub body: `tempest.native`
 implements it through the same handler path and the body is the fallback. See `examples/10_lua_natives.lua`
 and TgMod's `TmLuaTest.TmLuaGame`.
 
-`memory.hook` sees the Win64 integer argument registers (RCX, RDX, R8, R9)
-and then the caller's stack slots, so `this` is `a1` for a method; float
-arguments and results (XMM) are invisible. Several hooks on one address
-chain, newest first; each `original` runs the next one. There is no limit on
-how many addresses can be hooked: each one gets a small stub generated at
-runtime, and the slot stays bound to its address after `unhook` (disabled,
-reused by the next hook on it). The target must be a function entry point
-whose first instructions the detour can relocate; otherwise `memory.hook`
-raises.
+`memory.hook` sees, on Win64, the integer argument registers (RCX, RDX,
+R8, R9) and then the caller's stack slots, so `this` is `a1` for a method;
+floats declared in `opts.args` come from XMM0..3 / the stack and a float
+`ret` goes to XMM0. On Win32 everything is on the stack (8 dword slots, an
+`f64` taking two) except what `opts.conv` puts in registers: `"cdecl"`
+(default) and `"stdcall"` nothing, `"thiscall"` `this` in ECX, `"fastcall"`
+the first two integers in ECX/EDX; the convention also decides who pops the
+arguments, so every hook on one address must agree on `conv`, `args` and
+`ret`, and a float result is returned in ST(0). `memory.call` takes the same
+`conv` in its trailing options table (`memory.call(addr, obj, 1, { conv =
+"thiscall" })` for a C++ method). `tempest.status().arch` says which client
+the DLL runs in. Several hooks on one address chain, newest first; each
+`original` runs the next one. There is no limit on how many addresses can
+be hooked: each one gets a small stub generated at runtime, and the slot
+stays bound to its address after `unhook` (disabled, reused by the next
+hook on it). The target must be a function entry point whose first
+instructions the detour can relocate; otherwise `memory.hook` raises.
 
 Matching: a qualified spec (`Pkg.Class.Func`) binds to that exact `UFunction`
 and fires whenever that function body runs (also inside a `Super` chain);
@@ -341,10 +369,11 @@ patches, so property access walks live `UProperty` reflection.
 crates/tempest-scripting/src/
   lib.rs       DllMain → boot thread: log, resolve, hook, run scripts
   log.rs       file + console + OutputDebugString; panic hook; crash VEH
-  memory.rs    module, safe region scan, read/write, RIP/call math
-  hooks.rs     address hooks (memory.hook: runtime stubs + detours + handler chain) and raw calls
-  tls.rs       anti-cheat XOR key (WolperMod EngineTls port)
-  unreal.rs    signatures, names/objects, reflection, subscriptions, hook
+  memory.rs    module, safe region scan, read/write, x64 RIP-relative / x86 absolute operand decoding
+  hooks.rs     address hooks (memory.hook: runtime stubs + detours + handler chain) and raw calls;
+               Win64 and Win32 (calling conventions) assembly entries
+  tls.rs       anti-cheat XOR key (WolperMod EngineTls port; key table layout per client)
+  unreal.rs    signatures and layouts for both clients, names/objects, reflection, subscriptions, hooks
   lua_api.rs   tempest.* / memory.* / Object proxy
   loader.rs    scripts/ discovery (installed + dev mods), run, reload
   config.rs    tempest.toml runtime settings, per-mod config files, Lua<->TOML
@@ -366,13 +395,22 @@ types/         tempest.d.lua (LuaLS API definitions, shipped in scripting and de
                types/sdk/ is the in-game `tempest_sdk` output for 8.1 (regenerate after a game update)
 .luarc.json    LuaLS config for this repo: completion in examples/ and mods/ against types/
 scripts/       package.sh (macOS/Linux), package.ps1 (Windows), pack.py (zip + CHECKSUMS),
+               luajit-hostcc32.sh (Wine-backed HOST_CC for the Win32 LuaJIT build),
                gen_imgui.py (regenerates the ImGui bindings and types/imgui.d.lua)
 ```
 
 ## Limits
 
-- Paladins 8.1 Win64 client only; a new patch means re-checking the five
-  signatures (start from the matching WolperMod revision).
+- Tested on Paladins 8.1 (Win64 and Win32) and 0.57 / OB57 (Win32); other
+  versions are untested but the same signatures may well resolve (the log
+  says which did). Win32 layouts and signatures were lifted from
+  `Paladins-32.exe` in Binary Ninja, see the `unreal.rs` header. When a
+  signature fails on a new build: Win64, start from the matching WolperMod
+  revision; Win32, `ProcessEvent` is the function testing
+  `FunctionFlags & 0x402`, the array accessors the `and edx, 0x3ff` TLS
+  lookups. Bytecode pointer operands are 8 bytes on both clients.
+- Win32: `panic = "abort"` (see Build), 32-bit `memory.read_u64` reads are
+  still exact, pointers are 32-bit.
 - `TMap` cannot grow from Lua (`set` on existing keys only): inserting needs
   the engine's `TSet` rehash. Native maps (`var native Map{...}`) have no
   key/value types in reflection, so `obj:map(name, keyKind, valueKind)` names

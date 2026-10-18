@@ -8,3 +8,13 @@
 # MSVC and host builds are unaffected.
 [target.x86_64-pc-windows-gnu]
 rustflags = ["-C", "link-arg=-static-libgcc", "-C", "link-arg=-static-libstdc++"]
+
+# Win32 client. Same static runtime, plus panic = abort: Homebrew's i686
+# MinGW uses SJLJ exceptions and Rust's i686 std expects DWARF unwinding, so
+# the two cannot link an unwinder together (`lib.rs` stubs `_Unwind_Resume`).
+# A DWARF-2 i686 toolchain (MSYS2, Debian's gcc-mingw-w64-i686, the `cross`
+# image) can drop the panic flag and get catch_unwind back.
+# --enable-stdcall-fixup: the CRT's DllMainCRTStartup references `_DllMain`,
+# our stdcall entry is `_DllMain@12`; ld fixes that up and should not warn.
+[target.i686-pc-windows-gnu]
+rustflags = ["-C", "link-arg=-static-libgcc", "-C", "link-arg=-static-libstdc++", "-C", "link-arg=-Wl,--enable-stdcall-fixup", "-C", "panic=abort"]

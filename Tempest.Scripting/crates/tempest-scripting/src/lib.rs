@@ -1,11 +1,14 @@
-//! Tempest.Scripting — a small Lua modding DLL for Paladins 8.1 (UE3, Win64).
+//! Tempest.Scripting — a small Lua modding DLL for Paladins 8.1 (UE3), built
+//! for the Win64 client (`Tempest.Scripting64.dll`) and the Win32 client
+//! (`Tempest.Scripting32.dll`) from the same source; `target_pointer_width`
+//! selects the layouts, signatures and calling conventions.
 //!
 //! Boot sequence, all on a worker thread spawned from `DllMain`:
 //!
 //! 1. [`log::init`] — `%TEMP%\tempest-scripting.log`, debugger output, and
 //!    (unless `TEMPEST_SCRIPT_CONSOLE=0`) a console window.
-//! 2. [`unreal::resolve`] — WolperMod's five Win64 signatures give GObjects,
-//!    GNames, the engine slot, `ProcessEvent` and the anti-cheat XOR mask.
+//! 2. [`unreal::resolve`] — the client's signatures give GObjects, GNames,
+//!    the engine slot, `ProcessEvent` and the anti-cheat XOR mask.
 //!    Then it waits for the game to populate the arrays (`GNames[0] == "None"`).
 //! 3. [`unreal::install_hook`] — detours `ProcessEvent`.
 //! 4. [`unreal::wait_for_engine`] — waits for `*GEngine`, i.e. the Engine
@@ -19,8 +22,18 @@
 //! than crashing; the host (macOS/Linux) build has no game image and is only
 //! used for `cargo test`.
 
-#[cfg(all(windows, not(target_pointer_width = "64")))]
-compile_error!("Tempest.Scripting targets the Win64 client only");
+#[cfg(all(windows, not(any(target_arch = "x86_64", target_arch = "x86"))))]
+compile_error!("Tempest.Scripting targets the Win64 and Win32 clients only");
+
+// The Win32 DLL is built with `panic = "abort"` (see `.cargo/config.toml`:
+// the MinGW toolchain Homebrew ships for i686 uses SJLJ exceptions, which
+// Rust's DWARF-unwinding std cannot link against). std's precompiled
+// objects still carry landing pads that reference `_Unwind_Resume`; with
+// abort-on-panic nothing ever unwinds, so a stub satisfies the linker and is
+// never reached (`ud2` ends the process if it ever were). Defined in
+// assembly rather than as a `#[no_mangle]` fn so it does not become a DLL export.
+#[cfg(all(windows, target_arch = "x86"))]
+std::arch::global_asm!(".text", ".globl __Unwind_Resume", "__Unwind_Resume:", "    ud2");
 
 pub mod config;
 pub mod hooks;
@@ -61,6 +74,11 @@ pub fn lua() -> &'static Lua {
     })
 }
 
+/// `"x64"` or `"x86"`: which client this DLL targets.
+pub fn arch() -> &'static str {
+    if cfg!(target_pointer_width = "64") { "x64" } else { "x86" }
+}
+
 /// Full startup. Safe to call from the host build (everything stubs out).
 pub fn boot() {
     // The first runtime in the process starts a fresh log; a second copy
@@ -80,8 +98,9 @@ pub fn boot() {
     log::line(
         "boot",
         &format!(
-            "Tempest.Scripting {} pid={} log={} dll={}",
+            "Tempest.Scripting {} ({}) pid={} log={} dll={}",
             env!("CARGO_PKG_VERSION"),
+            arch(),
             std::process::id(),
             log::path().unwrap_or_default(),
             log::module_offset(boot as *const () as usize)
@@ -101,7 +120,7 @@ pub fn boot() {
     if let Some(what) = watch::start() {
         log::line("hot", &format!("watching {what}"));
     }
-    if let Some(types) = loader::dll_dir().and_then(|d| d.parent().map(|m| m.join("types"))) {
+    if let Some(types) = loader::mod_dir().map(|m| m.join("types")) {
         let written = config::seed_dev_types(&types);
         if !written.is_empty() {
             log::line("config", &format!("editor types for the dev folder: {}", written.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")));

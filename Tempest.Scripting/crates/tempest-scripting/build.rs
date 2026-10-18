@@ -39,7 +39,7 @@ fn main() {
     } else {
         b.flag("/EHs-c-").flag("/GR-").flag("/std:c++17");
     }
-    if target == "x86_64-pc-windows-gnu" {
+    if target.ends_with("-pc-windows-gnu") {
         // Link libstdc++ statically: the game folder has no libstdc++-6.dll.
         // cc would add a plain `-lstdc++`, which the gcc driver resolves to the
         // import library; point at the archive instead.

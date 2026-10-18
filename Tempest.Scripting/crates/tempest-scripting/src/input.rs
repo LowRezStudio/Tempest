@@ -228,7 +228,10 @@ fn key_event(vk: u32, ctrl: bool, shift: bool, alt: bool, is_down: bool, is_repe
 #[cfg(windows)]
 #[link(name = "user32")]
 extern "system" {
+    // user32 has no *Ptr exports on Win32; the macros resolve to the LONG versions.
+    #[cfg_attr(target_pointer_width = "32", link_name = "SetWindowLongW")]
     fn SetWindowLongPtrW(hwnd: usize, index: i32, value: isize) -> isize;
+    #[cfg_attr(target_pointer_width = "32", link_name = "GetWindowLongW")]
     fn GetWindowLongPtrW(hwnd: usize, index: i32) -> isize;
     fn GetClassNameW(hwnd: usize, buf: *mut u16, len: i32) -> i32;
     fn CallWindowProcW(prev: isize, hwnd: usize, msg: u32, wparam: usize, lparam: isize) -> isize;

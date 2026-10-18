@@ -227,20 +227,22 @@ unsafe extern "system" fn veh_handler(ptrs: *mut std::ffi::c_void) -> i32 {
     }
     let addr = (*rec).address as usize;
     let (p0, p1) = ((*rec).info[0], (*rec).info[1]);
-    let mut text = format!(
+    // The header goes out before the stack walk, so a fault while walking
+    // (which the BUSY guard swallows) still leaves the crash on record.
+    emit(&format!(
         "[VEH][crash] {name} code=0x{code:08X} at={} info=(0x{p0:x}, 0x{p1:x}) thread=t{}\n",
         module_offset(addr),
         GetCurrentThreadId()
-    );
+    ));
     let ctx = (*(ptrs as *const ExceptionPointers)).context;
     if !ctx.is_null() {
-        text.push_str("[VEH][stack]");
+        let mut text = String::from("[VEH][stack]");
         for (i, pc) in backtrace(ctx).into_iter().enumerate() {
             text.push_str(&format!(" #{i} {}", module_offset(pc)));
         }
         text.push('\n');
+        emit(&text);
     }
-    emit(&text);
     BUSY.store(false, Ordering::Release);
     CONTINUE_SEARCH
 }
@@ -270,7 +272,7 @@ pub fn module_offset(addr: usize) -> String {
 
 /// Return addresses above the faulting frame, from the exception CONTEXT,
 /// unwound with the loader's own tables (`RtlVirtualUnwind`).
-#[cfg(windows)]
+#[cfg(all(windows, target_arch = "x86_64"))]
 unsafe fn backtrace(ctx: *mut std::ffi::c_void) -> Vec<usize> {
     const CONTEXT_SIZE: usize = 0x4D0;
     const RSP: usize = 0x98;
@@ -308,6 +310,61 @@ unsafe fn backtrace(ctx: *mut std::ffi::c_void) -> Vec<usize> {
     out
 }
 
+/// Return addresses above the faulting frame on x86. There is no unwind
+/// table to follow and frame-pointer omission is common, so this is a stack
+/// scan: every dword from ESP upwards that points just past a `call` into a
+/// loaded module's code. Noisy (stale frames show up too) but it never
+/// misses the live frames; the faulting EIP comes first.
+#[cfg(all(windows, target_arch = "x86"))]
+unsafe fn backtrace(ctx: *mut std::ffi::c_void) -> Vec<usize> {
+    const ESP: usize = 0xC4;
+    const EIP: usize = 0xB8;
+    let get = |off: usize| std::ptr::read_unaligned((ctx as *const u8).add(off) as *const u32) as usize;
+    let mut out = vec![get(EIP)];
+    let esp = get(ESP);
+    if esp == 0 || esp % 4 != 0 {
+        return out;
+    }
+    let mut addr = esp;
+    let end = esp + 0x2000;
+    while addr < end && out.len() < 40 {
+        if !crate::memory::is_readable(addr, 4) {
+            break;
+        }
+        let v = *(addr as *const u32) as usize;
+        addr += 4;
+        if v < 0x10000 || !looks_like_return_address(v) {
+            continue;
+        }
+        out.push(v);
+    }
+    out
+}
+
+/// Is `v` inside a loaded module and preceded by a `call` instruction
+/// (`E8 rel32`, or `FF /2` with the usual ModRM forms)?
+#[cfg(all(windows, target_arch = "x86"))]
+unsafe fn looks_like_return_address(v: usize) -> bool {
+    const FROM_ADDRESS: u32 = 0x4;
+    const UNCHANGED_REFCOUNT: u32 = 0x2;
+    let mut module: *mut std::ffi::c_void = std::ptr::null_mut();
+    if GetModuleHandleExW(FROM_ADDRESS | UNCHANGED_REFCOUNT, v as *const u16, &mut module) == 0 || module.is_null() {
+        return false;
+    }
+    if !crate::memory::is_readable(v - 7, 7) {
+        return false;
+    }
+    let b = |off: usize| *((v - off) as *const u8);
+    b(5) == 0xE8 // call rel32
+        || (b(2) == 0xFF && b(1) & 0xF8 == 0xD0) // call reg
+        || (b(3) == 0xFF && b(2) & 0xF8 == 0x50 && b(2) != 0x54) // call [reg+disp8]
+        || (b(6) == 0xFF && b(5) & 0xF8 == 0x90) // call [reg+disp32]
+        || (b(6) == 0xFF && b(5) == 0x15) // call [disp32]
+        || (b(4) == 0xFF && b(3) == 0x54) // call [reg+reg*s+disp8]
+        || (b(7) == 0xFF && b(6) == 0x94) // call [reg+reg*s+disp32]
+        || (b(3) == 0xFF && b(2) == 0x14) // call [reg+reg*s]
+}
+
 #[cfg(windows)]
 #[link(name = "kernel32")]
 extern "system" {
@@ -328,7 +385,9 @@ extern "system" {
     ) -> *mut std::ffi::c_void;
     fn GetModuleHandleExW(flags: u32, name: *const u16, module: *mut *mut std::ffi::c_void) -> i32;
     fn GetModuleFileNameW(module: *mut std::ffi::c_void, buf: *mut u16, len: u32) -> u32;
+    #[cfg(target_arch = "x86_64")]
     fn RtlLookupFunctionEntry(pc: u64, image_base: *mut u64, history: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    #[cfg(target_arch = "x86_64")]
     fn RtlVirtualUnwind(
         handler_type: u32,
         image_base: u64,

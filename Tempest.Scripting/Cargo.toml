@@ -2,6 +2,12 @@
 members = ["crates/tempest-scripting"]
 resolver = "2"
 
+# retour 0.2 implements its traits for `extern "win64"` unconditionally, which
+# rustc rejects when compiling for the Win32 client; crates/retour is the
+# published crate with that impl gated to x86_64 (see its TEMPEST_VENDORED.txt).
+[patch.crates-io]
+retour = { path = "crates/retour" }
+
 [profile.release]
 opt-level = "s"
 lto = true

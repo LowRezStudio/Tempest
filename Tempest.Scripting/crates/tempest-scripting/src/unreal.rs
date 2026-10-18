@@ -1,10 +1,14 @@
-//! UE3 object model for the Paladins 8.1 Win64 client.
+//! UE3 object model for the Paladins 8.1 client, Win64 and Win32.
 //!
 //! What is baked in, and where it was verified:
 //!
-//! * The five bootstrap signatures and the TLS-XOR decrypt come verbatim
-//!   from WolperMod (`runtime/src/Runtime/ModuleEntry.cpp`, `EngineTls.cpp`),
-//!   a working client mod for this exact build.
+//! * Win64: the five bootstrap signatures and the TLS-XOR decrypt come
+//!   verbatim from WolperMod (`runtime/src/Runtime/ModuleEntry.cpp`,
+//!   `EngineTls.cpp`), a working client mod for this exact build.
+//! * Win32: signatures and layouts were lifted from `Paladins-32.exe` (8.1)
+//!   in Binary Ninja, matched against the Win64 build function by function
+//!   (`ProcessEvent`, the `TAntiCheatArray` accessors, `appRealloc`, the
+//!   Windows message pump for `GEngine`).
 //! * Engine-core layouts (`UObject`, `FName`, `FNameEntry`, `TArray`,
 //!   `TAntiCheatArray`, `UField`/`UStruct`/`UProperty`) match the 8.1 client
 //!   SDK (`WolperMod/runtime/SDK/PL_Basic.hpp`, `PL_Core_classes.hpp`) and
@@ -12,22 +16,27 @@
 //!   the two builds, unlike game-class field offsets, which is why property
 //!   access walks live `UProperty` reflection instead of hardcoding offsets.
 //!
-//! Layout cheat sheet (x64):
+//! Layout cheat sheet (x64 / x86):
 //!
 //! ```text
-//! TAntiCheatArray   Data@0x00  Unk00@0x08  Count@0x0C   (client only; 8-byte
-//!                   XOR-encrypted entries. Count@0x0C is live-verified on 8.1;
-//!                   the 8.2 server uses a plain TArray, do not copy its layout)
-//! TArray            Data@0x00  Count@0x08  Max@0x0C
-//! FName             Index@0x00 Number@0x04
-//! FNameEntry        Flags@0x00 Index@0x08 (bit0 = wide)  Name@0x14
-//! UObject           Outer@0x40 Name@0x48 Class@0x50
-//! UField            Next@0x60
-//! UStruct           SuperField@0x78 Children@0x80
-//! UStruct           PropertySize@0x88 (UFunction: params frame size)
-//! UFunction         FunctionFlags@0xD0
+//! TAntiCheatArray   Data@0 Unk00@8 Count@0xC       / Data@0 Unk00@4 Count@8
+//!                   (client only; pointer-sized XOR-encrypted entries.
+//!                   Count@0x0C is live-verified on 8.1 x64; the 8.2 server
+//!                   uses a plain TArray, do not copy its layout)
+//! TArray            Data@0 Count@8 Max@0xC          / Data@0 Count@4 Max@8
+//! FName             Index@0 Number@4                 (both)
+//! FNameEntry        Flags@0 Index@8 (bit0 = wide) Name@0x14 / Name@0x10
+//! UObject           Outer@0x40 Name@0x48 Class@0x50 / Outer@0x28 Name@0x2C Class@0x34
+//! UField            Next@0x60                        / Next@0x3C
+//! UStruct           SuperField@0x78 Children@0x80 PropertySize@0x88
+//!                                                    / 0x48 0x4C 0x50
+//! UFunction         FunctionFlags@0xD0 Func@0xF0     / 0x84 0xA0
 //! UProperty         ArrayDim@0x68 ElementSize@0x6C Flags@0x70 Offset@0x7C
-//! U*Property        BitMask / PropertyClass / Struct / Inner @0x98
+//!                                                    / 0x40 0x44 0x48 0x54
+//! U*Property        BitMask / PropertyClass / Struct / Inner @0x98 / @0x64
+//! FFrame            Node@0x14 Object@0x1C Code@0x24 Locals@0x2C / 0x10 0x14 0x18 0x1C
+//! bytecode pointer  8 bytes on BOTH clients (EX_ObjectConst, EX_NativeParm operands:
+//!                   `execObjectConst` reads 4 and skips 8 on Win32)
 //! ```
 
 use std::collections::HashMap;
@@ -37,65 +46,192 @@ use std::time::{Duration, Instant};
 
 use crate::memory;
 
+// --- Win64 signatures (WolperMod) -------------------------------------------
+#[cfg(target_pointer_width = "64")]
 pub const SIG_GOBJECTS: &str = "48 8B 05 ? ? ? ? 4C 8B 04 0A 4C 33 04 F0 44";
+#[cfg(target_pointer_width = "64")]
 pub const SIG_GNAMES: &str = "48 8B 05 ? ? ? ? B9 ? ? ? ? 48 8B 0C 0A 48 BA";
+#[cfg(target_pointer_width = "64")]
 pub const SIG_ENGINE: &str = "48 8B 0D ? ? ? ? 48 85 C9 0F 84 ? ? ? ? 48 39 B9 ? ? ? ?";
+#[cfg(target_pointer_width = "64")]
 pub const SIG_PROCESS_EVENT: &str = "E8 ? ? ? ? 8D 4E ? 41 3B CD";
+#[cfg(target_pointer_width = "64")]
 pub const SIG_XOR: &str = "E8 ? ? ? ? 85 C0 75 0F 48 8B 03";
 /// Inside `appRealloc`: `mov rcx,[rip+GMalloc]; mov rax,[rcx]; mov r9d,ebx;
 /// mov r8d,edi; mov rdx,rsi` right before `jmp [rax+0x18]` (FMalloc::Realloc).
+#[cfg(target_pointer_width = "64")]
 pub const SIG_GMALLOC: &str = "48 8B 0D ? ? ? ? 48 8B 01 44 8B CB 44 8B C7 48 8B D6";
 /// Inside `ProcessEvent`: `lea r13,[rip+GNatives]` before the optional-parm loop.
+#[cfg(target_pointer_width = "64")]
 pub const SIG_GNATIVES_LEA: &str = "4C 8D 2D ? ? ? ?";
 /// Inside `ProcessEvent`: `or dword [rip+GRuntimeUCFlags], 2` (RUC_SkippedOptionalParm).
 pub const SIG_RUNTIME_UC_FLAGS: &str = "83 0D ? ? ? ? 02";
 /// WolperMod: `ReadImmediate32(xorFunction + 0x63)` reads the u32 at `+2`.
+#[cfg(target_pointer_width = "64")]
 const XOR_MASK_IMM: usize = 0x63 + 2;
 
+// --- Win32 signatures (Paladins-32.exe 8.1 in Binary Ninja) ------------------
+//
+// `TAntiCheatArray<T>::operator()` is instantiated once per array with the
+// same body: `mov edx,esi; mov eax,[eax+ecx*4]` (TLS block), `mov ecx,
+// [Array.Data]`, `and edx, MASK`, `mov eax,[eax+edx*4+KEY_BASE]`, `xor eax,
+// [ecx+esi*4]`. Only the global differs, so the scan collects every match
+// and `wait_until_ready` tells GNames (entry 0 is "None") from GObjects.
+#[cfg(target_pointer_width = "32")]
+pub const SIG_CHEAT_ARRAY: &str = "8B D6 8B 04 88 8B 0D ? ? ? ? 81 E2 ? ? ? ? 8B 84 90 ? ? ? ? 33 04 B1";
+/// Offsets inside [`SIG_CHEAT_ARRAY`]: the array global, the key mask, the key table base.
+#[cfg(target_pointer_width = "32")]
+const CHEAT_ARRAY_GLOBAL_AT: usize = 7;
+#[cfg(target_pointer_width = "32")]
+const CHEAT_ARRAY_MASK_AT: usize = 13;
+#[cfg(target_pointer_width = "32")]
+const CHEAT_ARRAY_KEY_BASE_AT: usize = 20;
+/// In the Windows message pump: `push 0; push eax; call ebx` (ShowOwnedPopups)
+/// then `mov ecx,[GEngine]; test ecx,ecx; je ...; cmp dword [ecx+GameViewport], 0; je`.
+#[cfg(target_pointer_width = "32")]
+pub const SIG_ENGINE: &str = "6A 00 50 FF D3 8B 0D ? ? ? ? 85 C9 0F 84 ? ? ? ? 83 B9 ? ? ? ? 00 0F 84";
+#[cfg(target_pointer_width = "32")]
+const ENGINE_GLOBAL_AT: usize = 7;
+/// Inside `ProcessEvent`: `test dword [edi+FunctionFlags], FUNC_Event|FUNC_Defined`
+/// (`0x402`), the first use of the UFunction; the entry is the SEH prologue
+/// a few dozen bytes above.
+#[cfg(target_pointer_width = "32")]
+pub const SIG_PROCESS_EVENT: &str = "F7 87 84 00 00 00 02 04 00 00";
+/// `appRealloc`: `mov ecx,[GMalloc]; test ecx,ecx; jne; call <init>; mov ecx,
+/// [GMalloc]; push ...; mov eax,[ecx]; push; push; call [eax+0xC]; ret`.
+#[cfg(target_pointer_width = "32")]
+pub const SIG_GMALLOC: &str = "8B 0D ? ? ? ? 85 C9 75 ? E8 ? ? ? ? 8B 0D ? ? ? ? FF 74 24 0C 8B 01 FF 74 24 0C FF 74 24 0C FF 50 0C C3";
+/// Inside `ProcessEvent`: `mov eax, [edx*4+GNatives]` (the optional-parm default call).
+#[cfg(target_pointer_width = "32")]
+pub const SIG_GNATIVES_LOAD: &str = "8B 04 95 ? ? ? ?";
+
+/// Every built-in signature (the host test checks they parse).
+pub fn signatures() -> Vec<&'static str> {
+    #[cfg(target_pointer_width = "64")]
+    {
+        vec![SIG_GOBJECTS, SIG_GNAMES, SIG_ENGINE, SIG_PROCESS_EVENT, SIG_XOR, SIG_GMALLOC, SIG_GNATIVES_LEA, SIG_RUNTIME_UC_FLAGS]
+    }
+    #[cfg(target_pointer_width = "32")]
+    {
+        vec![SIG_CHEAT_ARRAY, SIG_ENGINE, SIG_PROCESS_EVENT, SIG_GMALLOC, SIG_GNATIVES_LOAD, SIG_RUNTIME_UC_FLAGS]
+    }
+}
+
 pub mod layout {
-    pub const CHEAT_ARRAY_COUNT: usize = 0x0C;
-    pub const TARRAY_COUNT: usize = 0x08;
-    pub const TARRAY_MAX: usize = 0x0C;
-    pub const FNAME_ENTRY_INDEX: usize = 0x08;
-    pub const FNAME_ENTRY_NAME: usize = 0x14;
-    pub const UOBJECT_OUTER: usize = 0x40;
-    pub const UOBJECT_NAME: usize = 0x48;
-    pub const UOBJECT_CLASS: usize = 0x50;
-    pub const UFIELD_NEXT: usize = 0x60;
-    pub const USTRUCT_SUPER: usize = 0x78;
-    pub const USTRUCT_CHILDREN: usize = 0x80;
-    pub const UPROP_ELEMENT_SIZE: usize = 0x6C;
-    pub const UPROP_FLAGS: usize = 0x70;
-    pub const UPROP_OFFSET: usize = 0x7C;
-    pub const UPROP_EXT: usize = 0x98;
-    /// `UMapProperty.Key` / `.Value` (8.1 SDK: 0x10 bytes after UProperty).
-    pub const UMAP_KEY: usize = 0x98;
-    pub const UMAP_VALUE: usize = 0xA0;
-    /// UE3 `TMap` = `TSet<TPair>` over a sparse array (8.1 SDK `PL_Basic.hpp`).
-    pub const TMAP_ELEMENTS: usize = 0x00;
-    pub const TMAP_COUNT: usize = 0x08;
-    pub const TMAP_INLINE_BITS: usize = 0x10;
-    pub const TMAP_INDIRECT_BITS: usize = 0x20;
-    /// `UStruct.PropertySize`: for a `UFunction`, the size of its params frame.
-    pub const USTRUCT_PROPERTY_SIZE: usize = 0x88;
-    pub const UFUNCTION_FLAGS: usize = 0xD0;
-    /// `UFunction.Script` (`TArray<BYTE>`): natives hold an `EX_NativeParm`
-    /// stream here so they can run against a params frame.
-    pub const UFUNCTION_SCRIPT_DATA: usize = 0x8C;
-    pub const UFUNCTION_SCRIPT_NUM: usize = 0x94;
-    pub const UFUNCTION_PARMS_SIZE: usize = 0xE2;
-    pub const UFUNCTION_RETURN_OFFSET: usize = 0xE4;
-    /// `void (UObject::*Func)(FFrame&, void*)`: `ProcessInternal` for script
-    /// functions, the native implementation otherwise.
-    pub const UFUNCTION_FUNC: usize = 0xF0;
-    /// `FFrame` (8.1 client, 4-byte packed; from the ProcessEvent disassembly).
-    pub const FRAME_NODE: usize = 0x14;
-    pub const FRAME_OBJECT: usize = 0x1C;
-    pub const FRAME_CODE: usize = 0x24;
-    pub const FRAME_LOCALS: usize = 0x2C;
-    pub const FRAME_PREVIOUS: usize = 0x34;
-    pub const FRAME_OUT_PARMS: usize = 0x3C;
-    pub const FRAME_SIZE: usize = 0x48;
+    /// Pointer size of the client this DLL is built for.
+    pub const PTR: usize = std::mem::size_of::<usize>();
+
+    #[cfg(target_pointer_width = "64")]
+    mod arch {
+        pub const CHEAT_ARRAY_COUNT: usize = 0x0C;
+        pub const TARRAY_COUNT: usize = 0x08;
+        pub const TARRAY_MAX: usize = 0x0C;
+        pub const FNAME_ENTRY_INDEX: usize = 0x08;
+        pub const FNAME_ENTRY_NAME: usize = 0x14;
+        pub const UOBJECT_OUTER: usize = 0x40;
+        pub const UOBJECT_NAME: usize = 0x48;
+        pub const UOBJECT_CLASS: usize = 0x50;
+        pub const UFIELD_NEXT: usize = 0x60;
+        pub const USTRUCT_SUPER: usize = 0x78;
+        pub const USTRUCT_CHILDREN: usize = 0x80;
+        pub const UPROP_ELEMENT_SIZE: usize = 0x6C;
+        pub const UPROP_FLAGS: usize = 0x70;
+        pub const UPROP_OFFSET: usize = 0x7C;
+        pub const UPROP_EXT: usize = 0x98;
+        /// `UMapProperty.Key` / `.Value` (8.1 SDK: 0x10 bytes after UProperty).
+        pub const UMAP_KEY: usize = 0x98;
+        pub const UMAP_VALUE: usize = 0xA0;
+        /// UE3 `TMap` = `TSet<TPair>` over a sparse array (8.1 SDK `PL_Basic.hpp`).
+        pub const TMAP_ELEMENTS: usize = 0x00;
+        pub const TMAP_COUNT: usize = 0x08;
+        pub const TMAP_INLINE_BITS: usize = 0x10;
+        pub const TMAP_INDIRECT_BITS: usize = 0x20;
+        /// `UStruct.PropertySize`: for a `UFunction`, the size of its params frame.
+        pub const USTRUCT_PROPERTY_SIZE: usize = 0x88;
+        pub const UFUNCTION_FLAGS: usize = 0xD0;
+        /// `UFunction.Script` (`TArray<BYTE>`): natives hold an `EX_NativeParm`
+        /// stream here so they can run against a params frame.
+        pub const UFUNCTION_SCRIPT_DATA: usize = 0x8C;
+        pub const UFUNCTION_SCRIPT_NUM: usize = 0x94;
+        pub const UFUNCTION_PARMS_SIZE: usize = 0xE2;
+        pub const UFUNCTION_RETURN_OFFSET: usize = 0xE4;
+        /// `void (UObject::*Func)(FFrame&, void*)`: `ProcessInternal` for script
+        /// functions, the native implementation otherwise.
+        pub const UFUNCTION_FUNC: usize = 0xF0;
+        /// `FFrame` (8.1 client, 4-byte packed; from the ProcessEvent disassembly).
+        pub const FRAME_NODE: usize = 0x14;
+        pub const FRAME_OBJECT: usize = 0x1C;
+        pub const FRAME_CODE: usize = 0x24;
+        pub const FRAME_LOCALS: usize = 0x2C;
+        pub const FRAME_PREVIOUS: usize = 0x34;
+        pub const FRAME_OUT_PARMS: usize = 0x3C;
+        pub const FRAME_SIZE: usize = 0x48;
+        /// `FOutParmRec { UProperty* Property; BYTE* PropAddr; FOutParmRec* NextOutParm; }`
+        pub const OUTPARM_PROPERTY: usize = 0x00;
+        pub const OUTPARM_ADDR: usize = 0x08;
+        pub const OUTPARM_NEXT: usize = 0x10;
+        pub const OUTPARM_SIZE: usize = 0x18;
+        /// `FMalloc` vtable slots (`appRealloc` → `+0x18`, `appFree` → `+0x20`).
+        pub const GMALLOC_REALLOC: usize = 0x18;
+        pub const GMALLOC_FREE: usize = 0x20;
+        /// `FString` = `TArray<TCHAR>`: Data, Count, Max.
+        pub const FSTRING_SIZE: usize = 0x10;
+    }
+
+    /// Win32 client: every pointer halves, ints and the u64 flags stay. Read
+    /// off `ProcessEvent` (0x574a60 in Paladins-32.exe), the GNames accessor,
+    /// `FNameEntry::AppendNameToString` and `UStructProperty::InitializeValue`.
+    #[cfg(target_pointer_width = "32")]
+    mod arch {
+        pub const CHEAT_ARRAY_COUNT: usize = 0x08;
+        pub const TARRAY_COUNT: usize = 0x04;
+        pub const TARRAY_MAX: usize = 0x08;
+        pub const FNAME_ENTRY_INDEX: usize = 0x08;
+        pub const FNAME_ENTRY_NAME: usize = 0x10;
+        pub const UOBJECT_OUTER: usize = 0x28;
+        pub const UOBJECT_NAME: usize = 0x2C;
+        pub const UOBJECT_CLASS: usize = 0x34;
+        pub const UFIELD_NEXT: usize = 0x3C;
+        pub const USTRUCT_SUPER: usize = 0x48;
+        pub const USTRUCT_CHILDREN: usize = 0x4C;
+        pub const UPROP_ELEMENT_SIZE: usize = 0x44;
+        pub const UPROP_FLAGS: usize = 0x48;
+        pub const UPROP_OFFSET: usize = 0x54;
+        pub const UPROP_EXT: usize = 0x64;
+        pub const UMAP_KEY: usize = 0x64;
+        pub const UMAP_VALUE: usize = 0x68;
+        /// `TSparseArray`: `TArray` (12 bytes), then the `TBitArray` with four
+        /// inline dwords and its secondary-data pointer.
+        pub const TMAP_ELEMENTS: usize = 0x00;
+        pub const TMAP_COUNT: usize = 0x04;
+        pub const TMAP_INLINE_BITS: usize = 0x0C;
+        pub const TMAP_INDIRECT_BITS: usize = 0x1C;
+        pub const USTRUCT_PROPERTY_SIZE: usize = 0x50;
+        pub const UFUNCTION_FLAGS: usize = 0x84;
+        pub const UFUNCTION_SCRIPT_DATA: usize = 0x54;
+        pub const UFUNCTION_SCRIPT_NUM: usize = 0x58;
+        pub const UFUNCTION_PARMS_SIZE: usize = 0x96;
+        pub const UFUNCTION_RETURN_OFFSET: usize = 0x98;
+        pub const UFUNCTION_FUNC: usize = 0xA0;
+        /// `FFrame`: FOutputDevice header (vtable + three ints) then the fields.
+        pub const FRAME_NODE: usize = 0x10;
+        pub const FRAME_OBJECT: usize = 0x14;
+        pub const FRAME_CODE: usize = 0x18;
+        pub const FRAME_LOCALS: usize = 0x1C;
+        pub const FRAME_PREVIOUS: usize = 0x20;
+        pub const FRAME_OUT_PARMS: usize = 0x24;
+        pub const FRAME_SIZE: usize = 0x28;
+        pub const OUTPARM_PROPERTY: usize = 0x00;
+        pub const OUTPARM_ADDR: usize = 0x04;
+        pub const OUTPARM_NEXT: usize = 0x08;
+        pub const OUTPARM_SIZE: usize = 0x0C;
+        /// `FMalloc` vtable: Malloc +8, Realloc +0xC, Free +0x10.
+        pub const GMALLOC_REALLOC: usize = 0x0C;
+        pub const GMALLOC_FREE: usize = 0x10;
+        pub const FSTRING_SIZE: usize = 0x0C;
+    }
+    pub use arch::*;
+
     /// Bytecode opcodes, from the 8.2 `GRegisterNative` static initializer
     /// (standard UE3 numbering; the thunk relies on the first three).
     pub const EX_END_FUNCTION_PARMS: u8 = 0x16;
@@ -105,14 +241,11 @@ pub mod layout {
     pub const EX_NEW: u8 = 0x11;
     pub const EX_OBJECT_CONST: u8 = 0x20;
     pub const EX_STRING_CONST: u8 = 0x1F;
-    /// `FOutParmRec { UProperty* Property; BYTE* PropAddr; FOutParmRec* NextOutParm; }`
-    pub const OUTPARM_PROPERTY: usize = 0x00;
-    pub const OUTPARM_ADDR: usize = 0x08;
-    pub const OUTPARM_NEXT: usize = 0x10;
-    pub const OUTPARM_SIZE: usize = 0x18;
-    /// `FMalloc` vtable slots (`appRealloc` → `+0x18`, `appFree` → `+0x20`).
-    pub const GMALLOC_REALLOC: usize = 0x18;
-    pub const GMALLOC_FREE: usize = 0x20;
+    /// Size of a pointer operand in bytecode (`ScriptPointerType`): 8 on
+    /// both clients, since the cooked script packages are shared between
+    /// them. The Win32 `execObjectConst` / `execNativeParm` read the low
+    /// dword and advance `Code` by 8.
+    pub const SCRIPT_PTR_SIZE: usize = 8;
     pub const CPF_OPTIONAL_PARM: u64 = 0x10;
     pub const CPF_PARM: u64 = 0x80;
     pub const CPF_OUT_PARM: u64 = 0x100;
@@ -124,14 +257,32 @@ pub mod layout {
     pub const FUNC_DEFINED: u32 = 0x2;
     /// `dllimport` function of a `DLLBind` class: no body, no C++; Lua implements it.
     pub const FUNC_DLL_IMPORT: u32 = 0x0200_0000;
-    /// `FString` = `TArray<TCHAR>`: Data, Count, Max.
-    pub const FSTRING_SIZE: usize = 0x10;
     /// `ProcessEvent` runs the per-optional-parm default prologue when set.
     pub const FUNC_HAS_OPTIONAL_PARMS: u32 = 0x404000;
     /// `GRuntimeUCFlags` bit: the caller skipped the optional parm being evaluated.
     pub const RUC_SKIPPED_OPTIONAL_PARM: u32 = 0x2;
 }
 use layout::*;
+
+/// `GNatives[op](Context, Stack&, Result)` and `UFunction.Func(this, Stack&,
+/// Result)`: `__thiscall` member functions on the Win32 client (`this` in
+/// ECX, callee pops), the one Win64 convention otherwise.
+#[cfg(all(windows, target_arch = "x86"))]
+pub type ExecFn = extern "thiscall" fn(usize, usize, usize);
+#[cfg(not(all(windows, target_arch = "x86")))]
+pub type ExecFn = extern "system" fn(usize, usize, usize);
+/// `FMalloc::Realloc(this, ptr, size, align)`.
+#[cfg(all(windows, target_arch = "x86"))]
+type ReallocFn = extern "thiscall" fn(usize, usize, u32, u32) -> usize;
+#[cfg(not(all(windows, target_arch = "x86")))]
+#[cfg_attr(not(windows), allow(dead_code))]
+type ReallocFn = extern "system" fn(usize, usize, u32, u32) -> usize;
+/// `FMalloc::Free(this, ptr)`.
+#[cfg(all(windows, target_arch = "x86"))]
+type FreeFn = extern "thiscall" fn(usize, usize);
+#[cfg(not(all(windows, target_arch = "x86")))]
+#[cfg_attr(not(windows), allow(dead_code))]
+type FreeFn = extern "system" fn(usize, usize);
 
 /// How long `resolve` waits for the game to fill GNames/GObjects after the
 /// signatures resolved (the launcher injects ~1 s after process start).
@@ -208,23 +359,129 @@ pub fn resolve() -> Globals {
     g
 }
 
+/// Logs one signature lookup and returns the first hit.
+fn find_sig(m: memory::Module, name: &str, sig: &str) -> Option<usize> {
+    let pat = memory::parse_pattern(sig).expect("built-in signature parses");
+    let hit = memory::scan(m, &pat);
+    crate::log::line(
+        "resolve",
+        &format!(
+            "{name}: {}",
+            hit.map(|a| format!("0x{a:x}")).unwrap_or_else(|| "NOT FOUND".into())
+        ),
+    );
+    hit
+}
+
+/// `TAntiCheatArray` globals the Win32 scan found; `wait_until_ready` sorts
+/// out which is GNames and which GObjects once the game filled them.
+static ARRAY_CANDIDATES: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+/// Win32 client: the array accessors give the globals, the key mask and the
+/// key table base; `ProcessEvent` is found by its first flag test and holds
+/// `GNatives` and `GRuntimeUCFlags`; `appRealloc` holds `GMalloc`; the
+/// message pump holds `GEngine`.
+#[cfg(target_pointer_width = "32")]
+fn scan_signatures(m: memory::Module, g: &mut Globals) {
+    crate::log::line("resolve", &format!("module base=0x{:x} size=0x{:x} (Win32 client)", m.base, m.size));
+    let find = |name: &str, sig: &str| find_sig(m, name, sig);
+
+    let pat = memory::parse_pattern(SIG_CHEAT_ARRAY).expect("built-in signature parses");
+    let hits = memory::scan_all(m, &pat, 16);
+    let mut arrays: Vec<usize> = Vec::new();
+    for hit in &hits {
+        if let Some(global) = memory::abs32_at(*hit, CHEAT_ARRAY_GLOBAL_AT) {
+            if global >= m.base && global < m.base + m.size && !arrays.contains(&global) {
+                arrays.push(global);
+            }
+        }
+    }
+    crate::log::line(
+        "resolve",
+        &format!("anti-cheat array accessors: {} hit(s), globals [{}]", hits.len(), arrays.iter().map(|a| format!("0x{a:x}")).collect::<Vec<_>>().join(", ")),
+    );
+    match hits.first() {
+        Some(&hit) => {
+            match memory::abs32_at(hit, CHEAT_ARRAY_MASK_AT).map(|m| m as u32) {
+                Some(mask) if mask != 0 && (mask + 1).is_power_of_two() => {
+                    crate::log::line("resolve", &format!("xor mask=0x{mask:X}"));
+                    crate::tls::set_mask(mask);
+                    g.xor_mask = Some(mask);
+                }
+                Some(mask) => g.notes.push(format!("xor mask 0x{mask:X} is not (2^n)-1; patch drift?")),
+                None => g.notes.push("xor mask unreadable".into()),
+            }
+            if let Some(base) = memory::abs32_at(hit, CHEAT_ARRAY_KEY_BASE_AT) {
+                if base < 0x100 {
+                    crate::log::line("resolve", &format!("tls key table at +0x{base:x}"));
+                    crate::tls::set_key_base(base);
+                }
+            }
+        }
+        None => g.notes.push("anti-cheat array signature not found (GNames/GObjects unresolved)".into()),
+    }
+    if arrays.len() == 2 {
+        // Provisional: swapped if entry 0 turns out not to be "None".
+        g.gnames = arrays[0];
+        g.gobjects = arrays[1];
+    } else if !arrays.is_empty() {
+        g.gnames = arrays[0];
+        g.notes.push(format!("{} anti-cheat arrays found, expected 2 (GNames + GObjects)", arrays.len()));
+    }
+    *ARRAY_CANDIDATES.lock().unwrap() = arrays;
+
+    match find("engine", SIG_ENGINE).and_then(|i| memory::abs32_at(i, ENGINE_GLOBAL_AT)) {
+        Some(addr) => {
+            crate::log::line("resolve", &format!("engine global at 0x{addr:x}"));
+            g.engine_slot = addr;
+        }
+        None => g.notes.push("engine signature not found".into()),
+    }
+
+    match find("processevent", SIG_PROCESS_EVENT).and_then(|flag_test| memory::function_start_before(flag_test, 0x80)) {
+        Some(addr) => {
+            crate::log::line("resolve", &format!("ProcessEvent at 0x{addr:x}"));
+            g.process_event = addr;
+        }
+        None => g.notes.push("processevent signature not found".into()),
+    }
+
+    match find("gmalloc", SIG_GMALLOC).and_then(|i| memory::abs32_at(i, 2)) {
+        Some(slot) => {
+            crate::log::line("resolve", &format!("GMalloc slot at 0x{slot:x}"));
+            g.gmalloc = slot;
+        }
+        None => g.notes.push("gmalloc signature not found (FString growth disabled)".into()),
+    }
+
+    if g.process_event != 0 {
+        let pat = memory::parse_pattern(SIG_GNATIVES_LOAD).expect("built-in signature parses");
+        match memory::scan_range(g.process_event, 0x400, &pat).and_then(|i| memory::abs32_at(i, 3)) {
+            Some(table) => {
+                crate::log::line("resolve", &format!("GNatives at 0x{table:x}"));
+                g.gnatives = table;
+            }
+            None => g.notes.push("GNatives not found inside ProcessEvent (native hooks disabled)".into()),
+        }
+        let pat = memory::parse_pattern(SIG_RUNTIME_UC_FLAGS).expect("built-in signature parses");
+        match memory::scan_range(g.process_event, 0x400, &pat).and_then(|i| memory::abs32_at(i, 2)) {
+            Some(addr) => {
+                crate::log::line("resolve", &format!("GRuntimeUCFlags at 0x{addr:x}"));
+                g.runtime_uc_flags = addr;
+            }
+            None => g.notes.push("GRuntimeUCFlags not found (optional-parm defaults in hooked natives skipped)".into()),
+        }
+    }
+}
+
+/// Win64 client: WolperMod's signatures.
+#[cfg(target_pointer_width = "64")]
 fn scan_signatures(m: memory::Module, g: &mut Globals) {
     crate::log::line(
         "resolve",
-        &format!("module base=0x{:x} size=0x{:x}", m.base, m.size),
+        &format!("module base=0x{:x} size=0x{:x} (Win64 client)", m.base, m.size),
     );
-    let find = |name: &str, sig: &str| -> Option<usize> {
-        let pat = memory::parse_pattern(sig).expect("built-in signature parses");
-        let hit = memory::scan(m, &pat);
-        crate::log::line(
-            "resolve",
-            &format!(
-                "{name}: {}",
-                hit.map(|a| format!("0x{a:x}")).unwrap_or_else(|| "NOT FOUND".into())
-            ),
-        );
-        hit
-    };
+    let find = |name: &str, sig: &str| find_sig(m, name, sig);
 
     if let Some(instr) = find("xor", SIG_XOR) {
         match memory::call_target(instr).and_then(|f| unsafe { memory::read::<u32>(f + XOR_MASK_IMM) }) {
@@ -328,6 +585,22 @@ fn wait_until_ready(g: &mut Globals) {
     loop {
         if !g.gnames_ok {
             g.gnames_ok = name_at_in(g.gnames, 0, 0).as_deref() == Some("None");
+            if !g.gnames_ok {
+                // Win32: the accessors do not say which array is which; the
+                // one whose entry 0 reads "None" is GNames.
+                let candidates: Vec<usize> = ARRAY_CANDIDATES.lock().unwrap().clone();
+                if let Some(&names) = candidates.iter().find(|&&c| name_at_in(c, 0, 0).as_deref() == Some("None")) {
+                    if g.gnames != names {
+                        crate::log::line("resolve", &format!("GNames is the anti-cheat array at 0x{names:x}"));
+                    }
+                    g.gnames = names;
+                    g.gnames_ok = true;
+                    if let Some(&objects) = candidates.iter().find(|&&c| c != names) {
+                        g.gobjects = objects;
+                        crate::log::line("resolve", &format!("GObjects is the anti-cheat array at 0x{objects:x}"));
+                    }
+                }
+            }
         }
         if g.gnames_ok && !g.gobjects_ok && g.gobjects != 0 {
             g.gobjects_ok = first_valid_object(g.gobjects).is_some();
@@ -408,8 +681,8 @@ pub fn engine_realloc(ptr: usize, size: usize) -> Option<usize> {
         if f == 0 {
             return None;
         }
-        // SAFETY: FMalloc::Realloc(this, ptr, size, align), thiscall == system on x64.
-        let realloc: extern "system" fn(usize, usize, u32, u32) -> usize = unsafe { std::mem::transmute(f) };
+        // SAFETY: FMalloc::Realloc(this, ptr, size, align) through its vtable.
+        let realloc: ReallocFn = unsafe { std::mem::transmute(f) };
         let p = realloc(gmalloc, ptr, size as u32, 8);
         (p != 0).then_some(p)
     }
@@ -432,7 +705,7 @@ pub fn engine_free(ptr: usize) {
     #[cfg(windows)]
     {
         if f != 0 {
-            let free: extern "system" fn(usize, usize) = unsafe { std::mem::transmute(f) };
+            let free: FreeFn = unsafe { std::mem::transmute(f) };
             free(gmalloc, ptr);
         }
     }
@@ -467,14 +740,15 @@ fn decrypt_entry(array: usize, i: usize) -> Option<usize> {
     if i >= count {
         return None;
     }
-    let raw: usize = unsafe { memory::read(data + i * 8)? };
+    let raw: usize = unsafe { memory::read(data + i * PTR)? };
     if raw == 0 {
         return None;
     }
     let ptr = raw ^ crate::tls::xor_key(i)?;
     // A wrong key (table not filled yet, bad mask) yields garbage; never
     // dereference it. Until the arrays validated, also probe the page.
-    if !(0x10000..0x0000_8000_0000_0000).contains(&ptr) {
+    const USER_SPACE_END: usize = if cfg!(target_pointer_width = "64") { 0x0000_8000_0000_0000u64 as usize } else { 0xFFFF_0000 };
+    if !(0x10000..USER_SPACE_END).contains(&ptr) {
         return None;
     }
     if !TRUSTED.load(Ordering::Relaxed) && !memory::is_readable(ptr, 0x60) {
@@ -844,7 +1118,7 @@ fn align_up(v: usize, a: usize) -> usize {
 
 fn prop_align(p: &Prop) -> usize {
     match p.kind {
-        PropKind::Object | PropKind::Str | PropKind::Array | PropKind::Map => 8,
+        PropKind::Object | PropKind::Str | PropKind::Array | PropKind::Map => PTR,
         PropKind::Byte | PropKind::Bool => 1,
         PropKind::Struct => 4.min(p.elem_size.max(1)),
         _ => 4,
@@ -860,8 +1134,8 @@ pub fn synthetic_prop(kind: &str) -> Option<Prop> {
         "float" => (PropKind::Float, 4, 0),
         "byte" => (PropKind::Byte, 1, 0),
         "name" => (PropKind::Name, 8, 0),
-        "str" | "string" => (PropKind::Str, 16, 0),
-        "object" => (PropKind::Object, 8, 0),
+        "str" | "string" => (PropKind::Str, FSTRING_SIZE, 0),
+        "object" => (PropKind::Object, PTR, 0),
         s if s.starts_with("struct:") => {
             let us = find_object(&format!("ScriptStruct {}", &kind[7..]))?;
             (PropKind::Struct, struct_size(us), us)
@@ -922,7 +1196,7 @@ fn map_value(prop: &Prop) -> Option<Value> {
 }
 
 // ---------------------------------------------------------------------------
-// TArray helpers (Data@0 Num@8 Max@0xC; `inner` has offset 0)
+// TArray helpers (Data@0, then Num, Max; `inner` has offset 0)
 // ---------------------------------------------------------------------------
 
 pub fn array_len(addr: usize) -> usize {
@@ -1515,6 +1789,13 @@ pub fn call_function(obj: usize, func: usize, args: &[Value]) -> Result<Vec<(Str
         .enumerate()
         .map(|(i, _)| i >= args.len())
         .collect();
+    let trace = crate::config::get().trace_calls;
+    if trace {
+        crate::log::line(
+            "call",
+            &format!("{} on {} ({} arg(s), frame 0x{base:x} size 0x{size:x}, {})", object_full_name(func).unwrap_or_default(), object_full_name(obj).unwrap_or_default(), args.len(), if function_is_native(func) { "native" } else { "script" }),
+        );
+    }
     #[cfg(windows)]
     let handled = native::call_with_frame(func, obj, base, &omitted);
     #[cfg(not(windows))]
@@ -1523,6 +1804,9 @@ pub fn call_function(obj: usize, func: usize, args: &[Value]) -> Result<Vec<(Str
     let handled = false;
     if !handled {
         call_original(obj, func, base)?;
+    }
+    if trace {
+        crate::log::line("call", &format!("{} returned", object_name(func).unwrap_or_default()));
     }
 
     // Results are owned copies: the frame dies with this call.
@@ -1947,10 +2231,45 @@ pub fn queue(job: Job) {
 /// Natives whose hook waits for `GPropAddr` (they have `out` params).
 static PENDING_NATIVE_HOOKS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 
+/// Pointer-sized stores to globals in the first `len` bytes of code at
+/// `start`: `mov [rip+disp32], reg` on x64, `mov [disp32], reg` on x86.
+/// Candidates for a global the code writes (see `resolve_gpropaddr`).
+#[cfg(windows)]
+fn global_store_targets(start: usize, len: usize) -> Vec<usize> {
+    let Some(module) = memory::main_module() else { return Vec::new() };
+    let in_image = |t: usize| t >= module.base && t < module.base + module.size;
+    let mut out = Vec::new();
+    for off in 0..len {
+        let a = start + off;
+        let Some(b0) = (unsafe { memory::read::<u8>(a) }) else { break };
+        let Some(b1) = (unsafe { memory::read::<u8>(a + 1) }) else { break };
+        let Some(b2) = (unsafe { memory::read::<u8>(a + 2) }) else { break };
+        let target = if cfg!(target_pointer_width = "64") {
+            if (b0 == 0x48 || b0 == 0x4C) && b1 == 0x89 && b2 & 0xC7 == 0x05 {
+                memory::rel_target(a, 3, 7)
+            } else {
+                None
+            }
+        } else if b0 == 0x89 && b1 & 0xC7 == 0x05 {
+            memory::abs32_at(a, 2)
+        } else if b0 == 0xA3 {
+            memory::abs32_at(a, 1)
+        } else {
+            None
+        };
+        if let Some(t) = target {
+            if in_image(t) && !out.contains(&t) {
+                out.push(t);
+            }
+        }
+    }
+    out
+}
+
 /// Find `GPropAddr` once a live frame header exists: execute one
 /// `EX_NativeParm` for a known property against a scratch frame and look
 /// for the global that now holds `Locals + Offset`. Candidates are the
-/// `mov [rip+X], reg` targets inside `execNativeParm` itself.
+/// stores to globals inside `execNativeParm` itself.
 #[cfg(windows)]
 fn resolve_gpropaddr() -> Option<usize> {
     let g = globals();
@@ -1960,26 +2279,11 @@ fn resolve_gpropaddr() -> Option<usize> {
     if g.gnatives == 0 || !construct::has_frame_header() {
         return None;
     }
-    let exec_addr: usize = unsafe { memory::read(g.gnatives + EX_NATIVE_PARM as usize * 8) }.filter(|&p| p != 0)?;
+    let exec_addr: usize = unsafe { memory::read(g.gnatives + EX_NATIVE_PARM as usize * PTR) }.filter(|&p| p != 0)?;
     let actor = find_class("Engine.Actor")?;
     let field = find_property_object(actor, "Location")?;
     let prop = prop_at(field)?;
-    // Candidate globals: rip-relative 64-bit stores in the exec's first 0x100 bytes.
-    let module = memory::main_module()?;
-    let mut candidates = Vec::new();
-    for off in 0..0x100usize {
-        let a = exec_addr + off;
-        let b0: u8 = unsafe { memory::read(a) }?;
-        let b1: u8 = unsafe { memory::read(a + 1) }?;
-        let b2: u8 = unsafe { memory::read(a + 2) }?;
-        if (b0 == 0x48 || b0 == 0x4C) && b1 == 0x89 && b2 & 0xC7 == 0x05 {
-            let disp: i32 = unsafe { memory::read(a + 3) }?;
-            let target = (a as isize + 7 + disp as isize) as usize;
-            if target >= module.base && target < module.base + module.size && !candidates.contains(&target) {
-                candidates.push(target);
-            }
-        }
-    }
+    let candidates = global_store_targets(exec_addr, 0x100);
     if candidates.is_empty() {
         return None;
     }
@@ -1988,7 +2292,7 @@ fn resolve_gpropaddr() -> Option<usize> {
     let mut locals = [0u8; 0x400];
     let lp = locals.as_mut_ptr() as usize;
     let mut code = vec![EX_NATIVE_PARM];
-    code.extend_from_slice(&field.to_le_bytes());
+    code.extend_from_slice(&(field as u64).to_le_bytes()); // SCRIPT_PTR_SIZE bytes
     let mut frame = [0u8; FRAME_SIZE];
     let fp = frame.as_mut_ptr() as usize;
     construct::write_frame_header(fp);
@@ -2001,7 +2305,7 @@ fn resolve_gpropaddr() -> Option<usize> {
         memory::write(fp + FRAME_PREVIOUS, 0usize);
         memory::write(fp + FRAME_OUT_PARMS, 0usize);
     }
-    let exec: extern "system" fn(usize, usize, usize) = unsafe { std::mem::transmute(exec_addr) };
+    let exec: ExecFn = unsafe { std::mem::transmute(exec_addr) };
     exec(actor, fp, scratch.as_mut_ptr() as usize);
     let expected = lp + prop.offset;
     let found = candidates
@@ -2088,7 +2392,14 @@ extern "system" {
 pub fn construct_object(class: usize, outer: usize, name: Option<&str>) -> Result<usize, String> {
     #[cfg(windows)]
     {
-        construct::new_object(class, outer, name)
+        if crate::config::get().trace_calls {
+            crate::log::line("call", &format!("new {} in {}{}", object_path(class).unwrap_or_default(), object_full_name(outer).unwrap_or_else(|| "(none)".into()), name.map(|n| format!(" named {n}")).unwrap_or_default()));
+        }
+        let r = construct::new_object(class, outer, name);
+        if crate::config::get().trace_calls {
+            crate::log::line("call", &format!("new {} -> {}", object_path(class).unwrap_or_default(), match &r { Ok(p) => format!("0x{p:x}"), Err(e) => e.clone() }));
+        }
+        r
     }
     #[cfg(not(windows))]
     {
@@ -2242,24 +2553,40 @@ mod hook {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::OnceLock;
 
-    type ProcessEventFn =
-        extern "system" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void);
+    /// `UObject::ProcessEvent(UFunction*, void* Parms, void* Result)`: a
+    /// `__thiscall` method on the Win32 client.
+    #[cfg(target_arch = "x86")]
+    type ProcessEventFn = extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void);
+    #[cfg(not(target_arch = "x86"))]
+    type ProcessEventFn = extern "system" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void);
 
-    static HOOK: OnceLock<retour::GenericDetour<ProcessEventFn>> = OnceLock::new();
+    /// Raw detour (retour's typed detours do not know `thiscall`); the
+    /// trampoline is called through `ProcessEventFn`.
+    static HOOK: OnceLock<retour::RawDetour> = OnceLock::new();
 
-    extern "system" fn hooked(
-        this: *mut c_void,
-        func: *mut c_void,
-        parms: *mut c_void,
-        result: *mut c_void,
-    ) {
-        let Some(h) = HOOK.get() else { return };
+    fn trampoline() -> Option<ProcessEventFn> {
+        // SAFETY: the trampoline continues the original ProcessEvent with its ABI.
+        HOOK.get().map(|h| unsafe { std::mem::transmute::<*const (), ProcessEventFn>(h.trampoline() as *const ()) })
+    }
+
+    #[cfg(target_arch = "x86")]
+    extern "thiscall" fn hooked(this: *mut c_void, func: *mut c_void, parms: *mut c_void, result: *mut c_void) {
+        hooked_impl(this, func, parms, result)
+    }
+
+    #[cfg(not(target_arch = "x86"))]
+    extern "system" fn hooked(this: *mut c_void, func: *mut c_void, parms: *mut c_void, result: *mut c_void) {
+        hooked_impl(this, func, parms, result)
+    }
+
+    fn hooked_impl(this: *mut c_void, func: *mut c_void, parms: *mut c_void, result: *mut c_void) {
+        let Some(original) = trampoline() else { return };
         let (o, f, p) = (this as usize, func as usize, parms as usize);
         let _ = catch_unwind(super::drain_queue);
         // Script functions dispatch from the ProcessInternal detour and
         // hooked natives from their thunk; dispatching here too would double up.
         if super::function_is_script(f) || super::native::is_hooked(f) {
-            h.call(this, func, parms, result);
+            original(this, func, parms, result);
             return;
         }
         // A script error is already a Lua error; a Rust panic must not take
@@ -2269,7 +2596,7 @@ mod hook {
         if !proceed {
             return;
         }
-        h.call(this, func, parms, result);
+        original(this, func, parms, result);
         let _ = catch_unwind(AssertUnwindSafe(|| super::on_process_event_after(o, f, p, false)));
     }
 
@@ -2277,8 +2604,8 @@ mod hook {
     /// resolved address when the detour is not installed.
     pub fn call_original(obj: usize, func: usize, parms: usize) -> Result<(), String> {
         let (o, f, p) = (obj as *mut c_void, func as *mut c_void, parms as *mut c_void);
-        if let Some(h) = HOOK.get() {
-            h.call(o, f, p, std::ptr::null_mut());
+        if let Some(original) = trampoline() {
+            original(o, f, p, std::ptr::null_mut());
             return Ok(());
         }
         let raw = super::globals().process_event;
@@ -2296,9 +2623,8 @@ mod hook {
             return Ok(());
         }
         // SAFETY: `target` is UObject::ProcessEvent resolved from the proven
-        // call-site signature; both sides use the same 4-pointer ABI.
-        let original: ProcessEventFn = unsafe { std::mem::transmute(target) };
-        let detour = unsafe { retour::GenericDetour::new(original, hooked) }
+        // signature; `hooked` has the same (this, UFunction*, Parms, Result) ABI.
+        let detour = unsafe { retour::RawDetour::new(target as *const (), hooked as *const ()) }
             .map_err(|e| format!("create: {e}"))?;
         unsafe { detour.enable() }.map_err(|e| format!("enable: {e}"))?;
         HOOK.set(detour).map_err(|_| "already installed".to_string())
@@ -2317,18 +2643,37 @@ mod script_hook {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::OnceLock;
 
+    /// `UObject::ProcessInternal(FFrame&, void* Result)`: `__thiscall` on Win32.
+    #[cfg(target_arch = "x86")]
+    type ProcessInternalFn = extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void);
+    #[cfg(not(target_arch = "x86"))]
     type ProcessInternalFn = extern "system" fn(*mut c_void, *mut c_void, *mut c_void);
 
-    static HOOK: OnceLock<retour::GenericDetour<ProcessInternalFn>> = OnceLock::new();
+    static HOOK: OnceLock<retour::RawDetour> = OnceLock::new();
 
+    fn trampoline() -> Option<ProcessInternalFn> {
+        // SAFETY: the trampoline continues the original ProcessInternal with its ABI.
+        HOOK.get().map(|h| unsafe { std::mem::transmute::<*const (), ProcessInternalFn>(h.trampoline() as *const ()) })
+    }
+
+    #[cfg(target_arch = "x86")]
+    extern "thiscall" fn hooked(this: *mut c_void, stack: *mut c_void, result: *mut c_void) {
+        hooked_impl(this, stack, result)
+    }
+
+    #[cfg(not(target_arch = "x86"))]
     extern "system" fn hooked(this: *mut c_void, stack: *mut c_void, result: *mut c_void) {
-        let Some(h) = HOOK.get() else { return };
+        hooked_impl(this, stack, result)
+    }
+
+    fn hooked_impl(this: *mut c_void, stack: *mut c_void, result: *mut c_void) {
+        let Some(h) = trampoline() else { return };
         let (o, s, r) = (this as usize, stack as usize, result as usize);
         super::construct::capture_frame_header(s);
         let func = unsafe { memory::read::<usize>(s + FRAME_NODE) }.unwrap_or(0);
         let locals = unsafe { memory::read::<usize>(s + FRAME_LOCALS) }.unwrap_or(0);
         if func == 0 || locals == 0 || !super::any_sub_for(func) {
-            h.call(this, stack, result);
+            h(this, stack, result);
             return;
         }
         // `Super.Func()` runs as a nested frame whose caller is a same-named
@@ -2358,7 +2703,7 @@ mod script_hook {
         if super::native::is_lua_native(func) {
             super::native::warn_unimplemented(func);
         }
-        h.call(this, stack, result);
+        h(this, stack, result);
         let _ = catch_unwind(AssertUnwindSafe(|| super::on_process_event_after(o, func, locals, inner)));
     }
 
@@ -2367,9 +2712,8 @@ mod script_hook {
             return Ok(());
         }
         // SAFETY: `target` is UObject::ProcessInternal (the Func every script
-        // function binds to); same (this, FFrame*, void*) ABI as the thunk.
-        let original: ProcessInternalFn = unsafe { std::mem::transmute(target) };
-        let detour = unsafe { retour::GenericDetour::new(original, hooked) }
+        // function binds to); `hooked` has the same (this, FFrame*, void*) ABI.
+        let detour = unsafe { retour::RawDetour::new(target as *const (), hooked as *const ()) }
             .map_err(|e| format!("create: {e}"))?;
         unsafe { detour.enable() }.map_err(|e| format!("enable: {e}"))?;
         HOOK.set(detour).map_err(|_| "already installed".to_string())
@@ -2391,16 +2735,18 @@ mod script_hook {
 #[cfg(windows)]
 mod native {
     use super::layout::*;
-    use super::{function_params, globals, parms_frame_size, PropKind};
+    use super::{function_params, globals, parms_frame_size, ExecFn, PropKind};
     use crate::memory;
     use std::ffi::c_void;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
+    /// `UFunction.Func(this, FFrame&, void* Result)`: `__thiscall` on Win32.
+    #[cfg(target_arch = "x86")]
+    type NativeFn = extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void);
+    #[cfg(not(target_arch = "x86"))]
     type NativeFn = extern "system" fn(*mut c_void, *mut c_void, *mut c_void);
-    /// `GNatives[op](Context, Stack&, Result)`.
-    type ExecFn = extern "system" fn(usize, usize, usize);
 
     /// One hooked function: its runtime stub is what `UFunction.Func` points
     /// at. Slots are never freed (the game may be inside one on another
@@ -2434,6 +2780,7 @@ mod native {
     // native's (this, FFrame*, result). Shift them one register up and tail
     // jump into `thunk(slot, this, stack, result)`; the caller's shadow
     // space serves the four-register call as it did the three-register one.
+    #[cfg(target_arch = "x86_64")]
     std::arch::global_asm!(
         ".text",
         ".p2align 4",
@@ -2447,11 +2794,31 @@ mod native {
         thunk = sym thunk,
     );
 
-    extern "system" {
+    // Win32: the native is `__thiscall` (ECX = this, [esp+4] = FFrame*,
+    // [esp+8] = result, callee pops 8 bytes) and the stub left the slot in
+    // EAX. Call the cdecl `thunk(slot, this, stack, result)` and return
+    // popping the two caller arguments like the native would.
+    #[cfg(target_arch = "x86")]
+    std::arch::global_asm!(
+        ".text",
+        ".p2align 4",
+        ".globl _tempest_native_common",
+        "_tempest_native_common:",
+        "    push dword ptr [esp + 8]",
+        "    push dword ptr [esp + 8]",
+        "    push ecx",
+        "    push eax",
+        "    call {thunk}",
+        "    add esp, 16",
+        "    ret 8",
+        thunk = sym thunk,
+    );
+
+    extern "C" {
         fn tempest_native_common();
     }
 
-    extern "system" fn thunk(slot: usize, this: *mut c_void, stack: *mut c_void, result: *mut c_void) {
+    extern "C" fn thunk(slot: usize, this: *mut c_void, stack: *mut c_void, result: *mut c_void) {
         let Some(s) = TABLE.lock().unwrap().get(slot).copied() else { return };
         let func = s.func.load(Ordering::Acquire);
         let raw = s.original.load(Ordering::Acquire);
@@ -2499,7 +2866,7 @@ mod native {
             let Some(code) = (unsafe { memory::read::<usize>(stack + FRAME_CODE) }) else { break };
             let Some(op) = (unsafe { memory::read::<u8>(code) }) else { break };
             unsafe { memory::write(stack + FRAME_CODE, code + 1) };
-            let exec = unsafe { memory::read::<usize>(gnatives + op as usize * 8) }.unwrap_or(0);
+            let exec = unsafe { memory::read::<usize>(gnatives + op as usize * PTR) }.unwrap_or(0);
             if exec == 0 {
                 crate::log::line("hook", &format!("native thunk: no exec for opcode 0x{op:02x}"));
                 break;
@@ -2627,14 +2994,14 @@ mod native {
         if stack == 0 || n_out == 0 {
             return;
         }
-        let valid = |p: usize, len: usize| p != 0 && p.is_multiple_of(8) && memory::is_readable(p, len);
+        let valid = |p: usize, len: usize| p != 0 && p.is_multiple_of(PTR) && memory::is_readable(p, len);
         let mut rec = unsafe { memory::read::<usize>(stack + FRAME_OUT_PARMS) }.unwrap_or(0);
         let mut seen = 0;
         while seen < n_out && valid(rec, OUTPARM_SIZE) {
             seen += 1;
             let prop = unsafe { memory::read::<usize>(rec + OUTPARM_PROPERTY) }.unwrap_or(0);
             let addr = unsafe { memory::read::<usize>(rec + OUTPARM_ADDR) }.unwrap_or(0);
-            if valid(prop, 8) && addr != 0 {
+            if valid(prop, PTR) && addr != 0 {
                 if let Some(p) = params.iter().find(|p| p.is_out() && !p.is_return() && super::find_property_object_in(func, &p.name) == Some(prop)) {
                     if is_copyable(p) && memory::is_readable(addr, p.prop.elem_size.max(1)) {
                         f(p, addr);
@@ -2770,7 +3137,7 @@ mod native {
                 let Some(code) = (unsafe { memory::read::<usize>(fake_ptr + FRAME_CODE) }) else { break };
                 let Some(op) = (unsafe { memory::read::<u8>(code) }) else { break };
                 unsafe { memory::write(fake_ptr + FRAME_CODE, code + 1) };
-                let exec = unsafe { memory::read::<usize>(g.gnatives + op as usize * 8) }.unwrap_or(0);
+                let exec = unsafe { memory::read::<usize>(g.gnatives + op as usize * PTR) }.unwrap_or(0);
                 if exec == 0 {
                     break;
                 }
@@ -2879,7 +3246,7 @@ mod native {
 #[cfg(windows)]
 mod construct {
     use super::layout::*;
-    use super::{globals, object_class, object_name};
+    use super::{globals, object_class, object_name, ExecFn};
     use crate::memory;
     use std::ffi::c_void;
     use std::sync::OnceLock;
@@ -2915,8 +3282,6 @@ mod construct {
         let _ = HEADER.set(h);
     }
 
-    type ExecFn = extern "system" fn(usize, *mut c_void, *mut c_void);
-
     pub fn new_object(class: usize, outer: usize, name: Option<&str>) -> Result<usize, String> {
         if class == 0 {
             return Err("null class".into());
@@ -2931,15 +3296,16 @@ mod construct {
         let Some(header) = HEADER.get() else {
             return Err("no frame header captured yet (needs one hooked call first)".into());
         };
-        let exec = unsafe { memory::read::<usize>(g.gnatives + EX_NEW as usize * 8) }.unwrap_or(0);
+        let exec = unsafe { memory::read::<usize>(g.gnatives + EX_NEW as usize * PTR) }.unwrap_or(0);
         if exec == 0 {
             return Err("GNatives[EX_New] is null".into());
         }
 
         // new(Outer, Name, Flags) Class, Template  — five sub-expressions.
+        // Object operands are SCRIPT_PTR_SIZE (8) bytes on both clients.
         let mut code: Vec<u8> = vec![EX_NEW];
         code.push(EX_OBJECT_CONST);
-        code.extend_from_slice(&outer.to_le_bytes());
+        code.extend_from_slice(&(outer as u64).to_le_bytes());
         match name {
             Some(n) if !n.is_empty() => {
                 code.push(EX_STRING_CONST);
@@ -2950,7 +3316,7 @@ mod construct {
         }
         code.push(EX_NOTHING); // Flags = 0
         code.push(EX_OBJECT_CONST);
-        code.extend_from_slice(&class.to_le_bytes());
+        code.extend_from_slice(&(class as u64).to_le_bytes());
         code.push(EX_NOTHING); // Template = none
         code.push(EX_END_FUNCTION_PARMS); // belt and braces; execNew stops after five
 
@@ -2969,7 +3335,7 @@ mod construct {
         }
         let mut result: usize = 0;
         let exec: ExecFn = unsafe { std::mem::transmute(exec) };
-        exec(context, fp as *mut c_void, &mut result as *mut usize as *mut c_void);
+        exec(context, fp, &mut result as *mut usize as *mut c_void as usize);
         if result == 0 {
             return Err("engine returned none (abstract class, Actor subclass, or bad outer?)".into());
         }

@@ -4,12 +4,15 @@
 //! lives in the game main thread's TLS block:
 //!
 //! ```text
-//! tls_base = *(main_thread_TEB + 0x58)      // ThreadLocalStoragePointer
-//! storage  = *tls_base                      // module TLS block
-//! key(i)   = *(storage + 48 + 8 * (i & mask))
+//! tls_base = *(main_thread_TEB + TEB_TLS_POINTER)   // ThreadLocalStoragePointer (0x58 x64, 0x2C x86)
+//! storage  = *tls_base                              // module TLS block (the exe has TLS index 0)
+//! key(i)   = *(storage + KEY_BASE + PTR * (i & mask))
 //! ```
 //!
-//! `mask` is the u32 immediate at `xor_helper + 0x65` (see `unreal::resolve`).
+//! Keys are pointer-sized: the table starts at `+0x30` with an 8-byte stride
+//! on the Win64 client and at `+0x18` with a 4-byte stride on Win32; both
+//! are read from the array accessor the signature scan finds (see
+//! `unreal::resolve`), as is `mask` (0x3FF on 8.1).
 
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
@@ -17,9 +20,20 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 static MASK: AtomicU32 = AtomicU32::new(u32::MAX);
 /// `0` = not found yet (retried on demand; the table exists before GNames fills).
 static TLS_BASE: AtomicUsize = AtomicUsize::new(0);
+/// Byte offset of key 0 inside the module TLS block.
+static KEY_BASE: AtomicUsize = AtomicUsize::new(if cfg!(target_pointer_width = "64") { 0x30 } else { 0x18 });
 
 pub fn set_mask(mask: u32) {
     MASK.store(mask, Ordering::Release);
+}
+
+/// Where the key table starts in the TLS block (from the decrypt accessor).
+pub fn set_key_base(base: usize) {
+    KEY_BASE.store(base, Ordering::Release);
+}
+
+pub fn key_base() -> usize {
+    KEY_BASE.load(Ordering::Acquire)
 }
 
 pub fn mask() -> Option<u32> {
@@ -37,7 +51,7 @@ pub fn xor_key(i: usize) -> Option<usize> {
     if storage == 0 {
         return None;
     }
-    unsafe { crate::memory::read(storage + 48 + 8 * (i & mask)) }
+    unsafe { crate::memory::read(storage + key_base() + std::mem::size_of::<usize>() * (i & mask)) }
 }
 
 fn tls_base() -> Option<usize> {
@@ -57,13 +71,14 @@ fn find_main_thread_tls() -> Option<usize> {
 }
 
 /// Earliest-created thread of this process → `NtQueryInformationThread`
-/// (ThreadBasicInformation) → TEB → `TEB+0x58`.
+/// (ThreadBasicInformation) → TEB → `ThreadLocalStoragePointer`.
 #[cfg(windows)]
 fn find_main_thread_tls() -> Option<usize> {
     use std::ffi::c_void;
     const TH32CS_SNAPTHREAD: u32 = 0x4;
     const THREAD_QUERY_INFORMATION: u32 = 0x40;
-    const TEB_TLS_POINTER: usize = 0x58;
+    /// `TEB.ThreadLocalStoragePointer`: 0x58 on x64, 0x2C on x86.
+    const TEB_TLS_POINTER: usize = if cfg!(target_pointer_width = "64") { 0x58 } else { 0x2C };
 
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);

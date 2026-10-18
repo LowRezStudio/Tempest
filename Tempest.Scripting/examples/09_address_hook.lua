@@ -4,7 +4,8 @@
 --                                         missing args keep the caller's) and return its
 --                                         result, return your own integer, or return
 --                                         nothing to pass the call through untouched.
---   memory.unhook(id)                    opts.args = N (default 4, max 8)
+--   memory.unhook(id)                    opts.args = N (default 4, max 8); opts.conv = the Win32
+--                                         calling convention ("thiscall" for C++ methods; ignored on Win64)
 --   memory.call(addr, ...)               call any address; integer/Object args, integer result
 --   memory.alloc(n) / memory.free(p)     scratch buffers for pointer arguments
 --   memory.write_str(p, s) / memory.write_wstr(p, s)   NUL-terminated ANSI / UTF-16
@@ -31,7 +32,8 @@ tempest.command("tempest_memhook", function(pc, rest, argv)
 		pc:ClientMessage("no function " .. spec)
 		return
 	end
-	local addr = memory.read_ptr(fn:ptr() + 0xF0) -- UFunction.Func (8.1 layout, see unreal.rs)
+	-- UFunction.Func (8.1 layout, see unreal.rs): 0xF0 on the Win64 client, 0xA0 on Win32.
+	local addr = memory.read_ptr(fn:ptr() + (tempest.status().arch == "x86" and 0xA0 or 0xF0))
 	if not addr or addr == 0 or addr == tempest.status().process_internal then
 		pc:ClientMessage(spec .. " is not native")
 		return
@@ -45,7 +47,7 @@ tempest.command("tempest_memhook", function(pc, rest, argv)
 			tempest.queue(function() memory.unhook(id) end)
 		end
 		return original()
-	end, { args = 3 })
+	end, { args = 3, conv = "thiscall" }) -- Func(this, FFrame&, Result) is a C++ method
 	pc:ClientMessage(string.format("hooked %s at 0x%x for %d call(s)", spec, addr, n))
 end, "tempest_memhook <Pkg.Class.Func> [n]  (trace a native's C++ entry)")
 

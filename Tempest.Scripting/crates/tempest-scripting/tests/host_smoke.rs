@@ -6,22 +6,29 @@ use tempest_scripting::unreal;
 #[test]
 fn layouts_match_the_sdk() {
     use unreal::layout::*;
-    assert_eq!((UOBJECT_OUTER, UOBJECT_NAME, UOBJECT_CLASS), (0x40, 0x48, 0x50));
-    assert_eq!((UFIELD_NEXT, USTRUCT_SUPER, USTRUCT_CHILDREN), (0x60, 0x78, 0x80));
-    assert_eq!((UPROP_FLAGS, UPROP_OFFSET, UPROP_EXT), (0x70, 0x7C, 0x98));
-    assert_eq!((CHEAT_ARRAY_COUNT, TARRAY_COUNT, FNAME_ENTRY_NAME), (0x0C, 0x08, 0x14));
     assert_eq!((CPF_PARM, CPF_OUT_PARM, CPF_RETURN_PARM), (0x80, 0x100, 0x400));
-    assert_eq!((UFUNCTION_FUNC, UFUNCTION_SCRIPT_DATA, UFUNCTION_PARMS_SIZE), (0xF0, 0x8C, 0xE2));
-    assert_eq!((FRAME_NODE, FRAME_OBJECT, FRAME_CODE, FRAME_LOCALS), (0x14, 0x1C, 0x24, 0x2C));
-    for sig in [
-        unreal::SIG_GOBJECTS,
-        unreal::SIG_GNAMES,
-        unreal::SIG_ENGINE,
-        unreal::SIG_PROCESS_EVENT,
-        unreal::SIG_XOR,
-        unreal::SIG_GMALLOC,
-        unreal::SIG_GNATIVES_LEA,
-    ] {
+    if PTR == 8 {
+        // Win64 client (WolperMod SDK).
+        assert_eq!((UOBJECT_OUTER, UOBJECT_NAME, UOBJECT_CLASS), (0x40, 0x48, 0x50));
+        assert_eq!((UFIELD_NEXT, USTRUCT_SUPER, USTRUCT_CHILDREN), (0x60, 0x78, 0x80));
+        assert_eq!((UPROP_FLAGS, UPROP_OFFSET, UPROP_EXT), (0x70, 0x7C, 0x98));
+        assert_eq!((CHEAT_ARRAY_COUNT, TARRAY_COUNT, FNAME_ENTRY_NAME), (0x0C, 0x08, 0x14));
+        assert_eq!((UFUNCTION_FUNC, UFUNCTION_SCRIPT_DATA, UFUNCTION_PARMS_SIZE), (0xF0, 0x8C, 0xE2));
+        assert_eq!((FRAME_NODE, FRAME_OBJECT, FRAME_CODE, FRAME_LOCALS), (0x14, 0x1C, 0x24, 0x2C));
+    } else {
+        // Win32 client (Paladins-32.exe in Binary Ninja).
+        assert_eq!((UOBJECT_OUTER, UOBJECT_NAME, UOBJECT_CLASS), (0x28, 0x2C, 0x34));
+        assert_eq!((UFIELD_NEXT, USTRUCT_SUPER, USTRUCT_CHILDREN), (0x3C, 0x48, 0x4C));
+        assert_eq!((UPROP_FLAGS, UPROP_OFFSET, UPROP_EXT), (0x48, 0x54, 0x64));
+        assert_eq!((CHEAT_ARRAY_COUNT, TARRAY_COUNT, FNAME_ENTRY_NAME), (0x08, 0x04, 0x10));
+        assert_eq!((UFUNCTION_FUNC, UFUNCTION_SCRIPT_DATA, UFUNCTION_PARMS_SIZE), (0xA0, 0x54, 0x96));
+        assert_eq!((FRAME_NODE, FRAME_OBJECT, FRAME_CODE, FRAME_LOCALS), (0x10, 0x14, 0x18, 0x1C));
+    }
+    // Every pointer-bearing object offset is pointer aligned (FFrame is 4-byte packed).
+    for off in [UOBJECT_OUTER, UOBJECT_CLASS, UFIELD_NEXT, USTRUCT_SUPER, USTRUCT_CHILDREN, UPROP_EXT, UFUNCTION_FUNC, OUTPARM_ADDR, OUTPARM_NEXT] {
+        assert_eq!(off % PTR, 0, "offset 0x{off:x}");
+    }
+    for sig in unreal::signatures() {
         tempest_scripting::memory::parse_pattern(sig).unwrap();
     }
 }

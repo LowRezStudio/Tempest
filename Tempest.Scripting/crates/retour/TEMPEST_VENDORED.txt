@@ -1,0 +1,9 @@
+retour 0.2.0 (https://crates.io/crates/retour), vendored verbatim except for one change:
+src/macros.rs gates the Function impls per architecture: `extern "win64"` behind
+`#[cfg(target_arch = "x86_64")]` (rustc rejects that ABI on i686, E0570, which broke the Win32
+client build) and `cdecl`/`stdcall`/`fastcall` behind `#[cfg(target_arch = "x86")]` (rustc warns
+about them on x86_64, issue #137018).
+Pulled in through `[patch.crates-io]` in the workspace Cargo.toml; drop the patch once upstream
+gates it.
+Cargo.toml also gained a [lints] table silencing upstream warnings; Cargo.lock, .cargo-ok and
+Cargo.toml.orig were dropped.

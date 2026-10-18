@@ -129,7 +129,7 @@ tempest = {}
 ---@param msg string
 function tempest.log(msg) end
 
----@return { gobjects: integer|nil, gnames: integer|nil, engine: integer|nil, process_event: integer|nil, process_internal: integer|nil, gmalloc: integer|nil, gnatives: integer|nil, xor_mask: integer|nil, gnames_ok: boolean, gobjects_ok: boolean, hook_installed: boolean, script_hook_installed: boolean, key_hook_installed: boolean, game_thread: integer|nil, object_count: integer|nil, name_count: integer|nil, notes: string[], subscriptions: table<integer, string>, native_hooks: string[], address_hooks: AddressHook[], lua_natives: string[], mods: string[] }
+---@return { arch: "x64"|"x86", gobjects: integer|nil, gnames: integer|nil, engine: integer|nil, process_event: integer|nil, process_internal: integer|nil, gmalloc: integer|nil, gnatives: integer|nil, xor_mask: integer|nil, gnames_ok: boolean, gobjects_ok: boolean, hook_installed: boolean, script_hook_installed: boolean, key_hook_installed: boolean, game_thread: integer|nil, object_count: integer|nil, name_count: integer|nil, notes: string[], subscriptions: table<integer, string>, native_hooks: string[], address_hooks: AddressHook[], lua_natives: string[], mods: string[] }
 function tempest.status() end
 
 --- After the original ran. `spec` = "Func" (any class, once per logical call) or "Pkg.Class.Func" (that exact function).
@@ -352,23 +352,29 @@ function memory.scan(pattern, limit) end
 ---@field id integer
 ---@field addr integer
 ---@field mod string
+---@field args string[]
+---@field conv "cdecl"|"stdcall"|"thiscall"|"fastcall"
 
 --- Runs the rest of the hook chain (or the real function). Nil/missing arguments keep the caller's values.
 --- Only valid while the handler that received it runs.
 ---@alias HookOriginal fun(...: integer|boolean|Object|nil): integer
 
 --- Detour the function at `addr` (a function entry point). The handler runs in its place with the
---- first `opts.args` integer arguments (default 4, max 8: RCX, RDX, R8, R9, then the stack; floats
---- are not visible). Return an integer to set the result, return nothing to use whatever
---- `original` returned (or pass the call through untouched). Handlers run on the calling thread.
---- Raises when the address cannot be detoured.
+--- first `opts.args` arguments (default 4 integers, max 8). Return an integer to set the result,
+--- return nothing to use whatever `original` returned (or pass the call through untouched).
+--- Handlers run on the calling thread. Raises when the address cannot be detoured.
 --- opts.args: a count of integer arguments (default 4, max 8) or a list of
---- kinds per position ("int"/"ptr", "f32", "f64"); floats at positions 0..3
---- are read from XMM0..3. opts.ret = "int" (default) | "f32" | "f64" types
---- the handler's numeric return value (float results go to XMM0).
+--- kinds per position ("int"/"ptr", "f32", "f64"). On the Win64 client positions
+--- are RCX, RDX, R8, R9 then the stack, floats at positions 0..3 come from XMM0..3.
+--- On the Win32 client arguments live on the stack (an "f64" takes two of the 8 dword
+--- slots) except what opts.conv puts in registers: "cdecl" (default) and "stdcall"
+--- nothing, "thiscall" the first integer (`this`) in ECX, "fastcall" the first two
+--- integers in ECX/EDX; every hook on one address must declare the same conv/args/ret.
+--- opts.ret = "int" (default) | "f32" | "f64" types the handler's numeric return value
+--- (float results go to XMM0 on Win64, ST(0) on Win32).
 ---@param addr integer
 ---@param fn fun(original: HookOriginal, ...: number): number|boolean|Object|nil
----@param opts? { args?: integer|string[], ret?: "int"|"f32"|"f64" }
+---@param opts? { args?: integer|string[], ret?: "int"|"f32"|"f64", conv?: "cdecl"|"stdcall"|"thiscall"|"fastcall" }
 ---@return integer id
 function memory.hook(addr, fn, opts) end
 ---@param id integer
@@ -376,14 +382,17 @@ function memory.hook(addr, fn, opts) end
 function memory.unhook(id) end
 ---@return AddressHook[]
 function memory.hooks() end
---- Call any address with up to 8 integer/boolean/Object/memory.f32/f64 arguments;
---- integer result, or a float when the last argument is { ret = "f32"|"f64" }. nil on the host build.
+--- Call any address with up to 8 integer/boolean/Object/memory.f32/f64 arguments (8 stack dwords
+--- on Win32, where an f64 takes two); integer result, or a float when the last argument is
+--- { ret = "f32"|"f64" }. The same table's `conv` names the Win32 calling convention
+--- ("cdecl" default, "stdcall", "thiscall": first argument is `this`, "fastcall"). nil on the host build.
 ---@param addr integer
----@param ... integer|boolean|Object|FloatArg|{ ret: "int"|"f32"|"f64" }|nil
+---@param ... integer|boolean|Object|FloatArg|{ ret?: "int"|"f32"|"f64", conv?: "cdecl"|"stdcall"|"thiscall"|"fastcall" }|nil
 ---@return number|nil
 function memory.call(addr, ...) end
 ---@class FloatArg
---- A float argument for memory.call / original(): passed in the XMM register of its position.
+--- A float argument for memory.call / original(): passed in the XMM register of its position
+--- on Win64, on the stack on Win32.
 ---@param v number
 ---@return FloatArg
 function memory.f32(v) end

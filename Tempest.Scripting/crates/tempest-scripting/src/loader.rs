@@ -191,15 +191,29 @@ fn yes() -> bool {
 /// `<game>/.tempest`: next to the installed mods when this DLL is one of
 /// them, else from the game folder.
 fn tempest_dir() -> Option<PathBuf> {
-    if let Some(dll) = dll_dir() {
-        // <game>/.tempest/v2/mods/<id>/dlls
-        if let Some(t) = dll.ancestors().nth(4) {
+    if let Some(m) = mod_dir() {
+        // <game>/.tempest/v2/mods/<id>
+        if let Some(t) = m.ancestors().nth(3) {
             if t.file_name().is_some_and(|n| n == ".tempest") {
                 return Some(t.to_path_buf());
             }
         }
     }
     crate::config::game_dir().map(|g| g.join(".tempest"))
+}
+
+/// The folder of the mod this DLL ships in: the DLL lives in `<mod>/dlls/`
+/// (legacy), `<mod>/dlls/64/` or `<mod>/dlls/32/` (one per client), so walk
+/// up past those. A DLL loaded from anywhere else counts its parent as the mod.
+pub fn mod_dir() -> Option<PathBuf> {
+    let dir = dll_dir()?;
+    let name = |p: &std::path::Path| p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase());
+    let dlls = match name(&dir).as_deref() {
+        Some("dlls") => dir.clone(),
+        Some("32" | "64") if dir.parent().and_then(|p| name(p)).as_deref() == Some("dlls") => dir.parent()?.to_path_buf(),
+        _ => dir.clone(),
+    };
+    dlls.parent().map(|p| p.to_path_buf())
 }
 
 /// The CLI's mod registry (`.tempest/mods/mods.json`; older layouts kept it
@@ -332,11 +346,8 @@ pub fn mods() -> Vec<Mod> {
     // Installed V2 mods: <game>/.tempest/v2/mods/*/scripts, enabled ones only
     // (this DLL's own mod always counts).
     if let Some(mods_root) = tempest_dir().map(|t| t.join("v2").join("mods")) {
-        let own = dll
-            .as_ref()
-            .and_then(|d| d.parent())
-            .and_then(|m| m.file_name())
-            .map(|n| n.to_string_lossy().to_ascii_lowercase());
+        let own = mod_dir()
+            .and_then(|m| m.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()));
         let enabled = enabled_ids();
         if let Ok(entries) = std::fs::read_dir(&mods_root) {
             for entry in entries.flatten() {

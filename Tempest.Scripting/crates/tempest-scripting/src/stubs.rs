@@ -1,11 +1,13 @@
 //! Executable entry stubs, generated at runtime for the hook machinery.
 //!
 //! A detour or a swapped `UFunction.Func` lands on a bare function pointer
-//! with no room for context, so every slot gets its own tiny stub:
-//! `mov r10d, <slot>; mov rax, <common>; jmp rax`. The shared `common` entry
-//! then knows which slot fired from R10. Stubs are written into RWX pages
-//! allocated on demand, so there is no fixed number of them; they are never
-//! freed (a stub may be executing on another thread at any moment).
+//! with no room for context, so every slot gets its own tiny stub: on x64
+//! `mov r10d, <slot>; mov rax, <common>; jmp rax` (the shared `common` entry
+//! reads the slot from R10), on x86 `mov eax, <slot>; jmp <common>` (EAX is
+//! scratch in every 32-bit convention: cdecl, stdcall, thiscall and
+//! fastcall pass nothing in it). Stubs are written into RWX pages allocated
+//! on demand, so there is no fixed number of them; they are never freed (a
+//! stub may be executing on another thread at any moment).
 
 #[cfg(windows)]
 mod imp {
@@ -31,11 +33,22 @@ mod imp {
         }
         let stub = cur.0 + cur.1;
         let mut code = Vec::with_capacity(SIZE);
-        code.extend_from_slice(&[0x41, 0xBA]); // mov r10d, imm32
-        code.extend_from_slice(&slot32.to_le_bytes());
-        code.extend_from_slice(&[0x48, 0xB8]); // mov rax, imm64
-        code.extend_from_slice(&(common as u64).to_le_bytes());
-        code.extend_from_slice(&[0xFF, 0xE0]); // jmp rax
+        #[cfg(target_pointer_width = "64")]
+        {
+            code.extend_from_slice(&[0x41, 0xBA]); // mov r10d, imm32
+            code.extend_from_slice(&slot32.to_le_bytes());
+            code.extend_from_slice(&[0x48, 0xB8]); // mov rax, imm64
+            code.extend_from_slice(&(common as u64).to_le_bytes());
+            code.extend_from_slice(&[0xFF, 0xE0]); // jmp rax
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            code.push(0xB8); // mov eax, imm32
+            code.extend_from_slice(&slot32.to_le_bytes());
+            code.push(0xE9); // jmp rel32 (everything is within 2 GiB in a 32-bit process)
+            let next = stub + 10;
+            code.extend_from_slice(&((common as isize - next as isize) as i32).to_le_bytes());
+        }
         code.resize(SIZE, 0xCC);
         // SAFETY: `stub` is inside a page this module allocated RWX and has not handed out yet.
         unsafe {

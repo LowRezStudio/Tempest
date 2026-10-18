@@ -288,7 +288,7 @@ void ImGui_ImplDX11_RenderDrawData(ImDrawData* draw_data)
                 device->RSSetScissorRects(1, &r);
 
                 // Bind texture, Draw
-                ID3D11ShaderResourceView* texture_srv = (ID3D11ShaderResourceView*)pcmd->GetTexID();
+                ID3D11ShaderResourceView* texture_srv = (ID3D11ShaderResourceView*)(uintptr_t)pcmd->GetTexID();
                 device->PSSetShaderResources(0, 1, &texture_srv);
                 device->DrawIndexed(pcmd->ElemCount, pcmd->IdxOffset + global_idx_offset, pcmd->VtxOffset + global_vtx_offset);
             }
@@ -361,7 +361,7 @@ static void ImGui_ImplDX11_CreateFontsTexture()
     }
 
     // Store our identifier
-    io.Fonts->SetTexID((ImTextureID)bd->pFontTextureView);
+    io.Fonts->SetTexID((ImTextureID)(uintptr_t)bd->pFontTextureView);
 }
 
 static void ImGui_ImplDX11_DestroyFontsTexture()

@@ -2,3 +2,6 @@ cimgui 1.91.9 (https://github.com/cimgui/cimgui, tag 1.91.9) with Dear ImGui 1.9
 Files: cimgui.{h,cpp}, generator/*.json (for scripts/gen_imgui.py), imgui/ core + imgui_demo.cpp,
 imgui/backends/imgui_impl_{dx9,dx11,win32}.{h,cpp}. To update: check out the new tag with its
 imgui submodule, copy the same files, run `python3 scripts/gen_imgui.py`, rebuild, retest.
+Local patch: imgui_impl_dx9.cpp / imgui_impl_dx11.cpp cast ImTextureID (ImU64) to and from the
+texture pointer through uintptr_t so the backends compile for the 32-bit client (Tempest.Scripting32).
+Re-apply after an update.

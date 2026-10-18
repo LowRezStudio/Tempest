@@ -274,7 +274,7 @@ void ImGui_ImplDX9_RenderDrawData(ImDrawData* draw_data)
                 device->SetScissorRect(&r);
 
                 // Bind texture, Draw
-                const LPDIRECT3DTEXTURE9 texture = (LPDIRECT3DTEXTURE9)pcmd->GetTexID();
+                const LPDIRECT3DTEXTURE9 texture = (LPDIRECT3DTEXTURE9)(uintptr_t)pcmd->GetTexID();
                 device->SetTexture(0, texture);
                 device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, pcmd->VtxOffset + global_vtx_offset, 0, (UINT)draw_list->VtxBuffer.Size, pcmd->IdxOffset + global_idx_offset, pcmd->ElemCount / 3);
             }
@@ -386,7 +386,7 @@ static bool ImGui_ImplDX9_CreateFontsTexture()
     bd->FontTexture->UnlockRect(0);
 
     // Store our identifier
-    io.Fonts->SetTexID((ImTextureID)bd->FontTexture);
+    io.Fonts->SetTexID((ImTextureID)(uintptr_t)bd->FontTexture);
     return true;
 }
 

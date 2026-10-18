@@ -1,6 +1,6 @@
 //! Runtime configuration and per-mod config files.
 //!
-//! The game folder is found from the executable (`<game>/Binaries/Win64/`)
+//! The game folder is found from the executable (`<game>/Binaries/Win64/` or `Win32/`)
 //! or `TEMPEST_GAME_DIR`. Inside it:
 //!
 //! * `ChaosGame/Config/tempest.toml`: the runtime settings (written as a
@@ -27,6 +27,9 @@ const TEMPLATE: &str = r#"# Tempest.Scripting runtime settings. Edit and restart
 console = true
 # LuaJIT's trace compiler. Turn off to debug a suspected JIT issue.
 jit = true
+# Log every engine call made from Lua (obj:Func(), tempest.new) before and
+# after it runs. Noisy; for finding which call crashes the game.
+trace_calls = false
 
 [dev]
 # Folder of dev mods, relative to the game folder (or absolute). Every subfolder
@@ -61,6 +64,8 @@ pub struct Config {
     pub log: Option<String>,
     pub console: bool,
     pub jit: bool,
+    /// Log every Lua-initiated engine call (crash triage).
+    pub trace_calls: bool,
     pub dev_mods: String,
     pub hot_reload: bool,
     pub reload_on_config: bool,
@@ -79,6 +84,7 @@ impl Default for Config {
             log: None,
             console: true,
             jit: true,
+            trace_calls: false,
             dev_mods: "mods".into(),
             hot_reload: true,
             reload_on_config: true,
@@ -98,7 +104,7 @@ pub fn get() -> &'static Config {
 }
 
 /// `TEMPEST_GAME_DIR`, else two levels above the executable
-/// (`<game>/Binaries/Win64/Paladins.exe`) when that looks like the game.
+/// (`<game>/Binaries/Win64/Paladins.exe` or `Win32`) when that looks like the game.
 pub fn game_dir() -> Option<PathBuf> {
     if let Ok(d) = std::env::var("TEMPEST_GAME_DIR") {
         if !d.is_empty() {
@@ -142,7 +148,7 @@ fn load() -> Config {
         _ => c.game_dir.as_ref().map(|g| g.join("ChaosGame").join("Config").join("tempest.toml")),
     };
     let Some(path) = path else {
-        c.notes.push("game folder unknown (no TEMPEST_GAME_DIR, executable not under <game>/Binaries/Win64); using defaults".into());
+        c.notes.push("game folder unknown (no TEMPEST_GAME_DIR, executable not under <game>/Binaries/<platform>); using defaults".into());
         return c;
     };
     c.path = Some(path.clone());
@@ -175,6 +181,9 @@ fn apply(c: &mut Config, t: &toml::Table) {
         }
         if let Some(b) = r.get("jit").and_then(|v| v.as_bool()) {
             c.jit = b;
+        }
+        if let Some(b) = r.get("trace_calls").and_then(|v| v.as_bool()) {
+            c.trace_calls = b;
         }
     }
     if let Some(d) = section("dev") {
@@ -322,7 +331,8 @@ pub fn to_lua(lua: &mlua::Lua, v: &toml::Value) -> mlua::Result<mlua::Value> {
     use mlua::Value as L;
     Ok(match v {
         toml::Value::String(s) => L::String(lua.create_string(s)?),
-        toml::Value::Integer(i) => L::Integer(*i),
+        // `Integer` is i32 on the Win32 client; wider values become Numbers.
+        toml::Value::Integer(i) => mlua::IntoLua::into_lua(*i, lua)?,
         toml::Value::Float(f) => L::Number(*f),
         toml::Value::Boolean(b) => L::Boolean(*b),
         toml::Value::Datetime(d) => L::String(lua.create_string(d.to_string())?),
@@ -347,7 +357,7 @@ pub fn from_lua(v: &mlua::Value) -> Result<toml::Value, String> {
     use mlua::Value as L;
     Ok(match v {
         L::Boolean(b) => toml::Value::Boolean(*b),
-        L::Integer(i) => toml::Value::Integer(*i),
+        L::Integer(i) => toml::Value::Integer(crate::lua_api::to_i64(*i)),
         L::Number(n) => toml::Value::Float(*n),
         L::String(s) => toml::Value::String(s.to_string_lossy().to_string()),
         L::Table(t) => {

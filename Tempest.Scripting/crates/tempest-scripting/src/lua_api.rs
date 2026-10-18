@@ -24,6 +24,22 @@ use crate::hooks;
 use crate::memory;
 use crate::unreal::{self, Event, Phase, Prop, PropKind};
 
+/// A Lua number for a Rust integer: an `Integer` when it fits the VM's
+/// integer type (`i32` on the Win32 client, where LuaJIT's `lua_Integer` is
+/// `ptrdiff_t`), else a `Number` (exact below 2^53). Addresses always fit.
+fn int(v: i64) -> Value {
+    match mlua::Integer::try_from(v) {
+        Ok(i) => Value::Integer(i),
+        Err(_) => Value::Number(v as f64),
+    }
+}
+
+/// The Rust integer behind a Lua `Integer` (`i32` on the Win32 client).
+#[allow(clippy::unnecessary_cast)]
+pub(crate) fn to_i64(i: mlua::Integer) -> i64 {
+    i as i64
+}
+
 fn registry_key(id: u64) -> String {
     format!("tempest.sub.{id}")
 }
@@ -323,8 +339,8 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|_, ptr: i64| {
             let ptr = ptr as usize;
             let ok = ptr != 0
-                && memory::is_readable(ptr, unreal::layout::UOBJECT_CLASS + 8)
-                && unreal::object_class(ptr).is_some_and(|c| memory::is_readable(c, unreal::layout::UOBJECT_CLASS + 8));
+                && memory::is_readable(ptr, unreal::layout::UOBJECT_CLASS + unreal::layout::PTR)
+                && unreal::object_class(ptr).is_some_and(|c| memory::is_readable(c, unreal::layout::UOBJECT_CLASS + unreal::layout::PTR));
             Ok(ok.then_some(Object(ptr)))
         })?,
     )?;
@@ -446,7 +462,7 @@ fn register_ui(lua: &Lua, t: &Table) -> mlua::Result<()> {
         "_ui_load_image",
         lua.create_function(|_, path: String| {
             Ok(match crate::overlay::load_image(&path) {
-                Some((id, w, h)) => (Value::Integer(id as i64), Value::Integer(w as i64), Value::Integer(h as i64)),
+                Some((id, w, h)) => (int(id as i64), int(w as i64), int(h as i64)),
                 None => (Value::Nil, Value::Nil, Value::Nil),
             })
         })?,
@@ -500,8 +516,9 @@ fn register_ui(lua: &Lua, t: &Table) -> mlua::Result<()> {
 
 fn status(lua: &Lua) -> mlua::Result<Table> {
     let g = unreal::globals();
-    let addr = |v: usize| if v == 0 { Value::Nil } else { Value::Integer(v as i64) };
+    let addr = |v: usize| if v == 0 { Value::Nil } else { int(v as i64) };
     let t = lua.create_table()?;
+    t.set("arch", crate::arch())?;
     t.set("gobjects", addr(g.gobjects))?;
     t.set("gnames", addr(g.gnames))?;
     t.set("engine", addr(g.engine_slot))?;
@@ -596,6 +613,7 @@ fn address_hooks(lua: &Lua) -> mlua::Result<Table> {
         e.set("addr", h.addr as i64)?;
         e.set("mod", h.owner.as_str())?;
         e.set("args", h.kinds.iter().map(|k| format!("{k:?}").to_ascii_lowercase()).collect::<Vec<_>>())?;
+        e.set("conv", h.conv.name())?;
         out.set(i + 1, e)?;
     }
     Ok(out)
@@ -627,30 +645,46 @@ fn to_word(v: &Value) -> Option<usize> {
     }
 }
 
-/// Place argument `i` of a call: a `memory.f32/f64` value goes to its XMM
-/// register (and the integer slot), anything word-like to the integer slot,
-/// a plain number to whatever `kind` says.
-fn place_arg(regs: &mut hooks::Regs, i: usize, kind: hooks::ArgKind, v: &Value) -> Result<(), String> {
+/// Place argument `i` of a call at `loc`: a `memory.f32/f64` value as the
+/// float it is, anything word-like as a machine word, a plain number as
+/// whatever `kind` says.
+fn place_arg(regs: &mut hooks::Regs, i: usize, loc: hooks::Loc, kind: hooks::ArgKind, v: &Value) -> Result<(), String> {
     if let Value::UserData(ud) = v {
         if let Ok(f) = ud.borrow::<FloatArg>() {
-            regs.set(i, f.kind, f.value);
+            // On x86 a float lives on the stack, an f64 across two dwords: it
+            // only fits where the hook declared one.
+            if cfg!(target_pointer_width = "32") && kind == hooks::ArgKind::Int && (f.kind == hooks::ArgKind::F64 || !matches!(loc, hooks::Loc::Stack(_))) {
+                return Err(format!("argument {} is declared int; declare it {:?} in opts.args to pass a float", i + 1, f.kind));
+            }
+            regs.set(loc, f.kind, f.value);
             return Ok(());
         }
     }
     match (kind, v) {
         (hooks::ArgKind::Int, _) => {
-            regs.ints[i] = to_word(v).ok_or_else(|| format!("argument {} must be an integer, boolean, Object or memory.f32/f64 value, not {}", i + 1, v.type_name()))?;
+            let w = to_word(v).ok_or_else(|| format!("argument {} must be an integer, boolean, Object or memory.f32/f64 value, not {}", i + 1, v.type_name()))?;
+            regs.set_word(loc, w);
             Ok(())
         }
         (k, Value::Integer(n)) => {
-            regs.set(i, k, *n as f64);
+            regs.set(loc, k, *n as f64);
             Ok(())
         }
         (k, Value::Number(n)) => {
-            regs.set(i, k, *n);
+            regs.set(loc, k, *n);
             Ok(())
         }
         (k, other) => Err(format!("argument {} is declared {k:?} and must be a number, not {}", i + 1, other.type_name())),
+    }
+}
+
+/// `conv` option of `memory.hook` / `memory.call`: the x86 calling
+/// convention (`"cdecl"` default, `"stdcall"`, `"thiscall"`, `"fastcall"`);
+/// accepted and ignored on x64.
+fn parse_conv(v: Option<String>) -> mlua::Result<hooks::Conv> {
+    match v {
+        None => Ok(hooks::Conv::default()),
+        Some(name) => hooks::Conv::parse(&name).ok_or_else(|| mlua::Error::external(format!("unknown calling convention `{name}` (cdecl, stdcall, thiscall, fastcall)"))),
     }
 }
 
@@ -703,24 +737,24 @@ fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, regs: hooks::
     let alive = Arc::new(AtomicBool::new(true));
     let forwarded: Arc<Mutex<Option<hooks::Ret>>> = Arc::new(Mutex::new(None));
     let original = {
-        let (call, alive, forwarded, kinds) = (call.clone(), alive.clone(), forwarded.clone(), h.kinds.clone());
+        let (call, alive, forwarded, kinds, locs) = (call.clone(), alive.clone(), forwarded.clone(), h.kinds.clone(), h.locs.clone());
         lua.create_function(move |lua, over: mlua::Variadic<Value>| {
             if !alive.load(Ordering::Acquire) {
                 return Err(mlua::Error::external("original() is only valid while the hook handler runs"));
             }
             let mut merged = regs;
-            for (i, v) in over.iter().enumerate().take(hooks::MAX_ARGS) {
+            for (i, v) in over.iter().enumerate().take(locs.len()) {
                 if v.is_nil() {
                     continue;
                 }
                 let kind = kinds.get(i).copied().unwrap_or(hooks::ArgKind::Int);
-                place_arg(&mut merged, i, kind, v).map_err(|e| mlua::Error::external(format!("original(): {e}")))?;
+                place_arg(&mut merged, i, locs[i], kind, v).map_err(|e| mlua::Error::external(format!("original(): {e}")))?;
             }
             let r = run_hook_level(lua, call.clone(), level + 1, merged);
             *forwarded.lock().unwrap() = Some(r);
             Ok(match h.ret {
-                hooks::ArgKind::Int => Value::Integer(r.int as i64),
-                k => Value::Number(k.decode(r.xmm0)),
+                hooks::ArgKind::Int => int(r.int as i64),
+                k => Value::Number(k.decode(r.fbits)),
             })
         })
     };
@@ -729,10 +763,10 @@ fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, regs: hooks::
     };
     let mut lua_args: Vec<Value> = Vec::with_capacity(1 + h.kinds.len());
     lua_args.push(Value::Function(original));
-    for (i, kind) in h.kinds.iter().enumerate() {
+    for (kind, loc) in h.kinds.iter().zip(&h.locs) {
         lua_args.push(match kind {
-            hooks::ArgKind::Int => Value::Integer(regs.ints[i] as i64),
-            k => Value::Number(regs.get(i, *k)),
+            hooks::ArgKind::Int => int(regs.word(*loc) as i64),
+            k => Value::Number(regs.get(*loc, *k)),
         });
     }
     let result = crate::loader::with_mod(&h.owner, || cb.call::<Value>(mlua::MultiValue::from_vec(lua_args)));
@@ -749,10 +783,10 @@ fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, regs: hooks::
                 _ => None,
             };
             match (h.ret, as_number, to_word(&v)) {
-                (hooks::ArgKind::Int, _, Some(w)) => hooks::Ret { int: w, xmm0: 0 },
+                (hooks::ArgKind::Int, _, Some(w)) => hooks::Ret { int: w, fbits: 0 },
                 (k, Some(n), _) if k != hooks::ArgKind::Int => {
                     let bits = k.encode(n);
-                    hooks::Ret { int: bits as usize, xmm0: bits }
+                    hooks::Ret { int: bits as usize, fbits: bits }
                 }
                 _ => {
                     crate::log::line("lua", &format!("{tag}hook #{} on 0x{:x} returned a {}; expected a number or nil", h.id, h.addr, v.type_name()));
@@ -771,7 +805,7 @@ fn to_lua(lua: &Lua, v: &unreal::Value) -> Value {
     use unreal::Value as V;
     match v {
         V::Nil => Value::Nil,
-        V::Int(i) => Value::Integer(*i),
+        V::Int(i) => int(*i),
         V::Float(f) => Value::Number(*f),
         V::Bool(b) => Value::Boolean(*b),
         V::Str(s) => lua.create_string(s).map(Value::String).unwrap_or(Value::Nil),
@@ -790,7 +824,7 @@ fn to_lua(lua: &Lua, v: &unreal::Value) -> Value {
             .create_userdata(Map { addr: *addr, key: *key, value: *value, elem_size: *elem_size })
             .map(Value::UserData)
             .unwrap_or(Value::Nil),
-        V::Addr(a) => Value::Integer(*a as i64),
+        V::Addr(a) => int(*a as i64),
         V::List(items) => match lua.create_table() {
             Ok(t) => {
                 for (i, item) in items.iter().enumerate() {
@@ -819,7 +853,7 @@ fn from_lua_any(v: &Value) -> Option<unreal::Value> {
     Some(match v {
         Value::Nil => V::Nil,
         Value::Boolean(b) => V::Bool(*b),
-        Value::Integer(i) => V::Int(*i),
+        Value::Integer(i) => V::Int(to_i64(*i)),
         Value::Number(n) => V::Float(*n),
         Value::String(s) => V::Str(s.to_string_lossy().to_string()),
         Value::UserData(ud) => {
@@ -874,7 +908,7 @@ fn from_lua(kind: PropKind, v: &Value) -> Option<unreal::Value> {
     Some(match (kind, v) {
         (_, Value::Nil) => V::Nil,
         (_, Value::Boolean(b)) => V::Bool(*b),
-        (_, Value::Integer(i)) => V::Int(*i),
+        (_, Value::Integer(i)) => V::Int(to_i64(*i)),
         (_, Value::Number(n)) => V::Float(*n),
         (_, Value::String(s)) => V::Str(s.to_string_lossy().to_string()),
         (PropKind::Object, Value::UserData(ud)) => V::Object(ud.borrow::<Object>().ok()?.0),
@@ -973,7 +1007,7 @@ impl Array {
         let f = lua.create_function(move |lua, (_, i): (Value, i64)| {
             let next = i + 1;
             match self.elem(next) {
-                Some(e) => Ok((Value::Integer(next), unreal::read_prop(e, &self.inner).map(|v| to_lua(lua, &v)).unwrap_or(Value::Nil))),
+                Some(e) => Ok((int(next), unreal::read_prop(e, &self.inner).map(|v| to_lua(lua, &v)).unwrap_or(Value::Nil))),
                 None => Ok((Value::Nil, Value::Nil)),
             }
         })?;
@@ -991,7 +1025,7 @@ impl UserData for Array {
         });
         m.add_meta_method(MetaMethod::Index, |lua, this, key: Value| {
             let Value::Integer(i) = key else { return Ok(Value::Nil) };
-            Ok(match this.elem(i) {
+            Ok(match this.elem(to_i64(i)) {
                 Some(e) => unreal::read_prop(e, &this.inner).map(|v| to_lua(lua, &v)).unwrap_or(Value::Nil),
                 None => Value::Nil,
             })
@@ -1038,7 +1072,7 @@ fn key_matches(k: &unreal::Value, lua_key: &Value) -> bool {
     use unreal::Value as V;
     match (k, lua_key) {
         (V::Str(a), Value::String(b)) => a.eq_ignore_ascii_case(&b.to_string_lossy()),
-        (V::Int(a), Value::Integer(b)) => a == b,
+        (V::Int(a), Value::Integer(b)) => *a == to_i64(*b),
         (V::Float(a), Value::Number(b)) => a == b,
         (V::Object(a), Value::UserData(ud)) => ud.borrow::<Object>().is_ok_and(|o| o.0 == *a),
         _ => false,
@@ -1443,15 +1477,16 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
 
     // memory.hook(addr, fn, opts?) -> id. fn(original, a1..aN); opts.args = N
     // integers (default 4, max 8) or a list of kinds {"int", "f32", "f64"};
-    // opts.ret = "int" (default) | "f32" | "f64".
+    // opts.ret = "int" (default) | "f32" | "f64"; opts.conv = the x86 calling
+    // convention ("cdecl" default, "stdcall", "thiscall", "fastcall").
     m.set(
         "hook",
         lua.create_function(|lua, (addr, cb, opts): (i64, Function, Option<Table>)| {
-            let (kinds, ret) = match &opts {
-                Some(t) => (parse_kinds(t.get::<Option<Value>>("args")?)?, parse_ret(t.get::<Option<String>>("ret")?)?),
-                None => (vec![hooks::ArgKind::Int; 4], hooks::ArgKind::Int),
+            let (kinds, ret, conv) = match &opts {
+                Some(t) => (parse_kinds(t.get::<Option<Value>>("args")?)?, parse_ret(t.get::<Option<String>>("ret")?)?, parse_conv(t.get::<Option<String>>("conv")?)?),
+                None => (vec![hooks::ArgKind::Int; 4], hooks::ArgKind::Int, hooks::Conv::default()),
             };
-            let id = hooks::add(addr as usize, &crate::loader::current_mod(), kinds, ret)
+            let id = hooks::add(addr as usize, &crate::loader::current_mod(), kinds, ret, conv)
                 .map_err(|e| mlua::Error::external(format!("memory.hook: {e}")))?;
             lua.set_named_registry_value(&hook_key(id), cb)?;
             Ok(id)
@@ -1467,32 +1502,43 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
     )?;
     m.set("hooks", lua.create_function(|lua, ()| address_hooks(lua))?)?;
     // memory.call(addr, ...) -> result; integer/boolean/Object/memory.f32/f64
-    // args (max 8). A trailing table { ret = "f32" | "f64" } types the result.
+    // args (max 8). A trailing table { ret = "f32" | "f64", conv = "thiscall" }
+    // types the result and names the x86 calling convention.
     m.set(
         "call",
         lua.create_function(|_, (addr, args): (i64, mlua::Variadic<Value>)| {
             let mut args: Vec<Value> = args.into_iter().collect();
-            let ret = match args.last() {
+            let (ret, conv) = match args.last() {
                 Some(Value::Table(t)) => {
-                    let r = parse_ret(t.get::<Option<String>>("ret")?)?;
+                    let r = (parse_ret(t.get::<Option<String>>("ret")?)?, parse_conv(t.get::<Option<String>>("conv")?)?);
                     args.pop();
                     r
                 }
-                _ => hooks::ArgKind::Int,
+                _ => (hooks::ArgKind::Int, hooks::Conv::default()),
             };
             if args.len() > hooks::MAX_ARGS {
                 return Err(mlua::Error::external(format!("memory.call: at most {} arguments", hooks::MAX_ARGS)));
             }
+            // Floats are the memory.f32/f64 values; everything else a word.
+            let kinds: Vec<hooks::ArgKind> = args
+                .iter()
+                .map(|v| match v {
+                    Value::UserData(ud) => ud.borrow::<FloatArg>().map(|f| f.kind).unwrap_or(hooks::ArgKind::Int),
+                    _ => hooks::ArgKind::Int,
+                })
+                .collect();
+            let locs = hooks::locate(&kinds, conv).map_err(|e| mlua::Error::external(format!("memory.call: {e}")))?;
             let mut regs = hooks::Regs::default();
             for (i, v) in args.iter().enumerate() {
                 if v.is_nil() {
                     continue;
                 }
-                place_arg(&mut regs, i, hooks::ArgKind::Int, v).map_err(|e| mlua::Error::external(format!("memory.call: {e}")))?;
+                place_arg(&mut regs, i, locs[i], kinds[i], v).map_err(|e| mlua::Error::external(format!("memory.call: {e}")))?;
             }
-            Ok(hooks::call_raw(addr as usize, &regs).map(|r| match ret {
-                hooks::ArgKind::Int => Value::Integer(r.int as i64),
-                k => Value::Number(k.decode(r.xmm0)),
+            let shape = hooks::Shape::new(&kinds, conv, ret);
+            Ok(hooks::call_raw(addr as usize, &regs, &shape).map(|r| match ret {
+                hooks::ArgKind::Int => int(r.int as i64),
+                k => Value::Number(k.decode(r.fbits)),
             }))
         })?,
     )?;

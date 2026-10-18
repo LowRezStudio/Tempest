@@ -25,7 +25,7 @@ utils optimize="Debug":
 utils-release: (utils "ReleaseSmall")
 
 # ---------------------------------------------------------------------------
-# Tempest.Scripting (Rust): Lua modding DLL for the Paladins 8.1 Win64 client
+# Tempest.Scripting (Rust): Lua modding DLL for the Paladins 8.1 Win64 and Win32 clients
 # ---------------------------------------------------------------------------
 
 # Host tests (no game image needed)
@@ -33,21 +33,24 @@ utils-release: (utils "ReleaseSmall")
 scripting-test:
     cd {{scripting}} && cargo test -p tempest-scripting
 
-# Clippy for the host and the Win64 target
+# Clippy for the host and both Windows targets (the i686 one builds LuaJIT's host tools under wine)
 [group("scripting")]
 scripting-check:
     cd {{scripting}} && cargo clippy -p tempest-scripting --all-targets
     cd {{scripting}} && cargo clippy -p tempest-scripting --target x86_64-pc-windows-gnu
+    cd {{scripting}} && HOST_CC="{{justfile_directory()}}/{{scripting}}/scripts/luajit-hostcc32.sh" cargo clippy -p tempest-scripting --target i686-pc-windows-gnu
 
-# Build Tempest.Scripting64.dll and stage dist/: scripting / console / dev / lib .tempest packages
+# Build Tempest.Scripting64.dll + Tempest.Scripting32.dll and stage dist/: scripting / console / dev / lib .tempest packages
+# (TEMPEST_SCRIPTING_TARGETS="64" or "32" builds one client only)
 [group("scripting")]
 scripting-build:
     {{scripting}}/scripts/package.sh
 
-# Launch the game with the freshly built DLL injected directly (no mod install)
+# Launch the game with the freshly built DLLs injected directly (no mod install);
+# the CLI injects the one matching the executable (pass --platform Win32 for the 32-bit client)
 [group("scripting")]
 scripting-run game *args: scripting-build
-    dotnet run --project Tempest.CLI -- launch "{{game}}" --dll "{{justfile_directory()}}/{{scripting}}/dist/scripting/dlls/Tempest.Scripting64.dll" {{args}}
+    dotnet run --project Tempest.CLI -- launch "{{game}}" --dll "{{justfile_directory()}}/{{scripting}}/dist/scripting/dlls/64/Tempest.Scripting64.dll" --dll "{{justfile_directory()}}/{{scripting}}/dist/scripting/dlls/32/Tempest.Scripting32.dll" {{args}}
 
 
 

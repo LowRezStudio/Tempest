@@ -1,5 +1,5 @@
 //! Raw process memory: module lookup, reads/writes, signature scanning, and
-//! the two bits of x86-64 address math the signatures need.
+//! the bits of x86 / x86-64 operand decoding the signatures need.
 //!
 //! On non-Windows hosts every read returns `None` and every scan is empty, so
 //! the rest of the crate (and `cargo test`) runs without a game image.
@@ -253,22 +253,48 @@ fn readable_regions(module: Module) -> Vec<(usize, usize)> {
 }
 
 // ---------------------------------------------------------------------------
-// Address math (WolperMod RelativeAddress.h)
+// Operand decoding (x64: WolperMod RelativeAddress.h; x86: absolute disp32)
 // ---------------------------------------------------------------------------
 
 /// `mov reg, [rip+disp32]` (7 bytes, disp at +3) → address of the global.
 pub fn rip_target(instr: usize) -> Option<usize> {
-    let disp: i32 = unsafe { read(instr + 3)? };
-    Some((instr as isize + 7 + disp as isize) as usize)
+    rel_target(instr, 3, 7)
 }
 
 /// `call rel32` (5 bytes, disp at +1) → call target.
 pub fn call_target(instr: usize) -> Option<usize> {
-    let disp: i32 = unsafe { read(instr + 1)? };
-    Some((instr as isize + 5 + disp as isize) as usize)
+    rel_target(instr, 1, 5)
 }
 
-#[cfg(windows)]
+/// A rip-/eip-relative displacement at `instr + disp_at` of an instruction
+/// `len` bytes long → the absolute target.
+pub fn rel_target(instr: usize, disp_at: usize, len: usize) -> Option<usize> {
+    let disp: i32 = unsafe { read(instr + disp_at)? };
+    Some((instr as isize + len as isize + disp as isize) as usize)
+}
+
+/// The 32-bit absolute address embedded at `instr + at` (x86 `mov reg,
+/// [disp32]`, `push imm32`, `[base + index*4 + disp32]`, ...).
+pub fn abs32_at(instr: usize, at: usize) -> Option<usize> {
+    let v: u32 = unsafe { read(instr + at)? };
+    Some(v as usize)
+}
+
+/// The function entry (`push ebp; mov ebp, esp` or `push ebp; mov ebp, esp;
+/// push -1` SEH prologue, or a 16-byte aligned `int3` run before it) at or
+/// before `addr`, searching back at most `max_back` bytes. x86 only; x64
+/// functions are found through call sites instead.
+pub fn function_start_before(addr: usize, max_back: usize) -> Option<usize> {
+    let start = addr.checked_sub(max_back)?;
+    if !is_readable(start, max_back + 1) {
+        return None;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(start as *const u8, max_back + 1) };
+    (0..=max_back).rev().find(|&i| bytes[i..].starts_with(&[0x55, 0x8B, 0xEC])).map(|i| start + i)
+}
+
+/// `MEMORY_BASIC_INFORMATION`: 48 bytes on x64 (PartitionId + padding), 28 on x86.
+#[cfg(all(windows, target_pointer_width = "64"))]
 #[repr(C)]
 struct MemoryBasicInformation {
     base_address: usize,
@@ -281,6 +307,18 @@ struct MemoryBasicInformation {
     protect: u32,
     kind: u32,
     _pad1: u32,
+}
+
+#[cfg(all(windows, target_pointer_width = "32"))]
+#[repr(C)]
+struct MemoryBasicInformation {
+    base_address: usize,
+    allocation_base: usize,
+    allocation_protect: u32,
+    region_size: usize,
+    state: u32,
+    protect: u32,
+    kind: u32,
 }
 
 #[cfg(windows)]
@@ -318,8 +356,10 @@ mod tests {
     }
 
     #[test]
-    fn memory_basic_information_is_48_bytes() {
-        #[cfg(windows)]
+    fn memory_basic_information_matches_the_sdk() {
+        #[cfg(all(windows, target_pointer_width = "64"))]
         assert_eq!(std::mem::size_of::<MemoryBasicInformation>(), 48);
+        #[cfg(all(windows, target_pointer_width = "32"))]
+        assert_eq!(std::mem::size_of::<MemoryBasicInformation>(), 28);
     }
 }

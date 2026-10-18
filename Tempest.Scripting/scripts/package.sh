@@ -1,49 +1,78 @@
 #!/usr/bin/env bash
-# Build Tempest.Scripting64.dll for the Win64 client from macOS/Linux and
-# stage four installable packages (same format as `tempest mod pack`: a zip
-# of the mod folder with manifest.toml at the root plus a CHECKSUMS file):
+# Build Tempest.Scripting64.dll (Win64 client) and Tempest.Scripting32.dll
+# (Win32 client) from macOS/Linux and stage four installable packages (same
+# format as `tempest mod pack`: a zip of the mod folder with manifest.toml at
+# the root plus a CHECKSUMS file):
 #
-#   dist/scripting.tempest   runtime: the DLL, core console commands, editor types
+#   dist/scripting.tempest   runtime: both DLLs (dlls/64, dlls/32), core console commands, editor types
 #   dist/console.tempest     enables the in-game console (F2)
 #   dist/dev.tempest         whatever is in mods/dev/ — the scratch mod being worked on
 #   dist/lib.tempest         example library mod (exports `greet` for dev's 07_shared.lua)
 #
-# Uses the local MinGW-w64 toolchain when x86_64-w64-mingw32-gcc is on PATH
-# (`brew install mingw-w64`), otherwise falls back to `cross` (needs Docker).
+# The launcher injects dlls/64 into the Win64 client and dlls/32 into the
+# Win32 one (DLLs directly in dlls/ go to both, the pre-split layout).
+#
+# Uses the local MinGW-w64 toolchains when x86_64-w64-mingw32-gcc /
+# i686-w64-mingw32-gcc are on PATH (`brew install mingw-w64` ships both),
+# otherwise falls back to `cross` (needs Docker). The 32-bit build also needs
+# `wine` to run LuaJIT's host tools (see scripts/luajit-hostcc32.sh).
+# TEMPEST_SCRIPTING_TARGETS="64" or "32" limits the build to one client.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 OUT="${1:-dist}"
 case "$OUT" in /*) ;; *) OUT="$ROOT/$OUT" ;; esac
-TARGET="x86_64-pc-windows-gnu"
+TARGETS="${TEMPEST_SCRIPTING_TARGETS:-64 32}"
 
-if command -v x86_64-w64-mingw32-gcc >/dev/null; then
-    echo "building with local MinGW-w64"
-    cargo build --release --target "$TARGET" -p tempest-scripting
-else
-    command -v cross >/dev/null || { echo "need x86_64-w64-mingw32-gcc (brew install mingw-w64) or cross (cargo install cross)" >&2; exit 1; }
-    echo "building with cross"
-    [[ "$(uname -m)" == "arm64" ]] && export DOCKER_DEFAULT_PLATFORM=linux/amd64
-    cross build --release --target "$TARGET" -p tempest-scripting
-fi
-
-DLL="target/$TARGET/release/tempest_scripting.dll"
-# The DLL is useless without its entry point; fail loudly if it went missing.
-if command -v x86_64-w64-mingw32-objdump >/dev/null; then
-    exports="$(x86_64-w64-mingw32-objdump -p "$DLL")"
-    grep -qE '[[:space:]]DllMain[[:space:]]*$' <<<"$exports" \
-        || { echo "ERROR: $DLL does not export DllMain" >&2; exit 1; }
-    # The game folder has no MinGW runtime; everything must be static.
-    if grep -qiE 'DLL Name: (libstdc\+\+|libgcc_s|libwinpthread)' <<<"$exports"; then
-        echo "ERROR: $DLL imports a MinGW runtime DLL:" >&2
-        grep -iE 'DLL Name: (libstdc\+\+|libgcc_s|libwinpthread)' <<<"$exports" >&2
-        exit 1
+# build <bits>: cargo build for the client's target, verify the DLL, copy it to $OUT.
+build() {
+    local bits="$1" target gcc objdump
+    if [[ "$bits" == 64 ]]; then
+        target="x86_64-pc-windows-gnu"; gcc="x86_64-w64-mingw32-gcc"; objdump="x86_64-w64-mingw32-objdump"
+    else
+        target="i686-pc-windows-gnu"; gcc="i686-w64-mingw32-gcc"; objdump="i686-w64-mingw32-objdump"
     fi
-fi
+    if command -v "$gcc" >/dev/null; then
+        echo "building Win$bits with local MinGW-w64 ($gcc)"
+        if [[ "$bits" == 32 ]]; then
+            # LuaJIT's host tools must have the target's pointer size; with no
+            # 32-bit host compiler they are built as i686 .exe and run under Wine.
+            if [[ -z "${HOST_CC:-}" ]]; then
+                command -v wine >/dev/null || { echo "the Win32 build needs wine (brew install --cask wine-stable) to run LuaJIT's host tools, or HOST_CC=\"gcc -m32\"" >&2; exit 1; }
+                export HOST_CC="$ROOT/scripts/luajit-hostcc32.sh"
+            fi
+        fi
+        cargo build --release --target "$target" -p tempest-scripting
+    else
+        command -v cross >/dev/null || { echo "need $gcc (brew install mingw-w64) or cross (cargo install cross)" >&2; exit 1; }
+        echo "building Win$bits with cross"
+        [[ "$(uname -m)" == "arm64" ]] && export DOCKER_DEFAULT_PLATFORM=linux/amd64
+        cross build --release --target "$target" -p tempest-scripting
+    fi
 
-mkdir -p "$OUT"
-cp "$DLL" "$OUT/Tempest.Scripting64.dll"
+    local dll="target/$target/release/tempest_scripting.dll"
+    # The DLL is useless without its entry point; fail loudly if it went missing
+    # (the stdcall export is `DllMain@12` on Win32).
+    if command -v "$objdump" >/dev/null; then
+        local exports
+        exports="$("$objdump" -p "$dll")"
+        grep -qE '[[:space:]]DllMain(@12)?[[:space:]]*$' <<<"$exports" \
+            || { echo "ERROR: $dll does not export DllMain" >&2; exit 1; }
+        # The game folder has no MinGW runtime; everything must be static.
+        if grep -qiE 'DLL Name: (libstdc\+\+|libgcc_s|libwinpthread)' <<<"$exports"; then
+            echo "ERROR: $dll imports a MinGW runtime DLL:" >&2
+            grep -iE 'DLL Name: (libstdc\+\+|libgcc_s|libwinpthread)' <<<"$exports" >&2
+            exit 1
+        fi
+    fi
+    mkdir -p "$OUT"
+    cp "$dll" "$OUT/Tempest.Scripting$bits.dll"
+}
+
+for bits in $TARGETS; do
+    build "$bits"
+done
 
 
 # pack <staged folder> <out.tempest>: CHECKSUMS ("<sha256> <relpath>" lines,
@@ -64,8 +93,11 @@ LUARC='{
 S="$OUT/scripting"
 rm -rf "$S"
 cp -R mods/scripting "$S"
-mkdir -p "$S/dlls" "$S/types"
-cp "$OUT/Tempest.Scripting64.dll" "$S/dlls/"
+mkdir -p "$S/types"
+for bits in $TARGETS; do
+    mkdir -p "$S/dlls/$bits"
+    cp "$OUT/Tempest.Scripting$bits.dll" "$S/dlls/$bits/"
+done
 cp types/tempest.d.lua types/imgui.d.lua "$S/types/"
 printf '%s\n' "$LUARC" > "$S/.luarc.json"
 pack "$S" "$OUT/scripting.tempest"
@@ -91,4 +123,6 @@ rm -rf "$L"
 cp -R mods/lib "$L"
 pack "$L" "$OUT/lib.tempest"
 
-echo "staged: $OUT/Tempest.Scripting64.dll"
+for bits in $TARGETS; do
+    echo "staged: $OUT/Tempest.Scripting$bits.dll"
+done
