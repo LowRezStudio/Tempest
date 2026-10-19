@@ -5,6 +5,22 @@ const { autoUpdater } = electronUpdater;
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = false;
 
+let updateDownloaded = false;
+
+export function isUpdateDownloaded() {
+	return updateDownloaded;
+}
+
+/**
+ * Applies a downloaded update: silent install, app restarted afterwards.
+ * Destroys windows directly so the renderer's close guard (background work
+ * in the tray) can't block the quit.
+ */
+export function quitAndInstallUpdate() {
+	for (const window of BrowserWindow.getAllWindows()) window.destroy();
+	autoUpdater.quitAndInstall(true, true);
+}
+
 ipcMain.handle("updater:check", () => {
 	return new Promise((resolve) => {
 		autoUpdater.once("update-available", (info) =>
@@ -34,7 +50,10 @@ ipcMain.handle("updater:download", (event) => {
 				contentLength: p.total,
 			});
 		});
-		autoUpdater.once("update-downloaded", () => resolve());
+		autoUpdater.once("update-downloaded", () => {
+			updateDownloaded = true;
+			resolve();
+		});
 		autoUpdater.once("error", (err) => reject(err));
 		void autoUpdater.downloadUpdate();
 	});

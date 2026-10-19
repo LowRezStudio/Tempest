@@ -1,4 +1,5 @@
-import { ipcMain, app } from "electron";
+import { ipcMain, app, BrowserWindow } from "electron";
+import { isUpdateDownloaded, quitAndInstallUpdate } from "./updater.js";
 
 let pendingOpenFiles = [];
 
@@ -13,6 +14,12 @@ ipcMain.handle("take_pending_open_files", () => {
 	return files;
 });
 ipcMain.handle("relaunch", () => {
+	// If an update was downloaded, install it silently instead of just
+	// restarting the same version; the installer relaunches the app after.
+	if (isUpdateDownloaded()) {
+		quitAndInstallUpdate();
+		return;
+	}
 	app.relaunch();
 	app.exit();
 });
