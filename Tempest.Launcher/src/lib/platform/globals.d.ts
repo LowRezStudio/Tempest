@@ -13,6 +13,8 @@ interface OSInfo {
 
 interface Window {
 	electronAPI?: ElectronAPI;
+	/** localStorage dump from the previous (Tauri) profile, injected by preload. */
+	__migrationDump?: string | null;
 	__closeHook?: () => Promise<boolean>;
 	__os?: OSInfo;
 }

@@ -6,6 +6,9 @@ fileAssociations:
       description: Tempest Mod Package
       mimeType: application/x-tempest-mod
       role: Viewer
+nsis:
+    # Uninstalls any leftover Tauri MSI build of the app (see installer.nsh)
+    include: resources/installer.nsh
 electronLanguages:
     - en-US
     - fr

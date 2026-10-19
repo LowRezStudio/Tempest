@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, session } from "electron";
+import { app, BrowserWindow, ipcMain, session } from "electron";
 import serve from "electron-serve";
 import { queueOpenFiles } from "./app.js";
 import "./fs.js";
@@ -50,15 +50,32 @@ function queueAndNotifyOpenFiles(files) {
 process.chdir(process.cwd());
 queueOpenFiles(tempestFilesFromArgs(process.argv.slice(1), process.cwd()));
 
+// One-time localStorage migration: the Tauri build periodically dumped
+// localStorage to settings.json next to this profile. Hand it to the preload
+// script (which exposes it before any page script runs) so the store bootstrap
+// can import it before persisted state initializes.
+ipcMain.on("migration:dump", (event) => {
+	let value = null;
+	try {
+		value = fs.readFileSync(path.join(app.getPath("userData"), "settings.json"), "utf8");
+	} catch {
+		/* no snapshot yet */
+	}
+	event.returnValue = value;
+});
+
 app.on("open-file", (event, filePath) => {
 	event.preventDefault();
 	queueAndNotifyOpenFiles(tempestFilesFromArgs([filePath], process.cwd()));
 });
 
-// Pin the userData dir so SQL/localStorage survive across runs and match
-// the packaged app's location.
+// Pin the userData dir to the one the Tauri build used (com.lowrezstudio.tempest)
+// so the SQLite DBs, instance files, settings.json snapshot and localStorage all
+// carry over instead of starting over in a fresh profile.
 if (process.platform === "linux") {
 	app.setPath("userData", path.join(os.homedir(), ".local", "share", "com.lowrezstudio.tempest"));
+} else {
+	app.setPath("userData", path.join(app.getPath("appData"), "com.lowrezstudio.tempest"));
 }
 
 // A second instance shares the pinned userData profile but cannot acquire its

@@ -3,6 +3,25 @@ export interface PersistedOptions<T> {
 	decode?: (str: string) => T;
 }
 
+// One-time import of the settings.json snapshot the Tauri build dumped next to
+// this profile (delivered synchronously via preload). Runs at module init, so
+// it happens before any persistedJSON()/persistedState() call reads defaults.
+// Existing keys are never overwritten.
+if (typeof window !== "undefined") {
+	const dump = (window as unknown as { __migrationDump?: string | null }).__migrationDump;
+	if (dump && !localStorage.getItem("migratedFromTauri")) {
+		try {
+			const entries = JSON.parse(dump) as Record<string, string>;
+			for (const [key, value] of Object.entries(entries)) {
+				if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+			}
+		} catch (error) {
+			console.warn("[migration] settings.json import skipped:", error);
+		}
+		localStorage.setItem("migratedFromTauri", "1");
+	}
+}
+
 export function persistedState<T>(key: string, defaultValue: T, options?: PersistedOptions<T>) {
 	let initial = defaultValue;
 	if (typeof window !== "undefined") {

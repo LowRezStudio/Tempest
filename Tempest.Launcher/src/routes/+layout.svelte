@@ -20,12 +20,12 @@
 	const queryClient = new QueryClient();
 	setQueryClient(queryClient);
 
-	// Fallback settings snapshot for plain-browser use (no electronAPI), so
-	// localStorage survives a cleared profile.
+	// Periodically dump localStorage to settings.json in the profile dir as a
+	// recoverable snapshot (used by the migration path when switching storage
+	// backends).
 	$effect(() => {
 		let lastSnapshot = "";
 		const snapshot = async () => {
-			if ("electronAPI" in window) return;
 			try {
 				const dump: Record<string, string> = {};
 				for (let i = 0; i < localStorage.length; i++) {
