@@ -95,6 +95,32 @@ fn trigger_child_cleanup() {
     child_cleanup::setup();
 }
 
+/// The shell plugin only reports `close` once every copy of the child's output pipes is closed,
+/// which processes left behind by the game can delay indefinitely. Lets the frontend check the
+/// launcher process itself.
+#[tauri::command]
+fn is_process_running(pid: u32) -> bool {
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
+        use windows::Win32::System::Threading::{
+            OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+        };
+
+        let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else {
+            return false;
+        };
+        let running = WaitForSingleObject(handle, 0) == WAIT_TIMEOUT;
+        let _ = CloseHandle(handle);
+        running
+    }
+
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(pid as libc::pid_t, 0) == 0
+    }
+}
+
 #[tauri::command]
 fn which(name: String) -> Result<Option<String>, String> {
     let path = std::env::var_os("PATH").ok_or("PATH environment variable is not set")?;
@@ -206,6 +232,7 @@ pub fn run() {
             take_pending_open_files,
             relaunch,
             trigger_child_cleanup,
+            is_process_running,
             which,
         ])
         .run(tauri::generate_context!())
