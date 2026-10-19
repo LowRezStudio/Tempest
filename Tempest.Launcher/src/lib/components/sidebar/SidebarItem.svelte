@@ -11,10 +11,9 @@
 		active?: boolean;
 		circle?: boolean;
 		color?: string;
-		onpointerdown?: (e: PointerEvent) => void;
 	}
 
-	let { href, children, label, active, circle, color, onpointerdown }: Props = $props();
+	let { href, children, label, active, circle, color }: Props = $props();
 
 	let isActive = $derived(active ?? page.url.pathname === href);
 </script>
@@ -25,7 +24,6 @@
 			<a
 				{...props}
 				{href}
-				{onpointerdown}
 				class:rounded-full={circle}
 				class="btn btn-square"
 				class:btn-accent={isActive && !color}

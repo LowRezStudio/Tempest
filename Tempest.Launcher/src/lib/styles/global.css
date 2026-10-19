@@ -122,10 +122,3 @@
 		display: none;
 	}
 }
-
-/* Drag-reorder cursor feedback (used by createReorderable). */
-body.reorder-dragging,
-body.reorder-dragging * {
-	cursor: grabbing !important;
-	user-select: none;
-}
