@@ -2,7 +2,7 @@
 # Build Tempest.Scripting64.dll (Win64 client) and Tempest.Scripting32.dll
 # (Win32 client) from macOS/Linux and stage four installable packages (same
 # format as `tempest mod pack`: a zip of the mod folder with manifest.toml at
-# the root plus a CHECKSUMS file):
+# the root plus CHECKSUMS and its signature CHECKSUMS.asc):
 #
 #   dist/scripting.tempest   runtime: both DLLs (dlls/64, dlls/32), core console commands, editor types
 #   dist/console.tempest     enables the in-game console (F2)
@@ -17,6 +17,8 @@
 # otherwise falls back to `cross` (needs Docker). The 32-bit build also needs
 # `wine` to run LuaJIT's host tools (see scripts/luajit-hostcc32.sh).
 # TEMPEST_SCRIPTING_TARGETS="64" or "32" limits the build to one client.
+# The packages are signed with the Tempest CLI when a signing key is found
+# (see "signing" below); the CLI refuses unsigned DLLs and Lua scripts.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -122,6 +124,28 @@ L="$OUT/lib"
 rm -rf "$L"
 cp -R mods/lib "$L"
 pack "$L" "$OUT/lib.tempest"
+
+# --- signing ---------------------------------------------------------------
+# Packages with code (DLLs, Lua) must be signed to install, and only install
+# without a warning when the key is trusted (keys/trusted.keys). Signs with
+# $TEMPEST_SIGNING_KEY, else the CLI's default key (`just mod-keygen`); without
+# either the packages stay unsigned. TEMPEST_SIGN=0 skips signing.
+case "$(uname -s)" in
+    Darwin) appdata="$HOME/Library/Application Support" ;;
+    *) appdata="${XDG_CONFIG_HOME:-$HOME/.config}" ;;
+esac
+KEY="${TEMPEST_SIGNING_KEY:-$appdata/com.lowrezstudio.tempest/signing/tempest.key}"
+if [[ "${TEMPEST_SIGN:-1}" == 0 ]]; then
+    echo "signing skipped (TEMPEST_SIGN=0)"
+elif [[ -f "$KEY" ]]; then
+    CLI_PROJECT="$ROOT/../Tempest.CLI"
+    dotnet build "$CLI_PROJECT" -v q -nologo
+    for pkg in scripting console dev lib; do
+        dotnet run --no-build --project "$CLI_PROJECT" -- mod sign "$OUT/$pkg.tempest" --key "$KEY"
+    done
+else
+    echo "warning: no signing key at $KEY; packages are unsigned and will not install (just mod-keygen, or set TEMPEST_SIGNING_KEY)" >&2
+fi
 
 for bits in $TARGETS; do
     echo "staged: $OUT/Tempest.Scripting$bits.dll"

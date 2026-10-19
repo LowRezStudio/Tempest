@@ -56,6 +56,15 @@ Package and folder names are free; the `id` in each `manifest.toml` is what
 the launcher and the runtime key on. Only the runtime package carries the
 DLL; any number of script-only mods can sit next to it.
 
+The CLI refuses unsigned packages that contain code (DLLs or Lua scripts)
+and asks before installing one signed by a key it does not trust
+(`keys/trusted.keys` at the repo root, see AGENTS.md), so `package.sh` and
+`package.ps1` sign all four with `tempest mod sign`. The key is
+`$TEMPEST_SIGNING_KEY`, otherwise
+`<app data>/com.lowrezstudio.tempest/signing/tempest.key` (`just mod-keygen`
+creates it). Without a key the packages stay unsigned and will not install;
+`TEMPEST_SIGN=0` (`-NoSign` for `package.ps1`) skips signing.
+
 ## Install and test
 
 Install the `.tempest` files through the launcher (or `tempest mod install`).

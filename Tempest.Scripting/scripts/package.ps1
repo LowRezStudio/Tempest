@@ -4,7 +4,8 @@
 # (`rustup target add i686-pc-windows-msvc`).
 param(
     [string[]]$Targets = @("x86_64-pc-windows-msvc", "i686-pc-windows-msvc"),
-    [string]$Out = "$PSScriptRoot/../dist"
+    [string]$Out = "$PSScriptRoot/../dist",
+    [switch]$NoSign
 )
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -41,6 +42,25 @@ try {
     Stage "console" "mods/console" $false $false
     Stage "dev" "mods/dev" $false $true
     Stage "lib" "mods/lib" $false $false
+
+    # Packages with code (DLLs, Lua) must be signed to install
+    # (same key lookup as package.sh; -NoSign or a missing key leaves them unsigned).
+    $Key = if ($env:TEMPEST_SIGNING_KEY) { $env:TEMPEST_SIGNING_KEY } else { Join-Path $env:APPDATA "com.lowrezstudio.tempest/signing/tempest.key" }
+    if ($NoSign) {
+        Write-Host "signing skipped (-NoSign)"
+    }
+    elseif (Test-Path $Key) {
+        $Cli = Join-Path $Root "../Tempest.CLI"
+        dotnet build $Cli -v q -nologo
+        if ($LASTEXITCODE -ne 0) { throw "Tempest.CLI build failed" }
+        foreach ($Name in "scripting", "console", "dev", "lib") {
+            dotnet run --no-build --project $Cli -- mod sign (Join-Path $Out "$Name.tempest") --key $Key
+            if ($LASTEXITCODE -ne 0) { throw "signing failed for $Name" }
+        }
+    }
+    else {
+        Write-Warning "no signing key at $Key; packages are unsigned and will not install (just mod-keygen, or set TEMPEST_SIGNING_KEY)"
+    }
 }
 finally {
     Pop-Location
