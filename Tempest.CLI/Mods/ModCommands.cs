@@ -137,15 +137,30 @@ internal class ModCommands
     /// <param name="stack">Add mod alongside conflicting mods, transferring ownership of conflicting files</param>
     /// <param name="allowUntrusted">Install code (DLLs, Lua) signed by a key that is not trusted</param>
     /// <param name="json">Output as JSON</param>
-    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool stack = false, bool allowUntrusted = false, bool json = false)
+    /// <param name="patch">When modFile is a repository id, pick the newest version compatible with this Paladins patch (e.g. 0.57)</param>
+    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool stack = false, bool allowUntrusted = false, bool json = false, string? patch = null)
     {
         try
         {
+            string? downloaded = null;
             if (!File.Exists(modFile))
             {
-                var fail = new ModInstallResult { Success = false, Message = $"Mod file not found: {modFile}" };
-                PrintResult(fail, json);
-                return;
+                // Not a local file: an http(s) URL, or a repository id ("vexa-crosshair" or "vexa-crosshair@1.3.0").
+                try
+                {
+                    downloaded = await FetchFromRepoAsync(modFile, patch);
+                }
+                catch (Exception ex)
+                {
+                    PrintResult(new ModInstallResult { Success = false, Message = $"Mod file not found: {modFile} ({ex.Message})" }, json);
+                    return;
+                }
+                if (downloaded == null)
+                {
+                    PrintResult(new ModInstallResult { Success = false, Message = $"Mod file not found: {modFile}" }, json);
+                    return;
+                }
+                modFile = downloaded;
             }
 
             var installer = ModInstallerFactory.CreateForFile(modFile);
@@ -160,11 +175,191 @@ internal class ModCommands
             }
 
             PrintResult(result, json);
+            if (downloaded != null) File.Delete(downloaded);
         }
         catch (Exception ex)
         {
             var fail = new ModInstallResult { Success = false, Message = ex.Message };
             PrintResult(fail, json);
+        }
+    }
+
+    /// <summary>
+    /// Resolves a URL or a repository id (optionally "id@version") to a downloaded package in the
+    /// temp folder, or null when the spec is neither.
+    /// </summary>
+    private static async Task<string?> FetchFromRepoAsync(string spec, string? patch)
+    {
+        var dest = Path.Combine(Path.GetTempPath(), $"tempest-{Guid.NewGuid():N}.tempest");
+        if (spec.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || spec.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+            using var res = await http.GetAsync(spec, HttpCompletionOption.ResponseHeadersRead);
+            res.EnsureSuccessStatusCode();
+            await using var file = File.Create(dest);
+            await res.Content.CopyToAsync(file);
+            return dest;
+        }
+        var at = spec.IndexOf('@');
+        var id = at < 0 ? spec : spec[..at];
+        var wanted = at < 0 ? null : spec[(at + 1)..];
+        if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^[a-z0-9][a-z0-9._-]{1,63}$")) return null;
+
+        using var repo = new ModRepoClient();
+        var versions = (await repo.GetVersionsAsync(id)).Where(v => v.Status == "approved").ToList();
+        if (versions.Count == 0) throw new Exception($"no published version of {id} on {repo.BaseUri.Host}");
+        RepoVersion? pick;
+        if (wanted != null)
+            pick = versions.FirstOrDefault(v => v.Version == wanted) ?? throw new Exception($"{id} has no version {wanted}");
+        else
+        {
+            var candidates = patch == null ? versions : versions.Where(v => Compatible(v.Compat, patch)).ToList();
+            if (candidates.Count == 0) throw new Exception($"no version of {id} is compatible with patch {patch}");
+            pick = candidates.OrderByDescending(v => v.Version, SemverComparer.Instance).First();
+        }
+        await repo.DownloadAsync(id, pick.Version, dest);
+        return dest;
+    }
+
+    /// <summary>Mirrors src/lib/compat.ts on the repository: explicit patches or inclusive ranges, numeric by component.</summary>
+    internal static bool Compatible(RepoCompat compat, string patch)
+    {
+        if (compat.Patches.Contains(patch)) return true;
+        var n = PatchOrder(patch);
+        return compat.Ranges.Any(r => (r.From == null || PatchOrder(r.From) <= n) && (r.To == null || n <= PatchOrder(r.To)));
+    }
+
+    private static long PatchOrder(string version)
+    {
+        var parts = version.Split('.');
+        long Part(int i) => parts.Length > i && long.TryParse(parts[i], out var v) ? v : 0;
+        return Part(0) * 1_000_000 + Part(1) * 10_000 + Part(2);
+    }
+
+    /// <summary>Searches the mod repository</summary>
+    /// <param name="query">Words to match in name, summary, id, tags or author</param>
+    /// <param name="patch">Only mods compatible with this Paladins patch (e.g. 0.57)</param>
+    /// <param name="kind">assets, scripts or native</param>
+    /// <param name="json">Output as JSON</param>
+    public async Task<int> Search([Argument] string? query = null, string? patch = null, string? kind = null, bool json = false)
+    {
+        try
+        {
+            using var repo = new ModRepoClient();
+            var page = await repo.SearchAsync(query, patch, kind);
+            if (json)
+            {
+                Console.WriteLine(JsonSerializer.Serialize(page, RepoJsonContext.Default.RepoModPage));
+                return 0;
+            }
+            if (page.Items.Count == 0)
+            {
+                Console.WriteLine("No mods found.");
+                return 0;
+            }
+            foreach (var mod in page.Items)
+            {
+                var latest = mod.Latest == null ? "" : $" v{mod.Latest.Version}";
+                var trust = mod.Latest?.Signer?.Trust switch { "first-party" => " [Tempest team]", "trusted" => " [trusted]", "unknown" => " [unknown signer]", _ => "" };
+                Console.WriteLine($"{mod.Id}{latest}  {mod.Name} by {mod.Owner.DisplayName}  ({mod.Kind}{trust}, {mod.Downloads} installs)");
+                Console.WriteLine($"    {mod.Summary}");
+            }
+            if (page.Total > page.Items.Count) Console.WriteLine($"... {page.Total} results, showing {page.Items.Count}. See {repo.BaseUri}mods");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Search failed: {ex.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>Stores an API key for publishing (create one on the website under Settings)</summary>
+    /// <param name="apiKey">The tm_live_... key; omit to forget the stored one</param>
+    /// <param name="url">Repository URL, for a self-hosted instance</param>
+    public async Task<int> Login([Argument] string? apiKey = null, string? url = null)
+    {
+        var config = RepoConfig.Load();
+        if (apiKey == null && url == null)
+        {
+            config.ApiKey = null;
+            config.Save();
+            Console.WriteLine("Forgot the stored API key.");
+            return 0;
+        }
+        if (apiKey != null) config.ApiKey = apiKey;
+        if (url != null) config.Url = url.TrimEnd('/');
+        config.Save();
+        try
+        {
+            using var repo = new ModRepoClient();
+            var me = await repo.MeAsync();
+            Console.WriteLine($"Signed in to {repo.BaseUri.Host} as {me.DisplayName} (@{me.Handle}, {me.Role}{(me.Team ? ", team" : "")}). Key stored in {RepoConfig.Path}");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"The key was stored but does not work: {ex.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>Uploads a signed .tempest package to the mod repository</summary>
+    /// <param name="package">The package (from `mod pack` + `mod sign`)</param>
+    /// <param name="patch">Compatible patch, repeatable (e.g. --patch 0.56 --patch 0.57)</param>
+    /// <param name="from">Start of a compatible patch range (inclusive)</param>
+    /// <param name="to">End of a compatible patch range (inclusive); omit for "and later"</param>
+    /// <param name="summary">One-line summary; required for a new mod</param>
+    /// <param name="tags">Comma-separated tags</param>
+    /// <param name="changelog">What changed in this version</param>
+    /// <param name="repository">Source repository URL</param>
+    /// <param name="json">Output as JSON</param>
+    public async Task<int> Publish([Argument] string package, string[]? patch = null, string? from = null, string? to = null, string? summary = null, string? tags = null, string? changelog = null, string? repository = null, bool json = false)
+    {
+        try
+        {
+            if (!File.Exists(package)) throw new FileNotFoundException("package not found", package);
+            var compat = new RepoCompat { Patches = [.. patch ?? []] };
+            if (from != null || to != null) compat.Ranges.Add(new RepoCompatRange { From = from, To = to });
+            if (compat.Patches.Count == 0 && compat.Ranges.Count == 0) throw new Exception("declare compatibility: --patch <version> (repeatable), or --from <version> [--to <version>]");
+            var listing = new RepoListing
+            {
+                Compat = compat,
+                Summary = summary,
+                Changelog = changelog,
+                Repository = repository,
+                Tags = tags?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => t.ToLowerInvariant()).ToList(),
+            };
+            using var repo = new ModRepoClient();
+            var result = await repo.PublishAsync(package, listing, json ? null : s => Console.Error.WriteLine($"  {s}..."));
+            if (json)
+            {
+                Console.WriteLine(JsonSerializer.Serialize(result, RepoJsonContext.Default.RepoIntent));
+                return result.State == "done" ? 0 : 1;
+            }
+            if (result.State == "failed")
+            {
+                Console.Error.WriteLine("Not accepted:");
+                foreach (var e in result.Result?.Errors ?? []) Console.Error.WriteLine($"  - {e}");
+                return 1;
+            }
+            Console.WriteLine($"Uploaded {result.Result?.ModId} v{result.Result?.Version}.");
+            foreach (var w in result.Result?.Warnings ?? []) Console.WriteLine($"  warning: {w}");
+            var versions = await repo.GetVersionsAsync(result.Result?.ModId ?? "");
+            var status = versions.FirstOrDefault(v => v.Id == result.VersionId)?.Status;
+            Console.WriteLine(status switch
+            {
+                "approved" => $"Published: {repo.BaseUri}mods/{result.Result?.ModId}",
+                "pending_review" => "Queued for moderation; the dashboard shows the outcome.",
+                "rejected" => "Rejected by inspection; see the dashboard for the reasons.",
+                _ => $"Status: {status ?? "unknown"}",
+            });
+            return status == "rejected" ? 1 : 0;
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Publish failed: {ex.Message}");
+            return 1;
         }
     }
 
@@ -691,6 +886,25 @@ internal class ModCommands
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"Failed to sign key lists: {ex.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>Signs a text with the mod signing key and prints the armored detached signature (for example the key-verification challenge from mods.lowrezstudio.com)</summary>
+    /// <param name="text">The text to sign; `@path` signs the contents of a file instead</param>
+    /// <param name="key">Private key file to sign with; defaults to $TEMPEST_SIGNING_KEY, then the one `mod gen-key` writes by default</param>
+    public async Task<int> SignText([Argument] string text, string? key = null)
+    {
+        try
+        {
+            var secretKey = ModSigning.ReadSecretKey(await File.ReadAllTextAsync(key ?? TempestPathUtility.GetDefaultSigningKeyPath()));
+            var content = text.StartsWith('@') ? await File.ReadAllTextAsync(text[1..]) : text;
+            Console.Write(ModSigning.SignText(content, secretKey));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Failed to sign: {ex.Message}");
             return 1;
         }
     }

@@ -37,7 +37,7 @@ function queueInstall(filePaths: string[], instance: any) {
 		});
 }
 
-function handleModFileDrop(filePaths: string[]) {
+export function handleModFileDrop(filePaths: string[]) {
 	const validPaths: string[] = [];
 	let hadInvalid = false;
 

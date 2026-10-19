@@ -12,7 +12,7 @@ const REMOTE_CORE_URL =
 const LATEST_CORE_API = "https://api.github.com/repos/LowRezStudio/TgMod/releases/latest";
 const CORE_VERSION_KEY = "tempest_core_remote_version";
 
-async function downloadRemoteMod(url: string, filename: string): Promise<string> {
+export async function downloadRemoteMod(url: string, filename: string): Promise<string> {
 	const tmp = await tempDir();
 	const dest = await join(tmp, filename);
 	try {

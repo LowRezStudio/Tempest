@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, session } from "electron";
 import serve from "electron-serve";
-import { queueOpenFiles } from "./app.js";
+import { queueOpenFiles, queueDeepLinks } from "./app.js";
 import "./fs.js";
 import "./dialog.js";
 import "./opener.js";
@@ -47,12 +47,32 @@ function queueAndNotifyOpenFiles(files) {
 	}
 }
 
+// tempest://install?mod=<id>&version=<v> links from the mod repository.
+function deepLinksFromArgs(args) {
+	return args.filter((argument) => /^tempest:\/\//i.test(argument));
+}
+
+function queueAndNotifyDeepLinks(urls) {
+	if (urls.length === 0) return;
+	queueDeepLinks(urls);
+	if (mainWindow && !mainWindow.webContents.isLoading()) {
+		mainWindow.webContents.send("deep-link", urls);
+	}
+}
+
 process.chdir(process.cwd());
 queueOpenFiles(tempestFilesFromArgs(process.argv.slice(1), process.cwd()));
+queueDeepLinks(deepLinksFromArgs(process.argv.slice(1)));
+app.setAsDefaultProtocolClient("tempest");
 
 app.on("open-file", (event, filePath) => {
 	event.preventDefault();
 	queueAndNotifyOpenFiles(tempestFilesFromArgs([filePath], process.cwd()));
+});
+
+app.on("open-url", (event, url) => {
+	event.preventDefault();
+	queueAndNotifyDeepLinks(deepLinksFromArgs([url]));
 });
 
 // Pin to the same dir Tauri uses so SQL/localStorage survive across runs.
@@ -69,6 +89,7 @@ if (!hasInstanceLock) {
 } else {
 	app.on("second-instance", (_event, commandLine, workingDirectory) => {
 		queueAndNotifyOpenFiles(tempestFilesFromArgs(commandLine, workingDirectory));
+		queueAndNotifyDeepLinks(deepLinksFromArgs(commandLine));
 		if (!mainWindow) return;
 		if (mainWindow.isMinimized()) mainWindow.restore();
 		mainWindow.show();

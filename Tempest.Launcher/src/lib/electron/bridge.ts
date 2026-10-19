@@ -497,6 +497,19 @@ export function openUrl(url: string): Promise<void> {
 	return eio().invoke("opener:open-url", { url });
 }
 
+// ---- @tauri-apps/plugin-deep-link ----
+
+// URLs the app was started with (or received while loading), drained once.
+export function getCurrent(): Promise<string[] | null> {
+	return eio().invoke("take_pending_deep_links") as Promise<string[] | null>;
+}
+
+export function onOpenUrl(handler: (urls: string[]) => void): Promise<() => void> {
+	const unlisten = eio().on("deep-link", (urls: string[]) => handler(urls));
+	void getCurrent().then((urls) => urls && urls.length > 0 && handler(urls));
+	return Promise.resolve(unlisten);
+}
+
 // ---- @tauri-apps/plugin-os ----
 // injected as non-writable constants from main process via executeJavaScript
 

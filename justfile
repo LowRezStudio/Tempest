@@ -75,6 +75,11 @@ mod-pack dir out:
     {{tempest}} -- mod pack "{{dir}}" "{{out}}"
     {{tempest}} --no-build -- mod sign "{{out}}"
 
+# Sign a text with the mod signing key and print the armored signature (mods.lowrezstudio.com key verification)
+[group("mods")]
+mod-sign-text text:
+    {{tempest}} -- mod sign-text "{{text}}"
+
 # Sign existing .tempest packages in place (rewrites CHECKSUMS + CHECKSUMS.asc)
 [group("mods")]
 [positional-arguments]

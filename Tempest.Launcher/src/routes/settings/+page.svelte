@@ -14,6 +14,7 @@
 		customThemeCSS,
 		defaultInstancePath,
 		modDeveloper,
+		modRepositoryURL,
 		onboardingCompleted,
 		openSslCapFix,
 		theme,
@@ -226,6 +227,37 @@
 								<button class="btn btn-accent" onclick={restartOnboarding}
 									>{m.settings_restart_onboarding()}</button
 								>
+							</div>
+						</div>
+
+						<div class="divider"></div>
+
+						<div class="flex flex-col gap-4">
+							<h2 class="text-xl font-semibold">{m.settings_mod_repository()}</h2>
+							<p class="text-sm">{m.settings_mod_repository_description()}</p>
+							<div class="form-control">
+								<label for="repo-url-input" class="label py-0.5">
+									<span class="label-text text-sm"
+										>{m.settings_mod_repository_url()}</span
+									>
+								</label>
+								<div class="join w-full">
+									<input
+										id="repo-url-input"
+										type="url"
+										class="input input-bordered join-item flex-1 font-mono"
+										bind:value={modRepositoryURL.value}
+										placeholder="https://mods.lowrezstudio.com"
+									/>
+									<button
+										type="button"
+										class="btn join-item"
+										onclick={() =>
+											(modRepositoryURL.value =
+												"https://mods.lowrezstudio.com")}
+										>{m.common_reset()}</button
+									>
+								</div>
 							</div>
 						</div>
 

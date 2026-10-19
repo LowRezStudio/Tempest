@@ -28,7 +28,7 @@
 		"active": true,
 		"publisher": "Tempest Developers",
 		"homepage": "https://github.com/LowRezStudio/Tempest",
-		"copyright": "Copyright © 2026 Tempest Developers",
+		"copyright": "Copyright \u00a9 2026 Tempest Developers",
 		"license": "MIT",
 		"category": "Game",
 		"shortDescription": "Launcher client for Paladins",
@@ -104,6 +104,11 @@
 				"https://github.com/LowRezStudio/Tempest/releases/latest/download/latest.json"
 			],
 			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUyODNCOTExM0Q5RDNERUIKUldUclBaMDlFYm1ENHJsU0NibGU0cHhGK1ExVmlqZFAwOGFIZUxsMkcrZHpvWVRzdWZTNDdPNy8K"
+		},
+		"deep-link": {
+			"desktop": {
+				"schemes": ["tempest"]
+			}
 		}
 	}
 }

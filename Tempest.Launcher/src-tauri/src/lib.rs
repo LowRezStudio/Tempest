@@ -177,6 +177,9 @@ pub fn run() {
             },
         ))
         .manage(PendingOpenFiles(Mutex::new(initial_open_files)))
+        // tempest://install?mod=<id>&version=<v> links from the mod repository. The frontend
+        // listens with onOpenUrl()/getCurrent(); single-instance forwards URLs passed as argv.
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
@@ -194,9 +197,17 @@ pub fn run() {
         )
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|_app| {
+        .setup(|app| {
             #[cfg(not(target_os = "windows"))]
             child_cleanup::setup();
+            // Installers register the scheme; dev builds and AppImages must do it themselves.
+            #[cfg(any(windows, target_os = "linux"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let _ = app.deep_link().register_all();
+            }
+            #[cfg(not(any(windows, target_os = "linux")))]
+            let _ = app;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

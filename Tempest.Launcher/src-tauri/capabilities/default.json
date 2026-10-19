@@ -10,6 +10,7 @@
 		"core:window:allow-show",
 		"core:window:allow-set-focus",
 		"core:window:allow-unminimize",
+		"deep-link:default",
 		"opener:default",
 		{
 			"identifier": "opener:allow-open-path",

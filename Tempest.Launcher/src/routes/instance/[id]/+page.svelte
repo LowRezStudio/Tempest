@@ -17,23 +17,30 @@
 	import InstanceSettingsForm from "$lib/components/library/InstanceSettingsForm.svelte";
 	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
+	import RepoBrowser from "$lib/components/mods/RepoBrowser.svelte";
+	import RepoModModal from "$lib/components/mods/RepoModModal.svelte";
+	import RepoUpdatesModal from "$lib/components/mods/RepoUpdatesModal.svelte";
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
+	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
+	import { createRepoUpdatesQuery } from "$lib/queries/repo";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { ModRecord } from "$lib/core/mods";
 
-	let activeTab = $state<"content" | "settings">("content");
+	type Tab = "content" | "browse" | "settings";
+	let activeTab = $state<Tab>("content");
 
-	// Deep-link support: /instance/<id>?tab=settings opens directly on the settings tab.
+	// Deep-link support: /instance/<id>?tab=settings (or browse) opens directly on that tab.
 	$effect(() => {
-		activeTab = page.url.searchParams.get("tab") === "settings" ? "settings" : "content";
+		const tab = page.url.searchParams.get("tab");
+		activeTab = tab === "settings" || tab === "browse" ? tab : "content";
 	});
 
 	const instance = $derived(instanceMap.value[page.params.id!]);
@@ -50,6 +57,49 @@
 	let isQueryLoading = $derived(modsQuery.isFetching);
 
 	const removeModMutation = createRemoveModMutation();
+
+	// Repository update checks for the installed V2 mods (the repository keys on manifest ids).
+	const updatesQuery = createRepoUpdatesQuery(() => ({
+		patch: instance?.version ?? "",
+		mods: modsList
+			.filter((mod) => mod.Kind === "V2")
+			.map((mod) => ({ id: mod.Id, version: mod.Version })),
+	}));
+	const updates = $derived(new Map((updatesQuery.data ?? []).map((u) => [u.id, u])));
+
+	async function handleUpdateMod(mod: ModRecord) {
+		const update = updates.get(mod.Id);
+		if (!instance || !update?.latest) return;
+		await installFromRepo(instance.path, mod.Id, update.latest.version, mod.Name, {
+			replace: true,
+		});
+	}
+
+	// Mod details from the repository (readme, versions, downgrade), opened from the table or the Browse tab.
+	let repoModId = $state<string | null>(null);
+	let repoModOpen = $state(false);
+	function openRepoMod(modId: string) {
+		repoModId = modId;
+		repoModOpen = true;
+	}
+
+	// One popup per instance per session when updates are found.
+	let updatesOpen = $state(false);
+	$effect(() => {
+		const available = [...updates.values()].filter((u) => u.updateAvailable);
+		if (!instance || available.length === 0) return;
+		const key = `repo-updates-shown:${instance.id}:${available
+			.map((u) => `${u.id}@${u.latest?.version}`)
+			.sort()
+			.join(",")}`;
+		try {
+			if (sessionStorage.getItem(key)) return;
+			sessionStorage.setItem(key, "1");
+		} catch {
+			return;
+		}
+		updatesOpen = true;
+	});
 
 	function handleRemoveMod(modName: string) {
 		if (!instance) return;
@@ -114,6 +164,7 @@
 		title={instance?.label || m.common_loading()}
 		tabs={[
 			{ name: m.instance_content(), value: "content" },
+			{ name: m.instance_browse(), value: "browse" },
 			{ name: m.settings_title(), value: "settings" },
 		]}
 		{activeTab}
@@ -247,6 +298,9 @@
 							onRefresh={handleRefreshMods}
 							onRemoveMod={handleRemoveMod}
 							onOpenDetails={handleOpenFiles}
+							{updates}
+							onUpdateMod={handleUpdateMod}
+							onOpenRepo={(mod) => openRepoMod(mod.Id)}
 						/>
 						{#if modsList.length === 0}
 							<EmptyState
@@ -270,6 +324,22 @@
 					{/if}
 				</div>
 			</div>
+		{:else if activeTab === "browse"}
+			<div class="flex-1 [scrollbar-gutter:stable] overflow-y-auto">
+				<div class="px-4 py-6">
+					{#if isReady && instance}
+						<RepoBrowser
+							gamePath={instance.path}
+							patch={instance.version}
+							installed={modsList}
+							{isRunning}
+							onOpenDetails={openRepoMod}
+						/>
+					{:else}
+						<p class="text-base-content/60 text-sm">{m.common_loading()}</p>
+					{/if}
+				</div>
+			</div>
 		{:else if activeTab === "settings"}
 			<div class="flex-1 overflow-y-auto">
 				<div class="p-6">
@@ -287,3 +357,21 @@
 	bind:open={isFilesDialogOpen}
 	instancePath={instance?.path}
 />
+
+{#if instance}
+	<RepoModModal
+		bind:open={repoModOpen}
+		modId={repoModId}
+		gamePath={instance.path}
+		patch={instance.version}
+		installedVersion={modsList.find((mod) => mod.Id === repoModId)?.Version}
+		{isRunning}
+	/>
+	<RepoUpdatesModal
+		bind:open={updatesOpen}
+		gamePath={instance.path}
+		mods={modsList}
+		{updates}
+		{isRunning}
+	/>
+{/if}

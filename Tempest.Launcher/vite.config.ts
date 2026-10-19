@@ -23,6 +23,7 @@ const electronAliases: Record<string, string> = process.env.ELECTRON
 			"@tauri-apps/plugin-http": path.resolve("src/lib/electron/bridge"),
 			"@tauri-apps/plugin-fs": path.resolve("src/lib/electron/bridge"),
 			"@tauri-apps/plugin-sql": path.resolve("src/lib/electron/bridge"),
+			"@tauri-apps/plugin-deep-link": path.resolve("src/lib/electron/bridge"),
 			"@tauri-apps/plugin-dialog": path.resolve("src/lib/electron/bridge"),
 			"@tauri-apps/api": path.resolve("src/lib/electron/bridge"),
 		}

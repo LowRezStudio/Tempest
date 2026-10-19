@@ -1,5 +1,16 @@
 <script lang="ts">
-	import { Box, FolderOpen, PackageX, Pencil, RefreshCw, RotateCw, Trash2 } from "@lucide/svelte";
+	import {
+		ArrowRight,
+		Box,
+		Download,
+		FolderOpen,
+		Info,
+		PackageX,
+		Pencil,
+		RefreshCw,
+		RotateCw,
+		Trash2,
+	} from "@lucide/svelte";
 	import { path } from "@tauri-apps/api";
 	import { exists, stat } from "@tauri-apps/plugin-fs";
 	import { openPath } from "@tauri-apps/plugin-opener";
@@ -12,6 +23,7 @@
 		createDisableModMutation,
 	} from "$lib/queries/mods";
 	import type { ModRecord } from "$lib/core/mods";
+	import type { RepoUpdate } from "$lib/queries/repo";
 
 	interface Props {
 		mods: ModRecord[];
@@ -22,6 +34,10 @@
 		onRefresh: () => void;
 		onRemoveMod: (name: string) => void;
 		onOpenDetails: (mod: ModRecord) => void;
+		/** Repository update checks keyed by mod id */
+		updates?: Map<string, RepoUpdate>;
+		onUpdateMod?: (mod: ModRecord) => void;
+		onOpenRepo?: (mod: ModRecord) => void;
 	}
 
 	let {
@@ -33,6 +49,9 @@
 		onRefresh,
 		onRemoveMod,
 		onOpenDetails,
+		updates = new Map(),
+		onUpdateMod,
+		onOpenRepo,
 	}: Props = $props();
 
 	let reloadingModId = $state<string | null>(null);
@@ -204,10 +223,45 @@
 					</div>
 				</td>
 				<td class={!mod.Enabled ? "opacity-40" : ""}>
-					<p class="text-sm font-semibold">{mod.Version || "Unknown"}</p>
+					{#if updates.get(mod.Id)?.updateAvailable && updates.get(mod.Id)?.latest}
+						<div class="flex items-center gap-2">
+							<span class="text-sm font-semibold">{mod.Version || "Unknown"}</span>
+							<ArrowRight size={12} class="opacity-50" />
+							<button
+								class="btn btn-accent btn-xs gap-1"
+								disabled={isRunning}
+								onclick={() => onUpdateMod?.(mod)}
+								title={updates.get(mod.Id)?.latest?.changelog}
+							>
+								<Download size={12} />
+								{updates.get(mod.Id)?.latest?.version}
+							</button>
+						</div>
+						<span class="text-accent text-[10px] font-semibold uppercase"
+							>{m.repo_update_badge()}</span
+						>
+					{:else}
+						<p class="text-sm font-semibold">{mod.Version || "Unknown"}</p>
+						{#if updates.get(mod.Id)?.installedRevoked}
+							<span
+								class="badge badge-error badge-xs mt-1"
+								title={m.repo_installed_revoked()}>revoked</span
+							>
+						{/if}
+					{/if}
 				</td>
 				<td>
 					<div class="flex items-center justify-end gap-1">
+						{#if updates.has(mod.Id)}
+							<button
+								class="btn btn-sm btn-square btn-ghost text-base-content/60"
+								onclick={() => onOpenRepo?.(mod)}
+								title={m.repo_details()}
+								aria-label={m.repo_details()}
+							>
+								<Info size={16} />
+							</button>
+						{/if}
 						{#if hasDllMap.get(mod.Id)}
 							<button
 								class="btn btn-sm btn-square btn-ghost {isRunning
