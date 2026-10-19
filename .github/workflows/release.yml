@@ -107,6 +107,7 @@ jobs:
 
       - name: Prepare Electron build directory
         working-directory: Tempest.Launcher
+        shell: bash
         run: |
           rm -rf electron/build
           cp -r build electron/build
