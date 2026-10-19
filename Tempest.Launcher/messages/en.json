@@ -531,10 +531,12 @@
 			}
 		}
 	],
-	"unverified_mod_title": "Unsigned Native Code Warning",
-	"unverified_mod_heading": "Unsigned Native Code",
-	"unverified_mod_message": "The mod \"{name}\" contains unsigned native code (DLLs).",
-	"unverified_mod_warning": "This mod includes native code that has not been signed or verified. Native code has full access to your system and could be harmful. Are you sure you want to install it anyway?",
+	"unverified_mod_title": "Untrusted Code Warning",
+	"unverified_mod_heading": "Not From a Trusted Source",
+	"unverified_mod_message": "The mod \"{name}\" contains code (DLLs or Lua scripts) that is signed, but not by a trusted source.",
+	"unverified_mod_signer": "Signed by: {signer}",
+	"unverified_mod_warning": "Code from an untrusted source has full access to your system and could be harmful. Only install it if you trust its author. Are you sure you want to install it anyway?",
+	"unverified_mod_key_list_offline": "Tempest couldn't reach its list of trusted keys, so only the built-in keys are trusted for now. A mod from a trusted author can show this warning until the list is reachable again.",
 	"unverified_mod_btn": "Install Anyway",
 	"select_instance_title": "Select Target Instance",
 	"select_instance_hint": "Please select which Paladins instance you want to install this mod to:",

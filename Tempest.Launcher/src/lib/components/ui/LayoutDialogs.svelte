@@ -51,6 +51,8 @@
 <UnverifiedModDialog
 	bind:open={unverifiedDialogStore.value.open}
 	modName={unverifiedDialogStore.value.modName}
+	signer={unverifiedDialogStore.value.signer}
+	keyListOffline={unverifiedDialogStore.value.keyListOffline}
 	onconfirm={() => resolveUnverifiedMod(true)}
 	oncancel={() => resolveUnverifiedMod(false)}
 />

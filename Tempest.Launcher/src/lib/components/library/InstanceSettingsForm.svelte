@@ -163,13 +163,13 @@
 			if (isCoreVersion) {
 				if (enable) {
 					const modFile = await resolveResource("Tempest Core.tempest");
-					await installMod(editPath, modFile, true, true);
+					await installMod(editPath, modFile, true);
 				} else {
 					await removeMatchingMods(isCoreMod);
 				}
 			} else if (enable) {
 				const modFile = await resolveResource("Tempest Console.tempest");
-				await installMod(editPath, modFile, true, true);
+				await installMod(editPath, modFile, true);
 			} else {
 				await removeMatchingMods(isConsoleMod);
 			}

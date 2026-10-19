@@ -233,7 +233,7 @@
 			const tmpDir = await path.tempDir();
 			const tmpFile = await path.join(tmpDir, `${modFileName}.tempest`);
 			await writeFile(tmpFile, cookedZip);
-			const result = await installMod(inst.path, tmpFile, true, true);
+			const result = await installMod(inst.path, tmpFile, true);
 
 			if (installingToastId) removeToast(installingToastId);
 

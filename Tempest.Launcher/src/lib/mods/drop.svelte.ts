@@ -111,12 +111,16 @@ async function proceedWithInstall(instance: any, filePaths: string[]) {
 				duration: 0,
 			});
 
-			let allowedUnsigned = false;
+			let allowUntrusted = false;
 			let res = await installMod(instance.path, filePath, false, false);
 			if (res.Unverified) {
-				const confirmed = await confirmUnverifiedMod(modFileName);
+				const confirmed = await confirmUnverifiedMod(
+					modFileName,
+					res.Signer ?? "",
+					!!res.KeyListOffline,
+				);
 				if (confirmed) {
-					allowedUnsigned = true;
+					allowUntrusted = true;
 					res = await installMod(instance.path, filePath, false, true);
 				} else {
 					if (installingToastId) removeToast(installingToastId);
@@ -132,9 +136,9 @@ async function proceedWithInstall(instance: any, filePaths: string[]) {
 					res.NewModName ?? modFileName,
 				);
 				if (choice === "stack") {
-					res = await installMod(instance.path, filePath, false, allowedUnsigned, true);
+					res = await installMod(instance.path, filePath, false, allowUntrusted, true);
 				} else if (choice === "replace") {
-					res = await installMod(instance.path, filePath, true, allowedUnsigned);
+					res = await installMod(instance.path, filePath, true, allowUntrusted);
 				} else {
 					if (installingToastId) removeToast(installingToastId);
 					continue;

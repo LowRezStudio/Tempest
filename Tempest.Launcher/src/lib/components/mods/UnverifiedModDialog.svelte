@@ -6,11 +6,20 @@
 	interface Props {
 		open: boolean;
 		modName: string;
+		signer: string;
+		keyListOffline: boolean;
 		onconfirm: () => void;
 		oncancel: () => void;
 	}
 
-	let { open = $bindable(false), modName, onconfirm, oncancel }: Props = $props();
+	let {
+		open = $bindable(false),
+		modName,
+		signer,
+		keyListOffline,
+		onconfirm,
+		oncancel,
+	}: Props = $props();
 
 	function handleConfirm() {
 		onconfirm();
@@ -36,11 +45,21 @@
 				<p class="mt-1 text-sm opacity-70">
 					{m.unverified_mod_message({ name: modName })}
 				</p>
+				{#if signer}
+					<p class="mt-1 font-mono text-xs break-all opacity-60">
+						{m.unverified_mod_signer({ signer })}
+					</p>
+				{/if}
 			</div>
 		</div>
 		<p class="text-sm opacity-60">
 			{m.unverified_mod_warning()}
 		</p>
+		{#if keyListOffline}
+			<p class="text-warning text-sm">
+				{m.unverified_mod_key_list_offline()}
+			</p>
+		{/if}
 	</div>
 
 	{#snippet actions()}

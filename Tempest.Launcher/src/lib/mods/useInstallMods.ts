@@ -42,12 +42,16 @@ export function useInstallMods(instancePath: () => string | undefined) {
 						duration: 0,
 					});
 
-					let allowedUnsigned = false;
+					let allowUntrusted = false;
 					let res = await installMod(gamePath, filePath, false, false);
 					if (res.Unverified) {
-						const confirmed = await confirmUnverifiedMod(modFileName);
+						const confirmed = await confirmUnverifiedMod(
+							modFileName,
+							res.Signer ?? "",
+							!!res.KeyListOffline,
+						);
 						if (confirmed) {
-							allowedUnsigned = true;
+							allowUntrusted = true;
 							res = await installMod(gamePath, filePath, false, true);
 						} else {
 							if (installingToastId) removeToast(installingToastId);
@@ -63,15 +67,9 @@ export function useInstallMods(instancePath: () => string | undefined) {
 							res.NewModName ?? modFileName,
 						);
 						if (choice === "stack") {
-							res = await installMod(
-								gamePath,
-								filePath,
-								false,
-								allowedUnsigned,
-								true,
-							);
+							res = await installMod(gamePath, filePath, false, allowUntrusted, true);
 						} else if (choice === "replace") {
-							res = await installMod(gamePath, filePath, true, allowedUnsigned);
+							res = await installMod(gamePath, filePath, true, allowUntrusted);
 						} else {
 							if (installingToastId) removeToast(installingToastId);
 							continue;

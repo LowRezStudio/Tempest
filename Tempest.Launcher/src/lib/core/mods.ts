@@ -62,7 +62,12 @@ export type ModInstallResult = {
 	Mod?: ModRecord;
 	Conflict?: boolean;
 	IsModConflict?: boolean;
+	/** Code signed by a key that is not trusted; install again with allowUntrusted once the user agrees. */
 	Unverified?: boolean;
+	/** Who signed an Unverified mod, "user id [fingerprint]". */
+	Signer?: string;
+	/** The published key lists could not be reached, so only the built-in keys were trusted. */
+	KeyListOffline?: boolean;
 	ConflictingMods?: ModConflictInfo[];
 	NewModName?: string;
 };
@@ -90,12 +95,12 @@ export const installAutoMods = async (instance: Instance): Promise<void> => {
 		try {
 			appendProcessLogs([`Fetching Tempest Core from ${REMOTE_CORE_URL}`], false, "mods");
 			const modFile = await downloadRemoteMod(REMOTE_CORE_URL, "Tempest.Core.Tempest");
-			await installMod(gamePath, modFile, true, true);
+			await installMod(gamePath, modFile, true);
 		} catch (error) {
 			console.error("Failed to fetch remote Tempest Core, falling back to bundled:", error);
 			try {
 				const fallback = await resolveResource("Tempest Core.tempest");
-				await installMod(gamePath, fallback, true, true);
+				await installMod(gamePath, fallback, true);
 			} catch (e) {
 				console.error("Failed to install fallback Tempest Core:", e);
 			}
@@ -103,7 +108,7 @@ export const installAutoMods = async (instance: Instance): Promise<void> => {
 	} else {
 		try {
 			const modFile = await resolveResource("Tempest Console.tempest");
-			await installMod(gamePath, modFile, true, true);
+			await installMod(gamePath, modFile, true);
 		} catch (error) {
 			console.error("Failed to install Tempest Console:", error);
 		}
@@ -152,7 +157,7 @@ export const checkForCoreUpdatesAndInstall = async (instances: Instance[]): Prom
 					false,
 					"mods",
 				);
-				await installMod(inst.path, modFile, true, true);
+				await installMod(inst.path, modFile, true);
 			} catch (e) {
 				console.error(`Failed to update ${inst.label}:`, e);
 			}
@@ -198,13 +203,13 @@ export const installMod = async (
 	gamePath: string,
 	modFile: string,
 	replace = false,
-	allowUnsigned = false,
+	allowUntrusted = false,
 	stack = false,
 ): Promise<ModInstallResult> => {
 	const args = ["mod", "install", gamePath, modFile];
 	if (replace) args.push("--replace");
 	if (stack) args.push("--stack");
-	if (allowUnsigned) args.push("--allow-unsigned");
+	if (allowUntrusted) args.push("--allow-untrusted");
 	args.push("--json");
 
 	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
