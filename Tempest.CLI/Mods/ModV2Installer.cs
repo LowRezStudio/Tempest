@@ -4,11 +4,6 @@ using System.Text;
 using Tomlyn;
 using Tomlyn.Model;
 using Tomlyn.Serialization;
-using Org.BouncyCastle.Bcpg;
-using Org.BouncyCastle.Bcpg.OpenPgp;
-using Org.BouncyCastle.Crypto.Parameters;
-using Org.BouncyCastle.Math;
-using Org.BouncyCastle.Security;
 
 namespace Tempest.CLI.Mods;
 
@@ -19,38 +14,89 @@ internal partial class ModTomlContext : TomlSerializerContext
 
 public class ModV2Installer : IModInstaller
 {
-    private static readonly string[] OfficialKeys = [
-        // Kyiro
-        """
-        -----BEGIN PGP PUBLIC KEY BLOCK-----
-        Version: BouncyCastle.NET Cryptography (net6.0) v2.6.2+b4f2f6ad76
-
-        mQENBGo76U8BCACXjyMsYNtl+CrwJM5gHEX8ZWGnGF5P9BH8FUXyNyBLhHl9FIMO
-        Q82GUFgseM7sB6tpOI5ny/oM/rGnB3x083WX3iPfnEqGCE7mwewVBBZ161nORFXF
-        ZSHmS9GGc49gaegXca0Zn5buO/AVf2dSX3V/DTGlM9k37PBkhLIkq9nWreF+ms7p
-        LKbN6OTC91rCoG0uu+o1xufacXA2oP6HwHfjey0BHCfNJMe0XXj996fPjd6GQiPp
-        vRzFduv4xD8beq0ESLmnATgGpIz9V4fuj199aQarC9UXnrK5/307ii9alnKSwMkC
-        2Ft+LmgJznva5lWC/X5B72tGlo49P8qKSuYPABEBAAG0FXRlbXBlc3RAbG93cmV6
-        LnN0dWRpb4kBHAQQAQIABgUCajvpTwAKCRCros/8spKO7PY7B/9aoBdneA6D2Wis
-        AlGxN1JODeMLVlJRJ7/c0ctP+f79tr9QF9RmR9Q2Wp+n/f8vgkXvrOLCkCZeRiL5
-        HmkA7INoTPQ1wo0hegfo1s6/0DZ5fT/9vsqh/U+m2+MGj4qeEFJl6MZIipBUrd3h
-        +7A7BS9y6D6pCQD7OJDUSdLUIVpQf3mmTo+/RWRJt3Dpt5E/xvcL+hkBfe+VMhgE
-        ynFRVWCVYyrEX0rx461H8AuMACBrkN8y15TGp3BhwYpV24zjSTKfgUCiw5637AQs
-        vLPTkL7z765hBld34NBGBe4hadnHqNOoQgG9lu4w4tmr3iLsZHnQwv6QPeVmwyNq
-        nkcUNeY9
-        =dsdU
-        -----END PGP PUBLIC KEY BLOCK-----
-        """
-    ];
-
     private static string NormalizeEntryPath(string fullName) => fullName.Replace('\\', '/');
-    private static bool IsDirectoryEntry(ZipArchiveEntry entry) =>
+    internal static bool IsDirectoryEntry(ZipArchiveEntry entry) =>
         entry.FullName.EndsWith('/') || string.IsNullOrEmpty(entry.Name);
 
-    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUnsigned)
+    /// <summary>
+    /// Rejects packages that would write outside their mod folder or the game folder, or into
+    /// <c>&lt;game&gt;/.tempest</c> (trusted keys, mod metadata and other mods' DLLs live there).
+    /// </summary>
+    private static void ValidateLayout(ZipArchive archive, string resolvedGame, string modId)
+    {
+        if (modId is "." or ".." || modId.IndexOfAny(['/', '\\', ':']) >= 0 || modId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new Exception($"Invalid mod id '{modId}'.");
+
+        var tempestDir = Path.GetFullPath(Path.Combine(resolvedGame, ".tempest"));
+        var targetModDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, modId);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in archive.Entries)
+        {
+            if (IsDirectoryEntry(entry)) continue;
+
+            var relativePath = NormalizeEntryPath(entry.FullName);
+            if (!seen.Add(relativePath))
+                throw new Exception($"Mod contains '{relativePath}' more than once.");
+
+            if (relativePath.StartsWith("files/", StringComparison.OrdinalIgnoreCase))
+            {
+                var dest = ResolveUnder(resolvedGame, relativePath["files/".Length..]);
+                if (IsSameOrBelow(dest, tempestDir, StringComparison.OrdinalIgnoreCase))
+                    throw new Exception($"'{relativePath}' would write into the game's .tempest folder.");
+            }
+            else
+            {
+                ResolveUnder(targetModDir, relativePath);
+            }
+        }
+    }
+
+    private static string ResolveUnder(string root, string relativePath)
+    {
+        var fullRoot = Path.GetFullPath(root);
+        var full = Path.GetFullPath(Path.Combine(fullRoot, relativePath));
+        if (!IsSameOrBelow(full, fullRoot, StringComparison.Ordinal))
+            throw new Exception($"'{relativePath}' points outside of '{fullRoot}'.");
+        return full;
+    }
+
+    private static bool IsSameOrBelow(string path, string root, StringComparison comparison) =>
+        path.Equals(root, comparison) ||
+        path.StartsWith(Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar, comparison);
+
+    /// <summary>
+    /// Entries that can run code: PE images (an "MZ" header, whatever the extension) and Lua scripts
+    /// (<c>.lua</c>, except the <c>.d.lua</c> editor stubs the runtime never loads).
+    /// </summary>
+    private static async Task<List<string>> FindCodeAsync(ZipArchive archive)
+    {
+        var found = new List<string>();
+        var header = new byte[2];
+        foreach (var entry in archive.Entries)
+        {
+            if (IsDirectoryEntry(entry)) continue;
+            var path = NormalizeEntryPath(entry.FullName);
+            if (path.EndsWith(".lua", StringComparison.OrdinalIgnoreCase) && !path.EndsWith(".d.lua", StringComparison.OrdinalIgnoreCase))
+            {
+                found.Add(path);
+                continue;
+            }
+            await using var stream = await entry.OpenAsync();
+            if (await stream.ReadAtLeastAsync(header, 2, throwOnEndOfStream: false) == 2 && header is [(byte)'M', (byte)'Z'])
+                found.Add(path);
+        }
+        return found;
+    }
+
+    private static async Task<string> ReadEntryAsync(ZipArchiveEntry entry)
+    {
+        using var reader = new StreamReader(await entry.OpenAsync(), Encoding.UTF8);
+        return await reader.ReadToEndAsync();
+    }
+
+    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
-        var isSignedAndVerified = false;
 
         try
         {
@@ -76,42 +122,45 @@ public class ModV2Installer : IModInstaller
             }
 
             var modId = manifest.Id;
+            ValidateLayout(archive, resolvedGame, modId);
 
-            var checksumsEntry = archive.GetEntry("CHECKSUMS");
-            var ascEntry = archive.GetEntry("CHECKSUMS.asc");
+            // Mods without code (no DLL, no Lua) cannot do harm and install whoever signed them.
+            // With code: a trusted signature installs, an untrusted one needs allowUntrusted (the
+            // launcher asks first), anything else is refused.
+            var code = await FindCodeAsync(archive);
+            var trust = code.Count > 0 ? await TrustStore.LoadAsync(resolvedGame) : null;
 
-            var hasDlls = archive.Entries.Any(e => !IsDirectoryEntry(e) &&
-                NormalizeEntryPath(e.FullName).StartsWith("dlls/", StringComparison.OrdinalIgnoreCase) &&
-                Path.GetExtension(e.Name).Equals(".dll", StringComparison.OrdinalIgnoreCase));
-
+            var checksumsEntry = archive.GetEntry(ModSigning.ChecksumsName);
+            var verification = new ModSigning.Verification(ModSigning.Trust.Unsigned, null, null);
             if (checksumsEntry != null)
             {
-                string checksumsContent;
-                using (var reader = new StreamReader(await checksumsEntry.OpenAsync(), Encoding.UTF8))
+                var checksumsContent = await ReadEntryAsync(checksumsEntry);
+                await VerifyArchiveChecksumsAsync(archive, ParseChecksumMap(checksumsContent));
+                if (trust != null)
                 {
-                    checksumsContent = await reader.ReadToEndAsync();
-                }
-
-                var checksumMap = ParseChecksumMap(checksumsContent);
-                await VerifyArchiveChecksumsAsync(archive, checksumMap);
-
-                if (await VerifySignatureAsync(checksumsContent, ascEntry, resolvedGame, hasDlls))
-                {
-                    isSignedAndVerified = true;
+                    var asc = archive.GetEntry(ModSigning.SignatureName) is { } ascEntry ? await ReadEntryAsync(ascEntry) : null;
+                    var signerKey = archive.GetEntry(ModSigning.SignerKeyName) is { } keyEntry ? await ReadEntryAsync(keyEntry) : null;
+                    verification = ModSigning.Verify(checksumsContent, asc, signerKey, trust);
                 }
             }
-            else if (hasDlls)
-            {
-                await Console.Error.WriteLineAsync("Warning: Installing an unsigned mod (missing CHECKSUMS).");
-            }
 
-            if (!isSignedAndVerified && !allowUnsigned && hasDlls)
+            if (trust != null && !(verification.Trust == ModSigning.Trust.Trusted || verification.Trust == ModSigning.Trust.Untrusted && allowUntrusted))
             {
+                var contents = $"'{manifest.Name}' contains code ({string.Join(", ", code.Take(3))}{(code.Count > 3 ? ", ..." : "")})";
+                var keyListNote = trust.OfflineReason == null ? "" : " The key lists could not be reached, so only the built-in keys are trusted for now.";
                 return new ModInstallResult
                 {
                     Success = false,
-                    Unverified = true,
-                    Message = "Installing unsigned or unverified mods is not allowed without the '--allow-unsigned' flag."
+                    Unverified = verification.Trust == ModSigning.Trust.Untrusted,
+                    Signer = verification.Trust == ModSigning.Trust.Untrusted ? verification.Signer : null,
+                    KeyListOffline = trust.OfflineReason != null,
+                    Message = verification.Trust switch
+                    {
+                        ModSigning.Trust.Untrusted => $"{contents} signed by {verification.Signer}, which is not a trusted key. It could be harmful; pass --allow-untrusted to install it anyway.{keyListNote}",
+                        ModSigning.Trust.Revoked => $"{contents} signed by {verification.Signer}, a key that has been revoked.",
+                        ModSigning.Trust.Invalid => $"{contents} and an invalid signature: {verification.Problem}.",
+                        _ => $"{contents} but is not signed. Mods with DLLs or Lua scripts must be signed (tempest mod sign).",
+                    }
                 };
             }
 
@@ -267,7 +316,7 @@ public class ModV2Installer : IModInstaller
 
                     if (ext != ".ini")
                     {
-                        var destGamePath = Path.Combine(resolvedGame, relativeInFiles);
+                        var destGamePath = ResolveUnder(resolvedGame, relativeInFiles);
                         var destDir = Path.GetDirectoryName(destGamePath);
                         if (destDir != null) Directory.CreateDirectory(destDir);
 
@@ -308,7 +357,7 @@ public class ModV2Installer : IModInstaller
                     }
                     else
                     {
-                        var destGamePath = Path.Combine(resolvedGame, relativeInFiles);
+                        var destGamePath = ResolveUnder(resolvedGame, relativeInFiles);
                         var destDir = Path.GetDirectoryName(destGamePath);
                         if (destDir != null) Directory.CreateDirectory(destDir);
 
@@ -351,7 +400,7 @@ public class ModV2Installer : IModInstaller
                 }
                 else
                 {
-                    var destModPath = Path.Combine(targetModDir, relativePath);
+                    var destModPath = ResolveUnder(targetModDir, relativePath);
                     var destDir = Path.GetDirectoryName(destModPath);
                     if (destDir != null) Directory.CreateDirectory(destDir);
 
@@ -382,7 +431,8 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
                 InstalledFiles = installedFiles,
                 OwnedFiles = ownedFiles,
                 MetadataVersion = 2,
-                Readme = manifest.Readme
+                Readme = manifest.Readme,
+                Signer = verification.Key == null ? "" : ModSigning.Fingerprint(verification.Key)
             };
 
             return new ModInstallResult
@@ -712,7 +762,7 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
             if (IsDirectoryEntry(entry)) continue;
 
             var relativePath = NormalizeEntryPath(entry.FullName);
-            if (relativePath is "CHECKSUMS" or "CHECKSUMS.asc") continue;
+            if (ModSigning.IsSealEntry(relativePath)) continue;
 
             if (!checksumMap.TryGetValue(relativePath, out var expectedHash))
                 throw new Exception($"File '{relativePath}' is not present in CHECKSUMS.");
@@ -723,165 +773,6 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
 
             if (actualHash != expectedHash)
                 throw new Exception($"File '{relativePath}' checksum mismatch! Expected: {expectedHash}, Actual: {actualHash}");
-        }
-    }
-
-    private static async Task<bool> VerifySignatureAsync(string checksumsContent, ZipArchiveEntry? ascEntry, string resolvedGame, bool hasDlls)
-    {
-        if (ascEntry == null)
-        {
-            if (hasDlls)
-                await Console.Error.WriteLineAsync("Warning: Installing an unsigned mod (missing CHECKSUMS.asc).");
-            return false;
-        }
-
-        string ascContent;
-        using (var reader = new StreamReader(await ascEntry.OpenAsync(), Encoding.UTF8))
-        {
-            ascContent = await reader.ReadToEndAsync();
-        }
-
-        if (OfficialKeys.Any(key => VerifyData(checksumsContent, ascContent, key)))
-            return true;
-
-        var keysDir = TempestPathUtility.GetLocalKeysDirectory(resolvedGame);
-        var globalKeysDir = TempestPathUtility.GetGlobalKeysDirectory();
-
-        var pubKeys = new[] { keysDir, globalKeysDir }
-            .Where(Directory.Exists)
-            .SelectMany(d => Directory.GetFiles(d, "*.pub"));
-
-        foreach (var keyFile in pubKeys)
-        {
-            var pubKeyPem = await File.ReadAllTextAsync(keyFile);
-            if (VerifyData(checksumsContent, ascContent, pubKeyPem))
-                return true;
-        }
-
-        await Console.Error.WriteLineAsync("Warning: Mod has an invalid or untrusted signature.");
-        return false;
-    }
-
-    public static string SignData(string content, string privateKeyPem)
-    {
-        using var keyIn = new MemoryStream(Encoding.UTF8.GetBytes(privateKeyPem));
-        using var decStream = PgpUtilities.GetDecoderStream(keyIn);
-
-        var pgpSec = new PgpSecretKeyRingBundle(decStream);
-
-        PgpSecretKey? secretKey = null;
-
-        foreach (var kRing in pgpSec.GetKeyRings())
-        {
-            foreach (var k in kRing.GetSecretKeys())
-            {
-                if (k.IsSigningKey)
-                {
-                    secretKey = k;
-                    break;
-                }
-            }
-            if (secretKey != null) break;
-        }
-
-        if (secretKey == null) throw new Exception("No signing key found in private key file.");
-
-        var pgpPrivKey = secretKey.ExtractPrivateKey("".ToCharArray());
-
-        using var memOut = new MemoryStream();
-        using var armoredOut = new ArmoredOutputStream(memOut);
-
-        var sGen = new PgpSignatureGenerator(secretKey.PublicKey.Algorithm, HashAlgorithmTag.Sha256);
-
-        sGen.InitSign(PgpSignature.BinaryDocument, pgpPrivKey);
-        foreach (var userId in secretKey.PublicKey.GetUserIds())
-        {
-            var spGen = new PgpSignatureSubpacketGenerator();
-            spGen.AddSignerUserId(isCritical: false, userId);
-            sGen.SetHashedSubpackets(spGen.Generate());
-            break;
-        }
-
-        var normalized = content.Replace("\r\n", "\n");
-        var dataBytes = Encoding.UTF8.GetBytes(normalized);
-        sGen.Update(dataBytes);
-
-        sGen.Generate().Encode(armoredOut);
-        armoredOut.Close();
-
-        return Encoding.UTF8.GetString(memOut.ToArray());
-    }
-
-    public static bool VerifyData(string checksumsContent, string ascContent, string publicKeyPem)
-    {
-        try
-        {
-            using var keyIn = new MemoryStream(Encoding.UTF8.GetBytes(publicKeyPem));
-            using var decKeyStream = PgpUtilities.GetDecoderStream(keyIn);
-
-            var pgpPub = new PgpPublicKeyRingBundle(decKeyStream);
-
-            var lines = ascContent.Split(["\r\n", "\r", "\n"], StringSplitOptions.None);
-            var sigLines = new List<string>();
-            var inSignature = false;
-
-            foreach (var line in lines)
-            {
-                if (line.Contains("-----BEGIN PGP SIGNATURE-----"))
-                {
-                    inSignature = true;
-                }
-                if (inSignature)
-                {
-                    sigLines.Add(line);
-                }
-                if (line.Contains("-----END PGP SIGNATURE-----"))
-                {
-                    break;
-                }
-            }
-
-            var sigBlock = sigLines.Count > 0 ? string.Join("\r\n", sigLines) : ascContent;
-
-            if (!sigBlock.Contains("-----END PGP SIGNATURE-----"))
-            {
-                sigBlock = sigBlock.TrimEnd() + "\r\n-----END PGP SIGNATURE-----\r\n";
-            }
-
-            using var memIn = new MemoryStream(Encoding.UTF8.GetBytes(sigBlock));
-            using var decStream = PgpUtilities.GetDecoderStream(memIn);
-            var pgpFact = new PgpObjectFactory(decStream);
-            var obj = pgpFact.NextPgpObject();
-
-            PgpSignatureList? sigList = null;
-
-            while (obj != null)
-            {
-                if (obj is PgpSignatureList list)
-                {
-                    sigList = list;
-                    break;
-                }
-                obj = pgpFact.NextPgpObject();
-            }
-
-            if (sigList == null || sigList.Count == 0) return false;
-
-            var sig = sigList[0];
-            var pubKey = pgpPub.GetPublicKey(sig.KeyId);
-            if (pubKey == null) return false;
-
-            sig.InitVerify(pubKey);
-
-            var normalized = checksumsContent.Replace("\r\n", "\n");
-            var dataBytes = Encoding.UTF8.GetBytes(normalized);
-            sig.Update(dataBytes);
-
-            return sig.Verify();
-        }
-        catch
-        {
-            return false;
         }
     }
 
@@ -931,39 +822,6 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
         }
 
         return manifest;
-    }
-
-    public static void GeneratePgpKeyPair(string id, string privateKeyPath, string publicKeyPath)
-    {
-        var kpg = GeneratorUtilities.GetKeyPairGenerator("RSA");
-        kpg.Init(new RsaKeyGenerationParameters(BigInteger.ValueOf(0x10001), new SecureRandom(), 2048, 12));
-        var kp = kpg.GenerateKeyPair();
-
-        var secretKey = new PgpSecretKey(
-            PgpSignature.DefaultCertification,
-            PublicKeyAlgorithmTag.RsaGeneral,
-            kp.Public,
-            kp.Private,
-            DateTime.UtcNow,
-            id,
-            SymmetricKeyAlgorithmTag.Cast5,
-            "".ToCharArray(),
-            null,
-            null,
-            new SecureRandom()
-        );
-
-        using (var secretOut = File.Create(privateKeyPath))
-        using (var armoredOut = new ArmoredOutputStream(secretOut))
-        {
-            secretKey.Encode(armoredOut);
-        }
-
-        using (var publicOut = File.Create(publicKeyPath))
-        using (var armoredOut = new ArmoredOutputStream(publicOut))
-        {
-            secretKey.PublicKey.Encode(armoredOut);
-        }
     }
 }
 

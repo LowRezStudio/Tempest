@@ -1,0 +1,67 @@
+# Keys whose signature makes a mod's DLLs and Lua scripts trusted.
+#
+# Published to https://cdn.lowrezstudio.com/keys/trusted.keys with `just keys-publish`
+# (signed into trusted.keys.asc), and compiled into Tempest.CLI as the fallback used
+# when that list cannot be reached. Removing a key here does not untrust it for
+# CLI builds that already embed it: add it to untrusted.keys instead.
+#
+# Format: armored PGP public key blocks; '#' lines between blocks are comments.
+
+# Kyiro (BB863D614D81B8E7C875717FABA2CFFCB2928EEC)
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: BouncyCastle.NET Cryptography (net6.0) v2.6.2+b4f2f6ad76
+
+mQENBGo76U8BCACXjyMsYNtl+CrwJM5gHEX8ZWGnGF5P9BH8FUXyNyBLhHl9FIMO
+Q82GUFgseM7sB6tpOI5ny/oM/rGnB3x083WX3iPfnEqGCE7mwewVBBZ161nORFXF
+ZSHmS9GGc49gaegXca0Zn5buO/AVf2dSX3V/DTGlM9k37PBkhLIkq9nWreF+ms7p
+LKbN6OTC91rCoG0uu+o1xufacXA2oP6HwHfjey0BHCfNJMe0XXj996fPjd6GQiPp
+vRzFduv4xD8beq0ESLmnATgGpIz9V4fuj199aQarC9UXnrK5/307ii9alnKSwMkC
+2Ft+LmgJznva5lWC/X5B72tGlo49P8qKSuYPABEBAAG0FXRlbXBlc3RAbG93cmV6
+LnN0dWRpb4kBHAQQAQIABgUCajvpTwAKCRCros/8spKO7PY7B/9aoBdneA6D2Wis
+AlGxN1JODeMLVlJRJ7/c0ctP+f79tr9QF9RmR9Q2Wp+n/f8vgkXvrOLCkCZeRiL5
+HmkA7INoTPQ1wo0hegfo1s6/0DZ5fT/9vsqh/U+m2+MGj4qeEFJl6MZIipBUrd3h
++7A7BS9y6D6pCQD7OJDUSdLUIVpQf3mmTo+/RWRJt3Dpt5E/xvcL+hkBfe+VMhgE
+ynFRVWCVYyrEX0rx461H8AuMACBrkN8y15TGp3BhwYpV24zjSTKfgUCiw5637AQs
+vLPTkL7z765hBld34NBGBe4hadnHqNOoQgG9lu4w4tmr3iLsZHnQwv6QPeVmwyNq
+nkcUNeY9
+=dsdU
+-----END PGP PUBLIC KEY BLOCK-----
+
+# Tom Ferriere (6CBE4141BC87826813E27D88BFBA572CC7464148)
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: BouncyCastle.NET Cryptography (net6.0) v2.6.2+b4f2f6ad76
+
+mQENBGrWCscBCACWLF+bVo3KVXAmt0niMdB07mVZYu482VlNP4jW9pkyT8+HKgT9
+h6jXC4AN7d2+ErlM6TfnYCRDtvjXp7Lk3uDmjrCMnuHnJDEI+LdmvOHdm8fmrl/A
+BLnkgZqYBDDai2by63HzHFMc3jxz52BK4LGepCJ+KFcMs4aUXVmOU8sMQl2i4wpr
+TXLLMUUnc/lIj46Lj0Cgg7lU0etiM4002OZJmNMAb4fYxtMDnMlF4hCJmZgf1ff6
+L0Hj+5oWOfYrVjqiXodsTm+SpbSAm8ShYKt224089SP2rEnQt2ZWfbDk+VdHsFd0
+lcNr9efWv6tk1DUXrypX8m/hr+4G+NoalXVtABEBAAG0DFRvbSBGZXJyaWVyZYkB
+HAQQAQIABgUCatYKxwAKCRC/ulcsx0ZBSEj/B/9vSfmMnHorLoRPUZEMkWs8d2ey
+0JohrVACFry6JHx1NMW8fUn7uTAFPrTjQpj5rEsiRhaqjGyE5kNifycTEAewJJg9
+BZXej6XdWlyRGwX9BxMgrqvXR6iiSd5I+GJWDK8/KPRSdWbopRa/7w1FPhnI9DXA
+8H39qXhyylqHsbhlful3wFI2ARQmDv4iXX5lE+nioHCGvZkrVD4roTIoHapb8bZ9
+5NiOTL/jDdnLoFPcGh8GYC+6nVV5ZU4xqpjFqbxUK2nnAHsfdW+R/XmN64sBOLJl
+2F5gos8O0ZdDa7yqSKxIA8+SijuQeAL1XA1rnCTB2W7TcshxeaAOBLHkJTx+
+=f0EF
+-----END PGP PUBLIC KEY BLOCK-----
+
+# E61CE5DC9BBC7C6BFEAFCEF85ADC55D41AF69EE8
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: BouncyCastle.NET Cryptography (net6.0) v2.6.2+b4f2f6ad76
+
+mQENBGqEfZoBCACn2w3Nu2nfLxGVu1gaG2MnFyoB0OKDpC52CNUiF5zVbHvcIJL1
+769C9TfAZeWJtAEMx22pM3FI/JPXm1j0Wso/pJGrLkXWnhHalrAWUqnB7F5EWZx7
+vxogpcUtju32wIz8NCE5aDCg5iOuOalZ1laM+X/D5XPs6J4QyX1p1vhDhC83YCja
+abX0+eN2kvPHe3EUKoYqNaZU9I3/RkOC1G3yprJhiSvTBfe9RstsH8BCb1qnepig
+fzg48Ky4cIQPZ9s5RaHSIUeTuQ6zbRbpBlwLPm9yzKdLvDjPzYK5ZvMDJXODO0aY
+xxTdc2HZ2qZXDPa2YFHfu9OKl4UKROutW4wtABEBAAG0FXRlbXBlc3RAbG93cmV6
+LnN0dWRpb4kBHAQQAQIABgUCaoR9mgAKCRBa3FXUGvae6FSpCACQQKzMv6sZ1yAe
+kZSuKZeSmQhDP20C4zGJnh2MRYhet5sxtbl3t0diXeuEYS4GPQzrlN5vkGArSV3K
+9MfkHMKYymXgAKBcgSaHQCIoc6ly9PEHpTN+zTTRmDsceCjcM6OPrrkxTmA6LLoA
+dsQIGl7i+L8q+lqRCz3iDSqdqwzpYoJf94PUq+Kt8/yv2TVCCG6IhrfAJascyV8g
+eeK7bthG+o+cjP4pM6hjhX4qqk2GWM2OYHd6HH1RRgwzIl5+dAwN9K1YE9VTNmN3
+E/8mDQm/jMMWL17szGIcBFdpDbuDHlfziIf118rbjUNUTkZsffAojqzc0s7wfUdX
+Hc+o+cDY
+=IbCT
+-----END PGP PUBLIC KEY BLOCK-----

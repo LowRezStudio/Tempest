@@ -8,6 +8,13 @@ public static class TempestPathUtility
     public static string GetGlobalKeysDirectory() =>
         Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "keys"));
 
+    /// <summary>Private key `mod gen-key` writes and `mod sign` uses by default; TEMPEST_SIGNING_KEY overrides it.
+    /// Tempest.Scripting/scripts/package.{sh,ps1} look in the same place.</summary>
+    public static string GetDefaultSigningKeyPath() =>
+        Environment.GetEnvironmentVariable("TEMPEST_SIGNING_KEY") is { Length: > 0 } key
+            ? Path.GetFullPath(key)
+            : Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "signing", "tempest.key"));
+
     public static string GetWinePrefixDirectory() =>
         Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "prefix"));
 

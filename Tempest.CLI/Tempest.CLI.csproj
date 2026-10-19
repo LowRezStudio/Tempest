@@ -15,6 +15,12 @@
         </None>
     </ItemGroup>
 
+    <!-- Built-in mod signing keys, the fallback when the published lists cannot be reached (Mods/TrustStore.cs) -->
+    <ItemGroup>
+      <EmbeddedResource Include="../keys/trusted.keys" LogicalName="trusted.keys" />
+      <EmbeddedResource Include="../keys/untrusted.keys" LogicalName="untrusted.keys" />
+    </ItemGroup>
+
     <ItemGroup>
       <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
       <PackageReference Include="ConsoleAppFramework" Version="5.7.11">

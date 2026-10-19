@@ -1,0 +1,9 @@
+# Keys that are never trusted, whatever list or keys folder they come from. Mods
+# signed with them are refused at install and disabled at launch.
+#
+# Published to https://cdn.lowrezstudio.com/keys/untrusted.keys with `just keys-publish`
+# (signed into untrusted.keys.asc), and compiled into Tempest.CLI. When the list
+# cannot be reached the CLI keeps applying the last copy it verified.
+#
+# Format: one full fingerprint (40 hex digits) or long key ID (its last 16) per
+# line; `tempest mod verify <package>` prints both. '#' starts a comment.

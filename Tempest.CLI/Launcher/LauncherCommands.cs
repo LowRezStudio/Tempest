@@ -58,6 +58,9 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
     {
         if (isServer) gamescope = false;
 
+        // Before the game reads any mod file: mods signed with a since-revoked key are switched off.
+        await ModCommands.DisableRevokedModsAsync(path);
+
         var exePath = LauncherUtility.GetExecutablePath(path, platform, game);
         var defaultArgs = !noDefaultArgs;
         var is64Bit = Directory.GetParent(exePath)?.Name == "Win64";
@@ -169,7 +172,13 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
                     {
                         // dlls/64 and dlls/32 are per client; dlls/ itself is the legacy layout.
                         var dllsDir = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id), "dlls");
-                        allDlls.AddRange(ModDlls.ForProcess(dllsDir, is64Bit));
+                        var dlls = ModDlls.ForProcess(dllsDir, is64Bit);
+                        if (dlls.Count > 0 && mod.Signer.Length == 0)
+                        {
+                            Console.Error.WriteLine($"[inject] skipping the DLLs of '{mod.Name}': it was installed unsigned; reinstall a signed build");
+                            continue;
+                        }
+                        allDlls.AddRange(dlls);
                     }
                 }
             }

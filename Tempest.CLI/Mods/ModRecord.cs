@@ -15,6 +15,8 @@ public class ModRecord
     public int MetadataVersion { get; set; } = 1;
     public string Readme { get; set; } = string.Empty;
     public string ReadmeContent { get; set; } = string.Empty;
+    /// <summary>Fingerprint of the key that signed the package (trusted, or untrusted and accepted); empty when unsigned.</summary>
+    public string Signer { get; set; } = string.Empty;
 }
 
 public class ModConflictInfo
@@ -33,7 +35,12 @@ public class ModInstallResult
     public ModRecord? Mod { get; set; }
     public bool Conflict { get; set; }
     public bool IsModConflict { get; set; }
+    /// <summary>Code signed by a key that is not trusted: install again with allowUntrusted once the user agrees.</summary>
     public bool Unverified { get; set; }
+    /// <summary>Who signed an <see cref="Unverified"/> mod, "user id [fingerprint]".</summary>
+    public string? Signer { get; set; }
+    /// <summary>The published key lists could not be reached, so only the built-in keys were trusted.</summary>
+    public bool KeyListOffline { get; set; }
     public List<ModConflictInfo>? ConflictingMods { get; set; }
     public string? NewModName { get; set; }
 }

@@ -2,7 +2,7 @@ namespace Tempest.CLI.Mods;
 
 public class ModV1Installer : IModInstaller
 {
-    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUnsigned)
+    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var fileName = Path.GetFileName(modFilePath);

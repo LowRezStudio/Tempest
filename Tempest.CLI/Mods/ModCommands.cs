@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 using ConsoleAppFramework;
+using Org.BouncyCastle.Bcpg.OpenPgp;
 using Tempest.CLI.Extensions;
 
 namespace Tempest.CLI.Mods;
@@ -133,9 +135,9 @@ internal class ModCommands
     /// <param name="modFile">Path to the mod file (.upk, .pck)</param>
     /// <param name="replace">Overwrite the mod if it already exists</param>
     /// <param name="stack">Add mod alongside conflicting mods, transferring ownership of conflicting files</param>
-    /// <param name="allowUnsigned">Allow installing unsigned or unverified mods</param>
+    /// <param name="allowUntrusted">Install code (DLLs, Lua) signed by a key that is not trusted</param>
     /// <param name="json">Output as JSON</param>
-    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool stack = false, bool allowUnsigned = false, bool json = false)
+    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool stack = false, bool allowUntrusted = false, bool json = false)
     {
         try
         {
@@ -147,7 +149,7 @@ internal class ModCommands
             }
 
             var installer = ModInstallerFactory.CreateForFile(modFile);
-            var result = await installer.InstallAsync(path, modFile, replace, stack, allowUnsigned);
+            var result = await installer.InstallAsync(path, modFile, replace, stack, allowUntrusted);
 
             if (result.Success && result.Mod != null)
             {
@@ -389,6 +391,36 @@ internal class ModCommands
         }
     }
 
+    /// <summary>Disables every enabled mod whose signing key is on the untrusted list (DLLs and Lua alike).</summary>
+    internal static async Task DisableRevokedModsAsync(string path)
+    {
+        try
+        {
+            if (!File.Exists(GetMetadataPath(path))) return;
+            var mods = LoadMetadata(path);
+            var revoked = new List<ModRecord>();
+            TrustStore? trust = null;
+            foreach (var mod in mods.Where(m => m.Enabled && m.Signer.Length > 0))
+            {
+                trust ??= await TrustStore.LoadAsync(GameFolderResolver.Resolve(path));
+                if (trust.IsRevoked(mod.Signer)) revoked.Add(mod);
+            }
+            if (revoked.Count == 0) return;
+
+            foreach (var mod in revoked)
+            {
+                await CreateInstaller(mod).DisableAsync(path, mod);
+                mod.Enabled = false;
+                await Console.Error.WriteLineAsync($"Warning: disabled '{mod.Name}': the key it was signed with ({mod.Signer}) has been revoked.");
+            }
+            SaveMetadata(path, mods);
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Warning: could not check installed mods for revoked keys: {ex.Message}");
+        }
+    }
+
     internal static IModInstaller CreateInstaller(ModRecord mod)
     {
         if (string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
@@ -442,9 +474,9 @@ internal class ModCommands
     /// <param name="modFiles">List of mod files to install</param>
     /// <param name="replace">Overwrite existing mods</param>
     /// <param name="stack">Add mods alongside conflicting mods, transferring ownership of conflicting files</param>
-    /// <param name="allowUnsigned">Allow installing unsigned or unverified mods</param>
+    /// <param name="allowUntrusted">Install code (DLLs, Lua) signed by a key that is not trusted</param>
     /// <param name="json">Output as JSON</param>
-    public async Task InstallBulk([Argument] string path, string[] modFiles, bool replace = false, bool stack = false, bool allowUnsigned = false, bool json = false)
+    public async Task InstallBulk([Argument] string path, string[] modFiles, bool replace = false, bool stack = false, bool allowUntrusted = false, bool json = false)
     {
         var results = new List<ModInstallResult>();
         foreach (var file in modFiles)
@@ -458,7 +490,7 @@ internal class ModCommands
                 }
 
                 var installer = ModInstallerFactory.CreateForFile(file);
-                var result = await installer.InstallAsync(path, file, replace, stack, allowUnsigned);
+                var result = await installer.InstallAsync(path, file, replace, stack, allowUntrusted);
 
                 if (result.Success && result.Mod != null)
                 {
@@ -519,153 +551,236 @@ internal class ModCommands
     /// <summary>Packages a mod directory into a .tempest mod package, optionally signing it</summary>
     /// <param name="sourceDir">Path to the mod folder containing manifest.toml, files/, dlls/ etc</param>
     /// <param name="outputZip">Path to the output .tempest or .zip file</param>
-    /// <param name="key">Optional path to a private key PEM file to sign the mod</param>
-    public async Task Pack([Argument] string sourceDir, [Argument] string outputZip, string? key = null)
+    /// <param name="key">Private key file to sign the mod with (from `mod gen-key`)</param>
+    public async Task<int> Pack([Argument] string sourceDir, [Argument] string outputZip, string? key = null)
     {
         try
         {
             var fullSourceDir = Path.GetFullPath(sourceDir);
-            if (!Directory.Exists(fullSourceDir))
-            {
-                await Console.Error.WriteLineAsync($"Error: Source directory does not exist: {sourceDir}");
-                return;
-            }
-
-            var manifestPath = Path.Combine(fullSourceDir, "manifest.toml");
-            if (!File.Exists(manifestPath))
+            if (!File.Exists(Path.Combine(fullSourceDir, "manifest.toml")))
             {
                 await Console.Error.WriteLineAsync($"Error: manifest.toml not found in source directory: {sourceDir}");
-                return;
+                return 1;
             }
 
-            var checksumEntries = new List<string>();
-            var allFiles = Directory.GetFiles(fullSourceDir, "*", SearchOption.AllDirectories);
-            Array.Sort(allFiles, StringComparer.Ordinal);
+            var secretKey = key == null ? null : ModSigning.ReadSecretKey(await File.ReadAllTextAsync(key));
 
-            foreach (var file in allFiles)
+            if (File.Exists(outputZip)) File.Delete(outputZip);
+            using (var archive = ZipFile.Open(outputZip, ZipArchiveMode.Create))
             {
-                var relativePath = Path.GetRelativePath(fullSourceDir, file).Replace('\\', '/');
-                if (relativePath == "CHECKSUMS" || relativePath == "CHECKSUMS.asc")
-                    continue;
-
-                var hash = ComputeSha256(file);
-                checksumEntries.Add($"{hash} {relativePath}");
-            }
-
-            var checksumsContent = string.Join("\n", checksumEntries);
-            var checksumsPath = Path.Combine(fullSourceDir, "CHECKSUMS");
-            await File.WriteAllTextAsync(checksumsPath, checksumsContent);
-
-            var ascPath = Path.Combine(fullSourceDir, "CHECKSUMS.asc");
-            if (File.Exists(ascPath)) File.Delete(ascPath);
-
-            if (!string.IsNullOrEmpty(key))
-            {
-                if (!File.Exists(key))
+                foreach (var file in Directory.GetFiles(fullSourceDir, "*", SearchOption.AllDirectories))
                 {
-                    await Console.Error.WriteLineAsync($"Error: Private key file not found: {key}");
-                    return;
+                    var relativePath = Path.GetRelativePath(fullSourceDir, file).Replace('\\', '/');
+                    if (!ModSigning.IsSealEntry(relativePath))
+                        archive.CreateEntryFromFile(file, relativePath);
                 }
-
-                var privateKeyPem = await File.ReadAllTextAsync(key);
-                var signedContent = ModV2Installer.SignData(checksumsContent, privateKeyPem);
-                await File.WriteAllTextAsync(ascPath, signedContent);
-                Console.WriteLine("Mod signed successfully.");
             }
-
-            if (File.Exists(outputZip))
+            // Sealing reads the entries back, which a Create-mode archive cannot do.
+            using (var archive = ZipFile.Open(outputZip, ZipArchiveMode.Update))
             {
-                File.Delete(outputZip);
+                ModSigning.Seal(archive, secretKey);
             }
 
-            await System.IO.Compression.ZipFile.CreateFromDirectoryAsync(fullSourceDir, outputZip);
-            Console.WriteLine($"Successfully packed mod to '{outputZip}'");
+            Console.WriteLine(secretKey == null
+                ? $"Packed '{outputZip}' (unsigned)"
+                : $"Packed '{outputZip}', signed by {ModSigning.Describe(secretKey.PublicKey)}");
+            return 0;
         }
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"Failed to pack mod: {ex.Message}");
+            return 1;
         }
     }
 
-    /// <summary>Generates a new RSA private/public keypair for signing mods and automatically trusts the public key</summary>
-    /// <param name="outputPath">Prefix path for output files (e.g. 'mykey' will create 'mykey.key' and 'mykey.pub')</param>
-    /// <param name="gamePath">Optional path to the game folder or executable to automatically trust the public key</param>
-    public Task GenKey([Argument] string outputPath, string? gamePath = null)
+    /// <summary>Signs an existing .tempest package in place, rewriting its CHECKSUMS and CHECKSUMS.asc</summary>
+    /// <param name="package">Path to the .tempest package</param>
+    /// <param name="key">Private key file to sign with; defaults to $TEMPEST_SIGNING_KEY, then the one `mod gen-key` writes by default</param>
+    public async Task<int> Sign([Argument] string package, string? key = null)
     {
         try
         {
-            var pubKeyPath = $"{outputPath}.pub";
-            ModV2Installer.GeneratePgpKeyPair("tempest@lowrez.studio", $"{outputPath}.key", pubKeyPath);
-
-            Console.WriteLine($"Generated private key: {outputPath}.key");
-            Console.WriteLine($"Generated public key: {pubKeyPath}");
-
-            // ponytail: auto-trust key by copying to global ~/.tempest/keys/, wine app data, and optionally the local game folder
-            try
+            var secretKey = ModSigning.ReadSecretKey(await File.ReadAllTextAsync(key ?? TempestPathUtility.GetDefaultSigningKeyPath()));
+            using (var archive = ZipFile.Open(package, ZipArchiveMode.Update))
             {
-                var globalKeysDir = TempestPathUtility.GetGlobalKeysDirectory();
-                Directory.CreateDirectory(globalKeysDir);
-                var destGlobalPubKeyPath = Path.Combine(globalKeysDir, Path.GetFileName(pubKeyPath));
-                File.Copy(pubKeyPath, destGlobalPubKeyPath, overwrite: true);
-                Console.WriteLine($"Automatically trusted key globally: {destGlobalPubKeyPath}");
+                if (archive.GetEntry("manifest.toml") == null)
+                    throw new Exception("not a .tempest package (no manifest.toml)");
+                ModSigning.Seal(archive, secretKey);
             }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Warning: Could not save key to global trust store: {ex.Message}");
-            }
+            Console.WriteLine($"Signed '{package}' with {ModSigning.Describe(secretKey.PublicKey)}");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Failed to sign mod: {ex.Message}");
+            return 1;
+        }
+    }
 
-            string? resolvedGame = null;
-            if (!string.IsNullOrEmpty(gamePath))
+    /// <summary>Checks a package's signature against the trusted and revoked keys; exits 0 only when trusted</summary>
+    /// <param name="package">Path to the .tempest package</param>
+    /// <param name="gamePath">Game folder whose .tempest/keys should be trusted as well</param>
+    public async Task<int> Verify([Argument] string package, string? gamePath = null)
+    {
+        try
+        {
+            var trust = await TrustStore.LoadAsync(gamePath == null ? null : GameFolderResolver.Resolve(gamePath));
+            using var archive = ZipFile.OpenRead(package);
+            var checksums = archive.GetEntry(ModSigning.ChecksumsName);
+            if (checksums == null)
             {
-                try
-                {
-                    resolvedGame = GameFolderResolver.Resolve(gamePath);
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Could not resolve specified game path: {ex.Message}");
-                }
-            }
-            else
-            {
-                try
-                {
-                    resolvedGame = GameFolderResolver.Resolve(Directory.GetCurrentDirectory());
-                }
-                catch
-                {
-                    // Ignore, not inside a game folder
-                }
+                Console.WriteLine("unsigned (no CHECKSUMS)");
+                return 1;
             }
 
-            if (resolvedGame != null)
+            var result = ModSigning.Verify(
+                await ReadEntryAsync(checksums),
+                archive.GetEntry(ModSigning.SignatureName) is { } asc ? await ReadEntryAsync(asc) : null,
+                archive.GetEntry(ModSigning.SignerKeyName) is { } key ? await ReadEntryAsync(key) : null,
+                trust);
+            Console.WriteLine(result.Trust switch
             {
-                try
-                {
-                    var keysDir = TempestPathUtility.GetLocalKeysDirectory(resolvedGame);
-                    Directory.CreateDirectory(keysDir);
-                    var destPubKeyPath = Path.Combine(keysDir, Path.GetFileName(pubKeyPath));
-                    File.Copy(pubKeyPath, destPubKeyPath, overwrite: true);
-                    Console.WriteLine($"Automatically trusted key locally: {destPubKeyPath}");
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Warning: Could not save key to local game trust store: {ex.Message}");
-                }
+                ModSigning.Trust.Unsigned => "unsigned (no CHECKSUMS.asc)",
+                ModSigning.Trust.Invalid => $"invalid: {result.Problem}",
+                ModSigning.Trust.Untrusted => $"untrusted: signed by {result.Signer}",
+                ModSigning.Trust.Revoked => $"revoked: signed by {result.Signer}",
+                _ => $"trusted: signed by {result.Signer}",
+            });
+            return result.Trust == ModSigning.Trust.Trusted ? 0 : 1;
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Failed to verify mod: {ex.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>Shows where the key lists come from, whether they could be loaded, and the resulting trusted and revoked keys</summary>
+    /// <param name="gamePath">Game folder whose .tempest/keys should be included</param>
+    public async Task<int> KeyLists(string? gamePath = null)
+    {
+        var trust = await TrustStore.LoadAsync(gamePath == null ? null : GameFolderResolver.Resolve(gamePath));
+        Console.WriteLine($"Key lists: {TrustStore.ListSourceDescription} ({(trust.OfflineReason == null ? "loaded" : $"unavailable: {trust.OfflineReason}; built-in keys only")})");
+        Console.WriteLine("Trusted:");
+        foreach (var key in trust.TrustedKeys.DistinctBy(ModSigning.Fingerprint))
+        {
+            var revoked = trust.IsRevoked(ModSigning.Fingerprint(key)) ? " (revoked)" : "";
+            Console.WriteLine($"  {ModSigning.Describe(key)}{revoked}");
+        }
+        Console.WriteLine("Revoked:");
+        foreach (var entry in trust.RevokedEntries.Distinct(StringComparer.OrdinalIgnoreCase))
+            Console.WriteLine($"  {entry}");
+        return trust.OfflineReason == null ? 0 : 1;
+    }
+
+    /// <summary>Signs trusted.keys and untrusted.keys for publishing, writing their .asc next to them</summary>
+    /// <param name="dir">Folder holding the lists (the repo's keys/)</param>
+    /// <param name="key">Private key to sign with; must be one of the list signers in TrustStore.cs</param>
+    public async Task<int> SignKeyLists([Argument] string dir, string? key = null)
+    {
+        try
+        {
+            var secretKey = ModSigning.ReadSecretKey(await File.ReadAllTextAsync(key ?? TempestPathUtility.GetDefaultSigningKeyPath()));
+            foreach (var name in new[] { TrustStore.TrustedListName, TrustStore.UntrustedListName })
+            {
+                TrustStore.SignList(Path.Combine(dir, name), secretKey);
+                Console.WriteLine($"Signed {Path.Combine(dir, name)}.asc");
             }
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Failed to sign key lists: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static async Task<string> ReadEntryAsync(ZipArchiveEntry entry)
+    {
+        using var reader = new StreamReader(entry.Open());
+        return await reader.ReadToEndAsync();
+    }
+
+    /// <summary>Prints the user id and fingerprint of a public or private key file</summary>
+    /// <param name="keyFile">A .pub or .key file</param>
+    public async Task<int> Fingerprint([Argument] string keyFile)
+    {
+        try
+        {
+            var armored = await File.ReadAllTextAsync(keyFile);
+            var key = armored.Contains("PRIVATE KEY BLOCK") ? ModSigning.ReadSecretKey(armored).PublicKey : ModSigning.ReadPublicKey(armored);
+            Console.WriteLine(ModSigning.Describe(key));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Failed to read key: {ex.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>Generates an RSA keypair for signing mods and trusts the public key on this machine</summary>
+    /// <param name="outputPath">Prefix path for output files (e.g. 'mykey' will create 'mykey.key' and 'mykey.pub'); defaults to the key `mod sign` uses</param>
+    /// <param name="id">User id stored in the key, shown when a mod signed with it is verified</param>
+    /// <param name="gamePath">Optional path to the game folder or executable to also trust the public key there</param>
+    public int GenKey([Argument] string? outputPath = null, string id = "tempest@lowrez.studio", string? gamePath = null)
+    {
+        outputPath ??= Path.ChangeExtension(TempestPathUtility.GetDefaultSigningKeyPath(), null);
+        PgpPublicKey publicKey;
+        var pubKeyPath = $"{outputPath}.pub";
+        try
+        {
+            publicKey = ModSigning.GenerateKeyPair(id, $"{outputPath}.key", pubKeyPath);
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Failed to generate keypair: {ex.Message}");
+            return 1;
         }
-        return Task.CompletedTask;
-    }
 
-    private static string ComputeSha256(string filePath)
-    {
-        using var sha256 = System.Security.Cryptography.SHA256.Create();
-        using var stream = File.OpenRead(filePath);
-        var hash = sha256.ComputeHash(stream);
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        Console.WriteLine($"Generated private key: {outputPath}.key (keep it secret, it has no passphrase)");
+        Console.WriteLine($"Generated public key: {pubKeyPath}");
+        Console.WriteLine($"Key: {ModSigning.Describe(publicKey)}");
+
+        // ponytail: auto-trust key by copying to global ~/.tempest/keys/, wine app data, and optionally the local game folder
+        try
+        {
+            var globalKeysDir = TempestPathUtility.GetGlobalKeysDirectory();
+            Directory.CreateDirectory(globalKeysDir);
+            var destGlobalPubKeyPath = Path.Combine(globalKeysDir, Path.GetFileName(pubKeyPath));
+            File.Copy(pubKeyPath, destGlobalPubKeyPath, overwrite: true);
+            Console.WriteLine($"Automatically trusted key globally: {destGlobalPubKeyPath}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Warning: Could not save key to global trust store: {ex.Message}");
+        }
+
+        string? resolvedGame = null;
+        try
+        {
+            resolvedGame = GameFolderResolver.Resolve(gamePath ?? Directory.GetCurrentDirectory());
+        }
+        catch (Exception ex)
+        {
+            if (gamePath != null) Console.Error.WriteLine($"Could not resolve specified game path: {ex.Message}");
+        }
+
+        if (resolvedGame != null)
+        {
+            try
+            {
+                var keysDir = TempestPathUtility.GetLocalKeysDirectory(resolvedGame);
+                Directory.CreateDirectory(keysDir);
+                var destPubKeyPath = Path.Combine(keysDir, Path.GetFileName(pubKeyPath));
+                File.Copy(pubKeyPath, destPubKeyPath, overwrite: true);
+                Console.WriteLine($"Automatically trusted key locally: {destPubKeyPath}");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Warning: Could not save key to local game trust store: {ex.Message}");
+            }
+        }
+        return 0;
     }
 }
