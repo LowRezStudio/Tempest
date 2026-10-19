@@ -1,5 +1,5 @@
 import { createMutation, createQuery } from "@tanstack/svelte-query";
-import { path } from "@tauri-apps/api";
+import { path } from "$lib/platform/api";
 import { detectAvailablePlatforms } from "$lib/platforms/detection";
 import { setupInstance } from "$lib/platforms/setup";
 import type { Instance, InstancePlatform } from "$lib/types/instance";

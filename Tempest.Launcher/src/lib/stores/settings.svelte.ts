@@ -1,6 +1,4 @@
-import { path } from "@tauri-apps/api";
-import { homeDir } from "@tauri-apps/api/path";
-import { platform } from "@tauri-apps/plugin-os";
+import { homeDir, path, platform } from "$lib/platform/api";
 import { persistedState } from "./persisted.svelte";
 
 export const username = persistedState<string>("username", "Player");

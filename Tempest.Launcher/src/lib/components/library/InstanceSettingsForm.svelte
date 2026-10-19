@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { Box, Folder } from "@lucide/svelte";
 	import { useQueryClient } from "@tanstack/svelte-query";
-	import { resolveResource } from "@tauri-apps/api/path";
-	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { onMount, untrack } from "svelte";
 	import { installMod, removeMod, type ModRecord } from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
+	import { open as openDialog, resolveResource } from "$lib/platform/api";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
 	import { createModsQuery } from "$lib/queries/mods";
 	import { updateInstance } from "$lib/stores/instance.svelte";
@@ -162,13 +161,13 @@
 		try {
 			if (isCoreVersion) {
 				if (enable) {
-					const modFile = await resolveResource("Tempest Core.tempest");
+					const modFile = await resolveResource("mods/Tempest Core.tempest");
 					await installMod(editPath, modFile, true);
 				} else {
 					await removeMatchingMods(isCoreMod);
 				}
 			} else if (enable) {
-				const modFile = await resolveResource("Tempest Console.tempest");
+				const modFile = await resolveResource("mods/Tempest Console.tempest");
 				await installMod(editPath, modFile, true);
 			} else {
 				await removeMatchingMods(isConsoleMod);

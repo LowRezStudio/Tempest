@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { Settings } from "@lucide/svelte";
-	import { open } from "@tauri-apps/plugin-dialog";
-	import { platform } from "@tauri-apps/plugin-os";
 	import Header from "$lib/components/ui/Header.svelte";
 	import FeatureFlagsTab from "$lib/dev/FeatureFlagsTab.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { locales } from "$lib/paraglide/runtime";
+	import { open, platform } from "$lib/platform/api";
 	import { createAboutInfoQuery } from "$lib/queries/about";
 	import KeybindsTab from "$lib/settings/KeybindsTab.svelte";
 	import { localeLabels, localeState } from "$lib/stores/locale.svelte";

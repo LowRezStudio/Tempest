@@ -55,7 +55,8 @@ app.on("open-file", (event, filePath) => {
 	queueAndNotifyOpenFiles(tempestFilesFromArgs([filePath], process.cwd()));
 });
 
-// Pin to the same dir Tauri uses so SQL/localStorage survive across runs.
+// Pin the userData dir so SQL/localStorage survive across runs and match
+// the packaged app's location.
 if (process.platform === "linux") {
 	app.setPath("userData", path.join(os.homedir(), ".local", "share", "com.lowrezstudio.tempest"));
 }
@@ -81,7 +82,7 @@ const loadURL = serve({ directory: "build" });
 function createWindow() {
 	const icon = app.isPackaged
 		? path.join(process.resourcesPath, "icon.png")
-		: path.join(import.meta.dirname, "..", "..", "src-tauri", "icons", "icon.png");
+		: path.join(import.meta.dirname, "..", "resources", "icons", "icon.png");
 
 	mainWindow = new BrowserWindow({
 		width: 1500,

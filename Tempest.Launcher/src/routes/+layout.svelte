@@ -5,13 +5,12 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
-	import { appConfigDir, join } from "@tauri-apps/api/path";
-	import { writeFile } from "@tauri-apps/plugin-fs";
 	import { Tooltip } from "bits-ui";
 	import favicon from "$lib/assets/favicon.ico?url";
 	import AppShell from "$lib/components/layout/AppShell.svelte";
 	import OnboardingPage from "$lib/components/onboarding/OnboardingPage.svelte";
 	import { checkForCoreUpdatesAndInstall } from "$lib/core/mods";
+	import { appConfigDir, join, writeFile } from "$lib/platform/api";
 	import { setQueryClient } from "$lib/queries/client";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
@@ -21,8 +20,8 @@
 	const queryClient = new QueryClient();
 	setQueryClient(queryClient);
 
-	// periodically dumps the localStorage (when using tauri)
-	// meant for the possible future migration to electron for all platforms
+	// Fallback settings snapshot for plain-browser use (no electronAPI), so
+	// localStorage survives a cleared profile.
 	$effect(() => {
 		let lastSnapshot = "";
 		const snapshot = async () => {

@@ -6,9 +6,9 @@ import { appendProcessLog, logCommandOutput } from "$lib/stores/processes.svelte
 import { addToast } from "$lib/stores/ui.svelte";
 import { queueCurrentIndex, queueItems, queueRunning } from "./stores.svelte";
 import type { ArgumentType } from "$lib/core/command";
+import type { Child } from "$lib/platform/api";
 import type { Instance } from "$lib/types/instance";
 import type { QueueItem } from "./stores.svelte";
-import type { Child } from "@tauri-apps/plugin-shell";
 
 function generateId(): string {
 	return `restore-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;

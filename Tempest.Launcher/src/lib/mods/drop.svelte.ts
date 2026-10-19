@@ -1,11 +1,9 @@
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { installMod } from "$lib/core/mods";
 import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui.svelte";
 import { m } from "$lib/paraglide/messages";
+import { getCurrentWindow, invoke, listen } from "$lib/platform/api";
 import { instanceMap } from "$lib/stores/instance.svelte";
 import { addToast, removeToast } from "$lib/stores/ui.svelte";
 

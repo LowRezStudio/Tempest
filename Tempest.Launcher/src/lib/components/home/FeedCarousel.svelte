@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Rss } from "@lucide/svelte";
-	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { m } from "$lib/paraglide/messages";
+	import { openUrl } from "$lib/platform/api";
 	import { createBlogFeedQuery } from "$lib/queries/feed";
 	import { localeState } from "$lib/stores/locale.svelte";
 	import { persistedState } from "$lib/stores/persisted.svelte";

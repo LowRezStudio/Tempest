@@ -19,7 +19,7 @@ Makes it possible to add players, vote maps and select champions
 
 	const transport = new GrpcWebFetchTransport({
 		baseUrl: "http://localhost:50051",
-		format: "binary", //not using tauri fetch here because this is only used in the browser
+		format: "binary", // only ever used directly in the browser (debug tool)
 	});
 	const client = new LobbyClient(transport);
 	//to close event stream when component destroyed

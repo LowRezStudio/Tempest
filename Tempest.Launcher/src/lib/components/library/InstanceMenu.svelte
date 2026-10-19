@@ -11,7 +11,6 @@
 		Settings,
 		Trash2,
 	} from "@lucide/svelte";
-	import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
@@ -19,6 +18,7 @@
 	import versions from "$lib/data/versions.json";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
+	import { openPath, openUrl } from "$lib/platform/api";
 	import { createSetupInstanceMutation } from "$lib/queries/instance";
 	import {
 		RIGBY_BASE_URL,

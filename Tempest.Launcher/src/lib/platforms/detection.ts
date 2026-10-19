@@ -1,6 +1,5 @@
-import { path as tauriPath } from "@tauri-apps/api";
-import { exists, readDir } from "@tauri-apps/plugin-fs";
-import { allowScopeDirectory } from "$lib/tauri/scopes";
+import { exists, path as sysPath, readDir } from "$lib/platform/api";
+import { allowScopeDirectory } from "$lib/platform/scopes";
 import { instancePlatforms } from "$lib/types/instance";
 import type { InstancePlatform } from "$lib/types/instance";
 
@@ -19,12 +18,12 @@ export async function detectAvailablePlatforms(instancePath: string): Promise<In
 	console.debug("[platforms] resolved game folder", { instancePath, resolvedPath });
 	await allowScopeDirectory(resolvedPath, true);
 
-	const binariesRoot = await tauriPath.join(resolvedPath, "Binaries");
+	const binariesRoot = await sysPath.join(resolvedPath, "Binaries");
 	console.debug("[platforms] binaries root", { binariesRoot });
 
 	const detected: InstancePlatform[] = [];
 	for (const platform of instancePlatforms) {
-		const platformRoot = await tauriPath.join(binariesRoot, platform);
+		const platformRoot = await sysPath.join(binariesRoot, platform);
 		const hasBinaries = await hasGameExecutableInDir(platformRoot);
 		console.debug("[platforms] platform check", {
 			platform,
@@ -74,16 +73,16 @@ async function hasGameExecutableInDir(directoryPath: string): Promise<boolean> {
 }
 
 const resolveGameFolder = async (instancePath: string): Promise<string | null> => {
-	let current = isFilePath(instancePath) ? await tauriPath.dirname(instancePath) : instancePath;
+	let current = isFilePath(instancePath) ? await sysPath.dirname(instancePath) : instancePath;
 
 	while (true) {
 		await allowScopeDirectory(current, false);
-		const binariesPath = await tauriPath.join(current, "Binaries");
-		const enginePath = await tauriPath.join(current, "Engine");
+		const binariesPath = await sysPath.join(current, "Binaries");
+		const enginePath = await sysPath.join(current, "Engine");
 
 		if ((await exists(binariesPath)) && (await exists(enginePath))) return current;
 
-		const parent = await tauriPath.dirname(current);
+		const parent = await sysPath.dirname(current);
 		if (parent === current) return null;
 		current = parent;
 	}

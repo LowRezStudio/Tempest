@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { Info } from "@lucide/svelte";
-	import { open } from "@tauri-apps/plugin-dialog";
-	import { openUrl } from "@tauri-apps/plugin-opener";
-	import { platform } from "@tauri-apps/plugin-os";
 	import { createCommand } from "$lib/core/command";
 	import { m } from "$lib/paraglide/messages";
+	import { open, openUrl, platform } from "$lib/platform/api";
+	import { which } from "$lib/platform/which";
 	import {
 		gamescopeArgs,
 		protonPath,
@@ -14,7 +13,6 @@
 		wineRuntime,
 		type WineRuntimeSetting,
 	} from "$lib/stores/settings.svelte";
-	import { which } from "$lib/tauri/which";
 
 	type DetectedProton = { path: string; name: string };
 

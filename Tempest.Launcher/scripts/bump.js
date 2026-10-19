@@ -38,31 +38,6 @@ async function main() {
 	writeFileSync("package.json", `${JSON.stringify(pkg, null, "\t")}\n`);
 	console.log("  updated package.json");
 
-	const tauri = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
-	tauri.version = ver;
-	writeFileSync("src-tauri/tauri.conf.json", `${JSON.stringify(tauri, null, "\t")}\n`);
-	console.log("  updated src-tauri/tauri.conf.json");
-
-	const cargoPath = "src-tauri/Cargo.toml";
-	const cargo = readFileSync(cargoPath, "utf8");
-	if (!cargo.includes(`version = "${cur}"`)) {
-		console.error(`ERROR: version not found in ${cargoPath}`);
-		process.exit(1);
-	}
-	writeFileSync(cargoPath, cargo.replace(`version = "${cur}"`, `version = "${ver}"`));
-	console.log("  updated src-tauri/Cargo.toml");
-
-	const lockPath = "src-tauri/Cargo.lock";
-	try {
-		let lock = readFileSync(lockPath, "utf8");
-		const markers = [`name = "tempest-launcher"\nversion = "${cur}"`];
-		for (const m of markers) {
-			if (lock.includes(m)) lock = lock.replace(m, m.replace(`"${cur}"`, `"${ver}"`));
-		}
-		writeFileSync(lockPath, lock);
-		console.log("  updated src-tauri/Cargo.lock");
-	} catch {}
-
 	const electronPkg = JSON.parse(readFileSync("electron/package.json", "utf8"));
 	electronPkg.version = ver;
 	writeFileSync("electron/package.json", `${JSON.stringify(electronPkg, null, "\t")}\n`);

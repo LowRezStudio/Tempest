@@ -11,7 +11,7 @@ ipcMain.handle("path:home-dir", () => os.homedir());
 ipcMain.handle("path:resolve-resource", (_event, { paths }) => {
 	const r = path.join(process.resourcesPath, ...paths);
 	if (!app.isPackaged && !fs.existsSync(r)) {
-		const dev = path.join(import.meta.dirname, "../../src-tauri/resources", ...paths);
+		const dev = path.join(import.meta.dirname, "../../resources", ...paths);
 		if (fs.existsSync(dev)) return dev;
 	}
 	return r;

@@ -164,20 +164,15 @@ launcher-install:
     corepack enable
     cd {{launcher}} && pnpm install
 
-# Tauri dev app (needs the CLI built first)
+# Electron dev app (needs the CLI built first)
 [group("launcher")]
 launcher-dev: build
-    cd {{launcher}} && pnpm tauri dev
-
-# Electron dev app (macOS / Linux)
-[group("launcher")]
-launcher-electron-dev: build
     cd {{launcher}} && pnpm electron:dev
 
-# Production Tauri build -> src-tauri/target/release/bundle/
+# Production Electron build -> Tempest.Launcher/dist/
 [group("launcher")]
 launcher-build:
-    cd {{launcher}} && pnpm tauri build
+    cd {{launcher}} && pnpm electron:build
 
 # svelte-check + oxlint
 [group("launcher")]

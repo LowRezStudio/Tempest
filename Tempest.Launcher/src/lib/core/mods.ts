@@ -1,7 +1,11 @@
-import { join, tempDir } from "@tauri-apps/api/path";
-import { resolveResource } from "@tauri-apps/api/path";
-import { writeFile, mkdir } from "@tauri-apps/plugin-fs";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import {
+	fetch as httpFetch,
+	join,
+	mkdir,
+	resolveResource,
+	tempDir,
+	writeFile,
+} from "$lib/platform/api";
 import { getQueryClient } from "$lib/queries/client";
 import { appendProcessLogs } from "$lib/stores/processes.svelte";
 import { createCommand } from "./command";
@@ -16,7 +20,7 @@ async function downloadRemoteMod(url: string, filename: string): Promise<string>
 	const tmp = await tempDir();
 	const dest = await join(tmp, filename);
 	try {
-		const res = await tauriFetch(url, { method: "GET" });
+		const res = await httpFetch(url, { method: "GET" });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		const buf = new Uint8Array(await res.arrayBuffer());
 		await mkdir(tmp, { recursive: true }).catch(() => {});
@@ -99,7 +103,7 @@ export const installAutoMods = async (instance: Instance): Promise<void> => {
 		} catch (error) {
 			console.error("Failed to fetch remote Tempest Core, falling back to bundled:", error);
 			try {
-				const fallback = await resolveResource("Tempest Core.tempest");
+				const fallback = await resolveResource("mods/Tempest Core.tempest");
 				await installMod(gamePath, fallback, true);
 			} catch (e) {
 				console.error("Failed to install fallback Tempest Core:", e);
@@ -107,7 +111,7 @@ export const installAutoMods = async (instance: Instance): Promise<void> => {
 		}
 	} else {
 		try {
-			const modFile = await resolveResource("Tempest Console.tempest");
+			const modFile = await resolveResource("mods/Tempest Console.tempest");
 			await installMod(gamePath, modFile, true);
 		} catch (error) {
 			console.error("Failed to install Tempest Console:", error);
@@ -119,7 +123,7 @@ export const installAutoMods = async (instance: Instance): Promise<void> => {
 
 export const checkForCoreUpdatesAndInstall = async (instances: Instance[]): Promise<void> => {
 	try {
-		const res = await tauriFetch(LATEST_CORE_API, {
+		const res = await httpFetch(LATEST_CORE_API, {
 			method: "GET",
 			headers: { Accept: "application/vnd.github+json" },
 		});

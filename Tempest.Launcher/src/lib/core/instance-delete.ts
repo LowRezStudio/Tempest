@@ -1,5 +1,5 @@
-import { remove } from "@tauri-apps/plugin-fs";
 import { listMods, removeMod } from "$lib/core/mods";
+import { remove } from "$lib/platform/api";
 import { restoreQueue } from "$lib/rigby/restore-queue";
 import { removeInstance } from "$lib/stores/instance.svelte";
 import type { Instance } from "$lib/types/instance";

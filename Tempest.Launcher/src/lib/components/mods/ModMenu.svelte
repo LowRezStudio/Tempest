@@ -1,12 +1,10 @@
 <script lang="ts">
 	import { EllipsisVertical, FolderOpen, Pencil } from "@lucide/svelte";
-	import { path } from "@tauri-apps/api";
-	import { stat } from "@tauri-apps/plugin-fs";
-	import { openPath } from "@tauri-apps/plugin-opener";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { m } from "$lib/paraglide/messages";
+	import { openPath, path, stat } from "$lib/platform/api";
 	import { createRenameModMutation } from "$lib/queries/mods";
 	import type { ModRecord } from "$lib/core/mods";
 

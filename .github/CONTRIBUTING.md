@@ -20,14 +20,8 @@ git clone https://github.com/LowRezStudio/Tempest.git
 ### Windows
 - [Visual Studio 2022](https://visualstudio.microsoft.com/vs/) with the "Desktop development with C++" workload installed.
 
-### Linux
-- [Tauri prerequisites](https://tauri.app/start/prerequisites/#linux)
-
-### macOS
-- [Tauri prerequisites](https://tauri.app/start/prerequisites/#macos)
-
 > [!TIP]
-> If you're **not** planning to work on the launcher, you can skip installing Rust, Node.js and the tauri prerequisites.
+> If you're **not** planning to work on the launcher, you can skip installing Node.js and Rust.
 
 ## Building the project
 
@@ -42,11 +36,11 @@ corepack enable
 pnpm install
 
 # If you want to work on the launcher in development mode
-pnpm tauri dev
+pnpm electron:dev
 
 # If you want to build the production version
-pnpm tauri build
-# The build artifacts will be located in `Tempest.Launcher/src-tauri/target/release/`
+pnpm electron:build
+# The build artifacts will be located in `Tempest.Launcher/dist/`
 ```
 
 ### Building the CLI
@@ -81,7 +75,7 @@ We recommend using [Visual Studio Code](https://code.visualstudio.com/) with the
 
 # Techstack
 
-- Launcher: [Tauri](https://tauri.app/)
+- Launcher: [Electron](https://www.electronjs.org/)
     - Frontend: [Svelte](https://svelte.dev/)
     - Styling: [DaisyUI](https://daisyui.com/) with [TailwindCSS](https://tailwindcss.com/)
     - A lot of the core logic is implemented in .NET through the CLI

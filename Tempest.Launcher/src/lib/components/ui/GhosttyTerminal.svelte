@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Terminal, FitAddon, Ghostty } from "ghostty-web";
 	import { onDestroy, onMount } from "svelte";
+	import type { Child, Command } from "$lib/platform/api";
 	import type { ProcessLog } from "$lib/types/process";
-	import type { Child, Command } from "@tauri-apps/plugin-shell";
 
 	// ── Shared WASM (loaded once, reused across terminal instances) ──
 	let ghosttyReady: Promise<Ghostty> | undefined;

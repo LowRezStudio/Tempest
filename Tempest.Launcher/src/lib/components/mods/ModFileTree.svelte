@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ChevronDown, ChevronRight, File, FileText, Folder } from "@lucide/svelte";
-	import { readFile } from "@tauri-apps/plugin-fs";
+	import { readFile } from "$lib/platform/api";
 
 	interface Props {
 		files: string[];

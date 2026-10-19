@@ -2,11 +2,11 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import { Square, SquareTerminal, Globe } from "@lucide/svelte";
-	import { openUrl } from "@tauri-apps/plugin-opener";
 	import GhosttyTerminal from "$lib/components/ui/GhosttyTerminal.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { moveToLobby } from "$lib/core/lobby.svelte";
 	import { m } from "$lib/paraglide/messages";
+	import { openUrl } from "$lib/platform/api";
 	import { createKillLobbyServerMutation } from "$lib/queries/lobby";
 	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
 	import type { ProcessLog } from "$lib/types/process";

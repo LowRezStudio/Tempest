@@ -1,7 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { check } from "@tauri-apps/plugin-updater";
-import { triggerChildCleanup } from "$lib/tauri/scopes";
-import type { Update } from "@tauri-apps/plugin-updater";
+import { check, invoke, type Update } from "$lib/platform/api";
+import { triggerChildCleanup } from "$lib/platform/scopes";
 
 export type UpdaterStatus =
 	| "idle"

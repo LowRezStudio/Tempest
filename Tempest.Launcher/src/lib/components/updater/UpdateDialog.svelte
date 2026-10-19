@@ -6,9 +6,9 @@
 		Loader2,
 		RefreshCw,
 	} from "@lucide/svelte";
-	import { platform } from "@tauri-apps/plugin-os";
 	import { Progress } from "bits-ui";
 	import { m } from "$lib/paraglide/messages";
+	import { platform } from "$lib/platform/api";
 	import { cachedReleaseNotes } from "$lib/queries/release";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import Modal from "../ui/Modal.svelte";

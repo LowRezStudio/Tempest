@@ -1,16 +1,18 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { Check, Compass, Download, FolderOpen, Gamepad2, Loader2 } from "@lucide/svelte";
-	import { path as tauriPath } from "@tauri-apps/api";
-	import { homeDir } from "@tauri-apps/api/path";
-	import { open as openDirectoryDialog } from "@tauri-apps/plugin-dialog";
-	import { platform as getPlatform } from "@tauri-apps/plugin-os";
 	import { onMount } from "svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { identifyBuild } from "$lib/core/build";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
 	import { locales, type Locale } from "$lib/paraglide/runtime";
+	import {
+		open as openDirectoryDialog,
+		homeDir,
+		platform as getPlatform,
+		path as sysPath,
+	} from "$lib/platform/api";
 	import { findSteamPaladinsInstallation } from "$lib/platforms/steam";
 	import { createSetupInstanceMutation } from "$lib/queries/instance";
 	import { RIGBY_BASE_URL, RIGBY_MANIFEST_URL_TEMPLATE } from "$lib/rigby/constants";
@@ -307,7 +309,7 @@
 	async function getDownloadBasePath(): Promise<string> {
 		if (defaultInstancePath.value) return defaultInstancePath.value;
 		const root = getPlatform() === "windows" ? "C:" : await homeDir();
-		return await tauriPath.join(root, "Games", "Tempest");
+		return await sysPath.join(root, "Games", "Tempest");
 	}
 
 	async function browseDownloadDirectory() {
@@ -325,7 +327,7 @@
 		installError = "";
 
 		try {
-			const targetPath = await tauriPath.join(await getDownloadBasePath(), entry.version);
+			const targetPath = await sysPath.join(await getDownloadBasePath(), entry.version);
 			const manifests = [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", entry.id)];
 			const existing = findExistingInstance(targetPath);
 

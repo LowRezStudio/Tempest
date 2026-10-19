@@ -1,8 +1,5 @@
-import { path as tauriPath } from "@tauri-apps/api";
-import { homeDir } from "@tauri-apps/api/path";
-import { exists, readDir, readFile } from "@tauri-apps/plugin-fs";
-import { platform } from "@tauri-apps/plugin-os";
-import { allowScopeDirectory, allowScopeFile } from "$lib/tauri/scopes";
+import { exists, homeDir, path as sysPath, platform, readDir, readFile } from "$lib/platform/api";
+import { allowScopeDirectory, allowScopeFile } from "$lib/platform/scopes";
 
 /** Finds the first Steam library containing a usable Paladins installation.
  * @returns The installation path, or `null` when Steam does not contain Paladins.
@@ -20,7 +17,7 @@ export async function findSteamPaladinsInstallation(): Promise<string | null> {
 	}
 
 	for (const library of libraries) {
-		const commonPath = await tauriPath.join(library, "steamapps", "common");
+		const commonPath = await sysPath.join(library, "steamapps", "common");
 		const candidates = await paladinsDirectories(commonPath);
 
 		for (const candidate of candidates) {
@@ -39,24 +36,24 @@ async function getSteamRoots(): Promise<string[]> {
 		return [
 			"C:\\Program Files (x86)\\Steam",
 			"C:\\Program Files\\Steam",
-			await tauriPath.join(home, "AppData", "Local", "Steam"),
+			await sysPath.join(home, "AppData", "Local", "Steam"),
 		];
 	}
 
 	if (os === "macos") {
-		return [await tauriPath.join(home, "Library", "Application Support", "Steam")];
+		return [await sysPath.join(home, "Library", "Application Support", "Steam")];
 	}
 
 	return [
-		await tauriPath.join(home, ".steam", "root"),
-		await tauriPath.join(home, ".steam", "steam"),
-		await tauriPath.join(home, ".local", "share", "Steam"),
-		await tauriPath.join(home, ".var", "app", "com.valvesoftware.Steam", "data", "Steam"),
+		await sysPath.join(home, ".steam", "root"),
+		await sysPath.join(home, ".steam", "steam"),
+		await sysPath.join(home, ".local", "share", "Steam"),
+		await sysPath.join(home, ".var", "app", "com.valvesoftware.Steam", "data", "Steam"),
 	];
 }
 
 async function readSteamLibraries(root: string): Promise<string[]> {
-	const manifestPath = await tauriPath.join(root, "steamapps", "libraryfolders.vdf");
+	const manifestPath = await sysPath.join(root, "steamapps", "libraryfolders.vdf");
 	if (!(await pathExists(manifestPath, true))) return [];
 
 	try {
@@ -74,14 +71,14 @@ async function readSteamLibraries(root: string): Promise<string[]> {
 async function paladinsDirectories(commonPath: string): Promise<string[]> {
 	const candidates = new Set<string>();
 	for (const name of ["Paladins", "paladins"]) {
-		candidates.add(await tauriPath.join(commonPath, name));
+		candidates.add(await sysPath.join(commonPath, name));
 	}
 
 	try {
 		await allowScopeDirectory(commonPath, false);
 		for (const entry of await readDir(commonPath)) {
 			if (entry.isDirectory && entry.name?.toLowerCase() === "paladins") {
-				candidates.add(await tauriPath.join(commonPath, entry.name));
+				candidates.add(await sysPath.join(commonPath, entry.name));
 			}
 		}
 	} catch {
@@ -94,13 +91,10 @@ async function paladinsDirectories(commonPath: string): Promise<string[]> {
 async function isPaladinsInstallation(gamePath: string): Promise<boolean> {
 	return (
 		(await pathExists(
-			await tauriPath.join(gamePath, "Binaries", "Win64", "Paladins.exe"),
+			await sysPath.join(gamePath, "Binaries", "Win64", "Paladins.exe"),
 			true,
 		)) ||
-		(await pathExists(
-			await tauriPath.join(gamePath, "Binaries", "Win32", "Paladins.exe"),
-			true,
-		))
+		(await pathExists(await sysPath.join(gamePath, "Binaries", "Win32", "Paladins.exe"), true))
 	);
 }
 

@@ -11,7 +11,6 @@
 		Square,
 		Terminal,
 	} from "@lucide/svelte";
-	import { openPath } from "@tauri-apps/plugin-opener";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
 	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
 	import InstanceSettingsForm from "$lib/components/library/InstanceSettingsForm.svelte";
@@ -22,6 +21,7 @@
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
+	import { openPath } from "$lib/platform/api";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
 	import { instanceMap } from "$lib/stores/instance.svelte";

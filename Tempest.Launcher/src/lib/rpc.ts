@@ -1,5 +1,5 @@
 import { GrpcWebFetchTransport } from "@protobuf-ts/grpcweb-transport";
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch } from "$lib/platform/api";
 import { ticket } from "./lobby/stores.svelte";
 import { LobbyClient } from "./rpc/lobby/lobby_service.client";
 import { ServerListClient } from "./rpc/server_list/server_list_service.client";

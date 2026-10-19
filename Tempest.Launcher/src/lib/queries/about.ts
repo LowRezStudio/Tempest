@@ -1,6 +1,5 @@
 import { createQuery } from "@tanstack/svelte-query";
-import { getVersion } from "@tauri-apps/api/app";
-import { arch, type as osType } from "@tauri-apps/plugin-os";
+import { arch, getVersion, type as osType } from "$lib/platform/api";
 
 export type AboutInfo = {
 	appVersion: string;

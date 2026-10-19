@@ -1,3 +1,5 @@
+// Renderer-side platform API over the Electron main process (window.electronAPI).
+// Modules here mirror a small platform layer: shell, fs, dialogs, tray, updater…
 const eio = () => (window as any).electronAPI!;
 
 type FsResult<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -27,45 +29,34 @@ class MiniEmitter {
 	}
 }
 
-// ---- @tauri-apps/plugin-shell ----
+// ---- Shell: child processes ----
 
 export type SpawnOptions = { env?: Record<string, string> };
 
-class ElectronChild {
-	pid: number;
+type ClosePayload = { code: number | null; signal: number | null };
+
+/** Typed "data" stream for stdout/stderr of a {@link Command}. */
+class CommandStream<O> {
 	private _emitter = new MiniEmitter();
 
-	constructor(pid: number) {
-		this.pid = pid;
-	}
-
-	on(event: string, cb: Function): this {
-		this._emitter.on(event, cb);
+	on(_event: "data", cb: (data: O) => void): this {
+		this._emitter.on("data", cb);
 		return this;
 	}
 
-	async kill(): Promise<void> {
-		await eio().invoke("shell:kill", { pid: this.pid });
+	removeListener(_event: "data", cb: (data: O) => void): this {
+		this._emitter.removeListener("data", cb);
+		return this;
 	}
 
-	async write(data: string): Promise<void> {
-		await eio().invoke("shell:stdin-write", { pid: this.pid, data });
-	}
-
-	_handleClose(payload: { code: number | null; signal: number | null }) {
-		this._emitter.emit("close", payload);
-	}
-
-	_handleError(error: string) {
-		this._emitter.emit("error", error);
+	emit(data: O) {
+		this._emitter.emit("data", data);
 	}
 }
 
-export type Child = ElectronChild;
-
-export class Command {
-	stdout = new MiniEmitter();
-	stderr = new MiniEmitter();
+export class Command<O = string> {
+	stdout = new CommandStream<O>();
+	stderr = new CommandStream<O>();
 	private _emitter = new MiniEmitter();
 
 	private constructor(
@@ -75,14 +66,20 @@ export class Command {
 		private _sidecar = false,
 	) {}
 
-	static create(program: string, args?: string[], options?: SpawnOptions): Command {
+	static create<O = string>(
+		program: string,
+		args?: string[],
+		options?: SpawnOptions,
+	): Command<O> {
 		return new Command(program, args ?? [], options);
 	}
 
-	static sidecar(name: string, args?: string[], options?: SpawnOptions): Command {
+	static sidecar<O = string>(name: string, args?: string[], options?: SpawnOptions): Command<O> {
 		return new Command(name, args ?? [], options, true);
 	}
 
+	on(event: "close", cb: (payload: ClosePayload) => void): this;
+	on(event: "error", cb: (error: string) => void): this;
 	on(event: string, cb: Function): this {
 		this._emitter.on(event, cb);
 		return this;
@@ -93,7 +90,7 @@ export class Command {
 		return this;
 	}
 
-	async spawn(): Promise<ElectronChild> {
+	async spawn(): Promise<Child> {
 		const { pid } = await eio().invoke("shell:spawn", {
 			program: this.program,
 			args: this.args,
@@ -101,21 +98,18 @@ export class Command {
 			sidecar: this._sidecar,
 		});
 
-		const child = new ElectronChild(pid);
+		const child = new Child(pid);
 
 		eio().on(`shell:process:${pid}:stdout`, (data: string) => {
-			this.stdout.emit("data", data);
+			this.stdout.emit(data as O);
 		});
 		eio().on(`shell:process:${pid}:stderr`, (data: string) => {
-			this.stderr.emit("data", data);
+			this.stderr.emit(data as O);
 		});
-		eio().on(
-			`shell:process:${pid}:close`,
-			(payload: { code: number | null; signal: number | null }) => {
-				this._emitter.emit("close", payload);
-				child._handleClose(payload);
-			},
-		);
+		eio().on(`shell:process:${pid}:close`, (payload: ClosePayload) => {
+			this._emitter.emit("close", payload);
+			child._handleClose(payload);
+		});
 		eio().on(`shell:process:${pid}:error`, (error: string) => {
 			this._emitter.emit("error", error);
 			child._handleError(error);
@@ -139,13 +133,45 @@ export class Command {
 	}
 }
 
-// ---- @tauri-apps/api/core ----
+export class Child {
+	pid: number;
+	private _emitter = new MiniEmitter();
+
+	constructor(pid: number) {
+		this.pid = pid;
+	}
+
+	on(event: "close", cb: (payload: ClosePayload) => void): this;
+	on(event: "error", cb: (error: string) => void): this;
+	on(event: string, cb: Function): this {
+		this._emitter.on(event, cb);
+		return this;
+	}
+
+	async kill(): Promise<void> {
+		await eio().invoke("shell:kill", { pid: this.pid });
+	}
+
+	async write(data: string): Promise<void> {
+		await eio().invoke("shell:stdin-write", { pid: this.pid, data });
+	}
+
+	_handleClose(payload: ClosePayload) {
+		this._emitter.emit("close", payload);
+	}
+
+	_handleError(error: string) {
+		this._emitter.emit("error", error);
+	}
+}
+
+// ---- IPC invoke ----
 
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
 	return eio().invoke(cmd, args) as Promise<T>;
 }
 
-// ---- @tauri-apps/api/event ----
+// ---- Events ----
 
 export type Event<T> = { event: string; id: number; payload: T };
 
@@ -156,8 +182,7 @@ export function listen<T>(event: string, handler: (event: Event<T>) => void): Pr
 	return Promise.resolve(unlisten);
 }
 
-// ---- @tauri-apps/api (path module) ----
-// ponytail: path ops go through IPC for correctness across platforms
+// ---- Path helpers (over IPC for cross-platform correctness) ----
 
 export const path = {
 	join: (...parts: string[]): Promise<string> => eio().invoke("path:join", { paths: parts }),
@@ -169,8 +194,7 @@ export const path = {
 		eio().invoke("path:resolve-resource", { paths }),
 };
 
-// ---- @tauri-apps/api/path ----
-
+// Single-function aliases for the `path` object below.
 export function join(...paths: string[]): Promise<string> {
 	return eio().invoke("path:join", { paths });
 }
@@ -195,8 +219,8 @@ export function resolveResource(...paths: string[]): Promise<string> {
 	return eio().invoke("path:resolve-resource", { paths });
 }
 
-// ---- @tauri-apps/api/window ----
-// ponytail: drag-drop uses DOM events + webUtils.getPathForFile from preload
+// ---- Window ----
+// Drag-drop uses DOM events + webUtils.getPathForFile from preload.
 
 type CloseRequestedHandler = (event: { preventDefault: () => void }) => Promise<void>;
 
@@ -292,14 +316,14 @@ export function getCurrentWindow() {
 	};
 }
 
-// ---- @tauri-apps/api/app ----
+// ---- App ----
 
 export function getVersion(): Promise<string> {
 	return eio().invoke("app:version");
 }
 
-// ---- @tauri-apps/api/menu ----
-// ponytail: actions stay in the renderer; only serializable items cross IPC
+// ---- Menu ----
+// Actions stay in the renderer; only serializable items cross IPC.
 
 export interface MenuItemOptions {
 	id?: string;
@@ -352,7 +376,7 @@ export class Menu {
 	}
 }
 
-// ---- @tauri-apps/api/tray ----
+// ---- Tray ----
 
 export type MouseButton = "Left" | "Right" | "Middle";
 export type MouseButtonState = "Up" | "Down";
@@ -424,7 +448,7 @@ export class TrayIcon {
 	}
 }
 
-// ---- @tauri-apps/plugin-fs ----
+// ---- File system ----
 
 export function exists(p: string): Promise<boolean> {
 	return eio().invoke("fs:exists", { path: p });
@@ -468,14 +492,18 @@ export async function writeFile(p: string, data: Uint8Array): Promise<void> {
 	await unwrap(eio().invoke("fs:write-file", { path: p, data }));
 }
 
-// ---- @tauri-apps/plugin-dialog ----
+// ---- Dialogs ----
 
-export function open(options?: {
+type DialogOptions = {
 	directory?: boolean;
-	multiple?: boolean;
 	filters?: { name: string; extensions: string[] }[];
 	title?: string;
-}): Promise<string | string[] | null> {
+	defaultPath?: string;
+};
+
+export function open(options?: DialogOptions & { multiple?: false }): Promise<string | null>;
+export function open(options: DialogOptions & { multiple: true }): Promise<string[] | null>;
+export function open(options?: DialogOptions & { multiple?: boolean }): Promise<unknown> {
 	return eio().invoke("dialog:open", { options });
 }
 
@@ -486,8 +514,7 @@ export function save(options?: {
 }): Promise<string | null> {
 	return eio().invoke("dialog:save", { options });
 }
-
-// ---- @tauri-apps/plugin-opener ----
+// ---- Opener ----
 
 export function openPath(p: string): Promise<void> {
 	return eio().invoke("opener:open-path", { path: p });
@@ -497,9 +524,7 @@ export function openUrl(url: string): Promise<void> {
 	return eio().invoke("opener:open-url", { url });
 }
 
-// ---- @tauri-apps/plugin-os ----
-// injected as non-writable constants from main process via executeJavaScript
-
+// ---- OS info (injected as non-writable constants by the main process) ----
 export function platform(): string {
 	return (window as any).__os?.platform ?? "";
 }
@@ -516,26 +541,33 @@ export function version(): string {
 	return (window as any).__os?.version ?? "";
 }
 
-// ---- @tauri-apps/plugin-http ----
+// ---- HTTP ----
 
 export const fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
 	window.fetch(input, init)) as typeof window.fetch;
 
-// ---- @tauri-apps/plugin-updater ----
+// ---- Updater ----
+
+export type DownloadEvent =
+	| { event: "Started"; data: { contentLength: number } }
+	| { event: "Progress"; data: { chunkLength: number } }
+	| { event: "Finished"; data?: undefined };
 
 class ElectronUpdate {
-	constructor(private _version: string) {}
+	constructor(
+		private _version: string,
+		private _currentVersion: string,
+	) {}
 
 	get version(): string {
 		return this._version;
 	}
 
-	async downloadAndInstall(
-		onEvent: (event: {
-			event: string;
-			data?: { contentLength?: number; chunkLength?: number };
-		}) => void,
-	): Promise<void> {
+	get currentVersion(): string {
+		return this._currentVersion;
+	}
+
+	async downloadAndInstall(onEvent: (event: DownloadEvent) => void): Promise<void> {
 		const unsub = eio().on(
 			"updater:download-progress",
 			(data: { chunkLength: number; contentLength: number }) => {
@@ -562,12 +594,14 @@ export async function check(): Promise<ElectronUpdate | null> {
 		error?: string;
 	};
 	if (result.error) throw new Error(result.error);
-	return result.available && result.version ? new ElectronUpdate(result.version) : null;
+	if (!result.available || !result.version) return null;
+	const currentVersion = await eio().invoke("app:version");
+	return new ElectronUpdate(result.version, currentVersion);
 }
 
 export type Update = ElectronUpdate;
 
-// ---- @tauri-apps/plugin-sql ----
+// ---- SQL ----
 
 export interface QueryResult {
 	rowsAffected: number;

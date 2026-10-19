@@ -11,7 +11,8 @@ target
 
 # Electron
 dist/
-electron/resources/
+electron/resources/binaries/
+!electron/resources/mods/*.tempest
 
 # OS
 .DS_Store

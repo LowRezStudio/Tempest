@@ -22,23 +22,23 @@ files:
 extraResources:
     - from: resources/binaries
       to: binaries
-    - from: ../src-tauri/resources
-      to: .
-    - from: ../src-tauri/icons/icon.png
+    - from: resources/mods
+      to: mods
+    - from: resources/icons/icon.png
       to: icon.png
 win:
-    target: msi
-    icon: ../src-tauri/icons/icon.ico
+    target: nsis
+    icon: resources/icons/icon.ico
 mac:
     target: dmg
-    icon: ../src-tauri/icons/icon.icns
+    icon: resources/icons/icon.icns
     category: public.app-category.games
 linux:
     target:
         - AppImage
         - deb
         - rpm
-    icon: ../src-tauri/icons
+    icon: resources/icons
     category: Game
 publish:
     provider: github

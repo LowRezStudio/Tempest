@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "$lib/platform/api";
 
 export const allowScopeDirectory = (path: string, recursive = true): Promise<void> =>
 	invoke("scopes_allow_directory", { path, recursive });

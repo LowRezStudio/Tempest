@@ -1,6 +1,5 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { platform } from "@tauri-apps/plugin-os";
 import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
+import { openUrl, platform } from "$lib/platform/api";
 
 $effect.root(() => {
 	polyfillCountryFlagEmojis();
@@ -19,9 +18,9 @@ $effect.root(() => {
 	};
 
 	// External links are opened here and nowhere else. The webview's own
-	// link handling is disabled (tauri-plugin-opener's injected script,
-	// Electron's window-open/navigation handlers), so a modified click
-	// (Ctrl/Cmd/Shift) or a middle-click can never launch a browser.
+	// link handling is disabled (Electron's window-open/navigation handlers),
+	// so a modified click (Ctrl/Cmd/Shift) or a middle-click can never launch
+	// a browser.
 	const externalHref = (anchor: HTMLAnchorElement): string | null => {
 		if (!anchor.href) return null;
 		const url = new URL(anchor.href);

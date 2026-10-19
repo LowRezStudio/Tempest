@@ -1,6 +1,6 @@
+import type { Child, Command } from "$lib/platform/api";
 import type { Instance } from "./instance";
 import type { LobbyServerOptions } from "./lobby";
-import type { Child, Command } from "@tauri-apps/plugin-shell";
 
 export type Process = {
 	status: "on" | "setup" | "off" | "stopping";

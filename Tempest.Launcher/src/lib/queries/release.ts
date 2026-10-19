@@ -1,4 +1,4 @@
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch } from "$lib/platform/api";
 import { persistedState } from "$lib/stores/persisted.svelte";
 
 export type LatestRelease = {

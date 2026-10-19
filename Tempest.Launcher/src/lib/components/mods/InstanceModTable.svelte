@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { Box, FolderOpen, PackageX, Pencil, RefreshCw, RotateCw, Trash2 } from "@lucide/svelte";
-	import { path } from "@tauri-apps/api";
-	import { exists, stat } from "@tauri-apps/plugin-fs";
-	import { openPath } from "@tauri-apps/plugin-opener";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { reloadModDll } from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
+	import { exists, openPath, path, stat } from "$lib/platform/api";
 	import {
 		createRenameModMutation,
 		createEnableModMutation,

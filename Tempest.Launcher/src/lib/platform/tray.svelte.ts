@@ -1,10 +1,15 @@
 import { goto } from "$app/navigation";
-import { Menu, type MenuItemOptions, type PredefinedMenuItemOptions } from "@tauri-apps/api/menu";
-import { TrayIcon, type TrayIconEvent } from "@tauri-apps/api/tray";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { lobbyManager } from "$lib/lobby/lobby-manager";
 import { lobbyHost } from "$lib/lobby/stores.svelte";
 import { m } from "$lib/paraglide/messages";
+import {
+	Menu,
+	TrayIcon,
+	getCurrentWindow,
+	type MenuItemOptions,
+	type PredefinedMenuItemOptions,
+	type TrayIconEvent,
+} from "$lib/platform/api";
 import { queueItems, queueRunning } from "$lib/rigby/stores.svelte";
 import { preparedInstances } from "$lib/stores/instance.svelte";
 import { localeState } from "$lib/stores/locale.svelte";
@@ -117,24 +122,12 @@ function withActions(entries: TrayEntry[]): TrayEntry[] {
 // re-evaluates this module) the existing tray is reused instead of being
 // destroyed and recreated — on Linux, Tray#destroy() leaves a stale
 // StatusNotifierItem behind, so recreating would stack duplicate icons.
-async function createTrayIcon(): Promise<TrayIcon> {
-	// Pass an explicit icon on Tauri; without one it falls back to the default
-	// window icon which renders as an invisible/blank tray entry on Windows.
-	// Electron proxies tray:new to a native Tray that loads its own icon.png.
-	let icon: Uint8Array | undefined;
-	if ("__TAURI_INTERNALS__" in window) {
-		try {
-			const response = await fetch("/tray-icon.png");
-			icon = new Uint8Array(await response.arrayBuffer());
-		} catch (error) {
-			console.error("Failed to load tray icon:", error);
-		}
-	}
+function createTrayIcon(): Promise<TrayIcon> {
+	// The Electron main process loads its own native icon for the tray.
 	return TrayIcon.new({
 		id: TRAY_ID,
 		tooltip: "Tempest Launcher",
 		showMenuOnLeftClick: false,
-		icon,
 		action: handleTrayIconEvent,
 	});
 }

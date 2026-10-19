@@ -1,4 +1,4 @@
-import { Command } from "@tauri-apps/plugin-shell";
+import { Command } from "$lib/platform/api";
 import type { LobbyServerProcess, Process, ProcessLog } from "$lib/types/process";
 
 export const processesList = $state({ value: [] as Process[] });

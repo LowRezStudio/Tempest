@@ -1,5 +1,4 @@
-import { Command } from "@tauri-apps/plugin-shell";
-import type { SpawnOptions } from "@tauri-apps/plugin-shell";
+import { Command, type SpawnOptions } from "$lib/platform/api";
 
 export type ArgumentType =
 	| string

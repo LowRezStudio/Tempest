@@ -12,9 +12,9 @@ permissions:
 
 jobs:
   # One draft release per tag, created before any platform builds so that
-  # tauri-action and electron-builder both attach to it instead of each
-  # creating their own. The body is the annotated tag's message, passed
-  # through the environment (notes may contain quotes).
+  # electron-builder attaches to it instead of creating its own. The body is
+  # the annotated tag's message, passed through the environment (notes may
+  # contain quotes).
   release:
     runs-on: ubuntu-22.04
     outputs:
@@ -55,15 +55,10 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            backend: tauri
-            target: x86_64-pc-windows-msvc
-            bundles: msi
             arch: x64
           - platform: macos-14
-            backend: electron
             arch: arm64
           - platform: ubuntu-22.04
-            backend: electron
             arch: x64
 
     runs-on: ${{ matrix.platform }}
@@ -80,25 +75,6 @@ jobs:
       - name: Setup Zig 0.16.0
         uses: marler8997/setup-anyzig@master
 
-      - name: Setup Rust
-        if: matrix.backend == 'tauri'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache Rust build
-        if: matrix.backend == 'tauri'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            Tempest.Launcher/src-tauri/target/
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('Tempest.Launcher/src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.target }}-
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -111,117 +87,49 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: Tempest.Launcher/pnpm-lock.yaml
 
-      - name: Install Linux system deps (Tauri)
-        if: matrix.backend == 'tauri' && startsWith(matrix.platform, 'ubuntu-')
-        run: |
-          sudo apt update
-          sudo apt --fix-broken install -y
-          sudo apt-get install -y \
-            libappindicator3-dev \
-            librsvg2-dev \
-            libudev-dev \
-            patchelf \
-            libwebkit2gtk-4.1-0 \
-            libwebkit2gtk-4.1-dev \
-            libjavascriptcoregtk-4.1-0 \
-            libjavascriptcoregtk-4.1-dev \
-            gir1.2-javascriptcoregtk-4.1 \
-            gir1.2-webkit2-4.1 \
-            libssl-dev \
-            pkg-config \
-            curl \
-            wget \
-            file \
-            rpm \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad \
-            gstreamer1.0-plugins-ugly \
-            gstreamer1.0-libav \
-            libunwind-dev
-
-      - name: Install Linux packaging deps (Electron)
-        if: matrix.backend == 'electron' && startsWith(matrix.platform, 'ubuntu-')
+      - name: Install Linux packaging deps
+        if: startsWith(matrix.platform, 'ubuntu-')
         run: |
           sudo apt update
           sudo apt-get install -y rpm fakeroot
 
-      - name: Install WiX (Windows)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          dotnet tool install --global wix
-          wix --version
-
       - name: Install frontend dependencies
         working-directory: Tempest.Launcher
-        shell: bash
-        run: |
-          if [ "${{ matrix.backend }}" = "tauri" ]; then
-            pnpm install --frozen-lockfile --filter '!electron'
-          else
-            pnpm install --frozen-lockfile
-          fi
+        run: pnpm install --frozen-lockfile
 
-      - name: Build CLI sidecar (Electron only)
-        if: matrix.backend == 'electron'
+      - name: Build CLI sidecar
         working-directory: Tempest.Launcher
         run: node scripts/build-cli.js
 
-      - name: Build frontend (Electron only)
-        if: matrix.backend == 'electron'
+      - name: Build frontend
         working-directory: Tempest.Launcher
-        run: ELECTRON=true pnpm build
+        run: pnpm build
 
       - name: Prepare Electron build directory
-        if: matrix.backend == 'electron'
         working-directory: Tempest.Launcher
         run: |
           rm -rf electron/build
           cp -r build electron/build
 
-      - name: Build Tauri app
-        if: matrix.backend == 'tauri'
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: Tempest.Launcher
-          tauriScript: pnpm tauri
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
-          tagName: v__VERSION__
-          releaseName: 'Tempest Launcher v__VERSION__'
-          releaseDraft: true
-          prerelease: false
-          releaseBody: ${{ needs.release.outputs.notes }}
-
       - name: Build Electron app
-        if: matrix.backend == 'electron'
         working-directory: Tempest.Launcher/electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --publish always
+        # Publish (attach to the draft release) only for real tag builds;
+        # workflow_dispatch has no tag, so just build the artifacts.
+        run: npx electron-builder --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: tempest-launcher-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi.sig
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg.sig
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage.sig
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb.sig
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
-            Tempest.Launcher/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm.sig
+            Tempest.Launcher/dist/*.exe
+            Tempest.Launcher/dist/*.msi
             Tempest.Launcher/dist/*.dmg
             Tempest.Launcher/dist/*.AppImage
             Tempest.Launcher/dist/*.deb
             Tempest.Launcher/dist/*.rpm
-          if-no-files-found: warn
+            Tempest.Launcher/dist/latest*.yml
+            Tempest.Launcher/dist/*.blockmap
+          if-no-files-found: error

@@ -7,7 +7,7 @@ const trays = new Map();
 function trayImage() {
 	const iconPath = app.isPackaged
 		? path.join(process.resourcesPath, "icon.png")
-		: path.join(import.meta.dirname, "..", "..", "src-tauri", "icons", "icon.png");
+		: path.join(import.meta.dirname, "..", "resources", "icons", "icon.png");
 	const size = process.platform === "darwin" ? 22 : 24;
 	return nativeImage.createFromPath(iconPath).resize({ width: size, height: size });
 }

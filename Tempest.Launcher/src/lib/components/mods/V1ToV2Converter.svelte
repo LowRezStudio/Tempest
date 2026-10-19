@@ -2,15 +2,13 @@
 	import { goto } from "$app/navigation";
 	import { File, FileUp, FlaskConical, FolderOpen, Plus, Trash2, X } from "@lucide/svelte";
 	import { useQueryClient } from "@tanstack/svelte-query";
-	import { path } from "@tauri-apps/api";
-	import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-	import { readFile } from "@tauri-apps/plugin-fs";
 	import JSZip from "jszip";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { installMod } from "$lib/core/mods";
 	import { converterPendingPaths, isDraggingConverterFiles } from "$lib/mods/drop.svelte";
 	import { m } from "$lib/paraglide/messages";
+	import { open as openDialog, path, readFile, save as saveDialog } from "$lib/platform/api";
 	import { converter } from "$lib/stores/converter.svelte";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { addToast, removeToast } from "$lib/stores/ui.svelte";
@@ -271,7 +269,7 @@
 		});
 		if (!savePath) return;
 		try {
-			const { writeFile } = await import("@tauri-apps/plugin-fs");
+			const { writeFile } = await import("$lib/platform/api");
 			await writeFile(savePath, converter.cookedZip);
 			addToast({
 				title: m.converter_toast_saved_title(),
@@ -298,7 +296,7 @@
 				duration: 0,
 			});
 
-			const { writeFile } = await import("@tauri-apps/plugin-fs");
+			const { writeFile } = await import("$lib/platform/api");
 			const tmpDir = await path.tempDir();
 			const tmpFile = await path.join(tmpDir, `${modFileName}.tempest`);
 			await writeFile(tmpFile, converter.cookedZip);
@@ -324,7 +322,7 @@
 				});
 			}
 			try {
-				await import("@tauri-apps/plugin-fs").then((m) => m.remove(tmpFile));
+				await import("$lib/platform/api").then((m) => m.remove(tmpFile));
 			} catch {}
 		} catch (error) {
 			if (installingToastId) removeToast(installingToastId);

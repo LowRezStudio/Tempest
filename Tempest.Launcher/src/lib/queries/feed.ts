@@ -1,6 +1,6 @@
 import { createQuery } from "@tanstack/svelte-query";
-import { fetch } from "@tauri-apps/plugin-http";
 import { parseFeed } from "feedsmith";
+import { fetch } from "$lib/platform/api";
 import { persistedState } from "$lib/stores/persisted.svelte";
 
 const BLOG_FEED_URL = "https://docs.lowrezstudio.com/rss.xml";

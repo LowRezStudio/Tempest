@@ -1,11 +1,10 @@
-import { path as tauriPath } from "@tauri-apps/api";
-import { readDir } from "@tauri-apps/plugin-fs";
 import { createCommand, processArgs, type ArgumentType } from "$lib/core/command";
 import { installAutoMods } from "$lib/core/mods";
 import { getInstanceAssemblyDbPath, getInstanceTokensDir } from "$lib/core/paths";
+import { path as sysPath, readDir } from "$lib/platform/api";
+import { allowScopeDirectory } from "$lib/platform/scopes";
 import { updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, appendProcessLogs } from "$lib/stores/processes.svelte";
-import { allowScopeDirectory } from "$lib/tauri/scopes";
 import type { Instance, InstancePlatform } from "$lib/types/instance";
 
 const defaultGameExe = "Paladins.exe";
@@ -85,15 +84,13 @@ const resolveTokenSources = async (
 	instancePath: string,
 	platform: InstancePlatform,
 ): Promise<{ primary: string; fallback: string }> => {
-	const startPath = isFilePath(instancePath)
-		? await tauriPath.dirname(instancePath)
-		: instancePath;
+	const startPath = isFilePath(instancePath) ? await sysPath.dirname(instancePath) : instancePath;
 	const gameFolder = await findGameFolder(startPath);
 	log(`Game folder found: ${gameFolder}`);
 	await allowScopeDirectory(gameFolder, true);
 
-	const primaryPath = await tauriPath.join(gameFolder, "Binaries", platform, defaultGameExe);
-	const fallbackPath = await tauriPath.join(gameFolder, "Binaries", platform, fallbackTokenDll);
+	const primaryPath = await sysPath.join(gameFolder, "Binaries", platform, defaultGameExe);
+	const fallbackPath = await sysPath.join(gameFolder, "Binaries", platform, fallbackTokenDll);
 
 	return {
 		primary: primaryPath,
@@ -102,13 +99,11 @@ const resolveTokenSources = async (
 };
 
 const resolveAssemblyDatPath = async (instancePath: string): Promise<string> => {
-	const startPath = isFilePath(instancePath)
-		? await tauriPath.dirname(instancePath)
-		: instancePath;
+	const startPath = isFilePath(instancePath) ? await sysPath.dirname(instancePath) : instancePath;
 	const gameFolder = await findGameFolder(startPath);
-	const assemblyDir = await tauriPath.join(gameFolder, "ChaosGame", "CookedPCConsole");
+	const assemblyDir = await sysPath.join(gameFolder, "ChaosGame", "CookedPCConsole");
 	await allowScopeDirectory(assemblyDir, true);
-	return tauriPath.join(assemblyDir, "assembly.dat");
+	return sysPath.join(assemblyDir, "assembly.dat");
 };
 
 const tryExtractTokenSources = async (
@@ -140,8 +135,8 @@ const tryExtractTokens = async (path: string, outputDir: string): Promise<boolea
 
 const exportAssembly = async (instancePath: string, instanceId: string): Promise<void> => {
 	const tokensDir = await getInstanceTokensDir(instanceId);
-	const fieldsPath = await tauriPath.join(tokensDir, "fields.dat");
-	const functionsPath = await tauriPath.join(tokensDir, "functions.dat");
+	const fieldsPath = await sysPath.join(tokensDir, "fields.dat");
+	const functionsPath = await sysPath.join(tokensDir, "functions.dat");
 	const assemblyDbPath = await getInstanceAssemblyDbPath(instanceId);
 	const assemblyDatPath = await resolveAssemblyDatPath(instancePath);
 
@@ -204,7 +199,7 @@ const findGameFolder = async (startPath: string): Promise<string> => {
 	while (true) {
 		if (await hasRequiredGameDirs(current)) return current;
 
-		const parent = await tauriPath.dirname(current);
+		const parent = await sysPath.dirname(current);
 		if (parent === current) break;
 		current = parent;
 	}
