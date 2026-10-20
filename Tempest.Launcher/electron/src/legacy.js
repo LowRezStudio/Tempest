@@ -41,12 +41,25 @@ function findLegacyInstalls() {
 }
 
 // msiexec exit codes: 0/3010 success (3010 = reboot required), 1602 cancelled.
-// Launched unelevated; for per-machine installs Windows itself prompts UAC.
+// Launched unelevated first; if that fails (e.g. a per-machine install that
+// doesn't auto-elevate), retry through PowerShell's RunAs so UAC shows up.
 function uninstallOne(guid) {
 	return new Promise((resolve) => {
 		spawn("msiexec.exe", ["/x", guid, "/qn", "/norestart"], { windowsHide: true }).on(
 			"exit",
-			(code) => resolve(code ?? 1603),
+			(code) => {
+				if (code === 0 || code === 3010 || code === 1602) return resolve(code ?? 1603);
+				execFile(
+					"powershell.exe",
+					[
+						"-NoProfile",
+						"-Command",
+						`Start-Process msiexec.exe -ArgumentList '/x','${guid}','/qn','/norestart' -Verb RunAs -Wait -WindowStyle Hidden`,
+					],
+					{ windowsHide: true, timeout: 5 * 60_000 },
+					(err) => resolve(err?.code ?? 1603),
+				);
+			},
 		);
 	});
 }

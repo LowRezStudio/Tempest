@@ -652,5 +652,5 @@
 	"legacy_uninstalling": "Removing…",
 	"legacy_removed": "The old version was removed.",
 	"legacy_cancelled": "Removal was cancelled. You can try again.",
-	"legacy_remove_failed": "Couldn't remove the old version automatically. Uninstall it from Windows Settings → Apps instead."
+	"legacy_remove_failed": "Couldn't remove the old version automatically ({code}). Uninstall it from Windows Settings → Apps instead."
 }

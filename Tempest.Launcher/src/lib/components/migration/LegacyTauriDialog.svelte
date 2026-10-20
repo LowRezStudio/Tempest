@@ -41,8 +41,12 @@
 		try {
 			const results = (await invoke("legacy:uninstall")) as { code: number }[];
 			// 0/3010 = success (3010 = reboot required), 1602 = cancelled.
-			if (results.some((r) => r.code !== 0 && r.code !== 3010 && r.code !== 1602)) {
-				addToast({ message: m.legacy_remove_failed(), tone: "error" });
+			const failed = results.find((r) => r.code !== 0 && r.code !== 3010 && r.code !== 1602);
+			if (failed) {
+				addToast({
+					message: m.legacy_remove_failed({ code: failed.code }),
+					tone: "error",
+				});
 				prompted.value = true;
 				open = false;
 			} else if (results.some((r) => r.code === 1602)) {
@@ -54,7 +58,7 @@
 			}
 		} catch (error) {
 			console.error("Legacy uninstall failed:", error);
-			addToast({ message: m.legacy_remove_failed(), tone: "error" });
+			addToast({ message: m.legacy_remove_failed({ code: 1603 }), tone: "error" });
 			keep();
 		} finally {
 			uninstalling = false;
