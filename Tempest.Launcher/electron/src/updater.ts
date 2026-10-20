@@ -23,9 +23,12 @@ autoUpdater.on("download-progress", (p) => {
 	const sender = downloadSender;
 	if (!sender || sender.isDestroyed()) return;
 	// bytesPerSecond is throughput, not a chunk size; the renderer accumulates
-	// chunkLength, so send the actual delta of transferred bytes.
+	// chunkLength, so send the actual delta of transferred bytes (clamped for
+	// resumed downloads where transferred can jump backwards).
+	const chunk = Math.max(0, p.transferred - lastTransferred);
+	lastTransferred = p.transferred;
 	sender.send("updater:download-progress", {
-		chunkLength: p.transferred - lastTransferred,
+		chunkLength: chunk,
 		contentLength: p.total,
 	});
 });
