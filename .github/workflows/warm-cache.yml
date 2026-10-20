@@ -93,7 +93,10 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: Tempest.Launcher/electron/resources/binaries
-          key: cli-${{ runner.os }}-${{ hashFiles('Tempest.CLI/**', 'MarshalLib/**', 'MarshalLib.Database/**', 'Tempest.Utils/**', 'Tempest.Protocol/**', 'Tempest.Launcher/scripts/build-cli.js', 'keys/*.keys') }}
+          # Reuse the restore step's pre-build key: the build creates files
+          # inside the hashed patterns (zig-out), so recomputing hashFiles
+          # here would save under a key no restore can ever find.
+          key: ${{ steps.cli-cache.outputs.cache-primary-key }}
 
       # ---- Electron / electron-builder tooling downloads ----
 
@@ -127,4 +130,4 @@ jobs:
           path: |
             .electron-cache
             .electron-builder-cache
-          key: electron-tooling-${{ runner.os }}-${{ hashFiles('Tempest.Launcher/pnpm-lock.yaml') }}
+          key: ${{ steps.electron-cache.outputs.cache-primary-key }}
