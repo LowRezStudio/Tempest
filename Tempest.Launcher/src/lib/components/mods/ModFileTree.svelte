@@ -158,27 +158,14 @@
 				let relative = key;
 				const normalizedKey = key.replaceAll("\\", "/");
 				const normalizedBase = basePath.replaceAll("\\", "/");
-				if (normalizedKey.toLowerCase().startsWith(normalizedBase.toLowerCase() + "/")) {
-					relative = key.slice(basePath.length).replace(/^[\\/]+/, "");
-				} else {
-					relative = key.replace(/^[\\/]+/, "");
-				}
+				relative = normalizedKey
+					.toLowerCase()
+					.startsWith(`${normalizedBase.toLowerCase()}/`)
+					? key.slice(basePath.length).replace(/^[\\/]+/, "")
+					: key.replace(/^[\\/]+/, "");
 				// normalize relative to OS sep
 				relative = relative.replaceAll("/", sep).replaceAll("\\", sep);
-				target =
-					basePath.replace(/[\\/]+$/, "") +
-					sep +
-					".tempest" +
-					sep +
-					"v2" +
-					sep +
-					"mods" +
-					sep +
-					modId +
-					sep +
-					"files" +
-					sep +
-					relative;
+				target = `${basePath.replace(/[\\/]+$/, "")}${sep}.tempest${sep}v2${sep}mods${sep}${modId}${sep}files${sep}${relative}`;
 			} else {
 				// Resolve relative paths against basePath (InstalledFiles can be relative)
 				const isAbsolute =
@@ -187,7 +174,7 @@
 					target.startsWith("\\");
 				if (!isAbsolute && basePath) {
 					const sep = basePath.includes("\\") ? "\\" : "/";
-					target = basePath.replace(/[\\/]+$/, "") + sep + target.replace(/^[\\/]+/, "");
+					target = `${basePath.replace(/[\\/]+$/, "")}${sep}${target.replace(/^[\\/]+/, "")}`;
 				}
 			}
 			const data = await readFile(target);
@@ -195,16 +182,14 @@
 			// Truncate very large files (50k chars) to keep UI responsive
 			let text = raw;
 			if (text.length > 50_000) {
-				text =
-					text.slice(0, 50_000) +
-					"\n\n… truncated (file too large, showing first 50k chars)";
+				text = `${text.slice(0, 50_000)}\n\n… truncated (file too large, showing first 50k chars)`;
 			}
 			fileContents.set(key, { loading: false, text, error: "" });
-		} catch (e) {
+		} catch (error) {
 			fileContents.set(key, {
 				loading: false,
 				text: "",
-				error: e instanceof Error ? e.message : String(e),
+				error: error instanceof Error ? error.message : String(error),
 			});
 		}
 		fileContents = new Map(fileContents);

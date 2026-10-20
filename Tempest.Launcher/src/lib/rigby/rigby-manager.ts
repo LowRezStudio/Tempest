@@ -1,6 +1,7 @@
 import { createCommand } from "$lib/core/command";
 import { appendProcessLog, logCommandOutput } from "$lib/stores/processes.svelte";
 import { restoreError, restoreResult, restoreStatus } from "./stores.svelte";
+import type { Child } from "$lib/platform/api";
 import type { RestoreResult } from "./stores.svelte";
 
 export interface RestoreOptions {
@@ -12,11 +13,15 @@ export interface RestoreOptions {
 }
 
 export class RigbyManager {
-	private abortController: AbortController | null = null;
+	private child: Child | null = null;
+	// Incremented per restore run; close/error handlers of a superseded or
+	// cancelled run must not overwrite the status afterwards.
+	private runToken = 0;
 
 	async restore(options: RestoreOptions): Promise<void> {
-		this.abortController?.abort();
-		this.abortController = new AbortController();
+		await this.cancel();
+
+		const token = ++this.runToken;
 
 		restoreStatus.value = "running";
 		restoreError.value = null;
@@ -43,6 +48,7 @@ export class RigbyManager {
 			let stderr = "";
 
 			command.on("close", (data) => {
+				if (this.runToken !== token) return; // cancelled or superseded
 				if (data.code === 0) {
 					try {
 						const result = JSON.parse(stdout) as RestoreResult;
@@ -56,13 +62,12 @@ export class RigbyManager {
 					restoreError.value = stderr || `Restore failed with code ${data.code}`;
 					restoreStatus.value = "error";
 				}
-				this.abortController = null;
 			});
 
 			command.on("error", (error) => {
+				if (this.runToken !== token) return;
 				restoreError.value = error;
 				restoreStatus.value = "error";
-				this.abortController = null;
 			});
 
 			command.stdout.on("data", (data) => {
@@ -73,17 +78,34 @@ export class RigbyManager {
 				stderr += data;
 			});
 
-			await command.spawn();
+			const child = await command.spawn();
+			// Cancelled while the spawn was in flight: kill it, don't adopt it.
+			if (this.runToken !== token) {
+				await child.kill().catch(() => {});
+				return;
+			}
+			this.child = child;
 		} catch (error) {
+			if (this.runToken !== token) return;
 			restoreError.value = String(error);
 			restoreStatus.value = "error";
-			this.abortController = null;
 		}
 	}
 
-	cancel(): void {
-		this.abortController?.abort();
-		this.abortController = null;
+	async cancel(): Promise<void> {
+		// Invalidate this run's handlers first, then kill the actual child
+		// process. Aborting nothing was a no-op: the CLI kept downloading and
+		// its close handler later resurrected "complete"/"error" state.
+		this.runToken++;
+		const child = this.child;
+		this.child = null;
+		if (child) {
+			try {
+				await child.kill();
+			} catch (error) {
+				console.error("Failed to kill restore process:", error);
+			}
+		}
 		restoreStatus.value = "idle";
 	}
 }

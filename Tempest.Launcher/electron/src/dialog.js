@@ -4,6 +4,7 @@ ipcMain.handle("dialog:open", async (event, { options }) => {
 	const win = BrowserWindow.fromWebContents(event.sender);
 	const result = await dialog.showOpenDialog(win, {
 		title: options?.title,
+		defaultPath: options?.defaultPath,
 		properties: [
 			...(options?.directory ? ["openDirectory"] : ["openFile"]),
 			...(options?.multiple ? ["multiSelections"] : []),

@@ -100,20 +100,39 @@ export class Command<O = string> {
 
 		const child = new Child(pid);
 
-		eio().on(`shell:process:${pid}:stdout`, (data: string) => {
-			this.stdout.emit(data as O);
-		});
-		eio().on(`shell:process:${pid}:stderr`, (data: string) => {
-			this.stderr.emit(data as O);
-		});
-		eio().on(`shell:process:${pid}:close`, (payload: ClosePayload) => {
-			this._emitter.emit("close", payload);
-			child._handleClose(payload);
-		});
-		eio().on(`shell:process:${pid}:error`, (error: string) => {
-			this._emitter.emit("error", error);
-			child._handleError(error);
-		});
+		// Remove all four per-pid listeners once the process is over; otherwise
+		// every launch leaks listeners (and the buffers they retain) for the
+		// lifetime of the renderer.
+		const unlisten = new Set<() => void>();
+		const cleanup = () => {
+			for (const fn of unlisten) fn();
+			unlisten.clear();
+		};
+
+		unlisten.add(
+			eio().on(`shell:process:${pid}:stdout`, (data: string) => {
+				this.stdout.emit(data as O);
+			}),
+		);
+		unlisten.add(
+			eio().on(`shell:process:${pid}:stderr`, (data: string) => {
+				this.stderr.emit(data as O);
+			}),
+		);
+		unlisten.add(
+			eio().on(`shell:process:${pid}:close`, (payload: ClosePayload) => {
+				this._emitter.emit("close", payload);
+				child._handleClose(payload);
+				cleanup();
+			}),
+		);
+		unlisten.add(
+			eio().on(`shell:process:${pid}:error`, (error: string) => {
+				this._emitter.emit("error", error);
+				child._handleError(error);
+				cleanup();
+			}),
+		);
 
 		return child;
 	}
@@ -568,10 +587,12 @@ class ElectronUpdate {
 	}
 
 	async downloadAndInstall(onEvent: (event: DownloadEvent) => void): Promise<void> {
+		let started = false;
 		const unsub = eio().on(
 			"updater:download-progress",
 			(data: { chunkLength: number; contentLength: number }) => {
-				if (data.contentLength) {
+				if (!started) {
+					started = true;
 					onEvent({ event: "Started", data: { contentLength: data.contentLength } });
 				}
 				onEvent({ event: "Progress", data: { chunkLength: data.chunkLength } });
@@ -600,48 +621,3 @@ export async function check(): Promise<ElectronUpdate | null> {
 }
 
 export type Update = ElectronUpdate;
-
-// ---- SQL ----
-
-export interface QueryResult {
-	rowsAffected: number;
-	lastInsertId?: number;
-}
-
-export default class Database {
-	path: string;
-
-	constructor(path: string) {
-		this.path = path;
-	}
-
-	static async load(path: string): Promise<Database> {
-		await eio().invoke("sql:load", { path });
-		return new Database(path);
-	}
-
-	static get(path: string): Database {
-		return new Database(path);
-	}
-
-	execute(query: string, bindValues?: unknown[]): Promise<QueryResult> {
-		return eio().invoke("sql:execute", {
-			db: this.path,
-			query,
-			values: bindValues ?? [],
-		}) as Promise<QueryResult>;
-	}
-
-	select<T>(query: string, bindValues?: unknown[]): Promise<T> {
-		return eio().invoke("sql:select", {
-			db: this.path,
-			query,
-			values: bindValues ?? [],
-		}) as Promise<T>;
-	}
-
-	async close(db?: string): Promise<boolean> {
-		await eio().invoke("sql:close", { db: db ?? this.path });
-		return true;
-	}
-}

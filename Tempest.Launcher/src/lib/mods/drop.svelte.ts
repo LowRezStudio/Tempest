@@ -218,7 +218,7 @@ $effect.root(() => {
 					if (onConverter) {
 						converterPendingPaths.push(...paths);
 					} else {
-						void handleModFileDrop(paths);
+						handleModFileDrop(paths);
 					}
 				}
 			} else if (event.payload.type === "leave") {

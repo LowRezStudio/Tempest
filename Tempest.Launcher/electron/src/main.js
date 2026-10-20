@@ -13,7 +13,6 @@ import "./path.js";
 import { activeChildren } from "./shell.js";
 import "./window.js";
 import "./scopes.js";
-import "./sql.js";
 import "./updater.js";
 import "./tray.js";
 import "./legacy.js";
@@ -43,12 +42,11 @@ function tempestFilesFromArgs(args, workingDirectory) {
 function queueAndNotifyOpenFiles(files) {
 	if (files.length === 0) return;
 	queueOpenFiles(files);
-	if (mainWindow && !mainWindow.webContents.isLoading()) {
+	if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isLoading()) {
 		mainWindow.webContents.send("open-mod-files", null);
 	}
 }
 
-process.chdir(process.cwd());
 queueOpenFiles(tempestFilesFromArgs(process.argv.slice(1), process.cwd()));
 
 // One-time localStorage migration: the Tauri build periodically dumped
@@ -124,8 +122,18 @@ function createWindow() {
 	});
 
 	mainWindow.webContents.on("will-navigate", (event, url) => {
-		const allowed = app.isPackaged ? ["app://"] : ["http://localhost:1420"];
-		if (!allowed.some((p) => url.startsWith(p))) event.preventDefault();
+		try {
+			const u = new URL(url);
+			// Packaged: only the app:// protocol electron-serve serves. Dev: exact
+			// origin match (a prefix check would also let
+			// http://localhost:1420.evil.com through).
+			const sameOrigin = app.isPackaged
+				? u.protocol === "app:"
+				: `${u.protocol}//${u.host}` === "http://localhost:1420";
+			if (!sameOrigin) event.preventDefault();
+		} catch {
+			event.preventDefault();
+		}
 	});
 
 	// Never hand webview window requests (Ctrl/Cmd/Shift+click, middle-click,
@@ -139,15 +147,20 @@ function createWindow() {
 		void loadURL(mainWindow);
 	}
 
+	mainWindow.on("closed", () => {
+		mainWindow = null;
+	});
+
 	mainWindow.on("close", async (e) => {
+		const win = e.sender;
 		e.preventDefault();
 		try {
-			const shouldClose = await mainWindow.webContents.executeJavaScript(
+			const shouldClose = await win.webContents.executeJavaScript(
 				"window.__closeHook?.() ?? true",
 			);
-			if (shouldClose) mainWindow.destroy();
+			if (shouldClose) win.destroy();
 		} catch {
-			mainWindow.destroy();
+			win.destroy();
 		}
 	});
 }

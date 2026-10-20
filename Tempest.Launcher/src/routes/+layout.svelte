@@ -13,6 +13,7 @@
 	import { appConfigDir, join, writeFile } from "$lib/platform/api";
 	import { setQueryClient } from "$lib/queries/client";
 	import { instanceMap } from "$lib/stores/instance.svelte";
+	import { snapshotPaused } from "$lib/stores/snapshot.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import type { Instance } from "$lib/types/instance";
 
@@ -26,6 +27,7 @@
 	$effect(() => {
 		let lastSnapshot = "";
 		const snapshot = async () => {
+			if (snapshotPaused.value) return;
 			try {
 				const dump: Record<string, string> = {};
 				for (let i = 0; i < localStorage.length; i++) {
@@ -65,8 +67,9 @@
 			!coreUpdateChecked &&
 			instances.length === 0 &&
 			Object.keys(instanceMap.value).length === 0
-		)
+		) {
 			return;
+		}
 		coreUpdateChecked = true;
 		void checkForCoreUpdatesAndInstall(instances);
 	});

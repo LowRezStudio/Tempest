@@ -6,7 +6,11 @@ import type { Instance } from "$lib/types/instance";
 
 export type DeleteMode = "library" | "library_mods" | "delete";
 
-/** @deprecated use DeleteMode */
+/**
+ * @deprecated use DeleteMode
+ * @param instance Instance to delete.
+ * @param deleteDataOrMode Legacy boolean or the delete mode.
+ */
 export async function deleteInstance(
 	instance: Instance,
 	deleteDataOrMode: boolean | DeleteMode,
@@ -21,7 +25,8 @@ export async function deleteInstance(
 	const isActive = instance.state.type === "downloading" || instance.state.type === "paused";
 
 	if (isActive && instance.path) {
-		restoreQueue.cancel(instance.path);
+		// Await so the restore process is actually killed before we delete files.
+		await restoreQueue.cancel(instance.path);
 	}
 
 	if (mode === "library_mods" && instance.path) {

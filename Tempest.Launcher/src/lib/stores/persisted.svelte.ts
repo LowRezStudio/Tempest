@@ -15,10 +15,12 @@ if (typeof window !== "undefined") {
 			for (const [key, value] of Object.entries(entries)) {
 				if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
 			}
+			// Flag only after the loop completed: on failure (quota, partial write)
+			// the next start retries the import. Never overwrite existing keys.
+			localStorage.setItem("migratedFromTauri", "1");
 		} catch (error) {
 			console.warn("[migration] settings.json import skipped:", error);
 		}
-		localStorage.setItem("migratedFromTauri", "1");
 	}
 }
 

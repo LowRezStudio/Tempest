@@ -26,9 +26,9 @@ async function downloadRemoteMod(url: string, filename: string): Promise<string>
 		await mkdir(tmp, { recursive: true }).catch(() => {});
 		await writeFile(dest, buf);
 		return dest;
-	} catch (e) {
-		console.error(`Failed to download ${url}:`, e);
-		throw e;
+	} catch (error) {
+		console.error(`Failed to download ${url}:`, error);
+		throw error;
 	}
 }
 
@@ -105,8 +105,8 @@ export const installAutoMods = async (instance: Instance): Promise<void> => {
 			try {
 				const fallback = await resolveResource("mods/Tempest Core.tempest");
 				await installMod(gamePath, fallback, true);
-			} catch (e) {
-				console.error("Failed to install fallback Tempest Core:", e);
+			} catch (error) {
+				console.error("Failed to install fallback Tempest Core:", error);
 			}
 		}
 	} else {
@@ -162,8 +162,8 @@ export const checkForCoreUpdatesAndInstall = async (instances: Instance[]): Prom
 					"mods",
 				);
 				await installMod(inst.path, modFile, true);
-			} catch (e) {
-				console.error(`Failed to update ${inst.label}:`, e);
+			} catch (error) {
+				console.error(`Failed to update ${inst.label}:`, error);
 			}
 		}
 		localStorage.setItem(CORE_VERSION_KEY, tag);
@@ -176,8 +176,8 @@ export const checkForCoreUpdatesAndInstall = async (instances: Instance[]): Prom
 		for (const inst of coreInstances) {
 			void getQueryClient()?.invalidateQueries({ queryKey: ["mods", inst.path] });
 		}
-	} catch (e) {
-		console.error("Core update check failed:", e);
+	} catch (error) {
+		console.error("Core update check failed:", error);
 	}
 };
 

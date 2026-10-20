@@ -18,6 +18,7 @@
 		theme,
 		username,
 	} from "$lib/stores/settings.svelte";
+	import { snapshotPaused } from "$lib/stores/snapshot.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import WineSettings from "$lib/wine/WineSettings.svelte";
 
@@ -38,6 +39,10 @@
 	}
 
 	function resetAll() {
+		// Pause the layout's snapshot interval first: a tick firing between the
+		// remove() and the clear() below would re-dump localStorage into
+		// settings.json, and the startup migration would import everything back.
+		snapshotPaused.value = true;
 		// Also drop the settings.json snapshot, otherwise the startup migration
 		// imports everything right back after the reload.
 		void (async () => {

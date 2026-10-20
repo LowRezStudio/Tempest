@@ -17,7 +17,10 @@ const log = (line: string, error = false): void => appendProcessLog(line, error,
 const logCommand = (args: ArgumentType[]): void =>
 	log(`Running command: ${processArgs(args).join(" ")}`);
 
-/** Ensures non-8.1 instances launch into the shooting range, like a user-added arg. */
+/**
+ * Ensures non-8.1 instances launch into the shooting range, like a user-added arg.
+ * @param instance Instance to update in place.
+ */
 const ensureShootingRangeArg = (instance: Instance): void => {
 	if (instance.version === "8.1") return;
 	const args = instance.launchOptions?.args ?? [];

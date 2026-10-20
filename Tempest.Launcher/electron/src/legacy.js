@@ -45,22 +45,24 @@ function findLegacyInstalls() {
 // doesn't auto-elevate), retry through PowerShell's RunAs so UAC shows up.
 function uninstallOne(guid) {
 	return new Promise((resolve) => {
-		spawn("msiexec.exe", ["/x", guid, "/qn", "/norestart"], { windowsHide: true }).on(
-			"exit",
-			(code) => {
+		spawn("msiexec.exe", ["/x", guid, "/qn", "/norestart"], { windowsHide: true })
+			.on("error", () => resolve(1603))
+			.on("exit", (code) => {
 				if (code === 0 || code === 3010 || code === 1602) return resolve(code ?? 1603);
 				execFile(
 					"powershell.exe",
 					[
 						"-NoProfile",
 						"-Command",
-						`Start-Process msiexec.exe -ArgumentList '/x','${guid}','/qn','/norestart' -Verb RunAs -Wait -WindowStyle Hidden`,
+						// -ErrorAction Stop + explicit exit codes: powershell.exe would
+						// otherwise exit 0 even when Start-Process throws (e.g. the user
+						// cancelled the UAC prompt), which would report failure as success.
+						`& { try { Start-Process msiexec.exe -ArgumentList '/x','${guid}','/qn','/norestart' -Verb RunAs -Wait -WindowStyle Hidden -ErrorAction Stop } catch { if ($_.Exception.Message -match 'cancel') { exit 1602 } else { exit 1603 } } }`,
 					],
 					{ windowsHide: true, timeout: 5 * 60_000 },
-					(err) => resolve(err?.code ?? 1603),
+					(err) => resolve(err ? (typeof err.code === "number" ? err.code : 1603) : 0),
 				);
-			},
-		);
+			});
 	});
 }
 

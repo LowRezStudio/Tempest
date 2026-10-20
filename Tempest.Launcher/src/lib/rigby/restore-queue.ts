@@ -33,6 +33,7 @@ export class RestoreQueue {
 	private processing = false;
 	private pausing = false;
 	private runningChild: Child | null = null;
+	private pendingSpawn: Promise<Child | null> | null = null;
 	private runningOutDir: string | null = null;
 	private runningItemId: string | null = null;
 
@@ -100,9 +101,8 @@ export class RestoreQueue {
 	async pause(): Promise<void> {
 		queueRunning.value = false;
 
-		if (this.runningChild && this.runningItemId) {
+		if (this.runningItemId) {
 			this.pausing = true;
-			const child = this.runningChild;
 			const itemId = this.runningItemId;
 			const item = queueItems.value.find((i) => i.id === itemId);
 
@@ -112,11 +112,16 @@ export class RestoreQueue {
 			}
 
 			try {
-				await child.kill();
+				// runningChild is only assigned once the async spawn resolves; in
+				// that window, wait for it so the pause actually kills the process
+				// instead of leaving it downloading to completion.
+				const child = this.runningChild ?? (await this.pendingSpawn);
+				if (child) await child.kill();
 			} catch (error) {
 				console.error("Failed to kill restore process:", error);
 			} finally {
 				this.runningChild = null;
+				this.pendingSpawn = null;
 				this.runningOutDir = null;
 				this.runningItemId = null;
 				this.pausing = false;
@@ -124,10 +129,18 @@ export class RestoreQueue {
 		}
 	}
 
-	cancel(outDir: string): void {
-		if (this.runningOutDir === outDir && this.runningChild) {
-			void this.runningChild.kill();
+	async cancel(outDir: string): Promise<void> {
+		if (this.runningOutDir === outDir && this.runningItemId) {
+			try {
+				// Same spawn-window consideration as pause(): kill the child even
+				// if it only finishes spawning after cancel was requested.
+				const child = this.runningChild ?? (await this.pendingSpawn);
+				if (child) await child.kill();
+			} catch (error) {
+				console.error("Failed to kill restore process:", error);
+			}
 			this.runningChild = null;
+			this.pendingSpawn = null;
 			this.runningOutDir = null;
 			this.runningItemId = null;
 		}
@@ -380,10 +393,11 @@ export class RestoreQueue {
 				}
 			});
 
-			void command
+			this.pendingSpawn = command
 				.spawn()
 				.then((child) => {
 					this.runningChild = child;
+					return child;
 				})
 				.catch((error) => {
 					console.error("Restore exception:", error);
@@ -393,6 +407,10 @@ export class RestoreQueue {
 					});
 					this.updateInstanceState(item.outDir, "prepared");
 					finish();
+					return null;
+				})
+				.finally(() => {
+					this.pendingSpawn = null;
 				});
 		});
 	}

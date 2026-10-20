@@ -195,28 +195,26 @@
 								const v =
 									flatVersions.find((v) => v.id === info.Id) ??
 									flatVersions.find((v) => v.version === info.VersionGroup);
-								if (v) {
-									bulkDetections[i] = {
-										path: p,
-										label: `${v.version} - ${v.name}`,
-										error: "",
-										loading: false,
-										mods: [],
-										modsLoading: true,
-									};
-								} else {
-									bulkDetections[i] = {
-										path: p,
-										label: "",
-										error: m.wizard_build_not_in_database({
-											patchName: info.PatchName,
-											versionGroup: info.VersionGroup,
-										}),
-										loading: false,
-										mods: [],
-										modsLoading: true,
-									};
-								}
+								bulkDetections[i] = v
+									? {
+											path: p,
+											label: `${v.version} - ${v.name}`,
+											error: "",
+											loading: false,
+											mods: [],
+											modsLoading: true,
+										}
+									: {
+											path: p,
+											label: "",
+											error: m.wizard_build_not_in_database({
+												patchName: info.PatchName,
+												versionGroup: info.VersionGroup,
+											}),
+											loading: false,
+											mods: [],
+											modsLoading: true,
+										};
 							} else {
 								bulkDetections[i] = {
 									path: p,

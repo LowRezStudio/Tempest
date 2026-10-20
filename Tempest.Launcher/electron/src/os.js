@@ -21,9 +21,10 @@ export function injectOs(window) {
 	const version = os.release();
 
 	const payload = JSON.stringify({ platform, arch, type, version });
+	// Overwrite the provisional value the preload script exposed (it lacks the
+	// OS version, which a sandboxed preload cannot read). Plain assignment: the
+	// preload property is writable, unlike the old non-configurable definition.
 	void window.webContents
-		.executeJavaScript(
-			`Object.defineProperty(window,'__os',{value:Object.freeze(${payload}),writable:!1,configurable:!1});void 0`,
-		)
+		.executeJavaScript(`window.__os = Object.freeze(${payload});void 0`)
 		.catch(() => {});
 }
