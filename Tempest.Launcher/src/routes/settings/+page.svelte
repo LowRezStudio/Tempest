@@ -7,6 +7,7 @@
 	import { locales } from "$lib/paraglide/runtime";
 	import { invoke, open, platform } from "$lib/platform/api";
 	import { createAboutInfoQuery } from "$lib/queries/about";
+	import CliInstall from "$lib/settings/CliInstall.svelte";
 	import KeybindsTab from "$lib/settings/KeybindsTab.svelte";
 	import { localeLabels, localeState } from "$lib/stores/locale.svelte";
 	import {
@@ -230,6 +231,10 @@
 					<FeatureFlagsTab />
 				{:else if activeTab === "advanced"}
 					<div class="flex flex-col">
+						<CliInstall />
+
+						<div class="divider"></div>
+
 						<div class="flex flex-col gap-4">
 							<h2 class="text-xl font-semibold">{m.settings_onboarding_title()}</h2>
 							<p class="text-sm">

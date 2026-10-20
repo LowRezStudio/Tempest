@@ -86,6 +86,17 @@ export type ModLocation = { kind: "V2"; modId: string } | { kind: "V1"; targetPa
 /** A file the V1→V2 converter imports, read host-side in one round trip. */
 export type ConverterImport = { path: string; name: string; data: ArrayBuffer };
 
+/** Result of installing the `tempest` CLI shim into a PATH directory. */
+export type CliInstallResult = {
+	/** Whether the shim exists at `path` after the call. */
+	installed: boolean;
+	path: string | null;
+	/** Whether the shim's directory is on the PATH we can see. */
+	onPath: boolean;
+	/** Why nothing was installed: "cli-not-bundled" (dev run) or an error message. */
+	error?: string;
+};
+
 /** OS info injected by preload/host (see `window.__os`). */
 export type OsInfo = {
 	platform: "windows" | "macos" | "linux";
@@ -186,6 +197,10 @@ export interface IpcContract {
 	// ---- Converter (V1 -> V2) ----
 	"converter:pick-imports": { args: void; result: ConverterImport[] };
 	"converter:read-imports": { args: { paths: string[] }; result: ConverterImport[] };
+
+	// ---- CLI shim (`tempest <command>` in a terminal) ----
+	"cli:install": { args: void; result: CliInstallResult };
+	"cli:status": { args: void; result: CliInstallResult };
 }
 
 /** Channels the host pushes to the renderer. */

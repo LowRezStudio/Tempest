@@ -10,6 +10,7 @@ import { app, BrowserWindow, session } from "electron";
 import serve from "electron-serve";
 import { getMainWindow, setMainWindow, showMainWindow } from "./app-state.js";
 import { queueOpenFiles } from "./app.js";
+import { ensureCli } from "./cli.js";
 import "./converter.js";
 import "./dialog.js";
 import { handle } from "./ipc/handle.js";
@@ -194,6 +195,8 @@ app.whenReady()
 			callback({ responseHeaders });
 		});
 		createWindow();
+		// Make the CLI usable as `tempest <command>` from a terminal.
+		ensureCli();
 	})
 	.catch(console.error);
 

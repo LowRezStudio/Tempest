@@ -384,7 +384,10 @@ class ElectronUpdate {
 		return this._currentVersion;
 	}
 
-	/** Markdown body of the pending GitHub release, when the host could fetch it. */
+	/**
+	 * Markdown body of the pending GitHub release, when the host could fetch it.
+	 * @returns The release notes markdown, or null when unavailable.
+	 */
 	get notes(): string | null {
 		return this._notes;
 	}
