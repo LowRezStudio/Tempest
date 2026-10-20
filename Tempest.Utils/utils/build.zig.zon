@@ -33,8 +33,7 @@
     // internet connectivity.
     .dependencies = .{
         .minilzo = .{
-            .url = "../minilzo",
-            .hash = "minilzo-1.0.0-e-UpLG8BBgDY4bje-4EoLsFZNhmn7sD5oCx2r3hIPijX",
+            .path = "../minilzo",
         },
     },
     .paths = .{
