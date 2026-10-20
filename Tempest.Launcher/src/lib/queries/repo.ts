@@ -100,6 +100,34 @@ export function checkRepoUpdates(
 	});
 }
 
+export type RepoBugReport = { threadUrl: string | null };
+
+// Anonymous "get help" report on a mod: the server opens (or appends to) a Discord
+// help thread. Error responses carry the server's `{error, message}`; its message is
+// what the user sees (e.g. the one-per-mod-per-day limit).
+export async function reportRepoBug(
+	id: string,
+	input: { body: string; version?: string; gameVersion?: string },
+): Promise<RepoBugReport> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 15_000);
+	try {
+		const res = await fetch(`${repoBase()}/api/v1/mods/${encodeURIComponent(id)}/bugs`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ ...input, source: "launcher" }),
+			signal: controller.signal,
+		});
+		if (!res.ok) {
+			const body = (await res.json().catch(() => null)) as { message?: string } | null;
+			throw new Error(body?.message ?? `HTTP ${res.status}`);
+		}
+		return (await res.json()) as RepoBugReport;
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
 // The URL the launcher downloads from: counted by the repository, redirects to the CDN.
 export function repoDownloadUrl(modId: string, version: string): string {
 	return `${repoBase()}/api/v1/mods/${encodeURIComponent(modId)}/versions/${encodeURIComponent(version)}/download`;

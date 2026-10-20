@@ -805,5 +805,22 @@
 	"repo_updates_description": "New versions of installed mods are published on the mod repository. Update now or later from the Mods tab.",
 	"repo_updates_later": "Later",
 	"repo_update_all": "Update all",
-	"repo_update_badge": "Update available"
+	"repo_update_badge": "Update available",
+	"repo_bug_get_help": "Get help",
+	"repo_bug_title": "Get help with this mod",
+	"repo_bug_version": "Which version?",
+	"repo_bug_version_any": "Any version",
+	"repo_bug_game_patch": "Game patch",
+	"repo_bug_game_patch_placeholder": "e.g. 0.57",
+	"repo_bug_optional": "Optional",
+	"repo_bug_body_label": "What happened?",
+	"repo_bug_body_minimum": "{min} characters minimum",
+	"repo_bug_body_placeholder": "What went wrong, what you did before it, anything the author needs to reproduce it",
+	"repo_bug_anonymous": "Anonymous. The report opens a thread on our Discord.",
+	"repo_bug_send": "Send report",
+	"repo_bug_failed": "The report could not be sent. The mod repository may be unreachable.",
+	"repo_bug_sent_title": "Sent to the help forum",
+	"repo_bug_sent_description": "A thread is open in our Discord with your report already in it — reply there to keep talking to the author.",
+	"repo_bug_open_thread": "Open the thread",
+	"repo_bug_done": "Done"
 }

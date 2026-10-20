@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { BadgeCheck, Download, ExternalLink, ShieldAlert } from "@lucide/svelte";
+	import { BadgeCheck, Download, ExternalLink, LifeBuoy, ShieldAlert } from "@lucide/svelte";
 	import { createQuery } from "@tanstack/svelte-query";
 	import { marked } from "marked";
 	import Modal from "$lib/components/ui/Modal.svelte";
@@ -8,6 +8,7 @@
 	import { openUrl } from "$lib/platform/api";
 	import { getRepoMod, getRepoVersions } from "$lib/queries/repo";
 	import { compareVersions } from "$lib/utils/version";
+	import BugReportModal from "./BugReportModal.svelte";
 	import type { RepoCompat, RepoVersion } from "$lib/queries/repo";
 
 	interface Props {
@@ -43,6 +44,7 @@
 
 	let installing = $state<string | null>(null);
 	let tab = $state<"readme" | "versions">("readme");
+	let bugOpen = $state(false);
 
 	const readmeHtml = $derived(
 		modQuery.data?.readme
@@ -121,7 +123,11 @@
 				<span class="badge badge-ghost badge-sm">{mod.kind}</span>
 				{#each mod.tags as tag (tag)}<span class="badge badge-outline badge-sm">{tag}</span
 					>{/each}
-				<button class="btn btn-ghost btn-xs ml-auto" onclick={() => openUrl(mod.url)}>
+				<button class="btn btn-ghost btn-xs ml-auto" onclick={() => (bugOpen = true)}>
+					<LifeBuoy size={12} />
+					{m.repo_bug_get_help()}
+				</button>
+				<button class="btn btn-ghost btn-xs" onclick={() => openUrl(mod.url)}>
 					<ExternalLink size={12} />
 					{m.repo_open_in_browser()}
 				</button>
@@ -203,3 +209,11 @@
 		</div>
 	{/if}
 </Modal>
+
+<BugReportModal
+	bind:open={bugOpen}
+	{modId}
+	versions={versions.map((v) => v.version)}
+	defaultVersion={installedVersion ?? ""}
+	defaultGameVersion={patch ?? ""}
+/>
