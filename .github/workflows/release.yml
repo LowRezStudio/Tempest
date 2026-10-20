@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   # One draft release per tag, created before any platform builds so that
@@ -99,18 +100,68 @@ jobs:
           sudo apt update
           sudo apt-get install -y rpm fakeroot
 
-      - name: Restore CLI sidecar binaries
-        id: cli-cache
-        uses: actions/cache/restore@v4
+      - name: Compute CLI inputs hash
+        id: cli-hash
+        shell: bash
+        # The AOT publish takes 4-7 minutes. Releases that don't touch these
+        # inputs reuse the binaries built by a previous run (see below).
+        # Includes the embedded key lists, protocol contract, zig utils and
+        # the build script itself.
+        run: |
+          hash="${{ hashFiles('Tempest.CLI/**', 'MarshalLib/**', 'MarshalLib.Database/**', 'Tempest.Utils/**', 'Tempest.Protocol/**', 'Tempest.Launcher/scripts/build-cli.js', 'keys/*.keys') }}"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "$hash" > cli-inputs.sha256
+
+      - name: Restore CLI sidecar from a previous run
+        id: cli-artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        # Actions caches are ref-scoped: a tag run cannot restore caches saved
+        # by another tag (or by master), so they never hit across releases.
+        # Artifacts have no such scoping, so the CLI sidecar rides in an
+        # artifact of the previous successful run, tagged with its inputs hash.
+        run: |
+          want="${{ steps.cli-hash.outputs.hash }}"
+          # Walk the newest successful runs of this workflow, newest first.
+          for run_id in $(gh api "repos/${{ github.repository }}/actions/workflows/release.yml/runs?status=success&per_page=20" --jq '.workflow_runs[].id'); do
+            artifact_id=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts" --jq ".artifacts[] | select(.name == \"cli-${{ matrix.platform }}\") | .id" | head -n1)
+            [ -z "$artifact_id" ] && continue
+            gh api "repos/${{ github.repository }}/actions/artifacts/$artifact_id/zip" > cli-artifact.zip
+            # bsdtar on Windows handles zip; unzip elsewhere.
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              tar -xf cli-artifact.zip
+            else
+              unzip -o -q cli-artifact.zip
+            fi
+            rm cli-artifact.zip
+            if [ "$(cat cli-inputs.sha256)" = "$want" ]; then
+              echo "hit=true" >> "$GITHUB_OUTPUT"
+              echo "Reused CLI binaries from run $run_id (hash $want)"
+              exit 0
+            fi
+            echo "Run $run_id's CLI binaries are stale (built for different inputs); continuing search"
+          done
+          echo "hit=false" >> "$GITHUB_OUTPUT"
+
+      - name: Install frontend dependencies
+        working-directory: Tempest.Launcher
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLI sidecar
+        if: steps.cli-artifact.outputs.hit != 'true'
+        working-directory: Tempest.Launcher
+        run: node scripts/build-cli.js
+
+      - name: Upload CLI sidecar artifact
+        if: steps.cli-artifact.outputs.hit != 'true'
+        uses: actions/upload-artifact@v4
         with:
-          path: Tempest.Launcher/electron/resources/binaries
-          # The AOT publish takes 4-7 minutes; releases that don't touch the
-          # CLI's sources (launcher-only bumps) reuse the previous binaries.
-          # Includes the embedded key lists, protocol contract, zig utils and
-          # the build script itself.
-          # Tag runs get read-only access to the default branch's cache scope,
-          # so the caches are kept warm by warm-cache.yml on pushes to master.
-          key: cli-${{ runner.os }}-${{ hashFiles('Tempest.CLI/**', 'MarshalLib/**', 'MarshalLib.Database/**', 'Tempest.Utils/**', 'Tempest.Protocol/**', 'Tempest.Launcher/scripts/build-cli.js', 'keys/*.keys') }}
+          name: cli-${{ matrix.platform }}
+          path: |
+            Tempest.Launcher/electron/resources/binaries/**
+            cli-inputs.sha256
+          retention-days: 30
 
       - name: Restore Electron / electron-builder downloads
         uses: actions/cache/restore@v4
@@ -119,15 +170,6 @@ jobs:
             .electron-cache
             .electron-builder-cache
           key: electron-tooling-${{ runner.os }}-${{ hashFiles('Tempest.Launcher/pnpm-lock.yaml') }}
-
-      - name: Install frontend dependencies
-        working-directory: Tempest.Launcher
-        run: pnpm install --frozen-lockfile
-
-      - name: Build CLI sidecar
-        if: steps.cli-cache.outputs.cache-hit != 'true'
-        working-directory: Tempest.Launcher
-        run: node scripts/build-cli.js
 
       - name: Build frontend
         working-directory: Tempest.Launcher
