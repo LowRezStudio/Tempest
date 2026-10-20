@@ -7,8 +7,10 @@
 //! 3. The V2 layout: `<game>/.tempest/v2/mods/*/scripts/` (found next to
 //!    this DLL, or from the game folder). Mods marked disabled in the CLI's
 //!    `<game>/.tempest/mods/mods.json` are skipped (the DLL's own mod is
-//!    always loaded). `installed()` lists every record of that registry,
-//!    Lua or not.
+//!    always loaded), and so are mods failing integrity: the CLI verifies a
+//!    mod's signed CHECKSUMS against its files at launch, and this runtime
+//!    re-hashes the scripts it is about to run. `installed()` lists every
+//!    record of that registry, Lua or not.
 //! 4. Dev mods: every folder of `<game>/mods/` (`[dev] mods` in the runtime
 //!    settings) with a `scripts/` directory or `.lua` files, manifest
 //!    optional. They are hot-reloaded on save and a dev mod with the id of
@@ -21,11 +23,13 @@
 //! the real `require` (`ffi`, `bit`, `jit`, ...). Scripts run alphabetically,
 //! mods alphabetically by id.
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use mlua::{Lua, Table, Value};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
 pub struct Mod {
@@ -175,6 +179,14 @@ struct ModRecord {
     Kind: String,
     #[serde(alias = "installedFiles", default)]
     InstalledFiles: Vec<String>,
+    #[serde(alias = "signer", default)]
+    Signer: String,
+    /// The CLI re-verified this mod's files against its signed CHECKSUMS for this launch.
+    #[serde(alias = "verified", default)]
+    Verified: bool,
+    /// SHA-256 of the mod folder's CHECKSUMS content at verification time; pins it here.
+    #[serde(alias = "manifestHash", default)]
+    ManifestHash: String,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -240,16 +252,138 @@ fn read_records() -> Option<Vec<ModRecord>> {
     }
 }
 
-/// Ids (lowercase) of enabled V2 mods, or `None` when the registry is
-/// absent or unreadable (then every mod folder counts).
-fn enabled_ids() -> Option<HashSet<String>> {
-    Some(
-        read_records()?
-            .into_iter()
-            .filter(|r| r.Enabled && r.Kind.eq_ignore_ascii_case("v2"))
-            .map(|r| r.Id.to_ascii_lowercase())
-            .collect(),
-    )
+/// Registry records by lowercase id, plus the enabled-id set. When the registry
+/// is absent or unreadable the enabled set is `None` and every mod folder counts
+/// (previous behavior); a present CHECKSUMS is still enforced down there.
+fn registry() -> (Option<HashSet<String>>, HashMap<String, ModRecord>) {
+    match read_records() {
+        None => (None, HashMap::new()),
+        Some(records) => {
+            let mut enabled = HashSet::new();
+            let mut by_id = HashMap::new();
+            for r in records {
+                let lower = r.Id.to_ascii_lowercase();
+                if r.Enabled && r.Kind.eq_ignore_ascii_case("v2") {
+                    enabled.insert(lower.clone());
+                }
+                by_id.insert(lower, r);
+            }
+            (Some(enabled), by_id)
+        }
+    }
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    let digest = Sha256::digest(data);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0xf) as usize] as char);
+    }
+    out
+}
+
+/// `<hash> <path>` lines of a package CHECKSUMS; paths keep `/` separators.
+fn parse_checksums(text: &str) -> HashMap<String, String> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let (hash, path) = line.split_once(' ')?;
+            let path = path.trim();
+            let path = path.strip_prefix('*').unwrap_or(path).trim();
+            if hash.len() != 64 || path.is_empty() {
+                return None;
+            }
+            Some((path.to_string(), hash.to_ascii_lowercase()))
+        })
+        .collect()
+}
+
+/// Hashes the file at `path`; `None` when it cannot be read.
+fn hash_file(path: &Path) -> Option<String> {
+    let data = std::fs::read(path).ok()?;
+    Some(sha256_hex(&data))
+}
+
+/// `.lua` files under `dir`, recursively, `/`-separated relative to `root`.
+/// Same skip rule as script loading: `*.d.lua` editor stubs are never scripts.
+fn lua_files(root: &Path, dir: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&current) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                if !name.ends_with(".lua") || name.ends_with(".d.lua") {
+                    continue;
+                }
+                if let Ok(rel) = path.strip_prefix(root) {
+                    if let Some(rel) = rel.to_str() {
+                        out.push(rel.to_string());
+                    }
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Shipped scripts must still match the package's CHECKSUMS, and mods the CLI
+/// verifies at launch (a `signer` in the registry) must have passed that check.
+/// An installed mod without CHECKSUMS can only ever be scriptless; one that
+/// gained scripts since is tampering, not a dev folder (`<game>/mods`).
+/// Returns the reason when the mod's scripts must not be loaded.
+fn verify_installed_scripts(root: &Path, record: Option<&ModRecord>) -> Result<(), String> {
+    if let Some(record) = record {
+        if !record.Signer.is_empty() && !record.Verified {
+            return Err(
+                "the launcher did not verify this mod's files for this launch (it failed verification or was re-enabled); install the mod again if you meant to change it"
+                    .to_string(),
+            );
+        }
+    }
+
+    let checksums = match std::fs::read_to_string(root.join("CHECKSUMS")) {
+        Ok(checksums) => checksums,
+        Err(_) => {
+            return match record.map(|r| r.Signer.is_empty()).unwrap_or(true) {
+                // No registry data, or an unsigned install: a script here is an added file.
+                true => {
+                    if lua_files(root, &root.join("scripts")).is_empty() {
+                        Ok(())
+                    } else {
+                        Err("there is no CHECKSUMS, yet the mod contains scripts; the mod was modified after install".to_string())
+                    }
+                }
+                false => Err("CHECKSUMS is missing from the mod folder; the mod was modified after install".to_string()),
+            };
+        }
+    };
+
+    if let Some(record) = record {
+        if !record.ManifestHash.is_empty() && sha256_hex(checksums.as_bytes()) != record.ManifestHash {
+            return Err("CHECKSUMS was regenerated after install; the mod was modified after install".to_string());
+        }
+    }
+
+    let mut map = parse_checksums(&checksums);
+    for relative in lua_files(root, &root.join("scripts")) {
+        match map.remove(&relative) {
+            None => return Err(format!("{relative} was added after install; the mod was modified after install")),
+            Some(expected) => match hash_file(&root.join(&relative)) {
+                Some(actual) if actual == expected => {}
+                Some(_) => return Err(format!("{relative} was modified after install")),
+                None => return Err(format!("{relative} cannot be read: the mod was modified after install")),
+            },
+        }
+    }
+    Ok(())
 }
 
 /// Every mod the launcher installed, Lua or not, plus the dev folder.
@@ -344,11 +478,11 @@ pub fn mods() -> Vec<Mod> {
         }
     }
     // Installed V2 mods: <game>/.tempest/v2/mods/*/scripts, enabled ones only
-    // (this DLL's own mod always counts).
+    // (this DLL's own mod always counts) and only when they pass integrity.
     if let Some(mods_root) = tempest_dir().map(|t| t.join("v2").join("mods")) {
         let own = mod_dir()
             .and_then(|m| m.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()));
-        let enabled = enabled_ids();
+        let (enabled, by_id) = registry();
         if let Ok(entries) = std::fs::read_dir(&mods_root) {
             for entry in entries.flatten() {
                 let dir = entry.path();
@@ -360,6 +494,10 @@ pub fn mods() -> Vec<Mod> {
                 let lower = id.to_ascii_lowercase();
                 let is_own = own.as_deref() == Some(lower.as_str());
                 if !is_own && enabled.as_ref().is_some_and(|set| !set.contains(&lower)) {
+                    continue;
+                }
+                if let Err(problem) = verify_installed_scripts(&dir, by_id.get(&lower)) {
+                    crate::log::line("loader", &format!("[{id}] not loading scripts: {problem}"));
                     continue;
                 }
                 let (_, after) = manifest(&dir);

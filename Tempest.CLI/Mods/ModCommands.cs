@@ -534,6 +534,9 @@ internal class ModCommands
             var installer = CreateInstaller(mod);
             await installer.EnableAsync(path, mod);
             mod.Enabled = true;
+            // Files were just re-applied from an unverified snapshot; the next launch
+            // re-checks them against the mod's signed CHECKSUMS first.
+            mod.Verified = false;
             SaveMetadata(path, mods);
 
             var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' enabled successfully." };

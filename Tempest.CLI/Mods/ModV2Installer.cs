@@ -432,7 +432,9 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
                 OwnedFiles = ownedFiles,
                 MetadataVersion = 2,
                 Readme = manifest.Readme,
-                Signer = verification.Key == null ? "" : ModSigning.Fingerprint(verification.Key)
+                Signer = verification.Key == null ? "" : ModSigning.Fingerprint(verification.Key),
+                Verified = true,
+                ManifestHash = checksumsEntry == null ? "" : Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(await ReadEntryAsync(checksumsEntry))))
             };
 
             return new ModInstallResult

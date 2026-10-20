@@ -58,8 +58,10 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
     {
         if (isServer) gamescope = false;
 
-        // Before the game reads any mod file: mods signed with a since-revoked key are switched off.
+        // Before the game reads any mod file: mods signed with a since-revoked key are switched off,
+        // and mods whose files were changed after install are re-verified against their signed CHECKSUMS.
         await ModCommands.DisableRevokedModsAsync(path);
+        await ModIntegrity.VerifyAtLaunchAsync(path);
 
         var exePath = LauncherUtility.GetExecutablePath(path, platform, game);
         var defaultArgs = !noDefaultArgs;
@@ -168,7 +170,7 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
                 var mods = ModCommands.LoadMetadata(path);
                 foreach (var mod in mods)
                 {
-                    if (mod.Enabled && string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
+                    if (mod.Enabled && mod.Verified && string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
                     {
                         // dlls/64 and dlls/32 are per client; dlls/ itself is the legacy layout.
                         var dllsDir = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id), "dlls");

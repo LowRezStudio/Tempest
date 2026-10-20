@@ -17,6 +17,10 @@ public class ModRecord
     public string ReadmeContent { get; set; } = string.Empty;
     /// <summary>Fingerprint of the key that signed the package (trusted, or untrusted and accepted); empty when unsigned.</summary>
     public string Signer { get; set; } = string.Empty;
+    /// <summary>The mod's files matched its signed CHECKSUMS at the last launch (also set at install time).</summary>
+    public bool Verified { get; set; }
+    /// <summary>SHA-256 of the mod folder's CHECKSUMS content when it was last verified; pins it against being swapped out.</summary>
+    public string ManifestHash { get; set; } = string.Empty;
 }
 
 public class ModConflictInfo

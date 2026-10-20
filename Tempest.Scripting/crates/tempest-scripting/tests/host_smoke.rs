@@ -1,6 +1,8 @@
 //! The whole Lua surface must load and behave on a host with no game image:
 //! every native lookup reports "unresolved" instead of panicking.
 
+use std::collections::HashMap;
+
 use tempest_scripting::unreal;
 
 #[test]
@@ -48,12 +50,19 @@ fn fake_game_dir() -> std::path::PathBuf {
     std::fs::write(dir.join("ChaosGame/Config/tempest.toml"), "[dev]\nhot_reload = false\n[ui]\nscale = 1.5\n").unwrap();
     // The launcher's registry: a Lua V2 mod, a disabled Lua V2 mod, a DLL+content V2 mod, a V1 asset mod.
     std::fs::create_dir_all(dir.join(".tempest/mods")).unwrap();
+    let mut manifest_hashes: HashMap<&str, String> = HashMap::new();
     for (id, scripts, dll, files) in [("lua-mod", true, false, false), ("off-mod", true, false, false), ("skinpack", false, true, true)] {
         let m = dir.join(".tempest/v2/mods").join(id);
         std::fs::create_dir_all(&m).unwrap();
         if scripts {
+            let body = format!("shared.ran_{} = true\n", id.replace('-', "_"));
             std::fs::create_dir_all(m.join("scripts")).unwrap();
-            std::fs::write(m.join("scripts/main.lua"), format!("shared.ran_{} = true\n", id.replace('-', "_"))).unwrap();
+            std::fs::write(m.join("scripts/main.lua"), &body).unwrap();
+            // Signed installs measured this file into CHECKSUMS at install time
+            // (the signature proves CHECKSUMS, the CLI re-checks files at launch).
+            let checksums = format!("{} scripts/main.lua\n", sha256_hex(body.as_bytes()));
+            std::fs::write(m.join("CHECKSUMS"), &checksums).unwrap();
+            manifest_hashes.insert(id, sha256_hex(checksums.as_bytes()));
         }
         if dll {
             std::fs::create_dir_all(m.join("dlls")).unwrap();
@@ -64,13 +73,25 @@ fn fake_game_dir() -> std::path::PathBuf {
             std::fs::write(m.join("files/ChaosGame/CookedPCConsole/Skin.upk"), "x").unwrap();
         }
     }
-    std::fs::write(dir.join(".tempest/mods/mods.json"), r#"[
-      {"Id":"lua-mod","Name":"Lua Mod","Version":"1.2.0","Authors":[{"Name":"Tom"}],"Enabled":true,"Kind":"V2","InstalledFiles":[]},
-      {"Id":"off-mod","Name":"Off","Version":"0.1","Enabled":false,"Kind":"V2","InstalledFiles":[]},
-      {"Id":"skinpack","Name":"Skins","Version":"2.0","Author":"Someone","Enabled":true,"Kind":"V2","InstalledFiles":["ChaosGame/CookedPCConsole/Skin.upk"]},
-      {"Id":"oldvoice","Name":"Old voice pack","Version":"1.0","Enabled":true,"Kind":"Voice","InstalledFiles":["a.upk","b.upk"]}
-    ]"#).unwrap();
+    std::fs::write(dir.join(".tempest/mods/mods.json"), format!(
+        r#"[
+      {{"Id":"lua-mod","Name":"Lua Mod","Version":"1.2.0","Authors":[{{"Name":"Tom"}}],"Enabled":true,"Kind":"V2","InstalledFiles":[],"Signer":"7dbfdf2626dd1c26c0d7fda307e4d5f76f4b5b8db9dea9683a6f5f4d3b3fbe4f","Verified":true,"ManifestHash":"{}"}},
+      {{"Id":"off-mod","Name":"Off","Version":"0.1","Enabled":false,"Kind":"V2","InstalledFiles":[]}},
+      {{"Id":"skinpack","Name":"Skins","Version":"2.0","Author":"Someone","Enabled":true,"Kind":"V2","InstalledFiles":["ChaosGame/CookedPCConsole/Skin.upk"]}},
+      {{"Id":"oldvoice","Name":"Old voice pack","Version":"1.0","Enabled":true,"Kind":"Voice","InstalledFiles":["a.upk","b.upk"]}}
+    ]"#,
+        manifest_hashes["lua-mod"],
+    )).unwrap();
     dir
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    Sha256::digest(data)
+        .iter()
+        .flat_map(|b| [(HEX[(b >> 4) as usize]) as char, (HEX[(b & 0xf) as usize]) as char])
+        .collect()
 }
 
 #[test]
@@ -230,6 +251,16 @@ fn host_smoke() {
                      and by['skinpack'].dll and not by['skinpack'].lua and by['skinpack'].files == 1 and by['skinpack'].authors[1] == 'Someone' \
                      and by['oldvoice'].kind == 'Voice' and by['oldvoice'].files == 2 and not by['oldvoice'].lua \
                      and by['devmod'].dev and by['devmod'].kind == 'dev' and by['devmod'].loaded").as_boolean().unwrap());
+    // Modifying an installed mod's script after install: the CLI refuses it at the next
+    // launch (marked unverified in the registry), and the runtime then does the same.
+    let registry = game.join(".tempest/mods/mods.json");
+    let json = std::fs::read_to_string(&registry).unwrap().replace("\"Verified\":true", "\"Verified\":false");
+    std::fs::write(&registry, json).unwrap();
+    std::fs::write(game.join(".tempest/v2/mods/lua-mod/scripts/main.lua"), "shared.ran_lua_mod = false\n").unwrap();
+    eval("tempest.reload(); return true");
+    // The reload's `shared` starts empty and the tampered script never runs.
+    assert!(eval("local by = {}; for _, m in ipairs(tempest.installed()) do by[m.id] = m end return not by['lua-mod'].loaded").as_boolean().unwrap());
+    assert_eq!(eval("return shared.ran_lua_mod"), mlua::Value::Nil);
     // The user edits the file; the mod sees the new value on reload (what hot reload triggers).
     std::fs::write(&cfg, "speed = 5\ngreeting = \"yo\"\n").unwrap();
     eval("tempest.reload('devmod'); return true");

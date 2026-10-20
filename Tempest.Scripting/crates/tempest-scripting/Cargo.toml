@@ -18,6 +18,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # manifest.toml ([scripting] after = [...] load order)
 toml = { version = "0.8", default-features = false, features = ["parse", "display"] }
+# installed mods' scripts are checked against the package CHECKSUMS before they run
+sha2 = "0.10"
 
 [build-dependencies]
 # native/: Dear ImGui + cimgui (+ the Win32/DX9/DX11 backends on Windows)
