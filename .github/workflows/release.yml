@@ -183,6 +183,10 @@ jobs:
           rm -rf electron/build
           cp -r build electron/build
 
+      - name: Compile Electron host
+        working-directory: Tempest.Launcher/electron
+        run: pnpm compile
+
       - name: Build Electron app
         working-directory: Tempest.Launcher/electron
         env:
