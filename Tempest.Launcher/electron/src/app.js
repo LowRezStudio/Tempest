@@ -1,4 +1,4 @@
-import { ipcMain, app, BrowserWindow } from "electron";
+import { ipcMain, app } from "electron";
 import { isUpdateDownloaded, quitAndInstallUpdate } from "./updater.js";
 
 let pendingOpenFiles = [];

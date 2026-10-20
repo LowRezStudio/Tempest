@@ -660,5 +660,15 @@
 	"sessions_window": "Window {number}",
 	"sessions_open_another": "Open another window",
 	"sessions_stop_all": "Stop all",
-	"sessions_launch_failed": "Couldn't open another window"
+	"sessions_launch_failed": "Couldn't open another window",
+	"legacy_found_title": "Old Version Detected",
+	"legacy_found_desc": "Tempest Launcher now uses a new installer. Your settings, instances and mods were migrated automatically — nothing was lost.",
+	"legacy_found_body": "A previous install of Tempest Launcher was found on this computer:",
+	"legacy_name_fallback": "Tempest Launcher (old)",
+	"legacy_uninstall": "Uninstall old version",
+	"legacy_keep": "Keep it",
+	"legacy_uninstalling": "Removing…",
+	"legacy_removed": "The old version was removed.",
+	"legacy_cancelled": "Removal was cancelled. You can try again.",
+	"legacy_remove_failed": "Couldn't remove the old version automatically. Uninstall it from Windows Settings → Apps instead."
 }

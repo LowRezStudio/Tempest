@@ -16,6 +16,7 @@ import "./scopes.js";
 import "./sql.js";
 import "./updater.js";
 import "./tray.js";
+import "./legacy.js";
 
 let mainWindow = null;
 

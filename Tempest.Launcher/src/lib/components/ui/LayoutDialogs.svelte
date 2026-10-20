@@ -1,5 +1,6 @@
 <script lang="ts">
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
+	import LegacyTauriDialog from "$lib/components/migration/LegacyTauriDialog.svelte";
 	import InstallModOverlay from "$lib/components/mods/InstallModOverlay.svelte";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import ReplaceModDialog from "$lib/components/mods/ReplaceModDialog.svelte";
@@ -57,3 +58,4 @@
 	oncancel={() => resolveUnverifiedMod(false)}
 />
 <UpdateDialog />
+<LegacyTauriDialog />

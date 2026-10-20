@@ -1,0 +1,97 @@
+<script lang="ts">
+	import { Loader2, PackageX } from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages";
+	import { invoke, platform } from "$lib/platform/api";
+	import { persistedJSON } from "$lib/stores/persisted.svelte";
+	import { addToast } from "$lib/stores/ui.svelte";
+	import Modal from "../ui/Modal.svelte";
+
+	interface LegacyInstall {
+		PSChildName: string;
+		DisplayName?: string;
+		InstallLocation?: string;
+	}
+
+	const prompted = persistedJSON<boolean>("legacyTauriPrompted", false);
+
+	const isWindows = platform() === "windows";
+
+	let open = $state(false);
+	let installs = $state<LegacyInstall[]>([]);
+	let uninstalling = $state(false);
+
+	// Ask once: look for a leftover Tauri MSI install on first launch.
+	$effect(() => {
+		if (!isWindows || prompted.value) return;
+		void invoke("legacy:find").then((found) => {
+			if (Array.isArray(found) && found.length > 0) {
+				installs = found;
+				open = true;
+			}
+		});
+	});
+
+	function keep() {
+		prompted.value = true;
+		open = false;
+	}
+
+	async function handleUninstall() {
+		uninstalling = true;
+		try {
+			const results = (await invoke("legacy:uninstall")) as { code: number }[];
+			// 0/3010 = success (3010 = reboot required), 1602 = cancelled.
+			if (results.some((r) => r.code !== 0 && r.code !== 3010 && r.code !== 1602)) {
+				addToast({ message: m.legacy_remove_failed(), tone: "error" });
+				prompted.value = true;
+				open = false;
+			} else if (results.some((r) => r.code === 1602)) {
+				addToast({ message: m.legacy_cancelled(), tone: "warning" });
+				// Keep the dialog open so the user can retry.
+			} else {
+				addToast({ message: m.legacy_removed(), tone: "success" });
+				keep();
+			}
+		} catch (error) {
+			console.error("Legacy uninstall failed:", error);
+			addToast({ message: m.legacy_remove_failed(), tone: "error" });
+			keep();
+		} finally {
+			uninstalling = false;
+		}
+	}
+</script>
+
+<Modal bind:open title={m.legacy_found_title()} onclose={keep}>
+	<div class="flex flex-col gap-4 py-2">
+		<div class="flex items-start gap-3">
+			<PackageX size={28} class="text-accent mt-0.5 shrink-0" />
+			<div class="space-y-2">
+				<p class="text-sm">{m.legacy_found_desc()}</p>
+				<p class="text-base-content/70 text-sm">
+					{m.legacy_found_body()}
+					{#each installs as install, i (install.PSChildName)}
+						{#if i > 0}
+							{", "}
+						{/if}
+						<span class="text-base-content font-medium"
+							>{install.DisplayName || m.legacy_name_fallback()}</span
+						>
+					{/each}
+				</p>
+			</div>
+		</div>
+	</div>
+
+	{#snippet actions()}
+		<button class="btn btn-ghost" onclick={keep} disabled={uninstalling}>
+			{m.legacy_keep()}
+		</button>
+		<button class="btn btn-accent" onclick={handleUninstall} disabled={uninstalling}>
+			{#if uninstalling}
+				<Loader2 size={16} class="animate-spin" />
+			{/if}
+			{uninstalling ? m.legacy_uninstalling() : m.legacy_uninstall()}
+		</button>
+	{/snippet}
+</Modal>
