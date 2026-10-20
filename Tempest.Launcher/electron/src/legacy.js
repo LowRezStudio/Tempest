@@ -12,7 +12,7 @@ const UNINSTALL_QUERY_ROOTS = [
 
 const FIND_SCRIPT =
 	`Get-ItemProperty '${UNINSTALL_QUERY_ROOTS.join("','")}' -ErrorAction SilentlyContinue | ` +
-	"Where-Object { $_.DisplayName -like 'Tempest*' -and $_.PSChildName -like '{*}' } | " +
+	"Where-Object { $_.DisplayName -like 'Tempest Launcher*' -and $_.PSChildName -like '{*}' } | " +
 	"Select-Object PSChildName, DisplayName, InstallLocation | ConvertTo-Json -Compress";
 
 function runPowerShell(script, timeout) {

@@ -15,6 +15,7 @@ export function isUpdateDownloaded() {
 // module-level listener instead of one per `updater:download` call: stacking
 // listeners would resend every progress chunk once per retry.
 let downloadSender = null;
+let lastTransferred = 0;
 
 autoUpdater.on("download-progress", (p) => {
 	const sender = downloadSender;
@@ -26,8 +27,6 @@ autoUpdater.on("download-progress", (p) => {
 		contentLength: p.total,
 	});
 });
-
-let lastTransferred = 0;
 
 /**
  * Applies a downloaded update: silent install, app restarted afterwards.

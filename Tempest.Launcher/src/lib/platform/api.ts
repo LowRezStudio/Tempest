@@ -102,7 +102,9 @@ export class Command<O = string> {
 
 		// Remove all four per-pid listeners once the process is over; otherwise
 		// every launch leaks listeners (and the buffers they retain) for the
-		// lifetime of the renderer.
+		// lifetime of the renderer. Only on close: Node emits close after both a
+		// normal exit and a spawn error, and callers' close handlers (e.g. the
+		// process list cleanup) must still see it.
 		const unlisten = new Set<() => void>();
 		const cleanup = () => {
 			for (const fn of unlisten) fn();
@@ -130,7 +132,6 @@ export class Command<O = string> {
 			eio().on(`shell:process:${pid}:error`, (error: string) => {
 				this._emitter.emit("error", error);
 				child._handleError(error);
-				cleanup();
 			}),
 		);
 

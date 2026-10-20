@@ -207,6 +207,15 @@ app.on("window-all-closed", () => {
 	app.quit();
 });
 
+// macOS: clicking the dock icon must re-show the window after it was hidden
+// to the tray (Electron does not do this by default; Tauri's event loop did).
+app.on("activate", () => {
+	if (mainWindow && !mainWindow.isDestroyed()) {
+		mainWindow.show();
+		mainWindow.focus();
+	}
+});
+
 app.on("will-quit", () => {
 	for (const [, child] of activeChildren) {
 		try {
