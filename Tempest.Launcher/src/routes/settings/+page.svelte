@@ -9,6 +9,7 @@
 	import { createAboutInfoQuery } from "$lib/queries/about";
 	import CliInstall from "$lib/settings/CliInstall.svelte";
 	import KeybindsTab from "$lib/settings/KeybindsTab.svelte";
+	import PublishingSettings from "$lib/settings/PublishingSettings.svelte";
 	import { localeLabels, localeState } from "$lib/stores/locale.svelte";
 	import {
 		customThemeCSS,
@@ -188,19 +189,19 @@
 									bind:value={defaultInstancePath.value}
 									placeholder={m.settings_select_directory()}
 								/>
-								<button
-									type="button"
-									class="btn btn-accent join-item"
-									onclick={browsePath}>{m.common_browse()}</button
+								<button type="button" class="btn join-item" onclick={browsePath}
+									>{m.common_browse()}</button
 								>
 							</div>
 						</div>
+
+						<PublishingSettings />
 
 						<div class="form-control">
 							<label class="label cursor-pointer justify-start gap-3 py-0.5">
 								<input
 									type="checkbox"
-									class="toggle toggle-accent"
+									class="toggle toggle-primary"
 									bind:checked={modDeveloper.value}
 								/>
 								<span class="label-text text-sm">{m.settings_mod_developer()}</span>
@@ -214,7 +215,7 @@
 							<label class="label cursor-pointer justify-start gap-3 py-0.5">
 								<input
 									type="checkbox"
-									class="toggle toggle-accent"
+									class="toggle toggle-primary"
 									bind:checked={openSslCapFix.value}
 								/>
 								<span class="label-text text-sm">OpenSSL ICAPIcap fix</span>
@@ -242,7 +243,7 @@
 								{m.settings_onboarding_description()}
 							</p>
 							<div>
-								<button class="btn btn-accent" onclick={restartOnboarding}
+								<button class="btn" onclick={restartOnboarding}
 									>{m.settings_restart_onboarding()}</button
 								>
 							</div>
@@ -320,7 +321,7 @@
 							<div class="flex justify-start pt-2">
 								<button
 									type="button"
-									class="btn btn-accent btn-sm"
+									class="btn btn-sm"
 									onclick={() => updaterStore.checkForUpdates(false)}
 								>
 									{m.settings_check_for_updates()}

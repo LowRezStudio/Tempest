@@ -8,6 +8,7 @@
 	import { Tooltip } from "bits-ui";
 	import favicon from "$lib/assets/favicon.ico?url";
 	import AppShell from "$lib/components/layout/AppShell.svelte";
+	import SigningKeyModal from "$lib/components/mods/SigningKeyModal.svelte";
 	import OnboardingPage from "$lib/components/onboarding/OnboardingPage.svelte";
 	import { checkForCoreUpdatesAndInstall } from "$lib/core/mods";
 	import { invoke } from "$lib/platform/api";
@@ -94,3 +95,6 @@
 		{/if}
 	</Tooltip.Provider>
 </QueryClientProvider>
+
+<!-- Global singleton: any surface can ask for a signing key name. -->
+<SigningKeyModal />

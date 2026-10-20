@@ -110,7 +110,7 @@
 			<Download size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet actions()}
-			<button class="btn btn-accent" onclick={() => (instanceWizardOpen.value = true)}>
+			<button class="btn btn-primary" onclick={() => (instanceWizardOpen.value = true)}>
 				<Plus size={16} />
 				{m.wizard_download()}
 			</button>
@@ -140,7 +140,7 @@
 		{/snippet}
 		{#snippet subtitle()}
 			{#if queuePendingCount.value > 0}
-				<span class="badge badge-accent badge-sm"
+				<span class="badge badge-primary badge-sm"
 					>{queuePendingCount.value} {m.downloads_pending()}</span
 				>
 			{/if}
@@ -177,7 +177,7 @@
 						{/snippet}
 						{#snippet actions()}
 							<button
-								class="btn btn-accent mt-2 gap-2"
+								class="btn btn-primary mt-2 gap-2"
 								onclick={() => (instanceWizardOpen.value = true)}
 							>
 								<Plus size={20} />
@@ -196,7 +196,7 @@
 												class="badge badge-sm {item.status === 'pending'
 													? 'badge-neutral'
 													: item.status === 'running'
-														? 'badge-accent'
+														? 'badge-primary'
 														: item.status === 'paused'
 															? 'badge-warning'
 															: item.status === 'complete'
@@ -235,7 +235,7 @@
 													class="bg-base-300 relative h-2 w-full overflow-hidden rounded-full"
 												>
 													<div
-														class="bg-accent h-full w-full flex-1 rounded-full transition-all duration-300"
+														class="bg-primary h-full w-full flex-1 rounded-full transition-all duration-300"
 														style={`transform: translateX(-${100 - progress.percent}%)`}
 													></div>
 												</Progress.Root>

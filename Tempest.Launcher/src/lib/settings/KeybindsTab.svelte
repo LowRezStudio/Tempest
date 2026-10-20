@@ -375,7 +375,7 @@
 				<button
 					type="button"
 					class="btn btn-sm w-32 shrink-0 font-mono uppercase"
-					class:btn-accent={capturingIndex === i}
+					class:btn-primary={capturingIndex === i}
 					onclick={() => beginCapture(i)}
 					title={m.settings_keybinds_key()}
 				>
@@ -422,7 +422,7 @@
 		<div class="flex flex-wrap items-center gap-2">
 			<button
 				type="button"
-				class="btn btn-accent gap-2"
+				class="btn btn-primary gap-2"
 				disabled={!hasBindings || cooking}
 				onclick={cook}
 			>
@@ -436,13 +436,13 @@
 			</button>
 
 			{#if cookedZip}
-				<button type="button" class="btn btn-accent gap-2" onclick={download}>
+				<button type="button" class="btn gap-2" onclick={download}>
 					<FolderOpen size={16} />
 					{m.converter_download()}
 				</button>
 				<button
 					type="button"
-					class="btn btn-accent gap-2"
+					class="btn gap-2"
 					onclick={addToInstance}
 					disabled={!!installingLabel}
 				>

@@ -154,6 +154,13 @@ jobs:
         working-directory: Tempest.Launcher
         run: node scripts/build-cli.js
 
+      # The bundled upk-parser rides in every launcher install; run its zig test
+      # suite once per build (Linux is the fastest runner).
+      - name: Test upk-parser
+        if: steps.cli-artifact.outputs.hit != 'true' && startsWith(matrix.platform, 'ubuntu-')
+        working-directory: Tempest.Utils/utils
+        run: zig build test
+
       - name: Upload CLI sidecar artifact
         if: steps.cli-artifact.outputs.hit != 'true'
         uses: actions/upload-artifact@v4

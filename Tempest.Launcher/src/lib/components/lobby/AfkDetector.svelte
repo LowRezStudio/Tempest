@@ -41,6 +41,6 @@
 
 {#if isAfk}
 	<LobbyOverlayDialog title={m.afk_title()}>
-		<button class="btn btn-accent" onclick={handleCancelAfk}>{m.common_yes()}</button>
+		<button class="btn btn-primary" onclick={handleCancelAfk}>{m.common_yes()}</button>
 	</LobbyOverlayDialog>
 {/if}

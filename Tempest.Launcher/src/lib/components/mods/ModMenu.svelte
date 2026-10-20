@@ -110,7 +110,7 @@
 		<button class="btn btn-ghost" type="button" onclick={() => (isRenameModalOpen = false)}>
 			{m.common_cancel()}
 		</button>
-		<button class="btn btn-accent" type="submit" disabled={renameMutation.isPending}>
+		<button class="btn btn-primary" type="submit" disabled={renameMutation.isPending}>
 			{#if renameMutation.isPending}
 				<span class="loading loading-spinner loading-xs"></span>
 			{/if}

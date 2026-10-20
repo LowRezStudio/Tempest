@@ -20,9 +20,11 @@ import "./mods.js";
 import "./opener.js";
 import "./path.js";
 import "./platforms.js";
+import "./publishing.js";
 import { injectOs } from "./os.js";
 import "./tray.js";
 import "./updater.js";
+import "./upk.js";
 import "./window.js";
 import { activeChildren } from "./shell.js";
 

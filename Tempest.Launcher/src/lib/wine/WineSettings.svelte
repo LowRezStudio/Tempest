@@ -145,7 +145,7 @@
 				bind:value={winePath.value}
 				placeholder={m.settings_wine_executable_placeholder()}
 			/>
-			<button type="button" class="btn btn-accent join-item" onclick={browseWinePath}>
+			<button type="button" class="btn join-item" onclick={browseWinePath}>
 				{m.common_browse()}
 			</button>
 			<button type="button" class="btn btn-secondary join-item" onclick={detectWine}>
@@ -167,7 +167,7 @@
 					bind:value={protonPath.value}
 					placeholder={m.settings_wine_proton_placeholder()}
 				/>
-				<button type="button" class="btn btn-accent join-item" onclick={browseProtonPath}>
+				<button type="button" class="btn join-item" onclick={browseProtonPath}>
 					{m.common_browse()}
 				</button>
 			</div>
@@ -179,7 +179,7 @@
 			<label class="label cursor-pointer justify-start gap-3 py-0.5">
 				<input
 					type="checkbox"
-					class="toggle toggle-accent"
+					class="toggle toggle-primary"
 					bind:checked={useSteamRuntime.value}
 				/>
 				<span class="label-text text-sm">{m.settings_wine_steam_runtime()}</span>
@@ -195,7 +195,7 @@
 			<label class="label cursor-pointer justify-start gap-3 py-0.5">
 				<input
 					type="checkbox"
-					class="toggle toggle-accent"
+					class="toggle toggle-primary"
 					bind:checked={useGamescope.value}
 					disabled={!isGamescopeInstalled}
 				/>

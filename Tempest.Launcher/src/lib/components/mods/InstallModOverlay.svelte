@@ -15,20 +15,20 @@
 		style="animation: fade-in 0.12s ease forwards;"
 	>
 		<div
-			class="card bg-base-200/95 border-accent/50 w-full max-w-sm border-2 border-dashed text-center shadow-2xl"
+			class="card bg-base-200/95 border-primary/50 w-full max-w-sm border-2 border-dashed text-center shadow-2xl"
 			style="animation: pop-in 0.15s var(--ease-spring) forwards;"
 		>
 			<div class="card-body items-center gap-3">
 				<div
-					class="bg-accent/10 text-accent flex h-16 w-16 items-center justify-center rounded-xl"
+					class="bg-primary/10 text-primary flex h-16 w-16 items-center justify-center rounded-xl"
 				>
 					<PackageOpen size={32} />
 				</div>
 				<h2 class="card-title justify-center">{m.overlay_install_mod_title()}</h2>
 				<p class="text-sm opacity-70">
 					{@html m.overlay_drop_here({
-						upk: '<span class="font-mono text-accent">.upk</span>',
-						pck: '<span class="font-mono text-accent">.pck</span>',
+						upk: '<span class="font-mono text-primary">.upk</span>',
+						pck: '<span class="font-mono text-primary">.pck</span>',
 					})}
 				</p>
 			</div>

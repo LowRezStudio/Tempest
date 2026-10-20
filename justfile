@@ -19,10 +19,15 @@ default:
 # Tempest.Utils (Zig): asmloader, upkpatcher, mctsparser -> Tempest.Utils/zig-out/bin
 # ---------------------------------------------------------------------------
 
-# Build the native utils (Debug by default; ReleaseFast / ReleaseSmall / ReleaseSafe)
+# Build the native utils (Debug by default; ReleaseFast / ReleaseSmall / ReleaseSafe).
+# Builds both zig packages: the root one (asmloader + upkpatcher, zig 0.15) and
+# the utils/ sub-package (upk-parser with compression, newer zig — anyzig
+# resolves each version from its build.zig.zon). Builds run from their package
+# directories: zig's --build-file-from-outside form breaks the relative cache.
 [group("utils")]
 utils optimize="Debug":
-    {{zig}} build --build-file Tempest.Utils/build.zig -Doptimize={{optimize}}
+    cd Tempest.Utils && {{zig}} build -Doptimize={{optimize}}
+    cd Tempest.Utils/utils && zig build -Doptimize={{optimize}}
 
 # Release utils, size-optimised (what the launcher bundle ships)
 [group("utils")]

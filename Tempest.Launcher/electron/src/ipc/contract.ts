@@ -187,6 +187,11 @@ export interface IpcContract {
 	"mods:download-to-temp": { args: { url: string; filename: string }; result: string };
 	"mods:save-pack": { args: { defaultPath: string; data: Uint8Array }; result: string | null };
 	"mods:stage-pack": { args: { filename: string; data: Uint8Array }; result: string };
+	"mods:save-staged-pack": { args: { stagedPath: string }; result: string | null };
+	"mods:save-staged-batch": {
+		args: { files: { stagedPath: string; filename: string }[] };
+		result: { dir: string; saved: string[] } | null;
+	};
 	"mods:discard-staged-pack": { args: { stagedPath: string }; result: void };
 	"mods:open-location": { args: { gamePath: string; mod: ModLocation }; result: void };
 	"mods:has-dlls": { args: { gamePath: string; modId: string }; result: boolean };
@@ -198,6 +203,22 @@ export interface IpcContract {
 	// ---- Converter (V1 -> V2) ----
 	"converter:pick-imports": { args: void; result: ConverterImport[] };
 	"converter:read-imports": { args: { paths: string[] }; result: ConverterImport[] };
+	"converter:pick-icon": { args: void; result: ConverterImport | null };
+
+	// ---- upk-parser (bundled zig tool; UPK compression for the mod cooker) ----
+	"upk:optimize": {
+		args: { path: string };
+		result: { optimized: boolean; data: ArrayBuffer | null };
+	};
+	"upk:optimize-data": {
+		args: { name: string; data: Uint8Array };
+		result: { optimized: boolean; data: ArrayBuffer | null };
+	};
+
+	// ---- Mod publishing setup (signing key + repository API key) ----
+	"signing:status": { args: void; result: { hasKey: boolean; keyId: string | null } };
+	"repo:status": { args: void; result: { hasApiKey: boolean; masked: string | null } };
+	"repo:forget": { args: void; result: void };
 
 	// ---- CLI shim (`tempest <command>` in a terminal) ----
 	"cli:install": { args: void; result: CliInstallResult };

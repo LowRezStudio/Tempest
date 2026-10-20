@@ -215,7 +215,7 @@
 							<span class="text-sm font-semibold">{mod.Version || "Unknown"}</span>
 							<ArrowRight size={12} class="opacity-50" />
 							<button
-								class="btn btn-accent btn-xs gap-1"
+								class="btn btn-primary btn-xs gap-1"
 								disabled={isRunning}
 								onclick={() => onUpdateMod?.(mod)}
 								title={updates.get(mod.Id)?.latest?.changelog}
@@ -224,7 +224,7 @@
 								{updates.get(mod.Id)?.latest?.version}
 							</button>
 						</div>
-						<span class="text-accent text-[10px] font-semibold uppercase"
+						<span class="text-primary text-[10px] font-semibold uppercase"
 							>{m.repo_update_badge()}</span
 						>
 					{:else}
@@ -354,7 +354,7 @@
 		<button class="btn btn-ghost" type="button" onclick={closeRename}
 			>{m.common_cancel()}</button
 		>
-		<button class="btn btn-accent" type="submit" disabled={renameMutation.isPending}>
+		<button class="btn btn-primary" type="submit" disabled={renameMutation.isPending}>
 			{#if renameMutation.isPending}<span class="loading loading-spinner loading-xs"
 				></span>{/if}
 			{m.mod_rename_dialog_button()}

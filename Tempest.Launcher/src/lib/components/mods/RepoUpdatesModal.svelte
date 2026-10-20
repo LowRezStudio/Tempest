@@ -69,7 +69,7 @@
 						>
 					{:else}
 						<button
-							class="btn btn-accent btn-xs ml-auto"
+							class="btn btn-primary btn-xs ml-auto"
 							disabled={isRunning || busy !== null}
 							onclick={() => updateOne(mod, update)}
 						>
@@ -92,7 +92,7 @@
 			>{m.repo_updates_later()}</button
 		>
 		<button
-			class="btn btn-accent btn-sm"
+			class="btn btn-primary btn-sm"
 			disabled={isRunning || busy !== null || pending.every((p) => done.includes(p.mod.Id))}
 			onclick={updateAll}
 		>

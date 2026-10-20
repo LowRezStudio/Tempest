@@ -588,7 +588,7 @@
 									>{m.wizard_depot_downloader_command()}</span
 								>
 								<button
-									class="btn btn-accent btn-xs"
+									class="btn btn-xs"
 									type="button"
 									onclick={handleCopyCommand}
 								>
@@ -623,11 +623,7 @@
 							class="input input-bordered join-item flex-1 font-mono"
 							bind:value={selectedPath}
 						/>
-						<button
-							class="btn btn-accent join-item"
-							type="button"
-							onclick={handleBrowse}
-						>
+						<button class="btn join-item" type="button" onclick={handleBrowse}>
 							<Folder size={16} />
 							{m.common_browse()}
 						</button>
@@ -700,7 +696,7 @@
 						<button
 							type="button"
 							class="btn h-12 justify-start gap-3"
-							class:btn-accent={loginMethod === "steam"}
+							class:btn-primary={loginMethod === "steam"}
 							class:btn-ghost={loginMethod !== "steam"}
 							onclick={() => handleLoginSelect("steam")}
 						>
@@ -712,7 +708,7 @@
 						<button
 							type="button"
 							class="btn h-12 justify-start gap-3"
-							class:btn-accent={loginMethod === "epic"}
+							class:btn-primary={loginMethod === "epic"}
 							class:btn-ghost={loginMethod !== "epic"}
 							onclick={() => handleLoginSelect("epic")}
 						>
@@ -724,7 +720,7 @@
 						<button
 							type="button"
 							class="btn h-12 justify-start gap-3"
-							class:btn-accent={loginMethod === "hirez"}
+							class:btn-primary={loginMethod === "hirez"}
 							class:btn-ghost={loginMethod !== "hirez"}
 							onclick={() => handleLoginSelect("hirez")}
 						>
@@ -773,11 +769,7 @@
 								class="input input-bordered join-item flex-1 font-mono"
 								bind:value={selectedPath}
 							/>
-							<button
-								class="btn btn-accent join-item"
-								type="button"
-								onclick={handleBrowse}
-							>
+							<button class="btn join-item" type="button" onclick={handleBrowse}>
 								<Folder size={16} />
 								{m.common_browse()}
 							</button>
@@ -803,7 +795,7 @@
 			</button>
 			<div class="flex gap-2">
 				<button
-					class="btn btn-accent"
+					class="btn btn-primary"
 					type="submit"
 					disabled={!isValid ||
 						isDetecting ||

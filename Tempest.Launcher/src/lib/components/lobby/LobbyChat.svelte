@@ -111,7 +111,7 @@
 	<div class="absolute bottom-8 left-8 z-20 flex flex-row items-end gap-2">
 		<button
 			class="btn btn-sm justify-start shadow-none"
-			class:btn-accent={unread}
+			class:btn-primary={unread}
 			onclick={openChat}
 		>
 			<MessageSquare size={16} />

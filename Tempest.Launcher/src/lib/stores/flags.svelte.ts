@@ -12,6 +12,11 @@ export const FEATURE_FLAGS = {
 		description: "Show the public Internet servers tab on the Servers page.",
 		default: false,
 	},
+	"mod-publishing": {
+		description:
+			"Publish mods to the mod repository straight from the launcher (otherwise packages must be uploaded by hand on the website).",
+		default: false,
+	},
 } as const satisfies Record<string, FlagDefinition<FlagValue>>;
 
 export type FlagName = keyof typeof FEATURE_FLAGS;

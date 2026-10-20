@@ -60,7 +60,7 @@
 				<button class="btn btn-ghost" type="button" onclick={() => (open = false)}
 					>{m.common_cancel()}</button
 				>
-				<button class="btn btn-accent" type="submit" disabled={!valid}>
+				<button class="btn btn-primary" type="submit" disabled={!valid}>
 					{m.common_join()}
 				</button>
 			</div>

@@ -299,7 +299,7 @@
 				class="input input-bordered join-item flex-1 font-mono"
 				bind:value={editPath}
 			/>
-			<button class="btn btn-accent join-item" type="button" onclick={handleBrowse}>
+			<button class="btn join-item" type="button" onclick={handleBrowse}>
 				<Folder size={16} />
 				{m.common_browse()}
 			</button>
@@ -345,7 +345,7 @@
 			<label class="label cursor-pointer justify-start gap-3 py-0.5">
 				<input
 					type="checkbox"
-					class="toggle toggle-accent"
+					class="toggle toggle-primary"
 					disabled={isTogglingMods}
 					aria-busy={isTogglingMods}
 					checked={editEnableCore}
@@ -362,7 +362,7 @@
 			<label class="label cursor-pointer justify-start gap-3 py-0.5">
 				<input
 					type="checkbox"
-					class="toggle toggle-accent"
+					class="toggle toggle-primary"
 					disabled={isTogglingMods}
 					aria-busy={isTogglingMods}
 					checked={editEnableConsole}

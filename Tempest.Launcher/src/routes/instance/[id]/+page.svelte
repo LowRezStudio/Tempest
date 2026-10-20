@@ -191,7 +191,7 @@
 			{/if}
 			<button
 				class="btn text-sm"
-				class:btn-accent={!isRunning}
+				class:btn-primary={!isRunning}
 				class:btn-error={isRunning}
 				disabled={isLaunching || isKilling || isSettingUp}
 				aria-busy={isLaunching || isKilling || isSettingUp}
@@ -312,7 +312,7 @@
 								{/snippet}
 								{#snippet actions()}
 									<button
-										class="btn btn-accent btn-sm mt-2"
+										class="btn btn-primary btn-sm mt-2"
 										onclick={handleInstallMod}
 									>
 										<PackageOpen size={14} />

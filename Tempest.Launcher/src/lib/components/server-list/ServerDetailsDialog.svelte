@@ -158,7 +158,7 @@
 			<button class="btn btn-ghost" type="button" onclick={() => (open = false)}>
 				{m.common_cancel()}
 			</button>
-			<button class="btn btn-accent gap-1" type="submit" disabled={!canJoin}>
+			<button class="btn btn-primary gap-1" type="submit" disabled={!canJoin}>
 				<Users size={15} />
 				{m.common_join()}
 			</button>

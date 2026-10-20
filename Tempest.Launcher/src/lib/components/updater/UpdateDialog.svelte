@@ -30,7 +30,7 @@
 	<div class="flex flex-col gap-4 py-2">
 		{#if updaterStore.status === "checking"}
 			<div class="flex flex-col items-center justify-center gap-3 py-6">
-				<Loader2 size={40} class="text-accent animate-spin" />
+				<Loader2 size={40} class="text-primary animate-spin" />
 				<p class="text-sm font-medium">{m.updater_checking()}</p>
 			</div>
 		{:else if updaterStore.status === "up-to-date"}
@@ -44,7 +44,7 @@
 		{:else if updaterStore.status === "available" && updaterStore.update}
 			<div class="flex flex-col gap-4">
 				<div class="flex items-start gap-3">
-					<div class="bg-accent/10 text-accent shrink-0 rounded-xl p-3">
+					<div class="bg-primary/10 text-primary shrink-0 rounded-xl p-3">
 						<ArrowDownToLine size={24} />
 					</div>
 					<div>
@@ -63,7 +63,7 @@
 					<span class="font-medium">{m.updater_version()}</span>
 					<span class="badge badge-neutral">{updaterStore.update.currentVersion}</span>
 					<span class="text-base-content/40">➔</span>
-					<span class="badge badge-accent font-semibold"
+					<span class="badge badge-primary font-semibold"
 						>{updaterStore.update.version}</span
 					>
 				</div>
@@ -84,7 +84,7 @@
 		{:else if updaterStore.status === "downloading" || updaterStore.status === "installing"}
 			<div class="flex flex-col gap-4 py-4">
 				<div class="flex items-center gap-3">
-					<Loader2 size={24} class="text-accent animate-spin" />
+					<Loader2 size={24} class="text-primary animate-spin" />
 					<div>
 						<h3 class="font-bold">
 							{updaterStore.status === "downloading"
@@ -120,7 +120,7 @@
 					class="bg-base-200 relative h-2.5 w-full overflow-hidden rounded-full"
 				>
 					<div
-						class="bg-accent h-full rounded-full transition-all duration-300"
+						class="bg-primary h-full rounded-full transition-all duration-300"
 						style={updaterStore.contentLength
 							? `transform: translateX(-${100 - updaterStore.progress}%)`
 							: `width: 33.333%`}
@@ -136,7 +136,7 @@
 			</div>
 		{:else if updaterStore.status === "relaunching"}
 			<div class="flex flex-col items-center justify-center gap-3 py-8 text-center">
-				<RefreshCw size={40} class="text-accent animate-spin" />
+				<RefreshCw size={40} class="text-primary animate-spin" />
 				<h3 class="text-lg font-bold">{m.updater_relaunching_title()}</h3>
 				<p class="text-base-content/70 text-sm">
 					{m.updater_relaunching_desc()}
@@ -181,7 +181,7 @@
 				<button class="btn btn-ghost" onclick={() => (isOpen = false)}>
 					{m.updater_btn_remind()}
 				</button>
-				<button class="btn btn-accent gap-2" onclick={() => updaterStore.startUpdate()}>
+				<button class="btn btn-primary gap-2" onclick={() => updaterStore.startUpdate()}>
 					<ArrowDownToLine size={16} />
 					{m.updater_btn_update_now()}
 				</button>
@@ -194,7 +194,7 @@
 			<button class="btn btn-ghost" onclick={() => (isOpen = false)}>
 				{m.common_close()}
 			</button>
-			<button class="btn btn-accent gap-2" disabled>
+			<button class="btn btn-primary gap-2" disabled>
 				<Loader2 size={16} class="animate-spin" />
 				{m.updater_btn_updating()}
 			</button>
@@ -204,19 +204,16 @@
 			</button>
 			{#if isWindows}
 				{#if updaterStore.update}
-					<button class="btn btn-accent" onclick={() => updaterStore.startUpdate()}>
+					<button class="btn btn-primary" onclick={() => updaterStore.startUpdate()}>
 						{m.updater_btn_retry()}
 					</button>
 				{:else}
-					<button
-						class="btn btn-accent"
-						onclick={() => updaterStore.checkForUpdates(false)}
-					>
+					<button class="btn btn" onclick={() => updaterStore.checkForUpdates(false)}>
 						{m.updater_btn_check_again()}
 					</button>
 				{/if}
 			{:else}
-				<button class="btn btn-accent" onclick={() => updaterStore.checkForUpdates(false)}>
+				<button class="btn btn" onclick={() => updaterStore.checkForUpdates(false)}>
 					{m.updater_btn_check_again()}
 				</button>
 			{/if}

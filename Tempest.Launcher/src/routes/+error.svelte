@@ -24,9 +24,9 @@
 	<ErrorDetails {error} class="mt-6 w-full max-w-lg" />
 
 	{#if notFound}
-		<a href="/" class="btn btn-outline btn-accent mt-8">{m.error_go_home()}</a>
+		<a href="/" class="btn btn-primary mt-8">{m.error_go_home()}</a>
 	{:else}
-		<button class="btn btn-outline btn-accent mt-8" onclick={() => location.reload()}>
+		<button class="btn btn-primary mt-8" onclick={() => location.reload()}>
 			{m.error_reload()}
 		</button>
 	{/if}

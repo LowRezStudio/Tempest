@@ -26,7 +26,7 @@
 				{href}
 				class:rounded-full={circle}
 				class="btn btn-square"
-				class:btn-accent={isActive && !color}
+				class:btn-primary={isActive && !color}
 				class:btn-ghost={!isActive && !color}
 				style={color
 					? `background-color: ${isActive ? color : `color-mix(in srgb, ${color} 15%, transparent)`}; border-color: ${isActive ? "white" : color}; color: ${isActive ? getContrastColor(color) : color};`

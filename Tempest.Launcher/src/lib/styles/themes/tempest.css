@@ -1,0 +1,77 @@
+/* Tempest themes, shared with mods.lowrezstudio.com: Catppuccin surface colors
+ * with a lavender primary, a neutral surface secondary and a sky accent. The
+ * theme names ("mocha", "latte") are persisted in user settings — keep them. */
+
+@plugin "daisyui/theme" {
+	name: "mocha";
+	default: true;
+	prefersdark: true;
+	color-scheme: dark;
+
+	--color-primary: #b4befe;
+	--color-primary-content: #181825;
+	--color-secondary: #313244;
+	--color-secondary-content: #cdd6f4;
+	--color-accent: #74c7ec;
+	--color-accent-content: #181825;
+	--color-neutral: #7f849c;
+	--color-neutral-content: #181825;
+	--color-success: #a6e3a1;
+	--color-success-content: #1e1e2e;
+	--color-warning: #f9e2af;
+	--color-warning-content: #1e1e2e;
+	--color-error: #f38ba8;
+	--color-error-content: #1e1e2e;
+	--color-info: #89dceb;
+	--color-info-content: #181825;
+	--color-base-100: #1e1e2e;
+	--color-base-200: #181825;
+	--color-base-300: #11111b;
+	--color-base-content: #cdd6f4;
+
+	--radius-selector: 0.25rem;
+	--radius-field: 0.5rem;
+	--radius-box: 0.5rem;
+	--size-field: 0.25rem;
+	--size-selector: 0.25rem;
+	--border: 2px;
+	--depth: 1;
+	--noise: 0;
+}
+
+@plugin "daisyui/theme" {
+	name: "latte";
+	default: false;
+	prefersdark: false;
+	color-scheme: light;
+
+	--color-primary: #7287fd;
+	--color-primary-content: #1e1e2e;
+	--color-secondary: #ccd0da;
+	--color-secondary-content: #1e1e2e;
+	--color-accent: #209fb5;
+	--color-accent-content: #1e1e2e;
+	--color-neutral: #8c8fa1;
+	--color-neutral-content: #1e1e2e;
+	--color-success: #40a02b;
+	--color-success-content: #1e1e2e;
+	--color-warning: #df8e1d;
+	--color-warning-content: #1e1e2e;
+	--color-error: #d20f39;
+	--color-error-content: #1e1e2e;
+	--color-info: #04a5e5;
+	--color-info-content: #1e1e2e;
+	--color-base-100: #eff1f5;
+	--color-base-200: #e6e9ef;
+	--color-base-300: #dce0e8;
+	--color-base-content: #4c4f69;
+
+	--radius-selector: 0.25rem;
+	--radius-field: 0.5rem;
+	--radius-box: 0.5rem;
+	--size-field: 0.25rem;
+	--size-selector: 0.25rem;
+	--border: 2px;
+	--depth: 1;
+	--noise: 0;
+}

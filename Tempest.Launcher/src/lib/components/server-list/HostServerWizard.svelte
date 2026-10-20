@@ -304,7 +304,7 @@
 				<label class="label cursor-pointer justify-start gap-3 py-0.5">
 					<input
 						type="checkbox"
-						class="toggle toggle-accent"
+						class="toggle toggle-primary"
 						bind:checked={selectedUpnp}
 					/>
 					<span class="label-text text-sm">{m.hostserver_upnp()}</span>
@@ -323,7 +323,7 @@
 				<button class="btn btn-ghost" type="button" onclick={() => (open = false)}
 					>{m.common_cancel()}</button
 				>
-				<button class="btn btn-accent" type="submit" disabled={!valid}>
+				<button class="btn btn-primary" type="submit" disabled={!valid}>
 					{m.common_create()}
 				</button>
 			</div>
@@ -354,7 +354,7 @@
 						onclick={() => (showConflictPrompt = false)}>{m.common_no()}</button
 					>
 					<button
-						class="btn btn-accent"
+						class="btn btn-primary"
 						type="submit"
 						disabled={isClosing}
 						aria-busy={isClosing}

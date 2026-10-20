@@ -61,7 +61,9 @@
 						<div class="stats bg-base-200 w-full shrink-0">
 							<div class="stat">
 								<div class="stat-title text-xs opacity-75">Version</div>
-								<div class="stat-value text-accent font-mono text-sm font-semibold">
+								<div
+									class="stat-value text-primary font-mono text-sm font-semibold"
+								>
 									{mod.Version}
 								</div>
 							</div>
@@ -87,13 +89,13 @@
 												href={author.Link}
 												target="_blank"
 												rel="noopener noreferrer"
-												class="bg-base-200/50 hover:bg-base-300 hover:border-accent/10 block flex cursor-pointer flex-col gap-1 rounded-xl border border-transparent p-3 text-left transition-all"
+												class="bg-base-200/50 hover:bg-base-300 hover:border-primary/10 block flex cursor-pointer flex-col gap-1 rounded-xl border border-transparent p-3 text-left transition-all"
 											>
 												<h4 class="truncate text-sm font-bold">
 													{author.Name}
 												</h4>
 												<span
-													class="text-accent block truncate text-xs hover:underline"
+													class="text-primary block truncate text-xs hover:underline"
 												>
 													{author.Link}
 												</span>

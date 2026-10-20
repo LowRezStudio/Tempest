@@ -1,48 +1,75 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
-	import { File, FileUp, FlaskConical, FolderOpen, Plus, Trash2, X } from "@lucide/svelte";
+	import {
+		BadgeCheck,
+		CheckCircle2,
+		File,
+		FileUp,
+		FlaskConical,
+		FolderOpen,
+		Image as ImageIcon,
+		Plus,
+		Trash2,
+		Upload,
+		X,
+	} from "@lucide/svelte";
 	import { useQueryClient } from "@tanstack/svelte-query";
-	import JSZip from "jszip";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
-	import Header from "$lib/components/ui/Header.svelte";
-	import { installMod } from "$lib/core/mods";
-	import { converterPendingPaths, isDraggingConverterFiles } from "$lib/mods/drop.svelte";
+	import PublishModal from "$lib/components/mods/PublishModal.svelte";
+	import { installMod, type RepoPublishResult } from "$lib/core/mods";
+	import { converterPendingPaths } from "$lib/mods/drop.svelte";
+	import {
+		MOD_ID_PATTERN,
+		buildPackageZip,
+		detectKind,
+		optimizeUpkEntries,
+		parseV1Package,
+		slugify,
+		targetDirFor,
+	} from "$lib/mods/packaging";
+	import { signWithPrompt } from "$lib/mods/signing.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { invoke } from "$lib/platform/api";
+	import { invoke, openUrl } from "$lib/platform/api";
 	import { converter } from "$lib/stores/converter.svelte";
+	import { isFlagEnabled } from "$lib/stores/flags.svelte";
 	import { instanceMap } from "$lib/stores/instance.svelte";
+	import { modRepositoryURL } from "$lib/stores/settings.svelte";
 	import { addToast, removeToast } from "$lib/stores/ui.svelte";
 	import type { Instance } from "$lib/types/instance";
 
-	type FileEntry = { path: string; data: Uint8Array };
 	type SourceEntry = {
 		label: string;
-		files: FileEntry[];
-		manifest?: {
-			name: string;
-			id: string;
-			version: string;
-			authors: { name: string; link: string }[];
-		};
+		files: { path: string; data: Uint8Array }[];
 		readme?: string;
 	};
 
-	function targetDirFor(fileName: string): string {
-		const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-		if (ext === "ini") return "ChaosGame/Config";
-		const name = fileName.toUpperCase();
-		const isVoice = name.includes("_VOX") || name.includes("_VGS");
-		return isVoice ? "ChaosGame/CookedPCConsole/English(US)" : "ChaosGame/CookedPCConsole";
-	}
-
 	let cooking = $state(false);
+	let signing = $state(false);
 	let showInstanceSelect = $state(false);
+	let showPublish = $state(false);
+	let published = $state<RepoPublishResult | null>(null);
 	let importingLabel = $state<string | null>(null);
 	let installingLabel = $state<string | null>(null);
+	let idTouched = $state(false);
+	let kindTouched = $state(false);
 	const queryClient = useQueryClient();
 
 	let totalFiles = $derived(converter.sources.reduce((sum, s) => sum + s.files.length, 0));
-	let canCook = $derived(!!converter.modName.trim() && totalFiles > 0);
+	let idValid = $derived(MOD_ID_PATTERN.test(converter.modId.trim()));
+	let idError = $derived(converter.modId.trim() !== "" && !idValid);
+	let canCook = $derived(!!converter.modName.trim() && totalFiles > 0 && idValid);
+	const repoHost = $derived(
+		modRepositoryURL.value.replace(/^https?:\/\//, "").replace(/\/$/, ""),
+	);
+	const publishingEnabled = $derived(isFlagEnabled("mod-publishing"));
+	const fmtSize = (n: number) =>
+		n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`;
+
+	// Derive the repository id from the name until the user edits it directly.
+	$effect(() => {
+		if (idTouched) return;
+		converter.modId = slugify(converter.modName);
+	});
 
 	$effect(() => {
 		if (converterPendingPaths.length > 0) {
@@ -76,6 +103,12 @@
 		}
 	}
 
+	async function pickIcon() {
+		const imported = await invoke("converter:pick-icon");
+		if (!imported) return;
+		converter.icon = { name: imported.name, data: new Uint8Array(imported.data) };
+	}
+
 	async function processFile(filePath: string, data: Uint8Array) {
 		importingLabel = filePath.split(/[/\\]/).pop() ?? filePath;
 		const ext = filePath.split(".").pop()?.toLowerCase();
@@ -83,7 +116,9 @@
 			if (ext === "tempest") {
 				await processTempest(filePath, data);
 			} else if (ext === "upk" || ext === "pck" || ext === "ini") {
-				await processLooseFile(filePath, data);
+				const effective =
+					ext === "upk" || ext === "pck" ? ((await optimizeUpk(filePath)) ?? data) : data;
+				await processLooseFile(filePath, effective);
 			} else {
 				addToast({
 					title: m.toast_unsupported_file_title(),
@@ -94,45 +129,64 @@
 		} catch (error) {
 			console.error("Failed to import file:", filePath, error);
 		} finally {
+			if (!kindTouched) converter.kind = detectKind(allFiles());
 			importingLabel = null;
+		}
+	}
+
+	/**
+	 * Compresses an uncompressed .upk/.pck with the bundled upk-parser so it
+	 * installs like a game-cooked asset. Returns null when the file is already
+	 * compressed or the parser cannot handle it — the original is used as-is.
+	 * @param filePath Original path of the imported file (the parser reads it).
+	 * @returns Compressed bytes, or null to keep the original.
+	 */
+	async function optimizeUpk(filePath: string): Promise<Uint8Array | null> {
+		const name = filePath.split(/[/\\]/).pop() ?? filePath;
+		importingLabel = m.converter_upk_optimizing({ name });
+		try {
+			const result = await invoke("upk:optimize", { path: filePath });
+			if (result.optimized && result.data) {
+				addToast({
+					title: name,
+					message: m.converter_upk_optimized({ name }),
+					tone: "success",
+				});
+				return new Uint8Array(result.data);
+			}
+			return null;
+		} catch (error) {
+			// Unknown package layout: keep the file untouched rather than fail.
+			console.warn("Could not optimize", filePath, error);
+			return null;
+		} finally {
+			importingLabel = name;
 		}
 	}
 
 	async function processTempest(filePath: string, data: Uint8Array) {
 		try {
-			const zip = await JSZip.loadAsync(data);
-			const files: FileEntry[] = [];
-			let manifest: SourceEntry["manifest"] | undefined;
-			let readme: string | undefined;
-
-			const manifestFile = zip.file("manifest.toml");
-			if (manifestFile) {
-				manifest = parseManifestToml(await manifestFile.async("string"));
+			const parsed = await parseV1Package(data);
+			// UPKs embedded in the uploaded mod get the same treatment as loose
+			// imports: compressed if they are not already.
+			const compressedCount = await optimizeUpkEntries(parsed.files, (name) => {
+				importingLabel = m.converter_upk_optimizing({ name });
+			});
+			if (compressedCount > 0) {
+				const label0 = filePath.split(/[/\\]/).pop() ?? filePath;
+				addToast({
+					title: label0,
+					message: m.converter_upk_optimized({ name: label0 }),
+					tone: "success",
+				});
 			}
-
-			const readmeFile = zip.file("README.md");
-			if (readmeFile) {
-				readme = await readmeFile.async("string");
-			}
-
-			for (const [zipPath, zipEntry] of Object.entries(zip.files)) {
-				if (!zipEntry.dir && zipPath.startsWith("files/")) {
-					let relativePath = zipPath.slice("files/".length);
-					if (relativePath) {
-						if (!relativePath.includes("/")) {
-							relativePath = `${targetDirFor(relativePath)}/${relativePath}`;
-						}
-						files.push({
-							path: relativePath,
-							data: new Uint8Array(await zipEntry.async("arraybuffer")),
-						});
-					}
-				}
-			}
-
 			const label = filePath.split(/[/\\]/).pop() ?? filePath;
-			converter.sources = [...converter.sources, { label, files, manifest, readme }];
+			converter.sources = [
+				...converter.sources,
+				{ label, files: parsed.files, readme: parsed.readme ?? undefined },
+			];
 
+			const manifest = parsed.manifest;
 			if (manifest && !converter.modName) {
 				converter.modName = manifest.name || "";
 				converter.modVersion = manifest.version || "1.0.0";
@@ -143,8 +197,14 @@
 					}));
 				}
 			}
-			if (readme && !converter.readmeContent) {
-				converter.readmeContent = readme;
+			// A V1 manifest's id is often just the display name; only keep it when
+			// it already satisfies the repository's slug rule.
+			if (manifest?.id && MOD_ID_PATTERN.test(manifest.id)) {
+				converter.modId = manifest.id;
+				idTouched = true;
+			}
+			if (parsed.readme && !converter.readmeContent) {
+				converter.readmeContent = parsed.readme;
 			}
 		} catch (error) {
 			console.error("Failed to parse V1 mod:", error);
@@ -155,8 +215,15 @@
 		const fileName = filePath.split(/[/\\]/).pop() ?? filePath;
 		converter.sources = [
 			...converter.sources,
-			{ label: fileName, files: [{ path: `${targetDirFor(fileName)}/${fileName}`, data }] },
+			{
+				label: fileName,
+				files: [{ path: `${targetDirFor(fileName)}/${fileName}`, data }],
+			},
 		];
+	}
+
+	function allFiles(): { path: string; data: Uint8Array }[] {
+		return converter.sources.flatMap((s) => s.files);
 	}
 
 	function updateTargetPath(sourceIdx: number, fileIdx: number, newPath: string) {
@@ -172,6 +239,7 @@
 
 	function removeSource(index: number) {
 		converter.sources = converter.sources.filter((_, i) => i !== index);
+		if (!kindTouched) converter.kind = detectKind(allFiles());
 	}
 
 	function addAuthor() {
@@ -188,91 +256,68 @@
 		converter.authors = updated;
 	}
 
-	function parseManifestToml(text: string): SourceEntry["manifest"] {
-		const result: SourceEntry["manifest"] = { name: "", id: "", version: "1.0.0", authors: [] };
-		const lines = text.split("\n");
-		let inAuthors = false;
-		let currentAuthor: { name: string; link: string } | null = null;
-
-		for (const raw of lines) {
-			const line = raw.trim();
-			if (!line || line.startsWith("#")) continue;
-			if (line === "[[mod.authors]]") {
-				if (currentAuthor) result.authors!.push(currentAuthor);
-				currentAuthor = { name: "", link: "" };
-				inAuthors = true;
-				continue;
-			}
-			const eqIdx = line.indexOf("=");
-			if (eqIdx === -1) continue;
-			const key = line.slice(0, eqIdx).trim();
-			let val = line.slice(eqIdx + 1).trim();
-			if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
-
-			if (inAuthors) {
-				if (key === "name") currentAuthor!.name = val;
-				else if (key === "link") currentAuthor!.link = val;
-			} else {
-				if (key === "name") result.name = val;
-				else if (key === "id") result.id = val;
-				else if (key === "version") result.version = val;
-			}
-		}
-		if (currentAuthor) result.authors!.push(currentAuthor);
-		return result;
-	}
-
 	async function cook() {
-		if (!converter.modName.trim()) return;
+		if (!canCook || cooking) return;
 		cooking = true;
-		converter.cookedZip = null;
+		signing = false;
+		published = null;
+		const previousStaged = converter.cooked?.stagedPath;
+		converter.cooked = null;
 
 		try {
-			const zip = new JSZip();
-
-			for (const source of converter.sources) {
-				for (const file of source.files) {
-					zip.file(`files/${file.path}`, file.data);
-				}
+			const id = converter.modId.trim();
+			const { bytes, duplicates } = await buildPackageZip(
+				{
+					id,
+					name: converter.modName.trim(),
+					version: converter.modVersion.trim() || "1.0.0",
+					authors: converter.authors,
+					readme: converter.readmeContent,
+					icon: converter.icon,
+				},
+				allFiles(),
+			);
+			if (duplicates > 0) {
+				addToast({
+					title: m.converter_source_files(),
+					message: m.converter_duplicates_skipped(),
+					tone: "warning",
+				});
 			}
 
-			const lines: string[] = [];
-			lines.push("[mod]");
-			lines.push(`id = "${converter.modName.trim()}"`);
-			lines.push(`name = "${converter.modName.trim()}"`);
-			lines.push(`version = "${converter.modVersion.trim() || "1.0.0"}"`);
-			lines.push("");
-			for (const author of converter.authors) {
-				if (!author.name.trim()) continue;
-				lines.push("[[mod.authors]]");
-				lines.push(`name = "${author.name.trim()}"`);
-				if (author.link.trim()) lines.push(`link = "${author.link.trim()}"`);
-				lines.push("");
-			}
-			zip.file("manifest.toml", lines.join("\n"));
+			const filename = `${id}-${converter.modVersion.trim() || "1.0.0"}.tempest`;
+			const stagedPath = await invoke("mods:stage-pack", { filename, data: bytes });
 
-			if (converter.readmeContent.trim()) {
-				zip.file("README.md", converter.readmeContent.trim());
-			}
+			// Sign host-side with the CLI (CHECKSUMS + CHECKSUMS.asc + SIGNER.pub);
+			// a first-time publisher is asked to name their signing key.
+			signing = true;
+			const signer = await signWithPrompt(stagedPath);
+			converter.cooked = { stagedPath, signer: signer || null, size: bytes.length };
 
-			converter.cookedZip = await zip.generateAsync({
-				type: "uint8array",
-				compression: "DEFLATE",
-			});
+			if (previousStaged && previousStaged !== stagedPath) {
+				void invoke("mods:discard-staged-pack", { stagedPath: previousStaged }).catch(
+					() => {},
+				);
+			}
 		} catch (error) {
 			console.error("Failed to cook mod:", error);
+			addToast({
+				title: m.converter_cook_failed(),
+				message: error instanceof Error ? error.message : m.common_unknown(),
+				tone: "error",
+			});
 		} finally {
 			cooking = false;
+			signing = false;
 		}
 	}
 
 	async function download() {
-		if (!converter.cookedZip) return;
+		if (!converter.cooked) return;
 		try {
-			// Save dialog + write happen host-side in one step.
-			const savedPath = await invoke("mods:save-pack", {
-				defaultPath: `${converter.modName.trim() || "converted-mod"}.tempest`,
-				data: converter.cookedZip,
+			// Save dialog + copy of the signed package happen host-side.
+			const savedPath = await invoke("mods:save-staged-pack", {
+				stagedPath: converter.cooked.stagedPath,
 			});
 			if (!savedPath) return;
 			addToast({
@@ -286,8 +331,8 @@
 	}
 
 	async function installToInstance(inst: Instance) {
-		if (!converter.cookedZip || !inst?.path) return;
-		const modFileName = converter.modName.trim() || "converted-mod";
+		if (!converter.cooked || !inst?.path) return;
+		const modFileName = `${converter.modId.trim() || converter.modName.trim() || "cooked-mod"}.tempest`;
 		installingLabel = modFileName;
 		void goto(`/instance/${inst.id}`);
 
@@ -300,13 +345,8 @@
 				duration: 0,
 			});
 
-			// Stage the cooked pack in a host-owned temp file, install from there,
-			// then discard it — the renderer never touches the filesystem itself.
-			const tmpFile = await invoke("mods:stage-pack", {
-				filename: `${modFileName}.tempest`,
-				data: converter.cookedZip,
-			});
-			const result = await installMod(inst.path, tmpFile, true);
+			// The signed package is already a host-side temp file; install from there.
+			const result = await installMod(inst.path, converter.cooked.stagedPath, true);
 
 			if (installingToastId) removeToast(installingToastId);
 
@@ -327,9 +367,6 @@
 					tone: "error",
 				});
 			}
-			try {
-				await invoke("mods:discard-staged-pack", { stagedPath: tmpFile });
-			} catch {}
 		} catch (error) {
 			if (installingToastId) removeToast(installingToastId);
 			console.error("Failed to install mod:", error);
@@ -339,7 +376,7 @@
 	}
 
 	function addToInstance() {
-		if (!converter.cookedZip) return;
+		if (!converter.cooked) return;
 		const instanceId = window.location.pathname.match(/^\/instance\/([^/]+)/)?.[1];
 		if (instanceId && instanceMap.value[instanceId]?.path) {
 			void installToInstance(instanceMap.value[instanceId]);
@@ -347,93 +384,71 @@
 			showInstanceSelect = true;
 		}
 	}
+
+	function openPublish() {
+		showPublish = true;
+	}
 </script>
 
-{#if isDraggingConverterFiles.value}
-	<div
-		class="bg-base-100/90 pointer-events-none absolute inset-0 z-40 flex flex-col items-center justify-center backdrop-blur-sm"
-		style="animation: fade-in 0.12s ease forwards;"
-	>
-		<div
-			class="card bg-base-200/95 border-accent/50 w-full max-w-sm border-2 border-dashed text-center shadow-2xl"
-			style="animation: pop-in 0.15s var(--ease-spring) forwards;"
-		>
-			<div class="card-body items-center gap-3">
-				<div
-					class="bg-accent/10 text-accent flex h-16 w-16 items-center justify-center rounded-xl"
-				>
-					<FlaskConical size={32} />
-				</div>
-				<h2 class="card-title justify-center">{m.converter_title()}</h2>
-				<p class="text-sm opacity-70">
-					{m.converter_drop_hint({
-						tempest: ".tempest",
-						upk: ".upk",
-						pck: ".pck",
-						ini: ".ini",
-					})}
-				</p>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<div class="bg-base-100 flex h-full flex-col">
-	<Header title={m.converter_title()}>
-		{#snippet icon()}
-			<FlaskConical size={32} class="opacity-60" />
-		{/snippet}
-	</Header>
-
-	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
-		<div class="flex-1 overflow-y-auto">
-			<div class="px-4 py-6">
-				<div class="mb-3 flex items-center justify-between">
-					<span class="text-sm font-semibold">{m.converter_source_files()}</span>
-					<button class="btn btn-accent btn-sm gap-2" onclick={pickFiles}>
-						<Plus size={16} />
-						{m.common_browse()}
-					</button>
-				</div>
-
-				{#if converter.sources.length === 0}
-					<div
-						class="border-base-300 rounded-box mb-4 border-2 border-dashed p-12 text-center"
-					>
-						<div class="text-base-content/50 flex flex-col items-center gap-2">
-							<FileUp size={32} />
-							<p class="text-sm">
-								{m.converter_drop_hint({
-									tempest: ".tempest",
-									upk: ".upk",
-									pck: ".pck",
-									ini: ".ini",
-								})}
-							</p>
-							<p class="text-xs opacity-60">{m.converter_drop_browse_hint()}</p>
-						</div>
+<div class="h-full overflow-y-auto">
+	<div class="mx-auto w-full max-w-6xl px-4 py-6">
+		<div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+			<!-- Sources -->
+			<section class="card bg-base-200">
+				<div class="card-body gap-4 p-4">
+					<div class="flex items-center justify-between">
+						<h2 class="text-sm font-semibold tracking-wide uppercase">
+							{m.converter_source_files()}
+						</h2>
+						<button class="btn btn btn-sm gap-2" onclick={pickFiles}>
+							<Plus size={16} />
+							{m.common_browse()}
+						</button>
 					</div>
-				{:else}
-					<div class="mb-2 space-y-2">
-						{#each converter.sources as source, sIdx (sIdx)}
-							<div class="bg-base-200 rounded-lg p-4">
-								<div class="mb-2 flex items-center justify-between">
-									<span class="truncate font-mono text-sm font-semibold"
-										>{source.label}</span
-									>
-									<button
-										class="btn btn-ghost btn-sm btn-square text-error"
-										onclick={() => removeSource(sIdx)}
-									>
-										<Trash2 size={14} />
-									</button>
-								</div>
-								<div class="space-y-1">
-									{#each source.files as file, fIdx}
-										<div class="pl-2">
+
+					{#if converter.sources.length === 0}
+						<button
+							class="border-base-300 rounded-box hover:border-primary/50 border-2 border-dashed p-10 text-center transition-colors"
+							onclick={pickFiles}
+						>
+							<div class="text-base-content/50 flex flex-col items-center gap-2">
+								<FileUp size={32} />
+								<p class="text-sm">
+									{m.converter_drop_hint({
+										tempest: ".tempest",
+										upk: ".upk",
+										pck: ".pck",
+										ini: ".ini",
+									})}
+								</p>
+								<p class="text-xs opacity-60">{m.converter_drop_browse_hint()}</p>
+							</div>
+						</button>
+					{:else}
+						<div class="space-y-2">
+							{#each converter.sources as source, sIdx (sIdx)}
+								<div class="bg-base-300/50 rounded-lg p-3">
+									<div class="mb-2 flex items-center justify-between gap-2">
+										<div class="flex min-w-0 items-center gap-2">
+											<span class="truncate font-mono text-sm font-semibold">
+												{source.label}
+											</span>
+											<span class="badge badge-ghost badge-sm shrink-0">
+												{source.files.length}
+											</span>
+										</div>
+										<button
+											class="btn btn-ghost btn-sm btn-square text-error"
+											onclick={() => removeSource(sIdx)}
+										>
+											<Trash2 size={14} />
+										</button>
+									</div>
+									<div class="space-y-1">
+										{#each source.files as file, fIdx}
 											<input
 												type="text"
-												class="input input-ghost w-full min-w-0 font-mono"
+												class="input input-ghost input-sm w-full min-w-0 font-mono"
 												value={file.path}
 												oninput={(e) =>
 													updateTargetPath(
@@ -442,138 +457,300 @@
 														e.currentTarget.value,
 													)}
 											/>
-										</div>
-									{/each}
+										{/each}
+									</div>
 								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
-				{#if importingLabel}
-					<div class="text-base-content/50 mb-6 flex items-center gap-2 text-xs">
-						<span class="loading loading-spinner loading-xs"></span>
-						{m.converter_importing({ name: importingLabel })}
-					</div>
-				{:else}
-					<p class="text-base-content/50 mb-6 text-xs">
-						{totalFiles}
-						{m.downloads_files({ count: totalFiles })} across {converter.sources.length}
-						{m.converter_sources({ count: converter.sources.length })}
-					</p>
-				{/if}
+							{/each}
+						</div>
+					{/if}
 
-				<div class="divider my-0 mb-6"></div>
+					{#if importingLabel}
+						<div class="text-base-content/50 flex items-center gap-2 text-xs">
+							<span class="loading loading-spinner loading-xs"></span>
+							{m.converter_importing({ name: importingLabel })}
+						</div>
+					{:else if totalFiles > 0}
+						<p class="text-base-content/50 text-xs">
+							{totalFiles}
+							{m.downloads_files({ count: totalFiles })} across {converter.sources
+								.length}
+							{m.converter_sources({ count: converter.sources.length })}
+						</p>
+					{/if}
+				</div>
+			</section>
 
-				<div class="flex flex-col gap-4">
-					<div class="flex flex-col gap-1">
+			<!-- Details -->
+			<section class="card bg-base-200">
+				<div class="card-body gap-4 p-4">
+					<h2 class="text-sm font-semibold tracking-wide uppercase">
+						{m.converter_details_section()}
+					</h2>
+
+					<label class="form-control gap-1">
 						<span class="text-sm font-semibold">{m.converter_mod_name_label()}</span>
 						<input
 							id="conv-name"
 							type="text"
-							class="input input-bordered w-full"
+							class="input input-bordered"
 							bind:value={converter.modName}
 							placeholder={m.converter_mod_name_placeholder()}
 						/>
-					</div>
+					</label>
 
-					<div class="flex w-32 flex-col gap-1">
-						<span class="text-sm font-semibold">{m.common_version()}</span>
+					<div class="grid grid-cols-[1fr_7rem] gap-2">
+						<label class="form-control gap-1">
+							<span class="text-sm font-semibold">{m.converter_mod_id_label()}</span>
+							<input
+								id="conv-id"
+								type="text"
+								class="input input-bordered font-mono"
+								class:input-error={idError}
+								bind:value={converter.modId}
+								oninput={() => (idTouched = true)}
+								placeholder={m.converter_mod_id_placeholder()}
+								spellcheck="false"
+							/>
+						</label>
+						<label class="form-control gap-1">
+							<span class="text-sm font-semibold">{m.common_version()}</span>
+							<input
+								id="conv-version"
+								type="text"
+								class="input input-bordered"
+								bind:value={converter.modVersion}
+								placeholder={m.converter_version_placeholder()}
+							/>
+						</label>
+					</div>
+					<p class="text-base-content/50 -mt-2 text-xs">
+						{idError ? m.converter_mod_id_invalid() : m.converter_mod_id_hint()}
+					</p>
+
+					<label class="form-control gap-1">
+						<span class="text-sm font-semibold">{m.converter_summary_label()}</span>
 						<input
-							id="conv-version"
+							id="conv-summary"
 							type="text"
-							class="input input-bordered w-full"
-							bind:value={converter.modVersion}
-							placeholder={m.converter_version_placeholder()}
+							class="input input-bordered"
+							bind:value={converter.summary}
+							placeholder={m.converter_summary_placeholder()}
 						/>
-					</div>
-				</div>
+					</label>
 
-				<div class="divider my-6"></div>
-
-				<div class="form-control">
-					<div class="mb-3 flex items-center justify-between">
-						<span class="text-sm font-semibold">{m.converter_authors_label()}</span>
-						<button class="btn btn-accent btn-sm gap-2" onclick={addAuthor}>
-							<Plus size={16} />
-							{m.common_add()}
-						</button>
+					<div class="grid grid-cols-2 gap-2">
+						<label class="form-control gap-1">
+							<span class="text-sm font-semibold">{m.converter_kind_label()}</span>
+							<select
+								id="conv-kind"
+								class="select select-bordered"
+								bind:value={converter.kind}
+								onchange={() => (kindTouched = true)}
+							>
+								<option value="assets">{m.repo_kind_assets()}</option>
+								<option value="scripts">{m.repo_kind_scripts()}</option>
+								<option value="native">{m.repo_kind_native()}</option>
+							</select>
+						</label>
+						<label class="form-control gap-1">
+							<span class="text-sm font-semibold">{m.converter_tags_label()}</span>
+							<input
+								id="conv-tags"
+								type="text"
+								class="input input-bordered"
+								bind:value={converter.tags}
+								placeholder={m.converter_tags_placeholder()}
+							/>
+						</label>
 					</div>
-					<div class="space-y-2">
-						{#each converter.authors as author, i}
-							<div class="bg-base-200 rounded-lg p-4">
-								<div class="flex flex-col gap-2">
-									<input
-										type="text"
-										class="input input-bordered w-full"
-										placeholder={m.converter_author_name_placeholder()}
-										value={author.name}
-										oninput={(e) =>
-											updateAuthor(i, "name", e.currentTarget.value)}
-									/>
-									<div class="flex items-center gap-2">
-										<input
-											type="text"
-											class="input input-bordered flex-1"
-											placeholder={m.converter_author_link_placeholder()}
-											value={author.link}
-											oninput={(e) =>
-												updateAuthor(i, "link", e.currentTarget.value)}
-										/>
-										<button
-											class="btn btn-ghost btn-sm btn-square text-error shrink-0"
-											onclick={() => removeAuthor(i)}
-										>
-											<X size={14} />
-										</button>
-									</div>
-								</div>
+
+					<div class="form-control gap-1">
+						<span class="text-sm font-semibold">{m.converter_icon_label()}</span>
+						{#if converter.icon}
+							<div
+								class="bg-base-300/50 flex items-center justify-between rounded-lg px-3 py-2"
+							>
+								<span class="truncate font-mono text-xs">{converter.icon.name}</span
+								>
+								<button
+									class="btn btn-ghost btn-xs btn-square text-error"
+									onclick={() => (converter.icon = null)}
+								>
+									<X size={14} />
+								</button>
 							</div>
-						{/each}
-					</div>
-				</div>
-
-				<div class="divider my-6"></div>
-
-				<div class="form-control mb-6">
-					<span class="mb-2 block text-sm font-semibold"
-						>{m.converter_readme_label()}</span
-					>
-					<textarea
-						id="conv-readme"
-						class="textarea textarea-bordered h-48 w-full"
-						bind:value={converter.readmeContent}
-						placeholder={m.converter_readme_placeholder()}></textarea>
-				</div>
-
-				<div class="flex items-center justify-between">
-					<button
-						class="btn btn-accent gap-2"
-						disabled={!canCook || cooking}
-						onclick={cook}
-					>
-						{#if cooking}
-							<span class="loading loading-spinner loading-xs"></span>
-							{m.converter_cooking()}
 						{:else}
-							<FlaskConical size={18} />
-							{m.converter_cook()}
-						{/if}
-					</button>
-
-					{#if converter.cookedZip}
-						<div class="flex items-center gap-2">
-							<button class="btn btn-accent gap-2" onclick={download}>
-								<FolderOpen size={16} />
-								{m.converter_download()}
+							<button
+								class="border-base-300 flex items-center gap-2 rounded-lg border-2 border-dashed px-3 py-2 text-sm opacity-70 hover:opacity-100"
+								onclick={pickIcon}
+							>
+								<ImageIcon size={16} />
+								{m.converter_icon_pick()}
 							</button>
-							<button class="btn btn-accent gap-2" onclick={addToInstance}>
-								<File size={16} />
-								{m.converter_add_to_instance()}
+						{/if}
+					</div>
+
+					<div class="form-control gap-1">
+						<div class="flex items-center justify-between">
+							<span class="text-sm font-semibold">{m.converter_authors_label()}</span>
+							<button class="btn btn-ghost btn-xs gap-1" onclick={addAuthor}>
+								<Plus size={14} />
+								{m.common_add()}
 							</button>
 						</div>
+						<div class="space-y-2">
+							{#each converter.authors as author, i}
+								<div class="bg-base-300/50 rounded-lg p-2">
+									<div class="flex flex-col gap-1">
+										<input
+											type="text"
+											class="input input-bordered input-sm"
+											placeholder={m.converter_author_name_placeholder()}
+											value={author.name}
+											oninput={(e) =>
+												updateAuthor(i, "name", e.currentTarget.value)}
+										/>
+										<div class="flex items-center gap-1">
+											<input
+												type="text"
+												class="input input-bordered input-sm flex-1"
+												placeholder={m.converter_author_link_placeholder()}
+												value={author.link}
+												oninput={(e) =>
+													updateAuthor(i, "link", e.currentTarget.value)}
+											/>
+											<button
+												class="btn btn-ghost btn-sm btn-square text-error shrink-0"
+												onclick={() => removeAuthor(i)}
+											>
+												<X size={14} />
+											</button>
+										</div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				</div>
+			</section>
+		</div>
+
+		<!-- Readme -->
+		<section class="card bg-base-200 mt-4">
+			<div class="card-body gap-2 p-4">
+				<h2 class="text-sm font-semibold tracking-wide uppercase">
+					{m.converter_readme_label()}
+				</h2>
+				<textarea
+					id="conv-readme"
+					class="textarea textarea-bordered h-40 w-full"
+					bind:value={converter.readmeContent}
+					placeholder={m.converter_readme_placeholder()}></textarea>
+			</div>
+		</section>
+
+		<!-- Cooked package -->
+		{#if converter.cooked}
+			<section class="card bg-base-200 mt-4">
+				<div class="card-body gap-3 p-4">
+					<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+						<h2 class="text-lg font-bold">{converter.modName || converter.modId}</h2>
+						<span class="badge badge-primary badge-sm"
+							>v{converter.modVersion || "1.0.0"}</span
+						>
+						<span class="text-base-content/40 font-mono text-xs"
+							>{converter.modId}.tempest</span
+						>
+					</div>
+					<div class="flex flex-wrap items-center gap-2 text-xs">
+						<span class="badge badge-success badge-sm gap-1">
+							<BadgeCheck size={12} />
+							{m.converter_package_ready()}
+						</span>
+						{#if converter.cooked.signer}
+							<span class="max-w-72 truncate font-mono opacity-60">
+								{m.converter_signed_by({ signer: converter.cooked.signer })}
+							</span>
+						{/if}
+						<span class="opacity-60">{fmtSize(converter.cooked.size)}</span>
+					</div>
+					<div class="flex flex-wrap items-center gap-2">
+						{#if publishingEnabled}
+							<button class="btn btn-primary gap-2" onclick={openPublish}>
+								<Upload size={16} />
+								{m.converter_publish_btn()}
+							</button>
+						{/if}
+						<button class="btn gap-2" onclick={download}>
+							<FolderOpen size={16} />
+							{m.converter_download()}
+						</button>
+						<button
+							class="btn gap-2"
+							disabled={installingLabel !== null}
+							onclick={addToInstance}
+						>
+							<File size={16} />
+							{m.converter_add_to_instance()}
+						</button>
+					</div>
+					{#if publishingEnabled && published?.state === "done" && published.modId}
+						<div class="bg-success/10 rounded-lg px-3 py-2">
+							<div class="text-success flex items-center gap-2 text-sm font-medium">
+								<CheckCircle2 size={16} class="shrink-0" />
+								{published.version
+									? m.converter_publish_done({
+											id: published.modId,
+											version: published.version,
+										})
+									: m.converter_toast_published_title()}
+							</div>
+						</div>
+						<div>
+							<button
+								class="link text-xs hover:underline"
+								onclick={() =>
+									openUrl(
+										`${modRepositoryURL.value}/mods/${published?.modId ?? ""}`,
+									)}
+							>
+								{m.converter_view_online()}
+							</button>
+						</div>
+					{:else}
+						<p class="text-base-content/50 text-xs">
+							{m.converter_publish_manual()}
+							<button
+								class="link hover:underline"
+								onclick={() => openUrl(`${repoHost}/`)}
+							>
+								{m.converter_publish_manual_link()}
+							</button>
+						</p>
 					{/if}
 				</div>
-			</div>
+			</section>
+		{/if}
+
+		<!-- Cook action -->
+		<div class="from-base-100 sticky bottom-0 mt-4 bg-gradient-to-t from-60% pt-4 pb-2">
+			<button
+				class="btn btn-primary btn-lg gap-2"
+				disabled={!canCook || cooking}
+				onclick={cook}
+			>
+				{#if cooking}
+					<span class="loading loading-spinner loading-xs"></span>
+					{#if signing}
+						{m.converter_signing()}
+					{:else}
+						{m.converter_cooking()}
+					{/if}
+				{:else}
+					<FlaskConical size={20} />
+					{m.converter_cook()}
+				{/if}
+			</button>
 		</div>
 	</div>
 </div>
@@ -585,5 +762,22 @@
 	}}
 	oncancel={() => {
 		showInstanceSelect = false;
+	}}
+/>
+
+<PublishModal
+	bind:open={showPublish}
+	onpublished={(result) => {
+		published = result;
+		if (result.state === "done" && result.modId && result.version) {
+			addToast({
+				title: m.converter_toast_published_title(),
+				message: m.converter_toast_published_message({
+					id: result.modId,
+					version: result.version,
+				}),
+				tone: "success",
+			});
+		}
 	}}
 />

@@ -176,7 +176,7 @@
 							{:else}
 								<button
 									class="btn btn-sm {state === 'update'
-										? 'btn-accent'
+										? 'btn-primary'
 										: 'btn-primary'}"
 									disabled={!mod.latest || isRunning || installing !== null}
 									onclick={() => install(mod)}

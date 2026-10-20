@@ -57,7 +57,7 @@
 		loading={!freeSpaceInLobby}
 	>
 		{#if freeSpaceInLobby}
-			<button class="btn btn-accent" onclick={handleJoin}>{m.common_join()}</button>
+			<button class="btn btn-primary" onclick={handleJoin}>{m.common_join()}</button>
 		{/if}
 	</LobbyOverlayDialog>
 {:else if joinErrorCode === JoinLobbyClientErrorCode.KICKED}
@@ -78,7 +78,7 @@
 			/>
 		</div>
 		<button
-			class="btn btn-accent"
+			class="btn btn-primary"
 			onclick={() => handlePasswordSubmit(selectedPassword)}
 			disabled={!selectedPassword}>{m.common_join()}</button
 		>

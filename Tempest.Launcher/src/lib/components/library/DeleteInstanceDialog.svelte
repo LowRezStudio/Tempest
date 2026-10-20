@@ -39,13 +39,13 @@
 		<div class="flex flex-col gap-2">
 			<label
 				class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors"
-				class:border-accent={selected === "library"}
+				class:border-primary={selected === "library"}
 				class:bg-base-200={selected === "library"}
 				class:border-base-300={selected !== "library"}
 			>
 				<input
 					type="radio"
-					class="radio radio-sm radio-accent mt-0.5"
+					class="radio radio-sm radio-primary mt-0.5"
 					bind:group={selected}
 					value="library"
 				/>
@@ -57,13 +57,13 @@
 
 			<label
 				class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors"
-				class:border-accent={selected === "library_mods"}
+				class:border-primary={selected === "library_mods"}
 				class:bg-base-200={selected === "library_mods"}
 				class:border-base-300={selected !== "library_mods"}
 			>
 				<input
 					type="radio"
-					class="radio radio-sm radio-accent mt-0.5"
+					class="radio radio-sm radio-primary mt-0.5"
 					bind:group={selected}
 					value="library_mods"
 				/>
@@ -77,7 +77,7 @@
 
 			<label
 				class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors"
-				class:border-accent={selected === "delete"}
+				class:border-primary={selected === "delete"}
 				class:bg-base-200={selected === "delete"}
 				class:border-base-300={selected !== "delete"}
 			>

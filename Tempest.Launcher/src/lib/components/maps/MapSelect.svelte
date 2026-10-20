@@ -77,7 +77,7 @@
 			<button
 				type="button"
 				class="group bg-base-200 hover:bg-base-300 relative cursor-pointer overflow-hidden rounded-none transition-all duration-150 active:scale-[0.98] {isVotedByMe
-					? 'ring-accent ring-4'
+					? 'ring-primary ring-4'
 					: ''}"
 				onclick={() => handleMapClick(map)}
 			>
@@ -104,7 +104,7 @@
 
 					{#if isVotedByMe}
 						<div class="absolute top-2 right-2">
-							<div class="bg-accent text-accent-content rounded-full p-1">
+							<div class="bg-primary text-primary-content rounded-full p-1">
 								<Check size={12} />
 							</div>
 						</div>
@@ -119,7 +119,7 @@
 				{#if selectMode === "vote"}
 					<div class="bg-base-300 relative h-1">
 						<div
-							class="bg-accent absolute inset-y-0 left-0 transition-all duration-300"
+							class="bg-primary absolute inset-y-0 left-0 transition-all duration-300"
 							style="width: {votePercent}%"
 						></div>
 					</div>

@@ -88,7 +88,7 @@
 			</button>
 
 			{#if isRunning && !isStopping}
-				<button class="btn btn-accent text-sm" onclick={join}>
+				<button class="btn btn-primary text-sm" onclick={join}>
 					{m.common_join()}
 				</button>
 			{/if}

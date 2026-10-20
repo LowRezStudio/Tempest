@@ -3,8 +3,7 @@
 	themes: false;
 }
 @plugin "@tailwindcss/typography";
-@plugin "./themes/catppuccin.latte.ts";
-@plugin "./themes/catppuccin.mocha.ts";
+@import "./themes/tempest.css";
 
 @import "./themes/legacy.css";
 
@@ -121,4 +120,105 @@
 	&::-webkit-scrollbar {
 		display: none;
 	}
+}
+
+/* Quiet button language (same as mods.lowrezstudio.com): a plain .btn is a
+ * soft neutral tint of its own text color; only the named color variants
+ * (btn-primary etc.) are filled. Keeps colored buttons to real actions. */
+.btn:not(
+	.btn-primary,
+	.btn-secondary,
+	.btn-accent,
+	.btn-neutral,
+	.btn-info,
+	.btn-success,
+	.btn-warning,
+	.btn-error,
+	.btn-outline,
+	.btn-dash,
+	.btn-soft,
+	.btn-link
+) {
+	--btn-bg: color-mix(in oklab, currentColor 8%, transparent);
+	--btn-border: transparent;
+	--btn-shadow: 0 0 0 0 transparent;
+	--btn-inset: 0 0 0 0 transparent;
+	text-shadow: none;
+}
+
+.btn:not(
+		.btn-primary,
+		.btn-secondary,
+		.btn-accent,
+		.btn-neutral,
+		.btn-info,
+		.btn-success,
+		.btn-warning,
+		.btn-error,
+		.btn-outline,
+		.btn-dash,
+		.btn-soft,
+		.btn-link
+	).btn-ghost {
+	--btn-bg: transparent;
+}
+
+@media (hover: hover) {
+	.btn:not(
+			.btn-primary,
+			.btn-secondary,
+			.btn-accent,
+			.btn-neutral,
+			.btn-info,
+			.btn-success,
+			.btn-warning,
+			.btn-error,
+			.btn-outline,
+			.btn-dash,
+			.btn-soft,
+			.btn-link
+		):hover {
+		--btn-bg: color-mix(in oklab, currentColor 13%, transparent);
+		--btn-border: transparent;
+		--btn-shadow: 0 0 0 0 transparent;
+		--btn-inset: 0 0 0 0 transparent;
+	}
+}
+
+.btn:not(
+		.btn-primary,
+		.btn-secondary,
+		.btn-accent,
+		.btn-neutral,
+		.btn-info,
+		.btn-success,
+		.btn-warning,
+		.btn-error,
+		.btn-outline,
+		.btn-dash,
+		.btn-soft,
+		.btn-link
+	):focus-visible {
+	--btn-bg: color-mix(in oklab, currentColor 13%, transparent);
+	--btn-border: transparent;
+	--btn-shadow: 0 0 0 0 transparent;
+	--btn-inset: 0 0 0 0 transparent;
+}
+
+.btn:not(
+		.btn-primary,
+		.btn-secondary,
+		.btn-accent,
+		.btn-neutral,
+		.btn-info,
+		.btn-success,
+		.btn-warning,
+		.btn-error,
+		.btn-outline,
+		.btn-dash,
+		.btn-soft,
+		.btn-link
+	):active:not(:disabled) {
+	--btn-bg: color-mix(in oklab, currentColor 18%, transparent);
+	--btn-border: transparent;
 }

@@ -26,6 +26,8 @@ export const dismissExperimentalWarning = persistedState<boolean>(
 	false,
 );
 export const openSslCapFix = persistedState<boolean>("openSslCapFix", true);
+/** Whether the mod cooker's first-run setup wizard (key + API key) was completed or dismissed. */
+export const cookerOnboarded = persistedState<boolean>("cookerOnboarded", false);
 
 const getDefaultInstancePath = (): Promise<string> => invoke("app:default-instance-path");
 

@@ -198,7 +198,7 @@
 					<p class="text-xs opacity-60">{m.home_releasenotes_loading()}</p>
 				{:else if cachedReleaseNotes.value}
 					<div class="mb-2 flex items-center gap-2">
-						<span class="badge badge-accent badge-sm"
+						<span class="badge badge-primary badge-sm"
 							>{cachedReleaseNotes.value.version}</span
 						>
 					</div>
@@ -224,7 +224,7 @@
 		<div class="join shadow-none">
 			<button
 				class="btn btn-lg join-item min-h-14 gap-2"
-				class:btn-accent={!isRunning}
+				class:btn-primary={!isRunning}
 				class:btn-error={isRunning}
 				disabled={isLaunching || isKilling}
 				aria-busy={isLaunching || isKilling}
@@ -277,7 +277,7 @@
 {:else}
 	<div class="fixed right-8 bottom-8 z-50 flex flex-col items-end gap-2 select-none">
 		<div class="join shadow-none">
-			<a href="/library" class="btn btn-lg btn-accent join-item min-h-14 gap-2">
+			<a href="/library" class="btn btn-lg btn-primary join-item min-h-14 gap-2">
 				<Library size={20} />
 				<div class="flex flex-col items-start">
 					<span class="text-sm font-semibold">{m.home_get_started()}</span>

@@ -15,9 +15,6 @@ importers:
         specifier: ^3.10.1
         version: 3.10.1
     devDependencies:
-      '@catppuccin/daisyui':
-        specifier: ^2.1.1
-        version: 2.1.1(tailwindcss@4.3.1)
       '@fontsource-variable/ubuntu-sans-mono':
         specifier: ^5.2.10
         version: 5.2.10
@@ -138,14 +135,6 @@ packages:
 
   '@bufbuild/protoplugin@2.12.1':
     resolution: {integrity: sha512-PY58KxQVAD1BnnKtStOctsMoegEVGfBnY5AOqVQOIu711nA13oYtTqJM8df5lUQg2J1DR3XxUXptE+fWX5oLdA==}
-
-  '@catppuccin/daisyui@2.1.1':
-    resolution: {integrity: sha512-PrZttjj8kwfDBJ34sR+DN25Xtjvxx4T5p8uu/iiGYZR8UOsNwzMlO/alYDBwwTOLzP1NKLNRax09kCT39+QM+A==}
-    peerDependencies:
-      tailwindcss: ^4.0.17
-
-  '@catppuccin/palette@1.8.0':
-    resolution: {integrity: sha512-qXhwKiLzQomUygUJYB36YAFgs+dET5bIocfkiaFIatQF5Pwc7L112TlF9P8J5Oqs3x3XTjYSucG0ncHXSCuk7Q==}
 
   '@electron-internal/extract-zip@1.0.4':
     resolution: {integrity: sha512-Zr1Vs7E9tpCNhZHDAbFVXc2gEVCG9RqPDjrno5+bdgB6LRAuvgyMHJut4NCVyYwtAieapMzc3fiQ3CSTi75ARg==}
@@ -2346,13 +2335,6 @@ snapshots:
       typescript: 5.4.5
     transitivePeerDependencies:
       - supports-color
-
-  '@catppuccin/daisyui@2.1.1(tailwindcss@4.3.1)':
-    dependencies:
-      '@catppuccin/palette': 1.8.0
-      tailwindcss: 4.3.1
-
-  '@catppuccin/palette@1.8.0': {}
 
   '@electron-internal/extract-zip@1.0.4': {}
 

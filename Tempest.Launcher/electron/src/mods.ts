@@ -40,6 +40,37 @@ handle("mods:stage-pack", async (_event, { filename, data }) => {
 	return stagedPath;
 });
 
+handle("mods:save-staged-pack", async (event, { stagedPath }) => {
+	// Save dialog + copy of an already-cooked package in the temp dir (e.g. a
+	// signed one the CLI wrote): the bytes never cross the bridge.
+	const win = BrowserWindow.fromWebContents(event.sender);
+	const result = await dialog.showSaveDialog(win!, {
+		defaultPath: path.basename(stagedPath),
+		filters: [{ name: "Tempest Mod", extensions: ["tempest"] }],
+	});
+	if (result.canceled || !result.filePath) return null;
+	await fs.promises.copyFile(stagedPath, result.filePath);
+	return result.filePath;
+});
+
+handle("mods:save-staged-batch", async (event, { files }) => {
+	// One folder pick, then every cooked package is copied in as <filename>.
+	const win = BrowserWindow.fromWebContents(event.sender);
+	const result = await dialog.showOpenDialog(win!, {
+		properties: ["openDirectory", "createDirectory"],
+		title: "Choose a folder for the cooked mods",
+	});
+	const dir = result.filePaths[0];
+	if (result.canceled || !dir) return null;
+	const saved: string[] = [];
+	for (const file of files) {
+		const dest = path.join(dir, path.basename(file.filename));
+		await fs.promises.copyFile(file.stagedPath, dest);
+		saved.push(dest);
+	}
+	return { dir, saved };
+});
+
 handle("mods:discard-staged-pack", async (_event, { stagedPath }) => {
 	// Only ever delete inside the OS temp dir.
 	const resolved = path.resolve(stagedPath);

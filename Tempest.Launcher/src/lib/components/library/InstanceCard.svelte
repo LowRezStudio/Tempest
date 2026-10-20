@@ -88,14 +88,14 @@
 				<div class="flex items-center gap-2 text-sm">
 					{#if isDownloading}
 						{#if queueItem?.status === "pending"}
-							<span class="text-accent">{m.common_waiting_in_queue()}</span>
+							<span class="text-primary">{m.common_waiting_in_queue()}</span>
 						{:else if queueItem?.progress}
-							<span class="text-accent">
+							<span class="text-primary">
 								{m.common_downloading()}
 								{Math.round(queueItem.progress.bytesPerSecond / 1024 / 1024)} MB/s
 							</span>
 						{:else}
-							<span class="text-accent">{m.common_downloading()}</span>
+							<span class="text-primary">{m.common_downloading()}</span>
 						{/if}
 					{:else}
 						<span class="text-warning">{m.common_paused()}</span>
@@ -155,7 +155,7 @@
 						</span>
 					{/if}
 					{#if isSettingUp}
-						<span class="text-accent">{m.common_setting_up()}</span>
+						<span class="text-primary">{m.common_setting_up()}</span>
 					{/if}
 				</div>
 			</div>

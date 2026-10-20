@@ -120,7 +120,7 @@
 				/>
 			</label>
 			<button
-				class="btn btn-accent"
+				class="btn btn-primary"
 				onclick={() => {
 					joinServerWizardOpen.value = true;
 				}}
@@ -128,7 +128,7 @@
 				{m.join_server_title()}
 			</button>
 			<button
-				class="btn btn-accent"
+				class="btn btn-primary"
 				onclick={() => {
 					hostServerWizardOpen.value = true;
 				}}

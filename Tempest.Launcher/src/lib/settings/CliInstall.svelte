@@ -65,7 +65,7 @@
 		<div>
 			<button
 				type="button"
-				class="btn btn-accent btn-sm gap-2"
+				class="btn btn-primary btn-sm gap-2"
 				onclick={install}
 				disabled={installing}
 			>

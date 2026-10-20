@@ -31,6 +31,20 @@ const zig =
 	process.env.ZIG ??
 	(spawnSync("command", ["-v", "zign"], { shell: true }).status === 0 ? "zign" : "zig");
 
+// The upk-parser package targets zig 0.17-dev (anyzig resolves it from its
+// build.zig.zon) and needs no SDK shim — always plain zig. Built first so the
+// parser is bundled even when the legacy root build below fails locally.
+await $`zig build -Doptimize=ReleaseSafe`.cwd(path.join(root, "..", "Tempest.Utils", "utils"));
+
+const parserOut = path.join(root, "..", "Tempest.Utils", "utils", "zig-out", "bin");
+if (fs.existsSync(parserOut)) {
+	for (const f of fs.readdirSync(parserOut)) {
+		if (f.startsWith("upk-parser")) {
+			fs.copyFileSync(path.join(parserOut, f), path.join(binariesDir, f));
+		}
+	}
+}
+
 await $`${zig} build -Doptimize=ReleaseSafe`.cwd(path.join(root, "..", "Tempest.Utils"));
 
 const zigOut = path.join(root, "..", "Tempest.Utils", "zig-out", "bin");

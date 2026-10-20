@@ -1,6 +1,7 @@
 import { fetch as httpFetch, invoke, resolveResource } from "$lib/platform/api";
 import { getQueryClient } from "$lib/queries/client";
 import { appendProcessLogs } from "$lib/stores/processes.svelte";
+import { modRepositoryURL } from "$lib/stores/settings.svelte";
 import { createCommand } from "./command";
 import type { Instance } from "$lib/types/instance";
 
@@ -319,3 +320,154 @@ export const reloadModDll = async (gamePath: string, modId: string): Promise<Mod
 		return { Success: false, Message: "Internal error parsing CLI output" };
 	}
 };
+
+// ---- Mod cooker: signing and repository publishing (via the CLI) ----
+
+type CliResult = { code: number | null; signal: string | null; stdout: string; stderr: string };
+
+export const describeError = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
+
+const runCli = async (args: string[], label: string): Promise<CliResult> => {
+	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
+	const res = await createCommand(args).execute();
+	if (res.stdout) appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
+	if (res.stderr) appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
+	if (res.code !== 0) {
+		const detail = res.stderr.trim() || res.stdout.trim() || `exit ${res.code}`;
+		throw new Error(`${label}: ${detail}`);
+	}
+	return res;
+};
+
+// Signs a .tempest package in place with the default signing key; returns the
+// signer description ("user id [fingerprint]"). Throws SigningKeyMissingError
+// when this machine has no signing key yet — the UI asks for a key name, calls
+// generateSigningKey, then signs again.
+export class SigningKeyMissingError extends Error {
+	constructor(message = "no signing key on this machine") {
+		super(message);
+		this.name = "SigningKeyMissing";
+	}
+}
+
+const KEY_MISSING_PATTERN =
+	/no signing key|could not find file|no such file|does not exist|not found/i;
+
+// True when generation failed because a signing key is already on this machine.
+export const isKeyExistsError = (message: string): boolean => /already exists/i.test(message);
+
+export const signModPackage = async (packagePath: string): Promise<string> => {
+	appendProcessLogs([`Running command: tempest-cli mod sign ${packagePath}`], false, "mods");
+	const res = await createCommand(["mod", "sign", packagePath]).execute();
+	if (res.stdout) appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
+	if (res.stderr) appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
+	if (res.code !== 0) {
+		const detail = res.stderr.trim() || res.stdout.trim() || `exit ${res.code}`;
+		if (KEY_MISSING_PATTERN.test(detail)) throw new SigningKeyMissingError(detail);
+		throw new Error(`signing failed: ${detail}`);
+	}
+	// "Signed '<path>' with <user id> [<fingerprint>]"
+	const signer = /^Signed '.*' with (.+)$/m.exec(res.stdout)?.[1]?.trim();
+	return signer ?? "";
+};
+
+// Generates the default signing key with the user-chosen identity, trusted on
+// this machine; `mod sign` picks it up afterwards.
+export const generateSigningKey = async (id: string): Promise<void> => {
+	await runCli(["mod", "gen-key", "--id", id], "signing key generation failed");
+};
+
+// Signs arbitrary text with the default signing key (the CLI's `mod sign-text`)
+// and returns the armored PGP signature. Used to prove key ownership: paste the
+// signature on your account page of the mod repository.
+export const signText = async (text: string): Promise<string> => {
+	const res = await runCli(["mod", "sign-text", text], "signing failed");
+	return res.stdout.trim();
+};
+
+export type RepoPublishListing = {
+	patches: string[];
+	rangeFrom?: string;
+	rangeTo?: string;
+	summary: string;
+	tags: string;
+	changelog?: string;
+	repository?: string;
+};
+
+export type RepoPublishResult = {
+	state: string;
+	modId?: string;
+	version?: string;
+	errors: string[];
+	warnings: string[];
+};
+
+// Publishes a signed .tempest package to the configured mod repository.
+export const repoPublish = async (
+	packagePath: string,
+	listing: RepoPublishListing,
+): Promise<RepoPublishResult> => {
+	const args = ["mod", "publish", packagePath];
+	for (const patch of listing.patches) args.push("--patch", patch);
+	if (listing.rangeFrom) args.push("--from", listing.rangeFrom);
+	if (listing.rangeTo) args.push("--to", listing.rangeTo);
+	if (listing.summary) args.push("--summary", listing.summary);
+	if (listing.tags) args.push("--tags", listing.tags);
+	if (listing.changelog) args.push("--changelog", listing.changelog);
+	if (listing.repository) args.push("--repository", listing.repository);
+	args.push("--json");
+
+	appendProcessLogs([`Running command: tempest-cli mod publish ${packagePath}`], false, "mods");
+	// Publish against the repository the launcher browses, not just the CLI's own config.
+	const res = await createCommand(args, { TEMPEST_REPO_URL: modRepositoryURL.value }).execute();
+	if (res.stdout) appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
+	if (res.stderr) appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
+
+	const parse = (): RepoPublishResult | null => {
+		try {
+			const intent = JSON.parse(res.stdout.trim()) as {
+				state?: string;
+				result?: {
+					modId?: string;
+					version?: string;
+					errors?: string[];
+					warnings?: string[];
+				};
+			};
+			if (!intent.state) return null;
+			return {
+				state: intent.state,
+				modId: intent.result?.modId,
+				version: intent.result?.version,
+				errors: intent.result?.errors ?? [],
+				warnings: intent.result?.warnings ?? [],
+			};
+		} catch {
+			return null;
+		}
+	};
+
+	if (res.code === 0) return parse() ?? { state: "done", errors: [], warnings: [] };
+	// A "failed" inspection still prints its intent JSON; other failures only stderr.
+	const failed = parse();
+	if (failed) return failed;
+	throw new Error(res.stderr.trim() || res.stdout.trim() || `exit ${res.code}`);
+};
+
+// Stores an API key for the mod repository (same repo.json the CLI uses).
+// Throws when the repository rejects the key.
+export const repoLogin = async (apiKey: string): Promise<string> => {
+	const res = await createCommand(["mod", "login", apiKey], {
+		TEMPEST_REPO_URL: modRepositoryURL.value,
+	}).execute();
+	if (res.stdout) appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
+	if (res.code !== 0) throw new Error(res.stderr.trim() || `exit ${res.code}`);
+	return res.stdout.trim();
+};
+
+// True when the repository rejected the credentials (needs the sign-in form,
+// not a generic error).
+export const isRepoAuthError = (message: string): boolean =>
+	/no api key|unauthorized|401|403/i.test(message);

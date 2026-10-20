@@ -35,3 +35,19 @@ handle("converter:pick-imports", async (event) => {
 });
 
 handle("converter:read-imports", (_event, { paths }) => readImports(paths));
+
+handle("converter:pick-icon", async (event) => {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	const result = await dialog.showOpenDialog(win!, {
+		properties: ["openFile"],
+		filters: [{ name: "Image", extensions: ["png"] }],
+	});
+	const picked = result.filePaths[0];
+	if (result.canceled || !picked) return null;
+	const data = await fs.promises.readFile(picked);
+	return {
+		path: picked,
+		name: path.basename(picked),
+		data: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+	};
+});

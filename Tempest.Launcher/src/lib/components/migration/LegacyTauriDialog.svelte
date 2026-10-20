@@ -64,7 +64,7 @@
 <Modal bind:open title={m.legacy_found_title()} onclose={keep}>
 	<div class="flex flex-col gap-4 py-2">
 		<div class="flex items-start gap-3">
-			<PackageX size={28} class="text-accent mt-0.5 shrink-0" />
+			<PackageX size={28} class="text-primary mt-0.5 shrink-0" />
 			<div class="space-y-2">
 				<p class="text-sm">{m.legacy_found_desc()}</p>
 				<p class="text-base-content/70 text-sm">
@@ -86,7 +86,7 @@
 		<button class="btn btn-ghost" onclick={keep} disabled={uninstalling}>
 			{m.legacy_keep()}
 		</button>
-		<button class="btn btn-accent" onclick={handleUninstall} disabled={uninstalling}>
+		<button class="btn btn-primary" onclick={handleUninstall} disabled={uninstalling}>
 			{#if uninstalling}
 				<Loader2 size={16} class="animate-spin" />
 			{/if}

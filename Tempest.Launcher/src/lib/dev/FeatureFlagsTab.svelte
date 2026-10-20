@@ -60,7 +60,7 @@
 				</div>
 				<input
 					type="checkbox"
-					class="toggle toggle-accent"
+					class="toggle toggle-primary"
 					checked={flag.enabled}
 					onchange={() => toggleFlag(flag.name)}
 				/>
@@ -84,7 +84,7 @@
 					<div class="flex shrink-0 items-center gap-2">
 						<input
 							type="checkbox"
-							class="toggle toggle-sm toggle-accent"
+							class="toggle toggle-sm toggle-primary"
 							checked={flag.enabled}
 							onchange={() => toggleFlag(flag.name)}
 						/>

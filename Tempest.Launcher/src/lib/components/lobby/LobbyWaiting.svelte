@@ -50,13 +50,13 @@
 	{/snippet}
 	{#snippet actions()}
 		{#if lobbyWaitingState.value.canRejoinGame}
-			<button class="btn btn-accent" onclick={handleRejoinGame}
+			<button class="btn btn-primary" onclick={handleRejoinGame}
 				>{m.lobby_rejoin_game()}</button
 			>
 		{/if}
 		{#if lobbyWaitingState.value.isWaiting && !isSpectator.value}
 			<button
-				class="btn {lobbyWaitingState.value.ownReady ? 'btn-success' : 'btn-accent'}"
+				class="btn {lobbyWaitingState.value.ownReady ? 'btn-success' : 'btn-primary'}"
 				onclick={() => lobbyManager.setReady(!lobbyWaitingState.value.ownReady)}
 			>
 				{lobbyWaitingState.value.ownReady ? m.lobby_ready() : m.lobby_ready_up()}
@@ -70,7 +70,7 @@
 		{#if !lobbyWaitingState.value.canRejoinLobby}
 			<button class="btn btn-error" onclick={handleLeave}> {m.lobby_leave_lobby()} </button>
 		{:else}
-			<button class="btn btn-accent" onclick={handleJoin}> {m.lobby_rejoin_lobby()}</button>
+			<button class="btn btn-primary" onclick={handleJoin}> {m.lobby_rejoin_lobby()}</button>
 		{/if}
 	{/snippet}
 	{#snippet subtitle()}

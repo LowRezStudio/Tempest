@@ -392,7 +392,7 @@
 	</div>
 
 	<div class="relative z-10 flex h-full flex-col">
-		<button type="button" class="btn btn-accent absolute top-6 right-4 z-20" onclick={finish}>
+		<button type="button" class="btn btn-ghost absolute top-6 right-4 z-20" onclick={finish}>
 			{m.onboarding_skip_all()}
 		</button>
 		{#key localeState.current}
@@ -443,7 +443,7 @@
 										{#each locales as loc}
 											<button
 												class="btn h-12 justify-start gap-3"
-												class:btn-accent={loc === languageDraft}
+												class:btn-primary={loc === languageDraft}
 												class:btn-ghost={loc !== languageDraft}
 												type="button"
 												data-locale={loc}
@@ -508,7 +508,7 @@
 										<div class="flex flex-col gap-2">
 											<button
 												class="btn h-12 justify-start gap-3"
-												class:btn-accent={loginMethod === "steam"}
+												class:btn-primary={loginMethod === "steam"}
 												class:btn-ghost={loginMethod !== "steam"}
 												type="button"
 												onclick={() => (loginMethod = "steam")}
@@ -524,7 +524,7 @@
 											</button>
 											<button
 												class="btn h-12 justify-start gap-3"
-												class:btn-accent={loginMethod === "epic"}
+												class:btn-primary={loginMethod === "epic"}
 												class:btn-ghost={loginMethod !== "epic"}
 												type="button"
 												onclick={() => (loginMethod = "epic")}
@@ -540,7 +540,7 @@
 											</button>
 											<button
 												class="btn h-12 justify-start gap-3"
-												class:btn-accent={loginMethod === "hirez"}
+												class:btn-primary={loginMethod === "hirez"}
 												class:btn-ghost={loginMethod !== "hirez"}
 												type="button"
 												onclick={() => (loginMethod = "hirez")}
@@ -557,7 +557,7 @@
 										</div>
 
 										<button
-											class="btn btn-accent w-full"
+											class="btn btn-primary w-full"
 											type="button"
 											disabled={importBusy || importDone || !loginMethod}
 											onclick={importSteamInstallation}
@@ -612,7 +612,7 @@
 											bind:value={defaultInstancePath.value}
 										/>
 										<button
-											class="btn btn-accent join-item"
+											class="btn join-item"
 											type="button"
 											onclick={browseDownloadDirectory}
 										>
@@ -622,7 +622,7 @@
 								</div>
 
 								<button
-									class="btn btn-accent mt-3 h-14 w-full justify-start gap-3"
+									class="btn btn-primary mt-3 h-14 w-full justify-start gap-3"
 									type="button"
 									disabled={downloadBusy ||
 										multiplayerQueued ||
@@ -672,7 +672,7 @@
 											{/each}
 										</select>
 										<button
-											class="btn btn-accent shrink-0"
+											class="btn shrink-0"
 											type="button"
 											disabled={downloadBusy || otherVersionQueued}
 											onclick={queueOtherBuild}
@@ -693,7 +693,7 @@
 							{:else}
 								<div class="flex flex-col items-center gap-4 py-2 text-center">
 									<div
-										class="btn btn-accent btn-circle pointer-events-none h-16 w-16"
+										class="btn btn-primary btn-circle pointer-events-none h-16 w-16"
 									>
 										<Check size={32} />
 									</div>
@@ -767,11 +767,11 @@
 								</button>
 							{/if}
 							{#if currentStep.id === "done"}
-								<button class="btn btn-accent" type="button" onclick={finish}>
+								<button class="btn btn-primary" type="button" onclick={finish}>
 									{m.onboarding_finish()}
 								</button>
 							{:else}
-								<button class="btn btn-accent" type="submit" disabled={!canGoNext}>
+								<button class="btn btn-primary" type="submit" disabled={!canGoNext}>
 									{showSkipLabel ? m.onboarding_skip() : m.onboarding_next()}
 								</button>
 							{/if}

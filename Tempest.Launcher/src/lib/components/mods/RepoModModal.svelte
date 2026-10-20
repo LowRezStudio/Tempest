@@ -169,7 +169,7 @@
 								{#if what !== "installed"}
 									<button
 										class="btn btn-xs ml-auto {what === 'update'
-											? 'btn-accent'
+											? 'btn-primary'
 											: what === 'downgrade'
 												? 'btn-outline'
 												: 'btn-primary'}"

@@ -212,7 +212,7 @@
 										? "cursor-not-allowed opacity-80 saturate-50"
 										: "cursor-pointer hover:scale-110 hover:shadow-xl",
 									displayedChampion?.name === champion.name
-										? "border-accent ring-accent shadow-xl ring-3"
+										? "border-primary ring-primary shadow-xl ring-3"
 										: hoveredChampion?.name === champion.name
 											? "border-white/50 ring-3 ring-white/50"
 											: isDisabled
@@ -293,7 +293,7 @@
 					<button
 						type="button"
 						class="btn btn-xl btn-wide relative z-10 cursor-pointer font-bold uppercase shadow-none"
-						class:btn-accent={displayedChampion && !confirmedChampionName}
+						class:btn-primary={displayedChampion && !confirmedChampionName}
 						class:btn-disabled={!displayedChampion || !!confirmedChampionName}
 						disabled={!displayedChampion || !!confirmedChampionName}
 						onclick={handleConfirm}
