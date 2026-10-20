@@ -191,7 +191,7 @@
 			{/if}
 			<button
 				class="btn text-sm"
-				class:btn-primary={!isRunning}
+				class:btn-success={!isRunning}
 				class:btn-error={isRunning}
 				disabled={isLaunching || isKilling || isSettingUp}
 				aria-busy={isLaunching || isKilling || isSettingUp}

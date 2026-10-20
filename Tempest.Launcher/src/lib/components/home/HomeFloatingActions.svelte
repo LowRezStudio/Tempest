@@ -224,7 +224,7 @@
 		<div class="join shadow-none">
 			<button
 				class="btn btn-lg join-item min-h-14 gap-2"
-				class:btn-primary={!isRunning}
+				class:btn-success={!isRunning}
 				class:btn-error={isRunning}
 				disabled={isLaunching || isKilling}
 				aria-busy={isLaunching || isKilling}
