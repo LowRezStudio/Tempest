@@ -54,7 +54,8 @@
 	const modsQuery = createModsQuery(() => instance?.path ?? "");
 	let modsList = $derived(modsQuery.data ?? []);
 	let isInitialLoading = $derived(modsQuery.isPending);
-	let isQueryLoading = $derived(modsQuery.isFetching);
+	// Only a manual refresh spins the button; background resyncs after edits stay silent.
+	let isRefreshingMods = $state(false);
 
 	const removeModMutation = createRemoveModMutation();
 
@@ -106,8 +107,13 @@
 		removeModMutation.mutate({ gamePath: instance.path, modName });
 	}
 
-	function handleRefreshMods() {
-		modsQuery.refetch();
+	async function handleRefreshMods() {
+		isRefreshingMods = true;
+		try {
+			await modsQuery.refetch();
+		} finally {
+			isRefreshingMods = false;
+		}
 	}
 
 	$effect(() => {
@@ -293,7 +299,7 @@
 							mods={modsList}
 							gamePath={instance?.path ?? ""}
 							{isRunning}
-							isLoading={isQueryLoading}
+							isLoading={isRefreshingMods}
 							isRemoving={removeModMutation.isPending}
 							onRefresh={handleRefreshMods}
 							onRemoveMod={handleRemoveMod}

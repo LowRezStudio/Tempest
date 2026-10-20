@@ -6,13 +6,10 @@
 		FolderOpen,
 		Info,
 		PackageX,
-		Pencil,
 		RefreshCw,
-		RotateCw,
 		Trash2,
 	} from "@lucide/svelte";
-	import Modal from "$lib/components/ui/Modal.svelte";
-	import { reloadModDll } from "$lib/core/mods";
+	import { SvelteSet } from "svelte/reactivity";
 	import { m } from "$lib/paraglide/messages";
 	import { invoke } from "$lib/platform/api";
 	import {
@@ -20,6 +17,7 @@
 		createEnableModMutation,
 		createDisableModMutation,
 	} from "$lib/queries/mods";
+	import { addToast } from "$lib/stores/ui.svelte";
 	import type { ModRecord } from "$lib/core/mods";
 	import type { RepoUpdate } from "$lib/queries/repo";
 
@@ -52,8 +50,6 @@
 		onOpenRepo,
 	}: Props = $props();
 
-	let reloadingModId = $state<string | null>(null);
-
 	async function showInExplorer(mod: ModRecord) {
 		if (mod.Kind === "V2") {
 			if (!gamePath) return;
@@ -68,82 +64,70 @@
 		});
 	}
 
-	let editingMod = $state<{ name: string } | null>(null);
-	let isRenameModalOpen = $state(false);
 	const renameMutation = createRenameModMutation();
 	const enableMutation = createEnableModMutation();
 	const disableMutation = createDisableModMutation();
-	let togglingModId = $state<string | null>(null);
+	const togglingModIds = new SvelteSet<string>();
+	let renamingModId = $state<string | null>(null);
 	let editName = $state("");
 
-	function openRename(mod: ModRecord) {
-		editingMod = { name: mod.Name };
+	const errorMessage = (error: unknown) =>
+		error instanceof Error ? error.message : String(error);
+
+	function startRename(mod: ModRecord) {
+		renamingModId = mod.Id;
 		editName = mod.Name;
-		isRenameModalOpen = true;
 	}
 
-	function closeRename() {
-		isRenameModalOpen = false;
-		editingMod = null;
+	async function commitRename(mod: ModRecord) {
+		if (renamingModId !== mod.Id) return;
+		// Cleared first: removing the input fires blur, which would commit again.
+		renamingModId = null;
+		const newName = editName.trim();
+		if (!newName || newName === mod.Name) return;
+		try {
+			await renameMutation.mutateAsync({ gamePath, oldName: mod.Name, newName });
+		} catch (error) {
+			addToast({
+				title: m.mod_rename_dialog_title(),
+				message: errorMessage(error),
+				tone: "error",
+			});
+		}
 	}
 
-	$effect(() => {
-		if (!isRenameModalOpen && editingMod) editingMod = null;
-	});
+	function handleRenameKey(e: KeyboardEvent, mod: ModRecord) {
+		if (e.key === "Enter") {
+			e.preventDefault();
+			void commitRename(mod);
+		} else if (e.key === "Escape") {
+			e.preventDefault();
+			renamingModId = null;
+		}
+	}
 
-	async function handleRename() {
-		if (!editingMod) return;
-		const finalName = editName.trim();
-		if (!finalName || finalName === editingMod.name) {
-			closeRename();
+	function focusAndSelect(node: HTMLInputElement) {
+		node.focus();
+		node.select();
+	}
+
+	// The list updates optimistically; a second click while the CLI still works on
+	// the same mod is ignored so two enable/disable runs never race.
+	const handleToggle = async (mod: ModRecord, input: HTMLInputElement) => {
+		if (togglingModIds.has(mod.Id)) {
+			input.checked = mod.Enabled;
 			return;
 		}
-		await renameMutation.mutateAsync({
-			gamePath,
-			oldName: editingMod.name,
-			newName: finalName,
-		});
-		closeRename();
-	}
-
-	let hasDllMap = $state<Map<string, boolean>>(new Map());
-
-	$effect(() => {
-		if (!gamePath) return;
-		const next = new Map<string, boolean>();
-		for (const mod of mods) {
-			if (mod.Kind?.toLowerCase() !== "v2") continue;
-			const id = mod.Id;
-			invoke("mods:has-dlls", { gamePath, modId: id })
-				.then((r) => {
-					next.set(id, r);
-					hasDllMap = new Map(next);
-				})
-				.catch(() => {
-					next.set(id, false);
-					hasDllMap = new Map(next);
-				});
-		}
-	});
-
-	const handleReload = async (mod: ModRecord) => {
-		reloadingModId = mod.Id;
-		try {
-			await reloadModDll(gamePath, mod.Id);
-		} finally {
-			reloadingModId = null;
-		}
-	};
-
-	const handleToggle = async (mod: ModRecord) => {
-		togglingModId = mod.Id;
+		togglingModIds.add(mod.Id);
 		try {
 			await (mod.Enabled ? disableMutation : enableMutation).mutateAsync({
 				gamePath,
 				modName: mod.Name,
 			});
+		} catch (error) {
+			addToast({ message: `${mod.Name}: ${errorMessage(error)}`, tone: "error" });
 		} finally {
-			togglingModId = null;
+			togglingModIds.delete(mod.Id);
 		}
 	};
 </script>
@@ -196,15 +180,25 @@
 							{/if}
 						</button>
 						<div class="min-w-0 flex-1">
-							<div class="flex items-center gap-2">
+							{#if renamingModId === mod.Id}
+								<input
+									type="text"
+									class="input input-xs -mx-1.5 w-full max-w-xs px-1.5 text-sm font-bold"
+									aria-label={m.mod_rename_dialog_label()}
+									bind:value={editName}
+									use:focusAndSelect
+									onkeydown={(e) => handleRenameKey(e, mod)}
+									onblur={() => commitRename(mod)}
+								/>
+							{:else}
 								<button
-									class="hover:text-primary cursor-pointer truncate text-left text-sm font-bold transition-colors"
-									onclick={() => onOpenDetails(mod)}
-									title={m.mod_updated_files()}
+									class="hover:bg-base-300 -mx-1.5 block max-w-full cursor-text truncate rounded px-1.5 text-left text-sm font-bold transition-colors"
+									onclick={() => startRename(mod)}
+									title={m.mod_rename()}
 								>
 									{mod.Name}
 								</button>
-							</div>
+							{/if}
 							<p class="text-xs opacity-70">by {mod.Author}</p>
 						</div>
 					</div>
@@ -249,59 +243,14 @@
 								<Info size={16} />
 							</button>
 						{/if}
-						{#if hasDllMap.get(mod.Id)}
-							<button
-								class="btn btn-sm btn-square btn-ghost {isRunning
-									? 'text-primary'
-									: 'text-base-content/60'}"
-								disabled={!isRunning || reloadingModId === mod.Id}
-								onclick={() => handleReload(mod)}
-								title="Reload DLLs"
-							>
-								{#if reloadingModId === mod.Id}
-									<span class="loading loading-spinner loading-xs"></span>
-								{:else}
-									<RotateCw size={14} />
-								{/if}
-							</button>
-						{/if}
-						<button
-							class="btn btn-sm btn-square btn-ghost {mod.Enabled
-								? 'text-success'
-								: 'text-error'}"
-							disabled={togglingModId === mod.Id}
-							onclick={() => handleToggle(mod)}
+						<input
+							type="checkbox"
+							class="toggle toggle-sm toggle-primary mx-1"
+							checked={mod.Enabled}
+							onchange={(e) => handleToggle(mod, e.currentTarget)}
 							title={mod.Enabled ? "Disable mod" : "Enable mod"}
-						>
-							{#if togglingModId === mod.Id}
-								<span class="loading loading-spinner loading-xs"></span>
-							{:else if mod.Enabled}
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									width="14"
-									height="14"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2"
-									stroke-linecap="round"
-									stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg
-								>
-							{:else}
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									width="14"
-									height="14"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg
-								>
-							{/if}
-						</button>
+							aria-label={mod.Enabled ? "Disable mod" : "Enable mod"}
+						/>
 						<button
 							class="btn btn-sm btn-square btn-ghost hover:text-error"
 							disabled={isRemoving}
@@ -317,47 +266,9 @@
 						>
 							<FolderOpen size={14} />
 						</button>
-						<button
-							class="btn btn-sm btn-square btn-ghost"
-							onclick={() => openRename(mod)}
-							title={m.mod_rename()}
-						>
-							<Pencil size={14} />
-						</button>
 					</div>
 				</td>
 			</tr>
 		{/each}
 	</tbody>
 </table>
-
-<Modal
-	bind:open={isRenameModalOpen}
-	title={m.mod_rename_dialog_title()}
-	class="max-w-md"
-	onsubmit={handleRename}
->
-	<div class="space-y-4 pt-2">
-		<div class="form-control">
-			<label for="mod-name" class="label py-0.5">
-				<span class="label-text text-sm">{m.mod_rename_dialog_label()}</span>
-			</label>
-			<input
-				id="mod-name"
-				type="text"
-				class="input input-bordered w-full"
-				bind:value={editName}
-			/>
-		</div>
-	</div>
-	{#snippet actions()}
-		<button class="btn btn-ghost" type="button" onclick={closeRename}
-			>{m.common_cancel()}</button
-		>
-		<button class="btn btn-primary" type="submit" disabled={renameMutation.isPending}>
-			{#if renameMutation.isPending}<span class="loading loading-spinner loading-xs"
-				></span>{/if}
-			{m.mod_rename_dialog_button()}
-		</button>
-	{/snippet}
-</Modal>
