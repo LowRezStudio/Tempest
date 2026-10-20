@@ -209,3 +209,58 @@ jobs:
             Tempest.Launcher/dist/latest*.yml
             Tempest.Launcher/dist/*.blockmap
           if-no-files-found: error
+
+  # The v1.0.3 (Tauri) Windows installs auto-update through the Tauri updater,
+  # which reads latest.json from the latest published release and verifies a
+  # minisign signature made with the old Tauri key. Keep generating it —
+  # pointing at the current Electron NSIS installer — so those users are
+  # migrated to the Electron build automatically. The installer runs silently
+  # (/S); on first run the new launcher offers to remove the old Tauri MSI.
+  tauri-manifest:
+    needs: [release, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Resolve version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Download the Windows installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --pattern "Tempest-Launcher-Setup-*.exe" --dir .
+
+      - name: Sign with the Tauri updater key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npx --yes @tauri-apps/cli signer sign \
+            -k "$TAURI_SIGNING_PRIVATE_KEY" \
+            -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
+            "Tempest-Launcher-Setup-$version.exe"
+
+      - name: Write and upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ needs.release.outputs.notes }}
+        run: |
+          sig=$(cat "Tempest-Launcher-Setup-$version.exe.sig")
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Tempest-Launcher-Setup-$version.exe"
+          # windows-x86_64-msi: v1.0.3 was installed through the MSI, so its
+          # updater asks for the -msi variant; the NSIS exe installs silently
+          # either way. Only drafts and prereleases are excluded from the
+          # updater endpoint (releases/latest), so publishing the draft is
+          # what flips Tauri users to this version.
+          jq -n --arg version "$version" --arg notes "$NOTES" --arg sig "$sig" --arg url "$url" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: (now | todateiso8601),
+              platforms: {
+                "windows-x86_64": {signature: $sig, url: $url},
+                "windows-x86_64-msi": {signature: $sig, url: $url}
+              }
+            }' > latest.json
+          gh release upload "$GITHUB_REF_NAME" latest.json --clobber --repo "$GITHUB_REPOSITORY"
