@@ -63,6 +63,12 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
 
+    env:
+      # Point electron/electron-builder download caches into the workspace so
+      # actions/cache can persist them without relying on per-OS user paths.
+      ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.electron-builder-cache
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -93,11 +99,31 @@ jobs:
           sudo apt update
           sudo apt-get install -y rpm fakeroot
 
+      - name: Cache CLI sidecar binaries
+        id: cli-cache
+        uses: actions/cache@v4
+        with:
+          path: Tempest.Launcher/electron/resources/binaries
+          # The AOT publish takes 4-7 minutes; releases that don't touch the
+          # CLI's sources (launcher-only bumps) reuse the previous binaries.
+          # Includes the embedded key lists, protocol contract, zig utils and
+          # the build script itself.
+          key: cli-${{ runner.os }}-${{ hashFiles('Tempest.CLI/**', 'MarshalLib/**', 'MarshalLib.Database/**', 'Tempest.Utils/**', 'Tempest.Protocol/**', 'Tempest.Launcher/scripts/build-cli.js', 'keys/*.keys') }}
+
+      - name: Cache Electron / electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            .electron-cache
+            .electron-builder-cache
+          key: electron-tooling-${{ runner.os }}-${{ hashFiles('Tempest.Launcher/pnpm-lock.yaml') }}
+
       - name: Install frontend dependencies
         working-directory: Tempest.Launcher
         run: pnpm install --frozen-lockfile
 
       - name: Build CLI sidecar
+        if: steps.cli-cache.outputs.cache-hit != 'true'
         working-directory: Tempest.Launcher
         run: node scripts/build-cli.js
 
