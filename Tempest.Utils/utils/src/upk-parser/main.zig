@@ -6,7 +6,7 @@ const Parser = @import("Parser.zig");
 
 pub fn main(init: std.process.Init) !void {
     var allocator = init.arena.allocator();
-    if (builtin.mode == .Debug) {
+    if (builtin.mode == .debug) {
         allocator = init.gpa;
     }
 

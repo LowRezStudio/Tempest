@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     const Translator = @import("translate_c").Translator;
     const translate_c = b.dependency("translate_c", .{
-        .optimize = .ReleaseFast,
+        .optimize = .fast,
     });
 
     const t: Translator = .init(translate_c, .{

@@ -25,7 +25,7 @@
     .fingerprint = 0x9987c1aab57b0ca0, // Changing this has security and trust implications.
     // Tracks the earliest Zig version that the package considers to be a
     // supported use case.
-    .minimum_zig_version = "0.17.0-dev.1282+c0f9b51d8",
+    .minimum_zig_version = "0.17.0",
     // This field is optional.
     // Each dependency must either provide a `url` and `hash`, or a `path`.
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
@@ -34,7 +34,7 @@
     .dependencies = .{
         .minilzo = .{
             .url = "../minilzo",
-            .hash = "minilzo-1.0.0-e-UpLIkBBgA60dImsp-tdG661YfU8JsQn8Rsg1MwXEf6",
+            .hash = "minilzo-1.0.0-e-UpLG8BBgDY4bje-4EoLsFZNhmn7sD5oCx2r3hIPijX",
         },
     },
     .paths = .{
