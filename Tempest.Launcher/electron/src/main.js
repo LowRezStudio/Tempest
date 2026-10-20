@@ -152,8 +152,11 @@ function createWindow() {
 	});
 
 	mainWindow.on("close", async (e) => {
-		const win = e.sender;
 		e.preventDefault();
+		// event.sender here is the WebContents, not the BrowserWindow; use the
+		// window itself (close fires exactly once, before "closed" nulls it).
+		const win = mainWindow;
+		if (!win) return;
 		try {
 			const shouldClose = await win.webContents.executeJavaScript(
 				"window.__closeHook?.() ?? true",
