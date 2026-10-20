@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Loader2, PackageX } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { invoke, platform } from "$lib/platform/api";
+	import { invoke } from "$lib/platform/api";
 	import { persistedJSON } from "$lib/stores/persisted.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import Modal from "../ui/Modal.svelte";
@@ -14,15 +14,15 @@
 
 	const prompted = persistedJSON<boolean>("legacyTauriPrompted", false);
 
-	const isWindows = platform() === "windows";
-
 	let open = $state(false);
 	let installs = $state<LegacyInstall[]>([]);
 	let uninstalling = $state(false);
 
-	// Ask once: look for a leftover Tauri MSI install on first launch.
+	// Ask once: look for a leftover Tauri MSI install on first launch. The main
+	// process does the platform check itself (returns [] elsewhere), so there is
+	// no racy platform() read here.
 	$effect(() => {
-		if (!isWindows || prompted.value) return;
+		if (prompted.value) return;
 		void invoke("legacy:find").then((found) => {
 			if (Array.isArray(found) && found.length > 0) {
 				installs = found;

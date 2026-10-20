@@ -5,7 +5,7 @@
 	import FeatureFlagsTab from "$lib/dev/FeatureFlagsTab.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { locales } from "$lib/paraglide/runtime";
-	import { open, platform } from "$lib/platform/api";
+	import { appConfigDir, join, open, platform, remove } from "$lib/platform/api";
 	import { createAboutInfoQuery } from "$lib/queries/about";
 	import KeybindsTab from "$lib/settings/KeybindsTab.svelte";
 	import { localeLabels, localeState } from "$lib/stores/locale.svelte";
@@ -38,8 +38,17 @@
 	}
 
 	function resetAll() {
-		localStorage.clear();
-		location.href = "/";
+		// Also drop the settings.json snapshot, otherwise the startup migration
+		// imports everything right back after the reload.
+		void (async () => {
+			try {
+				await remove(await join(await appConfigDir(), "settings.json"));
+			} catch {
+				/* nothing to remove */
+			}
+			localStorage.clear();
+			location.href = "/";
+		})();
 	}
 
 	function restartOnboarding() {
