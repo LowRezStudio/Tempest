@@ -111,10 +111,7 @@
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "instance",
-				"countPlural=other": "instances"
-			}
+			"match": { "countPlural=one": "instance", "countPlural=other": "instances" }
 		}
 	],
 	"library_instance": "instance",
@@ -133,10 +130,7 @@
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "file",
-				"countPlural=other": "files"
-			}
+			"match": { "countPlural=one": "file", "countPlural=other": "files" }
 		}
 	],
 	"downloads_written": "written",
@@ -182,10 +176,7 @@
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "server",
-				"countPlural=other": "servers"
-			}
+			"match": { "countPlural=one": "server", "countPlural=other": "servers" }
 		}
 	],
 	"lobby_title": "Lobby",
@@ -227,10 +218,7 @@
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "player",
-				"countPlural=other": "players"
-			}
+			"match": { "countPlural=one": "player", "countPlural=other": "players" }
 		}
 	],
 	"settings_title": "Settings",
@@ -275,7 +263,7 @@
 	"onboarding_done_title": "You're all set!",
 	"onboarding_done_description": "Your setup is ready. You can change your username, runtime and games anytime from Settings.",
 	"onboarding_summary_download": "Download queued: {versions}",
-	"onboarding_summary_none": "Skipped — add one from the Library later.",
+	"onboarding_summary_none": "Skipped. Add one from the Library later.",
 	"settings_default_instance_path": "Default Instance Path",
 	"settings_theme": "Theme",
 	"settings_theme_system": "System (Auto)",
@@ -284,7 +272,7 @@
 	"settings_theme_legacy": "Tempest Legacy",
 	"settings_theme_custom": "Custom",
 	"settings_theme_custom_css": "Custom CSS",
-	"settings_theme_custom_themes_link": "— find and customize themes",
+	"settings_theme_custom_themes_link": "to find and customize themes",
 	"settings_select_directory": "Select a directory...",
 	"settings_mod_developer": "Mod Developer",
 	"settings_mod_developer_description": "Enables mod development tools, such as the Cook Mod converter.",
@@ -515,10 +503,7 @@
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "{count} mod",
-				"countPlural=other": "{count} mods"
-			}
+			"match": { "countPlural=one": "{count} mod", "countPlural=other": "{count} mods" }
 		}
 	],
 	"conflict_row_overlapping_files": [
@@ -583,7 +568,7 @@
 	"settings_wine_proton_placeholder": "Leave empty to auto-detect",
 	"settings_wine_steam_runtime": "Use Steam runtime",
 	"settings_wine_steam_runtime_description": "Run Proton inside Steam's Linux Runtime (pressure-vessel) when a compatible one is found.",
-	"settings_wine_proton_option": "Proton — {name}",
+	"settings_wine_proton_option": "Proton ({name})",
 	"settings_wine_runtime_custom": "Custom...",
 	"settings_check_for_updates": "Check for Updates",
 	"settings_keybinds": "Keybinds",
@@ -634,10 +619,7 @@
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "source",
-				"countPlural=other": "sources"
-			}
+			"match": { "countPlural=one": "source", "countPlural=other": "sources" }
 		}
 	],
 	"converter_mod_name_label": "Mod Name",
@@ -662,7 +644,7 @@
 	"sessions_stop_all": "Stop all",
 	"sessions_launch_failed": "Couldn't open another window",
 	"legacy_found_title": "Old Version Detected",
-	"legacy_found_desc": "Tempest Launcher now uses a new installer. Your settings, instances and mods were migrated automatically — nothing was lost.",
+	"legacy_found_desc": "Tempest Launcher now uses a new installer. Your settings, instances and mods were migrated automatically, so nothing was lost.",
 	"legacy_found_body": "A previous install of Tempest Launcher was found on this computer:",
 	"legacy_name_fallback": "Tempest Launcher (old)",
 	"legacy_uninstall": "Uninstall old version",

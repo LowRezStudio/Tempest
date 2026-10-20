@@ -310,8 +310,8 @@
 					<span class="label-text text-sm">{m.hostserver_upnp()}</span>
 				</label>
 				<p class="mt-1 text-xs opacity-60">
-					{m.hostserver_upnp_hint()} — <span class="font-mono">{selectedPort}</span>,
-					<span class="font-mono">{selectedGameServerPort}</span>
+					{m.hostserver_upnp_hint()} (<span class="font-mono">{selectedPort}</span>,
+					<span class="font-mono">{selectedGameServerPort}</span>)
 				</p>
 			</div>
 		</div>
