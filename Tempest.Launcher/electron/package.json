@@ -8,8 +8,10 @@
 		"email": "dev@lowrez.studio"
 	},
 	"type": "module",
-	"main": "src/main.js",
+	"main": "dist/main.js",
 	"scripts": {
+		"compile": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"dev": "node scripts/dev.js",
 		"build": "node scripts/build.js"
 	},
@@ -18,8 +20,10 @@
 		"electron-updater": "^6.0.0"
 	},
 	"devDependencies": {
+		"@types/node": "^24.0.0",
 		"dax": "^0.48.3",
 		"electron": "^43.0.0",
-		"electron-builder": "^26.0.0"
+		"electron-builder": "^26.0.0",
+		"typescript": "^6.0.3"
 	}
 }

@@ -5,7 +5,7 @@
 	import FeatureFlagsTab from "$lib/dev/FeatureFlagsTab.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { locales } from "$lib/paraglide/runtime";
-	import { appConfigDir, join, open, platform, remove } from "$lib/platform/api";
+	import { invoke, open, platform } from "$lib/platform/api";
 	import { createAboutInfoQuery } from "$lib/queries/about";
 	import KeybindsTab from "$lib/settings/KeybindsTab.svelte";
 	import { localeLabels, localeState } from "$lib/stores/locale.svelte";
@@ -40,14 +40,14 @@
 
 	function resetAll() {
 		// Pause the layout's snapshot interval first: a tick firing between the
-		// remove() and the clear() below would re-dump localStorage into
+		// snapshot deletion and the clear() below would re-dump localStorage into
 		// settings.json, and the startup migration would import everything back.
 		snapshotPaused.value = true;
 		// Also drop the settings.json snapshot, otherwise the startup migration
 		// imports everything right back after the reload.
 		void (async () => {
 			try {
-				await remove(await join(await appConfigDir(), "settings.json"));
+				await invoke("settings:delete-snapshot");
 			} catch {
 				/* nothing to remove */
 			}

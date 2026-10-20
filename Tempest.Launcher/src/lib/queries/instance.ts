@@ -1,5 +1,5 @@
 import { createMutation, createQuery } from "@tanstack/svelte-query";
-import { path } from "$lib/platform/api";
+import { join } from "$lib/platform/api";
 import { detectAvailablePlatforms } from "$lib/platforms/detection";
 import { setupInstance } from "$lib/platforms/setup";
 import type { Instance, InstancePlatform } from "$lib/types/instance";
@@ -26,7 +26,7 @@ export const createDefaultInstancePathQuery = (
 			queryFn: async () => {
 				if (!version) return basePath ?? "";
 				if (basePath) {
-					return await path.join(basePath, version);
+					return await join(basePath, version);
 				}
 				return `/instances/${version}`;
 			},

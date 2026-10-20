@@ -13,7 +13,7 @@
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import { installMod } from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
-	import { path, save as saveDialog } from "$lib/platform/api";
+	import { invoke } from "$lib/platform/api";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { keybinds, resetKeybinds, cookKeybindsMod } from "$lib/stores/keybinds.svelte";
 	import { addToast, removeToast } from "$lib/stores/ui.svelte";
@@ -195,17 +195,16 @@
 
 	async function download() {
 		if (!cookedZip) return;
-		const savePath = await saveDialog({
-			defaultPath: `${modName.trim() || "keybinds"}.tempest`,
-			filters: [{ name: "Tempest Mod", extensions: ["tempest"] }],
-		});
-		if (!savePath) return;
 		try {
-			const { writeFile } = await import("$lib/platform/api");
-			await writeFile(savePath, cookedZip);
+			// Save dialog + write happen host-side in one step.
+			const savedPath = await invoke("mods:save-pack", {
+				defaultPath: `${modName.trim() || "keybinds"}.tempest`,
+				data: cookedZip,
+			});
+			if (!savedPath) return;
 			addToast({
 				title: m.converter_toast_saved_title(),
-				message: m.converter_toast_saved_message({ path: savePath }),
+				message: m.converter_toast_saved_message({ path: savedPath }),
 				tone: "success",
 			});
 		} catch (error) {
@@ -228,10 +227,12 @@
 				duration: 0,
 			});
 
-			const { writeFile } = await import("$lib/platform/api");
-			const tmpDir = await path.tempDir();
-			const tmpFile = await path.join(tmpDir, `${modFileName}.tempest`);
-			await writeFile(tmpFile, cookedZip);
+			// Stage the cooked pack in a host-owned temp file, install from there,
+			// then discard it — the renderer never touches the filesystem itself.
+			const tmpFile = await invoke("mods:stage-pack", {
+				filename: `${modFileName}.tempest`,
+				data: cookedZip,
+			});
 			const result = await installMod(inst.path, tmpFile, true);
 
 			if (installingToastId) removeToast(installingToastId);
@@ -254,7 +255,7 @@
 				});
 			}
 			try {
-				await import("$lib/platform/api").then((m) => m.remove(tmpFile));
+				await invoke("mods:discard-staged-pack", { stagedPath: tmpFile });
 			} catch {}
 		} catch (error) {
 			if (installingToastId) removeToast(installingToastId);

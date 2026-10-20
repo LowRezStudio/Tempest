@@ -1,20 +1,16 @@
-interface ElectronAPI {
-	invoke(channel: string, ...args: unknown[]): Promise<unknown>;
-	on(channel: string, callback: (...args: unknown[]) => void): () => void;
-	getPathForFile(file: File): string;
+// Ambient renderer globals. The electronAPI bridge is fully typed against the
+// host's IPC contract (electron/src/ipc/contract.ts), which is the single
+// source of truth for channels, payloads and events.
+import type { OsInfo, PreloadApi } from "../../../electron/src/ipc/contract";
+
+declare global {
+	interface Window {
+		electronAPI?: PreloadApi;
+		/** localStorage dump from the previous (Tauri) profile, injected by preload. */
+		__migrationDump?: string | null;
+		/** OS info injected by preload, refined by the main process after load. */
+		__os?: OsInfo;
+	}
 }
 
-interface OSInfo {
-	readonly platform: string;
-	readonly arch: string;
-	readonly type: string;
-	readonly version: string;
-}
-
-interface Window {
-	electronAPI?: ElectronAPI;
-	/** localStorage dump from the previous (Tauri) profile, injected by preload. */
-	__migrationDump?: string | null;
-	__closeHook?: () => Promise<boolean>;
-	__os?: OSInfo;
-}
+export {};

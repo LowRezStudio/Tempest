@@ -11,6 +11,7 @@
 		"prepare": "cd .. && husky Tempest.Launcher/.husky",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"check:electron": "pnpm -C electron typecheck",
 		"proto-generate": "node scripts/generate-proto.js",
 		"fmt": "oxfmt --write .",
 		"lint": "oxlint --type-aware",

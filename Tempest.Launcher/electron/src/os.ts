@@ -1,26 +1,26 @@
 import os from "node:os";
+import type { OsInfo } from "./ipc/contract.js";
+import type { BrowserWindow } from "electron";
 
-export function injectOs(window) {
-	const platform =
+const osInfo = (): OsInfo => ({
+	platform:
 		process.platform === "win32"
 			? "windows"
 			: process.platform === "darwin"
 				? "macos"
-				: "linux";
-
-	const arch =
-		process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : process.arch;
-
-	const type =
+				: "linux",
+	arch: process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : process.arch,
+	type:
 		process.platform === "win32"
 			? "Windows_NT"
 			: process.platform === "darwin"
 				? "Darwin"
-				: "Linux";
+				: "Linux",
+	version: os.release(),
+});
 
-	const version = os.release();
-
-	const payload = JSON.stringify({ platform, arch, type, version });
+export function injectOs(window: BrowserWindow): void {
+	const payload = JSON.stringify(osInfo());
 	// Overwrite the provisional value the preload script exposed (it lacks the
 	// OS version, which a sandboxed preload cannot read). Plain assignment: the
 	// preload property is writable, unlike the old non-configurable definition.

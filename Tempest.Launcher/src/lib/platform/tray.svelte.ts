@@ -1,21 +1,18 @@
+// Tray integration. The TrayIcon and Menu live in the Electron main process;
+// this module only pushes localized, declarative state to it (labels and
+// dynamic entries) and reacts to the host's navigation events. All actual
+// tray behaviour — showing the window, quitting, left-click handling — is
+// host-side.
 import { goto } from "$app/navigation";
 import { lobbyManager } from "$lib/lobby/lobby-manager";
 import { lobbyHost } from "$lib/lobby/stores.svelte";
 import { m } from "$lib/paraglide/messages";
-import {
-	Menu,
-	TrayIcon,
-	getCurrentWindow,
-	type MenuItemOptions,
-	type PredefinedMenuItemOptions,
-	type TrayIconEvent,
-} from "$lib/platform/api";
+import { invoke, listen } from "$lib/platform/api";
 import { queueItems, queueRunning } from "$lib/rigby/stores.svelte";
 import { preparedInstances } from "$lib/stores/instance.svelte";
 import { localeState } from "$lib/stores/locale.svelte";
 import { lobbyServerProcessesList, processesList } from "$lib/stores/processes.svelte";
-
-const TRAY_ID = "main";
+import type { TrayEntry, TrayNavId } from "../../../electron/src/ipc/contract";
 
 /**
  * Whether closing the window should keep the launcher alive in the system
@@ -32,41 +29,10 @@ export function shouldKeepRunningInTray(): boolean {
 	);
 }
 
-async function showMainWindow(): Promise<void> {
-	const window = getCurrentWindow();
-	await window.unminimize();
-	await window.show();
-	await window.setFocus();
-}
+const separator: TrayEntry = { kind: "separator" };
 
-async function quitApp(): Promise<void> {
-	// destroy() skips the close-requested guard below, so this always quits.
-	await getCurrentWindow().destroy();
-}
-
-function handleTrayIconEvent(event: TrayIconEvent): void {
-	if (event.type === "Click" && event.button === "Left" && event.buttonState === "Up") {
-		void showMainWindow();
-	}
-}
-
-async function handleTrayAction(id: string): Promise<void> {
-	if (id === "quit") {
-		await quitApp();
-	} else if (id === "open") {
-		await showMainWindow();
-	} else if (id.startsWith("nav:")) {
-		await showMainWindow();
-		await goto(id.slice(4));
-	}
-}
-
-type TrayEntry = MenuItemOptions | PredefinedMenuItemOptions;
-
-const separator: PredefinedMenuItemOptions = { item: "Separator" };
-
-function navEntry(path: string, text: string): MenuItemOptions {
-	return { id: `nav:${path}`, text };
+function navEntry(path: string, text: string): TrayEntry {
+	return { kind: "item", id: `nav:${path}` as TrayNavId, text, enabled: true };
 }
 
 /**
@@ -75,7 +41,7 @@ function navEntry(path: string, text: string): MenuItemOptions {
  */
 function trayEntries(): TrayEntry[] {
 	const entries: TrayEntry[] = [
-		{ id: "open", text: m.tray_open() },
+		{ kind: "item", id: "open", text: m.tray_open(), enabled: true },
 		separator,
 		navEntry("/", m.sidebar_home()),
 		navEntry("/library", m.sidebar_library()),
@@ -106,60 +72,39 @@ function trayEntries(): TrayEntry[] {
 		navEntry("/logs", m.sidebar_logs()),
 		navEntry("/settings", m.sidebar_settings()),
 		separator,
-		{ id: "quit", text: m.tray_quit() },
+		{ kind: "item", id: "quit", text: m.tray_quit(), enabled: true },
 	);
 
 	return entries;
 }
 
-function withActions(entries: TrayEntry[]): TrayEntry[] {
-	return entries.map((entry) =>
-		"item" in entry ? entry : { ...entry, action: (id: string) => void handleTrayAction(id) },
-	);
-}
-
-// tray:new upserts in the main process: after a dev hot reload (which
-// re-evaluates this module) the existing tray is reused instead of being
-// destroyed and recreated — on Linux, Tray#destroy() leaves a stale
-// StatusNotifierItem behind, so recreating would stack duplicate icons.
-function createTrayIcon(): Promise<TrayIcon> {
-	// The Electron main process loads its own native icon for the tray.
-	return TrayIcon.new({
-		id: TRAY_ID,
-		tooltip: "Tempest Launcher",
-		showMenuOnLeftClick: false,
-		action: handleTrayIconEvent,
-	});
-}
-
-const trayPromise: Promise<TrayIcon> = createTrayIcon();
-
 $effect.root(() => {
+	// Create the host-side tray once (upserted host-side, so dev hot reloads
+	// reuse the same icon instead of stacking duplicates on Linux).
+	void invoke("tray:ensure", { tooltip: "Tempest Launcher" });
+
 	let lastKey = "";
 	$effect(() => {
 		void localeState.current; // rebuild localized labels on locale change
 		const entries = trayEntries();
-		const key = JSON.stringify(entries.map((e) => ("item" in e ? "-" : [e.id, e.text])));
+		const key = JSON.stringify(
+			entries.map((e) => (e.kind === "separator" ? "-" : [e.id, e.text])),
+		);
 		if (key === lastKey) return;
 		lastKey = key;
-		void trayPromise.then(async (tray) => {
-			await tray.setMenu(await Menu.new({ items: withActions(entries) }));
-		});
+		void invoke("tray:set-state", { entries });
 	});
-});
 
-// Close guard: hide the window into the tray while background work (running
-// games, hosted servers, an active lobby) needs the launcher to stay alive.
-$effect.root(() => {
-	const appWindow = getCurrentWindow();
-	let unlisten: (() => void) | undefined;
-	void appWindow
-		.onCloseRequested(async (event) => {
-			event.preventDefault();
-			await (shouldKeepRunningInTray() ? appWindow.hide() : appWindow.destroy());
-		})
-		.then((fn) => {
-			unlisten = fn;
-		});
-	return () => unlisten?.();
+	// Close guard: hide the window into the tray while background work (running
+	// games, hosted servers, an active lobby) needs the launcher to stay alive.
+	// The decision is rendered host-side by the main process close handler.
+	$effect(() => {
+		void invoke("app:set-close-behavior", { hideToTray: shouldKeepRunningInTray() });
+	});
+
+	// Tray menu nav items are handled host-side up to "show the window"; the
+	// SPA route change comes back as an event.
+	void listen("tray:navigate", ({ route }) => {
+		void goto(route);
+	});
 });

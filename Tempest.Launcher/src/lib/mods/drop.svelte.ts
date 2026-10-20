@@ -3,7 +3,7 @@ import { page } from "$app/state";
 import { installMod } from "$lib/core/mods";
 import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui.svelte";
 import { m } from "$lib/paraglide/messages";
-import { getCurrentWindow, invoke, listen } from "$lib/platform/api";
+import { invoke, listen, onDragDropEvent } from "$lib/platform/api";
 import { instanceMap } from "$lib/stores/instance.svelte";
 import { addToast, removeToast } from "$lib/stores/ui.svelte";
 
@@ -77,7 +77,7 @@ function handleModFileDrop(filePaths: string[]) {
 
 async function importPendingOpenFiles() {
 	try {
-		const paths = await invoke<string[]>("take_pending_open_files");
+		const paths = await invoke("app:take-pending-open-files");
 		if (paths.length > 0) handleModFileDrop(paths);
 	} catch (error: unknown) {
 		console.error("Failed to import pending open files:", error);
@@ -194,41 +194,38 @@ export function handleInstanceSelected(inst: any) {
 $effect.root(() => {
 	let unlistenDrop: (() => void) | undefined;
 	let unlistenOpenFiles: (() => void) | undefined;
-	const appWindow = getCurrentWindow();
 	void listen("open-mod-files", () => {
 		void importPendingOpenFiles();
 	}).then((fn) => {
 		unlistenOpenFiles = fn;
 		void importPendingOpenFiles();
 	});
-	void appWindow
-		.onDragDropEvent((event) => {
-			const onConverter = page.url.pathname === "/converter";
-			if (event.payload.type === "enter" || event.payload.type === "over") {
-				if (onConverter) {
-					isDraggingConverterFiles.value = true;
-				} else {
-					isDraggingFiles.value = true;
-				}
-			} else if (event.payload.type === "drop") {
-				isDraggingConverterFiles.value = false;
-				isDraggingFiles.value = false;
-				const paths = event.payload.paths;
-				if (paths && paths.length > 0) {
-					if (onConverter) {
-						converterPendingPaths.push(...paths);
-					} else {
-						handleModFileDrop(paths);
-					}
-				}
-			} else if (event.payload.type === "leave") {
-				isDraggingConverterFiles.value = false;
-				isDraggingFiles.value = false;
+	void onDragDropEvent((event) => {
+		const onConverter = page.url.pathname === "/converter";
+		if (event.payload.type === "enter" || event.payload.type === "over") {
+			if (onConverter) {
+				isDraggingConverterFiles.value = true;
+			} else {
+				isDraggingFiles.value = true;
 			}
-		})
-		.then((fn) => {
-			unlistenDrop = fn;
-		});
+		} else if (event.payload.type === "drop") {
+			isDraggingConverterFiles.value = false;
+			isDraggingFiles.value = false;
+			const paths = event.payload.paths;
+			if (paths && paths.length > 0) {
+				if (onConverter) {
+					converterPendingPaths.push(...paths);
+				} else {
+					handleModFileDrop(paths);
+				}
+			}
+		} else if (event.payload.type === "leave") {
+			isDraggingConverterFiles.value = false;
+			isDraggingFiles.value = false;
+		}
+	}).then((fn) => {
+		unlistenDrop = fn;
+	});
 	return () => {
 		unlistenDrop?.();
 		unlistenOpenFiles?.();

@@ -1,14 +1,11 @@
 import { createCommand, processArgs, type ArgumentType } from "$lib/core/command";
 import { installAutoMods } from "$lib/core/mods";
-import { getInstanceAssemblyDbPath, getInstanceTokensDir } from "$lib/core/paths";
-import { path as sysPath, readDir } from "$lib/platform/api";
-import { allowScopeDirectory } from "$lib/platform/scopes";
+import { getInstancePaths } from "$lib/core/paths";
+import { invoke } from "$lib/platform/api";
 import { updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, appendProcessLogs } from "$lib/stores/processes.svelte";
-import type { Instance, InstancePlatform } from "$lib/types/instance";
-
-const defaultGameExe = "Paladins.exe";
-const fallbackTokenDll = "MctsInterface.dll";
+import type { Instance } from "$lib/types/instance";
+import type { GameLayout } from "../../../electron/src/ipc/contract";
 
 const SOURCE = "setup";
 
@@ -53,26 +50,32 @@ export const setupInstance = async (instance: Instance): Promise<void> => {
 	await installAutoMods(instance);
 	log("Auto mods installed");
 
-	await allowScopeDirectory(instance.path, true);
+	// Resolve the game layout (game folder, token sources, assembly.dat) in one
+	// host-side operation; previously this was a filesystem walk over IPC.
+	const layout = await invoke("instance:game-layout", { instancePath: instance.path });
+	log(`Game folder found: ${layout.gameFolder}`);
 
-	const tokensDir = await getInstanceTokensDir(instance.id);
-	await allowScopeDirectory(tokensDir, true);
-	log("File system scopes granted");
+	const paths = await getInstancePaths(instance.id);
+	log("Instance paths resolved");
 
 	const platform = instance.launchOptions.platform ?? "Win64";
-	const preferredSources = await resolveTokenSources(instance.path, platform);
-	const preferredSucceeded = await tryExtractTokenSources(preferredSources, tokensDir);
+	const preferredSucceeded = await tryExtractTokenSources(
+		layout.tokenSources[platform],
+		paths.tokensDir,
+	);
 	if (preferredSucceeded) {
-		await exportAssembly(instance.path, instance.id);
+		await exportAssembly(layout, paths.assemblyDb, paths.fieldsToken, paths.functionsToken);
 		log("Instance setup complete");
 		return;
 	}
 
 	if (platform !== "Win32") {
-		const win32Sources = await resolveTokenSources(instance.path, "Win32");
-		const win32Succeeded = await tryExtractTokenSources(win32Sources, tokensDir);
+		const win32Succeeded = await tryExtractTokenSources(
+			layout.tokenSources.Win32,
+			paths.tokensDir,
+		);
 		if (win32Succeeded) {
-			await exportAssembly(instance.path, instance.id);
+			await exportAssembly(layout, paths.assemblyDb, paths.fieldsToken, paths.functionsToken);
 			log("Instance setup complete");
 			return;
 		}
@@ -81,32 +84,6 @@ export const setupInstance = async (instance: Instance): Promise<void> => {
 	const message = "Failed to extract tokens from Paladins.exe or MctsInterface.dll.";
 	log(message, true);
 	throw new Error(message);
-};
-
-const resolveTokenSources = async (
-	instancePath: string,
-	platform: InstancePlatform,
-): Promise<{ primary: string; fallback: string }> => {
-	const startPath = isFilePath(instancePath) ? await sysPath.dirname(instancePath) : instancePath;
-	const gameFolder = await findGameFolder(startPath);
-	log(`Game folder found: ${gameFolder}`);
-	await allowScopeDirectory(gameFolder, true);
-
-	const primaryPath = await sysPath.join(gameFolder, "Binaries", platform, defaultGameExe);
-	const fallbackPath = await sysPath.join(gameFolder, "Binaries", platform, fallbackTokenDll);
-
-	return {
-		primary: primaryPath,
-		fallback: fallbackPath,
-	};
-};
-
-const resolveAssemblyDatPath = async (instancePath: string): Promise<string> => {
-	const startPath = isFilePath(instancePath) ? await sysPath.dirname(instancePath) : instancePath;
-	const gameFolder = await findGameFolder(startPath);
-	const assemblyDir = await sysPath.join(gameFolder, "ChaosGame", "CookedPCConsole");
-	await allowScopeDirectory(assemblyDir, true);
-	return sysPath.join(assemblyDir, "assembly.dat");
 };
 
 const tryExtractTokenSources = async (
@@ -136,12 +113,13 @@ const tryExtractTokens = async (path: string, outputDir: string): Promise<boolea
 	return true;
 };
 
-const exportAssembly = async (instancePath: string, instanceId: string): Promise<void> => {
-	const tokensDir = await getInstanceTokensDir(instanceId);
-	const fieldsPath = await sysPath.join(tokensDir, "fields.dat");
-	const functionsPath = await sysPath.join(tokensDir, "functions.dat");
-	const assemblyDbPath = await getInstanceAssemblyDbPath(instanceId);
-	const assemblyDatPath = await resolveAssemblyDatPath(instancePath);
+const exportAssembly = async (
+	layout: GameLayout,
+	assemblyDbPath: string,
+	fieldsPath: string,
+	functionsPath: string,
+): Promise<void> => {
+	const assemblyDatPath = layout.assemblyDat;
 
 	const baseArgs = {
 		"--format": "Sqlite",
@@ -188,44 +166,5 @@ const exportAssembly = async (instancePath: string, instanceId: string): Promise
 			.join(" ");
 		log(message, true);
 		throw new Error(message);
-	}
-};
-
-const isFilePath = (value: string): boolean => {
-	const lower = value.toLowerCase();
-	return lower.endsWith(".exe") || lower.endsWith(".dll");
-};
-
-const findGameFolder = async (startPath: string): Promise<string> => {
-	let current = startPath;
-
-	while (true) {
-		if (await hasRequiredGameDirs(current)) return current;
-
-		const parent = await sysPath.dirname(current);
-		if (parent === current) break;
-		current = parent;
-	}
-
-	const message =
-		"Couldn't find the Paladins game folder (containing Binaries and Engine folders)";
-	log(message, true);
-	throw new Error(message);
-};
-
-const hasRequiredGameDirs = async (dirPath: string): Promise<boolean> => {
-	try {
-		const entries = await readDir(dirPath);
-		let hasBinaries = false;
-		let hasEngine = false;
-		for (const entry of entries) {
-			if (!entry.isDirectory) continue;
-			if (entry.name === "Binaries") hasBinaries = true;
-			if (entry.name === "Engine") hasEngine = true;
-			if (hasBinaries && hasEngine) return true;
-		}
-		return false;
-	} catch {
-		return false;
 	}
 };

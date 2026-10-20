@@ -1,13 +1,64 @@
 // Renderer-side platform API over the Electron main process (window.electronAPI).
-// Modules here mirror a small platform layer: shell, fs, dialogs, tray, updater…
-const eio = () => (window as any).electronAPI!;
+//
+// This is a thin layer: every channel and payload is typed by the host's IPC
+// contract (electron/src/ipc/contract.ts), and all system work (filesystem,
+// processes, dialogs, tray, updater) happens on the host. The renderer only
+// orchestrates: it keeps UI state, decides *what* to do, and calls one
+// specialised host command per system operation.
+import type {
+	IpcChannel,
+	IpcContract,
+	IpcEventChannel,
+	IpcEvents,
+	PreloadApi,
+} from "../../../electron/src/ipc/contract";
 
-type FsResult<T> = { ok: true; data: T } | { ok: false; error: string };
+const eio = (): PreloadApi => {
+	if (!window.electronAPI) {
+		throw new Error("electronAPI unavailable (not running under Electron)");
+	}
+	return window.electronAPI;
+};
 
-async function unwrap<T>(p: Promise<FsResult<T>>): Promise<T> {
-	const result = await p;
-	if (!result.ok) return Promise.reject(result.error);
-	return result.data;
+// ---- IPC invoke / events ----
+
+export function invoke<K extends IpcChannel>(
+	channel: K,
+	...args: IpcContract[K]["args"] extends void ? [] : [IpcContract[K]["args"]]
+): Promise<IpcContract[K]["result"]> {
+	return eio().invoke(channel, ...args);
+}
+
+export function listen<K extends IpcEventChannel>(
+	event: K,
+	handler: (payload: IpcEvents[K]) => void,
+): Promise<() => void> {
+	return Promise.resolve(eio().on(event, handler));
+}
+
+// ---- Shell: child processes ----
+
+export type SpawnOptions = { env?: Record<string, string> };
+
+type ClosePayload = { code: number | null; signal: string | null };
+
+/** Typed "data" stream for stdout/stderr of a {@link Command}. */
+class CommandStream<O> {
+	private _emitter = new MiniEmitter();
+
+	on(_event: "data", cb: (data: O) => void): this {
+		this._emitter.on("data", cb);
+		return this;
+	}
+
+	removeListener(_event: "data", cb: (data: O) => void): this {
+		this._emitter.removeListener("data", cb);
+		return this;
+	}
+
+	emit(data: O) {
+		this._emitter.emit("data", data);
+	}
 }
 
 class MiniEmitter {
@@ -26,31 +77,6 @@ class MiniEmitter {
 
 	emit(event: string, ...args: unknown[]) {
 		for (const cb of this._listeners.get(event) ?? []) cb(...args);
-	}
-}
-
-// ---- Shell: child processes ----
-
-export type SpawnOptions = { env?: Record<string, string> };
-
-type ClosePayload = { code: number | null; signal: number | null };
-
-/** Typed "data" stream for stdout/stderr of a {@link Command}. */
-class CommandStream<O> {
-	private _emitter = new MiniEmitter();
-
-	on(_event: "data", cb: (data: O) => void): this {
-		this._emitter.on("data", cb);
-		return this;
-	}
-
-	removeListener(_event: "data", cb: (data: O) => void): this {
-		this._emitter.removeListener("data", cb);
-		return this;
-	}
-
-	emit(data: O) {
-		this._emitter.emit("data", data);
 	}
 }
 
@@ -100,47 +126,60 @@ export class Command<O = string> {
 
 		const child = new Child(pid);
 
-		// Remove all four per-pid listeners once the process is over; otherwise
-		// every launch leaks listeners (and the buffers they retain) for the
-		// lifetime of the renderer. Only on close: Node emits close after both a
-		// normal exit and a spawn error, and callers' close handlers (e.g. the
-		// process list cleanup) must still see it.
+		// One demultiplexed event stream for all spawned children. Remove all
+		// four listeners once the process is over; otherwise every launch leaks
+		// listeners (and the buffers they retain) for the lifetime of the
+		// renderer. Only on close: Node emits close after both a normal exit and
+		// a spawn error, and callers' close handlers (e.g. the process list
+		// cleanup) must still see it.
 		const unlisten = new Set<() => void>();
 		const cleanup = () => {
 			for (const fn of unlisten) fn();
 			unlisten.clear();
 		};
 
-		unlisten.add(
-			eio().on(`shell:process:${pid}:stdout`, (data: string) => {
-				this.stdout.emit(data as O);
-			}),
-		);
-		unlisten.add(
-			eio().on(`shell:process:${pid}:stderr`, (data: string) => {
-				this.stderr.emit(data as O);
-			}),
-		);
-		unlisten.add(
-			eio().on(`shell:process:${pid}:close`, (payload: ClosePayload) => {
-				this._emitter.emit("close", payload);
-				child._handleClose(payload);
-				cleanup();
-			}),
-		);
-		unlisten.add(
-			eio().on(`shell:process:${pid}:error`, (error: string) => {
-				this._emitter.emit("error", error);
-				child._handleError(error);
-			}),
-		);
+		const onProcessEvent = (event: {
+			pid: number;
+			type: string;
+			data?: string;
+			code?: number | null;
+			signal?: string | null;
+			message?: string;
+		}) => {
+			if (event.pid !== pid) return;
+			switch (event.type) {
+				case "stdout": {
+					this.stdout.emit(event.data as O);
+					break;
+				}
+				case "stderr": {
+					this.stderr.emit(event.data as O);
+					break;
+				}
+				case "close": {
+					const payload = { code: event.code ?? null, signal: event.signal ?? null };
+					this._emitter.emit("close", payload);
+					child._handleClose(payload);
+					cleanup();
+					break;
+				}
+				case "error": {
+					const message = event.message ?? "unknown error";
+					this._emitter.emit("error", message);
+					child._handleError(message);
+					break;
+				}
+			}
+		};
+
+		unlisten.add(eio().on("shell:process", onProcessEvent));
 
 		return child;
 	}
 
 	execute(): Promise<{
 		code: number | null;
-		signal: number | null;
+		signal: string | null;
 		stdout: string;
 		stderr: string;
 	}> {
@@ -185,36 +224,8 @@ export class Child {
 	}
 }
 
-// ---- IPC invoke ----
-
-export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-	return eio().invoke(cmd, args) as Promise<T>;
-}
-
-// ---- Events ----
-
-export type Event<T> = { event: string; id: number; payload: T };
-
-export function listen<T>(event: string, handler: (event: Event<T>) => void): Promise<() => void> {
-	const unlisten = eio().on(event, (payload: T) => {
-		handler({ event, id: 0, payload });
-	});
-	return Promise.resolve(unlisten);
-}
-
 // ---- Path helpers (over IPC for cross-platform correctness) ----
 
-export const path = {
-	join: (...parts: string[]): Promise<string> => eio().invoke("path:join", { paths: parts }),
-	dirname: (p: string): Promise<string> => eio().invoke("path:dirname", { path: p }),
-	tempDir: (): Promise<string> => eio().invoke("path:temp-dir"),
-	appConfigDir: (): Promise<string> => eio().invoke("path:app-config-dir"),
-	homeDir: (): Promise<string> => eio().invoke("path:home-dir"),
-	resolveResource: (...paths: string[]): Promise<string> =>
-		eio().invoke("path:resolve-resource", { paths }),
-};
-
-// Single-function aliases for the `path` object below.
 export function join(...paths: string[]): Promise<string> {
 	return eio().invoke("path:join", { paths });
 }
@@ -223,308 +234,86 @@ export function dirname(p: string): Promise<string> {
 	return eio().invoke("path:dirname", { path: p });
 }
 
-export function tempDir(): Promise<string> {
-	return eio().invoke("path:temp-dir");
-}
-
-export function appConfigDir(): Promise<string> {
-	return eio().invoke("path:app-config-dir");
-}
-
-export function homeDir(): Promise<string> {
-	return eio().invoke("path:home-dir");
-}
-
 export function resolveResource(...paths: string[]): Promise<string> {
 	return eio().invoke("path:resolve-resource", { paths });
 }
 
 // ---- Window ----
-// Drag-drop uses DOM events + webUtils.getPathForFile from preload.
+// Drag-drop uses DOM events + webUtils.getPathForFile from preload; closing
+// is decided host-side via the close-behavior flag (see tray.svelte.ts).
 
-type CloseRequestedHandler = (event: { preventDefault: () => void }) => Promise<void>;
-
-const closeRequestedHandlers = new Set<CloseRequestedHandler>();
-
-function ensureCloseHook(): void {
-	if ((window as any).__closeHook) return;
-	(window as any).__closeHook = async () => {
-		let prevented = false;
-		const event = {
-			preventDefault: () => {
-				prevented = true;
-			},
-		};
-		for (const handler of closeRequestedHandlers) {
-			await handler(event);
-		}
-		return !prevented;
+/**
+ * Registers a drag-and-drop listener that reports dropped file paths.
+ * @param handler Called with `{type: "enter"|"over"|"leave"|"drop", paths}`.
+ * @returns A promise resolving to an unlisten function.
+ */
+export function onDragDropEvent(
+	handler: (event: { payload: { type: string; paths: string[] } }) => void,
+): Promise<() => void> {
+	const onEnter = (e: DragEvent) => {
+		e.preventDefault();
+		handler({ payload: { type: "enter", paths: [] } });
 	};
-}
-
-export function getCurrentWindow() {
-	return {
-		onCloseRequested(handler: CloseRequestedHandler): Promise<() => void> {
-			closeRequestedHandlers.add(handler);
-			ensureCloseHook();
-			return Promise.resolve(() => {
-				closeRequestedHandlers.delete(handler);
-				if (closeRequestedHandlers.size === 0) {
-					(window as any).__closeHook = undefined;
-				}
-			});
-		},
-
-		onDragDropEvent(
-			handler: (event: { payload: { type: string; paths: string[] } }) => void,
-		): Promise<() => void> {
-			const onEnter = (e: DragEvent) => {
-				e.preventDefault();
-				handler({ payload: { type: "enter", paths: [] } });
-			};
-			const onOver = (e: DragEvent) => {
-				e.preventDefault();
-				handler({ payload: { type: "over", paths: [] } });
-			};
-			const onLeave = () => {
-				handler({ payload: { type: "leave", paths: [] } });
-			};
-			const onDrop = (e: DragEvent) => {
-				e.preventDefault();
-				const files = e.dataTransfer?.files;
-				const paths: string[] = [];
-				if (files) {
-					for (let i = 0; i < files.length; i++) {
-						paths.push(eio().getPathForFile(files[i]));
-					}
-				}
-				handler({ payload: { type: "drop", paths } });
-			};
-
-			document.addEventListener("dragenter", onEnter);
-			document.addEventListener("dragover", onOver);
-			document.addEventListener("dragleave", onLeave);
-			document.addEventListener("drop", onDrop);
-
-			return Promise.resolve(() => {
-				document.removeEventListener("dragenter", onEnter);
-				document.removeEventListener("dragover", onOver);
-				document.removeEventListener("dragleave", onLeave);
-				document.removeEventListener("drop", onDrop);
-			});
-		},
-
-		async destroy(): Promise<void> {
-			await eio().invoke("window:destroy");
-		},
-
-		async hide(): Promise<void> {
-			await eio().invoke("window:hide");
-		},
-
-		async show(): Promise<void> {
-			await eio().invoke("window:show");
-		},
-
-		async setFocus(): Promise<void> {
-			await eio().invoke("window:set-focus");
-		},
-
-		async unminimize(): Promise<void> {
-			await eio().invoke("window:unminimize");
-		},
+	const onOver = (e: DragEvent) => {
+		e.preventDefault();
+		handler({ payload: { type: "over", paths: [] } });
 	};
-}
-
-// ---- App ----
-
-export function getVersion(): Promise<string> {
-	return eio().invoke("app:version");
-}
-
-// ---- Menu ----
-// Actions stay in the renderer; only serializable items cross IPC.
-
-export interface MenuItemOptions {
-	id?: string;
-	text: string;
-	enabled?: boolean;
-	action?: (id: string) => void;
-}
-
-export interface PredefinedMenuItemOptions {
-	text?: string;
-	item: string;
-}
-
-type NativeMenuItemOptions = MenuItemOptions | PredefinedMenuItemOptions;
-
-type SerializedMenuItem =
-	| { kind: "separator" }
-	| { kind: "item"; id: string; text: string; enabled: boolean };
-
-let menuSeq = 0;
-const menuItemActions = new Map<string, (id: string) => void>();
-
-function serializeMenuItems(items: NativeMenuItemOptions[]): SerializedMenuItem[] {
-	return items.map((item) => {
-		if ("item" in item) {
-			if (item.item !== "Separator") {
-				throw new Error(`Unsupported predefined menu item: ${item.item}`);
+	const onLeave = () => {
+		handler({ payload: { type: "leave", paths: [] } });
+	};
+	const onDrop = (e: DragEvent) => {
+		e.preventDefault();
+		const files = e.dataTransfer?.files;
+		const paths: string[] = [];
+		if (files) {
+			for (let i = 0; i < files.length; i++) {
+				paths.push(eio().getPathForFile(files[i]));
 			}
-			return { kind: "separator" };
 		}
-		const id = item.id ?? `item-${menuSeq++}`;
-		if (item.action) menuItemActions.set(id, item.action);
-		return { kind: "item", id, text: item.text, enabled: item.enabled ?? true };
+		handler({ payload: { type: "drop", paths } });
+	};
+
+	document.addEventListener("dragenter", onEnter);
+	document.addEventListener("dragover", onOver);
+	document.addEventListener("dragleave", onLeave);
+	document.addEventListener("drop", onDrop);
+
+	return Promise.resolve(() => {
+		document.removeEventListener("dragenter", onEnter);
+		document.removeEventListener("dragover", onOver);
+		document.removeEventListener("dragleave", onLeave);
+		document.removeEventListener("drop", onDrop);
 	});
 }
 
-export class Menu {
-	id: string;
-	_items: SerializedMenuItem[];
-
-	private constructor(id: string, items: SerializedMenuItem[]) {
-		this.id = id;
-		this._items = items;
-	}
-
-	static new(opts?: { id?: string; items?: NativeMenuItemOptions[] }): Promise<Menu> {
-		return Promise.resolve(
-			new Menu(opts?.id ?? `menu-${menuSeq++}`, serializeMenuItems(opts?.items ?? [])),
-		);
-	}
-}
-
-// ---- Tray ----
-
-export type MouseButton = "Left" | "Right" | "Middle";
-export type MouseButtonState = "Up" | "Down";
-
-export type TrayIconEvent = {
-	type: "Click" | "DoubleClick" | "Enter" | "Move" | "Leave";
-	id: string;
-	button?: MouseButton;
-	buttonState?: MouseButtonState;
-	position?: { x: number; y: number };
-	rect?: { position: { x: number; y: number }; size: { width: number; height: number } };
-};
-
-export interface TrayIconOptions {
-	id?: string;
-	menu?: Menu;
-	tooltip?: string;
-	showMenuOnLeftClick?: boolean;
-	action?: (event: TrayIconEvent) => void;
-}
-
-const trayActions = new Map<string, (event: TrayIconEvent) => void>();
-
-let trayEventsBound = false;
-
-function bindTrayEvents(): void {
-	if (trayEventsBound) return;
-	trayEventsBound = true;
-	eio().on("tray:menu-event", ({ id }: { id: string }) => {
-		menuItemActions.get(id)?.(id);
-	});
-	eio().on("tray:event", ({ id, event }: { id: string; event: TrayIconEvent }) => {
-		trayActions.get(id)?.(event);
-	});
-}
-
-export class TrayIcon {
-	id: string;
-
-	private constructor(id: string) {
-		this.id = id;
-	}
-
-	static async new(options?: TrayIconOptions): Promise<TrayIcon> {
-		bindTrayEvents();
-		const id = options?.id ?? `tray-${menuSeq++}`;
-		if (options?.action) trayActions.set(id, options.action);
-		await eio().invoke("tray:new", {
-			id,
-			tooltip: options?.tooltip,
-			showMenuOnLeftClick: options?.showMenuOnLeftClick ?? true,
-		});
-		const tray = new TrayIcon(id);
-		if (options?.menu) await tray.setMenu(options.menu);
-		return tray;
-	}
-
-	static async removeById(id: string): Promise<void> {
-		trayActions.delete(id);
-		await eio().invoke("tray:remove", { id });
-	}
-
-	async setMenu(menu: Menu | null): Promise<void> {
-		await eio().invoke("tray:set-menu", { id: this.id, items: menu?._items ?? [] });
-	}
-
-	async setTooltip(tooltip: string | null): Promise<void> {
-		await eio().invoke("tray:set-tooltip", { id: this.id, tooltip });
-	}
-}
-
-// ---- File system ----
-
-export function exists(p: string): Promise<boolean> {
-	return eio().invoke("fs:exists", { path: p });
-}
-
-export function readDir(
-	p: string,
-): Promise<{ name: string; isDirectory: boolean; isFile: boolean; isSymlink: boolean }[]> {
-	return unwrap(eio().invoke("fs:read-dir", { path: p }));
-}
-
-export function stat(
-	p: string,
-): Promise<{ size: number; isDirectory: boolean; isFile: boolean; isSymlink: boolean }> {
-	return unwrap(eio().invoke("fs:stat", { path: p }));
-}
-
-export function remove(p: string, options?: { recursive?: boolean }): Promise<void> {
-	return unwrap(eio().invoke("fs:remove", { path: p, options })) as Promise<void>;
-}
-
-export function readFile(p: string): Promise<Uint8Array> {
-	return unwrap<Uint8Array | ArrayBuffer | number[]>(
-		eio().invoke("fs:read-file", { path: p }),
-	).then((data) => {
-		if (data instanceof Uint8Array) return data;
-		if (data instanceof ArrayBuffer) return new Uint8Array(data);
-		// Backward compat: older main-process builds sent a number[].
-		return new Uint8Array(data);
-	});
-}
-
-export async function mkdir(p: string, options?: { recursive?: boolean }): Promise<void> {
-	await unwrap(eio().invoke("fs:mkdir", { path: p, options }));
-}
-
-export async function writeFile(p: string, data: Uint8Array): Promise<void> {
-	// Pass the TypedArray directly: structured clone copies the bytes (~1x).
-	// Spreading into a number[] would use ~30x memory and OOM-crash on
-	// real-world mod sizes.
-	await unwrap(eio().invoke("fs:write-file", { path: p, data }));
+export async function destroyWindow(): Promise<void> {
+	await eio().invoke("window:destroy");
 }
 
 // ---- Dialogs ----
 
-type DialogOptions = {
+export type DialogOptions = {
 	directory?: boolean;
 	filters?: { name: string; extensions: string[] }[];
 	title?: string;
 	defaultPath?: string;
 };
 
-export function open(options?: DialogOptions & { multiple?: false }): Promise<string | null>;
-export function open(options: DialogOptions & { multiple: true }): Promise<string[] | null>;
-export function open(options?: DialogOptions & { multiple?: boolean }): Promise<unknown> {
-	return eio().invoke("dialog:open", { options });
+/** Shows a native open dialog on the host. */
+export async function open(options: DialogOptions & { multiple: true }): Promise<string[] | null>;
+/** Shows a native open dialog on the host. */
+export async function open(options?: DialogOptions & { multiple?: false }): Promise<string | null>;
+/**
+ * Shows a native open dialog on the host.
+ * @param options Dialog options; `multiple: true` widens the result to an array.
+ * @returns The selected path(s), or `null` when cancelled.
+ */
+export async function open(
+	options?: DialogOptions & { multiple?: boolean },
+): Promise<string[] | string | null> {
+	const paths = await eio().invoke("dialog:open", options ?? {});
+	if (!paths) return null;
+	return options?.multiple ? paths : (paths[0] ?? null);
 }
 
 export function save(options?: {
@@ -532,8 +321,9 @@ export function save(options?: {
 	filters?: { name: string; extensions: string[] }[];
 	title?: string;
 }): Promise<string | null> {
-	return eio().invoke("dialog:save", { options });
+	return eio().invoke("dialog:save", options ?? {});
 }
+
 // ---- Opener ----
 
 export function openPath(p: string): Promise<void> {
@@ -544,21 +334,27 @@ export function openUrl(url: string): Promise<void> {
 	return eio().invoke("opener:open-url", { url });
 }
 
+// ---- App ----
+
+export function getVersion(): Promise<string> {
+	return eio().invoke("app:version");
+}
+
 // ---- OS info (injected as non-writable constants by the main process) ----
 export function platform(): string {
-	return (window as any).__os?.platform ?? "";
+	return window.__os?.platform ?? "";
 }
 
 export function arch(): string {
-	return (window as any).__os?.arch ?? "";
+	return window.__os?.arch ?? "";
 }
 
 export function type(): string {
-	return (window as any).__os?.type ?? "";
+	return window.__os?.type ?? "";
 }
 
 export function version(): string {
-	return (window as any).__os?.version ?? "";
+	return window.__os?.version ?? "";
 }
 
 // ---- HTTP ----
@@ -577,6 +373,7 @@ class ElectronUpdate {
 	constructor(
 		private _version: string,
 		private _currentVersion: string,
+		private _notes: string | null = null,
 	) {}
 
 	get version(): string {
@@ -587,18 +384,20 @@ class ElectronUpdate {
 		return this._currentVersion;
 	}
 
+	/** Markdown body of the pending GitHub release, when the host could fetch it. */
+	get notes(): string | null {
+		return this._notes;
+	}
+
 	async downloadAndInstall(onEvent: (event: DownloadEvent) => void): Promise<void> {
 		let started = false;
-		const unsub = eio().on(
-			"updater:download-progress",
-			(data: { chunkLength: number; contentLength: number }) => {
-				if (!started) {
-					started = true;
-					onEvent({ event: "Started", data: { contentLength: data.contentLength } });
-				}
-				onEvent({ event: "Progress", data: { chunkLength: data.chunkLength } });
-			},
-		);
+		const unsub = eio().on("updater:download-progress", (data) => {
+			if (!started) {
+				started = true;
+				onEvent({ event: "Started", data: { contentLength: data.contentLength } });
+			}
+			onEvent({ event: "Progress", data: { chunkLength: data.chunkLength } });
+		});
 
 		try {
 			await eio().invoke("updater:download");
@@ -610,15 +409,11 @@ class ElectronUpdate {
 }
 
 export async function check(): Promise<ElectronUpdate | null> {
-	const result = (await eio().invoke("updater:check")) as {
-		available: boolean;
-		version?: string;
-		error?: string;
-	};
+	const result = await eio().invoke("updater:check");
 	if (result.error) throw new Error(result.error);
 	if (!result.available || !result.version) return null;
 	const currentVersion = await eio().invoke("app:version");
-	return new ElectronUpdate(result.version, currentVersion);
+	return new ElectronUpdate(result.version, currentVersion, result.releaseNotes ?? null);
 }
 
 export type Update = ElectronUpdate;

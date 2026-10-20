@@ -5,12 +5,7 @@
 	import { persistedJSON } from "$lib/stores/persisted.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import Modal from "../ui/Modal.svelte";
-
-	interface LegacyInstall {
-		PSChildName: string;
-		DisplayName?: string;
-		InstallLocation?: string;
-	}
+	import type { LegacyInstall } from "../../../../electron/src/ipc/contract";
 
 	const prompted = persistedJSON<boolean>("legacyTauriPrompted", false);
 
@@ -24,7 +19,7 @@
 	$effect(() => {
 		if (prompted.value) return;
 		void invoke("legacy:find").then((found) => {
-			if (Array.isArray(found) && found.length > 0) {
+			if (found.length > 0) {
 				installs = found;
 				open = true;
 			}
@@ -39,7 +34,7 @@
 	async function handleUninstall() {
 		uninstalling = true;
 		try {
-			const results = (await invoke("legacy:uninstall")) as { code: number }[];
+			const results = await invoke("legacy:uninstall");
 			// 0/3010 = success (3010 = reboot required), 1602 = cancelled.
 			const failed = results.find((r) => r.code !== 0 && r.code !== 3010 && r.code !== 1602);
 			if (failed) {
@@ -74,12 +69,12 @@
 				<p class="text-sm">{m.legacy_found_desc()}</p>
 				<p class="text-base-content/70 text-sm">
 					{m.legacy_found_body()}
-					{#each installs as install, i (install.PSChildName)}
+					{#each installs as install, i (install.id)}
 						{#if i > 0}
 							{", "}
 						{/if}
 						<span class="text-base-content font-medium"
-							>{install.DisplayName || m.legacy_name_fallback()}</span
+							>{install.name || m.legacy_name_fallback()}</span
 						>
 					{/each}
 				</p>

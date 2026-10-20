@@ -1,27 +1,33 @@
+// Electron main entry: window lifecycle, single-instance lock, file
+// associations and session hardening. All IPC handlers live in their own
+// domain modules and are registered for their side effects via the imports
+// below.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, ipcMain, session } from "electron";
+import { app, BrowserWindow, session } from "electron";
 import serve from "electron-serve";
+import { getMainWindow, setMainWindow, showMainWindow } from "./app-state.js";
 import { queueOpenFiles } from "./app.js";
-import "./fs.js";
+import "./converter.js";
 import "./dialog.js";
-import "./opener.js";
-import { injectOs } from "./os.js";
-import "./path.js";
-import { activeChildren } from "./shell.js";
-import "./window.js";
-import "./scopes.js";
-import "./updater.js";
-import "./tray.js";
+import { handle } from "./ipc/handle.js";
+import "./instances.js";
 import "./legacy.js";
+import "./mods.js";
+import "./opener.js";
+import "./path.js";
+import "./platforms.js";
+import { injectOs } from "./os.js";
+import "./tray.js";
+import "./updater.js";
+import "./window.js";
+import { activeChildren } from "./shell.js";
 
-let mainWindow = null;
-
-function tempestFilesFromArgs(args, workingDirectory) {
+function tempestFilesFromArgs(args: string[], workingDirectory: string): string[] {
 	return args.flatMap((argument) => {
-		let filePath;
+		let filePath: string;
 		try {
 			// Cross-platform support for Linux, Windows, and macOS file paths.
 			filePath = argument.startsWith("file:")
@@ -39,29 +45,16 @@ function tempestFilesFromArgs(args, workingDirectory) {
 	});
 }
 
-function queueAndNotifyOpenFiles(files) {
+function queueAndNotifyOpenFiles(files: string[]): void {
 	if (files.length === 0) return;
 	queueOpenFiles(files);
-	if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isLoading()) {
-		mainWindow.webContents.send("open-mod-files", null);
+	const window = getMainWindow();
+	if (window && !window.isDestroyed() && !window.webContents.isLoading()) {
+		window.webContents.send("open-mod-files", null);
 	}
 }
 
 queueOpenFiles(tempestFilesFromArgs(process.argv.slice(1), process.cwd()));
-
-// One-time localStorage migration: the Tauri build periodically dumped
-// localStorage to settings.json next to this profile. Hand it to the preload
-// script (which exposes it before any page script runs) so the store bootstrap
-// can import it before persisted state initializes.
-ipcMain.on("migration:dump", (event) => {
-	let value = null;
-	try {
-		value = fs.readFileSync(path.join(app.getPath("userData"), "settings.json"), "utf8");
-	} catch {
-		/* no snapshot yet */
-	}
-	event.returnValue = value;
-});
 
 app.on("open-file", (event, filePath) => {
 	event.preventDefault();
@@ -86,21 +79,27 @@ if (!hasInstanceLock) {
 } else {
 	app.on("second-instance", (_event, commandLine, workingDirectory) => {
 		queueAndNotifyOpenFiles(tempestFilesFromArgs(commandLine, workingDirectory));
-		if (!mainWindow) return;
-		if (mainWindow.isMinimized()) mainWindow.restore();
-		mainWindow.show();
-		mainWindow.focus();
+		showMainWindow();
 	});
 }
 
 const loadURL = serve({ directory: "build" });
 
-function createWindow() {
+// Whether closing the window should hide it into the tray instead of
+// quitting. The renderer pushes this via `app:set-close-behavior` whenever
+// its background-work state changes (running games, active lobby, ...).
+let hideOnClose = false;
+
+handle("app:set-close-behavior", (_event, { hideToTray }) => {
+	hideOnClose = hideToTray;
+});
+
+function createWindow(): void {
 	const icon = app.isPackaged
 		? path.join(process.resourcesPath, "icon.png")
 		: path.join(import.meta.dirname, "..", "resources", "icons", "icon.png");
 
-	mainWindow = new BrowserWindow({
+	const window = new BrowserWindow({
 		width: 1500,
 		height: 900,
 		minWidth: 1024,
@@ -116,12 +115,13 @@ function createWindow() {
 			devTools: true,
 		},
 	});
+	setMainWindow(window);
 
-	mainWindow.webContents.on("did-finish-load", () => {
-		injectOs(mainWindow);
+	window.webContents.on("did-finish-load", () => {
+		injectOs(window);
 	});
 
-	mainWindow.webContents.on("will-navigate", (event, url) => {
+	window.webContents.on("will-navigate", (event, url) => {
 		try {
 			const u = new URL(url);
 			// Packaged: only the app:// protocol electron-serve serves. Dev: exact
@@ -139,65 +139,59 @@ function createWindow() {
 	// Never hand webview window requests (Ctrl/Cmd/Shift+click, middle-click,
 	// target="_blank") to the system browser. External links are opened
 	// explicitly from the renderer via openUrl().
-	mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
 	if (!app.isPackaged) {
-		void mainWindow.loadURL("http://localhost:1420");
+		void window.loadURL("http://localhost:1420");
 	} else {
-		void loadURL(mainWindow);
+		void loadURL(window);
 	}
 
-	mainWindow.on("closed", () => {
-		mainWindow = null;
+	window.on("closed", () => {
+		setMainWindow(null);
 	});
 
-	mainWindow.on("close", async (e) => {
-		e.preventDefault();
-		// event.sender here is the WebContents, not the BrowserWindow; use the
-		// window itself (close fires exactly once, before "closed" nulls it).
-		const win = mainWindow;
-		if (!win) return;
-		try {
-			const shouldClose = await win.webContents.executeJavaScript(
-				"window.__closeHook?.() ?? true",
-			);
-			if (shouldClose) win.destroy();
-		} catch {
-			win.destroy();
+	window.on("close", (e) => {
+		if (hideOnClose) {
+			e.preventDefault();
+			window.hide();
 		}
+		// Otherwise fall through and close normally.
 	});
 }
 
 app.whenReady()
 	.then(() => {
 		if (!hasInstanceLock) return;
-		const upsert = (obj, key, value) => {
+		const upsert = (obj: Record<string, string[]>, key: string, value: string) => {
 			const lower = key.toLowerCase();
 			for (const k of Object.keys(obj)) {
 				if (k.toLowerCase() === lower) {
-					obj[k] = value;
+					obj[k] = [value];
 					return;
 				}
 			}
-			obj[key] = value;
+			obj[key] = [value];
 		};
 
 		session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-			const { responseHeaders: h } = details;
+			const responseHeaders = details.responseHeaders ?? {};
 
 			if (details.method === "OPTIONS") {
-				upsert(h, "Access-Control-Allow-Origin", ["*"]);
-				upsert(h, "Access-Control-Allow-Methods", ["POST, GET, OPTIONS"]);
-				upsert(h, "Access-Control-Allow-Headers", ["*"]);
-				callback({ responseHeaders: h, statusLine: "HTTP/1.1 204 No Content" });
+				upsert(responseHeaders, "Access-Control-Allow-Origin", "*");
+				upsert(responseHeaders, "Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+				upsert(responseHeaders, "Access-Control-Allow-Headers", "*");
+				callback({ responseHeaders, statusLine: "HTTP/1.1 204 No Content" });
 				return;
 			}
 
-			upsert(h, "Content-Security-Policy", [
+			upsert(
+				responseHeaders,
+				"Content-Security-Policy",
 				"default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src *; font-src * data:; connect-src *; frame-src *;",
-			]);
-			upsert(h, "Access-Control-Allow-Origin", ["*"]);
-			callback({ responseHeaders: h });
+			);
+			upsert(responseHeaders, "Access-Control-Allow-Origin", "*");
+			callback({ responseHeaders });
 		});
 		createWindow();
 	})
@@ -210,10 +204,7 @@ app.on("window-all-closed", () => {
 // macOS: clicking the dock icon must re-show the window after it was hidden
 // to the tray (Electron does not do this by default; Tauri's event loop did).
 app.on("activate", () => {
-	if (mainWindow && !mainWindow.isDestroyed()) {
-		mainWindow.show();
-		mainWindow.focus();
-	}
+	showMainWindow();
 });
 
 app.on("will-quit", () => {

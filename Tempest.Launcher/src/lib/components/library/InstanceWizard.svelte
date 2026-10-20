@@ -5,7 +5,7 @@
 	import { listMods, type ModRecord } from "$lib/core/mods";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
-	import { open as openDialog, openUrl, path, platform } from "$lib/platform/api";
+	import { open as openDialog, openUrl, join, platform } from "$lib/platform/api";
 	import { createIdentifyBuildMutation } from "$lib/queries/core";
 	import {
 		createDefaultInstancePathQuery,
@@ -283,11 +283,11 @@
 	async function getInstancePath() {
 		if (!selectedVersion?.version) return "";
 		if (selectedTab === "download" && selectedPath) {
-			return await path.join(selectedPath, selectedVersion.version);
+			return await join(selectedPath, selectedVersion.version);
 		}
 		if (selectedPath) return selectedPath;
 		if (defaultInstancePath.value) {
-			return await path.join(defaultInstancePath.value, selectedVersion.version);
+			return await join(defaultInstancePath.value, selectedVersion.version);
 		}
 		return `/instances/${selectedVersion.version}`;
 	}

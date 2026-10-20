@@ -4,7 +4,7 @@
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { openPath, path, stat } from "$lib/platform/api";
+	import { invoke } from "$lib/platform/api";
 	import { createRenameModMutation } from "$lib/queries/mods";
 	import type { ModRecord } from "$lib/core/mods";
 
@@ -29,30 +29,12 @@
 	async function showInExplorer() {
 		if (mod.Kind === "V2") {
 			if (!gamePath) return;
-			const modFolder = await path.join(gamePath, ".tempest", "v2", "mods", mod.Id);
-			await openPath(modFolder);
-			return;
-		}
-		if (!targetPath) return;
-
-		let resolvedFolder = targetPath;
-		try {
-			const info = await stat(targetPath);
-			if (info.isFile) {
-				resolvedFolder = await path.dirname(targetPath);
-			}
-		} catch (error) {
-			console.error("Failed to stat mod targetPath:", error);
-			// Fallback: if it ends with an extension or seems like a file, try directory
-			if (
-				targetPath.includes(".") &&
-				!targetPath.endsWith("/") &&
-				!targetPath.endsWith("\\")
-			) {
-				resolvedFolder = await path.dirname(targetPath);
-			}
-		}
-		await openPath(resolvedFolder);
+		} else if (!targetPath) return;
+		// Host resolves the folder (V2 mod dir / V1 file's parent) and opens it.
+		await invoke("mods:open-location", {
+			gamePath,
+			mod: mod.Kind === "V2" ? { kind: "V2", modId: mod.Id } : { kind: "V1", targetPath },
+		});
 	}
 
 	let isRenameModalOpen = $state(false);

@@ -1,4 +1,4 @@
-import { homeDir, path, platform } from "$lib/platform/api";
+import { invoke } from "$lib/platform/api";
 import { persistedState } from "./persisted.svelte";
 
 export const username = persistedState<string>("username", "Player");
@@ -22,11 +22,7 @@ export const dismissExperimentalWarning = persistedState<boolean>(
 );
 export const openSslCapFix = persistedState<boolean>("openSslCapFix", true);
 
-const getDefaultInstancePath = async () => {
-	const rootDir = platform() === "windows" ? "C:" : await homeDir();
-
-	return await path.join(rootDir, "Games", "Tempest");
-};
+const getDefaultInstancePath = (): Promise<string> => invoke("app:default-instance-path");
 
 export const defaultInstancePath = persistedState<string | undefined>(
 	"defaultInstancePath",

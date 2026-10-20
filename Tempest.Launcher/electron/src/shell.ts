@@ -1,22 +1,28 @@
-import { spawn, execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { ipcMain } from "electron";
+import { handle } from "./ipc/handle.js";
 
-const activeChildren = new Map();
+const activeChildren = new Map<number, ReturnType<typeof spawn>>();
 let nextPid = 1;
 
-ipcMain.handle("shell:spawn", (event, { program, args, options, sidecar }) => {
-	let resolvedProgram = program;
-	if (sidecar) {
-		const ext = process.platform === "win32" ? ".exe" : "";
-		resolvedProgram = path.join(process.resourcesPath, program + ext);
-		if (!fs.existsSync(resolvedProgram)) {
-			resolvedProgram = path.join(process.resourcesPath, "binaries", program + ext);
-		}
-	}
+// The sender's webContents can be destroyed while a child is still running
+// (window closed, app quitting); sending to it would throw in the main process.
+const send = (sender: Electron.WebContents, channel: string, payload: unknown) => {
+	if (!sender.isDestroyed()) sender.send(channel, payload);
+};
 
-	const child = spawn(resolvedProgram, args ?? [], {
+function resolveSidecar(program: string): string {
+	const ext = process.platform === "win32" ? ".exe" : "";
+	const direct = path.join(process.resourcesPath, program + ext);
+	if (fs.existsSync(direct)) return direct;
+	return path.join(process.resourcesPath, "binaries", program + ext);
+}
+
+handle("shell:spawn", (event, { program, args, options, sidecar }) => {
+	const resolvedProgram = sidecar ? resolveSidecar(program) : program;
+
+	const child = spawn(resolvedProgram, args, {
 		...options,
 		env: options?.env ? { ...process.env, ...options.env } : process.env,
 		stdio: ["pipe", "pipe", "pipe"],
@@ -26,27 +32,23 @@ ipcMain.handle("shell:spawn", (event, { program, args, options, sidecar }) => {
 	activeChildren.set(id, child);
 
 	let closed = false;
-	const notifyClose = (code, signal) => {
+	const notifyClose = (code: number | null, signal: NodeJS.Signals | null) => {
 		if (closed) return;
 		closed = true;
-		send(`shell:process:${id}:close`, {
+		send(event.sender, "shell:process", {
+			pid: id,
+			type: "close",
 			code: code ?? null,
 			signal: signal ?? null,
 		});
 		activeChildren.delete(id);
 	};
 
-	// The sender's webContents can be destroyed while a child is still running
-	// (window closed, app quitting); sending to it would throw in the main process.
-	const send = (channel, payload) => {
-		if (!event.sender.isDestroyed()) event.sender.send(channel, payload);
-	};
-
-	child.stdout.on("data", (data) => {
-		send(`shell:process:${id}:stdout`, data.toString());
+	child.stdout?.on("data", (data: Buffer) => {
+		send(event.sender, "shell:process", { pid: id, type: "stdout", data: data.toString() });
 	});
-	child.stderr.on("data", (data) => {
-		send(`shell:process:${id}:stderr`, data.toString());
+	child.stderr?.on("data", (data: Buffer) => {
+		send(event.sender, "shell:process", { pid: id, type: "stderr", data: data.toString() });
 	});
 	// The child's own termination ('exit') is the reliable "launch is over" signal.
 	// 'close' waits for the stdio pipes to close, and on Proton/Wine the wrapper's
@@ -55,26 +57,19 @@ ipcMain.handle("shell:spawn", (event, { program, args, options, sidecar }) => {
 	child.on("exit", (code, signal) => notifyClose(code, signal));
 	child.on("close", (code, signal) => notifyClose(code, signal));
 	child.on("error", (err) => {
-		send(`shell:process:${id}:error`, err.message);
+		send(event.sender, "shell:process", { pid: id, type: "error", message: err.message });
 		activeChildren.delete(id);
 	});
 
 	return { pid: id };
 });
 
-ipcMain.handle("shell:execute", (_event, { program, args, options, sidecar }) => {
-	let resolvedProgram = program;
-	if (sidecar) {
-		const ext = process.platform === "win32" ? ".exe" : "";
-		resolvedProgram = path.join(process.resourcesPath, program + ext);
-		if (!fs.existsSync(resolvedProgram)) {
-			resolvedProgram = path.join(process.resourcesPath, "binaries", program + ext);
-		}
-	}
+handle("shell:execute", (_event, { program, args, options, sidecar }) => {
+	const resolvedProgram = sidecar ? resolveSidecar(program) : program;
 	return new Promise((resolve) => {
 		execFile(
 			resolvedProgram,
-			args ?? [],
+			args,
 			{
 				...options,
 				env: options?.env ? { ...process.env, ...options.env } : process.env,
@@ -90,7 +85,7 @@ ipcMain.handle("shell:execute", (_event, { program, args, options, sidecar }) =>
 	});
 });
 
-ipcMain.handle("shell:kill", (_event, { pid }) => {
+handle("shell:kill", (_event, { pid }) => {
 	const child = activeChildren.get(pid);
 	if (child) {
 		child.kill();
@@ -98,12 +93,12 @@ ipcMain.handle("shell:kill", (_event, { pid }) => {
 	}
 });
 
-ipcMain.handle("shell:stdin-write", (_event, { pid, data }) => {
+handle("shell:stdin-write", (_event, { pid, data }) => {
 	const child = activeChildren.get(pid);
 	if (child?.stdin?.writable) child.stdin.write(data);
 });
 
-ipcMain.handle("which", (_event, { name }) => {
+handle("shell:which", (_event, { name }) => {
 	const ext = process.platform === "win32" ? ".exe" : "";
 	const dirs = (process.env.PATH ?? "").split(path.delimiter);
 	for (const dir of dirs) {

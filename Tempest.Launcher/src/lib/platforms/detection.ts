@@ -1,94 +1,18 @@
-import { exists, path as sysPath, readDir } from "$lib/platform/api";
-import { allowScopeDirectory } from "$lib/platform/scopes";
+// Platform detection runs entirely on the host (`platforms:detect`): the
+// game-folder walk and Binaries checks used to be dozens of renderer-driven
+// fs round trips, now it's one call. Results are cached per instance path.
+import { invoke } from "$lib/platform/api";
 import { instancePlatforms } from "$lib/types/instance";
 import type { InstancePlatform } from "$lib/types/instance";
 
 const platformCache = new Map<string, InstancePlatform[]>();
 
 export async function detectAvailablePlatforms(instancePath: string): Promise<InstancePlatform[]> {
-	console.debug("[platforms] detectAvailablePlatforms", { instancePath });
-	await allowScopeDirectory(instancePath, true);
 	const cached = platformCache.get(instancePath);
-	if (cached) {
-		console.debug("[platforms] cached result", { instancePath, cached });
-		return cached;
-	}
+	if (cached) return cached;
 
-	const resolvedPath = (await resolveGameFolder(instancePath)) ?? instancePath;
-	console.debug("[platforms] resolved game folder", { instancePath, resolvedPath });
-	await allowScopeDirectory(resolvedPath, true);
-
-	const binariesRoot = await sysPath.join(resolvedPath, "Binaries");
-	console.debug("[platforms] binaries root", { binariesRoot });
-
-	const detected: InstancePlatform[] = [];
-	for (const platform of instancePlatforms) {
-		const platformRoot = await sysPath.join(binariesRoot, platform);
-		const hasBinaries = await hasGameExecutableInDir(platformRoot);
-		console.debug("[platforms] platform check", {
-			platform,
-			platformRoot,
-			hasBinaries,
-		});
-		if (hasBinaries) {
-			detected.push(platform);
-		}
-	}
-
-	const resolved = detected.length ? detected : [...instancePlatforms];
-	console.debug("[platforms] resolved platforms", { resolved });
+	const detected = await invoke("platforms:detect", { instancePath });
+	const resolved = detected.length > 0 ? detected : [...instancePlatforms];
 	platformCache.set(instancePath, resolved);
 	return resolved;
 }
-
-const gameExecutableName = "Paladins.exe";
-const fileExtensions = [".exe", ".dll"];
-
-async function hasGameExecutableInDir(directoryPath: string): Promise<boolean> {
-	try {
-		await allowScopeDirectory(directoryPath, false);
-		const dirExists = await exists(directoryPath);
-		if (!dirExists) {
-			console.debug("[platforms] binaries dir missing", { directoryPath });
-			return false;
-		}
-		const entries = await readDir(directoryPath);
-		const executable = gameExecutableName.toLowerCase();
-		const hasExecutable = entries.some(
-			(entry) => !entry.isDirectory && (entry.name ?? "").toLowerCase() === executable,
-		);
-		console.debug("[platforms] binaries dir entries", {
-			directoryPath,
-			entryCount: entries.length,
-			hasExecutable,
-		});
-		return hasExecutable;
-	} catch (error) {
-		console.debug("[platforms] failed to read binaries dir", {
-			directoryPath,
-			error,
-		});
-		return false;
-	}
-}
-
-const resolveGameFolder = async (instancePath: string): Promise<string | null> => {
-	let current = isFilePath(instancePath) ? await sysPath.dirname(instancePath) : instancePath;
-
-	while (true) {
-		await allowScopeDirectory(current, false);
-		const binariesPath = await sysPath.join(current, "Binaries");
-		const enginePath = await sysPath.join(current, "Engine");
-
-		if ((await exists(binariesPath)) && (await exists(enginePath))) return current;
-
-		const parent = await sysPath.dirname(current);
-		if (parent === current) return null;
-		current = parent;
-	}
-};
-
-const isFilePath = (value: string): boolean => {
-	const lower = value.toLowerCase();
-	return fileExtensions.some((ext) => lower.endsWith(ext));
-};

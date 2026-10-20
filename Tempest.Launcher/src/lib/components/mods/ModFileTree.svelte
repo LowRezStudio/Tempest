@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ChevronDown, ChevronRight, File, FileText, Folder } from "@lucide/svelte";
-	import { readFile } from "$lib/platform/api";
+	import { invoke } from "$lib/platform/api";
 
 	interface Props {
 		files: string[];
@@ -148,42 +148,17 @@
 		fileContents.set(key, { loading: true, text: "", error: "" });
 		fileContents = new Map(fileContents);
 		try {
-			let target = key;
-			const lower = name.toLowerCase();
-			const isIni = lower.endsWith(".ini");
-			// For .ini, show the mod fragment that is to be merged (stored in .tempest/v2/mods/<modId>/files/...),
-			// not the final merged game ini.
-			if (isIni && modId && basePath) {
-				const sep = basePath.includes("\\") ? "\\" : "/";
-				let relative = key;
-				const normalizedKey = key.replaceAll("\\", "/");
-				const normalizedBase = basePath.replaceAll("\\", "/");
-				relative = normalizedKey
-					.toLowerCase()
-					.startsWith(`${normalizedBase.toLowerCase()}/`)
-					? key.slice(basePath.length).replace(/^[\\/]+/, "")
-					: key.replace(/^[\\/]+/, "");
-				// normalize relative to OS sep
-				relative = relative.replaceAll("/", sep).replaceAll("\\", sep);
-				target = `${basePath.replace(/[\\/]+$/, "")}${sep}.tempest${sep}v2${sep}mods${sep}${modId}${sep}files${sep}${relative}`;
-			} else {
-				// Resolve relative paths against basePath (InstalledFiles can be relative)
-				const isAbsolute =
-					/^[a-zA-Z]:[\\/]/.test(target) ||
-					target.startsWith("/") ||
-					target.startsWith("\\");
-				if (!isAbsolute && basePath) {
-					const sep = basePath.includes("\\") ? "\\" : "/";
-					target = `${basePath.replace(/[\\/]+$/, "")}${sep}${target.replace(/^[\\/]+/, "")}`;
-				}
-			}
-			const data = await readFile(target);
-			const raw = new TextDecoder("utf-8", { fatal: false }).decode(data);
-			// Truncate very large files (50k chars) to keep UI responsive
-			let text = raw;
-			if (text.length > 50_000) {
-				text = `${text.slice(0, 50_000)}\n\n… truncated (file too large, showing first 50k chars)`;
-			}
+			// Path resolution (.ini mod fragments, relative paths) and the read
+			// happen host-side, sandboxed to the instance directory.
+			const { text: raw, truncated } = await invoke("mods:read-file", {
+				basePath: basePath ?? "",
+				modId,
+				path: key,
+			});
+			// Keep the UI responsive on very large files (host caps at 50k chars).
+			const text = truncated
+				? `${raw}\n\n… truncated (file too large, showing first 50k chars)`
+				: raw;
 			fileContents.set(key, { loading: false, text, error: "" });
 		} catch (error) {
 			fileContents.set(key, {

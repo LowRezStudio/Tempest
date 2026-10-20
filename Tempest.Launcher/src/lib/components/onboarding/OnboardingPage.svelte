@@ -8,10 +8,10 @@
 	import { m } from "$lib/paraglide/messages";
 	import { locales, type Locale } from "$lib/paraglide/runtime";
 	import {
+		invoke,
 		open as openDirectoryDialog,
-		homeDir,
 		platform as getPlatform,
-		path as sysPath,
+		join as sysPathJoin,
 	} from "$lib/platform/api";
 	import { findSteamPaladinsInstallation } from "$lib/platforms/steam";
 	import { createSetupInstanceMutation } from "$lib/queries/instance";
@@ -306,12 +306,10 @@
 		}
 	}
 
-	async function getDownloadBasePath(): Promise<string> {
-		if (defaultInstancePath.value) return defaultInstancePath.value;
-		const root = getPlatform() === "windows" ? "C:" : await homeDir();
-		return await sysPath.join(root, "Games", "Tempest");
+	function getDownloadBasePath(): Promise<string> {
+		if (defaultInstancePath.value) return Promise.resolve(defaultInstancePath.value);
+		return invoke("app:default-instance-path");
 	}
-
 	async function browseDownloadDirectory() {
 		const selected = await openDirectoryDialog({
 			directory: true,
@@ -327,7 +325,7 @@
 		installError = "";
 
 		try {
-			const targetPath = await sysPath.join(await getDownloadBasePath(), entry.version);
+			const targetPath = await sysPathJoin(await getDownloadBasePath(), entry.version);
 			const manifests = [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", entry.id)];
 			const existing = findExistingInstance(targetPath);
 

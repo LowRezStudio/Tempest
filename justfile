@@ -174,10 +174,11 @@ launcher-dev: build
 launcher-build:
     cd {{launcher}} && pnpm electron:build
 
-# svelte-check + oxlint
+# svelte-check (renderer), electron typecheck (host), oxlint
 [group("launcher")]
 launcher-check:
     cd {{launcher}} && pnpm check
+    cd {{launcher}} && pnpm check:electron
     cd {{launcher}} && pnpm lint
 
 # oxfmt

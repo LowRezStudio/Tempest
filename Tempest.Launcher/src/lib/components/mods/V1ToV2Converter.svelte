@@ -8,7 +8,7 @@
 	import { installMod } from "$lib/core/mods";
 	import { converterPendingPaths, isDraggingConverterFiles } from "$lib/mods/drop.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { open as openDialog, path, readFile, save as saveDialog } from "$lib/platform/api";
+	import { invoke } from "$lib/platform/api";
 	import { converter } from "$lib/stores/converter.svelte";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { addToast, removeToast } from "$lib/stores/ui.svelte";
@@ -48,35 +48,42 @@
 		if (converterPendingPaths.length > 0) {
 			const paths = [...converterPendingPaths];
 			converterPendingPaths.length = 0;
-			// Process sequentially: concurrent updates can overwrite each other
-			// and lose files when several are dropped at once.
+			// Read dropped files host-side in one batch, then process sequentially:
+			// concurrent updates can overwrite each other and lose files when
+			// several are dropped at once.
 			void (async () => {
-				for (const p of paths) {
-					await processFile(p);
+				const imports = await invoke("converter:read-imports", { paths });
+				const skipped = paths.length - imports.length;
+				if (skipped > 0) {
+					addToast({
+						title: m.toast_unsupported_file_title(),
+						message: m.toast_unsupported_file_message(),
+						tone: "error",
+					});
+				}
+				for (const imported of imports) {
+					await processFile(imported.path, new Uint8Array(imported.data));
 				}
 			})();
 		}
 	});
 
 	async function pickFiles() {
-		const result = await openDialog({
-			multiple: true,
-			filters: [{ name: "Mod Files", extensions: ["tempest", "upk", "pck", "ini"] }],
-		});
-		if (!result) return;
-		for (const f of Array.isArray(result) ? result : [result]) {
-			await processFile(f);
+		// Dialog + read both happen on the host in one round trip.
+		const imports = await invoke("converter:pick-imports");
+		for (const imported of imports) {
+			await processFile(imported.path, new Uint8Array(imported.data));
 		}
 	}
 
-	async function processFile(filePath: string) {
+	async function processFile(filePath: string, data: Uint8Array) {
 		importingLabel = filePath.split(/[/\\]/).pop() ?? filePath;
 		const ext = filePath.split(".").pop()?.toLowerCase();
 		try {
 			if (ext === "tempest") {
-				await processTempest(filePath);
+				await processTempest(filePath, data);
 			} else if (ext === "upk" || ext === "pck" || ext === "ini") {
-				await processLooseFile(filePath);
+				await processLooseFile(filePath, data);
 			} else {
 				addToast({
 					title: m.toast_unsupported_file_title(),
@@ -91,9 +98,8 @@
 		}
 	}
 
-	async function processTempest(filePath: string) {
+	async function processTempest(filePath: string, data: Uint8Array) {
 		try {
-			const data = await readFile(filePath);
 			const zip = await JSZip.loadAsync(data);
 			const files: FileEntry[] = [];
 			let manifest: SourceEntry["manifest"] | undefined;
@@ -145,8 +151,7 @@
 		}
 	}
 
-	async function processLooseFile(filePath: string) {
-		const data = await readFile(filePath);
+	function processLooseFile(filePath: string, data: Uint8Array) {
 		const fileName = filePath.split(/[/\\]/).pop() ?? filePath;
 		converter.sources = [
 			...converter.sources,
@@ -263,17 +268,16 @@
 
 	async function download() {
 		if (!converter.cookedZip) return;
-		const savePath = await saveDialog({
-			defaultPath: `${converter.modName.trim() || "converted-mod"}.tempest`,
-			filters: [{ name: "Tempest Mod", extensions: ["tempest"] }],
-		});
-		if (!savePath) return;
 		try {
-			const { writeFile } = await import("$lib/platform/api");
-			await writeFile(savePath, converter.cookedZip);
+			// Save dialog + write happen host-side in one step.
+			const savedPath = await invoke("mods:save-pack", {
+				defaultPath: `${converter.modName.trim() || "converted-mod"}.tempest`,
+				data: converter.cookedZip,
+			});
+			if (!savedPath) return;
 			addToast({
 				title: m.converter_toast_saved_title(),
-				message: m.converter_toast_saved_message({ path: savePath }),
+				message: m.converter_toast_saved_message({ path: savedPath }),
 				tone: "success",
 			});
 		} catch (error) {
@@ -296,10 +300,12 @@
 				duration: 0,
 			});
 
-			const { writeFile } = await import("$lib/platform/api");
-			const tmpDir = await path.tempDir();
-			const tmpFile = await path.join(tmpDir, `${modFileName}.tempest`);
-			await writeFile(tmpFile, converter.cookedZip);
+			// Stage the cooked pack in a host-owned temp file, install from there,
+			// then discard it — the renderer never touches the filesystem itself.
+			const tmpFile = await invoke("mods:stage-pack", {
+				filename: `${modFileName}.tempest`,
+				data: converter.cookedZip,
+			});
 			const result = await installMod(inst.path, tmpFile, true);
 
 			if (installingToastId) removeToast(installingToastId);
@@ -322,7 +328,7 @@
 				});
 			}
 			try {
-				await import("$lib/platform/api").then((m) => m.remove(tmpFile));
+				await invoke("mods:discard-staged-pack", { stagedPath: tmpFile });
 			} catch {}
 		} catch (error) {
 			if (installingToastId) removeToast(installingToastId);

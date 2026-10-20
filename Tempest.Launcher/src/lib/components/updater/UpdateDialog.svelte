@@ -68,7 +68,7 @@
 					>
 				</div>
 
-				{#if cachedReleaseNotes.value?.body}
+				{#if updaterStore.update.notes || cachedReleaseNotes.value?.body}
 					<div class="flex flex-col gap-1.5">
 						<span class="text-base-content/70 text-xs font-semibold"
 							>{m.updater_release_notes()}</span
@@ -76,7 +76,7 @@
 						<div
 							class="bg-base-200 border-base-300 max-h-32 overflow-y-auto rounded-lg border p-3 font-sans text-xs leading-relaxed whitespace-pre-wrap"
 						>
-							{cachedReleaseNotes.value.body}
+							{updaterStore.update.notes ?? cachedReleaseNotes.value?.body}
 						</div>
 					</div>
 				{/if}

@@ -10,7 +10,7 @@
 	import AppShell from "$lib/components/layout/AppShell.svelte";
 	import OnboardingPage from "$lib/components/onboarding/OnboardingPage.svelte";
 	import { checkForCoreUpdatesAndInstall } from "$lib/core/mods";
-	import { appConfigDir, join, writeFile } from "$lib/platform/api";
+	import { invoke } from "$lib/platform/api";
 	import { setQueryClient } from "$lib/queries/client";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { snapshotPaused } from "$lib/stores/snapshot.svelte";
@@ -23,7 +23,7 @@
 
 	// Periodically dump localStorage to settings.json in the profile dir as a
 	// recoverable snapshot (used by the migration path when switching storage
-	// backends).
+	// backends). The file itself is written host-side.
 	$effect(() => {
 		let lastSnapshot = "";
 		const snapshot = async () => {
@@ -37,10 +37,7 @@
 				const text = JSON.stringify(dump, null, 2);
 				if (text === lastSnapshot) return;
 				lastSnapshot = text;
-				await writeFile(
-					await join(await appConfigDir(), "settings.json"),
-					new TextEncoder().encode(text),
-				);
+				await invoke("settings:write-snapshot", { json: text });
 			} catch (error) {
 				console.warn("[settings] snapshot skipped:", error);
 			}

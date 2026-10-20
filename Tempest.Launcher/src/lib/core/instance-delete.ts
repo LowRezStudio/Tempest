@@ -1,5 +1,5 @@
 import { listMods, removeMod } from "$lib/core/mods";
-import { remove } from "$lib/platform/api";
+import { invoke } from "$lib/platform/api";
 import { restoreQueue } from "$lib/rigby/restore-queue";
 import { removeInstance } from "$lib/stores/instance.svelte";
 import type { Instance } from "$lib/types/instance";
@@ -46,7 +46,7 @@ export async function deleteInstance(
 
 	if (mode === "delete" && instance.path) {
 		try {
-			await remove(instance.path, { recursive: true });
+			await invoke("instance:delete-data", { instancePath: instance.path });
 		} catch (error) {
 			console.error("Failed to delete instance data:", error);
 		}

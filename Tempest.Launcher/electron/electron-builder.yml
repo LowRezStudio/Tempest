@@ -17,7 +17,7 @@ directories:
     output: ../dist
 files:
     - build/**/*
-    - src/**/*
+    - dist/**/*
     - package.json
 extraResources:
     - from: resources/binaries

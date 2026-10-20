@@ -3,7 +3,7 @@
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { reloadModDll } from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
-	import { exists, openPath, path, stat } from "$lib/platform/api";
+	import { invoke } from "$lib/platform/api";
 	import {
 		createRenameModMutation,
 		createEnableModMutation,
@@ -38,26 +38,15 @@
 	async function showInExplorer(mod: ModRecord) {
 		if (mod.Kind === "V2") {
 			if (!gamePath) return;
-			const modFolder = await path.join(gamePath, ".tempest", "v2", "mods", mod.Id);
-			await openPath(modFolder);
-			return;
-		}
-		const targetPath = mod.InstalledFiles[0] || mod.OriginalPath || "";
-		if (!targetPath) return;
-		let resolvedFolder = targetPath;
-		try {
-			const info = await stat(targetPath);
-			if (info.isFile) resolvedFolder = await path.dirname(targetPath);
-		} catch {
-			if (
-				targetPath.includes(".") &&
-				!targetPath.endsWith("/") &&
-				!targetPath.endsWith("\\")
-			) {
-				resolvedFolder = await path.dirname(targetPath);
-			}
-		}
-		await openPath(resolvedFolder);
+		} else if (!(mod.InstalledFiles[0] || mod.OriginalPath || "")) return;
+		// Host resolves the folder (V2 mod dir / V1 file's parent) and opens it.
+		await invoke("mods:open-location", {
+			gamePath,
+			mod:
+				mod.Kind === "V2"
+					? { kind: "V2", modId: mod.Id }
+					: { kind: "V1", targetPath: mod.InstalledFiles[0] || mod.OriginalPath || "" },
+		});
 	}
 
 	let editingMod = $state<{ name: string } | null>(null);
@@ -106,7 +95,7 @@
 		for (const mod of mods) {
 			if (mod.Kind?.toLowerCase() !== "v2") continue;
 			const id = mod.Id;
-			exists(`${gamePath}/.tempest/v2/mods/${id}/dlls`)
+			invoke("mods:has-dlls", { gamePath, modId: id })
 				.then((r) => {
 					next.set(id, r);
 					hasDllMap = new Map(next);

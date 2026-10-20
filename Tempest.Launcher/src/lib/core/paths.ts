@@ -1,29 +1,27 @@
-import { appConfigDir, path as sysPath } from "$lib/platform/api";
+import { invoke } from "$lib/platform/api";
+// Instance data paths. Computed host-side (`instance:paths`) so the layout
+// (userData dir pinning, separators, etc.) lives entirely in the Electron
+// main process; this is a single typed IPC call.
+import type { InstancePaths } from "../../../electron/src/ipc/contract";
 
-export const getInstanceBasePath = async (id: string): Promise<string> => {
-	const configDir = await appConfigDir();
-	return sysPath.join(configDir, "instances", id);
-};
+export function getInstancePaths(id: string): Promise<InstancePaths> {
+	return invoke("instance:paths", { id });
+}
 
-export const getInstanceTokensDir = async (id: string): Promise<string> => {
-	const baseDir = await getInstanceBasePath(id);
-	return sysPath.join(baseDir, "tokens");
-};
+export const getInstanceBasePath = (id: string): Promise<string> =>
+	getInstancePaths(id).then((paths) => paths.base);
 
-export const getFieldsTokenPath = async (id: string): Promise<string> => {
-	const tokensDir = await getInstanceTokensDir(id);
-	return sysPath.join(tokensDir, "fields.dat");
-};
+export const getInstanceTokensDir = (id: string): Promise<string> =>
+	getInstancePaths(id).then((paths) => paths.tokensDir);
 
-export const getFunctionsTokenPath = async (id: string): Promise<string> => {
-	const tokensDir = await getInstanceTokensDir(id);
-	return sysPath.join(tokensDir, "functions.dat");
-};
+export const getFieldsTokenPath = (id: string): Promise<string> =>
+	getInstancePaths(id).then((paths) => paths.fieldsToken);
 
-export const getInstanceAssemblyDbPath = async (id: string): Promise<string> => {
-	const baseDir = await getInstanceBasePath(id);
-	return sysPath.join(baseDir, "assembly.db");
-};
+export const getFunctionsTokenPath = (id: string): Promise<string> =>
+	getInstancePaths(id).then((paths) => paths.functionsToken);
+
+export const getInstanceAssemblyDbPath = (id: string): Promise<string> =>
+	getInstancePaths(id).then((paths) => paths.assemblyDb);
 
 export const getInstanceAssemblyDbConnectionString = (id: string): string =>
 	`sqlite:instances/${id}/assembly.db`;

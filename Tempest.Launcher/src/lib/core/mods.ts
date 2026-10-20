@@ -1,11 +1,4 @@
-import {
-	fetch as httpFetch,
-	join,
-	mkdir,
-	resolveResource,
-	tempDir,
-	writeFile,
-} from "$lib/platform/api";
+import { fetch as httpFetch, invoke, resolveResource } from "$lib/platform/api";
 import { getQueryClient } from "$lib/queries/client";
 import { appendProcessLogs } from "$lib/stores/processes.svelte";
 import { createCommand } from "./command";
@@ -16,22 +9,11 @@ const REMOTE_CORE_URL =
 const LATEST_CORE_API = "https://api.github.com/repos/LowRezStudio/TgMod/releases/latest";
 const CORE_VERSION_KEY = "tempest_core_remote_version";
 
-async function downloadRemoteMod(url: string, filename: string): Promise<string> {
-	const tmp = await tempDir();
-	const dest = await join(tmp, filename);
-	try {
-		const res = await httpFetch(url, { method: "GET" });
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
-		const buf = new Uint8Array(await res.arrayBuffer());
-		await mkdir(tmp, { recursive: true }).catch(() => {});
-		await writeFile(dest, buf);
-		return dest;
-	} catch (error) {
-		console.error(`Failed to download ${url}:`, error);
-		throw error;
-	}
+function downloadRemoteMod(url: string, filename: string): Promise<string> {
+	// Host-side download: the bytes stream straight to a temp file in the main
+	// process (no renderer memory, no CORS) and we only pass the path around.
+	return invoke("mods:download-to-temp", { url, filename });
 }
-
 export type ModAuthor = {
 	Name: string;
 	Link: string;

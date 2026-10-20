@@ -1,5 +1,4 @@
 import { check, invoke, type Update } from "$lib/platform/api";
-import { triggerChildCleanup } from "$lib/platform/scopes";
 
 export type UpdaterStatus =
 	| "idle"
@@ -25,19 +24,6 @@ class UpdaterStore {
 	}
 
 	set isOpen(value: boolean) {
-		if (this._isOpen && !value) {
-			// ponytail: transition from open to closed triggers cleanup on Windows if not updating
-			if (
-				this.status === "available" ||
-				this.status === "error" ||
-				this.status === "up-to-date" ||
-				this.status === "idle"
-			) {
-				triggerChildCleanup().catch((error) =>
-					console.error("Failed to trigger child cleanup on close:", error),
-				);
-			}
-		}
 		this._isOpen = value;
 	}
 
@@ -66,8 +52,6 @@ class UpdaterStore {
 				if (silent) {
 					this.isOpen = false;
 				}
-				// ponytail: no update available, so trigger cleanup immediately
-				await triggerChildCleanup();
 			}
 		} catch (error: any) {
 			console.error("Failed to check for updates:", error);
@@ -77,8 +61,6 @@ class UpdaterStore {
 				// Don't show error dialog if checking silently on start
 				this.isOpen = false;
 			}
-			// ponytail: check failed, trigger cleanup to be safe
-			await triggerChildCleanup();
 		}
 	}
 
@@ -111,7 +93,7 @@ class UpdaterStore {
 			// ponytail: relaunch app after small delay to let user see "Finished/Relaunching" status
 			setTimeout(async () => {
 				try {
-					await invoke("relaunch");
+					await invoke("app:relaunch");
 				} catch (error) {
 					console.error("Relaunch command failed:", error);
 					this.status = "error";
