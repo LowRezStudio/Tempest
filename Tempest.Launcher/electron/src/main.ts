@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, session } from "electron";
 import serve from "electron-serve";
 import { getMainWindow, setMainWindow, showMainWindow } from "./app-state.js";
-import { queueOpenFiles } from "./app.js";
+import { queueDeepLinks, queueOpenFiles } from "./app.js";
 import { ensureCli } from "./cli.js";
 import "./converter.js";
 import "./dialog.js";
@@ -55,11 +55,40 @@ function queueAndNotifyOpenFiles(files: string[]): void {
 	}
 }
 
+// tempest://install?mod=<id>&version=<v> links from the mod repository.
+function deepLinksFromArgs(args: string[]): string[] {
+	return args.filter((argument) => /^tempest:\/\//i.test(argument));
+}
+
+function queueAndNotifyDeepLinks(urls: string[]): void {
+	if (urls.length === 0) return;
+	queueDeepLinks(urls);
+	const window = getMainWindow();
+	if (window && !window.isDestroyed() && !window.webContents.isLoading()) {
+		window.webContents.send("deep-link", null);
+	}
+}
+
 queueOpenFiles(tempestFilesFromArgs(process.argv.slice(1), process.cwd()));
+queueDeepLinks(deepLinksFromArgs(process.argv.slice(1)));
+
+// Register the tempest:// scheme. Installers register it too (protocols: in
+// electron-builder.yml); dev runs must do it themselves. In dev the electron
+// binary needs the app path as an extra argument so the URL opens this app.
+if (process.defaultApp) {
+	app.setAsDefaultProtocolClient("tempest", process.execPath, [path.resolve(process.argv[1])]);
+} else {
+	app.setAsDefaultProtocolClient("tempest");
+}
 
 app.on("open-file", (event, filePath) => {
 	event.preventDefault();
 	queueAndNotifyOpenFiles(tempestFilesFromArgs([filePath], process.cwd()));
+});
+
+app.on("open-url", (event, url) => {
+	event.preventDefault();
+	queueAndNotifyDeepLinks(deepLinksFromArgs([url]));
 });
 
 // Pin the userData dir to the one the Tauri build used (com.lowrezstudio.tempest)
@@ -80,6 +109,7 @@ if (!hasInstanceLock) {
 } else {
 	app.on("second-instance", (_event, commandLine, workingDirectory) => {
 		queueAndNotifyOpenFiles(tempestFilesFromArgs(commandLine, workingDirectory));
+		queueAndNotifyDeepLinks(deepLinksFromArgs(commandLine));
 		showMainWindow();
 	});
 }

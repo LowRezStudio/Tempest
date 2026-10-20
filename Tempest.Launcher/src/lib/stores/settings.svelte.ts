@@ -4,6 +4,11 @@ import { persistedState } from "./persisted.svelte";
 export const username = persistedState<string>("username", "Player");
 export const onboardingCompleted = persistedState<boolean>("onboardingCompleted", false);
 export const servicesURL = persistedState<string>("servicesURL", "https://api.lowrezstudio.com");
+/** The mod repository the Browse tab, update checks and tempest:// links use. */
+export const modRepositoryURL = persistedState<string>(
+	"modRepositoryURL",
+	"https://mods.lowrezstudio.com",
+);
 export type Theme = "system" | "mocha" | "latte" | "legacy" | "custom";
 export const theme = persistedState<Theme>("theme", "system");
 export const customThemeCSS = persistedState<string>("customThemeCSS", "");

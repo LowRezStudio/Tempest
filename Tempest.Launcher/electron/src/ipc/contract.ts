@@ -114,6 +114,7 @@ export interface IpcContract {
 	"app:version": { args: void; result: string };
 	"app:relaunch": { args: void; result: void };
 	"app:take-pending-open-files": { args: void; result: string[] };
+	"app:take-pending-deep-links": { args: void; result: string[] };
 	"app:default-instance-path": { args: void; result: string };
 	"app:set-close-behavior": { args: { hideToTray: boolean }; result: void };
 	"settings:write-snapshot": { args: { json: string }; result: void };
@@ -207,6 +208,8 @@ export interface IpcContract {
 export interface IpcEvents {
 	/** `.tempest` files queued by open-file/second-instance; nudge the renderer. */
 	"open-mod-files": null;
+	/** `tempest://` URLs queued by open-url/second-instance; nudge the renderer. */
+	"deep-link": null;
 	/** Navigate the SPA to a route (tray menu, host-handled). */
 	"tray:navigate": { route: string };
 	/** Child-process stream events, demultiplexed by pid. */

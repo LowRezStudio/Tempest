@@ -80,7 +80,7 @@ Both DLLs cross-compile with MinGW-w64 (`brew install mingw-w64`, C and C++, x86
 
 Trust (`Tempest.CLI/Mods/TrustStore.cs`): `keys/trusted.keys` (armored public keys) and `keys/untrusted.keys` (fingerprints / long key IDs) are compiled into the CLI and published to `https://cdn.lowrezstudio.com/keys/` (R2 bucket `lowrezstudio-cdn`, rclone remote `lowrezstudio`) with `.asc` signatures by a list signer (Tom, Kyiro). Online: built-in + published trusted keys + `*.pub` in `<game>/.tempest/keys/` and `<app data>/com.lowrezstudio.tempest/keys/`. Offline or unverifiable lists: built-in keys only, plus the last verified untrusted list cached in `<app data>/com.lowrezstudio.tempest/keys-cache/`. Revocations always win; at launch, enabled mods signed by a revoked key are disabled, and DLLs of mods installed unsigned are not injected. `TEMPEST_KEYS_URL` points the CLI at another URL or a local folder (testing). To trust or revoke a key: edit `keys/*.keys`, then `just keys-publish`; no release needed.
 
-The private signing key lives at `$TEMPEST_SIGNING_KEY`, else `<app data>/com.lowrezstudio.tempest/signing/tempest.key`; never commit it. Recipes: `just mod-keygen`, `just mod-pack <dir> <out>`, `just mod-sign <pkg>...`, `just mod-verify <pkg>`, `just keys-sign`, `just keys-publish`, `just keys-status`; `just scripting-build` signs its packages when the key exists.
+The private signing key lives at `$TEMPEST_SIGNING_KEY`, else `<app data>/com.lowrezstudio.tempest/signing/tempest.key`; never commit it. CLI ↔ repository: `tempest mod search`, `mod login <api key>`, `mod publish <pkg> --from <patch>`, `mod install <game> <id>[@version]` talk to mods.lowrezstudio.com (`Tempest.CLI/Mods/ModRepoClient.cs`, config in `<app data>/com.lowrezstudio.tempest/repo.json`, `TEMPEST_REPO_URL`/`TEMPEST_REPO_KEY` override). Recipes: `just mod-keygen`, `just mod-pack <dir> <out>`, `just mod-sign <pkg>...`, `just mod-sign-text <text>` (detached signature over a text, used to verify a signing key on mods.lowrezstudio.com), `just mod-verify <pkg>`, `just keys-sign`, `just keys-publish`, `just keys-status`; `just scripting-build` signs its packages when the key exists.
 
 ## Tempest.UnrealScript commands
 
@@ -130,6 +130,7 @@ Notes:
 - The tray, close-guard (hide-to-tray), dialogs, filesystem operations (platform detection, instance paths, mod downloads/previews, settings snapshots) all live in the Electron host; the renderer only orchestrates.
 - `pnpm electron:build` bundles external `tempest-cli` and `asmloader` binaries built by `scripts/build-cli.js` into `electron/resources/binaries`; the dev server does not need them.
 - The renderer talks to the Electron main process through `src/lib/platform/api.ts` (over `window.electronAPI`); IPC handlers live in `Tempest.Launcher/electron/src/`. Bundled default mods live in `electron/resources/mods/`.
+- `tempest://install?mod=<id>&version=<v>` deep links (from mods.lowrezstudio.com) are handled by the Electron host (`setAsDefaultProtocolClient("tempest")` + `open-url`/`second-instance` in `electron/src/`, registered in `ipc/contract.ts`) and `src/lib/mods/deeplink.svelte.ts`; the `protocols:` entry in `electron/electron-builder.yml` registers the scheme for installed builds. The mod repository client is `src/lib/queries/repo.ts` (URL from the `modRepositoryURL` setting).
 
 ## Code generation
 

@@ -9,7 +9,7 @@ const REMOTE_CORE_URL =
 const LATEST_CORE_API = "https://api.github.com/repos/LowRezStudio/TgMod/releases/latest";
 const CORE_VERSION_KEY = "tempest_core_remote_version";
 
-function downloadRemoteMod(url: string, filename: string): Promise<string> {
+export function downloadRemoteMod(url: string, filename: string): Promise<string> {
 	// Host-side download: the bytes stream straight to a temp file in the main
 	// process (no renderer memory, no CORS) and we only pass the path around.
 	return invoke("mods:download-to-temp", { url, filename });

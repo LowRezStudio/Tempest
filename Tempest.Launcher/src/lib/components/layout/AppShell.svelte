@@ -15,6 +15,7 @@
 		handleInstanceSelected,
 		setOnModsInstalled,
 	} from "$lib/mods/drop.svelte";
+	import "$lib/mods/deeplink.svelte";
 	import "$lib/platform/tray.svelte";
 	import "$lib/theme/theme.svelte";
 	import { m } from "$lib/paraglide/messages";

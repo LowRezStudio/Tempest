@@ -8,9 +8,14 @@ import { handle } from "./ipc/handle.js";
 import { isUpdateDownloaded, quitAndInstallUpdate } from "./updater.js";
 
 let pendingOpenFiles: string[] = [];
+let pendingDeepLinks: string[] = [];
 
 export function queueOpenFiles(files: string[]): void {
 	pendingOpenFiles.push(...files);
+}
+
+export function queueDeepLinks(urls: string[]): void {
+	pendingDeepLinks.push(...urls);
 }
 
 handle("app:version", () => app.getVersion());
@@ -19,6 +24,12 @@ handle("app:take-pending-open-files", () => {
 	const files = pendingOpenFiles;
 	pendingOpenFiles = [];
 	return files;
+});
+
+handle("app:take-pending-deep-links", () => {
+	const urls = pendingDeepLinks;
+	pendingDeepLinks = [];
+	return urls;
 });
 
 handle("app:relaunch", () => {

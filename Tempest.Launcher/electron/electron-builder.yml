@@ -6,6 +6,10 @@ fileAssociations:
       description: Tempest Mod Package
       mimeType: application/x-tempest-mod
       role: Viewer
+protocols:
+    - name: Tempest
+      schemes:
+          - tempest
 electronLanguages:
     - en-US
     - fr
