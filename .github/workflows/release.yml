@@ -99,19 +99,21 @@ jobs:
           sudo apt update
           sudo apt-get install -y rpm fakeroot
 
-      - name: Cache CLI sidecar binaries
+      - name: Restore CLI sidecar binaries
         id: cli-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: Tempest.Launcher/electron/resources/binaries
           # The AOT publish takes 4-7 minutes; releases that don't touch the
           # CLI's sources (launcher-only bumps) reuse the previous binaries.
           # Includes the embedded key lists, protocol contract, zig utils and
           # the build script itself.
+          # Tag runs get read-only access to the default branch's cache scope,
+          # so the caches are kept warm by warm-cache.yml on pushes to master.
           key: cli-${{ runner.os }}-${{ hashFiles('Tempest.CLI/**', 'MarshalLib/**', 'MarshalLib.Database/**', 'Tempest.Utils/**', 'Tempest.Protocol/**', 'Tempest.Launcher/scripts/build-cli.js', 'keys/*.keys') }}
 
-      - name: Cache Electron / electron-builder downloads
-        uses: actions/cache@v4
+      - name: Restore Electron / electron-builder downloads
+        uses: actions/cache/restore@v4
         with:
           path: |
             .electron-cache
