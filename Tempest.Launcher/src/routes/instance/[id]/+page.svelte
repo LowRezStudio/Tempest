@@ -8,6 +8,7 @@
 		PackageOpen,
 		Play,
 		Plus,
+		Search,
 		Square,
 		Terminal,
 	} from "@lucide/svelte";
@@ -315,13 +316,20 @@
 									<PackageOpen size={48} />
 								{/snippet}
 								{#snippet actions()}
-									<button
-										class="btn btn-primary btn-sm mt-2"
-										onclick={handleInstallMod}
-									>
-										<PackageOpen size={14} />
-										{m.instancemenu_install_mod()}
-									</button>
+									<div class="mt-2 flex gap-2">
+										<button
+											class="btn btn-primary btn-sm"
+											disabled={!isReady}
+											onclick={() => (activeTab = "browse")}
+										>
+											<Search size={14} />
+											{m.instance_find_mods()}
+										</button>
+										<button class="btn btn-sm" onclick={handleInstallMod}>
+											<PackageOpen size={14} />
+											{m.instancemenu_install_mod()}
+										</button>
+									</div>
 								{/snippet}
 							</EmptyState>
 						{/if}
