@@ -9,7 +9,9 @@
 	import JoinServerWizard from "$lib/components/server-list/JoinServerWizard.svelte";
 	import UpdateDialog from "$lib/components/updater/UpdateDialog.svelte";
 	import {
+		instancePickerStore,
 		replaceDialogStore,
+		resolvePickInstance,
 		resolveReplaceMod,
 		resolveUnverifiedMod,
 		unverifiedDialogStore,
@@ -41,6 +43,13 @@
 <HostServerWizard bind:open={hostServerWizardOpen.value} />
 <JoinServerWizard bind:open={joinServerWizardOpen.value} />
 <InstanceSelectModal bind:open={showInstanceSelect} {onselect} {oncancel} />
+<InstanceSelectModal
+	bind:open={instancePickerStore.value.open}
+	compat={instancePickerStore.value.request?.compat}
+	hint={instancePickerStore.value.request?.hint}
+	onselect={(inst) => resolvePickInstance(inst)}
+	oncancel={() => resolvePickInstance(null)}
+/>
 <ReplaceModDialog
 	bind:open={replaceDialogStore.value.open}
 	modName={replaceDialogStore.value.modName}

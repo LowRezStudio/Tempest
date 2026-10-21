@@ -5,21 +5,29 @@
 	import { m } from "$lib/paraglide/messages";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
+	import { isCompatible } from "$lib/utils/version";
+	import type { RepoCompat } from "$lib/queries/repo";
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
 		open: boolean;
 		onselect: (instance: Instance) => void;
 		oncancel: () => void;
+		/** Lists instances on these patches first and marks the others. */
+		compat?: RepoCompat | null;
+		hint?: string;
 	}
 
-	let { open = $bindable(false), onselect, oncancel }: Props = $props();
+	let { open = $bindable(false), onselect, oncancel, compat, hint }: Props = $props();
 
-	// Filter only instances that are in prepared state
+	const fits = (inst: Instance) => !compat || isCompatible(compat, inst.version);
+
 	let instances = $derived(
-		Object.values(instanceMap.value).filter(
-			(inst) => inst && inst.state?.type === "prepared",
-		) as Instance[],
+		(
+			Object.values(instanceMap.value).filter(
+				(inst) => inst && inst.state?.type === "prepared",
+			) as Instance[]
+		).sort((a, b) => Number(fits(b)) - Number(fits(a))),
 	);
 
 	function handleSelect(inst: Instance) {
@@ -28,10 +36,10 @@
 	}
 </script>
 
-<Modal bind:open title={m.select_instance_title()} class="max-w-md">
+<Modal bind:open title={m.select_instance_title()} class="max-w-md" onclose={oncancel}>
 	<div class="space-y-4">
 		<p class="text-sm opacity-70">
-			{m.select_instance_hint()}
+			{hint ?? m.select_instance_hint()}
 		</p>
 
 		{#if instances.length === 0}
@@ -42,10 +50,12 @@
 		{:else}
 			<ul class="list bg-base-100 rounded-box max-h-60 overflow-y-auto shadow-md">
 				{#each instances as inst (inst.id)}
+					{@const ok = fits(inst)}
 					<li>
 						<button
 							type="button"
 							class="list-row hover:bg-base-200 w-full cursor-pointer text-left transition-colors"
+							class:opacity-50={!ok}
 							onclick={() => handleSelect(inst)}
 						>
 							<div
@@ -63,6 +73,11 @@
 									{#if inst.version}
 										<span class="shrink-0 font-mono opacity-60">
 											{inst.version}
+										</span>
+									{/if}
+									{#if !ok}
+										<span class="badge badge-warning badge-xs shrink-0">
+											{m.repo_incompatible({ patch: inst.version ?? "" })}
 										</span>
 									{/if}
 									<span class="truncate opacity-50">{inst.path}</span>

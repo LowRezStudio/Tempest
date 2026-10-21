@@ -1,3 +1,6 @@
+import type { RepoCompat } from "$lib/queries/repo";
+import type { Instance } from "$lib/types/instance";
+
 export type ConflictModInfo = {
 	ModId: string;
 	ModName: string;
@@ -79,5 +82,31 @@ export const resolveUnverifiedMod = (value: boolean) => {
 	const resolve = activeUnverifiedResolver;
 	activeUnverifiedResolver = undefined;
 	unverifiedDialogStore.value = { open: false, modName: "", signer: "", keyListOffline: false };
+	resolve?.(value);
+};
+
+export type InstancePickerRequest = { compat: RepoCompat | null; hint?: string };
+
+export const instancePickerStore = $state({
+	value: { open: false, request: null as InstancePickerRequest | null },
+});
+
+let activePickerResolver: ((value: Instance | null) => void) | undefined = undefined;
+
+// Resolves to null when the picker is dismissed.
+export const pickCompatibleInstance = (
+	request: InstancePickerRequest,
+): Promise<Instance | null> => {
+	activePickerResolver?.(null);
+	return new Promise<Instance | null>((resolve) => {
+		instancePickerStore.value = { open: true, request };
+		activePickerResolver = resolve;
+	});
+};
+
+export const resolvePickInstance = (value: Instance | null) => {
+	const resolve = activePickerResolver;
+	activePickerResolver = undefined;
+	instancePickerStore.value = { open: false, request: instancePickerStore.value.request };
 	resolve?.(value);
 };
