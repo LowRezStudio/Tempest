@@ -97,7 +97,7 @@
 					>
 				{/if}
 				<span class="badge badge-ghost badge-sm">{mod.kind}</span>
-				{#each mod.tags as tag (tag)}<span class="badge badge-outline badge-sm">{tag}</span
+				{#each mod.tags as tag (tag)}<span class="badge badge-ghost badge-sm">{tag}</span
 					>{/each}
 				<button class="btn btn-ghost btn-xs ml-auto" onclick={() => (bugOpen = true)}>
 					<LifeBuoy size={12} />

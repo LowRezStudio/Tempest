@@ -797,7 +797,7 @@
 	"settings_mod_repository_url": "Repository URL",
 	"common_reset": "Reset",
 	"repo_open_in_browser": "Open on the website",
-	"repo_tab_readme": "Readme",
+	"repo_tab_readme": "Overview",
 	"repo_tab_versions": "Versions ({count})",
 	"repo_incompatible": "Not for {patch}",
 	"repo_downgrade": "Downgrade",

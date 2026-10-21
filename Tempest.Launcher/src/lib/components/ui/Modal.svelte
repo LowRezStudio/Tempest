@@ -1,3 +1,12 @@
+<script lang="ts" module>
+	// Whether the last interaction was a key press, to tell keyboard-opened dialogs apart.
+	let lastInputWasKey = false;
+	if (typeof window !== "undefined") {
+		window.addEventListener("keydown", () => (lastInputWasKey = true), true);
+		window.addEventListener("pointerdown", () => (lastInputWasKey = false), true);
+	}
+</script>
+
 <script lang="ts">
 	import { X } from "@lucide/svelte";
 	import { Dialog } from "bits-ui";
@@ -25,6 +34,11 @@
 		onclose,
 	}: Props = $props();
 
+	let openedByKey = false;
+	$effect.pre(() => {
+		if (open) openedByKey = lastInputWasKey;
+	});
+
 	function handleOpenChange(isOpen: boolean) {
 		if (!isOpen && onclose) {
 			onclose();
@@ -44,6 +58,11 @@
 			}}
 			onInteractOutside={(event) => {
 				if (!dismissible) event.preventDefault();
+			}}
+			onCloseAutoFocus={(event) => {
+				// Handing focus back after Esc would show a focus ring on whatever was clicked to
+				// open the dialog; only keyboard users need their place back.
+				if (!openedByKey) event.preventDefault();
 			}}
 		>
 			<form
