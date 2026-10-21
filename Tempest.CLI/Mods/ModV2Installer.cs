@@ -131,11 +131,10 @@ public class ModV2Installer : IModInstaller
             var trust = code.Count > 0 ? await TrustStore.LoadAsync(resolvedGame) : null;
 
             var checksumsEntry = archive.GetEntry(ModSigning.ChecksumsName);
+            var checksumsContent = checksumsEntry != null ? await ReadEntryAsync(checksumsEntry) : null;
             var verification = new ModSigning.Verification(ModSigning.Trust.Unsigned, null, null);
-            if (checksumsEntry != null)
+            if (checksumsContent != null)
             {
-                var checksumsContent = await ReadEntryAsync(checksumsEntry);
-                await VerifyArchiveChecksumsAsync(archive, ParseChecksumMap(checksumsContent));
                 if (trust != null)
                 {
                     var asc = archive.GetEntry(ModSigning.SignatureName) is { } ascEntry ? await ReadEntryAsync(ascEntry) : null;
@@ -184,30 +183,37 @@ public class ModV2Installer : IModInstaller
             }
 
             // ID collision — same modId already installed (component-level conflict)
-            if (Directory.Exists(targetModDir))
+            var idInstalled = Directory.Exists(targetModDir);
+            if (idInstalled && !replace)
             {
-                if (!replace)
+                var existingForId = ModCommands.LoadMetadata(gamePath).FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
+                var conflictIdInfo = new ModConflictInfo
                 {
-                    var existingForId = ModCommands.LoadMetadata(gamePath).FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
-                    var conflictIdInfo = new ModConflictInfo
-                    {
-                        ModId = existingForId?.Id ?? modId,
-                        ModName = existingForId?.Name ?? modId,
-                        ModVersion = existingForId?.Version ?? "",
-                        ConflictingFiles = newRelativeFilesList.ToList(),
-                        IsSameMod = true
-                    };
-                    return new ModInstallResult
-                    {
-                        Success = false,
-                        Conflict = true,
-                        IsModConflict = true,
-                        Message = $"A mod with this ID is already installed.",
-                        ConflictingMods = [conflictIdInfo],
-                        NewModName = manifest.Name
-                    };
-                }
+                    ModId = existingForId?.Id ?? modId,
+                    ModName = existingForId?.Name ?? modId,
+                    ModVersion = existingForId?.Version ?? "",
+                    ConflictingFiles = newRelativeFilesList.ToList(),
+                    IsSameMod = true
+                };
+                return new ModInstallResult
+                {
+                    Success = false,
+                    Conflict = true,
+                    IsModConflict = true,
+                    Message = $"A mod with this ID is already installed.",
+                    ConflictingMods = [conflictIdInfo],
+                    NewModName = manifest.Name
+                };
+            }
 
+            // Hashing every file is the slow part for big packages, so it waits until the
+            // signature gate and the "already installed" prompt passed (the launcher re-runs
+            // install after either), and still runs before anything on disk is touched.
+            if (checksumsContent != null)
+                await VerifyArchiveChecksumsAsync(archive, ParseChecksumMap(checksumsContent));
+
+            if (idInstalled)
+            {
                 var existingModsForId = ModCommands.LoadMetadata(gamePath);
                 var existingModForId = existingModsForId.FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
                 if (existingModForId != null)
