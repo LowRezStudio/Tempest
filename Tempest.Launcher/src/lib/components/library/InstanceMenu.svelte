@@ -28,14 +28,13 @@
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { updateInstance } from "$lib/stores/instance.svelte";
 	import type { Instance } from "$lib/types/instance";
-	import type { Snippet } from "svelte";
 
 	interface Props {
 		instance: Instance;
-		trigger?: Snippet;
+		triggerClass?: string;
 	}
 
-	let { instance, trigger }: Props = $props();
+	let { instance, triggerClass = "btn btn-sm btn-square btn-ghost" }: Props = $props();
 
 	const flatVersions = versions;
 	const versionEntry = $derived(flatVersions.find((v) => v.version === instance.version));
@@ -115,15 +114,9 @@
 	}
 </script>
 
-<PopoverMenu>
+<PopoverMenu {triggerClass} triggerLabel={m.instancemenu_more()}>
 	{#snippet trigger()}
-		{#if trigger}
-			{@render trigger()}
-		{:else}
-			<button class="btn btn-sm btn-square btn-ghost">
-				<EllipsisVertical size={16} />
-			</button>
-		{/if}
+		<EllipsisVertical size={16} />
 	{/snippet}
 	{#snippet children()}
 		{#if !isOnInstancePage}

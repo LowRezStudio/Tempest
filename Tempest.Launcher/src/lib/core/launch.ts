@@ -1,4 +1,4 @@
-import { lastLaunchedInstanceId } from "../stores/instance.svelte";
+import { lastLaunchedInstanceId, updateInstance } from "../stores/instance.svelte";
 import { appendProcessLog, logCommandOutput, processesList } from "../stores/processes.svelte";
 import {
 	gamescopeArgs,
@@ -26,6 +26,7 @@ export const launchGame = async (instance: Instance, { noDlls = false } = {}) =>
 	const platform = options.platform ?? "Win64";
 
 	lastLaunchedInstanceId.value = instance.id;
+	updateInstance(instance.id, { lastPlayedAt: Date.now() });
 
 	console.log("Launching instance", instance.id, instance.version);
 	console.log(instance);

@@ -1,4 +1,11 @@
 export const instanceWizardOpen = $state({ value: false });
+/** The wizard tab the next opening starts on; reset to download when it closes. */
+export const instanceWizardTab = $state({ value: "download" as "download" | "folder" });
+
+export const openInstanceWizard = (tab: "download" | "folder" = "download") => {
+	instanceWizardTab.value = tab;
+	instanceWizardOpen.value = true;
+};
 export const hostServerWizardOpen = $state({ value: false });
 export const joinServerWizardOpen = $state({ value: false });
 

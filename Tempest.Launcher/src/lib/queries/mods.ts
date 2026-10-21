@@ -1,4 +1,4 @@
-import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
+import { createMutation, createQueries, createQuery, useQueryClient } from "@tanstack/svelte-query";
 import { disableMod, enableMod, installMod, listMods, removeMod, renameMod } from "$lib/core/mods";
 import type { ModInstallResult, ModRecord } from "$lib/core/mods";
 
@@ -9,6 +9,29 @@ export const createModsQuery = (instancePath: () => string) =>
 			queryKey: ["mods", pathValue],
 			queryFn: () => listMods(pathValue),
 			enabled: !!pathValue,
+		};
+	});
+
+/**
+ * Several instances' mod lists keyed by game path, sharing the cache with createModsQuery.
+ * The record sits under one key: svelte-query tracks the combined result by its top-level keys,
+ * so paths added later would never update.
+ * @param instancePaths - The game paths to list.
+ * @returns Each path's mods in `byPath`, undefined until loaded.
+ */
+export const createModsQueries = (instancePaths: () => string[]) =>
+	createQueries(() => {
+		const paths = instancePaths();
+		return {
+			queries: paths.map((pathValue) => ({
+				queryKey: ["mods", pathValue],
+				queryFn: () => listMods(pathValue),
+			})),
+			combine: (results) => ({
+				byPath: Object.fromEntries(
+					paths.map((pathValue, i) => [pathValue, results[i]?.data]),
+				) as Record<string, ModRecord[] | undefined>,
+			}),
 		};
 	});
 

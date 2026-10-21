@@ -19,6 +19,7 @@
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { addInstance, instanceMap, updateInstance } from "$lib/stores/instance.svelte";
 	import { defaultInstancePath } from "$lib/stores/settings.svelte";
+	import { instanceWizardTab } from "$lib/stores/ui.svelte";
 	import type { Instance, InstanceState } from "$lib/types/instance";
 
 	interface Props {
@@ -345,7 +346,10 @@
 	}
 
 	$effect(() => {
-		if (!open) {
+		if (open) {
+			selectedTab = instanceWizardTab.value;
+		} else {
+			instanceWizardTab.value = "download";
 			selectedTab = "download";
 			selectedName = "";
 			selectedVersionId = "";

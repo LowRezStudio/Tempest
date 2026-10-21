@@ -42,4 +42,6 @@ export type Instance = {
 	launchOptions: InstanceLaunchOptions;
 	state: InstanceState;
 	color?: string;
+	/** Unix ms of the last launch; missing for instances not launched since it was tracked. */
+	lastPlayedAt?: number;
 };
