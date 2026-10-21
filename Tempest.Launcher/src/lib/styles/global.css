@@ -236,8 +236,8 @@
 ) {
 	--btn-bg: color-mix(in oklab, currentColor 8%, transparent);
 	--btn-border: transparent;
-	--btn-shadow: 0 0 0 0 transparent;
-	--btn-inset: 0 0 0 0 transparent;
+	/* daisyUI's inset highlight isn't behind a variable; over the transparent border it reads as a ring. */
+	box-shadow: none;
 	text-shadow: none;
 }
 
@@ -275,8 +275,6 @@
 		):hover {
 		--btn-bg: color-mix(in oklab, currentColor 13%, transparent);
 		--btn-border: transparent;
-		--btn-shadow: 0 0 0 0 transparent;
-		--btn-inset: 0 0 0 0 transparent;
 	}
 }
 
@@ -296,8 +294,6 @@
 	):focus-visible {
 	--btn-bg: color-mix(in oklab, currentColor 13%, transparent);
 	--btn-border: transparent;
-	--btn-shadow: 0 0 0 0 transparent;
-	--btn-inset: 0 0 0 0 transparent;
 }
 
 .btn:not(
