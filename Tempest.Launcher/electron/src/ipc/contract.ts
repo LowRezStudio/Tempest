@@ -186,11 +186,22 @@ export interface IpcContract {
 	"instance:game-layout": { args: { instancePath: string }; result: GameLayout };
 
 	// ---- Mods ----
-	/** With `progressId`, reports progress as `mods:download-progress` events tagged with it. */
+	/**
+	 * With `progressId`, reports progress as `mods:download-progress` events tagged with it.
+	 * With `cache`, the package lands in the per-mod version cache and a cached copy (matching
+	 * `sha256` when given) is returned without downloading.
+	 */
 	"mods:download-to-temp": {
-		args: { url: string; filename: string; progressId?: string };
+		args: {
+			url: string;
+			filename: string;
+			progressId?: string;
+			cache?: { modId: string; version: string; sha256?: string };
+		};
 		result: string;
 	};
+	/** Versions of a repository mod kept in the download cache. */
+	"mods:cached-versions": { args: { modId: string }; result: string[] };
 	/** POST to the mod repository from the main process (no Origin header, see repo.ts). */
 	"repo:post-json": {
 		args: { url: string; body: unknown };
