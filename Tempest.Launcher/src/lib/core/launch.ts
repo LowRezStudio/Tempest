@@ -8,6 +8,7 @@ import {
 	winePath,
 	wineRuntime,
 } from "../stores/settings.svelte";
+import { watchAntivirusBlocks } from "./antivirus.svelte";
 import { createCommand, processArgs } from "./command";
 import type { Instance } from "../types/instance";
 import type { Process } from "../types/process";
@@ -20,7 +21,7 @@ const nextSessionNumber = (instanceId: string) => {
 	return next;
 };
 
-export const launchGame = async (instance: Instance) => {
+export const launchGame = async (instance: Instance, { noDlls = false } = {}) => {
 	const { path, launchOptions: options } = instance;
 	const platform = options.platform ?? "Win64";
 
@@ -53,6 +54,7 @@ export const launchGame = async (instance: Instance) => {
 			{ "--gamescope": useGamescope.get() },
 			{ "--gamescope-args": gamescopeArgs.get() || undefined },
 			{ "--steam-runtime": useSteamRuntime.get() || undefined },
+			{ "--no-dlls": noDlls },
 			{
 				"--homedir":
 					instance.version === "8.1"
@@ -70,7 +72,21 @@ export const launchGame = async (instance: Instance) => {
 
 	logCommandOutput(command, "launch");
 
-	const launchState = { childPid: undefined as number | undefined, closed: false };
+	const launchState = {
+		childPid: undefined as number | undefined,
+		closed: false,
+		blocked: false,
+		process: undefined as Process | undefined,
+	};
+	// Without its DLLs the game would run with mods silently missing, so the launch is stopped and
+	// the antivirus dialog offers to relaunch.
+	watchAntivirusBlocks(command, {
+		instance,
+		onBlocked: () => {
+			launchState.blocked = true;
+			if (launchState.process) void stopGameWindow(launchState.process);
+		},
+	});
 	command.on("close", () => {
 		launchState.closed = true;
 		if (launchState.childPid !== undefined) {
@@ -94,6 +110,8 @@ export const launchGame = async (instance: Instance) => {
 	};
 
 	processesList.value = [...processesList.value, process];
+	launchState.process = process;
+	if (launchState.blocked) void stopGameWindow(process);
 };
 
 const KILL_GRACE_MS = 5000;

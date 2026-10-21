@@ -2,6 +2,7 @@ import { fetch as httpFetch, invoke, listen, resolveResource } from "$lib/platfo
 import { getQueryClient } from "$lib/queries/client";
 import { appendProcessLogs } from "$lib/stores/processes.svelte";
 import { modRepositoryURL } from "$lib/stores/settings.svelte";
+import { reportAntivirusBlocks } from "./antivirus.svelte";
 import { createCommand } from "./command";
 import type { Instance } from "$lib/types/instance";
 
@@ -319,6 +320,7 @@ export const reloadModDll = async (gamePath: string, modId: string): Promise<Mod
 	const args = ["mod", "reload-dll", gamePath, modId, "--json"];
 	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
 	const res = await createCommand(args).execute();
+	reportAntivirusBlocks(res.stderr);
 
 	if (res.stdout) {
 		appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");

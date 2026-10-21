@@ -15,6 +15,10 @@ public static class TempestPathUtility
             ? Path.GetFullPath(key)
             : Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "signing", "tempest.key"));
 
+    /// <summary>Where the embedded injector and loader are extracted to, one content-addressed subfolder per build.</summary>
+    public static string GetToolsDirectory() =>
+        Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "bin"));
+
     public static string GetWinePrefixDirectory() =>
         Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "com.lowrezstudio.tempest", "prefix"));
 

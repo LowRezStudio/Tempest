@@ -7,6 +7,7 @@
 	import UnverifiedModDialog from "$lib/components/mods/UnverifiedModDialog.svelte";
 	import HostServerWizard from "$lib/components/server-list/HostServerWizard.svelte";
 	import JoinServerWizard from "$lib/components/server-list/JoinServerWizard.svelte";
+	import AntivirusBlockedDialog from "$lib/components/ui/AntivirusBlockedDialog.svelte";
 	import UpdateDialog from "$lib/components/updater/UpdateDialog.svelte";
 	import {
 		instancePickerStore,
@@ -68,3 +69,4 @@
 />
 <UpdateDialog />
 <LegacyTauriDialog />
+<AntivirusBlockedDialog />

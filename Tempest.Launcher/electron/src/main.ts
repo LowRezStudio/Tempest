@@ -12,6 +12,7 @@ import { getMainWindow, setMainWindow, showMainWindow } from "./app-state.js";
 import { queueDeepLinks, queueOpenFiles } from "./app.js";
 import { ensureCli } from "./cli.js";
 import "./converter.js";
+import "./defender.js";
 import "./dialog.js";
 import { handle } from "./ipc/handle.js";
 import "./instances.js";

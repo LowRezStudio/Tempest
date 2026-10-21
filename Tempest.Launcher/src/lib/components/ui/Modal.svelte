@@ -19,6 +19,8 @@
 		actions?: Snippet;
 		class?: string;
 		dismissible?: boolean;
+		/** Whether a click outside closes a dismissible dialog; Esc and the close button still do. */
+		closeOnOutsideClick?: boolean;
 		onsubmit?: (e: SubmitEvent) => void;
 		onclose?: () => void;
 	}
@@ -30,6 +32,7 @@
 		actions,
 		class: className = "",
 		dismissible = true,
+		closeOnOutsideClick = true,
 		onsubmit,
 		onclose,
 	}: Props = $props();
@@ -57,7 +60,7 @@
 				if (!dismissible) event.preventDefault();
 			}}
 			onInteractOutside={(event) => {
-				if (!dismissible) event.preventDefault();
+				if (!dismissible || !closeOnOutsideClick) event.preventDefault();
 			}}
 			onCloseAutoFocus={(event) => {
 				// Handing focus back after Esc would show a focus ring on whatever was clicked to

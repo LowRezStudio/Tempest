@@ -99,6 +99,12 @@ export type CliInstallResult = {
 	error?: string;
 };
 
+/** "cancelled": the UAC prompt was declined; "failed" carries what PowerShell or Defender said. */
+export type DefenderExclusionResult = {
+	status: "added" | "cancelled" | "failed";
+	error?: string;
+};
+
 /** OS info injected by preload/host (see `window.__os`). */
 export type OsInfo = {
 	platform: "windows" | "macos" | "linux";
@@ -247,6 +253,9 @@ export interface IpcContract {
 	// ---- CLI shim (`tempest <command>` in a terminal) ----
 	"cli:install": { args: void; result: CliInstallResult };
 	"cli:status": { args: void; result: CliInstallResult };
+
+	// ---- Windows Defender (folders the CLI reported as blocked; prompts for UAC) ----
+	"defender:add-exclusions": { args: { paths: string[] }; result: DefenderExclusionResult };
 }
 
 /** Channels the host pushes to the renderer. */

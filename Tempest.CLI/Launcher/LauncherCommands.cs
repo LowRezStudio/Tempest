@@ -7,10 +7,10 @@ namespace Tempest.CLI.Launcher;
 
 internal class LauncherCommands
 {
-    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true)
+    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true, bool noDlls = false)
     {
         var args = context.EscapedArguments.ToArray();
-        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs, steamRuntime, enableOpenSslFix);
+        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs, steamRuntime, enableOpenSslFix, noDlls);
 
         // Proton (and gamescope) wrappers can outlive the game itself. The launcher only marks
         // the game as stopped when this process exits, so on Linux watch the real game process and
@@ -54,7 +54,7 @@ internal class LauncherCommands
     }
 public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
                                                  string? platform = null, string? game = null, string[]? dll = null,
-                                                 bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true)
+                                                 bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true, bool noDlls = false)
     {
         if (isServer) gamescope = false;
 
@@ -200,7 +200,11 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
             Console.Error.WriteLine($"[inject] skipping {Path.GetFileName(d)}: built for {(dll64.Value ? "Win64" : "Win32")}, the game is {(is64Bit ? "Win64" : "Win32")}");
             return false;
         }).ToList();
-        if (matchingDlls.Count > 0)
+        if (matchingDlls.Count > 0 && noDlls)
+        {
+            Console.Error.WriteLine($"[inject] --no-dlls: not injecting {matchingDlls.Count} DLL(s)");
+        }
+        else if (matchingDlls.Count > 0)
         {
             await Task.WhenAll(matchingDlls.Select(d => process.InjectLibraryAsync(d, is64Bit)));
         }

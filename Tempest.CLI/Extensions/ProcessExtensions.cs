@@ -1,16 +1,16 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using Tempest.CLI.Launcher;
 
 namespace Tempest.CLI.Extensions;
 
 internal static class ProcessExtensions
 {
-    private static readonly string TempExtractDir = Path.Combine(Path.GetTempPath(), "Tempest.Inject", Guid.NewGuid().ToString("N"));
-    private static readonly Lock ExtractLock = new();
-    private static string? _inject32Path;
-    private static string? _inject64Path;
-    private static string? _loaderDllPath;
+    private static readonly string ToolsDir = TempestPathUtility.GetToolsDirectory();
+    private static readonly ConcurrentDictionary<string, string> Extracted = new(StringComparer.OrdinalIgnoreCase);
 
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
@@ -57,31 +57,31 @@ internal static class ProcessExtensions
         catch { }
     }
 
-    public static string GetOrExtractLoaderDll()
-    {
-        if (_loaderDllPath is not null && File.Exists(_loaderDllPath))
-            return _loaderDllPath;
-        lock (ExtractLock)
-        {
-            if (_loaderDllPath is not null && File.Exists(_loaderDllPath))
-                return _loaderDllPath;
-            Directory.CreateDirectory(TempExtractDir);
-            var asm = Assembly.GetExecutingAssembly();
-            var resourceName = asm.GetManifestResourceNames()
-                .FirstOrDefault(n => n.EndsWith("tempest_loader.dll", StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidOperationException("Embedded resource 'tempest_loader.dll' not found.");
-            var outPath = Path.Combine(TempExtractDir, "tempest_loader.dll");
-            using (var rs = asm.GetManifestResourceStream(resourceName)!)
-            using (var fs = File.Create(outPath)) { rs.CopyTo(fs); fs.Flush(true); }
-            _loaderDllPath = outPath;
-            return outPath;
-        }
-    }
+    public static string GetOrExtractLoaderDll() => ExtractResource("tempest_loader.dll");
 
     public static async Task<bool> InjectLibraryAsync(this Process process, string path, bool is64Bit)
     {
         EnableDebugPrivilege();
-        var executable = is64Bit ? GetOrExtractExecutable("inject64.exe") : GetOrExtractExecutable("inject32.exe");
+        string executable;
+        try
+        {
+            executable = ExtractResource(is64Bit ? "inject64.exe" : "inject32.exe");
+        }
+        // FileNotFound: the temp copy was quarantined before it could be moved into place.
+        catch (IOException ex) when (Antivirus.IsBlock(ex) || ex is FileNotFoundException)
+        {
+            Console.Error.WriteLine($"[inject] antivirus blocked the injector in {ToolsDir}; allow the folder to load mod DLLs");
+            Antivirus.Report(ToolsDir);
+            return false;
+        }
+
+        if (Antivirus.Refuses(path))
+        {
+            Console.Error.WriteLine($"[inject] antivirus blocked {path}");
+            Antivirus.Report(Path.GetDirectoryName(path)!);
+            return false;
+        }
+        var dllExisted = File.Exists(path);
 
         // The game process (and its wineserver) may not be up yet when Proton/Wine is cold-starting
         // a prefix; poll until it shows up or the wrapper exits.
@@ -111,6 +111,12 @@ internal static class ProcessExtensions
         {
             inject.UseWineBinary().Start();
         }
+        catch (Exception ex) when (Antivirus.IsBlock(ex) || Antivirus.Removed(executable))
+        {
+            Console.Error.WriteLine($"[inject] antivirus blocked {executable}; allow its folder to load mod DLLs");
+            Antivirus.Report(ToolsDir);
+            return false;
+        }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[inject] failed to start {Path.GetFileName(executable)}: {ex.Message}");
@@ -123,45 +129,57 @@ internal static class ProcessExtensions
         if (!string.IsNullOrEmpty(err))
             Console.Error.WriteLine($"[inject stderr]\n{err.TrimEnd()}");
         Console.Error.WriteLine($"[inject] exit code: {inject.ExitCode}");
-        return inject.ExitCode == 0;
-    }
+        if (inject.ExitCode == 0)
+            return true;
 
-    private static string GetOrExtractExecutable(string fileName)
-    {
-        // Return cached path if already extracted
-        if (fileName.EndsWith("inject32.exe", StringComparison.OrdinalIgnoreCase) && _inject32Path is not null)
-            return _inject32Path;
-        if (fileName.EndsWith("inject64.exe", StringComparison.OrdinalIgnoreCase) && _inject64Path is not null)
-            return _inject64Path;
-
-        lock (ExtractLock)
+        // Defender often lets the injector start and then kills and quarantines it, or quarantines
+        // the mod DLL once the game tries to load it.
+        if (Antivirus.Removed(executable))
         {
-            // double-check in lock
-            if (fileName.EndsWith("inject32.exe", StringComparison.OrdinalIgnoreCase) && _inject32Path is not null)
-                return _inject32Path;
-            if (fileName.EndsWith("inject64.exe", StringComparison.OrdinalIgnoreCase) && _inject64Path is not null)
-                return _inject64Path;
-
-            Directory.CreateDirectory(TempExtractDir);
-
-            var asm = Assembly.GetExecutingAssembly();
-            var resourceName = asm.GetManifestResourceNames()
-                .FirstOrDefault(n => n.EndsWith(fileName, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"Embedded resource for '{fileName}' not found. Available resources: {string.Join(',', asm.GetManifestResourceNames())}");
-            var outPath = Path.Combine(TempExtractDir, fileName);
-
-            using (var rs = asm.GetManifestResourceStream(resourceName) ?? throw new InvalidOperationException($"Failed to open resource stream '{resourceName}'"))
-            using (var fs = File.Create(outPath))
-            {
-                rs.CopyTo(fs);
-                fs.Flush(true);
-            }
-
-            if (fileName.EndsWith("inject32.exe", StringComparison.OrdinalIgnoreCase))
-                _inject32Path = outPath;
-            else
-                _inject64Path = outPath;
-
-            return outPath;
+            Console.Error.WriteLine($"[inject] {Path.GetFileName(executable)} was removed by an antivirus");
+            Antivirus.Report(ToolsDir);
         }
+        else if ((dllExisted && Antivirus.Removed(path)) || Antivirus.Refuses(path))
+        {
+            Console.Error.WriteLine($"[inject] {path} was blocked by an antivirus");
+            Antivirus.Report(Path.GetDirectoryName(path)!);
+        }
+        return false;
     }
+
+    // Defender's behaviour heuristics block a process that drops an exe into a fresh %TEMP% folder and runs it
+    // against another process, so the helpers are written once to a stable, content-addressed path and reused.
+    private static string ExtractResource(string fileName) => Extracted.GetOrAdd(fileName, static name =>
+    {
+        var asm = Assembly.GetExecutingAssembly();
+        var resourceName = asm.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith(name, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"Embedded resource for '{name}' not found. Available resources: {string.Join(',', asm.GetManifestResourceNames())}");
+
+        byte[] bytes;
+        using (var rs = asm.GetManifestResourceStream(resourceName) ?? throw new InvalidOperationException($"Failed to open resource stream '{resourceName}'"))
+        using (var ms = new MemoryStream())
+        {
+            rs.CopyTo(ms);
+            bytes = ms.ToArray();
+        }
+
+        var dir = Path.Combine(ToolsDir, Convert.ToHexStringLower(SHA256.HashData(bytes))[..16]);
+        var outPath = Path.Combine(dir, name);
+        if (File.Exists(outPath))
+            return outPath;
+
+        Directory.CreateDirectory(dir);
+        var tmpPath = $"{outPath}.{Guid.NewGuid():N}.tmp";
+        File.WriteAllBytes(tmpPath, bytes);
+        try
+        {
+            File.Move(tmpPath, outPath);
+        }
+        catch (IOException) when (File.Exists(outPath))
+        {
+            // another launch extracted it first
+            File.Delete(tmpPath);
+        }
+        return outPath;
+    });
 }
