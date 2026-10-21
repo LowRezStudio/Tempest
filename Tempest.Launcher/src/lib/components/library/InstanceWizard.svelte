@@ -29,13 +29,13 @@
 
 	const flatVersions = versions;
 
-	const versionOptions = flatVersions
-		.filter((item) => item.version !== "8.2")
-		.map((item) => ({
-			value: item.id,
-			label: `${item.version} - ${item.name} (${item.date.split("T")[0]})`,
-			version: item.version,
-		}));
+	const toOption = (item: (typeof flatVersions)[number]) => ({
+		value: item.id,
+		label: `${item.version} - ${item.name} (${item.date.split("T")[0]})`,
+		version: item.version,
+	});
+	const versionOptions = flatVersions.filter((item) => item.version !== "8.2").map(toOption);
+	const importVersionOptions = flatVersions.map(toOption);
 
 	let selectedTab = $state<"download" | "folder">("download");
 	let selectedName = $state("");
@@ -45,17 +45,24 @@
 	let showAdvanced = $state(false);
 	let copyStatus = $state<"idle" | "copied" | "failed">("idle");
 
-	let detectionError = $state("");
-	let hasDetected = $state(false);
+	type Detection = {
+		versionId: string;
+		label: string;
+		/** The folder can't be imported (not a game install, or the CLI failed). */
+		error: string;
+		/** A game install whose exact build is unknown; the user picks the version. */
+		warning: string;
+	};
+
 	let bulkDetections = $state<
-		Array<{
-			path: string;
-			label: string;
-			error: string;
-			loading: boolean;
-			mods: ModRecord[];
-			modsLoading: boolean;
-		}>
+		Array<
+			Detection & {
+				path: string;
+				loading: boolean;
+				mods: ModRecord[];
+				modsLoading: boolean;
+			}
+		>
 	>([]);
 
 	let loginMethod = $state<"steam" | "epic" | "hirez">();
@@ -71,12 +78,17 @@
 
 	const supportsCloudDownload = $derived(!!selectedVersion?.version);
 
+	const singleDetection = $derived(selectedPaths.length <= 1 ? bulkDetections[0] : undefined);
+	const showImportVersionPicker = $derived(
+		!!singleDetection && !singleDetection.loading && !!singleDetection.warning,
+	);
+
 	const isValid = $derived(
 		selectedTab === "download"
 			? !!selectedVersionId
 			: selectedPaths.length > 1
 				? !!selectedPath
-				: !!(selectedVersionId && selectedPath),
+				: !!(selectedVersionId && selectedPath && !singleDetection?.error),
 	);
 
 	const showLoginPrompt = $derived(selectedVersion?.version === "8.1");
@@ -88,199 +100,98 @@
 			title: m.wizard_select_installation_folder(),
 			defaultPath: defaultInstancePath.value || undefined,
 		});
-		if (result) {
-			const paths = (Array.isArray(result) ? result : [result]).filter(Boolean) as string[];
-			selectedPaths = paths;
-			if (paths.length === 1) {
-				selectedPath = paths[0] ?? "";
-				if (selectedTab === "folder") {
-					bulkDetections = [
-						{
-							path: paths[0]!,
-							label: "",
-							error: "",
-							loading: true,
-							mods: [],
-							modsLoading: true,
-						},
-					];
-					await performDetection(paths[0]!);
-					if (hasDetected && selectedVersionId) {
-						const v = flatVersions.find((v) => v.id === selectedVersionId);
-						bulkDetections = [
-							{
-								path: paths[0]!,
-								label: v ? `${v.version} - ${v.name}` : "",
-								error: "",
-								loading: false,
-								mods: [],
-								modsLoading: true,
-							},
-						];
-						try {
-							const mods = await listMods(paths[0]!);
-							bulkDetections[0] = { ...bulkDetections[0], mods, modsLoading: false };
-						} catch {
-							bulkDetections[0] = {
-								...bulkDetections[0],
-								mods: [],
-								modsLoading: false,
-							};
-						}
-					} else if (detectionError) {
-						bulkDetections = [
-							{
-								path: paths[0]!,
-								label: "",
-								error: detectionError,
-								loading: false,
-								mods: [],
-								modsLoading: true,
-							},
-						];
-						try {
-							const mods = await listMods(paths[0]!);
-							bulkDetections[0] = { ...bulkDetections[0], mods, modsLoading: false };
-						} catch {
-							bulkDetections[0] = {
-								...bulkDetections[0],
-								mods: [],
-								modsLoading: false,
-							};
-						}
-					} else {
-						bulkDetections = [
-							{
-								path: paths[0]!,
-								label: "",
-								error: m.wizard_could_not_identify(),
-								loading: false,
-								mods: [],
-								modsLoading: true,
-							},
-						];
-						try {
-							const mods = await listMods(paths[0]!);
-							bulkDetections[0] = { ...bulkDetections[0], mods, modsLoading: false };
-						} catch {
-							bulkDetections[0] = {
-								...bulkDetections[0],
-								mods: [],
-								modsLoading: false,
-							};
-						}
-					}
-				} else {
-					bulkDetections = [];
-				}
-			} else {
-				selectedPath = `${paths.length} folders selected`;
-				if (selectedTab === "folder") {
-					hasDetected = false;
-					detectionError = "";
-					selectedVersionId = "";
-					bulkDetections = paths.map((p) => ({
-						path: p,
-						label: "",
-						error: "",
-						loading: true,
-						mods: [] as ModRecord[],
-						modsLoading: true,
-					}));
-					for (let i = 0; i < paths.length; i++) {
-						const p = paths[i]!;
-						try {
-							const info = await identifyBuildMutation.mutateAsync(p);
-							if (info) {
-								const v =
-									flatVersions.find((v) => v.id === info.Id) ??
-									flatVersions.find((v) => v.version === info.VersionGroup);
-								bulkDetections[i] = v
-									? {
-											path: p,
-											label: `${v.version} - ${v.name}`,
-											error: "",
-											loading: false,
-											mods: [],
-											modsLoading: true,
-										}
-									: {
-											path: p,
-											label: "",
-											error: m.wizard_build_not_in_database({
-												patchName: info.PatchName,
-												versionGroup: info.VersionGroup,
-											}),
-											loading: false,
-											mods: [],
-											modsLoading: true,
-										};
-							} else {
-								bulkDetections[i] = {
-									path: p,
-									label: "",
-									error: m.wizard_could_not_identify(),
-									loading: false,
-									mods: [],
-									modsLoading: true,
-								};
-							}
-						} catch {
-							bulkDetections[i] = {
-								path: p,
-								label: "",
-								error: m.wizard_identify_error(),
-								loading: false,
-								mods: [],
-								modsLoading: true,
-							};
-						}
-						try {
-							const mods = await listMods(p);
-							bulkDetections[i] = { ...bulkDetections[i], mods, modsLoading: false };
-						} catch {
-							bulkDetections[i] = {
-								...bulkDetections[i],
-								mods: [],
-								modsLoading: false,
-							};
-						}
-					}
-				}
-			}
+		if (!result) return;
+		const paths = (Array.isArray(result) ? result : [result]).filter(Boolean) as string[];
+		if (paths.length === 0) return;
+		selectedPaths = paths;
+		selectedPath = paths.length === 1 ? paths[0]! : `${paths.length} folders selected`;
+		if (selectedTab === "folder") {
+			await detectFolders(paths);
+		} else {
+			bulkDetections = [];
 		}
+	}
+
+	function handlePathInput() {
+		if (selectedTab !== "folder") return;
+		const path = selectedPath.trim();
+		selectedPaths = path ? [path] : [];
+		bulkDetections = [];
+		selectedVersionId = "";
+		if (path) void detectFolders([path]);
 	}
 
 	const identifyBuildMutation = createIdentifyBuildMutation();
 	let isDetecting = $derived(identifyBuildMutation.isPending);
 
-	async function performDetection(path: string) {
-		detectionError = "";
-		hasDetected = false;
+	async function detect(path: string): Promise<Detection> {
 		try {
 			const info = await identifyBuildMutation.mutateAsync(path);
-			if (info) {
-				const version = flatVersions.find((v) => v.id === info.Id);
-				if (version) {
-					selectedVersionId = version.id;
-					hasDetected = true;
-				} else {
-					detectionError = m.wizard_build_not_in_database({
-						patchName: info.PatchName,
-						versionGroup: info.VersionGroup,
-					});
-					hasDetected = true;
-				}
-			} else {
-				detectionError = m.wizard_could_not_identify();
+			if (!info) {
+				return {
+					versionId: "",
+					label: "",
+					error: m.wizard_could_not_identify(),
+					warning: "",
+				};
 			}
+			const exact = flatVersions.find((v) => v.id === info.Id);
+			const version =
+				exact ??
+				flatVersions.findLast(
+					(v) => !!info.VersionGroup && v.version === info.VersionGroup,
+				);
+			return {
+				versionId: version?.id ?? "",
+				label: version ? `${version.version} - ${version.name}` : "",
+				error: "",
+				warning: exact
+					? ""
+					: info.Id
+						? m.wizard_build_not_in_database({
+								patchName: info.PatchName,
+								versionGroup: info.VersionGroup,
+							})
+						: m.wizard_unknown_build(),
+			};
 		} catch (error) {
 			console.error("Detection error:", error);
-			detectionError = m.wizard_identify_error();
+			return { versionId: "", label: "", error: m.wizard_identify_error(), warning: "" };
+		}
+	}
+
+	async function detectFolders(paths: string[]) {
+		selectedVersionId = "";
+		bulkDetections = paths.map((path) => ({
+			path,
+			versionId: "",
+			label: "",
+			error: "",
+			warning: "",
+			loading: true,
+			mods: [],
+			modsLoading: true,
+		}));
+		for (let i = 0; i < paths.length; i++) {
+			const path = paths[i]!;
+			const detection = await detect(path);
+			// A newer browse or edit replaced the list while this one was identifying.
+			if (bulkDetections[i]?.path !== path) return;
+			bulkDetections[i] = { ...bulkDetections[i]!, ...detection, loading: false };
+			if (paths.length === 1) selectedVersionId = detection.versionId;
+			let mods: ModRecord[] = [];
+			if (!detection.error) {
+				try {
+					mods = await listMods(path);
+				} catch {}
+			}
+			if (bulkDetections[i]?.path !== path) return;
+			bulkDetections[i] = { ...bulkDetections[i]!, mods, modsLoading: false };
 		}
 	}
 
 	async function getInstancePath() {
+		if (selectedTab === "folder") return selectedPath;
 		if (!selectedVersion?.version) return "";
 		if (selectedTab === "download" && selectedPath) {
 			return await join(selectedPath, selectedVersion.version);
@@ -325,22 +236,11 @@
 		if (selectedTab === "folder" && selectedPaths.length > 1) {
 			for (const folderPath of selectedPaths) {
 				if (findExistingInstance(folderPath)) continue;
-				let versionForPath = selectedVersion;
-				let versionIdForPath = selectedVersionId;
-				let appIdForPath = selectedAppId;
-				if (!versionIdForPath) {
-					try {
-						const info = await identifyBuildMutation.mutateAsync(folderPath);
-						const v =
-							flatVersions.find((v) => v.id === info?.Id) ??
-							flatVersions.find((v) => v.version === info?.VersionGroup);
-						if (v) {
-							versionForPath = v;
-							versionIdForPath = v.id;
-							appIdForPath = v.appId ?? 444090;
-						}
-					} catch {}
-				}
+				const detection = bulkDetections.find((d) => d.path === folderPath);
+				if (detection?.error) continue;
+				const versionForPath = flatVersions.find((v) => v.id === detection?.versionId);
+				const versionIdForPath = versionForPath?.id;
+				const appIdForPath = versionForPath?.appId ?? 444090;
 				const folderName = folderPath.split(/[\\/]/).pop() || folderPath;
 				const bulkInstance: Instance = {
 					id: crypto.randomUUID(),
@@ -369,11 +269,6 @@
 		}
 
 		const instancePath = await getInstancePath();
-
-		if (selectedTab === "folder" && !selectedVersionId) {
-			await performDetection(instancePath);
-			if (!selectedVersionId) return;
-		}
 
 		if (selectedVersion?.version === "8.1" && !loginMethod) return;
 
@@ -458,8 +353,6 @@
 			selectedPaths = [];
 			bulkDetections = [];
 			showAdvanced = false;
-			hasDetected = false;
-			detectionError = "";
 			loginMethod = undefined;
 			selectedArgs = [];
 		}
@@ -622,20 +515,13 @@
 							placeholder={defaultPathPlaceholder}
 							class="input input-bordered join-item flex-1 font-mono"
 							bind:value={selectedPath}
+							onchange={handlePathInput}
 						/>
 						<button class="btn join-item" type="button" onclick={handleBrowse}>
 							<Folder size={16} />
 							{m.common_browse()}
 						</button>
 					</div>
-					{#if detectionError && bulkDetections.length === 0}
-						<div class="label py-1">
-							<span class="label-text-alt text-error flex items-center gap-1">
-								<AlertCircle size={12} />
-								{detectionError}
-							</span>
-						</div>
-					{/if}
 					{#if bulkDetections.length > 0 && selectedTab === "folder"}
 						<div
 							class="rounded-box border-base-300 bg-base-200/30 mt-2 max-h-60 space-y-2 overflow-y-auto border p-2"
@@ -644,7 +530,9 @@
 								<div
 									class="flex flex-col gap-1 rounded px-2 py-2 text-xs {item.error
 										? 'bg-error/10'
-										: 'bg-base-100'}"
+										: item.warning
+											? 'bg-warning/10'
+											: 'bg-base-100'}"
 								>
 									<div class="flex items-center gap-2">
 										{#if item.loading}
@@ -654,6 +542,15 @@
 											<span class="text-error flex items-center gap-1"
 												><AlertCircle size={12} />{item.error}</span
 											>
+										{:else if item.warning}
+											<span class="text-warning flex items-center gap-1"
+												><AlertCircle size={12} />{item.warning}</span
+											>
+											{#if item.label && selectedPaths.length > 1}
+												<span class="badge badge-warning badge-sm"
+													>{item.label}</span
+												>
+											{/if}
 										{:else}
 											<span class="badge badge-success badge-sm"
 												>{item.label}</span
@@ -686,6 +583,23 @@
 						</div>
 					{/if}
 				</div>
+				{#if showImportVersionPicker}
+					<div class="form-control">
+						<label for="import-version" class="label py-0.5">
+							<span class="label-text text-sm">{m.wizard_game_version()}</span>
+						</label>
+						<select
+							id="import-version"
+							class="select select-bordered w-full"
+							bind:value={selectedVersionId}
+						>
+							<option value="" disabled>{m.wizard_select_version()}</option>
+							{#each importVersionOptions as version (version.value)}
+								<option value={version.value}>{version.label}</option>
+							{/each}
+						</select>
+					</div>
+				{/if}
 			{/if}
 
 			{#if showLoginPrompt}

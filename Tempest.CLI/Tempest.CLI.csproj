@@ -59,7 +59,7 @@
     </Target>
 
     <ItemGroup>
-        <EmbeddedResource Include="Resources/manifests.csv" />
+        <EmbeddedResource Include="Resources/manifests.csv" LogicalName="Tempest.CLI.Resources.manifests.csv" />
         <EmbeddedResource Include="@(ZigOutput)" />
     </ItemGroup>
 
