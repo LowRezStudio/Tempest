@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Loader2, ShieldAlert } from "@lucide/svelte";
+	import { Check, Loader2, ShieldAlert } from "@lucide/svelte";
 	import { antivirusDialog, closeAntivirusDialog } from "$lib/core/antivirus.svelte";
 	import { launchGame } from "$lib/core/launch";
 	import { m } from "$lib/paraglide/messages";
@@ -7,7 +7,11 @@
 	import { addToast } from "$lib/stores/ui.svelte";
 	import Modal from "./Modal.svelte";
 
+	// How long the button shows its success state before the game starts.
+	const ADDED_PAUSE_MS = 1200;
+
 	let adding = $state(false);
+	let added = $state(false);
 	let instance = $derived(antivirusDialog.value.instance);
 
 	function relaunch(noDlls: boolean) {
@@ -36,13 +40,11 @@
 				paths: $state.snapshot(antivirusDialog.value.folders),
 			});
 			if (result.status === "added") {
-				if (instance) {
-					addToast({ message: m.antivirus_added_launching(), tone: "success" });
-					relaunch(false);
-				} else {
-					addToast({ message: m.antivirus_added(), tone: "success", duration: 8000 });
-					closeAntivirusDialog();
-				}
+				adding = false;
+				added = true;
+				await new Promise((resolve) => setTimeout(resolve, ADDED_PAUSE_MS));
+				relaunch(false);
+				added = false;
 			} else if (result.status === "cancelled") {
 				addToast({ message: m.antivirus_cancelled(), tone: "warning" });
 			} else {
@@ -61,7 +63,7 @@
 	bind:open={antivirusDialog.value.open}
 	title={m.antivirus_title()}
 	class="max-w-xl"
-	dismissible={!adding}
+	dismissible={!adding && !added}
 	closeOnOutsideClick={false}
 	onclose={closeAntivirusDialog}
 >
@@ -98,17 +100,28 @@
 			<button
 				class="btn btn-ghost"
 				type="button"
-				disabled={adding}
+				disabled={adding || added}
 				onclick={() => relaunch(true)}
 			>
 				{m.antivirus_launch_without()}
 			</button>
 		{/if}
-		<button class="btn btn-primary" type="button" disabled={adding} onclick={addExclusions}>
+		<button
+			class="btn {added ? 'btn-success pointer-events-none' : 'btn-primary'}"
+			type="button"
+			disabled={adding}
+			onclick={addExclusions}
+		>
 			{#if adding}
 				<Loader2 size={16} class="animate-spin" />
+			{:else if added}
+				<Check size={16} />
 			{/if}
-			{instance ? m.antivirus_add_launch() : m.antivirus_add()}
+			{#if added}
+				{m.antivirus_added()}
+			{:else}
+				{instance ? m.antivirus_add_launch() : m.antivirus_add()}
+			{/if}
 		</button>
 	{/snippet}
 </Modal>
