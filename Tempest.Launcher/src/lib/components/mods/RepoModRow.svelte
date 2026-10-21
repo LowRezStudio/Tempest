@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Check, Clock, Download, Gamepad2, TriangleAlert } from "@lucide/svelte";
+	import { Check, Clock, Download, Gamepad2, Trash2, TriangleAlert } from "@lucide/svelte";
 	import { compatibleWith } from "$lib/mods/browse.svelte";
 	import { cardImageOf, formatCount, kindLabel, relativeDate } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
@@ -18,10 +18,20 @@
 		pending?: PendingInstall;
 		isRunning: boolean;
 		onInstall: (mod: RepoMod) => void;
+		onUninstall: (mod: RepoMod) => void;
 		onOpen: (modId: string) => void;
 	}
 
-	let { mod, installedVersion, patch, pending, isRunning, onInstall, onOpen }: Props = $props();
+	let {
+		mod,
+		installedVersion,
+		patch,
+		pending,
+		isRunning,
+		onInstall,
+		onUninstall,
+		onOpen,
+	}: Props = $props();
 
 	const image = $derived(cardImageOf(mod));
 	const compatible = $derived(compatibleWith(mod, patch));
@@ -147,7 +157,7 @@
 					? m.mod_row_installing()
 					: `${Math.round(pending.progress * 100)}%`}
 			</span>
-		{:else if action === "installed"}
+		{:else if action === "installed" && isRunning}
 			<span
 				class="text-success flex min-w-28 items-center justify-center gap-1.5 text-sm font-semibold"
 				title="v{installedVersion}"
@@ -155,6 +165,25 @@
 				<Check size={16} />
 				{m.repo_installed()}
 			</span>
+		{:else if action === "installed"}
+			<!-- Shows its state until hovered or focused, then what a click does. -->
+			<button
+				class="group btn btn-sm btn-ghost text-success hover:text-error focus-visible:text-error min-w-28"
+				onclick={() => onUninstall(mod)}
+				title="v{installedVersion}"
+				aria-label="{m.repo_uninstall()} {mod.name}"
+			>
+				<span
+					class="flex items-center gap-1.5 group-hover:hidden group-focus-visible:hidden"
+				>
+					<Check size={16} />
+					{m.repo_installed()}
+				</span>
+				<span class="hidden items-center gap-1.5 group-hover:flex group-focus-visible:flex">
+					<Trash2 size={14} />
+					{m.repo_uninstall()}
+				</span>
+			</button>
 		{:else if action}
 			<!-- A disabled button gets no hover, so the reason sits on a wrapper. -->
 			<span title={blockedReason}>

@@ -21,7 +21,9 @@
 	import { pendingInstalls, trackInstall } from "$lib/mods/pendingInstalls.svelte";
 	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { m } from "$lib/paraglide/messages";
+	import { createRemoveModMutation } from "$lib/queries/mods";
 	import { createRepoCatalogQuery, createRepoTagsQuery } from "$lib/queries/repo";
+	import { addToast } from "$lib/stores/ui.svelte";
 	import RepoModRow from "./RepoModRow.svelte";
 	import RepoSortMenu from "./RepoSortMenu.svelte";
 	import type { ModRecord } from "$lib/core/mods";
@@ -102,6 +104,19 @@
 				sha256: latest.sha256,
 				tracker,
 			}),
+		);
+	}
+
+	const removeModMutation = createRemoveModMutation();
+	function uninstall(mod: RepoMod) {
+		const record = installedById.get(mod.id);
+		if (!record) return;
+		removeModMutation.mutate(
+			{ gamePath, modName: record.Name },
+			{
+				onError: (error) =>
+					addToast({ message: `${mod.name}: ${error.message}`, tone: "error" }),
+			},
 		);
 	}
 
@@ -320,6 +335,7 @@
 							pending={pendingByMod.get(mod.id)}
 							{isRunning}
 							onInstall={install}
+							onUninstall={uninstall}
 							onOpen={onOpenDetails}
 						/>
 					{/each}

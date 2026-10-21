@@ -852,6 +852,7 @@
 	"repo_no_results": "No mods match these filters.",
 	"repo_installed": "Installed",
 	"repo_install": "Install",
+	"repo_uninstall": "Uninstall",
 	"repo_update": "Update",
 	"repo_update_available": "Update to {version}",
 	"repo_installed_revoked": "This version was revoked by the repository",
