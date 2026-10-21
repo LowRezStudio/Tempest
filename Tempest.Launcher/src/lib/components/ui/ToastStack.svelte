@@ -2,7 +2,7 @@
 	import { X } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { removeToast, toasts } from "$lib/stores/ui.svelte";
-	import type { Toast } from "$lib/stores/ui.svelte";
+	import type { Toast, ToastTone } from "$lib/stores/ui.svelte";
 
 	interface Props {
 		placement?: string;
@@ -12,10 +12,16 @@
 
 	let toastItems = $derived(toasts.value);
 
-	const getAlertClass = (toast: Toast) => {
-		const tone = toast.tone ?? "info";
-		return tone === "neutral" ? "alert" : `alert alert-${tone}`;
+	// Spelled out: Tailwind only generates classes it finds literally in the source.
+	const alertClasses: Record<ToastTone, string> = {
+		info: "alert alert-info",
+		success: "alert alert-success",
+		warning: "alert alert-warning",
+		error: "alert alert-error",
+		neutral: "alert",
 	};
+
+	const getAlertClass = (toast: Toast) => alertClasses[toast.tone ?? "info"];
 </script>
 
 <div
