@@ -1,5 +1,5 @@
 import { createQuery } from "@tanstack/svelte-query";
-import { fetch } from "$lib/platform/api";
+import { fetch, invoke } from "$lib/platform/api";
 import { modRepositoryURL } from "$lib/stores/settings.svelte";
 
 // Shapes from mods.lowrezstudio.com/contract/openapi.yaml (camelCase).
@@ -87,17 +87,20 @@ export function getRepoVersions(id: string): Promise<RepoVersion[]> {
 	return get(`/api/v1/mods/${encodeURIComponent(id)}/versions`);
 }
 
+// POSTs go through the main process: the repository drops bodies sent with the renderer's Origin.
+function post(path: string, body: unknown): Promise<{ status: number; body: string }> {
+	return invoke("repo:post-json", { url: `${repoBase()}${path}`, body });
+}
+
 // Newest compatible version for each installed mod; unknown ids are omitted by the server.
-export function checkRepoUpdates(
+export async function checkRepoUpdates(
 	patch: string,
 	mods: { id: string; version: string }[],
 ): Promise<RepoUpdate[]> {
-	if (!patch || mods.length === 0) return Promise.resolve([]);
-	return get<RepoUpdate[]>("/api/v1/updates", {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ patch, mods: mods.slice(0, 200) }),
-	});
+	if (!patch || mods.length === 0) return [];
+	const res = await post("/api/v1/updates", { patch, mods: mods.slice(0, 200) });
+	if (res.status !== 200) throw new Error(`/api/v1/updates: HTTP ${res.status}`);
+	return JSON.parse(res.body) as RepoUpdate[];
 }
 
 export type RepoBugReport = { threadUrl: string | null };
@@ -109,23 +112,21 @@ export async function reportRepoBug(
 	id: string,
 	input: { body: string; version?: string; gameVersion?: string },
 ): Promise<RepoBugReport> {
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), 15_000);
-	try {
-		const res = await fetch(`${repoBase()}/api/v1/mods/${encodeURIComponent(id)}/bugs`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ ...input, source: "launcher" }),
-			signal: controller.signal,
-		});
-		if (!res.ok) {
-			const body = (await res.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(body?.message ?? `HTTP ${res.status}`);
+	const res = await post(`/api/v1/mods/${encodeURIComponent(id)}/bugs`, {
+		...input,
+		source: "launcher",
+	});
+	const parsed = (() => {
+		try {
+			return JSON.parse(res.body) as unknown;
+		} catch {
+			return null;
 		}
-		return (await res.json()) as RepoBugReport;
-	} finally {
-		clearTimeout(timeout);
+	})();
+	if (res.status < 200 || res.status >= 300) {
+		throw new Error((parsed as { message?: string } | null)?.message ?? `HTTP ${res.status}`);
 	}
+	return parsed as RepoBugReport;
 }
 
 // The URL the launcher downloads from: counted by the repository, redirects to the CDN.

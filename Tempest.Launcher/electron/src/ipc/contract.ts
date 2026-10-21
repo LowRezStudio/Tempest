@@ -191,6 +191,11 @@ export interface IpcContract {
 		args: { url: string; filename: string; progressId?: string };
 		result: string;
 	};
+	/** POST to the mod repository from the main process (no Origin header, see repo.ts). */
+	"repo:post-json": {
+		args: { url: string; body: unknown };
+		result: { status: number; body: string };
+	};
 	/** The `[mod]` table of a V2 package's manifest.toml; null for V1 files or unreadable ones. */
 	"mods:read-manifest": { args: { path: string }; result: ModPackageInfo | null };
 	"mods:save-pack": { args: { defaultPath: string; data: Uint8Array }; result: string | null };

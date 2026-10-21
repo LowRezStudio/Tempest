@@ -21,6 +21,7 @@ import "./opener.js";
 import "./path.js";
 import "./platforms.js";
 import "./publishing.js";
+import "./repo.js";
 import { injectOs } from "./os.js";
 import "./tray.js";
 import "./updater.js";
