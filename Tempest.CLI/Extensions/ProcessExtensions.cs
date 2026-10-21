@@ -105,7 +105,18 @@ internal static class ProcessExtensions
         inject.StartInfo.Arguments = $"{pid} \"{path}\"";
         inject.StartInfo.RedirectStandardError = true;
         inject.StartInfo.UseShellExecute = false;
-        inject.UseWineBinary().Start();
+        // A failed injection must not take the launch down with it: the game is already running
+        // and the launcher only knows it is while this process waits on it.
+        try
+        {
+            inject.UseWineBinary().Start();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[inject] failed to start {Path.GetFileName(executable)}: {ex.Message}");
+            return false;
+        }
+
         var stderr = inject.StandardError.ReadToEndAsync();
         await inject.WaitForExitAsync();
         var err = await stderr;
