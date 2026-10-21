@@ -122,6 +122,101 @@
 	}
 }
 
+/* Pending installs (mod list rows, browse rows) borrow the mod website's loading language: the
+   row's bottom edge grows into a glowing primary line with the download (the site's nav progress
+   bar, `--progress`), then the row carries the site's shimmer sweep while the CLI installs. Both
+   are backgrounds, so the row keeps the exact footprint of a normal one. */
+.pending-row {
+	--line: linear-gradient(var(--color-primary), var(--color-primary));
+	--glow: linear-gradient(
+		to top,
+		color-mix(in oklab, var(--color-primary) 22%, transparent),
+		transparent
+	);
+	background-image: var(--line), var(--glow);
+	background-repeat: no-repeat;
+	background-position:
+		left bottom,
+		left bottom;
+	background-size:
+		var(--progress) 2px,
+		var(--progress) 10px;
+	transition: background-size 400ms ease-out;
+}
+
+.pending-row.installing {
+	background-image:
+		var(--line), var(--glow),
+		linear-gradient(
+			100deg,
+			transparent 30%,
+			color-mix(in oklab, var(--color-base-content) 9%, transparent) 50%,
+			transparent 70%
+		);
+	background-repeat: no-repeat, no-repeat, repeat;
+	background-size:
+		100% 2px,
+		100% 10px,
+		200% 100%;
+	/* Same as the animation's first frame, or the sweep flashes mid-row before it starts. */
+	background-position:
+		left bottom,
+		left bottom,
+		150% 0;
+	/* The line is already full by now; transitioning would grow the shimmer up from a strip. */
+	transition: none;
+	animation: row-shimmer 1.3s linear infinite;
+}
+
+@keyframes row-shimmer {
+	from {
+		background-position:
+			left bottom,
+			left bottom,
+			150% 0;
+	}
+	to {
+		background-position:
+			left bottom,
+			left bottom,
+			-50% 0;
+	}
+}
+
+/* Images and placeholders still loading, like the site's. */
+.loading-shimmer {
+	background-image: linear-gradient(
+		100deg,
+		transparent 30%,
+		color-mix(in oklab, var(--color-base-content) 9%, transparent) 50%,
+		transparent 70%
+	);
+	background-size: 200% 100%;
+	animation: shimmer 1.3s linear infinite;
+}
+
+@keyframes shimmer {
+	from {
+		background-position: 150% 0;
+	}
+	to {
+		background-position: -50% 0;
+	}
+}
+
+/* The real row arriving in place of the placeholder, like images on the site. */
+.just-installed {
+	animation: fade-in 300ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.pending-row.installing,
+	.loading-shimmer,
+	.just-installed {
+		animation: none;
+	}
+}
+
 /* Quiet button language (same as mods.lowrezstudio.com): a plain .btn is a
  * soft neutral tint of its own text color; only the named color variants
  * (btn-primary etc.) are filled. Keeps colored buttons to real actions. */

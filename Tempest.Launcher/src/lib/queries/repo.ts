@@ -9,6 +9,13 @@ export type RepoSigner = {
 	trust: "first-party" | "trusted" | "unknown" | "revoked";
 };
 export type RepoCompat = { patches: string[]; ranges: { from?: string; to?: string }[] };
+export type RepoImage = {
+	url: string;
+	thumbUrl?: string;
+	width: number;
+	height: number;
+	caption?: string;
+};
 export type RepoVersion = {
 	id: string;
 	modId: string;
@@ -23,6 +30,7 @@ export type RepoVersion = {
 	code: { lua: number; dll: { win32: number; win64: number } };
 	compat: RepoCompat;
 	downloads: number;
+	assets?: { banner: RepoImage | null; screenshots: RepoImage[] };
 };
 export type RepoMod = {
 	id: string;
@@ -46,13 +54,8 @@ export type RepoUpdate = {
 	installedRevoked: boolean;
 };
 
-export type BrowseParams = {
-	q?: string;
-	kind?: RepoMod["kind"] | "";
-	patch?: string;
-	sort?: "updated" | "downloads" | "created" | "name";
-	page?: number;
-};
+export type RepoSort = "updated" | "downloads" | "created" | "name";
+export type RepoTag = { tag: string; count: number };
 
 export const repoBase = () => modRepositoryURL.value.replace(/\/$/, "");
 
@@ -68,15 +71,20 @@ async function get<T>(path: string, init?: RequestInit): Promise<T> {
 	}
 }
 
-export function browseRepo(params: BrowseParams): Promise<RepoPage> {
-	const query = new URLSearchParams();
-	if (params.q) query.set("q", params.q);
-	if (params.kind) query.set("kind", params.kind);
-	if (params.patch) query.set("patch", params.patch);
-	if (params.sort) query.set("sort", params.sort);
-	if (params.page) query.set("page", String(params.page));
-	query.set("per_page", "24");
-	return get<RepoPage>(`/api/v1/mods?${query}`);
+// The whole listed catalog in the server's order, so browse filters run locally and instantly
+// (like the website's browse page). Creation dates are not in the listing, hence the server sort.
+export async function getRepoCatalog(sort: RepoSort): Promise<RepoMod[]> {
+	const items: RepoMod[] = [];
+	for (let page = 1; page <= 20; page++) {
+		const res = await get<RepoPage>(`/api/v1/mods?sort=${sort}&page=${page}&per_page=60`);
+		items.push(...res.items);
+		if (res.items.length === 0 || items.length >= res.total) break;
+	}
+	return items;
+}
+
+export function getRepoTags(): Promise<RepoTag[]> {
+	return get("/api/v1/tags");
 }
 
 export function getRepoMod(id: string): Promise<RepoMod & { readme: string }> {
@@ -134,17 +142,25 @@ export function repoDownloadUrl(modId: string, version: string): string {
 	return `${repoBase()}/api/v1/mods/${encodeURIComponent(modId)}/versions/${encodeURIComponent(version)}/download`;
 }
 
-export const createRepoBrowseQuery = (params: () => BrowseParams) =>
+export const createRepoCatalogQuery = (sort: () => RepoSort) =>
 	createQuery(() => {
-		const p = params();
+		const s = sort();
 		return {
-			queryKey: ["repo", "browse", p],
-			queryFn: () => browseRepo(p),
+			queryKey: ["repo", "catalog", s],
+			queryFn: () => getRepoCatalog(s),
 			staleTime: 60_000,
 			retry: 1,
-			placeholderData: (previous: RepoPage | undefined) => previous,
+			placeholderData: (previous: RepoMod[] | undefined) => previous,
 		};
 	});
+
+export const createRepoTagsQuery = () =>
+	createQuery(() => ({
+		queryKey: ["repo", "tags"],
+		queryFn: getRepoTags,
+		staleTime: 10 * 60_000,
+		retry: 1,
+	}));
 
 // Repository entries of installed mods, by id. Each one goes through the per-mod cache entry
 // RepoModModal uses, so opening a mod's page does not fetch it again.

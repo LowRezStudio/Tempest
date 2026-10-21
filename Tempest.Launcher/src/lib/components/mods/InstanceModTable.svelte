@@ -10,6 +10,7 @@
 		Trash2,
 	} from "@lucide/svelte";
 	import { SvelteSet } from "svelte/reactivity";
+	import { trustOf } from "$lib/mods/listing";
 	import { justInstalled, pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { m } from "$lib/paraglide/messages";
@@ -252,9 +253,7 @@
 									{#if trust === "first-party" || trust === "trusted"}
 										<span
 											class="flex shrink-0"
-											title={trust === "first-party"
-												? m.repo_first_party()
-												: m.repo_trusted_signer()}
+											title={trustOf(repo?.latest ?? null).hint}
 										>
 											<BadgeCheck
 												size={15}
@@ -397,84 +396,3 @@
 		{/each}
 	</tbody>
 </table>
-
-<style>
-	/* Pending installs borrow the mod website's loading language: the row's divider grows into a
-	   glowing primary line with the download (the site's nav progress bar), then the row carries
-	   the site's shimmer sweep while the CLI installs. Both are backgrounds, so the row keeps the
-	   exact footprint of a normal one. */
-	.pending-row {
-		--line: linear-gradient(var(--color-primary), var(--color-primary));
-		--glow: linear-gradient(
-			to top,
-			color-mix(in oklab, var(--color-primary) 22%, transparent),
-			transparent
-		);
-		background-image: var(--line), var(--glow);
-		background-repeat: no-repeat;
-		background-position:
-			left bottom,
-			left bottom;
-		background-size:
-			var(--progress) 2px,
-			var(--progress) 10px;
-		transition: background-size 400ms ease-out;
-	}
-
-	.pending-row.installing {
-		background-image:
-			var(--line), var(--glow),
-			linear-gradient(
-				100deg,
-				transparent 30%,
-				color-mix(in oklab, var(--color-base-content) 9%, transparent) 50%,
-				transparent 70%
-			);
-		background-repeat: no-repeat, no-repeat, repeat;
-		background-size:
-			100% 2px,
-			100% 10px,
-			200% 100%;
-		/* Same as the animation's first frame, or the sweep flashes mid-row before it starts. */
-		background-position:
-			left bottom,
-			left bottom,
-			150% 0;
-		/* The line is already full by now; transitioning would grow the shimmer up from a strip. */
-		transition: none;
-		animation: row-shimmer 1.3s linear infinite;
-	}
-
-	@keyframes row-shimmer {
-		from {
-			background-position:
-				left bottom,
-				left bottom,
-				150% 0;
-		}
-		to {
-			background-position:
-				left bottom,
-				left bottom,
-				-50% 0;
-		}
-	}
-
-	/* The real row arriving in place of the placeholder, like images on the site. */
-	.just-installed {
-		animation: fade-in 300ms ease-out;
-	}
-
-	@keyframes fade-in {
-		from {
-			opacity: 0;
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.pending-row.installing,
-		.just-installed {
-			animation: none;
-		}
-	}
-</style>

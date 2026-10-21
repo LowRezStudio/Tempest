@@ -1,14 +1,17 @@
 <script lang="ts">
-	import { BadgeCheck, Download, ExternalLink, LifeBuoy, ShieldAlert } from "@lucide/svelte";
+	import { Check, Download, ExternalLink, LifeBuoy } from "@lucide/svelte";
 	import { createQuery } from "@tanstack/svelte-query";
 	import { marked } from "marked";
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { kindLabel } from "$lib/mods/listing";
 	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { m } from "$lib/paraglide/messages";
 	import { openUrl } from "$lib/platform/api";
 	import { getRepoMod, getRepoVersions } from "$lib/queries/repo";
 	import { compareVersions, describeCompat, isCompatible } from "$lib/utils/version";
 	import BugReportModal from "./BugReportModal.svelte";
+	import RepoModIcon from "./RepoModIcon.svelte";
+	import RepoTrustBadge from "./RepoTrustBadge.svelte";
 	import type { RepoVersion } from "$lib/queries/repo";
 
 	interface Props {
@@ -52,6 +55,15 @@
 			: "",
 	);
 	const versions = $derived((versionsQuery.data ?? []).filter((v) => v.status === "approved"));
+	// The newest version for this patch: what the Overview offers to install.
+	const primaryVersion = $derived(versions.find((v) => isCompatible(v.compat, patch)) ?? null);
+	const screenshots = $derived(modQuery.data?.latest?.assets?.screenshots ?? []);
+	let shotIndex = $state(0);
+	$effect(() => {
+		void modId;
+		shotIndex = 0;
+		tab = "readme";
+	});
 
 	function action(v: RepoVersion): "installed" | "update" | "downgrade" | "install" {
 		if (!installedVersion) return "install";
@@ -84,22 +96,54 @@
 		<p class="text-error text-sm">{m.repo_unreachable()}</p>
 	{:else}
 		{@const mod = modQuery.data}
+		{@const primary = primaryVersion}
 		<div class="flex flex-col gap-4">
-			<div class="flex flex-wrap items-center gap-2 text-sm">
-				<span class="text-base-content/70">{mod.owner.displayName}</span>
-				{#if mod.latest?.signer?.trust === "first-party"}
-					<span class="badge badge-primary badge-sm gap-1"
-						><BadgeCheck size={12} /> {m.repo_first_party()}</span
-					>
-				{:else if mod.latest?.signer?.trust === "unknown"}
-					<span class="badge badge-warning badge-sm gap-1"
-						><ShieldAlert size={12} /> {m.repo_unknown_signer()}</span
-					>
+			<div class="flex items-start gap-3">
+				<RepoModIcon {mod} size={48} />
+				<div class="flex min-w-0 flex-1 flex-col gap-1.5">
+					<p class="text-base-content/80 text-sm">{mod.summary}</p>
+					<div class="flex flex-wrap items-center gap-1.5 text-sm">
+						<span class="text-base-content/70 mr-1 flex items-center gap-1.5">
+							{#if mod.owner.avatar}
+								<img src={mod.owner.avatar} alt="" class="size-4 rounded-full" />
+							{/if}
+							{mod.owner.displayName}
+						</span>
+						<RepoTrustBadge latest={mod.latest} />
+						<span class="badge badge-ghost badge-sm">{kindLabel(mod.kind)}</span>
+						{#each mod.tags as tag (tag)}<span class="badge badge-ghost badge-sm"
+								>#{tag}</span
+							>{/each}
+					</div>
+				</div>
+				{#if primary}
+					{@const what = action(primary)}
+					{#if what === "installed"}
+						<span
+							class="text-success flex shrink-0 items-center gap-1.5 text-sm font-semibold"
+						>
+							<Check size={16} />
+							{m.repo_installed()}
+						</span>
+					{:else}
+						<button
+							class="btn btn-primary btn-sm shrink-0"
+							disabled={isRunning || installing !== null}
+							title={isRunning ? m.repo_close_game_first() : `v${primary.version}`}
+							onclick={() => install(primary)}
+						>
+							{#if installing === primary.version}<span
+									class="loading loading-spinner loading-xs"
+								></span>{:else}<Download size={14} />{/if}
+							{what === "update"
+								? m.repo_update_available({ version: primary.version })
+								: m.repo_install()}
+						</button>
+					{/if}
 				{/if}
-				<span class="badge badge-ghost badge-sm">{mod.kind}</span>
-				{#each mod.tags as tag (tag)}<span class="badge badge-ghost badge-sm">{tag}</span
-					>{/each}
-				<button class="btn btn-ghost btn-xs ml-auto" onclick={() => (bugOpen = true)}>
+			</div>
+			<div class="flex items-center gap-1">
+				<button class="btn btn-ghost btn-xs" onclick={() => (bugOpen = true)}>
 					<LifeBuoy size={12} />
 					{m.repo_bug_get_help()}
 				</button>
@@ -108,7 +152,6 @@
 					{m.repo_open_in_browser()}
 				</button>
 			</div>
-			<p class="text-base-content/80 text-sm">{mod.summary}</p>
 
 			<div role="tablist" class="tabs tabs-border">
 				<button
@@ -128,6 +171,49 @@
 			</div>
 
 			{#if tab === "readme"}
+				{#if screenshots.length > 0}
+					{@const shot = screenshots[Math.min(shotIndex, screenshots.length - 1)]!}
+					<figure class="flex flex-col gap-2">
+						<div
+							class="bg-base-300 rounded-box relative aspect-video w-full overflow-hidden"
+						>
+							<!-- Keyed, so the previous picture never sits under the new caption while loading. -->
+							{#key shot.url}
+								<img
+									src={shot.url}
+									alt={shot.caption ?? ""}
+									class="absolute inset-0 h-full w-full object-contain"
+								/>
+							{/key}
+						</div>
+						{#if shot.caption}
+							<figcaption class="text-base-content/60 text-xs">
+								{shot.caption}
+							</figcaption>
+						{/if}
+						{#if screenshots.length > 1}
+							<div class="flex gap-2 overflow-x-auto pb-1">
+								{#each screenshots as s, i (s.url)}
+									<button
+										class="rounded-field aspect-video w-24 shrink-0 cursor-pointer overflow-hidden border-2 transition-opacity {i ===
+										shotIndex
+											? 'border-primary'
+											: 'border-transparent opacity-60 hover:opacity-100'}"
+										aria-label={s.caption || `${i + 1}`}
+										aria-current={i === shotIndex ? "true" : undefined}
+										onclick={() => (shotIndex = i)}
+									>
+										<img
+											src={s.thumbUrl ?? s.url}
+											alt=""
+											class="h-full w-full object-cover"
+										/>
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</figure>
+				{/if}
 				<article class="prose prose-sm max-w-none">{@html readmeHtml}</article>
 			{:else}
 				<ul class="flex flex-col gap-2">
