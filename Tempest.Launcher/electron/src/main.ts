@@ -27,7 +27,7 @@ import "./tray.js";
 import "./updater.js";
 import "./upk.js";
 import "./window.js";
-import { activeChildren } from "./shell.js";
+import { activeChildren, killChild } from "./shell.js";
 
 function tempestFilesFromArgs(args: string[], workingDirectory: string): string[] {
 	return args.flatMap((argument) => {
@@ -246,7 +246,7 @@ app.on("activate", () => {
 app.on("will-quit", () => {
 	for (const [, child] of activeChildren) {
 		try {
-			child.kill();
+			killChild(child);
 		} catch {
 			/* ignore */
 		}

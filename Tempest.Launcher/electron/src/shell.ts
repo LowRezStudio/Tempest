@@ -12,6 +12,20 @@ const send = (sender: Electron.WebContents, channel: string, payload: unknown) =
 	if (!sender.isDestroyed()) sender.send(channel, payload);
 };
 
+const detached = process.platform !== "win32";
+
+function killChild(child: ReturnType<typeof spawn>) {
+	if (detached && child.pid !== undefined) {
+		try {
+			process.kill(-child.pid, "SIGTERM");
+			return;
+		} catch {
+			/* group already gone; fall back to the child itself */
+		}
+	}
+	child.kill();
+}
+
 function resolveSidecar(program: string): string {
 	const ext = process.platform === "win32" ? ".exe" : "";
 	const direct = path.join(process.resourcesPath, program + ext);
@@ -26,6 +40,7 @@ handle("shell:spawn", (event, { program, args, options, sidecar }) => {
 		...options,
 		env: options?.env ? { ...process.env, ...options.env } : process.env,
 		stdio: ["pipe", "pipe", "pipe"],
+		detached,
 	});
 
 	const id = nextPid++;
@@ -88,7 +103,7 @@ handle("shell:execute", (_event, { program, args, options, sidecar }) => {
 handle("shell:kill", (_event, { pid }) => {
 	const child = activeChildren.get(pid);
 	if (child) {
-		child.kill();
+		killChild(child);
 		activeChildren.delete(pid);
 	}
 });
@@ -119,4 +134,4 @@ handle("shell:which", (_event, { name }) => {
 	return null;
 });
 
-export { activeChildren };
+export { activeChildren, killChild };
