@@ -33,7 +33,12 @@ export async function handleDeepLink(url: string): Promise<void> {
 	if (!link) return;
 	const instance = currentPreparedInstance();
 	const tracker =
-		instance && trackInstall(instance.path, { name: link.modId, version: link.version }, true);
+		instance &&
+		trackInstall(
+			instance.path,
+			{ name: link.modId, version: link.version, modId: link.modId },
+			true,
+		);
 	try {
 		const [mod, version] = await Promise.all([
 			getRepoMod(link.modId).catch(() => null),

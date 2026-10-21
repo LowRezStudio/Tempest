@@ -14,16 +14,17 @@ export async function downloadRemoteMod(
 	url: string,
 	filename: string,
 	onProgress?: (received: number, total: number | null) => void,
+	cache?: { modId: string; version: string; sha256?: string },
 ): Promise<string> {
 	// Host-side download: the bytes stream straight to a temp file in the main
 	// process (no renderer memory, no CORS) and we only pass the path around.
-	if (!onProgress) return invoke("mods:download-to-temp", { url, filename });
+	if (!onProgress) return invoke("mods:download-to-temp", { url, filename, cache });
 	const progressId = crypto.randomUUID();
 	const unlisten = await listen("mods:download-progress", ({ id, received, total }) => {
 		if (id === progressId) onProgress(received, total);
 	});
 	try {
-		return await invoke("mods:download-to-temp", { url, filename, progressId });
+		return await invoke("mods:download-to-temp", { url, filename, progressId, cache });
 	} finally {
 		unlisten();
 	}

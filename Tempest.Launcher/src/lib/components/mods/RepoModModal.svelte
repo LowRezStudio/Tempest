@@ -7,9 +7,9 @@
 	import { m } from "$lib/paraglide/messages";
 	import { openUrl } from "$lib/platform/api";
 	import { getRepoMod, getRepoVersions } from "$lib/queries/repo";
-	import { compareVersions } from "$lib/utils/version";
+	import { compareVersions, describeCompat, isCompatible } from "$lib/utils/version";
 	import BugReportModal from "./BugReportModal.svelte";
-	import type { RepoCompat, RepoVersion } from "$lib/queries/repo";
+	import type { RepoVersion } from "$lib/queries/repo";
 
 	interface Props {
 		open?: boolean;
@@ -53,30 +53,6 @@
 	);
 	const versions = $derived((versionsQuery.data ?? []).filter((v) => v.status === "approved"));
 
-	function order(version: string): number {
-		const [a = "0", b = "0", c = "0"] = version.split(".");
-		return Number(a) * 1_000_000 + Number(b) * 10_000 + Number(c);
-	}
-	function compatible(compat: RepoCompat): boolean {
-		if (!patch) return true;
-		if (compat.patches.includes(patch)) return true;
-		const n = order(patch);
-		return compat.ranges.some(
-			(r) => (r.from == null || order(r.from) <= n) && (r.to == null || n <= order(r.to)),
-		);
-	}
-	function describe(compat: RepoCompat): string {
-		const parts = compat.ranges.map((r) =>
-			r.from && r.to
-				? `${r.from} – ${r.to}`
-				: r.from
-					? `${r.from}+`
-					: r.to
-						? `≤ ${r.to}`
-						: "all",
-		);
-		return [...parts, ...compat.patches].join(", ");
-	}
 	function action(v: RepoVersion): "installed" | "update" | "downgrade" | "install" {
 		if (!installedVersion) return "install";
 		const d = compareVersions(v.version, installedVersion);
@@ -156,7 +132,7 @@
 			{:else}
 				<ul class="flex flex-col gap-2">
 					{#each versions as v (v.id)}
-						{@const ok = compatible(v.compat)}
+						{@const ok = isCompatible(v.compat, patch)}
 						{@const what = action(v)}
 						<li class="bg-base-200 rounded-lg p-3" class:opacity-60={!ok}>
 							<div class="flex flex-wrap items-center gap-2">
@@ -170,7 +146,7 @@
 								<span class="text-base-content/60 text-xs"
 									>{fmtSize(v.size)} · {v.publishedAt
 										? new Date(v.publishedAt).toLocaleDateString()
-										: ""} · {describe(v.compat)}</span
+										: ""} · {describeCompat(v.compat)}</span
 								>
 								{#if what !== "installed"}
 									<button

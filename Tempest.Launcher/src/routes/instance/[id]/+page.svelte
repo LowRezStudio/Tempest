@@ -23,7 +23,6 @@
 	import Header from "$lib/components/ui/Header.svelte";
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
 	import { pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
-	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
 	import { openPath } from "$lib/platform/api";
@@ -69,14 +68,6 @@
 			.map((mod) => ({ id: mod.Id, version: mod.Version })),
 	}));
 	const updates = $derived(new Map((updatesQuery.data ?? []).map((u) => [u.id, u])));
-
-	async function handleUpdateMod(mod: ModRecord) {
-		const update = updates.get(mod.Id);
-		if (!instance || !update?.latest) return;
-		await installFromRepo(instance.path, mod.Id, update.latest.version, mod.Name, {
-			replace: true,
-		});
-	}
 
 	// Mod details from the repository (readme, versions, downgrade), opened from the table or the Browse tab.
 	let repoModId = $state<string | null>(null);
@@ -312,7 +303,7 @@
 							onRemoveMod={handleRemoveMod}
 							onOpenDetails={handleOpenFiles}
 							{updates}
-							onUpdateMod={handleUpdateMod}
+							patch={instance?.version}
 							onOpenRepo={(mod) => openRepoMod(mod.Id)}
 						/>
 						{#if modsList.length === 0 && !pendingInstalls.value.some((p) => p.gamePath === instance?.path)}

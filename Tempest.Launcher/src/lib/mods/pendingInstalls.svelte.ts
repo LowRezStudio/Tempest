@@ -7,6 +7,9 @@ import { getQueryClient } from "$lib/queries/client";
 export type PendingInstall = {
 	id: string;
 	gamePath: string;
+	/** Set when the mod may already be installed (repository installs): its row shows the
+	 * install in place instead of a placeholder row. */
+	modId?: string;
 	name: string;
 	version?: string;
 	author?: string;
@@ -22,7 +25,7 @@ export const justInstalled = new SvelteSet<string>();
 // `downloading` starts the row at 0% instead of in the installing state.
 export function trackInstall(
 	gamePath: string,
-	info: { name: string; version?: string },
+	info: { name: string; version?: string; modId?: string },
 	downloading = false,
 ) {
 	const id = crypto.randomUUID();

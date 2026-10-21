@@ -1,4 +1,4 @@
-import { createQuery } from "@tanstack/svelte-query";
+import { createQuery, useQueryClient } from "@tanstack/svelte-query";
 import { fetch, invoke } from "$lib/platform/api";
 import { modRepositoryURL } from "$lib/stores/settings.svelte";
 
@@ -31,7 +31,7 @@ export type RepoMod = {
 	kind: "assets" | "scripts" | "native";
 	tags: string[];
 	icon: string | null;
-	owner: { handle: string; displayName: string; team: boolean };
+	owner: { handle: string; displayName: string; avatar: string | null; team: boolean };
 	downloads: number;
 	updatedAt: string;
 	latest: RepoVersion | null;
@@ -145,6 +145,44 @@ export const createRepoBrowseQuery = (params: () => BrowseParams) =>
 			placeholderData: (previous: RepoPage | undefined) => previous,
 		};
 	});
+
+// Repository entries of installed mods, by id. Each one goes through the per-mod cache entry
+// RepoModModal uses, so opening a mod's page does not fetch it again.
+export const createRepoModsQuery = (ids: () => string[]) => {
+	const queryClient = useQueryClient();
+	return createQuery(() => {
+		const sorted = [...ids()].sort();
+		return {
+			queryKey: ["repo", "mods", sorted],
+			queryFn: async () => {
+				const mods = await Promise.all(
+					sorted.map((id) =>
+						queryClient
+							.fetchQuery({
+								queryKey: ["repo", "mod", id],
+								queryFn: () => getRepoMod(id),
+								staleTime: 10 * 60_000,
+							})
+							.catch(() => null),
+					),
+				);
+				return new Map(
+					mods.flatMap((mod) => (mod ? [[mod.id, mod as RepoMod] as const] : [])),
+				);
+			},
+			enabled: sorted.length > 0,
+			staleTime: 10 * 60_000,
+		};
+	});
+};
+
+export const createRepoVersionsQuery = (id: () => string, enabled: () => boolean) =>
+	createQuery(() => ({
+		queryKey: ["repo", "versions", id()],
+		queryFn: () => getRepoVersions(id()),
+		enabled: enabled(),
+		staleTime: 60_000,
+	}));
 
 export const createRepoUpdatesQuery = (
 	input: () => { patch: string; mods: { id: string; version: string }[] },

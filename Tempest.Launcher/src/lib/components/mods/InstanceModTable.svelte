@@ -1,8 +1,8 @@
 <script lang="ts">
 	import {
-		ArrowRight,
+		BadgeCheck,
 		Box,
-		Download,
+		ExternalLink,
 		FolderOpen,
 		Info,
 		PackageX,
@@ -11,20 +11,26 @@
 	} from "@lucide/svelte";
 	import { SvelteSet } from "svelte/reactivity";
 	import { justInstalled, pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
+	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { m } from "$lib/paraglide/messages";
-	import { invoke } from "$lib/platform/api";
+	import { invoke, openUrl } from "$lib/platform/api";
 	import {
 		createRenameModMutation,
 		createEnableModMutation,
 		createDisableModMutation,
 	} from "$lib/queries/mods";
+	import { createRepoModsQuery } from "$lib/queries/repo";
 	import { addToast } from "$lib/stores/ui.svelte";
+	import RepoVersionPicker from "./RepoVersionPicker.svelte";
 	import type { ModRecord } from "$lib/core/mods";
+	import type { PendingInstall } from "$lib/mods/pendingInstalls.svelte";
 	import type { RepoUpdate } from "$lib/queries/repo";
 
 	interface Props {
 		mods: ModRecord[];
 		gamePath: string;
+		/** The instance's game patch, for the repository's compatibility info. */
+		patch?: string;
 		isRunning: boolean;
 		isLoading: boolean;
 		onRefresh: () => void;
@@ -32,22 +38,31 @@
 		onOpenDetails: (mod: ModRecord) => void;
 		/** Repository update checks keyed by mod id */
 		updates?: Map<string, RepoUpdate>;
-		onUpdateMod?: (mod: ModRecord) => void;
 		onOpenRepo?: (mod: ModRecord) => void;
 	}
 
 	let {
 		mods,
 		gamePath,
+		patch,
 		isRunning,
 		isLoading,
 		onRefresh,
 		onRemoveMod,
 		onOpenDetails,
 		updates = new Map(),
-		onUpdateMod,
 		onOpenRepo,
 	}: Props = $props();
+
+	// Looked up per installed V2 mod (plain GETs; unknown ids come back empty), so the repo
+	// features don't depend on the update check, which only adds the update info.
+	const repoMods = createRepoModsQuery(() =>
+		mods.filter((mod) => mod.Kind === "V2").map((mod) => mod.Id),
+	);
+
+	function installVersion(mod: ModRecord, version: string, sha256: string) {
+		void installFromRepo(gamePath, mod.Id, version, mod.Name, { replace: true, sha256 });
+	}
 
 	async function showInExplorer(mod: ModRecord) {
 		if (mod.Kind === "V2") {
@@ -64,6 +79,20 @@
 	}
 
 	const pending = $derived(pendingInstalls.value.filter((p) => p.gamePath === gamePath));
+	// Installs of a mod that is already listed (updates, version switches) play out in its own
+	// row; the rest get a placeholder row.
+	const pendingByMod = $derived(
+		new Map(pending.flatMap((p) => (p.modId ? [[p.modId, p] as const] : []))),
+	);
+	const placeholders = $derived(
+		pending.filter((p) => !p.modId || !mods.some((mod) => mod.Id === p.modId)),
+	);
+	const statusOf = (install: PendingInstall) =>
+		install.progress === null
+			? m.mod_row_installing()
+			: `${Math.round(install.progress * 100)}%`;
+	const progressStyle = (install: PendingInstall) =>
+		`--progress: ${install.progress === null ? 100 : install.progress * 100}%`;
 
 	const renameMutation = createRenameModMutation();
 	const enableMutation = createEnableModMutation();
@@ -166,15 +195,35 @@
 	</thead>
 	<tbody>
 		{#each mods as mod (mod.Id)}
-			<tr class="hover" class:just-installed={justInstalled.has(mod.Id)}>
+			{@const repo = repoMods.data?.get(mod.Id)}
+			{@const update = updates.get(mod.Id)}
+			{@const busy = pendingByMod.get(mod.Id)}
+			{@const trust = repo?.latest?.signer?.trust}
+			<tr
+				class="hover"
+				class:just-installed={justInstalled.has(mod.Id)}
+				class:pending-row={!!busy}
+				class:installing={busy?.progress === null}
+				aria-busy={busy ? "true" : undefined}
+				style={busy ? progressStyle(busy) : undefined}
+			>
 				<td class={!mod.Enabled ? "opacity-40" : ""}>
 					<div class="flex items-center gap-3">
 						<button
-							class="bg-base-200 hover:bg-base-300 text-primary flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-all hover:scale-105 active:scale-95"
+							class="bg-base-200 hover:bg-base-300 text-primary flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg transition-all hover:scale-105 active:scale-95"
 							onclick={() => onOpenDetails(mod)}
 							title={m.mod_updated_files()}
 						>
-							{#if mod.Enabled}
+							{#if busy}
+								<span class="loading loading-spinner loading-sm"></span>
+							{:else if repo?.icon}
+								<img
+									src={repo.icon}
+									alt=""
+									class="h-full w-full object-cover"
+									class:grayscale={!mod.Enabled}
+								/>
+							{:else if mod.Enabled}
 								<Box size={20} class="opacity-75" />
 							{:else}
 								<PackageX size={20} class="opacity-75" />
@@ -192,49 +241,60 @@
 									onblur={() => commitRename(mod)}
 								/>
 							{:else}
-								<button
-									class="hover:bg-base-300 -mx-1.5 block max-w-full cursor-text truncate rounded px-1.5 text-left text-sm font-bold transition-colors"
-									onclick={() => startRename(mod)}
-									title={m.mod_rename()}
-								>
-									{mod.Name}
-								</button>
+								<div class="flex min-w-0 items-center">
+									<button
+										class="hover:bg-base-300 -ml-1.5 block max-w-full cursor-text truncate rounded pr-1 pl-1.5 text-left text-sm font-bold transition-colors"
+										onclick={() => startRename(mod)}
+										title={m.mod_rename()}
+									>
+										{mod.Name}
+									</button>
+									{#if trust === "first-party" || trust === "trusted"}
+										<span
+											class="flex shrink-0"
+											title={trust === "first-party"
+												? m.repo_first_party()
+												: m.repo_trusted_signer()}
+										>
+											<BadgeCheck
+												size={15}
+												class="fill-primary text-base-100"
+											/>
+										</span>
+									{/if}
+								</div>
 							{/if}
-							<p class="text-xs opacity-70">by {mod.Author}</p>
+							<p class="truncate text-xs tabular-nums opacity-70">
+								by {mod.Author}{busy ? ` · ${statusOf(busy)}` : ""}
+							</p>
 						</div>
 					</div>
 				</td>
 				<td class={!mod.Enabled ? "opacity-40" : ""}>
-					{#if updates.get(mod.Id)?.updateAvailable && updates.get(mod.Id)?.latest}
-						<div class="flex items-center gap-2">
-							<span class="text-sm font-semibold">{mod.Version || "Unknown"}</span>
-							<ArrowRight size={12} class="opacity-50" />
-							<button
-								class="btn btn-primary btn-xs gap-1"
-								disabled={isRunning}
-								onclick={() => onUpdateMod?.(mod)}
-								title={updates.get(mod.Id)?.latest?.changelog}
-							>
-								<Download size={12} />
-								{updates.get(mod.Id)?.latest?.version}
-							</button>
-						</div>
-						<span class="text-primary text-[10px] font-semibold uppercase"
-							>{m.repo_update_badge()}</span
-						>
-					{:else}
-						<p class="text-sm font-semibold">{mod.Version || "Unknown"}</p>
-						{#if updates.get(mod.Id)?.installedRevoked}
+					<div class="flex items-center gap-1">
+						{#if repo}
+							<RepoVersionPicker
+								mod={repo}
+								installedVersion={mod.Version}
+								{update}
+								{patch}
+								disabled={isRunning || !!busy}
+								onInstall={(v) => installVersion(mod, v.version, v.sha256)}
+							/>
+						{:else}
+							<p class="text-sm font-semibold">{mod.Version || m.common_unknown()}</p>
+						{/if}
+						{#if update?.installedRevoked}
 							<span
-								class="badge badge-error badge-xs mt-1"
+								class="badge badge-error badge-xs"
 								title={m.repo_installed_revoked()}>revoked</span
 							>
 						{/if}
-					{/if}
+					</div>
 				</td>
 				<td>
 					<div class="flex items-center justify-end gap-1">
-						{#if updates.has(mod.Id)}
+						{#if repo}
 							<button
 								class="btn btn-sm btn-square btn-ghost text-base-content/60"
 								onclick={() => onOpenRepo?.(mod)}
@@ -243,17 +303,27 @@
 							>
 								<Info size={16} />
 							</button>
+							<button
+								class="btn btn-sm btn-square btn-ghost text-base-content/60"
+								onclick={() => openUrl(repo.url)}
+								title={m.repo_open_in_browser()}
+								aria-label={m.repo_open_in_browser()}
+							>
+								<ExternalLink size={14} />
+							</button>
 						{/if}
 						<input
 							type="checkbox"
 							class="toggle toggle-sm toggle-primary mx-1"
 							checked={mod.Enabled}
+							disabled={!!busy}
 							onchange={(e) => handleToggle(mod, e.currentTarget)}
 							title={mod.Enabled ? "Disable mod" : "Enable mod"}
 							aria-label={mod.Enabled ? "Disable mod" : "Enable mod"}
 						/>
 						<button
 							class="btn btn-sm btn-square btn-ghost hover:text-error"
+							disabled={!!busy}
 							onclick={() => onRemoveMod(mod.Name)}
 							title="Delete mod"
 						>
@@ -270,16 +340,13 @@
 				</td>
 			</tr>
 		{/each}
-		{#each pending as install (install.id)}
-			{@const status =
-				install.progress === null
-					? m.mod_row_installing()
-					: `${Math.round(install.progress * 100)}%`}
+		{#each placeholders as install (install.id)}
+			{@const status = statusOf(install)}
 			<tr
 				class="pending-row"
 				class:installing={install.progress === null}
 				aria-busy="true"
-				style="--progress: {install.progress === null ? 100 : install.progress * 100}%"
+				style={progressStyle(install)}
 			>
 				<td>
 					<div class="flex items-center gap-3">
