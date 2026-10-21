@@ -259,7 +259,10 @@
 				variant="home"
 			/>
 
-			<a href={`/instance/${currentInstance.id}`} class="btn btn-lg join-item min-h-14">
+			<a
+				href={`/instance/${currentInstance.id}`}
+				class="btn btn-lg join-item bg-base-200/95 hover:bg-base-300/95 min-h-14 backdrop-blur-sm"
+			>
 				<Box size={20} />
 			</a>
 		</div>
