@@ -30,22 +30,11 @@ export const createInstallModMutation = () => {
 	}));
 };
 
-export const createRemoveModMutation = () => {
-	const queryClient = useQueryClient();
-	return createMutation(() => ({
-		mutationFn: ({ gamePath, modName }: { gamePath: string; modName: string }) =>
-			removeMod(gamePath, modName),
-		onSuccess: (_, variables) => {
-			void queryClient.invalidateQueries({ queryKey: ["mods", variables.gamePath] });
-		},
-	}));
-};
-
 // Applies the change to the cached list immediately instead of waiting for the CLI,
 // rolls it back on failure, and resyncs once no other mod edit is in flight.
 const createOptimisticModMutation = <V extends { gamePath: string }>(
 	run: (variables: V) => Promise<ModInstallResult>,
-	patch: (mod: ModRecord, variables: V) => ModRecord,
+	update: (mods: ModRecord[], variables: V) => ModRecord[],
 ) => {
 	const queryClient = useQueryClient();
 	return createMutation(() => ({
@@ -59,8 +48,9 @@ const createOptimisticModMutation = <V extends { gamePath: string }>(
 			const queryKey = ["mods", variables.gamePath];
 			await queryClient.cancelQueries({ queryKey });
 			const previous = queryClient.getQueryData<ModRecord[]>(queryKey);
-			queryClient.setQueryData<ModRecord[]>(queryKey, (mods) =>
-				mods?.map((mod) => patch(mod, variables)),
+			queryClient.setQueryData<ModRecord[]>(
+				queryKey,
+				(mods) => mods && update(mods, variables),
 			);
 			return { previous };
 		},
@@ -74,22 +64,32 @@ const createOptimisticModMutation = <V extends { gamePath: string }>(
 	}));
 };
 
-type ToggleVariables = { gamePath: string; modName: string };
+type ModNameVariables = { gamePath: string; modName: string };
+
+const setEnabled = (mods: ModRecord[], modName: string, Enabled: boolean) =>
+	mods.map((mod) => (mod.Name === modName ? { ...mod, Enabled } : mod));
 
 export const createEnableModMutation = () =>
-	createOptimisticModMutation<ToggleVariables>(
+	createOptimisticModMutation<ModNameVariables>(
 		({ gamePath, modName }) => enableMod(gamePath, modName),
-		(mod, { modName }) => (mod.Name === modName ? { ...mod, Enabled: true } : mod),
+		(mods, { modName }) => setEnabled(mods, modName, true),
 	);
 
 export const createDisableModMutation = () =>
-	createOptimisticModMutation<ToggleVariables>(
+	createOptimisticModMutation<ModNameVariables>(
 		({ gamePath, modName }) => disableMod(gamePath, modName),
-		(mod, { modName }) => (mod.Name === modName ? { ...mod, Enabled: false } : mod),
+		(mods, { modName }) => setEnabled(mods, modName, false),
+	);
+
+export const createRemoveModMutation = () =>
+	createOptimisticModMutation<ModNameVariables>(
+		({ gamePath, modName }) => removeMod(gamePath, modName),
+		(mods, { modName }) => mods.filter((mod) => mod.Name !== modName),
 	);
 
 export const createRenameModMutation = () =>
 	createOptimisticModMutation<{ gamePath: string; oldName: string; newName: string }>(
 		({ gamePath, oldName, newName }) => renameMod(gamePath, oldName, newName),
-		(mod, { oldName, newName }) => (mod.Name === oldName ? { ...mod, Name: newName } : mod),
+		(mods, { oldName, newName }) =>
+			mods.map((mod) => (mod.Name === oldName ? { ...mod, Name: newName } : mod)),
 	);

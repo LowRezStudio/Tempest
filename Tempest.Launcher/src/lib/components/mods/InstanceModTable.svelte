@@ -10,6 +10,7 @@
 		Trash2,
 	} from "@lucide/svelte";
 	import { SvelteSet } from "svelte/reactivity";
+	import { justInstalled, pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { invoke } from "$lib/platform/api";
 	import {
@@ -26,7 +27,6 @@
 		gamePath: string;
 		isRunning: boolean;
 		isLoading: boolean;
-		isRemoving?: boolean;
 		onRefresh: () => void;
 		onRemoveMod: (name: string) => void;
 		onOpenDetails: (mod: ModRecord) => void;
@@ -41,7 +41,6 @@
 		gamePath,
 		isRunning,
 		isLoading,
-		isRemoving = false,
 		onRefresh,
 		onRemoveMod,
 		onOpenDetails,
@@ -63,6 +62,8 @@
 					: { kind: "V1", targetPath: mod.InstalledFiles[0] || mod.OriginalPath || "" },
 		});
 	}
+
+	const pending = $derived(pendingInstalls.value.filter((p) => p.gamePath === gamePath));
 
 	const renameMutation = createRenameModMutation();
 	const enableMutation = createEnableModMutation();
@@ -165,7 +166,7 @@
 	</thead>
 	<tbody>
 		{#each mods as mod (mod.Id)}
-			<tr class="hover">
+			<tr class="hover" class:just-installed={justInstalled.has(mod.Id)}>
 				<td class={!mod.Enabled ? "opacity-40" : ""}>
 					<div class="flex items-center gap-3">
 						<button
@@ -253,7 +254,6 @@
 						/>
 						<button
 							class="btn btn-sm btn-square btn-ghost hover:text-error"
-							disabled={isRemoving}
 							onclick={() => onRemoveMod(mod.Name)}
 							title="Delete mod"
 						>
@@ -270,5 +270,144 @@
 				</td>
 			</tr>
 		{/each}
+		{#each pending as install (install.id)}
+			{@const status =
+				install.progress === null
+					? m.mod_row_installing()
+					: `${Math.round(install.progress * 100)}%`}
+			<tr
+				class="pending-row"
+				class:installing={install.progress === null}
+				aria-busy="true"
+				style="--progress: {install.progress === null ? 100 : install.progress * 100}%"
+			>
+				<td>
+					<div class="flex items-center gap-3">
+						<div
+							class="bg-base-200 text-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+						>
+							<span class="loading loading-spinner loading-sm"></span>
+						</div>
+						<div class="min-w-0 flex-1">
+							<p class="truncate text-sm font-bold">{install.name}</p>
+							<p class="text-xs tabular-nums opacity-70">
+								{install.author ? `by ${install.author} · ${status}` : status}
+							</p>
+						</div>
+					</div>
+				</td>
+				<td>
+					<p class="text-sm font-semibold">{install.version ?? ""}</p>
+				</td>
+				<td>
+					<div class="flex items-center justify-end gap-1">
+						<div class="flex items-center gap-1 opacity-40">
+							<input
+								type="checkbox"
+								class="toggle toggle-sm toggle-primary mx-1"
+								checked
+								disabled
+								aria-label="Enable mod"
+							/>
+							<button
+								class="btn btn-sm btn-square btn-ghost"
+								disabled
+								aria-label="Delete mod"
+							>
+								<Trash2 size={14} />
+							</button>
+							<button
+								class="btn btn-sm btn-square btn-ghost"
+								disabled
+								aria-label={m.mod_show_in_explorer()}
+							>
+								<FolderOpen size={14} />
+							</button>
+						</div>
+					</div>
+				</td>
+			</tr>
+		{/each}
 	</tbody>
 </table>
+
+<style>
+	/* Pending installs borrow the mod website's loading language: the row's divider grows into a
+	   glowing primary line with the download (the site's nav progress bar), then the row carries
+	   the site's shimmer sweep while the CLI installs. Both are backgrounds, so the row keeps the
+	   exact footprint of a normal one. */
+	.pending-row {
+		--line: linear-gradient(var(--color-primary), var(--color-primary));
+		--glow: linear-gradient(
+			to top,
+			color-mix(in oklab, var(--color-primary) 22%, transparent),
+			transparent
+		);
+		background-image: var(--line), var(--glow);
+		background-repeat: no-repeat;
+		background-position:
+			left bottom,
+			left bottom;
+		background-size:
+			var(--progress) 2px,
+			var(--progress) 10px;
+		transition: background-size 400ms ease-out;
+	}
+
+	.pending-row.installing {
+		background-image:
+			var(--line), var(--glow),
+			linear-gradient(
+				100deg,
+				transparent 30%,
+				color-mix(in oklab, var(--color-base-content) 9%, transparent) 50%,
+				transparent 70%
+			);
+		background-repeat: no-repeat, no-repeat, repeat;
+		background-size:
+			100% 2px,
+			100% 10px,
+			200% 100%;
+		/* Same as the animation's first frame, or the sweep flashes mid-row before it starts. */
+		background-position:
+			left bottom,
+			left bottom,
+			150% 0;
+		/* The line is already full by now; transitioning would grow the shimmer up from a strip. */
+		transition: none;
+		animation: row-shimmer 1.3s linear infinite;
+	}
+
+	@keyframes row-shimmer {
+		from {
+			background-position:
+				left bottom,
+				left bottom,
+				150% 0;
+		}
+		to {
+			background-position:
+				left bottom,
+				left bottom,
+				-50% 0;
+		}
+	}
+
+	/* The real row arriving in place of the placeholder, like images on the site. */
+	.just-installed {
+		animation: fade-in 300ms ease-out;
+	}
+
+	@keyframes fade-in {
+		from {
+			opacity: 0;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.pending-row.installing,
+		.just-installed {
+			animation: none;
+		}
+	}
+</style>

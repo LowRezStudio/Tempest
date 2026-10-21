@@ -1,11 +1,10 @@
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import { installMod } from "$lib/core/mods";
-import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui.svelte";
+import { installModFile } from "$lib/mods/installFile";
 import { m } from "$lib/paraglide/messages";
 import { invoke, listen, onDragDropEvent } from "$lib/platform/api";
 import { instanceMap } from "$lib/stores/instance.svelte";
-import { addToast, removeToast } from "$lib/stores/ui.svelte";
+import { addToast } from "$lib/stores/ui.svelte";
 
 export const isDraggingFiles = $state({ value: false });
 export const isDraggingConverterFiles = $state({ value: false });
@@ -35,6 +34,13 @@ function queueInstall(filePaths: string[], instance: any) {
 		});
 }
 
+// The instance whose page is open, when it is ready to take mods.
+export function currentPreparedInstance() {
+	const match = page.url.pathname.match(/^\/instance\/([^/]+)/);
+	const inst = match ? instanceMap.value[match[1]] : undefined;
+	return inst?.state?.type === "prepared" ? inst : undefined;
+}
+
 export function handleModFileDrop(filePaths: string[]) {
 	const validPaths: string[] = [];
 	let hadInvalid = false;
@@ -58,15 +64,10 @@ export function handleModFileDrop(filePaths: string[]) {
 
 	if (validPaths.length === 0) return;
 
-	const pathname = page.url.pathname;
-	const match = pathname.match(/^\/instance\/([^/]+)/);
-	if (match) {
-		const instanceId = match[1];
-		const inst = instanceMap.value[instanceId];
-		if (inst && inst.state?.type === "prepared") {
-			queueInstall(validPaths, inst);
-			return;
-		}
+	const inst = currentPreparedInstance();
+	if (inst) {
+		queueInstall(validPaths, inst);
+		return;
 	}
 
 	// More file-open events may arrive while the instance picker is already open.
@@ -100,69 +101,10 @@ async function proceedWithInstall(instance: any, filePaths: string[]) {
 
 	for (const filePath of filePaths) {
 		const modFileName = filePath.split(/[/\\]/).pop() ?? filePath;
-		let installingToastId: string | undefined;
-		try {
-			installingToastId = addToast({
-				title: m.toast_mod_installing_title(),
-				message: m.toast_mod_installing_message({ name: modFileName }),
-				tone: "info",
-				duration: 0,
-			});
-
-			let allowUntrusted = false;
-			let res = await installMod(instance.path, filePath, false, false);
-			if (res.Unverified) {
-				const confirmed = await confirmUnverifiedMod(
-					modFileName,
-					res.Signer ?? "",
-					!!res.KeyListOffline,
-				);
-				if (confirmed) {
-					allowUntrusted = true;
-					res = await installMod(instance.path, filePath, false, true);
-				} else {
-					if (installingToastId) removeToast(installingToastId);
-					continue;
-				}
-			}
-
-			if (res.Conflict) {
-				const choice = await confirmReplaceMod(
-					modFileName,
-					res.IsModConflict,
-					res.ConflictingMods ?? [],
-					res.NewModName ?? modFileName,
-				);
-				if (choice === "stack") {
-					res = await installMod(instance.path, filePath, false, allowUntrusted, true);
-				} else if (choice === "replace") {
-					res = await installMod(instance.path, filePath, true, allowUntrusted);
-				} else {
-					if (installingToastId) removeToast(installingToastId);
-					continue;
-				}
-			}
-
-			if (installingToastId) removeToast(installingToastId);
-
-			if (res.Success) {
-				successCount++;
-				lastInstalledName =
-					res.Mod?.Name ?? modFileName ?? m.toast_mod_installed_fallback();
-			} else {
-				addToast({
-					title: m.toast_installation_failed_title(),
-					message: `${modFileName}: ${res.Message || m.toast_installation_failed_unknown()}`,
-					tone: "error",
-				});
-			}
-		} catch (error: any) {
-			if (installingToastId) removeToast(installingToastId);
-			addToast({
-				title: m.toast_installation_failed_title(),
-				message: `${modFileName}: ${error.message ?? m.toast_installation_failed_internal()}`,
-				tone: "error",
-			});
+		const outcome = await installModFile(instance.path, filePath, modFileName);
+		if (outcome.status === "installed") {
+			successCount++;
+			lastInstalledName = outcome.result.Mod?.Name ?? modFileName;
 		}
 	}
 

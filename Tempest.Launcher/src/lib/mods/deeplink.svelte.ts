@@ -1,8 +1,10 @@
-import { downloadRemoteMod } from "$lib/core/mods";
-import { handleModFileDrop } from "$lib/mods/drop.svelte";
+import { downloadModPackage } from "$lib/mods/download";
+import { currentPreparedInstance, handleModFileDrop } from "$lib/mods/drop.svelte";
+import { trackInstall } from "$lib/mods/pendingInstalls.svelte";
+import { installFromRepo } from "$lib/mods/repoInstall";
 import { m } from "$lib/paraglide/messages";
 import { invoke, listen } from "$lib/platform/api";
-import { getRepoVersions, repoDownloadUrl } from "$lib/queries/repo";
+import { getRepoMod, getRepoVersions, repoDownloadUrl } from "$lib/queries/repo";
 import { addToast } from "$lib/stores/ui.svelte";
 
 // `tempest://install?mod=<id>&version=<v>` → { modId, version } or null.
@@ -23,33 +25,46 @@ export function parseInstallLink(url: string): { modId: string; version?: string
 	return { modId, version };
 }
 
-// Downloads the requested version (the newest published one when none is given) and hands the
-// file to the same flow a dropped `.tempest` file takes: install into the open instance, or ask
-// which instance.
+// Installs the requested version (the newest published one when none is given). With an instance
+// page open the mod goes straight into its list, placeholder row first; otherwise the download
+// is handed to the drop flow, which asks for an instance.
 export async function handleDeepLink(url: string): Promise<void> {
 	const link = parseInstallLink(url);
 	if (!link) return;
+	const instance = currentPreparedInstance();
+	const tracker =
+		instance && trackInstall(instance.path, { name: link.modId, version: link.version }, true);
 	try {
-		let version = link.version;
-		if (!version) {
-			const versions = (await getRepoVersions(link.modId)).filter(
-				(v) => v.status === "approved",
-			);
-			version = versions[0]?.version;
-			if (!version) throw new Error(m.repo_no_published_version());
+		const [mod, version] = await Promise.all([
+			getRepoMod(link.modId).catch(() => null),
+			link.version ?? latestApprovedVersion(link.modId),
+		]);
+		const name = mod?.name ?? link.modId;
+		if (instance && tracker) {
+			tracker.setInfo({ name, version, author: mod?.owner.displayName });
+			await installFromRepo(instance.path, link.modId, version, name, { tracker });
+			return;
 		}
-		const file = await downloadRemoteMod(
+		const file = await downloadModPackage(
 			repoDownloadUrl(link.modId, version),
 			`${link.modId}-${version}.tempest`,
 		);
 		handleModFileDrop([file]);
 	} catch (error: unknown) {
+		void tracker?.finish(false);
 		addToast({
 			title: m.toast_installation_failed_title(),
 			message: `${link.modId}: ${(error as Error).message}`,
 			tone: "error",
 		});
 	}
+}
+
+async function latestApprovedVersion(modId: string) {
+	const versions = (await getRepoVersions(modId)).filter((v) => v.status === "approved");
+	const version = versions[0]?.version;
+	if (!version) throw new Error(m.repo_no_published_version());
+	return version;
 }
 
 const seen = new Set<string>();

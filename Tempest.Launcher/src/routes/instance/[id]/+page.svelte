@@ -22,6 +22,7 @@
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
+	import { pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
@@ -31,6 +32,7 @@
 	import { createRepoUpdatesQuery } from "$lib/queries/repo";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
+	import { addToast } from "$lib/stores/ui.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { ModRecord } from "$lib/core/mods";
 
@@ -104,7 +106,13 @@
 
 	function handleRemoveMod(modName: string) {
 		if (!instance) return;
-		removeModMutation.mutate({ gamePath: instance.path, modName });
+		removeModMutation.mutate(
+			{ gamePath: instance.path, modName },
+			{
+				onError: (error) =>
+					addToast({ message: `${modName}: ${error.message}`, tone: "error" }),
+			},
+		);
 	}
 
 	async function handleRefreshMods() {
@@ -300,7 +308,6 @@
 							gamePath={instance?.path ?? ""}
 							{isRunning}
 							isLoading={isRefreshingMods}
-							isRemoving={removeModMutation.isPending}
 							onRefresh={handleRefreshMods}
 							onRemoveMod={handleRemoveMod}
 							onOpenDetails={handleOpenFiles}
@@ -308,7 +315,7 @@
 							onUpdateMod={handleUpdateMod}
 							onOpenRepo={(mod) => openRepoMod(mod.Id)}
 						/>
-						{#if modsList.length === 0}
+						{#if modsList.length === 0 && !pendingInstalls.value.some((p) => p.gamePath === instance?.path)}
 							<EmptyState
 								title={m.instance_no_content()}
 								description={m.instance_drag_import_hint()}

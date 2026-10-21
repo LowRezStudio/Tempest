@@ -83,6 +83,8 @@ export type LegacyUninstallResult = { id: string; name: string | null; code: num
 /** Which mod file "show in explorer" should reveal. */
 export type ModLocation = { kind: "V2"; modId: string } | { kind: "V1"; targetPath: string };
 
+export type ModPackageInfo = { id: string; name: string; version: string; authors: string[] };
+
 /** A file the V1→V2 converter imports, read host-side in one round trip. */
 export type ConverterImport = { path: string; name: string; data: ArrayBuffer };
 
@@ -184,7 +186,13 @@ export interface IpcContract {
 	"instance:game-layout": { args: { instancePath: string }; result: GameLayout };
 
 	// ---- Mods ----
-	"mods:download-to-temp": { args: { url: string; filename: string }; result: string };
+	/** With `progressId`, reports progress as `mods:download-progress` events tagged with it. */
+	"mods:download-to-temp": {
+		args: { url: string; filename: string; progressId?: string };
+		result: string;
+	};
+	/** The `[mod]` table of a V2 package's manifest.toml; null for V1 files or unreadable ones. */
+	"mods:read-manifest": { args: { path: string }; result: ModPackageInfo | null };
 	"mods:save-pack": { args: { defaultPath: string; data: Uint8Array }; result: string | null };
 	"mods:stage-pack": { args: { filename: string; data: Uint8Array }; result: string };
 	"mods:save-staged-pack": { args: { stagedPath: string }; result: string | null };
@@ -236,6 +244,8 @@ export interface IpcEvents {
 	/** Child-process stream events, demultiplexed by pid. */
 	"shell:process": ShellProcessEvent;
 	"updater:download-progress": UpdaterProgress;
+	/** `total` is null when the server sends no Content-Length. */
+	"mods:download-progress": { id: string; received: number; total: number | null };
 }
 
 export type IpcChannel = Extract<keyof IpcContract, string>;

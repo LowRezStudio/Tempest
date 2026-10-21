@@ -1,8 +1,10 @@
 import { installMod } from "$lib/core/mods";
+import { trackInstall } from "$lib/mods/pendingInstalls.svelte";
 import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui.svelte";
 import { m } from "$lib/paraglide/messages";
-import { addToast, removeToast } from "$lib/stores/ui.svelte";
+import { addToast } from "$lib/stores/ui.svelte";
 import type { ModInstallResult } from "$lib/core/mods";
+import type { InstallTracker } from "$lib/mods/pendingInstalls.svelte";
 
 export type InstallOutcome =
 	| { status: "installed"; result: ModInstallResult }
@@ -10,23 +12,37 @@ export type InstallOutcome =
 	| { status: "failed"; message: string };
 
 // The one install sequence: install, ask about an untrusted signer, ask about conflicts,
-// install again accordingly. Shows the "installing" toast while it runs and an error toast on
-// failure; success toasts are left to the caller so batches can be summarised.
+// install again accordingly. While it runs the mod shows as a placeholder row in the mod list
+// (taking over `tracker` from a preceding download when given), filled in from the package's
+// manifest; failures get an error toast, success toasts are left to the caller so batches can be
+// summarised.
 export async function installModFile(
 	gamePath: string,
 	filePath: string,
 	displayName: string,
-	options: { replace?: boolean } = {},
+	options: { replace?: boolean; tracker?: InstallTracker } = {},
 ): Promise<InstallOutcome> {
-	const toastId = addToast({
-		title: m.toast_mod_installing_title(),
-		message: m.toast_mod_installing_message({ name: displayName }),
-		tone: "info",
-		duration: 0,
-	});
+	const tracker =
+		options.tracker ??
+		trackInstall(gamePath, { name: displayName.replace(/\.(tempest|zip|upk|pck)$/i, "") });
+	await tracker.readPackage(filePath);
+	const outcome = await runInstall(gamePath, filePath, displayName, options.replace ?? false);
+	await tracker.finish(
+		outcome.status === "installed",
+		outcome.status === "installed" ? outcome.result.Mod?.Id : undefined,
+	);
+	return outcome;
+}
+
+async function runInstall(
+	gamePath: string,
+	filePath: string,
+	displayName: string,
+	replace: boolean,
+): Promise<InstallOutcome> {
 	try {
 		let allowUntrusted = false;
-		let res = await installMod(gamePath, filePath, options.replace ?? false, false);
+		let res = await installMod(gamePath, filePath, replace, false);
 		if (res.Unverified) {
 			const confirmed = await confirmUnverifiedMod(
 				displayName,
@@ -35,7 +51,7 @@ export async function installModFile(
 			);
 			if (!confirmed) return { status: "cancelled" };
 			allowUntrusted = true;
-			res = await installMod(gamePath, filePath, options.replace ?? false, true);
+			res = await installMod(gamePath, filePath, replace, true);
 		}
 		if (res.Conflict) {
 			const choice = await confirmReplaceMod(
@@ -66,7 +82,5 @@ export async function installModFile(
 			tone: "error",
 		});
 		return { status: "failed", message };
-	} finally {
-		removeToast(toastId);
 	}
 }

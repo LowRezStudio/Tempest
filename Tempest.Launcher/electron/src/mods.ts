@@ -3,22 +3,57 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { BrowserWindow, dialog, net, shell } from "electron";
 import { handle } from "./ipc/handle.js";
+import { readPackageManifest } from "./modPackage.js";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
 
 function toBuffer(data: Uint8Array): Buffer {
 	return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 }
 
-handle("mods:download-to-temp", async (_event, { url, filename }) => {
+handle("mods:download-to-temp", async (event, { url, filename, progressId }) => {
 	// Host-side download: no CORS/CSP involvement, and the bytes never enter
-	// the renderer.
+	// the renderer. Streamed to disk so big packages don't sit in memory.
 	const response = await net.fetch(url);
-	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 	const dest = path.join(os.tmpdir(), path.basename(filename));
-	await fs.promises.writeFile(dest, Buffer.from(await response.arrayBuffer()));
+	const total = Number(response.headers.get("content-length")) || null;
+	let received = 0;
+	let lastReport = 0;
+	const report = () => {
+		if (progressId && !event.sender.isDestroyed()) {
+			event.sender.send("mods:download-progress", { id: progressId, received, total });
+		}
+	};
+	const counter = new Transform({
+		transform(chunk: Buffer, _encoding, done) {
+			received += chunk.length;
+			const now = Date.now();
+			if (now - lastReport >= 100) {
+				lastReport = now;
+				report();
+			}
+			done(null, chunk);
+		},
+	});
+	try {
+		await pipeline(
+			Readable.fromWeb(response.body as WebReadableStream<Uint8Array>),
+			counter,
+			fs.createWriteStream(dest),
+		);
+	} catch (error) {
+		await fs.promises.rm(dest, { force: true });
+		throw error;
+	}
+	report();
 	return dest;
 });
+
+handle("mods:read-manifest", (_event, { path: file }) => readPackageManifest(file));
 
 handle("mods:save-pack", async (event, { defaultPath, data }) => {
 	// Save dialog + write in one round trip: the renderer only has the bytes.

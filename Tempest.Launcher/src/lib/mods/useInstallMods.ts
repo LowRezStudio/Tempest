@@ -1,9 +1,8 @@
 import { useQueryClient } from "@tanstack/svelte-query";
-import { installMod } from "$lib/core/mods";
-import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui.svelte";
+import { installModFile } from "$lib/mods/installFile";
 import { m } from "$lib/paraglide/messages";
 import { open as openDialog } from "$lib/platform/api";
-import { addToast, removeToast } from "$lib/stores/ui.svelte";
+import { addToast } from "$lib/stores/ui.svelte";
 
 export function useInstallMods(instancePath: () => string | undefined) {
 	const queryClient = useQueryClient();
@@ -33,69 +32,10 @@ export function useInstallMods(instancePath: () => string | undefined) {
 
 			for (const filePath of paths) {
 				const modFileName = filePath.split(/[/\\]/).pop() ?? filePath;
-				let installingToastId: string | undefined;
-				try {
-					installingToastId = addToast({
-						title: m.toast_mod_installing_title(),
-						message: m.toast_mod_installing_message({ name: modFileName }),
-						tone: "info",
-						duration: 0,
-					});
-
-					let allowUntrusted = false;
-					let res = await installMod(gamePath, filePath, false, false);
-					if (res.Unverified) {
-						const confirmed = await confirmUnverifiedMod(
-							modFileName,
-							res.Signer ?? "",
-							!!res.KeyListOffline,
-						);
-						if (confirmed) {
-							allowUntrusted = true;
-							res = await installMod(gamePath, filePath, false, true);
-						} else {
-							if (installingToastId) removeToast(installingToastId);
-							continue;
-						}
-					}
-
-					if (res.Conflict) {
-						const choice = await confirmReplaceMod(
-							modFileName,
-							res.IsModConflict,
-							res.ConflictingMods ?? [],
-							res.NewModName ?? modFileName,
-						);
-						if (choice === "stack") {
-							res = await installMod(gamePath, filePath, false, allowUntrusted, true);
-						} else if (choice === "replace") {
-							res = await installMod(gamePath, filePath, true, allowUntrusted);
-						} else {
-							if (installingToastId) removeToast(installingToastId);
-							continue;
-						}
-					}
-
-					if (installingToastId) removeToast(installingToastId);
-
-					if (res.Success) {
-						successCount++;
-						lastInstalledName =
-							res.Mod?.Name ?? modFileName ?? m.toast_mod_installed_fallback();
-					} else {
-						addToast({
-							title: m.toast_installation_failed_title(),
-							message: `${modFileName}: ${res.Message || m.toast_installation_failed_unknown()}`,
-							tone: "error",
-						});
-					}
-				} catch (error: any) {
-					if (installingToastId) removeToast(installingToastId);
-					addToast({
-						title: m.toast_installation_failed_title(),
-						message: `${modFileName}: ${error.message ?? m.toast_installation_failed_internal()}`,
-						tone: "error",
-					});
+				const outcome = await installModFile(gamePath, filePath, modFileName);
+				if (outcome.status === "installed") {
+					successCount++;
+					lastInstalledName = outcome.result.Mod?.Name ?? modFileName;
 				}
 			}
 
