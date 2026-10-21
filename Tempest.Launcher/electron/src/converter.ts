@@ -7,7 +7,7 @@ import { BrowserWindow, dialog } from "electron";
 import { handle } from "./ipc/handle.js";
 import type { ConverterImport } from "./ipc/contract.js";
 
-const IMPORT_EXTENSIONS = new Set(["tempest", "upk", "pck", "ini"]);
+const IMPORT_EXTENSIONS = new Set(["tempest", "upk", "pck", "ini", "dll", "lua"]);
 
 async function readImports(paths: string[]): Promise<ConverterImport[]> {
 	const imports: ConverterImport[] = [];
