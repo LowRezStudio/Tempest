@@ -1,0 +1,128 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"plugins": ["import", "jsdoc", "jsx-a11y", "react", "unicorn", "typescript"],
+	"env": {
+		"browser": true,
+		"es2022": true,
+		"node": true
+	},
+	"globals": {
+		"App": "readonly",
+		"NodeJS": "readonly"
+	},
+	"rules": {
+		// TypeScript/JavaScript Best Practices
+		"no-unused-vars": "error",
+		"prefer-const": "error",
+		"no-var": "error",
+		"no-debugger": "error",
+		"eqeqeq": ["error", "always", { "null": "ignore" }],
+		"curly": ["error", "multi-line"],
+		"no-console": "off",
+		"no-param-reassign": "error",
+		"no-multi-assign": "error",
+		"no-throw-literal": "error",
+		"no-unneeded-ternary": "error",
+		"no-useless-concat": "error",
+		"no-useless-return": "error",
+		"prefer-promise-reject-errors": "error",
+		"prefer-template": "error",
+		"require-await": "error",
+		"yoda": "error",
+
+		// TypeScript strict rules
+		"typescript/strict-boolean-expressions": "off",
+		"typescript/prefer-nullish-coalescing": "error",
+		"typescript/no-for-in-array": "error",
+		"typescript/no-unnecessary-qualifier": "error",
+		"typescript/prefer-as-const": "error",
+		"typescript/prefer-function-type": "error",
+		"typescript/no-empty-interface": "warn",
+
+		// Import/Export
+		"import/no-duplicates": "error",
+		"import/first": "error",
+		"import/no-mutable-exports": "error",
+
+		// Unicorn rules for modern JavaScript
+		"unicorn/catch-error-name": "error",
+		"unicorn/prefer-includes": "error",
+		"unicorn/prefer-node-protocol": "error",
+		"unicorn/prefer-string-starts-ends-with": "error",
+		"unicorn/prefer-type-error": "error",
+		"unicorn/throw-new-error": "error",
+		"unicorn/no-array-for-each": "error",
+		"unicorn/no-array-reduce": "warn",
+		"unicorn/no-console-spaces": "error",
+		"unicorn/no-useless-undefined": "off",
+		"unicorn/no-null": "off",
+		"unicorn/prefer-array-flat": "error",
+		"unicorn/prefer-array-flat-map": "error",
+		"unicorn/prefer-array-some": "error",
+		"unicorn/prefer-at": "error",
+		"unicorn/prefer-default-parameters": "error",
+		"unicorn/prefer-dom-node-append": "error",
+		"unicorn/prefer-dom-node-remove": "error",
+		"unicorn/prefer-dom-node-text-content": "error",
+		"unicorn/prefer-event-target": "error",
+		"unicorn/prefer-native-coercion-functions": "error",
+		"unicorn/prefer-negative-index": "error",
+		"unicorn/prefer-number-properties": "error",
+		"unicorn/prefer-object-from-entries": "error",
+		"unicorn/prefer-optional-catch-binding": "error",
+		"unicorn/prefer-query-selector": "error",
+		"unicorn/prefer-reflect-apply": "error",
+		"unicorn/prefer-regexp-test": "error",
+		"unicorn/prefer-set-has": "error",
+		"unicorn/prefer-spread": "error",
+		"unicorn/prefer-string-replace-all": "error",
+		"unicorn/prefer-ternary": "error",
+		"unicorn/require-array-join-separator": "error",
+		"unicorn/require-number-to-fixed-digits-argument": "error",
+		"unicorn/switch-case-braces": "error",
+		"unicorn/text-encoding-identifier-case": "error",
+
+		// Accessibility (for Svelte components)
+		"jsx-a11y/alt-text": "error",
+		"jsx-a11y/anchor-has-content": "error",
+		"jsx-a11y/click-events-have-key-events": "error",
+		"jsx-a11y/no-static-element-interactions": "error",
+		"jsx-a11y/aria-props": "error",
+		"jsx-a11y/aria-proptypes": "error",
+		"jsx-a11y/aria-unsupported-elements": "error",
+		"jsx-a11y/role-has-required-aria-props": "error",
+		"jsx-a11y/role-supports-aria-props": "error",
+
+		// JSDoc
+		"jsdoc/check-tag-names": "error",
+		"jsdoc/require-param": "warn",
+		"jsdoc/require-returns": "warn"
+	},
+	"overrides": [
+		{
+			"files": ["*.svelte"],
+			"rules": {
+				// Svelte-specific adjustments
+				"no-undef": "off", // Svelte compiler handles this
+				"no-unused-vars": "off", // Svelte compiler handles this
+				"prefer-const": "off" // Svelte uses `let` for bindable props
+			}
+		},
+		{
+			"files": ["src/routes/**/*.js", "src/routes/**/*.ts"],
+			"rules": {
+				// SvelteKit route files
+				"no-unused-vars": "off" // Route exports are used by SvelteKit
+			}
+		}
+	],
+	"ignorePatterns": [
+		".svelte-kit/**",
+		"src/lib/rpc/**/*",
+		"build/**",
+		"dist/**",
+		"node_modules/**",
+		"*.d.ts",
+		".env*"
+	]
+}

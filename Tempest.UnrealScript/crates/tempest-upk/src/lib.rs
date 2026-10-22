@@ -5,13 +5,17 @@
 //! name/import/export tables and each export's raw payload. See the
 //! `tempest-unrealscript` crate for object serialisation and bytecode.
 
+pub mod file;
 pub mod flags;
 pub mod io;
 pub mod lzo;
 pub mod package;
+pub mod tfc;
 
+pub use file::PackageFile;
 pub use io::{Error, FName, Guid, PackageIndex, Reader, Result, Writer};
+pub use tfc::{Tfc, TfcWriter};
 pub use package::{
     CompressedChunk, GenerationInfo, LevelGuids, NameEntry, ObjectExport, ObjectImport, Package, Summary,
-    WriteOptions,
+    WriteOptions, read_compressed_chunk, write_compressed_chunk,
 };

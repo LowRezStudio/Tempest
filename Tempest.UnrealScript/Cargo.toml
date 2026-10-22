@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/tempest-upk", "crates/tempest-unrealscript"]
+members = ["crates/tempest-upk", "crates/tempest-unrealscript", "crates/tempest-assets"]
 resolver = "2"
 
 [workspace.package]

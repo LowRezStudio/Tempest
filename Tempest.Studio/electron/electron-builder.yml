@@ -1,0 +1,33 @@
+appId: com.lowrezstudio.tempest.studio
+productName: Tempest Studio
+fileAssociations:
+    - ext: upk
+      name: Unreal Package
+      description: Unreal Engine 3 package
+      role: Editor
+directories:
+    output: ../dist
+files:
+    - build/**/*
+    - dist/**/*
+    - package.json
+extraResources:
+    - from: resources/binaries
+      to: binaries
+    - from: resources/icons/icon.png
+      to: icon.png
+win:
+    target: nsis
+    icon: resources/icons/icon.ico
+mac:
+    target: dmg
+    icon: resources/icons/icon.icns
+    category: public.app-category.developer-tools
+linux:
+    target:
+        - AppImage
+        - deb
+        - rpm
+    icon: resources/icons
+    category: Development
+publish: null

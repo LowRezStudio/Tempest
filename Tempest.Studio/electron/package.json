@@ -1,0 +1,28 @@
+{
+	"name": "tempest-studio-electron",
+	"version": "0.1.0",
+	"private": true,
+	"homepage": "https://github.com/LowRezStudio/Tempest",
+	"author": {
+		"name": "LowRezStudio",
+		"email": "dev@lowrez.studio"
+	},
+	"type": "module",
+	"main": "dist/main.js",
+	"scripts": {
+		"compile": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"dev": "node scripts/dev.js",
+		"build": "node scripts/build.js"
+	},
+	"dependencies": {
+		"electron-serve": "^3.0.1"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.0",
+		"dax": "^0.48.3",
+		"electron": "^43.0.0",
+		"electron-builder": "^26.0.0",
+		"typescript": "^6.0.3"
+	}
+}

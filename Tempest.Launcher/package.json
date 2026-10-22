@@ -38,6 +38,7 @@
 		"@tailwindcss/typography": "^0.5.20",
 		"@tailwindcss/vite": "4.3.1",
 		"@tanstack/svelte-query": "^6.1.34",
+		"@types/three": "^0.186.0",
 		"bits-ui": "^2.18.1",
 		"country-flag-emoji-polyfill": "^0.1.8",
 		"daisyui": "^5.5.23",
@@ -51,6 +52,7 @@
 		"svelte": "^5.56.3",
 		"svelte-check": "^4.6.0",
 		"tailwindcss": "^4.3.1",
+		"three": "^0.186.1",
 		"typescript": "^6.0.3",
 		"vite": "^8.1.0"
 	},
