@@ -81,7 +81,10 @@ export function parseManifest(toml: string): ModPackageInfo | null {
 			let value = rest!;
 			while (!value.includes("]") && i + 1 < lines.length) value += lines[++i];
 			info.authors.push(...strings(value));
-		} else if (section === "mod" && (key === "id" || key === "name" || key === "version")) {
+		} else if (
+			section === "mod" &&
+			(key === "id" || key === "name" || key === "version" || key === "icon")
+		) {
 			info[key] = strings(rest!)[0] ?? "";
 		}
 	}

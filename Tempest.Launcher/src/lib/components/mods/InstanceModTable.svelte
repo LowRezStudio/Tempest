@@ -19,6 +19,7 @@
 		createRenameModMutation,
 		createEnableModMutation,
 		createDisableModMutation,
+		createInstalledIconsQuery,
 	} from "$lib/queries/mods";
 	import { createRepoModsQuery } from "$lib/queries/repo";
 	import { addToast } from "$lib/stores/ui.svelte";
@@ -57,9 +58,10 @@
 
 	// Looked up per installed V2 mod (plain GETs; unknown ids come back empty), so the repo
 	// features don't depend on the update check, which only adds the update info.
-	const repoMods = createRepoModsQuery(() =>
-		mods.filter((mod) => mod.Kind === "V2").map((mod) => mod.Id),
-	);
+	const v2ModIds = () => mods.filter((mod) => mod.Kind === "V2").map((mod) => mod.Id);
+	const repoMods = createRepoModsQuery(v2ModIds);
+	// The package's own icon stands in when the repository has none (local or unpublished mods).
+	const installedIcons = createInstalledIconsQuery(() => gamePath, v2ModIds);
 
 	function installVersion(mod: ModRecord, version: string, sha256: string) {
 		void installFromRepo(gamePath, mod.Id, version, mod.Name, { replace: true, sha256 });
@@ -200,6 +202,10 @@
 			{@const update = updates.get(mod.Id)}
 			{@const busy = pendingByMod.get(mod.Id)}
 			{@const trust = repo?.latest?.signer?.trust}
+			<!-- Waits for the repository so a listed mod's icon never swaps in after the package's. -->
+			{@const icon = repoMods.isPending
+				? undefined
+				: (repo?.icon ?? installedIcons.data?.get(mod.Id))}
 			<tr
 				class="hover"
 				class:just-installed={justInstalled.has(mod.Id)}
@@ -217,9 +223,9 @@
 						>
 							{#if busy}
 								<span class="loading loading-spinner loading-sm"></span>
-							{:else if repo?.icon}
+							{:else if icon}
 								<img
-									src={repo.icon}
+									src={icon}
 									alt=""
 									class="h-full w-full object-cover"
 									class:grayscale={!mod.Enabled}

@@ -1,5 +1,6 @@
 import { createMutation, createQueries, createQuery, useQueryClient } from "@tanstack/svelte-query";
 import { disableMod, enableMod, installMod, listMods, removeMod, renameMod } from "$lib/core/mods";
+import { invoke } from "$lib/platform/api";
 import type { ModInstallResult, ModRecord } from "$lib/core/mods";
 
 export const createModsQuery = (instancePath: () => string) =>
@@ -32,6 +33,33 @@ export const createModsQueries = (instancePaths: () => string[]) =>
 					paths.map((pathValue, i) => [pathValue, results[i]?.data]),
 				) as Record<string, ModRecord[] | undefined>,
 			}),
+		};
+	});
+
+/**
+ * The icons installed V2 mods ship in their own package, as data URLs by mod id. Keyed under the
+ * instance's mod list, so every install or edit that refreshes the list reloads them too.
+ * @param instancePath - The game path the mods are installed in.
+ * @param modIds - The installed V2 mods' ids.
+ * @returns A map of mod id to icon; mods without an icon are left out.
+ */
+export const createInstalledIconsQuery = (instancePath: () => string, modIds: () => string[]) =>
+	createQuery(() => {
+		const pathValue = instancePath();
+		const ids = [...modIds()].sort();
+		return {
+			queryKey: ["mods", pathValue, "icons", ids],
+			queryFn: async () => {
+				const icons = await Promise.all(
+					ids.map((modId) =>
+						invoke("mods:installed-icon", { gamePath: pathValue, modId }).catch(
+							() => null,
+						),
+					),
+				);
+				return new Map(ids.flatMap((id, i) => (icons[i] ? [[id, icons[i]] as const] : [])));
+			},
+			enabled: !!pathValue && ids.length > 0,
 		};
 	});
 

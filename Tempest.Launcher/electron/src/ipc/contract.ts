@@ -83,7 +83,14 @@ export type LegacyUninstallResult = { id: string; name: string | null; code: num
 /** Which mod file "show in explorer" should reveal. */
 export type ModLocation = { kind: "V2"; modId: string } | { kind: "V1"; targetPath: string };
 
-export type ModPackageInfo = { id: string; name: string; version: string; authors: string[] };
+export type ModPackageInfo = {
+	id: string;
+	name: string;
+	version: string;
+	authors: string[];
+	/** The manifest's `icon` path inside the package, when it names one. */
+	icon?: string;
+};
 
 /** A file the V1→V2 converter imports, read host-side in one round trip. */
 export type ConverterImport = { path: string; name: string; data: ArrayBuffer };
@@ -225,6 +232,8 @@ export interface IpcContract {
 	"mods:discard-staged-pack": { args: { stagedPath: string }; result: void };
 	"mods:open-location": { args: { gamePath: string; mod: ModLocation }; result: void };
 	"mods:has-dlls": { args: { gamePath: string; modId: string }; result: boolean };
+	/** An installed V2 mod's own icon (manifest `icon`, else icon.png) as a data URL; null without one. */
+	"mods:installed-icon": { args: { gamePath: string; modId: string }; result: string | null };
 	"mods:read-file": {
 		args: { basePath: string; modId: string | undefined; path: string };
 		result: { text: string; truncated: boolean };

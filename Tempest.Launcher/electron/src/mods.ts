@@ -8,7 +8,7 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { app, BrowserWindow, dialog, net, shell } from "electron";
 import { handle } from "./ipc/handle.js";
-import { readPackageManifest } from "./modPackage.js";
+import { parseManifest, readPackageManifest } from "./modPackage.js";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 
 function toBuffer(data: Uint8Array): Buffer {
@@ -198,6 +198,30 @@ handle("mods:has-dlls", async (_event, { gamePath, modId }) => {
 	} catch {
 		return false;
 	}
+});
+
+// The same formats and size cap the mod website accepts for icons.
+const ICON_TYPES: Record<string, string> = {
+	".png": "image/png",
+	".webp": "image/webp",
+	".jpg": "image/jpeg",
+	".jpeg": "image/jpeg",
+};
+const ICON_LIMIT = 1024 * 1024;
+
+handle("mods:installed-icon", async (_event, { gamePath, modId }) => {
+	const modsDir = path.resolve(gamePath, ".tempest", "v2", "mods");
+	const modDir = path.resolve(modsDir, modId);
+	if (path.dirname(modDir) !== modsDir) return null;
+	const manifest = await fs.promises
+		.readFile(path.join(modDir, "manifest.toml"), "utf8")
+		.catch(() => "");
+	const file = path.resolve(modDir, parseManifest(manifest)?.icon ?? "icon.png");
+	const type = ICON_TYPES[path.extname(file).toLowerCase()];
+	if (!type || !file.startsWith(modDir + path.sep)) return null;
+	const info = await fs.promises.stat(file).catch(() => null);
+	if (!info?.isFile() || info.size > ICON_LIMIT) return null;
+	return `data:${type};base64,${(await fs.promises.readFile(file)).toString("base64")}`;
 });
 
 const PREVIEW_LIMIT = 50_000;
