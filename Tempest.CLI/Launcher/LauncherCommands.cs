@@ -33,12 +33,20 @@ internal class LauncherCommands
 
                 if (gamePid > 0)
                 {
-                    while (!process.HasExited)
+                    var wrapperExited = process.WaitForExitAsync();
+                    while (true)
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(1));
+                        await Task.WhenAny(wrapperExited, Task.Delay(TimeSpan.FromSeconds(1)));
                         if (!await WineExtensions.IsWinePidAlive(gamePid))
                         {
                             await WineExtensions.KillProcessTree(process, sweepPrefix: false);
+                            break;
+                        }
+                        if (process.HasExited)
+                        {
+                            // Stopped from the launcher. Proton's steam.exe starts the game with CreateProcess,
+                            // which Wine forks out of the wrapper's process tree, so killing the wrapper missed it.
+                            await WineExtensions.KillWinePid(gamePid);
                             break;
                         }
                     }
