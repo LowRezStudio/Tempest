@@ -12,7 +12,7 @@ export type BrowseFilter = {
 };
 
 export const kinds: RepoMod["kind"][] = ["assets", "scripts", "native"];
-export const sorts: RepoSort[] = ["downloads", "updated", "created", "name"];
+export const sorts: RepoSort[] = ["updated", "downloads", "created", "name"];
 
 const defaults = (): BrowseFilter => ({
 	q: "",
@@ -20,7 +20,7 @@ const defaults = (): BrowseFilter => ({
 	tag: null,
 	compatibleOnly: true,
 	hideInstalled: false,
-	sort: "downloads",
+	sort: "updated",
 });
 
 // Module state, so the filters survive switching tabs and instances.
