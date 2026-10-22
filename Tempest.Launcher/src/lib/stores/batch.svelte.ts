@@ -23,6 +23,8 @@ export type BatchEntry = {
 	authors: { name: string; link: string }[];
 	readme: string;
 	icon: PackageIcon | null;
+	/** "id<requirement>" entries from the package's manifest, or the runtime for a Lua mod */
+	dependencies: string[];
 	kind: ConverterKind;
 	tags: string;
 	summary: string;
@@ -62,6 +64,11 @@ async function entryFromImport(label: string, data: Uint8Array): Promise<BatchEn
 			: [],
 		readme: parsed.readme ?? "",
 		icon: parsed.icon,
+		dependencies: manifest?.dependencies.length
+			? manifest.dependencies
+			: detectKind(parsed.files) === "scripts"
+				? ["tempest-scripting"]
+				: [],
 		kind: detectKind(parsed.files),
 		tags: "",
 		summary: "",

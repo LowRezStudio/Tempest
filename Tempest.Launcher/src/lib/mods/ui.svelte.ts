@@ -1,3 +1,4 @@
+import type { DependencyToInstall } from "$lib/mods/dependencies";
 import type { RepoCompat } from "$lib/queries/repo";
 import type { Instance } from "$lib/types/instance";
 
@@ -96,6 +97,35 @@ export const resolveUnverifiedMod = (value: boolean) => {
 	const resolve = activeUnverifiedResolver;
 	activeUnverifiedResolver = undefined;
 	unverifiedDialogStore.value = { open: false, modName: "", signer: "", keyListOffline: false };
+	resolve?.(value);
+};
+
+export type DependenciesChoice = "install" | "skip" | "cancel";
+
+export const dependenciesDialogStore = $state({
+	value: { open: false, modName: "", items: [] as DependencyToInstall[] },
+});
+
+let activeDependenciesResolver: ((value: DependenciesChoice) => void) | undefined = undefined;
+
+// "install" fetches the listed mods first, "skip" installs the mod alone, "cancel" stops.
+export const confirmDependencies = (
+	modName: string,
+	items: DependencyToInstall[],
+): Promise<DependenciesChoice> => {
+	return nextDialog(
+		() =>
+			new Promise<DependenciesChoice>((resolve) => {
+				dependenciesDialogStore.value = { open: true, modName, items };
+				activeDependenciesResolver = resolve;
+			}),
+	);
+};
+
+export const resolveDependencies = (value: DependenciesChoice) => {
+	const resolve = activeDependenciesResolver;
+	activeDependenciesResolver = undefined;
+	dependenciesDialogStore.value = { open: false, modName: "", items: [] };
 	resolve?.(value);
 };
 

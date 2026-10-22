@@ -62,6 +62,7 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
         // and mods whose files were changed after install are re-verified against their signed CHECKSUMS.
         await ModCommands.DisableRevokedModsAsync(path);
         await ModIntegrity.VerifyAtLaunchAsync(path);
+        ModDependencies.WarnAtLaunch(path);
 
         var exePath = LauncherUtility.GetExecutablePath(path, platform, game);
         var defaultArgs = !noDefaultArgs;

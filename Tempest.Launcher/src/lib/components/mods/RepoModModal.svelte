@@ -7,7 +7,14 @@
 	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { m } from "$lib/paraglide/messages";
 	import { openUrl } from "$lib/platform/api";
+	import { createAboutInfoQuery } from "$lib/queries/about";
 	import { getRepoMod, getRepoVersions } from "$lib/queries/repo";
+	import {
+		describeRequirement,
+		modDependencies,
+		tempestRequirement,
+		satisfies,
+	} from "$lib/utils/deps";
 	import { compareVersions, describeCompat, isCompatible } from "$lib/utils/version";
 	import BugReportModal from "./BugReportModal.svelte";
 	import RepoModIcon from "./RepoModIcon.svelte";
@@ -58,6 +65,17 @@
 	// The newest version for this patch: what the Overview offers to install.
 	const primaryVersion = $derived(versions.find((v) => isCompatible(v.compat, patch)) ?? null);
 	const screenshots = $derived(modQuery.data?.latest?.assets?.screenshots ?? []);
+	// What the offered version needs: other mods (installed alongside) and a launcher version.
+	const about = createAboutInfoQuery();
+	const requires = $derived(modDependencies(primaryVersion?.dependencies ?? []));
+	const needsTempest = $derived(
+		primaryVersion ? tempestRequirement(primaryVersion.dependencies ?? []) : undefined,
+	);
+	const tempestTooOld = $derived(
+		needsTempest !== undefined &&
+			!!about.data?.appVersion &&
+			!satisfies(about.data.appVersion, needsTempest),
+	);
 	let shotIndex = $state(0);
 	$effect(() => {
 		void modId;
@@ -118,7 +136,16 @@
 				</div>
 				{#if primary}
 					{@const what = action(primary)}
-					{#if what === "installed"}
+					{#if tempestTooOld}
+						<span
+							class="badge badge-warning shrink-0"
+							title={m.deps_needs_tempest({
+								requirement: needsTempest ?? "",
+								version: about.data?.appVersion ?? "",
+							})}
+							>{m.repo_needs_newer_tempest({ requirement: needsTempest ?? "" })}</span
+						>
+					{:else if what === "installed"}
 						<span
 							class="text-success flex shrink-0 items-center gap-1.5 text-sm font-semibold"
 						>
@@ -142,6 +169,23 @@
 					{/if}
 				{/if}
 			</div>
+			{#if requires.length > 0 || needsTempest !== undefined}
+				<p class="text-base-content/70 flex flex-wrap items-center gap-1.5 text-xs">
+					<span class="font-semibold">{m.repo_requires()}</span>
+					{#if needsTempest !== undefined}
+						<span class="badge badge-ghost badge-sm font-mono"
+							>{m.repo_requires_tempest({
+								requirement: describeRequirement(needsTempest),
+							})}</span
+						>
+					{/if}
+					{#each requires as dep (dep.id)}
+						<span class="badge badge-ghost badge-sm font-mono"
+							>{dep.id} {describeRequirement(dep.requirement)}</span
+						>
+					{/each}
+				</p>
+			{/if}
 			<div class="flex items-center gap-1">
 				<button class="btn btn-ghost btn-xs" onclick={() => (bugOpen = true)}>
 					<LifeBuoy size={12} />

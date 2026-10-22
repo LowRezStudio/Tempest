@@ -90,6 +90,8 @@ export type ModPackageInfo = {
 	authors: string[];
 	/** The manifest's `icon` path inside the package, when it names one. */
 	icon?: string;
+	/** `[mod].dependencies` entries as written, e.g. "tempest-scripting>=1.0.0" */
+	dependencies: string[];
 };
 
 /** A file the V1→V2 converter imports, read host-side in one round trip. */

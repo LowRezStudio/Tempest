@@ -937,5 +937,30 @@
 	"repo_bug_sent_title": "Sent to the help forum",
 	"repo_bug_sent_description": "A thread is open in our Discord with your report already in it — reply there to keep talking to the author.",
 	"repo_bug_open_thread": "Open the thread",
-	"repo_bug_done": "Done"
+	"repo_bug_done": "Done",
+	"deps_dialog_title": "Dependencies",
+	"deps_dialog_heading": [
+		{
+			"declarations": ["input name", "input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{name} has 1 dependency",
+				"countPlural=other": "{name} has {count} dependencies"
+			}
+		}
+	],
+	"deps_dialog_message": "Install them along with the mod? They go in first so the mod works right away. Installing only the mod leaves it without them until you add them from its row in the list.",
+	"deps_dialog_required_by": "needed by {names}",
+	"deps_dialog_skip": "Only the mod",
+	"deps_dialog_install": "Install all",
+	"deps_needs_tempest": "needs Tempest {requirement}; this is {version}. Update Tempest first.",
+	"deps_unresolved": "needs {id} ({requirement}), which the repository could not provide.",
+	"mod_missing_dependencies": "Needs {names}",
+	"mod_missing_dependencies_hint": "Not installed or enabled at a version this mod accepts. Click to install from the repository.",
+	"repo_requires": "Requires",
+	"repo_requires_tempest": "Tempest {requirement}",
+	"repo_needs_newer_tempest": "Needs Tempest {requirement}",
+	"converter_dependencies_label": "Dependencies",
+	"converter_dependencies_placeholder": "tempest-scripting>=1.0.0\ntempest>=1.3.0",
+	"converter_dependencies_hint": "One per line: a mod id and an optional version requirement (>=1.0.0, ^1.2). \"tempest\" is the launcher itself. The launcher installs these alongside the mod."
 }

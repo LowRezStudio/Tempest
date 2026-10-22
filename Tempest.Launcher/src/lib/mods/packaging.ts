@@ -20,6 +20,8 @@ export type PackageManifest = {
 	authors: AuthorEntry[];
 	icon?: string;
 	readme?: string;
+	/** `dependencies = [...]` entries as written, e.g. "tempest-scripting>=1.0.0" */
+	dependencies: string[];
 };
 
 // Regenerated when the package is signed again.
@@ -80,14 +82,36 @@ export function tomlEscape(value: string): string {
 }
 
 export function parseManifest(text: string): PackageManifest {
-	const result: PackageManifest = { name: "", id: "", version: "1.0.0", authors: [] };
+	const result: PackageManifest = {
+		name: "",
+		id: "",
+		version: "1.0.0",
+		authors: [],
+		dependencies: [],
+	};
 	const lines = text.split("\n");
 	let inAuthors = false;
 	let currentAuthor: AuthorEntry | null = null;
+	// `dependencies = [` may run over several lines; its strings are collected until the `]`.
+	let depsText: string | null = null;
 
 	for (const raw of lines) {
 		const line = raw.trim();
 		if (!line || line.startsWith("#")) continue;
+		if (depsText !== null) {
+			depsText += line;
+			if (line.includes("]")) {
+				result.dependencies = tomlStrings(depsText);
+				depsText = null;
+			}
+			continue;
+		}
+		if (!inAuthors && /^dependencies\s*=/.test(line)) {
+			const value = line.slice(line.indexOf("=") + 1);
+			if (value.includes("]")) result.dependencies = tomlStrings(value);
+			else depsText = value;
+			continue;
+		}
 		if (line === "[[mod.authors]]") {
 			if (currentAuthor) result.authors.push(currentAuthor);
 			currentAuthor = { name: "", link: "" };
@@ -113,6 +137,13 @@ export function parseManifest(text: string): PackageManifest {
 	}
 	if (currentAuthor) result.authors.push(currentAuthor);
 	return result;
+}
+
+// The quoted strings of a TOML array literal.
+function tomlStrings(text: string): string[] {
+	return [...text.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)]
+		.map((m) => (m[1] ?? m[2] ?? "").trim())
+		.filter(Boolean);
 }
 
 // DLLs are native code, Lua is scripts, everything else is assets.
@@ -193,6 +224,8 @@ export type PackageMeta = {
 	authors: AuthorEntry[];
 	readme?: string | null;
 	icon?: PackageIcon | null;
+	/** "id<requirement>" entries, e.g. "tempest-scripting>=1.0.0"; blanks are dropped */
+	dependencies?: string[];
 };
 
 export function buildManifest(meta: PackageMeta): string {
@@ -203,6 +236,12 @@ export function buildManifest(meta: PackageMeta): string {
 	lines.push(`version = ${tomlEscape(meta.version || "1.0.0")}`);
 	if (meta.icon) lines.push(`icon = "icon.png"`);
 	if (meta.readme?.trim()) lines.push(`readme = "README.md"`);
+	const dependencies = (meta.dependencies ?? []).map((d) => d.trim()).filter(Boolean);
+	if (dependencies.length > 0) {
+		lines.push("dependencies = [");
+		for (const dep of dependencies) lines.push(`    ${tomlEscape(dep)},`);
+		lines.push("]");
+	}
 	lines.push("");
 	for (const author of meta.authors) {
 		if (!author.name.trim()) continue;

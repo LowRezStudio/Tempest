@@ -15,6 +15,8 @@ export type SourceMeta = {
 	authors: AuthorEntry[];
 	readme: string;
 	icon: PackageIcon | null;
+	/** "id<requirement>" entries of the package's manifest */
+	dependencies: string[];
 };
 
 type SourceEntry = {
@@ -35,7 +37,7 @@ type CookedPackage = {
 	from: string;
 };
 
-type Followed = "modName" | "modVersion" | "authors" | "readmeContent" | "icon";
+type Followed = "modName" | "modVersion" | "authors" | "readmeContent" | "icon" | "dependencies";
 
 const empty = (): Pick<ConverterStore, Followed> => ({
 	modName: "",
@@ -43,7 +45,11 @@ const empty = (): Pick<ConverterStore, Followed> => ({
 	authors: [{ name: "", link: "" }],
 	readmeContent: "",
 	icon: null,
+	dependencies: "",
 });
+
+/** The dependency a Lua mod gets by default: the runtime that runs its scripts. */
+export const SCRIPTING_RUNTIME = "tempest-scripting";
 
 // Compares field values; package bytes compare by size, a full comparison is not worth it.
 const same = (a: unknown, b: unknown) => {
@@ -63,6 +69,8 @@ class ConverterStore {
 	icon = $state<PackageIcon | null>(null);
 	authors = $state<AuthorEntry[]>([{ name: "", link: "" }]);
 	readmeContent = $state("");
+	/** `[mod].dependencies`, one "id<requirement>" per line; Lua mods get the runtime by default. */
+	dependencies = $state("");
 	cooked = $state<CookedPackage | null>(null);
 	/** The furthest step opened so far: 0 files, 1 details, 2 listing, 3 icon and readme. */
 	reached = $state(0);
@@ -98,6 +106,21 @@ class ConverterStore {
 		this.follow("icon", metas.find((m) => m.icon)?.icon ?? defaults.icon);
 		this.packageId = metas.find((m) => MOD_ID_PATTERN.test(m.id))?.id ?? null;
 		if (!this.kindTouched) this.kind = detectKind(this.sources.flatMap((s) => s.files));
+		// A package's own list, else the scripting runtime for a Lua mod (what every script mod
+		// needs), else nothing.
+		const fromPackage = metas.find((m) => m.dependencies.length > 0)?.dependencies;
+		this.follow(
+			"dependencies",
+			fromPackage?.join("\n") ?? (this.kind === "scripts" ? SCRIPTING_RUNTIME : ""),
+		);
+	}
+
+	// The dependency entries as typed, blanks dropped.
+	get dependencyList(): string[] {
+		return this.dependencies
+			.split(/\r?\n|,/)
+			.map((d) => d.trim())
+			.filter(Boolean);
 	}
 
 	private follow<K extends Followed>(key: K, value: ConverterStore[K]) {

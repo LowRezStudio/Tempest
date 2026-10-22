@@ -157,6 +157,7 @@
 							authors: entry.authors,
 							readme: entry.readme,
 							icon: entry.icon,
+							dependencies: entry.dependencies,
 						},
 						entry.files,
 					);

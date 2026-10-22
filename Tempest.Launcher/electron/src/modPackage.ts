@@ -59,13 +59,14 @@ async function readZipEntry(file: string, entryName: string): Promise<Buffer | n
 // Just the [mod] keys the launcher shows; the CLI does the real TOML parsing on install.
 // Authors are either `authors = ["a", "b"]` or `[[mod.authors]]` tables with a `name`.
 export function parseManifest(toml: string): ModPackageInfo | null {
-	const info: ModPackageInfo = { id: "", name: "", version: "", authors: [] };
+	const info: ModPackageInfo = { id: "", name: "", version: "", authors: [], dependencies: [] };
 	const strings = (text: string) =>
 		[...text.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2] ?? "");
 	let section = "";
 	const lines = toml.split(/\r?\n/);
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i]!.trim();
+		if (line.startsWith("#")) continue;
 		const header = /^\[\[?\s*([^\]]+?)\s*\]\]?$/.exec(line);
 		if (header) {
 			section = header[1]!;
@@ -81,6 +82,12 @@ export function parseManifest(toml: string): ModPackageInfo | null {
 			let value = rest!;
 			while (!value.includes("]") && i + 1 < lines.length) value += lines[++i];
 			info.authors.push(...strings(value));
+		} else if ((section === "mod" || section === "") && key === "dependencies") {
+			let value = rest!;
+			while (!value.includes("]") && i + 1 < lines.length) value += lines[++i];
+			info.dependencies = strings(value)
+				.map((d) => d.trim())
+				.filter(Boolean);
 		} else if (
 			section === "mod" &&
 			(key === "id" || key === "name" || key === "version" || key === "icon")

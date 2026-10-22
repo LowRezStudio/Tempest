@@ -10,7 +10,11 @@ const binariesDir = path.join(root, "electron", "resources", "binaries");
 
 fs.mkdirSync(binariesDir, { recursive: true });
 
-await $`dotnet publish ../Tempest.CLI -c Release -o ${binariesDir}`.cwd(root);
+// The CLI checks mods' "tempest" version requirements against the launcher version it ships with.
+const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
+await $`dotnet publish ../Tempest.CLI -c Release -o ${binariesDir} -p:TempestVersion=${version}`.cwd(
+	root,
+);
 
 const files = fs.readdirSync(binariesDir);
 for (const f of files) {

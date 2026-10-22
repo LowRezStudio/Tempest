@@ -1,4 +1,5 @@
 import { createQuery, useQueryClient } from "@tanstack/svelte-query";
+import { getAppVersion } from "$lib/core/appVersion";
 import { fetch, invoke } from "$lib/platform/api";
 import { modRepositoryURL } from "$lib/stores/settings.svelte";
 
@@ -9,6 +10,8 @@ export type RepoSigner = {
 	trust: "first-party" | "trusted" | "unknown" | "revoked";
 };
 export type RepoCompat = { patches: string[]; ranges: { from?: string; to?: string }[] };
+/** One `[mod].dependencies` entry of the package; the id `tempest` is the launcher itself. */
+export type RepoDependency = { id: string; requirement: string };
 export type RepoImage = {
 	url: string;
 	thumbUrl?: string;
@@ -29,6 +32,7 @@ export type RepoVersion = {
 	signer: RepoSigner | null;
 	code: { lua: number; dll: { win32: number; win64: number } };
 	compat: RepoCompat;
+	dependencies: RepoDependency[];
 	downloads: number;
 	assets?: { banner: RepoImage | null; screenshots: RepoImage[] };
 };
@@ -52,6 +56,23 @@ export type RepoUpdate = {
 	latest: RepoVersion | null;
 	updateAvailable: boolean;
 	installedRevoked: boolean;
+};
+
+/** One mod of a resolved dependency tree (GET .../dependencies). */
+export type RepoResolvedDependency = {
+	id: string;
+	name: string;
+	requirements: string[];
+	requiredBy: string[];
+	resolved: RepoVersion | null;
+	problem: "not_found" | "no_match" | null;
+};
+export type RepoResolution = {
+	id: string;
+	version: string;
+	patch: string | null;
+	tempest: { requirement: string; requiredBy: string }[];
+	items: RepoResolvedDependency[];
 };
 
 export type RepoSort = "updated" | "downloads" | "created" | "name";
@@ -95,18 +116,35 @@ export function getRepoVersions(id: string): Promise<RepoVersion[]> {
 	return get(`/api/v1/mods/${encodeURIComponent(id)}/versions`);
 }
 
+// What a version needs, resolved by the repository to installable versions (dependencies of
+// dependencies included) for the instance's patch and this launcher's version.
+export function getRepoDependencies(
+	id: string,
+	version: string,
+	patch: string | undefined,
+	tempest: string,
+): Promise<RepoResolution> {
+	const query = new URLSearchParams({ tempest });
+	if (patch) query.set("patch", patch);
+	return get(
+		`/api/v1/mods/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}/dependencies?${query}`,
+	);
+}
+
 // POSTs go through the main process: the repository drops bodies sent with the renderer's Origin.
 function post(path: string, body: unknown): Promise<{ status: number; body: string }> {
 	return invoke("repo:post-json", { url: `${repoBase()}${path}`, body });
 }
 
-// Newest compatible version for each installed mod; unknown ids are omitted by the server.
+// Newest compatible version for each installed mod (one this launcher can run: the server
+// skips versions whose `tempest` requirement is newer); unknown ids are omitted by the server.
 export async function checkRepoUpdates(
 	patch: string,
 	mods: { id: string; version: string }[],
 ): Promise<RepoUpdate[]> {
 	if (!patch || mods.length === 0) return [];
-	const res = await post("/api/v1/updates", { patch, mods: mods.slice(0, 200) });
+	const tempest = await getAppVersion().catch(() => undefined);
+	const res = await post("/api/v1/updates", { patch, tempest, mods: mods.slice(0, 200) });
 	if (res.status !== 200) throw new Error(`/api/v1/updates: HTTP ${res.status}`);
 	return JSON.parse(res.body) as RepoUpdate[];
 }

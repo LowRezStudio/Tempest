@@ -21,7 +21,8 @@
 //! the standard library). `require("a.b")` resolves `scripts/a/b.lua` inside
 //! the same mod and shares that environment; names with no such file go to
 //! the real `require` (`ffi`, `bit`, `jit`, ...). Scripts run alphabetically,
-//! mods alphabetically by id.
+//! mods alphabetically by id, except that a mod's `[mod] dependencies` and
+//! `[scripting] after` ids load before it.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -37,8 +38,12 @@ pub struct Mod {
     pub scripts: PathBuf,
     /// The mod folder (manifest.toml, config.toml, scripts/).
     pub root: PathBuf,
-    /// Ids this mod wants loaded before it (`[scripting] after` in manifest.toml).
+    /// Ids this mod wants loaded before it: `[scripting] after` in manifest.toml,
+    /// plus the mod ids of `[mod] dependencies` (which must be installed and enabled).
     pub after: Vec<String>,
+    /// `[mod] dependencies` as written ("tempest-scripting>=1.0.0"), the launcher
+    /// (`tempest`) entry included; only reported, the launcher enforces them.
+    pub dependencies: Vec<String>,
     /// From the dev folder (hot-reloaded, overrides an installed mod of the same id).
     pub dev: bool,
 }
@@ -46,7 +51,7 @@ pub struct Mod {
 impl Mod {
     fn new(id: impl Into<String>, scripts: PathBuf) -> Mod {
         let root = scripts.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| scripts.clone());
-        Mod { id: id.into(), scripts, root, after: Vec::new(), dev: false }
+        Mod { id: id.into(), scripts, root, after: Vec::new(), dependencies: Vec::new(), dev: false }
     }
 }
 
@@ -56,12 +61,19 @@ struct Manifest {
     r#mod: ModSection,
     #[serde(default)]
     scripting: ScriptingSection,
+    /// A bare top-level `dependencies = [...]` is taken like `[mod] dependencies`.
+    #[serde(default)]
+    dependencies: Vec<String>,
 }
 
 #[derive(serde::Deserialize, Default)]
 struct ModSection {
     #[serde(default)]
     id: String,
+    /// `dependencies = ["tempest>=1.1.0", "tempest-scripting>=1.0.0"]`: a mod id (or
+    /// `tempest`, the launcher) with an optional version requirement glued to it.
+    #[serde(default)]
+    dependencies: Vec<String>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -70,14 +82,46 @@ struct ScriptingSection {
     after: Vec<String>,
 }
 
-/// `(id, after)` from the folder's manifest.toml; empty when absent or broken.
-fn manifest(mod_root: &Path) -> (String, Vec<String>) {
-    let Ok(text) = std::fs::read_to_string(mod_root.join("manifest.toml")) else { return (String::new(), Vec::new()) };
+/// What the loader reads from a folder's manifest.toml; empty when absent or broken.
+#[derive(Default)]
+struct ManifestInfo {
+    id: String,
+    /// Lowercase ids to load before the mod: `[scripting] after`, then the mod
+    /// dependencies (the `tempest` entry is the launcher, not a mod).
+    after: Vec<String>,
+    /// `[mod] dependencies` as written.
+    dependencies: Vec<String>,
+}
+
+/// The mod id of a dependency entry ("tempest-scripting>=1.0.0" -> "tempest-scripting"),
+/// lowercase. The requirement after it is the launcher's business; it only installs
+/// versions that fit, so the runtime just orders and reports by id.
+pub fn dependency_id(entry: &str) -> String {
+    entry
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+fn manifest(mod_root: &Path) -> ManifestInfo {
+    let Ok(text) = std::fs::read_to_string(mod_root.join("manifest.toml")) else { return ManifestInfo::default() };
     match toml::from_str::<Manifest>(&text) {
-        Ok(m) => (m.r#mod.id, m.scripting.after.into_iter().map(|s| s.to_ascii_lowercase()).collect()),
+        Ok(m) => {
+            let dependencies = if m.r#mod.dependencies.is_empty() { m.dependencies } else { m.r#mod.dependencies };
+            let mut after: Vec<String> = m.scripting.after.into_iter().map(|s| s.to_ascii_lowercase()).collect();
+            for dep in &dependencies {
+                let id = dependency_id(dep);
+                if !id.is_empty() && id != "tempest" && !after.contains(&id) {
+                    after.push(id);
+                }
+            }
+            ManifestInfo { id: m.r#mod.id, after, dependencies }
+        }
         Err(e) => {
             crate::log::line("loader", &format!("{}: manifest.toml: {e}", mod_root.display()));
-            (String::new(), Vec::new())
+            ManifestInfo::default()
         }
     }
 }
@@ -102,9 +146,9 @@ fn dev_mods() -> Vec<Mod> {
         } else {
             root.clone()
         };
-        let (id, after) = manifest(&root);
-        let id = if id.is_empty() { folder } else { id };
-        out.push(Mod { id, scripts, root, after, dev: true });
+        let info = manifest(&root);
+        let id = if info.id.is_empty() { folder } else { info.id };
+        out.push(Mod { id, scripts, root, after: info.after, dependencies: info.dependencies, dev: true });
     }
     out
 }
@@ -115,10 +159,18 @@ fn order_mods(mut mods: Vec<Mod>) -> Vec<Mod> {
     mods.sort_by_key(|m| m.id.to_ascii_lowercase());
     let ids: HashSet<String> = mods.iter().map(|m| m.id.to_ascii_lowercase()).collect();
     for m in &mods {
+        let declared: HashSet<String> = m.dependencies.iter().map(|d| dependency_id(d)).collect();
         for dep in &m.after {
-            if !ids.contains(dep) {
-                crate::log::line("loader", &format!("mod {}: `after = {dep}` is not installed/enabled", m.id));
+            if ids.contains(dep) {
+                continue;
             }
+            if declared.contains(dep) {
+                // A dependency that is not a running Lua mod: either an asset mod (fine) or
+                // not installed/enabled at all. Only the registry knows; it is checked in
+                // `run_all`, so here it is just not an ordering constraint.
+                continue;
+            }
+            crate::log::line("loader", &format!("mod {}: `after = {dep}` is not installed/enabled", m.id));
         }
     }
     let mut out: Vec<Mod> = Vec::new();
@@ -500,8 +552,8 @@ pub fn mods() -> Vec<Mod> {
                     crate::log::line("loader", &format!("[{id}] not loading scripts: {problem}"));
                     continue;
                 }
-                let (_, after) = manifest(&dir);
-                out.push(Mod { id, scripts, root: dir, after, dev: false });
+                let info = manifest(&dir);
+                out.push(Mod { id, scripts, root: dir, after: info.after, dependencies: info.dependencies, dev: false });
             }
         }
     }
@@ -659,8 +711,35 @@ pub fn run_all(lua: &Lua) {
         };
         crate::log::line("loader", &format!("installed: {} mod(s): {}", all.len(), all.iter().map(describe).collect::<Vec<_>>().join(", ")));
     }
+    warn_missing_dependencies(&mods, &all);
     for m in &mods {
         run_mod(lua, m);
+    }
+}
+
+/// One log line per mod whose `[mod] dependencies` are not installed and enabled: the
+/// launcher installs them alongside, so this only ever shows a hand-made install. The mod
+/// still runs; without its dependency it fails on its own terms and the log says why.
+fn warn_missing_dependencies(mods: &[Mod], installed: &[Installed]) {
+    let enabled: HashSet<String> = installed
+        .iter()
+        .filter(|m| m.enabled)
+        .map(|m| m.id.to_ascii_lowercase())
+        .chain(mods.iter().map(|m| m.id.to_ascii_lowercase()))
+        .collect();
+    for m in mods {
+        let missing: Vec<&str> = m
+            .dependencies
+            .iter()
+            .filter(|d| {
+                let id = dependency_id(d);
+                !id.is_empty() && id != "tempest" && !enabled.contains(&id)
+            })
+            .map(|d| d.as_str())
+            .collect();
+        if !missing.is_empty() {
+            crate::log::line("loader", &format!("mod {}: needs {}, which is not installed/enabled", m.id, missing.join(", ")));
+        }
     }
 }
 
@@ -729,4 +808,57 @@ pub fn dll_dir() -> Option<PathBuf> {
 extern "system" {
     fn GetModuleHandleExW(flags: u32, name: *const u16, module: *mut *mut std::ffi::c_void) -> i32;
     fn GetModuleFileNameW(module: *mut std::ffi::c_void, buf: *mut u16, len: u32) -> u32;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fake(id: &str, after: &[&str], deps: &[&str]) -> Mod {
+        Mod {
+            id: id.to_string(),
+            scripts: PathBuf::from(id),
+            root: PathBuf::from(id),
+            after: after.iter().map(|s| s.to_string()).collect(),
+            dependencies: deps.iter().map(|s| s.to_string()).collect(),
+            dev: false,
+        }
+    }
+
+    #[test]
+    fn dependency_id_strips_the_requirement() {
+        assert_eq!(dependency_id("tempest-scripting>=1.0.0"), "tempest-scripting");
+        assert_eq!(dependency_id(" Some-Lib ^2 "), "some-lib");
+        assert_eq!(dependency_id("tempest"), "tempest");
+        assert_eq!(dependency_id(">=1"), "");
+    }
+
+    #[test]
+    fn manifest_dependencies_order_like_after() {
+        let text = "[mod]\nid = \"b-mod\"\ndependencies = [\"tempest>=1.1.0\", \"A-Lib>=0.1\"]\n[scripting]\nafter = [\"zed\"]\n";
+        let dir = std::env::temp_dir().join(format!("tempest-loader-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("manifest.toml"), text).unwrap();
+        let info = manifest(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(info.id, "b-mod");
+        // `after` first, then the mod dependencies; the launcher entry is not a mod.
+        assert_eq!(info.after, vec!["zed".to_string(), "a-lib".to_string()]);
+        assert_eq!(info.dependencies.len(), 2);
+    }
+
+    #[test]
+    fn dependencies_load_before_their_dependants() {
+        let ordered = order_mods(vec![
+            fake("a-hud", &["z-runtime", "asset-pack"], &["z-runtime>=1.0.0", "asset-pack"]),
+            fake("m-lib", &["z-runtime"], &[]),
+            fake("z-runtime", &[], &[]),
+        ]);
+        let ids: Vec<&str> = ordered.iter().map(|m| m.id.as_str()).collect();
+        let pos = |id: &str| ids.iter().position(|x| *x == id).unwrap();
+        assert!(pos("z-runtime") < pos("a-hud"));
+        assert!(pos("z-runtime") < pos("m-lib"));
+        // Alphabetical otherwise, and a dependency that is not a Lua mod does not block.
+        assert_eq!(ids, vec!["z-runtime", "a-hud", "m-lib"]);
+    }
 }

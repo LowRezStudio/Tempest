@@ -10,6 +10,7 @@
 		Trash2,
 	} from "@lucide/svelte";
 	import { SvelteSet } from "svelte/reactivity";
+	import { missingDependencies, offerMissingDependencies } from "$lib/mods/dependencies";
 	import { trustOf } from "$lib/mods/listing";
 	import { justInstalled, pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { installFromRepo } from "$lib/mods/repoInstall";
@@ -65,6 +66,20 @@
 
 	function installVersion(mod: ModRecord, version: string, sha256: string) {
 		void installFromRepo(gamePath, mod.Id, version, mod.Name, { replace: true, sha256 });
+	}
+
+	// Dependencies no enabled mod of the list satisfies, per mod; the row offers to fetch them.
+	const missingByMod = $derived(
+		new Map(
+			mods.flatMap((mod) => {
+				const missing = missingDependencies(mod, mods);
+				return missing.length > 0 ? [[mod.Id, missing] as const] : [];
+			}),
+		),
+	);
+	function fetchMissing(mod: ModRecord) {
+		const missing = missingByMod.get(mod.Id);
+		if (missing) void offerMissingDependencies(gamePath, mod.Name, missing);
 	}
 
 	async function showInExplorer(mod: ModRecord) {
@@ -201,6 +216,7 @@
 			{@const repo = repoMods.data?.get(mod.Id)}
 			{@const update = updates.get(mod.Id)}
 			{@const busy = pendingByMod.get(mod.Id)}
+			{@const missing = missingByMod.get(mod.Id)}
 			{@const trust = repo?.latest?.signer?.trust}
 			<!-- Waits for the repository so a listed mod's icon never swaps in after the package's. -->
 			{@const icon = repoMods.isPending
@@ -294,6 +310,18 @@
 								class="badge badge-error badge-xs"
 								title={m.repo_installed_revoked()}>revoked</span
 							>
+						{/if}
+						{#if missing && mod.Enabled}
+							<button
+								class="badge badge-warning badge-xs cursor-pointer whitespace-nowrap"
+								title={m.mod_missing_dependencies_hint()}
+								disabled={isRunning || !!busy}
+								onclick={() => fetchMissing(mod)}
+							>
+								{m.mod_missing_dependencies({
+									names: missing.map((d) => d.id).join(", "),
+								})}
+							</button>
 						{/if}
 					</div>
 				</td>

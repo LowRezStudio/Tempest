@@ -1,9 +1,11 @@
 import { installMod } from "$lib/core/mods";
+import { installDependenciesForPackage, offerMissingDependencies } from "$lib/mods/dependencies";
 import { trackInstall } from "$lib/mods/pendingInstalls.svelte";
 import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui.svelte";
 import { m } from "$lib/paraglide/messages";
 import { addToast } from "$lib/stores/ui.svelte";
 import type { ModInstallResult } from "$lib/core/mods";
+import type { DependencyMode } from "$lib/mods/dependencies";
 import type { InstallTracker } from "$lib/mods/pendingInstalls.svelte";
 
 export type InstallOutcome =
@@ -55,26 +57,69 @@ export async function installModFiles(gamePath: string, filePaths: string[]): Pr
 	return installed.length;
 }
 
-// The one install sequence: install, ask about an untrusted signer, ask about conflicts,
-// install again accordingly. While it runs the mod shows as a placeholder row in the mod list
-// (taking over `tracker` from a preceding download when given), filled in from the package's
-// manifest; failures get an error toast, success toasts are left to the caller so batches can be
-// summarised.
+// The one install sequence: read the manifest and ask about dependencies the instance lacks,
+// install, ask about an untrusted signer, ask about conflicts, install again accordingly. While
+// it runs the mod shows as a placeholder row in the mod list (taking over `tracker` from a
+// preceding download when given), filled in from the package's manifest; failures get an error
+// toast, success toasts are left to the caller so batches can be summarised.
 export async function installModFile(
 	gamePath: string,
 	filePath: string,
 	displayName: string,
-	options: { replace?: boolean; tracker?: InstallTracker } = {},
+	options: { replace?: boolean; tracker?: InstallTracker; dependencies?: DependencyMode } = {},
 ): Promise<InstallOutcome> {
 	const tracker =
 		options.tracker ??
 		trackInstall(gamePath, { name: displayName.replace(/\.(tempest|zip|upk|pck)$/i, "") });
-	await tracker.readPackage(filePath);
+	const manifest = await tracker.readPackage(filePath);
+	// What the package says it needs goes in first (after a yes), so the mod works right away.
+	// A repository install resolved and installed them before downloading; `skip` says so.
+	const askedBefore = !!manifest && options.dependencies !== "skip";
+	if (askedBefore) {
+		let go: boolean;
+		try {
+			go = await installDependenciesForPackage(
+				gamePath,
+				manifest.name || displayName,
+				manifest.dependencies,
+				options.dependencies ?? "ask",
+			);
+		} catch (error: unknown) {
+			await tracker.finish(false);
+			const message = (error as Error).message;
+			addToast({
+				title: m.toast_installation_failed_title(),
+				message: `${displayName}: ${message}`,
+				tone: "error",
+			});
+			return { status: "failed", message };
+		}
+		if (!go) {
+			await tracker.finish(false);
+			return { status: "cancelled" };
+		}
+	}
 	const outcome = await runInstall(gamePath, filePath, displayName, options.replace ?? false);
 	await tracker.finish(
 		outcome.status === "installed",
 		outcome.status === "installed" ? outcome.result.Mod?.Id : undefined,
 	);
+	// The manifest could not be read beforehand, yet the CLI found dependencies missing: offer
+	// them now.
+	if (
+		!askedBefore &&
+		outcome.status === "installed" &&
+		outcome.result.MissingDependencies?.length
+	) {
+		await offerMissingDependencies(
+			gamePath,
+			outcome.result.Mod?.Name ?? displayName,
+			outcome.result.MissingDependencies.map((d) => ({
+				id: d.Id,
+				requirement: d.Requirement,
+			})),
+		);
+	}
 	return outcome;
 }
 

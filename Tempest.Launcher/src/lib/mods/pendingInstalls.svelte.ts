@@ -72,15 +72,17 @@ export function trackInstall(
 			patch({ progress: 1 });
 			setTimeout(() => patch({ progress: null }), 350);
 		},
-		// Fills in name, version and authors from the package's manifest once it is on disk.
+		// Fills in name, version and authors from the package's manifest once it is on disk,
+		// and hands the manifest back (null when the package has none or cannot be read).
 		async readPackage(file: string) {
 			const manifest = await invoke("mods:read-manifest", { path: file }).catch(() => null);
-			if (!manifest) return;
+			if (!manifest) return null;
 			setInfo({
 				name: manifest.name,
 				version: manifest.version,
 				author: manifest.authors.join(", "),
 			});
+			return manifest;
 		},
 		// After a successful install, waits for the refreshed list so the real row replaces the
 		// placeholder without a gap, and marks that row (`modId`) to fade in.

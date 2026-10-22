@@ -15,6 +15,12 @@
         </None>
     </ItemGroup>
 
+    <!-- The launcher version this CLI ships with (-p:TempestVersion=, set by Tempest.Launcher/scripts/build-cli.js);
+         mods' "tempest" dependency requirements are checked against it (Mods/ModDependencies.cs). -->
+    <ItemGroup Condition="'$(TempestVersion)' != ''">
+      <AssemblyMetadata Include="TempestVersion" Value="$(TempestVersion)" />
+    </ItemGroup>
+
     <!-- Built-in mod signing keys, the fallback when the published lists cannot be reached (Mods/TrustStore.cs) -->
     <ItemGroup>
       <EmbeddedResource Include="../keys/trusted.keys" LogicalName="trusted.keys" />

@@ -130,6 +130,7 @@
 			version: converter.modVersion.trim(),
 			authors: converter.authors,
 			readme: converter.readmeContent,
+			dependencies: converter.dependencyList,
 			icon: converter.icon && [converter.icon.name, converter.icon.data.length],
 			files: allFiles().map((f) => [f.path, f.data.length, !!f.inModFolder]),
 		}),
@@ -318,6 +319,7 @@
 					authors: manifest?.authors ?? [],
 					readme: parsed.readme ?? "",
 					icon: parsed.icon,
+					dependencies: manifest?.dependencies ?? [],
 				},
 			},
 		];
@@ -393,6 +395,7 @@
 					authors: converter.authors,
 					readme: converter.readmeContent,
 					icon: converter.icon,
+					dependencies: converter.dependencyList,
 				},
 				allFiles(),
 			);
@@ -745,6 +748,14 @@
 				placeholder={m.converter_tags_placeholder()}
 				bind:value={converter.tags}
 			/>
+		</label>
+		<label class="flex flex-col gap-1 @lg:col-span-2">
+			<span class="text-base-content/60 text-xs">{m.converter_dependencies_label()}</span>
+			<textarea
+				class="textarea textarea-sm min-h-16 w-full font-mono"
+				placeholder={m.converter_dependencies_placeholder()}
+				bind:value={converter.dependencies}></textarea>
+			<span class="text-base-content/60 text-xs">{m.converter_dependencies_hint()}</span>
 		</label>
 		<p class="text-base-content/60 text-xs @lg:col-span-2">{m.converter_listing_hint()}</p>
 	</div>

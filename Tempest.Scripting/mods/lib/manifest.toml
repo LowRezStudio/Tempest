@@ -4,3 +4,4 @@ name = "Tempest Scripting Lib"
 version = "0.1.0"
 authors = ["Tempest"]
 readme = "Example library mod: exports helpers for other Lua mods through `shared`."
+dependencies = ["tempest-scripting>=1.0.0"]

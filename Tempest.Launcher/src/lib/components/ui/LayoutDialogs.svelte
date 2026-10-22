@@ -1,6 +1,7 @@
 <script lang="ts">
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 	import LegacyTauriDialog from "$lib/components/migration/LegacyTauriDialog.svelte";
+	import DependenciesDialog from "$lib/components/mods/DependenciesDialog.svelte";
 	import InstallModOverlay from "$lib/components/mods/InstallModOverlay.svelte";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import ReplaceModDialog from "$lib/components/mods/ReplaceModDialog.svelte";
@@ -10,8 +11,10 @@
 	import AntivirusBlockedDialog from "$lib/components/ui/AntivirusBlockedDialog.svelte";
 	import UpdateDialog from "$lib/components/updater/UpdateDialog.svelte";
 	import {
+		dependenciesDialogStore,
 		instancePickerStore,
 		replaceDialogStore,
+		resolveDependencies,
 		resolvePickInstance,
 		resolveReplaceMod,
 		resolveUnverifiedMod,
@@ -66,6 +69,13 @@
 	keyListOffline={unverifiedDialogStore.value.keyListOffline}
 	onconfirm={() => resolveUnverifiedMod(true)}
 	oncancel={() => resolveUnverifiedMod(false)}
+/>
+<DependenciesDialog
+	bind:open={dependenciesDialogStore.value.open}
+	modName={dependenciesDialogStore.value.modName}
+	items={dependenciesDialogStore.value.items}
+	onconfirm={(choice) => resolveDependencies(choice)}
+	oncancel={() => resolveDependencies("cancel")}
 />
 <UpdateDialog />
 <LegacyTauriDialog />

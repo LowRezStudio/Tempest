@@ -3,6 +3,7 @@ import { getQueryClient } from "$lib/queries/client";
 import { appendProcessLogs } from "$lib/stores/processes.svelte";
 import { modRepositoryURL } from "$lib/stores/settings.svelte";
 import { reportAntivirusBlocks } from "./antivirus.svelte";
+import { getAppVersion } from "./appVersion";
 import { createCommand } from "./command";
 import type { Instance } from "$lib/types/instance";
 
@@ -36,6 +37,13 @@ export type ModAuthor = {
 	Avatar?: string;
 };
 
+/** One `[mod].dependencies` entry as the CLI records it; the id "tempest" is the launcher itself. */
+export type ModDependency = {
+	Id: string;
+	/** As written after the id (">=1.0.0"); empty means any version. */
+	Requirement: string;
+};
+
 export type ModRecord = {
 	Id: string;
 	Name: string;
@@ -49,6 +57,8 @@ export type ModRecord = {
 	OwnedFiles: string[];
 	Readme?: string;
 	ReadmeContent?: string;
+	/** From the manifest at install time; absent on records older than dependencies. */
+	Dependencies?: ModDependency[];
 };
 
 export type ModConflictInfo = {
@@ -72,6 +82,10 @@ export type ModInstallResult = {
 	KeyListOffline?: boolean;
 	ConflictingMods?: ModConflictInfo[];
 	NewModName?: string;
+	/** Installed, but these dependencies are not installed and enabled at a fitting version. */
+	MissingDependencies?: ModDependency[];
+	/** Refused: the package needs this Tempest version and the launcher is older. */
+	TempestRequired?: string;
 };
 
 export type ModListResult = {
@@ -212,6 +226,9 @@ export const installMod = async (
 	if (replace) args.push("--replace");
 	if (stack) args.push("--stack");
 	if (allowUntrusted) args.push("--allow-untrusted");
+	// The CLI checks the package's "tempest" requirement against the launcher's version.
+	const appVersion = await getAppVersion().catch(() => undefined);
+	if (appVersion) args.push("--tempest-version", appVersion);
 	args.push("--json");
 
 	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
