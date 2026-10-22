@@ -5,7 +5,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { pinnedBackground } from "$lib/stores/settings.svelte";
 
-	const backgrounds = Object.keys(import.meta.glob("/static/loading-screens/*.webp")).map((img) =>
+	const backgrounds = Object.keys(import.meta.glob("/static/loading-screens/*.avif")).map((img) =>
 		img.replace("/static", ""),
 	);
 

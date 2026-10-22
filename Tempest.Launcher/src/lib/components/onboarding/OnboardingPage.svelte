@@ -384,7 +384,7 @@
 <div class="relative h-screen w-full overflow-hidden">
 	<div class="absolute inset-0">
 		<img
-			src="/loading-screens/Loading_ShootingGallery.webp"
+			src="/loading-screens/Loading_ShootingGallery.avif"
 			alt=""
 			class="h-full w-full scale-110 object-cover blur-[7px]"
 		/>

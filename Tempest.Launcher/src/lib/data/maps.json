@@ -3,7 +3,7 @@
 		"displayName": "Serpent Beach",
 		"id": "TMM_P_Beach_v02",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Beach.webp",
+		"iconPath": "/loading-screens/Loading_Beach.avif",
 		"versionStart": "0.34",
 		"versionEnd": "0.36"
 	},
@@ -11,7 +11,7 @@
 		"displayName": "Serpent Beach",
 		"id": "TMM_Beach_P_v04",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Beach.webp",
+		"iconPath": "/loading-screens/Loading_Beach.avif",
 		"versionStart": "0.37",
 		"versionEnd": "2.2"
 	},
@@ -19,7 +19,7 @@
 		"displayName": "Serpent Beach",
 		"id": "SG_Serpentbeach_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Beach.webp",
+		"iconPath": "/loading-screens/Loading_Beach.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -27,7 +27,7 @@
 		"displayName": "Serpent Beach (R)",
 		"id": "SG_SerpentBeach_RW_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Beachv2.webp",
+		"iconPath": "/loading-screens/Loading_Beachv2.avif",
 		"versionStart": "8.1",
 		"versionEnd": "8.1"
 	},
@@ -35,7 +35,7 @@
 		"displayName": "Jaguar Falls",
 		"id": "TMM_P_Temple_v02",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Temple.webp",
+		"iconPath": "/loading-screens/Loading_Temple.avif",
 		"versionStart": "0.34",
 		"versionEnd": "0.39"
 	},
@@ -43,7 +43,7 @@
 		"displayName": "Jaguar Falls",
 		"id": "TMM_Falls_P_v04",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Temple.webp",
+		"iconPath": "/loading-screens/Loading_Temple.avif",
 		"versionStart": "0.40",
 		"versionEnd": "2.2"
 	},
@@ -51,7 +51,7 @@
 		"displayName": "Jaguar Falls",
 		"id": "SG_Jaguarfalls_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Temple.webp",
+		"iconPath": "/loading-screens/Loading_Temple.avif",
 		"versionStart": "2.3",
 		"versionEnd": "4.3"
 	},
@@ -59,7 +59,7 @@
 		"displayName": "Jaguar Falls",
 		"id": "SG_JaguarFalls_Rework_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Temple.webp",
+		"iconPath": "/loading-screens/Loading_Temple.avif",
 		"versionStart": "4.4",
 		"versionEnd": "8.1"
 	},
@@ -67,7 +67,7 @@
 		"displayName": "Fish Market",
 		"id": "FMM_P_Dock_v02",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Village.webp",
+		"iconPath": "/loading-screens/Loading_Village.avif",
 		"versionStart": "0.34",
 		"versionEnd": "2.2"
 	},
@@ -75,7 +75,7 @@
 		"displayName": "Fish Market",
 		"id": "SG_Fishmarket_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Village.webp",
+		"iconPath": "/loading-screens/Loading_Village.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -83,7 +83,7 @@
 		"displayName": "Frog Isle",
 		"id": "TMM_P_Isle_v02",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Isle.webp",
+		"iconPath": "/loading-screens/Loading_Isle.avif",
 		"versionStart": "0.34",
 		"versionEnd": "1.2"
 	},
@@ -91,7 +91,7 @@
 		"displayName": "Frog Isle",
 		"id": "SE_Tropic_Isle",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Isle.webp",
+		"iconPath": "/loading-screens/Loading_Isle.avif",
 		"versionStart": "1.3",
 		"versionEnd": "2.2"
 	},
@@ -99,7 +99,7 @@
 		"displayName": "Frog Isle",
 		"id": "SG_FrogIsle_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Isle.webp",
+		"iconPath": "/loading-screens/Loading_Isle.avif",
 		"versionStart": "2.3",
 		"versionEnd": "3.1"
 	},
@@ -107,7 +107,7 @@
 		"displayName": "Frog Isle",
 		"id": "SG_FrogIsle_V2_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Isle.webp",
+		"iconPath": "/loading-screens/Loading_Isle.avif",
 		"versionStart": "3.2",
 		"versionEnd": "8.1"
 	},
@@ -115,7 +115,7 @@
 		"displayName": "Ice Mines",
 		"id": "IMM_P_Mine_v02",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_NRMines.webp",
+		"iconPath": "/loading-screens/Loading_NRMines.avif",
 		"versionStart": "0.34",
 		"versionEnd": "0.38"
 	},
@@ -123,7 +123,7 @@
 		"displayName": "Ice Mines",
 		"id": "IMM_Mines_P_v04",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_NRMines.webp",
+		"iconPath": "/loading-screens/Loading_NRMines.avif",
 		"versionStart": "0.39",
 		"versionEnd": "2.2"
 	},
@@ -131,7 +131,7 @@
 		"displayName": "Ice Mines",
 		"id": "SG_Icemines_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_NRMines.webp",
+		"iconPath": "/loading-screens/Loading_NRMines.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -139,7 +139,7 @@
 		"displayName": "Frozen Guard",
 		"id": "IMM_P_Igloo_v02",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_NRIgloo.webp",
+		"iconPath": "/loading-screens/Loading_NRIgloo.avif",
 		"versionStart": "0.34",
 		"versionEnd": "2.2"
 	},
@@ -147,7 +147,7 @@
 		"displayName": "Frozen Guard",
 		"id": "SG_FrozenGuard_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_NRIgloo.webp",
+		"iconPath": "/loading-screens/Loading_NRIgloo.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -155,7 +155,7 @@
 		"displayName": "Frozen Guard (R)",
 		"id": "SGA_SG_FrozenGuard_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_NRIgloo.webp",
+		"iconPath": "/loading-screens/Loading_NRIgloo.avif",
 		"versionStart": "3.5",
 		"versionEnd": "8.1"
 	},
@@ -163,7 +163,7 @@
 		"displayName": "Stone Keep",
 		"id": "KMM_P_v01",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Castle.webp",
+		"iconPath": "/loading-screens/Loading_Castle.avif",
 		"versionStart": "0.41",
 		"versionEnd": "2.2"
 	},
@@ -171,7 +171,7 @@
 		"displayName": "Stone Keep",
 		"id": "SG_Stonekeep_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Castle.webp",
+		"iconPath": "/loading-screens/Loading_Castle.avif",
 		"versionStart": "2.3",
 		"versionEnd": "4.5"
 	},
@@ -179,7 +179,7 @@
 		"displayName": "Og Stone Keep",
 		"id": "SG_Stonekeep_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Castle.webp",
+		"iconPath": "/loading-screens/Loading_Castle.avif",
 		"versionStart": "6.6",
 		"versionEnd": "8.1"
 	},
@@ -187,7 +187,7 @@
 		"displayName": "Stone Keep",
 		"id": "SG_StoneKeep_V2_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Stonekeep_Night.webp",
+		"iconPath": "/loading-screens/Loading_Stonekeep_Night.avif",
 		"versionStart": "4.6",
 		"versionEnd": "8.1"
 	},
@@ -195,7 +195,7 @@
 		"displayName": "Stone Keep Day",
 		"id": "SG_StoneKeep_V2_DAY_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Stonekeep_Day.webp",
+		"iconPath": "/loading-screens/Loading_Stonekeep_Day.avif",
 		"versionStart": "4.6",
 		"versionEnd": "8.1"
 	},
@@ -203,7 +203,7 @@
 		"displayName": "Brightmarsh",
 		"id": "BMM_P_v01",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Atrium.webp",
+		"iconPath": "/loading-screens/Loading_Atrium.avif",
 		"versionStart": "0.49",
 		"versionEnd": "2.2"
 	},
@@ -211,7 +211,7 @@
 		"displayName": "Brightmarsh",
 		"id": "SG_Brightmarsh_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Atrium.webp",
+		"iconPath": "/loading-screens/Loading_Atrium.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -219,7 +219,7 @@
 		"displayName": "Ascension Peak",
 		"id": "AMM_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_AscensionPeak.webp",
+		"iconPath": "/loading-screens/Loading_AscensionPeak.avif",
 		"versionStart": "0.68",
 		"versionEnd": "1.2"
 	},
@@ -227,7 +227,7 @@
 		"displayName": "Ascension Peak",
 		"id": "SE_Asiatic_Peak",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_AscensionPeak.webp",
+		"iconPath": "/loading-screens/Loading_AscensionPeak.avif",
 		"versionStart": "1.3",
 		"versionEnd": "2.2"
 	},
@@ -235,7 +235,7 @@
 		"displayName": "Ascension Peak",
 		"id": "SG_Ascensionpeak_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_AscensionPeak.webp",
+		"iconPath": "/loading-screens/Loading_AscensionPeak.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -243,7 +243,7 @@
 		"displayName": "Timber Mill",
 		"id": "FMM_P_v02",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Spiral.webp",
+		"iconPath": "/loading-screens/Loading_Spiral.avif",
 		"versionStart": "0.33",
 		"versionEnd": "0.36"
 	},
@@ -251,7 +251,7 @@
 		"displayName": "Timber Mill",
 		"id": "FMM_Mill_P_v04",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Spiral.webp",
+		"iconPath": "/loading-screens/Loading_Spiral.avif",
 		"versionStart": "0.37",
 		"versionEnd": "2.2"
 	},
@@ -259,7 +259,7 @@
 		"displayName": "Timber Mill",
 		"id": "SG_TimberMill_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Spiral.webp",
+		"iconPath": "/loading-screens/Loading_Spiral.avif",
 		"versionStart": "2.3",
 		"versionEnd": "4.1"
 	},
@@ -267,7 +267,7 @@
 		"displayName": "Og Timber Mill",
 		"id": "SG_TimberMill_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Spiral.webp",
+		"iconPath": "/loading-screens/Loading_Spiral.avif",
 		"versionStart": "6.6",
 		"versionEnd": "8.1"
 	},
@@ -275,7 +275,7 @@
 		"displayName": "Timber Mill",
 		"id": "SGA_TimberMill_New_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Spiral.webp",
+		"iconPath": "/loading-screens/Loading_Spiral.avif",
 		"versionStart": "4.2",
 		"versionEnd": "8.1"
 	},
@@ -283,7 +283,7 @@
 		"displayName": "Splitstone Quarry",
 		"id": "QMM_P_v01",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Quarry.webp",
+		"iconPath": "/loading-screens/Loading_Quarry.avif",
 		"versionStart": "0.55",
 		"versionEnd": "2.2"
 	},
@@ -291,7 +291,7 @@
 		"displayName": "Splitstone Quarry",
 		"id": "SG_SplitstoneQuarry_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Quarry.webp",
+		"iconPath": "/loading-screens/Loading_Quarry.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -299,7 +299,7 @@
 		"displayName": "Warder's Gate",
 		"id": "Dragon_Siege_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_DragonSiege.webp",
+		"iconPath": "/loading-screens/Loading_DragonSiege.avif",
 		"versionStart": "1.9",
 		"versionEnd": "5.1"
 	},
@@ -307,7 +307,7 @@
 		"displayName": "Og Warder's Gate",
 		"id": "Dragon_Siege_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_DragonSiege.webp",
+		"iconPath": "/loading-screens/Loading_DragonSiege.avif",
 		"versionStart": "6.6",
 		"versionEnd": "8.1"
 	},
@@ -315,7 +315,7 @@
 		"displayName": "Warder's Gate",
 		"id": "SG_WardersGateV2_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_DragonSiege.webp",
+		"iconPath": "/loading-screens/Loading_DragonSiege.avif",
 		"versionStart": "5.2",
 		"versionEnd": "8.1"
 	},
@@ -323,7 +323,7 @@
 		"displayName": "Shattered Desert",
 		"id": "DE_Siege_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_ShatteredDesert.webp",
+		"iconPath": "/loading-screens/Loading_ShatteredDesert.avif",
 		"versionStart": "2.2",
 		"versionEnd": "8.1"
 	},
@@ -331,7 +331,7 @@
 		"displayName": "Bazaar",
 		"id": "SG_Bazaar_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Bazaar.webp",
+		"iconPath": "/loading-screens/Loading_Bazaar.avif",
 		"versionStart": "2.5",
 		"versionEnd": "8.1"
 	},
@@ -339,7 +339,7 @@
 		"displayName": "Dawnforge",
 		"id": "S_CelestialFortress_P",
 		"mode": "siege",
-		"iconPath": "/loading-screens/Loading_Dawnforge.webp",
+		"iconPath": "/loading-screens/Loading_Dawnforge.avif",
 		"versionStart": "5.7",
 		"versionEnd": "8.1"
 	},
@@ -348,7 +348,7 @@
 		"displayName": "Hidden Temple",
 		"id": "TPM_P_v01",
 		"mode": "payload",
-		"iconPath": "/loading-screens/Loading_Payload_Ruins.webp",
+		"iconPath": "/loading-screens/Loading_Payload_Ruins.avif",
 		"versionStart": "0.34",
 		"versionEnd": "0.64"
 	},
@@ -356,7 +356,7 @@
 		"displayName": "Hidden Temple",
 		"id": "TPM_P_v01",
 		"mode": "payload",
-		"iconPath": "/loading-screens/Loading_Payload_Ruins.webp",
+		"iconPath": "/loading-screens/Loading_Payload_Ruins.avif",
 		"versionStart": "6.1",
 		"versionEnd": "8.1"
 	},
@@ -364,7 +364,7 @@
 		"displayName": "Frostbite Cavern",
 		"id": "IPM_P_v01",
 		"mode": "payload",
-		"iconPath": "/loading-screens/Loading_FrostbiteCaverns.webp",
+		"iconPath": "/loading-screens/Loading_FrostbiteCaverns.avif",
 		"versionStart": "0.34",
 		"versionEnd": "0.64"
 	},
@@ -372,7 +372,7 @@
 		"displayName": "Frostbite Cavern",
 		"id": "IPM_P_v01",
 		"mode": "payload",
-		"iconPath": "/loading-screens/Loading_FrostbiteCaverns.webp",
+		"iconPath": "/loading-screens/Loading_FrostbiteCaverns.avif",
 		"versionStart": "6.1",
 		"versionEnd": "8.1"
 	},
@@ -380,7 +380,7 @@
 		"displayName": "Greenwood Outpost",
 		"id": "FPM_P_v01",
 		"mode": "payload",
-		"iconPath": "/loading-screens/Loading_Payload_Forest.webp",
+		"iconPath": "/loading-screens/Loading_Payload_Forest.avif",
 		"versionStart": "0.34",
 		"versionEnd": "0.64"
 	},
@@ -388,7 +388,7 @@
 		"displayName": "Greenwood Outpost",
 		"id": "FPM_P_v01",
 		"mode": "payload",
-		"iconPath": "/loading-screens/Loading_Payload_Forest.webp",
+		"iconPath": "/loading-screens/Loading_Payload_Forest.avif",
 		"versionStart": "6.1",
 		"versionEnd": "8.1"
 	},
@@ -396,7 +396,7 @@
 		"displayName": "Brightmarsh",
 		"id": "BMO_P_v01",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_Atrium.webp",
+		"iconPath": "/loading-screens/Loading_Atrium.avif",
 		"versionStart": "0.55",
 		"versionEnd": "0.70"
 	},
@@ -404,7 +404,7 @@
 		"displayName": "Brightmarsh",
 		"id": "BMO_P_v01",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_Atrium.webp",
+		"iconPath": "/loading-screens/Loading_Atrium.avif",
 		"versionStart": "7.2",
 		"versionEnd": "8.1"
 	},
@@ -412,7 +412,7 @@
 		"displayName": "Jaguar Falls",
 		"id": "TMO_Falls_P_v04",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_Temple.webp",
+		"iconPath": "/loading-screens/Loading_Temple.avif",
 		"versionStart": "0.55",
 		"versionEnd": "1.2"
 	},
@@ -420,7 +420,7 @@
 		"displayName": "Primal Court",
 		"id": "TOM_P_v01",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_TropicalArena.webp",
+		"iconPath": "/loading-screens/Loading_TropicalArena.avif",
 		"versionStart": "0.52",
 		"versionEnd": "2.2"
 	},
@@ -428,7 +428,7 @@
 		"displayName": "Primal Court",
 		"id": "ON_PrimalCourt_P",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_TropicalArena.webp",
+		"iconPath": "/loading-screens/Loading_TropicalArena.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -436,7 +436,7 @@
 		"displayName": "Snowfall Junction",
 		"id": "IOM_P_v01",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_IceArena.webp",
+		"iconPath": "/loading-screens/Loading_IceArena.avif",
 		"versionStart": "0.52",
 		"versionEnd": "1.2"
 	},
@@ -444,7 +444,7 @@
 		"displayName": "Snowfall Junction",
 		"id": "ON_SnowfallJunction_P",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_IceArena.webp",
+		"iconPath": "/loading-screens/Loading_IceArena.avif",
 		"versionStart": "2.4",
 		"versionEnd": "8.1"
 	},
@@ -452,7 +452,7 @@
 		"displayName": "Magistrate's Archives",
 		"id": "KMO_P",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_Archives.webp",
+		"iconPath": "/loading-screens/Loading_Archives.avif",
 		"versionStart": "0.64",
 		"versionEnd": "1.2"
 	},
@@ -460,7 +460,7 @@
 		"displayName": "Magistrate's Archives",
 		"id": "KMO_P",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_Archives.webp",
+		"iconPath": "/loading-screens/Loading_Archives.avif",
 		"versionStart": "2.3",
 		"versionEnd": "2.7"
 	},
@@ -468,7 +468,7 @@
 		"displayName": "Magistrate's Archives",
 		"id": "ON_MAv2_MagistratesArchives_P",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_ArchivesV2.webp",
+		"iconPath": "/loading-screens/Loading_ArchivesV2.avif",
 		"versionStart": "3.3",
 		"versionEnd": "8.1"
 	},
@@ -476,7 +476,7 @@
 		"displayName": "Foreman's Rise",
 		"id": "QMO_P",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_Quarry_Onslaught.webp",
+		"iconPath": "/loading-screens/Loading_Quarry_Onslaught.avif",
 		"versionStart": "0.66",
 		"versionEnd": "1.2"
 	},
@@ -484,7 +484,7 @@
 		"displayName": "Foreman's Rise",
 		"id": "ON_ForemansRise_P",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_Quarry_Onslaught.webp",
+		"iconPath": "/loading-screens/Loading_Quarry_Onslaught.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -492,7 +492,7 @@
 		"displayName": "Marauder's Port",
 		"id": "Pirate_v2_P",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_MaraudersPort.webp",
+		"iconPath": "/loading-screens/Loading_MaraudersPort.avif",
 		"versionStart": "1.6",
 		"versionEnd": "2.2"
 	},
@@ -500,7 +500,7 @@
 		"displayName": "Marauder's Port",
 		"id": "ON_MaraudersPort_P",
 		"mode": "onslaught",
-		"iconPath": "/loading-screens/Loading_MaraudersPort.webp",
+		"iconPath": "/loading-screens/Loading_MaraudersPort.avif",
 		"versionStart": "2.5",
 		"versionEnd": "8.1"
 	},
@@ -508,7 +508,7 @@
 		"displayName": "Throne",
 		"id": "DM_Abyss_Throne",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_Throne.webp",
+		"iconPath": "/loading-screens/Loading_Throne.avif",
 		"versionStart": "1.3",
 		"versionEnd": "2.2"
 	},
@@ -516,7 +516,7 @@
 		"displayName": "Throne",
 		"id": "TD_Throne_P.upk",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_Throne.webp",
+		"iconPath": "/loading-screens/Loading_Throne.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -524,7 +524,7 @@
 		"displayName": "Abyss",
 		"id": "DM_Abyss_Abyss.upk",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_Abyss.webp",
+		"iconPath": "/loading-screens/Loading_Abyss.avif",
 		"versionStart": "1.3",
 		"versionEnd": "2.2"
 	},
@@ -532,7 +532,7 @@
 		"displayName": "Abyss",
 		"id": "TD_Abyss_P.upk",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_Abyss.webp",
+		"iconPath": "/loading-screens/Loading_Abyss.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -540,7 +540,7 @@
 		"displayName": "Dragon Arena",
 		"id": "DM_Dragon_Firefall.upk",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_DragonsArena.webp",
+		"iconPath": "/loading-screens/Loading_DragonsArena.avif",
 		"versionStart": "1.8",
 		"versionEnd": "2.2"
 	},
@@ -548,7 +548,7 @@
 		"displayName": "Dragon Arena",
 		"id": "TD_DragonArena_P.upk",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_DragonsArena.webp",
+		"iconPath": "/loading-screens/Loading_DragonsArena.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -556,7 +556,7 @@
 		"displayName": "Trade District",
 		"id": "KMT_P.upk",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_TradeDistrict.webp",
+		"iconPath": "/loading-screens/Loading_TradeDistrict.avif",
 		"versionStart": "0.65",
 		"versionEnd": "1.2"
 	},
@@ -564,7 +564,7 @@
 		"displayName": "Trade District",
 		"id": "DM_Keep_District",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_TradeDistrict.webp",
+		"iconPath": "/loading-screens/Loading_TradeDistrict.avif",
 		"versionStart": "0.65",
 		"versionEnd": "2.2"
 	},
@@ -572,7 +572,7 @@
 		"displayName": "Trade District",
 		"id": "TD_TradeDistrict_P",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_TradeDistrict.webp",
+		"iconPath": "/loading-screens/Loading_TradeDistrict.avif",
 		"versionStart": "2.3",
 		"versionEnd": "5.3"
 	},
@@ -580,7 +580,7 @@
 		"displayName": "Trade District",
 		"id": "KTM_TDv2_P",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_TradeDistrict.webp",
+		"iconPath": "/loading-screens/Loading_TradeDistrict.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	},
@@ -588,7 +588,7 @@
 		"displayName": "Trade District",
 		"id": "TD_TradeDistrict_P",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_TradeDistrictV2.webp",
+		"iconPath": "/loading-screens/Loading_TradeDistrictV2.avif",
 		"versionStart": "7.5",
 		"versionEnd": "8.1"
 	},
@@ -596,7 +596,7 @@
 		"displayName": "Snowfall Junction",
 		"id": "DM_Ice_Junction",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_IceArena.webp",
+		"iconPath": "/loading-screens/Loading_IceArena.avif",
 		"versionStart": "1.3",
 		"versionEnd": "2.2"
 	},
@@ -604,7 +604,7 @@
 		"displayName": "Snowfall Junction",
 		"id": "TD_SnowfallJunction_P",
 		"mode": "tdm",
-		"iconPath": "/loading-screens/Loading_IceArena.webp",
+		"iconPath": "/loading-screens/Loading_IceArena.avif",
 		"versionStart": "2.3",
 		"versionEnd": "8.1"
 	}
