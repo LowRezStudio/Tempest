@@ -2,8 +2,8 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import { Square, SquareTerminal, Globe } from "@lucide/svelte";
-	import GhosttyTerminal from "$lib/components/ui/GhosttyTerminal.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
+	import TerminalView from "$lib/components/ui/TerminalView.svelte";
 	import { moveToLobby } from "$lib/core/lobby.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { openUrl } from "$lib/platform/api";
@@ -114,7 +114,7 @@
 
 	<div class="bg-base-100 flex-1 overflow-hidden">
 		{#if activeTab === "logs"}
-			<GhosttyTerminal logs={logsList} child={process?.child} />
+			<TerminalView logs={logsList} child={process?.child} />
 		{/if}
 	</div>
 </div>

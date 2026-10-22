@@ -77,6 +77,21 @@ export type SaveDialogOptions = {
 
 export type UpdaterProgress = { chunkLength: number; contentLength: number };
 
+/** What the renderer should do after the user picks a log-console menu item. */
+export type ContextMenuAction = "copy" | "selectAll";
+
+/** Options for the host's native text context menu (log console, editable fields). */
+export type ContextMenuOptions = {
+	/** The right-clicked element accepts text input. */
+	editable: boolean;
+	/** There is a text selection that Copy/Cut can act on. */
+	canCopy: boolean;
+	/** The surface can select its whole (virtualized) contents. */
+	canSelectAll: boolean;
+	/** Localized item labels: the host has no message catalog. */
+	labels: { copy: string; selectAll: string };
+};
+
 export type LegacyInstall = { id: string; name: string | null };
 export type LegacyUninstallResult = { id: string; name: string | null; code: number };
 
@@ -126,6 +141,7 @@ export interface IpcContract {
 	"window:show": { args: void; result: void };
 	"window:set-focus": { args: void; result: void };
 	"window:unminimize": { args: void; result: void };
+	"window:context-menu": { args: ContextMenuOptions; result: ContextMenuAction | null };
 
 	// ---- Tray (host owns the TrayIcon + Menu; renderer pushes state) ----
 	"tray:ensure": { args: { tooltip: string }; result: void };

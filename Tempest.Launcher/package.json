@@ -43,7 +43,6 @@
 		"country-flag-emoji-polyfill": "^0.1.8",
 		"daisyui": "^5.5.23",
 		"dax": "^0.48.3",
-		"ghostty-web": "^0.4.0",
 		"husky": "^9.1.7",
 		"marked": "^18.0.5",
 		"oxfmt": "^0.56.0",

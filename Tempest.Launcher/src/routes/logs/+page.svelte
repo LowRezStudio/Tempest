@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ScrollText, Trash2, Copy, Check } from "@lucide/svelte";
-	import GhosttyTerminal from "$lib/components/ui/GhosttyTerminal.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
+	import TerminalView from "$lib/components/ui/TerminalView.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { clearProcessLogs, processLogs } from "$lib/stores/processes.svelte";
 
@@ -117,7 +117,7 @@
 
 	<div class="flex-1 overflow-hidden">
 		{#key activeSource}
-			<GhosttyTerminal logs={filteredLogs} showPrefix={activeSource === "all"} />
+			<TerminalView logs={filteredLogs} showPrefix={activeSource === "all"} />
 		{/key}
 	</div>
 </div>

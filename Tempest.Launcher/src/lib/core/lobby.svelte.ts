@@ -86,7 +86,7 @@ export const hostLobby = async (options: LobbyServerOptions) => {
 };
 
 export const killLobby = async (process: LobbyServerProcess) => {
-	await process.child.write("exit\n");
+	await process.child.sendLine("exit");
 };
 
 // Fully close a hosted server: drop it from the tracked list (removing its

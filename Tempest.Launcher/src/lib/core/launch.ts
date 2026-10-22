@@ -107,7 +107,7 @@ export const stopGameWindow = async (process: Process) => {
 	if (process.status === "stopping") return;
 	process.status = "stopping";
 
-	await process.child.write("kill\n").catch(() => {});
+	await process.child.sendLine("kill").catch(() => {});
 
 	setTimeout(async () => {
 		const stillThere = processesList.value.some((p) => p.child === process.child);
