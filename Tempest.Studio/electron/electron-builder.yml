@@ -1,5 +1,7 @@
 appId: com.lowrezstudio.tempest.studio
 productName: Tempest Studio
+# No spaces in file names: the release workflow uploads them with gh.
+artifactName: Tempest-Studio-${version}-${os}-${arch}.${ext}
 fileAssociations:
     - ext: upk
       name: Unreal Package
@@ -19,6 +21,8 @@ extraResources:
 win:
     target: nsis
     icon: resources/icons/icon.ico
+nsis:
+    artifactName: Tempest-Studio-Setup-${version}.${ext}
 mac:
     target: dmg
     icon: resources/icons/icon.icns
@@ -30,4 +34,5 @@ linux:
         - rpm
     icon: resources/icons
     category: Development
+# Installers are attached to the GitHub release by .github/workflows/studio-release.yml.
 publish: null

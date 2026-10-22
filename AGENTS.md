@@ -194,6 +194,8 @@ If you change `.proto` files, rebuild the solution and run `pnpm proto-generate`
 - Uploads artifacts and creates a draft GitHub release
 - Release notes are pulled from the annotated tag's message (set by `pnpm bump`)
 
+`.github/workflows/studio-release.yml` does the same for **Tempest Studio** on `studio-v*` tags (or manual dispatch): draft release titled "Tempest Studio <version>", then Windows NSIS, macOS DMG and Linux AppImage/deb/rpm builds (Rust stable builds the `upk` sidecar, `pnpm check`/`lint` and `cargo test -p tempest-assets` run first) attached with `gh release upload`. Release a Studio version with: bump `Tempest.Studio/package.json` + `electron/package.json`, commit, `git tag -a studio-vX.Y.Z -m "<notes>"`, push the tag, then publish the draft.
+
 ## Releasing
 
 Use the bump script from `Tempest.Launcher/`:

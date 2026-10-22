@@ -1,0 +1,174 @@
+name: Studio Release Build
+run-name: Studio release ${{ github.ref_name }}
+
+# Tempest Studio ships separately from the launcher: tags are `studio-v*`
+# (the launcher's workflow listens to `v*`). One draft release per tag,
+# installers for Windows, macOS and Linux attached by the build jobs.
+on:
+  push:
+    tags:
+      - "studio-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get release notes from tag
+        id: notes
+        shell: bash
+        run: |
+          git fetch --force --depth=1 origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" 2>/dev/null || true
+          notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME" 2>/dev/null || echo "")
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$notes" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ steps.notes.outputs.notes }}
+        run: |
+          version="${GITHUB_REF_NAME#studio-v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --draft --notes "$NOTES"
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --title "Tempest Studio $version" --notes "$NOTES"
+          fi
+
+  build:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            arch: x64
+          - platform: macos-14
+            arch: arm64
+          - platform: ubuntu-22.04
+            arch: x64
+
+    runs-on: ${{ matrix.platform }}
+
+    env:
+      ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.electron-builder-cache
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Tempest.UnrealScript
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: Tempest.Studio/package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: Tempest.Studio/pnpm-lock.yaml
+
+      - name: Install Linux packaging deps
+        if: startsWith(matrix.platform, 'ubuntu-')
+        run: |
+          sudo apt update
+          sudo apt-get install -y rpm fakeroot
+
+      - name: Install frontend dependencies
+        working-directory: Tempest.Studio
+        run: pnpm install --frozen-lockfile
+
+      - name: Check frontend and host
+        working-directory: Tempest.Studio
+        run: |
+          pnpm check
+          pnpm check:electron
+          pnpm lint
+
+      - name: Test the asset library
+        working-directory: Tempest.UnrealScript
+        run: cargo test --release -p tempest-assets
+
+      # The backend the app spawns: built in release mode and bundled as a sidecar.
+      - name: Build upk backend
+        working-directory: Tempest.UnrealScript
+        run: cargo build --release -p tempest-assets
+
+      - name: Bundle upk backend
+        shell: bash
+        run: |
+          mkdir -p Tempest.Studio/electron/resources/binaries
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp Tempest.UnrealScript/target/release/upk.exe Tempest.Studio/electron/resources/binaries/upk.exe
+          else
+            cp Tempest.UnrealScript/target/release/upk Tempest.Studio/electron/resources/binaries/upk
+          fi
+
+      - name: Restore Electron / electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            .electron-cache
+            .electron-builder-cache
+          key: studio-electron-tooling-${{ runner.os }}-${{ hashFiles('Tempest.Studio/pnpm-lock.yaml') }}
+
+      - name: Build frontend
+        working-directory: Tempest.Studio
+        run: pnpm build
+
+      - name: Prepare Electron build directory
+        working-directory: Tempest.Studio
+        shell: bash
+        run: |
+          rm -rf electron/build
+          cp -r build electron/build
+
+      - name: Compile Electron host
+        working-directory: Tempest.Studio/electron
+        run: pnpm compile
+
+      - name: Build Electron app
+        working-directory: Tempest.Studio/electron
+        run: npx electron-builder --publish never
+
+      - name: Attach installers to the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(Tempest.Studio/dist/*.exe Tempest.Studio/dist/*.dmg Tempest.Studio/dist/*.AppImage Tempest.Studio/dist/*.deb Tempest.Studio/dist/*.rpm)
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tempest-studio-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            Tempest.Studio/dist/*.exe
+            Tempest.Studio/dist/*.dmg
+            Tempest.Studio/dist/*.AppImage
+            Tempest.Studio/dist/*.deb
+            Tempest.Studio/dist/*.rpm
+          if-no-files-found: error
