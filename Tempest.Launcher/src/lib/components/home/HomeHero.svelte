@@ -28,6 +28,7 @@
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { pinnedBackground } from "$lib/stores/settings.svelte";
 	import { addToast, openInstanceWizard } from "$lib/stores/ui.svelte";
+	import { currentWeather } from "$lib/theme/weather.svelte";
 	import { getMapsForVersion, patchSummary } from "$lib/utils/versions";
 	import HomeInstanceTile from "./HomeInstanceTile.svelte";
 	import type { Instance } from "$lib/types/instance";
@@ -44,9 +45,12 @@
 	const loadingScreens = Object.keys(import.meta.glob("/static/loading-screens/*.webp")).map(
 		(path) => path.replace("/static", ""),
 	);
+	const winterScreens = loadingScreens.filter((path) => /Ice|Frost|NRIgloo|NRMines/.test(path));
 
-	// The loading screens of the patch's own maps, so the art is what that game shows.
+	// The loading screens of the patch's own maps, so the art is what that game shows; the
+	// snowy maps while it snows.
 	function artFor(version: string | undefined): string[] {
+		if (currentWeather.value?.kind === "snow" && winterScreens.length) return winterScreens;
 		const own = version
 			? getMapsForVersion(version)
 					.map((map) => map.iconPath)

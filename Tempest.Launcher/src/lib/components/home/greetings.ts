@@ -1,6 +1,7 @@
 // The home page's greeting and the quip under it: by time of day, weekday, season and what the
 // launcher knows about you. Mostly jokes.
 import { m } from "$lib/paraglide/messages";
+import { isAutumn } from "$lib/theme/weather.svelte";
 
 export type GreetingContext = {
 	now: Date;
@@ -104,7 +105,7 @@ function situationQuips(ctx: GreetingContext): string[] {
 	return quips;
 }
 
-// What always fits: the time, the weekday, the patch's age and a pile of Paladins jokes.
+// What always fits: the time, the weekday, the season, the patch's age and a pile of Paladins jokes.
 function everydayQuips(ctx: GreetingContext): string[] {
 	const { now, name, instance } = ctx;
 	const quips = [
@@ -117,6 +118,7 @@ function everydayQuips(ctx: GreetingContext): string[] {
 		m.home_quip_7(),
 		m.home_quip_8(),
 		m.home_quip_9(),
+		m.home_quip_10(),
 	];
 	const hour = now.getHours();
 	const weekday = now.getDay();
@@ -129,6 +131,9 @@ function everydayQuips(ctx: GreetingContext): string[] {
 	if (weekday === 1 && hour < 12) quips.push(m.home_quip_monday());
 	if (weekday === 5 && hour >= 17) quips.push(m.home_quip_friday());
 	if (weekday === 0 || weekday === 6) quips.push(m.home_quip_weekend());
+	if (isAutumn(now)) {
+		quips.push(m.home_quip_autumn_1(), m.home_quip_autumn_2(), m.home_quip_autumn_3());
+	}
 	const year = instance?.patchDate ? new Date(instance.patchDate).getFullYear() : undefined;
 	if (year && now.getFullYear() - year >= 5) quips.push(m.home_quip_vintage({ year }));
 	if (name === "Player") quips.push(m.home_quip_default_name());

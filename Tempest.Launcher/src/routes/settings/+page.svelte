@@ -17,6 +17,7 @@
 		RotateCcw,
 		Settings,
 		SlidersHorizontal,
+		Snowflake,
 		Terminal,
 		Trash2,
 		TriangleAlert,
@@ -49,11 +50,13 @@
 		modRepositoryURL,
 		onboardingCompleted,
 		openSslCapFix,
+		seasonalEffects,
 		theme,
 		username,
 	} from "$lib/stores/settings.svelte";
 	import { snapshotPaused } from "$lib/stores/snapshot.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
+	import { weatherOverride } from "$lib/theme/weather.svelte";
 	import WineSettings from "$lib/wine/WineSettings.svelte";
 
 	const DEFAULT_REPOSITORY = "https://mods.lowrezstudio.com";
@@ -266,6 +269,21 @@
 							{m.settings_theme_custom_themes_link()}
 						</p>
 					{/if}
+					<div class="mt-3">
+						<!-- Flipping it also ends a Konami code toggle, so what shows matches the switch -->
+						<SwitchRow
+							bind:checked={
+								() => seasonalEffects.value,
+								(on) => {
+									seasonalEffects.value = on;
+									weatherOverride.value = null;
+								}
+							}
+							icon={Snowflake}
+							title={m.settings_seasonal_effects()}
+							hint={m.settings_seasonal_effects_hint()}
+						/>
+					</div>
 				</Panel>
 
 				<Panel {...tracker.panel("launching")}>
