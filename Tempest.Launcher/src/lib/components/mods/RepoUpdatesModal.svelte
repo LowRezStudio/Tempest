@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ArrowRight, Download } from "@lucide/svelte";
+	import { untrack } from "svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { m } from "$lib/paraglide/messages";
@@ -14,49 +15,116 @@
 		isRunning: boolean;
 	}
 
-	let { open = $bindable(false), gamePath, mods, updates, isRunning }: Props = $props();
+	type Item = { mod: ModRecord; update: RepoUpdate };
 
+	const AUTO_CLOSE_DELAY_MS = 800;
+	let { open = $bindable(false), gamePath, mods, updates, isRunning }: Props = $props();
 	const pending = $derived(
 		mods
 			.map((mod) => ({ mod, update: updates.get(mod.Id) }))
-			.filter(
-				(x): x is { mod: ModRecord; update: RepoUpdate } =>
-					!!x.update?.updateAvailable && !!x.update.latest,
-			),
+			.filter((x): x is Item => !!x.update?.updateAvailable && !!x.update.latest),
 	);
-
-	let busy = $state<string | null>(null);
+	let snapshot = $state.raw<Item[] | null>(null);
 	let done = $state<string[]>([]);
+	let errors = $state<Record<string, string>>({});
+	let current = $state<string | null>(null);
+	let working = $state(false);
+	let runId = 0;
+	const items = $derived(snapshot ?? pending);
+	const remaining = $derived(items.filter(({ mod }) => !done.includes(mod.Id)));
+	const canInteract = $derived(!!gamePath && !isRunning && !working);
+	const nothingLeft = $derived(open && !working && remaining.length === 0);
 
-	async function updateOne(mod: ModRecord, update: RepoUpdate) {
-		if (busy || !update.latest) return;
-		busy = mod.Id;
+	function errorMessage(e: unknown): string {
+		if (e instanceof Error && e.message) return e.message;
+		if (typeof e === "string" && e) return e;
+		return "Unknown error";
+	}
+
+	function resetState() {
+		runId++;
+		snapshot = null;
+		done = [];
+		errors = {};
+		current = null;
+	}
+
+	$effect(() => {
+		if (!open) untrack(resetState);
+	});
+
+	$effect(() => {
+		if (!nothingLeft) return;
+		const timer = setTimeout(
+			() => {
+				open = false;
+			},
+			done.length > 0 ? AUTO_CLOSE_DELAY_MS : 0,
+		);
+		return () => clearTimeout(timer);
+	});
+
+	async function installOne({ mod, update }: Item, token: number): Promise<void> {
+		const latest = update.latest;
+		if (!latest) return;
+
+		current = mod.Id;
+		delete errors[mod.Id];
+
 		try {
-			const outcome = await installFromRepo(
-				gamePath,
-				mod.Id,
-				update.latest.version,
-				mod.Name,
-				{ replace: true },
-			);
-			if (outcome.status === "installed") done = [...done, mod.Id];
+			const outcome = await installFromRepo(gamePath, mod.Id, latest.version, mod.Name, {
+				replace: true,
+			});
+			if (token !== runId) return;
+
+			if (outcome.status === "installed") {
+				done = [...done, mod.Id];
+			} else {
+				errors[mod.Id] = String(outcome.status);
+			}
+		} catch (e) {
+			console.error(`Failed to update mod "${mod.Id}"`, e);
+			if (token === runId) errors[mod.Id] = errorMessage(e);
 		} finally {
-			busy = null;
+			if (token === runId) current = null;
+		}
+	}
+
+	async function updateOne(item: Item) {
+		if (!canInteract) return;
+		working = true;
+		const token = runId;
+		snapshot ??= pending;
+		try {
+			await installOne(item, token);
+		} finally {
+			working = false;
 		}
 	}
 
 	async function updateAll() {
-		for (const { mod, update } of pending) {
-			if (done.includes(mod.Id)) continue;
-			await updateOne(mod, update);
+		if (!canInteract) return;
+		working = true;
+		const token = runId;
+		const queue = (snapshot ??= pending);
+		try {
+			for (const item of queue) {
+				// Stop if the modal was closed/reset or the game was launched mid-run.
+				if (token !== runId || !open || isRunning) break;
+				if (done.includes(item.mod.Id)) continue;
+				await installOne(item, token);
+			}
+		} finally {
+			working = false;
 		}
 	}
 </script>
 
-<Modal bind:open title={m.repo_updates_title({ count: pending.length })}>
+<Modal bind:open title={m.repo_updates_title({ count: items.length })}>
 	<p class="text-base-content/70 mb-3 text-sm">{m.repo_updates_description()}</p>
 	<ul class="flex flex-col gap-2">
-		{#each pending as { mod, update } (mod.Id)}
+		{#each items as item (item.mod.Id)}
+			{@const { mod, update } = item}
 			<li class="bg-base-200 rounded-lg p-3">
 				<div class="flex flex-wrap items-center gap-2">
 					<span class="font-semibold">{mod.Name}</span>
@@ -70,15 +138,20 @@
 					{:else}
 						<button
 							class="btn btn-primary btn-xs ml-auto"
-							disabled={isRunning || busy !== null}
-							onclick={() => updateOne(mod, update)}
+							disabled={!canInteract}
+							onclick={() => updateOne(item)}
 						>
-							{#if busy === mod.Id}<span class="loading loading-spinner loading-xs"
+							{#if current === mod.Id}<span class="loading loading-spinner loading-xs"
 								></span>{:else}<Download size={12} />{/if}
 							{m.repo_update()}
 						</button>
 					{/if}
 				</div>
+				{#if errors[mod.Id]}
+					<p class="text-error mt-1 text-xs" role="alert">
+						{m.repo_update_failed()}: {errors[mod.Id]}
+					</p>
+				{/if}
 				{#if update.latest?.changelog}
 					<p class="text-base-content/70 mt-1 text-xs whitespace-pre-line">
 						{update.latest.changelog}
@@ -88,12 +161,12 @@
 		{/each}
 	</ul>
 	{#snippet actions()}
-		<button class="btn btn-ghost btn-sm" onclick={() => (open = false)}
+		<button class="btn btn-ghost btn-sm" disabled={working} onclick={() => (open = false)}
 			>{m.repo_updates_later()}</button
 		>
 		<button
 			class="btn btn-primary btn-sm"
-			disabled={isRunning || busy !== null || pending.every((p) => done.includes(p.mod.Id))}
+			disabled={!canInteract || remaining.length === 0}
 			onclick={updateAll}
 		>
 			<Download size={14} />
