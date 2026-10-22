@@ -77,11 +77,15 @@
 		repoModOpen = true;
 	}
 
-	// One popup per instance per session when updates are found.
+	// One popup per instance per session when updates are found, from the first check after
+	// opening the instance only: rechecks after installs or downgrades made here stay silent.
 	let updatesOpen = $state(false);
+	let updatesCheckedFor: string | undefined;
 	$effect(() => {
+		if (!instance || !updatesQuery.isSuccess || updatesCheckedFor === instance.id) return;
+		updatesCheckedFor = instance.id;
 		const available = [...updates.values()].filter((u) => u.updateAvailable);
-		if (!instance || available.length === 0) return;
+		if (available.length === 0) return;
 		const key = `repo-updates-shown:${instance.id}:${available
 			.map((u) => `${u.id}@${u.latest?.version}`)
 			.sort()
