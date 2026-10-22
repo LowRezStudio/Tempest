@@ -26,6 +26,7 @@ internal static class ModIntegrity
         try
         {
             if (!File.Exists(ModCommands.GetMetadataPath(gamePath))) return;
+            using var modLock = await ModLock.AcquireAsync(gamePath);
             var mods = ModCommands.LoadMetadata(gamePath);
             var resolvedGame = GameFolderResolver.Resolve(gamePath);
             var v2Enabled = mods

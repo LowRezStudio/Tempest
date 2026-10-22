@@ -1,6 +1,6 @@
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import { installModFile } from "$lib/mods/installFile";
+import { installModFiles } from "$lib/mods/installFile";
 import { m } from "$lib/paraglide/messages";
 import { invoke, listen, onDragDropEvent } from "$lib/platform/api";
 import { instanceMap } from "$lib/stores/instance.svelte";
@@ -17,14 +17,16 @@ export function setOnModsInstalled(fn: (path: string) => void) {
 }
 
 let droppedFilePaths = $state<string[]>([]);
-let installQueue = Promise.resolve();
 
-function queueInstall(filePaths: string[], instance: any) {
-	const queuedPaths = [...filePaths];
-	installQueue = installQueue
-		.then(() => proceedWithInstall(instance, queuedPaths))
+function startInstall(filePaths: string[], instance: any) {
+	if (!instance || filePaths.length === 0) return;
+	void goto(`/instance/${instance.id}`);
+	installModFiles(instance.path, filePaths)
+		.then((installed) => {
+			if (installed > 0) onModsInstalled?.(instance.path);
+		})
 		.catch((error: unknown) => {
-			console.error("Mod install queue failed:", error);
+			console.error("Mod install failed:", error);
 			addToast({
 				title: m.toast_installation_failed_title(),
 				message:
@@ -66,7 +68,7 @@ export function handleModFileDrop(filePaths: string[]) {
 
 	const inst = currentPreparedInstance();
 	if (inst) {
-		queueInstall(validPaths, inst);
+		startInstall(validPaths, inst);
 		return;
 	}
 
@@ -91,46 +93,11 @@ async function importPendingOpenFiles() {
 	}
 }
 
-async function proceedWithInstall(instance: any, filePaths: string[]) {
-	if (!instance || filePaths.length === 0) return;
-
-	void goto(`/instance/${instance.id}`);
-
-	let successCount = 0;
-	let lastInstalledName = "";
-
-	for (const filePath of filePaths) {
-		const modFileName = filePath.split(/[/\\]/).pop() ?? filePath;
-		const outcome = await installModFile(instance.path, filePath, modFileName);
-		if (outcome.status === "installed") {
-			successCount++;
-			lastInstalledName = outcome.result.Mod?.Name ?? modFileName;
-		}
-	}
-
-	if (successCount > 0) {
-		if (successCount === 1) {
-			addToast({
-				title: m.toast_mod_installed_title(),
-				message: m.toast_mod_installed_message({ name: lastInstalledName }),
-				tone: "success",
-			});
-		} else {
-			addToast({
-				title: m.toast_mod_installed_title(),
-				message: `Successfully installed ${successCount} mods`,
-				tone: "success",
-			});
-		}
-		onModsInstalled?.(instance.path);
-	}
-}
-
 export function handleInstanceSelected(inst: any) {
 	const filePaths = droppedFilePaths;
 	droppedFilePaths = [];
 	showInstanceSelect.value = false;
-	queueInstall(filePaths, inst);
+	startInstall(filePaths, inst);
 }
 
 $effect.root(() => {

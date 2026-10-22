@@ -22,6 +22,30 @@ export const pendingInstalls = $state<{ value: PendingInstall[] }>({ value: [] }
 /** Ids of mods whose install just finished, so their row fades in. */
 export const justInstalled = new SvelteSet<string>();
 
+// Installs finishing close together share list refreshes: one runs per instance at a time (a
+// second invalidate would cancel it), and whoever finishes meanwhile waits for the next one.
+const refreshes = new Map<string, { running: Promise<unknown>; next?: Promise<unknown> }>();
+
+function refreshModList(gamePath: string): Promise<unknown> {
+	const current = refreshes.get(gamePath);
+	if (current?.next) return current.next;
+	const start = () => {
+		const entry = {
+			running:
+				getQueryClient()?.invalidateQueries({ queryKey: ["mods", gamePath] }) ??
+				Promise.resolve(),
+		};
+		refreshes.set(gamePath, entry);
+		void entry.running.then(() => {
+			if (refreshes.get(gamePath) === entry) refreshes.delete(gamePath);
+		});
+		return entry.running;
+	};
+	if (!current) return start();
+	current.next = current.running.then(start);
+	return current.next;
+}
+
 // `downloading` starts the row at 0% instead of in the installing state.
 export function trackInstall(
 	gamePath: string,
@@ -62,7 +86,7 @@ export function trackInstall(
 		// placeholder without a gap, and marks that row (`modId`) to fade in.
 		async finish(installed: boolean, modId?: string) {
 			if (installed) {
-				await getQueryClient()?.invalidateQueries({ queryKey: ["mods", gamePath] });
+				await refreshModList(gamePath);
 				if (modId) {
 					justInstalled.add(modId);
 					setTimeout(() => justInstalled.delete(modId), 1000);

@@ -11,6 +11,50 @@ export type InstallOutcome =
 	| { status: "cancelled" }
 	| { status: "failed"; message: string };
 
+// Each install is a CLI process that verifies its package before taking the instance's mod lock,
+// so several run at once; this caps how many.
+const MAX_CLI_INSTALLS = Math.min(navigator.hardwareConcurrency || 4, 8);
+let runningInstalls = 0;
+const waitingInstalls: (() => void)[] = [];
+
+async function limitedInstallMod(...args: Parameters<typeof installMod>) {
+	if (runningInstalls < MAX_CLI_INSTALLS) runningInstalls++;
+	else await new Promise<void>((resolve) => waitingInstalls.push(resolve));
+	try {
+		return await installMod(...args);
+	} finally {
+		const next = waitingInstalls.shift();
+		if (next) next();
+		else runningInstalls--;
+	}
+}
+
+// Installs files side by side, each with its placeholder row from the start, and toasts one
+// summary for those that installed. Resolves to how many did.
+export async function installModFiles(gamePath: string, filePaths: string[]): Promise<number> {
+	const names = filePaths.map((filePath) => filePath.split(/[/\\]/).pop() ?? filePath);
+	const outcomes = await Promise.all(
+		filePaths.map((filePath, i) => installModFile(gamePath, filePath, names[i])),
+	);
+	const installed = outcomes.flatMap((outcome, i) =>
+		outcome.status === "installed" ? [outcome.result.Mod?.Name ?? names[i]] : [],
+	);
+	if (installed.length === 1) {
+		addToast({
+			title: m.toast_mod_installed_title(),
+			message: m.toast_mod_installed_message({ name: installed[0] }),
+			tone: "success",
+		});
+	} else if (installed.length > 1) {
+		addToast({
+			title: m.toast_mod_installed_title(),
+			message: `Successfully installed ${installed.length} mods`,
+			tone: "success",
+		});
+	}
+	return installed.length;
+}
+
 // The one install sequence: install, ask about an untrusted signer, ask about conflicts,
 // install again accordingly. While it runs the mod shows as a placeholder row in the mod list
 // (taking over `tracker` from a preceding download when given), filled in from the package's
@@ -42,7 +86,7 @@ async function runInstall(
 ): Promise<InstallOutcome> {
 	try {
 		let allowUntrusted = false;
-		let res = await installMod(gamePath, filePath, replace, false);
+		let res = await limitedInstallMod(gamePath, filePath, replace, false);
 		if (res.Unverified) {
 			const confirmed = await confirmUnverifiedMod(
 				displayName,
@@ -51,7 +95,7 @@ async function runInstall(
 			);
 			if (!confirmed) return { status: "cancelled" };
 			allowUntrusted = true;
-			res = await installMod(gamePath, filePath, replace, true);
+			res = await limitedInstallMod(gamePath, filePath, replace, true);
 		}
 		if (res.Conflict) {
 			const choice = await confirmReplaceMod(
@@ -61,9 +105,9 @@ async function runInstall(
 				res.NewModName ?? displayName,
 			);
 			if (choice === "stack") {
-				res = await installMod(gamePath, filePath, false, allowUntrusted, true);
+				res = await limitedInstallMod(gamePath, filePath, false, allowUntrusted, true);
 			} else if (choice === "replace") {
-				res = await installMod(gamePath, filePath, true, allowUntrusted);
+				res = await limitedInstallMod(gamePath, filePath, true, allowUntrusted);
 			} else return { status: "cancelled" };
 		}
 		if (res.Success) return { status: "installed", result: res };

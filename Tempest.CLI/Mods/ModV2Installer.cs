@@ -94,7 +94,7 @@ public class ModV2Installer : IModInstaller
         return await reader.ReadToEndAsync();
     }
 
-    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted)
+    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted, ModLock modLock)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
 
@@ -183,8 +183,7 @@ public class ModV2Installer : IModInstaller
             }
 
             // ID collision — same modId already installed (component-level conflict)
-            var idInstalled = Directory.Exists(targetModDir);
-            if (idInstalled && !replace)
+            ModInstallResult IdConflict()
             {
                 var existingForId = ModCommands.LoadMetadata(gamePath).FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
                 var conflictIdInfo = new ModConflictInfo
@@ -205,12 +204,19 @@ public class ModV2Installer : IModInstaller
                     NewModName = manifest.Name
                 };
             }
+            if (!replace && Directory.Exists(targetModDir)) return IdConflict();
 
             // Hashing every file is the slow part for big packages, so it waits until the
             // signature gate and the "already installed" prompt passed (the launcher re-runs
             // install after either), and still runs before anything on disk is touched.
             if (checksumsContent != null)
                 await VerifyArchiveChecksumsAsync(archive, ParseChecksumMap(checksumsContent));
+
+            // Everything above runs alongside other installs, which may have installed this id
+            // meanwhile; from here on installed mods are read and changed under the lock.
+            await modLock.EnterAsync();
+            var idInstalled = Directory.Exists(targetModDir);
+            if (idInstalled && !replace) return IdConflict();
 
             if (idInstalled)
             {

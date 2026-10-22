@@ -18,7 +18,7 @@
 		matches,
 	} from "$lib/mods/browse.svelte";
 	import { kindHint, kindLabel } from "$lib/mods/listing";
-	import { pendingInstalls, trackInstall } from "$lib/mods/pendingInstalls.svelte";
+	import { pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { m } from "$lib/paraglide/messages";
 	import { createRemoveModMutation } from "$lib/queries/mods";
@@ -87,24 +87,13 @@
 		),
 	);
 
-	// One install at a time: concurrent CLI runs on the same instance would race on its mod list.
-	// Each click shows its row as pending right away and waits its turn.
-	let queue: Promise<unknown> = Promise.resolve();
 	function install(mod: RepoMod) {
 		const latest = mod.latest;
 		if (!latest || pendingByMod.has(mod.id)) return;
-		const tracker = trackInstall(
-			gamePath,
-			{ name: mod.name, version: latest.version, modId: mod.id },
-			true,
-		);
-		queue = queue.then(() =>
-			installFromRepo(gamePath, mod.id, latest.version, mod.name, {
-				replace: installedById.has(mod.id),
-				sha256: latest.sha256,
-				tracker,
-			}),
-		);
+		void installFromRepo(gamePath, mod.id, latest.version, mod.name, {
+			replace: installedById.has(mod.id),
+			sha256: latest.sha256,
+		});
 	}
 
 	const removeModMutation = createRemoveModMutation();

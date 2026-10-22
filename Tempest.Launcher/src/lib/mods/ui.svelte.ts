@@ -10,6 +10,14 @@ export type ConflictModInfo = {
 
 export type ReplaceModChoice = "cancel" | "replace" | "stack";
 
+// Installs run side by side but ask their questions one at a time.
+let dialogQueue: Promise<unknown> = Promise.resolve();
+function nextDialog<T>(open: () => Promise<T>): Promise<T> {
+	const shown = dialogQueue.then(open);
+	dialogQueue = shown;
+	return shown;
+}
+
 export const replaceDialogStore = $state({
 	value: {
 		open: false,
@@ -31,16 +39,19 @@ export const confirmReplaceMod = (
 	if (!isModConflict) {
 		return Promise.resolve("replace");
 	}
-	return new Promise<ReplaceModChoice>((resolve) => {
-		replaceDialogStore.value = {
-			open: true,
-			modName,
-			newModName: newModName ?? modName,
-			conflictingMods,
-			isModConflict,
-		};
-		activeResolver = resolve;
-	});
+	return nextDialog(
+		() =>
+			new Promise<ReplaceModChoice>((resolve) => {
+				replaceDialogStore.value = {
+					open: true,
+					modName,
+					newModName: newModName ?? modName,
+					conflictingMods,
+					isModConflict,
+				};
+				activeResolver = resolve;
+			}),
+	);
 };
 
 export const resolveReplaceMod = (value: ReplaceModChoice) => {
@@ -67,15 +78,18 @@ export const confirmUnverifiedMod = (
 	signer: string,
 	keyListOffline: boolean,
 ): Promise<boolean> => {
-	return new Promise<boolean>((resolve) => {
-		unverifiedDialogStore.value = {
-			open: true,
-			modName,
-			signer,
-			keyListOffline,
-		};
-		activeUnverifiedResolver = resolve;
-	});
+	return nextDialog(
+		() =>
+			new Promise<boolean>((resolve) => {
+				unverifiedDialogStore.value = {
+					open: true,
+					modName,
+					signer,
+					keyListOffline,
+				};
+				activeUnverifiedResolver = resolve;
+			}),
+	);
 };
 
 export const resolveUnverifiedMod = (value: boolean) => {

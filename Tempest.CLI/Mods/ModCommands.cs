@@ -164,14 +164,18 @@ internal class ModCommands
             }
 
             var installer = ModInstallerFactory.CreateForFile(modFile);
-            var result = await installer.InstallAsync(path, modFile, replace, stack, allowUntrusted);
-
-            if (result.Success && result.Mod != null)
+            ModInstallResult result;
+            using (var modLock = new ModLock(path))
             {
-                var mods = LoadMetadata(path);
-                mods.RemoveAll(m => string.Equals(m.Name, result.Mod.Name, StringComparison.OrdinalIgnoreCase));
-                mods.Add(result.Mod);
-                SaveMetadata(path, mods);
+                result = await installer.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock);
+
+                if (result.Success && result.Mod != null)
+                {
+                    var mods = LoadMetadata(path);
+                    mods.RemoveAll(m => string.Equals(m.Name, result.Mod.Name, StringComparison.OrdinalIgnoreCase));
+                    mods.Add(result.Mod);
+                    SaveMetadata(path, mods);
+                }
             }
 
             PrintResult(result, json);
@@ -366,11 +370,13 @@ internal class ModCommands
     /// <summary>Lists installed mods for the game instance</summary>
     /// <param name="path">Path to the game folder or executable</param>
     /// <param name="json">Output as JSON</param>
-    public Task List([Argument] string path, bool json = false)
+    public async Task List([Argument] string path, bool json = false)
     {
         try
         {
-            var mods = LoadMetadata(path);
+            // Installs running alongside rewrite mods.json; wait rather than read it half-written.
+            List<ModRecord> mods;
+            using (await ModLock.AcquireAsync(path)) mods = LoadMetadata(path);
             if (json)
             {
                 var result = new ModListResult { Mods = mods };
@@ -393,7 +399,6 @@ internal class ModCommands
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
         }
-        return Task.CompletedTask;
     }
 
     /// <summary>Reloads DLLs for a V2 mod into a running game process</summary>
@@ -481,6 +486,7 @@ internal class ModCommands
     {
         try
         {
+            using var modLock = await ModLock.AcquireAsync(path);
             var mods = LoadMetadata(path);
             var mod = mods.FirstOrDefault(m => string.Equals(m.Name, modName, StringComparison.OrdinalIgnoreCase));
 
@@ -514,6 +520,7 @@ internal class ModCommands
     {
         try
         {
+            using var modLock = await ModLock.AcquireAsync(path);
             var mods = LoadMetadata(path);
             var mod = mods.FirstOrDefault(m => string.Equals(m.Name, modName, StringComparison.OrdinalIgnoreCase));
 
@@ -557,6 +564,7 @@ internal class ModCommands
     {
         try
         {
+            using var modLock = await ModLock.AcquireAsync(path);
             var mods = LoadMetadata(path);
             var mod = mods.FirstOrDefault(m => string.Equals(m.Name, modName, StringComparison.OrdinalIgnoreCase));
 
@@ -595,6 +603,7 @@ internal class ModCommands
         try
         {
             if (!File.Exists(GetMetadataPath(path))) return;
+            using var modLock = await ModLock.AcquireAsync(path);
             var mods = LoadMetadata(path);
             var revoked = new List<ModRecord>();
             TrustStore? trust = null;
@@ -639,10 +648,11 @@ internal class ModCommands
     /// <param name="oldName">Old name of the mod</param>
     /// <param name="newName">New name of the mod</param>
     /// <param name="json">Output as JSON</param>
-    public Task Rename([Argument] string path, [Argument] string oldName, [Argument] string newName, bool json = false)
+    public async Task Rename([Argument] string path, [Argument] string oldName, [Argument] string newName, bool json = false)
     {
         try
         {
+            using var modLock = await ModLock.AcquireAsync(path);
             var mods = LoadMetadata(path);
             var mod = mods.FirstOrDefault(m => string.Equals(m.Name, oldName, StringComparison.OrdinalIgnoreCase));
 
@@ -650,7 +660,7 @@ internal class ModCommands
             {
                 var fail = new ModInstallResult { Success = false, Message = $"Mod not found: {oldName}" };
                 PrintResult(fail, json);
-                return Task.CompletedTask;
+                return;
             }
 
             mod.Name = newName;
@@ -664,7 +674,6 @@ internal class ModCommands
             var fail = new ModInstallResult { Success = false, Message = ex.Message };
             PrintResult(fail, json);
         }
-        return Task.CompletedTask;
     }
 
     /// <summary>Installs multiple mods into the game instance</summary>
@@ -677,6 +686,7 @@ internal class ModCommands
     public async Task InstallBulk([Argument] string path, string[] modFiles, bool replace = false, bool stack = false, bool allowUntrusted = false, bool json = false)
     {
         var results = new List<ModInstallResult>();
+        using var modLock = new ModLock(path);
         foreach (var file in modFiles)
         {
             try
@@ -688,7 +698,7 @@ internal class ModCommands
                 }
 
                 var installer = ModInstallerFactory.CreateForFile(file);
-                var result = await installer.InstallAsync(path, file, replace, stack, allowUntrusted);
+                var result = await installer.InstallAsync(path, file, replace, stack, allowUntrusted, modLock);
 
                 if (result.Success && result.Mod != null)
                 {
