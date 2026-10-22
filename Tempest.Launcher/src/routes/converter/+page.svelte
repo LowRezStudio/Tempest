@@ -50,7 +50,7 @@
 	</div>
 {/if}
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	<Header
 		title={m.converter_title()}
 		activeTab={cookMode.value}

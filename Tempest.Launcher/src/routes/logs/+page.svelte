@@ -82,7 +82,7 @@
 	}
 </script>
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	<Header
 		title={m.logs_title()}
 		{tabs}

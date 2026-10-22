@@ -148,7 +148,7 @@
 	</button>
 {/snippet}
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	<Header title={m.settings_title()}>
 		{#snippet icon()}
 			<Settings size={32} class="opacity-60" />

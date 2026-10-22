@@ -64,7 +64,7 @@
 	}
 </script>
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	<Header
 		title={process?.createOptions.name || m.common_unknown()}
 		tabs={[{ name: m.lobbyadmin_logs(), value: "logs" }]}

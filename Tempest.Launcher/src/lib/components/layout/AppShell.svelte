@@ -39,7 +39,7 @@
 {#key localeState.current}
 	<div class="flex h-screen w-full overflow-hidden">
 		<Sidebar />
-		<main class="relative min-w-0 flex-1 overflow-hidden">
+		<main class="bg-base-100 relative min-w-0 flex-1 overflow-hidden">
 			<svelte:boundary>
 				{#key page.url.pathname}
 					<div class="page-transition">

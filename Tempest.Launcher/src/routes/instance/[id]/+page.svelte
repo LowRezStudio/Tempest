@@ -167,7 +167,7 @@
 	}
 </script>
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	<!-- Header -->
 	<Header
 		title={instance?.label || m.common_loading()}
@@ -278,7 +278,7 @@
 	</Header>
 
 	<!-- Content Area -->
-	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
+	<div class="flex flex-1 flex-col overflow-hidden">
 		{#if activeTab === "content"}
 			<div class="flex-1 [scrollbar-gutter:stable] overflow-y-auto">
 				<div class="px-4 py-6">

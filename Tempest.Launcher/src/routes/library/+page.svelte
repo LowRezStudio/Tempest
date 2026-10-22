@@ -67,7 +67,7 @@
 
 <svelte:window onkeydown={onWindowKey} />
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	<Header title={m.library_title()}>
 		{#snippet icon()}
 			<Library size={32} class="opacity-60" />

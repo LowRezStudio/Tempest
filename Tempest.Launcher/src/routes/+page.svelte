@@ -26,7 +26,7 @@
 </script>
 
 <!-- After the mod website's landing page: a hero with the way in, then what's new -->
-<div class="bg-base-100 h-full">
+<div class="h-full">
 	<div class="@container h-full scrollbar-gutter-stable overflow-y-auto">
 		<div class="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-6">
 			<div class="flex flex-col gap-4">

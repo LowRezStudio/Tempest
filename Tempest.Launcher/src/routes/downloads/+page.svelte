@@ -104,7 +104,7 @@
 	}
 </script>
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	<Header title={m.downloads_title()}>
 		{#snippet icon()}
 			<Download size={32} class="opacity-60" />
@@ -164,7 +164,7 @@
 			{/if}
 		{/snippet}
 	</Header>
-	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
+	<div class="flex flex-1 flex-col overflow-hidden">
 		<div class="flex-1 overflow-y-auto">
 			<div class="px-4 py-6">
 				{#if queueItems.value.length === 0}

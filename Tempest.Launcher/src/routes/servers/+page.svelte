@@ -99,7 +99,7 @@
 	}
 </script>
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	<Header
 		title={m.serverlist_title()}
 		{tabs}
@@ -157,7 +157,7 @@
 		{/snippet}
 	</Header>
 
-	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
+	<div class="flex flex-1 flex-col overflow-hidden">
 		{#if !dismissExperimentalWarning.value}
 			<div role="alert" class="alert alert-warning mx-4 mt-4">
 				<AlertTriangle size={20} />
