@@ -12,14 +12,13 @@
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
 	import { relativeDate } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
-	import { getLocale } from "$lib/paraglide/runtime";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { queueItems } from "$lib/rigby/stores.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
-	import { patchBannerOf, patchOf } from "$lib/utils/versions";
+	import { patchBannerOf, patchSummary } from "$lib/utils/versions";
 	import InstanceMenu from "./InstanceMenu.svelte";
 	import InstanceSessionControls from "./InstanceSessionControls.svelte";
 	import type { ModRecord } from "$lib/core/mods";
@@ -37,24 +36,8 @@
 	const playable = $derived(phase === "prepared" || phase === "setup");
 	const color = $derived(getInstanceColor(instance));
 	const contrast = $derived(getContrastColor(color));
-	const patch = $derived(patchOf(instance.version));
 	const banner = $derived(patchBannerOf(instance.version));
-
-	const summary = $derived.by(() => {
-		const version = instance.version;
-		if (!version) return m.library_unknown_build();
-		if (!patch) return m.library_patch({ version });
-		const date = new Date(patch.date).toLocaleDateString(getLocale(), {
-			month: "long",
-			year: "numeric",
-		});
-		// Instances are named after their patch unless renamed; no need to say it twice.
-		const name =
-			patch.name === instance.label
-				? m.library_patch({ version })
-				: m.library_patch_named({ version, name: patch.name });
-		return `${name} · ${date}`;
-	});
+	const summary = $derived(patchSummary(instance));
 
 	const download = $derived(
 		queueItems.value.find(

@@ -3,12 +3,14 @@ import { parseFeed } from "feedsmith";
 import { fetch } from "$lib/platform/api";
 import { persistedState } from "$lib/stores/persisted.svelte";
 
+export const BLOG_URL = "https://docs.lowrezstudio.com/blog/";
 const BLOG_FEED_URL = "https://docs.lowrezstudio.com/rss.xml";
 
 export type BlogPost = {
 	title: string;
 	link: string;
 	pubDate: string;
+	description?: string;
 	image?: string;
 };
 
@@ -31,6 +33,7 @@ export async function fetchBlogFeed(): Promise<BlogPost[] | null> {
 				title: item.title ?? "",
 				link: item.link ?? "",
 				pubDate: item.pubDate ?? "",
+				description: item.description,
 				image: item.media?.thumbnails?.[0]?.url,
 			}));
 		if (posts.length === 0) return cachedFeed.value;

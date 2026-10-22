@@ -1,10 +1,35 @@
 import maps from "$lib/data/maps.json";
 import versions from "$lib/data/versions.json";
+import { m } from "$lib/paraglide/messages";
+import { getLocale } from "$lib/paraglide/runtime";
+import type { Instance } from "$lib/types/instance";
 
 export type Patch = (typeof versions)[number];
 
 export const patchOf = (version: string | undefined): Patch | undefined =>
 	version ? versions.find((v) => v.version === version) : undefined;
+
+/**
+ * An instance's patch in one line: version, name and release month.
+ * @param instance - The instance.
+ * @returns E.g. `Patch 0.57 “Bird of Prey” · August 2017`.
+ */
+export function patchSummary(instance: Pick<Instance, "label" | "version">): string {
+	const version = instance.version;
+	if (!version) return m.library_unknown_build();
+	const patch = patchOf(version);
+	if (!patch) return m.library_patch({ version });
+	const date = new Date(patch.date).toLocaleDateString(getLocale(), {
+		month: "long",
+		year: "numeric",
+	});
+	// Instances are named after their patch unless renamed; no need to say it twice.
+	const name =
+		patch.name === instance.label
+			? m.library_patch({ version })
+			: m.library_patch_named({ version, name: patch.name });
+	return `${name} · ${date}`;
+}
 
 /**
  * The patch's banner in static/patches, named after the game's own patch notes: CB33 (closed

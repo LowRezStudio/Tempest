@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { CloudDownload, FolderOpen, Library, Plus, Search, SearchX, X } from "@lucide/svelte";
+	import { Library, Plus, Search, SearchX, X } from "@lucide/svelte";
 	import InstanceRow from "$lib/components/library/InstanceRow.svelte";
 	import LibraryArrangeMenu from "$lib/components/library/LibraryArrangeMenu.svelte";
+	import NewInstanceOption from "$lib/components/library/NewInstanceOption.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createModsQueries } from "$lib/queries/mods";
@@ -66,25 +67,6 @@
 
 <svelte:window onkeydown={onWindowKey} />
 
-{#snippet startOption(
-	tab: "download" | "folder",
-	Icon: typeof CloudDownload,
-	title: string,
-	hint: string,
-)}
-	<button
-		type="button"
-		class="bg-base-100/50 border-base-300 hover:border-primary/60 rounded-field flex cursor-pointer items-start gap-3 border p-3 text-left text-sm transition-colors"
-		onclick={() => openInstanceWizard(tab)}
-	>
-		<Icon size={16} class="text-primary mt-0.5 shrink-0" />
-		<span class="min-w-0">
-			<span class="block font-semibold">{title}</span>
-			<span class="text-base-content/60 block text-xs">{hint}</span>
-		</span>
-	</button>
-{/snippet}
-
 <div class="bg-base-100 flex h-full flex-col">
 	<Header title={m.library_title()}>
 		{#snippet icon()}
@@ -116,18 +98,8 @@
 						<p class="text-base-content/60 text-sm">{m.library_about_instances()}</p>
 					</div>
 					<div class="grid gap-2 @lg:grid-cols-2">
-						{@render startOption(
-							"download",
-							CloudDownload,
-							m.library_download_patch(),
-							m.library_download_patch_hint(),
-						)}
-						{@render startOption(
-							"folder",
-							FolderOpen,
-							m.library_import_folder(),
-							m.library_import_folder_hint(),
-						)}
+						<NewInstanceOption tab="download" />
+						<NewInstanceOption tab="folder" />
 					</div>
 				</div>
 			</div>
@@ -208,18 +180,8 @@
 						<p class="text-base-content/60 mb-1 text-xs">
 							{m.library_about_instances()}
 						</p>
-						{@render startOption(
-							"download",
-							CloudDownload,
-							m.library_download_patch(),
-							m.library_download_patch_hint(),
-						)}
-						{@render startOption(
-							"folder",
-							FolderOpen,
-							m.library_import_folder(),
-							m.library_import_folder_hint(),
-						)}
+						<NewInstanceOption tab="download" />
+						<NewInstanceOption tab="folder" />
 					</div>
 					<dl
 						class="bg-base-200 border-base-300 rounded-box grid grid-cols-2 gap-3 border p-4 text-sm"

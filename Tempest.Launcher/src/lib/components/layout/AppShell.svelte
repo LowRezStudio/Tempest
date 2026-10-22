@@ -6,18 +6,18 @@
 	import ErrorDetails from "$lib/components/ui/ErrorDetails.svelte";
 	import LayoutDialogs from "$lib/components/ui/LayoutDialogs.svelte";
 	import ToastStack from "$lib/components/ui/ToastStack.svelte";
-	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores.svelte";
 	import "$lib/platform/init.svelte";
 	import "$lib/stores/flags.svelte";
+	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores.svelte";
+	import "$lib/mods/deeplink.svelte";
+	import "$lib/platform/tray.svelte";
+	import "$lib/theme/theme.svelte";
 	import {
 		isDraggingFiles,
 		showInstanceSelect,
 		handleInstanceSelected,
 		setOnModsInstalled,
 	} from "$lib/mods/drop.svelte";
-	import "$lib/mods/deeplink.svelte";
-	import "$lib/platform/tray.svelte";
-	import "$lib/theme/theme.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { localeState } from "$lib/stores/locale.svelte";
 
