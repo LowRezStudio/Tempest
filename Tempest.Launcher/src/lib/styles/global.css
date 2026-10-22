@@ -183,6 +183,33 @@
 	}
 }
 
+/* A field holding a value that won't be accepted. Unlayered so it beats the input utility's
+   accent focus border: it stays red while typing, and shakes when left that way. */
+:is(.input, .select, .textarea)[aria-invalid="true"] {
+	border-color: var(--color-error);
+	background-color: color-mix(in oklab, var(--color-error) 8%, var(--color-base-100));
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-error) 25%, transparent);
+}
+
+:is(.input, .select, .textarea)[aria-invalid="true"]:not(:focus) {
+	animation: field-shake 400ms var(--ease-smooth);
+}
+
+@keyframes field-shake {
+	20% {
+		transform: translateX(-4px);
+	}
+	40% {
+		transform: translateX(4px);
+	}
+	60% {
+		transform: translateX(-3px);
+	}
+	80% {
+		transform: translateX(2px);
+	}
+}
+
 /* Images and placeholders still loading, like the site's. */
 .loading-shimmer {
 	background-image: linear-gradient(
@@ -212,7 +239,8 @@
 @media (prefers-reduced-motion: reduce) {
 	.pending-row.installing,
 	.loading-shimmer,
-	.just-installed {
+	.just-installed,
+	[aria-invalid="true"] {
 		animation: none;
 	}
 }

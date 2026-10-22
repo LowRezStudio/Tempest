@@ -12,6 +12,7 @@
 		X,
 		XCircle,
 	} from "@lucide/svelte";
+	import FieldError from "$lib/components/ui/FieldError.svelte";
 	import { describeError } from "$lib/core/mods";
 	import { converterPendingPaths, isDraggingConverterFiles } from "$lib/mods/drop.svelte";
 	import { MOD_ID_PATTERN, buildPackageZip } from "$lib/mods/packaging";
@@ -20,6 +21,11 @@
 	import { invoke, openPath } from "$lib/platform/api";
 	import { batch, type BatchEntry } from "$lib/stores/batch.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
+	import { isSemver, toSemver } from "$lib/utils/deps";
+
+	// Left empty, the version falls back to the placeholder's 1.0.0.
+	const versionValid = (version: string) => version.trim() === "" || isSemver(version.trim());
+	const idInvalid = (id: string) => id.trim() !== "" && !MOD_ID_PATTERN.test(id.trim());
 
 	let cooking = $state(false);
 	let cookedCount = $state(0);
@@ -30,7 +36,11 @@
 
 	let queuedEntries = $derived(
 		batch.entries.filter(
-			(e) => e.files.length > 0 && MOD_ID_PATTERN.test(e.id.trim()) && e.status !== "signed",
+			(e) =>
+				e.files.length > 0 &&
+				MOD_ID_PATTERN.test(e.id.trim()) &&
+				versionValid(e.version) &&
+				e.status !== "signed",
 		),
 	);
 	let signedEntries = $derived(
@@ -241,6 +251,10 @@
 				return { class: "badge-error", text: m.batch_status_failed() };
 			}
 			default: {
+				// Left out of Cook all until fixed.
+				if (idInvalid(entry.id) || !versionValid(entry.version)) {
+					return { class: "badge-error", text: m.batch_status_invalid() };
+				}
 				return { class: "badge-ghost", text: m.batch_status_queued() };
 			}
 		}
@@ -289,9 +303,15 @@
 			{:else}
 				<ul class="flex flex-col gap-2">
 					{#each batch.entries as entry (entry.key)}
-						{@const idInvalid =
-							entry.id.trim() !== "" && !MOD_ID_PATTERN.test(entry.id.trim())}
-						<li class="bg-base-100 border-base-300 rounded-field border p-3">
+						{@const idWrong = idInvalid(entry.id)}
+						{@const versionWrong = !versionValid(entry.version)}
+						{@const versionSuggestion = versionWrong ? toSemver(entry.version) : null}
+						<li
+							class={[
+								"bg-base-100 rounded-field border p-3",
+								idWrong || versionWrong ? "border-error/70" : "border-base-300",
+							]}
+						>
 							<div class="flex items-center gap-3">
 								<FileArchive size={20} class="text-primary shrink-0" />
 								<p class="min-w-0 flex-1 truncate font-mono text-sm">
@@ -319,13 +339,14 @@
 										{m.converter_mod_id_label()}
 									</span>
 									<input
-										class={[
-											"input input-sm w-full font-mono",
-											idInvalid && "input-error",
-										]}
+										class="input input-sm w-full font-mono"
 										bind:value={entry.id}
 										placeholder={m.converter_mod_id_placeholder()}
 										spellcheck="false"
+										aria-invalid={idWrong}
+										aria-describedby={idWrong
+											? `batch-${entry.key}-id-error`
+											: undefined}
 									/>
 								</label>
 								<label class="flex flex-col gap-1">
@@ -336,6 +357,11 @@
 										class="input input-sm w-full font-mono"
 										bind:value={entry.version}
 										placeholder={m.converter_version_placeholder()}
+										spellcheck="false"
+										aria-invalid={versionWrong}
+										aria-describedby={versionWrong
+											? `batch-${entry.key}-version-error`
+											: undefined}
 									/>
 								</label>
 							</div>
@@ -345,10 +371,36 @@
 								<p class="text-base-content/60 mt-2 font-mono text-xs">
 									{m.converter_signed_by({ signer: entry.signer })}
 								</p>
-							{:else if idInvalid}
-								<p class="text-error mt-2 text-xs">
-									{m.converter_mod_id_invalid()}
-								</p>
+							{:else}
+								{#if idWrong}
+									<FieldError
+										id={`batch-${entry.key}-id-error`}
+										class="mt-2"
+										title={m.converter_mod_id_invalid_title({
+											id: entry.id.trim(),
+										})}
+										message={m.converter_mod_id_invalid()}
+									/>
+								{/if}
+								{#if versionWrong}
+									<FieldError
+										id={`batch-${entry.key}-version-error`}
+										class="mt-2"
+										title={m.converter_version_invalid_title({
+											version: entry.version.trim(),
+										})}
+										message={m.converter_version_invalid()}
+										fix={versionSuggestion
+											? {
+													label: m.converter_version_suggestion({
+														version: versionSuggestion,
+													}),
+													apply: () =>
+														(entry.version = versionSuggestion),
+												}
+											: undefined}
+									/>
+								{/if}
 							{/if}
 							{#if entry.compressedFiles > 0}
 								<p class="text-base-content/60 mt-1 text-xs">

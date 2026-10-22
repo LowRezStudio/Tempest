@@ -21,6 +21,7 @@
 	import { tick, type Snippet } from "svelte";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import PublishModal from "$lib/components/mods/PublishModal.svelte";
+	import FieldError from "$lib/components/ui/FieldError.svelte";
 	import { installMod, type RepoPublishResult } from "$lib/core/mods";
 	import { converterPendingPaths, isDraggingConverterFiles } from "$lib/mods/drop.svelte";
 	import {
@@ -40,6 +41,7 @@
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { modRepositoryURL } from "$lib/stores/settings.svelte";
 	import { addToast, removeToast } from "$lib/stores/ui.svelte";
+	import { isSemver, toSemver } from "$lib/utils/deps";
 	import type { Instance } from "$lib/types/instance";
 
 	/**
@@ -65,6 +67,11 @@
 	let totalFiles = $derived(converter.sources.reduce((sum, s) => sum + s.files.length, 0));
 	let idValid = $derived(MOD_ID_PATTERN.test(converter.modId.trim()));
 	let idError = $derived(converter.modId.trim() !== "" && !idValid);
+	// Left empty, the version falls back to the placeholder's 1.0.0.
+	let versionValid = $derived(
+		converter.modVersion.trim() === "" || isSemver(converter.modVersion.trim()),
+	);
+	let versionSuggestion = $derived(versionValid ? null : toSemver(converter.modVersion));
 	const repoHost = $derived(
 		modRepositoryURL.value.replace(/^https?:\/\//, "").replace(/\/$/, ""),
 	);
@@ -72,25 +79,35 @@
 	const fmtSize = (n: number) =>
 		n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`;
 
+	// invalid: holds a value that won't be accepted, as opposed to one not filled in yet.
 	const steps = $derived([
-		{ id: "files", title: m.converter_step_files(), valid: totalFiles > 0, required: true },
+		{
+			id: "files",
+			title: m.converter_step_files(),
+			valid: totalFiles > 0,
+			required: true,
+			invalid: false,
+		},
 		{
 			id: "details",
 			title: m.converter_step_details(),
-			valid: !!converter.modName.trim() && idValid,
+			valid: !!converter.modName.trim() && idValid && versionValid,
 			required: true,
+			invalid: idError || !versionValid,
 		},
 		{
 			id: "listing",
 			title: m.converter_step_listing(),
 			valid: !!converter.summary.trim(),
 			required: false,
+			invalid: false,
 		},
 		{
 			id: "extras",
 			title: m.converter_step_extras(),
 			valid: !!converter.icon || !!converter.readmeContent.trim(),
 			required: false,
+			invalid: false,
 		},
 	]);
 	// done: moved past (filled in, or optional); current: the step to work on; locked: not opened yet.
@@ -512,7 +529,11 @@
 		id={`step-${st.id}`}
 		class={[
 			"bg-base-200 rounded-box @container scroll-mt-6 border p-4 transition-[opacity,border-color]",
-			status === "current" ? "border-primary/60" : "border-base-300",
+			st.invalid
+				? "border-error/70"
+				: status === "current"
+					? "border-primary/60"
+					: "border-base-300",
 			status === "locked" && "opacity-50",
 		]}
 		inert={status === "locked"}
@@ -522,9 +543,13 @@
 			<span
 				class={[
 					"flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
-					status === "done" && "bg-success text-success-content",
-					status === "current" && "bg-primary text-primary-content",
-					status === "locked" && "bg-base-300",
+					st.invalid
+						? "bg-error text-error-content"
+						: [
+								status === "done" && "bg-success text-success-content",
+								status === "current" && "bg-primary text-primary-content",
+								status === "locked" && "bg-base-300",
+							],
 				]}>{i + 1}</span
 			>
 			<h2 class="text-sm font-semibold">
@@ -655,9 +680,11 @@
 		<label class="flex flex-col gap-1">
 			<span class="text-base-content/60 text-xs">{m.converter_mod_id_label()}</span>
 			<input
-				class={["input input-sm w-full font-mono", idError && "input-error"]}
+				class="input input-sm w-full font-mono"
 				placeholder={m.converter_mod_id_placeholder()}
 				spellcheck="false"
+				aria-invalid={idError}
+				aria-describedby={idError ? "mod-id-error" : undefined}
 				bind:value={converter.modId}
 				oninput={() => (converter.idTouched = true)}
 			/>
@@ -667,17 +694,38 @@
 			<input
 				class="input input-sm w-full font-mono"
 				placeholder={m.converter_version_placeholder()}
+				spellcheck="false"
+				aria-invalid={!versionValid}
+				aria-describedby={versionValid ? undefined : "mod-version-error"}
 				bind:value={converter.modVersion}
 			/>
 		</label>
-		<p
-			class={[
-				"-mt-1 text-xs @lg:col-span-2",
-				idError ? "text-error" : "text-base-content/60",
-			]}
-		>
-			{idError ? m.converter_mod_id_invalid() : m.converter_mod_id_hint()}
-		</p>
+		{#if idError}
+			<FieldError
+				id="mod-id-error"
+				class="@lg:col-span-2"
+				title={m.converter_mod_id_invalid_title({ id: converter.modId.trim() })}
+				message={m.converter_mod_id_invalid()}
+			/>
+		{:else}
+			<p class="text-base-content/60 -mt-1 text-xs @lg:col-span-2">
+				{m.converter_mod_id_hint()}
+			</p>
+		{/if}
+		{#if !versionValid}
+			<FieldError
+				id="mod-version-error"
+				class="@lg:col-span-2"
+				title={m.converter_version_invalid_title({ version: converter.modVersion.trim() })}
+				message={m.converter_version_invalid()}
+				fix={versionSuggestion
+					? {
+							label: m.converter_version_suggestion({ version: versionSuggestion }),
+							apply: () => (converter.modVersion = versionSuggestion ?? ""),
+						}
+					: undefined}
+			/>
+		{/if}
 		<div class="flex flex-col gap-1 @lg:col-span-2">
 			<span class="text-base-content/60 flex items-center justify-between text-xs">
 				<span>{m.converter_authors_label()}</span>
@@ -811,12 +859,15 @@
 					class={[
 						"rounded-field flex w-full items-center gap-2 px-2 py-1 text-left",
 						status === "locked" ? "text-base-content/40" : "hover:bg-base-300",
-						status === "current" && "bg-primary/10 font-medium",
+						st.invalid
+							? "bg-error/10 text-error font-medium"
+							: status === "current" && "bg-primary/10 font-medium",
 					]}
 					disabled={status === "locked"}
 					onclick={() => scrollToStep(i)}
 				>
-					{#if status === "done"}<CircleCheck size={14} class="text-success" />
+					{#if st.invalid}<XCircle size={14} />
+					{:else if status === "done"}<CircleCheck size={14} class="text-success" />
 					{:else if status === "locked"}<Lock size={14} />
 					{:else}<Circle size={14} class="text-primary" />{/if}
 					{st.title}

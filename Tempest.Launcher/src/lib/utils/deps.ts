@@ -24,6 +24,27 @@ const PARTIAL = /^(\d+)(?:\.(\d+|x|\*))?(?:\.(\d+|x|\*))?(?:-([0-9A-Za-z.-]+))?$
 const SEMVER =
 	/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$/;
 
+// What a package version must be: 1.2.3 or 1.2.3-beta.1. Build metadata is left out, the
+// comparers here and in the CLI don't order it.
+export const isSemver = (version: string) => SEMVER.test(version);
+
+// The semver nearest to what was typed ("v1.2" → "1.2.0", "1.0 beta_2" → "1.0.0-beta.2"), or
+// null when nothing in it reads as a version.
+export function toSemver(text: string): string | null {
+	const m = /^\s*(?:v(?:ersion)?\s*)?(\d+)(?:[.,_](\d+))?(?:[.,_](\d+))?(?:[.,_]\d+)*(.*)$/i.exec(
+		text.split("+")[0]!,
+	);
+	if (!m) return null;
+	const num = (n: string) => n.replace(/^0+(?=\d)/, "");
+	const core = [m[1]!, m[2] ?? "0", m[3] ?? "0"].map(num).join(".");
+	const pre = m[4]!
+		.split(/[^0-9A-Za-z]+/)
+		.filter(Boolean)
+		.map((p) => (/^\d+$/.test(p) ? num(p) : p));
+	const version = pre.length > 0 ? `${core}-${pre.join(".")}` : core;
+	return SEMVER.test(version) ? version : null;
+}
+
 // Semver precedence, prerelease-aware; non-semver strings compare as text. Negative when a < b.
 export function compareSemver(a: string, b: string): number {
 	const pa = SEMVER.exec(a);
