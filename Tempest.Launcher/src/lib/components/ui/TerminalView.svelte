@@ -106,8 +106,9 @@
 				class:text-error={line.error}
 				class:text-primary={line.input}
 			>
-				{#if prefix}<span class={PREFIX_CLS}>{prefix}</span>{/if}
-				{#each line.runs as run}<span class={run.cls}>{run.text}</span>{/each}
+				<!-- No whitespace between the blocks: pre-wrap would render it as a leading space. -->
+				{#if prefix}<span class={PREFIX_CLS}>{prefix}</span
+					>{/if}{#each line.runs as run}<span class={run.cls}>{run.text}</span>{/each}
 			</div>
 		{/each}
 	</div>
