@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Info } from "@lucide/svelte";
+	import { Info, Maximize, Package } from "@lucide/svelte";
+	import SwitchRow from "$lib/components/ui/SwitchRow.svelte";
 	import { createCommand } from "$lib/core/command";
 	import { m } from "$lib/paraglide/messages";
 	import { open, openUrl, platform } from "$lib/platform/api";
@@ -110,14 +111,11 @@
 	];
 </script>
 
-<div class="flex flex-col gap-4" class:hidden={isWindows} aria-hidden={isWindows}>
-	<div class="form-control">
-		<label for="wine-runtime-select" class="label py-0.5">
-			<span class="label-text text-sm">{m.settings_wine_runtime()}</span>
-		</label>
+<div class="flex flex-col gap-3" class:hidden={isWindows} aria-hidden={isWindows}>
+	<label class="flex flex-col gap-1">
+		<span class="text-base-content/60 text-xs">{m.settings_wine_runtime()}</span>
 		<select
-			id="wine-runtime-select"
-			class="select select-bordered w-full"
+			class="select select-sm w-full"
 			value={selectedRuntime}
 			onchange={(e) => onRuntimeChange(e.currentTarget.value)}
 		>
@@ -131,43 +129,45 @@
 			{/each}
 			<option value="custom">{m.settings_wine_runtime_custom()}</option>
 		</select>
-	</div>
+	</label>
 
-	<div class="form-control">
-		<label for="wine-path-input" class="label py-0.5">
-			<span class="label-text text-sm">{m.settings_wine_executable()}</span>
-		</label>
+	<div class="flex flex-col gap-1">
+		<label for="wine-path-input" class="text-base-content/60 text-xs"
+			>{m.settings_wine_executable()}</label
+		>
 		<div class="join w-full">
 			<input
 				id="wine-path-input"
 				type="text"
-				class="input input-bordered join-item flex-1 font-mono"
+				class="input input-sm join-item min-w-0 flex-1 font-mono"
+				spellcheck="false"
 				bind:value={winePath.value}
 				placeholder={m.settings_wine_executable_placeholder()}
 			/>
-			<button type="button" class="btn join-item" onclick={browseWinePath}>
+			<button type="button" class="btn btn-sm join-item" onclick={browseWinePath}>
 				{m.common_browse()}
 			</button>
-			<button type="button" class="btn btn-secondary join-item" onclick={detectWine}>
+			<button type="button" class="btn btn-sm join-item" onclick={detectWine}>
 				{m.settings_wine_autodetect()}
 			</button>
 		</div>
 	</div>
 
 	{#if showProtonPath}
-		<div class="form-control">
-			<label for="proton-path-input" class="label py-0.5">
-				<span class="label-text text-sm">{m.settings_wine_proton_directory()}</span>
-			</label>
+		<div class="flex flex-col gap-1">
+			<label for="proton-path-input" class="text-base-content/60 text-xs"
+				>{m.settings_wine_proton_directory()}</label
+			>
 			<div class="join w-full">
 				<input
 					id="proton-path-input"
 					type="text"
-					class="input input-bordered join-item flex-1 font-mono"
+					class="input input-sm join-item min-w-0 flex-1 font-mono"
+					spellcheck="false"
 					bind:value={protonPath.value}
 					placeholder={m.settings_wine_proton_placeholder()}
 				/>
-				<button type="button" class="btn join-item" onclick={browseProtonPath}>
+				<button type="button" class="btn btn-sm join-item" onclick={browseProtonPath}>
 					{m.common_browse()}
 				</button>
 			</div>
@@ -175,56 +175,41 @@
 	{/if}
 
 	{#if showSteamRuntime}
-		<div class="form-control">
-			<label class="label cursor-pointer justify-start gap-3 py-0.5">
-				<input
-					type="checkbox"
-					class="toggle toggle-primary"
-					bind:checked={useSteamRuntime.value}
-				/>
-				<span class="label-text text-sm">{m.settings_wine_steam_runtime()}</span>
-			</label>
-			<p class="mt-1 text-xs opacity-60">
-				{m.settings_wine_steam_runtime_description()}
-			</p>
-		</div>
+		<SwitchRow
+			bind:checked={useSteamRuntime.value}
+			icon={Package}
+			title={m.settings_wine_steam_runtime()}
+			hint={m.settings_wine_steam_runtime_description()}
+		/>
 	{/if}
 
 	{#if isLinux}
-		<div class="form-control">
-			<label class="label cursor-pointer justify-start gap-3 py-0.5">
-				<input
-					type="checkbox"
-					class="toggle toggle-primary"
-					bind:checked={useGamescope.value}
-					disabled={!isGamescopeInstalled}
-				/>
-				<span class="label-text text-sm">{m.settings_wine_use_gamescope()}</span>
-			</label>
-			{#if !isGamescopeInstalled}
-				<p class="mt-1 text-xs opacity-60">{m.settings_wine_gamescope_not_installed()}</p>
-			{/if}
-		</div>
+		<SwitchRow
+			bind:checked={useGamescope.value}
+			icon={Maximize}
+			title={m.settings_wine_use_gamescope()}
+			hint={isGamescopeInstalled ? undefined : m.settings_wine_gamescope_not_installed()}
+			disabled={!isGamescopeInstalled}
+		/>
 
-		<div class="form-control">
-			<div class="flex items-center gap-1">
-				<label for="gamescope-args-input" class="label py-0.5">
-					<span class="label-text text-sm">{m.settings_wine_gamescope_args()}</span>
-				</label>
+		<div class="flex flex-col gap-1">
+			<span class="text-base-content/60 flex items-center gap-1 text-xs">
+				<label for="gamescope-args-input">{m.settings_wine_gamescope_args()}</label>
 				<button
 					type="button"
-					class="btn btn-ghost btn-xs btn-circle opacity-60 hover:opacity-100"
+					class="btn btn-ghost btn-xs btn-circle size-5 min-h-0 opacity-60 hover:opacity-100"
 					onclick={() =>
 						openUrl("https://github.com/ValveSoftware/gamescope/blob/master/README.md")}
 					title="Gamescope README"
 				>
-					<Info size={14} />
+					<Info size={12} />
 				</button>
-			</div>
+			</span>
 			<input
 				id="gamescope-args-input"
 				type="text"
-				class="input input-bordered w-full font-mono"
+				class="input input-sm w-full font-mono"
+				spellcheck="false"
 				bind:value={gamescopeArgs.value}
 				placeholder={m.settings_wine_gamescope_args_placeholder()}
 				disabled={!isGamescopeInstalled}

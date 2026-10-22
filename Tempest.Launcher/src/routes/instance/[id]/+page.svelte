@@ -13,7 +13,7 @@
 	} from "@lucide/svelte";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
 	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
-	import InstanceSettingsForm from "$lib/components/library/InstanceSettingsForm.svelte";
+	import InstanceSettings from "$lib/components/library/InstanceSettings.svelte";
 	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
 	import RepoBrowser from "$lib/components/mods/RepoBrowser.svelte";
@@ -345,14 +345,10 @@
 					{/if}
 				</div>
 			</div>
-		{:else if activeTab === "settings"}
-			<div class="flex-1 overflow-y-auto">
-				<div class="p-6">
-					{#if instance}
-						<InstanceSettingsForm {instance} />
-					{/if}
-				</div>
-			</div>
+		{:else if activeTab === "settings" && instance}
+			{#key instance.id}
+				<InstanceSettings {instance} {isRunning} />
+			{/key}
 		{/if}
 	</div>
 </div>

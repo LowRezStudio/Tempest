@@ -1,21 +1,13 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
-	import {
-		File,
-		FlaskConical,
-		FolderOpen,
-		MousePointer2,
-		Plus,
-		RotateCcw,
-		Trash2,
-	} from "@lucide/svelte";
+	import { File, FlaskConical, FolderOpen, Plus, X } from "@lucide/svelte";
 	import { useQueryClient } from "@tanstack/svelte-query";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import { installMod } from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
 	import { invoke } from "$lib/platform/api";
 	import { instanceMap } from "$lib/stores/instance.svelte";
-	import { keybinds, resetKeybinds, cookKeybindsMod } from "$lib/stores/keybinds.svelte";
+	import { keybinds, cookKeybindsMod } from "$lib/stores/keybinds.svelte";
 	import { addToast, removeToast } from "$lib/stores/ui.svelte";
 	import type { Instance } from "$lib/types/instance";
 
@@ -38,6 +30,13 @@
 		const value = Number((e.target as HTMLInputElement).value);
 		const rounded = Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
 		keybinds.value = { ...keybinds.value, mouseSensitivity: rounded };
+	}
+
+	function updateFpsLimit(e: Event) {
+		keybinds.value = {
+			...keybinds.value,
+			fpsLimit: Number((e.target as HTMLInputElement).value),
+		};
 	}
 
 	function addBinding() {
@@ -276,153 +275,144 @@
 	}
 </script>
 
-<div class="flex flex-col gap-6">
-	<div class="alert">
-		<MousePointer2 size={20} />
-		<div>
-			<p class="text-sm opacity-90">{m.settings_keybinds_description()}</p>
-			<p class="mt-1 text-xs opacity-60">{m.settings_keybinds_unsaved()}</p>
+<div class="flex flex-col gap-4">
+	<p class="text-base-content/60 text-sm">
+		{m.settings_keybinds_description()}
+		{m.settings_keybinds_unsaved()}
+	</p>
+
+	<div class="grid gap-3 @lg:grid-cols-2">
+		<div class="flex flex-col gap-1">
+			<span class="text-base-content/60 flex min-h-5 items-center text-xs"
+				>{m.settings_keybinds_mouse_sensitivity()}</span
+			>
+			<div class="flex items-center gap-2">
+				<input
+					type="range"
+					class="range range-xs range-primary flex-1"
+					aria-label={m.settings_keybinds_mouse_sensitivity()}
+					value={keybinds.value.mouseSensitivity}
+					oninput={updateSensitivity}
+					min="0"
+					max="50"
+					step="0.1"
+				/>
+				<input
+					type="number"
+					class="input input-sm w-20 text-center font-mono"
+					aria-label={m.settings_keybinds_mouse_sensitivity()}
+					value={keybinds.value.mouseSensitivity}
+					oninput={updateSensitivity}
+					min="0"
+					max="50"
+					step="0.1"
+				/>
+			</div>
+		</div>
+		<div class="flex flex-col gap-1">
+			<span class="text-base-content/60 flex min-h-5 items-center justify-between text-xs">
+				{m.settings_keybinds_fps_limit()}
+				<label class="flex cursor-pointer items-center gap-1.5">
+					<input
+						type="checkbox"
+						class="checkbox checkbox-xs"
+						bind:checked={keybinds.value.unlockFps}
+					/>
+					{m.settings_keybinds_unlock_fps()}
+				</label>
+			</span>
+			<div class="flex items-center gap-2">
+				<input
+					type="range"
+					class="range range-xs range-primary flex-1"
+					aria-label={m.settings_keybinds_fps_limit()}
+					value={keybinds.value.fpsLimit}
+					oninput={updateFpsLimit}
+					min="30"
+					max="1000"
+					step="1"
+					disabled={keybinds.value.unlockFps}
+				/>
+				<input
+					type="number"
+					class="input input-sm w-20 text-center font-mono"
+					aria-label={m.settings_keybinds_fps_limit()}
+					value={keybinds.value.fpsLimit}
+					oninput={updateFpsLimit}
+					min="30"
+					max="1000"
+					step="1"
+					disabled={keybinds.value.unlockFps}
+				/>
+			</div>
 		</div>
 	</div>
 
-	<section class="flex flex-col gap-2">
-		<h4 class="text-xs font-semibold uppercase opacity-60">
-			{m.settings_keybinds_mouse_sensitivity()}
-		</h4>
-		<div class="flex items-center gap-3">
-			<input
-				type="range"
-				class="range range-sm flex-1"
-				value={keybinds.value.mouseSensitivity}
-				oninput={updateSensitivity}
-				min="0"
-				max="50"
-				step="0.1"
-			/>
-			<input
-				type="number"
-				class="input input-bordered input-sm w-20 text-center font-mono"
-				value={keybinds.value.mouseSensitivity}
-				oninput={updateSensitivity}
-				min="0"
-				max="50"
-				step="0.1"
-			/>
-		</div>
-	</section>
-
-	<section class="flex flex-col gap-2">
-		<h4 class="text-xs font-semibold uppercase opacity-60">
-			{m.settings_keybinds_fps_limit()}
-		</h4>
-		<div class="flex items-center gap-3">
-			<input
-				type="range"
-				class="range range-sm flex-1"
-				value={keybinds.value.fpsLimit}
-				oninput={(e) => {
-					keybinds.value = {
-						...keybinds.value,
-						fpsLimit: Number((e.target as HTMLInputElement).value),
-					};
-				}}
-				min="30"
-				max="1000"
-				step="1"
-				disabled={keybinds.value.unlockFps}
-				class:opacity-50={keybinds.value.unlockFps}
-				class:cursor-not-allowed={keybinds.value.unlockFps}
-			/>
-			<input
-				type="number"
-				class="input input-bordered input-sm w-20 text-center font-mono"
-				value={keybinds.value.fpsLimit}
-				oninput={(e) => {
-					keybinds.value = {
-						...keybinds.value,
-						fpsLimit: Number((e.target as HTMLInputElement).value),
-					};
-				}}
-				min="30"
-				max="1000"
-				step="1"
-				disabled={keybinds.value.unlockFps}
-			/>
-		</div>
-		<label class="label cursor-pointer gap-2">
-			<input
-				type="checkbox"
-				class="checkbox checkbox-sm"
-				bind:checked={keybinds.value.unlockFps}
-			/>
-			<span class="label-text">{m.settings_keybinds_unlock_fps()}</span>
-		</label>
-	</section>
-
-	<section class="flex flex-col gap-2">
-		<div class="flex items-center justify-between">
-			<h4 class="text-xs font-semibold uppercase opacity-60">
-				{m.settings_keybinds_action()}
-			</h4>
-			<button type="button" class="btn btn-ghost btn-xs" onclick={addBinding}>
-				<Plus size={14} />
+	<div class="flex flex-col gap-2">
+		<div class="flex items-center gap-2 text-xs">
+			<span class="text-base-content/60">{m.settings_keybinds_action()}</span>
+			<span class="text-base-content/40 tabular-nums">{keybinds.value.bindings.length}</span>
+			<button type="button" class="btn btn-ghost btn-xs ml-auto" onclick={addBinding}>
+				<Plus size={12} />
 				{m.settings_keybinds_add()}
 			</button>
 		</div>
-
-		{#each keybinds.value.bindings as binding, i (i)}
-			<div class="rounded-box bg-base-200 flex items-center gap-2 p-2">
-				<button
-					type="button"
-					class="btn btn-sm w-32 shrink-0 font-mono uppercase"
-					class:btn-primary={capturingIndex === i}
-					onclick={() => beginCapture(i)}
-					title={m.settings_keybinds_key()}
+		<ul class="grid gap-2 @2xl:grid-cols-2">
+			{#each keybinds.value.bindings as binding, i (i)}
+				<li
+					class="bg-base-100 border-base-300 rounded-field flex items-center gap-2 border p-1.5"
 				>
-					{#if capturingIndex === i}
-						<span class="normal-case">{m.settings_keybinds_press_a_key()}</span>
-					{:else}
-						{binding.name || "?"}
-					{/if}
-				</button>
-				<input
-					type="text"
-					class="input input-bordered input-sm min-w-0 flex-1 font-mono"
-					value={binding.command}
-					placeholder="GBA_..."
-					oninput={(e) =>
-						updateBinding(i, { command: (e.target as HTMLInputElement).value })}
-				/>
-				<button
-					type="button"
-					class="btn btn-ghost btn-xs btn-square shrink-0"
-					onclick={() => removeBinding(i)}
-					aria-label={m.settings_keybinds_remove()}
-					title={m.settings_keybinds_remove()}
-				>
-					<Trash2 size={14} />
-				</button>
-			</div>
-		{/each}
-	</section>
+					<button
+						type="button"
+						class={[
+							"btn btn-sm w-32 shrink-0 font-mono text-xs",
+							capturingIndex === i ? "btn-primary" : "uppercase",
+						]}
+						onclick={() => beginCapture(i)}
+						title={m.settings_keybinds_key()}
+					>
+						{capturingIndex === i
+							? m.settings_keybinds_press_a_key()
+							: binding.name || "?"}
+					</button>
+					<input
+						type="text"
+						class="input input-sm min-w-0 flex-1 font-mono"
+						value={binding.command}
+						placeholder="GBA_..."
+						spellcheck="false"
+						oninput={(e) =>
+							updateBinding(i, { command: (e.target as HTMLInputElement).value })}
+					/>
+					<button
+						type="button"
+						class="btn btn-ghost btn-xs btn-square shrink-0"
+						onclick={() => removeBinding(i)}
+						aria-label={m.settings_keybinds_remove()}
+						title={m.settings_keybinds_remove()}
+					>
+						<X size={14} />
+					</button>
+				</li>
+			{/each}
+		</ul>
+	</div>
 
-	<div class="divider my-0"></div>
-
-	<section class="flex flex-col gap-4">
-		<div class="flex max-w-sm flex-col gap-1">
-			<span class="text-sm font-semibold">{m.settings_keybinds_mod_name()}</span>
+	<div class="border-base-300 flex flex-col gap-1 border-t pt-4">
+		<label for="keybinds-mod-name" class="text-base-content/60 text-xs"
+			>{m.settings_keybinds_mod_name()}</label
+		>
+		<div class="flex flex-wrap items-center gap-2">
 			<input
+				id="keybinds-mod-name"
 				type="text"
-				class="input input-bordered w-full"
+				class="input input-sm w-56"
 				bind:value={modName}
 				placeholder={m.settings_keybinds_mod_name_placeholder()}
 			/>
-		</div>
-
-		<div class="flex flex-wrap items-center gap-2">
 			<button
 				type="button"
-				class="btn btn-primary gap-2"
+				class="btn btn-primary btn-sm"
 				disabled={!hasBindings || cooking}
 				onclick={cook}
 			>
@@ -430,34 +420,27 @@
 					<span class="loading loading-spinner loading-xs"></span>
 					{m.settings_keybinds_generating()}
 				{:else}
-					<FlaskConical size={18} />
+					<FlaskConical size={14} />
 					{m.settings_keybinds_generate()}
 				{/if}
 			</button>
-
 			{#if cookedZip}
-				<button type="button" class="btn gap-2" onclick={download}>
-					<FolderOpen size={16} />
+				<button type="button" class="btn btn-sm" onclick={download}>
+					<FolderOpen size={14} />
 					{m.converter_download()}
 				</button>
 				<button
 					type="button"
-					class="btn gap-2"
+					class="btn btn-sm"
 					onclick={addToInstance}
 					disabled={!!installingLabel}
 				>
-					<File size={16} />
+					<File size={14} />
 					{m.converter_add_to_instance()}
 				</button>
 			{/if}
 		</div>
-	</section>
-
-	<div>
-		<button type="button" class="btn btn-error btn-sm" onclick={resetKeybinds}>
-			<RotateCcw size={14} />
-			{m.settings_keybinds_reset()}
-		</button>
+		<p class="text-base-content/60 text-xs">{m.settings_keybinds_mod_hint()}</p>
 	</div>
 </div>
 
