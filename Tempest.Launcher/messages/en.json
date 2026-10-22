@@ -882,6 +882,8 @@
 	"repo_trust_official_hint": "Made and signed by the Tempest team.",
 	"repo_trust_verified": "Verified author",
 	"repo_trust_verified_hint": "Signed by {name}, a trusted key.",
+	"repo_trust_signed": "Signed",
+	"repo_trust_signed_hint": "Signed by {name}, a key that is not verified yet. Assets only: textures, sounds and config. Nothing runs code.",
 	"repo_trust_reviewed": "Reviewed",
 	"repo_trust_reviewed_hint": "Signed by {name}. Moderators reviewed the code, the key is not verified yet.",
 	"repo_trust_revoked": "Key revoked",

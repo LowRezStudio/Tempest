@@ -15,10 +15,20 @@ export type Trust = {
 // One trust label instead of signer, key and review details.
 export function trustOf(latest: RepoVersion | null): Trust {
 	const signer = latest?.signer;
-	if (!signer) {
+	if (!latest || !signer) {
 		return {
 			label: m.repo_trust_unsigned(),
 			hint: m.repo_trust_unsigned_hint(),
+			tone: "neutral",
+			icon: FileBox,
+		};
+	}
+	// Asset-only packages are approved on upload without a moderator, so an unknown key vouches for nothing.
+	const { lua, dll } = latest.code;
+	if (signer.trust === "unknown" && lua === 0 && dll.win32 === 0 && dll.win64 === 0) {
+		return {
+			label: m.repo_trust_signed(),
+			hint: m.repo_trust_signed_hint({ name: signer.name }),
 			tone: "neutral",
 			icon: FileBox,
 		};
