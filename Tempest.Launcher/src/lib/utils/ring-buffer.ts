@@ -8,14 +8,13 @@ export class RingBuffer<T> {
 		this.items = Array.from({ length: Math.max(1, Math.floor(capacity)) });
 	}
 
-	get length(): number {
-		return this.count;
-	}
-
-	// Index 0 is the oldest entry still retained.
-	at(index: number): T | undefined {
-		if (index < 0 || index >= this.count) return undefined;
-		return this.items[(this.head + index) % this.items.length];
+	// A snapshot in oldest-first order.
+	toArray(): T[] {
+		const items: T[] = [];
+		for (let index = 0; index < this.count; index++) {
+			items.push(this.items[(this.head + index) % this.items.length]!);
+		}
+		return items;
 	}
 
 	push(value: T): void {

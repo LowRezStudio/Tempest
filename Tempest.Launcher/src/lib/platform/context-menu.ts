@@ -9,9 +9,7 @@ const EDITABLE = "input, textarea, [contenteditable]:not([contenteditable='false
 export function openTextContextMenu(
 	event: MouseEvent,
 	options: {
-		/** Overrides the selection inferred from the DOM (e.g. a log-model selection). */
-		canCopy?: boolean;
-		/** Whether the surface can select its whole virtualized contents. */
+		/** Whether the surface can select its whole contents (e.g. a long log). */
 		canSelectAll?: boolean;
 	} = {},
 ): Promise<ContextMenuAction | null> {
@@ -29,7 +27,7 @@ export function openTextContextMenu(
 
 	return showContextMenu({
 		editable,
-		canCopy: options.canCopy ?? selected,
+		canCopy: selected,
 		canSelectAll: options.canSelectAll ?? false,
 		labels: { copy: m.common_copy(), selectAll: m.common_select_all() },
 	});
