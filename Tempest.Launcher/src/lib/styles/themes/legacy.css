@@ -1,32 +1,42 @@
-/* Really scuffed legacy theme. Unlocked through an easter egg. */
+/* The 2023 Tauri launcher (LowRezStudio/tempest-launcher) skin: a teal window
+ * with a radial glow, a silver patterned title bar, white paper panels with a
+ * cyan frame, chunky teal gradient buttons, plate tabs, grey sunk-in inputs and
+ * the original textured progress bar. Unlocked through an easter egg.
+ *
+ * Rules here are unlayered, so they outrank daisyUI components and Tailwind
+ * utilities without `!important`. Light surfaces (title bar, cards, dialogs)
+ * only swap the daisyUI tokens, which keeps every component inside them
+ * readable instead of repainting each child by hand. */
+
 @plugin "daisyui/theme" {
 	name: "legacy";
 	default: false;
 	prefersdark: false;
 	color-scheme: dark;
 
+	/* Window, the old news panels, and the darker sidebar/wells. */
 	--color-base-100: #0e3f55;
-	--color-base-200: #0a2c3a;
-	--color-base-300: #0a2c3a;
+	--color-base-200: #10526b;
+	--color-base-300: #07293a;
 	--color-base-content: #ffffff;
 
-	--color-primary: #2fbbb5;
-	--color-primary-content: #ffffff;
+	--color-primary: #45d2cc;
+	--color-primary-content: #061c22;
 
 	--color-secondary: #207d79;
 	--color-secondary-content: #ffffff;
 
 	--color-accent: #34c3d1;
-	--color-accent-content: #081224;
+	--color-accent-content: #061c22;
 
 	--color-neutral: #142b2a;
 	--color-neutral-content: #ffffff;
 
 	--color-info: #34c3d1;
-	--color-info-content: #081224;
+	--color-info-content: #061c22;
 
 	--color-success: #37e8e2;
-	--color-success-content: #081224;
+	--color-success-content: #061c22;
 
 	--color-warning: #f59e0b;
 	--color-warning-content: #1f2937;
@@ -43,626 +53,437 @@
 
 	--border: 1px;
 
-	--depth: 1;
+	--depth: 0;
 	--noise: 0;
 }
 
+/* the old window glow; peak kept dark enough for white body text */
+html[data-theme="legacy"] {
+	background-image: radial-gradient(100% 40% at 50% 50%, #1a7ca8 25%, #0e3f55 85%);
+}
+
 [data-theme="legacy"] {
-	/* Scrollbar custom styles */
+	/* Materials: the old launcher mixed silver chrome, paper plaques and white
+	 * dialogs, all framed in the window outline colour. */
+	--legacy-silver: #edeae4;
+	--legacy-paper: #f0ede8;
+	--legacy-panel: rgb(255 255 255 / 0.96);
+	--legacy-ink: #0b1d26;
+	--legacy-outline: #34c3d1;
+	--legacy-plate: linear-gradient(to bottom, #207d79, #142b2a);
+
+	/* pages paint base-100 over the window, so let the glow show through */
+	main .bg-base-100 {
+		background-color: transparent;
+	}
+
 	::-webkit-scrollbar {
 		width: 4px;
 		height: 4px;
 	}
 
 	::-webkit-scrollbar-thumb {
-		background: #34c3d1;
+		background: var(--legacy-outline);
 	}
 
 	::-webkit-scrollbar-track {
 		background: transparent;
 	}
 
-	/* Reset rounded style to be sharp/retro */
-	.btn {
-		/* ponytail: simple and reliable replacement of standard daisyUI rounded style to be retro */
-		border-radius: 0 !important;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.025em;
+	/* Light surfaces: the title bar, the paper plaques and the dialogs. Swapping
+	 * the palette keeps menus, badges, alerts, tabs and tables inside them
+	 * legible on light. */
+	:is(
+		[data-page-header],
+		.card,
+		[data-instance-card],
+		[data-popover-menu],
+		[role="dialog"],
+		.modal-box,
+		.alert
+	) {
+		color: var(--legacy-ink);
+		color-scheme: light;
+
+		--color-base-100: #ffffff;
+		--color-base-200: #ecebe6;
+		--color-base-300: #dcd9d2;
+		--color-base-content: var(--legacy-ink);
+
+		--color-primary: #0e7a75;
+		--color-info: #15697d;
+		--color-success: #0c7343;
+		--color-warning: #8f5209;
+		--color-error: #bd2c2c;
+
+		--color-primary-content: #ffffff;
+		--color-info-content: #ffffff;
+		--color-success-content: #ffffff;
+		--color-warning-content: #ffffff;
+		--color-error-content: #ffffff;
 	}
 
-	/* Button variants - legacy style */
-	.btn-primary,
-	.btn-secondary,
-	.btn-accent,
-	.btn-neutral {
-		border-radius: 0 !important;
-		outline: none !important;
-		box-shadow: none !important;
-		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
-		border: 1px solid #2fbbb5 !important;
-		color: #ffffff !important;
+	/* Silver patterned title bar with a bevelled edge, as in the old nav strip. */
+	[data-page-header] {
+		background-color: var(--legacy-silver);
+		background-image: url("/img/navigation-pattern.png");
+		background-repeat: repeat-x;
+		background-size: auto 100%;
+		border-bottom: 2px solid var(--legacy-outline);
+		box-shadow:
+			inset 0 1px 0 rgb(255 255 255 / 0.9),
+			inset 0 -2px 0 rgb(0 0 0 / 0.1);
 	}
 
-	.btn-primary:hover,
-	.btn-secondary:hover,
-	.btn-accent:hover,
-	.btn-neutral:hover {
-		filter: brightness(1.2) !important;
-		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
+	/* The icon plate keeps the old gradient plaque look. */
+	[data-page-header] .bg-base-300 {
+		background-image: var(--legacy-plate);
+		border: 2px solid #37e8e2;
+		box-shadow: 0 0 8px rgb(55 232 226 / 0.3);
+		color: #ffffff;
 	}
 
-	/* Error/Danger buttons - legacy gaming dark-red style */
-	.btn-error {
-		border-radius: 0 !important;
-		outline: none !important;
-		box-shadow: none !important;
-		background-image: linear-gradient(to bottom, #7d2020, #2a1414) !important;
-		border: 1px solid #b52f2f !important;
-		color: #ffffff !important;
-	}
-
-	.btn-error:hover {
-		filter: brightness(1.2) !important;
-		background-image: linear-gradient(to bottom, #7d2020, #2a1414) !important;
-	}
-
-	/* The Play button (btn-lg or launch button) */
-	.btn-lg {
-		border: 2px solid #37e8e2 !important;
-		background-image: radial-gradient(100% 60% at 50% 80%, #15887e 0%, #081224 100%) !important;
-		outline: none !important;
-		font-family: "Montserrat Variable", sans-serif !important;
-		font-size: 1.5rem !important;
-		text-transform: uppercase;
-		font-weight: 700;
-	}
-
-	/* If disabled */
-	.btn:disabled {
-		filter: grayscale(1) brightness(0.6) !important;
-		opacity: 0.6 !important;
-	}
-
-	/* Inputs styling */
-	.input,
-	.select,
-	.textarea {
-		border-radius: 0 !important;
-		background-color: #939393 !important;
-		border: 1px solid #98958e !important;
-		color: #ffffff !important;
-	}
-
-	.input::placeholder {
-		color: #bcbcbc !important;
-	}
-
-	.input:hover,
-	.select:hover {
-		border-color: #2fbbb5 !important;
-	}
-
-	/* Progress bar styling - asset parity with old launcher */
-	progress,
-	.progress {
-		appearance: none !important;
-		border: 1px solid #181d1e !important;
-		height: 25px !important;
-		background-image: url("/img/progress-bar-background.png") !important;
-		background-size: cover !important;
-	}
-
-	progress::-webkit-progress-bar,
-	.progress::-webkit-progress-bar {
-		background-image: url("/img/progress-bar-background.png") !important;
-		background-size: cover !important;
-	}
-
-	progress::-webkit-progress-value,
-	.progress::-webkit-progress-value {
-		background-image: url("/img/progress-bar-percentage.png") !important;
-		background-size: cover !important;
-	}
-
-	progress::-moz-progress-bar,
-	.progress::-moz-progress-bar {
-		background-image: url("/img/progress-bar-percentage.png") !important;
-		background-size: cover !important;
-	}
-
-	/* Cards styling - matches light white legacy cards/plaques */
-	.card {
-		border-radius: 0 !important;
-		border: 1px solid #34c3d1 !important;
-		background-color: #f0ede8 !important;
-		box-shadow: none !important;
-		color: #000000 !important;
-	}
-
-	.card * {
-		color: #000000 !important;
-	}
-
-	/* Card inner icon containers (like Megaphone / announcement wrapper) */
-	.card .bg-base-300 {
-		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
-		border: 2px solid #37e8e2 !important;
-		border-radius: 0 !important;
-		box-shadow: 0 0 6px rgba(55, 232, 226, 0.2) !important;
-	}
-
-	/* Inner icon colors inside card wrappers are bright white */
-	.card .bg-base-300 * {
-		color: #ffffff !important;
-	}
-
-	/* Modals styling - matches settings menu in legacy launcher */
-	[role="dialog"],
-	[data-dialog-content],
-	.modal-box {
-		background-color: rgba(255, 255, 255, 0.9) !important;
-		border: 1px solid #34c3d1 !important;
-		border-radius: 0 !important;
-		color: #000000 !important;
-		box-shadow: none !important;
-	}
-
-	/* Dialog / Modal text content */
-	[role="dialog"] *,
-	[data-dialog-content] *,
-	.modal-box * {
-		color: #000000 !important;
-	}
-
-	/* Alert boxes inside dialogs - legacy theme contrast fix */
-	[role="dialog"] .alert,
-	[data-dialog-content] .alert,
-	.modal-box .alert {
-		background-color: #d1eef4 !important;
-		border: 1px solid #34c3d1 !important;
-		border-radius: 0 !important;
-	}
-
-	[role="dialog"] .alert *,
-	[data-dialog-content] .alert *,
-	.modal-box .alert * {
-		color: #000000 !important;
-	}
-
-	/* Classic game tab component styling in legacy theme */
+	/* Plate tabs: dark bevels on chrome, the active one lit from the top. */
 	.tabs {
-		border-radius: 0 !important;
-		display: flex !important;
-		gap: 4px !important;
-		border: none !important;
+		gap: 4px;
 	}
 
-	.tab,
-	[role="tab"] {
-		border-radius: 0 !important;
-		font-weight: bold !important;
-		text-transform: uppercase !important;
-		letter-spacing: 0.05em !important;
-		background-color: #051f28 !important;
-		border: 1px solid rgba(52, 195, 209, 0.4) !important;
-		color: rgba(255, 255, 255, 0.7) !important;
-		padding: 8px 16px !important;
-		height: auto !important;
-		transition: all 150ms ease !important;
-		margin-bottom: 0 !important;
+	.tabs-border > .tab::before {
+		content: none;
 	}
 
-	.tab:hover,
-	[role="tab"]:hover {
-		background-color: #0a2c3a !important;
-		color: #ffffff !important;
-		border-color: #34c3d1 !important;
+	.tab {
+		background-image: linear-gradient(to bottom, #0e3f55, #051f28);
+		border: 1px solid #2fbbb5;
+		color: #b9d9dc;
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12);
 	}
 
-	.tab-active,
-	.tab[aria-selected="true"],
-	[role="tab"][aria-selected="true"] {
-		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
-		border: 1px solid #2fbbb5 !important;
-		color: #ffffff !important;
-		box-shadow: none !important;
+	.tab:hover {
+		background-image: linear-gradient(to bottom, #155a6a, #082e3c);
+		border-color: #37e8e2;
+		color: #ffffff;
 	}
 
-	/* Disable bottom borders from default daisyui layout styles */
-	.tabs-border .tab,
-	.tabs-border [role="tab"] {
-		border-bottom-width: 1px !important;
+	:is(.tab-active, .tab[aria-selected="true"]) {
+		background-image: var(--legacy-plate);
+		border-color: #37e8e2;
+		color: #ffffff;
+		box-shadow:
+			inset 0 1px 0 rgb(255 255 255 / 0.25),
+			0 0 6px rgb(55 232 226 / 0.25);
 	}
 
-	.tabs-border .tab-active,
-	.tabs-border [role="tab"][aria-selected="true"] {
-		border-bottom-width: 1px !important;
+	/* Badges are small stamped plates, like the old launcher's labels. */
+	.badge {
+		background-image: var(--legacy-plate);
+		border: 1px solid #2fbbb5;
+		color: #ffffff;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2);
 	}
 
-	/* Tab styling inside dialogs overrides in legacy theme to ensure proper text colors */
-	[role="dialog"] .tab,
-	[data-dialog-content] .tab,
-	.modal-box .tab,
-	[role="dialog"] .tab *,
-	[data-dialog-content] .tab *,
-	.modal-box .tab * {
-		color: rgba(255, 255, 255, 0.7) !important;
+	/* Hollow stamps for tags. */
+	:is(.badge-ghost, .badge-outline) {
+		background-image: none;
+		background-color: transparent;
+		color: inherit;
+		box-shadow: none;
 	}
 
-	[role="dialog"] .tab-active,
-	[data-dialog-content] .tab-active,
-	.modal-box .tab-active,
-	[role="dialog"] .tab-active *,
-	[data-dialog-content] .tab-active *,
-	.modal-box .tab-active * {
-		color: #ffffff !important;
+	.badge-error {
+		background-image: linear-gradient(to bottom, #c93a3a, #7d1c1c);
+		border-color: #ef4444;
 	}
 
-	[role="dialog"] .font-mono,
-	[data-dialog-content] .font-mono,
-	.modal-box .font-mono {
-		background-color: #e2e8f0 !important;
-		border-color: #cbd5e1 !important;
-		color: #000000 !important;
+	.badge-warning {
+		background-image: linear-gradient(to bottom, #ffc457, #d18a10);
+		border-color: #f59e0b;
+		color: #1f2937;
 	}
 
-	[role="dialog"] .font-mono *,
-	[data-dialog-content] .font-mono *,
-	.modal-box .font-mono * {
-		color: #000000 !important;
+	:is(.badge-success, .badge-info) {
+		background-image: linear-gradient(to bottom, #5ce7e1, #2aa5a0);
+		border-color: #37e8e2;
+		color: #061c22;
 	}
 
-	/* Badges inside dialogs - legacy theme contrast fix */
-	[role="dialog"] .badge,
-	[data-dialog-content] .badge,
-	.modal-box .badge {
-		background-color: #e2e8f0 !important;
-		border: 1px solid #cbd5e1 !important;
-		border-radius: 0 !important;
-		color: #000000 !important;
+	/* Paper plaque, as the old launcher's cards/menus. */
+	.card {
+		background-color: var(--legacy-paper);
+		border: 2px solid var(--legacy-outline);
+		box-shadow:
+			0 2px 6px rgb(0 0 0 / 0.45),
+			inset 0 1px 0 #ffffff;
 	}
 
-	[role="dialog"] .badge *,
-	[data-dialog-content] .badge *,
-	.modal-box .badge * {
-		color: #000000 !important;
+	/* The instance plaques light their frame on hover instead of darkening. */
+	[data-instance-card] {
+		background-color: var(--legacy-paper);
+		border: 2px solid var(--legacy-outline);
+		box-shadow:
+			0 2px 6px rgb(0 0 0 / 0.45),
+			inset 0 1px 0 #ffffff;
 	}
 
-	[role="dialog"] .badge .btn-ghost:hover,
-	[data-dialog-content] .badge .btn-ghost:hover,
-	.modal-box .badge .btn-ghost:hover {
-		background-color: rgba(0, 0, 0, 0.15) !important;
-		color: #000000 !important;
+	[data-instance-card]:hover {
+		border-color: #37e8e2;
 	}
 
-	/* Keep buttons, inputs, and selected values style in dialogs */
-	[role="dialog"] .btn,
-	[data-dialog-content] .btn,
-	.modal-box .btn,
-	[role="dialog"] .btn *,
-	[data-dialog-content] .btn *,
-	.modal-box .btn * {
-		color: #ffffff !important;
+	.card .bg-base-300 {
+		background-image: var(--legacy-plate);
+		border: 2px solid #37e8e2;
+		box-shadow: 0 0 6px rgb(55 232 226 / 0.2);
+		color: #ffffff;
 	}
 
-	/* Ghost button overrides inside dialogs (e.g. Advanced Options, Cancel, etc.) */
-	[role="dialog"] .btn-ghost,
-	[data-dialog-content] .btn-ghost,
-	.modal-box .btn-ghost,
-	[role="dialog"] .btn-ghost *,
-	[data-dialog-content] .btn-ghost *,
-	.modal-box .btn-ghost * {
-		color: #000000 !important;
-		background: transparent !important;
-		border-color: transparent !important;
-		outline: none !important;
+	/* White dialog, like the old settings panel. */
+	:is([role="dialog"], .modal-box) {
+		background-color: var(--legacy-panel);
+		border: 2px solid var(--legacy-outline);
+		box-shadow:
+			0 18px 50px rgb(0 0 0 / 0.55),
+			inset 0 1px 0 #ffffff;
 	}
 
-	[role="dialog"] .btn-ghost:hover,
-	[data-dialog-content] .btn-ghost:hover,
-	.modal-box .btn-ghost:hover {
-		background-color: rgba(0, 0, 0, 0.08) !important;
-		color: #000000 !important;
+	/* Dropdown menus: white paper with the window frame, like the old hamburger
+	 * menu. */
+	[data-popover-menu] {
+		background-color: var(--legacy-panel);
+		border: 2px solid var(--legacy-outline);
+		box-shadow:
+			0 10px 30px rgb(0 0 0 / 0.45),
+			inset 0 1px 0 #ffffff;
 	}
 
-	[role="dialog"] .input,
-	[data-dialog-content] .input,
-	.modal-box .input,
-	[role="dialog"] .select,
-	[data-dialog-content] .select,
-	.modal-box .select,
-	[role="dialog"] .textarea,
-	[data-dialog-content] .textarea,
-	.modal-box .textarea {
-		background-color: #939393 !important;
-		border: 1px solid #98958e !important;
-		color: #ffffff !important;
+	/* Selects use the customisable picker, so the open list is the same white
+	 * paper with the window frame as the dropdown menus. */
+	.select {
+		appearance: base-select;
 	}
 
-	[role="dialog"] .input::placeholder,
-	[data-dialog-content] .input::placeholder,
-	.modal-box .input::placeholder {
-		color: #bcbcbc !important;
+	.select::picker(select) {
+		appearance: base-select;
+		background-color: var(--legacy-panel);
+		border: 2px solid var(--legacy-outline);
+		box-shadow: 0 10px 30px rgb(0 0 0 / 0.45);
+		padding: 4px;
 	}
 
-	/* Popover/Dropdown styling - matches settings menu and modals */
-	[data-popover-content] {
-		background-color: #f0ede8 !important;
-		border: 1px solid #34c3d1 !important;
-		border-radius: 0 !important;
-		color: #000000 !important;
-		box-shadow: none !important;
-		padding: 4px !important;
+	.select option {
+		background-color: #ffffff;
+		color: var(--legacy-ink);
+		padding: 0.4rem 0.6rem;
 	}
 
-	[data-popover-content] ul,
-	[data-popover-content] li {
-		background-color: transparent !important;
-		border: none !important;
-		box-shadow: none !important;
+	.select option:hover {
+		background-color: #ecebe6;
 	}
 
-	[data-popover-content] * {
-		color: #000000 !important;
+	.select option:checked {
+		background-color: #dcebee;
 	}
 
-	/* Menu items inside Popover/Dropdown */
-	[data-popover-content] button,
-	[data-popover-content] li button,
-	[data-popover-content] a {
-		border-radius: 0 !important;
-		color: #000000 !important;
-		padding: 0.4rem !important;
-		width: 100% !important;
-		text-align: left !important;
+	/* Banners are paper panels framed in their own colour, like the dropdowns. */
+	.alert {
+		background-color: var(--legacy-panel);
+		border-width: 2px;
+		color: var(--legacy-ink);
+		box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
 	}
 
-	[data-popover-content] button:hover,
-	[data-popover-content] li button:hover,
-	[data-popover-content] a:hover {
-		background-color: #6b6b6b !important;
-		color: #ffffff !important;
+	.alert:not(.alert-info, .alert-success, .alert-warning, .alert-error) {
+		border-color: var(--legacy-outline);
 	}
 
-	[data-popover-content] button:hover *,
-	[data-popover-content] li button:hover *,
-	[data-popover-content] a:hover * {
-		background-color: transparent !important;
-		color: #ffffff !important;
+	/* The native list behind a <select> follows the same paper. */
+	option {
+		background-color: #ffffff;
+		color: var(--legacy-ink);
 	}
 
-	/* Custom background: solid dark teal */
-	html,
-	body,
-	main,
-	.page-transition {
-		background-image: none !important;
-		background-color: #0e3f55 !important;
-	}
-
-	/* Page containers inside main in legacy theme - makes solid backgrounds transparent for gradient */
-	main .bg-base-100,
-	.page-transition .bg-base-100,
-	body .bg-base-100:not([role="dialog"]):not([data-dialog-content]):not(.modal-box) {
-		background-color: transparent !important;
-		background-image: none !important;
-	}
-
-	/* Page Header styling in legacy theme - white background with navigation pattern */
-	main .bg-base-200:has(h1),
-	.page-transition .bg-base-200:has(h1) {
-		position: relative !important;
-		background-color: #f0ede8 !important;
-		background-image: url("/img/navigation-pattern.png") !important;
-		background-repeat: repeat-x !important;
-		background-size: auto 100% !important;
-		border-bottom: 1px solid #34c3d1 !important;
-		border-radius: 0 !important;
-		color: #000000 !important;
-	}
-
-	/* Title and subtitle text inside white header (excluding buttons/button children, tabs/tab children and icon container) */
-	main .bg-base-200:has(h1) h1,
-	.page-transition .bg-base-200:has(h1) h1,
-	main
-		.bg-base-200:has(h1)
-		*:not(.btn):not(.btn *):not(.tab):not(.tab *):not(.bg-base-300):not(.bg-base-300 *),
-	.page-transition
-		.bg-base-200:has(h1)
-		*:not(.btn):not(.btn *):not(.tab):not(.tab *):not(.bg-base-300):not(.bg-base-300 *) {
-		color: #000000 !important;
-	}
-
-	/* Header icon container - classic gaming gradient background with thick glowing border */
-	main .bg-base-200:has(h1) .bg-base-300,
-	.page-transition .bg-base-200:has(h1) .bg-base-300 {
-		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
-		border: 2px solid #37e8e2 !important;
-		border-radius: 0 !important;
-		box-shadow: 0 0 8px rgba(55, 232, 226, 0.3) !important;
-	}
-
-	/* Rendered icon color inside header icon container to be bright white */
-	main .bg-base-200:has(h1) .bg-base-300 *,
-	.page-transition .bg-base-200:has(h1) .bg-base-300 * {
-		color: #ffffff !important;
-	}
-
-	/* Style base-200 containers (like Instance Cards or library cards) inside main to look like legacy cards - light white design */
-	main .bg-base-200:not(:has(h1)),
-	.page-transition .bg-base-200:not(:has(h1)),
-	body
-		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1)) {
-		border: 1px solid #34c3d1 !important;
-		border-radius: 0 !important;
-		background-color: #f0ede8 !important;
-		box-shadow: none !important;
-		color: #000000 !important;
-	}
-
-	/* Card texts inside light cards */
-	main .bg-base-200:not(:has(h1)) *,
-	.page-transition .bg-base-200:not(:has(h1)) *,
-	body
-		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1))
-		* {
-		color: #000000 !important;
-	}
-
-	main .bg-base-200:not(:has(h1)):hover,
-	.page-transition .bg-base-200:not(:has(h1)):hover {
-		border-color: #37e8e2 !important;
-		background-color: #f0ede8 !important;
-	}
-
-	/* Inner icon containers inside cards - styled exactly like the header icons! */
-	main .bg-base-200 .bg-base-100,
-	.page-transition .bg-base-200 .bg-base-100,
-	body
-		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1))
-		.bg-base-100 {
-		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
-		border: 2px solid #37e8e2 !important;
-		border-radius: 0 !important;
-		box-shadow: 0 0 6px rgba(55, 232, 226, 0.2) !important;
-	}
-
-	/* Icon colors inside the card's inner icon wrapper are bright white */
-	main .bg-base-200 .bg-base-100 *,
-	.page-transition .bg-base-200 .bg-base-100 *,
-	body
-		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1))
-		.bg-base-100
-		* {
-		color: #ffffff !important;
-	}
-
-	/* Buttons and button contents inside the card are styled with legacy dark teal background and white text/icons */
-	main .bg-base-200 .btn,
-	.page-transition .bg-base-200 .btn,
-	body
-		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1))
-		.btn {
-		background-image: linear-gradient(to bottom, #207d79, #142b2a) !important;
-		border: 1px solid #2fbbb5 !important;
-		color: #ffffff !important;
-		border-radius: 0 !important;
-	}
-
-	main .bg-base-200 .btn *,
-	.page-transition .bg-base-200 .btn *,
-	body
-		.bg-base-200:not([role="dialog"]):not([data-dialog-content]):not(.modal-box):not(:has(h1))
-		.btn
-		* {
-		color: #ffffff !important;
-	}
-
-	/* Header and outline styling to mimic old window with dark blue sidebar */
+	/* Sidebar as a darker recessed strip. */
 	aside {
-		border-right: 1px solid #34c3d1 !important;
-		background-color: #051f28 !important;
-		background-image: none !important;
+		background-image: linear-gradient(to right, #0b3646, #061d28);
+		border-right: 1px solid var(--legacy-outline);
 	}
 
-	/* Sidebar text, buttons and icons in legacy theme - now light for dark blue background! */
-	aside * {
-		color: #ffffff !important;
+	/* Square corners everywhere; the old UI had no rounded boxes. */
+	:is(.rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-box) {
+		border-radius: 0;
 	}
 
-	aside .btn,
-	aside a {
-		color: #ffffff !important;
-		border-radius: 0 !important;
+	/* Every button is the old teal gradient plate, ringed like a physical key. */
+	.btn {
+		background-image: var(--legacy-plate);
+		border: 1px solid #2fbbb5;
+		color: #ffffff;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		box-shadow:
+			0 0 0 1px #6a727a,
+			inset 0 1px 0 rgb(255 255 255 / 0.22),
+			0 1px 2px rgb(0 0 0 / 0.35);
 	}
 
-	aside .btn:hover,
-	aside a:hover {
-		background-color: rgba(255, 255, 255, 0.08) !important;
-		color: #ffffff !important;
+	.btn:not(:disabled):hover {
+		filter: brightness(1.2);
 	}
 
-	/* Active sidebar button icon/text overrides to be white */
-	aside .btn-accent,
-	aside .btn-accent * {
-		color: #ffffff !important;
+	.btn:not(:disabled):active {
+		filter: brightness(0.95);
+		box-shadow:
+			0 0 0 1px #6a727a,
+			inset 0 2px 4px rgb(0 0 0 / 0.45);
 	}
 
-	/* Comprehensive UI Component skinning for all remaining modules */
-	.checkbox,
-	input[type="checkbox"],
-	.toggle,
-	input[type="radio"],
-	.radio {
-		border-radius: 0 !important;
-		border: 1px solid #34c3d1 !important;
-		background-color: #939393 !important;
+	.btn:disabled {
+		filter: grayscale(1) brightness(0.8);
+		opacity: 0.7;
 	}
 
-	.checkbox:checked,
-	input[type="checkbox"]:checked,
-	.toggle:checked,
-	.radio:checked,
-	input[type="radio"]:checked {
-		background-color: #2fbbb5 !important;
-		border-color: #37e8e2 !important;
+	:is(.btn-ghost, .btn-link) {
+		background-image: none;
+		border-color: transparent;
+		color: inherit;
+		box-shadow: none;
 	}
 
-	table,
-	.table {
-		border-collapse: collapse !important;
-		width: 100% !important;
-		border-radius: 0 !important;
-		border: none !important;
+	.btn-error {
+		background-image: linear-gradient(to bottom, #b52f2f, #2a1414);
+		border-color: #ef4444;
 	}
 
-	table th,
-	.table th,
-	table td,
-	.table td {
-		border: none !important;
-		border-top: 1px solid rgba(52, 195, 209, 0.2) !important;
-		padding: 8px !important;
-		border-radius: 0 !important;
+	/* The big launch button: radial glow inside the thick cyan frame. */
+	.btn-lg {
+		background-image: radial-gradient(100% 60% at 50% 80%, #15887e 0%, #081224 100%);
+		border: 4px solid #37e8e2;
+		font-size: 1.25rem;
+		font-weight: 700;
+		box-shadow:
+			0 0 0 1px #6a727a,
+			0 0 14px rgb(55 232 226 / 0.35),
+			inset 0 1px 0 rgb(255 255 255 / 0.25);
 	}
 
-	table thead th,
-	.table thead th {
-		border-top: none !important;
+	/* Grey fields, sunk into the plate. */
+	:is(.input, .select, .textarea) {
+		background-color: #939393;
+		border-color: #98958e;
+		box-shadow: inset 0 2px 3px rgb(0 0 0 / 0.3);
+		color: #ffffff;
+
+		&::placeholder {
+			color: #bcbcbc;
+		}
+
+		&:hover {
+			border-color: #2fbbb5;
+		}
 	}
 
-	table th,
-	.table th {
-		background-color: rgba(14, 64, 87, 0.6) !important;
-		color: #ffffff !important;
+	/* Sliders are the old progress bar with a grip on it: the same two textures,
+	 * the bright one cropped at the value. The slider passes its position as
+	 * --legacy-fill (KeybindsTab). */
+	.range {
+		height: 25px;
+		--range-thumb-size: 25px;
 	}
 
-	.list-item,
-	.list-row,
-	.grid-item {
-		border-radius: 0 !important;
-		border: 1px solid #34c3d1 !important;
-		background-color: #0a2c3a !important;
+	.range::-webkit-slider-runnable-track {
+		background-image:
+			url("/img/progress-bar-percentage.png"), url("/img/progress-bar-background.png");
+		background-size:
+			var(--legacy-fill, 0%) 100%,
+			100% 100%;
+		background-repeat: no-repeat;
+		border: 1px solid #181d1e;
+		border-radius: 0;
+		height: 25px;
 	}
 
-	.avatar,
-	.avatar img,
-	.mask,
-	img,
-	.rounded,
-	.rounded-box,
-	.rounded-xl,
-	.rounded-lg,
-	.rounded-md,
-	.rounded-sm {
-		border-radius: 0 !important;
+	/* A thin blade instead of a square knob, glowing in the bar's own cyan. */
+	.range::-webkit-slider-thumb {
+		width: 6px;
+		background-image:
+			linear-gradient(to bottom, rgb(255 255 255 / 0.6), rgb(255 255 255 / 0) 45%),
+			linear-gradient(to right, #033f3d, #00a49c 35%, #3ff5ea 50%, #00b3a8 70%, #033f3d);
+		border: 0;
+		border-radius: 0;
+		box-shadow:
+			0 0 0 1px #061c22,
+			0 0 4px rgb(63 245 234 / 0.9),
+			0 0 12px rgb(0 228 215 / 0.85);
 	}
 
-	.collapse,
-	.collapse-title,
-	.collapse-content {
-		border-radius: 0 !important;
-		border: 1px solid #34c3d1 !important;
+	/* Checkboxes and radios: the old grey fields in a cyan frame, filled teal
+	 * when on. */
+	:is(.checkbox, .radio) {
+		background-color: #939393;
+		border: 1px solid var(--legacy-outline);
+
+		&:checked {
+			background-color: #2fbbb5;
+			border-color: #37e8e2;
+			color: #061c22;
+		}
+	}
+
+	/* Switches: a keycap in a groove that lights up when on. */
+	.toggle {
+		background-color: #181d1e;
+		border: 1px solid #98958e;
+		box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.6);
+	}
+
+	.toggle::before {
+		background-image: var(--legacy-plate);
+		border: 1px solid #37e8e2;
+		box-shadow:
+			0 0 0 1px #061c22,
+			inset 0 1px 0 rgb(255 255 255 / 0.25);
+	}
+
+	.toggle:checked {
+		background-image: linear-gradient(to bottom, #2fbbb5, #0d6d72);
+		border-color: #37e8e2;
+		box-shadow:
+			inset 0 1px 3px rgb(0 0 0 / 0.45),
+			0 0 8px rgb(55 232 226 / 0.4);
+	}
+
+	/* Table headers are muted by default; they read as grey on the glow. */
+	:is(table, .table) :is(thead, tfoot) {
+		color: #ffffff;
+	}
+
+	/* The progress bar artwork from the old launcher. */
+	:is(progress, .progress) {
+		appearance: none;
+		height: 25px;
+		border: 1px solid #181d1e;
+		background-image: url("/img/progress-bar-background.png");
+		background-size: 100% 100%;
+
+		&::-webkit-progress-bar {
+			background-image: url("/img/progress-bar-background.png");
+			background-size: 100% 100%;
+		}
+
+		&::-webkit-progress-value {
+			background-image: url("/img/progress-bar-percentage.png");
+			background-size: 100% 100%;
+		}
+
+		&::-moz-progress-bar {
+			background-image: url("/img/progress-bar-percentage.png");
+			background-size: 100% 100%;
+		}
 	}
 }

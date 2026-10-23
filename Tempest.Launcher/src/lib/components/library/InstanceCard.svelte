@@ -66,6 +66,7 @@
 
 {#if isActive}
 	<div
+		data-instance-card
 		class="bg-base-200 relative overflow-hidden rounded-lg border-2 border-transparent p-4 opacity-80"
 	>
 		<div class="flex items-center gap-3">
@@ -123,6 +124,7 @@
 	</div>
 {:else}
 	<div
+		data-instance-card
 		class="bg-base-200 hover:bg-base-300 cursor-pointer rounded-lg border-2 border-transparent p-4 text-left transition-all duration-200"
 		onclick={handleCardClick}
 		role="link"

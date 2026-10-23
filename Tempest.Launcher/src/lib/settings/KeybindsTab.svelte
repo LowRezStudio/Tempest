@@ -34,6 +34,11 @@
 		keybinds.value.bindings.some((b) => b.name.trim() && b.command.trim()),
 	);
 
+	// The legacy theme paints sliders with the progress-bar artwork, which needs
+	// the fill position as a CSS property.
+	const sliderFill = (value: number, min: number, max: number) =>
+		`${((value - min) / (max - min)) * 100}%`;
+
 	function updateSensitivity(e: Event) {
 		const value = Number((e.target as HTMLInputElement).value);
 		const rounded = Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
@@ -294,6 +299,7 @@
 				type="range"
 				class="range range-sm flex-1"
 				value={keybinds.value.mouseSensitivity}
+				style="--legacy-fill: {sliderFill(keybinds.value.mouseSensitivity, 0, 50)}"
 				oninput={updateSensitivity}
 				min="0"
 				max="50"
@@ -320,6 +326,7 @@
 				type="range"
 				class="range range-sm flex-1"
 				value={keybinds.value.fpsLimit}
+				style="--legacy-fill: {sliderFill(keybinds.value.fpsLimit, 30, 1000)}"
 				oninput={(e) => {
 					keybinds.value = {
 						...keybinds.value,

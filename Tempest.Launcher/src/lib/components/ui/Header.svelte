@@ -29,7 +29,7 @@
 	}: Props<T> = $props();
 </script>
 
-<div class="bg-base-200 {className}">
+<div data-page-header class="bg-base-200 {className}">
 	<div class="px-4 py-3">
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-3">
