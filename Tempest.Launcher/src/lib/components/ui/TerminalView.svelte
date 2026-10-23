@@ -17,7 +17,14 @@
 
 	/** Slack below the last line that still counts as "following the output". */
 	const PIN_SLACK = 32;
-	const PREFIX_CLS = "ansi-fg-0";
+	const PREFIX_COLORS: Record<string, string> = {
+		launch: "text-primary",
+		lobby: "text-secondary",
+		rigby: "text-accent",
+		"rigby-queue": "text-info",
+		mods: "text-success",
+		setup: "text-warning",
+	};
 
 	let viewport = $state<HTMLDivElement>();
 	let viewLines = $state.raw<Line[]>([]);
@@ -28,6 +35,10 @@
 
 	function prefixOf(source: string): string {
 		return showPrefix && source ? `[${source}] ` : "";
+	}
+
+	function prefixColor(source: string): string {
+		return PREFIX_COLORS[source] ?? "text-base-content/60";
 	}
 
 	async function scrollToBottom(): Promise<void> {
@@ -101,13 +112,14 @@
 	>
 		{#each viewLines as line (line.id)}
 			{@const prefix = prefixOf(line.source)}
+			{@const prefixClass = prefixColor(line.source)}
 			<div
 				class="terminal-line"
 				class:text-error={line.error}
 				class:text-primary={line.input}
 			>
 				<!-- No whitespace between the blocks: pre-wrap would render it as a leading space. -->
-				{#if prefix}<span class={PREFIX_CLS}>{prefix}</span
+				{#if prefix}<span class={prefixClass}>{prefix}</span
 					>{/if}{#each line.runs as run}<span class={run.cls}>{run.text}</span>{/each}
 			</div>
 		{/each}
