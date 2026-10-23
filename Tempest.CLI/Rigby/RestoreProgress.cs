@@ -23,6 +23,7 @@ internal sealed class RestoreProgress : IRestoreProgress
     private int verifiedFiles;
     private long diskWriteBytes;
     private long reusedBytes;
+    private long resumedBytes;
 
     public RestoreProgress(int totalFiles, long totalBytes)
     {
@@ -66,6 +67,39 @@ internal sealed class RestoreProgress : IRestoreProgress
         }
     }
 
+    public void FileResumed(long size, RestoreResult result)
+    {
+        lock (gate)
+        {
+            completedFiles += 1;
+            if (result.Repaired)
+                repairedFiles += 1;
+            else
+                verifiedFiles += 1;
+
+            diskWriteBytes += result.DiskWriteBytes;
+            reusedBytes += result.ReusedBytes;
+            completedBytes += size;
+            resumedBytes += size;
+        }
+    }
+
+    public void BytesResumed(long count)
+    {
+        lock (gate)
+        {
+            reusedBytes += count;
+            completedBytes += count;
+            resumedBytes += count;
+        }
+    }
+
+    public void Flush()
+    {
+        lock (gate)
+            Render(force: true);
+    }
+
     public void Dispose()
     {
         lock (gate)
@@ -91,7 +125,7 @@ internal sealed class RestoreProgress : IRestoreProgress
 
         var completedMiB = completedBytes / 1024.0 / 1024.0;
         var totalMiB = totalBytes / 1024.0 / 1024.0;
-        var speedMiB = completedMiB / elapsed;
+        var speedMiB = (completedBytes - resumedBytes) / 1024.0 / 1024.0 / elapsed;
         var remainingMiB = Math.Max(0.0, totalMiB - completedMiB);
         var eta = speedMiB > 0.01 ? TimeSpan.FromSeconds(remainingMiB / speedMiB) : TimeSpan.Zero;
 
