@@ -184,7 +184,7 @@ static FRAME_WANTED: AtomicBool = AtomicBool::new(false);
 
 /// Game thread, every event: build one frame if a Present asked for one.
 pub fn maybe_build_frame() {
-    if !FRAME_WANTED.swap(false, Ordering::AcqRel) {
+    if !FRAME_WANTED.load(Ordering::Acquire) || !FRAME_WANTED.swap(false, Ordering::AcqRel) {
         return;
     }
     build_frame();

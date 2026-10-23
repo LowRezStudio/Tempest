@@ -41,7 +41,7 @@
 //! ```
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -325,12 +325,21 @@ pub struct Globals {
 
 static GLOBALS: Mutex<Option<Globals>> = Mutex::new(None);
 
+// Copies of the fields the per-call paths (every ProcessEvent, every script
+// function, every name lookup) read, so they never lock and clone `Globals`.
+static GOBJECTS: AtomicUsize = AtomicUsize::new(0);
+static GNAMES: AtomicUsize = AtomicUsize::new(0);
+static PROCESS_INTERNAL: AtomicUsize = AtomicUsize::new(0);
+
 /// Last resolved state (never scans).
 pub fn globals() -> Globals {
     GLOBALS.lock().unwrap().clone().unwrap_or_default()
 }
 
 fn store(g: &Globals) {
+    GOBJECTS.store(g.gobjects, Ordering::Release);
+    GNAMES.store(g.gnames, Ordering::Release);
+    PROCESS_INTERNAL.store(g.process_internal, Ordering::Release);
     *GLOBALS.lock().unwrap() = Some(g.clone());
 }
 
@@ -576,6 +585,7 @@ pub fn resolve_process_internal() -> Option<usize> {
     if let Some(g) = GLOBALS.lock().unwrap().as_mut() {
         g.process_internal = addr;
     }
+    PROCESS_INTERNAL.store(addr, Ordering::Release);
     Some(addr)
 }
 
@@ -763,21 +773,21 @@ fn decrypt_entry(array: usize, i: usize) -> Option<usize> {
 static TRUSTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn object_count() -> Option<usize> {
-    cheat_array(globals().gobjects).map(|(_, n)| n)
+    cheat_array(GOBJECTS.load(Ordering::Acquire)).map(|(_, n)| n)
 }
 
 pub fn name_count() -> Option<usize> {
-    cheat_array(globals().gnames).map(|(_, n)| n)
+    cheat_array(GNAMES.load(Ordering::Acquire)).map(|(_, n)| n)
 }
 
 /// Live object at GObjects slot `i`.
 pub fn object_at(i: usize) -> Option<usize> {
-    decrypt_entry(globals().gobjects, i)
+    decrypt_entry(GOBJECTS.load(Ordering::Acquire), i)
 }
 
 /// Resolve an `FName` (`Index`, `Number`) to its string.
 pub fn name_at(index: i32, number: i32) -> Option<String> {
-    name_at_in(globals().gnames, index, number)
+    name_at_in(GNAMES.load(Ordering::Acquire), index, number)
 }
 
 fn name_at_in(gnames: usize, index: i32, number: i32) -> Option<String> {
@@ -802,19 +812,45 @@ fn name_at_in(gnames: usize, index: i32, number: i32) -> Option<String> {
 
 /// GNames index of an existing name (linear scan, cached).
 pub fn find_name(name: &str) -> Option<i32> {
-    static CACHE: Mutex<Option<HashMap<String, i32>>> = Mutex::new(None);
+    lookup_name(name).ok()
+}
+
+/// GNames index of `name`, or how many entries are known not to hold it.
+/// Names are never removed, so a miss is remembered and the next lookup
+/// only searches the entries added since.
+fn lookup_name(name: &str) -> Result<i32, usize> {
+    static CACHE: Mutex<Option<HashMap<String, Result<i32, usize>>>> = Mutex::new(None);
     // FNames compare case-insensitively; the table keeps whatever casing
     // registered first ("Playertick" is a real possibility).
     let key = name.to_ascii_lowercase();
-    if let Some(hit) = CACHE.lock().unwrap().get_or_insert_default().get(&key) {
-        return Some(*hit);
+    let from = match CACHE.lock().unwrap().get_or_insert_default().get(&key) {
+        Some(Ok(hit)) => return Ok(*hit),
+        Some(Err(searched)) => *searched,
+        None => 0,
+    };
+    let gnames = GNAMES.load(Ordering::Acquire);
+    let Some((_, count)) = cheat_array(gnames) else { return Err(from) };
+    let r = match (from..count).find(|&i| name_at_in(gnames, i as i32, 0).is_some_and(|n| n.eq_ignore_ascii_case(name))) {
+        Some(i) => Ok(i as i32),
+        None => Err(count.max(from)),
+    };
+    // Before the arrays are proven, an unreadable entry is not proof of absence.
+    if r.is_ok() || TRUSTED.load(Ordering::Relaxed) {
+        CACHE.lock().unwrap().get_or_insert_default().insert(key, r);
     }
-    let gnames = globals().gnames;
-    let (_, count) = cheat_array(gnames)?;
-    let found = (0..count)
-        .find(|&i| name_at_in(gnames, i as i32, 0).is_some_and(|n| n.eq_ignore_ascii_case(name)))?;
-    CACHE.lock().unwrap().get_or_insert_default().insert(key, found as i32);
-    Some(found as i32)
+    r
+}
+
+/// Can an object be called `name`? UE3 stores `Foo_12` as `Foo` plus a
+/// number, so a trailing `_<digits>` is looked up without it too.
+fn name_registered(name: &str) -> bool {
+    if lookup_name(name).is_ok() {
+        return true;
+    }
+    match name.rsplit_once('_') {
+        Some((base, digits)) if !base.is_empty() && !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) => lookup_name(base).is_ok(),
+        _ => false,
+    }
 }
 
 pub fn object_outer(obj: usize) -> Option<usize> {
@@ -893,7 +929,7 @@ fn super_chain(class: Option<usize>) -> impl Iterator<Item = usize> {
 
 /// Iterate every live object (decrypted, non-null).
 pub fn objects() -> impl Iterator<Item = usize> {
-    let gobjects = globals().gobjects;
+    let gobjects = GOBJECTS.load(Ordering::Acquire);
     let count = cheat_array(gobjects).map(|(_, n)| n).unwrap_or(0);
     (0..count).filter_map(move |i| decrypt_entry(gobjects, i))
 }
@@ -913,6 +949,11 @@ pub fn find_class(path: &str) -> Option<usize> {
     static CACHE: Mutex<Option<HashMap<String, usize>>> = Mutex::new(None);
     if let Some(hit) = CACHE.lock().unwrap().get_or_insert_default().get(path) {
         return Some(*hit);
+    }
+    // A class that is not loaded usually has no name entry yet either, and
+    // then there is no need to walk the whole object table to say so.
+    if !name_registered(path.rsplit('.').next().unwrap_or(path)) {
+        return None;
     }
     let found = find_object(&format!("Class {path}"))?;
     CACHE
@@ -1666,7 +1707,7 @@ pub fn find_function(class: usize, name: &str) -> Option<usize> {
 /// Native ⇔ `Func` is not `ProcessInternal` (falls back to `FUNC_Native`
 /// until `ProcessInternal` is known).
 pub fn function_is_native(func: usize) -> bool {
-    let pi = globals().process_internal;
+    let pi = PROCESS_INTERNAL.load(Ordering::Acquire);
     let f: usize = unsafe { memory::read(func + UFUNCTION_FUNC) }.unwrap_or(0);
     if pi != 0 && f != 0 {
         return f != pi;
@@ -1676,7 +1717,7 @@ pub fn function_is_native(func: usize) -> bool {
 
 #[cfg_attr(not(windows), allow(dead_code))]
 fn function_is_script(func: usize) -> bool {
-    let pi = globals().process_internal;
+    let pi = PROCESS_INTERNAL.load(Ordering::Acquire);
     pi != 0 && unsafe { memory::read::<usize>(func + UFUNCTION_FUNC) } == Some(pi)
 }
 
@@ -1876,10 +1917,59 @@ struct Sub {
     func_ptr: Option<usize>,
     /// Resolved lazily: the first time a function with this name fires.
     fname_index: Option<i32>,
+    /// While `fname_index` is unknown: GNames entries below this are known
+    /// not to be `func_name`, so only functions named by newer ones are compared.
+    names_checked: usize,
+    /// Last attempt to bind `func_ptr` for a class that was not loaded.
+    bind_tried: Option<Instant>,
 }
 
 static SUBS: Mutex<Vec<(u64, Sub)>> = Mutex::new(Vec::new());
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// A class missing at subscribe time is looked up again at most this often.
+const CLASS_RETRY: Duration = Duration::from_secs(2);
+
+// Lock-free prefilter for the per-call hook paths, which run for every
+// ProcessEvent and every script function: bit `fname index % FILTER_BITS` is
+// set for each subscribed name, so a clear bit means no subscription can
+// match without touching `SUBS`. Rebuilt under the `SUBS` lock on every change.
+const FILTER_BITS: usize = 4096;
+static SUB_FILTER: [AtomicU64; FILTER_BITS / 64] = [const { AtomicU64::new(0) }; FILTER_BITS / 64];
+/// Lowest `names_checked` of the subscriptions whose name is not resolved
+/// yet; functions named at or above it take the slow path. `usize::MAX` = none.
+static LAZY_FROM: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+fn rebuild_filter(subs: &[(u64, Sub)]) {
+    let mut bits = [0u64; FILTER_BITS / 64];
+    let mut lazy_from = usize::MAX;
+    for (_, s) in subs {
+        match s.fname_index.or_else(|| s.func_ptr.and_then(object_fname).map(|(i, _)| i)) {
+            Some(i) if i >= 0 => {
+                let b = i as usize % FILTER_BITS;
+                bits[b / 64] |= 1 << (b % 64);
+            }
+            _ => lazy_from = lazy_from.min(s.names_checked),
+        }
+    }
+    for (slot, b) in SUB_FILTER.iter().zip(bits) {
+        slot.store(b, Ordering::Relaxed);
+    }
+    LAZY_FROM.store(lazy_from, Ordering::Relaxed);
+}
+
+/// Could any subscription match `function`? `false` is definite.
+fn might_have_sub(function: usize) -> bool {
+    object_fname(function).is_some_and(|(index, _)| filter_admits(index))
+}
+
+fn filter_admits(index: i32) -> bool {
+    if index < 0 {
+        return false;
+    }
+    let b = index as usize % FILTER_BITS;
+    SUB_FILTER[b / 64].load(Ordering::Relaxed) & (1 << (b % 64)) != 0 || index as usize >= LAZY_FROM.load(Ordering::Relaxed)
+}
 
 /// `"PostLogin"` or `"TgGame.TgGame.PostLogin"`. Returns the subscription id.
 pub fn subscribe(spec: &str, phase: Phase, owner: &str) -> u64 {
@@ -1889,7 +1979,11 @@ pub fn subscribe(spec: &str, phase: Phase, owner: &str) -> u64 {
     };
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let ready = globals().gnames_ok;
-    let fname_index = if ready { find_name(&func_name) } else { None };
+    let (fname_index, names_checked) = match ready.then(|| lookup_name(&func_name)) {
+        Some(Ok(i)) => (Some(i), 0),
+        Some(Err(searched)) => (None, searched),
+        None => (None, 0),
+    };
     let func_ptr = match class_path.as_deref() {
         Some(cp) if ready => find_class(cp).and_then(|c| find_function(c, &func_name)),
         _ => None,
@@ -1905,17 +1999,23 @@ pub fn subscribe(spec: &str, phase: Phase, owner: &str) -> u64 {
             }
         ),
     );
-    SUBS.lock().unwrap().push((
-        id,
-        Sub {
-            owner: owner.to_string(),
-            phase,
-            class_path: class_path.clone(),
-            func_name: func_name.clone(),
-            func_ptr,
-            fname_index,
-        },
-    ));
+    {
+        let mut subs = SUBS.lock().unwrap();
+        subs.push((
+            id,
+            Sub {
+                owner: owner.to_string(),
+                phase,
+                class_path: class_path.clone(),
+                func_name: func_name.clone(),
+                func_ptr,
+                fname_index,
+                names_checked,
+                bind_tried: None,
+            },
+        ));
+        rebuild_filter(&subs);
+    }
     // Natives only reach a hook through their own `Func` pointer, which needs
     // the concrete UFunction: resolve it when the spec names the class, or
     // hook every native of that name when it does not (and again as classes
@@ -2028,28 +2128,36 @@ fn rescan_native_names() {
 /// Any subscription (either phase) for this function? Cheap gate for hooks.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn any_sub_for(function: usize) -> bool {
-    let subs = SUBS.lock().unwrap();
-    if subs.is_empty() {
+    if !might_have_sub(function) {
         return false;
     }
+    let subs = SUBS.lock().unwrap();
     let Some((index, _)) = object_fname(function) else { return false };
     let mut fired_name: Option<Option<String>> = None;
     subs.iter().any(|(_, s)| match (s.func_ptr, s.fname_index) {
         (Some(f), _) => f == function,
         (None, Some(i)) => i == index,
-        (None, None) => fired_name
-            .get_or_insert_with(|| object_name(function))
-            .as_deref()
-            .is_some_and(|n| n.eq_ignore_ascii_case(&s.func_name)),
+        (None, None) => {
+            index as usize >= s.names_checked
+                && fired_name
+                    .get_or_insert_with(|| object_name(function))
+                    .as_deref()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(&s.func_name))
+        }
     })
 }
 
 pub fn unsubscribe(id: u64) {
-    SUBS.lock().unwrap().retain(|(i, _)| *i != id);
+    let mut subs = SUBS.lock().unwrap();
+    subs.retain(|(i, _)| *i != id);
+    rebuild_filter(&subs);
 }
 
 pub fn clear_subscriptions() -> Vec<u64> {
-    SUBS.lock().unwrap().drain(..).map(|(id, _)| id).collect()
+    let mut subs = SUBS.lock().unwrap();
+    let gone = subs.drain(..).map(|(id, _)| id).collect();
+    rebuild_filter(&subs);
+    gone
 }
 
 /// Drop every subscription owned by `owner`; returns their ids.
@@ -2061,7 +2169,37 @@ pub fn clear_subscriptions_of(owner: &str) -> Vec<u64> {
         .map(|(id, _)| *id)
         .collect();
     subs.retain(|(id, _)| !gone.contains(id));
+    rebuild_filter(&subs);
     gone
+}
+
+/// Game thread, housekeeping: search the GNames entries added since the
+/// last look for the names of subscriptions that are not resolved yet.
+fn resolve_lazy_names() {
+    if LAZY_FROM.load(Ordering::Relaxed) == usize::MAX || !TRUSTED.load(Ordering::Relaxed) {
+        return;
+    }
+    let Some(count) = name_count() else { return };
+    let pending: Vec<String> = SUBS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, s)| s.func_ptr.is_none() && s.fname_index.is_none() && s.names_checked < count)
+        .map(|(_, s)| s.func_name.clone())
+        .collect();
+    if pending.is_empty() {
+        return;
+    }
+    let found: Vec<(Result<i32, usize>, String)> = pending.into_iter().map(|n| (lookup_name(&n), n)).collect();
+    let mut subs = SUBS.lock().unwrap();
+    for (_, s) in subs.iter_mut().filter(|(_, s)| s.func_ptr.is_none() && s.fname_index.is_none()) {
+        match found.iter().find(|(_, n)| n.eq_ignore_ascii_case(&s.func_name)) {
+            Some((Ok(i), _)) => s.fname_index = Some(*i),
+            Some((Err(searched), _)) => s.names_checked = s.names_checked.max(*searched),
+            None => {}
+        }
+    }
+    rebuild_filter(&subs);
 }
 
 /// Owner of a subscription, if it still exists.
@@ -2111,13 +2249,14 @@ pub fn set_dispatcher(f: fn(Event) -> bool) {
 /// logical call (at the outermost frame), exact-function ones wherever that
 /// function body runs.
 fn matching_subs(object: usize, function: usize, phase: Phase, inner: bool) -> Vec<u64> {
-    let Some((index, _)) = object_fname(function) else { return Vec::new() };
-    let mut subs = SUBS.lock().unwrap();
-    if subs.is_empty() {
+    if !might_have_sub(function) {
         return Vec::new();
     }
+    let Some((index, _)) = object_fname(function) else { return Vec::new() };
+    let mut subs = SUBS.lock().unwrap();
     let mut fired_name: Option<Option<String>> = None;
     let mut due = Vec::new();
+    let mut resolved = false;
     for (id, s) in subs.iter_mut() {
         if s.phase != phase {
             continue;
@@ -2130,11 +2269,13 @@ fn matching_subs(object: usize, function: usize, phase: Phase, inner: bool) -> V
         }
         let same_name = match s.fname_index {
             Some(i) => i == index,
+            None if (index as usize) < s.names_checked => false,
             None => {
                 let name = fired_name.get_or_insert_with(|| object_name(function));
                 let hit = name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&s.func_name));
                 if hit {
                     s.fname_index = Some(index);
+                    resolved = true;
                 }
                 hit
             }
@@ -2145,12 +2286,15 @@ fn matching_subs(object: usize, function: usize, phase: Phase, inner: bool) -> V
         let hit = match s.class_path.as_deref() {
             None => !inner,
             Some(cp) => {
-                // The class may have loaded since subscribe: bind exactly now.
-                match find_class(cp).and_then(|c| find_function(c, &s.func_name)) {
-                    Some(f) => {
-                        s.func_ptr = Some(f);
-                        f == function
-                    }
+                // The class may have loaded since subscribe: bind exactly
+                // once it has. A miss can cost an object-table walk, so it is
+                // not retried on every call.
+                if s.bind_tried.is_none_or(|t| t.elapsed() >= CLASS_RETRY) {
+                    s.bind_tried = Some(Instant::now());
+                    s.func_ptr = find_class(cp).and_then(|c| find_function(c, &s.func_name));
+                }
+                match s.func_ptr {
+                    Some(f) => f == function,
                     None => !inner && is_a_path(object, cp),
                 }
             }
@@ -2158,6 +2302,9 @@ fn matching_subs(object: usize, function: usize, phase: Phase, inner: bool) -> V
         if hit {
             due.push(*id);
         }
+    }
+    if resolved {
+        rebuild_filter(&subs);
     }
     due
 }
@@ -2200,6 +2347,12 @@ pub fn on_process_event_after(object: usize, function: usize, parms: usize, inne
 
 type Job = Box<dyn FnOnce() + Send>;
 static QUEUE: Mutex<Vec<Job>> = Mutex::new(Vec::new());
+/// Set after a push, so draining an empty queue costs no lock.
+static QUEUED: AtomicBool = AtomicBool::new(false);
+/// Game-thread events between two housekeeping rounds (window hook, deferred
+/// native hooks, rescans). Each round keeps its own clock; this only keeps
+/// them off the per-event path.
+const HOUSEKEEPING_EVERY: u32 = 256;
 /// Thread that fired the first `ProcessEvent`; `0` until then.
 static GAME_THREAD: AtomicU32 = AtomicU32::new(0);
 
@@ -2227,6 +2380,7 @@ pub fn on_game_thread() -> bool {
 /// event ever fires the job stays queued).
 pub fn queue(job: Job) {
     QUEUE.lock().unwrap().push(job);
+    QUEUED.store(true, Ordering::Release);
 }
 
 /// Natives whose hook waits for `GPropAddr` (they have `out` params).
@@ -2353,23 +2507,33 @@ fn service_pending_hooks() {
 
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn drain_queue() {
+    static EVENTS: AtomicU32 = AtomicU32::new(0);
     let tid = current_thread_id();
-    if GAME_THREAD
-        .compare_exchange(0, tid, Ordering::AcqRel, Ordering::Relaxed)
-        .is_ok()
-    {
-        crate::log::line("events", &format!("game thread = t{tid}"));
+    let mut game = GAME_THREAD.load(Ordering::Acquire);
+    if game == 0 {
+        game = match GAME_THREAD.compare_exchange(0, tid, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => {
+                crate::log::line("events", &format!("game thread = t{tid}"));
+                tid
+            }
+            Err(winner) => winner,
+        };
     }
-    if !on_game_thread() {
+    if game != tid {
         return;
     }
-    crate::input::maintain(false);
-    #[cfg(windows)]
-    service_pending_hooks();
-    rescan_native_names();
-    let jobs: Vec<Job> = std::mem::take(&mut *QUEUE.lock().unwrap());
-    for job in jobs {
-        job();
+    if EVENTS.fetch_add(1, Ordering::Relaxed).is_multiple_of(HOUSEKEEPING_EVERY) {
+        crate::input::maintain(false);
+        #[cfg(windows)]
+        service_pending_hooks();
+        rescan_native_names();
+        resolve_lazy_names();
+    }
+    if QUEUED.load(Ordering::Acquire) && QUEUED.swap(false, Ordering::AcqRel) {
+        let jobs: Vec<Job> = std::mem::take(&mut *QUEUE.lock().unwrap());
+        for job in jobs {
+            job();
+        }
     }
     // One UI frame per Present, built here where game objects are safe.
     crate::overlay::maybe_build_frame();
@@ -2586,7 +2750,7 @@ mod hook {
         let _ = catch_unwind(super::drain_queue);
         // Script functions dispatch from the ProcessInternal detour and
         // hooked natives from their thunk; dispatching here too would double up.
-        if super::function_is_script(f) || super::native::is_hooked(f) {
+        if !super::might_have_sub(f) || super::function_is_script(f) || super::native::is_hooked(f) {
             original(this, func, parms, result);
             return;
         }
@@ -2964,7 +3128,9 @@ mod native {
     /// Is `func` bound to Lua (a dllimport function with no native behind it)?
     pub fn is_lua_native(func: usize) -> bool {
         func != 0
-            && slots()
+            && TABLE
+                .lock()
+                .unwrap()
                 .iter()
                 .any(|s| s.func.load(Ordering::Acquire) == func && s.original.load(Ordering::Acquire) == 0)
     }
@@ -3198,7 +3364,7 @@ mod native {
     }
 
     pub fn is_hooked(func: usize) -> bool {
-        func != 0 && slots().iter().any(|s| s.func.load(Ordering::Acquire) == func)
+        func != 0 && TABLE.lock().unwrap().iter().any(|s| s.func.load(Ordering::Acquire) == func)
     }
 
     pub fn hooked() -> Vec<usize> {
@@ -3467,4 +3633,39 @@ pub fn dump_sdk(dir: &std::path::Path) -> Result<(usize, usize), String> {
         files += 1;
     }
     Ok((classes, files))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sub(fname_index: Option<i32>, names_checked: usize) -> (u64, Sub) {
+        let s = Sub {
+            owner: String::new(),
+            phase: Phase::After,
+            class_path: None,
+            func_name: "Probe".into(),
+            func_ptr: None,
+            fname_index,
+            names_checked,
+            bind_tried: None,
+        };
+        (0, s)
+    }
+
+    #[test]
+    fn filter_admits_subscribed_names_and_unsearched_ones() {
+        rebuild_filter(&[sub(Some(5), 0), sub(Some(70), 0)]);
+        assert!(filter_admits(5) && filter_admits(70));
+        assert!(!filter_admits(6) && !filter_admits(100_000) && !filter_admits(-1));
+        // Same bit modulo the filter size: admitted, the slow path decides.
+        assert!(filter_admits(5 + FILTER_BITS as i32));
+
+        // An unresolved name can only be one GNames had not searched yet.
+        rebuild_filter(&[sub(Some(5), 0), sub(None, 200_000)]);
+        assert!(!filter_admits(199_999) && filter_admits(200_000) && filter_admits(5));
+
+        rebuild_filter(&[]);
+        assert!(!filter_admits(5) && !filter_admits(200_000));
+    }
 }
