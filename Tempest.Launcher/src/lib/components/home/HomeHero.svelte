@@ -11,7 +11,6 @@
 		Pin,
 		Play,
 		Search,
-		Shuffle,
 		Square,
 	} from "@lucide/svelte";
 	import { untrack } from "svelte";
@@ -60,6 +59,17 @@
 	function shuffle() {
 		pinnedBackground.value = undefined;
 		art = pickArt(art);
+	}
+
+	function onHeroClick(event: MouseEvent) {
+		if (pinned) return;
+		if (
+			event.target instanceof Element &&
+			event.target.closest("button, a, input, select, textarea, [role='button']")
+		) {
+			return;
+		}
+		shuffle();
 	}
 
 	function togglePin() {
@@ -132,6 +142,7 @@
 
 <section
 	data-panel
+	onclick={onHeroClick}
 	class="rounded-box border-base-300 bg-base-200 relative isolate flex min-h-80 flex-1 flex-col overflow-hidden border"
 >
 	{#key art}
@@ -147,8 +158,7 @@
 	<div
 		class="from-base-200 via-base-200/80 absolute inset-0 -z-10 bg-linear-to-r from-20% via-50% to-transparent"
 	></div>
-
-	<div class="flex items-start justify-between gap-3 px-6 pt-5">
+	<div class="relative z-20 flex items-start justify-between gap-3 px-6 pt-5">
 		<HomeGreeting {instance} {instances} />
 		<div
 			class="bg-base-100/60 rounded-field ml-auto flex items-center gap-0.5 p-0.5 text-xs backdrop-blur-sm"
@@ -160,15 +170,7 @@
 				</span>
 			{/if}
 			<button
-				class="btn btn-ghost btn-xs btn-square"
-				title={m.home_art_shuffle()}
-				aria-label={m.home_art_shuffle()}
-				onclick={shuffle}
-			>
-				<Shuffle size={12} />
-			</button>
-			<button
-				class={["btn btn-ghost btn-xs btn-square", pinned && "text-primary"]}
+				class={["btn btn-ghost btn-xs btn-square", pinned && "text-error"]}
 				title={pinned ? m.home_art_unpin() : m.home_art_pin()}
 				aria-label={m.home_art_pin()}
 				aria-pressed={pinned}
@@ -180,7 +182,7 @@
 	</div>
 
 	<div
-		class="mt-auto flex flex-col items-start justify-between gap-3 px-6 pt-10 pb-6 @sm:flex-row @sm:items-end"
+		class="relative z-20 mt-auto flex flex-col items-start justify-between gap-3 px-6 pt-10 pb-6 @sm:flex-row @sm:items-end"
 	>
 		<div class="min-w-0">
 			{#if instance}
