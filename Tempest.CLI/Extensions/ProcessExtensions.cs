@@ -1,17 +1,11 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Reflection;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using Tempest.CLI.Launcher;
 
 namespace Tempest.CLI.Extensions;
 
 internal static class ProcessExtensions
 {
-    private static readonly string ToolsDir = TempestPathUtility.GetToolsDirectory();
-    private static readonly ConcurrentDictionary<string, string> Extracted = new(StringComparer.OrdinalIgnoreCase);
-
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
 
@@ -57,21 +51,23 @@ internal static class ProcessExtensions
         catch { }
     }
 
-    public static string GetOrExtractLoaderDll() => ExtractResource("tempest_loader.dll");
-
     public static async Task<bool> InjectLibraryAsync(this Process process, string path, bool is64Bit)
     {
         EnableDebugPrivilege();
         string executable;
         try
         {
-            executable = ExtractResource(is64Bit ? "inject64.exe" : "inject32.exe");
+            executable = GetExecutablePath(is64Bit ? "inject64.exe" : "inject32.exe");
         }
-        // FileNotFound: the temp copy was quarantined before it could be moved into place.
-        catch (IOException ex) when (Antivirus.IsBlock(ex) || ex is FileNotFoundException)
+        catch (Exception ex) when (Antivirus.IsBlock(ex))
         {
-            Console.Error.WriteLine($"[inject] antivirus blocked the injector in {ToolsDir}; allow the folder to load mod DLLs");
-            Antivirus.Report(ToolsDir);
+            Console.Error.WriteLine($"[inject] antivirus blocked the injector in {AppContext.BaseDirectory}; allow the folder to load mod DLLs");
+            Antivirus.Report(AppContext.BaseDirectory);
+            return false;
+        }
+        catch (FileNotFoundException ex)
+        {
+            Console.Error.WriteLine($"[inject] {ex.Message}");
             return false;
         }
 
@@ -114,7 +110,7 @@ internal static class ProcessExtensions
         catch (Exception ex) when (Antivirus.IsBlock(ex) || Antivirus.Removed(executable))
         {
             Console.Error.WriteLine($"[inject] antivirus blocked {executable}; allow its folder to load mod DLLs");
-            Antivirus.Report(ToolsDir);
+            Antivirus.Report(AppContext.BaseDirectory);
             return false;
         }
         catch (Exception ex)
@@ -137,7 +133,7 @@ internal static class ProcessExtensions
         if (Antivirus.Removed(executable))
         {
             Console.Error.WriteLine($"[inject] {Path.GetFileName(executable)} was removed by an antivirus");
-            Antivirus.Report(ToolsDir);
+            Antivirus.Report(AppContext.BaseDirectory);
         }
         else if ((dllExisted && Antivirus.Removed(path)) || Antivirus.Refuses(path))
         {
@@ -147,39 +143,12 @@ internal static class ProcessExtensions
         return false;
     }
 
-    // Defender's behaviour heuristics block a process that drops an exe into a fresh %TEMP% folder and runs it
-    // against another process, so the helpers are written once to a stable, content-addressed path and reused.
-    private static string ExtractResource(string fileName) => Extracted.GetOrAdd(fileName, static name =>
+    private static string GetExecutablePath(string fileName)
     {
-        var asm = Assembly.GetExecutingAssembly();
-        var resourceName = asm.GetManifestResourceNames()
-            .FirstOrDefault(n => n.EndsWith(name, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"Embedded resource for '{name}' not found. Available resources: {string.Join(',', asm.GetManifestResourceNames())}");
-
-        byte[] bytes;
-        using (var rs = asm.GetManifestResourceStream(resourceName) ?? throw new InvalidOperationException($"Failed to open resource stream '{resourceName}'"))
-        using (var ms = new MemoryStream())
-        {
-            rs.CopyTo(ms);
-            bytes = ms.ToArray();
-        }
-
-        var dir = Path.Combine(ToolsDir, Convert.ToHexStringLower(SHA256.HashData(bytes))[..16]);
-        var outPath = Path.Combine(dir, name);
-        if (File.Exists(outPath))
-            return outPath;
-
-        Directory.CreateDirectory(dir);
-        var tmpPath = $"{outPath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllBytes(tmpPath, bytes);
-        try
-        {
-            File.Move(tmpPath, outPath);
-        }
-        catch (IOException) when (File.Exists(outPath))
-        {
-            // another launch extracted it first
-            File.Delete(tmpPath);
-        }
-        return outPath;
-    });
+        // copied next to the CLI by Tempest.CLI.csproj (build and publish)
+        var path = Path.Combine(AppContext.BaseDirectory, fileName);
+        return File.Exists(path)
+            ? path
+            : throw new FileNotFoundException($"'{fileName}' is missing next to the CLI ({AppContext.BaseDirectory}).", path);
+    }
 }

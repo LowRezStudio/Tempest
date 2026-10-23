@@ -37,9 +37,9 @@
 		.map((champ) => ({
 			name: champ.name,
 			displayName: champ.displayName,
-			iconPath: `/champions/${champ.displayName}/icon.webp`,
-			fallbackPath: `/champions/${champ.displayName}/fallback.webp`,
-			videoPath: `/champions/${champ.displayName}/video.webm`,
+			iconPath: `/champions/${champ.displayName}/icon.avif`,
+			fallbackPath: `/champions/${champ.displayName}/fallback.avif`,
+			videoPath: `/champions/${champ.displayName}/video.mp4`,
 			disabled: DISABLED_CHAMPION_NAMES.has(champ.name),
 		}));
 
@@ -235,7 +235,7 @@
 									loading="lazy"
 									onerror={(e) => {
 										(e.currentTarget as HTMLImageElement).src =
-											"/champions/Generic/icon.webp";
+											"/champions/Generic/icon.avif";
 									}}
 								/>
 								{#if isDisabled}

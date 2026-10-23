@@ -722,9 +722,12 @@ pub fn write_export(obj: &ParsedObject, layout: Layout, none: FName) -> Vec<u8> 
 /// Decide whether a package carries editor-only field data by trying to
 /// parse the first property export both ways.
 pub fn probe_layout(pkg: &tempest_upk::Package) -> Layout {
+    // Property exports decide; a package without any (a tiny script package)
+    // is probed through its `Class` exports, whose category lists depend on
+    // the layout too.
     for (i, e) in pkg.exports.iter().enumerate() {
         let cn = pkg.class_name_of(PackageIndex::export(i));
-        if PropertyKind::from_class_name(&cn).is_none() {
+        if PropertyKind::from_class_name(&cn).is_none() && !(cn == "Class" && e.serial_size > 0) {
             continue;
         }
         let info = ExportInfo { class_name: &cn, object_flags: e.object_flags, is_component: false, native_prefix_len: 0 };

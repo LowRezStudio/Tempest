@@ -3,11 +3,13 @@
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { stopGameWindow } from "$lib/core/launch";
+	import { launchPresets } from "$lib/core/presets";
 	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import type { Instance } from "$lib/types/instance";
+	import type { Process } from "$lib/types/process";
 
 	interface Props {
 		instance: Instance;
@@ -37,6 +39,16 @@
 	const formatTime = (timestamp: number) =>
 		new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+	// Name each window after the preset it was launched with, if any.
+	const windowLabel = (gameWindow: Process): string => {
+		const preset = launchPresets.value.find(
+			(preset) => preset.id === gameWindow.instance.launchOptions.presetId,
+		);
+		return preset
+			? `${preset.title || m.instance_preset_untitled()} ${gameWindow.sessionNumber}`
+			: m.sessions_window({ number: gameWindow.sessionNumber });
+	};
+
 	async function openAnother() {
 		try {
 			await launchMutation.mutateAsync(instance);
@@ -47,7 +59,7 @@
 </script>
 
 {#if windows.length}
-	<PopoverMenu triggerClass={style.trigger} triggerLabel={m.sessions_manage()}>
+	<PopoverMenu triggerClass={style.trigger} triggerLabel={m.sessions_manage()} menuClass="w-80">
 		{#snippet trigger()}
 			{#if launchMutation.isPending}
 				<span class="loading loading-spinner loading-xs"></span>
@@ -69,10 +81,10 @@
 					{:else}
 						<Square size={16} />
 					{/if}
-					<span class="flex-1"
-						>{m.sessions_window({ number: gameWindow.sessionNumber })}</span
-					>
-					<span class="text-xs tabular-nums opacity-60">
+					<span class="w-40 truncate" title={windowLabel(gameWindow)}>
+						{windowLabel(gameWindow)}
+					</span>
+					<span class="max-w-20 truncate text-xs tabular-nums opacity-60">
 						{gameWindow.status === "stopping"
 							? m.common_stopping_label()
 							: formatTime(gameWindow.startedAt)}

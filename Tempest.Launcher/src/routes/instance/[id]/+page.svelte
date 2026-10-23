@@ -3,6 +3,7 @@
 	import { page } from "$app/state";
 	import { PackageOpen, Plus, Search } from "@lucide/svelte";
 	import InstanceHeader from "$lib/components/library/InstanceHeader.svelte";
+	import InstancePresetsTab from "$lib/components/library/InstancePresetsTab.svelte";
 	import InstanceSettings from "$lib/components/library/InstanceSettings.svelte";
 	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
@@ -20,13 +21,13 @@
 	import { addToast } from "$lib/stores/ui.svelte";
 	import type { ModRecord } from "$lib/core/mods";
 
-	type Tab = "content" | "browse" | "settings";
+	type Tab = "content" | "browse" | "presets" | "settings";
 	let activeTab = $state<Tab>("content");
 
-	// Deep-link support: /instance/<id>?tab=settings (or browse) opens directly on that tab.
+	// Deep-link support: /instance/<id>?tab=settings (or browse/presets) opens directly there.
 	$effect(() => {
 		const tab = page.url.searchParams.get("tab");
-		activeTab = tab === "settings" || tab === "browse" ? tab : "content";
+		activeTab = tab === "settings" || tab === "browse" || tab === "presets" ? tab : "content";
 	});
 
 	const instance = $derived(instanceMap.value[page.params.id!]);
@@ -125,11 +126,13 @@
 			tabs={[
 				{ name: m.instance_content(), value: "content", count: modsQuery.data?.length },
 				{ name: m.instance_browse(), value: "browse" },
+				{ name: m.instance_presets(), value: "presets" },
 				{ name: m.settings_title(), value: "settings" },
 			]}
 			bind:activeTab
 			{updateCount}
 			onShowUpdates={() => (updatesOpen = true)}
+			onManagePresets={() => (activeTab = "presets")}
 		/>
 	{/if}
 
@@ -211,6 +214,14 @@
 						/>
 					{:else}
 						<p class="text-base-content/60 text-sm">{m.common_loading()}</p>
+					{/if}
+				</div>
+			</div>
+		{:else if activeTab === "presets"}
+			<div class="flex-1 overflow-y-auto">
+				<div class="p-6">
+					{#if instance}
+						<InstancePresetsTab {instance} />
 					{/if}
 				</div>
 			</div>

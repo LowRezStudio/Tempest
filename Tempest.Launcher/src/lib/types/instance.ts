@@ -24,12 +24,19 @@ export const instancePlatforms = ["Win64", "Win32"] as const satisfies readonly 
 
 export type InstancePlatform = (typeof instancePlatforms)[number];
 
+export type LaunchPreset = {
+	id: string;
+	title: string;
+	args: string[];
+};
+
 export type InstanceLaunchOptions = {
 	dllList: string[];
 	args: string[];
 	noDefaultArgs: boolean;
 	log: boolean;
 	platform?: InstancePlatform;
+	presetId?: string;
 };
 
 export type Instance = {

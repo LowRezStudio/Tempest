@@ -8,6 +8,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(dirname, "..");
 const binariesDir = path.join(root, "electron", "resources", "binaries");
 
+fs.rmSync(binariesDir, { recursive: true, force: true });
 fs.mkdirSync(binariesDir, { recursive: true });
 
 // The CLI checks mods' "tempest" version requirements against the launcher version it ships with.

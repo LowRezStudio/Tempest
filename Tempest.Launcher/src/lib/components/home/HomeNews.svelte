@@ -26,6 +26,7 @@
 <Section title={m.home_news()} onSeeAll={() => openUrl(BLOG_URL)}>
 	{#if feedQuery.isPending && posts.length === 0}
 		<ul
+			data-panel
 			class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y border"
 			aria-busy="true"
 		>
@@ -43,12 +44,16 @@
 		</ul>
 	{:else if posts.length === 0}
 		<p
+			data-panel
 			class="bg-base-200 border-base-300 rounded-box text-base-content/60 border px-4 py-12 text-center text-sm"
 		>
 			{m.home_feed_unavailable()}
 		</p>
 	{:else}
-		<ul class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y border">
+		<ul
+			data-panel
+			class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y border"
+		>
 			{#each posts as post (post.link)}
 				<li
 					class="hover:bg-base-300/40 relative flex items-center gap-4 p-3 transition-colors"

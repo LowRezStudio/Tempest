@@ -1,17 +1,15 @@
-// Renderer-side platform API over the Electron main process (window.electronAPI).
-//
-// This is a thin layer: every channel and payload is typed by the host's IPC
-// contract (electron/src/ipc/contract.ts), and all system work (filesystem,
-// processes, dialogs, tray, updater) happens on the host. The renderer only
-// orchestrates: it keeps UI state, decides *what* to do, and calls one
-// specialised host command per system operation.
+// Typed renderer API for Electron IPC; filesystem, process and window operations stay in the host.
 import type {
+	ContextMenuAction,
+	ContextMenuOptions,
 	IpcChannel,
 	IpcContract,
 	IpcEventChannel,
 	IpcEvents,
 	PreloadApi,
 } from "../../../electron/src/ipc/contract";
+
+export type { ContextMenuAction, ContextMenuOptions };
 
 const eio = (): PreloadApi => {
 	if (!window.electronAPI) {
@@ -104,6 +102,18 @@ export class Command<O = string> {
 		return new Command(name, args ?? [], options, true);
 	}
 
+	/**
+	 * Rebuild the event plumbing for a child that outlived this page (a Vite
+	 * reload or renderer crash leaves the host process running). The command has
+	 * no program: it only routes the host's `shell:process` stream for the pid.
+	 * @param pid - Host child id from `shell:list`.
+	 * @returns The reattached command and its child.
+	 */
+	static attach(pid: number): { command: Command; child: Child } {
+		const command = new Command("", []);
+		return { command, child: command.listen(pid) };
+	}
+
 	on(event: "close", cb: (payload: ClosePayload) => void): this;
 	on(event: "error", cb: (error: string) => void): this;
 	on(event: string, cb: Function): this {
@@ -124,6 +134,10 @@ export class Command<O = string> {
 			sidecar: this._sidecar,
 		});
 
+		return this.listen(pid);
+	}
+
+	private listen(pid: number): Child {
 		const child = new Child(pid);
 
 		// One demultiplexed event stream for all spawned children. Remove all
@@ -215,6 +229,13 @@ export class Child {
 		await eio().invoke("shell:stdin-write", { pid: this.pid, data });
 	}
 
+	// Write a command with exactly one trailing newline.
+	sendLine(line: string): Promise<void> {
+		let end = line.length;
+		while (end > 0 && (line[end - 1] === "\n" || line[end - 1] === "\r")) end--;
+		return this.write(`${line.slice(0, end)}\n`);
+	}
+
 	_handleClose(payload: ClosePayload) {
 		this._emitter.emit("close", payload);
 	}
@@ -288,6 +309,11 @@ export function onDragDropEvent(
 
 export async function destroyWindow(): Promise<void> {
 	await eio().invoke("window:destroy");
+}
+
+// Show the native text menu, returning the console action or null on dismissal/native edits.
+export function showContextMenu(options: ContextMenuOptions): Promise<ContextMenuAction | null> {
+	return eio().invoke("window:context-menu", options);
 }
 
 // ---- Dialogs ----

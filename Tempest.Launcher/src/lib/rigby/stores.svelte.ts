@@ -1,3 +1,4 @@
+import { hostState } from "$lib/stores/host-state.svelte";
 import { persistedJSON } from "$lib/stores/persisted.svelte";
 
 export type RestoreStatus = "idle" | "running" | "complete" | "error";
@@ -55,14 +56,19 @@ export const SPEED_WINDOW_MS = 120_000;
 /** The running download's speed, about once a second; in memory only, so it restarts with the app */
 export const speedSamples = $state({ value: [] as SpeedSample[] });
 
-export const restoreStatus = $state({ value: "idle" as RestoreStatus });
-export const restoreResult = $state({ value: null as RestoreResult | null });
-export const restoreError = $state({ value: null as string | null });
-export const restoreOutDir = $state({ value: "" });
+export const restoreStatus = hostState<RestoreStatus>("rigby:status", "idle");
+export const restoreResult = hostState<RestoreResult | null>("rigby:result", null);
+export const restoreError = hostState<string | null>("rigby:error", null);
+export const restoreOutDir = hostState<string>("rigby:outDir", "");
 
 export const queueItems = persistedJSON<QueueItem[]>("rigby:queue", []);
-export const queueRunning = $state({ value: false });
-export const queueCurrentIndex = $state({ value: null as number | null });
+// Runtime queue state lives in the host: a reload (or a renderer crash) keeps
+// the queue running instead of resetting it to nothing.
+export const queueRunning = hostState<boolean>("rigby:running", false);
+export const queueCurrentIndex = hostState<number | null>("rigby:currentIndex", null);
+/** Item the queue is downloading right now, and the host child doing it. */
+export const queueRunningId = hostState<string | null>("rigby:runningId", null);
+export const queueRunningPid = hostState<number | null>("rigby:runningPid", null);
 
 export const isRestoreRunning = {
 	get value() {
@@ -106,4 +112,6 @@ export function resetQueueState(): void {
 	queueItems.value = [];
 	queueRunning.value = false;
 	queueCurrentIndex.value = null;
+	queueRunningId.value = null;
+	queueRunningPid.value = null;
 }

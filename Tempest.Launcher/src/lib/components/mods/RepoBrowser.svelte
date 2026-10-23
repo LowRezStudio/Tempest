@@ -282,6 +282,7 @@
 				</div>
 			{:else if !catalogQuery.data}
 				<ul
+					data-panel
 					class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y border"
 					aria-busy="true"
 				>
@@ -315,7 +316,10 @@
 					{/if}
 				</div>
 			{:else}
-				<ul class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y border">
+				<ul
+					data-panel
+					class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y border"
+				>
 					{#each shown as mod (mod.id)}
 						<RepoModRow
 							{mod}

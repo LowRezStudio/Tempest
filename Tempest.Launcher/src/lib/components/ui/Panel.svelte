@@ -30,6 +30,7 @@
 <!-- One section of a page, after the mod website's Panel: a bordered card with an icon, a title and room on the right -->
 <section
 	{id}
+	data-panel
 	class={[
 		"bg-base-200 rounded-box @container min-w-0 scroll-mt-6 border p-4 ring-2 ring-transparent transition-[border-color,box-shadow] duration-500",
 		tone === "danger"

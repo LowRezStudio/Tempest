@@ -136,6 +136,7 @@
 
 <div class="grid gap-4 @4xl:grid-cols-[minmax(0,1fr)_20rem]">
 	<section
+		data-panel
 		class={[
 			"rounded-box border-base-300 bg-base-200 relative isolate flex min-h-72 flex-col overflow-hidden border",
 			!hasAside && "@4xl:col-span-2",
@@ -283,7 +284,10 @@
 	</section>
 
 	{#if hasAside}
-		<aside class="bg-base-200 border-base-300 rounded-box flex flex-col gap-1 border p-3">
+		<aside
+			data-panel
+			class="bg-base-200 border-base-300 rounded-box flex flex-col gap-1 border p-3"
+		>
 			{#if others.length > 0}
 				<div class="mb-1 flex min-h-6 items-center justify-between gap-2 pl-1.5">
 					<h2 class="text-sm font-semibold">

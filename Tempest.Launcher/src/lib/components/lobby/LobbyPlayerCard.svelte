@@ -57,7 +57,7 @@
 
 		<div class="relative z-10 flex-shrink-0">
 			<img
-				src={`/champions/${champion || "Generic"}/icon.webp`}
+				src={`/champions/${champion || "Generic"}/icon.avif`}
 				alt={champion || "No Champion"}
 				class="rounded-none object-cover ring-2 ring-blue-500/30"
 				class:w-10={compact}
@@ -66,7 +66,7 @@
 				class:h-12={!compact}
 				loading="lazy"
 				onerror={(e) => {
-					(e.currentTarget as HTMLImageElement).src = "/champions/Generic/icon.webp";
+					(e.currentTarget as HTMLImageElement).src = "/champions/Generic/icon.avif";
 				}}
 			/>
 		</div>
@@ -125,7 +125,7 @@
 
 		<div class="relative z-10 flex-shrink-0">
 			<img
-				src={`/champions/${champion || "Generic"}/icon.webp`}
+				src={`/champions/${champion || "Generic"}/icon.avif`}
 				alt={champion || "No Champion"}
 				class="rounded-none object-cover ring-2 ring-red-500/30"
 				class:w-10={compact}
@@ -134,7 +134,7 @@
 				class:h-12={!compact}
 				loading="lazy"
 				onerror={(e) => {
-					(e.currentTarget as HTMLImageElement).src = "/champions/Generic/icon.webp";
+					(e.currentTarget as HTMLImageElement).src = "/champions/Generic/icon.avif";
 				}}
 			/>
 		</div>

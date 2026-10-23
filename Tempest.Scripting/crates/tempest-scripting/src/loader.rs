@@ -375,9 +375,9 @@ fn lua_files(root: &Path, dir: &Path) -> Vec<String> {
                     continue;
                 }
                 if let Ok(rel) = path.strip_prefix(root) {
-                    if let Some(rel) = rel.to_str() {
-                        out.push(rel.to_string());
-                    }
+                    // CHECKSUMS keys are `/`-separated whatever the OS.
+                    let rel: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+                    out.push(rel.join("/"));
                 }
             }
         }

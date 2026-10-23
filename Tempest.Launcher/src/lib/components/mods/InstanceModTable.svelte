@@ -180,7 +180,7 @@
 	};
 </script>
 
-<table class="table">
+<table data-panel class="table">
 	<thead>
 		<tr>
 			<th>

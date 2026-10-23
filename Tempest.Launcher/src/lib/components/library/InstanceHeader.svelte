@@ -1,15 +1,21 @@
 <script lang="ts" generics="T extends string">
 	import {
+		Check,
+		ChevronDown,
 		CircleArrowUp,
 		Clock,
 		CloudDownload,
 		Cpu,
 		FolderOpen,
 		Play,
+		SlidersHorizontal,
 		Square,
 		Terminal,
 	} from "@lucide/svelte";
 	import { Tabs } from "bits-ui";
+	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
+	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
+	import { activePreset, launchArgs, launchPresets } from "$lib/core/presets";
 	import { relativeDate } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
 	import { openPath } from "$lib/platform/api";
@@ -21,7 +27,7 @@
 	import InstanceMenu from "./InstanceMenu.svelte";
 	import InstanceSessionControls from "./InstanceSessionControls.svelte";
 	import PatchBanner from "./PatchBanner.svelte";
-	import type { Instance } from "$lib/types/instance";
+	import type { Instance, LaunchPreset } from "$lib/types/instance";
 
 	interface Props<Tab> {
 		instance: Instance;
@@ -30,6 +36,7 @@
 		/** Mod updates the repository has for it */
 		updateCount?: number;
 		onShowUpdates?: () => void;
+		onManagePresets?: () => void;
 	}
 
 	let {
@@ -38,6 +45,7 @@
 		activeTab = $bindable(),
 		updateCount = 0,
 		onShowUpdates,
+		onManagePresets,
 	}: Props<T> = $props();
 
 	const phase = $derived(instance.state.type);
@@ -55,12 +63,14 @@
 	const launch = createLaunchGameMutation();
 	const kill = createKillGameMutation();
 	const busy = $derived(launch.isPending || kill.isPending);
+	const selectedPreset = $derived(activePreset(instance));
 
 	const playLabel = $derived.by(() => {
 		if (phase === "setup") return m.common_setting_up();
 		if (launch.isPending) return m.common_launching();
 		if (kill.isPending) return m.common_stopping_label();
 		if (running) return windows.length > 1 ? m.sessions_stop_all() : m.common_stop();
+		if (selectedPreset) return selectedPreset.title || m.instance_preset_untitled();
 		return m.common_play();
 	});
 
@@ -79,10 +89,27 @@
 		});
 	}
 
+	// Picking a preset launches straight away with it (on top of the Settings
+	// arguments) without making it the default preset the Play button uses.
+	function launchWith(preset: LaunchPreset) {
+		const target = instance;
+		launch.mutate(
+			{ ...target, launchOptions: { ...target.launchOptions, presetId: preset.id } },
+			{
+				onError: (error) =>
+					addToast({
+						title: m.library_launch_failed({ name: target.label }),
+						message: error.message,
+						tone: "error",
+					}),
+			},
+		);
+	}
+
 	const formatTime = (timestamp: number) =>
 		new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-	const args = $derived(instance.launchOptions.args.join(" "));
+	const args = $derived(launchArgs(instance).join(" "));
 	// The website's secondary hero button, solid enough to read over the art
 	const secondary = "btn border-base-content/10 bg-base-100/60 hover:bg-base-100";
 </script>
@@ -168,23 +195,58 @@
 		</div>
 		<div class="flex shrink-0 items-center gap-2">
 			<InstanceSessionControls {instance} {busy} variant="header" />
-			<button
-				class="btn min-w-32"
-				class:btn-success={!running}
-				class:btn-error={running}
-				disabled={busy || (!running && phase !== "prepared")}
-				aria-busy={busy || phase === "setup"}
-				onclick={toggle}
-			>
-				{#if busy || phase === "setup"}
-					<span class="loading loading-spinner loading-xs"></span>
-				{:else if running}
-					<Square size={16} />
-				{:else}
-					<Play size={16} />
-				{/if}
-				{playLabel}
-			</button>
+			<div class="join">
+				<button
+					class="btn join-item min-w-32"
+					class:btn-success={!running}
+					class:btn-error={running}
+					disabled={busy || (!running && phase !== "prepared")}
+					aria-busy={busy || phase === "setup"}
+					onclick={toggle}
+				>
+					{#if busy || phase === "setup"}
+						<span class="loading loading-spinner loading-xs"></span>
+					{:else if running}
+						<Square size={16} />
+					{:else}
+						<Play size={16} />
+					{/if}
+					<span class="max-w-40 truncate">{playLabel}</span>
+				</button>
+				<PopoverMenu
+					triggerClass="btn join-item btn-square {running ? 'btn-error' : 'btn-success'}"
+					triggerLabel={m.instance_presets()}
+				>
+					{#snippet trigger()}
+						<ChevronDown size={16} />
+					{/snippet}
+					{#snippet children()}
+						{#each launchPresets.value as preset (preset.id)}
+							<PopoverMenuItem
+								onclick={() => launchWith(preset)}
+								disabled={busy || phase !== "prepared"}
+								title={preset.args.join(" ")}
+							>
+								<span class="flex w-4 shrink-0 justify-center">
+									{#if selectedPreset?.id === preset.id}
+										<Check size={14} />
+									{/if}
+								</span>
+								<span class="flex-1 truncate">
+									{preset.title || m.instance_preset_untitled()}
+								</span>
+							</PopoverMenuItem>
+						{/each}
+						{#if launchPresets.value.length > 0}
+							<li role="separator" class="border-base-content/10 my-1 border-t"></li>
+						{/if}
+						<PopoverMenuItem onclick={onManagePresets}>
+							<SlidersHorizontal size={16} />
+							{m.instance_preset_manage()}
+						</PopoverMenuItem>
+					{/snippet}
+				</PopoverMenu>
+			</div>
 			<button
 				class="{secondary} btn-square"
 				title={m.instancemenu_browse_folder()}

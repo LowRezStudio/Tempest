@@ -1,5 +1,6 @@
 import { createCommand } from "$lib/core/command";
 import { m } from "$lib/paraglide/messages";
+import { Command, invoke, type Child } from "$lib/platform/api";
 import { setupInstance } from "$lib/platforms/setup";
 import { instanceMap, updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, logCommandOutput } from "$lib/stores/processes.svelte";
@@ -8,11 +9,12 @@ import {
 	queueCurrentIndex,
 	queueItems,
 	queueRunning,
+	queueRunningId,
+	queueRunningPid,
 	SPEED_WINDOW_MS,
 	speedSamples,
 } from "./stores.svelte";
 import type { ArgumentType } from "$lib/core/command";
-import type { Child } from "$lib/platform/api";
 import type { Instance } from "$lib/types/instance";
 import type { QueueItem } from "./stores.svelte";
 
@@ -32,8 +34,6 @@ function resetRunningItems(): void {
 	);
 	queueItems.value = updated;
 }
-
-resetRunningItems();
 
 export class RestoreQueue {
 	private processing = false;
@@ -104,6 +104,42 @@ export class RestoreQueue {
 		}
 	}
 
+	/**
+	 * Pick up a restore whose child kept running while the page reloaded. If the
+	 * host no longer has the child, the item goes back to pending and the queue
+	 * continues from there.
+	 */
+	async adoptRunning(): Promise<void> {
+		const item = queueItems.value.find((i) => i.id === queueRunningId.value);
+		const pid = queueRunningPid.value;
+		let live = false;
+		if (item && pid !== null) {
+			try {
+				live = (await invoke("shell:list")).includes(pid);
+			} catch {
+				live = false;
+			}
+		}
+
+		if (!item || pid === null || !live) {
+			queueRunningId.value = null;
+			queueRunningPid.value = null;
+			resetRunningItems();
+			if (queueRunning.value) void this.processNext();
+			return;
+		}
+
+		const { command, child } = Command.attach(pid);
+		this.processing = true;
+		this.runningChild = child;
+		this.runningOutDir = item.outDir;
+		this.runningItemId = item.id;
+
+		await this.watch(command, item, false);
+		this.processing = false;
+		if (queueRunning.value) void this.processNext();
+	}
+
 	async pause(): Promise<void> {
 		queueRunning.value = false;
 
@@ -149,6 +185,8 @@ export class RestoreQueue {
 			this.pendingSpawn = null;
 			this.runningOutDir = null;
 			this.runningItemId = null;
+			queueRunningId.value = null;
+			queueRunningPid.value = null;
 		}
 
 		const items = queueItems.value;
@@ -264,6 +302,19 @@ export class RestoreQueue {
 		logCommandOutput(command, "rigby-queue");
 		this.runningOutDir = item.outDir;
 		this.runningItemId = item.id;
+		queueRunningId.value = item.id;
+
+		return this.watch(command, item, true);
+	}
+
+	/**
+	 * Wire a restore child's output into its queue item.
+	 * @param command - The restore command.
+	 * @param item - Queue item being restored.
+	 * @param spawn - Start the child; false when adopting one that outlived the page.
+	 * @returns Resolves once the child is done.
+	 */
+	private watch(command: Command, item: QueueItem, spawn: boolean): Promise<void> {
 		let stdout = "";
 		let stderr = "";
 
@@ -276,6 +327,8 @@ export class RestoreQueue {
 				this.runningChild = null;
 				this.runningOutDir = null;
 				this.runningItemId = null;
+				queueRunningId.value = null;
+				queueRunningPid.value = null;
 				resolve();
 			};
 
@@ -401,10 +454,13 @@ export class RestoreQueue {
 				}
 			});
 
+			if (!spawn) return;
+
 			this.pendingSpawn = command
 				.spawn()
 				.then((child) => {
 					this.runningChild = child;
+					queueRunningPid.value = child.pid;
 					return child;
 				})
 				.catch((error) => {

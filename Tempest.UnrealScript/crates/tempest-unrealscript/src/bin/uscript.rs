@@ -433,88 +433,42 @@ pub mod bccmds {
 }
 
 pub mod dccmds {
-    use std::collections::{BTreeSet, HashMap};
     use std::path::PathBuf;
-    use tempest_unrealscript::context::{Context, ObjRef};
-    use tempest_unrealscript::decompile::Decompiler;
     use tempest_unrealscript::par;
+    use tempest_unrealscript::toolchain::decompile_package;
 
     pub fn decompile(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-        let mut ctx = Context::new();
+        let mut search: Vec<PathBuf> = Vec::new();
         let mut out: Option<PathBuf> = None;
         let mut classes: Vec<String> = Vec::new();
         let mut pkg_path: Option<String> = None;
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "-I" => { ctx.add_search_path(&args[i + 1]); i += 2; }
+                "-I" => { search.push(PathBuf::from(&args[i + 1])); i += 2; }
                 "-o" => { out = Some(PathBuf::from(&args[i + 1])); i += 2; }
                 "-j" => { par::set_jobs(args[i + 1].parse()?); i += 2; }
                 a => { if pkg_path.is_none() { pkg_path = Some(a.to_string()); } else { classes.push(a.to_string()); } i += 1; }
             }
         }
         let pkg_path = pkg_path.ok_or("missing package")?;
-        if let Some(dir) = std::path::Path::new(&pkg_path).parent() {
-            ctx.add_search_path(dir);
-        }
-        let slot = ctx.load_file(&pkg_path)?;
-        ctx.preload_imports(slot);
-        let ctx = &ctx;
-        let pkg_name = ctx.packages[slot].name.clone();
-        let n = ctx.packages[slot].pkg.exports.len();
-        // Every class of the package, and which same-package classes each one's
-        // declarations depend on (first render), to plan the `dependson` lists.
-        let mut all: Vec<ObjRef> = Vec::new();
-        for e in 0..n {
-            let r = ObjRef { pkg: slot, export: e };
-            if ctx.class_name(r) != "Class" { continue; }
-            if ctx.packages[slot].pkg.exports[e].serial_size == 0 && ctx.name(r).eq_ignore_ascii_case("None") { continue; }
-            all.push(r);
-        }
-        let by_name: HashMap<String, ObjRef> = all.iter().map(|&r| (ctx.name(r).to_ascii_lowercase(), r)).collect();
-        // Each class renders independently against the shared, immutable context.
-        let refs: HashMap<ObjRef, BTreeSet<ObjRef>> = par::map(&all, |&r| {
-            let d = Decompiler::new(ctx, r);
-            let _ = d.class_source();
-            let set: BTreeSet<ObjRef> = d.depends_on.borrow().iter().filter_map(|n| by_name.get(&n.to_ascii_lowercase()).copied()).collect();
-            (r, set)
-        })
-        .into_iter()
-        .collect();
-        let plan = tempest_unrealscript::decompile::plan::plan_dependson(ctx, &all, &refs);
-        let selected: Vec<ObjRef> = all
-            .iter()
-            .copied()
-            .filter(|&r| classes.is_empty() || classes.iter().any(|c| c.eq_ignore_ascii_case(&ctx.name(r))))
-            .collect();
-        let classes_dir = out.as_ref().map(|dir| dir.join(&pkg_name).join("Classes"));
-        if let Some(d) = &classes_dir {
-            std::fs::create_dir_all(d)?;
-        }
-        // Render (and write) in parallel; printing to stdout keeps the class order.
-        let rendered: Vec<(String, Result<Option<String>, String>)> = par::map(&selected, |&r| {
-            let name = ctx.name(r);
-            let depends: Vec<String> = plan.depends.get(&r).map(|v| v.iter().map(|o| ctx.name(*o)).collect()).unwrap_or_default();
-            let src = Decompiler::with_depends(ctx, r, depends).class_source();
-            let result = match &classes_dir {
-                Some(d) => {
-                    let path = d.join(format!("{name}.uc"));
-                    std::fs::write(&path, src).map(|_| None).map_err(|e| format!("cannot write {}: {e}", path.display()))
+        let dp = decompile_package(std::path::Path::new(&pkg_path), &search)?;
+        let selected: Vec<_> = dp.classes.iter().filter(|c| classes.is_empty() || classes.iter().any(|n| n.eq_ignore_ascii_case(&c.name))).collect();
+        match out {
+            Some(dir) => {
+                let classes_dir = dir.join(&dp.name).join("Classes");
+                std::fs::create_dir_all(&classes_dir)?;
+                for c in &selected {
+                    std::fs::write(classes_dir.join(format!("{}.uc", c.name)), &c.source)?;
                 }
-                None => Ok(Some(src)),
-            };
-            (name, result)
-        });
-        let mut count = 0;
-        for (name, result) in rendered {
-            if let Some(src) = result? {
-                println!("// ===== {name}.uc =====");
-                println!("{src}");
+                println!("wrote {} classes to {}", selected.len(), classes_dir.display());
             }
-            count += 1;
-        }
-        if let Some(d) = &classes_dir {
-            println!("wrote {count} classes to {}", d.display());
+            None => {
+                for c in &selected {
+                    println!("// ===== {}.uc =====", c.name);
+                    println!("{}", c.source);
+                }
+            }
         }
         Ok(())
     }
@@ -522,174 +476,35 @@ pub mod dccmds {
 
 pub mod cccmds {
     use std::path::PathBuf;
-    use tempest_unrealscript::compiler::driver::{compile_package, default_dependencies, load_dependencies, CompileRequest};
-    use tempest_unrealscript::compiler::output::OutputOptions;
-    use tempest_unrealscript::context::Context;
+    use tempest_unrealscript::toolchain::{compile_package_dir, CompileOptions};
     use tempest_upk::WriteOptions;
 
     pub fn compile(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-        let mut ctx = Context::new();
+        let mut search: Vec<PathBuf> = Vec::new();
         let mut out: Option<PathBuf> = None;
-        let mut deps: Vec<String> = Vec::new();
         let mut src: Option<PathBuf> = None;
-        let mut opts = OutputOptions::default();
-        let mut verbose = false;
-        let mut allow_config = false;
-        let mut cooked = false;
+        let mut opts = CompileOptions::default();
         let mut compress = false;
-        let mut net_index_from: Option<PathBuf> = None;
-        let mut phantom_imports: Vec<(String, String)> = Vec::new();
-        let mut phantom_member_imports: Vec<(String, Vec<String>)> = Vec::new();
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "-I" => { ctx.add_search_path(&args[i + 1]); i += 2; }
+                "-I" => { search.push(PathBuf::from(&args[i + 1])); i += 2; }
                 "-o" => { out = Some(PathBuf::from(&args[i + 1])); i += 2; }
-                "-P" => { deps.push(args[i + 1].clone()); i += 2; }
-                "--server" => { opts.editor_data = false; i += 1; }
-                "--strip-source" => { opts.keep_source = false; i += 1; }
-                "--allow-config-defaults" => { allow_config = true; i += 1; }
-                "--cooked" => { cooked = true; opts.cooked = true; opts.keep_source = false; i += 1; }
+                "-P" => { opts.deps.push(args[i + 1].clone()); i += 2; }
+                "--server" => { opts.output.editor_data = false; i += 1; }
+                "--strip-source" => { opts.output.keep_source = false; i += 1; }
+                "--allow-config-defaults" => { opts.allow_config_defaults = true; i += 1; }
+                "--cooked" => { opts.cooked = true; opts.output.cooked = true; opts.output.keep_source = false; i += 1; }
                 "--compress" => { compress = true; i += 1; }
-                "--net-index-from" | "--conform" => { net_index_from = Some(PathBuf::from(&args[i + 1])); i += 2; }
-                "--version" => { opts.file_version = args[i + 1].parse()?; i += 2; }
-                "-v" => { verbose = true; i += 1; }
+                "--net-index-from" | "--conform" => { opts.conform = Some(PathBuf::from(&args[i + 1])); i += 2; }
+                "--version" => { opts.output.file_version = args[i + 1].parse()?; i += 2; }
+                "-v" => { opts.verbose = true; i += 1; }
                 a => { src = Some(PathBuf::from(a)); i += 1; }
             }
         }
         let src = src.ok_or("missing package source directory")?;
         let package_name = src.file_name().map(|s| s.to_string_lossy().to_string()).ok_or("bad source directory")?;
-        if deps.is_empty() {
-            deps = default_dependencies();
-            // Every script package (`*.u`) in the search paths.
-            for dir in &ctx.search_paths {
-                if let Ok(rd) = std::fs::read_dir(dir) {
-                    let mut names: Vec<String> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().map(|x| x.to_string_lossy().eq_ignore_ascii_case("u")).unwrap_or(false)).filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().to_string())).collect();
-                    names.sort();
-                    for n in names {
-                        if !deps.iter().any(|d| d.eq_ignore_ascii_case(&n)) && !n.eq_ignore_ascii_case(&package_name) {
-                            deps.push(n);
-                        }
-                    }
-                }
-            }
-        }
-        let mut seed_names: Vec<String> = Vec::new();
-        if let Some(p) = &net_index_from {
-            // Conform to the package being replaced: NetIndex per object path and the
-            // component map entries the cooker left as None.
-            let mut probe = Context::new();
-            for dir in &ctx.search_paths {
-                probe.add_search_path(dir);
-            }
-            let slot = probe.load_file(p)?;
-            probe.preload_imports(slot);
-            let mut map = std::collections::HashMap::new();
-            let mut comps: std::collections::HashMap<String, Vec<(String, bool)>> = std::collections::HashMap::new();
-            let mut order: Vec<String> = Vec::new();
-            let mut tags: std::collections::HashMap<String, Vec<(String, String, i32, bool)>> = std::collections::HashMap::new();
-            let mut pos: std::collections::HashMap<String, (i32, i32)> = std::collections::HashMap::new();
-            let n = probe.packages[slot].pkg.exports.len();
-            for e in 0..n {
-                let r = tempest_unrealscript::context::ObjRef { pkg: slot, export: e };
-                let ex = &probe.packages[slot].pkg.exports[e];
-                let is_null = ex.class.is_null() && ex.serial_size == 0 && probe.name(r).eq_ignore_ascii_case("None");
-                order.push(if is_null { String::new() } else { probe.path(r).to_ascii_lowercase() });
-                if let Some(o) = probe.object(r) {
-                    map.insert(probe.path(r).to_ascii_lowercase(), o.header.net_index);
-                    {
-                        use tempest_unrealscript::objects::ObjectBody as B;
-                        let sd = match &o.body {
-                            B::Class { s, .. } | B::State { s, .. } | B::Function { s, .. } | B::ScriptStruct { s, .. } => Some((s.line, s.text_pos)),
-                            _ => None,
-                        };
-                        if let Some(lt) = sd {
-                            pos.insert(probe.path(r).to_ascii_lowercase(), lt);
-                        }
-                    }
-                    {
-                        let lp = &probe.packages[slot];
-                        let list: Vec<(String, String, i32, bool)> = o
-                            .header
-                            .properties
-                            .iter()
-                            .map(|tp| {
-                                let ty = lp.name_of(tp.type_name);
-                                let is_null = matches!(ty.as_str(), "ObjectProperty" | "ComponentProperty" | "ClassProperty" | "InterfaceProperty")
-                                    && tp.raw.len() == 4
-                                    && tp.raw.iter().all(|&b| b == 0);
-                                (lp.name_of(tp.name), ty, tp.array_index, is_null)
-                            })
-                            .collect();
-                        if list.iter().any(|t| t.3) {
-                            tags.insert(probe.path(r).to_ascii_lowercase(), list);
-                        }
-                    }
-                    if let tempest_unrealscript::objects::ObjectBody::Class { class, .. } = &o.body {
-                        let lp = &probe.packages[slot];
-                        let list: Vec<(String, bool)> = class.component_name_to_default_object.iter().map(|(n, i)| (lp.name_of(*n), i.is_null())).collect();
-                        comps.insert(probe.name(r).to_ascii_lowercase(), list);
-                    }
-                }
-            }
-            opts.net_index_map = Some(map);
-            opts.conform_components = Some(comps);
-            opts.conform_exports = Some(order);
-            opts.conform_tags = Some(tags);
-            opts.conform_pos = Some(pos);
-            {
-                let rp = &probe.packages[slot].pkg;
-                seed_names = rp.names.iter().map(|n| n.name.clone()).collect();
-                opts.conform_name_flags = Some(rp.names.iter().map(|n| n.flags).collect());
-                opts.conform_imports = Some(rp.imports.iter().map(|im| (rp.fname_to_string(im.class_package), rp.fname_to_string(im.class_name), im.outer.0, rp.fname_to_string(im.object_name))).collect());
-                opts.conform_raw = Some((0..rp.exports.len()).map(|e| Some((rp.exports[e].clone(), rp.export_data[e].clone()))).collect());
-                opts.conform_summary = Some(rp.summary.clone());
-            }
-            let rp = &probe.packages[slot].pkg;
-            for (ii, imp) in rp.imports.iter().enumerate() {
-                let cn = rp.fname_to_string(imp.class_name);
-                if cn == "Class" {
-                    if let Some(outer) = imp.outer.import_index().and_then(|oi| rp.imports.get(oi)) {
-                        if rp.fname_to_string(outer.class_name) == "Package" {
-                            phantom_imports.push((rp.fname_to_string(imp.object_name), rp.fname_to_string(outer.object_name)));
-                        }
-                    }
-                }
-                // Full path of the import (package first).
-                let mut segs: Vec<String> = vec![rp.fname_to_string(imp.object_name)];
-                let mut cur = imp.outer;
-                let mut guard = 0;
-                while let Some(oi) = cur.import_index() {
-                    let Some(o) = rp.imports.get(oi) else { break };
-                    segs.push(rp.fname_to_string(o.object_name));
-                    cur = o.outer;
-                    guard += 1;
-                    if guard > 32 {
-                        break;
-                    }
-                }
-                segs.reverse();
-                let _ = ii;
-                phantom_member_imports.push((cn, segs));
-            }
-        }
-        let missing = load_dependencies(&mut ctx, &deps);
-        if let Some(p) = &net_index_from {
-            // The reference package itself, under an alias: resolves object literals to
-            // its forced-export content and supplies native-data samples.
-            let pkg = tempest_upk::Package::load(p)?;
-            let alias = format!("{package_name}__conform");
-            let slot = ctx.add_package_shadow(alias, p.clone(), pkg);
-            // Not `preload_imports`: a cooked package imports its own missing native
-            // classes, which would load it a second time under its real name.
-            ctx.reparse_components(slot);
-        }
-        if verbose {
-            for m in &missing { eprintln!("note: dependency package {m} not found"); }
-            eprintln!("loaded {} packages", ctx.packages.len());
-        }
-        let req = CompileRequest { package_name: package_name.clone(), package_dir: src, output: opts, verbose, global_includes: deps.clone(), allow_config_defaults: allow_config, cooked, phantom_imports, phantom_member_imports, seed_names };
-        let result = compile_package(&mut ctx, &req)?;
+        let result = compile_package_dir(&src, &search, opts)?;
         for w in &result.warnings { eprintln!("warning: {w}"); }
         let out = out.unwrap_or_else(|| PathBuf::from(format!("{package_name}.u")));
         let mut pkg = result.package;
@@ -971,10 +786,9 @@ pub mod textcmds {
 /// A UDK-like project: `Development/Src/<Pkg>/Classes/*.uc` for every script package
 /// of a cooked game directory, rebuilt as drop-in replacements.
 pub mod projcmds {
-    use std::collections::{BTreeMap, BTreeSet};
     use std::path::{Path, PathBuf};
     use tempest_unrealscript::par;
-    use tempest_upk::{Package, PackageIndex};
+    use tempest_unrealscript::toolchain::{build_order, script_packages};
 
     const MANIFEST: &str = "uscript-project.txt";
 
@@ -984,144 +798,6 @@ pub mod projcmds {
             "build" if args.len() >= 2 => build(&args[1..]),
             _ => Err("usage: uscript project init <cooked-dir> <project-dir> [-j N] | build <project-dir> [-o outdir] [-j N] [Pkg]...".into()),
         }
-    }
-
-    /// Script packages of a directory: those with at least one class of their own
-    /// (seek-free content packages only carry copies of classes under a `Package` export).
-    fn script_packages(dir: &Path) -> Result<BTreeMap<String, (String, BTreeSet<String>, bool)>, Box<dyn std::error::Error>> {
-        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)?
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().map(|x| matches!(x.to_string_lossy().to_ascii_lowercase().as_str(), "upk" | "u")).unwrap_or(false))
-            .collect();
-        files.sort();
-        // Header tables of every package, read in parallel: (name, ext, class count,
-        // packages whose classes are imported, every imported package, cooked).
-        struct Scan {
-            name: String,
-            ext: String,
-            own_classes: usize,
-            class_deps: BTreeSet<String>,
-            deps: BTreeSet<String>,
-            cooked: bool,
-        }
-        let scanned: Vec<Result<Option<Scan>, String>> = par::map(&files, |p| {
-            let name = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-            let ext = p.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-            let pkg = match Package::load_tables(p) {
-                Ok(pkg) => pkg,
-                Err(e) => return Err(format!("skipping {}: {e}", p.display())),
-            };
-            let own_classes = pkg
-                .exports
-                .iter()
-                .enumerate()
-                .filter(|(i, e)| e.outer.is_null() && e.serial_size > 0 && pkg.class_name_of(PackageIndex::export(*i)) == "Class")
-                .count();
-            if own_classes == 0 {
-                return Ok(None);
-            }
-            // Packages this one imports from (outermost outer of every import).
-            let mut class_deps: BTreeSet<String> = BTreeSet::new();
-            let mut deps: BTreeSet<String> = BTreeSet::new();
-            for (i, _) in pkg.imports.iter().enumerate() {
-                if pkg.class_name_of(PackageIndex::import(i)) == "Class" {
-                    let mut idx = PackageIndex::import(i);
-                    while let Some(ii) = idx.import_index() {
-                        if pkg.imports[ii].outer.is_null() {
-                            let n = pkg.fname_to_string(pkg.imports[ii].object_name);
-                            if !n.eq_ignore_ascii_case(&name) {
-                                class_deps.insert(n);
-                            }
-                            break;
-                        }
-                        idx = pkg.imports[ii].outer;
-                    }
-                }
-                let mut idx = PackageIndex::import(i);
-                let mut guard = 0;
-                while let Some(ii) = idx.import_index() {
-                    let imp = &pkg.imports[ii];
-                    if imp.outer.is_null() {
-                        let n = pkg.fname_to_string(imp.object_name);
-                        if !n.eq_ignore_ascii_case(&name) {
-                            deps.insert(n);
-                        }
-                        break;
-                    }
-                    idx = imp.outer;
-                    guard += 1;
-                    if guard > 32 {
-                        break;
-                    }
-                }
-            }
-            let cooked = pkg.summary.package_flags & tempest_upk::flags::pkg::COOKED != 0;
-            Ok(Some(Scan { name, ext, own_classes, class_deps, deps, cooked }))
-        });
-        let mut found: BTreeMap<String, (String, BTreeSet<String>, bool)> = BTreeMap::new();
-        // Packages whose classes are imported, and by whom: these must be present.
-        let mut class_deps: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for r in scanned {
-            let scan = match r {
-                Ok(Some(scan)) => scan,
-                Ok(None) => continue,
-                Err(msg) => {
-                    eprintln!("{msg}");
-                    continue;
-                }
-            };
-            for d in scan.class_deps {
-                class_deps.entry(d).or_default().insert(scan.name.clone());
-            }
-            eprintln!("{}: {} classes{}", scan.name, scan.own_classes, if scan.cooked { "" } else { " (not cooked)" });
-            found.insert(scan.name, (scan.ext, scan.deps, scan.cooked));
-        }
-        // Only dependencies that are script packages themselves (content is found by name).
-        let names: BTreeSet<String> = found.keys().map(|k| k.to_ascii_lowercase()).collect();
-        let missing: Vec<String> = class_deps
-            .iter()
-            .filter(|(d, _)| !names.contains(&d.to_ascii_lowercase()))
-            .map(|(d, by)| format!("{d} (classes used by {})", by.iter().cloned().collect::<Vec<_>>().join(", ")))
-            .collect();
-        if !missing.is_empty() {
-            return Err(format!("script packages missing from {}: {}", dir.display(), missing.join("; ")).into());
-        }
-        for (_, (_, deps, _)) in found.iter_mut() {
-            deps.retain(|d| names.contains(&d.to_ascii_lowercase()));
-        }
-        Ok(found)
-    }
-
-    /// Dependency order (Kahn), ties by name; returns (name, ext, transitive deps in order).
-    fn order(found: &BTreeMap<String, (String, BTreeSet<String>, bool)>) -> Result<Vec<(String, String, Vec<String>, bool)>, Box<dyn std::error::Error>> {
-        let canon = |n: &str| found.keys().find(|k| k.eq_ignore_ascii_case(n)).cloned().unwrap_or_else(|| n.to_string());
-        let mut done: Vec<String> = Vec::new();
-        let mut closure: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        while done.len() < found.len() {
-            let next = found
-                .iter()
-                .find(|(n, (_, deps, _))| !done.contains(n) && deps.iter().all(|d| done.iter().any(|x| x.eq_ignore_ascii_case(d))))
-                .map(|(n, _)| n.clone());
-            let Some(n) = next else {
-                let left: Vec<&String> = found.keys().filter(|k| !done.contains(k)).collect();
-                return Err(format!("dependency cycle among {left:?}").into());
-            };
-            let mut all: Vec<String> = Vec::new();
-            for d in &found[&n].1 {
-                let d = canon(d);
-                for x in closure.get(&d).cloned().unwrap_or_default().into_iter().chain(std::iter::once(d.clone())) {
-                    if !all.iter().any(|y| y.eq_ignore_ascii_case(&x)) {
-                        all.push(x);
-                    }
-                }
-            }
-            // Keep the dependency list in build order.
-            all.sort_by_key(|x| done.iter().position(|d| d.eq_ignore_ascii_case(x)).unwrap_or(usize::MAX));
-            closure.insert(n.clone(), all);
-            done.push(n);
-        }
-        Ok(done.into_iter().map(|n| (n.clone(), found[&n].0.clone(), closure[&n].clone(), found[&n].2)).collect())
     }
 
     fn init(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
@@ -1143,19 +819,22 @@ pub mod projcmds {
         let project = Path::new(project);
         let cooked = Path::new(cooked).canonicalize()?;
         let found = script_packages(&cooked)?;
-        let ordered = order(&found)?;
+        for p in found.values() {
+            eprintln!("{}: {} classes{}", p.name, p.classes, if p.cooked { "" } else { " (not cooked)" });
+        }
+        let ordered = build_order(&found)?;
         let src = project.join("Development").join("Src");
         std::fs::create_dir_all(&src)?;
         let mut manifest = format!("cooked {}\n", cooked.display());
-        for (name, ext, deps, is_cooked) in &ordered {
-            eprintln!("decompiling {name}...");
-            let pkg_path = cooked.join(format!("{name}.{ext}"));
+        for op in &ordered {
+            eprintln!("decompiling {}...", op.name);
+            let pkg_path = cooked.join(format!("{}.{}", op.name, op.ext));
             let args: Vec<String> = vec![pkg_path.to_string_lossy().to_string(), "-I".into(), cooked.to_string_lossy().to_string(), "-o".into(), src.to_string_lossy().to_string()];
             super::dccmds::decompile(&args)?;
-            manifest.push_str(&format!("package {name} {ext} {} {}\n", if *is_cooked { "cooked" } else { "raw" }, deps.join(",")));
+            manifest.push_str(&format!("package {} {} {} {}\n", op.name, op.ext, if op.cooked { "cooked" } else { "raw" }, op.deps.join(",")));
         }
         std::fs::write(project.join(MANIFEST), manifest)?;
-        println!("project written to {} ({} packages): {}", project.display(), ordered.len(), ordered.iter().map(|(n, _, _, _)| n.as_str()).collect::<Vec<_>>().join(" "));
+        println!("project written to {} ({} packages): {}", project.display(), ordered.len(), ordered.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(" "));
         Ok(())
     }
 

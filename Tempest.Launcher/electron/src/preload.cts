@@ -21,6 +21,15 @@ const arch =
 // localStorage dump from the previous (Tauri) profile, consumed by the store
 // bootstrap before any persisted state initializes.
 contextBridge.exposeInMainWorld("__migrationDump", ipcRenderer.sendSync("migration:dump"));
+// Host-held renderer state (see electron/src/state.ts): read synchronously so
+// stores start with it after a page reload. Missing on an older host build.
+let hostState: Record<string, unknown> = {};
+try {
+	hostState = ipcRenderer.sendSync("state:get-sync") ?? {};
+} catch {
+	/* host predates the channel: stores fall back to their defaults */
+}
+contextBridge.exposeInMainWorld("__hostState", hostState);
 
 contextBridge.exposeInMainWorld("__os", { platform, arch, type, version: "" });
 

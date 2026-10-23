@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from "$app/state";
 	import { Tooltip } from "bits-ui";
+	import { theme } from "$lib/stores/settings.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { Instance } from "$lib/types/instance";
 
@@ -8,20 +9,28 @@
 		instance: Instance;
 		href: string;
 		active?: boolean;
+		onpointerdown?: (e: PointerEvent) => void;
 	}
 
-	let { instance, href, active }: Props = $props();
+	let { instance, href, active, onpointerdown }: Props = $props();
 
 	let isActive = $derived(active ?? page.url.pathname === href);
 	let color = $derived(getInstanceColor(instance));
+	let contrast = $derived(getContrastColor(color));
 	let muted = $derived(`color-mix(in oklab, ${color} 60%, var(--color-base-content))`);
 	let label = $derived(instance.label?.trim() || "?");
 	let version = $derived(instance.version?.trim() || "");
 
+	// The legacy skin paints these as the home page's colour tiles; every other
+	// theme keeps the plain button.
+	let tile = $derived(theme.value === "legacy");
+
 	let style = $derived(
-		isActive
-			? `background-color: ${muted}; color: ${getContrastColor(color)};`
-			: `color: ${muted};`,
+		tile
+			? `background-color: ${color}; color: ${contrast};`
+			: isActive
+				? `background-color: ${muted}; color: ${contrast};`
+				: `color: ${muted};`,
 	);
 </script>
 
@@ -31,8 +40,10 @@
 			<a
 				{...props}
 				{href}
+				{onpointerdown}
 				class="btn btn-square"
 				class:btn-active={isActive}
+				data-instance-tile={tile ? "" : undefined}
 				{style}
 				aria-label={instance.label}
 			>
