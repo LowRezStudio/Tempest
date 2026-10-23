@@ -17,7 +17,8 @@
 	},
 	"dependencies": {
 		"electron-serve": "^3.0.1",
-		"electron-updater": "^6.0.0"
+		"electron-updater": "^6.0.0",
+		"fflate": "^0.8.3"
 	},
 	"devDependencies": {
 		"@types/node": "^24.0.0",

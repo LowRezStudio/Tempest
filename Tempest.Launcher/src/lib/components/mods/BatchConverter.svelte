@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { FileUp, FlaskConical, FolderOpen, FolderDown, Trash2 } from "@lucide/svelte";
-	import { describeError } from "$lib/core/mods";
+	import { describeError, discardStagedModPack, stageModPack } from "$lib/core/mods";
 	import { converterPendingPaths } from "$lib/mods/drop.svelte";
 	import { MOD_ID_PATTERN, buildPackageZip } from "$lib/mods/packaging";
 	import { signWithPrompt } from "$lib/mods/signing.svelte";
@@ -117,15 +117,13 @@
 							tone: "warning",
 						});
 					}
-					const stagedPath = await invoke("mods:stage-pack", { filename, data: bytes });
+					const stagedPath = await stageModPack(filename, bytes);
 					const previous = entry.stagedPath;
 					entry.signer = (await signWithPrompt(stagedPath)) || null;
 					entry.stagedPath = stagedPath;
 					entry.status = "signed";
 					if (previous && previous !== stagedPath) {
-						void invoke("mods:discard-staged-pack", { stagedPath: previous }).catch(
-							() => {},
-						);
+						void discardStagedModPack(previous).catch(() => {});
 					}
 					signed++;
 				} catch (error) {

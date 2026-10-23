@@ -1,7 +1,6 @@
 // Shared helpers for the mod cooker (single + batch): V1 package parsing,
 // repository-id slugs and .tempest package assembly.
-import JSZip from "jszip";
-import { invoke } from "$lib/platform/api";
+import { buildZipArchive, optimizeUpkData, readZipArchive } from "$lib/core/mods";
 
 export type FileEntry = { path: string; data: Uint8Array };
 export type ConverterKind = "assets" | "scripts" | "native";
@@ -92,33 +91,39 @@ export type V1Package = {
 	readme: string | null;
 };
 
+// The zip container itself is written and read host-side; the renderer owns the
+// package layout.
+export function buildZip(
+	entries: { path: string; data: Uint8Array | string }[],
+): Promise<Uint8Array> {
+	const encoder = new TextEncoder();
+	return buildZipArchive(
+		entries.map(({ path, data }) => ({
+			path,
+			data: typeof data === "string" ? encoder.encode(data) : data,
+		})),
+	);
+}
+
 export async function parseV1Package(data: Uint8Array): Promise<V1Package> {
-	const zip = await JSZip.loadAsync(data);
+	const entries = await readZipArchive(data);
+	const decoder = new TextDecoder();
 	const files: FileEntry[] = [];
 	let manifest: V1Manifest | null = null;
 	let readme: string | null = null;
 
-	const manifestFile = zip.file("manifest.toml");
-	if (manifestFile) {
-		manifest = parseV1Manifest(await manifestFile.async("string"));
-	}
-
-	const readmeFile = zip.file("README.md");
-	if (readmeFile) {
-		readme = await readmeFile.async("string");
-	}
-
-	for (const [zipPath, zipEntry] of Object.entries(zip.files)) {
-		if (!zipEntry.dir && zipPath.startsWith("files/")) {
-			let relativePath = zipPath.slice("files/".length);
+	for (const entry of entries) {
+		if (entry.path === "manifest.toml") {
+			manifest = parseV1Manifest(decoder.decode(entry.data));
+		} else if (entry.path === "README.md") {
+			readme = decoder.decode(entry.data);
+		} else if (entry.path.startsWith("files/")) {
+			let relativePath = entry.path.slice("files/".length);
 			if (relativePath) {
 				if (!relativePath.includes("/")) {
 					relativePath = `${targetDirFor(relativePath)}/${relativePath}`;
 				}
-				files.push({
-					path: relativePath,
-					data: new Uint8Array(await zipEntry.async("arraybuffer")),
-				});
+				files.push({ path: relativePath, data: entry.data });
 			}
 		}
 	}
@@ -167,10 +172,10 @@ export async function optimizeUpkEntries(
 		if (!lower.endsWith(".upk") && !lower.endsWith(".pck")) continue;
 		onProgress?.(file.path.split("/").pop() ?? file.path);
 		try {
-			const result = await invoke("upk:optimize-data", {
-				name: file.path.split("/").pop() ?? file.path,
-				data: file.data,
-			});
+			const result = await optimizeUpkData(
+				file.path.split("/").pop() ?? file.path,
+				file.data,
+			);
 			if (result.optimized && result.data) {
 				file.data = new Uint8Array(result.data);
 				compressed++;
@@ -188,7 +193,7 @@ export async function buildPackageZip(
 	meta: PackageMeta,
 	files: FileEntry[],
 ): Promise<{ bytes: Uint8Array; duplicates: number }> {
-	const zip = new JSZip();
+	const entries: { path: string; data: Uint8Array | string }[] = [];
 	const seen = new Set<string>();
 	let duplicates = 0;
 	for (const file of files) {
@@ -197,15 +202,15 @@ export async function buildPackageZip(
 			continue;
 		}
 		seen.add(file.path);
-		zip.file(`files/${file.path}`, file.data);
+		entries.push({ path: `files/${file.path}`, data: file.data });
 	}
-	zip.file("manifest.toml", buildManifest(meta));
+	entries.push({ path: "manifest.toml", data: buildManifest(meta) });
 	if (meta.readme?.trim()) {
-		zip.file("README.md", meta.readme.trim());
+		entries.push({ path: "README.md", data: meta.readme.trim() });
 	}
 	if (meta.icon) {
-		zip.file("icon.png", meta.icon.data);
+		entries.push({ path: "icon.png", data: meta.icon.data });
 	}
-	const bytes = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+	const bytes = await buildZip(entries);
 	return { bytes, duplicates };
 }

@@ -15,6 +15,7 @@ import "./converter.js";
 import "./dialog.js";
 import { handle } from "./ipc/handle.js";
 import "./instances.js";
+import "./keybinds.js";
 import "./legacy.js";
 import "./mods.js";
 import "./opener.js";
@@ -26,6 +27,7 @@ import "./tray.js";
 import "./updater.js";
 import "./upk.js";
 import "./window.js";
+import "./zip.js";
 import "./state.js";
 import { activeChildren } from "./shell.js";
 function tempestFilesFromArgs(args: string[], workingDirectory: string): string[] {

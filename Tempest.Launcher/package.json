@@ -19,9 +19,6 @@
 		"electron:dev": "pnpm -C electron dev",
 		"electron:build": "pnpm -C electron build"
 	},
-	"dependencies": {
-		"jszip": "^3.10.1"
-	},
 	"devDependencies": {
 		"@fontsource-variable/ubuntu-sans-mono": "^5.2.10",
 		"@inlang/paraglide-js": "^2.20.1",

@@ -16,7 +16,14 @@
 	import { useQueryClient } from "@tanstack/svelte-query";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import PublishModal from "$lib/components/mods/PublishModal.svelte";
-	import { installMod, type RepoPublishResult } from "$lib/core/mods";
+	import {
+		discardStagedModPack,
+		installMod,
+		optimizeUpkFile,
+		saveStagedModPack,
+		stageModPack,
+		type RepoPublishResult,
+	} from "$lib/core/mods";
 	import { converterPendingPaths } from "$lib/mods/drop.svelte";
 	import {
 		MOD_ID_PATTERN,
@@ -145,7 +152,7 @@
 		const name = filePath.split(/[/\\]/).pop() ?? filePath;
 		importingLabel = m.converter_upk_optimizing({ name });
 		try {
-			const result = await invoke("upk:optimize", { path: filePath });
+			const result = await optimizeUpkFile(filePath);
 			if (result.optimized && result.data) {
 				addToast({
 					title: name,
@@ -286,7 +293,7 @@
 			}
 
 			const filename = `${id}-${converter.modVersion.trim() || "1.0.0"}.tempest`;
-			const stagedPath = await invoke("mods:stage-pack", { filename, data: bytes });
+			const stagedPath = await stageModPack(filename, bytes);
 
 			// Sign host-side with the CLI (CHECKSUMS + CHECKSUMS.asc + SIGNER.pub);
 			// a first-time publisher is asked to name their signing key.
@@ -295,9 +302,7 @@
 			converter.cooked = { stagedPath, signer: signer || null, size: bytes.length };
 
 			if (previousStaged && previousStaged !== stagedPath) {
-				void invoke("mods:discard-staged-pack", { stagedPath: previousStaged }).catch(
-					() => {},
-				);
+				void discardStagedModPack(previousStaged).catch(() => {});
 			}
 		} catch (error) {
 			console.error("Failed to cook mod:", error);
@@ -316,9 +321,7 @@
 		if (!converter.cooked) return;
 		try {
 			// Save dialog + copy of the signed package happen host-side.
-			const savedPath = await invoke("mods:save-staged-pack", {
-				stagedPath: converter.cooked.stagedPath,
-			});
+			const savedPath = await saveStagedModPack(converter.cooked.stagedPath);
 			if (!savedPath) return;
 			addToast({
 				title: m.converter_toast_saved_title(),
