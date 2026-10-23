@@ -112,9 +112,14 @@
 		{/snippet}
 	</Header>
 
-	<div class="bg-base-100 flex-1 overflow-hidden">
+	<div class="bg-base-100 min-h-0 flex-1 overflow-hidden p-4">
 		{#if activeTab === "logs"}
-			<TerminalView logs={logsList} child={process?.child} />
+			<div
+				data-panel
+				class="bg-base-200 border-base-300 rounded-box h-full overflow-hidden border p-1"
+			>
+				<TerminalView logs={logsList} child={process?.child} />
+			</div>
 		{/if}
 	</div>
 </div>
