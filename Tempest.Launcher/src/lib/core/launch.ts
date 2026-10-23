@@ -1,8 +1,8 @@
-import { currentInstance, setCurrentInstance } from "../lobby/stores.svelte";
-import { Command, invoke } from "../platform/api";
-import { hostState } from "../stores/host-state.svelte";
-import { instanceMap, lastLaunchedInstanceId, updateInstance } from "../stores/instance.svelte";
-import { appendProcessLog, logCommandOutput, processesList } from "../stores/processes.svelte";
+import { currentInstance, setCurrentInstance } from "$lib/lobby/stores.svelte";
+import { Command, invoke } from "$lib/platform/api";
+import { hostState } from "$lib/stores/host-state.svelte";
+import { instanceMap, lastLaunchedInstanceId, updateInstance } from "$lib/stores/instance.svelte";
+import { appendProcessLog, logCommandOutput, processesList } from "$lib/stores/processes.svelte";
 import {
 	gamescopeArgs,
 	protonPath,
@@ -10,12 +10,12 @@ import {
 	useSteamRuntime,
 	winePath,
 	wineRuntime,
-} from "../stores/settings.svelte";
+} from "$lib/stores/settings.svelte";
 import { watchAntivirusBlocks } from "./antivirus.svelte";
 import { createCommand, processArgs } from "./command";
 import { launchArgs } from "./presets";
-import type { Instance } from "../types/instance";
-import type { Process } from "../types/process";
+import type { Instance } from "$lib/types/instance";
+import type { Process } from "$lib/types/process";
 
 const sessionNumbers = new Map<string, number>();
 

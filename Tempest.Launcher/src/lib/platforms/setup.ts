@@ -4,8 +4,8 @@ import { getInstancePaths } from "$lib/core/paths";
 import { invoke } from "$lib/platform/api";
 import { updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, appendProcessLogs } from "$lib/stores/processes.svelte";
+import type { GameLayout } from "$ipc/contract";
 import type { Instance } from "$lib/types/instance";
-import type { GameLayout } from "../../../electron/src/ipc/contract";
 
 const SOURCE = "setup";
 

@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { LogOut, Users } from "@lucide/svelte";
 	import { onMount } from "svelte";
+	import MapSelect from "$lib/components/maps/MapSelect.svelte";
+	import Header from "$lib/components/ui/Header.svelte";
 	import champions from "$lib/data/champions.json";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import { m } from "$lib/paraglide/messages";
 	import { getMapsForVersion } from "$lib/utils/versions";
-	import MapSelect from "../maps/MapSelect.svelte";
-	import Header from "../ui/Header.svelte";
 	import LobbyPlayerCard from "./LobbyPlayerCard.svelte";
 
 	interface Props {

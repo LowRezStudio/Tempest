@@ -3,11 +3,15 @@
 	import { File, FlaskConical, FolderOpen, Plus, X } from "@lucide/svelte";
 	import { useQueryClient } from "@tanstack/svelte-query";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
-	import { installMod } from "$lib/core/mods";
+	import {
+		cookKeybindsMod,
+		discardStagedModPack,
+		installMod,
+		saveStagedModPack,
+	} from "$lib/core/mods";
 	import { m } from "$lib/paraglide/messages";
-	import { invoke } from "$lib/platform/api";
 	import { instanceMap } from "$lib/stores/instance.svelte";
-	import { keybinds, cookKeybindsMod } from "$lib/stores/keybinds.svelte";
+	import { keybinds } from "$lib/stores/keybinds.svelte";
 	import { addToast, removeToast } from "$lib/stores/ui.svelte";
 	import type { Instance } from "$lib/types/instance";
 
@@ -17,7 +21,8 @@
 	let modVersion = "1.0.0";
 
 	let cooking = $state(false);
-	let cookedZip = $state<Uint8Array | null>(null);
+	/** Host-staged cooked package; the newest cook replaces the previous one. */
+	let stagedPath = $state<string | null>(null);
 	let showInstanceSelect = $state(false);
 	let installingLabel = $state<string | null>(null);
 	let capturingIndex = $state<number | null>(null);
@@ -183,13 +188,15 @@
 	async function cook() {
 		if (!hasBindings) return;
 		cooking = true;
-		cookedZip = null;
+		const previous = stagedPath;
+		stagedPath = null;
 		try {
-			cookedZip = await cookKeybindsMod(keybinds.value, {
-				name: modName,
-				version: modVersion,
-				authors: [{ name: "Tempest", link: "" }],
-			});
+			stagedPath = await cookKeybindsMod(modName, modVersion, keybinds.value);
+			// Only the newest cook stays staged; an install may still be reading the
+			// previous package, so it is dropped here rather than on unmount.
+			if (previous && previous !== stagedPath) {
+				void discardStagedModPack(previous).catch(() => {});
+			}
 		} catch (error) {
 			console.error("Failed to cook keybinds mod:", error);
 		} finally {
@@ -198,13 +205,10 @@
 	}
 
 	async function download() {
-		if (!cookedZip) return;
+		if (!stagedPath) return;
 		try {
-			// Save dialog + write happen host-side in one step.
-			const savedPath = await invoke("mods:save-pack", {
-				defaultPath: `${modName.trim() || "keybinds"}.tempest`,
-				data: cookedZip,
-			});
+			// Save dialog + copy happen host-side in one step.
+			const savedPath = await saveStagedModPack(stagedPath);
 			if (!savedPath) return;
 			addToast({
 				title: m.converter_toast_saved_title(),
@@ -217,7 +221,7 @@
 	}
 
 	async function installToInstance(inst: Instance) {
-		if (!cookedZip || !inst?.path) return;
+		if (!stagedPath || !inst?.path) return;
 		const modFileName = modName.trim() || "keybinds";
 		installingLabel = modFileName;
 		void goto(`/instance/${inst.id}`);
@@ -231,13 +235,9 @@
 				duration: 0,
 			});
 
-			// Stage the cooked pack in a host-owned temp file, install from there,
-			// then discard it — the renderer never touches the filesystem itself.
-			const tmpFile = await invoke("mods:stage-pack", {
-				filename: `${modFileName}.tempest`,
-				data: cookedZip,
-			});
-			const result = await installMod(inst.path, tmpFile, true);
+			// The cooked package is already staged in the temp dir; the CLI installs
+			// from that path and the renderer never touches the filesystem.
+			const result = await installMod(inst.path, stagedPath, true);
 
 			if (installingToastId) removeToast(installingToastId);
 
@@ -258,9 +258,6 @@
 					tone: "error",
 				});
 			}
-			try {
-				await invoke("mods:discard-staged-pack", { stagedPath: tmpFile });
-			} catch {}
 		} catch (error) {
 			if (installingToastId) removeToast(installingToastId);
 			console.error("Failed to install keybinds mod:", error);
@@ -270,7 +267,7 @@
 	}
 
 	function addToInstance() {
-		if (!cookedZip) return;
+		if (!stagedPath) return;
 		const instanceId = window.location.pathname.match(/^\/instance\/([^/]+)/)?.[1];
 		if (instanceId && instanceMap.value[instanceId]?.path) {
 			void installToInstance(instanceMap.value[instanceId]);
@@ -429,7 +426,7 @@
 					{m.settings_keybinds_generate()}
 				{/if}
 			</button>
-			{#if cookedZip}
+			{#if stagedPath}
 				<button type="button" class="btn btn-sm" onclick={download}>
 					<FolderOpen size={14} />
 					{m.converter_download()}

@@ -112,6 +112,18 @@ export type ModPackageInfo = {
 /** A file the V1→V2 converter imports, read host-side in one round trip. */
 export type ConverterImport = { path: string; name: string; data: ArrayBuffer };
 
+/** One file inside a zip container handled by the host (see `zip:build`). */
+export type ZipEntry = { path: string; data: Uint8Array };
+
+/** Keybinds mod settings, cooked into an INI package by `keybinds:cook`. */
+export type Keybind = { name: string; command: string };
+export type KeybindsConfig = {
+	mouseSensitivity: number;
+	fpsLimit: number;
+	unlockFps: boolean;
+	bindings: Keybind[];
+};
+
 /** Result of installing the `tempest` CLI shim into a PATH directory. */
 export type CliInstallResult = {
 	/** Whether the shim exists at `path` after the call. */
@@ -244,7 +256,6 @@ export interface IpcContract {
 	};
 	/** The `[mod]` table of a V2 package's manifest.toml; null for V1 files or unreadable ones. */
 	"mods:read-manifest": { args: { path: string }; result: ModPackageInfo | null };
-	"mods:save-pack": { args: { defaultPath: string; data: Uint8Array }; result: string | null };
 	"mods:stage-pack": { args: { filename: string; data: Uint8Array }; result: string };
 	"mods:save-staged-pack": { args: { stagedPath: string }; result: string | null };
 	"mods:save-staged-batch": {
@@ -266,6 +277,10 @@ export interface IpcContract {
 	"converter:read-imports": { args: { paths: string[] }; result: ConverterImport[] };
 	"converter:pick-icon": { args: void; result: ConverterImport | null };
 
+	// ---- Zip container (mod cooker: fflate reads and writes the packages) ----
+	"zip:build": { args: { entries: { path: string; data: Uint8Array }[] }; result: Uint8Array };
+	"zip:read": { args: { data: Uint8Array }; result: ZipEntry[] };
+
 	// ---- upk-parser (bundled zig tool; UPK compression for the mod cooker) ----
 	"upk:optimize": {
 		args: { path: string };
@@ -274,6 +289,13 @@ export interface IpcContract {
 	"upk:optimize-data": {
 		args: { name: string; data: Uint8Array };
 		result: { optimized: boolean; data: ArrayBuffer | null };
+	};
+
+	// ---- Keybinds mod (INI + manifest + zip cooked host-side) ----
+	/** Stages the cooked package in the temp dir and returns its path. */
+	"keybinds:cook": {
+		args: { name: string; version: string; config: KeybindsConfig };
+		result: string;
 	};
 
 	// ---- Mod publishing setup (signing key + repository API key) ----

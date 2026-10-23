@@ -1,4 +1,4 @@
-import { logCommandOutput } from "../stores/processes.svelte";
+import { logCommandOutput } from "$lib/stores/processes.svelte";
 import { createCommand } from "./command";
 
 export function createDiscoverCommand(timeoutMs = 1500) {

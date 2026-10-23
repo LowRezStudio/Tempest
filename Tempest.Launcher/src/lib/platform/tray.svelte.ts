@@ -12,7 +12,7 @@ import { queueItems, queueRunning } from "$lib/rigby/stores.svelte";
 import { preparedInstances } from "$lib/stores/instance.svelte";
 import { localeState } from "$lib/stores/locale.svelte";
 import { lobbyServerProcessesList, processesList } from "$lib/stores/processes.svelte";
-import type { TrayEntry, TrayNavId } from "../../../electron/src/ipc/contract";
+import type { TrayEntry, TrayNavId } from "$ipc/contract";
 
 /**
  * Whether closing the window should keep the launcher alive in the system

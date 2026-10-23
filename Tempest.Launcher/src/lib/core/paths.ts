@@ -2,7 +2,7 @@ import { invoke } from "$lib/platform/api";
 // Instance data paths. Computed host-side (`instance:paths`) so the layout
 // (userData dir pinning, separators, etc.) lives entirely in the Electron
 // main process; this is a single typed IPC call.
-import type { InstancePaths } from "../../../electron/src/ipc/contract";
+import type { InstancePaths } from "$ipc/contract";
 
 export function getInstancePaths(id: string): Promise<InstancePaths> {
 	return invoke("instance:paths", { id });

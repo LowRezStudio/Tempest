@@ -1,6 +1,6 @@
-import { updateInstance } from "../stores/instance.svelte";
-import { persistedJSON } from "../stores/persisted.svelte";
-import type { Instance, LaunchPreset } from "../types/instance";
+import { updateInstance } from "$lib/stores/instance.svelte";
+import { persistedJSON } from "$lib/stores/persisted.svelte";
+import type { Instance, LaunchPreset } from "$lib/types/instance";
 
 // Presets are shared by every instance; only the selection is per instance.
 export const launchPresets = persistedJSON<LaunchPreset[]>("launchPresets", []);

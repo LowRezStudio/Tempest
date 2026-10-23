@@ -1,17 +1,5 @@
-import JSZip from "jszip";
 import { persistedJSON } from "./persisted.svelte";
-
-export interface Keybind {
-	name: string;
-	command: string;
-}
-
-export interface KeybindsConfig {
-	mouseSensitivity: number;
-	fpsLimit: number;
-	unlockFps: boolean;
-	bindings: Keybind[];
-}
+import type { KeybindsConfig } from "$ipc/contract";
 
 export const DEFAULT_KEYBINDS: KeybindsConfig = {
 	mouseSensitivity: 25,
@@ -40,66 +28,4 @@ export const keybinds = persistedJSON<KeybindsConfig>("keybinds.v5", DEFAULT_KEY
 
 export function resetKeybinds() {
 	keybinds.value = structuredClone(DEFAULT_KEYBINDS);
-}
-
-export function buildDefaultInputIni(config: KeybindsConfig): string {
-	const lines: string[] = [];
-	lines.push("[Engine.PlayerInput]");
-	lines.push(`MouseSensitivity=${Number(config.mouseSensitivity).toFixed(1)}`);
-	lines.push("");
-	lines.push("[TgGame.TgPlayerInput]");
-	for (const binding of config.bindings) {
-		const name = binding.name.trim();
-		const command = binding.command.trim();
-		if (!name || !command) continue;
-		lines.push(`+Bindings=(Name="${name}",    Command="${command}")`);
-	}
-	return `${lines.join("\n")}\n`;
-}
-
-export function buildDefaultEngineIni(config: KeybindsConfig): string {
-	const lines: string[] = [];
-	lines.push("[Engine.GameEngine]");
-	if (config.unlockFps) {
-		lines.push("bSmoothFrameRate=FALSE");
-		lines.push("MinSmoothedFrameRate=0");
-		lines.push("MaxSmoothedFrameRate=0");
-	} else {
-		lines.push(`MaxSmoothedFrameRate=${config.fpsLimit}`);
-	}
-	return `${lines.join("\n")}\n`;
-}
-
-export interface KeybindModOptions {
-	name: string;
-	version?: string;
-	authors?: { name: string; link: string }[];
-	readme?: string;
-}
-
-export function cookKeybindsMod(config: KeybindsConfig, options: KeybindModOptions) {
-	const zip = new JSZip();
-	zip.file("files/ChaosGame/Config/DefaultInput.ini", buildDefaultInputIni(config));
-	zip.file("files/ChaosGame/Config/DefaultEngine.ini", buildDefaultEngineIni(config));
-
-	const lines: string[] = [];
-	lines.push("[mod]");
-	lines.push(`id = "${options.name.trim()}"`);
-	lines.push(`name = "${options.name.trim()}"`);
-	lines.push(`version = "${options.version?.trim() ?? "1.0.0"}"`);
-	lines.push("");
-	for (const author of options.authors ?? []) {
-		if (!author.name.trim()) continue;
-		lines.push("[[mod.authors]]");
-		lines.push(`name = "${author.name.trim()}"`);
-		if (author.link.trim()) lines.push(`link = "${author.link.trim()}"`);
-		lines.push("");
-	}
-	zip.file("manifest.toml", lines.join("\n"));
-
-	if (options.readme?.trim()) {
-		zip.file("README.md", options.readme.trim());
-	}
-
-	return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 }

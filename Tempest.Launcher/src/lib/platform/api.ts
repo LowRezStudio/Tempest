@@ -7,7 +7,7 @@ import type {
 	IpcEventChannel,
 	IpcEvents,
 	PreloadApi,
-} from "../../../electron/src/ipc/contract";
+} from "$ipc/contract";
 
 export type { ContextMenuAction, ContextMenuOptions };
 

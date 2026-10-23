@@ -1,6 +1,6 @@
 // V1 -> V2 converter imports: the host shows the file dialog and reads the
-// picked/dropped files in one round trip. Parsing (JSZip) stays in the
-// renderer; only raw bytes cross the bridge.
+// picked/dropped files in one round trip. Parsing and package assembly stay in
+// the renderer; only raw bytes cross the bridge.
 import fs from "node:fs";
 import path from "node:path";
 import { BrowserWindow, dialog } from "electron";

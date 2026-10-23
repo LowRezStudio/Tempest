@@ -5,6 +5,7 @@ import { modRepositoryURL } from "$lib/stores/settings.svelte";
 import { reportAntivirusBlocks } from "./antivirus.svelte";
 import { getAppVersion } from "./appVersion";
 import { createCommand } from "./command";
+import type { KeybindsConfig, ZipEntry } from "$ipc/contract";
 import type { Instance } from "$lib/types/instance";
 
 const REMOTE_CORE_URL =
@@ -31,6 +32,58 @@ export async function downloadRemoteMod(
 		unlisten();
 	}
 }
+
+// ---- Cooked packages: the host zips, writes and installs them, the renderer
+// only forwards its settings and the staged path. ----
+
+// Writes a cooked package to the host's temp dir; the path is what installs use.
+export function stageModPack(filename: string, data: Uint8Array): Promise<string> {
+	return invoke("mods:stage-pack", { filename, data });
+}
+
+// Save dialog + copy of a staged package; null when the user cancels.
+export function saveStagedModPack(stagedPath: string): Promise<string | null> {
+	return invoke("mods:save-staged-pack", { stagedPath });
+}
+
+// Drops a staged package the cooker replaced (an install may still be reading it).
+export function discardStagedModPack(stagedPath: string): Promise<void> {
+	return invoke("mods:discard-staged-pack", { stagedPath });
+}
+
+// Cooks the keybinds settings into a .tempest package staged in the temp dir.
+export function cookKeybindsMod(
+	name: string,
+	version: string,
+	config: KeybindsConfig,
+): Promise<string> {
+	return invoke("keybinds:cook", { name, version, config });
+}
+
+// ---- Cooker plumbing: the zip container and UPK compression run host-side ----
+
+// Zips path/payload pairs into a package.
+export function buildZipArchive(
+	entries: { path: string; data: Uint8Array }[],
+): Promise<Uint8Array> {
+	return invoke("zip:build", { entries });
+}
+
+// Lists a zip archive's files, leaving the package layout to the caller.
+export function readZipArchive(data: Uint8Array): Promise<ZipEntry[]> {
+	return invoke("zip:read", { data });
+}
+
+// Compresses a package the renderer holds as bytes.
+export function optimizeUpkData(name: string, data: Uint8Array) {
+	return invoke("upk:optimize-data", { name, data });
+}
+
+// Compresses a package on disk; only its path crosses the bridge.
+export function optimizeUpkFile(path: string) {
+	return invoke("upk:optimize", { path });
+}
+
 export type ModAuthor = {
 	Name: string;
 	Link: string;

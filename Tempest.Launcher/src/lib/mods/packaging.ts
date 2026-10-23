@@ -1,7 +1,6 @@
 // Shared helpers for the mod cooker (single + batch): .tempest package parsing,
 // repository-id slugs and .tempest package assembly.
-import JSZip from "jszip";
-import { invoke } from "$lib/platform/api";
+import { buildZipArchive, optimizeUpkData, readZipArchive } from "$lib/core/mods";
 
 /**
  * A file of a package. Most are game files (`path` is under the game folder, packed under
@@ -166,31 +165,43 @@ export type ParsedPackage = {
 	icon: PackageIcon | null;
 };
 
+// The zip container itself is written and read host-side; the renderer owns the
+// package layout.
+export function buildZip(
+	entries: { path: string; data: Uint8Array | string }[],
+): Promise<Uint8Array> {
+	const encoder = new TextEncoder();
+	return buildZipArchive(
+		entries.map(({ path, data }) => ({
+			path,
+			data: typeof data === "string" ? encoder.encode(data) : data,
+		})),
+	);
+}
+
 // Reads a .tempest package, old or already cooked: its game files, the files of
 // its own mod folder, and the manifest, readme and icon. The signature files are
 // dropped.
 export async function parsePackage(data: Uint8Array): Promise<ParsedPackage> {
-	const zip = await JSZip.loadAsync(data);
+	const entries = await readZipArchive(data);
+	const decoder = new TextDecoder();
 	const files: FileEntry[] = [];
+	const find = (name: string) => entries.find((entry) => entry.path === name);
 
-	const manifestFile = zip.file("manifest.toml");
-	const manifest = manifestFile ? parseManifest(await manifestFile.async("string")) : null;
+	const manifestFile = find("manifest.toml");
+	const manifest = manifestFile ? parseManifest(decoder.decode(manifestFile.data)) : null;
 	const readmeName = manifest?.readme ?? "README.md";
 	const iconName = manifest?.icon ?? "icon.png";
-	const readmeFile = zip.file(readmeName);
-	const iconFile = zip.file(iconName);
-	const readme = readmeFile ? await readmeFile.async("string") : null;
+	const readmeFile = find(readmeName);
+	const iconFile = find(iconName);
+	const readme = readmeFile ? decoder.decode(readmeFile.data) : null;
 	const icon = iconFile
-		? {
-				name: iconName.split("/").pop() ?? iconName,
-				data: new Uint8Array(await iconFile.async("arraybuffer")),
-			}
+		? { name: iconName.split("/").pop() ?? iconName, data: iconFile.data }
 		: null;
 	const meta = new Set(["manifest.toml", "README.md", readmeName, iconName, ...SEAL_ENTRIES]);
 
-	for (const [zipPath, zipEntry] of Object.entries(zip.files)) {
-		if (zipEntry.dir) continue;
-		const entryPath = zipPath.replaceAll("\\", "/");
+	for (const entry of entries) {
+		const entryPath = entry.path.replaceAll("\\", "/");
 		if (entryPath.startsWith("files/")) {
 			let relativePath = entryPath.slice("files/".length);
 			if (!relativePath) continue;
@@ -198,12 +209,9 @@ export async function parsePackage(data: Uint8Array): Promise<ParsedPackage> {
 			if (!relativePath.includes("/")) {
 				relativePath = `${targetDirFor(relativePath)}/${relativePath}`;
 			}
-			files.push({
-				path: relativePath,
-				data: new Uint8Array(await zipEntry.async("arraybuffer")),
-			});
+			files.push({ path: relativePath, data: entry.data });
 		} else if (!meta.has(entryPath)) {
-			const bytes = new Uint8Array(await zipEntry.async("arraybuffer"));
+			const bytes = entry.data;
 			// Older packages put every DLL straight into dlls/; sort them by client.
 			const legacyDll = /^dlls\/([^/]+\.dll)$/i.exec(entryPath)?.[1];
 			files.push({
@@ -266,10 +274,10 @@ export async function optimizeUpkEntries(
 		if (!lower.endsWith(".upk") && !lower.endsWith(".pck")) continue;
 		onProgress?.(file.path.split("/").pop() ?? file.path);
 		try {
-			const result = await invoke("upk:optimize-data", {
-				name: file.path.split("/").pop() ?? file.path,
-				data: file.data,
-			});
+			const result = await optimizeUpkData(
+				file.path.split("/").pop() ?? file.path,
+				file.data,
+			);
 			if (result.optimized && result.data) {
 				file.data = new Uint8Array(result.data);
 				compressed++;
@@ -288,7 +296,7 @@ export async function buildPackageZip(
 	meta: PackageMeta,
 	files: FileEntry[],
 ): Promise<{ bytes: Uint8Array; duplicates: number }> {
-	const zip = new JSZip();
+	const entries: { path: string; data: Uint8Array | string }[] = [];
 	const seen = new Set<string>();
 	let duplicates = 0;
 	for (const file of files) {
@@ -298,15 +306,15 @@ export async function buildPackageZip(
 			continue;
 		}
 		seen.add(entryPath.toLowerCase());
-		zip.file(entryPath, file.data);
+		entries.push({ path: entryPath, data: file.data });
 	}
-	zip.file("manifest.toml", buildManifest(meta));
+	entries.push({ path: "manifest.toml", data: buildManifest(meta) });
 	if (meta.readme?.trim()) {
-		zip.file("README.md", meta.readme.trim());
+		entries.push({ path: "README.md", data: meta.readme.trim() });
 	}
 	if (meta.icon) {
-		zip.file("icon.png", meta.icon.data);
+		entries.push({ path: "icon.png", data: meta.icon.data });
 	}
-	const bytes = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+	const bytes = await buildZip(entries);
 	return { bytes, duplicates };
 }
