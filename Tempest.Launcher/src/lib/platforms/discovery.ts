@@ -1,9 +1,9 @@
 // Finding Paladins installs runs entirely on the host (`platforms:find-paladins`): Steam
 // libraries, Epic manifests, the registry and a sweep of the drives are filesystem work.
 import { invoke } from "$lib/platform/api";
-import type { FoundInstallation } from "../../../electron/src/ipc/contract";
+import type { FoundInstallation } from "$ipc/contract";
 
-export type { FoundInstallation, InstallationSource } from "../../../electron/src/ipc/contract";
+export type { FoundInstallation, InstallationSource } from "$ipc/contract";
 
 /**
  * Every Paladins install the host can find on this machine.
