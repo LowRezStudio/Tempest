@@ -1,5 +1,5 @@
 import { createQuery } from "@tanstack/svelte-query";
-import { createDiscoverCommand } from "$lib/core/server";
+import { createDiscoverCommand } from "$lib/core/discover";
 import { getConnectionToServerList } from "$lib/rpc";
 import type { ServerListing } from "$lib/rpc";
 
