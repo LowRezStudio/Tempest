@@ -60,7 +60,7 @@
 
     <ItemGroup>
         <EmbeddedResource Include="Resources/manifests.csv" />
-        <EmbeddedResource Include="@(ZigOutput)" />
+        <None Include="@(ZigOutput)" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>
