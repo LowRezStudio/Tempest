@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ChevronDown, ChevronRight, File, FileText, Folder } from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { invoke } from "$lib/platform/api";
 
 	interface Props {
@@ -156,9 +157,7 @@
 				path: key,
 			});
 			// Keep the UI responsive on very large files (host caps at 50k chars).
-			const text = truncated
-				? `${raw}\n\n… truncated (file too large, showing first 50k chars)`
-				: raw;
+			const text = truncated ? `${raw}${m.mod_details_file_truncated()}` : raw;
 			fileContents.set(key, { loading: false, text, error: "" });
 		} catch (error) {
 			fileContents.set(key, {
@@ -204,20 +203,20 @@
 								class="bg-base-300/50 border-base-300 flex items-center gap-2 rounded border px-3 py-2 text-xs opacity-60"
 							>
 								<span class="loading loading-spinner loading-xs"></span>
-								Loading...
+								{m.common_loading()}
 							</div>
 						{:else if state?.error}
 							<div
 								class="bg-error/10 text-error border-error/20 rounded border px-3 py-2 font-mono text-xs"
 							>
-								Failed to read: {state.error}
+								{m.mod_details_file_read_failed({ error: state.error })}
 							</div>
 						{:else if state?.text !== undefined}
 							{#if state.text.length === 0}
 								<div
 									class="bg-base-300/30 border-base-300 rounded border px-3 py-2 text-xs italic opacity-50"
 								>
-									Empty file
+									{m.mod_details_file_empty()}
 								</div>
 							{:else}
 								<pre
