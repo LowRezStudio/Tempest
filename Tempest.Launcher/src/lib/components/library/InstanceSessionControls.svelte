@@ -3,7 +3,7 @@
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { stopGameWindow } from "$lib/core/launch";
-	import { launchPresets } from "$lib/core/presets";
+	import { activePreset } from "$lib/core/presets";
 	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes.svelte";
@@ -41,9 +41,7 @@
 
 	// Name each window after the preset it was launched with, if any.
 	const windowLabel = (gameWindow: Process): string => {
-		const preset = launchPresets.value.find(
-			(preset) => preset.id === gameWindow.instance.launchOptions.presetId,
-		);
+		const preset = activePreset(gameWindow.instance);
 		return preset
 			? `${preset.title || m.instance_preset_untitled()} ${gameWindow.sessionNumber}`
 			: m.sessions_window({ number: gameWindow.sessionNumber });

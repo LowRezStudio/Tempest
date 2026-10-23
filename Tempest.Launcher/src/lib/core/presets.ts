@@ -1,12 +1,16 @@
 import { updateInstance } from "$lib/stores/instance.svelte";
 import { persistedJSON } from "$lib/stores/persisted.svelte";
+import { modDeveloper } from "$lib/stores/settings.svelte";
 import type { Instance, LaunchPreset } from "$lib/types/instance";
 
 // Presets are shared by every instance; only the selection is per instance.
 export const launchPresets = persistedJSON<LaunchPreset[]>("launchPresets", []);
 
+// Presets are a Mod Developer tool: with it off, a preset picked earlier no longer applies.
 export const activePreset = (instance: Instance): LaunchPreset | undefined =>
-	launchPresets.value.find((preset) => preset.id === instance.launchOptions.presetId);
+	modDeveloper.value
+		? launchPresets.value.find((preset) => preset.id === instance.launchOptions.presetId)
+		: undefined;
 
 // Preset arguments run first, the instance's own (Settings) arguments after them.
 export const launchArgs = (instance: Instance): string[] => [

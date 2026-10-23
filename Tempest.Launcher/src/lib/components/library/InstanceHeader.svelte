@@ -21,6 +21,7 @@
 	import { openPath } from "$lib/platform/api";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes.svelte";
+	import { modDeveloper } from "$lib/stores/settings.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import { getInstanceColor } from "$lib/utils/color";
 	import { loadingScreensOf, patchSummary } from "$lib/utils/versions";
@@ -213,39 +214,46 @@
 					{/if}
 					<span class="max-w-40 truncate">{playLabel}</span>
 				</button>
-				<PopoverMenu
-					triggerClass="btn join-item btn-square {running ? 'btn-error' : 'btn-success'}"
-					triggerLabel={m.instance_presets()}
-				>
-					{#snippet trigger()}
-						<ChevronDown size={16} />
-					{/snippet}
-					{#snippet children()}
-						{#each launchPresets.value as preset (preset.id)}
-							<PopoverMenuItem
-								onclick={() => launchWith(preset)}
-								disabled={busy || phase !== "prepared"}
-								title={preset.args.join(" ")}
-							>
-								<span class="flex w-4 shrink-0 justify-center">
-									{#if selectedPreset?.id === preset.id}
-										<Check size={14} />
-									{/if}
-								</span>
-								<span class="flex-1 truncate">
-									{preset.title || m.instance_preset_untitled()}
-								</span>
+				{#if modDeveloper.value}
+					<PopoverMenu
+						triggerClass="btn join-item btn-square {running
+							? 'btn-error'
+							: 'btn-success'}"
+						triggerLabel={m.instance_presets()}
+					>
+						{#snippet trigger()}
+							<ChevronDown size={16} />
+						{/snippet}
+						{#snippet children()}
+							{#each launchPresets.value as preset (preset.id)}
+								<PopoverMenuItem
+									onclick={() => launchWith(preset)}
+									disabled={busy || phase !== "prepared"}
+									title={preset.args.join(" ")}
+								>
+									<span class="flex w-4 shrink-0 justify-center">
+										{#if selectedPreset?.id === preset.id}
+											<Check size={14} />
+										{/if}
+									</span>
+									<span class="flex-1 truncate">
+										{preset.title || m.instance_preset_untitled()}
+									</span>
+								</PopoverMenuItem>
+							{/each}
+							{#if launchPresets.value.length > 0}
+								<li
+									role="separator"
+									class="border-base-content/10 my-1 border-t"
+								></li>
+							{/if}
+							<PopoverMenuItem onclick={onManagePresets}>
+								<SlidersHorizontal size={16} />
+								{m.instance_preset_manage()}
 							</PopoverMenuItem>
-						{/each}
-						{#if launchPresets.value.length > 0}
-							<li role="separator" class="border-base-content/10 my-1 border-t"></li>
-						{/if}
-						<PopoverMenuItem onclick={onManagePresets}>
-							<SlidersHorizontal size={16} />
-							{m.instance_preset_manage()}
-						</PopoverMenuItem>
-					{/snippet}
-				</PopoverMenu>
+						{/snippet}
+					</PopoverMenu>
+				{/if}
 			</div>
 			<button
 				class="{secondary} btn-square"

@@ -18,6 +18,7 @@
 	import { createRepoUpdatesQuery } from "$lib/queries/repo";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
+	import { modDeveloper } from "$lib/stores/settings.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import type { ModRecord } from "$lib/core/mods";
 
@@ -27,7 +28,10 @@
 	// Deep-link support: /instance/<id>?tab=settings (or browse/presets) opens directly there.
 	$effect(() => {
 		const tab = page.url.searchParams.get("tab");
-		activeTab = tab === "settings" || tab === "browse" || tab === "presets" ? tab : "content";
+		activeTab =
+			tab === "settings" || tab === "browse" || (tab === "presets" && modDeveloper.value)
+				? tab
+				: "content";
 	});
 
 	const instance = $derived(instanceMap.value[page.params.id!]);
@@ -126,7 +130,9 @@
 			tabs={[
 				{ name: m.instance_content(), value: "content", count: modsQuery.data?.length },
 				{ name: m.instance_browse(), value: "browse" },
-				{ name: m.instance_presets(), value: "presets" },
+				...(modDeveloper.value
+					? [{ name: m.instance_presets(), value: "presets" as const }]
+					: []),
 				{ name: m.settings_title(), value: "settings" },
 			]}
 			bind:activeTab
@@ -208,7 +214,7 @@
 					{/if}
 				</div>
 			</div>
-		{:else if activeTab === "presets"}
+		{:else if activeTab === "presets" && modDeveloper.value}
 			<div class="flex-1 overflow-y-auto">
 				<div class="p-6">
 					{#if instance}
