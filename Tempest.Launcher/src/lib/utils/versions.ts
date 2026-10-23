@@ -72,3 +72,21 @@ export function getMapsForVersion(gameVersion: string) {
 		);
 	});
 }
+
+export const loadingScreens = Object.keys(import.meta.glob("/static/loading-screens/*.webp")).map(
+	(path) => path.replace("/static", ""),
+);
+
+/**
+ * The loading screens of the patch's own maps, so the art is what that game shows.
+ * @param version - The instance's game version.
+ * @returns Their URLs, or every loading screen for a patch without any.
+ */
+export function loadingScreensOf(version: string | undefined): string[] {
+	const own = version
+		? getMapsForVersion(version)
+				.map((map) => map.iconPath)
+				.filter((path) => loadingScreens.includes(path))
+		: [];
+	return own.length > 0 ? [...new Set(own)] : loadingScreens;
+}

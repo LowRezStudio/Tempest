@@ -20,7 +20,12 @@
 
 	const variants = {
 		card: { trigger: "btn btn-sm btn-ghost gap-1 px-2", icon: 14, count: "text-xs" },
-		header: { trigger: "btn gap-1.5", icon: 16, count: "text-sm" },
+		// The heroes' secondary button, solid enough to read over their art
+		header: {
+			trigger: "btn gap-1.5 border-base-content/10 bg-base-100/60 hover:bg-base-100",
+			icon: 16,
+			count: "text-sm",
+		},
 	};
 	let style = $derived(variants[variant]);
 

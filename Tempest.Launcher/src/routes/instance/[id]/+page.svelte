@@ -1,18 +1,8 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
-	import {
-		FolderOpen,
-		Gamepad2,
-		PackageOpen,
-		Play,
-		Plus,
-		Search,
-		Square,
-		Terminal,
-	} from "@lucide/svelte";
-	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
-	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
+	import { PackageOpen, Plus, Search } from "@lucide/svelte";
+	import InstanceHeader from "$lib/components/library/InstanceHeader.svelte";
 	import InstanceSettings from "$lib/components/library/InstanceSettings.svelte";
 	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
@@ -20,19 +10,14 @@
 	import RepoModModal from "$lib/components/mods/RepoModModal.svelte";
 	import RepoUpdatesModal from "$lib/components/mods/RepoUpdatesModal.svelte";
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
-	import Header from "$lib/components/ui/Header.svelte";
-	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
 	import { pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
-	import { openPath } from "$lib/platform/api";
-	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
 	import { createRepoUpdatesQuery } from "$lib/queries/repo";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
-	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { ModRecord } from "$lib/core/mods";
 
 	type Tab = "content" | "browse" | "settings";
@@ -45,9 +30,6 @@
 	});
 
 	const instance = $derived(instanceMap.value[page.params.id!]);
-	let isSettingUp = $derived(
-		(instance?.state as { type?: string } | undefined)?.type === "setup",
-	);
 	let isReady = $derived(instance?.state?.type === "prepared");
 
 	const { installMods: handleInstallMod } = useInstallMods(() => instance?.path);
@@ -68,6 +50,7 @@
 			.map((mod) => ({ id: mod.Id, version: mod.Version })),
 	}));
 	const updates = $derived(new Map((updatesQuery.data ?? []).map((u) => [u.id, u])));
+	const updateCount = $derived([...updates.values()].filter((u) => u.updateAvailable).length);
 
 	// Mod details from the repository (readme, versions, downgrade), opened from the table or the Browse tab.
 	let repoModId = $state<string | null>(null);
@@ -125,39 +108,7 @@
 		}
 	});
 
-	// Check if this instance is currently running
-	let windowCount = $derived(
-		processesList.value.filter((p) => p.instance?.id === instance?.id).length,
-	);
-	let isRunning = $derived(windowCount > 0);
-	const launchGameMutation = createLaunchGameMutation();
-	const killGameMutation = createKillGameMutation();
-	let isLaunching = $derived(launchGameMutation.isPending);
-	let isKilling = $derived(killGameMutation.isPending);
-	let launchError = $derived(launchGameMutation.error?.message ?? "");
-	let killError = $derived(killGameMutation.error?.message ?? "");
-
-	function handleLaunchToggle() {
-		if (!instance) return;
-		if (isRunning) {
-			killGameMutation.mutate(instance);
-			return;
-		}
-		launchGameMutation.mutate(instance);
-	}
-
-	function clearLaunchError() {
-		launchGameMutation.reset();
-	}
-
-	function clearKillError() {
-		killGameMutation.reset();
-	}
-
-	async function handleOpenInstanceFolder() {
-		if (!instance?.path) return;
-		await openPath(instance.path);
-	}
+	let isRunning = $derived(processesList.value.some((p) => p.instance?.id === instance?.id));
 
 	let isFilesDialogOpen = $state(false);
 	let selectedModForFiles = $state<ModRecord | null>(null);
@@ -168,109 +119,19 @@
 </script>
 
 <div class="flex h-full flex-col">
-	<!-- Header -->
-	<Header
-		title={instance?.label || m.common_loading()}
-		tabs={[
-			{ name: m.instance_content(), value: "content" },
-			{ name: m.instance_browse(), value: "browse" },
-			{ name: m.settings_title(), value: "settings" },
-		]}
-		{activeTab}
-		onSelectTab={(tab) => (activeTab = tab)}
-		iconBg={getInstanceColor(instance)}
-	>
-		{#snippet icon()}
-			{#if isSettingUp}
-				<span
-					class="loading loading-spinner loading-md"
-					style="color: {getContrastColor(getInstanceColor(instance))};"
-				></span>
-			{:else}
-				<PaladinsIcon size="3.25rem" color={getContrastColor(getInstanceColor(instance))} />
-			{/if}
-		{/snippet}
-		{#snippet actions()}
-			{#if instance}
-				<InstanceSessionControls
-					{instance}
-					busy={isLaunching || isKilling}
-					variant="header"
-				/>
-			{/if}
-			<button
-				class="btn text-sm"
-				class:btn-success={!isRunning}
-				class:btn-error={isRunning}
-				disabled={isLaunching || isKilling || isSettingUp}
-				aria-busy={isLaunching || isKilling || isSettingUp}
-				onclick={handleLaunchToggle}
-			>
-				{#if isLaunching}
-					<span class="loading loading-spinner loading-xs"></span>
-					{m.common_launching()}
-				{:else if isKilling}
-					<span class="loading loading-spinner loading-xs"></span>
-					{m.common_stopping_label()}
-				{:else if isRunning}
-					<Square size={16} />
-					{windowCount > 1 ? m.sessions_stop_all() : m.common_stop()}
-				{:else}
-					<Play size={16} />
-					{m.common_play()}
-				{/if}
-			</button>
-			<button
-				class="btn btn-square"
-				disabled={!instance?.path}
-				onclick={handleOpenInstanceFolder}
-			>
-				<FolderOpen size={16} />
-			</button>
-			{#if instance}
-				<InstanceMenu {instance} triggerClass="btn btn-square" />
-			{/if}
-		{/snippet}
-		{#snippet subtitle()}
-			<div class="flex items-center gap-1.5">
-				<Gamepad2 size={14} />
-				<span>{instance?.version || m.common_unknown_version()}</span>
-				{#if instance?.launchOptions?.args && instance.launchOptions.args.length > 0}
-					<div
-						class="ml-1.5 flex min-w-0 items-center gap-1"
-						title={instance.launchOptions.args.join(" ")}
-					>
-						<Terminal size={14} class="shrink-0" />
-						<span class="max-w-[350px] truncate font-mono text-xs">
-							{instance.launchOptions.args.join(" ")}
-						</span>
-					</div>
-				{/if}
-			</div>
-		{/snippet}
-		{#snippet errors()}
-			{#if launchError}
-				<div class="pt-3">
-					<div class="alert alert-error">
-						<span>{launchError}</span>
-						<button class="btn btn-ghost btn-sm" onclick={clearLaunchError}>
-							{m.common_dismiss()}
-						</button>
-					</div>
-				</div>
-			{/if}
-			{#if killError}
-				<div class="pt-3">
-					<div class="alert alert-error">
-						<span>{killError}</span>
-						<button class="btn btn-ghost btn-sm" onclick={clearKillError}>
-							{m.common_dismiss()}
-						</button>
-					</div>
-				</div>
-			{/if}
-		{/snippet}
-	</Header>
+	{#if instance}
+		<InstanceHeader
+			{instance}
+			tabs={[
+				{ name: m.instance_content(), value: "content", count: modsQuery.data?.length },
+				{ name: m.instance_browse(), value: "browse" },
+				{ name: m.settings_title(), value: "settings" },
+			]}
+			bind:activeTab
+			{updateCount}
+			onShowUpdates={() => (updatesOpen = true)}
+		/>
+	{/if}
 
 	<!-- Content Area -->
 	<div class="flex flex-1 flex-col overflow-hidden">
