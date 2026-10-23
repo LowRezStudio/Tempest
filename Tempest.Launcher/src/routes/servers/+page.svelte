@@ -134,7 +134,7 @@
 <div class="flex h-full flex-col">
 	<Header
 		title={m.serverlist_title()}
-		{tabs}
+		tabs={tabs.length > 1 ? tabs : undefined}
 		{activeTab}
 		onSelectTab={(tab) => (activeTab = tab)}
 	>
@@ -280,38 +280,46 @@
 								</p>
 							</div>
 						{:else}
-							<div class="flex flex-col gap-3">
-								{#each filteredServers as server (server.id)}
-									<ServerRow
-										{server}
-										showCountry={activeTab === "internet"}
-										onclick={openDetails}
-									/>
-								{/each}
+							<div class="bg-base-200/40 border-base-300 rounded-box border p-4">
+								<div class="flex flex-col gap-3">
+									{#each filteredServers as server (server.id)}
+										<ServerRow
+											{server}
+											showCountry={activeTab === "internet"}
+											onclick={openDetails}
+										/>
+									{/each}
+								</div>
 							</div>
 						{/if}
 					</div>
-					<aside
-						class="order-first flex flex-col gap-2 @3xl:sticky @3xl:top-6 @3xl:order-last"
-					>
-						<div class="flex gap-2 @3xl:flex-col">
-							<button
-								type="button"
-								class="bg-base-200/70 border-base-300 hover:border-primary/60 rounded-field flex flex-1 cursor-pointer items-start gap-3 border p-3 text-left text-sm transition-colors"
-								onclick={() => (joinServerWizardOpen.value = true)}
-							>
-								<Users size={16} class="text-primary mt-0.5 shrink-0" />
-								<span class="font-semibold">{m.join_server_title()}</span>
-							</button>
-							<button
-								type="button"
-								class="bg-base-200/70 border-base-300 hover:border-primary/60 rounded-field flex flex-1 cursor-pointer items-start gap-3 border p-3 text-left text-sm transition-colors"
-								onclick={() => (hostServerWizardOpen.value = true)}
-							>
-								<Server size={16} class="text-primary mt-0.5 shrink-0" />
-								<span class="font-semibold">{m.serverlist_host_server()}</span>
-							</button>
-						</div>
+					<aside class="order-first @3xl:sticky @3xl:top-6 @3xl:order-last">
+						<section class="bg-base-200/70 border-base-300 rounded-box border p-4">
+							<h2 class="text-base font-semibold">Server Actions</h2>
+							<p class="text-base-content/60 mt-1 mb-4 text-sm">
+								Servers on your LAN or VPN will show in the server list.
+								<br />
+								Or join a server with its IP and port forwarding.
+							</p>
+							<div class="flex gap-2 @3xl:flex-col">
+								<button
+									type="button"
+									class="bg-base-100 border-base-300 hover:border-primary/60 rounded-field flex flex-1 cursor-pointer items-start gap-3 border p-3 text-left text-sm transition-colors"
+									onclick={() => (joinServerWizardOpen.value = true)}
+								>
+									<Users size={16} class="text-primary mt-0.5 shrink-0" />
+									<span class="font-semibold">{m.join_server_title()}</span>
+								</button>
+								<button
+									type="button"
+									class="bg-base-100 border-base-300 hover:border-primary/60 rounded-field flex flex-1 cursor-pointer items-start gap-3 border p-3 text-left text-sm transition-colors"
+									onclick={() => (hostServerWizardOpen.value = true)}
+								>
+									<Server size={16} class="text-primary mt-0.5 shrink-0" />
+									<span class="font-semibold">{m.serverlist_host_server()}</span>
+								</button>
+							</div>
+						</section>
 					</aside>
 				</div>
 			</div>
