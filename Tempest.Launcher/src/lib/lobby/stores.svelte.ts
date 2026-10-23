@@ -1,4 +1,6 @@
 import { Timestamp } from "$lib/rpc";
+import { hostState } from "$lib/stores/host-state.svelte";
+import { instanceMap } from "$lib/stores/instance.svelte";
 import { persistedState } from "$lib/stores/persisted.svelte";
 import { getMapsForVersion } from "$lib/utils/versions";
 import type { LobbyState } from "$lib/rpc";
@@ -51,7 +53,21 @@ export const mostRecentLobbyConnectionTime = persistedState<string>(
 	"",
 );
 
-export const currentInstance = $state({ value: null as Instance | null });
+// The instance the lobby launched. The id is parked in the host so a renderer
+// reload does not launch a second client for a game the host still runs.
+const currentInstanceId = hostState<string | undefined>("lobby:currentInstance", undefined);
+
+export const currentInstance = $state({
+	value: (currentInstanceId.value
+		? instanceMap.value[currentInstanceId.value]
+		: null) as Instance | null,
+});
+
+export function setCurrentInstance(instance: Instance | null) {
+	currentInstance.value = instance;
+	currentInstanceId.value = instance?.id;
+}
+
 export const players = $state({ value: [] as LobbyPlayer[] });
 export const chatMessages = $state({ value: [] as ChatMessage[] });
 export const state = $state({ value: {} as LobbyState });
@@ -162,7 +178,7 @@ export function resetLobbyState(): void {
 	connectionStatus.value = "pending";
 	joinErrorCode.value = null;
 	lobbyStaticInfo.value = null;
-	currentInstance.value = null;
+	setCurrentInstance(null);
 	currentCountdownSeconds.value = -1;
 }
 

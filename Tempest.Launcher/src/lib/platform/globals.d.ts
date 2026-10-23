@@ -8,6 +8,8 @@ declare global {
 		electronAPI?: PreloadApi;
 		/** localStorage dump from the previous (Tauri) profile, injected by preload. */
 		__migrationDump?: string | null;
+		/** Renderer state parked in the host, injected by preload before page code. */
+		__hostState?: Record<string, unknown>;
 		/** OS info injected by preload, refined by the main process after load. */
 		__os?: OsInfo;
 	}

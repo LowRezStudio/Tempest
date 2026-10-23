@@ -29,6 +29,7 @@
 		playerCount,
 		playerId,
 		players,
+		setCurrentInstance,
 		teamLeft,
 		teamRight,
 	} from "$lib/lobby/stores.svelte";
@@ -61,6 +62,9 @@
 	);
 
 	$effect(() => {
+		// Wait for the first info event after a (re)connect: the restored state is
+		// empty until then, and acting on it would drop the game we just reattached.
+		if (!lobbyStaticInfo.value) return;
 		if (
 			isGameServerOpen.value &&
 			!gameRunning &&
@@ -72,7 +76,7 @@
 			handleJoinGame();
 		}
 		if (!isGameServerOpen.value) {
-			currentInstance.value = null;
+			setCurrentInstance(null);
 			//TODO maybe ask user before closing instances
 			const openInstances = processesList.value.filter(
 				(p) => p.instance.version === lobbyStaticInfo.value?.version,
@@ -119,7 +123,7 @@
 		const instance = lobbyManager.getLaunchGameInstance();
 		if (instance) {
 			console.log("Found instance. Launching game!");
-			currentInstance.value = instance;
+			setCurrentInstance(instance);
 			launchGameMutation.mutate(instance);
 		} else {
 			console.error("Unable to create instance");

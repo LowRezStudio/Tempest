@@ -102,6 +102,18 @@ export class Command<O = string> {
 		return new Command(name, args ?? [], options, true);
 	}
 
+	/**
+	 * Rebuild the event plumbing for a child that outlived this page (a Vite
+	 * reload or renderer crash leaves the host process running). The command has
+	 * no program: it only routes the host's `shell:process` stream for the pid.
+	 * @param pid - Host child id from `shell:list`.
+	 * @returns The reattached command and its child.
+	 */
+	static attach(pid: number): { command: Command; child: Child } {
+		const command = new Command("", []);
+		return { command, child: command.listen(pid) };
+	}
+
 	on(event: "close", cb: (payload: ClosePayload) => void): this;
 	on(event: "error", cb: (error: string) => void): this;
 	on(event: string, cb: Function): this {
@@ -122,6 +134,10 @@ export class Command<O = string> {
 			sidecar: this._sidecar,
 		});
 
+		return this.listen(pid);
+	}
+
+	private listen(pid: number): Child {
 		const child = new Child(pid);
 
 		// One demultiplexed event stream for all spawned children. Remove all

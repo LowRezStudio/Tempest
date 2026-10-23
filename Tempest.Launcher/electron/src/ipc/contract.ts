@@ -134,6 +134,8 @@ export interface IpcContract {
 	"app:set-close-behavior": { args: { hideToTray: boolean }; result: void };
 	"settings:write-snapshot": { args: { json: string }; result: void };
 	"settings:delete-snapshot": { args: void; result: void };
+	/** Renderer state the host keeps in memory so it survives a page reload. */
+	"state:set": { args: { patch: Record<string, unknown> }; result: void };
 
 	// ---- Window ----
 	"window:destroy": { args: void; result: void };
@@ -159,6 +161,8 @@ export interface IpcContract {
 	"shell:kill": { args: { pid: number }; result: void };
 	"shell:stdin-write": { args: { pid: number; data: string }; result: void };
 	"shell:which": { args: { name: string }; result: string | null };
+	/** Children still alive in the host; a renderer reload loses its own process list. */
+	"shell:list": { args: void; result: number[] };
 
 	// ---- Path helpers (cross-platform correctness over IPC) ----
 	"path:join": { args: { paths: string[] }; result: string };

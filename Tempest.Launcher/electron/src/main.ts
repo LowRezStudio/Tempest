@@ -26,8 +26,8 @@ import "./tray.js";
 import "./updater.js";
 import "./upk.js";
 import "./window.js";
+import "./state.js";
 import { activeChildren } from "./shell.js";
-
 function tempestFilesFromArgs(args: string[], workingDirectory: string): string[] {
 	return args.flatMap((argument) => {
 		let filePath: string;
