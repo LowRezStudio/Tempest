@@ -4,8 +4,14 @@
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { orderedInstances, sortInstancesByVersion } from "$lib/stores/instance.svelte";
+	import {
+		orderedInstances,
+		sortInstancesByVersion,
+		setInstanceOrder,
+	} from "$lib/stores/instance.svelte";
 	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
+	import { createReorderable } from "$lib/utils/reorder.svelte";
+	import type { Instance } from "$lib/types/instance";
 
 	let searchQuery = $state("");
 
@@ -16,6 +22,16 @@
 				instance.version?.toLowerCase().includes(searchQuery.toLowerCase()),
 		),
 	);
+
+	let gridEl: HTMLDivElement | undefined = $state();
+	const reorder = createReorderable<Instance>({
+		ids: () => sortedInstances.map((i) => i.id),
+		container: () => gridEl,
+		onReorder: setInstanceOrder,
+		grid: true,
+	});
+
+	const canDrag = $derived(searchQuery.trim() === "");
 </script>
 
 <div class="bg-base-100 flex h-full flex-col">
@@ -98,10 +114,24 @@
 					{/if}
 				{:else}
 					<div
+						bind:this={gridEl}
 						class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
+						class:dragging={!!reorder.drag}
 					>
-						{#each sortedInstances as instance (instance.id)}
-							<InstanceCard {instance} />
+						{#each sortedInstances as instance, i (instance.id)}
+							<div
+								data-id={instance.id}
+								class="instance-slot"
+								style:transform={reorder.shiftFor(i)}
+								class:is-ghost={reorder.drag?.id === instance.id}
+							>
+								<InstanceCard
+									{instance}
+									onpointerdown={canDrag
+										? reorder.pointerdown(instance.id, i, instance)
+										: undefined}
+								/>
+							</div>
 						{/each}
 						<button
 							type="button"
@@ -119,7 +149,44 @@
 						</button>
 					</div>
 				{/if}
+
+				{#if reorder.drag && canDrag}
+					<div
+						class="drag-clone pointer-events-none fixed z-[100]"
+						style:top={`${reorder.pointerY - reorder.drag.offsetY}px`}
+						style:left={`${reorder.pointerX - reorder.drag.offsetX}px`}
+						style:width={`${reorder.drag.width}px`}
+						aria-hidden="true"
+						inert
+					>
+						<InstanceCard instance={reorder.drag.item} />
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>
 </div>
+
+<style>
+	.instance-slot {
+		touch-action: none;
+		position: relative;
+		z-index: 1;
+	}
+	/* Transitions only while dragging so the drop reorder is instant (no glitch). */
+	.dragging .instance-slot {
+		will-change: transform;
+		transition: transform 200ms ease;
+	}
+	.instance-slot.is-ghost {
+		z-index: 0;
+		opacity: 0.3;
+		border-radius: 0.5rem;
+	}
+	.drag-clone {
+		filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+		transform: scale(1.02);
+		transform-origin: center center;
+		opacity: 0.95;
+	}
+</style>

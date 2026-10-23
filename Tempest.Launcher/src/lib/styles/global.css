@@ -222,3 +222,10 @@
 	--btn-bg: color-mix(in oklab, currentColor 18%, transparent);
 	--btn-border: transparent;
 }
+
+/* Drag-reorder cursor feedback (used by createReorderable). */
+body.reorder-dragging,
+body.reorder-dragging * {
+	cursor: grabbing !important;
+	user-select: none;
+}

@@ -8,9 +8,10 @@
 		instance: Instance;
 		href: string;
 		active?: boolean;
+		onpointerdown?: (e: PointerEvent) => void;
 	}
 
-	let { instance, href, active }: Props = $props();
+	let { instance, href, active, onpointerdown }: Props = $props();
 
 	let isActive = $derived(active ?? page.url.pathname === href);
 	let color = $derived(getInstanceColor(instance));
@@ -31,6 +32,7 @@
 			<a
 				{...props}
 				{href}
+				{onpointerdown}
 				class="btn btn-square"
 				class:btn-active={isActive}
 				{style}
