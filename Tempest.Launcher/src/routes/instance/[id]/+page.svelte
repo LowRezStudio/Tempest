@@ -227,11 +227,6 @@
 			>
 				<FolderOpen size={16} />
 			</button>
-			{#if isReady}
-				<button class="btn btn-square" onclick={handleInstallMod}>
-					<Plus size={16} />
-				</button>
-			{/if}
 			{#if instance}
 				<InstanceMenu {instance} triggerClass="btn btn-square" />
 			{/if}
@@ -329,6 +324,15 @@
 									</div>
 								{/snippet}
 							</EmptyState>
+						{:else if isReady}
+							<!-- The window handles drops itself; this is the hint and the file picker. -->
+							<button
+								class="border-base-content/10 hover:border-primary/40 text-base-content/40 hover:text-base-content/70 rounded-box mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 border border-dashed px-4 py-2.5 text-xs transition-colors"
+								onclick={handleInstallMod}
+							>
+								<Plus size={14} />
+								{m.instance_add_mod_tile()}
+							</button>
 						{/if}
 					{/if}
 				</div>

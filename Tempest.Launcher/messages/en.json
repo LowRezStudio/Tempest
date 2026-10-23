@@ -476,6 +476,7 @@
 	"instance_no_content": "No content installed",
 	"instance_add_mods_hint": "Add mods to customize your instance",
 	"instance_drag_import_hint": "Drag and drop .upk or .pck files here, or click below to import.",
+	"instance_add_mod_tile": "Drop a mod file here, or click to add one",
 	"instance_name": "Name",
 	"instance_version": "Game version",
 	"instance_version_unknown": "Not a patch Tempest knows, so its files can't be verified.",
