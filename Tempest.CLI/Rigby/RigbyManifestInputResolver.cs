@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-
 namespace Tempest.CLI.Rigby;
 
 internal static class RigbyManifestInputResolver
@@ -7,8 +5,9 @@ internal static class RigbyManifestInputResolver
     public static IReadOnlyList<string> ExpandManifestInputs(IEnumerable<string> patterns)
     {
         var results = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(RigbyOutputLayout.GetPathComparer());
         var cwd = Directory.GetCurrentDirectory();
+        List<string>? globs = null;
 
         foreach (var raw in patterns)
         {
@@ -20,6 +19,7 @@ internal static class RigbyManifestInputResolver
                 var url = manifestUri.AbsoluteUri;
                 if (seen.Add(url))
                     results.Add(url);
+
                 continue;
             }
 
@@ -28,6 +28,7 @@ internal static class RigbyManifestInputResolver
                 var fullPath = Path.GetFullPath(raw);
                 if (seen.Add(fullPath))
                     results.Add(fullPath);
+
                 continue;
             }
 
@@ -35,16 +36,23 @@ internal static class RigbyManifestInputResolver
             if (!glob.Contains('*') && !glob.Contains('?'))
                 continue;
 
-            foreach (var file in Directory.EnumerateFiles(cwd, "*", SearchOption.AllDirectories))
-            {
-                var relative = Path.GetRelativePath(cwd, file).Replace('\\', '/');
-                if (!GlobMatch(relative, glob))
-                    continue;
+            (globs ??= []).Add(glob);
+        }
 
-                var fullPath = Path.GetFullPath(file);
-                if (seen.Add(fullPath))
-                    results.Add(fullPath);
-            }
+        if (globs is null)
+            return results;
+
+        // One walk of the tree for every glob, instead of a walk and a compiled regex per file.
+        var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+        foreach (var file in Directory.EnumerateFiles(cwd, "*", options))
+        {
+            var relative = Path.GetRelativePath(cwd, file).Replace('\\', '/');
+            if (!globs.Any(glob => GlobMatches(relative, glob)))
+                continue;
+
+            var fullPath = Path.GetFullPath(file);
+            if (seen.Add(fullPath))
+                results.Add(fullPath);
         }
 
         return results;
@@ -60,15 +68,44 @@ internal static class RigbyManifestInputResolver
         return false;
     }
 
-    private static bool GlobMatch(string input, string pattern)
+    /// <summary>
+    /// Wildcard match over the whole relative path: <c>*</c> runs inside one directory, <c>?</c> is
+    /// one character inside one directory, and <c>**</c> crosses directories. Same rules the regex
+    /// the old implementation built per file encoded, without the regex.
+    /// </summary>
+    private static bool GlobMatches(ReadOnlySpan<char> path, ReadOnlySpan<char> pattern)
     {
-        var regex = "^" + Regex.Escape(pattern)
-            .Replace("\\*\\*", "<<double-star>>")
-            .Replace("\\*", "[^/]*")
-            .Replace("<<double-star>>", ".*")
-            .Replace("\\?", "[^/]")
-            + "$";
+        // previous[j]: path[..i] matches pattern[..j]; starts at i == 0.
+        Span<bool> previous = pattern.Length <= 256 ? stackalloc bool[pattern.Length + 1] : new bool[pattern.Length + 1];
+        Span<bool> current = pattern.Length <= 256 ? stackalloc bool[pattern.Length + 1] : new bool[pattern.Length + 1];
 
-        return Regex.IsMatch(input, regex, RegexOptions.CultureInvariant);
+        previous[0] = true;
+        for (var j = 1; j <= pattern.Length; j++)
+            previous[j] = previous[j - 1] && pattern[j - 1] == '*';
+
+        for (var i = 1; i <= path.Length; i++)
+        {
+            current[0] = false;
+            for (var j = 1; j <= pattern.Length; j++)
+            {
+                var symbol = pattern[j - 1];
+                if (symbol == '*')
+                {
+                    var crossesDirectories = j >= 2 && pattern[j - 2] == '*';
+                    current[j] = current[j - 1] || (previous[j] && (crossesDirectories || path[i - 1] != '/'));
+                }
+                else
+                {
+                    var matches = symbol == '?' ? path[i - 1] != '/' : symbol == path[i - 1];
+                    current[j] = matches && previous[j - 1];
+                }
+            }
+
+            var swap = previous;
+            previous = current;
+            current = swap;
+        }
+
+        return previous[pattern.Length];
     }
 }

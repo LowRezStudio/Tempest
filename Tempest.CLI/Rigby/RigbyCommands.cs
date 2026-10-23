@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using ConsoleAppFramework;
 using Tempest.CLI.Rigby.Events;
@@ -16,6 +17,7 @@ internal sealed class RigbyCommands
         string? baseUrl = null,
         bool json = false,
         bool noDownload = false,
+        bool resume = false,
         CancellationToken cancellationToken = default)
     {
         if (manifests.Length == 0)
@@ -35,10 +37,23 @@ internal sealed class RigbyCommands
         if (chunksRootFull is not null && !Directory.Exists(chunksRootFull))
             throw new InvalidOperationException($"Chunks root does not exist: {chunksRootFull}");
 
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5.0) };
+        var source = new RigbyChunkSource(chunksRootFull, baseUrl, noDownload);
+        using var handler = new SocketsHttpHandler
+        {
+            // Chunks are stored already compressed; a second layer would only cost CPU.
+            AutomaticDecompression = DecompressionMethods.None,
+            ConnectTimeout = TimeSpan.FromSeconds(20),
+            // A long restore outlives keep-alive connections the CDN may have dropped anyway.
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            MaxConnectionsPerServer = 64
+        };
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(5) };
 
-        var tasks = new List<RestoreTask>();
-        var expectedFiles = new HashSet<string>(RigbyOutputLayout.GetPathComparer());
+        // Keyed by output path: a later manifest wins when two of them list the same file,
+        // instead of two workers racing over one path.
+        var comparer = RigbyOutputLayout.GetPathComparer();
+        var tasks = new Dictionary<string, RestoreTask>(comparer);
+        var expectedFiles = new HashSet<string>(comparer);
 
         foreach (var manifestPath in manifestPaths)
         {
@@ -56,12 +71,12 @@ internal sealed class RigbyCommands
                 if (!RigbyOutputLayout.IsPathWithinRoot(outRoot, outputPath))
                     throw new InvalidOperationException($"Manifest path escapes output directory: {relPath}");
 
-                tasks.Add(new RestoreTask(outputPath, file, manifest.Chunks));
+                tasks[outputPath] = new RestoreTask(outputPath, file, manifest.Chunks);
                 expectedFiles.Add(outputPath);
             }
         }
 
-        var stats = await RunRestoreAsync(tasks, chunksRootFull, baseUrl, noDownload, json, http, cancellationToken);
+        var stats = await RunRestoreAsync([.. tasks.Values], outRoot, source, resume, json, http, cancellationToken);
         var deletedFiles = RigbyOutputLayout.DeleteUnexpectedFiles(outRoot, expectedFiles);
 
         if (json)
@@ -87,10 +102,10 @@ internal sealed class RigbyCommands
     }
 
     private static async Task<RestoreStats> RunRestoreAsync(
-        IReadOnlyList<RestoreTask> tasks,
-        string? chunksRoot,
-        string? baseUrl,
-        bool noDownload,
+        List<RestoreTask> tasks,
+        string outRoot,
+        RigbyChunkSource source,
+        bool resume,
         bool json,
         HttpClient http,
         CancellationToken cancellationToken)
@@ -105,20 +120,51 @@ internal sealed class RigbyCommands
             ? new JsonRestoreProgress(totalFiles, totalBytes)
             : new RestoreProgress(totalFiles, totalBytes);
 
-        await Parallel.ForEachAsync(
-            tasks,
-            new ParallelOptions
+        using (var state = RigbyResumeState.Open(outRoot, resume))
+        {
+            // Count everything an interrupted run finished before starting, so the first progress
+            // event picks up where that run stopped instead of climbing back to it.
+            var remaining = new List<(RestoreTask Task, long ResumedPrefix)>(tasks.Count);
+            foreach (var task in tasks)
             {
-                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount),
-                CancellationToken = cancellationToken
-            },
-            async (task, ct) =>
-            {
-                var result = await RigbyRestoreEngine.RestoreOneAsync(task, chunksRoot, baseUrl, noDownload, http, progress, ct);
-                stats.Add(result);
-                progress.FileCompleted(result);
-            });
+                if (state.TryGetFinished(task, out var finished))
+                {
+                    stats.Add(finished);
+                    progress.FileResumed(task.File.Size, finished);
+                    continue;
+                }
 
+                var prefix = resume ? RigbyRestoreEngine.ResumablePrefix(task) : 0;
+                if (prefix > 0)
+                    progress.BytesResumed(prefix);
+
+                remaining.Add((task, prefix));
+            }
+
+            // Biggest first: the few large packages hold most of the bytes, and starting them last
+            // would leave one worker downloading alone at the end.
+            remaining.Sort(static (x, y) => y.Task.File.Size.CompareTo(x.Task.File.Size));
+
+            progress.Flush();
+
+            await Parallel.ForEachAsync(
+                remaining,
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount),
+                    CancellationToken = cancellationToken
+                },
+                async (entry, ct) =>
+                {
+                    var (task, prefix) = entry;
+                    var result = await RigbyRestoreEngine.RestoreOneAsync(task, prefix, source, http, progress, ct);
+                    state.MarkFinished(task, result);
+                    stats.Add(result);
+                    progress.FileCompleted(result);
+                });
+        }
+
+        RigbyResumeState.Delete(outRoot);
         return stats;
     }
 }

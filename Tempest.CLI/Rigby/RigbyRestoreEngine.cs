@@ -1,176 +1,216 @@
 using System.Buffers;
-using System.Security.Cryptography;
-using Blake3;
+using Microsoft.Win32.SafeHandles;
 using Tempest.CLI.Rigby.Models;
 
 namespace Tempest.CLI.Rigby;
 
 internal static class RigbyRestoreEngine
 {
+    private const int HashBufferSize = 1024 * 1024;
+
+    /// <summary>
+    /// How much of the file an interrupted run already wrote to its temp copy, in whole chunks.
+    /// Every chunk was verified before it was written, so a resumed run can keep them unread.
+    /// </summary>
+    public static long ResumablePrefix(RestoreTask task)
+    {
+        var tempPath = TempPathOf(task);
+        if (!File.Exists(tempPath))
+            return 0;
+
+        var length = new FileInfo(tempPath).Length;
+        return length > TotalSize(task) ? 0 : WholeChunks(task, length).Bytes;
+    }
+
     public static async Task<RestoreResult> RestoreOneAsync(
         RestoreTask task,
-        string? chunksRoot,
-        string? baseUrl,
-        bool noDownload,
+        long resumedPrefix,
+        RigbyChunkSource source,
         HttpClient http,
         IRestoreProgress progress,
         CancellationToken cancellationToken)
     {
-        if (await IsFileValidAsync(task.OutputPath, task.File, cancellationToken))
-        {
-            progress.BytesReused(task.File.Size);
-            return new RestoreResult(false, 0, task.File.Size);
-        }
+        if (resumedPrefix > 0)
+            return await ContinueFileAsync(task, resumedPrefix, source, http, progress, cancellationToken);
 
-        if (File.Exists(task.OutputPath) && new FileInfo(task.OutputPath).Length == task.File.Size)
+        // One stat decides both "already there and right" and "there but damaged".
+        var existing = new FileInfo(task.OutputPath);
+        if (existing.Exists && existing.Length == task.File.Size)
         {
-            var patchedBytes = await PatchMismatchedChunksAsync(task, chunksRoot, baseUrl, noDownload, http, progress, cancellationToken);
-            if (await IsFileValidAsync(task.OutputPath, task.File, cancellationToken))
+            if (await FileMatchesAsync(task.OutputPath, task.File, cancellationToken))
+            {
+                progress.BytesReused(task.File.Size);
+                return new RestoreResult(false, 0, task.File.Size);
+            }
+
+            var patchedBytes = await PatchMismatchedChunksAsync(task, source, http, progress, cancellationToken);
+            if (await FileMatchesAsync(task.OutputPath, task.File, cancellationToken))
                 return new RestoreResult(true, patchedBytes, Math.Max(0, task.File.Size - patchedBytes));
         }
 
-        return await RebuildFileAsync(task, chunksRoot, baseUrl, noDownload, http, progress, cancellationToken);
+        return await RebuildFileAsync(task, source, http, progress, cancellationToken);
+    }
+
+    /// <summary>
+    /// Appends the rest of a file to the prefix an interrupted run left, which the caller already
+    /// counted, without reading that prefix back first; the whole file is checked once at the end.
+    /// </summary>
+    private static async Task<RestoreResult> ContinueFileAsync(
+        RestoreTask task,
+        long prefix,
+        RigbyChunkSource source,
+        HttpClient http,
+        IRestoreProgress progress,
+        CancellationToken cancellationToken)
+    {
+        var tempPath = TempPathOf(task);
+        long newBytesWritten = 0;
+
+        await using (var output = OpenWrite(tempPath, FileMode.Open))
+        {
+            // Drops a chunk the interruption cut short.
+            output.SetLength(prefix);
+            output.Position = prefix;
+
+            for (var i = WholeChunks(task, prefix).NextChunk; i < task.File.ChunkEnd; i++)
+            {
+                var raw = await FetchChunkAsync(task, i, source, http, cancellationToken);
+                await output.WriteAsync(raw, cancellationToken);
+                newBytesWritten += raw.Length;
+                progress.BytesWritten(raw.Length);
+            }
+        }
+
+        if (!await FileMatchesAsync(tempPath, task.File, cancellationToken))
+        {
+            // Without the temp copy, the next run builds this file from nothing.
+            File.Delete(tempPath);
+            throw new InvalidOperationException($"File hash mismatch after resuming: {task.OutputPath}");
+        }
+
+        File.Move(tempPath, task.OutputPath, true);
+        return new RestoreResult(true, newBytesWritten, prefix);
+    }
+
+    private static async Task<byte[]> FetchChunkAsync(
+        RestoreTask task,
+        int index,
+        RigbyChunkSource source,
+        HttpClient http,
+        CancellationToken cancellationToken)
+    {
+        if (index < 0 || index >= task.Chunks.Count)
+            throw new InvalidOperationException($"Invalid chunk range for file: {task.File.Path}");
+
+        return await RigbyChunkStore.LoadAsync(task.Chunks[index], source, http, cancellationToken);
+    }
+
+    private static string TempPathOf(RestoreTask task) => task.OutputPath + ".rigby.tmp";
+
+    private static long TotalSize(RestoreTask task)
+    {
+        var totalSize = 0L;
+        for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
+            totalSize += task.Chunks[i].Length;
+
+        return totalSize;
+    }
+
+    /// <summary>The longest run of whole chunks that fits in <paramref name="length"/> bytes.</summary>
+    private static (long Bytes, int NextChunk) WholeChunks(RestoreTask task, long length)
+    {
+        var bytes = 0L;
+        var nextChunk = task.File.ChunkStart;
+        for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
+        {
+            var chunkLen = task.Chunks[i].Length;
+            if (bytes + chunkLen > length)
+                break;
+
+            bytes += chunkLen;
+            nextChunk = i + 1;
+        }
+
+        return (bytes, nextChunk);
     }
 
     private static async Task<RestoreResult> RebuildFileAsync(
         RestoreTask task,
-        string? chunksRoot,
-        string? baseUrl,
-        bool noDownload,
+        RigbyChunkSource source,
         HttpClient http,
         IRestoreProgress progress,
         CancellationToken cancellationToken)
     {
         RigbyOutputLayout.EnsureParent(task.OutputPath);
-        var tempPath = task.OutputPath + ".rigby.tmp";
+        var tempPath = TempPathOf(task);
+        var totalSize = TotalSize(task);
 
-        var totalSize = 0L;
-        for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
-            totalSize += task.Chunks[i].Length;
-
-        if (File.Exists(tempPath) && new FileInfo(tempPath).Length == totalSize)
+        var temp = new FileInfo(tempPath);
+        if (temp.Exists && temp.Length == totalSize)
         {
-            if (await IsFileValidAsync(tempPath, task.File, cancellationToken))
+            if (await FileMatchesAsync(tempPath, task.File, cancellationToken))
             {
                 File.Move(tempPath, task.OutputPath, true);
                 progress.BytesReused(task.File.Size);
                 return new RestoreResult(false, 0, task.File.Size);
             }
+
             File.Delete(tempPath);
+            temp = new FileInfo(tempPath);
         }
 
         var existingBytes = 0L;
         var startChunkIndex = task.File.ChunkStart;
-        if (File.Exists(tempPath))
+        if (temp.Exists)
         {
-            var tempLength = new FileInfo(tempPath).Length;
-            if (tempLength > totalSize)
+            if (temp.Length > totalSize)
             {
                 File.Delete(tempPath);
             }
             else
             {
-                for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
-                {
-                    var chunkLen = task.Chunks[i].Length;
-                    if (existingBytes + chunkLen <= tempLength)
-                    {
-                        existingBytes += chunkLen;
-                        startChunkIndex = i + 1;
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
-
-                if (existingBytes < tempLength)
-                {
-                    using var truncateStream = new FileStream(tempPath, FileMode.Open, FileAccess.Write, FileShare.None);
-                    truncateStream.SetLength(existingBytes);
-                }
+                (existingBytes, startChunkIndex) = WholeChunks(task, temp.Length);
             }
         }
 
-        await using var output = new FileStream(tempPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        using var fileSha256 = SHA256.Create();
-        using var fileMd5 = MD5.Create();
-        var fileBlake3 = Hasher.New();
+        await using var output = OpenWrite(tempPath, FileMode.OpenOrCreate);
 
+        // Drops a chunk an earlier run cut short; no seek, the stream is already at the end.
+        if (existingBytes < output.Length)
+            output.SetLength(existingBytes);
+
+        using var digests = new RigbyFileDigests(task.File);
         long written = 0;
         long newBytesWritten = 0;
 
         if (existingBytes > 0)
         {
             output.Position = 0;
-            var buffer = ArrayPool<byte>.Shared.Rent(1024 * 1024);
-            try
-            {
-                var remaining = existingBytes;
-                while (remaining > 0)
-                {
-                    var toRead = (int)Math.Min(buffer.Length, remaining);
-                    var read = await output.ReadAsync(buffer.AsMemory(0, toRead), cancellationToken);
-                    if (read == 0)
-                        throw new InvalidOperationException($"Unexpected end of temp file: {tempPath}");
-
-                    fileSha256.TransformBlock(buffer, 0, read, null, 0);
-                    fileMd5.TransformBlock(buffer, 0, read, null, 0);
-                    fileBlake3.Update(buffer.AsSpan(0, read));
-                    remaining -= read;
-                    written += read;
-                }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
-
+            await HashPrefixAsync(output, existingBytes, digests, cancellationToken);
             output.Position = existingBytes;
+
+            written = existingBytes;
             progress.BytesReused(existingBytes);
         }
 
         for (var i = startChunkIndex; i < task.File.ChunkEnd; i++)
         {
-            if (i < 0 || i >= task.Chunks.Count)
-                throw new InvalidOperationException($"Invalid chunk range for file: {task.File.Path}");
-
-            var chunk = task.Chunks[i];
-            var codec = string.IsNullOrWhiteSpace(chunk.Codec) ? "zstd" : chunk.Codec;
-            var rel = RigbyChunkStore.ChunkRelativePath(chunk.Sha256, codec);
-
-            var encoded = await RigbyChunkStore.GetEncodedChunkAsync(rel, chunksRoot, baseUrl, noDownload, http, cancellationToken);
-            var raw = RigbyChunkStore.DecodeChunk(encoded, codec, chunk.Length);
-            RigbyChunkStore.VerifyChunk(raw, chunk, rel);
+            var raw = await FetchChunkAsync(task, i, source, http, cancellationToken);
 
             await output.WriteAsync(raw, cancellationToken);
-            fileSha256.TransformBlock(raw, 0, raw.Length, null, 0);
-            fileMd5.TransformBlock(raw, 0, raw.Length, null, 0);
-            fileBlake3.Update(raw);
+            digests.Append(raw);
             written += raw.Length;
             newBytesWritten += raw.Length;
             progress.BytesWritten(raw.Length);
         }
 
-        fileSha256.TransformFinalBlock([], 0, 0);
-        fileMd5.TransformFinalBlock([], 0, 0);
-
-        var outputSha256 = Convert.ToHexString(fileSha256.Hash!).ToLowerInvariant();
-        var outputMd5 = Convert.ToHexString(fileMd5.Hash!).ToLowerInvariant();
-        var outputBlake3 = fileBlake3.Finalize().ToString();
-
         if (written != task.File.Size)
             throw new InvalidOperationException($"File size mismatch: {task.OutputPath}");
 
-        if (!string.Equals(outputSha256, task.File.Sha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"File sha256 mismatch: {task.OutputPath}");
-
-        if (!string.Equals(outputMd5, task.File.Md5, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"File md5 mismatch: {task.OutputPath}");
-
-        if (!string.IsNullOrWhiteSpace(task.File.Blake3)
-            && !string.Equals(outputBlake3, task.File.Blake3, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"File blake3 mismatch: {task.OutputPath}");
+        // Hashes were computed while the chunks were in memory, so the file is never read back.
+        var mismatch = digests.Mismatch(task.File);
+        if (mismatch is not null)
+            throw new InvalidOperationException($"File {mismatch} mismatch: {task.OutputPath}");
 
         await output.FlushAsync(cancellationToken);
         output.Close();
@@ -181,82 +221,80 @@ internal static class RigbyRestoreEngine
 
     private static async Task<long> PatchMismatchedChunksAsync(
         RestoreTask task,
-        string? chunksRoot,
-        string? baseUrl,
-        bool noDownload,
+        RigbyChunkSource source,
         HttpClient http,
         IRestoreProgress progress,
         CancellationToken cancellationToken)
     {
-        await using var stream = new FileStream(task.OutputPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-
-        long patchedBytes = 0;
-        long position = 0;
-
-        for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
+        using var handle = File.OpenHandle(
+            task.OutputPath,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var buffer = ArrayPool<byte>.Shared.Rent(MaxChunkLength(task));
+        try
         {
-            if (i < 0 || i >= task.Chunks.Count)
-                throw new InvalidOperationException($"Invalid chunk range for file: {task.File.Path}");
+            long patchedBytes = 0;
+            long position = 0;
 
-            var chunk = task.Chunks[i];
-            var existing = await ReadExactlyAsync(stream, position, chunk.Length, cancellationToken);
-            if (RigbyChunkStore.ChunkMatches(existing, chunk))
+            for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
             {
-                position += chunk.Length;
-                progress.BytesReused(chunk.Length);
-                continue;
+                if (i < 0 || i >= task.Chunks.Count)
+                    throw new InvalidOperationException($"Invalid chunk range for file: {task.File.Path}");
+
+                var chunk = task.Chunks[i];
+                var existing = buffer.AsMemory(0, chunk.Length);
+                await ReadExactlyAsync(handle, existing, position, task.OutputPath, cancellationToken);
+                if (RigbyChunkStore.ChunkMatches(existing.Span, chunk))
+                {
+                    position += chunk.Length;
+                    progress.BytesReused(chunk.Length);
+                    continue;
+                }
+
+                var raw = await FetchChunkAsync(task, i, source, http, cancellationToken);
+
+                await RandomAccess.WriteAsync(handle, raw, position, cancellationToken);
+                patchedBytes += raw.Length;
+                position += raw.Length;
+                progress.BytesWritten(raw.Length);
             }
 
-            var codec = string.IsNullOrWhiteSpace(chunk.Codec) ? "zstd" : chunk.Codec;
-            var rel = RigbyChunkStore.ChunkRelativePath(chunk.Sha256, codec);
-            var encoded = await RigbyChunkStore.GetEncodedChunkAsync(rel, chunksRoot, baseUrl, noDownload, http, cancellationToken);
-            var raw = RigbyChunkStore.DecodeChunk(encoded, codec, chunk.Length);
-            RigbyChunkStore.VerifyChunk(raw, chunk, rel);
-
-            stream.Position = position;
-            await stream.WriteAsync(raw, cancellationToken);
-            patchedBytes += raw.Length;
-            position += raw.Length;
-            progress.BytesWritten(raw.Length);
+            return patchedBytes;
         }
-
-        await stream.FlushAsync(cancellationToken);
-        return patchedBytes;
-    }
-
-    private static async Task<byte[]> ReadExactlyAsync(FileStream stream, long position, int length, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[length];
-        stream.Position = position;
-
-        var readTotal = 0;
-        while (readTotal < length)
+        finally
         {
-            var read = await stream.ReadAsync(buffer.AsMemory(readTotal, length - readTotal), cancellationToken);
-            if (read == 0)
-                throw new InvalidOperationException($"Unexpected end of file while reading existing data: {stream.Name}");
-
-            readTotal += read;
+            ArrayPool<byte>.Shared.Return(buffer);
         }
-
-        return buffer;
     }
 
-    private static async Task<bool> IsFileValidAsync(string path, RigbyFile file, CancellationToken cancellationToken)
+    private static int MaxChunkLength(RestoreTask task)
     {
-        if (!File.Exists(path))
-            return false;
+        var max = 1;
+        for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
+            max = Math.Max(max, task.Chunks[i].Length);
 
+        return max;
+    }
+
+    private static async Task<bool> FileMatchesAsync(string path, RigbyFile file, CancellationToken cancellationToken)
+    {
         var info = new FileInfo(path);
-        if (info.Length != file.Size)
+        if (!info.Exists || info.Length != file.Size)
             return false;
 
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var sha256 = SHA256.Create();
-        using var md5 = MD5.Create();
-        var blake3 = Hasher.New();
+        await using var stream = new FileStream(path, new FileStreamOptions
+        {
+            Mode = FileMode.Open,
+            Access = FileAccess.Read,
+            Share = FileShare.Read,
+            BufferSize = 1,
+            Options = FileOptions.Asynchronous | FileOptions.SequentialScan
+        });
 
-        var buffer = ArrayPool<byte>.Shared.Rent(1024 * 1024);
+        using var digests = new RigbyFileDigests(file);
+        var buffer = ArrayPool<byte>.Shared.Rent(HashBufferSize);
         try
         {
             while (true)
@@ -265,10 +303,7 @@ internal static class RigbyRestoreEngine
                 if (read == 0)
                     break;
 
-                sha256.TransformBlock(buffer, 0, read, null, 0);
-                md5.TransformBlock(buffer, 0, read, null, 0);
-
-                blake3.Update(buffer.AsSpan(0, read));
+                digests.Append(buffer.AsSpan(0, read));
             }
         }
         finally
@@ -276,23 +311,61 @@ internal static class RigbyRestoreEngine
             ArrayPool<byte>.Shared.Return(buffer);
         }
 
-        sha256.TransformFinalBlock([], 0, 0);
-        md5.TransformFinalBlock([], 0, 0);
-
-        var existingSha256 = Convert.ToHexString(sha256.Hash!).ToLowerInvariant();
-        var existingMd5 = Convert.ToHexString(md5.Hash!).ToLowerInvariant();
-        var existingBlake3 = blake3.Finalize().ToString();
-
-        if (!string.Equals(existingSha256, file.Sha256, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        if (!string.Equals(existingMd5, file.Md5, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        if (!string.IsNullOrWhiteSpace(file.Blake3)
-            && !string.Equals(existingBlake3, file.Blake3, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        return true;
+        return digests.Mismatch(file) is null;
     }
+
+    /// <summary>Feeds the part of a temp file an interrupted run wrote into the file's digests.</summary>
+    private static async Task HashPrefixAsync(
+        FileStream stream,
+        long length,
+        RigbyFileDigests digests,
+        CancellationToken cancellationToken)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(HashBufferSize);
+        try
+        {
+            var remaining = length;
+            while (remaining > 0)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), cancellationToken);
+                if (read == 0)
+                    throw new InvalidOperationException($"Unexpected end of temp file: {stream.Name}");
+
+                digests.Append(buffer.AsSpan(0, read));
+                remaining -= read;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static async Task ReadExactlyAsync(
+        SafeFileHandle handle,
+        Memory<byte> buffer,
+        long position,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        while (!buffer.IsEmpty)
+        {
+            var read = await RandomAccess.ReadAsync(handle, buffer, position, cancellationToken);
+            if (read == 0)
+                throw new InvalidOperationException($"Unexpected end of file while reading existing data: {path}");
+
+            buffer = buffer[read..];
+            position += read;
+        }
+    }
+
+    /// <summary>Async, unbuffered and sequential: the engine reads and writes whole chunks itself.</summary>
+    private static FileStream OpenWrite(string path, FileMode mode) => new(path, new FileStreamOptions
+    {
+        Mode = mode,
+        Access = FileAccess.ReadWrite,
+        Share = FileShare.None,
+        BufferSize = 1,
+        Options = FileOptions.Asynchronous | FileOptions.SequentialScan
+    });
 }

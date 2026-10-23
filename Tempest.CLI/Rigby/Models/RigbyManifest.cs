@@ -1,72 +1,95 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Tempest.CLI.Rigby.Models;
 
 internal sealed class RigbyManifest
 {
+    [JsonPropertyName("format_version")]
     public required string FormatVersion { get; init; }
+
+    [JsonPropertyName("path_prefix")]
     public string? PathPrefix { get; init; }
+
+    [JsonPropertyName("chunks")]
     public required List<RigbyChunk> Chunks { get; init; }
+
+    [JsonPropertyName("files")]
     public required List<RigbyFile> Files { get; init; }
 
     public static async Task<RigbyManifest> LoadAsync(string source, HttpClient http, CancellationToken cancellationToken)
     {
-        await using var stream = await OpenManifestStreamAsync(source, http, cancellationToken);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var json = await ReadManifestBytesAsync(source, http, cancellationToken);
 
-        var root = document.RootElement;
-        if (!root.TryGetProperty("format_version", out var formatVersionNode))
-            throw new InvalidOperationException($"Manifest missing format_version: {source}");
-
-        if (!root.TryGetProperty("chunks", out var chunksNode) || chunksNode.ValueKind != JsonValueKind.Array)
-            throw new InvalidOperationException($"Manifest missing chunks: {source}");
-
-        if (!root.TryGetProperty("files", out var filesNode) || filesNode.ValueKind != JsonValueKind.Array)
-            throw new InvalidOperationException($"Manifest missing files: {source}");
-
-        var chunks = new List<RigbyChunk>();
-        foreach (var chunkNode in chunksNode.EnumerateArray())
+        RigbyManifest? manifest;
+        try
         {
-            chunks.Add(new RigbyChunk
-            {
-                Sha256 = chunkNode.GetProperty("sha256").GetString() ?? throw new InvalidOperationException($"Chunk sha256 missing in {source}"),
-                Md5 = chunkNode.GetProperty("md5").GetString() ?? throw new InvalidOperationException($"Chunk md5 missing in {source}"),
-                Blake3 = chunkNode.TryGetProperty("blake3", out var chunkBlake3Node) ? chunkBlake3Node.GetString() : null,
-                Length = chunkNode.GetProperty("length").GetInt32(),
-                Codec = chunkNode.TryGetProperty("codec", out var codecNode) ? codecNode.GetString() : null
-            });
+            // Source-generated over the bytes we already hold: no JsonDocument tree of every node.
+            manifest = JsonSerializer.Deserialize(json, RigbyManifestJsonContext.Default.RigbyManifest);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException($"Manifest is not valid JSON ({source}): {ex.Message}", ex);
         }
 
-        var files = new List<RigbyFile>();
-        foreach (var fileNode in filesNode.EnumerateArray())
-        {
-            files.Add(new RigbyFile
-            {
-                Path = fileNode.GetProperty("path").GetString() ?? throw new InvalidOperationException($"File path missing in {source}"),
-                Size = fileNode.GetProperty("size").GetInt64(),
-                Sha256 = fileNode.GetProperty("sha256").GetString() ?? throw new InvalidOperationException($"File sha256 missing in {source}"),
-                Md5 = fileNode.GetProperty("md5").GetString() ?? throw new InvalidOperationException($"File md5 missing in {source}"),
-                Blake3 = fileNode.TryGetProperty("blake3", out var fileBlake3Node) ? fileBlake3Node.GetString() : null,
-                ChunkStart = fileNode.GetProperty("chunk_start").GetInt32(),
-                ChunkEnd = fileNode.GetProperty("chunk_end").GetInt32()
-            });
-        }
+        if (manifest is null)
+            throw new InvalidOperationException($"Manifest is empty: {source}");
 
-        return new RigbyManifest
-        {
-            FormatVersion = formatVersionNode.GetString() ?? string.Empty,
-            PathPrefix = root.TryGetProperty("path_prefix", out var pathPrefixNode) ? pathPrefixNode.GetString() : null,
-            Chunks = chunks,
-            Files = files
-        };
+        manifest.Prepare(source);
+        return manifest;
     }
 
-    private static async Task<Stream> OpenManifestStreamAsync(string source, HttpClient http, CancellationToken cancellationToken)
+    /// <summary>
+    /// Parses the hex digests once, so a restore compares bytes instead of formatting a hash per
+    /// chunk and lower-casing it.
+    /// </summary>
+    private void Prepare(string source)
+    {
+        for (var i = 0; i < Chunks.Count; i++)
+        {
+            var chunk = Chunks[i];
+            chunk.Sha256Bytes = ParseDigest(chunk.Sha256, 32, "chunk sha256", source);
+            chunk.Blake3Bytes = string.IsNullOrWhiteSpace(chunk.Blake3)
+                ? null
+                : ParseDigest(chunk.Blake3, 32, "chunk blake3", source);
+        }
+
+        for (var i = 0; i < Files.Count; i++)
+        {
+            var file = Files[i];
+            file.Sha256Bytes = ParseDigest(file.Sha256, 32, "file sha256", source);
+            file.Blake3Bytes = string.IsNullOrWhiteSpace(file.Blake3)
+                ? null
+                : ParseDigest(file.Blake3, 32, "file blake3", source);
+        }
+    }
+
+    private static byte[] ParseDigest(string? hex, int bytes, string what, string source)
+    {
+        if (string.IsNullOrWhiteSpace(hex) || hex.Length != bytes * 2)
+            throw new InvalidOperationException($"Manifest {what} is not a {bytes}-byte hex digest: {source}");
+
+        try
+        {
+            return Convert.FromHexString(hex);
+        }
+        catch (FormatException ex)
+        {
+            throw new InvalidOperationException($"Manifest {what} is not hex: {source}", ex);
+        }
+    }
+
+    private static async Task<byte[]> ReadManifestBytesAsync(string source, HttpClient http, CancellationToken cancellationToken)
     {
         if (Uri.TryCreate(source, UriKind.Absolute, out var uri)
             && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
-            return await http.GetStreamAsync(uri, cancellationToken);
+            return await http.GetByteArrayAsync(uri, cancellationToken);
 
-        return File.OpenRead(source);
+        return await File.ReadAllBytesAsync(source, cancellationToken);
     }
+}
+
+[JsonSerializable(typeof(RigbyManifest))]
+internal partial class RigbyManifestJsonContext : JsonSerializerContext
+{
 }
