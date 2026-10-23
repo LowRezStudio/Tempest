@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowLeft, ArrowRight, ExternalLink, Rss } from "@lucide/svelte";
+	import { ChevronLeft, ChevronRight, ExternalLink, Rss } from "@lucide/svelte";
 	import Section from "$lib/components/ui/Section.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { openUrl } from "$lib/platform/api";
@@ -33,115 +33,106 @@
 		if (img.complete && img.naturalWidth > 0) loaded[link] = true;
 	}
 
-	function openPost(link: string) {
-		openUrl(link);
-	}
+	// Full width the frame keeps a banner ratio; in the three-column row it fills the row.
+	const frame =
+		"rounded-box border-base-300 bg-base-200 relative isolate flex aspect-[2.4/1] max-h-96 min-h-64 flex-col overflow-hidden border @4xl:aspect-auto @4xl:max-h-none @4xl:flex-1";
 </script>
 
 <Section title={m.home_news()} onSeeAll={() => openUrl(BLOG_URL)} class="flex h-full flex-col">
 	{#if feedQuery.isPending && posts.length === 0}
-		<div
-			data-panel
-			class="bg-base-200 border-base-300 rounded-box flex-1 overflow-hidden border"
-			aria-busy="true"
-		>
-			<div class="bg-base-300 loading-shimmer aspect-[2.4/1] max-h-80"></div>
-			<div class="flex flex-col gap-2 p-4">
-				<div class="bg-base-300 loading-shimmer h-5 w-2/3 rounded"></div>
-				<div class="bg-base-300 loading-shimmer h-3 w-1/2 rounded"></div>
-			</div>
+		<div data-panel class={[frame, "loading-shimmer justify-end gap-2 p-5"]} aria-busy="true">
+			<div class="bg-base-content/10 h-3 w-24 rounded"></div>
+			<div class="bg-base-content/10 h-6 w-2/3 rounded"></div>
 		</div>
 	{:else if posts.length === 0}
-		<p
-			data-panel
-			class="bg-base-200 border-base-300 rounded-box text-base-content/60 border px-4 py-12 text-center text-sm"
-		>
-			{m.home_feed_unavailable()}
-		</p>
-	{:else}
+		<div data-panel class={[frame, "items-center justify-center gap-2 p-5 text-center"]}>
+			<Rss size={24} class="text-base-content/35" />
+			<p class="text-base-content/60 text-sm">{m.home_feed_unavailable()}</p>
+		</div>
+	{:else if activePost}
+		{@const post = activePost}
 		<div
 			data-panel
-			class="bg-base-200 border-base-300 rounded-box flex flex-1 flex-col overflow-hidden border"
+			class={[frame, "group justify-end"]}
 			role="region"
 			aria-roledescription="carousel"
 			aria-label={m.home_news()}
 		>
-			{#if activePost}
-				{@const post = activePost}
-				<div class="bg-base-300 relative aspect-[2.4/1] max-h-96 overflow-hidden">
-					{#if post.image && !failed[post.link]}
-						<img
-							src={post.image}
-							alt=""
-							loading="lazy"
-							decoding="async"
-							use:watchImage={post.link}
-							onload={() => (loaded[post.link] = true)}
-							onerror={() => (failed[post.link] = true)}
-							class="absolute inset-0 size-full object-cover transition-opacity duration-300"
-							class:opacity-0={!loaded[post.link]}
-						/>
-					{:else}
-						<div class="flex size-full items-center justify-center">
-							<Rss size={32} class="text-base-content/35" />
-						</div>
-					{/if}
-					<div
-						class="from-base-200/95 via-base-200/50 absolute inset-0 bg-linear-to-t from-0% via-45% to-transparent"
-					></div>
-					<div class="absolute right-3 bottom-3 left-4 sm:right-5 sm:bottom-4 sm:left-5">
-						<p class="text-base-content/70 mb-1 text-xs font-medium">
-							{formatDate(post.pubDate)}
-						</p>
-						<button
-							class="text-left text-lg leading-tight font-bold hover:underline sm:text-2xl"
-							onclick={() => openPost(post.link)}
-						>
-							{post.title}
-						</button>
-					</div>
-					{#if posts.length > 1}
-						<div class="absolute top-3 right-3 flex gap-1.5">
-							<button
-								class="btn btn-sm btn-circle bg-base-100/85 border-base-content/10"
-								onclick={() => move(-1)}
-								aria-label="Previous article"
-							>
-								<ArrowLeft size={16} />
-							</button>
-							<button
-								class="btn btn-sm btn-circle bg-base-100/85 border-base-content/10"
-								onclick={() => move(1)}
-								aria-label="Next article"
-							>
-								<ArrowRight size={16} />
-							</button>
-						</div>
-					{/if}
-				</div>
-				<div class="flex items-center justify-end gap-4 p-4">
-					<div class="flex shrink-0 items-center gap-3">
-						{#if posts.length > 1}
-							<div class="flex items-center gap-1.5" aria-label="Choose article">
-								{#each posts as item, i (item.link)}
-									<button
-										class={i === activeIndex
-											? "bg-primary h-2 w-5 rounded-full transition-all"
-											: "bg-base-content/25 h-2 w-2 rounded-full transition-all"}
-										onclick={() => (activeIndex = i)}
-										aria-label={`Show article ${i + 1} of ${posts.length}`}
-										aria-current={i === activeIndex ? "true" : undefined}
-									></button>
-								{/each}
-							</div>
-						{/if}
-						<button class="btn btn-ghost btn-sm" onclick={() => openPost(post.link)}>
-							Read
-							<ExternalLink size={14} />
-						</button>
-					</div>
+			<!-- Every slide stays mounted so switching crossfades without a reload -->
+			{#each posts as item, i (item.link)}
+				{#if item.image && !failed[item.link]}
+					<img
+						src={item.image}
+						alt=""
+						draggable="false"
+						decoding="async"
+						use:watchImage={item.link}
+						onload={() => (loaded[item.link] = true)}
+						onerror={() => (failed[item.link] = true)}
+						class={[
+							"pointer-events-none absolute inset-0 -z-10 size-full object-cover transition duration-500 select-none group-hover:scale-[1.03]",
+							(i !== activeIndex || !loaded[item.link]) && "opacity-0",
+						]}
+					/>
+				{/if}
+			{/each}
+			{#if !post.image || failed[post.link]}
+				<div class="absolute inset-0 -z-10 flex items-center justify-center pb-16">
+					<Rss size={40} class="text-base-content/20" />
 				</div>
 			{/if}
+			<!-- Keeps the text readable over any image, in any theme -->
+			<div
+				class="from-base-200 via-base-200/75 absolute inset-0 -z-10 bg-linear-to-t from-10% via-40% to-transparent to-75%"
+			></div>
+
+			<button
+				class="peer rounded-box focus-visible:outline-primary absolute inset-0 cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2"
+				aria-label={post.title}
+				onclick={() => openUrl(post.link)}
+			></button>
+
+			{#if posts.length > 1}
+				<div
+					class="bg-base-100/60 rounded-field absolute top-3 right-3 flex items-center gap-0.5 p-0.5 text-xs backdrop-blur-sm"
+				>
+					<button
+						class="btn btn-ghost btn-xs btn-square"
+						aria-label="Previous article"
+						onclick={() => move(-1)}
+					>
+						<ChevronLeft size={14} />
+					</button>
+					<span class="text-base-content/70 min-w-8 text-center tabular-nums">
+						{activeIndex + 1} / {posts.length}
+					</span>
+					<button
+						class="btn btn-ghost btn-xs btn-square"
+						aria-label="Next article"
+						onclick={() => move(1)}
+					>
+						<ChevronRight size={14} />
+					</button>
+				</div>
+			{/if}
+
+			<div
+				class="pointer-events-none relative flex flex-col gap-1 p-5 peer-hover:[&_h3]:underline peer-focus-visible:[&_h3]:underline"
+			>
+				<p class="text-base-content/70 flex items-center gap-1.5 text-xs font-medium">
+					{formatDate(post.pubDate)}
+					<ExternalLink
+						size={12}
+						class="opacity-0 transition-opacity group-hover:opacity-100"
+					/>
+				</p>
+				<h3 class="line-clamp-2 text-xl leading-tight font-bold tracking-tight">
+					{post.title}
+				</h3>
+				{#if post.description}
+					<p class="text-base-content/70 line-clamp-2 text-sm">{post.description}</p>
+				{/if}
+			</div>
 		</div>
 	{/if}
 </Section>
