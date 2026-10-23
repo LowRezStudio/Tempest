@@ -349,6 +349,25 @@ html[data-theme="legacy"] {
 		box-shadow: none;
 	}
 
+	/* Instance tiles in the nav strip are the home page's coloured squares, not
+	 * button plates (SidebarInstanceItem). */
+	.btn[data-instance-tile] {
+		background-image: none;
+		border-color: transparent;
+		letter-spacing: normal;
+		text-transform: none;
+		box-shadow: none;
+	}
+
+	.btn[data-instance-tile]:not(.btn-active) {
+		opacity: 0.75;
+	}
+
+	.btn[data-instance-tile].btn-active {
+		border-color: #37e8e2;
+		box-shadow: 0 0 8px rgb(55 232 226 / 0.45);
+	}
+
 	.btn-error {
 		background-image: linear-gradient(to bottom, #b52f2f, #2a1414);
 		border-color: #ef4444;
