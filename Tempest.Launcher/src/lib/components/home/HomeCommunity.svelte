@@ -27,13 +27,13 @@
 	]);
 </script>
 
-<Section title={m.home_community()}>
-	<div class="flex flex-col gap-2">
+<Section title={m.home_community()} class="flex h-full flex-col">
+	<div class="flex flex-1 flex-col gap-2">
 		{#each links as { Icon, title, hint, url } (url)}
 			<button
 				type="button"
 				data-panel
-				class="bg-base-200 border-base-300 hover:border-primary/60 rounded-field flex cursor-pointer items-start gap-3 border p-3 text-left text-sm transition-colors"
+				class="bg-base-200 border-base-300 hover:border-primary/60 rounded-field flex flex-1 cursor-pointer items-start gap-3 border p-3 text-left text-sm transition-colors"
 				onclick={() => openUrl(url)}
 			>
 				<Icon size={16} class="text-primary mt-0.5 shrink-0" />

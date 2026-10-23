@@ -18,11 +18,12 @@
 
 <Section
 	title={m.home_releasenotes_title()}
+	class="flex h-full flex-col"
 	linkLabel={m.home_releasenotes_more()}
 	onSeeAll={() =>
 		openUrl(release?.url ?? "https://github.com/LowRezStudio/Tempest/releases/latest")}
 >
-	<div data-panel class="bg-base-200 border-base-300 rounded-box border p-4">
+	<div data-panel class="bg-base-200 border-base-300 rounded-box flex-1 border p-4">
 		{#if releaseQuery.isPending && !release}
 			<p class="text-base-content/60 text-sm">{m.common_loading()}</p>
 		{:else if release}

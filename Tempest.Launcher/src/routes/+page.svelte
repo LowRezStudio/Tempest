@@ -1,6 +1,5 @@
 <script lang="ts">
 	import HomeCommunity from "$lib/components/home/HomeCommunity.svelte";
-	import HomeGreeting from "$lib/components/home/HomeGreeting.svelte";
 	import HomeHero from "$lib/components/home/HomeHero.svelte";
 	import HomeNews from "$lib/components/home/HomeNews.svelte";
 	import HomeReleaseNotes from "$lib/components/home/HomeReleaseNotes.svelte";
@@ -20,27 +19,21 @@
 		}
 		return best;
 	});
-	const others = $derived(
-		orderedInstances.value.filter((instance) => instance.id !== featured?.id),
-	);
 </script>
 
 <!-- After the mod website's landing page: a hero with the way in, then what's new -->
 <div class="h-full">
 	<div class="@container h-full scrollbar-gutter-stable overflow-y-auto">
-		<div class="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-6">
-			<div class="flex flex-col gap-4">
-				<HomeGreeting instance={featured} instances={orderedInstances.value} />
+		<div class="flex w-full flex-col gap-6 py-6 pr-2 pl-6">
+			<div class="flex min-w-0 flex-col gap-4">
 				{#key featured?.id}
-					<HomeHero instance={featured} {others} />
+					<HomeHero instance={featured} instances={orderedInstances.value} />
 				{/key}
 			</div>
-			<div class="grid items-start gap-x-4 gap-y-8 @4xl:grid-cols-[minmax(0,1fr)_20rem]">
+			<div class="grid items-stretch gap-4 @4xl:grid-cols-3">
 				<HomeNews />
-				<div class="flex flex-col gap-8">
-					<HomeReleaseNotes />
-					<HomeCommunity />
-				</div>
+				<HomeReleaseNotes />
+				<HomeCommunity />
 			</div>
 		</div>
 	</div>

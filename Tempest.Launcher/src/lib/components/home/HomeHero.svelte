@@ -1,6 +1,5 @@
 <script lang="ts">
 	import {
-		ArrowRight,
 		Box,
 		CircleArrowUp,
 		Clock,
@@ -18,7 +17,6 @@
 	import { untrack } from "svelte";
 	import { fade } from "svelte/transition";
 	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
-	import NewInstanceOption from "$lib/components/library/NewInstanceOption.svelte";
 	import maps from "$lib/data/maps.json";
 	import { relativeDate } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
@@ -30,17 +28,16 @@
 	import { addToast, openInstanceWizard } from "$lib/stores/ui.svelte";
 	import { currentWeather } from "$lib/theme/weather.svelte";
 	import { loadingScreens, loadingScreensOf, patchSummary } from "$lib/utils/versions";
-	import HomeInstanceTile from "./HomeInstanceTile.svelte";
+	import HomeGreeting from "./HomeGreeting.svelte";
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
 		/** The instance to play, when one is ready */
 		instance?: Instance;
-		/** The other instances, in library order */
-		others: Instance[];
+		instances: Instance[];
 	}
 
-	let { instance, others }: Props = $props();
+	let { instance, instances }: Props = $props();
 
 	const winterScreens = loadingScreens.filter((path) => /Ice|Frost|NRIgloo|NRMines/.test(path));
 
@@ -129,67 +126,63 @@
 	const formatTime = (timestamp: number) =>
 		new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-	const hasAside = $derived(!!instance || others.length > 0);
 	// The website's secondary hero button, solid enough to read over the art
 	const secondary = "btn border-base-content/10 bg-base-100/60 hover:bg-base-100";
 </script>
 
-<div class="grid gap-4 @4xl:grid-cols-[minmax(0,1fr)_20rem]">
-	<section
-		data-panel
-		class={[
-			"rounded-box border-base-300 bg-base-200 relative isolate flex min-h-72 flex-col overflow-hidden border",
-			!hasAside && "@4xl:col-span-2",
-		]}
-	>
-		{#key art}
-			<img
-				src={art}
-				alt=""
-				draggable="false"
-				transition:fade={{ duration: 300 }}
-				class="pointer-events-none absolute inset-0 -z-10 size-full object-cover select-none"
-			/>
-		{/key}
-		<!-- Keeps the text readable over any art, in any theme -->
+<section
+	data-panel
+	class="rounded-box border-base-300 bg-base-200 relative isolate flex min-h-[24rem] flex-col overflow-hidden border @5xl:min-h-[30rem]"
+>
+	{#key art}
+		<img
+			src={art}
+			alt=""
+			draggable="false"
+			transition:fade={{ duration: 300 }}
+			class="pointer-events-none absolute inset-0 -z-10 size-full object-cover select-none"
+		/>
+	{/key}
+	<!-- Keeps the text readable over any art, in any theme -->
+	<div
+		class="from-base-200 via-base-200/80 absolute inset-0 -z-10 bg-linear-to-r from-20% via-50% to-transparent"
+	></div>
+
+	<div class="flex items-start justify-between gap-3 px-6 pt-5">
+		<HomeGreeting {instance} {instances} />
 		<div
-			class="from-base-200 via-base-200/80 absolute inset-0 -z-10 bg-linear-to-r from-20% via-50% to-transparent"
-		></div>
-
-		<div class="flex items-center justify-between gap-3 px-6 pt-5">
-			<p class={["text-sm font-medium", running ? "text-success" : "text-base-content/70"]}>
-				{eyebrow}
-			</p>
-			<div
-				class="bg-base-100/60 rounded-field ml-auto flex items-center gap-0.5 p-0.5 text-xs backdrop-blur-sm"
+			class="bg-base-100/60 rounded-field ml-auto flex items-center gap-0.5 p-0.5 text-xs backdrop-blur-sm"
+		>
+			{#if mapName}
+				<span class="text-base-content/70 flex items-center gap-1 px-1.5">
+					<MapPin size={12} />
+					{mapName}
+				</span>
+			{/if}
+			<button
+				class="btn btn-ghost btn-xs btn-square"
+				title={m.home_art_shuffle()}
+				aria-label={m.home_art_shuffle()}
+				onclick={shuffle}
 			>
-				{#if mapName}
-					<span class="text-base-content/70 flex items-center gap-1 px-1.5">
-						<MapPin size={12} />
-						{mapName}
-					</span>
-				{/if}
-				<button
-					class="btn btn-ghost btn-xs btn-square"
-					title={m.home_art_shuffle()}
-					aria-label={m.home_art_shuffle()}
-					onclick={shuffle}
-				>
-					<Shuffle size={12} />
-				</button>
-				<button
-					class={["btn btn-ghost btn-xs btn-square", pinned && "text-primary"]}
-					title={pinned ? m.home_art_unpin() : m.home_art_pin()}
-					aria-label={m.home_art_pin()}
-					aria-pressed={pinned}
-					onclick={togglePin}
-				>
-					<Pin size={12} />
-				</button>
-			</div>
+				<Shuffle size={12} />
+			</button>
+			<button
+				class={["btn btn-ghost btn-xs btn-square", pinned && "text-primary"]}
+				title={pinned ? m.home_art_unpin() : m.home_art_pin()}
+				aria-label={m.home_art_pin()}
+				aria-pressed={pinned}
+				onclick={togglePin}
+			>
+				<Pin size={12} />
+			</button>
 		</div>
+	</div>
 
-		<div class="mt-auto px-6 pt-10 pb-6">
+	<div
+		class="mt-auto flex flex-col items-start justify-between gap-3 px-6 pt-10 pb-6 @sm:flex-row @sm:items-end"
+	>
+		<div class="min-w-0">
 			{#if instance}
 				<h2 class="text-3xl font-bold tracking-tight @5xl:text-4xl">
 					<a href="/instance/{instance.id}" class="hover:underline">{instance.label}</a>
@@ -281,34 +274,15 @@
 				</div>
 			{/if}
 		</div>
-	</section>
-
-	{#if hasAside}
-		<aside
-			data-panel
-			class="bg-base-200 border-base-300 rounded-box flex flex-col gap-1 border p-3"
-		>
-			{#if others.length > 0}
-				<div class="mb-1 flex min-h-6 items-center justify-between gap-2 pl-1.5">
-					<h2 class="text-sm font-semibold">
-						{instance ? m.home_other_instances() : m.library_heading()}
-					</h2>
-					<a href="/library" class="btn btn-ghost btn-xs text-base-content/70">
-						{m.common_see_all()}
-						<ArrowRight size={12} />
-					</a>
-				</div>
-				{#each others.slice(0, 4) as other (other.id)}
-					<HomeInstanceTile instance={other} />
-				{/each}
-			{:else}
-				<h2 class="px-1.5 text-sm font-semibold">{m.library_new_instance()}</h2>
-				<p class="text-base-content/60 mb-1 px-1.5 text-xs">{m.home_another_patch()}</p>
-				<div class="flex flex-col gap-2">
-					<NewInstanceOption tab="download" />
-					<NewInstanceOption tab="folder" />
-				</div>
-			{/if}
-		</aside>
-	{/if}
-</div>
+		{#if eyebrow}
+			<p
+				class={[
+					"text-sm font-medium @sm:ml-auto @sm:shrink-0 @sm:text-right",
+					running ? "text-success" : "text-base-content/70",
+				]}
+			>
+				{eyebrow}
+			</p>
+		{/if}
+	</div>
+</section>
