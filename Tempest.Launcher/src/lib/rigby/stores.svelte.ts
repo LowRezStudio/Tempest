@@ -35,11 +35,25 @@ export interface QueueItem {
 	chunksRoot?: string;
 	baseUrl?: string;
 	noDownload?: boolean;
+	/** Checks an install already in the library rather than downloading a new one */
+	repair?: boolean;
 	status: "pending" | "running" | "paused" | "complete" | "error";
 	result?: RestoreResult;
 	progress?: ProgressEvent;
 	error?: string;
+	finishedAt?: number;
 }
+
+export interface SpeedSample {
+	at: number;
+	bytesPerSecond: number;
+}
+
+/** How far back speedSamples reaches, the window the downloads page graphs */
+export const SPEED_WINDOW_MS = 120_000;
+
+/** The running download's speed, about once a second; in memory only, so it restarts with the app */
+export const speedSamples = $state({ value: [] as SpeedSample[] });
 
 export const restoreStatus = $state({ value: "idle" as RestoreStatus });
 export const restoreResult = $state({ value: null as RestoreResult | null });

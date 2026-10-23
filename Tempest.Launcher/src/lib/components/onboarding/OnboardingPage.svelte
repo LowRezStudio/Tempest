@@ -334,6 +334,7 @@
 					manifests,
 					outDir: existing.path,
 					baseUrl: RIGBY_BASE_URL,
+					repair: true,
 				});
 				updateInstance(existing.id, { state: { type: "downloading" } });
 			} else {

@@ -134,14 +134,39 @@
 	"library_launch_failed": "Couldn't launch {name}",
 	"library_stop_failed": "Couldn't stop {name}",
 	"downloads_title": "Downloads",
-	"downloads_no_downloads": "No downloads in queue",
-	"downloads_no_downloads_hint": "Add restore operations from the library",
-	"downloads_pending": "pending",
-	"downloads_verifying": "verifying",
-	"downloads_paused": "paused",
-	"downloads_complete": "complete",
-	"downloads_failed": "failed",
-	"downloads_clear_completed": "Clear Completed",
+	"downloads_idle": "Nothing downloading",
+	"downloads_empty_hint": "Patches you download and installs you verify line up here and run one at a time.",
+	"downloads_summary_verifying": "Verifying {percent}%",
+	"downloads_summary_queued": "{count} queued",
+	"downloads_summary_failed": "{count} failed",
+	"downloads_summary_finished": "{count} finished",
+	"downloads_now_downloading": "Downloading",
+	"downloads_now_verifying": "Verifying files",
+	"downloads_starting": "Starting...",
+	"downloads_of": "{done} of {total}",
+	"downloads_speed": "Speed",
+	"downloads_peak": "Peak {speed}",
+	"downloads_time_left": "Time left",
+	"downloads_files_heading": "Files",
+	"downloads_graph_label": "Download speed over the last two minutes, peaking at {speed}",
+	"downloads_queue_paused": "Queue paused",
+	"downloads_queue_paused_hint": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} download is waiting.",
+				"countPlural=other": "{count} downloads are waiting."
+			}
+		}
+	],
+	"downloads_failed_heading": "Failed",
+	"downloads_up_next": "Up next",
+	"downloads_finished": "Finished",
+	"downloads_kind_download": "Download",
+	"downloads_kind_verify": "Verify files",
+	"downloads_badge_failed": "Failed",
+	"downloads_resumes": "Picks up where it left off",
 	"downloads_files": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -149,10 +174,24 @@
 			"match": { "countPlural=one": "file", "countPlural=other": "files" }
 		}
 	],
-	"downloads_written": "written",
-	"downloads_repaired": "repaired",
-	"downloads_verified": "verified",
-	"downloads_eta": "ETA",
+	"downloads_file_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": { "countPlural=one": "{count} file", "countPlural=other": "{count} files" }
+		}
+	],
+	"downloads_written_size": "{size} written",
+	"downloads_repaired_count": "{count} repaired",
+	"downloads_open": "Open",
+	"downloads_cancel": "Cancel download",
+	"downloads_stat_queued": "In queue",
+	"downloads_stat_finished": "Finished",
+	"downloads_stat_failed": "Failed",
+	"downloads_stat_written": "Written to disk",
+	"downloads_add_heading": "Add to the queue",
+	"downloads_verify_hint": "To repair an install, pick Verify files from its menu in the library.",
+	"downloads_tray_hint": "Closing the window keeps downloads going in the tray.",
 	"error_page_title": "Something went wrong",
 	"error_page_description": "An unexpected error crashed the launcher. Reloading usually fixes it.",
 	"error_404_title": "Page not found",

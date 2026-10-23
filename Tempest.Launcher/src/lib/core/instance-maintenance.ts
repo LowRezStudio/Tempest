@@ -48,6 +48,7 @@ export function verifyFiles(instance: Instance): boolean {
 		manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", manifestId)],
 		outDir: instance.path,
 		baseUrl: RIGBY_BASE_URL,
+		repair: true,
 	});
 	updateInstance(instance.id, { state: { type: "downloading" } });
 	return true;

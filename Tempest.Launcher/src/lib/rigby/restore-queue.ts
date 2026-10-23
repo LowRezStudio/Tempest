@@ -4,7 +4,13 @@ import { setupInstance } from "$lib/platforms/setup";
 import { instanceMap, updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, logCommandOutput } from "$lib/stores/processes.svelte";
 import { addToast } from "$lib/stores/ui.svelte";
-import { queueCurrentIndex, queueItems, queueRunning } from "./stores.svelte";
+import {
+	queueCurrentIndex,
+	queueItems,
+	queueRunning,
+	SPEED_WINDOW_MS,
+	speedSamples,
+} from "./stores.svelte";
 import type { ArgumentType } from "$lib/core/command";
 import type { Child } from "$lib/platform/api";
 import type { Instance } from "$lib/types/instance";
@@ -209,6 +215,7 @@ export class RestoreQueue {
 		queueCurrentIndex.value = nextIndex;
 
 		const item = items[nextIndex];
+		speedSamples.value = [];
 		this.updateItem(item.id, { status: "running" });
 		this.updateInstanceState(item.outDir, "downloading");
 
@@ -285,6 +292,7 @@ export class RestoreQueue {
 						const parsed = JSON.parse(line);
 						if (parsed.type === "progress") {
 							this.updateItem(item.id, { progress: parsed });
+							this.recordSpeed(parsed.bytesPerSecond);
 						} else if (parsed.type === "complete") {
 							this.updateItem(item.id, {
 								status: "complete",
@@ -477,6 +485,16 @@ export class RestoreQueue {
 		}
 	}
 
+	private recordSpeed(bytesPerSecond: number): void {
+		const now = Date.now();
+		const samples = speedSamples.value;
+		if (now - (samples.at(-1)?.at ?? 0) < 1000) return;
+		speedSamples.value = [
+			...samples.filter((sample) => now - sample.at <= SPEED_WINDOW_MS),
+			{ at: now, bytesPerSecond },
+		];
+	}
+
 	private updateItem(
 		id: string,
 		updates: Partial<Pick<QueueItem, "status" | "result" | "error" | "progress">>,
@@ -487,7 +505,11 @@ export class RestoreQueue {
 
 		const oldStatus = items[index].status;
 		const newItems = [...items];
-		newItems[index] = { ...newItems[index], ...updates };
+		newItems[index] = {
+			...newItems[index],
+			...updates,
+			...(updates.status === "complete" && { finishedAt: Date.now() }),
+		};
 		queueItems.value = newItems;
 
 		if (updates.status && updates.status !== oldStatus) {
