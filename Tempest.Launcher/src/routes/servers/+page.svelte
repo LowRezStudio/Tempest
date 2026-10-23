@@ -1,13 +1,20 @@
 <script lang="ts">
 	import {
+		ArrowDownAZ,
+		ArrowDownWideNarrow,
 		AlertTriangle,
+		Check,
+		ChevronDown,
 		RefreshCw,
 		Search,
 		Server,
 		ServerCrash,
 		ServerOff,
+		Swords,
+		Users,
 		X,
 	} from "@lucide/svelte";
+	import { DropdownMenu } from "bits-ui";
 	import { untrack } from "svelte";
 	import ServerDetailsDialog from "$lib/components/server-list/ServerDetailsDialog.svelte";
 	import ServerRow from "$lib/components/server-list/ServerRow.svelte";
@@ -62,15 +69,40 @@
 			: (lanQuery.isFetching ?? false),
 	);
 
+	type ServerArrangement = "players" | "name" | "gamemode";
+	let arrangement = $state<ServerArrangement>("players");
+	const arrangementOptions = [
+		{ value: "players" as const, Icon: ArrowDownWideNarrow, label: m.serverlist_players },
+		{ value: "name" as const, Icon: ArrowDownAZ, label: m.common_name },
+		{ value: "gamemode" as const, Icon: Swords, label: m.serverlist_gamemode },
+	];
+	const currentArrangement = $derived(
+		arrangementOptions.find((option) => option.value === arrangement) ?? arrangementOptions[0]!,
+	);
+	const CurrentArrangementIcon = $derived(currentArrangement.Icon);
+
 	const filteredServers = $derived(
-		servers.filter(
-			(server) =>
-				server.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				server.gamemode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				server.map?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				server.version.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				server.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase())),
-		),
+		[...servers]
+			.sort((a, b) => {
+				switch (arrangement) {
+					case "name":
+						return a.name.localeCompare(b.name);
+					case "gamemode":
+						return a.gamemode.localeCompare(b.gamemode) || a.name.localeCompare(b.name);
+					default:
+						return b.players - a.players || a.name.localeCompare(b.name);
+				}
+			})
+			.filter(
+				(server) =>
+					server.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.gamemode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.map?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.version.toLowerCase().includes(searchQuery.toLowerCase()) ||
+					server.tags.some((tag) =>
+						tag.toLowerCase().includes(searchQuery.toLowerCase()),
+					),
+			),
 	);
 
 	const serverCount = $derived(servers.length);
@@ -110,31 +142,6 @@
 			<Server size={32} class="opacity-60" />
 		{/snippet}
 		{#snippet actions()}
-			<label class="input input-bordered">
-				<Search size={16} class="opacity-50" />
-				<input
-					type="text"
-					placeholder={m.serverlist_search_placeholder()}
-					class="grow"
-					bind:value={searchQuery}
-				/>
-			</label>
-			<button
-				class="btn btn-primary"
-				onclick={() => {
-					joinServerWizardOpen.value = true;
-				}}
-			>
-				{m.join_server_title()}
-			</button>
-			<button
-				class="btn btn-primary"
-				onclick={() => {
-					hostServerWizardOpen.value = true;
-				}}
-			>
-				{m.serverlist_host_server()}
-			</button>
 			<button
 				class="btn btn-ghost btn-square"
 				onclick={refreshServers}
@@ -171,52 +178,142 @@
 				</button>
 			</div>
 		{/if}
-		<div class="flex-1 overflow-y-auto">
-			<div class="px-4 py-6">
-				{#if isLoading}
-					<div class="flex h-64 flex-col items-center justify-center gap-4">
-						<span class="loading loading-spinner loading-lg text-base-content/50"
-						></span>
-						<p class="text-base-content/50 text-lg">{m.serverlist_loading()}</p>
-					</div>
-				{:else if error}
-					<div role="alert" class="alert alert-error">
-						<ServerCrash />
-						<span
-							>{formatQueryError(
-								activeTab === "internet" ? serversQuery.error : lanQuery.error,
-							)}</span
+		<div class="@container min-h-0 flex-1 overflow-y-auto">
+			<div class="mx-auto w-full max-w-6xl px-4 py-6">
+				<div class="mb-4 flex gap-2">
+					<label class="input input-sm min-w-0 flex-1">
+						<Search size={14} class="opacity-50" />
+						<input
+							type="text"
+							placeholder={m.serverlist_search_placeholder()}
+							class="grow"
+							bind:value={searchQuery}
+						/>
+					</label>
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger
+							class="btn btn-sm shrink-0 flex-nowrap gap-1.5 font-normal"
+							aria-label={m.library_arrange()}
 						>
+							<CurrentArrangementIcon size={14} class="opacity-70" />
+							{currentArrangement.label()}
+							<ChevronDown size={14} class="opacity-60" />
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Portal>
+							<DropdownMenu.Content
+								data-popover-menu
+								class="bg-base-200 border-base-300 rounded-box popover-animate z-50 flex w-56 flex-col gap-0.5 border p-1.5 shadow-xl outline-none"
+								align="end"
+								sideOffset={4}
+							>
+								<span
+									class="text-base-content/50 px-2 pt-1 pb-1.5 text-xs font-semibold"
+								>
+									{m.library_arrange()}
+								</span>
+								<DropdownMenu.RadioGroup
+									bind:value={
+										() => arrangement,
+										(value) => (arrangement = value as ServerArrangement)
+									}
+								>
+									{#each arrangementOptions as option (option.value)}
+										{@const Icon = option.Icon}
+										<DropdownMenu.RadioItem
+											value={option.value}
+											class="rounded-field data-highlighted:bg-base-300 flex cursor-pointer items-center gap-2.5 px-2 py-1.5 text-sm outline-none"
+										>
+											{#snippet children({ checked })}
+												<Icon size={14} class="shrink-0 opacity-70" />
+												<span class:font-semibold={checked}
+													>{option.label()}</span
+												>
+												{#if checked}
+													<Check size={14} class="text-primary ml-auto" />
+												{/if}
+											{/snippet}
+										</DropdownMenu.RadioItem>
+									{/each}
+								</DropdownMenu.RadioGroup>
+							</DropdownMenu.Content>
+						</DropdownMenu.Portal>
+					</DropdownMenu.Root>
+				</div>
+				<div class="grid items-start gap-6 @3xl:grid-cols-[minmax(0,1fr)_18rem]">
+					<div class="min-w-0">
+						{#if isLoading}
+							<div class="flex h-64 flex-col items-center justify-center gap-4">
+								<span
+									class="loading loading-spinner loading-lg text-base-content/50"
+								></span>
+								<p class="text-base-content/50 text-lg">{m.serverlist_loading()}</p>
+							</div>
+						{:else if error}
+							<div role="alert" class="alert alert-error">
+								<ServerCrash />
+								<span
+									>{formatQueryError(
+										activeTab === "internet"
+											? serversQuery.error
+											: lanQuery.error,
+									)}</span
+								>
+							</div>
+						{:else if servers.length === 0}
+							<div class="flex h-64 flex-col items-center justify-center gap-4">
+								<ServerOff size={48} class="opacity-30" />
+								<p class="text-base-content/50 text-lg">
+									{m.serverlist_no_servers()}
+								</p>
+								<p class="text-base-content/40 text-sm">
+									{m.serverlist_no_servers_hint()}
+								</p>
+							</div>
+						{:else if filteredServers.length === 0}
+							<div class="flex h-64 flex-col items-center justify-center gap-4">
+								<Search size={48} class="opacity-30" />
+								<p class="text-base-content/50 text-lg">
+									{m.serverlist_no_servers_matching()}
+								</p>
+								<p class="text-base-content/40 text-sm">
+									{m.serverlist_no_servers_matching_hint()}
+								</p>
+							</div>
+						{:else}
+							<div class="flex flex-col gap-3">
+								{#each filteredServers as server (server.id)}
+									<ServerRow
+										{server}
+										showCountry={activeTab === "internet"}
+										onclick={openDetails}
+									/>
+								{/each}
+							</div>
+						{/if}
 					</div>
-				{:else if servers.length === 0}
-					<div class="flex h-64 flex-col items-center justify-center gap-4">
-						<ServerOff size={48} class="opacity-30" />
-						<p class="text-base-content/50 text-lg">{m.serverlist_no_servers()}</p>
-						<p class="text-base-content/40 text-sm">
-							{m.serverlist_no_servers_hint()}
-						</p>
-					</div>
-				{:else if filteredServers.length === 0}
-					<div class="flex h-64 flex-col items-center justify-center gap-4">
-						<Search size={48} class="opacity-30" />
-						<p class="text-base-content/50 text-lg">
-							{m.serverlist_no_servers_matching()}
-						</p>
-						<p class="text-base-content/40 text-sm">
-							{m.serverlist_no_servers_matching_hint()}
-						</p>
-					</div>
-				{:else}
-					<div class="flex flex-col gap-3">
-						{#each filteredServers as server (server.id)}
-							<ServerRow
-								{server}
-								showCountry={activeTab === "internet"}
-								onclick={openDetails}
-							/>
-						{/each}
-					</div>
-				{/if}
+					<aside
+						class="order-first flex flex-col gap-2 @3xl:sticky @3xl:top-6 @3xl:order-last"
+					>
+						<div class="flex gap-2 @3xl:flex-col">
+							<button
+								type="button"
+								class="bg-base-200/70 border-base-300 hover:border-primary/60 rounded-field flex flex-1 cursor-pointer items-start gap-3 border p-3 text-left text-sm transition-colors"
+								onclick={() => (joinServerWizardOpen.value = true)}
+							>
+								<Users size={16} class="text-primary mt-0.5 shrink-0" />
+								<span class="font-semibold">{m.join_server_title()}</span>
+							</button>
+							<button
+								type="button"
+								class="bg-base-200/70 border-base-300 hover:border-primary/60 rounded-field flex flex-1 cursor-pointer items-start gap-3 border p-3 text-left text-sm transition-colors"
+								onclick={() => (hostServerWizardOpen.value = true)}
+							>
+								<Server size={16} class="text-primary mt-0.5 shrink-0" />
+								<span class="font-semibold">{m.serverlist_host_server()}</span>
+							</button>
+						</div>
+					</aside>
+				</div>
 			</div>
 		</div>
 	</div>
