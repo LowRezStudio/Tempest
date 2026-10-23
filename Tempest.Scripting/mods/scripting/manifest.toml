@@ -1,6 +1,6 @@
 [mod]
 id = "tempest-scripting"
 name = "Tempest Scripting"
-version = "1.0.0"
+version = "1.0.2"
 authors = ["Tempest", "Tom"]
 readme = "Lua scripting runtime for Paladins: hooks, calls, reflection, console commands, key bindings. Install once; Lua mods are separate .tempest files with a scripts/ folder."
