@@ -15,7 +15,7 @@
 	import { Tabs } from "bits-ui";
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
-	import { activePreset, launchArgs, launchPresets } from "$lib/core/presets";
+	import { activePreset, applyLaunchPreset, launchArgs, launchPresets } from "$lib/core/presets";
 	import { relativeDate } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
 	import { openPath } from "$lib/platform/api";
@@ -28,7 +28,7 @@
 	import InstanceMenu from "./InstanceMenu.svelte";
 	import InstanceSessionControls from "./InstanceSessionControls.svelte";
 	import PatchBanner from "./PatchBanner.svelte";
-	import type { Instance, LaunchPreset } from "$lib/types/instance";
+	import type { Instance } from "$lib/types/instance";
 
 	interface Props<Tab> {
 		instance: Instance;
@@ -88,23 +88,6 @@
 					tone: "error",
 				}),
 		});
-	}
-
-	// Picking a preset launches straight away with it (on top of the Settings
-	// arguments) without making it the default preset the Play button uses.
-	function launchWith(preset: LaunchPreset) {
-		const target = instance;
-		launch.mutate(
-			{ ...target, launchOptions: { ...target.launchOptions, presetId: preset.id } },
-			{
-				onError: (error) =>
-					addToast({
-						title: m.library_launch_failed({ name: target.label }),
-						message: error.message,
-						tone: "error",
-					}),
-			},
-		);
 	}
 
 	const formatTime = (timestamp: number) =>
@@ -227,8 +210,7 @@
 						{#snippet children()}
 							{#each launchPresets.value as preset (preset.id)}
 								<PopoverMenuItem
-									onclick={() => launchWith(preset)}
-									disabled={busy || phase !== "prepared"}
+									onclick={() => applyLaunchPreset(instance, preset)}
 									title={preset.args.join(" ")}
 								>
 									<span class="flex w-4 shrink-0 justify-center">
