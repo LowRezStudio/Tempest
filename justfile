@@ -152,7 +152,7 @@ upk *args: unrealscript-build
     {{unrealscript}}/target/release/upk {{args}}
 
 # ---------------------------------------------------------------------------
-# .NET: Tempest.CLI, Tempest.Services, MarshalLib, Tempest.Protocol
+# .NET: Tempest.CLI, MarshalLib, MarshalLib.Database, Tempest.Protocol
 # ---------------------------------------------------------------------------
 
 # Build the whole solution (also compiles Tempest.CLI/inject via zig)
@@ -169,11 +169,6 @@ cli *args:
 [group("dotnet")]
 publish-cli:
     dotnet publish -c Release Tempest.CLI
-
-# Run the gRPC services server
-[group("dotnet")]
-services:
-    dotnet run --project Tempest.Services
 
 # ---------------------------------------------------------------------------
 # Tempest.Launcher (Tauri / Electron + SvelteKit)
