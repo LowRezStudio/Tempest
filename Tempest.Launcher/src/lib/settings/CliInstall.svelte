@@ -3,7 +3,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { invoke, platform } from "$lib/platform/api";
 	import { addToast } from "$lib/stores/ui.svelte";
-	import type { CliInstallResult } from "../../../electron/src/ipc/contract";
+	import type { CliInstallResult } from "$ipc/contract";
 
 	let status = $state<CliInstallResult | null>(null);
 	let installing = $state(false);

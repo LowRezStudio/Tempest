@@ -15,6 +15,13 @@ function toBuffer(data: Uint8Array): Buffer {
 	return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 }
 
+// Writes a cooked pack to the temp dir so the CLI (or a save dialog) can read it.
+export async function stagePack(filename: string, data: Uint8Array): Promise<string> {
+	const stagedPath = path.join(os.tmpdir(), path.basename(filename));
+	await fs.promises.writeFile(stagedPath, toBuffer(data));
+	return stagedPath;
+}
+
 // Repository packages are kept per mod and version so switching back to a version skips the
 // download. Only the newest few per mod stay.
 const CACHED_VERSIONS_PER_MOD = 5;
@@ -65,6 +72,7 @@ handle("mods:download-to-temp", async (event, { url, filename, progressId, cache
 		}
 		await fs.promises.mkdir(dir, { recursive: true });
 	}
+
 	// Host-side download: no CORS/CSP involvement, and the bytes never enter
 	// the renderer. Streamed to disk so big packages don't sit in memory; written next to the
 	// target first so an interrupted download never looks like a complete cached package.
@@ -111,25 +119,7 @@ handle("mods:download-to-temp", async (event, { url, filename, progressId, cache
 
 handle("mods:read-manifest", (_event, { path: file }) => readPackageManifest(file));
 
-handle("mods:save-pack", async (event, { defaultPath, data }) => {
-	// Save dialog + write in one round trip: the renderer only has the bytes.
-	const win = BrowserWindow.fromWebContents(event.sender);
-	const result = await dialog.showSaveDialog(win!, {
-		defaultPath,
-		filters: [{ name: "Tempest Mod", extensions: ["tempest"] }],
-	});
-	if (result.canceled || !result.filePath) return null;
-	await fs.promises.writeFile(result.filePath, toBuffer(data));
-	return result.filePath;
-});
-
-handle("mods:stage-pack", async (_event, { filename, data }) => {
-	// Write a cooked pack next to the CLI's temp workspace so `mod install`
-	// can consume it; the caller discards it after installing.
-	const stagedPath = path.join(os.tmpdir(), path.basename(filename));
-	await fs.promises.writeFile(stagedPath, toBuffer(data));
-	return stagedPath;
-});
+handle("mods:stage-pack", (_event, { filename, data }) => stagePack(filename, data));
 
 handle("mods:save-staged-pack", async (event, { stagedPath }) => {
 	// Save dialog + copy of an already-cooked package in the temp dir (e.g. a

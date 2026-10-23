@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { Users } from "@lucide/svelte";
+	import ChampionSelect from "$lib/components/champions/ChampionSelect.svelte";
+	import Header from "$lib/components/ui/Header.svelte";
 	import champions from "$lib/data/champions.json";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import {
@@ -10,8 +12,6 @@
 		teamRight,
 	} from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import ChampionSelect from "../champions/ChampionSelect.svelte";
-	import Header from "../ui/Header.svelte";
 	import LobbyChampionSelect from "./LobbyChampionSelect.svelte";
 	import LobbyPlayerCard from "./LobbyPlayerCard.svelte";
 

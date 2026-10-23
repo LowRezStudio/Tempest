@@ -7,11 +7,11 @@
 		RefreshCw,
 	} from "@lucide/svelte";
 	import { Progress } from "bits-ui";
+	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { platform } from "$lib/platform/api";
 	import { cachedReleaseNotes } from "$lib/queries/release";
 	import { updaterStore } from "$lib/stores/updater.svelte";
-	import Modal from "../ui/Modal.svelte";
 
 	let isOpen = $state(false);
 	const isWindows = platform() === "windows";
