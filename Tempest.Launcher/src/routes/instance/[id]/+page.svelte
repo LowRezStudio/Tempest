@@ -255,7 +255,7 @@
 							<ChevronDown size={16} />
 						{/snippet}
 						{#snippet children()}
-							{#each launchPresets(instance) as preset (preset.id)}
+							{#each launchPresets.value as preset (preset.id)}
 								<PopoverMenuItem
 									onclick={() => handleLaunchPreset(preset)}
 									disabled={isLaunching || isSettingUp}
@@ -271,7 +271,7 @@
 									</span>
 								</PopoverMenuItem>
 							{/each}
-							{#if launchPresets(instance).length > 0}
+							{#if launchPresets.value.length > 0}
 								<li
 									role="separator"
 									class="border-base-content/10 my-1 border-t"

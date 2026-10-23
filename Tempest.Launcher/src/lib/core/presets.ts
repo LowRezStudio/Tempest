@@ -1,12 +1,12 @@
 import { updateInstance } from "../stores/instance.svelte";
+import { persistedJSON } from "../stores/persisted.svelte";
 import type { Instance, LaunchPreset } from "../types/instance";
 
-// Presets saved on the instance (instances created before presets existed have none).
-export const launchPresets = (instance: Instance): LaunchPreset[] =>
-	instance.launchOptions.presets ?? [];
+// Presets are shared by every instance; only the selection is per instance.
+export const launchPresets = persistedJSON<LaunchPreset[]>("launchPresets", []);
 
 export const activePreset = (instance: Instance): LaunchPreset | undefined =>
-	launchPresets(instance).find((preset) => preset.id === instance.launchOptions.presetId);
+	launchPresets.value.find((preset) => preset.id === instance.launchOptions.presetId);
 
 // Preset arguments run first, the instance's own (Settings) arguments after them.
 export const launchArgs = (instance: Instance): string[] => [
@@ -14,10 +14,9 @@ export const launchArgs = (instance: Instance): string[] => [
 	...(instance.launchOptions.args ?? []),
 ];
 
-export const saveLaunchPresets = (instance: Instance, presets: LaunchPreset[]) =>
-	updateInstance(instance.id, {
-		launchOptions: { ...instance.launchOptions, presets },
-	});
+export const saveLaunchPresets = (presets: LaunchPreset[]) => {
+	launchPresets.value = presets;
+};
 
 // Selecting the active preset again clears it, leaving just the instance's own args.
 export const applyLaunchPreset = (instance: Instance, preset: LaunchPreset) =>

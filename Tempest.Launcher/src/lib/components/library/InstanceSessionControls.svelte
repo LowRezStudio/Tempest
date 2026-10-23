@@ -36,7 +36,7 @@
 
 	// Name each window after the preset it was launched with, if any.
 	const windowLabel = (gameWindow: Process): string => {
-		const preset = launchPresets(gameWindow.instance).find(
+		const preset = launchPresets.value.find(
 			(preset) => preset.id === gameWindow.instance.launchOptions.presetId,
 		);
 		return preset

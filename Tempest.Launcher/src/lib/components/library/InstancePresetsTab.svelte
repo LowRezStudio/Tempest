@@ -17,7 +17,7 @@
 
 	let { instance }: Props = $props();
 
-	let presets = $derived(launchPresets(instance));
+	let presets = $derived(launchPresets.value);
 	let active = $derived(activePreset(instance));
 
 	// Arguments are edited as raw text: re-parsing on every keystroke would eat the
@@ -34,18 +34,13 @@
 
 	const update = (id: string, patch: Partial<LaunchPreset>) =>
 		saveLaunchPresets(
-			instance,
 			presets.map((preset) => (preset.id === id ? { ...preset, ...patch } : preset)),
 		);
 
 	const add = () =>
-		saveLaunchPresets(instance, [...presets, { id: crypto.randomUUID(), title: "", args: [] }]);
+		saveLaunchPresets([...presets, { id: crypto.randomUUID(), title: "", args: [] }]);
 
-	const remove = (id: string) =>
-		saveLaunchPresets(
-			instance,
-			presets.filter((preset) => preset.id !== id),
-		);
+	const remove = (id: string) => saveLaunchPresets(presets.filter((preset) => preset.id !== id));
 </script>
 
 <div class="flex flex-col gap-3">

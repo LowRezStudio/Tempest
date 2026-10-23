@@ -36,7 +36,6 @@ export type InstanceLaunchOptions = {
 	noDefaultArgs: boolean;
 	log: boolean;
 	platform?: InstancePlatform;
-	presets?: LaunchPreset[];
 	presetId?: string;
 };
 
