@@ -9,6 +9,8 @@
 		class?: string;
 		triggerClass?: string;
 		triggerLabel?: string;
+		/** Width of the item list, e.g. wider for long labels. */
+		menuClass?: string;
 	}
 
 	let {
@@ -18,6 +20,7 @@
 		class: className = "",
 		triggerClass = "",
 		triggerLabel,
+		menuClass = "w-52",
 	}: Props = $props();
 </script>
 
@@ -37,7 +40,7 @@
 			{align}
 			sideOffset={4}
 		>
-			<ul role="menu" class="menu w-52">
+			<ul role="menu" class="menu {menuClass}">
 				{@render children()}
 			</ul>
 		</Popover.Content>
