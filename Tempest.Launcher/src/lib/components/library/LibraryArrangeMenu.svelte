@@ -53,6 +53,7 @@
 	</DropdownMenu.Trigger>
 	<DropdownMenu.Portal>
 		<DropdownMenu.Content
+			data-popover-menu
 			class="bg-base-200 border-base-300 rounded-box popover-animate z-50 flex w-64 flex-col gap-0.5 border p-1.5 shadow-xl outline-none"
 			align="end"
 			sideOffset={4}

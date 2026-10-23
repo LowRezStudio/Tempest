@@ -33,6 +33,7 @@
 </script>
 
 <aside
+	data-sidebar
 	class="bg-base-300 flex h-screen w-16 flex-none flex-col items-center py-4"
 	class:dragging={!!reorder.drag}
 >

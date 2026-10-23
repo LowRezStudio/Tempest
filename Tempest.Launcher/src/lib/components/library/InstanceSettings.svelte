@@ -583,7 +583,10 @@
 		</div>
 
 		<aside class="flex flex-col gap-3 @3xl:sticky @3xl:top-6">
-			<div class="bg-base-200 border-base-300 rounded-box flex flex-col gap-3 border p-4">
+			<div
+				data-panel
+				class="bg-base-200 border-base-300 rounded-box flex flex-col gap-3 border p-4"
+			>
 				<div class="@max-3xl:hidden">
 					<SectionNav {tracker} />
 				</div>
@@ -607,6 +610,7 @@
 				</p>
 			</div>
 			<dl
+				data-panel
 				class="bg-base-200 border-base-300 rounded-box grid grid-cols-2 gap-3 border p-4 text-sm"
 			>
 				<div class="min-w-0">

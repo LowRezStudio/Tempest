@@ -374,11 +374,17 @@
 			</div>
 
 			<aside class="flex flex-col gap-3 @3xl:sticky @3xl:top-6">
-				<div class="bg-base-200 border-base-300 rounded-box border p-4 @max-3xl:hidden">
+				<div
+					data-panel
+					class="bg-base-200 border-base-300 rounded-box border p-4 @max-3xl:hidden"
+				>
 					<SectionNav {tracker} />
 				</div>
 
-				<div class="bg-base-200 border-base-300 rounded-box flex flex-col gap-3 border p-4">
+				<div
+					data-panel
+					class="bg-base-200 border-base-300 rounded-box flex flex-col gap-3 border p-4"
+				>
 					<div class="flex items-center gap-2">
 						<span
 							class="bg-base-300 flex size-5 shrink-0 items-center justify-center rounded-full"

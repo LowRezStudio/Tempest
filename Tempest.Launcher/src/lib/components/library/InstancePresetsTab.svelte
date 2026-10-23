@@ -61,6 +61,7 @@
 
 	{#each presets as preset (preset.id)}
 		<div
+			data-panel
 			class="border-base-content/10 bg-base-200 flex flex-col gap-3 rounded-xl border p-3 lg:flex-row lg:items-center"
 		>
 			<div class="flex min-w-0 flex-1 flex-col gap-2">

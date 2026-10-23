@@ -103,6 +103,7 @@
 			<!-- Like the mod website's first-run dashboard: the two ways in, nothing else. -->
 			<div class="px-4 py-12">
 				<div
+					data-panel
 					class="bg-base-200 border-base-300 rounded-box mx-auto flex max-w-xl flex-col gap-4 border p-8"
 				>
 					<div>
@@ -174,6 +175,7 @@
 					{:else}
 						<div
 							bind:this={listEl}
+							data-panel
 							class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y border"
 							class:dragging={!!reorder.drag}
 						>
@@ -199,6 +201,7 @@
 
 				<aside class="flex flex-col gap-4 @3xl:sticky @3xl:top-6">
 					<div
+						data-panel
 						class="bg-base-200 border-base-300 rounded-box flex flex-col gap-2 border p-4 @max-3xl:hidden"
 					>
 						<h2 class="text-sm font-semibold">{m.library_new_instance()}</h2>
@@ -209,6 +212,7 @@
 						<NewInstanceOption tab="folder" />
 					</div>
 					<dl
+						data-panel
 						class="bg-base-200 border-base-300 rounded-box grid grid-cols-2 gap-3 border p-4 text-sm"
 					>
 						<div>

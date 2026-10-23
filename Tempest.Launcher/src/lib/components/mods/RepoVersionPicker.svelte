@@ -75,6 +75,7 @@
 	</Popover.Trigger>
 	<Popover.Portal>
 		<Popover.Content
+			data-popover-menu
 			class="bg-base-200 border-base-300 rounded-box popover-animate z-50 w-80 border p-3 text-sm shadow-xl"
 			align="start"
 			sideOffset={6}
