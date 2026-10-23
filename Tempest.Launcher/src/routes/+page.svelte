@@ -24,8 +24,9 @@
 <!-- After the mod website's landing page: a hero with the way in, then what's new -->
 <div class="h-full">
 	<div class="@container h-full scrollbar-gutter-stable overflow-y-auto">
-		<div class="flex w-full flex-col gap-6 py-6 pr-2 pl-6">
-			<div class="flex min-w-0 flex-col gap-4">
+		<!-- The hero takes whatever height the cards leave, so the page fits the window -->
+		<div class="flex min-h-full w-full flex-col gap-6 py-6 pr-2 pl-6">
+			<div class="flex min-w-0 flex-1 flex-col gap-4">
 				{#key featured?.id}
 					<HomeHero instance={featured} instances={orderedInstances.value} />
 				{/key}

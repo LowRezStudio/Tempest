@@ -33,10 +33,10 @@
 			<button
 				type="button"
 				data-panel
-				class="bg-base-200 border-base-300 hover:border-primary/60 rounded-field flex flex-1 cursor-pointer items-start gap-3 border p-3 text-left text-sm transition-colors"
+				class="bg-base-200 border-base-300 hover:border-primary/60 rounded-field flex flex-1 cursor-pointer items-center gap-4 border px-5 py-3 text-left text-sm transition-colors"
 				onclick={() => openUrl(url)}
 			>
-				<Icon size={16} class="text-primary mt-0.5 shrink-0" />
+				<Icon size={22} class="text-primary shrink-0" />
 				<span class="min-w-0">
 					<span class="block font-semibold">{title}</span>
 					<span class="text-base-content/60 block text-xs">{hint}</span>

@@ -132,7 +132,7 @@
 
 <section
 	data-panel
-	class="rounded-box border-base-300 bg-base-200 relative isolate flex min-h-[24rem] flex-col overflow-hidden border @5xl:min-h-[30rem]"
+	class="rounded-box border-base-300 bg-base-200 relative isolate flex min-h-80 flex-1 flex-col overflow-hidden border"
 >
 	{#key art}
 		<img

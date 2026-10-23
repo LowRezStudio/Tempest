@@ -103,9 +103,21 @@
 					>
 						<ChevronLeft size={14} />
 					</button>
-					<span class="text-base-content/70 min-w-8 text-center tabular-nums">
-						{activeIndex + 1} / {posts.length}
-					</span>
+					<div class="flex items-center gap-1 px-1">
+						{#each posts as item, i (item.link)}
+							<button
+								class={[
+									"h-1.5 cursor-pointer rounded-full transition-all",
+									i === activeIndex
+										? "bg-primary w-4"
+										: "bg-base-content/30 hover:bg-base-content/60 w-1.5",
+								]}
+								aria-label={item.title}
+								aria-current={i === activeIndex}
+								onclick={() => (activeIndex = i)}
+							></button>
+						{/each}
+					</div>
 					<button
 						class="btn btn-ghost btn-xs btn-square"
 						aria-label="Next article"
