@@ -15,15 +15,27 @@
 	} from "@lucide/svelte";
 	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { instanceMap, preparedInstances } from "$lib/stores/instance.svelte";
+	import { instanceMap, preparedInstances, setInstanceOrder } from "$lib/stores/instance.svelte";
 	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
 	import { modDeveloper } from "$lib/stores/settings.svelte";
 	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
+	import { createReorderable } from "$lib/utils/reorder.svelte";
 	import SidebarInstanceItem from "./SidebarInstanceItem.svelte";
 	import SidebarItem from "./SidebarItem.svelte";
+	import type { Instance } from "$lib/types/instance";
+
+	let listEl: HTMLDivElement | undefined = $state();
+	const reorder = createReorderable<Instance>({
+		ids: () => preparedInstances.value.map((i) => i.id),
+		container: () => listEl,
+		onReorder: setInstanceOrder,
+	});
 </script>
 
-<aside class="bg-base-300 flex h-screen w-16 flex-none flex-col items-center py-4">
+<aside
+	class="bg-base-300 flex h-screen w-16 flex-none flex-col items-center py-4"
+	class:dragging={!!reorder.drag}
+>
 	<nav class="flex flex-col gap-2">
 		{#if Object.keys(instanceMap.value).length === 0}
 			<SidebarItem href="/onboarding" label={m.sidebar_get_started()}
@@ -49,14 +61,23 @@
 	<div class="divider mx-4 my-4 opacity-50"></div>
 
 	<div
+		bind:this={listEl}
 		class="instance-list flex flex-1 scrollbar-none flex-col gap-2 overflow-x-visible overflow-y-auto px-2"
 	>
-		{#each preparedInstances.value as instance (instance.id)}
-			<SidebarInstanceItem
-				{instance}
-				href={`/instance/${instance.id}`}
-				active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
-			/>
+		{#each preparedInstances.value as instance, i (instance.id)}
+			<div
+				data-id={instance.id}
+				class="instance-slot"
+				style:transform={reorder.shiftFor(i)}
+				class:is-ghost={reorder.drag?.id === instance.id}
+			>
+				<SidebarInstanceItem
+					{instance}
+					href={`/instance/${instance.id}`}
+					active={page.route.id == "/instance/[id]" && page.params.id == instance.id}
+					onpointerdown={reorder.pointerdown(instance.id, i, instance)}
+				/>
+			</div>
 		{/each}
 
 		<button
@@ -84,4 +105,44 @@
 			><Settings size={20} /></SidebarItem
 		>
 	</div>
+
+	{#if reorder.drag}
+		<div
+			class="drag-clone pointer-events-none fixed z-[100]"
+			style:top={`${reorder.pointerY - reorder.drag.offsetY}px`}
+			style:left={`${reorder.pointerX - reorder.drag.offsetX}px`}
+			aria-hidden="true"
+			inert
+		>
+			<SidebarInstanceItem
+				instance={reorder.drag.item}
+				href={`/instance/${reorder.drag.item.id}`}
+				active={true}
+			/>
+		</div>
+	{/if}
 </aside>
+
+<style>
+	.instance-slot {
+		touch-action: none;
+		position: relative;
+		z-index: 1;
+	}
+	/* Transitions only while dragging so the drop reorder is instant (no glitch). */
+	.dragging .instance-slot {
+		will-change: transform;
+		transition: transform 200ms ease;
+	}
+	.instance-slot.is-ghost {
+		z-index: 0;
+		opacity: 0.3;
+		border-radius: 0.5rem;
+	}
+	.drag-clone {
+		filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+		transform: scale(1.08);
+		transform-origin: center center;
+		opacity: 0.95;
+	}
+</style>

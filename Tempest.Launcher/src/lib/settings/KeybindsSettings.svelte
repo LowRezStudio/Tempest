@@ -26,6 +26,11 @@
 		keybinds.value.bindings.some((b) => b.name.trim() && b.command.trim()),
 	);
 
+	// The legacy theme paints sliders with the progress-bar artwork, which needs
+	// the fill position as a CSS property.
+	const sliderFill = (value: number, min: number, max: number) =>
+		`${((value - min) / (max - min)) * 100}%`;
+
 	function updateSensitivity(e: Event) {
 		const value = Number((e.target as HTMLInputElement).value);
 		const rounded = Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;

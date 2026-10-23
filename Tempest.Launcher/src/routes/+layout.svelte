@@ -10,9 +10,11 @@
 	import AppShell from "$lib/components/layout/AppShell.svelte";
 	import SigningKeyModal from "$lib/components/mods/SigningKeyModal.svelte";
 	import OnboardingPage from "$lib/components/onboarding/OnboardingPage.svelte";
+	import { restoreRunningGames } from "$lib/core/launch";
 	import { checkForCoreUpdatesAndInstall } from "$lib/core/mods";
 	import { invoke } from "$lib/platform/api";
 	import { setQueryClient } from "$lib/queries/client";
+	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { snapshotPaused } from "$lib/stores/snapshot.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
@@ -49,6 +51,17 @@
 	});
 
 	let checkedLibrary = false;
+
+	// Vite full reloads (and renderer crashes) drop the tracked games and the
+	// restore queue while the host keeps their children running: pick them back
+	// up from the host instead of starting over.
+	let restored = false;
+	$effect(() => {
+		if (restored) return;
+		restored = true;
+		void restoreRunningGames();
+		void restoreQueue.adoptRunning();
+	});
 
 	const inOnboarding = $derived(page.url.pathname === "/onboarding");
 

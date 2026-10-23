@@ -8,7 +8,18 @@ export const lobbyServerProcessesList = $state({ value: [] as LobbyServerProcess
 const MAX_LOGS = 5000;
 let nextLogId = 0;
 
-export const processLogs = $state({ value: [] as ProcessLog[] });
+// The array is replaced wholesale on every append, so keep it out of the deep
+// proxy: otherwise every log batch proxies thousands of entry objects.
+let logEntries = $state.raw<ProcessLog[]>([]);
+
+export const processLogs = {
+	get value(): ProcessLog[] {
+		return logEntries;
+	},
+	set value(next: ProcessLog[]) {
+		logEntries = next;
+	},
+};
 
 export function appendProcessLog(line: string, error = false, source = ""): void {
 	appendProcessLogs([line], error, source);

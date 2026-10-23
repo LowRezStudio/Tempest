@@ -1,0 +1,38 @@
+appId: com.lowrezstudio.tempest.studio
+productName: Tempest Studio
+# No spaces in file names: the release workflow uploads them with gh.
+artifactName: Tempest-Studio-${version}-${os}-${arch}.${ext}
+fileAssociations:
+    - ext: upk
+      name: Unreal Package
+      description: Unreal Engine 3 package
+      role: Editor
+directories:
+    output: ../dist
+files:
+    - build/**/*
+    - dist/**/*
+    - package.json
+extraResources:
+    - from: resources/binaries
+      to: binaries
+    - from: resources/icons/icon.png
+      to: icon.png
+win:
+    target: nsis
+    icon: resources/icons/icon.ico
+nsis:
+    artifactName: Tempest-Studio-Setup-${version}.${ext}
+mac:
+    target: dmg
+    icon: resources/icons/icon.icns
+    category: public.app-category.developer-tools
+linux:
+    target:
+        - AppImage
+        - deb
+        - rpm
+    icon: resources/icons
+    category: Development
+# Installers are attached to the GitHub release by .github/workflows/studio-release.yml.
+publish: null

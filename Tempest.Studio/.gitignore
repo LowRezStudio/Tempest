@@ -1,0 +1,17 @@
+node_modules
+
+# Output
+/.svelte-kit
+build
+
+# Electron
+dist/
+electron/resources/binaries/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*

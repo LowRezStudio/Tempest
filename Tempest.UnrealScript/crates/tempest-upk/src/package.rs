@@ -283,6 +283,23 @@ impl Package {
         Ok(pkg)
     }
 
+    /// Tables from an expanded header image (`total_header_size` bytes of the
+    /// uncompressed file) and its summary; `export_data` stays empty.
+    pub fn parse_header(header: &[u8], summary: Summary) -> Result<Package> {
+        let mut pkg = Package { summary, ..Default::default() };
+        pkg.parse_tables(header, false)?;
+        Ok(pkg)
+    }
+
+    /// Only the summary, from the start of a file (no chunk is expanded).
+    pub fn read_summary(path: impl AsRef<Path>) -> Result<Summary> {
+        use std::io::Read;
+        let mut f = std::fs::File::open(path)?;
+        let mut buf = Vec::with_capacity(64 * 1024);
+        f.by_ref().take(4 * 1024 * 1024).read_to_end(&mut buf)?;
+        Summary::read(&mut Reader::new(&buf))
+    }
+
     fn parse_tables(&mut self, data: &[u8], payloads: bool) -> Result<()> {
         let s = &self.summary;
         let mut r = Reader::new(data);
@@ -432,6 +449,55 @@ impl Package {
         FName { index: self.intern_name(base), number }
     }
 
+    // ----- editing ------------------------------------------------------
+
+    /// Find or append an import (`ClassPackage.ClassName` of `outer.name`).
+    pub fn add_import(&mut self, class_package: &str, class_name: &str, outer: PackageIndex, name: &str) -> PackageIndex {
+        let object_name = self.intern_fname(name);
+        let class_package = self.intern_fname(class_package);
+        let class_name = self.intern_fname(class_name);
+        if let Some(i) = self.imports.iter().position(|i| i.object_name == object_name && i.outer == outer && i.class_name == class_name && i.class_package == class_package) {
+            return PackageIndex::import(i);
+        }
+        self.imports.push(ObjectImport { class_package, class_name, outer, object_name });
+        PackageIndex::import(self.imports.len() - 1)
+    }
+
+    /// Append an export with its payload; `serial_offset`/`serial_size` are
+    /// assigned on save. Returns its index.
+    pub fn add_export(&mut self, export: ObjectExport, data: Vec<u8>) -> PackageIndex {
+        while self.export_data.len() < self.exports.len() {
+            self.export_data.push(Vec::new());
+        }
+        self.exports.push(export);
+        self.export_data.push(data);
+        self.depends.push(Vec::new());
+        PackageIndex::export(self.exports.len() - 1)
+    }
+
+    /// Replace the payload of export `i`.
+    pub fn set_export_data(&mut self, i: usize, data: Vec<u8>) {
+        while self.export_data.len() < self.exports.len() {
+            self.export_data.push(Vec::new());
+        }
+        self.exports[i].serial_size = data.len() as i32;
+        self.export_data[i] = data;
+    }
+
+    /// Does any import or export reference `idx` as class, super, outer or archetype?
+    pub fn table_refs_to(&self, idx: PackageIndex) -> usize {
+        let mut n = 0;
+        for i in &self.imports {
+            if i.outer == idx {
+                n += 1;
+            }
+        }
+        for e in &self.exports {
+            n += [e.class, e.super_, e.outer, e.archetype].iter().filter(|&&r| r == idx).count();
+        }
+        n
+    }
+
     // ----- object helpers -----------------------------------------------
 
     pub fn object_name(&self, idx: PackageIndex) -> String {
@@ -546,9 +612,12 @@ impl Package {
         self.summary.import_guids_count = self.import_guids.len() as i32;
         self.summary.export_guids_count = self.export_guids.len() as i32;
         self.summary.file_version = self.summary.file_version.max(1);
+        // The header is laid out without a chunk table: offsets of a compressed
+        // package are in the coordinates of its uncompressed form (the cooker
+        // adds the chunk table afterwards, see `compress_image`).
+        self.summary.compressed_chunks.clear();
         if !opts.compress {
             self.summary.compression_flags = 0;
-            self.summary.compressed_chunks.clear();
             self.summary.package_flags &= !pkg::STORE_COMPRESSED;
         }
         while self.depends.len() < self.exports.len() {
@@ -565,7 +634,9 @@ impl Package {
         // Export payloads.
         let mut serial = Vec::with_capacity(self.exports.len());
         for d in &self.export_data {
-            serial.push((body.tell() as i32, d.len() as i32));
+            // `SavePackage` leaves `SerialOffset` 0 for exports without data
+            // (the cooker's placeholders).
+            serial.push((if d.is_empty() { 0 } else { body.tell() as i32 }, d.len() as i32));
             body.bytes(d);
         }
         body.bytes(&self.trailing);
@@ -697,6 +768,70 @@ pub fn split_name_number(text: &str) -> (&str, u32) {
 
 // ----- compression ------------------------------------------------------
 
+/// Read one `FCompressedChunkHeader` + blocks (`FArchive::SerializeCompressed`
+/// layout: tag, block size, compressed size, uncompressed size, then
+/// per-block (compressed, uncompressed) sizes, then the LZO blocks) at the
+/// reader's position and return the expanded bytes. The same layout is used
+/// for package chunks and for bulk data flagged `BULKDATA_SerializeCompressedLZO`.
+pub fn read_compressed_chunk(r: &mut Reader, obscured: bool) -> Result<Vec<u8>> {
+    let tag = r.u32()?;
+    if tag != flags::PACKAGE_FILE_TAG && tag != flags::PACKAGE_FILE_TAG_SWAPPED {
+        return Err(Error::BadTag(tag));
+    }
+    let block_size = r.u32()? as usize;
+    let _total_comp = r.u32()? as usize;
+    let total_uncomp = r.u32()? as usize;
+    let nblocks = total_uncomp.div_ceil(block_size.max(1));
+    let mut blocks = Vec::with_capacity(nblocks);
+    for _ in 0..nblocks {
+        blocks.push((r.u32()? as usize, r.u32()? as usize));
+    }
+    let mut out = Vec::with_capacity(total_uncomp);
+    for (csize, usize_) in blocks {
+        let comp = r.take(csize)?;
+        let comp: std::borrow::Cow<[u8]> = if obscured {
+            comp.iter().map(|b| b ^ compression::OBSCURE_KEY).collect::<Vec<u8>>().into()
+        } else {
+            comp.into()
+        };
+        let dec = lzo::decompress(&comp, usize_)?;
+        out.extend_from_slice(&dec);
+    }
+    Ok(out)
+}
+
+/// Inverse of [`read_compressed_chunk`]: one chunk header plus LZO blocks of
+/// `LOADING_COMPRESSION_CHUNK_SIZE` bytes, optionally XOR-obscured.
+pub fn write_compressed_chunk(payload: &[u8], obscure: bool) -> Vec<u8> {
+    let block_size = flags::LOADING_COMPRESSION_CHUNK_SIZE as usize;
+    let blocks: Vec<Vec<u8>> = payload
+        .chunks(block_size)
+        .map(|b| {
+            let mut c = lzo::compress(b);
+            if obscure {
+                for x in c.iter_mut() {
+                    *x ^= compression::OBSCURE_KEY;
+                }
+            }
+            c
+        })
+        .collect();
+    let total_comp: usize = blocks.iter().map(|b| b.len()).sum();
+    let mut w = Writer::new();
+    w.u32(flags::PACKAGE_FILE_TAG);
+    w.u32(block_size as u32);
+    w.u32(total_comp as u32);
+    w.u32(payload.len() as u32);
+    for (b, src) in blocks.iter().zip(payload.chunks(block_size)) {
+        w.u32(b.len() as u32);
+        w.u32(src.len() as u32);
+    }
+    for b in &blocks {
+        w.bytes(b);
+    }
+    w.into_inner()
+}
+
 /// Expand compressed chunks into a flat file image: the raw header bytes
 /// (up to the first chunk) followed by each chunk at its uncompressed offset.
 /// Chunks starting at or beyond `limit` are left out (and the image ends with
@@ -720,37 +855,16 @@ fn decompress_image(bytes: &[u8], summary: &Summary, limit: usize) -> Result<Vec
     for chunk in chunks {
         let mut r = Reader::new(bytes);
         r.seek(chunk.compressed_offset as usize);
-        let tag = r.u32()?;
-        if tag != flags::PACKAGE_FILE_TAG && tag != flags::PACKAGE_FILE_TAG_SWAPPED {
-            return Err(Error::BadTag(tag));
-        }
-        let block_size = r.u32()? as usize;
-        let total_comp = r.u32()? as usize;
-        let total_uncomp = r.u32()? as usize;
-        let _ = total_comp;
-        if total_uncomp != chunk.uncompressed_size as usize {
+        let dec = read_compressed_chunk(&mut r, obscured)?;
+        if dec.len() != chunk.uncompressed_size as usize {
             return Err(Error::Compression(format!(
                 "chunk size mismatch: summary {} vs header {}",
-                chunk.uncompressed_size, total_uncomp
+                chunk.uncompressed_size,
+                dec.len()
             )));
         }
-        let nblocks = total_uncomp.div_ceil(block_size.max(1));
-        let mut blocks = Vec::with_capacity(nblocks);
-        for _ in 0..nblocks {
-            blocks.push((r.u32()? as usize, r.u32()? as usize));
-        }
-        let mut out_pos = chunk.uncompressed_offset as usize;
-        for (csize, usize_) in blocks {
-            let comp = r.take(csize)?;
-            let comp: std::borrow::Cow<[u8]> = if obscured {
-                comp.iter().map(|b| b ^ compression::OBSCURE_KEY).collect::<Vec<u8>>().into()
-            } else {
-                comp.into()
-            };
-            let dec = lzo::decompress(&comp, usize_)?;
-            image[out_pos..out_pos + usize_].copy_from_slice(&dec);
-            out_pos += usize_;
-        }
+        let out_pos = chunk.uncompressed_offset as usize;
+        image[out_pos..out_pos + dec.len()].copy_from_slice(&dec);
     }
     Ok(image)
 }
@@ -761,56 +875,27 @@ fn decompress_image(bytes: &[u8], summary: &Summary, limit: usize) -> Result<Vec
 /// then whole export payloads are grouped into chunks of at most 1 MiB. Offsets in the
 /// summary stay in uncompressed-image coordinates (the summary there has no chunk table).
 fn compress_image(image: &[u8], summary: &mut Summary, obscure: bool, exports: &[(i32, i32)]) -> Vec<u8> {
-    const MAX_CHUNK: usize = 1024 * 1024;
+    // `FArchiveSaveCompressed::CompressArchive` + `AddToChunk` (SavePackage.cpp):
+    // the first chunk starts as the header (name table to TotalHeaderSize);
+    // each export is appended to the current chunk unless that would exceed
+    // MAX_MERGED_COMPRESSION_CHUNKSIZE, in which case the chunk is finished
+    // and the export opens the next one (which may therefore exceed the limit).
+    const MAX_MERGED_COMPRESSION_CHUNKSIZE: usize = 1024 * 1024;
     let start = summary.name_offset as usize;
     let header_end = summary.total_header_size as usize;
-    let mut ranges: Vec<(usize, usize)> = vec![(start, header_end - start)];
-    let mut cur: Option<(usize, usize)> = None;
-    for &(off, size) in exports {
-        let (off, size) = (off as usize, size as usize);
-        match cur {
-            Some((o, s)) if s + size <= MAX_CHUNK => cur = Some((o, s + size)),
-            Some(r) => {
-                ranges.push(r);
-                cur = Some((off, size));
-            }
-            None => cur = Some((off, size)),
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    let mut cur: (usize, usize) = (start, header_end - start);
+    for &(_, size) in exports {
+        let size = size.max(0) as usize;
+        if cur.1 + size > MAX_MERGED_COMPRESSION_CHUNKSIZE {
+            ranges.push(cur);
+            cur = (cur.0 + cur.1, size);
+        } else {
+            cur.1 += size;
         }
     }
-    if let Some(r) = cur {
-        ranges.push(r);
-    }
-    let block_size = flags::LOADING_COMPRESSION_CHUNK_SIZE as usize;
-    let mut comp_chunks: Vec<Vec<u8>> = Vec::new();
-    for &(o, s) in &ranges {
-        let payload = &image[o..o + s];
-        let blocks: Vec<Vec<u8>> = payload
-            .chunks(block_size)
-            .map(|b| {
-                let mut c = lzo::compress(b);
-                if obscure {
-                    for x in c.iter_mut() {
-                        *x ^= compression::OBSCURE_KEY;
-                    }
-                }
-                c
-            })
-            .collect();
-        let total_comp: usize = blocks.iter().map(|b| b.len()).sum();
-        let mut w = Writer::new();
-        w.u32(flags::PACKAGE_FILE_TAG);
-        w.u32(block_size as u32);
-        w.u32(total_comp as u32);
-        w.u32(payload.len() as u32);
-        for (b, src) in blocks.iter().zip(payload.chunks(block_size)) {
-            w.u32(b.len() as u32);
-            w.u32(src.len() as u32);
-        }
-        for b in &blocks {
-            w.bytes(b);
-        }
-        comp_chunks.push(w.into_inner());
-    }
+    ranges.push(cur);
+    let comp_chunks: Vec<Vec<u8>> = ranges.iter().map(|&(o, s)| write_compressed_chunk(&image[o..o + s], obscure)).collect();
     summary.compression_flags = compression::LZO | if obscure { compression::OBSCURED } else { 0 };
     summary.package_flags |= pkg::STORE_COMPRESSED;
     summary.compressed_chunks = vec![CompressedChunk::default(); ranges.len()];

@@ -9,3 +9,4 @@ description = "Unreal Engine 3 package (UPK) reader/writer for Paladins (file ve
 name = "tempest_upk"
 
 [dependencies]
+memmap2 = "0.9"

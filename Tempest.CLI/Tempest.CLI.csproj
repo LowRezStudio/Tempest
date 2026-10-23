@@ -65,8 +65,8 @@
     </Target>
 
     <ItemGroup>
-        <EmbeddedResource Include="Resources/manifests.csv" LogicalName="Tempest.CLI.Resources.manifests.csv" />
-        <EmbeddedResource Include="@(ZigOutput)" />
+        <EmbeddedResource Include="Resources/manifests.csv" />
+        <None Include="@(ZigOutput)" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

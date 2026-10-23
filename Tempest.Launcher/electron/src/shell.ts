@@ -113,6 +113,8 @@ handle("shell:stdin-write", (_event, { pid, data }) => {
 	if (child?.stdin?.writable) child.stdin.write(data);
 });
 
+handle("shell:list", () => [...activeChildren.keys()]);
+
 handle("shell:which", (_event, { name }) => {
 	const ext = process.platform === "win32" ? ".exe" : "";
 	const dirs = (process.env.PATH ?? "").split(path.delimiter);

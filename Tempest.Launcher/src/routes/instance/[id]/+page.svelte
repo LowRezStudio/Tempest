@@ -2,16 +2,20 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import {
+		Check,
+		ChevronDown,
 		FolderOpen,
 		Gamepad2,
 		PackageOpen,
 		Play,
 		Plus,
 		Search,
+		SlidersHorizontal,
 		Square,
 		Terminal,
 	} from "@lucide/svelte";
 	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
+	import InstancePresetsTab from "$lib/components/library/InstancePresetsTab.svelte";
 	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
 	import InstanceSettings from "$lib/components/library/InstanceSettings.svelte";
 	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
@@ -22,6 +26,9 @@
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
+	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
+	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
+	import { activePreset, launchArgs, launchPresets } from "$lib/core/presets";
 	import { pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
@@ -34,17 +41,20 @@
 	import { addToast } from "$lib/stores/ui.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import type { ModRecord } from "$lib/core/mods";
+	import type { LaunchPreset } from "$lib/types/instance";
 
-	type Tab = "content" | "browse" | "settings";
+	type Tab = "content" | "browse" | "presets" | "settings";
 	let activeTab = $state<Tab>("content");
 
-	// Deep-link support: /instance/<id>?tab=settings (or browse) opens directly on that tab.
+	// Deep-link support: /instance/<id>?tab=settings (or browse/presets) opens directly there.
 	$effect(() => {
 		const tab = page.url.searchParams.get("tab");
-		activeTab = tab === "settings" || tab === "browse" ? tab : "content";
+		activeTab = tab === "settings" || tab === "browse" || tab === "presets" ? tab : "content";
 	});
 
 	const instance = $derived(instanceMap.value[page.params.id!]);
+	let instanceArgs = $derived(instance ? launchArgs(instance) : []);
+	const selectedPreset = $derived(instance ? activePreset(instance) : undefined);
 	let isSettingUp = $derived(
 		(instance?.state as { type?: string } | undefined)?.type === "setup",
 	);
@@ -146,6 +156,16 @@
 		launchGameMutation.mutate(instance);
 	}
 
+	// Picking a preset launches straight away with it (on top of the Settings
+	// arguments) without making it the default preset the Play button uses.
+	function handleLaunchPreset(preset: LaunchPreset) {
+		if (!instance) return;
+		launchGameMutation.mutate({
+			...instance,
+			launchOptions: { ...instance.launchOptions, presetId: preset.id },
+		});
+	}
+
 	function clearLaunchError() {
 		launchGameMutation.reset();
 	}
@@ -174,6 +194,7 @@
 		tabs={[
 			{ name: m.instance_content(), value: "content" },
 			{ name: m.instance_browse(), value: "browse" },
+			{ name: m.instance_presets(), value: "presets" },
 			{ name: m.settings_title(), value: "settings" },
 		]}
 		{activeTab}
@@ -198,28 +219,72 @@
 					variant="header"
 				/>
 			{/if}
-			<button
-				class="btn text-sm"
-				class:btn-success={!isRunning}
-				class:btn-error={isRunning}
-				disabled={isLaunching || isKilling || isSettingUp}
-				aria-busy={isLaunching || isKilling || isSettingUp}
-				onclick={handleLaunchToggle}
-			>
-				{#if isLaunching}
-					<span class="loading loading-spinner loading-xs"></span>
-					{m.common_launching()}
-				{:else if isKilling}
-					<span class="loading loading-spinner loading-xs"></span>
-					{m.common_stopping_label()}
-				{:else if isRunning}
-					<Square size={16} />
-					{windowCount > 1 ? m.sessions_stop_all() : m.common_stop()}
-				{:else}
-					<Play size={16} />
-					{m.common_play()}
+			<div class="join">
+				<button
+					class="btn join-item text-sm"
+					class:btn-success={!isRunning}
+					class:btn-error={isRunning}
+					disabled={isLaunching || isKilling || isSettingUp}
+					aria-busy={isLaunching || isKilling || isSettingUp}
+					onclick={handleLaunchToggle}
+				>
+					{#if isLaunching}
+						<span class="loading loading-spinner loading-xs"></span>
+						{m.common_launching()}
+					{:else if isKilling}
+						<span class="loading loading-spinner loading-xs"></span>
+						{m.common_stopping_label()}
+					{:else if isRunning}
+						<Square size={16} />
+						{windowCount > 1 ? m.sessions_stop_all() : m.common_stop()}
+					{:else}
+						<Play size={16} />
+						<span class="max-w-40 truncate">
+							{selectedPreset
+								? selectedPreset.title || m.instance_preset_untitled()
+								: m.common_play()}
+						</span>
+					{/if}
+				</button>
+				{#if instance}
+					<PopoverMenu
+						triggerClass="btn join-item btn-square"
+						triggerLabel={m.instance_presets()}
+					>
+						{#snippet trigger()}
+							<ChevronDown size={16} />
+						{/snippet}
+						{#snippet children()}
+							{#each launchPresets(instance) as preset (preset.id)}
+								<PopoverMenuItem
+									onclick={() => handleLaunchPreset(preset)}
+									disabled={isLaunching || isSettingUp}
+									title={preset.args.join(" ")}
+								>
+									<span class="flex w-4 shrink-0 justify-center">
+										{#if selectedPreset?.id === preset.id}
+											<Check size={14} />
+										{/if}
+									</span>
+									<span class="flex-1 truncate">
+										{preset.title || m.instance_preset_untitled()}
+									</span>
+								</PopoverMenuItem>
+							{/each}
+							{#if launchPresets(instance).length > 0}
+								<li
+									role="separator"
+									class="border-base-content/10 my-1 border-t"
+								></li>
+							{/if}
+							<PopoverMenuItem onclick={() => (activeTab = "presets")}>
+								<SlidersHorizontal size={16} />
+								{m.instance_preset_manage()}
+							</PopoverMenuItem>
+						{/snippet}
+					</PopoverMenu>
 				{/if}
-			</button>
+			</div>
 			<button
 				class="btn btn-square"
 				disabled={!instance?.path}
@@ -240,14 +305,14 @@
 			<div class="flex items-center gap-1.5">
 				<Gamepad2 size={14} />
 				<span>{instance?.version || m.common_unknown_version()}</span>
-				{#if instance?.launchOptions?.args && instance.launchOptions.args.length > 0}
+				{#if instanceArgs.length > 0}
 					<div
 						class="ml-1.5 flex min-w-0 items-center gap-1"
-						title={instance.launchOptions.args.join(" ")}
+						title={instanceArgs.join(" ")}
 					>
 						<Terminal size={14} class="shrink-0" />
 						<span class="max-w-[350px] truncate font-mono text-xs">
-							{instance.launchOptions.args.join(" ")}
+							{instanceArgs.join(" ")}
 						</span>
 					</div>
 				{/if}
@@ -346,6 +411,14 @@
 						/>
 					{:else}
 						<p class="text-base-content/60 text-sm">{m.common_loading()}</p>
+					{/if}
+				</div>
+			</div>
+		{:else if activeTab === "presets"}
+			<div class="flex-1 overflow-y-auto">
+				<div class="p-6">
+					{#if instance}
+						<InstancePresetsTab {instance} />
 					{/if}
 				</div>
 			</div>

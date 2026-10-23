@@ -41,7 +41,7 @@
 
 	let { instance, others }: Props = $props();
 
-	const loadingScreens = Object.keys(import.meta.glob("/static/loading-screens/*.webp")).map(
+	const loadingScreens = Object.keys(import.meta.glob("/static/loading-screens/*.avif")).map(
 		(path) => path.replace("/static", ""),
 	);
 

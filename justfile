@@ -7,6 +7,7 @@ zig := env("ZIG", zig_detected)
 scripting := "Tempest.Scripting"
 unrealscript := "Tempest.UnrealScript"
 launcher := "Tempest.Launcher"
+studio := "Tempest.Studio"
 # `dotnet run` of the CLI; the Web SDK would run it from Tempest.CLI/, so relative paths resolve from where just was invoked
 tempest := 'dotnet run --project "' + justfile_directory() / "Tempest.CLI" + '" -p:RunWorkingDirectory="' + invocation_directory() + '"'
 # R2 folder behind https://cdn.lowrezstudio.com/keys/ (rclone remote:bucket/path)
@@ -140,6 +141,16 @@ unrealscript-verify cooked:
 uscript *args: unrealscript-build
     {{unrealscript}}/target/release/uscript {{args}}
 
+# Round-trip every package of a cooked game dir through the asset layer (tempest-assets) and report coverage
+[group("unrealscript")]
+upk-verify cooked *args: unrealscript-build
+    {{unrealscript}}/target/release/upk verify "{{cooked}}" --classes {{args}}
+
+# Run the package/asset CLI: just upk ls <pkg>, just upk dump <pkg> <idx|path> ...
+[group("unrealscript")]
+upk *args: unrealscript-build
+    {{unrealscript}}/target/release/upk {{args}}
+
 # ---------------------------------------------------------------------------
 # .NET: Tempest.CLI, Tempest.Services, MarshalLib, Tempest.Protocol
 # ---------------------------------------------------------------------------
@@ -210,6 +221,38 @@ bump:
 # Everything
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Tempest.Studio (Electron): package/asset editor over `upk serve`
+# ---------------------------------------------------------------------------
+
+# pnpm install (enables corepack first)
+[group("studio")]
+studio-install:
+    corepack enable
+    cd {{studio}} && pnpm install
+
+# Electron dev app; builds the `upk` backend (cargo release) first
+[group("studio")]
+studio-dev:
+    cd {{studio}} && pnpm electron:dev
+
+# Production Electron build (bundles `upk` as a sidecar) -> Tempest.Studio/dist/
+[group("studio")]
+studio-build:
+    cd {{studio}} && pnpm electron:build
+
+# svelte-check (renderer), electron typecheck (host), oxlint
+[group("studio")]
+studio-check:
+    cd {{studio}} && pnpm check
+    cd {{studio}} && pnpm check:electron
+    cd {{studio}} && pnpm lint
+
+# oxfmt
+[group("studio")]
+studio-fmt:
+    cd {{studio}} && pnpm fmt
+
 # All verification that runs without a game: .NET build, scripting tests + clippy, launcher check
 [group("all")]
-check: build scripting-test scripting-check unrealscript-check launcher-check
+check: build scripting-test scripting-check unrealscript-check launcher-check studio-check

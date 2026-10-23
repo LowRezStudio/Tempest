@@ -28,9 +28,10 @@
 		instance: Instance;
 		/** Its mod list, once loaded */
 		mods?: ModRecord[];
+		onpointerdown?: (e: PointerEvent) => void;
 	}
 
-	let { instance, mods }: Props = $props();
+	let { instance, mods, onpointerdown }: Props = $props();
 
 	const phase = $derived(instance.state.type);
 	const playable = $derived(phase === "prepared" || phase === "setup");
@@ -91,11 +92,14 @@
 	}
 </script>
 
-<li
+<!-- Dragging is a pointer-only affordance; the row's own link is the keyboard path. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
 	class="hover:bg-base-300/40 @container relative flex items-center gap-4 p-3 transition-colors"
 	class:pending-row={phase === "setup" || download?.status === "running"}
 	class:installing={phase === "setup"}
 	aria-busy={phase === "setup" || phase === "downloading" ? "true" : undefined}
+	{onpointerdown}
 	style={download?.status === "running" ? `--progress: ${percent}%` : undefined}
 >
 	<div class="relative hidden w-36 shrink-0 @xl:block" class:opacity-60={!playable}>
@@ -261,4 +265,4 @@
 		{/if}
 		<InstanceMenu {instance} />
 	</div>
-</li>
+</div>

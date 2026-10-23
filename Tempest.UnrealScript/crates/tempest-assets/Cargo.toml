@@ -1,0 +1,21 @@
+[package]
+name = "tempest-assets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Typed object layer over Paladins UPK packages: reflection, properties, native asset data"
+
+[lib]
+name = "tempest_assets"
+
+[[bin]]
+name = "upk"
+path = "src/bin/upk.rs"
+
+[dependencies]
+tempest-upk = { path = "../tempest-upk" }
+tempest-unrealscript = { path = "../tempest-unrealscript" }
+md-5 = "0.10"
+png = "0.17"
+texpresso = "2.0"
+serde_json = "1"

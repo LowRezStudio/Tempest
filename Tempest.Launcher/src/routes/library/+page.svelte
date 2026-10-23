@@ -6,11 +6,13 @@
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createModsQueries } from "$lib/queries/mods";
-	import { orderedInstances } from "$lib/stores/instance.svelte";
+	import { orderedInstances, setInstanceOrder } from "$lib/stores/instance.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { openInstanceWizard } from "$lib/stores/ui.svelte";
+	import { createReorderable } from "$lib/utils/reorder.svelte";
 	import { compareVersions } from "$lib/utils/version";
 	import { patchOf } from "$lib/utils/versions";
+	import type { Instance } from "$lib/types/instance";
 
 	let query = $state("");
 	let searchInput = $state<HTMLInputElement | null>(null);
@@ -48,6 +50,16 @@
 		const [oldest, newest] = [known[0]!, known.at(-1)!];
 		return oldest === newest ? oldest : `${oldest} – ${newest}`;
 	});
+
+	// Drag to reorder writes the same custom order the arrange menu sets.
+	let listEl: HTMLDivElement | undefined = $state();
+	const reorder = createReorderable<Instance>({
+		ids: () => shown.map((i) => i.id),
+		container: () => listEl,
+		onReorder: setInstanceOrder,
+	});
+	// Reordering a filtered list would drop the hidden instances out of place.
+	const canDrag = $derived(query.trim() === "");
 
 	function onWindowKey(e: KeyboardEvent) {
 		if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
@@ -126,7 +138,6 @@
 							/>
 						</label>
 						<LibraryArrangeMenu />
-						<!-- The aside has these when there is room beside the list -->
 						<button
 							type="button"
 							class="btn btn-primary btn-sm @3xl:hidden"
@@ -150,7 +161,6 @@
 							</button>
 						{/if}
 					</div>
-
 					{#if shown.length === 0}
 						<div
 							class="text-base-content/60 flex flex-col items-center gap-2 py-20 text-center"
@@ -162,13 +172,28 @@
 							</button>
 						</div>
 					{:else}
-						<ul
+						<div
+							bind:this={listEl}
 							class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y border"
+							class:dragging={!!reorder.drag}
 						>
-							{#each shown as instance (instance.id)}
-								<InstanceRow {instance} mods={modLists.byPath[instance.path]} />
+							{#each shown as instance, i (instance.id)}
+								<div
+									data-id={instance.id}
+									class="instance-slot"
+									style:transform={reorder.shiftFor(i)}
+									class:is-ghost={reorder.drag?.id === instance.id}
+								>
+									<InstanceRow
+										{instance}
+										mods={modLists.byPath[instance.path]}
+										onpointerdown={canDrag
+											? reorder.pointerdown(instance.id, i, instance)
+											: undefined}
+									/>
+								</div>
 							{/each}
-						</ul>
+						</div>
 					{/if}
 				</section>
 
@@ -212,6 +237,43 @@
 					</dl>
 				</aside>
 			</div>
+
+			{#if reorder.drag && canDrag}
+				<div
+					class="drag-clone pointer-events-none fixed z-[100]"
+					style:top={`${reorder.pointerY - reorder.drag.offsetY}px`}
+					style:left={`${reorder.pointerX - reorder.drag.offsetX}px`}
+					style:width={`${reorder.drag.width}px`}
+					aria-hidden="true"
+					inert
+				>
+					<InstanceRow instance={reorder.drag.item} />
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>
+
+<style>
+	.instance-slot {
+		touch-action: none;
+		position: relative;
+		z-index: 1;
+	}
+	/* Transitions only while dragging so the drop reorder is instant (no glitch). */
+	.dragging .instance-slot {
+		will-change: transform;
+		transition: transform 200ms ease;
+	}
+	.instance-slot.is-ghost {
+		z-index: 0;
+		opacity: 0.3;
+		border-radius: 0.5rem;
+	}
+	.drag-clone {
+		filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+		transform: scale(1.02);
+		transform-origin: center center;
+		opacity: 0.95;
+	}
+</style>

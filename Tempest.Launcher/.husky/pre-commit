@@ -3,6 +3,13 @@
 # Format only staged files, re-stage only those.
 set -e
 files=$(git diff --cached --name-only --diff-filter=ACM -- 'Tempest.Launcher/*.svelte' 'Tempest.Launcher/*.ts' 'Tempest.Launcher/*.js' 'Tempest.Launcher/*.json')
-[ -z "$files" ] && exit 0
-Tempest.Launcher/node_modules/.bin/oxfmt --write $files
-git add $files
+if [ -n "$files" ]; then
+	Tempest.Launcher/node_modules/.bin/oxfmt --write $files
+	git add $files
+fi
+# Tempest.Studio has its own oxfmt (same config); skip when it is not installed.
+studio=$(git diff --cached --name-only --diff-filter=ACM -- 'Tempest.Studio/*.svelte' 'Tempest.Studio/*.ts' 'Tempest.Studio/*.js' 'Tempest.Studio/*.json')
+if [ -n "$studio" ] && [ -x Tempest.Studio/node_modules/.bin/oxfmt ]; then
+	(cd Tempest.Studio && ./node_modules/.bin/oxfmt --write $(echo "$studio" | sed 's|^Tempest.Studio/||'))
+	git add $studio
+fi

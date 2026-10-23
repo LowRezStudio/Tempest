@@ -365,3 +365,27 @@ pub const OBJECT_FLAG_NAMES: &[(u64, &str)] = &[
     (rf::MARKED, "Marked"),
     (rf::COOKED_STARTUP_OBJECT, "CookedStartupObject"),
 ];
+
+pub const PACKAGE_FLAG_NAMES: &[(u64, &str)] = &[
+    (pkg::ALLOW_DOWNLOAD as u64, "AllowDownload"),
+    (pkg::CLIENT_OPTIONAL as u64, "ClientOptional"),
+    (pkg::SERVER_SIDE_ONLY as u64, "ServerSideOnly"),
+    (pkg::COOKED as u64, "Cooked"),
+    (pkg::UNSECURE as u64, "Unsecure"),
+    (pkg::TG_COMPRESSED_OBSCURED as u64, "CompressedObscured"),
+    (pkg::NEED as u64, "Need"),
+    (pkg::COMPILING as u64, "Compiling"),
+    (pkg::CONTAINS_MAP as u64, "ContainsMap"),
+    (pkg::TRASH as u64, "Trash"),
+    (pkg::DISALLOW_LAZY_LOADING as u64, "DisallowLazyLoading"),
+    (pkg::PLAY_IN_EDITOR as u64, "PlayInEditor"),
+    (pkg::CONTAINS_SCRIPT as u64, "ContainsScript"),
+    (pkg::CONTAINS_DEBUG_INFO as u64, "ContainsDebugInfo"),
+    (pkg::REQUIRE_IMPORTS_ALREADY_LOADED as u64, "RequireImportsAlreadyLoaded"),
+    (pkg::STORE_COMPRESSED as u64, "StoreCompressed"),
+    (pkg::STORE_FULLY_COMPRESSED as u64, "StoreFullyCompressed"),
+    (pkg::CONTAINS_FACEFX_DATA as u64, "ContainsFaceFXData"),
+    (pkg::NO_EXPORT_ALLOWED as u64, "NoExportAllowed"),
+    (pkg::STRIPPED_SOURCE as u64, "StrippedSource"),
+    (pkg::FILTER_EDITOR_ONLY as u64, "FilterEditorOnly"),
+];

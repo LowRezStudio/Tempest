@@ -1,29 +1,64 @@
 # AGENTS.md — Tempest.UnrealScript
 
-Rust UnrealScript compiler and decompiler for Paladins (Unreal Engine 3, build 10897, package file version 893). The one rule that matters: **output must be byte-identical to what the game's own compiler and `SavePackage` produce.** Every change is judged by the round-trip harness below, not by whether the result "looks right".
+Rust toolchain for Paladins packages (Unreal Engine 3, build 10897, package file version 893): the UnrealScript compiler/decompiler (`uscript`) and the asset layer (`upk`). The one rule that matters: **output must be byte-identical to what the game's own compiler, cooker and `SavePackage` produce.** Every change is judged by the round-trip harnesses below, not by whether the result "looks right".
 
 ## What it is for
 
 - Compile UnrealScript mods without UDK, against the game's own cooked packages.
 - Decompile every script package of a game install into a UDK-style `Development/Src/<Pkg>/Classes/*.uc` tree, edit, and recompile everything.
+- Read, extract, edit and insert the assets of any game package (`tempest-assets`, `upk`); the GUI editor builds on it.
 - Later: merge/squash packages, server (`--server`) layouts.
 
 ## Layout
 
-Cargo workspace, two crates:
+Cargo workspace, three crates:
 
 ```
 crates/tempest-upk/            UPK container: summary, name/import/export tables, LZO, cooker-style chunking
-  src/package.rs               Package::load / write, compress_image (header chunk + ≤1 MiB export groups)
+  src/package.rs               Package::load / write, read_summary, parse_header, add_import/add_export, compress_image
+                               (FArchiveSaveCompressed::CompressArchive: header chunk absorbs exports up to 1 MiB, then ≤1 MiB groups)
+  src/file.rs                  PackageFile: memory-mapped, lazily decompressed read-only view (chunk cache, Sync)
+  src/tfc.rs                   Texture file caches: Tfc (mmap reader), TfcWriter (append raw / compressed chunk)
   src/io.rs                    FArchive-like cursor, FName, PackageIndex
   src/flags.rs                 cpf / func / cf / rf / pkg flag constants (incl. Hi-Rez cpf::SAFE_OBJECT)
   src/lzo.rs                   LZO1X compressor/decompressor
+
+crates/tempest-assets/         Typed object layer over any package (see "Asset layer" below)
+  src/reflect.rs               ClassDb: the game's script packages (PKG_ContainsScript) loaded into a Context, class/struct index,
+                               INTRINSIC_CLASSES (native-only classes such as LightMapTexture2D, Model, ShaderCache → parent)
+  src/value.rs                 Property / Value: typed FPropertyTag values, decode (reflection) + exact encode
+  src/object.rs                parse_export / write_object: UObject header + properties + Native (per-class payload, Raw until a serializer exists)
+  src/bulk.rs                  FUntypedBulkData header + inline payload (cooked layout, Hi-Rez BULKDATA_MergedFile = 0x100)
+  src/texture.rs               Texture2D / LightMapTexture2D / TextureCube / TextureMovie native payloads (exact read + write)
+  src/mergedindex.rs           MergedFileIndexCache.bin: MD5(upper-case path) → mip → (size, offset, size on disk, tfc GUID), tfc names
+  src/texcache.rs              TextureSource: resolves every mip to inline bytes or a `.tfc` offset and expands it
+  src/dds.rs                   EPixelFormat ↔ DDS, DXT1/3/5/BC5/A8R8G8B8/G8/V8U8 decode, encode (texpresso), mip generation, PNG
+  src/texture_ops.rs           texture_info / export_dds / export_png / import (replace pixels, all mips inline)
+  src/misc.rs                  ObjectRedirector, GuidCache, SoundCue, Font/MultiFont (CharRemap), ShadowMap1D, SoundNodeWave (9 bulk members)
+  src/mesh.rs                  StaticMesh (kDOP, render data, vertex/index buffers), SkeletalMesh (bones, LOD models, chunks, GPU skin buffer),
+                               RB_BodySetup (cached PhysX convex streams), PhysicsAssetInstance; client vs server `Layout`
+  src/mesh_ops.rs              Geometry extraction (positions/normals/UVs/indices/sections/influences) and glTF (.glb) / OBJ writers
+  src/mesh_import.rs           glTF/GLB/OBJ → mesh: rebuilds static LOD buffers + bounds + compact kDOP tree (TkDOPTreeCompact::Build port),
+                               skeletal GPU skin buffer / chunks (≤75 bones) / sections / bones / bounds (UnMeshEd.cpp rule); skeleton kept
+  src/level.rs                 AnimSequence, FLightMap (1D/2D), StaticMeshComponent LODData, BrushComponent, ModelComponent, Model, Polys, World, Level
+  src/material.rs              Material / MaterialInstance resources (FMaterialResource, FStaticParameterSet; 3 quality levels)
+  src/actors.rs                SeqAct_Interp, StaticLightCollectionActor, PrefabInstance, DecalComponent, InstancedFoliageActor, FluidSurface/SpeedTree
+                               components, Pylon, MetaData, ApexGenericAsset, HavokNavMesh{Actor,Grid}, SoundClass, Landscape components
+  src/material_ops.rs          PackageCache (cross-package import resolution) + material texture resolution (instance overrides → parent → expressions)
+  src/visit.rs                 Visitor over every FName / object reference of an object (header, properties, every Native)
+  src/edit.rs                  Editor: rename, delete (placeholder + reference clearing), cross-package copy (dependency closure), property get/set by path, save
+  src/media.rs                 SwfMovie RawData export/import, SoundNodeWave Ogg export/import (+Duration/NumChannels/SampleRate), property setters
+  src/dump.rs                  Text rendering (`upk dump`)
+  src/verify.rs                Directory round-trip + coverage report
+  src/bin/upk.rs               CLI: info, ls, dump, extract, decompress, compress, verify, imagediff, texture {info,export,export-all,import}
 
 crates/tempest-unrealscript/
   src/objects.rs               Serialised forms of UField/UStruct/UClass/UProperty/UEnum/UConst… (reader + exact inverse writer)
   src/bytecode.rs              Token tree, disassembler, assembler (tracks in-memory offsets: object refs are 8 bytes in memory, 4 on disk)
   src/context.rs               Multi-package object database: loads packages from search paths, resolves imports, class hierarchy, natives
   src/par.rs                   Thread helpers (parallel map, dependency scheduler) over std::thread::scope; `-j` / USCRIPT_JOBS
+  src/toolchain.rs             Whole-package operations shared by the CLI and `upk serve`: decompile_package (all classes, planned
+                               dependson), compile_package_dir (+ --conform setup), script_packages / build_order of a cooked dir
   src/compiler/                Port of FScriptCompiler (UnScrCom.cpp) + SavePackage ordering
     preprocess.rs              Header pre-scan (class/extends/dependson), cpptext/defaultproperties split, comment stripping
     lexer.rs                   FScriptCompiler::GetToken (incl. #linenumber)
@@ -149,6 +184,80 @@ Engine rules that matter for identical output:
 - Ternary branches get the required type as hint; the decompiler keeps explicit `byte(cond ? a : b)` (`hint_sensitive`).
 - Load flags follow NeedsLoadForClient/Server (PrimitiveComponent collision/AlwaysLoad, AnimNode bEditorOnly), propagated to templates; CDOs always load.
 - The decompiler emits stand-ins for things the cooker removed so the chain shape is reproduced: `var editoronly int EditorOnlyStripped;`, `var editoronly string EditorOnlyStripped;` in structs that lost a ctor-link member, `EditorOnlyStripped_<Type>` locals for nulled bytecode references.
+
+## Asset layer (`tempest-assets`, CLI `upk`)
+
+```bash
+upk info|ls <pkg> [filter]                    tables (lazy: only the header chunk is expanded)
+upk dump <pkg> [<idx|path>] [-I cooked-dir]   typed properties of one export (or all)
+upk extract <pkg> <idx|path> <out>            raw payload of one export
+upk verify <dir|pkg>... [-I dir] [-j N] [--classes] [--compressed] [-v]   (just upk-verify <dir>)
+upk imagediff <pkg>                           where a rebuilt image / recompressed file first differs
+upk texture|swf|sound|mesh ...                asset commands (see the sections below)
+upk prop get|set, obj rename|delete|copy, deps, mod-dir   editing (see "Editing")
+```
+
+How an export is read (`object.rs`): class resolved by name in the `ClassDb` (content packages store every name lowercased; script packages keep case, so all lookups are case-insensitive); `UObject::Serialize` prefix via `tempest_unrealscript::objects::read_object_header` (`FStateFrame` when `RF_HasStack`, `UComponent::PreSerialize` for non-CDO components with `TemplateName` only when the object or an outer is a CDO, `NetIndex`); tagged properties decoded against the class (`value.rs`); everything after is the class's native payload, kept verbatim until a serializer for that class exists. `UDominant{Directional,Spot}LightComponent` write `TArray<WORD> DominantLightShadowMap` *before* `Super::Serialize` (empty on client packages, populated on server test maps).
+
+Values: the decoder is self-checking — every tag is re-encoded and compared with the original bytes; anything that differs or cannot be typed (unknown struct, map property) stays `Value::Raw`, so the object round-trips regardless and the verify report counts it as "partial". Binary (`STRUCT_Immutable`, or `ImmutableWhenCooked` on cooked packages) struct members follow `PropertyLink` order and `ShouldSerializeValue` (native never, transient only for CDOs, deprecated and non-bool editor-only never on cooked data). Byte enums are `FName`s when the tag or the property definition names an enum.
+
+Verification: `just upk-verify <cooked-dir>` parses and rewrites every export of every package, rebuilds each package image and compares. Required state on the 8.1 client set (993 packages), the 8.2 `CookedPCServer` set (740) and 0.57 (390): 0 mismatches, 0 unparsed headers, 0 raw values, every image identical. The "fully understood" percentage (no native tail left) is the progress metric for the asset serializers. Recompression is informational only: the cooker uses LZO Professional (`appCompressMemoryLZO` → `lzopro_lzo1x_1_14_compress`, `_1_08` with `COMPRESS_BiasSpeed`, `_99` with `COMPRESS_BiasMemory`), whose stream our LZO1X encoder cannot reproduce byte-for-byte; chunk tables do match.
+
+### Textures
+
+`upk texture info|export|export-all|import` (`texture_ops.rs`). How the game stores them (all confirmed against the 8.2 server binary):
+
+- `UTexture2D::Serialize` = `SourceArt` bulk, `Mips` (count, then per mip: bulk header `flags, count, size on disk, offset`, inline payload when neither separate nor unused, then `SizeX`, `SizeY`), `TextureFileCacheGuid`, `CachedPVRTCMips`, `CachedFlashMipsMaxResolution`, `CachedATITCMips`, `CachedFlashMips` bulk, `CachedETCMips`; `ULightMapTexture2D` appends `LightmapFlags` (u32). Cooked inline bulk data has `offset == -1` (the cooker skips the write-back; the loader substitutes `Tell()`).
+- Streamed mips carry flags `0x111` (separate | merged-file | LZO) with zero size/offset: `TextureFileCacheName` is the placeholder `Automated`, and `MergedFileIndexCache.bin` maps `MD5(upper-case engine path)` + mip index → `(size, offset, size on disk, file GUID)` and file GUID → `.tfc` name (`FMergedFileIndexCache`, `UObject::GetGuidFromPathName`). The engine path of an object copied into a seek-free package is its forced-export path (outermost `Package` export), not `<File>.<path>`. The `*PATCH.tfc` files are ordinary caches that the index points into. Payloads in the caches are plain LZO chunks (not XOR-obscured); the top mips of many textures are `unused` (stripped by LOD).
+- `import` writes every mip inline (uncompressed, like the cooker's inline mips) so a modded package needs no cache or index change, sets `NeverStream`, `MipTailBaseIdx`, sizes, `Format`, drops `FirstResourceMemMip` and the export's summary pre-allocation entry (console RHIs only). Mip policy follows the texture (`--mips`/`--no-mips` override). **Not yet confirmed in the running game** — the first in-game test of an imported texture is still to do.
+
+### UI movies, sounds, fonts
+
+- `SwfMovie` (`GFxRawData`) has no native payload: the compiled movie is the script property `RawData` (`array<byte>`, a `GFX`/`CFX` file). `upk swf export|import` reads/replaces it (import accepts GFx or plain SWF).
+- `AkBank` / `AkEvent` (Wwise) are property-only objects; the audio lives in the `.pck`/`.bnk` Wwise files beside the packages, outside this library's scope.
+- `USoundNodeWave::Serialize` at version 893 is nine bulk members in order: RawData, CompressedPCData, Xbox360, PS3, WiiU, IPhone, Flash, two more platforms at +0x1a0/+0x308 (names guessed, the DWARF has none). PC audio is Ogg Vorbis stored raw inline. `upk sound export|import` extracts/replaces it and import updates `Duration`, `NumChannels`, `SampleRate`, `RawPCMDataSize` from the Ogg headers. Not confirmed in game yet.
+- `UFont`/`UMultiFont`: `TMap<WORD,WORD> CharRemap` after the properties. `USoundCue`: `TMap<USoundNode*, FSoundNodeEditorData>` (empty when cooked). `UObjectRedirector`: one object index. `UGuidCache`: `TMap<FName, FGuid>`. `UShadowMap1D`: `TArray<float>` samples + `LightGuid` (4-byte samples in this build, not the 2-byte quantised struct of the source tree).
+
+### Meshes and physics
+
+`upk mesh info|export` (`mesh_ops.rs`). `UStaticMesh::Serialize` / `USkeletalMesh::Serialize` in the 8.2 binary match the 10897 source line for line; `mesh.rs` ports them for file version 893 only (every version branch resolved). Facts that matter:
+
+- Server-cooked packages (`CookedPCServer`) omit the GPU-only buffers (`FStaticMeshVertexBuffer`, `FColorVertexBuffer`, skeletal GPU skin and colour buffers: `GCookingTarget == PLATFORM_WindowsServer`). Nothing in the package says which cooker ran, so `parse_native` tries the client layout, then the server one (`mesh::Layout { server }`), keeping whichever round-trips.
+- Fixed-size element arrays stored with `TArray::BulkSerialize` (element size + count + raw) are kept opaque as `BulkArray`: kDOP nodes/triangles, vertex and index buffers, PhysX convex streams. `LODInfo` elements serialise nothing (count only).
+- Cooked skeletal meshes have empty rigid/soft chunk vertex arrays; geometry comes from the GPU skin buffer (`TangentX, TangentZ, InfluenceBones[4], InfluenceWeights[4], Position, UVs`). `bUsePackedPosition` is set on PC meshes too but the cooker only packs for consoles: the stride decides (12-byte float position vs 4-byte `FPackedPosition`, X:11/Y:11/Z:10 low bits first, scaled by `MeshExtension` + `MeshOrigin`). The skeletal colour buffer is present only when the mesh's `bHasVertexColors` property is set.
+- Export converts Unreal (Z-up, left-handed, cm) to glTF (Y-up, right-handed, m): `(x, z, y) / 100`, winding flipped. Skeletons are not exported as a glTF skin yet (bone influences are extracted). Mesh import is not implemented.
+
+Importing (`upk mesh import <pkg> <obj> <in.glb|gltf|obj> -o out [--lod N]`, `mesh.import` in the Studio): the file is read in the exporter's convention (metres, Y up, flipped winding; `(x, y, z) → (x·100, z·100, y·100)`), sections match material slots by name (object path or leaf) else by order. Static meshes: 16-bit index buffer (≤ 65535 vertices), `FPackedNormal` tangents from the UVs, half or float UVs as the LOD had, bounds (tight sphere), kDOP rebuilt with the engine's compact build (same node counts as the cooker: 68 triangles → 16 nodes); the `RB_BodySetup` (PhysX cooked convexes) is untouched. Skeletal meshes: the file's skin joints must be named like `RefSkeleton` bones (unknown joints are dropped from the weights), vertices are chunked so a chunk maps ≤ 75 bones, all vertices are "soft" (counts only, the cooked arrays stay empty), `ActiveBoneIndices` = used bones, `RequiredBones` = used + ancestors, bounds follow `UnMeshEd.cpp` (box doubled, bottom tucked 10%, radius = extent length) and reproduce the originals exactly on a round trip. Round-tripping an exported mesh through the importer reproduces counts, bounds and kDOP sizes; whether the game renders imported meshes has not been tested yet.
+
+### Animations, lighting, BSP, levels, materials
+
+All ported from the 10897 source and checked against the 8.2 binary (`level.rs`, `material.rs`, `actors.rs`); every version branch resolved for 893. Rules that were not obvious:
+
+- `TTransArray<T>` (`ULevelBase::Actors`, `UModel::Surfs`) serialises its **owner object index before the array**; `UPolys` writes `DbNum, DbMax, Owner` by hand.
+- `FLightMap*` is polymorphic: a `DWORD` type (0 none, 1 `FLightMap1D`, 2 `FLightMap2D`) then the payload. `NUM_STORED_LIGHTMAP_COEF` is 3 (two directional + one simple).
+- `FStaticMeshComponentLODInfo` at 893: shadow maps, shadow vertex buffers, light map, `bLoadVertexColorData` byte + `FColorVertexBuffer`, `PaintedVertices`. `tgstaticmeshcomponent` and the other Hi-Rez subclasses add nothing.
+- Materials: Hi-Rez's build has **three** material quality levels (quality mask 7), not the two of the source; `FMaterialResource` at 893 carries no uniform expressions (they live in the shader cache). `UMaterialInstance` has a payload only when `bHasStaticPermutationResource` is set.
+- `AInstancedFoliageActor` (Hi-Rez) appends a `StreamGroups` array when `StreamingSerializationVersion == 1`; always empty in shipped maps, kept raw. `AHavokNavMeshActor` / `UHavokNavMeshGrid` are one bulk-data member each (Havok AI stream, opaque).
+- `ULevel::Serialize` includes the APEX cached-data block (`DWORD` size + bytes), cached PhysX stores, the precomputed light volume, visibility buckets and the volume distance field, all as in the source.
+
+### Editing (`edit.rs`, `visit.rs`)
+
+`Editor` parses exports on demand and writes back only touched ones, saving with the original compression/obscure settings.
+
+- `obj delete`: the export (and its sub-objects) become the cooker's zero-size, class-less `none` placeholders — no index shifting — and every reference to them in tables and payloads is cleared (`visit.rs` reaches every `PackageIndex`/`FName` in every `Native`; keep it in sync when adding serializers).
+- `obj copy`: copies the dependency closure from the source package (sub-objects, materials, textures, package groups), reusing destination objects that already exist at the same path, turning script objects (classes, functions) into imports, interning names, and setting `NetIndex` to -1 on copies (not replicated; the cooker's per-package NetIndex numbering is not reproduced). `--shallow` clears references to objects the destination lacks instead.
+- `prop set`: paths are `Name`, `Name[i]` (static array slot or dynamic element), `Outer.Member`, `Array[i].Member`; values parse by the property kind (ints, floats, `True`/`False`, enum tags, `'Name'`, `"text"`, `Class'Path'` or `None` for objects, which must already exist in the package). Missing properties are created from the class reflection.
+- `mod-dir`: writes `manifest.toml` + `files/<pkg>` for `tempest mod pack` / `just mod-pack` (signing stays in the .NET CLI).
+
+glTF export (`mesh_ops.rs`, `material_ops.rs`): materials resolve `TextureParameterValues` up the `Parent` chain, then the base material's `MaterialExpressionTextureSample*` sub-objects; slots are classified by Hi-Rez's parameter names (`diffuse`, `normal`, `specular`, `emissive`, `rgbmask`), other textures land in `extras.textures`. Textures are embedded as PNG (largest available mip, cross-package references opened from the cooked dir). Skeletal meshes get a skin: one node per bone with its local matrix (`FQuat`+position, column-major, converted with the y/z swap), inverse bind matrices from the bind pose, `JOINTS_0`/`WEIGHTS_0` from the GPU skin influences (bone-map resolved per chunk). FBX export was decided against.
+
+Deliberately still raw: `ShaderCache` (compiled shader bytecode, `FShaderCache::Load`; 1.3 GB on 8.1, nothing to edit), `TgPersistentCookerData` (one cooker bookkeeping export, no symbols in the binary), and in the dev server / 0.57 sets only: terrain, decal components with static receivers, landscape components. Coverage: 8.1 client 99.93 % of exports fully typed, 8.2 server 100.00 %, 0.57 99.96 %.
+
+Container rules learned here: offsets in a compressed package are in the coordinates of its uncompressed form (the summary is laid out without the chunk table, which `compress_image` adds afterwards); zero-size placeholder exports have `SerialOffset` 0; `probe_layout` falls back to `Class` exports for script packages with no property exports (server `BattleGame`).
+
+### Studio backend (`serve.rs`, `json.rs`)
+
+`upk serve` is a JSON-lines RPC server over stdin/stdout for `Tempest.Studio`: one request per line (`{"id", "method", "params"}`), one response per line (`{"id", "ok", "result" | "error", "ms"}`), plus id-less event lines (`{"event": "search.progress", ...}`). It keeps the `ClassDb` (leaked to `'static` on `workspace.open`, so editors can borrow it), the `TextureSource`, one `Editor` per opened package (keyed by canonical path) and a lazily built per-package search index in memory. Methods: `workspace.{open,packages,search,summary}`, `package.{open,tables,close,dirty,save,rewrite,verify}`, `object.{get,text,set,rename,delete,copy,deps,extract}`, `texture.{info,preview,export,exportAll,import}`, `mesh.{info,preview,export}`, `media.{preview,export,import}`, `mod.dir`. `script.{source,compile,export}` drive `tempest_unrealscript::toolchain`: `source` decompiles the package once (cached) and returns the class owning the export; `compile` writes the cached sources with one class replaced to a temp dir, compiles them conformed to the file on disk (`CompileOptions::for_replacement`, dependencies from `build_order` of the workspace) and swaps the result into the open `Editor` (`replace_package`, dirty until saved); errors come back as `compile failed: {"class","line","detail","message"}`. `json.rs` renders tables, parsed objects and property values (`{"t": kind, "v": ...}`; references as `{ref, path, class}`); previews travel as base64. Saving in place drops and reopens the editor, because the original is memory-mapped. The TypeScript mirror of the shapes is `Tempest.Studio/electron/src/ipc/contract.ts` (`UpkMethods`): keep both in sync.
 
 ## Gotchas
 

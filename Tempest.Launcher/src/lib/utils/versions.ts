@@ -44,7 +44,7 @@ export function patchBannerOf(version: string | undefined): string | undefined {
 	const [, major, minor] = match;
 	const code =
 		major === "0" ? `${Number(minor) <= 33 ? "CB" : "OB"}${minor}` : `R${major}${minor}`;
-	return `/patches/${code}_PatchBanner.webp`;
+	return `/patches/${code}_PatchBanner.avif`;
 }
 
 export function compareVersions(a: string, b: string) {
