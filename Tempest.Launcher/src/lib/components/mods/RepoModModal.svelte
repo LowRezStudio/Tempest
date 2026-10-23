@@ -105,7 +105,11 @@
 		n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`;
 </script>
 
-<Modal bind:open title={modQuery.data?.name ?? modId ?? ""} class="max-w-3xl">
+<Modal
+	bind:open
+	title={modQuery.data?.name ?? modId ?? ""}
+	class="h-[85vh] max-w-3xl scrollbar-gutter-stable"
+>
 	{#if modQuery.isPending}
 		<div class="flex h-40 items-center justify-center">
 			<span class="loading loading-spinner loading-lg opacity-30"></span>

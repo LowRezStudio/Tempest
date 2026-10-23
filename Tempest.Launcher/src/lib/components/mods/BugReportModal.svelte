@@ -83,7 +83,13 @@
 </script>
 
 <!-- The shared Modal renders the <form> and routes its submit to the onsubmit prop. -->
-<Modal bind:open title={m.repo_bug_title()} class="max-w-lg" onsubmit={send}>
+<Modal
+	bind:open
+	title={m.repo_bug_title()}
+	class="max-w-lg"
+	onsubmit={send}
+	actions={sent ? undefined : actions}
+>
 	{#if sent}
 		<div class="flex flex-col items-center py-4 text-center">
 			<span
@@ -166,19 +172,19 @@
 				{m.repo_bug_anonymous()}
 			</p>
 		</div>
-
-		{#snippet actions()}
-			<button class="btn btn-ghost btn-sm" type="button" onclick={() => (open = false)}>
-				{m.common_cancel()}
-			</button>
-			<button class="btn btn-primary btn-sm" type="submit" disabled={sending || !valid}>
-				{#if sending}
-					<span class="loading loading-spinner loading-xs"></span>
-				{:else}
-					<Bug size={14} />
-				{/if}
-				{m.repo_bug_send()}
-			</button>
-		{/snippet}
 	{/if}
 </Modal>
+
+{#snippet actions()}
+	<button class="btn btn-ghost btn-sm" type="button" onclick={() => (open = false)}>
+		{m.common_cancel()}
+	</button>
+	<button class="btn btn-primary btn-sm" type="submit" disabled={sending || !valid}>
+		{#if sending}
+			<span class="loading loading-spinner loading-xs"></span>
+		{:else}
+			<Bug size={14} />
+		{/if}
+		{m.repo_bug_send()}
+	</button>
+{/snippet}
