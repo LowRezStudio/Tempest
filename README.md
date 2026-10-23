@@ -1,6 +1,6 @@
 # Tempest
 
-<img align="right" src="./Tempest.Launcher/src-tauri/icons/icon.png" height="150px" alt="the tempest logo, a thundercloud with a lightning bolt in the middle of it">
+<img align="right" src="./Tempest.Launcher/electron/resources/icons/icon.png" height="150px" alt="the tempest logo, a thundercloud with a lightning bolt in the middle of it">
 
 ![Discord](https://img.shields.io/discord/1371416079158476820?style=social&logo=discord&link=https%3A%2F%2Fdiscord.gg%2FyZDuxAk4d9)
 
