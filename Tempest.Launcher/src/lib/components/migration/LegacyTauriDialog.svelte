@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { Loader2, PackageX } from "@lucide/svelte";
+	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { invoke } from "$lib/platform/api";
 	import { persistedJSON } from "$lib/stores/persisted.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
-	import Modal from "../ui/Modal.svelte";
-	import type { LegacyInstall } from "../../../../electron/src/ipc/contract";
+	import type { LegacyInstall } from "$ipc/contract";
 
 	const prompted = persistedJSON<boolean>("legacyTauriPrompted", false);
 

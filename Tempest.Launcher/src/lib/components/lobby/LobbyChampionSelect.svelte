@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { Users } from "@lucide/svelte";
+	import ChampionSelect from "$lib/components/champions/ChampionSelect.svelte";
+	import Header from "$lib/components/ui/Header.svelte";
 	import champions from "$lib/data/champions.json";
 	import { lobbyStaticInfo } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { resolveGamemodeLabel, type Map } from "$lib/types/lobby";
-	import ChampionSelect from "../champions/ChampionSelect.svelte";
-	import Header from "../ui/Header.svelte";
 	import LobbyPlayerCard from "./LobbyPlayerCard.svelte";
 	import type { LobbyPlayer } from "$lib/rpc/lobby/lobby_player";
 

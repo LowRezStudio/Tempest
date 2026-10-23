@@ -43,6 +43,7 @@
 		"import/no-duplicates": "error",
 		"import/first": "error",
 		"import/no-mutable-exports": "error",
+		"import/no-relative-parent-imports": "error",
 
 		// Unicorn rules for modern JavaScript
 		"unicorn/catch-error-name": "error",

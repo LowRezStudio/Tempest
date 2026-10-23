@@ -1,5 +1,5 @@
-import { updateInstance } from "../stores/instance.svelte";
-import type { Instance, LaunchPreset } from "../types/instance";
+import { updateInstance } from "$lib/stores/instance.svelte";
+import type { Instance, LaunchPreset } from "$lib/types/instance";
 
 // Presets saved on the instance (instances created before presets existed have none).
 export const launchPresets = (instance: Instance): LaunchPreset[] =>

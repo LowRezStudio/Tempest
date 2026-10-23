@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      feedsmith:
-        specifier: ^2.9.6
-        version: 2.9.6
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -69,6 +66,9 @@ importers:
       dax:
         specifier: ^0.48.3
         version: 0.48.3
+      feedsmith:
+        specifier: ^2.9.6
+        version: 2.9.6
       husky:
         specifier: ^9.1.7
         version: 9.1.7

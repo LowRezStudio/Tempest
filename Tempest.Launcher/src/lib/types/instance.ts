@@ -1,7 +1,7 @@
 // GamePlatform is the host-side union (electron/src/ipc/contract.ts); the
 // const is validated against it at compile time so renderer and host can't
 // drift apart.
-import type { GamePlatform } from "../../../electron/src/ipc/contract";
+import type { GamePlatform } from "$ipc/contract";
 
 export type DownloadingState = {
 	type: "downloading";
