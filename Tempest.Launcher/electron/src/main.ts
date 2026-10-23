@@ -12,6 +12,7 @@ import { getMainWindow, setMainWindow, showMainWindow } from "./app-state.js";
 import { queueDeepLinks, queueOpenFiles } from "./app.js";
 import { ensureCli } from "./cli.js";
 import "./converter.js";
+import "./defender.js";
 import "./dialog.js";
 import { handle } from "./ipc/handle.js";
 import "./instances.js";
@@ -22,6 +23,7 @@ import "./opener.js";
 import "./path.js";
 import "./platforms.js";
 import "./publishing.js";
+import "./repo.js";
 import { injectOs } from "./os.js";
 import "./tray.js";
 import "./updater.js";
@@ -29,7 +31,7 @@ import "./upk.js";
 import "./window.js";
 import "./zip.js";
 import "./state.js";
-import { activeChildren } from "./shell.js";
+import { activeChildren, killChild } from "./shell.js";
 function tempestFilesFromArgs(args: string[], workingDirectory: string): string[] {
 	return args.flatMap((argument) => {
 		let filePath: string;
@@ -247,7 +249,7 @@ app.on("activate", () => {
 app.on("will-quit", () => {
 	for (const [, child] of activeChildren) {
 		try {
-			child.kill();
+			killChild(child);
 		} catch {
 			/* ignore */
 		}

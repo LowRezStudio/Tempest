@@ -7,8 +7,23 @@ namespace Tempest.CLI.Rigby;
 
 internal static class RigbyRestoreEngine
 {
+    /// <summary>
+    /// How much of the file an interrupted run already wrote to its temp copy, in whole chunks.
+    /// Every chunk was verified before it was written, so a resumed run can keep them unread.
+    /// </summary>
+    public static long ResumablePrefix(RestoreTask task)
+    {
+        var tempPath = TempPathOf(task);
+        if (!File.Exists(tempPath))
+            return 0;
+
+        var length = new FileInfo(tempPath).Length;
+        return length > TotalSize(task) ? 0 : WholeChunks(task, length).Bytes;
+    }
+
     public static async Task<RestoreResult> RestoreOneAsync(
         RestoreTask task,
+        long resumedPrefix,
         string? chunksRoot,
         string? baseUrl,
         bool noDownload,
@@ -16,6 +31,9 @@ internal static class RigbyRestoreEngine
         IRestoreProgress progress,
         CancellationToken cancellationToken)
     {
+        if (resumedPrefix > 0)
+            return await ContinueFileAsync(task, resumedPrefix, chunksRoot, baseUrl, noDownload, http, progress, cancellationToken);
+
         if (await IsFileValidAsync(task.OutputPath, task.File, cancellationToken))
         {
             progress.BytesReused(task.File.Size);
@@ -32,6 +50,100 @@ internal static class RigbyRestoreEngine
         return await RebuildFileAsync(task, chunksRoot, baseUrl, noDownload, http, progress, cancellationToken);
     }
 
+    /// <summary>
+    /// Appends the rest of a file to the prefix an interrupted run left, which the caller already
+    /// counted, without reading that prefix back first; the whole file is checked once at the end.
+    /// </summary>
+    private static async Task<RestoreResult> ContinueFileAsync(
+        RestoreTask task,
+        long prefix,
+        string? chunksRoot,
+        string? baseUrl,
+        bool noDownload,
+        HttpClient http,
+        IRestoreProgress progress,
+        CancellationToken cancellationToken)
+    {
+        var tempPath = TempPathOf(task);
+        long newBytesWritten = 0;
+
+        await using (var output = new FileStream(tempPath, FileMode.Open, FileAccess.Write, FileShare.None))
+        {
+            // Drops a chunk the interruption cut short.
+            output.SetLength(prefix);
+            output.Position = prefix;
+
+            for (var i = WholeChunks(task, prefix).NextChunk; i < task.File.ChunkEnd; i++)
+            {
+                var raw = await FetchChunkAsync(task, i, chunksRoot, baseUrl, noDownload, http, cancellationToken);
+                await output.WriteAsync(raw, cancellationToken);
+                newBytesWritten += raw.Length;
+                progress.BytesWritten(raw.Length);
+            }
+        }
+
+        if (!await IsFileValidAsync(tempPath, task.File, cancellationToken))
+        {
+            // Without the temp copy, the next run builds this file from nothing.
+            File.Delete(tempPath);
+            throw new InvalidOperationException($"File hash mismatch after resuming: {task.OutputPath}");
+        }
+
+        File.Move(tempPath, task.OutputPath, true);
+        return new RestoreResult(true, newBytesWritten, prefix);
+    }
+
+    private static async Task<byte[]> FetchChunkAsync(
+        RestoreTask task,
+        int index,
+        string? chunksRoot,
+        string? baseUrl,
+        bool noDownload,
+        HttpClient http,
+        CancellationToken cancellationToken)
+    {
+        if (index < 0 || index >= task.Chunks.Count)
+            throw new InvalidOperationException($"Invalid chunk range for file: {task.File.Path}");
+
+        var chunk = task.Chunks[index];
+        var codec = string.IsNullOrWhiteSpace(chunk.Codec) ? "zstd" : chunk.Codec;
+        var rel = RigbyChunkStore.ChunkRelativePath(chunk.Sha256, codec);
+
+        var encoded = await RigbyChunkStore.GetEncodedChunkAsync(rel, chunksRoot, baseUrl, noDownload, http, cancellationToken);
+        var raw = RigbyChunkStore.DecodeChunk(encoded, codec, chunk.Length);
+        RigbyChunkStore.VerifyChunk(raw, chunk, rel);
+        return raw;
+    }
+
+    private static string TempPathOf(RestoreTask task) => task.OutputPath + ".rigby.tmp";
+
+    private static long TotalSize(RestoreTask task)
+    {
+        var totalSize = 0L;
+        for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
+            totalSize += task.Chunks[i].Length;
+
+        return totalSize;
+    }
+
+    /// <summary>The longest run of whole chunks that fits in <paramref name="length"/> bytes.</summary>
+    private static (long Bytes, int NextChunk) WholeChunks(RestoreTask task, long length)
+    {
+        var bytes = 0L;
+        var nextChunk = task.File.ChunkStart;
+        for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
+        {
+            var chunkLen = task.Chunks[i].Length;
+            if (bytes + chunkLen > length)
+                break;
+
+            bytes += chunkLen;
+            nextChunk = i + 1;
+        }
+
+        return (bytes, nextChunk);
+    }
+
     private static async Task<RestoreResult> RebuildFileAsync(
         RestoreTask task,
         string? chunksRoot,
@@ -42,11 +154,8 @@ internal static class RigbyRestoreEngine
         CancellationToken cancellationToken)
     {
         RigbyOutputLayout.EnsureParent(task.OutputPath);
-        var tempPath = task.OutputPath + ".rigby.tmp";
-
-        var totalSize = 0L;
-        for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
-            totalSize += task.Chunks[i].Length;
+        var tempPath = TempPathOf(task);
+        var totalSize = TotalSize(task);
 
         if (File.Exists(tempPath) && new FileInfo(tempPath).Length == totalSize)
         {
@@ -70,19 +179,7 @@ internal static class RigbyRestoreEngine
             }
             else
             {
-                for (var i = task.File.ChunkStart; i < task.File.ChunkEnd; i++)
-                {
-                    var chunkLen = task.Chunks[i].Length;
-                    if (existingBytes + chunkLen <= tempLength)
-                    {
-                        existingBytes += chunkLen;
-                        startChunkIndex = i + 1;
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
+                (existingBytes, startChunkIndex) = WholeChunks(task, tempLength);
 
                 if (existingBytes < tempLength)
                 {
@@ -132,16 +229,7 @@ internal static class RigbyRestoreEngine
 
         for (var i = startChunkIndex; i < task.File.ChunkEnd; i++)
         {
-            if (i < 0 || i >= task.Chunks.Count)
-                throw new InvalidOperationException($"Invalid chunk range for file: {task.File.Path}");
-
-            var chunk = task.Chunks[i];
-            var codec = string.IsNullOrWhiteSpace(chunk.Codec) ? "zstd" : chunk.Codec;
-            var rel = RigbyChunkStore.ChunkRelativePath(chunk.Sha256, codec);
-
-            var encoded = await RigbyChunkStore.GetEncodedChunkAsync(rel, chunksRoot, baseUrl, noDownload, http, cancellationToken);
-            var raw = RigbyChunkStore.DecodeChunk(encoded, codec, chunk.Length);
-            RigbyChunkStore.VerifyChunk(raw, chunk, rel);
+            var raw = await FetchChunkAsync(task, i, chunksRoot, baseUrl, noDownload, http, cancellationToken);
 
             await output.WriteAsync(raw, cancellationToken);
             fileSha256.TransformBlock(raw, 0, raw.Length, null, 0);
@@ -207,11 +295,7 @@ internal static class RigbyRestoreEngine
                 continue;
             }
 
-            var codec = string.IsNullOrWhiteSpace(chunk.Codec) ? "zstd" : chunk.Codec;
-            var rel = RigbyChunkStore.ChunkRelativePath(chunk.Sha256, codec);
-            var encoded = await RigbyChunkStore.GetEncodedChunkAsync(rel, chunksRoot, baseUrl, noDownload, http, cancellationToken);
-            var raw = RigbyChunkStore.DecodeChunk(encoded, codec, chunk.Length);
-            RigbyChunkStore.VerifyChunk(raw, chunk, rel);
+            var raw = await FetchChunkAsync(task, i, chunksRoot, baseUrl, noDownload, http, cancellationToken);
 
             stream.Position = position;
             await stream.WriteAsync(raw, cancellationToken);

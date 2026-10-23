@@ -57,12 +57,32 @@ export const orderedInstances = {
 	},
 };
 
-/** Persist the user's instance order sorted lowest→highest version. */
-export const sortInstancesByVersion = () => {
-	const sorted = [...orderedInstances.value].sort((a, b) =>
-		compareVersions(a.version, b.version),
-	);
+export const arrangements = ["patch", "patch-desc", "name"] as const;
+export type Arrangement = (typeof arrangements)[number];
+
+const arrangeBy: Record<Arrangement, (a: Instance, b: Instance) => number> = {
+	patch: (a, b) => compareVersions(a.version, b.version),
+	"patch-desc": (a, b) => compareVersions(b.version, a.version),
+	name: (a, b) => a.label.localeCompare(b.label),
+};
+
+/**
+ * Persist the user's instance order (library and sidebar) sorted by an arrangement.
+ * @param by - The arrangement to sort by.
+ */
+export const arrangeInstances = (by: Arrangement) => {
+	const sorted = [...orderedInstances.value].sort(arrangeBy[by]);
 	setInstanceOrder(sorted.map((i) => i.id));
+};
+
+/** The arrangement the current order already follows, if any. */
+export const currentArrangement = {
+	get value(): Arrangement | undefined {
+		const all = orderedInstances.value;
+		return arrangements.find((by) =>
+			all.every((instance, i) => i === 0 || arrangeBy[by](all[i - 1]!, instance) <= 0),
+		);
+	},
 };
 
 export const updateInstance = (id: string, updates: Partial<Instance>) => {

@@ -2,11 +2,13 @@ import {
 	MOD_ID_PATTERN,
 	detectKind,
 	optimizeUpkEntries,
-	parseV1Package,
+	parsePackage,
 	slugify,
 	type ConverterKind,
 	type FileEntry,
+	type PackageIcon,
 } from "$lib/mods/packaging";
+import { m } from "$lib/paraglide/messages";
 
 export type BatchStatus = "queued" | "cooking" | "signed" | "failed";
 
@@ -20,6 +22,9 @@ export type BatchEntry = {
 	version: string;
 	authors: { name: string; link: string }[];
 	readme: string;
+	icon: PackageIcon | null;
+	/** "id<requirement>" entries from the package's manifest, or the runtime for a Lua mod */
+	dependencies: string[];
 	kind: ConverterKind;
 	tags: string;
 	summary: string;
@@ -35,52 +40,53 @@ export type BatchEntry = {
 
 let nextKey = 0;
 
-async function entryFromImport(label: string, data: Uint8Array): Promise<BatchEntry | null> {
-	try {
-		const parsed = await parseV1Package(data);
-		if (parsed.files.length === 0 && !parsed.manifest) return null;
-		// UPKs embedded in the uploaded mod get compressed if they are not
-		// already (same treatment as the single-mod flow).
-		const compressedFiles = await optimizeUpkEntries(parsed.files);
-		const manifest = parsed.manifest;
-		const manifestName = manifest?.name ?? "";
-		const name = manifestName !== "" ? manifestName : label.replace(/\.tempest$/i, "");
-		// A V1 manifest's id is often the display name (spaces, capitals); only
-		// keep it when it already satisfies the repository's slug rule.
-		const id = manifest?.id && MOD_ID_PATTERN.test(manifest.id) ? manifest.id : slugify(name);
-		const manifestVersion = manifest?.version ?? "";
-		return {
-			key: ++nextKey,
-			label,
-			name,
-			id,
-			version: manifestVersion !== "" ? manifestVersion : "1.0.0",
-			authors: manifest?.authors?.length
-				? manifest.authors.map((a) => ({ name: a.name, link: a.link || "" }))
+async function entryFromImport(label: string, data: Uint8Array): Promise<BatchEntry> {
+	const parsed = await parsePackage(data);
+	if (parsed.files.length === 0) throw new Error(m.converter_no_files());
+	// UPKs embedded in the uploaded mod get compressed if they are not
+	// already (same treatment as the single-mod flow).
+	const compressedFiles = await optimizeUpkEntries(parsed.files);
+	const manifest = parsed.manifest;
+	const manifestName = manifest?.name ?? "";
+	const name = manifestName !== "" ? manifestName : label.replace(/\.tempest$/i, "");
+	// An old manifest's id is often the display name (spaces, capitals); only
+	// keep it when it already satisfies the repository's slug rule.
+	const id = manifest?.id && MOD_ID_PATTERN.test(manifest.id) ? manifest.id : slugify(name);
+	const manifestVersion = manifest?.version ?? "";
+	return {
+		key: ++nextKey,
+		label,
+		name,
+		id,
+		version: manifestVersion !== "" ? manifestVersion : "1.0.0",
+		authors: manifest?.authors?.length
+			? manifest.authors.map((a) => ({ name: a.name, link: a.link || "" }))
+			: [],
+		readme: parsed.readme ?? "",
+		icon: parsed.icon,
+		dependencies: manifest?.dependencies.length
+			? manifest.dependencies
+			: detectKind(parsed.files) === "scripts"
+				? ["tempest-scripting"]
 				: [],
-			readme: parsed.readme ?? "",
-			kind: detectKind(parsed.files),
-			tags: "",
-			summary: "",
-			files: parsed.files,
-			compressedFiles,
-			status: "queued",
-			stagedPath: null,
-			signer: null,
-			error: null,
-		};
-	} catch (error) {
-		console.error("Failed to parse mod package:", label, error);
-		return null;
-	}
+		kind: detectKind(parsed.files),
+		tags: "",
+		summary: "",
+		files: parsed.files,
+		compressedFiles,
+		status: "queued",
+		stagedPath: null,
+		signer: null,
+		error: null,
+	};
 }
 
 class BatchCookStore {
 	entries = $state<BatchEntry[]>([]);
 
-	async add(label: string, data: Uint8Array): Promise<number | null> {
+	// Throws when the package can't be read or has nothing to cook.
+	async add(label: string, data: Uint8Array): Promise<number> {
 		const entry = await entryFromImport(label, data);
-		if (!entry) return null;
 		this.entries = [...this.entries, entry];
 		return entry.compressedFiles;
 	}

@@ -9,6 +9,7 @@
 	let installing = $state(false);
 
 	const isMac = platform() === "macos";
+	const ready = $derived(!!status?.installed && !!status.path);
 
 	refreshStatus();
 
@@ -44,36 +45,36 @@
 	}
 </script>
 
-<div class="flex flex-col gap-4">
-	<h2 class="text-xl font-semibold">
-		<Terminal size={18} class="mr-1 inline align-[-2px]" />
-		{m.settings_cli_title()}
-	</h2>
-	<p class="text-sm">
-		{m.settings_cli_description()}
-	</p>
-
-	{#if status?.installed && status.path}
-		<div class="bg-base-200 rounded-box flex items-center gap-2 px-3 py-2">
-			<span class="badge badge-success badge-sm">{m.settings_cli_ready()}</span>
-			<code class="font-mono text-xs">{status.path}</code>
-			{#if !status.onPath}
-				<span class="text-base-content/60 text-xs">{m.settings_cli_not_on_path()}</span>
-			{/if}
-		</div>
-	{:else}
-		<div>
-			<button
-				type="button"
-				class="btn btn-primary btn-sm gap-2"
-				onclick={install}
-				disabled={installing}
+<p class="text-base-content/60 mb-3 text-sm">{m.settings_cli_description()}</p>
+<div class="bg-base-100 border-base-300 rounded-field flex items-center gap-3 border p-3">
+	<span
+		class={[
+			"flex size-8 shrink-0 items-center justify-center rounded-full",
+			ready ? "bg-success/15 text-success" : "bg-base-300 text-base-content/60",
+		]}><Terminal size={16} /></span
+	>
+	<span class="min-w-0 flex-1">
+		<span class="block text-sm font-medium">
+			{ready ? m.settings_cli_ready() : m.settings_cli_not_installed()}
+		</span>
+		{#if ready}
+			<span class="text-base-content/60 block truncate font-mono text-xs" title={status?.path}
+				>{status?.path}</span
 			>
-				{#if installing}
-					<span class="loading loading-spinner loading-xs"></span>
-				{/if}
-				{isMac ? m.settings_cli_install_mac() : m.settings_cli_install()}
-			</button>
-		</div>
+		{/if}
+	</span>
+	{#if !ready}
+		<button
+			type="button"
+			class="btn btn-primary btn-sm shrink-0"
+			onclick={install}
+			disabled={installing}
+		>
+			{#if installing}<span class="loading loading-spinner loading-xs"></span>{/if}
+			{isMac ? m.settings_cli_install_mac() : m.settings_cli_install()}
+		</button>
 	{/if}
 </div>
+{#if ready && !status?.onPath}
+	<p class="text-warning mt-2 text-xs">{m.settings_cli_not_on_path()}</p>
+{/if}

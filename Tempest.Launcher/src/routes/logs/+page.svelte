@@ -82,7 +82,7 @@
 	}
 </script>
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	<Header
 		title={m.logs_title()}
 		{tabs}
@@ -115,9 +115,14 @@
 		{/snippet}
 	</Header>
 
-	<div class="flex-1 overflow-hidden">
-		{#key activeSource}
-			<TerminalView logs={filteredLogs} showPrefix={activeSource === "all"} />
-		{/key}
+	<div class="min-h-0 flex-1 overflow-hidden p-4">
+		<div
+			data-panel
+			class="bg-base-200 border-base-300 rounded-box h-full overflow-hidden border p-1"
+		>
+			{#key activeSource}
+				<TerminalView logs={filteredLogs} showPrefix={activeSource === "all"} />
+			{/key}
+		</div>
 	</div>
 </div>

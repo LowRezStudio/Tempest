@@ -26,6 +26,7 @@ internal static class ModIntegrity
         try
         {
             if (!File.Exists(ModCommands.GetMetadataPath(gamePath))) return;
+            using var modLock = await ModLock.AcquireAsync(gamePath);
             var mods = ModCommands.LoadMetadata(gamePath);
             var resolvedGame = GameFolderResolver.Resolve(gamePath);
             var v2Enabled = mods
@@ -50,7 +51,9 @@ internal static class ModIntegrity
 
             foreach (var mod in v2Enabled)
             {
-                var problem = await VerifyInstalledAsync(resolvedGame, mod, trust ??= await TrustStore.LoadAsync(resolvedGame), gameFileOwners);
+                // Only a signed mod is checked against the key lists, and loading them is a network round-trip.
+                if (mod.Signer.Length > 0) trust ??= await TrustStore.LoadAsync(resolvedGame);
+                var problem = await VerifyInstalledAsync(resolvedGame, mod, trust, gameFileOwners);
                 if (problem == null)
                 {
                     if (!mod.Verified || mod.ManifestHash.Length == 0) changed = true;
@@ -76,7 +79,7 @@ internal static class ModIntegrity
 
     /// <summary>Null when the installed files still match the signed CHECKSUMS, else why they do not.</summary>
     internal static async Task<string?> VerifyInstalledAsync(
-        string resolvedGame, ModRecord mod, TrustStore trust, IReadOnlyDictionary<string, int> gameFileOwners)
+        string resolvedGame, ModRecord mod, TrustStore? trust, IReadOnlyDictionary<string, int> gameFileOwners)
     {
         var modDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id);
         if (!Directory.Exists(modDir))
@@ -109,7 +112,7 @@ internal static class ModIntegrity
             try
             {
                 verification = ModSigning.Verify(
-                    checksums, await File.ReadAllTextAsync(ascPath), await File.ReadAllTextAsync(signerPath), trust);
+                    checksums, await File.ReadAllTextAsync(ascPath), await File.ReadAllTextAsync(signerPath), trust!);
             }
             catch (Exception ex)
             {
@@ -132,16 +135,24 @@ internal static class ModIntegrity
                 return $"it was installed signed by [{mod.Signer}] but is now signed by {ModSigning.Describe(verification.Key)}; reinstall the mod";
         }
 
-        // Every package file must still hash to its CHECKSUMS entry.
+        // Every package file must still hash to its CHECKSUMS entry. Hashing is what makes launch
+        // slow for big mods and the entries are independent, so hash them in parallel and report
+        // the first problem in CHECKSUMS order.
         var checksumMap = ParseChecksumMap(checksums);
-        foreach (var entry in checksums.Split('\n'))
+        var entries = checksums
+            .Split('\n')
+            .Select(entry => entry.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Where(parts => parts.Length >= 2)
+            .Select(parts => (Path: string.Join(' ', parts.Skip(1)).TrimStart('*').Trim(), Expected: parts[0].Trim().ToLowerInvariant()))
+            .ToArray();
+        var problems = new string?[entries.Length];
+        await Parallel.ForEachAsync(Enumerable.Range(0, entries.Length), (i, _) =>
         {
-            var parts = entry.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 2) continue;
-            var packagePath = string.Join(' ', parts.Skip(1)).TrimStart('*').Trim();
-            var expected = parts[0].Trim().ToLowerInvariant();
-
-            var problem = await VerifyInstalledHashAsync(resolvedGame, modDir, packagePath, expected, gameFileOwners);
+            problems[i] = VerifyInstalledHash(resolvedGame, modDir, entries[i].Path, entries[i].Expected, gameFileOwners);
+            return ValueTask.CompletedTask;
+        });
+        foreach (var problem in problems)
+        {
             if (problem != null) return problem;
         }
 
@@ -149,7 +160,7 @@ internal static class ModIntegrity
     }
 
     /// <summary>Checks the on-disk copies of one CHECKSUMS entry, from its package path like `dlls/64/x.dll` or `files/<game path>`.</summary>
-    private static async Task<string?> VerifyInstalledHashAsync(
+    private static string? VerifyInstalledHash(
         string resolvedGame, string modDir, string packagePath, string expected, IReadOnlyDictionary<string, int> gameFileOwners)
     {
         if (packagePath.StartsWith("files/", StringComparison.OrdinalIgnoreCase))
@@ -157,7 +168,7 @@ internal static class ModIntegrity
             var relative = packagePath["files/".Length..];
 
             // The mod folder snapshot is the install state and always exists.
-            var snapshotHash = await HashFileOrNullAsync(Path.Combine(modDir, "files", relative));
+            var snapshotHash = HashFileOrNull(Path.Combine(modDir, "files", relative));
             if (snapshotHash == null) return $"the installed file '{packagePath}' is missing; the mod was modified after install";
 
             // The copy in the game folder, when exactly one enabled mod writes this file.
@@ -166,7 +177,7 @@ internal static class ModIntegrity
                 owners == 1 &&
                 !relative.EndsWith(".ini", StringComparison.OrdinalIgnoreCase))
             {
-                var gameHash = await HashFileOrNullAsync(Path.Combine(resolvedGame, relative));
+                var gameHash = HashFileOrNull(Path.Combine(resolvedGame, relative));
                 if (gameHash != null && !string.Equals(gameHash, snapshotHash, StringComparison.OrdinalIgnoreCase))
                     return $"the game file '{relative}' was modified after install";
             }
@@ -181,7 +192,7 @@ internal static class ModIntegrity
         var fullModDir = Path.GetFullPath(modDir);
         if (!path.StartsWith(fullModDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             return $"the package file '{packagePath}' would read outside the mod folder";
-        var hash = await HashFileOrNullAsync(path);
+        var hash = HashFileOrNull(path);
         if (hash == null) return $"the package file '{packagePath}' is missing; the mod was modified after install";
         return string.Equals(hash, expected, StringComparison.OrdinalIgnoreCase)
             ? null
@@ -254,12 +265,12 @@ internal static class ModIntegrity
         }
     }
 
-    private static async Task<string?> HashFileOrNullAsync(string path)
+    private static string? HashFileOrNull(string path)
     {
         try
         {
-            await using var stream = File.OpenRead(path);
-            return Convert.ToHexStringLower(await SHA256.Create().ComputeHashAsync(stream));
+            using var stream = File.OpenRead(path);
+            return Convert.ToHexStringLower(SHA256.HashData(stream));
         }
         catch
         {

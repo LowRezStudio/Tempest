@@ -3,6 +3,7 @@ import { page } from "$app/state";
 import { lobbyManager } from "$lib/lobby/lobby-manager";
 import { lobbyHost, resetLobbyState } from "$lib/lobby/stores.svelte";
 import { appendProcessLog, lobbyServerProcessesList } from "$lib/stores/processes.svelte";
+import { watchAntivirusBlocks } from "./antivirus.svelte";
 import { createCommand } from "./command";
 import type { LobbyServerOptions } from "$lib/types/lobby";
 import type { LobbyServerProcess, ProcessLog } from "$lib/types/process";
@@ -43,6 +44,7 @@ export const hostLobby = async (options: LobbyServerOptions) => {
 	command.stderr.on("data", (data) => {
 		stderrBuffer = appendLines(stderrBuffer, data, true);
 	});
+	watchAntivirusBlocks(command);
 	const child = await command.spawn();
 
 	command.on("close", (e) => {

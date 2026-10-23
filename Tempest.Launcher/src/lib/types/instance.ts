@@ -36,7 +36,6 @@ export type InstanceLaunchOptions = {
 	noDefaultArgs: boolean;
 	log: boolean;
 	platform?: InstancePlatform;
-	presets?: LaunchPreset[];
 	presetId?: string;
 };
 
@@ -50,4 +49,6 @@ export type Instance = {
 	launchOptions: InstanceLaunchOptions;
 	state: InstanceState;
 	color?: string;
+	/** Unix ms of the last launch; missing for instances not launched since it was tracked. */
+	lastPlayedAt?: number;
 };

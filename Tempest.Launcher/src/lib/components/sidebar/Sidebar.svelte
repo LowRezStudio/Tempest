@@ -11,7 +11,6 @@
 		Server,
 		Settings,
 		SquareTerminal,
-		Terminal,
 		Users,
 	} from "@lucide/svelte";
 	import { lobbyHost } from "$lib/lobby/stores.svelte";
@@ -19,7 +18,7 @@
 	import { instanceMap, preparedInstances, setInstanceOrder } from "$lib/stores/instance.svelte";
 	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
 	import { modDeveloper } from "$lib/stores/settings.svelte";
-	import { commandsPageOpen, instanceWizardOpen } from "$lib/stores/ui.svelte";
+	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
 	import { createReorderable } from "$lib/utils/reorder.svelte";
 	import SidebarInstanceItem from "./SidebarInstanceItem.svelte";
 	import SidebarItem from "./SidebarItem.svelte";
@@ -34,6 +33,7 @@
 </script>
 
 <aside
+	data-sidebar
 	class="bg-base-300 flex h-screen w-16 flex-none flex-col items-center py-4"
 	class:dragging={!!reorder.drag}
 >
@@ -91,15 +91,6 @@
 	<div class="divider mx-4 my-4 opacity-50"></div>
 
 	<div class="mt-auto flex flex-col gap-2">
-		{#if commandsPageOpen.value}
-			<SidebarItem
-				label={m.commands_page_title()}
-				active={page.url.pathname === "/commands"}
-				href="/commands"
-			>
-				<Terminal size={20} />
-			</SidebarItem>
-		{/if}
 		{#each lobbyServerProcessesList.value as lobbyServer}
 			<SidebarItem
 				label={lobbyServer.createOptions.name}

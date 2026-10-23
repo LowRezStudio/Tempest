@@ -1,5 +1,6 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Tempest.CLI.Launcher;
 
 namespace Tempest.CLI.Extensions;
 
@@ -53,7 +54,30 @@ internal static class ProcessExtensions
     public static async Task<bool> InjectLibraryAsync(this Process process, string path, bool is64Bit)
     {
         EnableDebugPrivilege();
-        var executable = GetExecutablePath(is64Bit ? "inject64.exe" : "inject32.exe");
+        string executable;
+        try
+        {
+            executable = GetExecutablePath(is64Bit ? "inject64.exe" : "inject32.exe");
+        }
+        catch (Exception ex) when (Antivirus.IsBlock(ex))
+        {
+            Console.Error.WriteLine($"[inject] antivirus blocked the injector in {AppContext.BaseDirectory}; allow the folder to load mod DLLs");
+            Antivirus.Report(AppContext.BaseDirectory);
+            return false;
+        }
+        catch (FileNotFoundException ex)
+        {
+            Console.Error.WriteLine($"[inject] {ex.Message}");
+            return false;
+        }
+
+        if (Antivirus.Refuses(path))
+        {
+            Console.Error.WriteLine($"[inject] antivirus blocked {path}");
+            Antivirus.Report(Path.GetDirectoryName(path)!);
+            return false;
+        }
+        var dllExisted = File.Exists(path);
 
         // The game process (and its wineserver) may not be up yet when Proton/Wine is cold-starting
         // a prefix; poll until it shows up or the wrapper exits.
@@ -77,14 +101,46 @@ internal static class ProcessExtensions
         inject.StartInfo.Arguments = $"{pid} \"{path}\"";
         inject.StartInfo.RedirectStandardError = true;
         inject.StartInfo.UseShellExecute = false;
-        inject.UseWineBinary().Start();
+        // A failed injection must not take the launch down with it: the game is already running
+        // and the launcher only knows it is while this process waits on it.
+        try
+        {
+            inject.UseWineBinary().Start();
+        }
+        catch (Exception ex) when (Antivirus.IsBlock(ex) || Antivirus.Removed(executable))
+        {
+            Console.Error.WriteLine($"[inject] antivirus blocked {executable}; allow its folder to load mod DLLs");
+            Antivirus.Report(AppContext.BaseDirectory);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[inject] failed to start {Path.GetFileName(executable)}: {ex.Message}");
+            return false;
+        }
+
         var stderr = inject.StandardError.ReadToEndAsync();
         await inject.WaitForExitAsync();
         var err = await stderr;
         if (!string.IsNullOrEmpty(err))
             Console.Error.WriteLine($"[inject stderr]\n{err.TrimEnd()}");
         Console.Error.WriteLine($"[inject] exit code: {inject.ExitCode}");
-        return inject.ExitCode == 0;
+        if (inject.ExitCode == 0)
+            return true;
+
+        // Defender often lets the injector start and then kills and quarantines it, or quarantines
+        // the mod DLL once the game tries to load it.
+        if (Antivirus.Removed(executable))
+        {
+            Console.Error.WriteLine($"[inject] {Path.GetFileName(executable)} was removed by an antivirus");
+            Antivirus.Report(AppContext.BaseDirectory);
+        }
+        else if ((dllExisted && Antivirus.Removed(path)) || Antivirus.Refuses(path))
+        {
+            Console.Error.WriteLine($"[inject] {path} was blocked by an antivirus");
+            Antivirus.Report(Path.GetDirectoryName(path)!);
+        }
+        return false;
     }
 
     private static string GetExecutablePath(string fileName)

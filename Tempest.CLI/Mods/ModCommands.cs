@@ -138,17 +138,26 @@ internal class ModCommands
     /// <param name="allowUntrusted">Install code (DLLs, Lua) signed by a key that is not trusted</param>
     /// <param name="json">Output as JSON</param>
     /// <param name="patch">When modFile is a repository id, pick the newest version compatible with this Paladins patch (e.g. 0.57)</param>
-    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool stack = false, bool allowUntrusted = false, bool json = false, string? patch = null)
+    /// <param name="noDeps">When modFile is a repository id, do not install the dependencies it declares</param>
+    /// <param name="ignoreTempestVersion">Install even when the package needs a newer Tempest than this one</param>
+    /// <param name="tempestVersion">The Tempest version to check "tempest" requirements against (the launcher passes its own; default: the version this CLI was built with)</param>
+    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool stack = false, bool allowUntrusted = false, bool json = false, string? patch = null, bool noDeps = false, bool ignoreTempestVersion = false, string? tempestVersion = null)
     {
+        if (!string.IsNullOrWhiteSpace(tempestVersion)) Environment.SetEnvironmentVariable("TEMPEST_VERSION", tempestVersion);
         try
         {
             string? downloaded = null;
+            var installedDeps = new List<string>();
+            // Entered by the installer once the package is verified; held through the
+            // dependencies and the mod itself, so another launcher install cannot interleave.
+            using var modLock = new ModLock(path);
             if (!File.Exists(modFile))
             {
                 // Not a local file: an http(s) URL, or a repository id ("vexa-crosshair" or "vexa-crosshair@1.3.0").
+                RepoPick? pick;
                 try
                 {
-                    downloaded = await FetchFromRepoAsync(modFile, patch);
+                    (downloaded, pick) = await FetchFromRepoAsync(modFile, patch);
                 }
                 catch (Exception ex)
                 {
@@ -161,18 +170,22 @@ internal class ModCommands
                     return;
                 }
                 modFile = downloaded;
+                // What the version declares it needs goes in first, leaves of the tree before
+                // the mods that need them, so the mod itself never reports a missing dependency.
+                if (pick != null && !noDeps)
+                {
+                    var failure = await InstallDependenciesAsync(path, pick, patch, allowUntrusted, ignoreTempestVersion, installedDeps, modLock);
+                    if (failure != null)
+                    {
+                        PrintResult(failure, json);
+                        File.Delete(downloaded);
+                        return;
+                    }
+                }
             }
 
-            var installer = ModInstallerFactory.CreateForFile(modFile);
-            var result = await installer.InstallAsync(path, modFile, replace, stack, allowUntrusted);
-
-            if (result.Success && result.Mod != null)
-            {
-                var mods = LoadMetadata(path);
-                mods.RemoveAll(m => string.Equals(m.Name, result.Mod.Name, StringComparison.OrdinalIgnoreCase));
-                mods.Add(result.Mod);
-                SaveMetadata(path, mods);
-            }
+            var result = await InstallOneAsync(path, modFile, replace, stack, allowUntrusted, ignoreTempestVersion, modLock);
+            if (installedDeps.Count > 0) result.InstalledDependencies = installedDeps;
 
             PrintResult(result, json);
             if (downloaded != null) File.Delete(downloaded);
@@ -184,11 +197,98 @@ internal class ModCommands
         }
     }
 
+    /// <summary>Installs one package under <paramref name="modLock"/> and records it; the install result is returned as is.</summary>
+    private static async Task<ModInstallResult> InstallOneAsync(string path, string modFile, bool replace, bool stack, bool allowUntrusted, bool ignoreTempestVersion, ModLock modLock)
+    {
+        var installer = ModInstallerFactory.CreateForFile(modFile);
+        var result = installer is ModV2Installer v2
+            ? await v2.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock, ignoreTempestVersion)
+            : await installer.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock);
+
+        if (result.Success && result.Mod != null)
+        {
+            var mods = LoadMetadata(path);
+            mods.RemoveAll(m => string.Equals(m.Name, result.Mod.Name, StringComparison.OrdinalIgnoreCase));
+            mods.Add(result.Mod);
+            SaveMetadata(path, mods);
+        }
+        return result;
+    }
+
+    /// <summary>A version picked on the repository, so its dependencies can be looked up.</summary>
+    private sealed record RepoPick(string Id, string Version);
+
+    /// <summary>
+    /// Installs what <paramref name="pick"/> declares it needs and does not have yet, as the
+    /// repository resolves it. A dependency the repository cannot resolve is only reported on
+    /// stderr (the mod's own install result lists it as missing). Returns the failing install
+    /// result when a dependency refuses to install, else null.
+    /// </summary>
+    private static async Task<ModInstallResult?> InstallDependenciesAsync(string path, RepoPick pick, string? patch, bool allowUntrusted, bool ignoreTempestVersion, List<string> installed, ModLock modLock)
+    {
+        RepoResolution resolution;
+        using var repo = new ModRepoClient();
+        try
+        {
+            resolution = await repo.GetDependenciesAsync(pick.Id, pick.Version, patch, ModDependencies.TempestVersion);
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"Warning: could not resolve the dependencies of {pick.Id}: {ex.Message}");
+            return null;
+        }
+        if (resolution.Items.Count == 0) return null;
+        await modLock.EnterAsync();
+        var mods = LoadMetadata(path);
+        // Breadth first from the mod: reversed, a dependency's own dependencies land first.
+        foreach (var item in Enumerable.Reverse(resolution.Items))
+        {
+            var current = mods.FirstOrDefault(m => string.Equals(m.Id, item.Id, StringComparison.OrdinalIgnoreCase));
+            if (current is { Enabled: true } && item.Requirements.All(r => SemverRange.Satisfies(current.Version, r))) continue;
+            if (item.Resolved == null)
+            {
+                var why = item.Problem == "not_found" ? "is not on the repository" : "has no published version that fits";
+                await Console.Error.WriteLineAsync($"Warning: {pick.Id} needs {item.Id} ({string.Join(", ", item.Requirements.Select(r => r.Length == 0 ? "any version" : r))}), which {why}.");
+                continue;
+            }
+            if (current is { Enabled: false } && SemverRange.Satisfies(current.Version, string.Join(" ", item.Requirements)))
+            {
+                // Installed at a fitting version, only switched off.
+                await CreateInstaller(current).EnableAsync(path, current);
+                current.Enabled = true;
+                current.Verified = false;
+                SaveMetadata(path, mods);
+                installed.Add($"{current.Id}@{current.Version}");
+                continue;
+            }
+            var dest = Path.Combine(Path.GetTempPath(), $"tempest-{Guid.NewGuid():N}.tempest");
+            try
+            {
+                await Console.Error.WriteLineAsync($"Installing dependency {item.Id} {item.Resolved.Version} (needed by {string.Join(", ", item.RequiredBy)})");
+                await repo.DownloadAsync(item.Id, item.Resolved.Version, dest);
+                var result = await InstallOneAsync(path, dest, replace: true, stack: false, allowUntrusted, ignoreTempestVersion, modLock);
+                if (!result.Success)
+                {
+                    result.Message = $"dependency {item.Id} {item.Resolved.Version}: {result.Message}";
+                    return result;
+                }
+                installed.Add($"{item.Id}@{item.Resolved.Version}");
+                mods = LoadMetadata(path);
+            }
+            finally
+            {
+                if (File.Exists(dest)) File.Delete(dest);
+            }
+        }
+        return null;
+    }
+
     /// <summary>
     /// Resolves a URL or a repository id (optionally "id@version") to a downloaded package in the
-    /// temp folder, or null when the spec is neither.
+    /// temp folder (with the id and version when it came from the repository), or null when the
+    /// spec is neither.
     /// </summary>
-    private static async Task<string?> FetchFromRepoAsync(string spec, string? patch)
+    private static async Task<(string? File, RepoPick? Pick)> FetchFromRepoAsync(string spec, string? patch)
     {
         var dest = Path.Combine(Path.GetTempPath(), $"tempest-{Guid.NewGuid():N}.tempest");
         if (spec.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || spec.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
@@ -198,12 +298,12 @@ internal class ModCommands
             res.EnsureSuccessStatusCode();
             await using var file = File.Create(dest);
             await res.Content.CopyToAsync(file);
-            return dest;
+            return (dest, null);
         }
         var at = spec.IndexOf('@');
         var id = at < 0 ? spec : spec[..at];
         var wanted = at < 0 ? null : spec[(at + 1)..];
-        if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^[a-z0-9][a-z0-9._-]{1,63}$")) return null;
+        if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^[a-z0-9][a-z0-9._-]{1,63}$")) return (null, null);
 
         using var repo = new ModRepoClient();
         var versions = (await repo.GetVersionsAsync(id)).Where(v => v.Status == "approved").ToList();
@@ -213,12 +313,16 @@ internal class ModCommands
             pick = versions.FirstOrDefault(v => v.Version == wanted) ?? throw new Exception($"{id} has no version {wanted}");
         else
         {
-            var candidates = patch == null ? versions : versions.Where(v => Compatible(v.Compat, patch)).ToList();
-            if (candidates.Count == 0) throw new Exception($"no version of {id} is compatible with patch {patch}");
+            var tempest = ModDependencies.TempestVersion;
+            var candidates = versions
+                .Where(v => patch == null || Compatible(v.Compat, patch))
+                .Where(v => ModDependencies.UnmetTempestRequirement(v.Dependencies.Select(d => new ModDependency { Id = d.Id, Requirement = d.Requirement }), tempest) == null)
+                .ToList();
+            if (candidates.Count == 0) throw new Exception(patch == null ? $"no version of {id} runs on Tempest {tempest}" : $"no version of {id} is compatible with patch {patch}" + (tempest == null ? "" : $" and Tempest {tempest}"));
             pick = candidates.OrderByDescending(v => v.Version, SemverComparer.Instance).First();
         }
         await repo.DownloadAsync(id, pick.Version, dest);
-        return dest;
+        return (dest, new RepoPick(id, pick.Version));
     }
 
     /// <summary>Mirrors src/lib/compat.ts on the repository: explicit patches or inclusive ranges, numeric by component.</summary>
@@ -366,11 +470,13 @@ internal class ModCommands
     /// <summary>Lists installed mods for the game instance</summary>
     /// <param name="path">Path to the game folder or executable</param>
     /// <param name="json">Output as JSON</param>
-    public Task List([Argument] string path, bool json = false)
+    public async Task List([Argument] string path, bool json = false)
     {
         try
         {
-            var mods = LoadMetadata(path);
+            // Installs running alongside rewrite mods.json; wait rather than read it half-written.
+            List<ModRecord> mods;
+            using (await ModLock.AcquireAsync(path)) mods = LoadMetadata(path);
             if (json)
             {
                 var result = new ModListResult { Mods = mods };
@@ -393,7 +499,6 @@ internal class ModCommands
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
         }
-        return Task.CompletedTask;
     }
 
     /// <summary>Reloads DLLs for a V2 mod into a running game process</summary>
@@ -481,6 +586,7 @@ internal class ModCommands
     {
         try
         {
+            using var modLock = await ModLock.AcquireAsync(path);
             var mods = LoadMetadata(path);
             var mod = mods.FirstOrDefault(m => string.Equals(m.Name, modName, StringComparison.OrdinalIgnoreCase));
 
@@ -491,12 +597,14 @@ internal class ModCommands
                 return;
             }
 
+            var dependants = ModDependencies.Dependants(mod.Id, mods);
             var installer = CreateInstaller(mod);
             await installer.RemoveAsync(path, mod);
             mods.Remove(mod);
             SaveMetadata(path, mods);
 
-            var ok = new ModInstallResult { Success = true, Message = $"Mod '{modName}' removed successfully." };
+            var note = dependants.Count == 0 ? "" : $" {string.Join(", ", dependants.Select(d => $"'{d.Name}'"))} depend{(dependants.Count == 1 ? "s" : "")} on it.";
+            var ok = new ModInstallResult { Success = true, Message = $"Mod '{modName}' removed successfully.{note}" };
             PrintResult(ok, json);
         }
         catch (Exception ex)
@@ -514,6 +622,7 @@ internal class ModCommands
     {
         try
         {
+            using var modLock = await ModLock.AcquireAsync(path);
             var mods = LoadMetadata(path);
             var mod = mods.FirstOrDefault(m => string.Equals(m.Name, modName, StringComparison.OrdinalIgnoreCase));
 
@@ -557,6 +666,7 @@ internal class ModCommands
     {
         try
         {
+            using var modLock = await ModLock.AcquireAsync(path);
             var mods = LoadMetadata(path);
             var mod = mods.FirstOrDefault(m => string.Equals(m.Name, modName, StringComparison.OrdinalIgnoreCase));
 
@@ -574,12 +684,14 @@ internal class ModCommands
                 return;
             }
 
+            var dependants = ModDependencies.Dependants(mod.Id, mods);
             var installer = CreateInstaller(mod);
             await installer.DisableAsync(path, mod);
             mod.Enabled = false;
             SaveMetadata(path, mods);
 
-            var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' disabled successfully." };
+            var note = dependants.Count == 0 ? "" : $" {string.Join(", ", dependants.Select(d => $"'{d.Name}'"))} depend{(dependants.Count == 1 ? "s" : "")} on it.";
+            var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' disabled successfully.{note}" };
             PrintResult(result, json);
         }
         catch (Exception ex)
@@ -595,6 +707,7 @@ internal class ModCommands
         try
         {
             if (!File.Exists(GetMetadataPath(path))) return;
+            using var modLock = await ModLock.AcquireAsync(path);
             var mods = LoadMetadata(path);
             var revoked = new List<ModRecord>();
             TrustStore? trust = null;
@@ -639,10 +752,11 @@ internal class ModCommands
     /// <param name="oldName">Old name of the mod</param>
     /// <param name="newName">New name of the mod</param>
     /// <param name="json">Output as JSON</param>
-    public Task Rename([Argument] string path, [Argument] string oldName, [Argument] string newName, bool json = false)
+    public async Task Rename([Argument] string path, [Argument] string oldName, [Argument] string newName, bool json = false)
     {
         try
         {
+            using var modLock = await ModLock.AcquireAsync(path);
             var mods = LoadMetadata(path);
             var mod = mods.FirstOrDefault(m => string.Equals(m.Name, oldName, StringComparison.OrdinalIgnoreCase));
 
@@ -650,7 +764,7 @@ internal class ModCommands
             {
                 var fail = new ModInstallResult { Success = false, Message = $"Mod not found: {oldName}" };
                 PrintResult(fail, json);
-                return Task.CompletedTask;
+                return;
             }
 
             mod.Name = newName;
@@ -664,7 +778,6 @@ internal class ModCommands
             var fail = new ModInstallResult { Success = false, Message = ex.Message };
             PrintResult(fail, json);
         }
-        return Task.CompletedTask;
     }
 
     /// <summary>Installs multiple mods into the game instance</summary>
@@ -677,6 +790,7 @@ internal class ModCommands
     public async Task InstallBulk([Argument] string path, string[] modFiles, bool replace = false, bool stack = false, bool allowUntrusted = false, bool json = false)
     {
         var results = new List<ModInstallResult>();
+        using var modLock = new ModLock(path);
         foreach (var file in modFiles)
         {
             try
@@ -688,7 +802,7 @@ internal class ModCommands
                 }
 
                 var installer = ModInstallerFactory.CreateForFile(file);
-                var result = await installer.InstallAsync(path, file, replace, stack, allowUntrusted);
+                var result = await installer.InstallAsync(path, file, replace, stack, allowUntrusted, modLock);
 
                 if (result.Success && result.Mod != null)
                 {

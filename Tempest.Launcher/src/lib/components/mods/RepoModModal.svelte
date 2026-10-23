@@ -1,14 +1,27 @@
 <script lang="ts">
-	import { BadgeCheck, Download, ExternalLink, ShieldAlert } from "@lucide/svelte";
+	import { Check, Download, ExternalLink, LifeBuoy } from "@lucide/svelte";
 	import { createQuery } from "@tanstack/svelte-query";
 	import { marked } from "marked";
+	import ModFileTree from "$lib/components/mods/ModFileTree.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
+	import { kindLabel } from "$lib/mods/listing";
 	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { m } from "$lib/paraglide/messages";
 	import { openUrl } from "$lib/platform/api";
+	import { createAboutInfoQuery } from "$lib/queries/about";
 	import { getRepoMod, getRepoVersions } from "$lib/queries/repo";
-	import { compareVersions } from "$lib/utils/version";
-	import type { RepoCompat, RepoVersion } from "$lib/queries/repo";
+	import {
+		describeRequirement,
+		modDependencies,
+		tempestRequirement,
+		satisfies,
+	} from "$lib/utils/deps";
+	import { compareVersions, describeCompat, isCompatible } from "$lib/utils/version";
+	import BugReportModal from "./BugReportModal.svelte";
+	import RepoModIcon from "./RepoModIcon.svelte";
+	import RepoTrustBadge from "./RepoTrustBadge.svelte";
+	import type { ModRecord } from "$lib/core/mods";
+	import type { RepoVersion } from "$lib/queries/repo";
 
 	interface Props {
 		open?: boolean;
@@ -17,6 +30,7 @@
 		patch: string | undefined;
 		installedVersion?: string;
 		isRunning: boolean;
+		installedMod?: ModRecord;
 	}
 
 	let {
@@ -26,6 +40,7 @@
 		patch,
 		installedVersion,
 		isRunning,
+		installedMod,
 	}: Props = $props();
 
 	const modQuery = createQuery(() => ({
@@ -42,7 +57,8 @@
 	}));
 
 	let installing = $state<string | null>(null);
-	let tab = $state<"readme" | "versions">("readme");
+	let tab = $state<"readme" | "versions" | "files">("readme");
+	let bugOpen = $state(false);
 
 	const readmeHtml = $derived(
 		modQuery.data?.readme
@@ -50,31 +66,27 @@
 			: "",
 	);
 	const versions = $derived((versionsQuery.data ?? []).filter((v) => v.status === "approved"));
+	// The newest version for this patch: what the Overview offers to install.
+	const primaryVersion = $derived(versions.find((v) => isCompatible(v.compat, patch)) ?? null);
+	const screenshots = $derived(modQuery.data?.latest?.assets?.screenshots ?? []);
+	// What the offered version needs: other mods (installed alongside) and a launcher version.
+	const about = createAboutInfoQuery();
+	const requires = $derived(modDependencies(primaryVersion?.dependencies ?? []));
+	const needsTempest = $derived(
+		primaryVersion ? tempestRequirement(primaryVersion.dependencies ?? []) : undefined,
+	);
+	const tempestTooOld = $derived(
+		needsTempest !== undefined &&
+			!!about.data?.appVersion &&
+			!satisfies(about.data.appVersion, needsTempest),
+	);
+	let shotIndex = $state(0);
+	$effect(() => {
+		void modId;
+		shotIndex = 0;
+		tab = "readme";
+	});
 
-	function order(version: string): number {
-		const [a = "0", b = "0", c = "0"] = version.split(".");
-		return Number(a) * 1_000_000 + Number(b) * 10_000 + Number(c);
-	}
-	function compatible(compat: RepoCompat): boolean {
-		if (!patch) return true;
-		if (compat.patches.includes(patch)) return true;
-		const n = order(patch);
-		return compat.ranges.some(
-			(r) => (r.from == null || order(r.from) <= n) && (r.to == null || n <= order(r.to)),
-		);
-	}
-	function describe(compat: RepoCompat): string {
-		const parts = compat.ranges.map((r) =>
-			r.from && r.to
-				? `${r.from} – ${r.to}`
-				: r.from
-					? `${r.from}+`
-					: r.to
-						? `≤ ${r.to}`
-						: "all",
-		);
-		return [...parts, ...compat.patches].join(", ");
-	}
 	function action(v: RepoVersion): "installed" | "update" | "downgrade" | "install" {
 		if (!installedVersion) return "install";
 		const d = compareVersions(v.version, installedVersion);
@@ -97,7 +109,11 @@
 		n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`;
 </script>
 
-<Modal bind:open title={modQuery.data?.name ?? modId ?? ""} class="max-w-3xl">
+<Modal
+	bind:open
+	title={modQuery.data?.name ?? modId ?? ""}
+	class="h-[85vh] max-w-3xl scrollbar-gutter-stable"
+>
 	{#if modQuery.isPending}
 		<div class="flex h-40 items-center justify-center">
 			<span class="loading loading-spinner loading-lg opacity-30"></span>
@@ -106,27 +122,88 @@
 		<p class="text-error text-sm">{m.repo_unreachable()}</p>
 	{:else}
 		{@const mod = modQuery.data}
+		{@const primary = primaryVersion}
 		<div class="flex flex-col gap-4">
-			<div class="flex flex-wrap items-center gap-2 text-sm">
-				<span class="text-base-content/70">{mod.owner.displayName}</span>
-				{#if mod.latest?.signer?.trust === "first-party"}
-					<span class="badge badge-primary badge-sm gap-1"
-						><BadgeCheck size={12} /> {m.repo_first_party()}</span
-					>
-				{:else if mod.latest?.signer?.trust === "unknown"}
-					<span class="badge badge-warning badge-sm gap-1"
-						><ShieldAlert size={12} /> {m.repo_unknown_signer()}</span
-					>
+			<div class="flex items-start gap-3">
+				<RepoModIcon {mod} size={48} />
+				<div class="flex min-w-0 flex-1 flex-col gap-1.5">
+					<p class="text-base-content/80 text-sm">{mod.summary}</p>
+					<div class="flex flex-wrap items-center gap-1.5 text-sm">
+						<span class="text-base-content/70 mr-1 flex items-center gap-1.5">
+							{#if mod.owner.avatar}
+								<img src={mod.owner.avatar} alt="" class="size-4 rounded-full" />
+							{/if}
+							{mod.owner.displayName}
+						</span>
+						<RepoTrustBadge latest={mod.latest} />
+						<span class="badge badge-ghost badge-sm">{kindLabel(mod.kind)}</span>
+						{#each mod.tags as tag (tag)}<span class="badge badge-ghost badge-sm"
+								>#{tag}</span
+							>{/each}
+					</div>
+				</div>
+				{#if primary}
+					{@const what = action(primary)}
+					{#if tempestTooOld}
+						<span
+							class="badge badge-warning shrink-0"
+							title={m.deps_needs_tempest({
+								requirement: needsTempest ?? "",
+								version: about.data?.appVersion ?? "",
+							})}
+							>{m.repo_needs_newer_tempest({ requirement: needsTempest ?? "" })}</span
+						>
+					{:else if what === "installed"}
+						<span
+							class="text-success flex shrink-0 items-center gap-1.5 text-sm font-semibold"
+						>
+							<Check size={16} />
+							{m.repo_installed()}
+						</span>
+					{:else}
+						<button
+							class="btn btn-primary btn-sm shrink-0"
+							disabled={isRunning || installing !== null}
+							title={isRunning ? m.repo_close_game_first() : `v${primary.version}`}
+							onclick={() => install(primary)}
+						>
+							{#if installing === primary.version}<span
+									class="loading loading-spinner loading-xs"
+								></span>{:else}<Download size={14} />{/if}
+							{what === "update"
+								? m.repo_update_available({ version: primary.version })
+								: m.repo_install()}
+						</button>
+					{/if}
 				{/if}
-				<span class="badge badge-ghost badge-sm">{mod.kind}</span>
-				{#each mod.tags as tag (tag)}<span class="badge badge-outline badge-sm">{tag}</span
-					>{/each}
-				<button class="btn btn-ghost btn-xs ml-auto" onclick={() => openUrl(mod.url)}>
+			</div>
+			{#if requires.length > 0 || needsTempest !== undefined}
+				<p class="text-base-content/70 flex flex-wrap items-center gap-1.5 text-xs">
+					<span class="font-semibold">{m.repo_requires()}</span>
+					{#if needsTempest !== undefined}
+						<span class="badge badge-ghost badge-sm font-mono"
+							>{m.repo_requires_tempest({
+								requirement: describeRequirement(needsTempest),
+							})}</span
+						>
+					{/if}
+					{#each requires as dep (dep.id)}
+						<span class="badge badge-ghost badge-sm font-mono"
+							>{dep.id} {describeRequirement(dep.requirement)}</span
+						>
+					{/each}
+				</p>
+			{/if}
+			<div class="flex items-center gap-1">
+				<button class="btn btn-ghost btn-xs" onclick={() => (bugOpen = true)}>
+					<LifeBuoy size={12} />
+					{m.repo_bug_get_help()}
+				</button>
+				<button class="btn btn-ghost btn-xs" onclick={() => openUrl(mod.url)}>
 					<ExternalLink size={12} />
 					{m.repo_open_in_browser()}
 				</button>
 			</div>
-			<p class="text-base-content/80 text-sm">{mod.summary}</p>
 
 			<div role="tablist" class="tabs tabs-border">
 				<button
@@ -143,14 +220,76 @@
 				>
 					{m.repo_tab_versions({ count: versions.length })}
 				</button>
+				{#if installedMod}
+					<button
+						role="tab"
+						class="tab"
+						class:tab-active={tab === "files"}
+						onclick={() => (tab = "files")}
+					>
+						{m.mod_details_tab_files({
+							count: installedMod.InstalledFiles?.length ?? 0,
+						})}
+					</button>
+				{/if}
 			</div>
 
-			{#if tab === "readme"}
+			{#if tab === "files" && installedMod}
+				<ModFileTree
+					files={installedMod.InstalledFiles}
+					basePath={gamePath}
+					modId={installedMod.Id}
+					ownedFiles={installedMod.OwnedFiles}
+				/>
+			{:else if tab === "readme"}
+				{#if screenshots.length > 0}
+					{@const shot = screenshots[Math.min(shotIndex, screenshots.length - 1)]!}
+					<figure class="flex flex-col gap-2">
+						<div
+							class="bg-base-300 rounded-box relative aspect-video w-full overflow-hidden"
+						>
+							<!-- Keyed, so the previous picture never sits under the new caption while loading. -->
+							{#key shot.url}
+								<img
+									src={shot.url}
+									alt={shot.caption ?? ""}
+									class="absolute inset-0 h-full w-full object-contain"
+								/>
+							{/key}
+						</div>
+						{#if shot.caption}
+							<figcaption class="text-base-content/60 text-xs">
+								{shot.caption}
+							</figcaption>
+						{/if}
+						{#if screenshots.length > 1}
+							<div class="flex gap-2 overflow-x-auto pb-1">
+								{#each screenshots as s, i (s.url)}
+									<button
+										class="rounded-field aspect-video w-24 shrink-0 cursor-pointer overflow-hidden border-2 transition-opacity {i ===
+										shotIndex
+											? 'border-primary'
+											: 'border-transparent opacity-60 hover:opacity-100'}"
+										aria-label={s.caption || `${i + 1}`}
+										aria-current={i === shotIndex ? "true" : undefined}
+										onclick={() => (shotIndex = i)}
+									>
+										<img
+											src={s.thumbUrl ?? s.url}
+											alt=""
+											class="h-full w-full object-cover"
+										/>
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</figure>
+				{/if}
 				<article class="prose prose-sm max-w-none">{@html readmeHtml}</article>
 			{:else}
 				<ul class="flex flex-col gap-2">
 					{#each versions as v (v.id)}
-						{@const ok = compatible(v.compat)}
+						{@const ok = isCompatible(v.compat, patch)}
 						{@const what = action(v)}
 						<li class="bg-base-200 rounded-lg p-3" class:opacity-60={!ok}>
 							<div class="flex flex-wrap items-center gap-2">
@@ -164,7 +303,7 @@
 								<span class="text-base-content/60 text-xs"
 									>{fmtSize(v.size)} · {v.publishedAt
 										? new Date(v.publishedAt).toLocaleDateString()
-										: ""} · {describe(v.compat)}</span
+										: ""} · {describeCompat(v.compat)}</span
 								>
 								{#if what !== "installed"}
 									<button
@@ -203,3 +342,11 @@
 		</div>
 	{/if}
 </Modal>
+
+<BugReportModal
+	bind:open={bugOpen}
+	{modId}
+	versions={versions.map((v) => v.version)}
+	defaultVersion={installedVersion ?? ""}
+	defaultGameVersion={patch ?? ""}
+/>

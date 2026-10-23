@@ -15,6 +15,11 @@
 /** Platforms an instance's game install can target. */
 export type GamePlatform = "Win64" | "Win32";
 
+/** Where a Paladins install on this machine was found. */
+export type InstallationSource = "steam" | "epic" | "hirez" | "tempest" | "folder";
+
+export type FoundInstallation = { path: string; source: InstallationSource };
+
 export type SpawnOptions = { env?: Record<string, string> };
 
 export type ShellExecuteResult = {
@@ -98,6 +103,17 @@ export type LegacyUninstallResult = { id: string; name: string | null; code: num
 /** Which mod file "show in explorer" should reveal. */
 export type ModLocation = { kind: "V2"; modId: string } | { kind: "V1"; targetPath: string };
 
+export type ModPackageInfo = {
+	id: string;
+	name: string;
+	version: string;
+	authors: string[];
+	/** The manifest's `icon` path inside the package, when it names one. */
+	icon?: string;
+	/** `[mod].dependencies` entries as written, e.g. "tempest-scripting>=1.0.0" */
+	dependencies: string[];
+};
+
 /** A file the V1→V2 converter imports, read host-side in one round trip. */
 export type ConverterImport = { path: string; name: string; data: ArrayBuffer };
 
@@ -121,6 +137,12 @@ export type CliInstallResult = {
 	/** Whether the shim's directory is on the PATH we can see. */
 	onPath: boolean;
 	/** Why nothing was installed: "cli-not-bundled" (dev run) or an error message. */
+	error?: string;
+};
+
+/** "cancelled": the UAC prompt was declined; "failed" carries what PowerShell or Defender said. */
+export type DefenderExclusionResult = {
+	status: "added" | "cancelled" | "failed";
 	error?: string;
 };
 
@@ -208,7 +230,14 @@ export interface IpcContract {
 
 	// ---- Platforms ----
 	"platforms:detect": { args: { instancePath: string }; result: GamePlatform[] };
-	"platforms:find-steam-paladins": { args: void; result: string | null };
+	/**
+	 * Paladins installs on this machine. `folders` are searched one level deep as Tempest's own
+	 * downloads; `sweep: false` skips looking through the drives beyond the known launchers.
+	 */
+	"platforms:find-paladins": {
+		args: { folders: string[]; sweep?: boolean };
+		result: FoundInstallation[];
+	};
 
 	// ---- Instances ----
 	"instance:paths": { args: { id: string }; result: InstancePaths };
@@ -216,7 +245,29 @@ export interface IpcContract {
 	"instance:game-layout": { args: { instancePath: string }; result: GameLayout };
 
 	// ---- Mods ----
-	"mods:download-to-temp": { args: { url: string; filename: string }; result: string };
+	/**
+	 * With `progressId`, reports progress as `mods:download-progress` events tagged with it.
+	 * With `cache`, the package lands in the per-mod version cache and a cached copy (matching
+	 * `sha256` when given) is returned without downloading.
+	 */
+	"mods:download-to-temp": {
+		args: {
+			url: string;
+			filename: string;
+			progressId?: string;
+			cache?: { modId: string; version: string; sha256?: string };
+		};
+		result: string;
+	};
+	/** Versions of a repository mod kept in the download cache. */
+	"mods:cached-versions": { args: { modId: string }; result: string[] };
+	/** POST to the mod repository from the main process (no Origin header, see repo.ts). */
+	"repo:post-json": {
+		args: { url: string; body: unknown };
+		result: { status: number; body: string };
+	};
+	/** The `[mod]` table of a V2 package's manifest.toml; null for V1 files or unreadable ones. */
+	"mods:read-manifest": { args: { path: string }; result: ModPackageInfo | null };
 	"mods:stage-pack": { args: { filename: string; data: Uint8Array }; result: string };
 	"mods:save-staged-pack": { args: { stagedPath: string }; result: string | null };
 	"mods:save-staged-batch": {
@@ -226,6 +277,8 @@ export interface IpcContract {
 	"mods:discard-staged-pack": { args: { stagedPath: string }; result: void };
 	"mods:open-location": { args: { gamePath: string; mod: ModLocation }; result: void };
 	"mods:has-dlls": { args: { gamePath: string; modId: string }; result: boolean };
+	/** An installed V2 mod's own icon (manifest `icon`, else icon.png) as a data URL; null without one. */
+	"mods:installed-icon": { args: { gamePath: string; modId: string }; result: string | null };
 	"mods:read-file": {
 		args: { basePath: string; modId: string | undefined; path: string };
 		result: { text: string; truncated: boolean };
@@ -265,6 +318,9 @@ export interface IpcContract {
 	// ---- CLI shim (`tempest <command>` in a terminal) ----
 	"cli:install": { args: void; result: CliInstallResult };
 	"cli:status": { args: void; result: CliInstallResult };
+
+	// ---- Windows Defender (folders the CLI reported as blocked; prompts for UAC) ----
+	"defender:add-exclusions": { args: { paths: string[] }; result: DefenderExclusionResult };
 }
 
 /** Channels the host pushes to the renderer. */
@@ -278,6 +334,8 @@ export interface IpcEvents {
 	/** Child-process stream events, demultiplexed by pid. */
 	"shell:process": ShellProcessEvent;
 	"updater:download-progress": UpdaterProgress;
+	/** `total` is null when the server sends no Content-Length. */
+	"mods:download-progress": { id: string; received: number; total: number | null };
 }
 
 export type IpcChannel = Extract<keyof IpcContract, string>;

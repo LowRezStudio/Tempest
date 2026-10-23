@@ -1,3 +1,4 @@
+import { createQuery } from "@tanstack/svelte-query";
 import { fetch } from "$lib/platform/api";
 import { persistedState } from "$lib/stores/persisted.svelte";
 
@@ -5,6 +6,8 @@ export type LatestRelease = {
 	version: string;
 	body: string;
 	pub_date: string;
+	/** The release's GitHub page; missing from releases cached before it was stored. */
+	url?: string;
 };
 
 export const cachedReleaseNotes = persistedState<LatestRelease | null>("homeReleaseNotes", null);
@@ -25,6 +28,7 @@ export async function fetchLatestRelease(): Promise<LatestRelease | null> {
 			version: data.tag_name?.replace(/^v/, "") ?? "",
 			body,
 			pub_date: data.published_at ?? "",
+			url: data.html_url,
 		};
 		cachedReleaseNotes.value = release;
 		return release;
@@ -32,3 +36,13 @@ export async function fetchLatestRelease(): Promise<LatestRelease | null> {
 		return null;
 	}
 }
+
+export const createLatestReleaseQuery = () =>
+	createQuery(() => ({
+		queryKey: ["latest-release"],
+		// Offline or rate limited: keep showing the last known release.
+		queryFn: async () => (await fetchLatestRelease()) ?? cachedReleaseNotes.value,
+		placeholderData: () => cachedReleaseNotes.value ?? undefined,
+		staleTime: 15 * 60 * 1000,
+		retry: 1,
+	}));

@@ -373,6 +373,21 @@ internal static class WineExtensions
         return output.Contains($"\"{pid}\"");
     }
 
+    public static async Task KillWinePid(int pid)
+    {
+        var process = new Process();
+
+        process.StartInfo.FileName = "taskkill.exe";
+        process.StartInfo.Arguments = $"/F /T /PID {pid}";
+        process.StartInfo.RedirectStandardOutput = true;
+        process.StartInfo.CreateNoWindow = true;
+
+        process.UseWineBinary().Start();
+
+        await process.StandardOutput.ReadToEndAsync();
+        await process.WaitForExitAsync();
+    }
+
     private static string? ResolveProtonDirectory()
     {
         var env = Environment.GetEnvironmentVariable("PROTON");

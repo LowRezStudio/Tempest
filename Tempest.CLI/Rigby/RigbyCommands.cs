@@ -16,6 +16,7 @@ internal sealed class RigbyCommands
         string? baseUrl = null,
         bool json = false,
         bool noDownload = false,
+        bool resume = false,
         CancellationToken cancellationToken = default)
     {
         if (manifests.Length == 0)
@@ -61,7 +62,7 @@ internal sealed class RigbyCommands
             }
         }
 
-        var stats = await RunRestoreAsync(tasks, chunksRootFull, baseUrl, noDownload, json, http, cancellationToken);
+        var stats = await RunRestoreAsync(tasks, outRoot, chunksRootFull, baseUrl, noDownload, resume, json, http, cancellationToken);
         var deletedFiles = RigbyOutputLayout.DeleteUnexpectedFiles(outRoot, expectedFiles);
 
         if (json)
@@ -88,9 +89,11 @@ internal sealed class RigbyCommands
 
     private static async Task<RestoreStats> RunRestoreAsync(
         IReadOnlyList<RestoreTask> tasks,
+        string outRoot,
         string? chunksRoot,
         string? baseUrl,
         bool noDownload,
+        bool resume,
         bool json,
         HttpClient http,
         CancellationToken cancellationToken)
@@ -105,20 +108,47 @@ internal sealed class RigbyCommands
             ? new JsonRestoreProgress(totalFiles, totalBytes)
             : new RestoreProgress(totalFiles, totalBytes);
 
-        await Parallel.ForEachAsync(
-            tasks,
-            new ParallelOptions
+        using (var state = RigbyResumeState.Open(outRoot, resume))
+        {
+            // Count everything an interrupted run finished before starting, so the first progress
+            // event picks up where that run stopped instead of climbing back to it.
+            var remaining = new List<(RestoreTask Task, long ResumedPrefix)>(tasks.Count);
+            foreach (var task in tasks)
             {
-                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount),
-                CancellationToken = cancellationToken
-            },
-            async (task, ct) =>
-            {
-                var result = await RigbyRestoreEngine.RestoreOneAsync(task, chunksRoot, baseUrl, noDownload, http, progress, ct);
-                stats.Add(result);
-                progress.FileCompleted(result);
-            });
+                if (state.TryGetFinished(task, out var finished))
+                {
+                    stats.Add(finished);
+                    progress.FileResumed(task.File.Size, finished);
+                    continue;
+                }
 
+                var prefix = resume ? RigbyRestoreEngine.ResumablePrefix(task) : 0;
+                if (prefix > 0)
+                    progress.BytesResumed(prefix);
+
+                remaining.Add((task, prefix));
+            }
+
+            progress.Flush();
+
+            await Parallel.ForEachAsync(
+                remaining,
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount),
+                    CancellationToken = cancellationToken
+                },
+                async (entry, ct) =>
+                {
+                    var (task, prefix) = entry;
+                    var result = await RigbyRestoreEngine.RestoreOneAsync(task, prefix, chunksRoot, baseUrl, noDownload, http, progress, ct);
+                    state.MarkFinished(task, result);
+                    stats.Add(result);
+                    progress.FileCompleted(result);
+                });
+        }
+
+        RigbyResumeState.Delete(outRoot);
         return stats;
     }
 }
