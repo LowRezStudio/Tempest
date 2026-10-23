@@ -2,6 +2,7 @@
 	import { Check, Download, ExternalLink, LifeBuoy } from "@lucide/svelte";
 	import { createQuery } from "@tanstack/svelte-query";
 	import { marked } from "marked";
+	import ModFileTree from "$lib/components/mods/ModFileTree.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { kindLabel } from "$lib/mods/listing";
 	import { installFromRepo } from "$lib/mods/repoInstall";
@@ -19,6 +20,7 @@
 	import BugReportModal from "./BugReportModal.svelte";
 	import RepoModIcon from "./RepoModIcon.svelte";
 	import RepoTrustBadge from "./RepoTrustBadge.svelte";
+	import type { ModRecord } from "$lib/core/mods";
 	import type { RepoVersion } from "$lib/queries/repo";
 
 	interface Props {
@@ -28,6 +30,7 @@
 		patch: string | undefined;
 		installedVersion?: string;
 		isRunning: boolean;
+		installedMod?: ModRecord;
 	}
 
 	let {
@@ -37,6 +40,7 @@
 		patch,
 		installedVersion,
 		isRunning,
+		installedMod,
 	}: Props = $props();
 
 	const modQuery = createQuery(() => ({
@@ -53,7 +57,7 @@
 	}));
 
 	let installing = $state<string | null>(null);
-	let tab = $state<"readme" | "versions">("readme");
+	let tab = $state<"readme" | "versions" | "files">("readme");
 	let bugOpen = $state(false);
 
 	const readmeHtml = $derived(
@@ -216,9 +220,26 @@
 				>
 					{m.repo_tab_versions({ count: versions.length })}
 				</button>
+				{#if installedMod}
+					<button
+						role="tab"
+						class="tab"
+						class:tab-active={tab === "files"}
+						onclick={() => (tab = "files")}
+					>
+						Managed Files ({installedMod.InstalledFiles?.length ?? 0})
+					</button>
+				{/if}
 			</div>
 
-			{#if tab === "readme"}
+			{#if tab === "files" && installedMod}
+				<ModFileTree
+					files={installedMod.InstalledFiles}
+					basePath={gamePath}
+					modId={installedMod.Id}
+					ownedFiles={installedMod.OwnedFiles}
+				/>
+			{:else if tab === "readme"}
 				{#if screenshots.length > 0}
 					{@const shot = screenshots[Math.min(shotIndex, screenshots.length - 1)]!}
 					<figure class="flex flex-col gap-2">

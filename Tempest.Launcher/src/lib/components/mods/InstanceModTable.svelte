@@ -189,6 +189,7 @@
 				</button>
 			</th>
 			<th class="w-48">{m.common_version()}</th>
+			<th class="w-16 text-center">Enabled</th>
 			<th class="w-auto text-right">
 				<button
 					class="hover:text-primary inline-flex cursor-pointer items-center gap-1 text-sm font-semibold whitespace-nowrap tabular-nums transition-colors disabled:opacity-40"
@@ -325,6 +326,17 @@
 						{/if}
 					</div>
 				</td>
+				<td class="text-center">
+					<input
+						type="checkbox"
+						class="toggle toggle-sm toggle-primary"
+						checked={mod.Enabled}
+						disabled={!!busy}
+						onchange={(e) => handleToggle(mod, e.currentTarget)}
+						title={mod.Enabled ? "Disable mod" : "Enable mod"}
+						aria-label={mod.Enabled ? "Disable mod" : "Enable mod"}
+					/>
+				</td>
 				<td>
 					<div class="flex items-center justify-end gap-1">
 						{#if repo}
@@ -345,15 +357,13 @@
 								<ExternalLink size={14} />
 							</button>
 						{/if}
-						<input
-							type="checkbox"
-							class="toggle toggle-sm toggle-primary mx-1"
-							checked={mod.Enabled}
-							disabled={!!busy}
-							onchange={(e) => handleToggle(mod, e.currentTarget)}
-							title={mod.Enabled ? "Disable mod" : "Enable mod"}
-							aria-label={mod.Enabled ? "Disable mod" : "Enable mod"}
-						/>
+						<button
+							class="btn btn-sm btn-square btn-ghost"
+							onclick={() => showInExplorer(mod)}
+							title={m.mod_show_in_explorer()}
+						>
+							<FolderOpen size={14} />
+						</button>
 						<button
 							class="btn btn-sm btn-square btn-ghost hover:text-error"
 							disabled={!!busy}
@@ -361,13 +371,6 @@
 							title="Delete mod"
 						>
 							<Trash2 size={14} />
-						</button>
-						<button
-							class="btn btn-sm btn-square btn-ghost"
-							onclick={() => showInExplorer(mod)}
-							title={m.mod_show_in_explorer()}
-						>
-							<FolderOpen size={14} />
 						</button>
 					</div>
 				</td>
@@ -399,16 +402,18 @@
 				<td>
 					<p class="text-sm font-semibold">{install.version ?? ""}</p>
 				</td>
+				<td class="text-center">
+					<input
+						type="checkbox"
+						class="toggle toggle-sm toggle-primary"
+						checked
+						disabled
+						aria-label="Enable mod"
+					/>
+				</td>
 				<td>
 					<div class="flex items-center justify-end gap-1">
 						<div class="flex items-center gap-1 opacity-40">
-							<input
-								type="checkbox"
-								class="toggle toggle-sm toggle-primary mx-1"
-								checked
-								disabled
-								aria-label="Enable mod"
-							/>
 							<button
 								class="btn btn-sm btn-square btn-ghost"
 								disabled
