@@ -11,6 +11,7 @@ import {
 	queueRunning,
 	queueRunningId,
 	queueRunningPid,
+	SPEED_SAMPLE_MS,
 	SPEED_WINDOW_MS,
 	speedSamples,
 } from "./stores.svelte";
@@ -42,6 +43,9 @@ export class RestoreQueue {
 	private pendingSpawn: Promise<Child | null> | null = null;
 	private runningOutDir: string | null = null;
 	private runningItemId: string | null = null;
+	/** The item speedSamples belong to, and when it was paused */
+	private sampledItemId: string | null = null;
+	private pausedAt: number | null = null;
 
 	add(options: Omit<QueueItem, "id" | "status" | "result" | "error">): string {
 		const item: QueueItem = {
@@ -148,7 +152,12 @@ export class RestoreQueue {
 			const itemId = this.runningItemId;
 			const item = queueItems.value.find((i) => i.id === itemId);
 
-			this.updateItem(itemId, { status: "paused", progress: undefined });
+			// The graph drops to zero where the download stopped and keeps its history.
+			this.pausedAt = Date.now();
+			speedSamples.value = [...speedSamples.value, { at: this.pausedAt, bytesPerSecond: 0 }];
+
+			// The last progress stays, so the Downloads hero keeps showing how far it got.
+			this.updateItem(itemId, { status: "paused" });
 			if (item) {
 				this.updateInstanceState(item.outDir, "paused");
 			}
@@ -226,9 +235,9 @@ export class RestoreQueue {
 		const allOthersPaused = otherItems.every((i) => i.status === "paused");
 
 		if (allOthersPaused) {
-			queueItems.value = [{ ...item, status: "pending", progress: undefined }, ...otherItems];
+			queueItems.value = [{ ...item, status: "pending" }, ...otherItems];
 		} else {
-			this.updateItem(id, { status: "pending", progress: undefined });
+			this.updateItem(id, { status: "pending" });
 		}
 
 		this.start();
@@ -253,8 +262,8 @@ export class RestoreQueue {
 		queueCurrentIndex.value = nextIndex;
 
 		const item = items[nextIndex];
-		speedSamples.value = [];
-		this.updateItem(item.id, { status: "running" });
+		this.continueSpeedSamples(item.id);
+		this.updateItem(item.id, { status: "running", started: true });
 		this.updateInstanceState(item.outDir, "downloading");
 
 		try {
@@ -294,6 +303,10 @@ export class RestoreQueue {
 		}
 		if (item.noDownload) {
 			args.push({ "--no-download": true });
+		}
+		// `item` is from before processNext marked it started: set only when an earlier run was cut off.
+		if (item.started) {
+			args.push({ "--resume": true });
 		}
 
 		appendProcessLog(`Restore args: ${JSON.stringify(args)}`, false, "rigby-queue");
@@ -541,10 +554,29 @@ export class RestoreQueue {
 		}
 	}
 
+	/**
+	 * Starts the speed graph over for a different item. Resuming the same item keeps its graph and
+	 * moves it up to now, so the pause leaves a dip instead of a gap as long as the pause.
+	 * @param itemId - The item about to run.
+	 */
+	private continueSpeedSamples(itemId: string): void {
+		if (this.sampledItemId !== itemId) {
+			speedSamples.value = [];
+		} else if (this.pausedAt !== null) {
+			const shift = Date.now() - this.pausedAt;
+			speedSamples.value = speedSamples.value.map((sample) => ({
+				...sample,
+				at: sample.at + shift,
+			}));
+		}
+		this.sampledItemId = itemId;
+		this.pausedAt = null;
+	}
+
 	private recordSpeed(bytesPerSecond: number): void {
 		const now = Date.now();
 		const samples = speedSamples.value;
-		if (now - (samples.at(-1)?.at ?? 0) < 1000) return;
+		if (now - (samples.at(-1)?.at ?? 0) < SPEED_SAMPLE_MS) return;
 		speedSamples.value = [
 			...samples.filter((sample) => now - sample.at <= SPEED_WINDOW_MS),
 			{ at: now, bytesPerSecond },
@@ -553,7 +585,7 @@ export class RestoreQueue {
 
 	private updateItem(
 		id: string,
-		updates: Partial<Pick<QueueItem, "status" | "result" | "error" | "progress">>,
+		updates: Partial<Pick<QueueItem, "status" | "started" | "result" | "error" | "progress">>,
 	): void {
 		const items = queueItems.value;
 		const index = items.findIndex((item) => item.id === id);

@@ -39,6 +39,8 @@ export interface QueueItem {
 	/** Checks an install already in the library rather than downloading a new one */
 	repair?: boolean;
 	status: "pending" | "running" | "paused" | "complete" | "error";
+	/** Ran before, so the next run resumes from the files that run finished */
+	started?: boolean;
 	result?: RestoreResult;
 	progress?: ProgressEvent;
 	error?: string;
@@ -53,7 +55,10 @@ export interface SpeedSample {
 /** How far back speedSamples reaches, the window the downloads page graphs */
 export const SPEED_WINDOW_MS = 120_000;
 
-/** The running download's speed, about once a second; in memory only, so it restarts with the app */
+/** How often speedSamples takes the running download's speed */
+export const SPEED_SAMPLE_MS = 250;
+
+/** The running download's speed, every SPEED_SAMPLE_MS; in memory only, so it restarts with the app */
 export const speedSamples = $state({ value: [] as SpeedSample[] });
 
 export const restoreStatus = hostState<RestoreStatus>("rigby:status", "idle");

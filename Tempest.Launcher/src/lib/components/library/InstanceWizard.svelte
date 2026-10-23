@@ -1,4 +1,5 @@
 ﻿<script lang="ts">
+	import { goto } from "$app/navigation";
 	import {
 		Check,
 		ChevronDown,
@@ -427,6 +428,7 @@
 				baseUrl: RIGBY_BASE_URL,
 			});
 			open = false;
+			void goto("/downloads");
 			return;
 		}
 

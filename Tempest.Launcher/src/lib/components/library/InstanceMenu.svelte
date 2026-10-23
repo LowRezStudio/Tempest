@@ -67,9 +67,7 @@
 
 	function handleRestore() {
 		if (isSettingUp) return;
-		if (verifyFiles(instance) && isOnInstancePage) {
-			goto("/downloads");
-		}
+		if (verifyFiles(instance)) void goto("/downloads");
 	}
 </script>
 

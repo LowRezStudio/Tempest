@@ -1,13 +1,11 @@
 <script lang="ts">
 	import {
 		Clock,
-		CloudDownload,
 		Files,
 		FolderOpen,
 		HardDrive,
 		Play,
 		RotateCcw,
-		ShieldCheck,
 		Wrench,
 		X,
 	} from "@lucide/svelte";
@@ -53,6 +51,22 @@
 	});
 </script>
 
+<!-- No `?` on snippet parameters: Svelte leaves it in the compiled JS and the module fails to load -->
+{#snippet info(text: string, Icon: typeof Clock | null = null, tone = "", title = "")}
+	<span
+		class={[
+			"flex min-w-0 items-center gap-1 text-xs whitespace-nowrap tabular-nums",
+			tone || "text-base-content/60",
+		]}
+		title={title || text}
+	>
+		{#if Icon}
+			<Icon size={12} class="shrink-0" />
+		{/if}
+		<span class="truncate">{text}</span>
+	</span>
+{/snippet}
+
 <li
 	class="hover:bg-base-300/40 @container relative flex items-center gap-4 p-3 transition-colors"
 	class:pending-row={settingUp}
@@ -71,8 +85,12 @@
 		{/if}
 	</div>
 
-	<div class="min-w-0 flex-1">
-		<div class="flex min-w-0 items-center gap-2">
+	<!-- One grid, so each line of stats sits on the subtitle line beside it. Every slot renders
+	     (empty when there is nothing to say) to keep the cells in their columns. -->
+	<div
+		class="grid min-w-0 flex-1 grid-cols-2 items-center gap-x-3 gap-y-0.5 @2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] @2xl:gap-x-4"
+	>
+		<div class="col-span-full flex min-w-0 items-center gap-2">
 			{#if href}
 				<!-- The whole row opens the instance; the stretched link keeps it one tab stop. -->
 				<a
@@ -92,57 +110,52 @@
 				>
 			{/if}
 		</div>
-		<p class="text-base-content/70 line-clamp-1 text-sm">
+
+		<p class="text-base-content/70 col-span-full line-clamp-1 text-sm @2xl:col-span-1">
 			{instance ? patchSummary(instance) : item.outDir}
 		</p>
-		<div
-			class="text-base-content/60 mt-1 flex items-center gap-x-3 overflow-hidden text-xs whitespace-nowrap"
-		>
-			<span class="flex items-center gap-1">
-				{#if item.repair}
-					<ShieldCheck size={12} />
-					{m.downloads_kind_verify()}
-				{:else}
-					<CloudDownload size={12} />
-					{m.downloads_kind_download()}
-				{/if}
-			</span>
-			{#if item.status === "pending"}
-				<span>{m.common_waiting_in_queue()}</span>
-			{:else if item.status === "paused"}
-				<span>{m.downloads_resumes()}</span>
-			{:else if item.status === "error"}
-				<span class="text-error min-w-0 truncate" title={item.error}>{item.error}</span>
-			{:else if item.status === "complete" && item.result}
-				<span class="flex items-center gap-1 tabular-nums">
-					<Files size={12} />
-					{m.downloads_file_count({ count: item.result.files })}
-				</span>
-				<span class="flex items-center gap-1 tabular-nums">
-					<HardDrive size={12} />
-					{m.downloads_written_size({ size: formatBytes(item.result.diskWriteBytes) })}
-				</span>
-				{#if item.result.repairedFiles > 0}
-					<span class="text-warning flex items-center gap-1 tabular-nums">
-						<Wrench size={12} />
-						{m.downloads_repaired_count({ count: item.result.repairedFiles })}
-					</span>
-				{/if}
-				{#if item.finishedAt}
-					<span
-						class="flex items-center gap-1"
-						title={new Date(item.finishedAt).toLocaleString()}
-					>
-						<Clock size={12} />
-						{relativeDate(new Date(item.finishedAt).toISOString())}
-					</span>
-				{/if}
+		{#if item.status === "pending"}
+			{@render info(m.common_waiting_in_queue())}
+			<span></span>
+		{:else if item.status === "paused"}
+			{@render info(m.downloads_resumes(), null, "col-span-2 text-base-content/60")}
+		{:else if item.status === "error"}
+			{@render info(item.error ?? "", null, "col-span-2 text-error")}
+		{:else if item.status === "complete" && item.result}
+			{@render info(m.downloads_file_count({ count: item.result.files }), Files)}
+			{@render info(
+				m.downloads_written_size({ size: formatBytes(item.result.diskWriteBytes) }),
+				HardDrive,
+			)}
+		{:else}
+			<span class="col-span-2"></span>
+		{/if}
+
+		<div class="hidden min-w-0 @2xl:block">
+			{#if instance}
+				{@render info(item.outDir, FolderOpen)}
 			{/if}
-			<span class="hidden min-w-0 items-center gap-1 @2xl:flex" title={item.outDir}>
-				<FolderOpen size={12} class="shrink-0" />
-				<span class="truncate">{item.outDir}</span>
-			</span>
 		</div>
+		{#if item.status === "complete" && item.result}
+			{#if item.finishedAt}
+				{@render info(
+					relativeDate(new Date(item.finishedAt).toISOString()),
+					Clock,
+					"",
+					new Date(item.finishedAt).toLocaleString(),
+				)}
+			{:else}
+				<span></span>
+			{/if}
+			<!-- A download writes every file, so only a check has repairs worth pointing out -->
+			{#if item.repair && item.result.repairedFiles > 0}
+				{@render info(
+					m.downloads_repaired_count({ count: item.result.repairedFiles }),
+					Wrench,
+					"text-warning",
+				)}
+			{/if}
+		{/if}
 	</div>
 
 	<!-- Above the stretched link, so these stay their own controls. -->
@@ -157,8 +170,6 @@
 				<RotateCcw size={14} />
 				{m.common_retry()}
 			</button>
-		{:else if href}
-			<a {href} class="btn btn-sm min-w-24">{m.downloads_open()}</a>
 		{/if}
 		{#if item.status === "complete"}
 			<button

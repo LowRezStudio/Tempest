@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Download, Info, Pause, Play, ShieldCheck } from "@lucide/svelte";
+	import { Download } from "@lucide/svelte";
 	import DownloadHero from "$lib/components/downloads/DownloadHero.svelte";
 	import DownloadRow from "$lib/components/downloads/DownloadRow.svelte";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
@@ -11,6 +11,7 @@
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { queueItems, queueRunning } from "$lib/rigby/stores.svelte";
 	import { instanceMap, updateInstance } from "$lib/stores/instance.svelte";
+	import { persistedState } from "$lib/stores/persisted.svelte";
 	import type { QueueItem } from "$lib/rigby/stores.svelte";
 	import type { Instance } from "$lib/types/instance";
 
@@ -25,7 +26,16 @@
 	const written = $derived(
 		finished.reduce((total, item) => total + (item.result?.diskWriteBytes ?? 0), 0),
 	);
-	const anyPaused = $derived(waiting.some((item) => item.status === "paused"));
+	// The last finished download stays in the hero until it's closed.
+	const closedHero = persistedState<string | null>("downloads:closedHero", null);
+	const lastFinished = $derived(finished[0]?.id === closedHero.value ? undefined : finished[0]);
+	// With the queue stopped, the item it takes next stays in the hero instead of the list.
+	const featured = $derived(
+		current ??
+			(waiting.length > 0 ? (queueRunning.value ? undefined : waiting[0]) : lastFinished),
+	);
+	const upNext = $derived(waiting.filter((item) => item !== featured));
+	const finishedList = $derived(finished.filter((item) => item !== featured));
 	const currentPercent = $derived(Math.round(current?.progress?.percent ?? 0));
 
 	const instanceAt = (path: string) =>
@@ -40,6 +50,11 @@
 		if (instance && !item.repair && !item.noDownload) {
 			cancelling = { item, instance };
 			confirmOpen = true;
+			return;
+		}
+		if (item.status === "running") {
+			// Stops the child too, and puts the instance back to prepared.
+			void restoreQueue.cancel(item.outDir);
 			return;
 		}
 		restoreQueue.remove(item.id);
@@ -125,104 +140,79 @@
 						<p class="text-base-content/60 text-sm">{m.downloads_empty_hint()}</p>
 					</div>
 					<NewInstanceOption tab="download" />
-					<p class="text-base-content/60 flex items-start gap-2 text-xs">
-						<ShieldCheck size={14} class="mt-px shrink-0" />
-						{m.downloads_verify_hint()}
-					</p>
 				</div>
 			</div>
 		{:else}
-			<div
-				class="mx-auto grid w-full max-w-6xl items-start gap-x-6 gap-y-6 px-4 py-6 @3xl:grid-cols-[minmax(0,1fr)_18rem]"
-			>
-				<div class="flex min-w-0 flex-col gap-6">
-					{#if current}
-						<DownloadHero item={current} instance={instanceAt(current.outDir)} />
-					{:else if waiting.length > 0 && !queueRunning.value}
-						<section
-							class="bg-base-200 border-base-300 rounded-box flex items-center gap-4 border p-4"
-						>
-							<span
-								class="bg-warning/15 text-warning flex size-10 shrink-0 items-center justify-center rounded-full"
-							>
-								<Pause size={18} />
-							</span>
-							<div class="min-w-0 flex-1">
-								<h2 class="font-semibold">{m.downloads_queue_paused()}</h2>
-								<p class="text-base-content/60 text-sm">
-									{m.downloads_queue_paused_hint({ count: waiting.length })}
-								</p>
-							</div>
-							<button
-								class="btn btn-primary btn-sm"
-								onclick={() => restoreQueue.start()}
-							>
-								<Play size={14} />
-								{anyPaused ? m.library_resume() : m.common_start()}
-							</button>
-						</section>
-					{/if}
+			<div class="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
+				{#if featured}
+					<DownloadHero
+						item={featured}
+						instance={instanceAt(featured.outDir)}
+						oncancel={cancel}
+						onclose={(item) => (closedHero.value = item.id)}
+					/>
+				{/if}
 
-					{#if failed.length > 0}
-						{@render list(m.downloads_failed_heading(), failed)}
-					{/if}
-					{#if waiting.length > 0}
-						{@render list(m.downloads_up_next(), waiting)}
-					{/if}
-					{#if finished.length > 0}
-						{@render list(m.downloads_finished(), finished, true)}
-					{/if}
-				</div>
-
-				<aside class="flex flex-col gap-4 @3xl:sticky @3xl:top-6">
-					<dl
-						class="bg-base-200 border-base-300 rounded-box grid grid-cols-2 gap-3 border p-4 text-sm"
-					>
-						<div>
-							<dt class="text-base-content/60 text-xs">
-								{m.downloads_stat_queued()}
-							</dt>
-							<dd class="font-semibold tabular-nums">{waiting.length}</dd>
-						</div>
-						<div>
-							<dt class="text-base-content/60 text-xs">
-								{m.downloads_stat_finished()}
-							</dt>
-							<dd class="font-semibold tabular-nums">{finished.length}</dd>
-						</div>
-						<div>
-							<dt class="text-base-content/60 text-xs">
-								{m.downloads_stat_failed()}
-							</dt>
-							<dd
-								class="font-semibold tabular-nums"
-								class:text-error={failed.length > 0}
-							>
-								{failed.length}
-							</dd>
-						</div>
-						<div>
-							<dt class="text-base-content/60 text-xs">
-								{m.downloads_stat_written()}
-							</dt>
-							<dd class="font-semibold tabular-nums">{formatBytes(written)}</dd>
-						</div>
-					</dl>
-					<div
-						class="bg-base-200 border-base-300 rounded-box flex flex-col gap-2 border p-4"
-					>
-						<h2 class="text-sm font-semibold">{m.downloads_add_heading()}</h2>
-						<NewInstanceOption tab="download" />
-						<p class="text-base-content/60 mt-1 flex items-start gap-2 text-xs">
-							<ShieldCheck size={14} class="mt-px shrink-0" />
-							{m.downloads_verify_hint()}
-						</p>
-						<p class="text-base-content/60 flex items-start gap-2 text-xs">
-							<Info size={14} class="mt-px shrink-0" />
-							{m.downloads_tray_hint()}
-						</p>
+				<div class="grid items-start gap-6 @3xl:grid-cols-[minmax(0,1fr)_18rem]">
+					<div class="flex min-w-0 flex-col gap-6">
+						{#if failed.length > 0}
+							{@render list(m.downloads_failed_heading(), failed)}
+						{/if}
+						{#if upNext.length > 0}
+							{@render list(m.downloads_up_next(), upNext)}
+						{/if}
+						{#if finishedList.length > 0}
+							{@render list(m.downloads_finished(), finishedList, true)}
+						{/if}
 					</div>
-				</aside>
+
+					<aside class="flex flex-col gap-6 @3xl:sticky @3xl:top-6">
+						<!-- Headed like the lists, so it lines up with the first of them -->
+						<section>
+							<div class="mb-2 flex min-h-6 items-center text-sm">
+								<h2 class="font-semibold">{m.downloads_add_heading()}</h2>
+							</div>
+							<div
+								class="bg-base-200 border-base-300 rounded-box overflow-hidden border"
+							>
+								<NewInstanceOption tab="download" look="row" />
+							</div>
+						</section>
+						<dl
+							class="bg-base-200 border-base-300 rounded-box grid grid-cols-2 gap-3 border p-4 text-sm"
+						>
+							<div>
+								<dt class="text-base-content/60 text-xs">
+									{m.downloads_stat_queued()}
+								</dt>
+								<dd class="font-semibold tabular-nums">{waiting.length}</dd>
+							</div>
+							<div>
+								<dt class="text-base-content/60 text-xs">
+									{m.downloads_stat_finished()}
+								</dt>
+								<dd class="font-semibold tabular-nums">{finished.length}</dd>
+							</div>
+							<div>
+								<dt class="text-base-content/60 text-xs">
+									{m.downloads_stat_failed()}
+								</dt>
+								<dd
+									class="font-semibold tabular-nums"
+									class:text-error={failed.length > 0}
+								>
+									{failed.length}
+								</dd>
+							</div>
+							<div>
+								<dt class="text-base-content/60 text-xs">
+									{m.downloads_stat_written()}
+								</dt>
+								<dd class="font-semibold tabular-nums">{formatBytes(written)}</dd>
+							</div>
+						</dl>
+					</aside>
+				</div>
 			</div>
 		{/if}
 	</div>
