@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -45,20 +46,22 @@ internal class BuildCommands
         var fileColumns = header.Skip(5).ToArray();
         var rows = lines.Skip(1).Select(l => l.Split(',')).Where(p => p.Length >= header.Length).ToArray();
 
-        var localHashes = new Dictionary<string, string>();
-        foreach (var file in fileColumns)
+        // The files are independent, and a real install's TgClient.upk alone is over a gigabyte, so hash them in parallel.
+        var localHashes = new ConcurrentDictionary<string, string>();
+        await Parallel.ForEachAsync(fileColumns, (file, _) =>
         {
             var fullPath = ResolvePath(path, file);
-            if (fullPath == null || !File.Exists(fullPath)) continue;
+            if (fullPath == null || !File.Exists(fullPath)) return ValueTask.CompletedTask;
             try
             {
-                localHashes[file] = await GetFileHashAsync(fullPath);
+                localHashes[file] = GetFileHash(fullPath);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 Console.Error.WriteLine($"Could not read {fullPath}: {e.Message}");
             }
-        }
+            return ValueTask.CompletedTask;
+        });
 
         BuildInfo? bestMatch = null;
         int bestMatchCount = 0;
@@ -191,12 +194,10 @@ internal class BuildCommands
         }
     }
 
-    private static async Task<string> GetFileHashAsync(string filePath)
+    private static string GetFileHash(string filePath)
     {
-        using var sha1 = SHA1.Create();
         using var stream = File.OpenRead(filePath);
-        var hash = await sha1.ComputeHashAsync(stream);
-        return Convert.ToHexStringLower(hash);
+        return Convert.ToHexStringLower(SHA1.HashData(stream));
     }
 }
 
