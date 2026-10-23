@@ -29,7 +29,7 @@
 	);
 </script>
 
-<Modal bind:open title={mod?.Name || "Mod Details"} class="max-w-2xl">
+<Modal bind:open title={mod?.Name || m.mod_details_title()} class="max-w-2xl">
 	<div class="space-y-4">
 		{#if mod}
 			<Tabs.Root bind:value={tab}>
@@ -38,19 +38,19 @@
 						value="details"
 						class="tab data-[state=active]:tab-active rounded-lg transition-all"
 					>
-						Details
+						{m.mod_details_tab_details()}
 					</Tabs.Trigger>
 					<Tabs.Trigger
 						value="readme"
 						class="tab data-[state=active]:tab-active rounded-lg transition-all"
 					>
-						Readme
+						{m.mod_details_tab_readme()}
 					</Tabs.Trigger>
 					<Tabs.Trigger
 						value="files"
 						class="tab data-[state=active]:tab-active rounded-lg transition-all"
 					>
-						Managed Files ({mod.InstalledFiles?.length ?? 0})
+						{m.mod_details_tab_files({ count: mod.InstalledFiles?.length ?? 0 })}
 					</Tabs.Trigger>
 				</Tabs.List>
 			</Tabs.Root>
@@ -60,7 +60,9 @@
 					<div class="flex h-full flex-col space-y-4 overflow-hidden">
 						<div class="stats bg-base-200 w-full shrink-0">
 							<div class="stat">
-								<div class="stat-title text-xs opacity-75">Version</div>
+								<div class="stat-title text-xs opacity-75">
+									{m.common_version()}
+								</div>
 								<div
 									class="stat-value text-primary font-mono text-sm font-semibold"
 								>
@@ -68,7 +70,9 @@
 								</div>
 							</div>
 							<div class="stat">
-								<div class="stat-title text-xs opacity-75">Format / Kind</div>
+								<div class="stat-title text-xs opacity-75">
+									{m.mod_details_format_kind()}
+								</div>
 								<div class="stat-value text-sm font-semibold">
 									{mod.Kind}
 								</div>
@@ -79,7 +83,7 @@
 							class="bg-base-200 rounded-box flex flex-1 flex-col gap-2 overflow-hidden p-4"
 						>
 							<span class="text-xs font-semibold tracking-wider uppercase opacity-70"
-								>Mod Authors</span
+								>{m.mod_details_authors()}</span
 							>
 							<div class="flex-1 space-y-2 overflow-y-auto pr-1">
 								{#if mod.Authors && mod.Authors.length > 0}
@@ -113,7 +117,7 @@
 								{:else}
 									<div class="bg-base-200/50 flex flex-col gap-1 rounded-xl p-3">
 										<h4 class="truncate text-sm font-bold">
-											{mod.Author || "Unknown"}
+											{mod.Author || m.common_unknown()}
 										</h4>
 									</div>
 								{/if}
@@ -141,7 +145,7 @@
 							{/if}
 						{:else}
 							<p class="py-12 text-center italic opacity-50">
-								No readme provided for this mod.
+								{m.mod_details_no_readme()}
 							</p>
 						{/if}
 					</div>

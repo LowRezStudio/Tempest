@@ -92,7 +92,9 @@
 					· <span class="text-success">{m.library_running({ count: runningCount })}</span>
 				{/if}
 				{#if downloadingCount > 0}
-					· {m.library_downloading({ count: downloadingCount })}
+					{#if runningCount > 0}
+						·
+					{/if}{m.library_downloading({ count: downloadingCount })}
 				{/if}
 			</span>
 		{/snippet}
@@ -120,39 +122,36 @@
 			<div
 				class="mx-auto grid w-full max-w-6xl items-start gap-x-6 gap-y-4 px-4 py-6 @3xl:grid-cols-[minmax(0,1fr)_18rem]"
 			>
-				<section class="min-w-0">
-					<form
-						class="mb-3 flex items-center gap-2"
-						role="search"
-						onsubmit={(e) => e.preventDefault()}
+				<form
+					class="flex items-center gap-2 @3xl:col-span-2"
+					role="search"
+					onsubmit={(e) => e.preventDefault()}
+				>
+					<label class="input input-sm min-w-0 flex-1">
+						<Search size={14} class="opacity-50" />
+						<input
+							type="search"
+							class="grow"
+							placeholder={m.library_search_placeholder()}
+							aria-label={m.common_search()}
+							bind:this={searchInput}
+							bind:value={query}
+							onkeydown={onSearchKey}
+						/>
+					</label>
+					<LibraryArrangeMenu />
+					<button
+						type="button"
+						class="btn btn-primary btn-sm @3xl:hidden"
+						onclick={() => openInstanceWizard()}
 					>
-						<label class="input input-sm min-w-0 flex-1">
-							<Search size={14} class="opacity-50" />
-							<input
-								type="search"
-								class="grow"
-								placeholder={m.library_search_placeholder()}
-								aria-label={m.common_search()}
-								bind:this={searchInput}
-								bind:value={query}
-								onkeydown={onSearchKey}
-							/>
-						</label>
-						<LibraryArrangeMenu />
-						<button
-							type="button"
-							class="btn btn-primary btn-sm @3xl:hidden"
-							onclick={() => openInstanceWizard()}
-						>
-							<Plus size={14} />
-							{m.library_new_instance()}
-						</button>
-					</form>
-
-					<div class="mb-2 flex min-h-6 flex-wrap items-center gap-2 text-sm">
-						<h2 class="font-semibold">{m.library_heading()}</h2>
-						<span class="text-base-content/60 tabular-nums">{shown.length}</span>
-						{#if query.trim()}
+						<Plus size={14} />
+						{m.library_new_instance()}
+					</button>
+				</form>
+				<section class="min-w-0">
+					{#if query.trim()}
+						<div class="mb-2 flex min-h-6 flex-wrap items-center gap-2 text-sm">
 							<button
 								class="badge badge-primary badge-sm cursor-pointer gap-1"
 								onclick={() => (query = "")}
@@ -160,8 +159,8 @@
 								“{query.trim()}”
 								<X size={10} />
 							</button>
-						{/if}
-					</div>
+						</div>
+					{/if}
 					{#if shown.length === 0}
 						<div
 							class="text-base-content/60 flex flex-col items-center gap-2 py-20 text-center"
@@ -215,12 +214,6 @@
 						data-panel
 						class="bg-base-200 border-base-300 rounded-box grid grid-cols-2 gap-3 border p-4 text-sm"
 					>
-						<div>
-							<dt class="text-base-content/60 text-xs">
-								{m.library_stat_instances()}
-							</dt>
-							<dd class="font-semibold tabular-nums">{instances.length}</dd>
-						</div>
 						<div>
 							<dt class="text-base-content/60 text-xs">{m.library_stat_mods()}</dt>
 							<dd class="font-semibold tabular-nums">{modCount}</dd>

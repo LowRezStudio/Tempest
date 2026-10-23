@@ -227,7 +227,9 @@
 						class:tab-active={tab === "files"}
 						onclick={() => (tab = "files")}
 					>
-						Managed Files ({installedMod.InstalledFiles?.length ?? 0})
+						{m.mod_details_tab_files({
+							count: installedMod.InstalledFiles?.length ?? 0,
+						})}
 					</button>
 				{/if}
 			</div>

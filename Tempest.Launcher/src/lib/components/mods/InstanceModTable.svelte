@@ -189,7 +189,7 @@
 				</button>
 			</th>
 			<th class="w-48">{m.common_version()}</th>
-			<th class="w-16 text-center">Enabled</th>
+			<th class="w-16 text-center">{m.common_enabled()}</th>
 			<th class="w-auto text-right">
 				<button
 					class="hover:text-primary inline-flex cursor-pointer items-center gap-1 text-sm font-semibold whitespace-nowrap tabular-nums transition-colors disabled:opacity-40"

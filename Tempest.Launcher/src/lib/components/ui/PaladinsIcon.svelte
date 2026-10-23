@@ -1,8 +1,12 @@
 <script lang="ts">
 	import iconSrc from "$lib/assets/paladins-icon.png";
-	import type { IconProps } from "@lucide/svelte";
 
-	let { size = 24, color = "currentColor", class: className = "" }: IconProps = $props();
+	// Lucide 1.61 turned IconProps into a union that demands an icon/iconNode, so declare only what this icon takes
+	let {
+		size = 24,
+		color = "currentColor",
+		class: className = "",
+	}: { size?: number | string; color?: string; class?: string } = $props();
 
 	let sizePx = $derived(typeof size === "number" ? `${size}px` : size);
 
