@@ -132,6 +132,18 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
             process.StartInfo.ArgumentList.Add($"-homedir={homedir}");
         }
 
+        // Hashed before the start so the game gets them as early as possible: it checks a
+        // replaced script package as soon as it opens it.
+        List<PackageHashes.Patch> hashPatches = [];
+        try
+        {
+            hashPatches = PackageHashes.ForMods(exePath, path);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Warning: could not compare mod files with the game's SHA-1 table: {ex.Message}");
+        }
+
         if (gamescope)
         {
             process.UseWine(isServer, !isServer && steamRuntime).UseGamescope(gamescopeArgs).Start();
@@ -140,6 +152,7 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
         {
             process.UseWine(isServer, !isServer && steamRuntime).Start();
         }
+        PackageHashes.Apply(process, hashPatches);
 
         _ = Task.Run(async () =>
         {
