@@ -18,9 +18,10 @@
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
-	import { patchBannerOf, patchSummary } from "$lib/utils/versions";
+	import { patchSummary } from "$lib/utils/versions";
 	import InstanceMenu from "./InstanceMenu.svelte";
 	import InstanceSessionControls from "./InstanceSessionControls.svelte";
+	import PatchBanner from "./PatchBanner.svelte";
 	import type { ModRecord } from "$lib/core/mods";
 	import type { Instance } from "$lib/types/instance";
 
@@ -36,7 +37,6 @@
 	const playable = $derived(phase === "prepared" || phase === "setup");
 	const color = $derived(getInstanceColor(instance));
 	const contrast = $derived(getContrastColor(color));
-	const banner = $derived(patchBannerOf(instance.version));
 	const summary = $derived(patchSummary(instance));
 
 	const download = $derived(
@@ -82,13 +82,6 @@
 				}),
 		});
 	}
-
-	let loadedSrc = $state<string>();
-	let failedSrc = $state<string>();
-	function watchImage(img: HTMLImageElement) {
-		// Already decoded from the cache: no load event comes.
-		if (img.complete && img.naturalWidth > 0) loadedSrc = img.getAttribute("src") ?? undefined;
-	}
 </script>
 
 <li
@@ -98,40 +91,11 @@
 	aria-busy={phase === "setup" || phase === "downloading" ? "true" : undefined}
 	style={download?.status === "running" ? `--progress: ${percent}%` : undefined}
 >
-	<div class="relative hidden w-36 shrink-0 @xl:block" class:opacity-60={!playable}>
-		{#if banner && failedSrc !== banner}
-			<div
-				class="bg-base-300 rounded-field relative aspect-5/2 overflow-hidden"
-				class:loading-shimmer={loadedSrc !== banner}
-			>
-				<img
-					src={banner}
-					alt=""
-					decoding="async"
-					use:watchImage
-					onload={() => (loadedSrc = banner)}
-					onerror={() => (failedSrc = banner)}
-					class="absolute inset-0 h-full w-full object-cover transition-opacity duration-300"
-					class:opacity-0={loadedSrc !== banner}
-				/>
-			</div>
-			<!-- The sidebar's button for this instance, in miniature -->
-			<span
-				class="absolute bottom-1 left-1 rounded px-1 text-[10px] leading-4 font-bold tabular-nums shadow-sm"
-				style="background-color: {color}; color: {contrast};">{instance.version}</span
-			>
-		{:else}
-			<div
-				class="rounded-field flex aspect-5/2 items-center justify-center gap-2"
-				style="background-color: {color}; color: {contrast};"
-			>
-				<PaladinsIcon size={28} color={contrast} />
-				{#if instance.version}
-					<span class="text-sm font-bold tabular-nums">{instance.version}</span>
-				{/if}
-			</div>
-		{/if}
-	</div>
+	<PatchBanner
+		version={instance.version}
+		{color}
+		class={["hidden w-36 shrink-0 @xl:block", !playable && "opacity-60"]}
+	/>
 	<div
 		class="rounded-field flex size-10 shrink-0 items-center justify-center text-[11px] font-bold tabular-nums @xl:hidden"
 		class:opacity-60={!playable}

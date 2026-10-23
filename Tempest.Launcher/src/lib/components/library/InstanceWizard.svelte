@@ -1,14 +1,32 @@
 ﻿<script lang="ts">
-	import { AlertCircle, BookOpen, CloudDownload, Code, Folder, Loader2 } from "@lucide/svelte";
-	import { Tabs } from "bits-ui";
+	import {
+		Check,
+		ChevronDown,
+		CircleAlert,
+		CloudDownload,
+		Copy,
+		ExternalLink,
+		FolderOpen,
+		FolderX,
+		Gamepad2,
+		Info,
+		Plus,
+		RotateCw,
+		ShoppingBag,
+		Terminal,
+		UserRound,
+		X,
+	} from "@lucide/svelte";
+	import { useQueryClient } from "@tanstack/svelte-query";
+	import { untrack } from "svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { listMods, type ModRecord } from "$lib/core/mods";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
 	import { open as openDialog, openUrl, join, platform } from "$lib/platform/api";
-	import { createIdentifyBuildMutation } from "$lib/queries/core";
+	import { buildQueryOptions } from "$lib/queries/core";
 	import {
-		createDefaultInstancePathQuery,
+		createFoundInstallationsQuery,
 		createSetupInstanceMutation,
 	} from "$lib/queries/instance";
 	import {
@@ -20,7 +38,11 @@
 	import { addInstance, instanceMap, updateInstance } from "$lib/stores/instance.svelte";
 	import { defaultInstancePath } from "$lib/stores/settings.svelte";
 	import { instanceWizardTab } from "$lib/stores/ui.svelte";
-	import type { Instance, InstanceState } from "$lib/types/instance";
+	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
+	import PatchTimeline from "./PatchTimeline.svelte";
+	import type { InstallationSource } from "$lib/platforms/discovery";
+	import type { Instance } from "$lib/types/instance";
+	import type { Patch } from "$lib/utils/versions";
 
 	interface Props {
 		open?: boolean;
@@ -28,123 +50,284 @@
 
 	let { open = $bindable(false) }: Props = $props();
 
-	const flatVersions = versions;
-
-	const toOption = (item: (typeof flatVersions)[number]) => ({
-		value: item.id,
-		label: `${item.version} - ${item.name} (${item.date.split("T")[0]})`,
-		version: item.version,
-	});
-	const versionOptions = flatVersions.filter((item) => item.version !== "8.2").map(toOption);
-	const importVersionOptions = flatVersions.map(toOption);
-
-	let selectedTab = $state<"download" | "folder">("download");
-	let selectedName = $state("");
-	let selectedVersionId = $state("");
-	let selectedPath = $state("");
-	let selectedPaths = $state<string[]>([]);
-	let showAdvanced = $state(false);
-	let copyStatus = $state<"idle" | "copied" | "failed">("idle");
+	type Mode = "download" | "folder";
+	type LoginMethod = "steam" | "epic" | "hirez";
 
 	type Detection = {
 		versionId: string;
-		label: string;
 		/** The folder can't be imported (not a game install, or the CLI failed). */
 		error: string;
-		/** A game install whose exact build is unknown; the user picks the version. */
+		/** A game install whose exact build is unknown; the user picks the patch. */
 		warning: string;
 	};
+	type Folder = Detection & {
+		/** The normalized path, so one folder spelled two ways is listed once */
+		key: string;
+		path: string;
+		/** Where the scan found it; unset for folders added by hand */
+		source?: InstallationSource;
+		selected: boolean;
+		loading: boolean;
+		mods: ModRecord[];
+		modsLoading: boolean;
+	};
 
-	let bulkDetections = $state<
-		Array<
-			Detection & {
-				path: string;
-				loading: boolean;
-				mods: ModRecord[];
-				modsLoading: boolean;
-			}
-		>
-	>([]);
+	const modes = [
+		{
+			mode: "download",
+			Icon: CloudDownload,
+			title: m.library_download_patch,
+			hint: m.library_download_patch_hint,
+		},
+		{
+			mode: "folder",
+			Icon: FolderOpen,
+			title: m.library_import_folder,
+			hint: m.library_import_folder_hint,
+		},
+	] as const;
 
-	let loginMethod = $state<"steam" | "epic" | "hirez">();
-	let selectedArgs = $state<string[]>([]);
+	const logins = [
+		{
+			method: "steam",
+			Icon: Gamepad2,
+			title: m.wizard_login_steam,
+			hint: m.wizard_login_steam_desc,
+		},
+		{
+			method: "epic",
+			Icon: ShoppingBag,
+			title: m.wizard_login_epic,
+			hint: m.wizard_login_epic_desc,
+		},
+		{
+			method: "hirez",
+			Icon: UserRound,
+			title: m.wizard_login_hirez,
+			hint: m.wizard_login_hirez_desc,
+		},
+	] as const;
 
-	const selectedVersion = $derived(flatVersions.find((v) => v.id === selectedVersionId));
-	const selectedAppId = $derived(selectedVersion?.appId ?? 444090);
+	const sources: Record<InstallationSource, { Icon: typeof X; label?: () => string }> = {
+		steam: { Icon: Gamepad2, label: m.wizard_login_steam },
+		epic: { Icon: ShoppingBag, label: m.wizard_login_epic },
+		hirez: { Icon: UserRound, label: m.wizard_login_hirez },
+		tempest: { Icon: CloudDownload, label: m.wizard_source_tempest },
+		folder: { Icon: FolderOpen },
+	};
+
+	// 8.2 was never released, so there is nothing to download; a folder can still be one.
+	const downloadable = versions.filter((v) => v.version !== "8.2");
+
+	let mode = $state<Mode>("download");
+	let name = $state("");
+	let downloadId = $state("");
+	let installFolder = $state("");
+	let installTarget = $state<{ path: string; copy: boolean } | null>(null);
+	let pathInput = $state("");
+	let folders = $state<Folder[]>([]);
+	/** The patch picked for a folder whose build wasn't recognised, by folder key */
+	let picked = $state<Record<string, string>>({});
+	let loginMethod = $state<LoginMethod>();
+	let copyStatus = $state<"idle" | "copied" | "failed">("idle");
+
+	const foundQuery = createFoundInstallationsQuery(
+		() => (defaultInstancePath.value ? [defaultInstancePath.value] : []),
+		() => open && mode === "folder",
+	);
+
+	/** Ticked folders that can become instances */
+	const chosen = $derived(
+		folders.filter((f) => f.selected && !f.error && !findExistingInstance(f.path)),
+	);
+	const single = $derived(chosen.length === 1 ? chosen[0] : undefined);
+	const bulk = $derived(chosen.length > 1);
+	const detecting = $derived(chosen.some((f) => f.loading));
+	const needsImportPatch = $derived(!!single && !single.loading && !!single.warning);
+
+	const downloadPatch = $derived(versions.find((v) => v.id === downloadId));
+	const importPatch = $derived(single ? folderPatch(single) : undefined);
+	const patch = $derived(mode === "download" ? downloadPatch : importPatch);
+
+	const appId = $derived(patch?.appId ?? 444090);
 	const isPts = $derived(
-		(selectedAppId !== 444090 && selectedAppId !== 44090) ||
-			!!selectedVersion?.name?.toLowerCase().includes("pts"),
+		(appId !== 444090 && appId !== 44090) || !!patch?.name?.toLowerCase().includes("pts"),
 	);
-	const selectedDepotId = $derived(isPts ? 596351 : 444091);
+	const depotId = $derived(isPts ? 596351 : 444091);
 
-	const supportsCloudDownload = $derived(!!selectedVersion?.version);
+	const needsLogin = $derived(patch?.version === "8.1");
+	const loginReady = $derived(!needsLogin || !!loginMethod);
 
-	const singleDetection = $derived(selectedPaths.length <= 1 ? bulkDetections[0] : undefined);
-	const showImportVersionPicker = $derived(
-		!!singleDetection && !singleDetection.loading && !!singleDetection.warning,
+	// An 8.1 copy found through Steam or Epic signs in there.
+	const suggestedLogin = $derived(
+		mode === "folder" && needsLogin ? loginOf(single?.source) : undefined,
+	);
+	$effect(() => {
+		if (suggestedLogin) loginMethod = suggestedLogin;
+	});
+
+	const ready = $derived(
+		mode === "download"
+			? !!downloadPatch && loginReady
+			: chosen.length > 0 && !detecting && (bulk || (!!importPatch && loginReady)),
 	);
 
-	const isValid = $derived(
-		selectedTab === "download"
-			? !!selectedVersionId
-			: selectedPaths.length > 1
-				? !!selectedPath
-				: !!(selectedVersionId && selectedPath && !singleDetection?.error),
-	);
+	const depotDownloaderCommand = $derived.by(() => {
+		if (!downloadPatch) return "";
+		const binary = platform() === "windows" ? ".\\DepotDownloader.exe" : "./DepotDownloader";
+		const dir = installTarget?.path || "<install-path>";
+		return `${binary} -app ${appId} -depot ${depotId} -manifest ${downloadPatch.id} -os windows -dir "${dir}" -qr -remember-password`;
+	});
 
-	const showLoginPrompt = $derived(selectedVersion?.version === "8.1");
+	// A patch already in the library gets another copy beside it: "8.1 (2)", then "8.1 (3)".
+	async function resolveTarget(version: string) {
+		const base = installFolder.trim() || defaultInstancePath.value;
+		for (let n = 1; ; n++) {
+			const folder = n === 1 ? version : `${version} (${n})`;
+			const path = base ? await join(base, folder) : `/instances/${folder}`;
+			if (!findExistingInstance(path)) return { path, copy: n > 1 };
+		}
+	}
 
-	async function handleBrowse() {
+	// Another copy gets its own name too, and with it its own color.
+	function freeLabel(label: string) {
+		const taken = new Set(Object.values(instanceMap.value).map((i) => i?.label));
+		let candidate = label;
+		for (let n = 2; taken.has(candidate); n++) candidate = `${label} (${n})`;
+		return candidate;
+	}
+
+	$effect(() => {
+		const version = downloadPatch?.version;
+		if (!version) {
+			installTarget = null;
+			return;
+		}
+		let stale = false;
+		void resolveTarget(version).then((target) => {
+			if (!stale) installTarget = target;
+		});
+		return () => {
+			stale = true;
+		};
+	});
+
+	const normalizePath = (p: string) =>
+		p
+			.trim()
+			.replace(/[\\/]+$/, "")
+			.toLowerCase();
+
+	function findExistingInstance(targetPath: string) {
+		const target = normalizePath(targetPath);
+		return Object.values(instanceMap.value).find(
+			(i) => !!i?.path && normalizePath(i.path) === target,
+		);
+	}
+
+	function loginOf(source: InstallationSource | undefined): LoginMethod | undefined {
+		return source === "steam" || source === "epic" ? source : undefined;
+	}
+
+	function argsFor(version: string | undefined, method: LoginMethod | undefined) {
+		if (version !== "8.1") return [];
+		return method === "steam" ? ["-steam"] : method === "epic" ? ["-epic"] : [];
+	}
+
+	async function browseInstallFolder() {
+		const path = await openDialog({
+			directory: true,
+			title: m.wizard_select_install_folder(),
+			defaultPath: installFolder || defaultInstancePath.value || undefined,
+		});
+		if (path) installFolder = path;
+	}
+
+	async function browseGameFolders() {
 		const result = await openDialog({
 			directory: true,
 			multiple: true,
 			title: m.wizard_select_installation_folder(),
 			defaultPath: defaultInstancePath.value || undefined,
 		});
-		if (!result) return;
-		const paths = (Array.isArray(result) ? result : [result]).filter(Boolean) as string[];
-		if (paths.length === 0) return;
-		selectedPaths = paths;
-		selectedPath = paths.length === 1 ? paths[0]! : `${paths.length} folders selected`;
-		if (selectedTab === "folder") {
-			await detectFolders(paths);
-		} else {
-			bulkDetections = [];
+		addFolders((result ?? []).filter(Boolean).map((path) => ({ path })));
+	}
+
+	function commitPathInput() {
+		const path = pathInput.trim();
+		if (path) addFolders([{ path }]);
+		pathInput = "";
+	}
+
+	function removeFolder(key: string) {
+		folders = folders.filter((f) => f.key !== key);
+		delete picked[key];
+	}
+
+	/**
+	 * Lists folders and identifies the new ones; one already listed is only ticked.
+	 * @param entries - The folders, with where the scan found them.
+	 * @param selected - Whether they start ticked: folders added by hand do, scan results don't.
+	 */
+	function addFolders(entries: { path: string; source?: InstallationSource }[], selected = true) {
+		const added: Folder[] = [];
+		for (const { path, source } of entries) {
+			const key = normalizePath(path);
+			const listed = folders.find((f) => f.key === key) ?? added.find((f) => f.key === key);
+			if (listed) {
+				if (selected) listed.selected = true;
+				continue;
+			}
+			// A folder already in the library is only listed, under the patch it was set up with.
+			const instance = findExistingInstance(path);
+			added.push({
+				key,
+				path,
+				source,
+				selected,
+				versionId: instance
+					? (instance.manifestId ??
+						versions.find((v) => v.version === instance.version)?.id ??
+						"")
+					: "",
+				error: "",
+				warning: "",
+				loading: !instance,
+				mods: [],
+				modsLoading: !instance,
+			});
 		}
+		if (added.length === 0) return;
+		folders = [...folders, ...added];
+		void detectFolders(added.filter((f) => f.loading).map((f) => f.key));
 	}
 
-	function handlePathInput() {
-		if (selectedTab !== "folder") return;
-		const path = selectedPath.trim();
-		selectedPaths = path ? [path] : [];
-		bulkDetections = [];
-		selectedVersionId = "";
-		if (path) void detectFolders([path]);
-	}
+	// Scan results join the list once the import side is open; they wait unticked.
+	$effect(() => {
+		const found = foundQuery.data;
+		if (!open || mode !== "folder" || !found) return;
+		untrack(() => addFolders(found, false));
+	});
 
-	const identifyBuildMutation = createIdentifyBuildMutation();
-	let isDetecting = $derived(identifyBuildMutation.isPending);
+	// Folders already in the library sink to the bottom, the rest keep the order they came in.
+	const listed = $derived(
+		[...folders].sort(
+			(a, b) => +!!findExistingInstance(a.path) - +!!findExistingInstance(b.path),
+		),
+	);
+
+	const queryClient = useQueryClient();
 
 	async function detect(path: string): Promise<Detection> {
 		try {
-			const info = await identifyBuildMutation.mutateAsync(path);
-			if (!info) {
-				return {
-					versionId: "",
-					label: "",
-					error: m.wizard_could_not_identify(),
-					warning: "",
-				};
-			}
-			const exact = flatVersions.find((v) => v.id === info.Id);
+			const info = await queryClient.fetchQuery(buildQueryOptions(path));
+			if (!info) return { versionId: "", error: m.wizard_could_not_identify(), warning: "" };
+			const exact = versions.find((v) => v.id === info.Id);
 			const version =
 				exact ??
-				flatVersions.findLast(
-					(v) => !!info.VersionGroup && v.version === info.VersionGroup,
-				);
+				versions.findLast((v) => !!info.VersionGroup && v.version === info.VersionGroup);
 			return {
 				versionId: version?.id ?? "",
-				label: version ? `${version.version} - ${version.name}` : "",
 				error: "",
 				warning: exact
 					? ""
@@ -157,52 +340,28 @@
 			};
 		} catch (error) {
 			console.error("Detection error:", error);
-			return { versionId: "", label: "", error: m.wizard_identify_error(), warning: "" };
+			return { versionId: "", error: m.wizard_identify_error(), warning: "" };
 		}
 	}
 
-	async function detectFolders(paths: string[]) {
-		selectedVersionId = "";
-		bulkDetections = paths.map((path) => ({
-			path,
-			versionId: "",
-			label: "",
-			error: "",
-			warning: "",
-			loading: true,
-			mods: [],
-			modsLoading: true,
-		}));
-		for (let i = 0; i < paths.length; i++) {
-			const path = paths[i]!;
+	// By key: a folder removed meanwhile is simply not updated.
+	function updateFolder(key: string, fields: Partial<Folder>) {
+		const folder = folders.find((f) => f.key === key);
+		if (folder) Object.assign(folder, fields);
+	}
+
+	async function detectFolders(keys: string[]) {
+		for (const key of keys) {
+			const path = folders.find((f) => f.key === key)?.path;
+			if (!path) continue;
 			const detection = await detect(path);
-			// A newer browse or edit replaced the list while this one was identifying.
-			if (bulkDetections[i]?.path !== path) return;
-			bulkDetections[i] = { ...bulkDetections[i]!, ...detection, loading: false };
-			if (paths.length === 1) selectedVersionId = detection.versionId;
-			let mods: ModRecord[] = [];
-			if (!detection.error) {
-				try {
-					mods = await listMods(path);
-				} catch {}
-			}
-			if (bulkDetections[i]?.path !== path) return;
-			bulkDetections[i] = { ...bulkDetections[i]!, mods, modsLoading: false };
+			updateFolder(key, { ...detection, loading: false });
+			const mods = detection.error ? [] : await listMods(path).catch(() => []);
+			updateFolder(key, { mods, modsLoading: false });
 		}
 	}
 
-	async function getInstancePath() {
-		if (selectedTab === "folder") return selectedPath;
-		if (!selectedVersion?.version) return "";
-		if (selectedTab === "download" && selectedPath) {
-			return await join(selectedPath, selectedVersion.version);
-		}
-		if (selectedPath) return selectedPath;
-		if (defaultInstancePath.value) {
-			return await join(defaultInstancePath.value, selectedVersion.version);
-		}
-		return `/instances/${selectedVersion.version}`;
-	}
+	const setupInstanceMutation = createSetupInstanceMutation();
 
 	const runSetup = async (instance: Instance) => {
 		try {
@@ -214,172 +373,102 @@
 		}
 	};
 
-	function findExistingInstance(targetPath: string) {
-		const target = targetPath
-			.trim()
-			.replace(/[\\/]+$/, "")
-			.toLowerCase();
-		return Object.values(instanceMap.value).find((i) => {
-			if (!i?.path) return false;
-			return (
-				i.path
-					.trim()
-					.replace(/[\\/]+$/, "")
-					.toLowerCase() === target
-			);
-		});
+	// The patch an imported folder gets: what it was identified as, or the pick for an unknown build.
+	function folderPatch(folder: Folder): Patch | undefined {
+		const id = picked[folder.key] ?? folder.versionId;
+		return versions.find((v) => v.id === id);
+	}
+
+	function folderLabel(folder: Folder, found: Patch | undefined, several = bulk) {
+		const folderName = folder.path.split(/[\\/]/).pop() || folder.path;
+		if (several) {
+			return name.trim()
+				? `${name.trim()} - ${folderName}`
+				: freeLabel(found?.name || found?.version || folderName);
+		}
+		return (
+			name.trim() || freeLabel(found?.name || found?.version || m.wizard_paladins_instance())
+		);
+	}
+
+	function newInstance(
+		fields: Pick<Instance, "label" | "version" | "manifestId" | "appId" | "path" | "state">,
+		args: string[],
+	): Instance {
+		return {
+			id: crypto.randomUUID(),
+			...fields,
+			launchOptions: { dllList: [], args, noDefaultArgs: false, log: false },
+		};
 	}
 
 	async function handleCreate() {
-		if (!isValid) return;
+		if (!ready) return;
 
-		// Bulk import: handle multiple folders without requiring pre-selected version
-		if (selectedTab === "folder" && selectedPaths.length > 1) {
-			for (const folderPath of selectedPaths) {
-				if (findExistingInstance(folderPath)) continue;
-				const detection = bulkDetections.find((d) => d.path === folderPath);
-				if (detection?.error) continue;
-				const versionForPath = flatVersions.find((v) => v.id === detection?.versionId);
-				const versionIdForPath = versionForPath?.id;
-				const appIdForPath = versionForPath?.appId ?? 444090;
-				const folderName = folderPath.split(/[\\/]/).pop() || folderPath;
-				const bulkInstance: Instance = {
-					id: crypto.randomUUID(),
-					label: selectedName
-						? `${selectedName} - ${folderName}`
-						: versionForPath?.name || versionForPath?.version || folderName,
-					version: versionForPath?.version,
-					manifestId: versionIdForPath,
-					appId: appIdForPath,
-					path: folderPath,
-					launchOptions: {
-						dllList: [],
-						args: selectedArgs,
-						noDefaultArgs: false,
-						log: false,
+		if (mode === "download") {
+			const target = downloadPatch!;
+			const { path } = await resolveTarget(target.version);
+			addInstance(
+				newInstance(
+					{
+						label: name.trim() || freeLabel(target.name || target.version),
+						version: target.version,
+						manifestId: target.id,
+						appId,
+						path,
+						state: { type: "downloading" },
 					},
-					state: {
-						type: "setup",
-					},
-				};
-				addInstance(bulkInstance);
-				void runSetup(bulkInstance);
-			}
-			open = false;
-			return;
-		}
-
-		const instancePath = await getInstancePath();
-
-		if (selectedVersion?.version === "8.1" && !loginMethod) return;
-
-		if (selectedTab === "download") {
-			if (!selectedVersion?.version || !supportsCloudDownload) return;
-
-			const existing = findExistingInstance(instancePath);
-			if (existing) {
-				const manifestId = existing.manifestId ?? selectedVersion.id;
-				restoreQueue.add({
-					manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", manifestId)],
-					outDir: existing.path,
-					baseUrl: RIGBY_BASE_URL,
-				});
-				updateInstance(existing.id, { state: { type: "downloading" } });
-				open = false;
-				return;
-			}
-
-			const newInstance: Instance = {
-				id: crypto.randomUUID(),
-				label: selectedName || selectedVersion.name || selectedVersion.version,
-				version: selectedVersion.version,
-				manifestId: selectedVersion.id,
-				appId: selectedAppId,
-				path: instancePath,
-				launchOptions: {
-					dllList: [],
-					args: selectedArgs,
-					noDefaultArgs: false,
-					log: false,
-				},
-				state: { type: "downloading" },
-			};
-
-			addInstance(newInstance);
-
+					argsFor(target.version, loginMethod),
+				),
+			);
 			restoreQueue.add({
-				manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", selectedVersion.id)],
-				outDir: instancePath,
+				manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", target.id)],
+				outDir: path,
 				baseUrl: RIGBY_BASE_URL,
 			});
-
 			open = false;
 			return;
 		}
 
-		const newInstance: Instance = {
-			id: crypto.randomUUID(),
-			label:
-				selectedName ||
-				selectedVersion?.name ||
-				selectedVersion?.version ||
-				m.wizard_paladins_instance(),
-			version: selectedVersion?.version,
-			manifestId: selectedVersion?.id,
-			appId: selectedAppId,
-			path: instancePath,
-			launchOptions: {
-				dllList: [],
-				args: selectedArgs,
-				noDefaultArgs: false,
-				log: false,
-			},
-			state: {
-				type: "setup",
-			},
-		};
-
-		addInstance(newInstance);
-		void runSetup(newInstance);
-
+		// Each instance added leaves `chosen`, so take the list as it was clicked.
+		const picks = [...chosen];
+		const several = picks.length > 1;
+		for (const folder of picks) {
+			const found = folderPatch(folder);
+			// With several at once there is no sign-in question; each goes by where it was found.
+			const method = several ? loginOf(folder.source) : loginMethod;
+			const instance = newInstance(
+				{
+					label: folderLabel(folder, found, several),
+					version: found?.version,
+					manifestId: found?.id,
+					appId: found?.appId ?? 444090,
+					path: folder.path,
+					state: { type: "setup" },
+				},
+				argsFor(found?.version, method),
+			);
+			addInstance(instance);
+			void runSetup(instance);
+		}
 		open = false;
 	}
 
 	$effect(() => {
 		if (open) {
-			selectedTab = instanceWizardTab.value;
+			mode = instanceWizardTab.value;
 		} else {
 			instanceWizardTab.value = "download";
-			selectedTab = "download";
-			selectedName = "";
-			selectedVersionId = "";
-			selectedPath = "";
-			selectedPaths = [];
-			bulkDetections = [];
-			showAdvanced = false;
+			mode = "download";
+			name = "";
+			downloadId = "";
+			installFolder = "";
+			pathInput = "";
+			folders = [];
+			picked = {};
 			loginMethod = undefined;
-			selectedArgs = [];
 		}
 	});
-
-	const defaultPathQuery = createDefaultInstancePathQuery(
-		() => selectedVersion?.version,
-		() => defaultInstancePath.value,
-	);
-	const setupInstanceMutation = createSetupInstanceMutation();
-
-	let defaultPathPlaceholder = $derived(defaultPathQuery.data ?? "");
-	const depotDownloaderBinary = $derived(
-		platform() === "windows" ? ".\\DepotDownloader.exe" : "./DepotDownloader",
-	);
-	const downloadPathForCommand = $derived(
-		selectedPath || defaultPathPlaceholder || "<install-path>",
-	);
-	const depotDownloaderCommand = $derived(
-		selectedVersionId
-			? `${depotDownloaderBinary} -app ${selectedAppId} -depot ${selectedDepotId} -manifest ${selectedVersionId} -os windows -dir "${downloadPathForCommand}" -qr -remember-password`
-			: "",
-	);
 
 	async function handleCopyCommand() {
 		if (!depotDownloaderCommand) return;
@@ -395,345 +484,453 @@
 		}, 2000);
 	}
 
-	function handleLoginSelect(method: "steam" | "epic" | "hirez") {
-		loginMethod = method;
-		if (method === "steam") selectedArgs.push("-steam");
-		else if (method === "epic") selectedArgs.push("-epic");
-	}
-
-	async function handleOpenWiki() {
-		const ref = selectedVersion?.wikiReference;
-		if (!ref) return;
+	async function openPatchNotes(target: Patch) {
+		if (!target.wikiReference) return;
 		try {
-			await openUrl(`${WIKI_BASE_URL}${encodeURIComponent(ref)}?fandom=allow`);
+			await openUrl(
+				`${WIKI_BASE_URL}${encodeURIComponent(target.wikiReference)}?fandom=allow`,
+			);
 		} catch (error) {
 			console.error("Failed to open wiki:", error);
 		}
 	}
 </script>
 
-<Modal bind:open title={m.wizard_title()} class="max-w-2xl" onsubmit={handleCreate}>
-	<Tabs.Root bind:value={selectedTab} class="mb-4 w-full">
-		<Tabs.List class="tabs tabs-border w-full">
-			<Tabs.Trigger value="download" class="tab data-[state=active]:tab-active flex-1 gap-2">
-				<CloudDownload size={16} />
-				<span>{m.wizard_download()}</span>
-			</Tabs.Trigger>
-			<Tabs.Trigger value="folder" class="tab data-[state=active]:tab-active flex-1 gap-2">
-				<Folder size={16} />
-				<span>{m.wizard_import_existing()}</span>
-			</Tabs.Trigger>
-		</Tabs.List>
-	</Tabs.Root>
+{#snippet patchHeading(patch: Patch | undefined)}
+	<span class="text-base-content/60 min-w-0 truncate text-xs">
+		{m.wizard_game_version()}
+		{#if patch}
+			<span class="text-base-content ml-1">
+				<span class="font-mono font-semibold">{patch.version}</span> · {patch.name}
+			</span>
+		{/if}
+	</span>
+{/snippet}
 
-	<div class="space-y-4">
-		<div class="alert">
-			<div class="flex items-start gap-2">
-				{#if selectedTab === "download"}
-					<CloudDownload size={16} class="mt-0.5 shrink-0" />
-					<div>
-						<h4 class="text-sm font-semibold">{m.wizard_download_description()}</h4>
-						<p class="text-xs opacity-80">
-							{m.wizard_download_hint()}
-						</p>
+<Modal
+	bind:open
+	title={m.wizard_title()}
+	icon={Plus}
+	description={m.wizard_description()}
+	class="max-w-xl"
+	onsubmit={handleCreate}
+>
+	<div class="flex flex-col gap-5">
+		<div role="radiogroup" aria-label={m.wizard_mode_label()} class="grid grid-cols-2 gap-2">
+			{#each modes as o (o.mode)}
+				{@const picked = mode === o.mode}
+				<button
+					type="button"
+					role="radio"
+					aria-checked={picked}
+					class={[
+						"rounded-field flex cursor-pointer items-start gap-2.5 border p-3 text-left transition-colors",
+						picked
+							? "border-primary bg-primary/10"
+							: "border-base-300 bg-base-100 hover:border-primary/50",
+					]}
+					onclick={() => (mode = o.mode)}
+				>
+					<o.Icon
+						size={16}
+						class={[
+							"mt-0.5 shrink-0",
+							picked ? "text-primary" : "text-base-content/50",
+						]}
+					/>
+					<span class="min-w-0">
+						<span class="block text-sm leading-tight font-medium">{o.title()}</span>
+						<span class="text-base-content/60 mt-0.5 block text-xs leading-snug"
+							>{o.hint()}</span
+						>
+					</span>
+				</button>
+			{/each}
+		</div>
+
+		{#if mode === "download"}
+			<div class="flex flex-col gap-2">
+				<div class="flex items-baseline justify-between gap-2">
+					{@render patchHeading(downloadPatch)}
+					{#if downloadPatch?.wikiReference}
+						<button
+							type="button"
+							class="link flex items-center gap-1 text-xs"
+							onclick={() => openPatchNotes(downloadPatch)}
+						>
+							{m.wizard_open_wiki()}
+							<ExternalLink size={10} />
+						</button>
+					{/if}
+				</div>
+				<PatchTimeline
+					patches={downloadable}
+					bind:value={downloadId}
+					label={m.wizard_game_version()}
+				/>
+			</div>
+		{:else}
+			<div class="flex flex-col gap-1">
+				<div class="flex min-h-6 items-center justify-between gap-2">
+					<span class="text-base-content/60 text-xs">{m.wizard_found_title()}</span>
+					{#if foundQuery.isFetching}
+						<span class="text-base-content/60 flex items-center gap-1.5 text-xs">
+							<span class="loading loading-spinner loading-xs"></span>
+							{m.wizard_scanning()}
+						</span>
+					{:else}
+						<button
+							type="button"
+							class="btn btn-ghost btn-xs"
+							onclick={() => foundQuery.refetch()}
+						>
+							<RotateCw size={12} />
+							{m.wizard_scan_again()}
+						</button>
+					{/if}
+				</div>
+
+				{#if folders.length > 0}
+					<ul
+						class="bg-base-100 border-base-300 rounded-field divide-base-300 max-h-64 divide-y overflow-y-auto border"
+					>
+						{#each listed as folder (folder.key)}
+							{@const existing = findExistingInstance(folder.path)}
+							{@const found = folderPatch(folder)}
+							{@const color = getInstanceColor(
+								existing ?? { label: folderLabel(folder, found) },
+							)}
+							{@const contrast = getContrastColor(color)}
+							{@const source = folder.source ? sources[folder.source] : undefined}
+							{@const usable = !folder.error && !existing}
+							<li>
+								<label
+									class={[
+										"flex items-center gap-3 p-2.5 transition-colors",
+										usable
+											? "hover:bg-base-200/60 cursor-pointer"
+											: "cursor-default",
+										usable && folder.selected && "bg-primary/5",
+										existing && "opacity-60",
+									]}
+								>
+									<input
+										type="checkbox"
+										class="checkbox checkbox-sm checkbox-primary shrink-0"
+										checked={usable && folder.selected}
+										disabled={!usable}
+										aria-label={folder.path}
+										onchange={(e) =>
+											(folder.selected = e.currentTarget.checked)}
+									/>
+									{#if folder.loading}
+										<span
+											class="bg-base-300 flex size-8 shrink-0 items-center justify-center rounded-full"
+										>
+											<span class="loading loading-spinner loading-xs"></span>
+										</span>
+									{:else if folder.error}
+										<span
+											class="bg-error/15 text-error flex size-8 shrink-0 items-center justify-center rounded-full"
+										>
+											<FolderX size={16} />
+										</span>
+									{:else if found}
+										<!-- The sidebar's button the instance will get -->
+										<span
+											class="rounded-field flex size-8 shrink-0 items-center justify-center text-[10px] font-bold tabular-nums"
+											style="background-color: {color}; color: {contrast};"
+											>{found.version}</span
+										>
+									{:else}
+										<span
+											class="bg-warning/15 text-warning flex size-8 shrink-0 items-center justify-center rounded-full"
+										>
+											<CircleAlert size={16} />
+										</span>
+									{/if}
+									<span class="min-w-0 flex-1">
+										<span
+											class="block truncate font-mono text-xs"
+											title={folder.path}
+										>
+											{folder.path}
+										</span>
+										{#if folder.error}
+											<span class="text-error block text-xs"
+												>{folder.error}</span
+											>
+										{:else}
+											{#if folder.warning && !folder.loading && !existing}
+												<span class="text-warning block text-xs"
+													>{folder.warning}</span
+												>
+											{/if}
+											<span
+												class="text-base-content/60 flex items-center gap-1 truncate text-xs"
+											>
+												{#if source?.label}
+													<source.Icon size={12} class="shrink-0" />
+													{source.label()} ·
+												{/if}
+												{#if existing}
+													{m.wizard_already_in_library({
+														name: existing.label,
+													})}
+												{:else if folder.loading}
+													{m.common_identifying()}
+												{:else}
+													{#if found}
+														<span class="text-base-content/80"
+															>{found.name}</span
+														>
+														·
+													{/if}
+													{#if folder.modsLoading}
+														{m.wizard_finding_mods()}
+													{:else}
+														<span
+															title={folder.mods
+																.map((mod) => mod.Name)
+																.join(", ")}
+														>
+															{m.library_mods({
+																count: folder.mods.length,
+															})}
+														</span>
+													{/if}
+												{/if}
+											</span>
+										{/if}
+									</span>
+									{#if !folder.source}
+										<button
+											type="button"
+											class="btn btn-ghost btn-xs btn-square shrink-0"
+											aria-label={m.wizard_remove_folder()}
+											title={m.wizard_remove_folder()}
+											onclick={() => removeFolder(folder.key)}
+										>
+											<X size={14} />
+										</button>
+									{/if}
+								</label>
+							</li>
+						{/each}
+					</ul>
+				{:else if foundQuery.isFetching}
+					<div
+						class="border-base-300 rounded-field loading-shimmer text-base-content/60 border px-3 py-4 text-center text-xs"
+					>
+						{m.wizard_found_scanning()}
+					</div>
+				{:else if foundQuery.isError}
+					<div
+						class="bg-error/10 text-error rounded-field px-3 py-3 text-center text-xs"
+						role="alert"
+					>
+						{m.wizard_found_failed()}
+						<span class="mt-0.5 block font-mono wrap-break-word opacity-70"
+							>{foundQuery.error.message}</span
+						>
 					</div>
 				{:else}
-					<Folder size={16} class="mt-0.5 shrink-0" />
-					<div>
-						<h4 class="text-sm font-semibold">{m.wizard_import_description()}</h4>
-						<p class="text-xs opacity-80">
-							{m.wizard_import_hint()}
-						</p>
+					<div
+						class="border-base-300 rounded-field text-base-content/60 border border-dashed px-3 py-4 text-center text-xs"
+					>
+						{m.wizard_found_none()}
 					</div>
 				{/if}
 			</div>
-		</div>
 
-		<div class="space-y-4">
-			{#if selectedTab === "download"}
-				<div class="form-control">
-					<label for="game-version" class="label py-0.5">
-						<span class="label-text text-sm">{m.wizard_game_version()}</span>
-					</label>
-					<div class="flex gap-2">
-						<select
-							id="game-version"
-							class="select select-bordered flex-1"
-							bind:value={selectedVersionId}
-						>
-							<option value="" disabled>{m.wizard_select_version()}</option>
-							{#each versionOptions as version (version.value)}
-								<option value={version.value}>{version.label}</option>
-							{/each}
-						</select>
-						{#if selectedVersion?.wikiReference}
-							<button
-								type="button"
-								class="btn btn-square btn-ghost"
-								title={m.wizard_open_wiki()}
-								aria-label={m.wizard_open_wiki()}
-								onclick={handleOpenWiki}
-							>
-								<BookOpen size={16} />
-							</button>
-						{/if}
-					</div>
-					{#if selectedTab === "download" && selectedVersionId}
-						<div class="mt-2 space-y-1.5">
-							<label class="label justify-between py-0.5">
-								<span class="label-text text-sm"
-									>{m.wizard_depot_downloader_command()}</span
-								>
-								<button
-									class="btn btn-xs"
-									type="button"
-									onclick={handleCopyCommand}
-								>
-									{copyStatus === "copied"
-										? m.common_copied()
-										: copyStatus === "failed"
-											? m.common_copy_failed()
-											: m.common_copy()}
-								</button>
-							</label>
-							<div
-								class="bg-base-200 border-base-300 rounded-sm border px-3 py-2 font-mono text-xs whitespace-pre-wrap select-text"
-								style="user-select: text;"
-							>
-								{depotDownloaderCommand}
-							</div>
-						</div>
-					{/if}
+			<div class="flex flex-col gap-1">
+				<div class="join w-full">
+					<input
+						type="text"
+						class="input input-sm join-item min-w-0 flex-1 font-mono"
+						spellcheck="false"
+						aria-label={m.wizard_game_folder()}
+						placeholder={m.wizard_add_folder_placeholder()}
+						bind:value={pathInput}
+						onchange={commitPathInput}
+						onkeydown={(e) => {
+							// Enter adds the path instead of submitting the dialog.
+							if (e.key === "Enter") {
+								e.preventDefault();
+								commitPathInput();
+							}
+						}}
+					/>
+					<button type="button" class="btn btn-sm join-item" onclick={browseGameFolders}>
+						<FolderOpen size={14} />
+						{m.common_browse()}
+					</button>
+				</div>
+				<p class="text-base-content/60 text-xs">{m.wizard_game_folder_hint()}</p>
+			</div>
+
+			{#if needsImportPatch && single}
+				<div class="flex flex-col gap-2">
+					{@render patchHeading(importPatch)}
+					<PatchTimeline
+						patches={versions}
+						bind:value={
+							() => picked[single.key] ?? single.versionId,
+							(id) => (picked[single!.key] = id)
+						}
+						label={m.wizard_game_version()}
+					/>
 				</div>
 			{/if}
+		{/if}
 
-			{#if selectedTab === "folder"}
-				<div class="form-control">
-					<label for="folder-path" class="label py-0.5">
-						<span class="label-text text-sm">{m.wizard_installation_path()}</span>
+		{#if needsLogin}
+			<fieldset>
+				<legend class="mb-2 flex w-full items-baseline justify-between gap-2">
+					<span class="text-sm font-medium">{m.wizard_login_prompt_title()}</span>
+					<span class="text-base-content/50 text-xs">{m.wizard_login_prompt_desc()}</span>
+				</legend>
+				<div role="radiogroup" class="grid grid-cols-3 gap-2">
+					{#each logins as o (o.method)}
+						{@const picked = loginMethod === o.method}
+						<button
+							type="button"
+							role="radio"
+							aria-checked={picked}
+							class={[
+								"rounded-field flex cursor-pointer flex-col items-start gap-0.5 border p-2.5 text-left transition-colors",
+								picked
+									? "border-primary bg-primary/10"
+									: "border-base-300 bg-base-100 hover:border-primary/50",
+							]}
+							onclick={() => (loginMethod = o.method)}
+						>
+							<span class="flex items-center gap-1.5 text-sm font-medium">
+								<o.Icon
+									size={14}
+									class={picked ? "text-primary" : "text-base-content/50"}
+								/>
+								{o.title()}
+							</span>
+							<span class="text-base-content/60 text-xs leading-snug">{o.hint()}</span
+							>
+						</button>
+					{/each}
+				</div>
+			</fieldset>
+		{/if}
+
+		<div class={["grid gap-3", mode === "download" && "grid-cols-2"]}>
+			<label class="flex flex-col gap-1">
+				<span class="text-base-content/60 flex justify-between text-xs">
+					<span>{m.wizard_instance_name()}</span>
+					<span>{m.common_optional()}</span>
+				</span>
+				<input
+					type="text"
+					class="input input-sm w-full"
+					placeholder={patch ? freeLabel(patch.name) : m.wizard_name_placeholder()}
+					bind:value={name}
+				/>
+			</label>
+			{#if mode === "download"}
+				<div class="flex flex-col gap-1">
+					<label
+						for="wizard-install-folder"
+						class="text-base-content/60 flex justify-between text-xs"
+					>
+						<span>{m.wizard_installation_path()}</span>
+						<span>{m.common_optional()}</span>
 					</label>
 					<div class="join w-full">
 						<input
-							id="folder-path"
+							id="wizard-install-folder"
 							type="text"
-							placeholder={defaultPathPlaceholder}
-							class="input input-bordered join-item flex-1 font-mono"
-							bind:value={selectedPath}
-							onchange={handlePathInput}
+							class="input input-sm join-item min-w-0 flex-1 font-mono"
+							spellcheck="false"
+							placeholder={defaultInstancePath.value || undefined}
+							bind:value={installFolder}
 						/>
-						<button class="btn join-item" type="button" onclick={handleBrowse}>
-							<Folder size={16} />
-							{m.common_browse()}
-						</button>
-					</div>
-					{#if bulkDetections.length > 0 && selectedTab === "folder"}
-						<div
-							class="rounded-box border-base-300 bg-base-200/30 mt-2 max-h-60 space-y-2 overflow-y-auto border p-2"
-						>
-							{#each bulkDetections as item (item.path)}
-								<div
-									class="flex flex-col gap-1 rounded px-2 py-2 text-xs {item.error
-										? 'bg-error/10'
-										: item.warning
-											? 'bg-warning/10'
-											: 'bg-base-100'}"
-								>
-									<div class="flex items-center gap-2">
-										{#if item.loading}
-											<span class="loading loading-spinner loading-xs"></span>
-											<span class="opacity-60">{m.common_identifying()}</span>
-										{:else if item.error}
-											<span class="text-error flex items-center gap-1"
-												><AlertCircle size={12} />{item.error}</span
-											>
-										{:else if item.warning}
-											<span class="text-warning flex items-center gap-1"
-												><AlertCircle size={12} />{item.warning}</span
-											>
-											{#if item.label && selectedPaths.length > 1}
-												<span class="badge badge-warning badge-sm"
-													>{item.label}</span
-												>
-											{/if}
-										{:else}
-											<span class="badge badge-success badge-sm"
-												>{item.label}</span
-											>
-										{/if}
-									</div>
-									{#if !item.loading && !item.modsLoading && (item.mods?.length ?? 0) > 0}
-										<div class="flex flex-wrap items-center gap-1">
-											{#each item.mods.slice(0, 6) as mod}
-												<span class="badge badge-ghost badge-xs"
-													>{mod.Name}</span
-												>
-											{/each}
-											{#if item.mods.length > 6}
-												<span class="opacity-60"
-													>+{item.mods.length - 6} more</span
-												>
-											{/if}
-											<span class="opacity-60">• {item.mods.length} mods</span
-											>
-										</div>
-									{:else if !item.loading && item.modsLoading}
-										<div class="flex items-center gap-1 opacity-60">
-											<span class="loading loading-spinner loading-xs"></span> Detecting
-											mods...
-										</div>
-									{/if}
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</div>
-				{#if showImportVersionPicker}
-					<div class="form-control">
-						<label for="import-version" class="label py-0.5">
-							<span class="label-text text-sm">{m.wizard_game_version()}</span>
-						</label>
-						<select
-							id="import-version"
-							class="select select-bordered w-full"
-							bind:value={selectedVersionId}
-						>
-							<option value="" disabled>{m.wizard_select_version()}</option>
-							{#each importVersionOptions as version (version.value)}
-								<option value={version.value}>{version.label}</option>
-							{/each}
-						</select>
-					</div>
-				{/if}
-			{/if}
-
-			{#if showLoginPrompt}
-				<div class="bg-base-300/30 rounded-box p-4">
-					<h4 class="mb-1 text-sm font-semibold">{m.wizard_login_prompt_title()}</h4>
-					<p class="mb-3 text-xs opacity-70">{m.wizard_login_prompt_desc()}</p>
-					<div class="flex flex-col gap-2">
 						<button
 							type="button"
-							class="btn h-12 justify-start gap-3"
-							class:btn-primary={loginMethod === "steam"}
-							class:btn-ghost={loginMethod !== "steam"}
-							onclick={() => handleLoginSelect("steam")}
+							class="btn btn-sm btn-square join-item"
+							aria-label={m.common_browse()}
+							title={m.common_browse()}
+							onclick={browseInstallFolder}
 						>
-							<div class="text-left">
-								<div class="text-sm font-semibold">{m.wizard_login_steam()}</div>
-								<div class="text-xs opacity-60">{m.wizard_login_steam_desc()}</div>
-							</div>
-						</button>
-						<button
-							type="button"
-							class="btn h-12 justify-start gap-3"
-							class:btn-primary={loginMethod === "epic"}
-							class:btn-ghost={loginMethod !== "epic"}
-							onclick={() => handleLoginSelect("epic")}
-						>
-							<div class="text-left">
-								<div class="text-sm font-semibold">{m.wizard_login_epic()}</div>
-								<div class="text-xs opacity-60">{m.wizard_login_epic_desc()}</div>
-							</div>
-						</button>
-						<button
-							type="button"
-							class="btn h-12 justify-start gap-3"
-							class:btn-primary={loginMethod === "hirez"}
-							class:btn-ghost={loginMethod !== "hirez"}
-							onclick={() => handleLoginSelect("hirez")}
-						>
-							<div class="text-left">
-								<div class="text-sm font-semibold">{m.wizard_login_hirez()}</div>
-								<div class="text-xs opacity-60">{m.wizard_login_hirez_desc()}</div>
-							</div>
+							<FolderOpen size={14} />
 						</button>
 					</div>
 				</div>
-			{/if}
-
-			{#if showAdvanced}
-				<div class="divider my-2 text-xs">{m.wizard_advanced_options()}</div>
-
-				<div class="form-control">
-					<label for="instance-name" class="label py-0.5">
-						<span class="label-text text-sm">{m.wizard_instance_name()}</span>
-						<span class="label-text-alt text-xs">{m.common_optional()}</span>
-					</label>
-					<input
-						id="instance-name"
-						type="text"
-						placeholder={selectedVersion?.name ||
-							selectedVersion?.version ||
-							m.wizard_my_custom_instance()}
-						class="input input-bordered w-full"
-						bind:value={selectedName}
-					/>
-					<div class="label py-0.5">
-						<span class="label-text-alt text-xs">{m.wizard_leave_empty_version()}</span>
-					</div>
-				</div>
-
-				{#if selectedTab === "download"}
-					<div class="form-control">
-						<label for="download-path" class="label py-0.5">
-							<span class="label-text text-sm">{m.wizard_installation_path()}</span>
-							<span class="label-text-alt text-xs">{m.common_optional()}</span>
-						</label>
-						<div class="join w-full">
-							<input
-								id="download-path"
-								type="text"
-								placeholder={defaultPathPlaceholder}
-								class="input input-bordered join-item flex-1 font-mono"
-								bind:value={selectedPath}
-							/>
-							<button class="btn join-item" type="button" onclick={handleBrowse}>
-								<Folder size={16} />
-								{m.common_browse()}
-							</button>
-						</div>
-						<div class="label py-0.5">
-							<span class="label-text-alt text-xs"></span>
-						</div>
-					</div>
+				{#if installTarget}
+					<p class="text-base-content/60 col-span-2 -mt-1 text-xs wrap-break-word">
+						{installTarget.copy
+							? m.wizard_installs_copy_to({ path: installTarget.path })
+							: m.wizard_installs_to({ path: installTarget.path })}
+					</p>
 				{/if}
 			{/if}
 		</div>
+
+		{#if mode === "download" && downloadPatch}
+			<details class="group bg-base-100 border-base-300 rounded-field border">
+				<summary
+					class="text-base-content/70 hover:text-base-content flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm [&::-webkit-details-marker]:hidden"
+				>
+					<Terminal size={14} />
+					{m.wizard_depot_downloader_command()}
+					<ChevronDown
+						size={14}
+						class="ml-auto opacity-60 transition-transform group-open:rotate-180"
+					/>
+				</summary>
+				<div class="border-base-300 flex flex-col gap-2 border-t p-3">
+					<p class="text-base-content/60 text-xs">{m.wizard_depot_downloader_hint()}</p>
+					<div class="bg-base-200 rounded-field relative">
+						<pre
+							class="overflow-x-auto py-2 pr-20 pl-3 font-mono text-xs wrap-break-word whitespace-pre-wrap select-text">{depotDownloaderCommand}</pre>
+						<button
+							type="button"
+							class="btn btn-ghost btn-xs absolute top-1.5 right-1.5"
+							onclick={handleCopyCommand}
+						>
+							{#if copyStatus === "copied"}
+								<Check size={12} />
+								{m.common_copied()}
+							{:else}
+								<Copy size={12} />
+								{copyStatus === "failed" ? m.common_copy_failed() : m.common_copy()}
+							{/if}
+						</button>
+					</div>
+				</div>
+			</details>
+		{/if}
 	</div>
 
 	{#snippet actions()}
-		<div class="flex w-full items-center justify-between">
-			<button
-				class="btn btn-ghost"
-				type="button"
-				onclick={() => (showAdvanced = !showAdvanced)}
-			>
-				<Code size={16} />
-				{showAdvanced ? m.wizard_hide_advanced() : m.wizard_advanced_options()}
-			</button>
-			<div class="flex gap-2">
-				<button
-					class="btn btn-primary"
-					type="submit"
-					disabled={!isValid ||
-						isDetecting ||
-						(selectedTab === "download" && !supportsCloudDownload) ||
-						(selectedVersion?.version === "8.1" && !loginMethod)}
-				>
-					{#if selectedTab === "download"}
-						<CloudDownload size={16} />
-						{supportsCloudDownload
-							? m.wizard_download_and_create()
-							: m.wizard_not_available()}
-					{:else if isDetecting}
-						<Loader2 size={16} class="animate-spin" />
-						{m.common_identifying()}
-					{:else}
-						<Folder size={16} />
-						{m.wizard_import_instance()}
-					{/if}
-				</button>
-			</div>
-		</div>
+		<p
+			class="text-base-content/55 mr-auto flex min-w-0 items-center gap-1.5 self-center text-xs"
+		>
+			<Info size={12} class="shrink-0" />
+			{mode === "download" ? m.wizard_download_footer() : m.wizard_import_footer()}
+		</p>
+		<button class="btn btn-ghost btn-sm" type="button" onclick={() => (open = false)}>
+			{m.common_cancel()}
+		</button>
+		<button class="btn btn-primary btn-sm" type="submit" disabled={!ready}>
+			{#if mode === "download"}
+				<CloudDownload size={14} />
+				{m.wizard_download_and_create()}
+			{:else if detecting}
+				<span class="loading loading-spinner loading-xs"></span>
+				{m.common_identifying()}
+			{:else}
+				<FolderOpen size={14} />
+				{bulk
+					? m.wizard_import_count({ count: chosen.length })
+					: m.wizard_import_instance()}
+			{/if}
+		</button>
 	{/snippet}
 </Modal>

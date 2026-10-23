@@ -13,7 +13,7 @@
 		platform as getPlatform,
 		join as sysPathJoin,
 	} from "$lib/platform/api";
-	import { findSteamPaladinsInstallation } from "$lib/platforms/steam";
+	import { findSteamPaladinsInstallation } from "$lib/platforms/discovery";
 	import { createSetupInstanceMutation } from "$lib/queries/instance";
 	import { RIGBY_BASE_URL, RIGBY_MANIFEST_URL_TEMPLATE } from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";

@@ -15,6 +15,11 @@
 /** Platforms an instance's game install can target. */
 export type GamePlatform = "Win64" | "Win32";
 
+/** Where a Paladins install on this machine was found. */
+export type InstallationSource = "steam" | "epic" | "hirez" | "tempest" | "folder";
+
+export type FoundInstallation = { path: string; source: InstallationSource };
+
 export type SpawnOptions = { env?: Record<string, string> };
 
 export type ShellExecuteResult = {
@@ -193,7 +198,14 @@ export interface IpcContract {
 
 	// ---- Platforms ----
 	"platforms:detect": { args: { instancePath: string }; result: GamePlatform[] };
-	"platforms:find-steam-paladins": { args: void; result: string | null };
+	/**
+	 * Paladins installs on this machine. `folders` are searched one level deep as Tempest's own
+	 * downloads; `sweep: false` skips looking through the drives beyond the known launchers.
+	 */
+	"platforms:find-paladins": {
+		args: { folders: string[]; sweep?: boolean };
+		result: FoundInstallation[];
+	};
 
 	// ---- Instances ----
 	"instance:paths": { args: { id: string }; result: InstancePaths };

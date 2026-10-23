@@ -15,6 +15,10 @@
 	interface Props {
 		open?: boolean;
 		title?: string;
+		/** With a title, gives the dialog the mod website's header: the icon in a tinted circle */
+		icon?: typeof X;
+		/** A line under the title */
+		description?: string;
 		children: Snippet;
 		actions?: Snippet;
 		class?: string;
@@ -28,6 +32,8 @@
 	let {
 		open = $bindable(false),
 		title,
+		icon: Icon,
+		description,
 		children,
 		actions,
 		class: className = "",
@@ -77,7 +83,25 @@
 				}}
 				class="contents"
 			>
-				{#if title}
+				{#if title && Icon}
+					<header class="flex items-start gap-3 pr-10 pb-5">
+						<span
+							class="bg-primary/12 text-primary flex size-10 shrink-0 items-center justify-center rounded-full"
+						>
+							<Icon size={18} />
+						</span>
+						<div class="min-w-0">
+							<Dialog.Title class="text-lg leading-tight font-semibold">
+								{title}
+							</Dialog.Title>
+							{#if description}
+								<Dialog.Description class="text-base-content/60 mt-0.5 text-sm">
+									{description}
+								</Dialog.Description>
+							{/if}
+						</div>
+					</header>
+				{:else if title}
 					<Dialog.Title class="pb-4 text-lg font-bold">
 						{title}
 					</Dialog.Title>
