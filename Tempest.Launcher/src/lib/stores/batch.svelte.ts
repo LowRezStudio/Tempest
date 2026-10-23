@@ -97,4 +97,6 @@ class BatchCookStore {
 export const batch = new BatchCookStore();
 
 /** Which cooker tab is active on the /converter route. */
-export const cookMode = $state<{ value: "single" | "batch" }>({ value: "single" });
+export const cookMode = $state<{ value: "single" | "batch" }>({
+	value: "single",
+});
