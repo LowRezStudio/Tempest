@@ -1008,7 +1008,7 @@
 	"antivirus_cancelled": "Administrator permission was declined. You can try again.",
 	"antivirus_failed": "Couldn't add the exclusions",
 	"antivirus_failed_hint": "If you use another antivirus, add the folders in its settings instead.",
-	"instance_browse": "Browse",
+	"instance_browse": "Discover",
 	"instance_find_mods": "Find Mods",
 	"repo_search_placeholder": "Search mods, tags, authors",
 	"repo_filters": "Filters",
