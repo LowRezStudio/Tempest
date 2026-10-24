@@ -149,6 +149,7 @@
 	"downloads_of": "{done} of {total}",
 	"downloads_speed": "Speed",
 	"downloads_eta": "{time} left",
+	"downloads_took": "Took {time}",
 	"downloads_files_heading": "Files",
 	"downloads_graph_label": "Download speed over the last two minutes, peaking at {speed}",
 	"downloads_queue_paused": "Queue paused",

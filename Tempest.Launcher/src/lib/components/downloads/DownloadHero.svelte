@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Files, Gauge, HardDrive, Pause, Play, X } from "@lucide/svelte";
+	import { Files, Gauge, HardDrive, Pause, Play, Timer, X } from "@lucide/svelte";
 	import { Progress } from "bits-ui";
 	import { Spring, prefersReducedMotion } from "svelte/motion";
 	import PatchBanner from "$lib/components/library/PatchBanner.svelte";
@@ -102,6 +102,16 @@
 	const chips = $derived(
 		complete && item.result
 			? [
+					...(item.activeMs
+						? [
+								{
+									icon: Timer,
+									value: m.downloads_took({
+										time: formatDuration(item.activeMs / 1000),
+									}),
+								},
+							]
+						: []),
 					{ icon: Files, value: m.downloads_file_count({ count: item.result.files }) },
 					{
 						icon: HardDrive,

@@ -45,6 +45,9 @@ export interface QueueItem {
 	progress?: ProgressEvent;
 	error?: string;
 	finishedAt?: number;
+	/** Time spent running, not counting pauses; `runningSince` marks the current run */
+	activeMs?: number;
+	runningSince?: number;
 }
 
 export interface SpeedSample {

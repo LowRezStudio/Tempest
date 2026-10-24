@@ -30,7 +30,7 @@ function resetRunningItems(): void {
 
 	const updated = items.map((item) =>
 		item.status === "running"
-			? { ...item, status: "pending" as const, progress: undefined }
+			? { ...item, status: "pending" as const, progress: undefined, runningSince: undefined }
 			: item,
 	);
 	queueItems.value = updated;
@@ -591,12 +591,21 @@ export class RestoreQueue {
 		const index = items.findIndex((item) => item.id === id);
 		if (index === -1) return;
 
-		const oldStatus = items[index].status;
+		const old = items[index];
+		const oldStatus = old.status;
+		const now = Date.now();
+		const leftRunning =
+			oldStatus === "running" && updates.status && updates.status !== "running";
 		const newItems = [...items];
 		newItems[index] = {
-			...newItems[index],
+			...old,
 			...updates,
-			...(updates.status === "complete" && { finishedAt: Date.now() }),
+			...(updates.status === "complete" && { finishedAt: now }),
+			...(updates.status === "running" && oldStatus !== "running" && { runningSince: now }),
+			...(leftRunning && {
+				activeMs: (old.activeMs ?? 0) + (old.runningSince ? now - old.runningSince : 0),
+				runningSince: undefined,
+			}),
 		};
 		queueItems.value = newItems;
 
