@@ -10,15 +10,12 @@
 		UserRound,
 		X,
 	} from "@lucide/svelte";
-	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
 	import { open as openDialog } from "$lib/platform/api";
 	import { defaultInstancePath } from "$lib/stores/settings.svelte";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import { findExistingInstance, type FolderImport } from "./folder-import.svelte";
 	import LoginMethodPicker from "./LoginMethodPicker.svelte";
-	import PatchHeading from "./PatchHeading.svelte";
-	import PatchTimeline from "./PatchTimeline.svelte";
 	import type { InstallationSource } from "$lib/platforms/discovery";
 
 	interface Props {
@@ -137,9 +134,6 @@
 							{#if folder.error}
 								<span class="text-error block text-xs">{folder.error}</span>
 							{:else}
-								{#if folder.warning && !folder.loading && !existing}
-									<span class="text-warning block text-xs">{folder.warning}</span>
-								{/if}
 								<span
 									class="text-base-content/60 flex items-center gap-1 truncate text-xs"
 								>
@@ -236,21 +230,6 @@
 	</div>
 	<p class="text-base-content/60 text-xs">{m.wizard_game_folder_hint()}</p>
 </div>
-
-{#if importer.needsPatch && importer.single}
-	{@const single = importer.single}
-	<div class="flex flex-col gap-2">
-		<PatchHeading patch={importer.patch} />
-		<PatchTimeline
-			patches={versions}
-			bind:value={
-				() => importer.picked[single.key] ?? single.versionId,
-				(id) => (importer.picked[single.key] = id)
-			}
-			label={m.wizard_game_version()}
-		/>
-	</div>
-{/if}
 
 {#if importer.needsLogin}
 	<LoginMethodPicker bind:value={importer.loginMethod} />

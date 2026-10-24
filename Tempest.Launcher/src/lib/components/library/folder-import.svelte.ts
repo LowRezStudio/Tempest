@@ -16,10 +16,8 @@ export type LoginMethod = "steam" | "epic" | "hirez";
 
 type Detection = {
 	versionId: string;
-	/** The folder can't be imported (not a game install, or the CLI failed). */
+	/** The folder can't be imported (not a game install, a build of no known patch, or the CLI failed). */
 	error: string;
-	/** A game install whose exact build is unknown; the user picks the patch. */
-	warning: string;
 };
 
 export type Folder = Detection & {
@@ -81,8 +79,6 @@ export function newInstance(
  */
 export class FolderImport {
 	folders = $state<Folder[]>([]);
-	/** The patch picked for a folder whose build wasn't recognised, by folder key */
-	picked = $state<Record<string, string>>({});
 	loginMethod = $state<LoginMethod>();
 
 	readonly found: ReturnType<typeof createFoundInstallationsQuery>;
@@ -94,7 +90,6 @@ export class FolderImport {
 	single = $derived(this.chosen.length === 1 ? this.chosen[0] : undefined);
 	bulk = $derived(this.chosen.length > 1);
 	detecting = $derived(this.chosen.some((f) => f.loading));
-	needsPatch = $derived(!!this.single && !this.single.loading && !!this.single.warning);
 	patch = $derived(this.single ? this.patchOf(this.single) : undefined);
 	needsLogin = $derived(this.patch?.version === "8.1");
 	ready = $derived(
@@ -138,10 +133,8 @@ export class FolderImport {
 		});
 	}
 
-	// The patch an imported folder gets: what it was identified as, or the pick for an unknown build.
 	patchOf(folder: Folder): Patch | undefined {
-		const id = this.picked[folder.key] ?? folder.versionId;
-		return versions.find((v) => v.id === id);
+		return versions.find((v) => v.id === folder.versionId);
 	}
 
 	label(folder: Folder, found: Patch | undefined, several = this.bulk) {
@@ -181,7 +174,6 @@ export class FolderImport {
 						"")
 					: "",
 				error: "",
-				warning: "",
 				loading: !instance,
 				mods: [],
 				modsLoading: !instance,
@@ -194,7 +186,6 @@ export class FolderImport {
 
 	remove(key: string) {
 		this.folders = this.folders.filter((f) => f.key !== key);
-		delete this.picked[key];
 	}
 
 	/**
@@ -228,7 +219,6 @@ export class FolderImport {
 
 	reset() {
 		this.folders = [];
-		this.picked = {};
 		this.loginMethod = undefined;
 	}
 
@@ -245,26 +235,23 @@ export class FolderImport {
 	async #detect(path: string): Promise<Detection> {
 		try {
 			const info = await this.#queryClient.fetchQuery(buildQueryOptions(path));
-			if (!info) return { versionId: "", error: m.wizard_could_not_identify(), warning: "" };
+			if (!info) return { versionId: "", error: m.wizard_could_not_identify() };
+			// Only a build Tempest knows exactly: verifying against a guessed patch would
+			// overwrite the folder with that patch's files.
 			const exact = versions.find((v) => v.id === info.Id);
-			const version =
-				exact ??
-				versions.findLast((v) => !!info.VersionGroup && v.version === info.VersionGroup);
+			if (exact) return { versionId: exact.id, error: "" };
 			return {
-				versionId: version?.id ?? "",
-				error: "",
-				warning: exact
-					? ""
-					: info.Id
-						? m.wizard_build_not_in_database({
-								patchName: info.PatchName,
-								versionGroup: info.VersionGroup,
-							})
-						: m.wizard_unknown_build(),
+				versionId: "",
+				error: info.Id
+					? m.wizard_build_not_in_database({
+							patchName: info.PatchName,
+							versionGroup: info.VersionGroup,
+						})
+					: m.wizard_unknown_build(),
 			};
 		} catch (error) {
 			console.error("Detection error:", error);
-			return { versionId: "", error: m.wizard_identify_error(), warning: "" };
+			return { versionId: "", error: m.wizard_identify_error() };
 		}
 	}
 
