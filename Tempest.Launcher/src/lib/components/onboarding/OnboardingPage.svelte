@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
-	import { Check, Compass, Download, FolderOpen, Gamepad2, Loader2 } from "@lucide/svelte";
-	import { onMount } from "svelte";
+	import { Check, Compass, Download, FolderOpen, Loader2 } from "@lucide/svelte";
+	import {
+		findExistingInstance,
+		FolderImport,
+	} from "$lib/components/library/folder-import.svelte";
+	import FolderImportPanel from "$lib/components/library/FolderImportPanel.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
-	import { identifyBuild } from "$lib/core/build";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
 	import { locales, type Locale } from "$lib/paraglide/runtime";
@@ -13,16 +16,9 @@
 		platform as getPlatform,
 		join as sysPathJoin,
 	} from "$lib/platform/api";
-	import { findSteamPaladinsInstallation } from "$lib/platforms/discovery";
-	import { createSetupInstanceMutation } from "$lib/queries/instance";
 	import { RIGBY_BASE_URL, RIGBY_MANIFEST_URL_TEMPLATE } from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
-	import {
-		addInstance,
-		instanceMap,
-		removeInstance,
-		updateInstance,
-	} from "$lib/stores/instance.svelte";
+	import { addInstance, updateInstance } from "$lib/stores/instance.svelte";
 	import { localeLabels, localeState } from "$lib/stores/locale.svelte";
 	import {
 		defaultInstancePath,
@@ -32,8 +28,6 @@
 	import WineSettings from "$lib/wine/WineSettings.svelte";
 	import type { Instance } from "$lib/types/instance";
 
-	type SteamState = "searching" | "found" | "missing";
-	type LoginMethod = "steam" | "epic" | "hirez";
 	type StepId = "language" | "username" | "steam" | "download" | "proton" | "done";
 	type VersionEntry = (typeof versions)[number];
 
@@ -59,19 +53,14 @@
 	// Selected language is kept as a draft and only committed to the app when
 	// the user confirms the step, avoiding an abrupt mid-step relayout.
 	let languageDraft = $state<Locale>(localeState.current);
-	let importBusy = $state(false);
-	let importDone = $state(false);
-	let importedPath = $state<string | null>(null);
+	let importedPaths = $state<string[]>([]);
 	let downloadBusy = $state(false);
 	let queuedVersions = $state<string[]>([]);
 	let otherVersionId = $state(otherVersions[0]?.id ?? "");
-	let importError = $state("");
 	let installError = $state("");
-	let steamState = $state<SteamState>("searching");
-	let steamPath = $state<string | null>(null);
-	let loginMethod = $state<LoginMethod | undefined>();
 
-	const setupInstanceMutation = createSetupInstanceMutation();
+	// Scans from the start, so what it finds is listed by the time the import step comes up.
+	const folderImport = new FolderImport(() => true);
 	const currentStep = $derived(steps[stepIndex]);
 	const downloadQueued = $derived(queuedVersions.length > 0);
 	const multiplayerQueued = $derived(
@@ -107,7 +96,7 @@
 	const canGoNext = $derived(currentStep.id !== "username" || usernameDraft.trim().length > 0);
 	// Optional steps read "Skip" instead of "Next" until their action is used.
 	const showSkipLabel = $derived(
-		(currentStep.id === "steam" && !importBusy && !importDone) ||
+		(currentStep.id === "steam" && importedPaths.length === 0) ||
 			(currentStep.id === "download" && !downloadBusy && !downloadQueued),
 	);
 
@@ -168,20 +157,6 @@
 		return () => window.removeEventListener("keydown", handleKeydown);
 	});
 
-	onMount(() => {
-		void discoverSteam();
-	});
-
-	async function discoverSteam() {
-		try {
-			steamPath = await findSteamPaladinsInstallation();
-			steamState = steamPath ? "found" : "missing";
-		} catch (error) {
-			console.debug("[onboarding] Steam detection failed", error);
-			steamState = "missing";
-		}
-	}
-
 	function saveUsername(): boolean {
 		const value = usernameDraft.trim();
 		if (!value) return false;
@@ -208,102 +183,8 @@
 		void goto("/");
 	}
 
-	function normalizedPath(value: string): string {
-		return value
-			.trim()
-			.replace(/[\\/]+$/, "")
-			.toLowerCase();
-	}
-
-	function findExistingInstance(targetPath: string): Instance | undefined {
-		const target = normalizedPath(targetPath);
-		return Object.values(instanceMap.value).find(
-			(instance) => instance?.path && normalizedPath(instance.path) === target,
-		);
-	}
-
-	async function prepareImportedInstance(instance: Instance): Promise<boolean> {
-		try {
-			await setupInstanceMutation.mutateAsync(instance);
-			return true;
-		} catch (error) {
-			console.error("[onboarding] instance setup failed", error);
-			return false;
-		} finally {
-			updateInstance(instance.id, { state: { type: "prepared" } });
-		}
-	}
-
-	async function importInstallation(targetPath: string, label: string, args: string[] = []) {
-		if (importBusy || importDone) return;
-		importBusy = true;
-		importError = "";
-
-		try {
-			const build = await identifyBuild(targetPath);
-			const version =
-				versions.find((entry) => entry.id === build?.Id) ??
-				versions.find((entry) => entry.version === build?.VersionGroup);
-			const existing = findExistingInstance(targetPath);
-
-			if (existing) {
-				importedPath = targetPath;
-				importDone = true;
-				return;
-			}
-
-			const instance: Instance = {
-				id: crypto.randomUUID(),
-				label: version?.name ?? label,
-				version: version?.version ?? build?.VersionGroup,
-				manifestId: version?.id ?? build?.Id,
-				appId: version?.appId ?? 444090,
-				path: targetPath,
-				launchOptions: {
-					dllList: [],
-					args,
-					noDefaultArgs: false,
-					log: false,
-				},
-				state: { type: "setup" },
-			};
-
-			addInstance(instance);
-			if (!(await prepareImportedInstance(instance))) {
-				removeInstance(instance.id);
-				importError = m.onboarding_import_error();
-				return;
-			}
-
-			importedPath = targetPath;
-			importDone = true;
-		} catch (error) {
-			console.error("[onboarding] import failed", error);
-			importError = m.onboarding_import_error();
-		} finally {
-			importBusy = false;
-		}
-	}
-
-	async function importSteamInstallation() {
-		if (!steamPath || !loginMethod) return;
-		const args = loginMethod === "steam" ? ["-steam"] : loginMethod === "epic" ? ["-epic"] : [];
-		await importInstallation(steamPath, "Paladins (Steam)", args);
-	}
-
-	async function importAnotherInstallation() {
-		if (importBusy || importDone) return;
-
-		const selected = await openDirectoryDialog({
-			directory: true,
-			multiple: true,
-			title: m.wizard_select_installation_folder(),
-		});
-		if (!selected) return;
-		const paths = Array.isArray(selected) ? selected : [selected];
-		for (const p of paths) {
-			if (typeof p === "string") await importInstallation(p, "Paladins");
-		}
+	function importFolders() {
+		importedPaths.push(...folderImport.import().map((instance) => instance.path));
 	}
 
 	function getDownloadBasePath(): Promise<string> {
@@ -406,9 +287,10 @@
 				{/snippet}
 			</Header>
 
-			<div class="flex flex-1 items-center justify-center p-6">
+			<!-- my-auto rather than items-center: a card taller than the window scrolls from its top -->
+			<div class="flex min-h-0 flex-1 justify-center overflow-y-auto p-6">
 				<form
-					class="card bg-base-200/90 w-full max-w-xl shadow-2xl backdrop-blur-md"
+					class="card bg-base-200/90 my-auto w-full max-w-xl shadow-2xl backdrop-blur-md"
 					onsubmit={(event) => {
 						event.preventDefault();
 						goNext();
@@ -482,122 +364,30 @@
 									{/if}
 								</div>
 							{:else if currentStep.id === "steam"}
-								{#if steamState === "searching"}
-									<div class="alert">
-										<Loader2 size={16} class="animate-spin" />
-										<span>{m.onboarding_steam_searching()}</span>
-									</div>
-								{:else if steamState === "found" && steamPath}
-									<div class="alert">
-										<Gamepad2 size={18} class="mt-0.5 shrink-0" />
-										<div class="min-w-0">
-											<h4 class="text-sm font-semibold">
-												{m.onboarding_steam_found()}
-											</h4>
-											<p class="mt-1 font-mono text-xs break-all opacity-60">
-												{steamPath}
-											</p>
-										</div>
-									</div>
-
-									<div class="bg-base-300/30 rounded-box space-y-3 p-4">
-										<div>
-											<h4 class="text-sm font-semibold">
-												{m.onboarding_login_title()}
-											</h4>
-										</div>
-										<div class="flex flex-col gap-2">
-											<button
-												class="btn h-12 justify-start gap-3"
-												class:btn-primary={loginMethod === "steam"}
-												class:btn-ghost={loginMethod !== "steam"}
-												type="button"
-												onclick={() => (loginMethod = "steam")}
-											>
-												<div class="text-left">
-													<div class="text-sm font-semibold">
-														{m.wizard_login_steam()}
-													</div>
-													<div class="text-xs opacity-60">
-														{m.wizard_login_steam_desc()}
-													</div>
-												</div>
-											</button>
-											<button
-												class="btn h-12 justify-start gap-3"
-												class:btn-primary={loginMethod === "epic"}
-												class:btn-ghost={loginMethod !== "epic"}
-												type="button"
-												onclick={() => (loginMethod = "epic")}
-											>
-												<div class="text-left">
-													<div class="text-sm font-semibold">
-														{m.wizard_login_epic()}
-													</div>
-													<div class="text-xs opacity-60">
-														{m.wizard_login_epic_desc()}
-													</div>
-												</div>
-											</button>
-											<button
-												class="btn h-12 justify-start gap-3"
-												class:btn-primary={loginMethod === "hirez"}
-												class:btn-ghost={loginMethod !== "hirez"}
-												type="button"
-												onclick={() => (loginMethod = "hirez")}
-											>
-												<div class="text-left">
-													<div class="text-sm font-semibold">
-														{m.wizard_login_hirez()}
-													</div>
-													<div class="text-xs opacity-60">
-														{m.wizard_login_hirez_desc()}
-													</div>
-												</div>
-											</button>
-										</div>
-
-										<button
-											class="btn btn-primary w-full"
-											type="button"
-											disabled={importBusy || importDone || !loginMethod}
-											onclick={importSteamInstallation}
-										>
-											{#if importBusy}
-												<Loader2 size={16} class="animate-spin" />
-											{:else if importDone}
-												<Check size={16} />
-											{:else}
-												<FolderOpen size={16} />
-											{/if}
-											{importDone
-												? m.onboarding_imported()
-												: m.onboarding_import_steam()}
-										</button>
-									</div>
-								{:else}
-									<div class="alert alert-info text-sm">
-										<Gamepad2 size={16} />
-										<span>{m.onboarding_steam_not_found()}</span>
-									</div>
-								{/if}
-
-								<div class="divider my-2"></div>
-								<button
-									class="btn btn-ghost w-full justify-start gap-3"
-									type="button"
-									disabled={importBusy || importDone}
-									onclick={importAnotherInstallation}
-								>
-									<FolderOpen size={16} />
-									{m.onboarding_import_another()}
-								</button>
-
-								{#if importError}
-									<div class="alert alert-error text-sm" role="alert">
-										{importError}
-									</div>
-								{/if}
+								<div class="flex flex-col gap-4">
+									<FolderImportPanel importer={folderImport} />
+									<button
+										class="btn btn-primary w-full"
+										type="button"
+										disabled={!folderImport.ready}
+										onclick={importFolders}
+									>
+										{#if folderImport.detecting}
+											<Loader2 size={16} class="animate-spin" />
+											{m.common_identifying()}
+										{:else if importedPaths.length > 0 && folderImport.chosen.length === 0}
+											<Check size={16} />
+											{m.onboarding_imported()}
+										{:else}
+											<FolderOpen size={16} />
+											{folderImport.bulk
+												? m.wizard_import_count({
+														count: folderImport.chosen.length,
+													})
+												: m.wizard_import_instance()}
+										{/if}
+									</button>
+								</div>
 							{:else if currentStep.id === "download"}
 								<div class="form-control">
 									<label for="onboarding-download-path" class="label py-0.5">
@@ -725,12 +515,12 @@
 												>{m.onboarding_step_steam()}</span
 											>
 											<span class="min-w-0 flex-1 truncate">
-												{#if importedPath}
+												{#if importedPaths.length > 0}
 													<span
 														class="flex items-center gap-1 font-mono text-xs"
 													>
 														<Check size={14} class="text-success" />
-														{importedPath}
+														{importedPaths.join(", ")}
 													</span>
 												{:else}
 													<span class="opacity-70"

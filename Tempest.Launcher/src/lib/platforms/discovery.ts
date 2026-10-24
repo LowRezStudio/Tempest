@@ -28,12 +28,3 @@ export async function findPaladinsInstallations(
 		unlisten();
 	}
 }
-
-/**
- * The Steam copy of Paladins, without sweeping the drives.
- * @returns The installation path, or `null` when Steam does not contain Paladins.
- */
-export async function findSteamPaladinsInstallation(): Promise<string | null> {
-	const found = await findPaladinsInstallations([], false);
-	return found.find((install) => install.source === "steam")?.path ?? null;
-}
