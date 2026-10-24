@@ -560,6 +560,8 @@
 	"home_releasenotes_title": "Tempest changelog",
 	"home_releasenotes_more": "GitHub",
 	"home_releasenotes_unavailable": "No release notes available.",
+	"home_releasenotes_older": "Older release",
+	"home_releasenotes_newer": "Newer release",
 	"home_community": "Community",
 	"home_discord": "Discord",
 	"home_discord_hint": "Chat with other players and modders.",

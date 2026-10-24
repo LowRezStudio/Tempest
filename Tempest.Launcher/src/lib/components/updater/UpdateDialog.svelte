@@ -10,7 +10,7 @@
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { platform } from "$lib/platform/api";
-	import { cachedReleaseNotes } from "$lib/queries/release";
+	import { cachedReleases } from "$lib/queries/release";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 
 	let isOpen = $state(false);
@@ -68,7 +68,7 @@
 					>
 				</div>
 
-				{#if updaterStore.update.notes || cachedReleaseNotes.value?.body}
+				{#if updaterStore.update.notes || cachedReleases.value[0]?.body}
 					<div class="flex flex-col gap-1.5">
 						<span class="text-base-content/70 text-xs font-semibold"
 							>{m.updater_release_notes()}</span
@@ -76,7 +76,7 @@
 						<div
 							class="bg-base-200 border-base-300 max-h-32 overflow-y-auto rounded-lg border p-3 font-sans text-xs leading-relaxed whitespace-pre-wrap"
 						>
-							{updaterStore.update.notes ?? cachedReleaseNotes.value?.body}
+							{updaterStore.update.notes ?? cachedReleases.value[0]?.body}
 						</div>
 					</div>
 				{/if}

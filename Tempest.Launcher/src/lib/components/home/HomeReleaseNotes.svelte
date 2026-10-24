@@ -1,12 +1,16 @@
 <script lang="ts">
+	import { ChevronLeft, ChevronRight } from "@lucide/svelte";
 	import Section from "$lib/components/ui/Section.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { openUrl } from "$lib/platform/api";
-	import { createLatestReleaseQuery } from "$lib/queries/release";
+	import { createReleasesQuery } from "$lib/queries/release";
 	import { localeState } from "$lib/stores/locale.svelte";
 
-	const releaseQuery = createLatestReleaseQuery();
-	const release = $derived(releaseQuery.data);
+	const releasesQuery = createReleasesQuery();
+	const releases = $derived(releasesQuery.data ?? []);
+	/** 0 is the newest release */
+	let index = $state(0);
+	const release = $derived(releases[Math.min(index, releases.length - 1)]);
 	const date = $derived.by(() => {
 		const published = release?.pub_date ? new Date(release.pub_date) : undefined;
 		if (!published || Number.isNaN(published.getTime())) return "";
@@ -24,7 +28,7 @@
 		openUrl(release?.url ?? "https://github.com/LowRezStudio/Tempest/releases/latest")}
 >
 	<div data-panel class="bg-base-200 border-base-300 rounded-box flex-1 border p-4">
-		{#if releaseQuery.isPending && !release}
+		{#if releasesQuery.isPending && !release}
 			<p class="text-base-content/60 text-sm">{m.common_loading()}</p>
 		{:else if release}
 			<div class="mb-2 flex items-center gap-2">
@@ -33,9 +37,32 @@
 					>
 				{/if}
 				<span class="text-base-content/60 text-xs">{date}</span>
+				{#if releases.length > 1}
+					<!-- Left goes back in time, like a timeline -->
+					<div class="ml-auto flex items-center">
+						<button
+							class="btn btn-ghost btn-xs btn-square"
+							disabled={index >= releases.length - 1}
+							title={m.home_releasenotes_older()}
+							aria-label={m.home_releasenotes_older()}
+							onclick={() => index++}
+						>
+							<ChevronLeft size={14} />
+						</button>
+						<button
+							class="btn btn-ghost btn-xs btn-square"
+							disabled={index === 0}
+							title={m.home_releasenotes_newer()}
+							aria-label={m.home_releasenotes_newer()}
+							onclick={() => index--}
+						>
+							<ChevronRight size={14} />
+						</button>
+					</div>
+				{/if}
 			</div>
 			<p
-				class="text-base-content/80 line-clamp-8 text-sm leading-relaxed whitespace-pre-wrap"
+				class="text-base-content/80 line-clamp-8 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap"
 			>
 				{release.body}
 			</p>
