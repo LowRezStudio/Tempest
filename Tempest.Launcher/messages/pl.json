@@ -17,18 +17,6 @@
 	"common_paused": "Wstrzymano",
 	"common_stop": "Zatrzymaj",
 	"common_refresh": "Odśwież",
-	"mod_refresh_list": [
-		{
-			"declarations": ["input count", "local countPlural = count: plural"],
-			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "Odśwież listę modów ({count} mod)",
-				"countPlural=few": "Odśwież listę modów ({count} mody)",
-				"countPlural=many": "Odśwież listę modów ({count} modów)",
-				"countPlural=other": "Odśwież listę modów ({count} moda)"
-			}
-		}
-	],
 	"common_remove": "Usuń",
 	"common_copy": "Kopiuj",
 	"common_copy_all": "Kopiuj wszystko",

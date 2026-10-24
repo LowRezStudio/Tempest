@@ -1,5 +1,14 @@
 <script lang="ts">
-	import { CodeXml, Cpu, FileBox, FileDown, PackageOpen, Search, SearchX } from "@lucide/svelte";
+	import {
+		CodeXml,
+		Cpu,
+		FileBox,
+		FileDown,
+		PackageOpen,
+		RefreshCw,
+		Search,
+		SearchX,
+	} from "@lucide/svelte";
 	import { SvelteSet } from "svelte/reactivity";
 	import {
 		missingDependencies,
@@ -7,7 +16,6 @@
 		turnedOff,
 	} from "$lib/mods/dependencies";
 	import { justInstalled, pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
-	import { installFromRepo } from "$lib/mods/repoInstall";
 	import { m } from "$lib/paraglide/messages";
 	import { invoke } from "$lib/platform/api";
 	import {
@@ -16,10 +24,11 @@
 		createInstalledIconsQuery,
 		createRenameModMutation,
 	} from "$lib/queries/mods";
-	import { createRepoModsQuery, createRepoVersionCountsQuery } from "$lib/queries/repo";
+	import { createRepoModsQuery } from "$lib/queries/repo";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import InstalledModRow from "./InstalledModRow.svelte";
 	import type { ModRecord } from "$lib/core/mods";
+	import type { PendingInstall } from "$lib/mods/pendingInstalls.svelte";
 	import type { RepoUpdate } from "$lib/queries/repo";
 
 	interface Props {
@@ -30,8 +39,10 @@
 		/** The instance is set up and can take mods. */
 		isReady: boolean;
 		isRunning: boolean;
+		isLoading: boolean;
 		/** Repository update checks keyed by mod id */
 		updates: Map<string, RepoUpdate>;
+		onRefresh: () => void;
 		onRemoveMod: (name: string) => void;
 		onOpenFiles: (mod: ModRecord) => void;
 		onOpenRepo: (modId: string, tab?: "readme" | "versions") => void;
@@ -45,7 +56,9 @@
 		query = $bindable(),
 		isReady,
 		isRunning,
+		isLoading,
 		updates,
+		onRefresh,
 		onRemoveMod,
 		onOpenFiles,
 		onOpenRepo,
@@ -59,7 +72,6 @@
 	const repoMods = createRepoModsQuery(v2ModIds);
 	// The package's own icon stands in when the repository has none (local or unpublished mods).
 	const installedIcons = createInstalledIconsQuery(() => gamePath, v2ModIds);
-	const versionCounts = createRepoVersionCountsQuery(() => [...(repoMods.data?.keys() ?? [])]);
 
 	const shown = $derived.by(() => {
 		const q = query.trim().toLowerCase();
@@ -133,15 +145,6 @@
 		}
 	}
 
-	function installUpdate(mod: ModRecord) {
-		const latest = updates.get(mod.Id)?.latest;
-		if (!latest) return;
-		void installFromRepo(gamePath, mod.Id, latest.version, mod.Name, {
-			replace: true,
-			sha256: latest.sha256,
-		});
-	}
-
 	function fetchMissing(mod: ModRecord) {
 		const missing = missingByMod.get(mod.Id);
 		if (missing) void offerMissingDependencies(gamePath, mod.Name, missing);
@@ -161,6 +164,11 @@
 		if (repoMods.data?.has(mod.Id)) onOpenRepo(mod.Id);
 		else onOpenFiles(mod);
 	}
+
+	const statusOf = (install: PendingInstall) =>
+		install.progress === null
+			? m.mod_row_installing()
+			: `${Math.round(install.progress * 100)}%`;
 
 	const empty = $derived(mods.length === 0 && placeholders.length === 0);
 	// One tile per kind of mod, fanned out above the empty state
@@ -196,79 +204,115 @@
 				</button>
 			</div>
 		</div>
-	{:else if shown.length === 0 && placeholders.length === 0}
-		<div class="text-base-content/60 flex flex-col items-center gap-2 py-16 text-center">
-			<SearchX size={32} class="opacity-60" />
-			<p class="text-sm">{m.mods_no_match()}</p>
-			<button class="link text-sm" onclick={() => (query = "")}>
-				{m.repo_clear_filters()}
-			</button>
-		</div>
 	{:else}
-		<ul
-			data-panel
-			class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y overflow-hidden border"
-		>
-			{#each shown as mod (mod.Id)}
-				{@const repo = repoMods.data?.get(mod.Id)}
-				<!-- Waits for the repository so a listed mod's icon never swaps in after the package's. -->
-				<InstalledModRow
-					{mod}
-					{repo}
-					icon={mod.Kind === "V2" && (repoMods.isPending || installedIcons.isPending)
-						? undefined
-						: (repo?.icon ?? installedIcons.data?.get(mod.Id) ?? null)}
-					update={updates.get(mod.Id)}
-					busy={pendingByMod.get(mod.Id)}
-					missing={missingByMod.get(mod.Id)}
-					missingTurnedOff={onlyTurnedOff(mod)}
-					versionCount={versionCounts.data?.get(mod.Id) ?? 0}
-					{isRunning}
-					fresh={justInstalled.has(mod.Id)}
-					onToggle={toggle}
-					onOpen={open}
-					onOpenVersions={(mod) => onOpenRepo(mod.Id, "versions")}
-					{onOpenFiles}
-					onShowInExplorer={showInExplorer}
-					onRename={rename}
-					onRemove={(mod) => onRemoveMod(mod.Name)}
-					onUpdate={installUpdate}
-					onFetchMissing={fetchMissing}
-				/>
-			{/each}
-			{#each placeholders as install (install.id)}
-				<li class="relative flex items-center gap-3 px-3 py-2.5" aria-busy="true">
-					<div
-						class="pending-row pointer-events-none absolute inset-0"
-						class:installing={install.progress === null}
-						style:--progress="{install.progress === null
-							? 100
-							: install.progress * 100}%"
-					></div>
-					<div
-						class="bg-base-300 flex size-10 shrink-0 items-center justify-center rounded-lg"
-					>
-						<span class="loading loading-spinner loading-sm opacity-60"></span>
-					</div>
-					<div class="min-w-0 flex-1">
-						<p class="truncate text-sm font-semibold">{install.name}</p>
-						<p class="text-base-content/60 flex gap-2 text-xs tabular-nums">
-							{#if install.author}<span class="truncate">by {install.author}</span
-								>{/if}
-							<span>
-								{install.progress === null
-									? m.mod_row_installing()
-									: `${Math.round(install.progress * 100)}%`}
-							</span>
-						</p>
-					</div>
-					{#if install.version}
-						<span class="text-base-content/60 font-mono text-xs">{install.version}</span
+		<!-- Fixed layout: the name column takes what is left and truncates instead of pushing the others -->
+		<div data-panel class="bg-base-200 border-base-300 rounded-box overflow-hidden border">
+			<table class="table table-fixed">
+				<thead>
+					<tr>
+						<th>{m.common_name()}</th>
+						<th class="w-[30%]">{m.common_version()}</th>
+						<th class="w-60 text-right">
+							<button
+								class="hover:text-primary inline-flex max-w-full cursor-pointer items-center gap-1 text-sm font-semibold tabular-nums transition-colors disabled:opacity-40"
+								onclick={onRefresh}
+								disabled={isLoading}
+								aria-busy={isLoading}
+							>
+								<span
+									class="flex size-3.5 shrink-0 items-center justify-center"
+									aria-hidden="true"
+								>
+									{#if isLoading}
+										<span class="loading loading-spinner size-3.5"></span>
+									{:else}
+										<RefreshCw size={14} />
+									{/if}
+								</span>
+								{m.common_refresh()}
+							</button>
+						</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each shown as mod (mod.Id)}
+						{@const repo = repoMods.data?.get(mod.Id)}
+						<!-- Waits for the repository so a listed mod's icon never swaps in after the package's. -->
+						<InstalledModRow
+							{mod}
+							{repo}
+							icon={mod.Kind === "V2" &&
+							(repoMods.isPending || installedIcons.isPending)
+								? undefined
+								: (repo?.icon ?? installedIcons.data?.get(mod.Id) ?? null)}
+							update={updates.get(mod.Id)}
+							busy={pendingByMod.get(mod.Id)}
+							missing={missingByMod.get(mod.Id)}
+							missingTurnedOff={onlyTurnedOff(mod)}
+							{isRunning}
+							fresh={justInstalled.has(mod.Id)}
+							onToggle={toggle}
+							onOpen={open}
+							onOpenVersions={(mod) => onOpenRepo(mod.Id, "versions")}
+							onShowInExplorer={showInExplorer}
+							onRename={rename}
+							onRemove={(mod) => onRemoveMod(mod.Name)}
+							onFetchMissing={fetchMissing}
+						/>
+					{/each}
+					{#each placeholders as install (install.id)}
+						<tr
+							class="pending-row"
+							class:installing={install.progress === null}
+							aria-busy="true"
+							style:--progress="{install.progress === null
+								? 100
+								: install.progress * 100}%"
 						>
+							<td>
+								<div class="flex items-center gap-3">
+									<div
+										class="bg-base-300 flex size-10 shrink-0 items-center justify-center rounded-lg"
+									>
+										<span class="loading loading-spinner loading-sm opacity-60"
+										></span>
+									</div>
+									<div class="min-w-0 flex-1">
+										<p class="truncate text-sm font-bold">{install.name}</p>
+										<p class="truncate text-xs tabular-nums opacity-70">
+											{install.author
+												? `by ${install.author} · ${statusOf(install)}`
+												: statusOf(install)}
+										</p>
+									</div>
+								</div>
+							</td>
+							<td>
+								<p class="truncate text-sm font-semibold">
+									{install.version ?? ""}
+								</p>
+							</td>
+							<td></td>
+						</tr>
+					{/each}
+					{#if shown.length === 0 && placeholders.length === 0}
+						<tr>
+							<td colspan="3">
+								<div
+									class="text-base-content/60 flex flex-col items-center gap-2 py-10 text-center"
+								>
+									<SearchX size={32} class="opacity-60" />
+									<p class="text-sm">{m.mods_no_match()}</p>
+									<button class="link text-sm" onclick={() => (query = "")}>
+										{m.repo_clear_filters()}
+									</button>
+								</div>
+							</td>
+						</tr>
 					{/if}
-				</li>
-			{/each}
-		</ul>
+				</tbody>
+			</table>
+		</div>
 		{#if isReady}
 			<p class="text-base-content/40 mt-3 flex items-center justify-center gap-1.5 text-xs">
 				<FileDown size={13} />

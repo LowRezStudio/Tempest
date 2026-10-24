@@ -129,11 +129,7 @@
 </script>
 
 {#snippet modActions()}
-	<InstanceModActions
-		bind:query={modSearch}
-		isLoading={isRefreshingMods}
-		onRefresh={handleRefreshMods}
-	/>
+	<InstanceModActions bind:query={modSearch} />
 {/snippet}
 
 <!-- On the Mods tab the whole page takes dropped mod files -->
@@ -194,7 +190,9 @@
 							bind:query={modSearch}
 							{isReady}
 							{isRunning}
+							isLoading={isRefreshingMods}
 							{updates}
+							onRefresh={handleRefreshMods}
 							onRemoveMod={handleRemoveMod}
 							onOpenFiles={handleOpenFiles}
 							onOpenRepo={openRepoMod}

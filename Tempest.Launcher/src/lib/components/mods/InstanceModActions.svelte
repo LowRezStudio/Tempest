@@ -1,14 +1,8 @@
 <script lang="ts">
-	import { RefreshCw, Search } from "@lucide/svelte";
+	import { Search } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
 
-	interface Props {
-		query: string;
-		isLoading: boolean;
-		onRefresh: () => void;
-	}
-
-	let { query = $bindable(), isLoading, onRefresh }: Props = $props();
+	let { query = $bindable() }: { query: string } = $props();
 
 	let searchInput = $state<HTMLInputElement | null>(null);
 
@@ -42,17 +36,3 @@
 		onkeydown={onSearchKey}
 	/>
 </label>
-<button
-	class="btn btn-sm btn-square text-base-content/60"
-	onclick={onRefresh}
-	disabled={isLoading}
-	aria-busy={isLoading}
-	title={m.common_refresh()}
-	aria-label={m.common_refresh()}
->
-	{#if isLoading}
-		<span class="loading loading-spinner size-3.5"></span>
-	{:else}
-		<RefreshCw size={14} />
-	{/if}
-</button>
