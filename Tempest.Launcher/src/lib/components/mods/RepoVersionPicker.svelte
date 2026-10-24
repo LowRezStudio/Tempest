@@ -104,7 +104,10 @@
 				<p class="text-error text-xs">{m.repo_unreachable()}</p>
 			{:else}
 				{@const solo = versions.length === 1}
-				<ol class="flex max-h-80 flex-col gap-1 overflow-y-auto" class:pl-1.5={!solo}>
+				<ol
+					class="flex max-h-80 flex-col gap-1 overflow-x-hidden overflow-y-auto"
+					class:pl-1.5={!solo}
+				>
 					{#each visible as v, i (v.id)}
 						{@const latest = i === 0}
 						{@const oldest = v === versions.at(-1)}
@@ -169,20 +172,19 @@
 										>
 									{/if}
 								</span>
-								<span
-									class="text-base-content/60 flex items-center gap-1 text-xs whitespace-nowrap"
-								>
+								<!-- Truncated rather than wider than the menu, which scrolled it sideways -->
+								<span class="text-base-content/60 block truncate text-xs">
 									{#if v.publishedAt}{formatDate(v.publishedAt)} ·{/if}
 									{patchLabel(v)} · {formatBytes(v.size)}
 									{#if cached.has(v.version) && !current}
-										· <HardDrive size={10} />
+										· <HardDrive size={10} class="inline align-[-1px]" />
 										{m.repo_cached()}
 									{/if}
 								</span>
 								{#if v.changelog}
 									<!-- No `block`: it overrides the clamp's -webkit-box and shows it all -->
 									<span
-										class="text-base-content/80 mt-0.5 line-clamp-2"
+										class="text-base-content/80 mt-0.5 line-clamp-2 wrap-break-word"
 										title={v.changelog}>{v.changelog}</span
 									>
 								{/if}
