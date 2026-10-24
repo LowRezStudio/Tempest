@@ -1,5 +1,5 @@
 import { createMutation, createQueries, createQuery, useQueryClient } from "@tanstack/svelte-query";
-import { disableMod, enableMod, installMod, listMods, removeMod, renameMod } from "$lib/core/mods";
+import { disableMod, enableMod, installMod, listMods, removeMod } from "$lib/core/mods";
 import { invoke } from "$lib/platform/api";
 import type { ModInstallResult, ModRecord } from "$lib/core/mods";
 
@@ -136,11 +136,4 @@ export const createRemoveModMutation = () =>
 	createOptimisticModMutation<ModNameVariables>(
 		({ gamePath, modName }) => removeMod(gamePath, modName),
 		(mods, { modName }) => mods.filter((mod) => mod.Name !== modName),
-	);
-
-export const createRenameModMutation = () =>
-	createOptimisticModMutation<{ gamePath: string; oldName: string; newName: string }>(
-		({ gamePath, oldName, newName }) => renameMod(gamePath, oldName, newName),
-		(mods, { oldName, newName }) =>
-			mods.map((mod) => (mod.Name === oldName ? { ...mod, Name: newName } : mod)),
 	);

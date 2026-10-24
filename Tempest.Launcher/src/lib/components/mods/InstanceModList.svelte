@@ -22,7 +22,6 @@
 		createDisableModMutation,
 		createEnableModMutation,
 		createInstalledIconsQuery,
-		createRenameModMutation,
 	} from "$lib/queries/mods";
 	import { createRepoModsQuery, createRepoVersionCountsQuery } from "$lib/queries/repo";
 	import { addToast } from "$lib/stores/ui.svelte";
@@ -106,7 +105,6 @@
 		pending.filter((p) => !p.modId || !mods.some((mod) => mod.Id === p.modId)),
 	);
 
-	const renameMutation = createRenameModMutation();
 	const enableMutation = createEnableModMutation();
 	const disableMutation = createDisableModMutation();
 	const togglingModIds = new SvelteSet<string>();
@@ -131,18 +129,6 @@
 			addToast({ message: `${mod.Name}: ${errorMessage(error)}`, tone: "error" });
 		} finally {
 			togglingModIds.delete(mod.Id);
-		}
-	}
-
-	async function rename(mod: ModRecord, newName: string) {
-		try {
-			await renameMutation.mutateAsync({ gamePath, oldName: mod.Name, newName });
-		} catch (error) {
-			addToast({
-				title: m.mod_rename_dialog_title(),
-				message: errorMessage(error),
-				tone: "error",
-			});
 		}
 	}
 
@@ -257,7 +243,6 @@
 							onOpen={open}
 							onOpenVersions={(mod) => onOpenRepo(mod.Id, "versions")}
 							onShowInExplorer={showInExplorer}
-							onRename={rename}
 							onRemove={(mod) => onRemoveMod(mod.Name)}
 							onFetchMissing={fetchMissing}
 						/>

@@ -41,7 +41,6 @@
 		/** The repository page's version history, for switching versions */
 		onOpenVersions: (mod: ModRecord) => void;
 		onShowInExplorer: (mod: ModRecord) => void;
-		onRename: (mod: ModRecord, name: string) => void;
 		onRemove: (mod: ModRecord) => void;
 		onFetchMissing: (mod: ModRecord) => void;
 	}
@@ -61,7 +60,6 @@
 		onOpen,
 		onOpenVersions,
 		onShowInExplorer,
-		onRename,
 		onRemove,
 		onFetchMissing,
 	}: Props = $props();
@@ -78,40 +76,19 @@
 		mod.Enabled ? m.mods_disable({ name: mod.Name }) : m.mods_enable({ name: mod.Name }),
 	);
 
-	let renaming = $state(false);
-	let editName = $state("");
-
-	function startRename() {
-		editName = mod.Name;
-		renaming = true;
-	}
-
-	function commitRename() {
-		if (!renaming) return;
-		// Cleared first: removing the input fires blur, which would commit again.
-		renaming = false;
-		const name = editName.trim();
-		if (name && name !== mod.Name) onRename(mod, name);
-	}
-
-	function onRenameKey(e: KeyboardEvent) {
-		if (e.key === "Enter") {
-			e.preventDefault();
-			commitRename();
-		} else if (e.key === "Escape") {
-			e.preventDefault();
-			renaming = false;
-		}
-	}
-
-	function focusAndSelect(node: HTMLInputElement) {
-		node.focus();
-		node.select();
+	// Not a stretched button: the faded cells of a turned-off mod are stacking contexts that would
+	// sit over it.
+	function openFromRow(e: MouseEvent) {
+		if (e.target instanceof Element && e.target.closest("button, a, input, label")) return;
+		onOpen(mod);
 	}
 </script>
 
+<!-- A click anywhere but on a control opens the mod; from the keyboard, its name does. -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 <tr
-	class="hover:bg-base-300/40"
+	class="hover:bg-base-300/40 cursor-pointer"
+	onclick={openFromRow}
 	class:just-installed={fresh}
 	class:pending-row={!!busy}
 	class:installing={busy?.progress === null}
@@ -120,11 +97,8 @@
 >
 	<td class={["transition-opacity", !mod.Enabled && "opacity-40"]}>
 		<div class="flex items-center gap-3">
-			<button
-				class="bg-base-300 text-base-content/60 flex size-10 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg transition-transform hover:scale-105 active:scale-95"
-				onclick={() => onOpen(mod)}
-				title={repo ? m.repo_details() : m.mod_updated_files()}
-				aria-label="{repo ? m.repo_details() : m.mod_updated_files()} {mod.Name}"
+			<div
+				class="bg-base-300 text-base-content/60 flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg"
 			>
 				{#if busy}
 					<span class="loading loading-spinner loading-sm"></span>
@@ -143,34 +117,21 @@
 				{:else}
 					<PackageX size={20} />
 				{/if}
-			</button>
+			</div>
 			<div class="min-w-0 flex-1">
-				{#if renaming}
-					<input
-						type="text"
-						class="input input-xs -mx-1.5 w-full max-w-xs px-1.5 text-sm font-bold"
-						aria-label={m.mod_rename_dialog_label()}
-						bind:value={editName}
-						use:focusAndSelect
-						onkeydown={onRenameKey}
-						onblur={commitRename}
-					/>
-				{:else}
-					<div class="flex min-w-0 items-center gap-1">
-						<button
-							class="hover:bg-base-content/10 -ml-1.5 block max-w-full cursor-text truncate rounded pr-1 pl-1.5 text-left text-sm font-bold transition-colors"
-							onclick={startRename}
-							title={m.mod_rename()}
-						>
-							{mod.Name}
-						</button>
-						{#if trust === "first-party" || trust === "trusted"}
-							<span class="flex shrink-0" title={trustOf(repo?.latest ?? null).hint}>
-								<BadgeCheck size={15} class="fill-primary text-base-200" />
-							</span>
-						{/if}
-					</div>
-				{/if}
+				<div class="flex min-w-0 items-center gap-1">
+					<button
+						class="block max-w-full cursor-pointer truncate text-left text-sm font-bold hover:underline"
+						onclick={() => onOpen(mod)}
+					>
+						{mod.Name}
+					</button>
+					{#if trust === "first-party" || trust === "trusted"}
+						<span class="flex shrink-0" title={trustOf(repo?.latest ?? null).hint}>
+							<BadgeCheck size={15} class="fill-primary text-base-200" />
+						</span>
+					{/if}
+				</div>
 				<p class="truncate text-xs tabular-nums opacity-70">
 					by {mod.Author}{status ? ` · ${status}` : ""}
 				</p>
