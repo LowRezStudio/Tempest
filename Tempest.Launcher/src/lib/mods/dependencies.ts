@@ -1,5 +1,5 @@
 import { getAppVersion } from "$lib/core/appVersion";
-import { listMods } from "$lib/core/mods";
+import { enableMod, listMods } from "$lib/core/mods";
 import { installFromRepo } from "$lib/mods/repoInstall";
 import { confirmDependencies } from "$lib/mods/ui.svelte";
 import { m } from "$lib/paraglide/messages";
@@ -32,6 +32,8 @@ export type DependencyToInstall = {
 	sha256?: string;
 	/** Who asked for it, for the dialog ("needed by Tempest Console") */
 	requiredBy: string[];
+	/** Installed at a fitting version but turned off: enabled under this name, not downloaded */
+	enableName?: string;
 };
 
 // The patch of the instance at `gamePath`, for the repository's compatibility picks.
@@ -70,6 +72,51 @@ function covered(item: RepoResolvedDependency, installed: ModRecord[]): boolean 
 	return !!have && item.requirements.every((r) => satisfies(have.Version, r));
 }
 
+// An installed copy that fits but is turned off, so turning it back on is all it takes.
+export function turnedOff(
+	installed: ModRecord[],
+	id: string,
+	requirements: string[],
+): ModRecord | undefined {
+	return installed.find(
+		(mod) =>
+			mod.Id.toLowerCase() === id.toLowerCase() &&
+			!mod.Enabled &&
+			requirements.every((r) => satisfies(mod.Version, r)),
+	);
+}
+
+const toEnable = (mod: ModRecord, requiredBy: string[]): DependencyToInstall => ({
+	id: mod.Id,
+	name: mod.Name,
+	version: mod.Version,
+	requiredBy,
+	enableName: mod.Name,
+});
+
+// Enables or installs one dependency; false when it did not happen.
+async function provide(
+	gamePath: string,
+	dep: DependencyToInstall,
+	dependencies: DependencyMode,
+): Promise<boolean> {
+	if (dep.enableName) {
+		const res = await enableMod(gamePath, dep.enableName);
+		void getQueryClient()?.invalidateQueries({ queryKey: ["mods", gamePath] });
+		if (!res.Success) {
+			addToast({ title: dep.name, message: res.Message, tone: "error" });
+			return false;
+		}
+		return true;
+	}
+	const outcome = await installFromRepo(gamePath, dep.id, dep.version, dep.name, {
+		replace: true,
+		sha256: dep.sha256,
+		dependencies,
+	});
+	return outcome.status === "installed";
+}
+
 // What a repository version needs before it installs: asks the repository for the resolved
 // tree, checks the launcher version against every `tempest` requirement in it (throws when the
 // launcher is too old), and installs the resolved versions not installed yet, leaves first.
@@ -101,20 +148,27 @@ export async function installDependenciesFor(
 		);
 	}
 	const installed = await installedMods(gamePath);
-	const unresolved = resolution.items.filter(
-		(item) => !item.resolved && !covered(item, installed),
-	);
-	const needed: DependencyToInstall[] = resolution.items
-		.filter((item) => item.resolved && !covered(item, installed))
-		.map((item) => ({
-			id: item.id,
-			name: item.name,
-			version: item.resolved!.version,
-			sha256: item.resolved!.sha256,
-			requiredBy: item.requiredBy,
-		}))
-		// Breadth first from the mod: reversed, a dependency's own dependencies land first.
-		.reverse();
+	const open = resolution.items.filter((item) => !covered(item, installed));
+	const enable = open.flatMap((item) => {
+		const off = turnedOff(installed, item.id, item.requirements);
+		return off ? [toEnable(off, item.requiredBy)] : [];
+	});
+	const toFetch = open.filter((item) => !turnedOff(installed, item.id, item.requirements));
+	const unresolved = toFetch.filter((item) => !item.resolved);
+	const needed: DependencyToInstall[] = [
+		...enable,
+		...toFetch
+			.filter((item) => item.resolved)
+			.map((item) => ({
+				id: item.id,
+				name: item.name,
+				version: item.resolved!.version,
+				sha256: item.resolved!.sha256,
+				requiredBy: item.requiredBy,
+			}))
+			// Breadth first from the mod: reversed, a dependency's own dependencies land first.
+			.reverse(),
+	];
 	for (const item of unresolved) {
 		addToast({
 			title: displayName,
@@ -132,12 +186,7 @@ export async function installDependenciesFor(
 		if (choice === "skip") return true;
 	}
 	for (const dep of needed) {
-		const outcome = await installFromRepo(gamePath, dep.id, dep.version, dep.name, {
-			replace: true,
-			sha256: dep.sha256,
-			dependencies: "skip",
-		});
-		if (outcome.status !== "installed") return false;
+		if (!(await provide(gamePath, dep, "skip"))) return false;
 	}
 	return true;
 }
@@ -170,7 +219,7 @@ export async function installDependenciesForPackage(
 		return !have || !satisfies(have.Version, dep.requirement);
 	});
 	if (missing.length === 0) return true;
-	const needed = await lookUp(gamePath, displayName, missing);
+	const needed = await lookUp(gamePath, displayName, missing, installed);
 	if (needed.length === 0) return true;
 	if (mode === "ask") {
 		const choice = await confirmDependencies(displayName, needed);
@@ -187,36 +236,39 @@ export async function offerMissingDependencies(
 	displayName: string,
 	missing: Dependency[],
 ): Promise<void> {
-	const needed = await lookUp(gamePath, displayName, missing);
+	const installed = await installedMods(gamePath);
+	const needed = await lookUp(gamePath, displayName, missing, installed);
 	if (needed.length === 0) return;
 	const choice = await confirmDependencies(displayName, needed);
 	if (choice !== "install") return;
 	await installAll(gamePath, needed);
 }
 
-// Installs the listed versions in order; stops at the first failure.
+// Enables or installs the listed dependencies in order; stops at the first failure.
 async function installAll(gamePath: string, needed: DependencyToInstall[]): Promise<boolean> {
 	for (const dep of needed) {
-		const outcome = await installFromRepo(gamePath, dep.id, dep.version, dep.name, {
-			replace: true,
-			sha256: dep.sha256,
-			dependencies: "auto",
-		});
-		if (outcome.status !== "installed") return false;
+		if (!(await provide(gamePath, dep, "auto"))) return false;
 	}
 	return true;
 }
 
-// The newest approved repository version of each missing dependency that fits its requirement
-// and the instance's patch; one the repository cannot provide gets a warning toast instead.
+// For each missing dependency: the installed copy to turn back on when one fits, else the newest
+// approved repository version that fits its requirement and the instance's patch; one the
+// repository cannot provide either gets a warning toast instead.
 async function lookUp(
 	gamePath: string,
 	displayName: string,
 	missing: Dependency[],
+	installed: ModRecord[],
 ): Promise<DependencyToInstall[]> {
 	const patch = patchOf(gamePath);
 	const needed: DependencyToInstall[] = [];
 	for (const dep of missing) {
+		const off = turnedOff(installed, dep.id, [dep.requirement]);
+		if (off) {
+			needed.push(toEnable(off, [displayName]));
+			continue;
+		}
 		const versions = await getRepoVersions(dep.id).catch(() => []);
 		const pick = versions
 			.filter(
