@@ -1,11 +1,12 @@
 import { createMutation, createQuery } from "@tanstack/svelte-query";
 import { detectAvailablePlatforms } from "$lib/platforms/detection";
-import { findPaladinsInstallations } from "$lib/platforms/discovery";
+import { findPaladinsInstallations, type FoundInstallation } from "$lib/platforms/discovery";
 import { setupInstance } from "$lib/platforms/setup";
 import type { Instance, InstancePlatform } from "$lib/types/instance";
 
 /**
  * The Paladins installs on this machine, kept for a minute so reopening the wizard is instant.
+ * Each install joins the data as soon as it is found, while the scan still runs.
  * @param folders - Folders Tempest downloads into.
  * @param enabled - Whether to look yet.
  * @returns The query.
@@ -15,7 +16,12 @@ export const createFoundInstallationsQuery = (folders: () => string[], enabled: 
 		const list = folders();
 		return {
 			queryKey: ["found-installations", list],
-			queryFn: () => findPaladinsInstallations(list),
+			queryFn: ({ client, queryKey }) =>
+				findPaladinsInstallations(list, true, (install) =>
+					client.setQueryData<FoundInstallation[]>(queryKey, (found = []) =>
+						found.some((f) => f.path === install.path) ? found : [...found, install],
+					),
+				),
 			enabled: enabled(),
 			staleTime: 60_000,
 			// A failed scan won't succeed on its own a second later; Look again retries.

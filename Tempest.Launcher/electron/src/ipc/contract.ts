@@ -233,9 +233,11 @@ export interface IpcContract {
 	/**
 	 * Paladins installs on this machine. `folders` are searched one level deep as Tempest's own
 	 * downloads; `sweep: false` skips looking through the drives beyond the known launchers.
+	 * With `progressId`, each install is also sent as a `platforms:found-paladins` event the
+	 * moment it is found.
 	 */
 	"platforms:find-paladins": {
-		args: { folders: string[]; sweep?: boolean };
+		args: { folders: string[]; sweep?: boolean; progressId?: string };
 		result: FoundInstallation[];
 	};
 
@@ -336,6 +338,7 @@ export interface IpcEvents {
 	"updater:download-progress": UpdaterProgress;
 	/** `total` is null when the server sends no Content-Length. */
 	"mods:download-progress": { id: string; received: number; total: number | null };
+	"platforms:found-paladins": { id: string; install: FoundInstallation };
 }
 
 export type IpcChannel = Extract<keyof IpcContract, string>;

@@ -322,26 +322,34 @@ async function sweep(
 	await Promise.all(children.map((child) => sweep(child, depth + 1, deadline, visit)));
 }
 
-handle("platforms:find-paladins", async (_event, { folders, sweep: thorough = true }) => {
+handle("platforms:find-paladins", async (event, args) => {
+	const { folders, sweep: thorough = true, progressId } = args;
 	const found = new Map<string, FoundInstallation>();
 	// Sources run from most to least specific, so a folder keeps the first source that found it.
 	const add = async (candidate: string, source: InstallationSource): Promise<boolean> => {
 		const key = keyOf(candidate);
 		if (found.has(key)) return true;
 		if (!(await isPaladinsInstallation(candidate))) return false;
-		found.set(key, { path: path.resolve(candidate), source });
+		const install = { path: path.resolve(candidate), source };
+		found.set(key, install);
+		if (progressId && !event.sender.isDestroyed()) {
+			event.sender.send("platforms:found-paladins", { id: progressId, install });
+		}
 		return true;
 	};
 
-	const [hints, epic, hirez, tempest] = await Promise.all([
-		queryWindows(),
+	// The registry query takes a while, so Steam's usual folders are checked meanwhile.
+	const windows = queryWindows();
+	const others = Promise.all([
 		epicCandidates(),
 		hirezCandidates(),
 		Promise.all(folders.map(subfolders)).then((lists) => lists.flat()),
 	]);
-	const steam = await steamCandidates([...getSteamRoots(), ...hints.steam]);
+	for (const candidate of await steamCandidates(getSteamRoots())) await add(candidate, "steam");
+	const hints = await windows;
+	for (const candidate of await steamCandidates(hints.steam)) await add(candidate, "steam");
 
-	for (const candidate of steam) await add(candidate, "steam");
+	const [epic, hirez, tempest] = await others;
 	for (const candidate of epic) await add(candidate, "epic");
 	for (const install of hints.installs) {
 		const source = install.key.startsWith("Steam App")
