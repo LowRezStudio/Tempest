@@ -177,8 +177,13 @@
 									{#if v.publishedAt}{formatDate(v.publishedAt)} ·{/if}
 									{patchLabel(v)} · {formatBytes(v.size)}
 									{#if cached.has(v.version) && !current}
-										· <HardDrive size={10} class="inline align-[-1px]" />
-										{m.repo_cached()}
+										·
+										<span title={m.repo_cached()} aria-label={m.repo_cached()}
+											><HardDrive
+												size={10}
+												class="inline align-[-1px]"
+											/></span
+										>
 									{/if}
 								</span>
 								{#if v.changelog}
