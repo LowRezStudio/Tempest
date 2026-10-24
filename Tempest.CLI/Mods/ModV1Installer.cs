@@ -186,7 +186,8 @@ public class ModV1Installer : IModInstaller
             OriginalPath = modFilePath,
             InstalledFiles = [destPath],
             OwnedFiles = [destPath],
-            MetadataVersion = 2
+            MetadataVersion = 2,
+            InstalledAt = DateTime.UtcNow
         };
 
         // Register in INI if non-asset mod

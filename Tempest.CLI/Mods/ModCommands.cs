@@ -26,6 +26,11 @@ internal class ModCommands
         {
             var json = File.ReadAllText(path);
             var mods = JsonSerializer.Deserialize(json, ModSourceGenerationContext.Default.ListModRecord) ?? [];
+            // Records from before InstalledAt were appended as they were installed, so their place
+            // in the file stands in for the date (and stays before every dated one).
+            for (var i = 0; i < mods.Count; i++)
+                mods[i].InstalledAt ??= DateTime.UnixEpoch.AddSeconds(i);
+            mods = mods.OrderBy(m => m.InstalledAt).ToList();
             var resolvedGame = GameFolderResolver.Resolve(gamePath);
             foreach (var mod in mods)
             {
@@ -205,14 +210,20 @@ internal class ModCommands
             ? await v2.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock, ignoreTempestVersion)
             : await installer.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock);
 
-        if (result.Success && result.Mod != null)
-        {
-            var mods = LoadMetadata(path);
-            mods.RemoveAll(m => string.Equals(m.Name, result.Mod.Name, StringComparison.OrdinalIgnoreCase));
-            mods.Add(result.Mod);
-            SaveMetadata(path, mods);
-        }
+        if (result.Success && result.Mod != null) RecordInstall(path, result.Mod);
         return result;
+    }
+
+    /// <summary>Records an installed mod in place of one with its name, keeping that one's install date and place in the list.</summary>
+    private static void RecordInstall(string path, ModRecord mod)
+    {
+        var mods = LoadMetadata(path);
+        var replaced = mods.FirstOrDefault(m => string.Equals(m.Name, mod.Name, StringComparison.OrdinalIgnoreCase));
+        if (replaced != null) mod.InstalledAt = replaced.InstalledAt;
+        mods.RemoveAll(m => string.Equals(m.Name, mod.Name, StringComparison.OrdinalIgnoreCase));
+        var at = mods.FindIndex(m => m.InstalledAt > mod.InstalledAt);
+        mods.Insert(at < 0 ? mods.Count : at, mod);
+        SaveMetadata(path, mods);
     }
 
     /// <summary>A version picked on the repository, so its dependencies can be looked up.</summary>
@@ -804,13 +815,7 @@ internal class ModCommands
                 var installer = ModInstallerFactory.CreateForFile(file);
                 var result = await installer.InstallAsync(path, file, replace, stack, allowUntrusted, modLock);
 
-                if (result.Success && result.Mod != null)
-                {
-                    var mods = LoadMetadata(path);
-                    mods.RemoveAll(m => string.Equals(m.Name, result.Mod.Name, StringComparison.OrdinalIgnoreCase));
-                    mods.Add(result.Mod);
-                    SaveMetadata(path, mods);
-                }
+                if (result.Success && result.Mod != null) RecordInstall(path, result.Mod);
                 results.Add(result);
             }
             catch (Exception ex)

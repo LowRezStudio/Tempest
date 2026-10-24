@@ -23,6 +23,8 @@ public class ModRecord
     public string ManifestHash { get; set; } = string.Empty;
     /// <summary>`[mod].dependencies` of the manifest at install time; "tempest" entries are the launcher version requirement.</summary>
     public List<ModDependency> Dependencies { get; set; } = [];
+    /// <summary>When the mod was first installed (UTC). Updates and reinstalls keep it, so the list stays in the order mods were added.</summary>
+    public DateTime? InstalledAt { get; set; }
 }
 
 public class ModConflictInfo

@@ -237,12 +237,15 @@ public class ModV2Installer : IModInstaller
             var idInstalled = Directory.Exists(targetModDir);
             if (idInstalled && !replace) return IdConflict();
 
+            // An update or reinstall stays where the mod was first added.
+            DateTime? installedAt = null;
             if (idInstalled)
             {
                 var existingModsForId = ModCommands.LoadMetadata(gamePath);
                 var existingModForId = existingModsForId.FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
                 if (existingModForId != null)
                 {
+                    installedAt = existingModForId.InstalledAt;
                     await RemoveAsync(gamePath, existingModForId);
                     existingModsForId.Remove(existingModForId);
                     ModCommands.SaveMetadata(gamePath, existingModsForId);
@@ -467,6 +470,7 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
                 Verified = true,
                 ManifestHash = checksumsEntry == null ? "" : Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(await ReadEntryAsync(checksumsEntry)))),
                 Dependencies = manifest.Dependencies,
+                InstalledAt = installedAt ?? DateTime.UtcNow,
             };
 
             // Installed either way; what it still needs is reported so the launcher (or
