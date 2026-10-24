@@ -325,6 +325,8 @@
 	"settings_theme_custom_themes_link": "to find and customize themes",
 	"settings_seasonal_effects": "Seasonal effects",
 	"settings_seasonal_effects_hint": "Animations that match the time of year",
+	"settings_sidebar_layout": "Sidebar layout",
+	"settings_sidebar_layout_hint": "Drag the sidebar's tabs to move them, also to either end of the instances. This puts them back.",
 	"settings_select_directory": "Select a directory...",
 	"settings_mod_developer": "Mod Developer",
 	"settings_mod_developer_description": "Enables mod development tools, such as the Cook Mod converter.",

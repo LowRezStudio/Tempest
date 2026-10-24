@@ -12,6 +12,7 @@
 		KeyRound,
 		KeySquare,
 		Palette,
+		PanelLeft,
 		RefreshCw,
 		Rocket,
 		RotateCcw,
@@ -54,6 +55,7 @@
 		theme,
 		username,
 	} from "$lib/stores/settings.svelte";
+	import { resetSidebarLayout } from "$lib/stores/sidebar.svelte";
 	import { snapshotPaused } from "$lib/stores/snapshot.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import { weatherOverride } from "$lib/theme/weather.svelte";
@@ -279,6 +281,22 @@
 							title={m.settings_seasonal_effects()}
 							hint={m.settings_seasonal_effects_hint()}
 						/>
+					</div>
+					<div class="mt-3">
+						<ActionRow
+							icon={PanelLeft}
+							title={m.settings_sidebar_layout()}
+							hint={m.settings_sidebar_layout_hint()}
+						>
+							<button
+								type="button"
+								class="btn btn-sm shrink-0"
+								onclick={resetSidebarLayout}
+							>
+								<RotateCcw size={14} />
+								{m.common_reset()}
+							</button>
+						</ActionRow>
 					</div>
 				</Panel>
 
