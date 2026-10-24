@@ -9,14 +9,16 @@
 			class="alert alert-{toast.tone} relative block whitespace-normal shadow-lg"
 			role="status"
 		>
+			<!-- text-current: the button's own colour is the page's, which vanishes on a tinted toast -->
 			<button
-				class="btn btn-circle btn-ghost btn-xs absolute top-1 right-1"
+				class="btn btn-circle btn-ghost btn-sm absolute top-1 right-1 text-current opacity-70 hover:opacity-100"
 				onclick={() => toasts.remove(toast.id)}
+				title="Dismiss"
 				aria-label="Dismiss"
 			>
-				<X size={14} />
+				<X size={16} />
 			</button>
-			<div class="pr-6">
+			<div class="pr-8">
 				{#if toast.title}
 					<div class="text-sm font-semibold">{toast.title}</div>
 				{/if}

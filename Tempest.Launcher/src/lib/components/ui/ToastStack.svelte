@@ -32,15 +32,17 @@
 	{#each toastItems as toast (toast.id)}
 		<div class="{getAlertClass(toast)} relative" role="status">
 			{#if toast.dismissible !== false}
+				<!-- text-current: the button's own colour is the page's, which vanishes on a tinted toast -->
 				<button
-					class="btn btn-circle btn-ghost btn-xs absolute top-2 right-2"
+					class="btn btn-circle btn-ghost btn-sm absolute top-1.5 right-1.5 text-current opacity-70 hover:opacity-100"
 					onclick={() => removeToast(toast.id)}
+					title={m.common_dismiss()}
 					aria-label={m.common_dismiss()}
 				>
-					<X size={14} />
+					<X size={16} />
 				</button>
 			{/if}
-			<div class="pr-6">
+			<div class="pr-8">
 				{#if toast.title}
 					<div class="text-sm font-semibold">{toast.title}</div>
 				{/if}
