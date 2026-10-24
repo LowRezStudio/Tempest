@@ -8,9 +8,11 @@
 		value: string;
 		/** Accessible name */
 		label: string;
+		/** A patch's id whose tick stands out in the accent color while not picked */
+		highlight?: string;
 	}
 
-	let { patches, value = $bindable(), label }: Props = $props();
+	let { patches, value = $bindable(), label, highlight }: Props = $props();
 
 	/** Every patch by major version (0.x is the beta era), oldest first */
 	const eras = $derived.by(() => {
@@ -168,7 +170,11 @@
 						class={[
 							"min-w-0 flex-1 rounded-xs",
 							!dragging && "transition-colors",
-							t.i === index ? "bg-primary ring-primary/30 ring-2" : "bg-base-300",
+							t.i === index
+								? "bg-primary ring-primary/30 ring-2"
+								: t.patch.id === highlight
+									? "bg-accent"
+									: "bg-base-300",
 							hovered === t.i && t.i !== index && "ring-primary ring-1",
 						]}
 					></span>

@@ -5,7 +5,6 @@
 		ChevronDown,
 		CloudDownload,
 		Copy,
-		ExternalLink,
 		FolderOpen,
 		Info,
 		Plus,
@@ -14,16 +13,13 @@
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
-	import { open as openDialog, openUrl, join, platform } from "$lib/platform/api";
-	import {
-		RIGBY_BASE_URL,
-		RIGBY_MANIFEST_URL_TEMPLATE,
-		WIKI_BASE_URL,
-	} from "$lib/rigby/constants";
+	import { open as openDialog, join, platform } from "$lib/platform/api";
+	import { RIGBY_BASE_URL, RIGBY_MANIFEST_URL_TEMPLATE } from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { addInstance } from "$lib/stores/instance.svelte";
 	import { defaultInstancePath } from "$lib/stores/settings.svelte";
 	import { instanceWizardTab } from "$lib/stores/ui.svelte";
+	import { downloadablePatches } from "$lib/utils/versions";
 	import {
 		argsFor,
 		findExistingInstance,
@@ -34,9 +30,7 @@
 	} from "./folder-import.svelte";
 	import FolderImportPanel from "./FolderImportPanel.svelte";
 	import LoginMethodPicker from "./LoginMethodPicker.svelte";
-	import PatchHeading from "./PatchHeading.svelte";
-	import PatchTimeline from "./PatchTimeline.svelte";
-	import type { Patch } from "$lib/utils/versions";
+	import PatchPicker from "./PatchPicker.svelte";
 
 	interface Props {
 		open?: boolean;
@@ -60,9 +54,6 @@
 			hint: m.library_import_folder_hint,
 		},
 	] as const;
-
-	// 8.2 was never released, so there is nothing to download; a folder can still be one.
-	const downloadable = versions.filter((v) => v.version !== "8.2");
 
 	let mode = $state<Mode>("download");
 	let name = $state("");
@@ -194,17 +185,6 @@
 			copyStatus = "idle";
 		}, 2000);
 	}
-
-	async function openPatchNotes(target: Patch) {
-		if (!target.wikiReference) return;
-		try {
-			await openUrl(
-				`${WIKI_BASE_URL}${encodeURIComponent(target.wikiReference)}?fandom=allow`,
-			);
-		} catch (error) {
-			console.error("Failed to open wiki:", error);
-		}
-	}
 </script>
 
 <Modal
@@ -249,26 +229,7 @@
 		</div>
 
 		{#if mode === "download"}
-			<div class="flex flex-col gap-2">
-				<div class="flex items-baseline justify-between gap-2">
-					<PatchHeading patch={downloadPatch} />
-					{#if downloadPatch?.wikiReference}
-						<button
-							type="button"
-							class="link flex items-center gap-1 text-xs"
-							onclick={() => openPatchNotes(downloadPatch)}
-						>
-							{m.wizard_open_wiki()}
-							<ExternalLink size={10} />
-						</button>
-					{/if}
-				</div>
-				<PatchTimeline
-					patches={downloadable}
-					bind:value={downloadId}
-					label={m.wizard_game_version()}
-				/>
-			</div>
+			<PatchPicker patches={downloadablePatches} bind:value={downloadId} />
 		{:else}
 			<FolderImportPanel {importer} />
 		{/if}

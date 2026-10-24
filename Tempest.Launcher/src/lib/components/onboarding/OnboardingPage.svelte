@@ -1,11 +1,15 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
-	import { Check, Compass, Download, FolderOpen, Loader2 } from "@lucide/svelte";
+	import { Check, CloudDownload, Compass, FolderOpen, Loader2 } from "@lucide/svelte";
 	import {
+		argsFor,
 		findExistingInstance,
 		FolderImport,
+		type LoginMethod,
 	} from "$lib/components/library/folder-import.svelte";
 	import FolderImportPanel from "$lib/components/library/FolderImportPanel.svelte";
+	import LoginMethodPicker from "$lib/components/library/LoginMethodPicker.svelte";
+	import PatchPicker from "$lib/components/library/PatchPicker.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
@@ -25,14 +29,13 @@
 		onboardingCompleted,
 		username,
 	} from "$lib/stores/settings.svelte";
+	import { downloadablePatches, type Patch } from "$lib/utils/versions";
 	import WineSettings from "$lib/wine/WineSettings.svelte";
 	import type { Instance } from "$lib/types/instance";
 
 	type StepId = "language" | "username" | "steam" | "download" | "proton" | "done";
-	type VersionEntry = (typeof versions)[number];
 
 	const multiplayerVersion = versions.find((version) => version.version === "0.57");
-	const otherVersions: VersionEntry[] = versions.filter((entry) => entry !== multiplayerVersion);
 
 	const isLinux = getPlatform() === "linux";
 	// Derived so the step labels re-translate when the locale is committed on Next.
@@ -56,19 +59,18 @@
 	let importedPaths = $state<string[]>([]);
 	let downloadBusy = $state(false);
 	let queuedVersions = $state<string[]>([]);
-	let otherVersionId = $state(otherVersions[0]?.id ?? "");
+	let downloadId = $state(multiplayerVersion?.id ?? "");
+	let downloadLogin = $state<LoginMethod>();
 	let installError = $state("");
 
 	// Scans from the start, so what it finds is listed by the time the import step comes up.
 	const folderImport = new FolderImport(() => true);
 	const currentStep = $derived(steps[stepIndex]);
 	const downloadQueued = $derived(queuedVersions.length > 0);
-	const multiplayerQueued = $derived(
-		multiplayerVersion !== undefined && queuedVersions.includes(multiplayerVersion.version),
-	);
-	const otherVersion = $derived(versions.find((entry) => entry.id === otherVersionId));
-	const otherVersionQueued = $derived(
-		otherVersion !== undefined && queuedVersions.includes(otherVersion.version),
+	const downloadPatch = $derived(versions.find((entry) => entry.id === downloadId));
+	const downloadNeedsLogin = $derived(downloadPatch?.version === "8.1");
+	const downloadPatchQueued = $derived(
+		!!downloadPatch && queuedVersions.includes(downloadPatch.version),
 	);
 	// Prompt text for the current step, shown as the header subtitle.
 	const stepSubtitle = $derived.by(() => {
@@ -200,7 +202,7 @@
 		if (typeof selected === "string") defaultInstancePath.value = selected;
 	}
 
-	async function downloadVersion(entry: VersionEntry) {
+	async function downloadVersion(entry: Patch) {
 		if (downloadBusy || queuedVersions.includes(entry.version)) return;
 		downloadBusy = true;
 		installError = "";
@@ -229,7 +231,7 @@
 					path: targetPath,
 					launchOptions: {
 						dllList: [],
-						args: [],
+						args: argsFor(entry.version, downloadLogin),
 						noDefaultArgs: false,
 						log: false,
 					},
@@ -250,16 +252,6 @@
 		} finally {
 			downloadBusy = false;
 		}
-	}
-
-	function queueMultiplayerVersion() {
-		if (!multiplayerVersion || multiplayerQueued) return;
-		void downloadVersion(multiplayerVersion);
-	}
-
-	function queueOtherBuild() {
-		if (!otherVersion || otherVersionQueued) return;
-		void downloadVersion(otherVersion);
 	}
 </script>
 
@@ -389,96 +381,86 @@
 									</button>
 								</div>
 							{:else if currentStep.id === "download"}
-								<div class="form-control">
-									<label for="onboarding-download-path" class="label py-0.5">
-										<span class="label-text text-sm"
-											>{m.onboarding_download_directory_label()}</span
-										>
-									</label>
-									<div class="join w-full">
-										<input
-											id="onboarding-download-path"
-											type="text"
-											class="input input-bordered join-item min-w-0 flex-1 font-mono"
-											bind:value={defaultInstancePath.value}
+								<div class="flex flex-col gap-4">
+									<div class="flex flex-col gap-2">
+										<PatchPicker
+											patches={downloadablePatches}
+											bind:value={downloadId}
+											highlight={multiplayerVersion?.id}
 										/>
-										<button
-											class="btn join-item"
-											type="button"
-											onclick={browseDownloadDirectory}
-										>
-											{m.common_browse()}
-										</button>
+										{#if multiplayerVersion}
+											<p
+												class="text-base-content/60 flex items-center gap-1.5 text-xs"
+											>
+												<span class="bg-accent h-3 w-1 shrink-0 rounded-xs"
+												></span>
+												{m.onboarding_multiplayer_legend({
+													version: multiplayerVersion.version,
+												})}
+											</p>
+										{/if}
 									</div>
-								</div>
 
-								<button
-									class="btn btn-primary mt-3 h-14 w-full justify-start gap-3"
-									type="button"
-									disabled={downloadBusy ||
-										multiplayerQueued ||
-										!multiplayerVersion}
-									onclick={queueMultiplayerVersion}
-								>
-									{#if downloadBusy}
-										<Loader2 size={16} class="animate-spin" />
-									{:else if multiplayerQueued}
-										<Check size={16} />
-									{:else}
-										<Download size={16} />
+									{#if downloadNeedsLogin}
+										<LoginMethodPicker bind:value={downloadLogin} />
 									{/if}
-									<span class="text-left">
-										<span class="block text-sm font-semibold">
-											{multiplayerQueued
-												? m.onboarding_install_queued()
-												: m.onboarding_download_title()}
-										</span>
-										<span class="block text-xs opacity-70">
-											{downloadBusy
-												? m.onboarding_installing()
-												: m.onboarding_download_description()}
-										</span>
-									</span>
-								</button>
 
-								<div class="divider my-2"></div>
-								<div class="form-control">
-									<label for="onboarding-other-version" class="label py-0.5">
-										<span class="label-text text-sm"
-											>{m.onboarding_download_other_title()}</span
+									<div class="flex flex-col gap-1">
+										<label
+											for="onboarding-download-path"
+											class="text-base-content/60 text-xs"
+											>{m.onboarding_download_directory_label()}</label
 										>
-									</label>
-									<div class="flex gap-2">
-										<select
-											id="onboarding-other-version"
-											class="select select-bordered min-w-0 flex-1"
-											bind:value={otherVersionId}
-										>
-											{#each otherVersions as entry (entry.id)}
-												<option value={entry.id}>
-													{entry.version} - {entry.name} ({entry.date.split(
-														"T",
-													)[0]})
-												</option>
-											{/each}
-										</select>
-										<button
-											class="btn shrink-0"
-											type="button"
-											disabled={downloadBusy || otherVersionQueued}
-											onclick={queueOtherBuild}
-										>
-											<Download size={16} />
-											{m.onboarding_download_queue()}
-										</button>
+										<div class="join w-full">
+											<input
+												id="onboarding-download-path"
+												type="text"
+												class="input input-sm join-item min-w-0 flex-1 font-mono"
+												spellcheck="false"
+												bind:value={defaultInstancePath.value}
+											/>
+											<button
+												type="button"
+												class="btn btn-sm btn-square join-item"
+												aria-label={m.common_browse()}
+												title={m.common_browse()}
+												onclick={browseDownloadDirectory}
+											>
+												<FolderOpen size={14} />
+											</button>
+										</div>
 									</div>
+
+									<button
+										class="btn btn-primary w-full"
+										type="button"
+										disabled={!downloadPatch ||
+											downloadBusy ||
+											downloadPatchQueued ||
+											(downloadNeedsLogin && !downloadLogin)}
+										onclick={() =>
+											downloadPatch && downloadVersion(downloadPatch)}
+									>
+										{#if downloadBusy}
+											<Loader2 size={16} class="animate-spin" />
+											{m.onboarding_installing()}
+										{:else if downloadPatchQueued}
+											<Check size={16} />
+											{m.onboarding_install_queued()}
+										{:else}
+											<CloudDownload size={16} />
+											{m.onboarding_download_version({
+												version: downloadPatch?.version ?? "",
+											})}
+										{/if}
+									</button>
+
+									{#if installError}
+										<div class="alert alert-error text-sm" role="alert">
+											{installError}
+										</div>
+									{/if}
 								</div>
-
-								{#if installError}
-									<div class="alert alert-error text-sm" role="alert">
-										{installError}
-									</div>
-								{/if}
 							{:else if currentStep.id === "proton"}
 								<WineSettings />
 							{:else}

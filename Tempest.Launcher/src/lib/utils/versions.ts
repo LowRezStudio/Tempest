@@ -6,6 +6,9 @@ import type { Instance } from "$lib/types/instance";
 
 export type Patch = (typeof versions)[number];
 
+// 8.2 was never released, so there is nothing to download; a folder can still be one.
+export const downloadablePatches = versions.filter((v) => v.version !== "8.2");
+
 export const patchOf = (version: string | undefined): Patch | undefined =>
 	version ? versions.find((v) => v.version === version) : undefined;
 
