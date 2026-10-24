@@ -3,10 +3,10 @@
 		ArrowRight,
 		BadgeCheck,
 		Box,
-		ChevronDown,
 		ExternalLink,
 		FolderOpen,
 		Info,
+		Layers,
 		PackageX,
 		Power,
 		ShieldX,
@@ -31,6 +31,8 @@
 		missing?: Dependency[];
 		/** All of `missing` is installed, only turned off */
 		missingTurnedOff: boolean;
+		/** Approved versions on the repository */
+		versionCount: number;
 		isRunning: boolean;
 		fresh: boolean;
 		onToggle: (mod: ModRecord, input: HTMLInputElement) => void;
@@ -52,6 +54,7 @@
 		busy,
 		missing,
 		missingTurnedOff,
+		versionCount,
 		isRunning,
 		fresh,
 		onToggle,
@@ -192,7 +195,15 @@
 						<ArrowRight size={12} class="shrink-0 opacity-70" />
 						<span class="truncate">{updateTo}</span>
 					{/if}
-					<ChevronDown size={12} class="shrink-0 opacity-50" />
+					{#if versionCount > 1}
+						<span
+							class="bg-base-content/10 flex shrink-0 items-center gap-0.5 rounded px-1 text-[11px] leading-4"
+							aria-label={m.mods_version_count({ count: versionCount })}
+						>
+							<Layers size={11} />
+							{versionCount}
+						</span>
+					{/if}
 				</button>
 			{:else}
 				<p class="truncate text-sm font-semibold" title={mod.Version}>

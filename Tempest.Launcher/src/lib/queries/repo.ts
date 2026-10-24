@@ -230,6 +230,38 @@ export const createRepoModsQuery = (ids: () => string[]) => {
 	});
 };
 
+// How many approved versions each installed mod has on the repository, by id. Goes through the
+// per-mod versions entry RepoModModal reads, so its Versions tab opens without a fetch.
+export const createRepoVersionCountsQuery = (ids: () => string[]) => {
+	const queryClient = useQueryClient();
+	return createQuery(() => {
+		const sorted = [...ids()].sort();
+		return {
+			queryKey: ["repo", "version-counts", sorted],
+			queryFn: async () => {
+				const counts = await Promise.all(
+					sorted.map((id) =>
+						queryClient
+							.fetchQuery({
+								queryKey: ["repo", "versions", id],
+								queryFn: () => getRepoVersions(id),
+								staleTime: 60_000,
+							})
+							.then(
+								(versions) =>
+									versions.filter((v) => v.status === "approved").length,
+							)
+							.catch(() => 0),
+					),
+				);
+				return new Map(sorted.map((id, i) => [id, counts[i]!]));
+			},
+			enabled: sorted.length > 0,
+			staleTime: 60_000,
+		};
+	});
+};
+
 export const createRepoUpdatesQuery = (
 	input: () => { patch: string; mods: { id: string; version: string }[] },
 ) =>

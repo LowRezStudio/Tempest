@@ -24,7 +24,7 @@
 		createInstalledIconsQuery,
 		createRenameModMutation,
 	} from "$lib/queries/mods";
-	import { createRepoModsQuery } from "$lib/queries/repo";
+	import { createRepoModsQuery, createRepoVersionCountsQuery } from "$lib/queries/repo";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import InstalledModRow from "./InstalledModRow.svelte";
 	import type { ModRecord } from "$lib/core/mods";
@@ -72,6 +72,7 @@
 	const repoMods = createRepoModsQuery(v2ModIds);
 	// The package's own icon stands in when the repository has none (local or unpublished mods).
 	const installedIcons = createInstalledIconsQuery(() => gamePath, v2ModIds);
+	const versionCounts = createRepoVersionCountsQuery(() => [...(repoMods.data?.keys() ?? [])]);
 
 	const shown = $derived.by(() => {
 		const q = query.trim().toLowerCase();
@@ -249,6 +250,7 @@
 							busy={pendingByMod.get(mod.Id)}
 							missing={missingByMod.get(mod.Id)}
 							missingTurnedOff={onlyTurnedOff(mod)}
+							versionCount={versionCounts.data?.get(mod.Id) ?? 0}
 							{isRunning}
 							fresh={justInstalled.has(mod.Id)}
 							onToggle={toggle}
