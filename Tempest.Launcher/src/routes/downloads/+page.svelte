@@ -22,13 +22,21 @@
 		items.filter((item) => item.status === "pending" || item.status === "paused"),
 	);
 	const failed = $derived(items.filter((item) => item.status === "error"));
-	const finished = $derived(items.filter((item) => item.status === "complete").reverse());
+	// Resuming moves a download to the front of the queue, so array order isn't finish order.
+	const finished = $derived(
+		items
+			.filter((item) => item.status === "complete")
+			.sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0)),
+	);
 	const written = $derived(
 		finished.reduce((total, item) => total + (item.result?.diskWriteBytes ?? 0), 0),
 	);
-	// The last finished download stays in the hero until it's closed.
-	const closedHero = persistedState<string | null>("downloads:closedHero", null);
-	const lastFinished = $derived(finished[0]?.id === closedHero.value ? undefined : finished[0]);
+	// The last finished download stays in the hero until it's closed. Closing puts away everything
+	// finished so far, so an older download never takes its place.
+	const heroClosedAt = persistedState<number>("downloads:heroClosedAt", 0);
+	const lastFinished = $derived(
+		(finished[0]?.finishedAt ?? 0) > heroClosedAt.value ? finished[0] : undefined,
+	);
 	// With the queue stopped, the item it takes next stays in the hero instead of the list.
 	const featured = $derived(
 		current ??
@@ -149,7 +157,7 @@
 						item={featured}
 						instance={instanceAt(featured.outDir)}
 						oncancel={cancel}
-						onclose={(item) => (closedHero.value = item.id)}
+						onclose={() => (heroClosedAt.value = Date.now())}
 					/>
 				{/if}
 
