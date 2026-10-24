@@ -830,7 +830,8 @@
 	"converter_subtitle": "Build a V2 mod package and sign it",
 	"converter_drop_hint": "Drop {tempest}, {upk}, {pck}, {ini}, {dll} or {lua} files here",
 	"converter_drop_hint_packages": "Drop {tempest} packages here",
-	"converter_drop_browse_hint": "or use the Browse button",
+	"converter_drop_browse_hint": "or click to pick files",
+	"converter_drop_more": "Drop more files here, or click to pick them",
 	"converter_source_files": "Source Files",
 	"converter_importing": "Importing {name}...",
 	"converter_sources": [

@@ -273,10 +273,6 @@
 				{#if batch.entries.length > 0}
 					<span class="text-base-content/50 text-xs">{batch.entries.length}</span>
 				{/if}
-				<button type="button" class="btn btn-ghost btn-xs ml-auto" onclick={pickFiles}>
-					<Plus size={12} />
-					{m.common_browse()}
-				</button>
 			</div>
 
 			{#if batch.entries.length === 0}
@@ -408,6 +404,19 @@
 						</li>
 					{/each}
 				</ul>
+				<button
+					type="button"
+					class={[
+						"rounded-field mt-2 flex w-full cursor-pointer items-center justify-center gap-2 border-2 border-dashed px-3 py-2 text-sm transition-colors",
+						isDraggingConverterFiles.value
+							? "border-primary bg-primary/5"
+							: "border-base-300 text-base-content/60 hover:border-primary/60",
+					]}
+					onclick={pickFiles}
+				>
+					<Plus size={14} />
+					{m.converter_drop_more()}
+				</button>
 			{/if}
 			<p class="text-base-content/60 mt-2 text-xs">{m.batch_tempest_only()}</p>
 		</section>

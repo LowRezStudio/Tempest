@@ -583,13 +583,6 @@
 	</section>
 {/snippet}
 
-{#snippet filesAside()}
-	<button type="button" class="btn btn-ghost btn-xs" onclick={pickFiles}>
-		<Plus size={12} />
-		{m.common_browse()}
-	</button>
-{/snippet}
-
 {#snippet filesBody()}
 	{#if converter.sources.length === 0}
 		<button
@@ -654,6 +647,19 @@
 				</li>
 			{/each}
 		</ul>
+		<button
+			type="button"
+			class={[
+				"rounded-field mt-2 flex w-full cursor-pointer items-center justify-center gap-2 border-2 border-dashed px-3 py-2 text-sm transition-colors",
+				isDraggingConverterFiles.value
+					? "border-primary bg-primary/5"
+					: "border-base-300 text-base-content/60 hover:border-primary/60",
+			]}
+			onclick={pickFiles}
+		>
+			<Plus size={14} />
+			{m.converter_drop_more()}
+		</button>
 	{/if}
 	<p class="text-base-content/60 mt-2 flex items-center gap-2 text-xs">
 		{#if importingLabel}
@@ -986,7 +992,7 @@
 		class="mx-auto grid w-full max-w-6xl items-start gap-4 px-4 py-6 @3xl:grid-cols-[minmax(0,1fr)_18rem]"
 	>
 		<div class="flex min-w-0 flex-col gap-4">
-			{@render panel(0, filesBody, filesAside)}
+			{@render panel(0, filesBody)}
 			{@render panel(1, detailsBody)}
 			{@render panel(2, listingBody)}
 			{@render panel(3, extrasBody)}
