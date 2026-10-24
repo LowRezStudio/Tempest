@@ -14,7 +14,6 @@
 	import "$lib/platform/tray.svelte";
 	import "$lib/theme/theme.svelte";
 	import {
-		isDraggingFiles,
 		showInstanceSelect,
 		handleInstanceSelected,
 		setOnModsInstalled,
@@ -90,7 +89,6 @@
 <!-- Dialogs live outside the locale key so an in-progress wizard keeps its
 	state when the user commits a language change. -->
 <LayoutDialogs
-	isDraggingFiles={isDraggingFiles.value}
 	bind:showInstanceSelect={localShowInstanceSelect}
 	onselect={handleInstanceSelected}
 	oncancel={() => {}}

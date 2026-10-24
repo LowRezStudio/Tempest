@@ -6,6 +6,10 @@ import { invoke, listen, onDragDropEvent } from "$lib/platform/api";
 import { instanceMap } from "$lib/stores/instance.svelte";
 import { addToast } from "$lib/stores/ui.svelte";
 
+/** Elements that take dropped mod files; dropped anywhere else, files are ignored. */
+const MOD_DROP_ZONE = "[data-mod-drop]";
+
+/** Files are being dragged over the window, so the drop zones show themselves */
 export const isDraggingFiles = $state({ value: false });
 export const isDraggingConverterFiles = $state({ value: false });
 export const showInstanceSelect = $state({ value: false });
@@ -111,12 +115,14 @@ $effect.root(() => {
 	});
 	void onDragDropEvent((event) => {
 		const onConverter = page.url.pathname === "/converter";
+		const inModDropZone = !!event.payload.target?.closest(MOD_DROP_ZONE);
 		if (event.payload.type === "enter" || event.payload.type === "over") {
 			if (onConverter) {
 				isDraggingConverterFiles.value = true;
-			} else {
-				isDraggingFiles.value = true;
+				return true;
 			}
+			isDraggingFiles.value = true;
+			return inModDropZone;
 		} else if (event.payload.type === "drop") {
 			isDraggingConverterFiles.value = false;
 			isDraggingFiles.value = false;
@@ -124,7 +130,7 @@ $effect.root(() => {
 			if (paths && paths.length > 0) {
 				if (onConverter) {
 					converterPendingPaths.push(...paths);
-				} else {
+				} else if (inModDropZone) {
 					handleModFileDrop(paths);
 				}
 			}

@@ -2,7 +2,6 @@
 	import InstanceWizard from "$lib/components/library/InstanceWizard.svelte";
 	import LegacyTauriDialog from "$lib/components/migration/LegacyTauriDialog.svelte";
 	import DependenciesDialog from "$lib/components/mods/DependenciesDialog.svelte";
-	import InstallModOverlay from "$lib/components/mods/InstallModOverlay.svelte";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import ReplaceModDialog from "$lib/components/mods/ReplaceModDialog.svelte";
 	import UnverifiedModDialog from "$lib/components/mods/UnverifiedModDialog.svelte";
@@ -28,21 +27,14 @@
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
-		isDraggingFiles?: boolean;
 		showInstanceSelect?: boolean;
 		onselect: (instance: Instance) => void;
 		oncancel: () => void;
 	}
 
-	let {
-		isDraggingFiles = false,
-		showInstanceSelect = $bindable(false),
-		onselect,
-		oncancel,
-	}: Props = $props();
+	let { showInstanceSelect = $bindable(false), onselect, oncancel }: Props = $props();
 </script>
 
-<InstallModOverlay visible={isDraggingFiles} />
 <InstanceWizard bind:open={instanceWizardOpen.value} />
 <HostServerWizard bind:open={hostServerWizardOpen.value} />
 <JoinServerWizard bind:open={joinServerWizardOpen.value} />

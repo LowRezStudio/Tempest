@@ -265,22 +265,28 @@ export function resolveResource(...paths: string[]): Promise<string> {
 
 /**
  * Registers a drag-and-drop listener that reports dropped file paths.
- * @param handler Called with `{type: "enter"|"over"|"leave"|"drop", paths}`.
+ * @param handler Called with `{type: "enter"|"over"|"leave"|"drop", paths, target}`, the element
+ * under the pointer as `target`. Returning `false` for "enter" or "over" shows that no drop is taken there.
  * @returns A promise resolving to an unlisten function.
  */
 export function onDragDropEvent(
-	handler: (event: { payload: { type: string; paths: string[] } }) => void,
+	handler: (event: {
+		payload: { type: string; paths: string[]; target: Element | null };
+	}) => boolean | void,
 ): Promise<() => void> {
-	const onEnter = (e: DragEvent) => {
+	const targetOf = (e: DragEvent) => (e.target instanceof Element ? e.target : null);
+	// Always prevented, even where nothing is taken: a file dropped unhandled would replace the page.
+	const onHover = (type: "enter" | "over") => (e: DragEvent) => {
 		e.preventDefault();
-		handler({ payload: { type: "enter", paths: [] } });
+		const takes = handler({ payload: { type, paths: [], target: targetOf(e) } });
+		if (takes === false && e.dataTransfer) e.dataTransfer.dropEffect = "none";
 	};
-	const onOver = (e: DragEvent) => {
-		e.preventDefault();
-		handler({ payload: { type: "over", paths: [] } });
-	};
-	const onLeave = () => {
-		handler({ payload: { type: "leave", paths: [] } });
+	const onEnter = onHover("enter");
+	const onOver = onHover("over");
+	const onLeave = (e: DragEvent) => {
+		// Moving between elements leaves one for the next; only leaving the window counts.
+		if (e.relatedTarget) return;
+		handler({ payload: { type: "leave", paths: [], target: null } });
 	};
 	const onDrop = (e: DragEvent) => {
 		e.preventDefault();
@@ -291,7 +297,7 @@ export function onDragDropEvent(
 				paths.push(eio().getPathForFile(files[i]));
 			}
 		}
-		handler({ payload: { type: "drop", paths } });
+		handler({ payload: { type: "drop", paths, target: targetOf(e) } });
 	};
 
 	document.addEventListener("dragenter", onEnter);

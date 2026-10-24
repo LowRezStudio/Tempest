@@ -11,6 +11,7 @@
 	import RepoModModal from "$lib/components/mods/RepoModModal.svelte";
 	import RepoUpdatesModal from "$lib/components/mods/RepoUpdatesModal.svelte";
 	import EmptyState from "$lib/components/ui/EmptyState.svelte";
+	import { isDraggingFiles } from "$lib/mods/drop.svelte";
 	import { pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
@@ -171,34 +172,50 @@
 							onOpenRepo={(mod) => openRepoMod(mod.Id)}
 						/>
 						{#if modsList.length === 0 && !pendingInstalls.value.some((p) => p.gamePath === instance?.path)}
-							<EmptyState
-								title={m.instance_no_content()}
-								description={m.instance_drag_import_hint()}
+							<div
+								data-mod-drop={isReady ? "" : undefined}
+								class={[
+									"rounded-box border-2 border-dashed transition-colors",
+									isReady && isDraggingFiles.value
+										? "border-primary bg-primary/5"
+										: "border-transparent",
+								]}
 							>
-								{#snippet icon()}
-									<PackageOpen size={48} />
-								{/snippet}
-								{#snippet actions()}
-									<div class="mt-2 flex gap-2">
-										<button
-											class="btn btn-primary btn-sm"
-											disabled={!isReady}
-											onclick={() => (activeTab = "browse")}
-										>
-											<Search size={14} />
-											{m.instance_find_mods()}
-										</button>
-										<button class="btn btn-sm" onclick={handleInstallMod}>
-											<PackageOpen size={14} />
-											{m.instancemenu_install_mod()}
-										</button>
-									</div>
-								{/snippet}
-							</EmptyState>
+								<EmptyState
+									title={m.instance_no_content()}
+									description={m.instance_drag_import_hint()}
+								>
+									{#snippet icon()}
+										<PackageOpen size={48} />
+									{/snippet}
+									{#snippet actions()}
+										<div class="mt-2 flex gap-2">
+											<button
+												class="btn btn-primary btn-sm"
+												disabled={!isReady}
+												onclick={() => (activeTab = "browse")}
+											>
+												<Search size={14} />
+												{m.instance_find_mods()}
+											</button>
+											<button class="btn btn-sm" onclick={handleInstallMod}>
+												<PackageOpen size={14} />
+												{m.instancemenu_install_mod()}
+											</button>
+										</div>
+									{/snippet}
+								</EmptyState>
+							</div>
 						{:else if isReady}
-							<!-- The window handles drops itself; this is the hint and the file picker. -->
+							<!-- The one place mod files are dropped, and the file picker -->
 							<button
-								class="border-base-content/10 hover:border-primary/40 text-base-content/40 hover:text-base-content/70 rounded-box mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 border border-dashed px-4 py-2.5 text-xs transition-colors"
+								data-mod-drop
+								class={[
+									"rounded-box mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 border border-dashed px-4 py-2.5 text-xs transition-colors",
+									isDraggingFiles.value
+										? "border-primary bg-primary/5 text-primary"
+										: "border-base-content/10 hover:border-primary/40 text-base-content/40 hover:text-base-content/70",
+								]}
 								onclick={handleInstallMod}
 							>
 								<Plus size={14} />

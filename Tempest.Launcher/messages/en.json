@@ -730,8 +730,6 @@
 	"select_instance_no_instances": "No prepared instances found. Please create or finish setting up an instance first.",
 	"select_instance_incompatible_hint": "{name} {version} is made for patch {compat}, but this instance is on {patch}. Choose an instance on a supported patch:",
 	"select_instance_compat_hint": "{name} {version} is made for patch {compat}. Choose an instance to install it to:",
-	"overlay_install_mod_title": "Install Mod",
-	"overlay_drop_here": "Drop the mod file {upk} or {pck} here to install onto this instance.",
 	"tray_open": "Open",
 	"tray_quit": "Quit",
 	"afk_title": "Are you still there?",
