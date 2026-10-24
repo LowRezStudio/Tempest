@@ -21,6 +21,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { localeState } from "$lib/stores/locale.svelte";
 	import { currentWeather, onKonamiKey } from "$lib/theme/weather.svelte";
+	import HalloweenWebs from "./HalloweenWebs.svelte";
 	import SeasonalDecorations from "./SeasonalDecorations.svelte";
 	import SeasonalWeather from "./SeasonalWeather.svelte";
 
@@ -44,7 +45,8 @@
 {#key localeState.current}
 	<div class="flex h-screen w-full overflow-hidden">
 		<Sidebar />
-		<!-- Pages leave their background to main, so the weather falls behind their cards -->
+		<!-- Pages leave their background to main, so the weather and the Halloween webs fall behind
+		     their cards -->
 		<main class="bg-base-100 relative min-w-0 flex-1 overflow-hidden">
 			{#if currentWeather.value?.kind}
 				{@const kind = currentWeather.value.kind}
@@ -53,6 +55,11 @@
 						<SeasonalWeather {kind} />
 					</div>
 				{/key}
+			{/if}
+			{#if currentWeather.value?.spooky}
+				<div class="absolute inset-0" transition:fade={{ duration: 600 }}>
+					<HalloweenWebs />
+				</div>
 			{/if}
 			<svelte:boundary>
 				{#key page.url.pathname}
