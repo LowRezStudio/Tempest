@@ -146,7 +146,8 @@
 	<div class="flex flex-1 flex-col overflow-hidden">
 		{#if activeTab === "content"}
 			<div class="flex-1 [scrollbar-gutter:stable] overflow-y-auto">
-				<div class="px-4 py-6">
+				<!-- Less on top than the other tabs: the table's header row brings its own padding -->
+				<div class="px-4 pt-2 pb-6">
 					{#if isInitialLoading}
 						<div
 							class="flex h-80 flex-col items-center justify-center gap-4 text-center"
