@@ -13,11 +13,9 @@
 		Save,
 		ShieldCheck,
 		SlidersHorizontal,
-		Terminal,
 		Trash2,
 		Wrench,
 	} from "@lucide/svelte";
-	import { useQueryClient } from "@tanstack/svelte-query";
 	import { onMount, untrack } from "svelte";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
 	import ActionRow from "$lib/components/ui/ActionRow.svelte";
@@ -25,25 +23,21 @@
 	import Panel from "$lib/components/ui/Panel.svelte";
 	import SectionNav from "$lib/components/ui/SectionNav.svelte";
 	import { SectionTracker, type PageSection } from "$lib/components/ui/sections.svelte";
-	import SwitchRow from "$lib/components/ui/SwitchRow.svelte";
 	import { deleteInstance } from "$lib/core/instance-delete";
 	import { manifestIdOf, runSetup, verifyFiles } from "$lib/core/instance-maintenance";
-	import { installMod, removeMod } from "$lib/core/mods";
 	import versions from "$lib/data/versions.json";
 	import { relativeDate } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
 	import { getLocale } from "$lib/paraglide/runtime";
-	import { open as openDialog, openUrl, resolveResource } from "$lib/platform/api";
+	import { open as openDialog, openUrl } from "$lib/platform/api";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
 	import { createModsQuery } from "$lib/queries/mods";
 	import { WIKI_BASE_URL } from "$lib/rigby/constants";
 	import { updateInstance } from "$lib/stores/instance.svelte";
-	import { addToast } from "$lib/stores/ui.svelte";
 	import { instancePlatforms, type Instance, type InstancePlatform } from "$lib/types/instance";
 	import { parseArgs } from "$lib/utils/args";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import { patchOf } from "$lib/utils/versions";
-	import type { ModInstallResult, ModRecord } from "$lib/core/mods";
 
 	interface Props {
 		/** The page keys this component on the instance id, so the fields load from it once */
@@ -79,8 +73,6 @@
 		{ id: "remove", title: m.instance_remove_title(), icon: Trash2, tone: "danger" },
 	]);
 	const tracker = new SectionTracker(() => sections);
-
-	const queryClient = useQueryClient();
 
 	let editName = $state("");
 	let editVersion = $state("");
@@ -206,58 +198,6 @@
 	const modsQuery = createModsQuery(() => editPath);
 	const mods = $derived(modsQuery.data ?? []);
 	const enabledMods = $derived(mods.filter((mod) => mod.Enabled).length);
-
-	// The bundled Console / Multiplayer mods, matched by source path or legacy internal name.
-	const isConsoleMod = (mod: ModRecord) =>
-		mod.OriginalPath.includes("Tempest Console.tempest") ||
-		mod.Name === "Tempest Mod (Console)" ||
-		mod.OriginalPath.includes("Tempest Mod.tempest") ||
-		mod.Name === "Tempest Mod (Console + Multiplayer)";
-	const isCoreMod = (mod: ModRecord) =>
-		mod.OriginalPath.includes("Tempest Core.tempest") ||
-		mod.OriginalPath.includes("Tempest.Core.Tempest");
-
-	const isCoreVersion = $derived(editVersion === "0.56" || editVersion === "0.57");
-	const bundledInstalled = $derived(mods.some(isCoreVersion ? isCoreMod : isConsoleMod));
-	const bundledTitle = $derived(
-		isCoreVersion ? m.instance_bundled_core() : m.instance_bundled_console(),
-	);
-	// Where the switch stands while the bundled mod is being installed or removed.
-	let bundledPending = $state<boolean | null>(null);
-
-	async function setBundledMod(enable: boolean) {
-		if (bundledPending !== null) return;
-		bundledPending = enable;
-		const isMatch = isCoreVersion ? isCoreMod : isConsoleMod;
-		// The CLI reports a failure in its result rather than by exiting.
-		const check = (result: ModInstallResult) => {
-			if (!result.Success) throw new Error(result.Message);
-		};
-		try {
-			if (enable) {
-				const file = isCoreVersion
-					? "mods/Tempest Core.tempest"
-					: "mods/Tempest Console.tempest";
-				check(await installMod(editPath, await resolveResource(file), true));
-			} else {
-				// By each mod's real internal name: removing by a hard-coded one silently fails.
-				for (const mod of mods.filter(isMatch)) {
-					check(await removeMod(editPath, mod.Name));
-				}
-			}
-		} catch (error) {
-			console.error("Failed to toggle bundled mod:", error);
-			addToast({
-				title: bundledTitle,
-				message: error instanceof Error ? error.message : String(error),
-				tone: "error",
-			});
-		} finally {
-			// Also after a failure: a removal can stop halfway.
-			await queryClient.invalidateQueries({ queryKey: ["mods", editPath] });
-			bundledPending = null;
-		}
-	}
 
 	const phase = $derived(instance.state.type);
 	// Both write into the game folder, so neither while it is in use.
@@ -513,17 +453,6 @@
 						/>
 						<p class="text-base-content/60 text-xs">{m.instance_space_separated()}</p>
 					</div>
-					<SwitchRow
-						bind:checked={
-							() => bundledPending ?? bundledInstalled, (on) => void setBundledMod(on)
-						}
-						icon={Terminal}
-						title={bundledTitle}
-						hint={isCoreVersion
-							? m.instance_bundled_core_hint()
-							: m.instance_bundled_console_hint()}
-						disabled={bundledPending !== null || isRunning || !editPath}
-					/>
 				</div>
 			</Panel>
 
