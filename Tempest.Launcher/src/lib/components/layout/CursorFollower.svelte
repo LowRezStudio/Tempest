@@ -7,8 +7,11 @@
 		gait: "hop" | "waddle";
 		/** The art's width, in px */
 		width: number;
-		/** The art; `look` points toward the cursor, -1 to 1 on each axis, for its eyes */
-		children: Snippet<[{ x: number; y: number }]>;
+		/**
+		 * The art; `look` points toward the cursor, -1 to 1 on each axis, for its eyes, and says
+		 * whether the cursor left the window
+		 */
+		children: Snippet<[{ x: number; y: number; away: boolean }]>;
 	}
 
 	let { gait, width, children }: Props = $props();
@@ -19,7 +22,7 @@
 
 	let layer = $state<HTMLDivElement>();
 	const pose = $state({ x: -1000, y: 0, tilt: 0, sx: 1, sy: 1, facing: 1 });
-	const look = $state({ x: 0, y: 0 });
+	const look = $state({ x: 0, y: 0, away: false });
 
 	const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -31,8 +34,18 @@
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
 		let pointer: { x: number; y: number } | undefined;
-		const onMove = (e: PointerEvent) => (pointer = { x: e.clientX, y: e.clientY });
+		const onMove = (e: PointerEvent) => {
+			pointer = { x: e.clientX, y: e.clientY };
+			look.away = false;
+		};
+		// Out of the window: it stays where it is instead of chasing the last spot the cursor was.
+		const onOut = (e: MouseEvent) => {
+			if (e.relatedTarget) return;
+			pointer = undefined;
+			look.away = true;
+		};
 		window.addEventListener("pointermove", onMove);
+		window.addEventListener("mouseout", onOut);
 
 		let hop:
 			| { from: number; to: number; height: number; start: number; duration: number }
@@ -41,7 +54,7 @@
 		let stride = 0;
 		let last = performance.now();
 
-		function hopTowards(now: number, target: number, above: number) {
+		function hopTowards(now: number, target: number, above: number, idle: boolean) {
 			if (hop) {
 				const t = Math.min(1, (now - hop.start) / hop.duration);
 				const arc = Math.sin(Math.PI * t);
@@ -63,7 +76,7 @@
 			pose.sy = 1 - 0.16 * squash;
 			const dx = target - pose.x;
 			const travelling = Math.abs(dx) > 8;
-			if (now - landedAt < (travelling ? 140 : 800)) return;
+			if (idle || now - landedAt < (travelling ? 140 : 800)) return;
 			if (travelling) pose.facing = Math.sign(dx);
 			// Under the cursor it keeps jumping up at it, higher the closer it is
 			const height = travelling ? 26 : above < 260 ? clamp(above - 50, 10, 90) : 12;
@@ -100,7 +113,7 @@
 			pose.x = clamp(pose.x, MARGIN, max);
 			const target = pointer ? clamp(pointer.x - rect.left - width / 2, MARGIN, max) : pose.x;
 			const above = pointer ? rect.bottom - pointer.y : Infinity;
-			if (gait === "hop") hopTowards(now, target, above);
+			if (gait === "hop") hopTowards(now, target, above, !pointer);
 			else waddleTowards(dt, target);
 
 			if (pointer) {
@@ -110,6 +123,9 @@
 				const reach = Math.min(1, distance / 120);
 				look.x = (dx / distance) * reach * pose.facing;
 				look.y = (dy / distance) * reach;
+			} else if (look.away) {
+				look.x *= 0.9;
+				look.y *= 0.9;
 			}
 			frame = requestAnimationFrame(tick);
 		});
@@ -117,6 +133,7 @@
 		return () => {
 			cancelAnimationFrame(frame);
 			window.removeEventListener("pointermove", onMove);
+			window.removeEventListener("mouseout", onOut);
 		};
 	});
 </script>
