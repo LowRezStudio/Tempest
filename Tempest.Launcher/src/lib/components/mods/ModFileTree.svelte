@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronDown, ChevronRight, File, FileText, Folder } from "@lucide/svelte";
+	import { ChevronDown, ChevronRight, File, FileText, FileX, Folder } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { invoke } from "$lib/platform/api";
 
@@ -251,10 +251,19 @@
 	{/if}
 {/snippet}
 
-<div class="bg-base-200 rounded-box h-full overflow-y-auto p-3 pr-1">
-	<ul class="menu menu-xs w-full p-0 font-mono">
-		{#each tree as node}
-			{@render renderNode(node)}
-		{/each}
-	</ul>
-</div>
+{#if tree.length === 0}
+	<div
+		class="text-base-content/50 flex h-full flex-col items-center justify-center gap-2 py-12 text-center text-sm"
+	>
+		<FileX size={28} class="opacity-60" />
+		{m.mod_no_files()}
+	</div>
+{:else}
+	<div class="bg-base-200 rounded-box h-full overflow-y-auto p-3 pr-1">
+		<ul class="menu menu-xs w-full p-0 font-mono">
+			{#each tree as node}
+				{@render renderNode(node)}
+			{/each}
+		</ul>
+	</div>
+{/if}
