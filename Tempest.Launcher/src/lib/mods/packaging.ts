@@ -1,6 +1,7 @@
 // Shared helpers for the mod cooker (single + batch): .tempest package parsing,
 // repository-id slugs and .tempest package assembly.
 import { buildZipArchive, optimizeUpkData, readZipArchive } from "$lib/core/mods";
+import { m } from "$lib/paraglide/messages";
 
 /**
  * A file of a package. Most are game files (`path` is under the game folder, packed under
@@ -11,6 +12,19 @@ export type FileEntry = { path: string; data: Uint8Array; inModFolder?: boolean 
 export type ConverterKind = "assets" | "scripts" | "native";
 export type AuthorEntry = { name: string; link: string };
 export type PackageIcon = { name: string; data: Uint8Array };
+
+const MAX_ICON_BYTES = 1024 * 1024;
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+// Why an image can't be a package's icon, or null when it can. Packages carry it as icon.png, so
+// it has to really be one (not a renamed JPEG), and small.
+export function iconProblem(data: Uint8Array): string | null {
+	if (!PNG_SIGNATURE.every((byte, i) => data[i] === byte)) return m.converter_icon_not_png();
+	if (data.length > MAX_ICON_BYTES) {
+		return m.converter_icon_too_big({ size: `${(data.length / 1024 ** 2).toFixed(2)} MB` });
+	}
+	return null;
+}
 
 export type PackageManifest = {
 	name: string;

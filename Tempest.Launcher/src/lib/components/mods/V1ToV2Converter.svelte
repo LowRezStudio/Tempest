@@ -34,6 +34,7 @@
 	import {
 		MOD_ID_PATTERN,
 		buildPackageZip,
+		iconProblem,
 		optimizeUpkEntries,
 		parsePackage,
 		looseFileEntry,
@@ -251,7 +252,13 @@
 	async function pickIcon() {
 		const imported = await invoke("converter:pick-icon");
 		if (!imported) return;
-		converter.icon = { name: imported.name, data: new Uint8Array(imported.data) };
+		const data = new Uint8Array(imported.data);
+		const problem = iconProblem(data);
+		if (problem) {
+			addToast({ title: imported.name, message: problem, tone: "error" });
+			return;
+		}
+		converter.icon = { name: imported.name, data };
 	}
 
 	async function processFile(filePath: string, data: Uint8Array) {
@@ -331,6 +338,14 @@
 			});
 		}
 		const manifest = parsed.manifest;
+		const iconIssue = parsed.icon && iconProblem(parsed.icon.data);
+		if (iconIssue) {
+			addToast({
+				title: label,
+				message: m.converter_icon_dropped({ reason: iconIssue }),
+				tone: "warning",
+			});
+		}
 		converter.sources = [
 			...converter.sources,
 			{
@@ -342,7 +357,7 @@
 					version: manifest?.version ?? "",
 					authors: manifest?.authors ?? [],
 					readme: parsed.readme ?? "",
-					icon: parsed.icon,
+					icon: iconIssue ? null : parsed.icon,
 					dependencies: manifest?.dependencies ?? [],
 				},
 			},
@@ -847,6 +862,7 @@
 					<span>{m.converter_icon_pick()}</span>
 				</button>
 			{/if}
+			<span class="text-base-content/60 text-xs">{m.converter_icon_hint()}</span>
 		</div>
 		<label class="flex flex-col gap-1">
 			<span class="text-base-content/60 text-xs">{m.converter_readme_label()}</span>

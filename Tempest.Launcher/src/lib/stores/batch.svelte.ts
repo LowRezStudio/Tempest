@@ -1,6 +1,7 @@
 import {
 	MOD_ID_PATTERN,
 	detectKind,
+	iconProblem,
 	optimizeUpkEntries,
 	parsePackage,
 	slugify,
@@ -31,6 +32,8 @@ export type BatchEntry = {
 	files: FileEntry[];
 	/** How many embedded package files were compressed on import. */
 	compressedFiles: number;
+	/** Why the package's icon was left out (not a PNG, too big), if it was */
+	droppedIcon: string | null;
 	status: BatchStatus;
 	/** Host-side path of the signed package, set once cooked. */
 	stagedPath: string | null;
@@ -53,6 +56,7 @@ async function entryFromImport(label: string, data: Uint8Array): Promise<BatchEn
 	// keep it when it already satisfies the repository's slug rule.
 	const id = manifest?.id && MOD_ID_PATTERN.test(manifest.id) ? manifest.id : slugify(name);
 	const manifestVersion = manifest?.version ?? "";
+	const droppedIcon = parsed.icon && iconProblem(parsed.icon.data);
 	return {
 		key: ++nextKey,
 		label,
@@ -63,7 +67,7 @@ async function entryFromImport(label: string, data: Uint8Array): Promise<BatchEn
 			? manifest.authors.map((a) => ({ name: a.name, link: a.link || "" }))
 			: [],
 		readme: parsed.readme ?? "",
-		icon: parsed.icon,
+		icon: droppedIcon ? null : parsed.icon,
 		dependencies: manifest?.dependencies.length
 			? manifest.dependencies
 			: detectKind(parsed.files) === "scripts"
@@ -74,6 +78,7 @@ async function entryFromImport(label: string, data: Uint8Array): Promise<BatchEn
 		summary: "",
 		files: parsed.files,
 		compressedFiles,
+		droppedIcon,
 		status: "queued",
 		stagedPath: null,
 		signer: null,
@@ -85,10 +90,10 @@ class BatchCookStore {
 	entries = $state<BatchEntry[]>([]);
 
 	// Throws when the package can't be read or has nothing to cook.
-	async add(label: string, data: Uint8Array): Promise<number> {
+	async add(label: string, data: Uint8Array): Promise<BatchEntry> {
 		const entry = await entryFromImport(label, data);
 		this.entries = [...this.entries, entry];
-		return entry.compressedFiles;
+		return entry;
 	}
 
 	remove(key: number) {

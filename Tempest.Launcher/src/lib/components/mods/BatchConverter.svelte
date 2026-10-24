@@ -124,9 +124,9 @@
 	}
 
 	async function addTempest(name: string, data: Uint8Array) {
-		let compressed: number;
+		let entry: BatchEntry;
 		try {
-			compressed = await batch.add(name, data);
+			entry = await batch.add(name, data);
 		} catch (error) {
 			console.error("Failed to parse mod package:", name, error);
 			addToast({
@@ -136,11 +136,18 @@
 			});
 			return;
 		}
-		if (compressed > 0) {
+		if (entry.compressedFiles > 0) {
 			addToast({
 				title: name,
 				message: m.converter_upk_optimized({ name }),
 				tone: "success",
+			});
+		}
+		if (entry.droppedIcon) {
+			addToast({
+				title: name,
+				message: m.converter_icon_dropped({ reason: entry.droppedIcon }),
+				tone: "warning",
 			});
 		}
 	}
