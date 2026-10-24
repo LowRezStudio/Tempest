@@ -303,6 +303,28 @@
 		</div>
 
 		<div class="relative z-10 ml-1 flex shrink-0 items-center">
+			<input
+				type="checkbox"
+				class="toggle toggle-primary mr-2"
+				checked={mod.Enabled}
+				disabled={!!busy}
+				onchange={(e) => onToggle(mod, e.currentTarget)}
+				title={mod.Enabled
+					? m.mods_disable({ name: mod.Name })
+					: m.mods_enable({ name: mod.Name })}
+				aria-label={mod.Enabled
+					? m.mods_disable({ name: mod.Name })
+					: m.mods_enable({ name: mod.Name })}
+			/>
+			<button
+				class="btn btn-ghost btn-sm btn-square text-base-content/50 hover:text-error"
+				disabled={!!busy}
+				onclick={() => onRemove(mod)}
+				title={m.common_remove()}
+				aria-label="{m.common_remove()} {mod.Name}"
+			>
+				<Trash2 size={15} />
+			</button>
 			<PopoverMenu
 				triggerClass="btn btn-ghost btn-sm btn-square text-base-content/50 hover:text-base-content"
 				triggerLabel={m.mods_more_actions()}
@@ -341,28 +363,6 @@
 					</PopoverMenuItem>
 				{/snippet}
 			</PopoverMenu>
-			<button
-				class="btn btn-ghost btn-sm btn-square text-base-content/50 hover:text-error"
-				disabled={!!busy}
-				onclick={() => onRemove(mod)}
-				title={m.common_remove()}
-				aria-label="{m.common_remove()} {mod.Name}"
-			>
-				<Trash2 size={15} />
-			</button>
-			<input
-				type="checkbox"
-				class="toggle toggle-primary ml-2"
-				checked={mod.Enabled}
-				disabled={!!busy}
-				onchange={(e) => onToggle(mod, e.currentTarget)}
-				title={mod.Enabled
-					? m.mods_disable({ name: mod.Name })
-					: m.mods_enable({ name: mod.Name })}
-				aria-label={mod.Enabled
-					? m.mods_disable({ name: mod.Name })
-					: m.mods_enable({ name: mod.Name })}
-			/>
 		</div>
 	</div>
 </li>
