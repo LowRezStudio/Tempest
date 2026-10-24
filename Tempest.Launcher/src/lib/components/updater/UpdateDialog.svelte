@@ -10,11 +10,29 @@
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { platform } from "$lib/platform/api";
-	import { cachedReleases } from "$lib/queries/release";
+	import { createReleasesQuery, type Release } from "$lib/queries/release";
 	import { updaterStore } from "$lib/stores/updater.svelte";
+	import { compareSemver } from "$lib/utils/deps";
 
 	let isOpen = $state(false);
 	const isWindows = platform() === "windows";
+
+	const releasesQuery = createReleasesQuery(() => updaterStore.status === "available");
+	// Every release the update brings, newest first: one that skips versions shows theirs too. The
+	// update's own notes come from the updater, the list may not have caught up with it yet.
+	const releaseNotes = $derived.by((): Pick<Release, "version" | "body">[] => {
+		const update = updaterStore.update;
+		if (!update) return [];
+		const releases = releasesQuery.data ?? [];
+		const latest =
+			update.notes ?? releases.find((r) => r.version === update.version)?.body ?? "";
+		const skipped = releases.filter(
+			(r) =>
+				compareSemver(r.version, update.currentVersion) > 0 &&
+				compareSemver(r.version, update.version) < 0,
+		);
+		return [{ version: update.version, body: latest }, ...skipped].filter((r) => r.body);
+	});
 
 	// Synchronize local open state with updaterStore.isOpen
 	$effect(() => {
@@ -68,15 +86,26 @@
 					>
 				</div>
 
-				{#if updaterStore.update.notes || cachedReleases.value[0]?.body}
+				{#if releaseNotes.length > 0}
 					<div class="flex flex-col gap-1.5">
 						<span class="text-base-content/70 text-xs font-semibold"
 							>{m.updater_release_notes()}</span
 						>
 						<div
-							class="bg-base-200 border-base-300 max-h-32 overflow-y-auto rounded-lg border p-3 font-sans text-xs leading-relaxed whitespace-pre-wrap"
+							class="bg-base-200 border-base-300 flex max-h-48 flex-col gap-3 overflow-y-auto rounded-lg border p-3 font-sans text-xs leading-relaxed"
 						>
-							{updaterStore.update.notes ?? cachedReleases.value[0]?.body}
+							{#each releaseNotes as release (release.version)}
+								<div>
+									{#if releaseNotes.length > 1}
+										<p class="mb-0.5 font-semibold tabular-nums">
+											v{release.version}
+										</p>
+									{/if}
+									<p class="wrap-break-word whitespace-pre-wrap">
+										{release.body}
+									</p>
+								</div>
+							{/each}
 						</div>
 					</div>
 				{/if}
