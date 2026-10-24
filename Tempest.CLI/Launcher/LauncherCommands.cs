@@ -59,6 +59,7 @@ internal class LauncherCommands
         // The game is gone. A Wine prefix can host other windows of the same instance, so only
         // stop this launch's process tree instead of sweeping the whole prefix.
         await WineExtensions.KillProcessTree(process, sweepPrefix: false);
+        if (OperatingSystem.IsLinux()) WineExtensions.ClearIdleProtonPrefix(process);
     }
 public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
                                                  string? platform = null, string? game = null, string[]? dll = null,
