@@ -8,7 +8,7 @@
 		value: string;
 		/** Accessible name */
 		label: string;
-		/** A patch's id whose tick stands out in the accent color while not picked */
+		/** A patch's id whose tick stands out while not picked */
 		highlight?: string;
 	}
 
@@ -173,7 +173,7 @@
 							t.i === index
 								? "bg-primary ring-primary/30 ring-2"
 								: t.patch.id === highlight
-									? "bg-accent"
+									? "bg-warning"
 									: "bg-base-300",
 							hovered === t.i && t.i !== index && "ring-primary ring-1",
 						]}

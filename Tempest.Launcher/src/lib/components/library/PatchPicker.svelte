@@ -11,7 +11,7 @@
 		patches: Patch[];
 		/** The picked patch's id */
 		value: string;
-		/** A patch's id whose tick stands out in the accent color */
+		/** A patch's id whose tick stands out */
 		highlight?: string;
 	}
 

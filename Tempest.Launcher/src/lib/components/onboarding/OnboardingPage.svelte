@@ -392,7 +392,7 @@
 											<p
 												class="text-base-content/60 flex items-center gap-1.5 text-xs"
 											>
-												<span class="bg-accent h-3 w-1 shrink-0 rounded-xs"
+												<span class="bg-warning h-3 w-1 shrink-0 rounded-xs"
 												></span>
 												{m.onboarding_multiplayer_legend({
 													version: multiplayerVersion.version,
