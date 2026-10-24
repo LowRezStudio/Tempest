@@ -27,7 +27,7 @@
 	onSeeAll={() =>
 		openUrl(release?.url ?? "https://github.com/LowRezStudio/Tempest/releases/latest")}
 >
-	<div data-panel class="bg-base-200 border-base-300 rounded-box flex-1 border p-4">
+	<div data-panel class="bg-base-200 border-base-300 rounded-box flex flex-1 flex-col border p-4">
 		{#if releasesQuery.isPending && !release}
 			<p class="text-base-content/60 text-sm">{m.common_loading()}</p>
 		{:else if release}
@@ -61,11 +61,17 @@
 					</div>
 				{/if}
 			</div>
-			<p
-				class="text-base-content/80 line-clamp-8 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap"
-			>
-				{release.body}
-			</p>
+			<!-- Laid over its box, so long notes scroll inside the card instead of making the row
+			     taller than its neighbours; keyed so another release starts at the top -->
+			<div class="relative min-h-40 flex-1">
+				{#key release.version}
+					<p
+						class="text-base-content/80 absolute inset-0 overflow-y-auto text-sm leading-relaxed wrap-break-word whitespace-pre-wrap"
+					>
+						{release.body}
+					</p>
+				{/key}
+			</div>
 		{:else}
 			<p class="text-base-content/60 text-sm">{m.home_releasenotes_unavailable()}</p>
 		{/if}
