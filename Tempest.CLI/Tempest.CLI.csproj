@@ -28,18 +28,18 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
-      <PackageReference Include="ConsoleAppFramework" Version="5.7.11">
+      <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+      <PackageReference Include="ConsoleAppFramework" Version="5.7.13">
         <PrivateAssets>all</PrivateAssets>
         <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       </PackageReference>
-      <PackageReference Include="Grpc.AspNetCore.Web" Version="2.80.0" />
-      <PackageReference Include="Grpc.Net.Client" Version="2.80.0" />
-      <PackageReference Include="Grpc.Net.Client.Web" Version="2.80.0" />
-    <PackageReference Include="Grpc.AspNetCore" Version="2.80.0" />
-      <PackageReference Include="BLAKE3" Version="2.1.1" />
-      <PackageReference Include="Tomlyn" Version="2.7.0" />
-      <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
+      <PackageReference Include="Grpc.AspNetCore.Web" Version="2.84.0" />
+      <PackageReference Include="Grpc.Net.Client" Version="2.84.0" />
+      <PackageReference Include="Grpc.Net.Client.Web" Version="2.84.0" />
+      <PackageReference Include="Grpc.AspNetCore" Version="2.84.0" />
+      <PackageReference Include="BLAKE3" Version="3.0.2" />
+      <PackageReference Include="Tomlyn" Version="2.10.1" />
+      <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
       <PackageReference Include="ZLogger" Version="2.5.10" />
     </ItemGroup>
 

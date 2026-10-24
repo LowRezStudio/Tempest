@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using ConsoleAppFramework;
 using Tempest.CLI.Rigby.Events;
@@ -36,10 +37,23 @@ internal sealed class RigbyCommands
         if (chunksRootFull is not null && !Directory.Exists(chunksRootFull))
             throw new InvalidOperationException($"Chunks root does not exist: {chunksRootFull}");
 
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5.0) };
+        var source = new RigbyChunkSource(chunksRootFull, baseUrl, noDownload);
+        using var handler = new SocketsHttpHandler
+        {
+            // Chunks are stored already compressed; a second layer would only cost CPU.
+            AutomaticDecompression = DecompressionMethods.None,
+            ConnectTimeout = TimeSpan.FromSeconds(20),
+            // A long restore outlives keep-alive connections the CDN may have dropped anyway.
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            MaxConnectionsPerServer = 64
+        };
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(5) };
 
-        var tasks = new List<RestoreTask>();
-        var expectedFiles = new HashSet<string>(RigbyOutputLayout.GetPathComparer());
+        // Keyed by output path: a later manifest wins when two of them list the same file,
+        // instead of two workers racing over one path.
+        var comparer = RigbyOutputLayout.GetPathComparer();
+        var tasks = new Dictionary<string, RestoreTask>(comparer);
+        var expectedFiles = new HashSet<string>(comparer);
 
         foreach (var manifestPath in manifestPaths)
         {
@@ -57,12 +71,12 @@ internal sealed class RigbyCommands
                 if (!RigbyOutputLayout.IsPathWithinRoot(outRoot, outputPath))
                     throw new InvalidOperationException($"Manifest path escapes output directory: {relPath}");
 
-                tasks.Add(new RestoreTask(outputPath, file, manifest.Chunks));
+                tasks[outputPath] = new RestoreTask(outputPath, file, manifest.Chunks);
                 expectedFiles.Add(outputPath);
             }
         }
 
-        var stats = await RunRestoreAsync(tasks, outRoot, chunksRootFull, baseUrl, noDownload, resume, json, http, cancellationToken);
+        var stats = await RunRestoreAsync([.. tasks.Values], outRoot, source, resume, json, http, cancellationToken);
         var deletedFiles = RigbyOutputLayout.DeleteUnexpectedFiles(outRoot, expectedFiles);
 
         if (json)
@@ -88,11 +102,9 @@ internal sealed class RigbyCommands
     }
 
     private static async Task<RestoreStats> RunRestoreAsync(
-        IReadOnlyList<RestoreTask> tasks,
+        List<RestoreTask> tasks,
         string outRoot,
-        string? chunksRoot,
-        string? baseUrl,
-        bool noDownload,
+        RigbyChunkSource source,
         bool resume,
         bool json,
         HttpClient http,
@@ -129,6 +141,10 @@ internal sealed class RigbyCommands
                 remaining.Add((task, prefix));
             }
 
+            // Biggest first: the few large packages hold most of the bytes, and starting them last
+            // would leave one worker downloading alone at the end.
+            remaining.Sort(static (x, y) => y.Task.File.Size.CompareTo(x.Task.File.Size));
+
             progress.Flush();
 
             await Parallel.ForEachAsync(
@@ -141,7 +157,7 @@ internal sealed class RigbyCommands
                 async (entry, ct) =>
                 {
                     var (task, prefix) = entry;
-                    var result = await RigbyRestoreEngine.RestoreOneAsync(task, prefix, chunksRoot, baseUrl, noDownload, http, progress, ct);
+                    var result = await RigbyRestoreEngine.RestoreOneAsync(task, prefix, source, http, progress, ct);
                     state.MarkFinished(task, result);
                     stats.Add(result);
                     progress.FileCompleted(result);
