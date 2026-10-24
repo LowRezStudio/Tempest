@@ -180,8 +180,10 @@
 									{/if}
 								</span>
 								{#if v.changelog}
-									<span class="text-base-content/80 mt-0.5 line-clamp-2 block"
-										>{v.changelog}</span
+									<!-- No `block`: it overrides the clamp's -webkit-box and shows it all -->
+									<span
+										class="text-base-content/80 mt-0.5 line-clamp-2"
+										title={v.changelog}>{v.changelog}</span
 									>
 								{/if}
 							</button>
