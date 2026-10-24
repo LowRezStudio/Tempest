@@ -190,6 +190,25 @@ handle("mods:has-dlls", async (_event, { gamePath, modId }) => {
 	}
 });
 
+handle("mods:read-config", async (_event, { gamePath, modId }) => {
+	if (!safeSegment.test(modId)) return null;
+	const configFile = path.join(gamePath, "ChaosGame", "Config", "mods", `${modId}.toml`);
+	const info = await fs.promises.stat(configFile).catch(() => null);
+	if (!info?.isFile()) return null;
+	return fs.promises.readFile(configFile, "utf8");
+});
+
+handle("mods:write-config", async (_event, { gamePath, modId, text }) => {
+	if (!safeSegment.test(modId)) throw new Error("Invalid mod ID");
+	if (Buffer.byteLength(text, "utf8") > 1024 * 1024) {
+		throw new Error("Config files must be smaller than 1 MB");
+	}
+	const configFile = path.join(gamePath, "ChaosGame", "Config", "mods", `${modId}.toml`);
+	const info = await fs.promises.lstat(configFile).catch(() => null);
+	if (!info?.isFile()) throw new Error("This mod config file no longer exists");
+	await fs.promises.writeFile(configFile, text, "utf8");
+});
+
 // The same formats and size cap the mod website accepts for icons.
 const ICON_TYPES: Record<string, string> = {
 	".png": "image/png",

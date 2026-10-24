@@ -6,10 +6,12 @@
 		FileDown,
 		PackageOpen,
 		RefreshCw,
+		Save,
 		Search,
 		SearchX,
 	} from "@lucide/svelte";
 	import { SvelteSet } from "svelte/reactivity";
+	import Modal from "$lib/components/ui/Modal.svelte";
 	import {
 		missingDependencies,
 		offerMissingDependencies,
@@ -22,6 +24,7 @@
 		createDisableModMutation,
 		createEnableModMutation,
 		createInstalledIconsQuery,
+		createModConfigsQuery,
 	} from "$lib/queries/mods";
 	import { createRepoModsQuery, createRepoVersionCountsQuery } from "$lib/queries/repo";
 	import { addToast } from "$lib/stores/ui.svelte";
@@ -68,10 +71,18 @@
 	// Looked up per installed V2 mod (plain GETs; unknown ids come back empty), so the repo
 	// features don't depend on the update check, which only adds the update info.
 	const v2ModIds = () => mods.filter((mod) => mod.Kind === "V2").map((mod) => mod.Id);
+	const modIds = () => mods.map((mod) => mod.Id);
 	const repoMods = createRepoModsQuery(v2ModIds);
 	// The package's own icon stands in when the repository has none (local or unpublished mods).
 	const installedIcons = createInstalledIconsQuery(() => gamePath, v2ModIds);
+	const modConfigs = createModConfigsQuery(() => gamePath, modIds);
 	const versionCounts = createRepoVersionCountsQuery(() => [...(repoMods.data?.keys() ?? [])]);
+	let configOpen = $state(false);
+	let configTitle = $state("");
+	let selectedConfig = $state("");
+	let originalConfig = $state("");
+	let configModId = $state("");
+	let savingConfig = $state(false);
 
 	const shown = $derived.by(() => {
 		const q = query.trim().toLowerCase();
@@ -114,11 +125,8 @@
 
 	// The list updates optimistically; a second click while the CLI still works on
 	// the same mod is ignored so two enable/disable runs never race.
-	async function toggle(mod: ModRecord, input: HTMLInputElement) {
-		if (togglingModIds.has(mod.Id)) {
-			input.checked = mod.Enabled;
-			return;
-		}
+	async function toggle(mod: ModRecord) {
+		if (togglingModIds.has(mod.Id)) return;
 		togglingModIds.add(mod.Id);
 		try {
 			await (mod.Enabled ? disableMutation : enableMutation).mutateAsync({
@@ -137,14 +145,33 @@
 		if (missing) void offerMissingDependencies(gamePath, mod.Name, missing);
 	}
 
-	async function showInExplorer(mod: ModRecord) {
-		const targetPath = mod.InstalledFiles[0] || mod.OriginalPath || "";
-		if (mod.Kind === "V2" ? !gamePath : !targetPath) return;
-		// Host resolves the folder (V2 mod dir / V1 file's parent) and opens it.
-		await invoke("mods:open-location", {
-			gamePath,
-			mod: mod.Kind === "V2" ? { kind: "V2", modId: mod.Id } : { kind: "V1", targetPath },
-		});
+	function viewConfig(mod: ModRecord, config: string) {
+		configTitle = mod.Name;
+		selectedConfig = config;
+		originalConfig = config;
+		configModId = mod.Id;
+		configOpen = true;
+	}
+
+	async function saveConfig() {
+		if (savingConfig || selectedConfig === originalConfig) return;
+		savingConfig = true;
+		try {
+			await invoke("mods:write-config", {
+				gamePath,
+				modId: configModId,
+				text: selectedConfig,
+			});
+			originalConfig = selectedConfig;
+			addToast({ message: "Mod config saved", tone: "success" });
+		} catch (error) {
+			addToast({
+				message: error instanceof Error ? error.message : String(error),
+				tone: "error",
+			});
+		} finally {
+			savingConfig = false;
+		}
 	}
 
 	function open(mod: ModRecord) {
@@ -199,6 +226,7 @@
 					<tr>
 						<th>{m.common_name()}</th>
 						<th class="w-[30%]">{m.common_version()}</th>
+						<th class="w-16 text-center">{m.common_enabled()}</th>
 						<th class="w-60 text-right">
 							<button
 								class="hover:text-primary inline-flex max-w-full cursor-pointer items-center gap-1 text-sm font-semibold tabular-nums transition-colors disabled:opacity-40"
@@ -227,6 +255,7 @@
 						<!-- Waits for the repository so a listed mod's icon never swaps in after the package's. -->
 						<InstalledModRow
 							{mod}
+							config={modConfigs.data?.get(mod.Id)}
 							{repo}
 							icon={mod.Kind === "V2" &&
 							(repoMods.isPending || installedIcons.isPending)
@@ -242,7 +271,7 @@
 							onToggle={toggle}
 							onOpen={open}
 							onOpenVersions={(mod) => onOpenRepo(mod.Id, "versions")}
-							onShowInExplorer={showInExplorer}
+							onViewConfig={viewConfig}
 							onRemove={(mod) => onRemoveMod(mod.Name)}
 							onFetchMissing={fetchMissing}
 						/>
@@ -280,11 +309,12 @@
 								</p>
 							</td>
 							<td></td>
+							<td></td>
 						</tr>
 					{/each}
 					{#if shown.length === 0 && placeholders.length === 0}
 						<tr>
-							<td colspan="3">
+							<td colspan="4">
 								<div
 									class="text-base-content/60 flex flex-col items-center gap-2 py-10 text-center"
 								>
@@ -308,3 +338,25 @@
 		{/if}
 	{/if}
 </div>
+
+<Modal bind:open={configOpen} title={configTitle} class="max-w-3xl" onsubmit={saveConfig}>
+	<textarea
+		class="textarea textarea-bordered bg-base-200 h-[65vh] w-full resize-y font-mono text-sm leading-relaxed"
+		bind:value={selectedConfig}
+		spellcheck="false"
+		aria-label={configTitle}></textarea>
+	{#snippet actions()}
+		<button
+			class="btn btn-primary btn-sm"
+			type="submit"
+			disabled={savingConfig || selectedConfig === originalConfig}
+		>
+			{#if savingConfig}
+				<span class="loading loading-spinner loading-xs"></span>
+			{:else}
+				<Save size={14} />
+			{/if}
+			Save
+		</button>
+	{/snippet}
+</Modal>

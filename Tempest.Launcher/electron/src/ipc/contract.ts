@@ -279,6 +279,10 @@ export interface IpcContract {
 	"mods:discard-staged-pack": { args: { stagedPath: string }; result: void };
 	"mods:open-location": { args: { gamePath: string; mod: ModLocation }; result: void };
 	"mods:has-dlls": { args: { gamePath: string; modId: string }; result: boolean };
+	/** The per-mod TOML config, or null when the mod has no config file. */
+	"mods:read-config": { args: { gamePath: string; modId: string }; result: string | null };
+	/** Replaces an installed mod's existing TOML config. */
+	"mods:write-config": { args: { gamePath: string; modId: string; text: string }; result: void };
 	/** An installed V2 mod's own icon (manifest `icon`, else icon.png) as a data URL; null without one. */
 	"mods:installed-icon": { args: { gamePath: string; modId: string }; result: string | null };
 	"mods:read-file": {

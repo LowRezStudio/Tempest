@@ -3,9 +3,7 @@
 		ArrowRight,
 		BadgeCheck,
 		Box,
-		ExternalLink,
-		FolderOpen,
-		Info,
+		FileText,
 		Layers,
 		PackageX,
 		Power,
@@ -15,7 +13,6 @@
 	} from "@lucide/svelte";
 	import { trustOf } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
-	import { openUrl } from "$lib/platform/api";
 	import type { ModRecord } from "$lib/core/mods";
 	import type { PendingInstall } from "$lib/mods/pendingInstalls.svelte";
 	import type { RepoMod, RepoUpdate } from "$lib/queries/repo";
@@ -23,6 +20,7 @@
 
 	interface Props {
 		mod: ModRecord;
+		config?: string;
 		repo?: RepoMod;
 		/** Undefined while the repository is still being asked, null when there is none. */
 		icon: string | null | undefined;
@@ -35,18 +33,19 @@
 		versionCount: number;
 		isRunning: boolean;
 		fresh: boolean;
-		onToggle: (mod: ModRecord, input: HTMLInputElement) => void;
+		onToggle: (mod: ModRecord) => void;
 		/** Its repository page, or its asset files when it has none */
 		onOpen: (mod: ModRecord) => void;
 		/** The repository page's version history, for switching versions */
 		onOpenVersions: (mod: ModRecord) => void;
-		onShowInExplorer: (mod: ModRecord) => void;
+		onViewConfig: (mod: ModRecord, config: string) => void;
 		onRemove: (mod: ModRecord) => void;
 		onFetchMissing: (mod: ModRecord) => void;
 	}
 
 	let {
 		mod,
+		config,
 		repo,
 		icon,
 		update,
@@ -59,7 +58,7 @@
 		onToggle,
 		onOpen,
 		onOpenVersions,
-		onShowInExplorer,
+		onViewConfig,
 		onRemove,
 		onFetchMissing,
 	}: Props = $props();
@@ -204,35 +203,29 @@
 			{/if}
 		</div>
 	</td>
+	<td class="text-center">
+		<input
+			type="checkbox"
+			class="toggle toggle-primary"
+			checked={mod.Enabled}
+			disabled={!!busy}
+			onchange={() => onToggle(mod)}
+			title={toggleLabel}
+			aria-label={toggleLabel}
+		/>
+	</td>
 	<td>
 		<div class="flex items-center justify-end gap-1">
-			{#if repo}
+			{#if config !== undefined}
 				<button
-					class="btn btn-sm btn-square btn-ghost text-base-content/60"
-					onclick={() => onOpen(mod)}
-					title={m.repo_details()}
-					aria-label="{m.repo_details()} {mod.Name}"
+					class="btn btn-sm btn-square btn-ghost"
+					onclick={() => onViewConfig(mod, config)}
+					title="View mod config"
+					aria-label="View config for {mod.Name}"
 				>
-					<Info size={16} />
-				</button>
-				<button
-					class="btn btn-sm btn-square btn-ghost text-base-content/60"
-					onclick={() => openUrl(repo.url)}
-					title={m.repo_open_in_browser()}
-					aria-label={m.repo_open_in_browser()}
-				>
-					<ExternalLink size={14} />
+					<FileText size={14} />
 				</button>
 			{/if}
-			<input
-				type="checkbox"
-				class="toggle toggle-sm toggle-primary mx-1"
-				checked={mod.Enabled}
-				disabled={!!busy}
-				onchange={(e) => onToggle(mod, e.currentTarget)}
-				title={toggleLabel}
-				aria-label={toggleLabel}
-			/>
 			<button
 				class="btn btn-sm btn-square btn-ghost hover:text-error"
 				disabled={!!busy}
@@ -241,14 +234,6 @@
 				aria-label="{m.common_remove()} {mod.Name}"
 			>
 				<Trash2 size={14} />
-			</button>
-			<button
-				class="btn btn-sm btn-square btn-ghost"
-				onclick={() => onShowInExplorer(mod)}
-				title={m.mod_show_in_explorer()}
-				aria-label={m.mod_show_in_explorer()}
-			>
-				<FolderOpen size={14} />
 			</button>
 		</div>
 	</td>

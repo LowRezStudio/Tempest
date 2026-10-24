@@ -63,6 +63,31 @@ export const createInstalledIconsQuery = (instancePath: () => string, modIds: ()
 		};
 	});
 
+/** Reads existing per-mod config files for installed V2 mods. */
+export const createModConfigsQuery = (instancePath: () => string, modIds: () => string[]) =>
+	createQuery(() => {
+		const pathValue = instancePath();
+		const ids = [...modIds()].sort();
+		return {
+			queryKey: ["mods", pathValue, "configs", ids],
+			queryFn: async () => {
+				const configs = await Promise.all(
+					ids.map((modId) =>
+						invoke("mods:read-config", { gamePath: pathValue, modId }).catch(
+							() => null,
+						),
+					),
+				);
+				return new Map(
+					ids.flatMap((id, i) =>
+						configs[i] !== null ? [[id, configs[i]!] as const] : [],
+					),
+				);
+			},
+			enabled: !!pathValue && ids.length > 0,
+		};
+	});
+
 export const createInstallModMutation = () => {
 	const queryClient = useQueryClient();
 	return createMutation(() => ({
