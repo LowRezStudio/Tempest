@@ -53,7 +53,7 @@
 		if (complete) {
 			return item.finishedAt ? relativeDate(new Date(item.finishedAt).toISOString()) : "";
 		}
-		if (!running) return item.status === "paused" ? m.downloads_resumes() : "";
+		if (!running) return "";
 		if (progress && progress.etaSeconds > 0) {
 			return m.downloads_eta({ time: formatDuration(progress.etaSeconds) });
 		}

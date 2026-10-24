@@ -184,7 +184,6 @@
 								bind:value={username.value}
 								placeholder={m.settings_username_placeholder()}
 							/>
-							<p class="text-base-content/60 text-xs">{m.settings_username_hint()}</p>
 						</div>
 						<label class="flex flex-col gap-1">
 							<span class="text-base-content/60 text-xs">{m.common_language()}</span>
@@ -222,9 +221,6 @@
 									{m.common_browse()}
 								</button>
 							</div>
-							<p class="text-base-content/60 text-xs">
-								{m.settings_default_instance_path_hint()}
-							</p>
 						</div>
 					</div>
 					<div class="mt-3">
@@ -347,9 +343,6 @@
 									{m.common_reset()}
 								</button>
 							</div>
-							<p class="text-base-content/60 text-xs">
-								{m.settings_mod_repository_description()}
-							</p>
 						</div>
 					</div>
 				</Panel>

@@ -204,9 +204,6 @@
 						class="bg-base-200 border-base-300 rounded-box flex flex-col gap-2 border p-4 @max-3xl:hidden"
 					>
 						<h2 class="text-sm font-semibold">{m.library_new_instance()}</h2>
-						<p class="text-base-content/60 mb-1 text-xs">
-							{m.library_about_instances()}
-						</p>
 						<NewInstanceOption tab="download" />
 						<NewInstanceOption tab="folder" />
 					</div>

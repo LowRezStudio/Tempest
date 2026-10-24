@@ -357,7 +357,6 @@
 								{m.common_browse()}
 							</button>
 						</div>
-						<p class="text-base-content/60 text-xs">{m.instance_folder_hint()}</p>
 					</div>
 				</div>
 			</Panel>
@@ -389,14 +388,9 @@
 								<PaladinsIcon size={28} color={contrast} />
 							{/if}
 						</span>
-						<span class="min-w-0">
-							<span class="block truncate text-sm font-semibold"
-								>{editName.trim() || instance.label}</span
-							>
-							<span class="text-base-content/60 block text-xs"
-								>{m.instance_color_hint()}</span
-							>
-						</span>
+						<span class="min-w-0 truncate text-sm font-semibold"
+							>{editName.trim() || instance.label}</span
+						>
 					</div>
 					<div class="flex flex-wrap items-center gap-2">
 						<div

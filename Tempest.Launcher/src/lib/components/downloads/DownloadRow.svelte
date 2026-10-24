@@ -117,8 +117,6 @@
 		{#if item.status === "pending"}
 			{@render info(m.common_waiting_in_queue())}
 			<span></span>
-		{:else if item.status === "paused"}
-			{@render info(m.downloads_resumes(), null, "col-span-2 text-base-content/60")}
 		{:else if item.status === "error"}
 			{@render info(item.error ?? "", null, "col-span-2 text-error")}
 		{:else if item.status === "complete" && item.result}

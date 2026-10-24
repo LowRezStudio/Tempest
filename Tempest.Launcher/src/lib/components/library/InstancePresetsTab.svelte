@@ -44,15 +44,12 @@
 </script>
 
 <div class="flex flex-col gap-3">
-	<div class="flex items-start justify-between gap-3">
-		<p class="text-base-content/60 text-sm">{m.instance_presets_hint()}</p>
-		{#if presets.length > 0}
-			<button class="btn btn-primary btn-sm shrink-0" onclick={add}>
-				<Plus size={14} />
-				{m.instance_preset_add()}
-			</button>
-		{/if}
-	</div>
+	{#if presets.length > 0}
+		<button class="btn btn-primary btn-sm self-end" onclick={add}>
+			<Plus size={14} />
+			{m.instance_preset_add()}
+		</button>
+	{/if}
 
 	{#each presets as preset (preset.id)}
 		<div
