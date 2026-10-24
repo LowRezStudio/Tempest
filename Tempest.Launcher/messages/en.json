@@ -945,7 +945,7 @@
 	"converter_toast_published_message": "{id} v{version} is on its way to the repository",
 	"converter_duplicates_skipped": "Duplicate target paths were skipped",
 	"converter_tab_single": "Single Mod",
-	"converter_tab_batch": "Batch Convert",
+	"converter_tab_batch": "Batch Signing",
 	"converter_version_placeholder": "1.0.0",
 	"converter_version_invalid_title": "\"{version}\" isn't a valid version",
 	"converter_version_invalid": "Use a semantic version: MAJOR.MINOR.PATCH, like 1.0.0 or 1.2.0-beta.1",
