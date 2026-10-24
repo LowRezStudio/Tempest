@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
-	import { PackageOpen, Search } from "@lucide/svelte";
+	import { PackageOpen, Plus, Search } from "@lucide/svelte";
 	import InstanceHeader from "$lib/components/library/InstanceHeader.svelte";
 	import InstancePresetsTab from "$lib/components/library/InstancePresetsTab.svelte";
 	import InstanceSettings from "$lib/components/library/InstanceSettings.svelte";
@@ -194,6 +194,15 @@
 									</div>
 								{/snippet}
 							</EmptyState>
+						{:else if isReady}
+							<!-- The window handles drops itself; this is the hint and the file picker. -->
+							<button
+								class="border-base-content/10 hover:border-primary/40 text-base-content/40 hover:text-base-content/70 rounded-box mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 border border-dashed px-4 py-2.5 text-xs transition-colors"
+								onclick={handleInstallMod}
+							>
+								<Plus size={14} />
+								{m.instance_add_mod_tile()}
+							</button>
 						{/if}
 					{/if}
 				</div>
