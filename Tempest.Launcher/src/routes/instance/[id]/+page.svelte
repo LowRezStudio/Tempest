@@ -1,18 +1,18 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
-	import { PackageOpen, Plus, Search } from "@lucide/svelte";
+	import { Download } from "@lucide/svelte";
+	import { fade } from "svelte/transition";
 	import InstanceHeader from "$lib/components/library/InstanceHeader.svelte";
 	import InstancePresetsTab from "$lib/components/library/InstancePresetsTab.svelte";
 	import InstanceSettings from "$lib/components/library/InstanceSettings.svelte";
-	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
+	import InstanceModActions from "$lib/components/mods/InstanceModActions.svelte";
+	import InstanceModList from "$lib/components/mods/InstanceModList.svelte";
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
 	import RepoBrowser from "$lib/components/mods/RepoBrowser.svelte";
 	import RepoModModal from "$lib/components/mods/RepoModModal.svelte";
 	import RepoUpdatesModal from "$lib/components/mods/RepoUpdatesModal.svelte";
-	import EmptyState from "$lib/components/ui/EmptyState.svelte";
 	import { isDraggingFiles } from "$lib/mods/drop.svelte";
-	import { pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
@@ -45,6 +45,7 @@
 	let isInitialLoading = $derived(modsQuery.isPending);
 	// Only a manual refresh spins the button; background resyncs after edits stay silent.
 	let isRefreshingMods = $state(false);
+	let modSearch = $state("");
 
 	const removeModMutation = createRemoveModMutation();
 
@@ -61,8 +62,10 @@
 	// Mod details from the repository (readme, versions, downgrade), opened from the table or the Browse tab.
 	let repoModId = $state<string | null>(null);
 	let repoModOpen = $state(false);
-	function openRepoMod(modId: string) {
+	let repoModTab = $state<"readme" | "versions" | "files">("readme");
+	function openRepoMod(modId: string, tab: "readme" | "versions" = "readme") {
 		repoModId = modId;
+		repoModTab = tab;
 		repoModOpen = true;
 	}
 
@@ -115,6 +118,7 @@
 	});
 
 	let isRunning = $derived(processesList.value.some((p) => p.instance?.id === instance?.id));
+	const takesDrops = $derived(activeTab === "content" && isReady);
 
 	let isFilesDialogOpen = $state(false);
 	let selectedModForFiles = $state<ModRecord | null>(null);
@@ -124,7 +128,34 @@
 	}
 </script>
 
-<div class="flex h-full flex-col">
+{#snippet modActions()}
+	<InstanceModActions
+		bind:query={modSearch}
+		{isReady}
+		isLoading={isRefreshingMods}
+		onRefresh={handleRefreshMods}
+		onAddMod={handleInstallMod}
+	/>
+{/snippet}
+
+<!-- On the Mods tab the whole page takes dropped mod files -->
+<div class="relative flex h-full flex-col" data-mod-drop={takesDrops ? "" : undefined}>
+	{#if takesDrops && isDraggingFiles.value}
+		<div
+			class="rounded-box border-primary/60 bg-base-100/85 pointer-events-none absolute inset-3 z-40 flex flex-col items-center justify-center gap-2 border-2 border-dashed backdrop-blur-sm"
+			transition:fade={{ duration: 120 }}
+		>
+			<div
+				class="bg-primary/10 text-primary mb-1 flex size-14 items-center justify-center rounded-2xl"
+			>
+				<Download size={26} />
+			</div>
+			<p class="text-lg font-semibold">{m.mods_drop_title()}</p>
+			<p class="text-base-content/60 text-sm">
+				{m.mods_drop_hint({ name: instance?.label ?? "" })}
+			</p>
+		</div>
+	{/if}
 	{#if instance}
 		<InstanceHeader
 			{instance}
@@ -140,6 +171,7 @@
 			{updateCount}
 			onShowUpdates={() => (updatesOpen = true)}
 			onManagePresets={() => (activeTab = "presets")}
+			actions={activeTab === "content" && modsList.length > 0 ? modActions : undefined}
 		/>
 	{/if}
 
@@ -147,8 +179,7 @@
 	<div class="flex flex-1 flex-col overflow-hidden">
 		{#if activeTab === "content"}
 			<div class="flex-1 [scrollbar-gutter:stable] overflow-y-auto">
-				<!-- Less on top than the other tabs: the table's header row brings its own padding -->
-				<div class="px-4 pt-2 pb-6">
+				<div class="px-4 pt-3 pb-6">
 					{#if isInitialLoading}
 						<div
 							class="flex h-80 flex-col items-center justify-center gap-4 text-center"
@@ -158,70 +189,21 @@
 								{m.common_loading()}
 							</p>
 						</div>
-					{:else}
-						<InstanceModTable
+					{:else if instance}
+						<InstanceModList
 							mods={modsList}
-							gamePath={instance?.path ?? ""}
+							gamePath={instance.path}
+							patch={instance.version}
+							bind:query={modSearch}
+							{isReady}
 							{isRunning}
-							isLoading={isRefreshingMods}
-							onRefresh={handleRefreshMods}
-							onRemoveMod={handleRemoveMod}
-							onOpenDetails={handleOpenFiles}
 							{updates}
-							patch={instance?.version}
-							onOpenRepo={(mod) => openRepoMod(mod.Id)}
+							onRemoveMod={handleRemoveMod}
+							onOpenFiles={handleOpenFiles}
+							onOpenRepo={openRepoMod}
+							onAddMod={handleInstallMod}
+							onDiscover={() => (activeTab = "browse")}
 						/>
-						{#if modsList.length === 0 && !pendingInstalls.value.some((p) => p.gamePath === instance?.path)}
-							<div
-								data-mod-drop={isReady ? "" : undefined}
-								class={[
-									"rounded-box border-2 border-dashed transition-colors",
-									isReady && isDraggingFiles.value
-										? "border-primary bg-primary/5"
-										: "border-transparent",
-								]}
-							>
-								<EmptyState
-									title={m.instance_no_content()}
-									description={m.instance_drag_import_hint()}
-								>
-									{#snippet icon()}
-										<PackageOpen size={48} />
-									{/snippet}
-									{#snippet actions()}
-										<div class="mt-2 flex gap-2">
-											<button
-												class="btn btn-primary btn-sm"
-												disabled={!isReady}
-												onclick={() => (activeTab = "browse")}
-											>
-												<Search size={14} />
-												{m.instance_find_mods()}
-											</button>
-											<button class="btn btn-sm" onclick={handleInstallMod}>
-												<PackageOpen size={14} />
-												{m.instancemenu_install_mod()}
-											</button>
-										</div>
-									{/snippet}
-								</EmptyState>
-							</div>
-						{:else if isReady}
-							<!-- The one place mod files are dropped, and the file picker -->
-							<button
-								data-mod-drop
-								class={[
-									"rounded-box mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 border border-dashed px-4 py-2.5 text-xs transition-colors",
-									isDraggingFiles.value
-										? "border-primary bg-primary/5 text-primary"
-										: "border-base-content/10 hover:border-primary/40 text-base-content/40 hover:text-base-content/70",
-								]}
-								onclick={handleInstallMod}
-							>
-								<Plus size={14} />
-								{m.instance_add_mod_tile()}
-							</button>
-						{/if}
 					{/if}
 				</div>
 			</div>
@@ -266,6 +248,7 @@
 {#if instance}
 	<RepoModModal
 		bind:open={repoModOpen}
+		bind:tab={repoModTab}
 		modId={repoModId}
 		gamePath={instance.path}
 		patch={instance.version}

@@ -29,6 +29,7 @@
 	import InstanceSessionControls from "./InstanceSessionControls.svelte";
 	import PatchBanner from "./PatchBanner.svelte";
 	import type { Instance } from "$lib/types/instance";
+	import type { Snippet } from "svelte";
 
 	interface Props<Tab> {
 		instance: Instance;
@@ -38,6 +39,8 @@
 		updateCount?: number;
 		onShowUpdates?: () => void;
 		onManagePresets?: () => void;
+		/** The open tab's own controls, on the tabs' row */
+		actions?: Snippet;
 	}
 
 	let {
@@ -47,6 +50,7 @@
 		updateCount = 0,
 		onShowUpdates,
 		onManagePresets,
+		actions,
 	}: Props<T> = $props();
 
 	const phase = $derived(instance.state.type);
@@ -250,16 +254,26 @@
 		</div>
 	</section>
 
-	<Tabs.Root value={activeTab} onValueChange={(value) => (activeTab = value as T)}>
-		<Tabs.List class="tabs tabs-border mt-1">
-			{#each tabs as tab (tab.value)}
-				<Tabs.Trigger value={tab.value} class="tab data-[state=active]:tab-active gap-1.5">
-					{tab.name}
-					{#if tab.count !== undefined}
-						<span class="text-base-content/50 text-xs tabular-nums">{tab.count}</span>
-					{/if}
-				</Tabs.Trigger>
-			{/each}
-		</Tabs.List>
-	</Tabs.Root>
+	<div class="mt-1 flex items-center gap-2">
+		<Tabs.Root value={activeTab} onValueChange={(value) => (activeTab = value as T)}>
+			<Tabs.List class="tabs tabs-border">
+				{#each tabs as tab (tab.value)}
+					<Tabs.Trigger
+						value={tab.value}
+						class="tab data-[state=active]:tab-active gap-1.5"
+					>
+						{tab.name}
+						{#if tab.count !== undefined}
+							<span class="text-base-content/50 text-xs tabular-nums"
+								>{tab.count}</span
+							>
+						{/if}
+					</Tabs.Trigger>
+				{/each}
+			</Tabs.List>
+		</Tabs.Root>
+		{#if actions}
+			<div class="ml-auto flex min-w-0 items-center gap-2">{@render actions()}</div>
+		{/if}
+	</div>
 </header>

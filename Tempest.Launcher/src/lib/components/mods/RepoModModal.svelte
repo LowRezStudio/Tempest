@@ -31,6 +31,8 @@
 		installedVersion?: string;
 		isRunning: boolean;
 		installedMod?: ModRecord;
+		/** Set by whoever opens it, e.g. straight to the versions from a mod's version */
+		tab?: "readme" | "versions" | "files";
 	}
 
 	let {
@@ -41,6 +43,7 @@
 		installedVersion,
 		isRunning,
 		installedMod,
+		tab = $bindable("readme"),
 	}: Props = $props();
 
 	const modQuery = createQuery(() => ({
@@ -57,7 +60,6 @@
 	}));
 
 	let installing = $state<string | null>(null);
-	let tab = $state<"readme" | "versions" | "files">("readme");
 	let bugOpen = $state(false);
 
 	const readmeHtml = $derived(
@@ -84,7 +86,6 @@
 	$effect(() => {
 		void modId;
 		shotIndex = 0;
-		tab = "readme";
 	});
 
 	function action(v: RepoVersion): "installed" | "update" | "downgrade" | "install" {
@@ -287,37 +288,73 @@
 				{/if}
 				<article class="prose prose-sm max-w-none">{@html readmeHtml}</article>
 			{:else}
-				<ul class="flex flex-col gap-2">
-					{#each versions as v (v.id)}
+				<ul
+					class="border-base-300 rounded-box divide-base-300 divide-y overflow-hidden border"
+				>
+					{#each versions as v, i (v.id)}
 						{@const ok = isCompatible(v.compat, patch)}
 						{@const what = action(v)}
-						<li class="bg-base-200 rounded-lg p-3" class:opacity-60={!ok}>
-							<div class="flex flex-wrap items-center gap-2">
-								<span class="font-mono font-semibold">v{v.version}</span>
-								{#if what === "installed"}<span class="badge badge-success badge-xs"
-										>{m.repo_installed()}</span
-									>{/if}
-								{#if !ok}<span class="badge badge-warning badge-xs"
-										>{m.repo_incompatible({ patch: patch ?? "" })}</span
-									>{/if}
-								<span class="text-base-content/60 text-xs"
-									>{fmtSize(v.size)} · {v.publishedAt
-										? new Date(v.publishedAt).toLocaleDateString()
-										: ""} · {describeCompat(v.compat)}</span
-								>
-								{#if what !== "installed"}
+						{@const compat = describeCompat(v.compat)}
+						<li
+							class="flex items-start gap-4 px-4 py-3"
+							class:bg-base-200={what === "installed"}
+						>
+							<div class="min-w-0 flex-1">
+								<div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+									<span class="font-mono font-semibold" class:opacity-50={!ok}
+										>v{v.version}</span
+									>
+									{#if i === 0}
+										<span
+											class="border-base-content/15 text-base-content/60 rounded border px-1 text-[10px] font-semibold tracking-wide uppercase"
+										>
+											{m.repo_latest()}
+										</span>
+									{/if}
+									<span class="text-base-content/50 text-xs">
+										{#if v.publishedAt}{new Date(
+												v.publishedAt,
+											).toLocaleDateString()} ·{/if}
+										{compat === "all"
+											? m.repo_any_patch()
+											: m.repo_patch({ patch: compat || "–" })} · {fmtSize(
+											v.size,
+										)}
+									</span>
+								</div>
+								{#if v.changelog}
+									<p
+										class="text-base-content/70 mt-1 text-sm whitespace-pre-line"
+									>
+										{v.changelog}
+									</p>
+								{/if}
+							</div>
+							<div class="flex shrink-0 items-center pt-0.5">
+								{#if what === "installed"}
+									<span
+										class="text-base-content/70 flex items-center gap-1 text-xs"
+									>
+										<Check size={14} />
+										{m.repo_installed()}
+									</span>
+								{:else if !ok}
+									<span class="text-base-content/50 text-xs">
+										{m.repo_incompatible({ patch: patch ?? "" })}
+									</span>
+								{:else}
 									<button
-										class="btn btn-xs ml-auto {what === 'update'
-											? 'btn-primary'
-											: what === 'downgrade'
-												? 'btn-outline'
-												: 'btn-primary'}"
-										disabled={isRunning || installing !== null || !ok}
+										class="btn btn-sm {what === 'downgrade'
+											? ''
+											: 'btn-primary'}"
+										disabled={isRunning || installing !== null}
 										onclick={() => install(v)}
 									>
-										{#if installing === v.version}<span
-												class="loading loading-spinner loading-xs"
-											></span>{:else}<Download size={12} />{/if}
+										{#if installing === v.version}
+											<span class="loading loading-spinner loading-xs"></span>
+										{:else}
+											<Download size={14} />
+										{/if}
 										{what === "update"
 											? m.repo_update()
 											: what === "downgrade"
@@ -326,14 +363,9 @@
 									</button>
 								{/if}
 							</div>
-							{#if v.changelog}<p
-									class="text-base-content/80 mt-1 text-sm whitespace-pre-line"
-								>
-									{v.changelog}
-								</p>{/if}
 						</li>
 					{:else}
-						<li class="text-base-content/60 text-sm">
+						<li class="text-base-content/60 px-4 py-3 text-sm">
 							{m.repo_no_published_version()}
 						</li>
 					{/each}
