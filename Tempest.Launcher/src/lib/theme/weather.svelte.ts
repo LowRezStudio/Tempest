@@ -14,11 +14,11 @@ export function isAutumn(date: Date): boolean {
 	return (month === 9 && date.getDate() >= 22) || month === 10 || month === 11;
 }
 
-type Season = { kind: Weather; auto: boolean; spooky: boolean; ghosts: boolean; festive: boolean };
+type Season = { kind: Weather; auto: boolean; spooky: boolean; festive: boolean };
 
 /**
  * The date's weather: snow in winter, leaves in autumn, petals in spring, fireflies in summer.
- * October is spooky on top (webs and a pumpkin, and ghosts in the week up to Halloween), and
+ * October is spooky on top (webs and a pumpkin), and
  * December up to Boxing Day festive (a Christmas tree and gifts). Only those stretches show it
  * without asking; the rest of the year it waits for the Konami code.
  * @param date - The day to check.
@@ -31,7 +31,6 @@ export function weatherOf(date: Date): Season {
 		kind,
 		auto,
 		spooky: month === 10,
-		ghosts: month === 10 && day >= 24,
 		festive: month === 12 && day <= 26,
 	});
 	if (month === 12 || (month === 1 && day <= 6)) return season("snow", true);
