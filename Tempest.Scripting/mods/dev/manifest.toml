@@ -4,6 +4,7 @@ name = "Tempest Dev"
 version = "0.1.0"
 authors = ["Tempest"]
 readme = "Scratch mod: whatever is being worked on right now. Built from Tempest.Scripting/dev/."
+dependencies = ["tempest-scripting>=1.0.0", "tempest-scripting-lib>=0.1.0"]
 
 [scripting]
 after = ["tempest-scripting-lib"]

@@ -2,8 +2,9 @@ namespace Tempest.CLI.Mods;
 
 public class ModV1Installer : IModInstaller
 {
-    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted)
+    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted, ModLock modLock)
     {
+        await modLock.EnterAsync();
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
         var fileName = Path.GetFileName(modFilePath);
 
@@ -185,7 +186,8 @@ public class ModV1Installer : IModInstaller
             OriginalPath = modFilePath,
             InstalledFiles = [destPath],
             OwnedFiles = [destPath],
-            MetadataVersion = 2
+            MetadataVersion = 2,
+            InstalledAt = DateTime.UtcNow
         };
 
         // Register in INI if non-asset mod

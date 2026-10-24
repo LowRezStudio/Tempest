@@ -1,6 +1,6 @@
 import type { Instance } from "$lib/types/instance";
 
-export function getInstanceColor(instance: Instance | undefined): string {
+export function getInstanceColor(instance: Pick<Instance, "color" | "label"> | undefined): string {
 	if (!instance) return "#808080";
 	if (instance.color) return instance.color;
 	let hash = 0;

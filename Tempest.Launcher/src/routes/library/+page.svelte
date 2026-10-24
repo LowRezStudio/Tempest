@@ -1,169 +1,250 @@
 <script lang="ts">
-	import { ArrowUpNarrowWide, Boxes, Library, Plus, Search } from "@lucide/svelte";
-	import InstanceCard from "$lib/components/library/InstanceCard.svelte";
-	import EmptyState from "$lib/components/ui/EmptyState.svelte";
+	import { Library, Plus, Search, SearchX, X } from "@lucide/svelte";
+	import InstanceRow from "$lib/components/library/InstanceRow.svelte";
+	import LibraryArrangeMenu from "$lib/components/library/LibraryArrangeMenu.svelte";
+	import NewInstanceOption from "$lib/components/library/NewInstanceOption.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import {
-		orderedInstances,
-		sortInstancesByVersion,
-		setInstanceOrder,
-	} from "$lib/stores/instance.svelte";
-	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
+	import { createModsQueries } from "$lib/queries/mods";
+	import { orderedInstances, setInstanceOrder } from "$lib/stores/instance.svelte";
+	import { processesList } from "$lib/stores/processes.svelte";
+	import { openInstanceWizard } from "$lib/stores/ui.svelte";
 	import { createReorderable } from "$lib/utils/reorder.svelte";
+	import { compareVersions } from "$lib/utils/version";
+	import { patchOf } from "$lib/utils/versions";
 	import type { Instance } from "$lib/types/instance";
 
-	let searchQuery = $state("");
+	let query = $state("");
+	let searchInput = $state<HTMLInputElement | null>(null);
 
-	const sortedInstances = $derived(
-		orderedInstances.value.filter(
-			(instance) =>
-				instance.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				instance.version?.toLowerCase().includes(searchQuery.toLowerCase()),
-		),
-	);
-
-	let gridEl: HTMLDivElement | undefined = $state();
-	const reorder = createReorderable<Instance>({
-		ids: () => sortedInstances.map((i) => i.id),
-		container: () => gridEl,
-		onReorder: setInstanceOrder,
-		grid: true,
+	const instances = $derived(orderedInstances.value);
+	const shown = $derived.by(() => {
+		const q = query.trim().toLowerCase();
+		if (!q) return instances;
+		return instances.filter((instance) =>
+			[instance.label, instance.version, patchOf(instance.version)?.name].some((text) =>
+				text?.toLowerCase().includes(q),
+			),
+		);
 	});
 
-	const canDrag = $derived(searchQuery.trim() === "");
+	const modLists = createModsQueries(() =>
+		instances.filter((i) => i.state.type === "prepared").map((i) => i.path),
+	);
+
+	const runningCount = $derived(
+		instances.filter((i) => processesList.value.some((p) => p.instance.id === i.id)).length,
+	);
+	const downloadingCount = $derived(
+		instances.filter((i) => i.state.type === "downloading" || i.state.type === "paused").length,
+	);
+	const modCount = $derived(
+		Object.values(modLists.byPath).reduce((n, mods) => n + (mods?.length ?? 0), 0),
+	);
+	const patchSpan = $derived.by(() => {
+		const known = instances
+			.map((i) => i.version)
+			.filter((v): v is string => !!v)
+			.sort(compareVersions);
+		if (known.length === 0) return "–";
+		const [oldest, newest] = [known[0]!, known.at(-1)!];
+		return oldest === newest ? oldest : `${oldest} – ${newest}`;
+	});
+
+	// Drag to reorder writes the same custom order the arrange menu sets.
+	let listEl: HTMLDivElement | undefined = $state();
+	const reorder = createReorderable<Instance>({
+		ids: () => shown.map((i) => i.id),
+		container: () => listEl,
+		onReorder: setInstanceOrder,
+	});
+	// Reordering a filtered list would drop the hidden instances out of place.
+	const canDrag = $derived(query.trim() === "");
+
+	function onWindowKey(e: KeyboardEvent) {
+		if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+			e.preventDefault();
+			searchInput?.focus();
+			searchInput?.select();
+		}
+	}
+
+	function onSearchKey(e: KeyboardEvent) {
+		if (e.key === "Escape" && query) {
+			e.preventDefault();
+			query = "";
+		}
+	}
 </script>
 
-<div class="bg-base-100 flex h-full flex-col">
+<svelte:window onkeydown={onWindowKey} />
+
+<div class="flex h-full flex-col">
 	<Header title={m.library_title()}>
 		{#snippet icon()}
 			<Library size={32} class="opacity-60" />
 		{/snippet}
-		{#snippet actions()}
-			<label class="input input-bordered">
-				<Search size={16} class="opacity-50" />
-				<input
-					type="text"
-					placeholder={m.library_search_placeholder()}
-					class="grow"
-					bind:value={searchQuery}
-				/>
-			</label>
-		{/snippet}
 		{#snippet subtitle()}
-			<span
-				>{orderedInstances.value.length}
-				{m.library_instances({ count: orderedInstances.value.length })}</span
-			>
-			<button
-				class="btn btn-ghost btn-square btn-xs"
-				title={m.library_sort_version()}
-				aria-label={m.library_sort_version()}
-				onclick={sortInstancesByVersion}
-			>
-				<ArrowUpNarrowWide size={14} />
-			</button>
+			<span>
+				{instances.length}
+				{m.library_instances({ count: instances.length })}
+				{#if runningCount > 0}
+					· <span class="text-success">{m.library_running({ count: runningCount })}</span>
+				{/if}
+				{#if downloadingCount > 0}
+					{#if runningCount > 0}
+						·
+					{/if}{m.library_downloading({ count: downloadingCount })}
+				{/if}
+			</span>
 		{/snippet}
 	</Header>
 
-	<!-- Content Area -->
-	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
-		<div class="flex-1 overflow-y-auto">
-			<div class="px-4 py-6">
-				{#if sortedInstances.length === 0}
-					{#if searchQuery}
-						<EmptyState
-							title={m.library_no_results({ query: searchQuery })}
-							description={m.library_try_different()}
-						>
-							{#snippet icon()}
-								<Search size={48} />
-							{/snippet}
-						</EmptyState>
-					{:else}
-						<div class="flex flex-col gap-6">
-							<div
-								class="grid w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
+	<div class="@container min-h-0 flex-1 scrollbar-gutter-stable overflow-y-auto">
+		{#if instances.length === 0}
+			<!-- Like the mod website's first-run dashboard: the two ways in, nothing else. -->
+			<div class="px-4 py-12">
+				<div
+					data-panel
+					class="bg-base-200 border-base-300 rounded-box mx-auto flex max-w-xl flex-col gap-4 border p-8"
+				>
+					<div>
+						<h2 class="mb-1 text-lg font-semibold">{m.library_empty_title()}</h2>
+						<p class="text-base-content/60 text-sm">{m.library_about_instances()}</p>
+					</div>
+					<div class="grid gap-2 @lg:grid-cols-2">
+						<NewInstanceOption tab="download" />
+						<NewInstanceOption tab="folder" />
+					</div>
+				</div>
+			</div>
+		{:else}
+			<div
+				class="mx-auto grid w-full max-w-6xl items-start gap-x-6 gap-y-4 px-4 py-6 @3xl:grid-cols-[minmax(0,1fr)_18rem]"
+			>
+				<form
+					class="flex items-center gap-2 @3xl:col-span-2"
+					role="search"
+					onsubmit={(e) => e.preventDefault()}
+				>
+					<label class="input input-sm min-w-0 flex-1">
+						<Search size={14} class="opacity-50" />
+						<input
+							type="search"
+							class="grow"
+							placeholder={m.library_search_placeholder()}
+							aria-label={m.common_search()}
+							bind:this={searchInput}
+							bind:value={query}
+							onkeydown={onSearchKey}
+						/>
+					</label>
+					<LibraryArrangeMenu />
+					<button
+						type="button"
+						class="btn btn-primary btn-sm @3xl:hidden"
+						onclick={() => openInstanceWizard()}
+					>
+						<Plus size={14} />
+						{m.library_new_instance()}
+					</button>
+				</form>
+				<section class="min-w-0">
+					{#if query.trim()}
+						<div class="mb-2 flex min-h-6 flex-wrap items-center gap-2 text-sm">
+							<button
+								class="badge badge-primary badge-sm cursor-pointer gap-1"
+								onclick={() => (query = "")}
 							>
-								<button
-									type="button"
-									onclick={() => (instanceWizardOpen.value = true)}
-									class="group bg-base-200/50 hover:bg-base-200 border-base-300/25 hover:border-base-300/40 text-base-content/60 hover:text-base-content flex h-[84px] cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 p-4 opacity-80 transition-all duration-200 hover:opacity-100"
-									aria-label={m.library_new_instance()}
-								>
-									<Plus
-										size={22}
-										class="opacity-70 transition-opacity group-hover:opacity-100"
-									/>
-									<span class="text-sm leading-none font-medium"
-										>{m.library_new_instance()}</span
-									>
-								</button>
-							</div>
-							<div
-								class="flex flex-col items-center justify-center gap-4 pt-24 opacity-40"
-							>
-								<div class="opacity-30">
-									<Boxes size={64} />
-								</div>
-								<p class="text-base-content/60 text-sm font-medium">
-									{m.library_no_instances()}
-								</p>
-							</div>
+								“{query.trim()}”
+								<X size={10} />
+							</button>
 						</div>
 					{/if}
-				{:else}
-					<div
-						bind:this={gridEl}
-						class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
-						class:dragging={!!reorder.drag}
-					>
-						{#each sortedInstances as instance, i (instance.id)}
-							<div
-								data-id={instance.id}
-								class="instance-slot"
-								style:transform={reorder.shiftFor(i)}
-								class:is-ghost={reorder.drag?.id === instance.id}
-							>
-								<InstanceCard
-									{instance}
-									onpointerdown={canDrag
-										? reorder.pointerdown(instance.id, i, instance)
-										: undefined}
-								/>
-							</div>
-						{/each}
-						<button
-							type="button"
-							onclick={() => (instanceWizardOpen.value = true)}
-							class="group bg-base-200/50 hover:bg-base-200 border-base-300/25 hover:border-base-300/40 text-base-content/60 hover:text-base-content flex h-[84px] cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 p-4 opacity-80 transition-all duration-200 hover:opacity-100"
-							aria-label={m.library_new_instance()}
+					{#if shown.length === 0}
+						<div
+							class="text-base-content/60 flex flex-col items-center gap-2 py-20 text-center"
 						>
-							<Plus
-								size={22}
-								class="opacity-70 transition-opacity group-hover:opacity-100"
-							/>
-							<span class="text-sm leading-none font-medium"
-								>{m.library_new_instance()}</span
-							>
-						</button>
-					</div>
-				{/if}
+							<SearchX size={40} />
+							<p>{m.library_no_results({ query: query.trim() })}</p>
+							<button class="link" onclick={() => (query = "")}>
+								{m.library_clear_search()}
+							</button>
+						</div>
+					{:else}
+						<div
+							bind:this={listEl}
+							data-panel
+							class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y border"
+							class:dragging={!!reorder.drag}
+						>
+							{#each shown as instance, i (instance.id)}
+								<div
+									data-id={instance.id}
+									class="instance-slot"
+									style:transform={reorder.shiftFor(i)}
+									class:is-ghost={reorder.drag?.id === instance.id}
+								>
+									<InstanceRow
+										{instance}
+										mods={modLists.byPath[instance.path]}
+										onpointerdown={canDrag
+											? reorder.pointerdown(instance.id, i, instance)
+											: undefined}
+									/>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</section>
 
-				{#if reorder.drag && canDrag}
+				<aside class="flex flex-col gap-4 @3xl:sticky @3xl:top-6">
 					<div
-						class="drag-clone pointer-events-none fixed z-[100]"
-						style:top={`${reorder.pointerY - reorder.drag.offsetY}px`}
-						style:left={`${reorder.pointerX - reorder.drag.offsetX}px`}
-						style:width={`${reorder.drag.width}px`}
-						aria-hidden="true"
-						inert
+						data-panel
+						class="bg-base-200 border-base-300 rounded-box flex flex-col gap-2 border p-4 @max-3xl:hidden"
 					>
-						<InstanceCard instance={reorder.drag.item} />
+						<h2 class="text-sm font-semibold">{m.library_new_instance()}</h2>
+						<NewInstanceOption tab="download" />
+						<NewInstanceOption tab="folder" />
 					</div>
-				{/if}
+					<dl
+						data-panel
+						class="bg-base-200 border-base-300 rounded-box grid grid-cols-2 gap-3 border p-4 text-sm"
+					>
+						<div>
+							<dt class="text-base-content/60 text-xs">{m.library_stat_mods()}</dt>
+							<dd class="font-semibold tabular-nums">{modCount}</dd>
+						</div>
+						<div>
+							<dt class="text-base-content/60 text-xs">{m.library_stat_patches()}</dt>
+							<dd class="font-semibold tabular-nums">{patchSpan}</dd>
+						</div>
+						<div>
+							<dt class="text-base-content/60 text-xs">{m.library_stat_running()}</dt>
+							<dd
+								class="font-semibold tabular-nums"
+								class:text-success={runningCount > 0}
+							>
+								{runningCount}
+							</dd>
+						</div>
+					</dl>
+				</aside>
 			</div>
-		</div>
+
+			{#if reorder.drag && canDrag}
+				<div
+					class="drag-clone pointer-events-none fixed z-[100]"
+					style:top={`${reorder.pointerY - reorder.drag.offsetY}px`}
+					style:left={`${reorder.pointerX - reorder.drag.offsetX}px`}
+					style:width={`${reorder.drag.width}px`}
+					aria-hidden="true"
+					inert
+				>
+					<InstanceRow instance={reorder.drag.item} />
+				</div>
+			{/if}
+		{/if}
 	</div>
 </div>
 

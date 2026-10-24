@@ -13,7 +13,13 @@ export const createKillGameMutation = () =>
 		mutationFn: (instance: Instance) => killGame(instance),
 	}));
 
-export const createIdentifyBuildMutation = () =>
-	createMutation(() => ({
-		mutationFn: (path: string): Promise<BuildInfo | null> => identifyBuild(path),
-	}));
+/**
+ * Identifying a game folder's build, cached for the session: it hashes the game's largest files.
+ * @param path - The game folder.
+ * @returns Query options for createQuery/createQueries/fetchQuery.
+ */
+export const buildQueryOptions = (path: string) => ({
+	queryKey: ["build", path],
+	queryFn: (): Promise<BuildInfo | null> => identifyBuild(path),
+	staleTime: Infinity,
+});

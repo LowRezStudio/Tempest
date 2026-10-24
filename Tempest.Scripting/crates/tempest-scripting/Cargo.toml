@@ -2,7 +2,7 @@
 name = "tempest-scripting"
 version = "1.0.2"
 edition = "2021"
-description = "Lua modding API DLL for Paladins 8.1 (UE3, Win64)"
+description = "Lua modding API DLL for Paladins (UE3)"
 license = "MIT"
 
 [lib]

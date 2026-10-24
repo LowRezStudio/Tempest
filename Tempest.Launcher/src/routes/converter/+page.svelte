@@ -34,19 +34,23 @@
 				</div>
 				<h2 class="card-title justify-center">{m.converter_title()}</h2>
 				<p class="text-sm opacity-70">
-					{m.converter_drop_hint({
-						tempest: ".tempest",
-						upk: ".upk",
-						pck: ".pck",
-						ini: ".ini",
-					})}
+					{cookMode.value === "batch"
+						? m.converter_drop_hint_packages({ tempest: ".tempest" })
+						: m.converter_drop_hint({
+								tempest: ".tempest",
+								upk: ".upk",
+								pck: ".pck",
+								ini: ".ini",
+								dll: ".dll",
+								lua: ".lua",
+							})}
 				</p>
 			</div>
 		</div>
 	</div>
 {/if}
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	<Header
 		title={m.converter_title()}
 		activeTab={cookMode.value}

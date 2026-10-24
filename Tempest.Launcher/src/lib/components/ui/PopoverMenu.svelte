@@ -11,6 +11,8 @@
 		triggerLabel?: string;
 		/** Width of the item list, e.g. wider for long labels. */
 		menuClass?: string;
+		/** Bound by menus whose items should close it; it stays open on a click otherwise. */
+		open?: boolean;
 	}
 
 	let {
@@ -21,10 +23,11 @@
 		triggerClass = "",
 		triggerLabel,
 		menuClass = "w-52",
+		open = $bindable(false),
 	}: Props = $props();
 </script>
 
-<Popover.Root>
+<Popover.Root bind:open>
 	<Popover.Trigger
 		class="list-none {triggerClass}"
 		aria-label={triggerLabel}

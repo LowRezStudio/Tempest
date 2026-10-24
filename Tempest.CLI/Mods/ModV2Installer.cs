@@ -94,7 +94,10 @@ public class ModV2Installer : IModInstaller
         return await reader.ReadToEndAsync();
     }
 
-    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted)
+    public Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted, ModLock modLock) =>
+        InstallAsync(gamePath, modFilePath, replace, stack, allowUntrusted, modLock, ignoreTempestVersion: false);
+
+    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted, ModLock modLock, bool ignoreTempestVersion)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
 
@@ -123,6 +126,22 @@ public class ModV2Installer : IModInstaller
 
             var modId = manifest.Id;
             ValidateLayout(archive, resolvedGame, modId);
+            if (manifest.InvalidDependencies.Count > 0)
+            {
+                throw new Exception($"manifest.toml: invalid dependencies {string.Join(", ", manifest.InvalidDependencies.Select(d => $"\"{d}\""))} (expected entries like \"tempest-scripting>=1.0.0\")");
+            }
+            // A mod written for a newer Tempest: the launcher tells the user to update rather
+            // than install something that will not run. Unstamped developer builds skip this.
+            var tempestRequired = ModDependencies.UnmetTempestRequirement(manifest.Dependencies, ModDependencies.TempestVersion);
+            if (tempestRequired != null && !ignoreTempestVersion)
+            {
+                return new ModInstallResult
+                {
+                    Success = false,
+                    TempestRequired = tempestRequired,
+                    Message = $"'{manifest.Name}' needs Tempest {tempestRequired}; this is Tempest {ModDependencies.TempestVersion}. Update Tempest, or pass --ignore-tempest-version.",
+                };
+            }
 
             // Mods without code (no DLL, no Lua) cannot do harm and install whoever signed them.
             // With code: a trusted signature installs, an untrusted one needs allowUntrusted (the
@@ -131,11 +150,10 @@ public class ModV2Installer : IModInstaller
             var trust = code.Count > 0 ? await TrustStore.LoadAsync(resolvedGame) : null;
 
             var checksumsEntry = archive.GetEntry(ModSigning.ChecksumsName);
+            var checksumsContent = checksumsEntry != null ? await ReadEntryAsync(checksumsEntry) : null;
             var verification = new ModSigning.Verification(ModSigning.Trust.Unsigned, null, null);
-            if (checksumsEntry != null)
+            if (checksumsContent != null)
             {
-                var checksumsContent = await ReadEntryAsync(checksumsEntry);
-                await VerifyArchiveChecksumsAsync(archive, ParseChecksumMap(checksumsContent));
                 if (trust != null)
                 {
                     var asc = archive.GetEntry(ModSigning.SignatureName) is { } ascEntry ? await ReadEntryAsync(ascEntry) : null;
@@ -184,34 +202,50 @@ public class ModV2Installer : IModInstaller
             }
 
             // ID collision — same modId already installed (component-level conflict)
-            if (Directory.Exists(targetModDir))
+            ModInstallResult IdConflict()
             {
-                if (!replace)
+                var existingForId = ModCommands.LoadMetadata(gamePath).FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
+                var conflictIdInfo = new ModConflictInfo
                 {
-                    var existingForId = ModCommands.LoadMetadata(gamePath).FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
-                    var conflictIdInfo = new ModConflictInfo
-                    {
-                        ModId = existingForId?.Id ?? modId,
-                        ModName = existingForId?.Name ?? modId,
-                        ModVersion = existingForId?.Version ?? "",
-                        ConflictingFiles = newRelativeFilesList.ToList(),
-                        IsSameMod = true
-                    };
-                    return new ModInstallResult
-                    {
-                        Success = false,
-                        Conflict = true,
-                        IsModConflict = true,
-                        Message = $"A mod with this ID is already installed.",
-                        ConflictingMods = [conflictIdInfo],
-                        NewModName = manifest.Name
-                    };
-                }
+                    ModId = existingForId?.Id ?? modId,
+                    ModName = existingForId?.Name ?? modId,
+                    ModVersion = existingForId?.Version ?? "",
+                    ConflictingFiles = newRelativeFilesList.ToList(),
+                    IsSameMod = true
+                };
+                return new ModInstallResult
+                {
+                    Success = false,
+                    Conflict = true,
+                    IsModConflict = true,
+                    Message = $"A mod with this ID is already installed.",
+                    ConflictingMods = [conflictIdInfo],
+                    NewModName = manifest.Name
+                };
+            }
+            if (!replace && Directory.Exists(targetModDir)) return IdConflict();
 
+            // Hashing every file is the slow part for big packages, so it waits until the
+            // signature gate and the "already installed" prompt passed (the launcher re-runs
+            // install after either), and still runs before anything on disk is touched.
+            if (checksumsContent != null)
+                await VerifyArchiveChecksumsAsync(archive, ParseChecksumMap(checksumsContent));
+
+            // Everything above runs alongside other installs, which may have installed this id
+            // meanwhile; from here on installed mods are read and changed under the lock.
+            await modLock.EnterAsync();
+            var idInstalled = Directory.Exists(targetModDir);
+            if (idInstalled && !replace) return IdConflict();
+
+            // An update or reinstall stays where the mod was first added.
+            DateTime? installedAt = null;
+            if (idInstalled)
+            {
                 var existingModsForId = ModCommands.LoadMetadata(gamePath);
                 var existingModForId = existingModsForId.FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
                 if (existingModForId != null)
                 {
+                    installedAt = existingModForId.InstalledAt;
                     await RemoveAsync(gamePath, existingModForId);
                     existingModsForId.Remove(existingModForId);
                     ModCommands.SaveMetadata(gamePath, existingModsForId);
@@ -434,14 +468,22 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
                 Readme = manifest.Readme,
                 Signer = verification.Key == null ? "" : ModSigning.Fingerprint(verification.Key),
                 Verified = true,
-                ManifestHash = checksumsEntry == null ? "" : Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(await ReadEntryAsync(checksumsEntry))))
+                ManifestHash = checksumsEntry == null ? "" : Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(await ReadEntryAsync(checksumsEntry)))),
+                Dependencies = manifest.Dependencies,
+                InstalledAt = installedAt ?? DateTime.UtcNow,
             };
 
+            // Installed either way; what it still needs is reported so the launcher (or
+            // `mod install <id>`, which resolves them from the repository first) can act on it.
+            var missing = ModDependencies.Missing(manifest.Dependencies, ModCommands.LoadMetadata(gamePath));
             return new ModInstallResult
             {
                 Success = true,
-                Message = "Mod installed successfully",
-                Mod = modRecord
+                Message = missing.Count == 0
+                    ? "Mod installed successfully"
+                    : $"Mod installed successfully; it needs {string.Join(", ", missing)}, which is not installed and enabled.",
+                Mod = modRecord,
+                MissingDependencies = missing.Count == 0 ? null : missing,
             };
         }
         catch (Exception ex)
@@ -792,6 +834,24 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
 				if (modTable.TryGetValue("icon", out var iconVal)) manifest.Icon = iconVal?.ToString() ?? "";
                 if (modTable.TryGetValue("readme", out var readmeVal)) manifest.Readme = readmeVal?.ToString() ?? "";
 
+                // Under [mod] as documented; a bare top-level array is taken too.
+                if (modTable.TryGetValue("dependencies", out var depsVal) || model.TryGetValue("dependencies", out depsVal))
+                {
+                    if (depsVal is TomlArray depsArray)
+                    {
+                        foreach (var item in depsArray)
+                        {
+                            var text = item?.ToString() ?? "";
+                            var dep = SemverRange.ParseDependency(text);
+                            if (dep == null || !SemverRange.IsValid(dep.Requirement) || manifest.Dependencies.Any(d => d.Id == dep.Id))
+                                manifest.InvalidDependencies.Add(text);
+                            else
+                                manifest.Dependencies.Add(dep);
+                        }
+                    }
+                    else manifest.InvalidDependencies.Add(depsVal?.ToString() ?? "");
+                }
+
                 if (modTable.TryGetValue("authors", out var authorsVal))
                 {
                     if (authorsVal is TomlArray array)
@@ -835,6 +895,10 @@ public class ModManifest
 	public string Icon { get; set; } = string.Empty;
 	public string Readme { get; set; } = string.Empty;
 	public List<ModAuthor> Authors { get; set; } = [];
+	/// <summary>`dependencies = ["tempest>=1.1.0", "tempest-scripting>=1.0.0"]`, parsed; see <see cref="SemverRange"/>.</summary>
+	public List<ModDependency> Dependencies { get; set; } = [];
+	/// <summary>Entries of `dependencies` that did not parse, as written.</summary>
+	public List<string> InvalidDependencies { get; set; } = [];
 }
 
 public class ModAuthor

@@ -13,6 +13,7 @@ export type Theme = "system" | "mocha" | "latte" | "legacy" | "custom";
 export const theme = persistedState<Theme>("theme", "system");
 export const customThemeCSS = persistedState<string>("customThemeCSS", "");
 export const pinnedBackground = persistedState<string | undefined>("pinnedBackground", undefined);
+export const seasonalEffects = persistedState<boolean>("seasonalEffects", false);
 export const winePath = persistedState<string | undefined>("winePath", undefined);
 export type WineRuntimeSetting = "auto" | "wine" | "proton";
 export const wineRuntime = persistedState<WineRuntimeSetting>("wineRuntime", "auto");

@@ -71,6 +71,21 @@ public sealed class ModRepoClient : IDisposable
         return await ReadAsync(res, RepoJsonContext.Default.ListRepoVersion);
     }
 
+    /// <summary>
+    /// What a version needs, resolved by the repository to installable versions (dependencies of
+    /// dependencies included) for <paramref name="patch"/> and the launcher version <paramref name="tempest"/>.
+    /// </summary>
+    public async Task<RepoResolution> GetDependenciesAsync(string id, string version, string? patch, string? tempest)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(patch)) query.Add($"patch={Uri.EscapeDataString(patch)}");
+        if (!string.IsNullOrWhiteSpace(tempest)) query.Add($"tempest={Uri.EscapeDataString(tempest)}");
+        var suffix = query.Count == 0 ? "" : "?" + string.Join('&', query);
+        using var res = await _http.GetAsync(Api($"mods/{Uri.EscapeDataString(id)}/versions/{Uri.EscapeDataString(version)}/dependencies{suffix}"));
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) throw new RepoException("not_found", $"{id} {version} is not on {BaseUri.Host}");
+        return await ReadAsync(res, RepoJsonContext.Default.RepoResolution);
+    }
+
     /// <summary>Downloads a version through the counting endpoint to <paramref name="destination"/>.</summary>
     public async Task DownloadAsync(string id, string version, string destination)
     {
@@ -204,7 +219,33 @@ public sealed class RepoVersion
     public string DownloadUrl { get; set; } = "";
     public RepoSigner? Signer { get; set; }
     public RepoCompat Compat { get; set; } = new();
+    public List<RepoDependency> Dependencies { get; set; } = [];
     public long Downloads { get; set; }
+}
+
+/// <summary>One `[mod].dependencies` entry of the package, split; the id "tempest" is the launcher.</summary>
+public sealed class RepoDependency { public string Id { get; set; } = ""; public string Requirement { get; set; } = ""; }
+
+public sealed class RepoTempestRequirement { public string Requirement { get; set; } = ""; public string RequiredBy { get; set; } = ""; }
+
+public sealed class RepoResolvedDependency
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public List<string> Requirements { get; set; } = [];
+    public List<string> RequiredBy { get; set; } = [];
+    public RepoVersion? Resolved { get; set; }
+    /// <summary>"not_found", "no_match", or null when <see cref="Resolved"/> is set.</summary>
+    public string? Problem { get; set; }
+}
+
+/// <summary>GET /mods/{id}/versions/{version}/dependencies: breadth first from the direct dependencies.</summary>
+public sealed class RepoResolution
+{
+    public string Id { get; set; } = "";
+    public string Version { get; set; } = "";
+    public List<RepoTempestRequirement> Tempest { get; set; } = [];
+    public List<RepoResolvedDependency> Items { get; set; } = [];
 }
 
 public sealed class RepoMe { public string Handle { get; set; } = ""; public string DisplayName { get; set; } = ""; public string Role { get; set; } = ""; public bool Team { get; set; } }
@@ -246,6 +287,7 @@ public sealed class RepoIntent
 [JsonSerializable(typeof(RepoMod))]
 [JsonSerializable(typeof(List<RepoVersion>))]
 [JsonSerializable(typeof(RepoVersion))]
+[JsonSerializable(typeof(RepoResolution))]
 [JsonSerializable(typeof(RepoMe))]
 [JsonSerializable(typeof(RepoIntentRequest))]
 [JsonSerializable(typeof(RepoIntentCreated))]

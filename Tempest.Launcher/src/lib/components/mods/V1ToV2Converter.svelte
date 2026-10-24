@@ -1,21 +1,27 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import {
-		BadgeCheck,
 		CheckCircle2,
+		Circle,
+		CircleCheck,
 		File,
+		FileArchive,
 		FileUp,
-		FlaskConical,
 		FolderOpen,
-		Image as ImageIcon,
+		ImagePlus,
+		Lock,
 		Plus,
-		Trash2,
+		RotateCcw,
+		TriangleAlert,
 		Upload,
 		X,
+		XCircle,
 	} from "@lucide/svelte";
 	import { useQueryClient } from "@tanstack/svelte-query";
+	import { tick, type Snippet } from "svelte";
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import PublishModal from "$lib/components/mods/PublishModal.svelte";
+	import FieldError from "$lib/components/ui/FieldError.svelte";
 	import {
 		discardStagedModPack,
 		installMod,
@@ -24,15 +30,16 @@
 		stageModPack,
 		type RepoPublishResult,
 	} from "$lib/core/mods";
-	import { converterPendingPaths } from "$lib/mods/drop.svelte";
+	import { converterPendingPaths, isDraggingConverterFiles } from "$lib/mods/drop.svelte";
 	import {
 		MOD_ID_PATTERN,
 		buildPackageZip,
-		detectKind,
+		iconProblem,
 		optimizeUpkEntries,
-		parseV1Package,
+		parsePackage,
+		looseFileEntry,
 		slugify,
-		targetDirFor,
+		type FileEntry,
 	} from "$lib/mods/packaging";
 	import { signWithPrompt } from "$lib/mods/signing.svelte";
 	import { m } from "$lib/paraglide/messages";
@@ -42,29 +49,37 @@
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { modRepositoryURL } from "$lib/stores/settings.svelte";
 	import { addToast, removeToast } from "$lib/stores/ui.svelte";
+	import { isSemver, toSemver } from "$lib/utils/deps";
 	import type { Instance } from "$lib/types/instance";
 
-	type SourceEntry = {
-		label: string;
-		files: { path: string; data: Uint8Array }[];
-		readme?: string;
-	};
+	/**
+	 * Cooking as four steps that open one after another, like publishing on the mod website: the
+	 * files first (a .tempest fills in the rest), then the details, the listing, and icon and
+	 * readme last. Earlier steps stay editable; a sticky column beside them tracks progress and
+	 * holds Cook and the cooked package.
+	 */
+
+	const MAX_SUMMARY = 140;
 
 	let cooking = $state(false);
 	let signing = $state(false);
+	let cookError = $state<string | null>(null);
+	let confirmReset = $state(false);
 	let showInstanceSelect = $state(false);
 	let showPublish = $state(false);
 	let published = $state<RepoPublishResult | null>(null);
 	let importingLabel = $state<string | null>(null);
 	let installingLabel = $state<string | null>(null);
-	let idTouched = $state(false);
-	let kindTouched = $state(false);
 	const queryClient = useQueryClient();
 
 	let totalFiles = $derived(converter.sources.reduce((sum, s) => sum + s.files.length, 0));
 	let idValid = $derived(MOD_ID_PATTERN.test(converter.modId.trim()));
 	let idError = $derived(converter.modId.trim() !== "" && !idValid);
-	let canCook = $derived(!!converter.modName.trim() && totalFiles > 0 && idValid);
+	// Left empty, the version falls back to the placeholder's 1.0.0.
+	let versionValid = $derived(
+		converter.modVersion.trim() === "" || isSemver(converter.modVersion.trim()),
+	);
+	let versionSuggestion = $derived(versionValid ? null : toSemver(converter.modVersion));
 	const repoHost = $derived(
 		modRepositoryURL.value.replace(/^https?:\/\//, "").replace(/\/$/, ""),
 	);
@@ -72,10 +87,85 @@
 	const fmtSize = (n: number) =>
 		n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`;
 
-	// Derive the repository id from the name until the user edits it directly.
+	// invalid: holds a value that won't be accepted, as opposed to one not filled in yet.
+	const steps = $derived([
+		{
+			id: "files",
+			title: m.converter_step_files(),
+			valid: totalFiles > 0,
+			required: true,
+			invalid: false,
+		},
+		{
+			id: "details",
+			title: m.converter_step_details(),
+			valid: !!converter.modName.trim() && idValid && versionValid,
+			required: true,
+			invalid: idError || !versionValid,
+		},
+		{
+			id: "listing",
+			title: m.converter_step_listing(),
+			valid: !!converter.summary.trim(),
+			required: false,
+			invalid: false,
+		},
+		{
+			id: "extras",
+			title: m.converter_step_extras(),
+			valid: !!converter.icon || !!converter.readmeContent.trim(),
+			required: false,
+			invalid: false,
+		},
+	]);
+	// done: moved past (filled in, or optional); current: the step to work on; locked: not opened yet.
+	const statusOf = (i: number) =>
+		i > converter.reached
+			? "locked"
+			: i < converter.reached && (steps[i].valid || !steps[i].required)
+				? "done"
+				: "current";
+	const ready = $derived(
+		converter.reached === steps.length - 1 && steps.every((s) => !s.required || s.valid),
+	);
+	/** What to do before Cook works, for its tooltip */
+	const blocker = $derived(
+		converter.reached < steps.length - 1
+			? steps[converter.reached].title
+			: steps.find((s) => s.required && !s.valid)?.title,
+	);
+
+	const iconUrl = $derived(
+		converter.icon
+			? URL.createObjectURL(new Blob([new Uint8Array(converter.icon.data)]))
+			: null,
+	);
 	$effect(() => {
-		if (idTouched) return;
-		converter.modId = slugify(converter.modName);
+		const url = iconUrl;
+		return () => {
+			if (url) URL.revokeObjectURL(url);
+		};
+	});
+
+	// What goes into the package; a package cooked from anything else is out of date.
+	const inputKey = $derived(
+		JSON.stringify({
+			id: converter.modId.trim(),
+			name: converter.modName.trim(),
+			version: converter.modVersion.trim(),
+			authors: converter.authors,
+			readme: converter.readmeContent,
+			dependencies: converter.dependencyList,
+			icon: converter.icon && [converter.icon.name, converter.icon.data.length],
+			files: allFiles().map((f) => [f.path, f.data.length, !!f.inModFolder]),
+		}),
+	);
+	const stale = $derived(!!converter.cooked && converter.cooked.from !== inputKey);
+
+	// The repository id follows the package's, else the name, until the user edits it directly.
+	$effect(() => {
+		if (converter.idTouched) return;
+		converter.modId = converter.packageId ?? slugify(converter.modName);
 	});
 
 	$effect(() => {
@@ -102,6 +192,55 @@
 		}
 	});
 
+	function scrollToStep(i: number) {
+		document
+			.querySelector(`#step-${steps[i].id}`)
+			?.scrollIntoView({ behavior: "smooth", block: "start" });
+	}
+
+	async function advance(i: number) {
+		converter.reached = Math.max(converter.reached, i + 1);
+		await tick();
+		scrollToStep(i + 1);
+	}
+
+	// Ctrl+Enter: Continue on the open step, or Cook on the last one.
+	function onKeydown(e: KeyboardEvent) {
+		if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey) || cooking) return;
+		if (showPublish || showInstanceSelect) return;
+		if (converter.reached < steps.length - 1) {
+			const open = steps[converter.reached];
+			if (converter.reached === 0 || (open.required && !open.valid)) return;
+			e.preventDefault();
+			// The field typed in belongs to the step just left; it shouldn't stay focused.
+			if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+			void advance(converter.reached);
+		} else if (ready) {
+			e.preventDefault();
+			void cook();
+		}
+	}
+
+	/** Empties the cooker; asks once more first. */
+	function startOver() {
+		if (!confirmReset) {
+			confirmReset = true;
+			setTimeout(() => (confirmReset = false), 3000);
+			return;
+		}
+		confirmReset = false;
+		clear();
+		scrollToStep(0);
+	}
+
+	function clear() {
+		const staged = converter.cooked?.stagedPath;
+		if (staged) void invoke("mods:discard-staged-pack", { stagedPath: staged }).catch(() => {});
+		converter.reset();
+		cookError = null;
+		published = null;
+	}
+
 	async function pickFiles() {
 		// Dialog + read both happen on the host in one round trip.
 		const imports = await invoke("converter:pick-imports");
@@ -113,19 +252,26 @@
 	async function pickIcon() {
 		const imported = await invoke("converter:pick-icon");
 		if (!imported) return;
-		converter.icon = { name: imported.name, data: new Uint8Array(imported.data) };
+		const data = new Uint8Array(imported.data);
+		const problem = iconProblem(data);
+		if (problem) {
+			addToast({ title: imported.name, message: problem, tone: "error" });
+			return;
+		}
+		converter.icon = { name: imported.name, data };
 	}
 
 	async function processFile(filePath: string, data: Uint8Array) {
-		importingLabel = filePath.split(/[/\\]/).pop() ?? filePath;
+		const name = filePath.split(/[/\\]/).pop() ?? filePath;
+		importingLabel = name;
 		const ext = filePath.split(".").pop()?.toLowerCase();
 		try {
 			if (ext === "tempest") {
-				await processTempest(filePath, data);
-			} else if (ext === "upk" || ext === "pck" || ext === "ini") {
-				const effective =
-					ext === "upk" || ext === "pck" ? ((await optimizeUpk(filePath)) ?? data) : data;
-				await processLooseFile(filePath, effective);
+				await processTempest(name, data);
+			} else if (ext === "upk" || ext === "pck") {
+				processLooseFile(filePath, (await optimizeUpk(filePath)) ?? data);
+			} else if (ext === "ini" || ext === "dll" || ext === "lua") {
+				processLooseFile(filePath, data);
 			} else {
 				addToast({
 					title: m.toast_unsupported_file_title(),
@@ -135,9 +281,14 @@
 			}
 		} catch (error) {
 			console.error("Failed to import file:", filePath, error);
+			addToast({
+				title: m.converter_import_failed({ name }),
+				message: error instanceof Error ? error.message : m.common_unknown(),
+				tone: "error",
+			});
 		} finally {
-			if (!kindTouched) converter.kind = detectKind(allFiles());
 			importingLabel = null;
+			if (converter.reached === 0 && totalFiles > 0) void advance(0);
 		}
 	}
 
@@ -171,65 +322,59 @@
 		}
 	}
 
-	async function processTempest(filePath: string, data: Uint8Array) {
-		try {
-			const parsed = await parseV1Package(data);
-			// UPKs embedded in the uploaded mod get the same treatment as loose
-			// imports: compressed if they are not already.
-			const compressedCount = await optimizeUpkEntries(parsed.files, (name) => {
-				importingLabel = m.converter_upk_optimizing({ name });
+	async function processTempest(label: string, data: Uint8Array) {
+		const parsed = await parsePackage(data);
+		if (parsed.files.length === 0) throw new Error(m.converter_no_files());
+		// UPKs embedded in the package get the same treatment as loose imports:
+		// compressed if they are not already.
+		const compressedCount = await optimizeUpkEntries(parsed.files, (name) => {
+			importingLabel = m.converter_upk_optimizing({ name });
+		});
+		if (compressedCount > 0) {
+			addToast({
+				title: label,
+				message: m.converter_upk_optimized({ name: label }),
+				tone: "success",
 			});
-			if (compressedCount > 0) {
-				const label0 = filePath.split(/[/\\]/).pop() ?? filePath;
-				addToast({
-					title: label0,
-					message: m.converter_upk_optimized({ name: label0 }),
-					tone: "success",
-				});
-			}
-			const label = filePath.split(/[/\\]/).pop() ?? filePath;
-			converter.sources = [
-				...converter.sources,
-				{ label, files: parsed.files, readme: parsed.readme ?? undefined },
-			];
-
-			const manifest = parsed.manifest;
-			if (manifest && !converter.modName) {
-				converter.modName = manifest.name || "";
-				converter.modVersion = manifest.version || "1.0.0";
-				if (manifest.authors?.length) {
-					converter.authors = manifest.authors.map((a) => ({
-						name: a.name,
-						link: a.link || "",
-					}));
-				}
-			}
-			// A V1 manifest's id is often just the display name; only keep it when
-			// it already satisfies the repository's slug rule.
-			if (manifest?.id && MOD_ID_PATTERN.test(manifest.id)) {
-				converter.modId = manifest.id;
-				idTouched = true;
-			}
-			if (parsed.readme && !converter.readmeContent) {
-				converter.readmeContent = parsed.readme;
-			}
-		} catch (error) {
-			console.error("Failed to parse V1 mod:", error);
 		}
+		const manifest = parsed.manifest;
+		const iconIssue = parsed.icon && iconProblem(parsed.icon.data);
+		if (iconIssue) {
+			addToast({
+				title: label,
+				message: m.converter_icon_dropped({ reason: iconIssue }),
+				tone: "warning",
+			});
+		}
+		converter.sources = [
+			...converter.sources,
+			{
+				label,
+				files: parsed.files,
+				meta: {
+					name: manifest?.name ?? "",
+					id: manifest?.id ?? "",
+					version: manifest?.version ?? "",
+					authors: manifest?.authors ?? [],
+					readme: parsed.readme ?? "",
+					icon: iconIssue ? null : parsed.icon,
+					dependencies: manifest?.dependencies ?? [],
+				},
+			},
+		];
+		converter.syncFromSources();
 	}
 
 	function processLooseFile(filePath: string, data: Uint8Array) {
 		const fileName = filePath.split(/[/\\]/).pop() ?? filePath;
 		converter.sources = [
 			...converter.sources,
-			{
-				label: fileName,
-				files: [{ path: `${targetDirFor(fileName)}/${fileName}`, data }],
-			},
+			{ label: fileName, files: [looseFileEntry(fileName, data)] },
 		];
+		converter.syncFromSources();
 	}
 
-	function allFiles(): { path: string; data: Uint8Array }[] {
+	function allFiles(): FileEntry[] {
 		return converter.sources.flatMap((s) => s.files);
 	}
 
@@ -244,9 +389,15 @@
 		converter.sources = updated;
 	}
 
+	// Everything else is about the files, so without any the cooker starts over.
 	function removeSource(index: number) {
+		if (converter.sources.length === 1) {
+			clear();
+			scrollToStep(0);
+			return;
+		}
 		converter.sources = converter.sources.filter((_, i) => i !== index);
-		if (!kindTouched) converter.kind = detectKind(allFiles());
+		converter.syncFromSources();
 	}
 
 	function addAuthor() {
@@ -264,10 +415,12 @@
 	}
 
 	async function cook() {
-		if (!canCook || cooking) return;
+		if (!ready || cooking) return;
 		cooking = true;
 		signing = false;
+		cookError = null;
 		published = null;
+		const from = inputKey;
 		const previousStaged = converter.cooked?.stagedPath;
 		converter.cooked = null;
 
@@ -281,6 +434,7 @@
 					authors: converter.authors,
 					readme: converter.readmeContent,
 					icon: converter.icon,
+					dependencies: converter.dependencyList,
 				},
 				allFiles(),
 			);
@@ -299,18 +453,14 @@
 			// a first-time publisher is asked to name their signing key.
 			signing = true;
 			const signer = await signWithPrompt(stagedPath);
-			converter.cooked = { stagedPath, signer: signer || null, size: bytes.length };
+			converter.cooked = { stagedPath, signer: signer || null, size: bytes.length, from };
 
 			if (previousStaged && previousStaged !== stagedPath) {
 				void discardStagedModPack(previousStaged).catch(() => {});
 			}
 		} catch (error) {
 			console.error("Failed to cook mod:", error);
-			addToast({
-				title: m.converter_cook_failed(),
-				message: error instanceof Error ? error.message : m.common_unknown(),
-				tone: "error",
-			});
+			cookError = error instanceof Error ? error.message : m.common_unknown();
 		} finally {
 			cooking = false;
 			signing = false;
@@ -387,374 +537,518 @@
 			showInstanceSelect = true;
 		}
 	}
-
-	function openPublish() {
-		showPublish = true;
-	}
 </script>
 
-<div class="h-full overflow-y-auto">
-	<div class="mx-auto w-full max-w-6xl px-4 py-6">
-		<div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-			<!-- Sources -->
-			<section class="card bg-base-200">
-				<div class="card-body gap-4 p-4">
-					<div class="flex items-center justify-between">
-						<h2 class="text-sm font-semibold tracking-wide uppercase">
-							{m.converter_source_files()}
-						</h2>
-						<button class="btn btn btn-sm gap-2" onclick={pickFiles}>
-							<Plus size={16} />
-							{m.common_browse()}
-						</button>
-					</div>
-
-					{#if converter.sources.length === 0}
-						<button
-							class="border-base-300 rounded-box hover:border-primary/50 border-2 border-dashed p-10 text-center transition-colors"
-							onclick={pickFiles}
-						>
-							<div class="text-base-content/50 flex flex-col items-center gap-2">
-								<FileUp size={32} />
-								<p class="text-sm">
-									{m.converter_drop_hint({
-										tempest: ".tempest",
-										upk: ".upk",
-										pck: ".pck",
-										ini: ".ini",
-									})}
-								</p>
-								<p class="text-xs opacity-60">{m.converter_drop_browse_hint()}</p>
-							</div>
-						</button>
-					{:else}
-						<div class="space-y-2">
-							{#each converter.sources as source, sIdx (sIdx)}
-								<div class="bg-base-300/50 rounded-lg p-3">
-									<div class="mb-2 flex items-center justify-between gap-2">
-										<div class="flex min-w-0 items-center gap-2">
-											<span class="truncate font-mono text-sm font-semibold">
-												{source.label}
-											</span>
-											<span class="badge badge-ghost badge-sm shrink-0">
-												{source.files.length}
-											</span>
-										</div>
-										<button
-											class="btn btn-ghost btn-sm btn-square text-error"
-											onclick={() => removeSource(sIdx)}
-										>
-											<Trash2 size={14} />
-										</button>
-									</div>
-									<div class="space-y-1">
-										{#each source.files as file, fIdx}
-											<input
-												type="text"
-												class="input input-ghost input-sm w-full min-w-0 font-mono"
-												value={file.path}
-												oninput={(e) =>
-													updateTargetPath(
-														sIdx,
-														fIdx,
-														e.currentTarget.value,
-													)}
-											/>
-										{/each}
-									</div>
-								</div>
-							{/each}
-						</div>
-					{/if}
-
-					{#if importingLabel}
-						<div class="text-base-content/50 flex items-center gap-2 text-xs">
-							<span class="loading loading-spinner loading-xs"></span>
-							{m.converter_importing({ name: importingLabel })}
-						</div>
-					{:else if totalFiles > 0}
-						<p class="text-base-content/50 text-xs">
-							{totalFiles}
-							{m.downloads_files({ count: totalFiles })} across {converter.sources
-								.length}
-							{m.converter_sources({ count: converter.sources.length })}
-						</p>
-					{/if}
-				</div>
-			</section>
-
-			<!-- Details -->
-			<section class="card bg-base-200">
-				<div class="card-body gap-4 p-4">
-					<h2 class="text-sm font-semibold tracking-wide uppercase">
-						{m.converter_details_section()}
-					</h2>
-
-					<label class="form-control gap-1">
-						<span class="text-sm font-semibold">{m.converter_mod_name_label()}</span>
-						<input
-							id="conv-name"
-							type="text"
-							class="input input-bordered"
-							bind:value={converter.modName}
-							placeholder={m.converter_mod_name_placeholder()}
-						/>
-					</label>
-
-					<div class="grid grid-cols-[1fr_7rem] gap-2">
-						<label class="form-control gap-1">
-							<span class="text-sm font-semibold">{m.converter_mod_id_label()}</span>
-							<input
-								id="conv-id"
-								type="text"
-								class="input input-bordered font-mono"
-								class:input-error={idError}
-								bind:value={converter.modId}
-								oninput={() => (idTouched = true)}
-								placeholder={m.converter_mod_id_placeholder()}
-								spellcheck="false"
-							/>
-						</label>
-						<label class="form-control gap-1">
-							<span class="text-sm font-semibold">{m.common_version()}</span>
-							<input
-								id="conv-version"
-								type="text"
-								class="input input-bordered"
-								bind:value={converter.modVersion}
-								placeholder={m.converter_version_placeholder()}
-							/>
-						</label>
-					</div>
-					<p class="text-base-content/50 -mt-2 text-xs">
-						{idError ? m.converter_mod_id_invalid() : m.converter_mod_id_hint()}
-					</p>
-
-					<label class="form-control gap-1">
-						<span class="text-sm font-semibold">{m.converter_summary_label()}</span>
-						<input
-							id="conv-summary"
-							type="text"
-							class="input input-bordered"
-							bind:value={converter.summary}
-							placeholder={m.converter_summary_placeholder()}
-						/>
-					</label>
-
-					<div class="grid grid-cols-2 gap-2">
-						<label class="form-control gap-1">
-							<span class="text-sm font-semibold">{m.converter_kind_label()}</span>
-							<select
-								id="conv-kind"
-								class="select select-bordered"
-								bind:value={converter.kind}
-								onchange={() => (kindTouched = true)}
-							>
-								<option value="assets">{m.repo_kind_assets()}</option>
-								<option value="scripts">{m.repo_kind_scripts()}</option>
-								<option value="native">{m.repo_kind_native()}</option>
-							</select>
-						</label>
-						<label class="form-control gap-1">
-							<span class="text-sm font-semibold">{m.converter_tags_label()}</span>
-							<input
-								id="conv-tags"
-								type="text"
-								class="input input-bordered"
-								bind:value={converter.tags}
-								placeholder={m.converter_tags_placeholder()}
-							/>
-						</label>
-					</div>
-
-					<div class="form-control gap-1">
-						<span class="text-sm font-semibold">{m.converter_icon_label()}</span>
-						{#if converter.icon}
-							<div
-								class="bg-base-300/50 flex items-center justify-between rounded-lg px-3 py-2"
-							>
-								<span class="truncate font-mono text-xs">{converter.icon.name}</span
-								>
-								<button
-									class="btn btn-ghost btn-xs btn-square text-error"
-									onclick={() => (converter.icon = null)}
-								>
-									<X size={14} />
-								</button>
-							</div>
-						{:else}
-							<button
-								class="border-base-300 flex items-center gap-2 rounded-lg border-2 border-dashed px-3 py-2 text-sm opacity-70 hover:opacity-100"
-								onclick={pickIcon}
-							>
-								<ImageIcon size={16} />
-								{m.converter_icon_pick()}
-							</button>
-						{/if}
-					</div>
-
-					<div class="form-control gap-1">
-						<div class="flex items-center justify-between">
-							<span class="text-sm font-semibold">{m.converter_authors_label()}</span>
-							<button class="btn btn-ghost btn-xs gap-1" onclick={addAuthor}>
-								<Plus size={14} />
-								{m.common_add()}
-							</button>
-						</div>
-						<div class="space-y-2">
-							{#each converter.authors as author, i}
-								<div class="bg-base-300/50 rounded-lg p-2">
-									<div class="flex flex-col gap-1">
-										<input
-											type="text"
-											class="input input-bordered input-sm"
-											placeholder={m.converter_author_name_placeholder()}
-											value={author.name}
-											oninput={(e) =>
-												updateAuthor(i, "name", e.currentTarget.value)}
-										/>
-										<div class="flex items-center gap-1">
-											<input
-												type="text"
-												class="input input-bordered input-sm flex-1"
-												placeholder={m.converter_author_link_placeholder()}
-												value={author.link}
-												oninput={(e) =>
-													updateAuthor(i, "link", e.currentTarget.value)}
-											/>
-											<button
-												class="btn btn-ghost btn-sm btn-square text-error shrink-0"
-												onclick={() => removeAuthor(i)}
-											>
-												<X size={14} />
-											</button>
-										</div>
-									</div>
-								</div>
-							{/each}
-						</div>
-					</div>
-				</div>
-			</section>
-		</div>
-
-		<!-- Readme -->
-		<section class="card bg-base-200 mt-4">
-			<div class="card-body gap-2 p-4">
-				<h2 class="text-sm font-semibold tracking-wide uppercase">
-					{m.converter_readme_label()}
-				</h2>
-				<textarea
-					id="conv-readme"
-					class="textarea textarea-bordered h-40 w-full"
-					bind:value={converter.readmeContent}
-					placeholder={m.converter_readme_placeholder()}></textarea>
-			</div>
-		</section>
-
-		<!-- Cooked package -->
-		{#if converter.cooked}
-			<section class="card bg-base-200 mt-4">
-				<div class="card-body gap-3 p-4">
-					<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-						<h2 class="text-lg font-bold">{converter.modName || converter.modId}</h2>
-						<span class="badge badge-primary badge-sm"
-							>v{converter.modVersion || "1.0.0"}</span
-						>
-						<span class="text-base-content/40 font-mono text-xs"
-							>{converter.modId}.tempest</span
-						>
-					</div>
-					<div class="flex flex-wrap items-center gap-2 text-xs">
-						<span class="badge badge-success badge-sm gap-1">
-							<BadgeCheck size={12} />
-							{m.converter_package_ready()}
-						</span>
-						{#if converter.cooked.signer}
-							<span class="max-w-72 truncate font-mono opacity-60">
-								{m.converter_signed_by({ signer: converter.cooked.signer })}
-							</span>
-						{/if}
-						<span class="opacity-60">{fmtSize(converter.cooked.size)}</span>
-					</div>
-					<div class="flex flex-wrap items-center gap-2">
-						{#if publishingEnabled}
-							<button class="btn btn-primary gap-2" onclick={openPublish}>
-								<Upload size={16} />
-								{m.converter_publish_btn()}
-							</button>
-						{/if}
-						<button class="btn gap-2" onclick={download}>
-							<FolderOpen size={16} />
-							{m.converter_download()}
-						</button>
-						<button
-							class="btn gap-2"
-							disabled={installingLabel !== null}
-							onclick={addToInstance}
-						>
-							<File size={16} />
-							{m.converter_add_to_instance()}
-						</button>
-					</div>
-					{#if publishingEnabled && published?.state === "done" && published.modId}
-						<div class="bg-success/10 rounded-lg px-3 py-2">
-							<div class="text-success flex items-center gap-2 text-sm font-medium">
-								<CheckCircle2 size={16} class="shrink-0" />
-								{published.version
-									? m.converter_publish_done({
-											id: published.modId,
-											version: published.version,
-										})
-									: m.converter_toast_published_title()}
-							</div>
-						</div>
-						<div>
-							<button
-								class="link text-xs hover:underline"
-								onclick={() =>
-									openUrl(
-										`${modRepositoryURL.value}/mods/${published?.modId ?? ""}`,
-									)}
-							>
-								{m.converter_view_online()}
-							</button>
-						</div>
-					{:else}
-						<p class="text-base-content/50 text-xs">
-							{m.converter_publish_manual()}
-							<button
-								class="link hover:underline"
-								onclick={() => openUrl(`${repoHost}/`)}
-							>
-								{m.converter_publish_manual_link()}
-							</button>
-						</p>
-					{/if}
-				</div>
-			</section>
-		{/if}
-
-		<!-- Cook action -->
-		<div class="from-base-100 sticky bottom-0 mt-4 bg-gradient-to-t from-60% pt-4 pb-2">
-			<button
-				class="btn btn-primary btn-lg gap-2"
-				disabled={!canCook || cooking}
-				onclick={cook}
+<!-- One step of the form: numbered, locked until the step before it is done -->
+{#snippet panel(i: number, body: Snippet, aside: Snippet | null = null)}
+	{@const st = steps[i]}
+	{@const status = statusOf(i)}
+	<section
+		id={`step-${st.id}`}
+		class={[
+			"bg-base-200 rounded-box @container scroll-mt-6 border p-4 transition-[opacity,border-color]",
+			st.invalid
+				? "border-error/70"
+				: status === "current"
+					? "border-primary/60"
+					: "border-base-300",
+			status === "locked" && "opacity-50",
+		]}
+		inert={status === "locked"}
+		aria-current={status === "current" ? "step" : undefined}
+	>
+		<div class="mb-3 flex items-center gap-2">
+			<span
+				class={[
+					"flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+					st.invalid
+						? "bg-error text-error-content"
+						: [
+								status === "done" && "bg-success text-success-content",
+								status === "current" && "bg-primary text-primary-content",
+								status === "locked" && "bg-base-300",
+							],
+				]}>{i + 1}</span
 			>
-				{#if cooking}
-					<span class="loading loading-spinner loading-xs"></span>
-					{#if signing}
-						{m.converter_signing()}
-					{:else}
-						{m.converter_cooking()}
-					{/if}
-				{:else}
-					<FlaskConical size={20} />
-					{m.converter_cook()}
-				{/if}
-			</button>
+			<h2 class="text-sm font-semibold">
+				{st.title}
+				{#if !st.required}<span class="text-base-content/50 font-normal"
+						>· {m.converter_step_optional()}</span
+					>{/if}
+			</h2>
+			{#if status === "locked"}
+				<span class="text-base-content/60 ml-auto flex items-center gap-1 text-xs"
+					><Lock size={12} />
+					{m.converter_step_locked({ step: steps[i - 1].title.toLowerCase() })}</span
+				>
+			{:else if aside}<div class="ml-auto">{@render aside()}</div>{/if}
 		</div>
+		{@render body()}
+		{#if i === converter.reached && i > 0 && i < steps.length - 1}
+			<div class="mt-4 flex items-center justify-end gap-3">
+				<span class="text-base-content/50 text-xs">{m.converter_continue_hint()}</span>
+				<button
+					type="button"
+					class="btn btn-primary btn-sm"
+					disabled={!st.valid && st.required}
+					onclick={() => advance(i)}>{m.converter_continue()}</button
+				>
+			</div>
+		{/if}
+	</section>
+{/snippet}
+
+{#snippet filesBody()}
+	{#if converter.sources.length === 0}
+		<button
+			type="button"
+			class={[
+				"rounded-field flex w-full cursor-pointer flex-col items-center gap-1 border-2 border-dashed px-4 py-8 text-center transition-colors",
+				isDraggingConverterFiles.value
+					? "border-primary bg-primary/5"
+					: "border-base-300 hover:border-primary/60",
+			]}
+			onclick={pickFiles}
+		>
+			<FileUp size={28} class="mb-1 opacity-60" />
+			<span class="font-medium">
+				{m.converter_drop_hint({
+					tempest: ".tempest",
+					upk: ".upk",
+					pck: ".pck",
+					ini: ".ini",
+					dll: ".dll",
+					lua: ".lua",
+				})}
+			</span>
+			<span class="text-base-content/60 text-sm">{m.converter_drop_browse_hint()}</span>
+		</button>
+	{:else}
+		<ul class="flex flex-col gap-2">
+			{#each converter.sources as source, sIdx (sIdx)}
+				{@const Icon = source.label.toLowerCase().endsWith(".tempest") ? FileArchive : File}
+				<li class="bg-base-100 border-base-300 rounded-field border p-3">
+					<div class="flex items-center gap-3">
+						<Icon size={20} class="text-primary shrink-0" />
+						<div class="min-w-0 flex-1">
+							<p class="truncate font-mono text-sm">{source.label}</p>
+							<p class="text-base-content/60 text-xs">
+								{source.files.length}
+								{m.downloads_files({ count: source.files.length })} · {fmtSize(
+									source.files.reduce((n, f) => n + f.data.length, 0),
+								)}
+							</p>
+						</div>
+						<button
+							type="button"
+							class="btn btn-ghost btn-sm btn-square"
+							aria-label={m.common_remove()}
+							onclick={() => removeSource(sIdx)}
+						>
+							<X size={14} />
+						</button>
+					</div>
+					<div class="mt-2 flex flex-col gap-1">
+						{#each source.files as file, fIdx}
+							<input
+								type="text"
+								class="input input-xs w-full min-w-0 font-mono"
+								value={file.path}
+								spellcheck="false"
+								oninput={(e) => updateTargetPath(sIdx, fIdx, e.currentTarget.value)}
+							/>
+						{/each}
+					</div>
+				</li>
+			{/each}
+		</ul>
+		<button
+			type="button"
+			class={[
+				"rounded-field mt-2 flex w-full cursor-pointer items-center justify-center gap-2 border-2 border-dashed px-3 py-2 text-sm transition-colors",
+				isDraggingConverterFiles.value
+					? "border-primary bg-primary/5"
+					: "border-base-300 text-base-content/60 hover:border-primary/60",
+			]}
+			onclick={pickFiles}
+		>
+			<Plus size={14} />
+			{m.converter_drop_more()}
+		</button>
+	{/if}
+	<p class="text-base-content/60 mt-2 flex items-center gap-2 text-xs">
+		{#if importingLabel}
+			<span class="loading loading-spinner loading-xs"></span>
+			{m.converter_importing({ name: importingLabel })}
+		{:else if totalFiles > 0}
+			{m.converter_files_count({
+				files: `${totalFiles} ${m.downloads_files({ count: totalFiles })}`,
+				sources: `${converter.sources.length} ${m.converter_sources({ count: converter.sources.length })}`,
+			})}
+		{:else}
+			{m.converter_files_hint()}
+		{/if}
+	</p>
+{/snippet}
+
+{#snippet detailsBody()}
+	<div class="grid gap-3 @lg:grid-cols-2">
+		<label class="flex flex-col gap-1 @lg:col-span-2">
+			<span class="text-base-content/60 text-xs">{m.converter_mod_name_label()}</span>
+			<input
+				class="input input-sm w-full"
+				placeholder={m.converter_mod_name_placeholder()}
+				bind:value={converter.modName}
+			/>
+		</label>
+		<label class="flex flex-col gap-1">
+			<span class="text-base-content/60 text-xs">{m.converter_mod_id_label()}</span>
+			<input
+				class="input input-sm w-full font-mono"
+				placeholder={m.converter_mod_id_placeholder()}
+				spellcheck="false"
+				aria-invalid={idError}
+				aria-describedby={idError ? "mod-id-error" : undefined}
+				bind:value={converter.modId}
+				oninput={() => (converter.idTouched = true)}
+			/>
+		</label>
+		<label class="flex flex-col gap-1">
+			<span class="text-base-content/60 text-xs">{m.common_version()}</span>
+			<input
+				class="input input-sm w-full font-mono"
+				placeholder={m.converter_version_placeholder()}
+				spellcheck="false"
+				aria-invalid={!versionValid}
+				aria-describedby={versionValid ? undefined : "mod-version-error"}
+				bind:value={converter.modVersion}
+			/>
+		</label>
+		{#if idError}
+			<FieldError
+				id="mod-id-error"
+				class="@lg:col-span-2"
+				title={m.converter_mod_id_invalid_title({ id: converter.modId.trim() })}
+				message={m.converter_mod_id_invalid()}
+			/>
+		{:else}
+			<p class="text-base-content/60 -mt-1 text-xs @lg:col-span-2">
+				{m.converter_mod_id_hint()}
+			</p>
+		{/if}
+		{#if !versionValid}
+			<FieldError
+				id="mod-version-error"
+				class="@lg:col-span-2"
+				title={m.converter_version_invalid_title({ version: converter.modVersion.trim() })}
+				message={m.converter_version_invalid()}
+				fix={versionSuggestion
+					? {
+							label: m.converter_version_suggestion({ version: versionSuggestion }),
+							apply: () => (converter.modVersion = versionSuggestion ?? ""),
+						}
+					: undefined}
+			/>
+		{/if}
+		<div class="flex flex-col gap-1 @lg:col-span-2">
+			<span class="text-base-content/60 flex items-center justify-between text-xs">
+				<span>{m.converter_authors_label()}</span>
+				<button type="button" class="btn btn-ghost btn-xs" onclick={addAuthor}>
+					<Plus size={12} />
+					{m.common_add()}
+				</button>
+			</span>
+			{#each converter.authors as author, i}
+				<div class="flex items-center gap-2">
+					<input
+						class="input input-sm min-w-0 flex-1"
+						placeholder={m.converter_author_name_placeholder()}
+						value={author.name}
+						oninput={(e) => updateAuthor(i, "name", e.currentTarget.value)}
+					/>
+					<input
+						class="input input-sm min-w-0 flex-1"
+						placeholder={m.converter_author_link_placeholder()}
+						value={author.link}
+						oninput={(e) => updateAuthor(i, "link", e.currentTarget.value)}
+					/>
+					<button
+						type="button"
+						class="btn btn-ghost btn-sm btn-square shrink-0"
+						aria-label={m.common_remove()}
+						onclick={() => removeAuthor(i)}
+					>
+						<X size={14} />
+					</button>
+				</div>
+			{/each}
+		</div>
+	</div>
+{/snippet}
+
+{#snippet listingBody()}
+	<div class="grid gap-3 @lg:grid-cols-2">
+		<label class="flex flex-col gap-1 @lg:col-span-2">
+			<span class="text-base-content/60 flex justify-between text-xs"
+				><span>{m.converter_summary_label()}</span><span
+					>{converter.summary.length}/{MAX_SUMMARY}</span
+				></span
+			>
+			<input
+				class="input input-sm w-full"
+				placeholder={m.converter_summary_placeholder()}
+				maxlength={MAX_SUMMARY}
+				bind:value={converter.summary}
+			/>
+		</label>
+		<label class="flex flex-col gap-1">
+			<span class="text-base-content/60 text-xs">{m.converter_kind_label()}</span>
+			<select
+				class="select select-sm w-full"
+				bind:value={converter.kind}
+				onchange={() => (converter.kindTouched = true)}
+			>
+				<option value="assets">{m.repo_kind_assets()}</option>
+				<option value="scripts">{m.repo_kind_scripts()}</option>
+				<option value="native">{m.repo_kind_native()}</option>
+			</select>
+		</label>
+		<label class="flex flex-col gap-1">
+			<span class="text-base-content/60 text-xs">{m.converter_tags_label()}</span>
+			<input
+				class="input input-sm w-full"
+				placeholder={m.converter_tags_placeholder()}
+				bind:value={converter.tags}
+			/>
+		</label>
+		<label class="flex flex-col gap-1 @lg:col-span-2">
+			<span class="text-base-content/60 text-xs">{m.converter_dependencies_label()}</span>
+			<textarea
+				class="textarea textarea-sm min-h-16 w-full font-mono"
+				placeholder={m.converter_dependencies_placeholder()}
+				bind:value={converter.dependencies}></textarea>
+			<span class="text-base-content/60 text-xs">{m.converter_dependencies_hint()}</span>
+		</label>
+		<p class="text-base-content/60 text-xs @lg:col-span-2">{m.converter_listing_hint()}</p>
+	</div>
+{/snippet}
+
+{#snippet extrasBody()}
+	<div class="grid gap-3 @lg:grid-cols-[8rem_minmax(0,1fr)]">
+		<div class="flex flex-col gap-1">
+			<span class="text-base-content/60 text-xs">{m.converter_icon_label()}</span>
+			{#if converter.icon && iconUrl}
+				<div class="rounded-field bg-base-300 relative aspect-square w-32 overflow-hidden">
+					<img
+						src={iconUrl}
+						alt={converter.icon.name}
+						title={converter.icon.name}
+						class="h-full w-full object-cover"
+					/>
+					<button
+						type="button"
+						class="btn btn-circle btn-xs absolute top-1 right-1"
+						aria-label={m.converter_icon_clear()}
+						onclick={() => (converter.icon = null)}><X size={12} /></button
+					>
+				</div>
+			{:else}
+				<button
+					type="button"
+					class="border-base-300 hover:border-primary/60 rounded-field text-base-content/60 flex aspect-square w-32 cursor-pointer flex-col items-center justify-center gap-1 border-2 border-dashed text-xs transition-colors"
+					onclick={pickIcon}
+				>
+					<ImagePlus size={18} />
+					<span>{m.converter_icon_pick()}</span>
+				</button>
+			{/if}
+			<span class="text-base-content/60 text-xs">{m.converter_icon_hint()}</span>
+		</div>
+		<label class="flex flex-col gap-1">
+			<span class="text-base-content/60 text-xs">{m.converter_readme_label()}</span>
+			<textarea
+				class="textarea textarea-sm min-h-32 w-full flex-1"
+				placeholder={m.converter_readme_placeholder()}
+				bind:value={converter.readmeContent}></textarea>
+		</label>
+	</div>
+{/snippet}
+
+{#snippet checklist()}
+	<ol class="flex flex-col gap-0.5 text-sm">
+		{#each steps as st, i (st.id)}
+			{@const status = statusOf(i)}
+			<li>
+				<button
+					type="button"
+					class={[
+						"rounded-field flex w-full items-center gap-2 px-2 py-1 text-left",
+						status === "locked" ? "text-base-content/40" : "hover:bg-base-300",
+						st.invalid
+							? "bg-error/10 text-error font-medium"
+							: status === "current" && "bg-primary/10 font-medium",
+					]}
+					disabled={status === "locked"}
+					onclick={() => scrollToStep(i)}
+				>
+					{#if st.invalid}<XCircle size={14} />
+					{:else if status === "done"}<CircleCheck size={14} class="text-success" />
+					{:else if status === "locked"}<Lock size={14} />
+					{:else}<Circle size={14} class="text-primary" />{/if}
+					{st.title}
+					{#if !st.required}<span class="text-base-content/40 ml-auto text-xs font-normal"
+							>{m.converter_step_optional()}</span
+						>{/if}
+				</button>
+			</li>
+		{/each}
+	</ol>
+{/snippet}
+
+<!-- What came of cooking: the signed package and what to do with it, or why it failed -->
+{#snippet outcome()}
+	{#if cookError}
+		<div
+			role="alert"
+			class="border-error/40 bg-error/10 rounded-box border p-3 text-sm wrap-anywhere"
+		>
+			<p class="flex items-start gap-2 font-semibold">
+				<XCircle size={16} class="text-error mt-0.5 shrink-0" />
+				{m.converter_cook_failed()}
+			</p>
+			<p class="text-base-content/80 mt-2">{cookError}</p>
+		</div>
+	{/if}
+	{#if converter.cooked && stale}
+		<div class="border-warning/40 bg-warning/10 rounded-box border p-3 text-sm">
+			<p class="flex items-start gap-2 font-semibold">
+				<TriangleAlert size={16} class="text-warning mt-0.5 shrink-0" />
+				{m.converter_cooked_stale_title()}
+			</p>
+			<p class="text-base-content/80 mt-2">{m.converter_cooked_stale_hint()}</p>
+		</div>
+	{:else if converter.cooked}
+		<div
+			class="border-success/40 bg-success/10 rounded-box flex flex-col gap-3 border p-3 text-sm wrap-anywhere"
+		>
+			<div>
+				<p class="flex items-start gap-2 font-semibold">
+					<CheckCircle2 size={16} class="text-success mt-0.5 shrink-0" />
+					{m.converter_package_ready()}
+				</p>
+				<p class="mt-2">
+					<span class="font-mono">{converter.modId}</span>
+					v{converter.modVersion || "1.0.0"}
+					<span class="text-base-content/60">· {fmtSize(converter.cooked.size)}</span>
+				</p>
+				{#if converter.cooked.signer}
+					<p class="text-base-content/60 mt-0.5 font-mono text-xs">
+						{m.converter_signed_by({ signer: converter.cooked.signer })}
+					</p>
+				{/if}
+			</div>
+			<div class="flex flex-col gap-2">
+				{#if publishingEnabled}
+					<button
+						type="button"
+						class="btn btn-primary btn-sm w-full"
+						onclick={() => (showPublish = true)}
+					>
+						<Upload size={14} />
+						{m.converter_publish_btn()}
+					</button>
+				{/if}
+				<button type="button" class="btn btn-sm w-full" onclick={download}>
+					<FolderOpen size={14} />
+					{m.converter_download()}
+				</button>
+				<button
+					type="button"
+					class="btn btn-sm w-full"
+					disabled={installingLabel !== null}
+					onclick={addToInstance}
+				>
+					<File size={14} />
+					{m.converter_add_to_instance()}
+				</button>
+			</div>
+			{#if publishingEnabled && published?.state === "done" && published.modId}
+				<p class="text-base-content/80">
+					{published.version
+						? m.converter_publish_done({
+								id: published.modId,
+								version: published.version,
+							})
+						: m.converter_toast_published_title()} ·
+					<button
+						type="button"
+						class="link"
+						onclick={() =>
+							openUrl(`${modRepositoryURL.value}/mods/${published?.modId ?? ""}`)}
+					>
+						{m.converter_view_online()}
+					</button>
+				</p>
+			{:else}
+				<p class="text-base-content/70 text-xs">
+					{m.converter_publish_manual()}
+					<button type="button" class="link" onclick={() => openUrl(`${repoHost}/`)}>
+						{m.converter_publish_manual_link()}
+					</button>
+				</p>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+<svelte:window onkeydown={onKeydown} />
+
+<div class="@container h-full overflow-y-auto">
+	<div
+		class="mx-auto grid w-full max-w-6xl items-start gap-4 px-4 py-6 @3xl:grid-cols-[minmax(0,1fr)_18rem]"
+	>
+		<div class="flex min-w-0 flex-col gap-4">
+			{@render panel(0, filesBody)}
+			{@render panel(1, detailsBody)}
+			{@render panel(2, listingBody)}
+			{@render panel(3, extrasBody)}
+		</div>
+		<aside class="flex flex-col gap-3 @3xl:sticky @3xl:top-6">
+			<div class="bg-base-200 border-base-300 rounded-box flex flex-col gap-3 border p-4">
+				<nav aria-label={m.converter_steps()}>{@render checklist()}</nav>
+				<button
+					type="button"
+					class="btn btn-primary w-full"
+					disabled={!ready || cooking}
+					title={!ready && blocker
+						? m.converter_cook_blocked({ step: blocker })
+						: undefined}
+					onclick={cook}
+				>
+					{#if cooking}<span class="loading loading-spinner loading-xs"></span>{/if}
+					{cooking
+						? signing
+							? m.converter_signing()
+							: m.converter_cooking()
+						: m.converter_cook()}
+				</button>
+				{#if totalFiles > 0 || converter.reached > 0}
+					<div class="flex justify-end">
+						<button
+							type="button"
+							class={["btn btn-xs", confirmReset ? "btn-error" : "btn-ghost"]}
+							disabled={cooking}
+							onclick={startOver}
+							><RotateCcw size={12} />
+							{confirmReset
+								? m.converter_start_over_confirm()
+								: m.converter_start_over()}</button
+						>
+					</div>
+				{/if}
+			</div>
+			{@render outcome()}
+		</aside>
 	</div>
 </div>
 

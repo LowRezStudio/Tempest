@@ -1,94 +1,41 @@
 <script lang="ts">
-	import { MousePointerClick, Pin } from "@lucide/svelte";
-	import { fade } from "svelte/transition";
-	import HomeFloatingActions from "$lib/components/home/HomeFloatingActions.svelte";
-	import { m } from "$lib/paraglide/messages";
-	import { pinnedBackground } from "$lib/stores/settings.svelte";
+	import HomeCommunity from "$lib/components/home/HomeCommunity.svelte";
+	import HomeHero from "$lib/components/home/HomeHero.svelte";
+	import HomeNews from "$lib/components/home/HomeNews.svelte";
+	import HomeReleaseNotes from "$lib/components/home/HomeReleaseNotes.svelte";
+	import { lastLaunchedInstance, orderedInstances } from "$lib/stores/instance.svelte";
+	import type { Instance } from "$lib/types/instance";
 
-	const backgrounds = Object.keys(import.meta.glob("/static/loading-screens/*.avif")).map((img) =>
-		img.replace("/static", ""),
-	);
+	const playable = (instance: Instance) =>
+		instance.state.type === "prepared" || instance.state.type === "setup";
 
-	const getRandomBackground = () => backgrounds[Math.floor(Math.random() * backgrounds.length)];
-
-	let currentBackground = $state(pinnedBackground.value || getRandomBackground());
-
-	// True while the home page shows exactly the background persisted as pinned.
-	let isPinned = $derived(pinnedBackground.value === currentBackground);
-
-	// Flashes the left-click hint icon blue briefly after each background cycle.
-	let clickFlash = $state(false);
-	let clickFlashTimer: ReturnType<typeof setTimeout> | undefined;
-
-	function changeBackground() {
-		if (pinnedBackground.value) return;
-		if (backgrounds.length <= 1) return;
-		let next = getRandomBackground();
-		while (next === currentBackground) {
-			next = getRandomBackground();
+	// The last launched instance, else the last played one, else the first in library order.
+	const featured = $derived.by(() => {
+		const last = lastLaunchedInstance.value;
+		if (last && playable(last)) return last;
+		let best: Instance | undefined;
+		for (const instance of orderedInstances.value.filter(playable)) {
+			if (!best || (instance.lastPlayedAt ?? 0) > (best.lastPlayedAt ?? 0)) best = instance;
 		}
-		currentBackground = next;
-
-		clearTimeout(clickFlashTimer);
-		clickFlash = true;
-		clickFlashTimer = setTimeout(() => (clickFlash = false), 200);
-	}
-
-	function pinBackground(event: MouseEvent) {
-		event.preventDefault();
-		pinnedBackground.value = isPinned ? undefined : currentBackground;
-	}
+		return best;
+	});
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<div
-	class="no-drag-select absolute inset-0 z-0 overflow-hidden select-none"
-	role="button"
-	tabindex="-1"
-	onclick={changeBackground}
-	oncontextmenu={pinBackground}
-	ondragstart={(e) => e.preventDefault()}
-	onselectstart={(e) => e.preventDefault()}
->
-	{#key currentBackground}
-		<img
-			transition:fade={{ duration: 300 }}
-			class="no-drag-select pointer-events-none absolute inset-0 h-full w-full object-cover object-center brightness-75 select-none"
-			src={currentBackground}
-			alt="background"
-			draggable="false"
-			ondragstart={(e) => e.preventDefault()}
-			onselectstart={(e) => e.preventDefault()}
-		/>
-	{/key}
-</div>
-
-<div class="pointer-events-none relative top-0 left-0 z-10 h-full p-2"></div>
-
-<div class="fixed top-8 right-8 z-40 flex flex-col items-end gap-1.5 select-none">
-	<div
-		class="bg-base-200/30 text-base-content/60 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs backdrop-blur-sm"
-	>
-		<MousePointerClick
-			size={14}
-			class={`shrink-0 opacity-60 ${clickFlash ? "text-info" : ""}`}
-		/>
-		<span>{m.home_background_change()}</span>
-	</div>
-	<div
-		class="bg-base-200/30 text-base-content/60 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs backdrop-blur-sm"
-	>
-		<Pin size={14} class={`shrink-0 opacity-60 ${isPinned ? "text-info" : ""}`} />
-		<span>{m.home_background_pin()}</span>
+<!-- After the mod website's landing page: a hero with the way in, then what's new -->
+<div class="h-full">
+	<div class="@container h-full scrollbar-gutter-stable overflow-y-auto">
+		<!-- The hero takes whatever height the cards leave, so the page fits the window -->
+		<div class="flex min-h-full w-full flex-col gap-6 py-6 pr-2 pl-6">
+			<div class="flex min-w-0 flex-1 flex-col gap-4">
+				{#key featured?.id}
+					<HomeHero instance={featured} instances={orderedInstances.value} />
+				{/key}
+			</div>
+			<div class="grid items-stretch gap-4 @4xl:grid-cols-3">
+				<HomeNews />
+				<HomeReleaseNotes />
+				<HomeCommunity />
+			</div>
+		</div>
 	</div>
 </div>
-
-<HomeFloatingActions />
-
-<style>
-	.no-drag-select {
-		-webkit-user-select: none !important;
-		-webkit-user-drag: none !important;
-		user-select: none !important;
-	}
-</style>

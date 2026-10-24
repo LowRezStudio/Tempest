@@ -152,7 +152,7 @@
 	{/if}
 {/snippet}
 
-<div class="bg-base-100 flex h-full flex-col">
+<div class="flex h-full flex-col">
 	{#if isInChampionSelect.value}
 		<div class="relative h-full w-full">
 			<LobbyChampionSelect

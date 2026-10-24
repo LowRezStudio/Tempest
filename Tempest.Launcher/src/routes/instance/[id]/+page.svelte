@@ -1,46 +1,27 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
-	import {
-		Check,
-		ChevronDown,
-		EllipsisVertical,
-		FolderOpen,
-		Gamepad2,
-		PackageOpen,
-		Play,
-		Plus,
-		SlidersHorizontal,
-		Square,
-		Terminal,
-	} from "@lucide/svelte";
-	import InstanceMenu from "$lib/components/library/InstanceMenu.svelte";
+	import { Download } from "@lucide/svelte";
+	import { fade } from "svelte/transition";
+	import InstanceHeader from "$lib/components/library/InstanceHeader.svelte";
 	import InstancePresetsTab from "$lib/components/library/InstancePresetsTab.svelte";
-	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
-	import InstanceSettingsForm from "$lib/components/library/InstanceSettingsForm.svelte";
-	import InstanceModTable from "$lib/components/mods/InstanceModTable.svelte";
+	import InstanceSettings from "$lib/components/library/InstanceSettings.svelte";
+	import InstanceModActions from "$lib/components/mods/InstanceModActions.svelte";
+	import InstanceModList from "$lib/components/mods/InstanceModList.svelte";
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
 	import RepoBrowser from "$lib/components/mods/RepoBrowser.svelte";
 	import RepoModModal from "$lib/components/mods/RepoModModal.svelte";
 	import RepoUpdatesModal from "$lib/components/mods/RepoUpdatesModal.svelte";
-	import EmptyState from "$lib/components/ui/EmptyState.svelte";
-	import Header from "$lib/components/ui/Header.svelte";
-	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
-	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
-	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
-	import { activePreset, launchArgs, launchPresets } from "$lib/core/presets";
-	import { installFromRepo } from "$lib/mods/repoInstall";
+	import { isDraggingFiles } from "$lib/mods/drop.svelte";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
-	import { openPath } from "$lib/platform/api";
-	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
 	import { createRepoUpdatesQuery } from "$lib/queries/repo";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
-	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
+	import { modDeveloper } from "$lib/stores/settings.svelte";
+	import { addToast } from "$lib/stores/ui.svelte";
 	import type { ModRecord } from "$lib/core/mods";
-	import type { LaunchPreset } from "$lib/types/instance";
 
 	type Tab = "content" | "browse" | "presets" | "settings";
 	let activeTab = $state<Tab>("content");
@@ -48,15 +29,13 @@
 	// Deep-link support: /instance/<id>?tab=settings (or browse/presets) opens directly there.
 	$effect(() => {
 		const tab = page.url.searchParams.get("tab");
-		activeTab = tab === "settings" || tab === "browse" || tab === "presets" ? tab : "content";
+		activeTab =
+			tab === "settings" || tab === "browse" || (tab === "presets" && modDeveloper.value)
+				? tab
+				: "content";
 	});
 
 	const instance = $derived(instanceMap.value[page.params.id!]);
-	let instanceArgs = $derived(instance ? launchArgs(instance) : []);
-	const selectedPreset = $derived(instance ? activePreset(instance) : undefined);
-	let isSettingUp = $derived(
-		(instance?.state as { type?: string } | undefined)?.type === "setup",
-	);
 	let isReady = $derived(instance?.state?.type === "prepared");
 
 	const { installMods: handleInstallMod } = useInstallMods(() => instance?.path);
@@ -64,7 +43,9 @@
 	const modsQuery = createModsQuery(() => instance?.path ?? "");
 	let modsList = $derived(modsQuery.data ?? []);
 	let isInitialLoading = $derived(modsQuery.isPending);
-	let isQueryLoading = $derived(modsQuery.isFetching);
+	// Only a manual refresh spins the button; background resyncs after edits stay silent.
+	let isRefreshingMods = $state(false);
+	let modSearch = $state("");
 
 	const removeModMutation = createRemoveModMutation();
 
@@ -76,28 +57,27 @@
 			.map((mod) => ({ id: mod.Id, version: mod.Version })),
 	}));
 	const updates = $derived(new Map((updatesQuery.data ?? []).map((u) => [u.id, u])));
-
-	async function handleUpdateMod(mod: ModRecord) {
-		const update = updates.get(mod.Id);
-		if (!instance || !update?.latest) return;
-		await installFromRepo(instance.path, mod.Id, update.latest.version, mod.Name, {
-			replace: true,
-		});
-	}
+	const updateCount = $derived([...updates.values()].filter((u) => u.updateAvailable).length);
 
 	// Mod details from the repository (readme, versions, downgrade), opened from the table or the Browse tab.
 	let repoModId = $state<string | null>(null);
 	let repoModOpen = $state(false);
-	function openRepoMod(modId: string) {
+	let repoModTab = $state<"readme" | "versions" | "files">("readme");
+	function openRepoMod(modId: string, tab: "readme" | "versions" = "readme") {
 		repoModId = modId;
+		repoModTab = tab;
 		repoModOpen = true;
 	}
 
-	// One popup per instance per session when updates are found.
+	// One popup per instance per session when updates are found, from the first check after
+	// opening the instance only: rechecks after installs or downgrades made here stay silent.
 	let updatesOpen = $state(false);
+	let updatesCheckedFor: string | undefined;
 	$effect(() => {
+		if (!instance || !updatesQuery.isSuccess || updatesCheckedFor === instance.id) return;
+		updatesCheckedFor = instance.id;
 		const available = [...updates.values()].filter((u) => u.updateAvailable);
-		if (!instance || available.length === 0) return;
+		if (available.length === 0) return;
 		const key = `repo-updates-shown:${instance.id}:${available
 			.map((u) => `${u.id}@${u.latest?.version}`)
 			.sort()
@@ -113,11 +93,22 @@
 
 	function handleRemoveMod(modName: string) {
 		if (!instance) return;
-		removeModMutation.mutate({ gamePath: instance.path, modName });
+		removeModMutation.mutate(
+			{ gamePath: instance.path, modName },
+			{
+				onError: (error) =>
+					addToast({ message: `${modName}: ${error.message}`, tone: "error" }),
+			},
+		);
 	}
 
-	function handleRefreshMods() {
-		modsQuery.refetch();
+	async function handleRefreshMods() {
+		isRefreshingMods = true;
+		try {
+			await modsQuery.refetch();
+		} finally {
+			isRefreshingMods = false;
+		}
 	}
 
 	$effect(() => {
@@ -126,49 +117,8 @@
 		}
 	});
 
-	// Check if this instance is currently running
-	let windowCount = $derived(
-		processesList.value.filter((p) => p.instance?.id === instance?.id).length,
-	);
-	let isRunning = $derived(windowCount > 0);
-	const launchGameMutation = createLaunchGameMutation();
-	const killGameMutation = createKillGameMutation();
-	let isLaunching = $derived(launchGameMutation.isPending);
-	let isKilling = $derived(killGameMutation.isPending);
-	let launchError = $derived(launchGameMutation.error?.message ?? "");
-	let killError = $derived(killGameMutation.error?.message ?? "");
-
-	function handleLaunchToggle() {
-		if (!instance) return;
-		if (isRunning) {
-			killGameMutation.mutate(instance);
-			return;
-		}
-		launchGameMutation.mutate(instance);
-	}
-
-	// Picking a preset launches straight away with it (on top of the Settings
-	// arguments) without making it the default preset the Play button uses.
-	function handleLaunchPreset(preset: LaunchPreset) {
-		if (!instance) return;
-		launchGameMutation.mutate({
-			...instance,
-			launchOptions: { ...instance.launchOptions, presetId: preset.id },
-		});
-	}
-
-	function clearLaunchError() {
-		launchGameMutation.reset();
-	}
-
-	function clearKillError() {
-		killGameMutation.reset();
-	}
-
-	async function handleOpenInstanceFolder() {
-		if (!instance?.path) return;
-		await openPath(instance.path);
-	}
+	let isRunning = $derived(processesList.value.some((p) => p.instance?.id === instance?.id));
+	const takesDrops = $derived(activeTab === "content" && isReady);
 
 	let isFilesDialogOpen = $state(false);
 	let selectedModForFiles = $state<ModRecord | null>(null);
@@ -178,172 +128,52 @@
 	}
 </script>
 
-<div class="bg-base-100 flex h-full flex-col">
-	<!-- Header -->
-	<Header
-		title={instance?.label || m.common_loading()}
-		tabs={[
-			{ name: m.instance_content(), value: "content" },
-			{ name: m.instance_browse(), value: "browse" },
-			{ name: m.instance_presets(), value: "presets" },
-			{ name: m.settings_title(), value: "settings" },
-		]}
-		{activeTab}
-		onSelectTab={(tab) => (activeTab = tab)}
-		iconBg={getInstanceColor(instance)}
-	>
-		{#snippet icon()}
-			{#if isSettingUp}
-				<span
-					class="loading loading-spinner loading-md"
-					style="color: {getContrastColor(getInstanceColor(instance))};"
-				></span>
-			{:else}
-				<PaladinsIcon size="3.25rem" color={getContrastColor(getInstanceColor(instance))} />
-			{/if}
-		{/snippet}
-		{#snippet actions()}
-			{#if instance}
-				<InstanceSessionControls
-					{instance}
-					busy={isLaunching || isKilling}
-					variant="header"
-				/>
-			{/if}
-			<div class="join">
-				<button
-					class="btn join-item text-sm"
-					class:btn-primary={!isRunning}
-					class:btn-error={isRunning}
-					disabled={isLaunching || isKilling || isSettingUp}
-					aria-busy={isLaunching || isKilling || isSettingUp}
-					onclick={handleLaunchToggle}
-				>
-					{#if isLaunching}
-						<span class="loading loading-spinner loading-xs"></span>
-						{m.common_launching()}
-					{:else if isKilling}
-						<span class="loading loading-spinner loading-xs"></span>
-						{m.common_stopping_label()}
-					{:else if isRunning}
-						<Square size={16} />
-						{windowCount > 1 ? m.sessions_stop_all() : m.common_stop()}
-					{:else}
-						<Play size={16} />
-						<span class="max-w-40 truncate">
-							{selectedPreset
-								? selectedPreset.title || m.instance_preset_untitled()
-								: m.common_play()}
-						</span>
-					{/if}
-				</button>
-				{#if instance}
-					<PopoverMenu
-						triggerClass="btn join-item btn-square"
-						triggerLabel={m.instance_presets()}
-					>
-						{#snippet trigger()}
-							<ChevronDown size={16} />
-						{/snippet}
-						{#snippet children()}
-							{#each launchPresets(instance) as preset (preset.id)}
-								<PopoverMenuItem
-									onclick={() => handleLaunchPreset(preset)}
-									disabled={isLaunching || isSettingUp}
-									title={preset.args.join(" ")}
-								>
-									<span class="flex w-4 shrink-0 justify-center">
-										{#if selectedPreset?.id === preset.id}
-											<Check size={14} />
-										{/if}
-									</span>
-									<span class="flex-1 truncate">
-										{preset.title || m.instance_preset_untitled()}
-									</span>
-								</PopoverMenuItem>
-							{/each}
-							{#if launchPresets(instance).length > 0}
-								<li
-									role="separator"
-									class="border-base-content/10 my-1 border-t"
-								></li>
-							{/if}
-							<PopoverMenuItem onclick={() => (activeTab = "presets")}>
-								<SlidersHorizontal size={16} />
-								{m.instance_preset_manage()}
-							</PopoverMenuItem>
-						{/snippet}
-					</PopoverMenu>
-				{/if}
-			</div>
-			<button
-				class="btn btn-square"
-				disabled={!instance?.path}
-				onclick={handleOpenInstanceFolder}
+{#snippet modActions()}
+	<InstanceModActions bind:query={modSearch} />
+{/snippet}
+
+<!-- On the Mods tab the whole page takes dropped mod files -->
+<div class="relative flex h-full flex-col" data-mod-drop={takesDrops ? "" : undefined}>
+	{#if takesDrops && isDraggingFiles.value}
+		<div
+			class="rounded-box border-primary/60 bg-base-100/85 pointer-events-none absolute inset-3 z-40 flex flex-col items-center justify-center gap-2 border-2 border-dashed backdrop-blur-sm"
+			transition:fade={{ duration: 120 }}
+		>
+			<div
+				class="bg-primary/10 text-primary mb-1 flex size-14 items-center justify-center rounded-2xl"
 			>
-				<FolderOpen size={16} />
-			</button>
-			{#if isReady}
-				<button class="btn btn-square" onclick={handleInstallMod}>
-					<Plus size={16} />
-				</button>
-			{/if}
-			{#if instance}
-				<InstanceMenu {instance}>
-					{#snippet trigger()}
-						<button class="btn btn-square">
-							<EllipsisVertical size={16} />
-						</button>
-					{/snippet}
-				</InstanceMenu>
-			{/if}
-		{/snippet}
-		{#snippet subtitle()}
-			<div class="flex items-center gap-1.5">
-				<Gamepad2 size={14} />
-				<span>{instance?.version || m.common_unknown_version()}</span>
-				{#if instanceArgs.length > 0}
-					<div
-						class="ml-1.5 flex min-w-0 items-center gap-1"
-						title={instanceArgs.join(" ")}
-					>
-						<Terminal size={14} class="shrink-0" />
-						<span class="max-w-[350px] truncate font-mono text-xs">
-							{instanceArgs.join(" ")}
-						</span>
-					</div>
-				{/if}
+				<Download size={26} />
 			</div>
-		{/snippet}
-		{#snippet errors()}
-			{#if launchError}
-				<div class="pt-3">
-					<div class="alert alert-error">
-						<span>{launchError}</span>
-						<button class="btn btn-ghost btn-sm" onclick={clearLaunchError}>
-							{m.common_dismiss()}
-						</button>
-					</div>
-				</div>
-			{/if}
-			{#if killError}
-				<div class="pt-3">
-					<div class="alert alert-error">
-						<span>{killError}</span>
-						<button class="btn btn-ghost btn-sm" onclick={clearKillError}>
-							{m.common_dismiss()}
-						</button>
-					</div>
-				</div>
-			{/if}
-		{/snippet}
-	</Header>
+			<p class="text-lg font-semibold">{m.mods_drop_title()}</p>
+			<p class="text-base-content/60 text-sm">
+				{m.mods_drop_hint({ name: instance?.label ?? "" })}
+			</p>
+		</div>
+	{/if}
+	{#if instance}
+		<InstanceHeader
+			{instance}
+			tabs={[
+				{ name: m.instance_content(), value: "content", count: modsQuery.data?.length },
+				{ name: m.instance_browse(), value: "browse" },
+				...(modDeveloper.value
+					? [{ name: m.instance_presets(), value: "presets" as const }]
+					: []),
+				{ name: m.settings_title(), value: "settings" },
+			]}
+			bind:activeTab
+			{updateCount}
+			onShowUpdates={() => (updatesOpen = true)}
+			onManagePresets={() => (activeTab = "presets")}
+			actions={activeTab === "content" && modsList.length > 0 ? modActions : undefined}
+		/>
+	{/if}
 
 	<!-- Content Area -->
-	<div class="bg-base-100 flex flex-1 flex-col overflow-hidden">
+	<div class="flex flex-1 flex-col overflow-hidden">
 		{#if activeTab === "content"}
 			<div class="flex-1 [scrollbar-gutter:stable] overflow-y-auto">
-				<div class="px-4 py-6">
+				<div class="px-4 pt-3 pb-6">
 					{#if isInitialLoading}
 						<div
 							class="flex h-80 flex-col items-center justify-center gap-4 text-center"
@@ -353,39 +183,22 @@
 								{m.common_loading()}
 							</p>
 						</div>
-					{:else}
-						<InstanceModTable
+					{:else if instance}
+						<InstanceModList
 							mods={modsList}
-							gamePath={instance?.path ?? ""}
+							gamePath={instance.path}
+							bind:query={modSearch}
+							{isReady}
 							{isRunning}
-							isLoading={isQueryLoading}
-							isRemoving={removeModMutation.isPending}
+							isLoading={isRefreshingMods}
+							{updates}
 							onRefresh={handleRefreshMods}
 							onRemoveMod={handleRemoveMod}
-							onOpenDetails={handleOpenFiles}
-							{updates}
-							onUpdateMod={handleUpdateMod}
-							onOpenRepo={(mod) => openRepoMod(mod.Id)}
+							onOpenFiles={handleOpenFiles}
+							onOpenRepo={openRepoMod}
+							onAddMod={handleInstallMod}
+							onDiscover={() => (activeTab = "browse")}
 						/>
-						{#if modsList.length === 0}
-							<EmptyState
-								title={m.instance_no_content()}
-								description={m.instance_drag_import_hint()}
-							>
-								{#snippet icon()}
-									<PackageOpen size={48} />
-								{/snippet}
-								{#snippet actions()}
-									<button
-										class="btn btn-primary btn-sm mt-2"
-										onclick={handleInstallMod}
-									>
-										<PackageOpen size={14} />
-										{m.instancemenu_install_mod()}
-									</button>
-								{/snippet}
-							</EmptyState>
-						{/if}
 					{/if}
 				</div>
 			</div>
@@ -405,7 +218,7 @@
 					{/if}
 				</div>
 			</div>
-		{:else if activeTab === "presets"}
+		{:else if activeTab === "presets" && modDeveloper.value}
 			<div class="flex-1 overflow-y-auto">
 				<div class="p-6">
 					{#if instance}
@@ -413,14 +226,10 @@
 					{/if}
 				</div>
 			</div>
-		{:else if activeTab === "settings"}
-			<div class="flex-1 overflow-y-auto">
-				<div class="p-6">
-					{#if instance}
-						<InstanceSettingsForm {instance} />
-					{/if}
-				</div>
-			</div>
+		{:else if activeTab === "settings" && instance}
+			{#key instance.id}
+				<InstanceSettings {instance} {isRunning} />
+			{/key}
 		{/if}
 	</div>
 </div>
@@ -434,10 +243,12 @@
 {#if instance}
 	<RepoModModal
 		bind:open={repoModOpen}
+		bind:tab={repoModTab}
 		modId={repoModId}
 		gamePath={instance.path}
 		patch={instance.version}
 		installedVersion={modsList.find((mod) => mod.Id === repoModId)?.Version}
+		installedMod={modsList.find((mod) => mod.Id === repoModId)}
 		{isRunning}
 	/>
 	<RepoUpdatesModal

@@ -21,6 +21,10 @@ public class ModRecord
     public bool Verified { get; set; }
     /// <summary>SHA-256 of the mod folder's CHECKSUMS content when it was last verified; pins it against being swapped out.</summary>
     public string ManifestHash { get; set; } = string.Empty;
+    /// <summary>`[mod].dependencies` of the manifest at install time; "tempest" entries are the launcher version requirement.</summary>
+    public List<ModDependency> Dependencies { get; set; } = [];
+    /// <summary>When the mod was first installed (UTC). Updates and reinstalls keep it, so the list stays in the order mods were added.</summary>
+    public DateTime? InstalledAt { get; set; }
 }
 
 public class ModConflictInfo
@@ -47,6 +51,12 @@ public class ModInstallResult
     public bool KeyListOffline { get; set; }
     public List<ModConflictInfo>? ConflictingMods { get; set; }
     public string? NewModName { get; set; }
+    /// <summary>The mod was installed, but these dependencies are not installed and enabled (or not at a version that fits); the launcher offers to install them.</summary>
+    public List<ModDependency>? MissingDependencies { get; set; }
+    /// <summary>The install was refused because the package needs this Tempest version (its "tempest" dependency) and the running one is older.</summary>
+    public string? TempestRequired { get; set; }
+    /// <summary>Repository dependencies installed along with the mod (`mod install &lt;id&gt;`), as "id@version".</summary>
+    public List<string>? InstalledDependencies { get; set; }
 }
 
 public class ModListResult

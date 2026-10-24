@@ -167,7 +167,7 @@ Makes it possible to add players, vote maps and select champions
 	});
 </script>
 
-<div class="bg-base-100 flex h-full flex-col p-6">
+<div class="flex h-full flex-col p-6">
 	<div class="flex items-center gap-3">
 		<button onclick={createNewPlayer} class="btn">New player</button>
 		<p>State {JSON.stringify(lobbyState.value)}</p>

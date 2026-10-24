@@ -1,10 +1,15 @@
 // Mod package file operations: remote downloads, save/stage of cooked packs,
 // "show in explorer" resolution and sandboxed mod file previews.
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { BrowserWindow, dialog, net, shell } from "electron";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { app, BrowserWindow, dialog, net, shell } from "electron";
 import { handle } from "./ipc/handle.js";
+import { parseManifest, readPackageManifest } from "./modPackage.js";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
 
 function toBuffer(data: Uint8Array): Buffer {
 	return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
@@ -17,15 +22,102 @@ export async function stagePack(filename: string, data: Uint8Array): Promise<str
 	return stagedPath;
 }
 
-handle("mods:download-to-temp", async (_event, { url, filename }) => {
+// Repository packages are kept per mod and version so switching back to a version skips the
+// download. Only the newest few per mod stay.
+const CACHED_VERSIONS_PER_MOD = 5;
+const safeSegment = /^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$/;
+
+function cacheDir(modId: string): string {
+	if (!safeSegment.test(modId)) throw new Error(`invalid mod id: ${modId}`);
+	return path.join(app.getPath("userData"), "mod-cache", modId);
+}
+
+async function sha256Of(file: string): Promise<string> {
+	const hash = createHash("sha256");
+	await pipeline(fs.createReadStream(file), hash);
+	return hash.digest("hex");
+}
+
+async function pruneCache(dir: string): Promise<void> {
+	const files = await fs.promises.readdir(dir).catch(() => []);
+	const packages = await Promise.all(
+		files
+			.filter((f) => f.endsWith(".tempest"))
+			.map(async (f) => ({ f, at: (await fs.promises.stat(path.join(dir, f))).mtimeMs })),
+	);
+	packages.sort((a, b) => b.at - a.at);
+	for (const { f } of packages.slice(CACHED_VERSIONS_PER_MOD)) {
+		await fs.promises.rm(path.join(dir, f), { force: true });
+	}
+}
+
+handle("mods:cached-versions", async (_event, { modId }) => {
+	const files = await fs.promises.readdir(cacheDir(modId)).catch(() => [] as string[]);
+	return files.filter((f) => f.endsWith(".tempest")).map((f) => f.slice(0, -".tempest".length));
+});
+
+handle("mods:download-to-temp", async (event, { url, filename, progressId, cache }) => {
+	let dest = path.join(os.tmpdir(), path.basename(filename));
+	if (cache) {
+		if (!safeSegment.test(cache.version)) throw new Error(`invalid version: ${cache.version}`);
+		const dir = cacheDir(cache.modId);
+		dest = path.join(dir, `${cache.version}.tempest`);
+		if (fs.existsSync(dest)) {
+			if (!cache.sha256 || (await sha256Of(dest)) === cache.sha256) {
+				const now = new Date();
+				await fs.promises.utimes(dest, now, now);
+				return dest;
+			}
+			await fs.promises.rm(dest, { force: true });
+		}
+		await fs.promises.mkdir(dir, { recursive: true });
+	}
+
 	// Host-side download: no CORS/CSP involvement, and the bytes never enter
-	// the renderer.
+	// the renderer. Streamed to disk so big packages don't sit in memory; written next to the
+	// target first so an interrupted download never looks like a complete cached package.
 	const response = await net.fetch(url);
-	if (!response.ok) throw new Error(`HTTP ${response.status}`);
-	const dest = path.join(os.tmpdir(), path.basename(filename));
-	await fs.promises.writeFile(dest, Buffer.from(await response.arrayBuffer()));
+	if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+	const partial = `${dest}.part`;
+	const total = Number(response.headers.get("content-length")) || null;
+	let received = 0;
+	let lastReport = 0;
+	const report = () => {
+		if (progressId && !event.sender.isDestroyed()) {
+			event.sender.send("mods:download-progress", { id: progressId, received, total });
+		}
+	};
+	const counter = new Transform({
+		transform(chunk: Buffer, _encoding, done) {
+			received += chunk.length;
+			const now = Date.now();
+			if (now - lastReport >= 100) {
+				lastReport = now;
+				report();
+			}
+			done(null, chunk);
+		},
+	});
+	try {
+		await pipeline(
+			Readable.fromWeb(response.body as WebReadableStream<Uint8Array>),
+			counter,
+			fs.createWriteStream(partial),
+		);
+		if (cache?.sha256 && (await sha256Of(partial)) !== cache.sha256) {
+			throw new Error("downloaded package does not match the repository's checksum");
+		}
+		await fs.promises.rename(partial, dest);
+	} catch (error) {
+		await fs.promises.rm(partial, { force: true });
+		throw error;
+	}
+	report();
+	if (cache) await pruneCache(path.dirname(dest));
 	return dest;
 });
+
+handle("mods:read-manifest", (_event, { path: file }) => readPackageManifest(file));
 
 handle("mods:stage-pack", (_event, { filename, data }) => stagePack(filename, data));
 
@@ -96,6 +188,30 @@ handle("mods:has-dlls", async (_event, { gamePath, modId }) => {
 	} catch {
 		return false;
 	}
+});
+
+// The same formats and size cap the mod website accepts for icons.
+const ICON_TYPES: Record<string, string> = {
+	".png": "image/png",
+	".webp": "image/webp",
+	".jpg": "image/jpeg",
+	".jpeg": "image/jpeg",
+};
+const ICON_LIMIT = 1024 * 1024;
+
+handle("mods:installed-icon", async (_event, { gamePath, modId }) => {
+	const modsDir = path.resolve(gamePath, ".tempest", "v2", "mods");
+	const modDir = path.resolve(modsDir, modId);
+	if (path.dirname(modDir) !== modsDir) return null;
+	const manifest = await fs.promises
+		.readFile(path.join(modDir, "manifest.toml"), "utf8")
+		.catch(() => "");
+	const file = path.resolve(modDir, parseManifest(manifest)?.icon ?? "icon.png");
+	const type = ICON_TYPES[path.extname(file).toLowerCase()];
+	if (!type || !file.startsWith(modDir + path.sep)) return null;
+	const info = await fs.promises.stat(file).catch(() => null);
+	if (!info?.isFile() || info.size > ICON_LIMIT) return null;
+	return `data:${type};base64,${(await fs.promises.readFile(file)).toString("base64")}`;
 });
 
 const PREVIEW_LIMIT = 50_000;

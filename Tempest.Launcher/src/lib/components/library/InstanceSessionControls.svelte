@@ -3,7 +3,7 @@
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { stopGameWindow } from "$lib/core/launch";
-	import { launchPresets } from "$lib/core/presets";
+	import { activePreset } from "$lib/core/presets";
 	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes.svelte";
@@ -15,15 +15,19 @@
 		instance: Instance;
 		busy?: boolean;
 		/** Matches the trigger to the buttons it sits next to. */
-		variant?: "card" | "header" | "home";
+		variant?: "card" | "header";
 	}
 
 	let { instance, busy = false, variant = "card" }: Props = $props();
 
 	const variants = {
 		card: { trigger: "btn btn-sm btn-ghost gap-1 px-2", icon: 14, count: "text-xs" },
-		header: { trigger: "btn gap-1.5", icon: 16, count: "text-sm" },
-		home: { trigger: "btn btn-lg join-item min-h-14 gap-1.5", icon: 20, count: "text-sm" },
+		// The heroes' secondary button, solid enough to read over their art
+		header: {
+			trigger: "btn gap-1.5 border-base-content/10 bg-base-100/60 hover:bg-base-100",
+			icon: 16,
+			count: "text-sm",
+		},
 	};
 	let style = $derived(variants[variant]);
 
@@ -37,9 +41,7 @@
 
 	// Name each window after the preset it was launched with, if any.
 	const windowLabel = (gameWindow: Process): string => {
-		const preset = launchPresets(gameWindow.instance).find(
-			(preset) => preset.id === gameWindow.instance.launchOptions.presetId,
-		);
+		const preset = activePreset(gameWindow.instance);
 		return preset
 			? `${preset.title || m.instance_preset_untitled()} ${gameWindow.sessionNumber}`
 			: m.sessions_window({ number: gameWindow.sessionNumber });

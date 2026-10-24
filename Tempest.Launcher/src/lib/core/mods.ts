@@ -1,7 +1,9 @@
-import { fetch as httpFetch, invoke, resolveResource } from "$lib/platform/api";
+import { fetch as httpFetch, invoke, listen, resolveResource } from "$lib/platform/api";
 import { getQueryClient } from "$lib/queries/client";
 import { appendProcessLogs } from "$lib/stores/processes.svelte";
 import { modRepositoryURL } from "$lib/stores/settings.svelte";
+import { reportAntivirusBlocks } from "./antivirus.svelte";
+import { getAppVersion } from "./appVersion";
 import { createCommand } from "./command";
 import type { KeybindsConfig, ZipEntry } from "$ipc/contract";
 import type { Instance } from "$lib/types/instance";
@@ -11,10 +13,24 @@ const REMOTE_CORE_URL =
 const LATEST_CORE_API = "https://api.github.com/repos/LowRezStudio/TgMod/releases/latest";
 const CORE_VERSION_KEY = "tempest_core_remote_version";
 
-export function downloadRemoteMod(url: string, filename: string): Promise<string> {
+export async function downloadRemoteMod(
+	url: string,
+	filename: string,
+	onProgress?: (received: number, total: number | null) => void,
+	cache?: { modId: string; version: string; sha256?: string },
+): Promise<string> {
 	// Host-side download: the bytes stream straight to a temp file in the main
 	// process (no renderer memory, no CORS) and we only pass the path around.
-	return invoke("mods:download-to-temp", { url, filename });
+	if (!onProgress) return invoke("mods:download-to-temp", { url, filename, cache });
+	const progressId = crypto.randomUUID();
+	const unlisten = await listen("mods:download-progress", ({ id, received, total }) => {
+		if (id === progressId) onProgress(received, total);
+	});
+	try {
+		return await invoke("mods:download-to-temp", { url, filename, progressId, cache });
+	} finally {
+		unlisten();
+	}
 }
 
 // ---- Cooked packages: the host zips, writes and installs them, the renderer
@@ -74,6 +90,13 @@ export type ModAuthor = {
 	Avatar?: string;
 };
 
+/** One `[mod].dependencies` entry as the CLI records it; the id "tempest" is the launcher itself. */
+export type ModDependency = {
+	Id: string;
+	/** As written after the id (">=1.0.0"); empty means any version. */
+	Requirement: string;
+};
+
 export type ModRecord = {
 	Id: string;
 	Name: string;
@@ -87,6 +110,8 @@ export type ModRecord = {
 	OwnedFiles: string[];
 	Readme?: string;
 	ReadmeContent?: string;
+	/** From the manifest at install time; absent on records older than dependencies. */
+	Dependencies?: ModDependency[];
 };
 
 export type ModConflictInfo = {
@@ -110,6 +135,10 @@ export type ModInstallResult = {
 	KeyListOffline?: boolean;
 	ConflictingMods?: ModConflictInfo[];
 	NewModName?: string;
+	/** Installed, but these dependencies are not installed and enabled at a fitting version. */
+	MissingDependencies?: ModDependency[];
+	/** Refused: the package needs this Tempest version and the launcher is older. */
+	TempestRequired?: string;
 };
 
 export type ModListResult = {
@@ -250,6 +279,9 @@ export const installMod = async (
 	if (replace) args.push("--replace");
 	if (stack) args.push("--stack");
 	if (allowUntrusted) args.push("--allow-untrusted");
+	// The CLI checks the package's "tempest" requirement against the launcher's version.
+	const appVersion = await getAppVersion().catch(() => undefined);
+	if (appVersion) args.push("--tempest-version", appVersion);
 	args.push("--json");
 
 	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
@@ -286,30 +318,6 @@ export const removeMod = async (gamePath: string, modName: string): Promise<ModI
 		return JSON.parse(res.stdout) as ModInstallResult;
 	} catch (error) {
 		console.error("Failed to parse remove mod result:", error, res.stdout, res.stderr);
-		return { Success: false, Message: "Internal error parsing CLI output" };
-	}
-};
-
-export const renameMod = async (
-	gamePath: string,
-	oldName: string,
-	newName: string,
-): Promise<ModInstallResult> => {
-	const args = ["mod", "rename", gamePath, oldName, newName, "--json"];
-	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
-	const res = await createCommand(args).execute();
-
-	if (res.stdout) {
-		appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
-	}
-	if (res.stderr) {
-		appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
-	}
-
-	try {
-		return JSON.parse(res.stdout) as ModInstallResult;
-	} catch (error) {
-		console.error("Failed to parse rename mod result:", error, res.stdout, res.stderr);
 		return { Success: false, Message: "Internal error parsing CLI output" };
 	}
 };
@@ -358,6 +366,7 @@ export const reloadModDll = async (gamePath: string, modId: string): Promise<Mod
 	const args = ["mod", "reload-dll", gamePath, modId, "--json"];
 	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
 	const res = await createCommand(args).execute();
+	reportAntivirusBlocks(res.stderr);
 
 	if (res.stdout) {
 		appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");

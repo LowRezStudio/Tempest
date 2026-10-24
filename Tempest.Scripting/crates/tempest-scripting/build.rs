@@ -58,7 +58,9 @@ fn main() {
     b.compile("tempest_overlay");
 
     if windows {
-        for lib in ["d3dcompiler_47", "dwmapi", "gdi32", "user32"] {
+        // Both name the import library of d3dcompiler_47.dll.
+        let d3dcompiler = if gnu { "d3dcompiler_47" } else { "d3dcompiler" };
+        for lib in [d3dcompiler, "dwmapi", "gdi32", "user32"] {
             println!("cargo:rustc-link-lib={lib}");
         }
     }

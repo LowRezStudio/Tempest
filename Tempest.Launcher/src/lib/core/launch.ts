@@ -1,7 +1,7 @@
 import { currentInstance, setCurrentInstance } from "$lib/lobby/stores.svelte";
 import { Command, invoke } from "$lib/platform/api";
 import { hostState } from "$lib/stores/host-state.svelte";
-import { instanceMap, lastLaunchedInstanceId } from "$lib/stores/instance.svelte";
+import { instanceMap, lastLaunchedInstanceId, updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, logCommandOutput, processesList } from "$lib/stores/processes.svelte";
 import {
 	gamescopeArgs,
@@ -11,6 +11,7 @@ import {
 	winePath,
 	wineRuntime,
 } from "$lib/stores/settings.svelte";
+import { watchAntivirusBlocks } from "./antivirus.svelte";
 import { createCommand, processArgs } from "./command";
 import { launchArgs } from "./presets";
 import type { Instance } from "$lib/types/instance";
@@ -118,12 +119,13 @@ export const restoreRunningGames = async () => {
 	}
 };
 
-export const launchGame = async (instance: Instance) => {
+export const launchGame = async (instance: Instance, { noDlls = false } = {}) => {
 	const { path, launchOptions: options } = instance;
 	const platform = options.platform ?? "Win64";
 	const args = launchArgs(instance);
 
 	lastLaunchedInstanceId.value = instance.id;
+	updateInstance(instance.id, { lastPlayedAt: Date.now() });
 
 	console.log("Launching instance", instance.id, instance.version);
 	console.log(instance);
@@ -152,6 +154,7 @@ export const launchGame = async (instance: Instance) => {
 			{ "--gamescope": useGamescope.get() },
 			{ "--gamescope-args": gamescopeArgs.get() || undefined },
 			{ "--steam-runtime": useSteamRuntime.get() || undefined },
+			{ "--no-dlls": noDlls },
 			{
 				"--homedir":
 					instance.version === "8.1"
@@ -169,7 +172,21 @@ export const launchGame = async (instance: Instance) => {
 
 	logCommandOutput(command, "launch");
 
-	const launchState = { childPid: undefined as number | undefined, closed: false };
+	const launchState = {
+		childPid: undefined as number | undefined,
+		closed: false,
+		blocked: false,
+		process: undefined as Process | undefined,
+	};
+	// Without its DLLs the game would run with mods silently missing, so the launch is stopped and
+	// the antivirus dialog offers to relaunch.
+	watchAntivirusBlocks(command, {
+		instance,
+		onBlocked: () => {
+			launchState.blocked = true;
+			if (launchState.process) void stopGameWindow(launchState.process);
+		},
+	});
 	command.on("close", () => {
 		launchState.closed = true;
 		if (launchState.childPid !== undefined) forgetProcess(launchState.childPid);
@@ -190,6 +207,8 @@ export const launchGame = async (instance: Instance) => {
 
 	processesList.value = [...processesList.value, process];
 	saveRunning();
+	launchState.process = process;
+	if (launchState.blocked) void stopGameWindow(process);
 };
 
 const KILL_GRACE_MS = 5000;

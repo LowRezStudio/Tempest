@@ -15,31 +15,22 @@
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { deleteInstance } from "$lib/core/instance-delete";
-	import versions from "$lib/data/versions.json";
+	import { manifestIdOf, runSetup, verifyFiles } from "$lib/core/instance-maintenance";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
 	import { openPath, openUrl } from "$lib/platform/api";
-	import { createSetupInstanceMutation } from "$lib/queries/instance";
-	import {
-		RIGBY_BASE_URL,
-		RIGBY_MANIFEST_URL_TEMPLATE,
-		WIKI_BASE_URL,
-	} from "$lib/rigby/constants";
-	import { restoreQueue } from "$lib/rigby/restore-queue";
-	import { updateInstance } from "$lib/stores/instance.svelte";
+	import { WIKI_BASE_URL } from "$lib/rigby/constants";
+	import { patchOf } from "$lib/utils/versions";
 	import type { Instance } from "$lib/types/instance";
-	import type { Snippet } from "svelte";
 
 	interface Props {
 		instance: Instance;
-		trigger?: Snippet;
+		triggerClass?: string;
 	}
 
-	let { instance, trigger }: Props = $props();
+	let { instance, triggerClass = "btn btn-sm btn-square btn-ghost" }: Props = $props();
 
-	const flatVersions = versions;
-	const versionEntry = $derived(flatVersions.find((v) => v.version === instance.version));
-	const wikiReference = $derived(versionEntry?.wikiReference);
+	const wikiReference = $derived(patchOf(instance.version)?.wikiReference);
 
 	async function handleOpenWiki() {
 		if (!wikiReference) return;
@@ -56,10 +47,8 @@
 
 	let isSettingUp = $derived(instance.state.type === "setup");
 	let isReady = $derived(instance.state.type === "prepared");
-	let canRestore = $derived(!!((instance?.version || instance?.manifestId) && instance?.path));
+	let canRestore = $derived(!!(instance.path && manifestIdOf(instance)));
 	let isOnInstancePage = $derived(page.route.id === "/instance/[id]");
-
-	const setupInstanceMutation = createSetupInstanceMutation();
 
 	async function openFolder() {
 		if (!instance?.path) return;
@@ -76,54 +65,15 @@
 		void runSetup(instance);
 	}
 
-	async function runSetup(targetInstance: Instance) {
-		updateInstance(targetInstance.id, {
-			state: { type: "setup" },
-		});
-		try {
-			await setupInstanceMutation.mutateAsync(targetInstance);
-		} catch (error) {
-			console.error("Instance setup failed:", error);
-		} finally {
-			updateInstance(targetInstance.id, {
-				state: { type: "prepared" },
-			});
-		}
-	}
-
 	function handleRestore() {
-		if (!instance?.path || !canRestore || isSettingUp) return;
-
-		const manifestId =
-			instance.manifestId ?? versions.find((i) => i.version === instance.version)?.id;
-
-		if (!manifestId) return;
-
-		restoreQueue.add({
-			manifests: [RIGBY_MANIFEST_URL_TEMPLATE.replace("{id}", manifestId)],
-			outDir: instance.path,
-			baseUrl: RIGBY_BASE_URL,
-		});
-
-		updateInstance(instance.id, {
-			state: { type: "downloading" },
-		});
-
-		if (isOnInstancePage) {
-			goto("/downloads");
-		}
+		if (isSettingUp) return;
+		if (verifyFiles(instance)) void goto("/downloads");
 	}
 </script>
 
-<PopoverMenu>
+<PopoverMenu {triggerClass} triggerLabel={m.instancemenu_more()}>
 	{#snippet trigger()}
-		{#if trigger}
-			{@render trigger()}
-		{:else}
-			<button class="btn btn-sm btn-square btn-ghost">
-				<EllipsisVertical size={16} />
-			</button>
-		{/if}
+		<EllipsisVertical size={16} />
 	{/snippet}
 	{#snippet children()}
 		{#if !isOnInstancePage}

@@ -1,5 +1,14 @@
 import { theme, customThemeCSS } from "$lib/stores/settings.svelte";
 
+const lightQuery = matchMedia("(prefers-color-scheme: light)");
+let systemLight = $state(lightQuery.matches);
+lightQuery.addEventListener("change", (e) => (systemLight = e.matches));
+
+// daisyUI's own fallback for no data-theme only follows a dark device, so "system" is resolved here.
+export function systemTheme(): "mocha" | "latte" {
+	return systemLight ? "latte" : "mocha";
+}
+
 function injectCustomThemeStyle(css: string) {
 	const existing = document.querySelector("#custom-theme-style");
 	if (existing) existing.remove();
@@ -24,17 +33,16 @@ function injectCustomThemeStyle(css: string) {
 
 $effect.root(() => {
 	$effect(() => {
-		const currentTheme = theme.value;
-		const customCSS = customThemeCSS.value;
+		const current = theme.value;
+		document.documentElement.setAttribute(
+			"data-theme",
+			current === "system" ? systemTheme() : current,
+		);
+	});
 
-		if (currentTheme === "system") {
-			document.documentElement.removeAttribute("data-theme");
-		} else if (currentTheme === "custom") {
-			document.documentElement.setAttribute("data-theme", "custom");
-		} else {
-			document.documentElement.setAttribute("data-theme", currentTheme);
-		}
-
-		injectCustomThemeStyle(currentTheme === "custom" ? customCSS : "");
+	// Scoped to [data-theme="custom"], so it is harmless until picked and lets the
+	// Settings preview show the custom theme beforehand.
+	$effect(() => {
+		injectCustomThemeStyle(customThemeCSS.value);
 	});
 });

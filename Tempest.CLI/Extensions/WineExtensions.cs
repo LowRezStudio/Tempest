@@ -119,6 +119,11 @@ internal static class WineExtensions
         }
 
         SetCommonWineEnvironment(process);
+        process.StartInfo.EnvironmentVariables[LaunchMarkerVariable] = LaunchMarker;
+
+        // waitforexitandrun first waits for the prefix's wineserver to exit, so with another window
+        // of the game open (or starting) it would wait for that one to close.
+        var verb = ClearIdleProtonPrefix(dataPath, Path.GetFileName(filename)) ? "run" : "waitforexitandrun";
 
         var originalArgs = process.StartInfo.ArgumentList.ToArray();
         process.StartInfo.ArgumentList.Clear();
@@ -146,7 +151,7 @@ internal static class WineExtensions
             process.StartInfo.FileName = command;
         }
 
-        process.StartInfo.ArgumentList.Add("waitforexitandrun");
+        process.StartInfo.ArgumentList.Add(verb);
         process.StartInfo.ArgumentList.Add(filename);
         foreach (var arg in originalArgs) process.StartInfo.ArgumentList.Add(arg);
 
@@ -276,6 +281,119 @@ internal static class WineExtensions
         }
     }
 
+    /// <summary>
+    /// Once the game is gone from a Proton launch's prefix, stops what the session left there.
+    /// </summary>
+    public static void ClearIdleProtonPrefix(Process process)
+    {
+        var env = process.StartInfo.EnvironmentVariables;
+        if (!env.ContainsKey("STEAM_COMPAT_DATA_PATH") || env["STEAM_COMPAT_DATA_PATH"] is not { Length: > 0 } dataPath) return;
+        if (!env.ContainsKey("NATIVE_FILENAME") || env["NATIVE_FILENAME"] is not { Length: > 0 } nativeFilename) return;
+        ClearIdleProtonPrefix(dataPath, Path.GetFileName(nativeFilename));
+    }
+
+    /// <summary>
+    /// Every process a Proton launch starts carries this, naming the CLI that launched it.
+    /// </summary>
+    private const string LaunchMarkerVariable = "TEMPEST_LAUNCH";
+
+    // The start time tells this CLI apart from a later process that got its pid.
+    private static readonly string LaunchMarker =
+        $"{Environment.ProcessId}:{Process.GetCurrentProcess().StartTime.Ticks}";
+
+    private static bool IsOtherLaunchAlive(string? marker)
+    {
+        if (marker == null || marker == LaunchMarker) return false;
+        var parts = marker.Split(':');
+        if (parts.Length != 2 || !int.TryParse(parts[0], out var pid) || !long.TryParse(parts[1], out var ticks)) return false;
+        try
+        {
+            return Process.GetProcessById(pid).StartTime.Ticks == ticks;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Stops what is left in a Proton prefix when no launch uses it anymore: a wineserver that a stuck
+    /// process keeps up, a Proton still waiting on it. waitforexitandrun waits for all of that before
+    /// it starts the game, so left alone it holds back every launch until a reboot.
+    /// </summary>
+    /// <returns>Whether a window of the game, or another launch on its way, still uses the prefix.</returns>
+    private static bool ClearIdleProtonPrefix(string dataPath, string exeName)
+    {
+        var processes = ProtonPrefixProcesses(dataPath, exeName);
+        if (processes.Any(p => p.IsGame || IsOtherLaunchAlive(p.Launch))) return true;
+        if (processes.Count == 0) return false;
+
+        Console.Error.WriteLine($"Stopping {processes.Count} process(es) left in the Proton prefix");
+        var killed = new List<Process>();
+        foreach (var (pid, _, _) in processes)
+        {
+            try
+            {
+                var leftover = Process.GetProcessById(pid);
+                leftover.Kill();
+                killed.Add(leftover);
+            }
+            catch
+            {
+                // already gone
+            }
+        }
+        foreach (var leftover in killed)
+        {
+            try
+            {
+                leftover.WaitForExit(TimeSpan.FromSeconds(2));
+            }
+            catch
+            {
+                // already gone
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The processes of a Proton prefix, found by the STEAM_COMPAT_DATA_PATH or WINEPREFIX they inherit
+    /// rather than by asking Wine, so a wedged wineserver can't hide them.
+    /// </summary>
+    /// <param name="dataPath">The prefix's STEAM_COMPAT_DATA_PATH.</param>
+    /// <param name="exeName">The game's exe, e.g. Paladins.exe.</param>
+    /// <returns>Each process, whether it is a window of the game, and the launch that started it.</returns>
+    private static List<(int Pid, bool IsGame, string? Launch)> ProtonPrefixProcesses(string dataPath, string exeName)
+    {
+        var found = new List<(int, bool, string?)>();
+        if (!OperatingSystem.IsLinux()) return found;
+
+        string[] markers = [$"STEAM_COMPAT_DATA_PATH={dataPath}", $"WINEPREFIX={Path.Combine(dataPath, "pfx")}"];
+        foreach (var procDir in Directory.EnumerateDirectories("/proc"))
+        {
+            if (!int.TryParse(Path.GetFileName(procDir), out var pid) || pid == Environment.ProcessId) continue;
+            try
+            {
+                var env = File.ReadAllText(Path.Combine(procDir, "environ")).Split('\0');
+                if (!env.Any(markers.Contains)) continue;
+                // Wine names a Windows process after its exe and shows the exe's path as its first
+                // argument. Only that counts: Proton's own command line has the exe as a later argument.
+                var comm = File.ReadAllText(Path.Combine(procDir, "comm")).Trim();
+                var argv0 = File.ReadAllText(Path.Combine(procDir, "cmdline")).Split('\0')[0];
+                var isGame = comm.Equals(exeName, StringComparison.OrdinalIgnoreCase) ||
+                             argv0.Split('/', '\\')[^1].Equals(exeName, StringComparison.OrdinalIgnoreCase);
+                var launch = env.FirstOrDefault(e => e.StartsWith($"{LaunchMarkerVariable}=", StringComparison.Ordinal));
+                found.Add((pid, isGame, launch?[(LaunchMarkerVariable.Length + 1)..]));
+            }
+            catch
+            {
+                // process already gone or not ours to read
+            }
+        }
+        return found;
+    }
+
     public static async Task<int> GetProcessId(this Process process)
     {
         // You obviously don't need any of this for native platforms
@@ -313,19 +431,48 @@ internal static class WineExtensions
         return process.WaitForExitAsync();
     }
 
-    public static async Task<int> GetProcessId(string processName)
+    /// <summary>
+    /// Runs a Windows helper in the game's prefix.
+    /// </summary>
+    /// <returns>Its output, or null when it didn't answer in time: a wedged wineserver would
+    /// otherwise hang the launch along with it.</returns>
+    private static async Task<string?> RunWineHelper(string fileName, string arguments)
     {
         var process = new Process();
 
-        process.StartInfo.FileName = "tasklist.exe";
-        process.StartInfo.Arguments = "/fo csv";
+        process.StartInfo.FileName = fileName;
+        process.StartInfo.Arguments = arguments;
         process.StartInfo.RedirectStandardOutput = true;
         process.StartInfo.CreateNoWindow = true;
 
         process.UseWineBinary().Start();
 
-        string output = await process.StandardOutput.ReadToEndAsync();
-        await process.WaitForExitAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        try
+        {
+            var output = await process.StandardOutput.ReadToEndAsync(timeout.Token);
+            await process.WaitForExitAsync(timeout.Token);
+            return output;
+        }
+        catch (OperationCanceledException)
+        {
+            Console.Error.WriteLine($"Warning: {fileName} didn't answer within 20 seconds");
+            try
+            {
+                process.Kill(true);
+            }
+            catch
+            {
+                // already gone
+            }
+            return null;
+        }
+    }
+
+    public static async Task<int> GetProcessId(string processName)
+    {
+        var output = await RunWineHelper("tasklist.exe", "/fo csv");
+        if (output == null) return 0;
 
         var pids = new List<int>();
 
@@ -358,20 +505,12 @@ internal static class WineExtensions
 
     public static async Task<bool> IsWinePidAlive(int pid)
     {
-        var process = new Process();
-
-        process.StartInfo.FileName = "tasklist.exe";
-        process.StartInfo.Arguments = $"/FI \"PID eq {pid}\" /fo csv";
-        process.StartInfo.RedirectStandardOutput = true;
-        process.StartInfo.CreateNoWindow = true;
-
-        process.UseWineBinary().Start();
-
-        string output = await process.StandardOutput.ReadToEndAsync();
-        await process.WaitForExitAsync();
-
-        return output.Contains($"\"{pid}\"");
+        var output = await RunWineHelper("tasklist.exe", $"/FI \"PID eq {pid}\" /fo csv");
+        // No answer isn't an answer: the game is only taken for gone when Wine says so.
+        return output?.Contains($"\"{pid}\"") ?? true;
     }
+
+    public static Task KillWinePid(int pid) => RunWineHelper("taskkill.exe", $"/F /T /PID {pid}");
 
     private static string? ResolveProtonDirectory()
     {

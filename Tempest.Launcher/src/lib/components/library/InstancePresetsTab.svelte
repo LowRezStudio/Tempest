@@ -17,7 +17,7 @@
 
 	let { instance }: Props = $props();
 
-	let presets = $derived(launchPresets(instance));
+	let presets = $derived(launchPresets.value);
 	let active = $derived(activePreset(instance));
 
 	// Arguments are edited as raw text: re-parsing on every keystroke would eat the
@@ -34,33 +34,26 @@
 
 	const update = (id: string, patch: Partial<LaunchPreset>) =>
 		saveLaunchPresets(
-			instance,
 			presets.map((preset) => (preset.id === id ? { ...preset, ...patch } : preset)),
 		);
 
 	const add = () =>
-		saveLaunchPresets(instance, [...presets, { id: crypto.randomUUID(), title: "", args: [] }]);
+		saveLaunchPresets([...presets, { id: crypto.randomUUID(), title: "", args: [] }]);
 
-	const remove = (id: string) =>
-		saveLaunchPresets(
-			instance,
-			presets.filter((preset) => preset.id !== id),
-		);
+	const remove = (id: string) => saveLaunchPresets(presets.filter((preset) => preset.id !== id));
 </script>
 
 <div class="flex flex-col gap-3">
-	<div class="flex items-start justify-between gap-3">
-		<p class="text-base-content/60 text-sm">{m.instance_presets_hint()}</p>
-		{#if presets.length > 0}
-			<button class="btn btn-primary btn-sm shrink-0" onclick={add}>
-				<Plus size={14} />
-				{m.instance_preset_add()}
-			</button>
-		{/if}
-	</div>
+	{#if presets.length > 0}
+		<button class="btn btn-primary btn-sm self-end" onclick={add}>
+			<Plus size={14} />
+			{m.instance_preset_add()}
+		</button>
+	{/if}
 
 	{#each presets as preset (preset.id)}
 		<div
+			data-panel
 			class="border-base-content/10 bg-base-200 flex flex-col gap-3 rounded-xl border p-3 lg:flex-row lg:items-center"
 		>
 			<div class="flex min-w-0 flex-1 flex-col gap-2">

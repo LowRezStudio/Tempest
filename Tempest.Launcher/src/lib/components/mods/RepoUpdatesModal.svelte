@@ -27,6 +27,11 @@
 
 	let busy = $state<string | null>(null);
 	let done = $state<string[]>([]);
+	const remaining = $derived(pending.filter(({ mod }) => !done.includes(mod.Id)));
+
+	$effect(() => {
+		if (open && !busy && remaining.length === 0) open = false;
+	});
 
 	async function updateOne(mod: ModRecord, update: RepoUpdate) {
 		if (busy || !update.latest) return;
@@ -46,8 +51,8 @@
 	}
 
 	async function updateAll() {
-		for (const { mod, update } of pending) {
-			if (done.includes(mod.Id)) continue;
+		for (const { mod, update } of remaining) {
+			if (isRunning) break;
 			await updateOne(mod, update);
 		}
 	}
@@ -93,7 +98,7 @@
 		>
 		<button
 			class="btn btn-primary btn-sm"
-			disabled={isRunning || busy !== null || pending.every((p) => done.includes(p.mod.Id))}
+			disabled={isRunning || busy !== null || remaining.length === 0}
 			onclick={updateAll}
 		>
 			<Download size={14} />

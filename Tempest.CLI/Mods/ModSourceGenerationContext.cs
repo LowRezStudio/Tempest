@@ -11,6 +11,8 @@ namespace Tempest.CLI.Mods;
 [JsonSerializable(typeof(ModListResult))]
 [JsonSerializable(typeof(ModBulkResult))]
 [JsonSerializable(typeof(List<ModRecord>))]
+[JsonSerializable(typeof(ModDependency))]
+[JsonSerializable(typeof(List<ModDependency>))]
 internal partial class ModSourceGenerationContext : JsonSerializerContext
 {
 }

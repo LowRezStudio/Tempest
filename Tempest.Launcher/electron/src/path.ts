@@ -8,7 +8,8 @@ handle("path:dirname", (_event, { path: p }) => path.dirname(p));
 handle("path:resolve-resource", (_event, { paths }) => {
 	const r = path.join(process.resourcesPath, ...paths);
 	if (!app.isPackaged && !fs.existsSync(r)) {
-		const dev = path.join(import.meta.dirname, "../../resources", ...paths);
+		// This file runs from electron/dist; the resources sit beside it in electron/resources.
+		const dev = path.join(import.meta.dirname, "../resources", ...paths);
 		if (fs.existsSync(dev)) return dev;
 	}
 	return r;
