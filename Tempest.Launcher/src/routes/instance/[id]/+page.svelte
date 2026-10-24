@@ -131,10 +131,8 @@
 {#snippet modActions()}
 	<InstanceModActions
 		bind:query={modSearch}
-		{isReady}
 		isLoading={isRefreshingMods}
 		onRefresh={handleRefreshMods}
-		onAddMod={handleInstallMod}
 	/>
 {/snippet}
 
@@ -193,7 +191,6 @@
 						<InstanceModList
 							mods={modsList}
 							gamePath={instance.path}
-							patch={instance.version}
 							bind:query={modSearch}
 							{isReady}
 							{isRunning}

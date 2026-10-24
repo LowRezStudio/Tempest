@@ -1,16 +1,14 @@
 <script lang="ts">
-	import { Plus, RefreshCw, Search } from "@lucide/svelte";
+	import { RefreshCw, Search } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
 
 	interface Props {
 		query: string;
-		isReady: boolean;
 		isLoading: boolean;
 		onRefresh: () => void;
-		onAddMod: () => void;
 	}
 
-	let { query = $bindable(), isReady, isLoading, onRefresh, onAddMod }: Props = $props();
+	let { query = $bindable(), isLoading, onRefresh }: Props = $props();
 
 	let searchInput = $state<HTMLInputElement | null>(null);
 
@@ -45,7 +43,7 @@
 	/>
 </label>
 <button
-	class="btn btn-sm btn-square btn-ghost text-base-content/60"
+	class="btn btn-sm btn-square text-base-content/60"
 	onclick={onRefresh}
 	disabled={isLoading}
 	aria-busy={isLoading}
@@ -57,8 +55,4 @@
 	{:else}
 		<RefreshCw size={14} />
 	{/if}
-</button>
-<button class="btn btn-sm" disabled={!isReady} onclick={onAddMod}>
-	<Plus size={14} />
-	{m.mods_add()}
 </button>

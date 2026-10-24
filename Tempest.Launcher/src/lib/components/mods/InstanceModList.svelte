@@ -19,15 +19,12 @@
 	import { createRepoModsQuery, createRepoVersionCountsQuery } from "$lib/queries/repo";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import InstalledModRow from "./InstalledModRow.svelte";
-	import PopularMods from "./PopularMods.svelte";
 	import type { ModRecord } from "$lib/core/mods";
 	import type { RepoUpdate } from "$lib/queries/repo";
 
 	interface Props {
 		mods: ModRecord[];
 		gamePath: string;
-		/** The instance's game patch, for the repository's compatibility info. */
-		patch?: string;
 		/** Search over name, author and id, typed into the tabs' row */
 		query: string;
 		/** The instance is set up and can take mods. */
@@ -45,7 +42,6 @@
 	let {
 		mods,
 		gamePath,
-		patch,
 		query = $bindable(),
 		isReady,
 		isRunning,
@@ -200,15 +196,6 @@
 				</button>
 			</div>
 		</div>
-		{#if isReady}
-			<PopularMods
-				{gamePath}
-				{patch}
-				{isRunning}
-				onOpen={(modId) => onOpenRepo(modId)}
-				onSeeAll={onDiscover}
-			/>
-		{/if}
 	{:else if shown.length === 0 && placeholders.length === 0}
 		<div class="text-base-content/60 flex flex-col items-center gap-2 py-16 text-center">
 			<SearchX size={32} class="opacity-60" />

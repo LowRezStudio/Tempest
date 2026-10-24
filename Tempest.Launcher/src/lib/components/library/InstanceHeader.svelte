@@ -102,8 +102,9 @@
 	const secondary = "btn border-base-content/10 bg-base-100/60 hover:bg-base-100";
 </script>
 
-<!-- After the mod website's mod page: the instance on its banner, Play on the right, then the tabs -->
-<header class="shrink-0 px-4 pt-4">
+<!-- After the mod website's mod page: the instance on its banner, Play on the right, then the tabs.
+     Keeps the scrollbar's gutter like the tabs' content below, so both share one right edge. -->
+<header class="shrink-0 [scrollbar-gutter:stable] overflow-hidden px-4 pt-4">
 	<section
 		class="rounded-box border-base-300 bg-base-200 @container relative isolate flex items-center gap-4 overflow-hidden border px-4 py-3"
 	>
