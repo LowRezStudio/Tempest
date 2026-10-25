@@ -48,7 +48,7 @@ one as an installable `.tempest` in `dist/`:
 | package | source | id | contents |
 |---------|--------|----|----------|
 | `scripting.tempest` | `mods/scripting` | `tempest-scripting` | `dlls/64/Tempest.Scripting64.dll`, `dlls/32/Tempest.Scripting32.dll`, `scripts/core.lua` (diagnostic console commands), `types/tempest.d.lua`, `.luarc.json` |
-| `console.tempest` | `mods/console` | `tempest-console` | `console.lua`: enables the in-game console (F2) |
+| `console.tempest` | `mods/console` | `tempest-console` | `console.lua`: enables the in-game console (~ opens it, F2 for the single-line prompt) |
 | `dev.tempest` | `mods/dev` | `tempest-dev` | the scratch mod being worked on (for iteration without packing, use the game's `mods/` folder instead, below) |
 | `lib.tempest` | `mods/lib` | `tempest-scripting-lib` | example library mod exporting `greet` |
 
@@ -94,7 +94,7 @@ The boot sequence, in order, with what each step must print:
 | events | `lua` | `first PostRender on Object(...)` once a match starts |
 | calls | `lua` | `03_calls.lua` prints `GetHumanReadableName() = ...` and two chat messages appear |
 | script/native hooks | `lua` | `native hook on Engine.PlayerController.ConsoleCommand`; typing `hello` in the game console answers in chat |
-| console | `lua` | `console.lua` prints `console: enabled (F2 opens it)` (or `already present` with TgMod) |
+| console | `lua` | `console.lua` prints `console: enabled (Tilde opens it)` (or `already present` with TgMod) |
 | containers | `lua` | `06_containers.lua` lists key bindings (array of structs) and HUD scenes (map) |
 | mods | `loader`, `lua` | `2 mod(s): tempest-scripting-lib, tempest-scripting-test`, `LIB_PRIVATE visible here? nil`; `greet` works in the console |
 | keys | `input`, `lua` | `WndProc hook installed`; F5 prints a chat line, Ctrl+F5 hops the pawn, F9 writes `types/sdk/*.lua` |
