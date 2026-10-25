@@ -2,6 +2,7 @@
 	import {
 		Archive,
 		Code2,
+		FileUp,
 		FolderInput,
 		Replace,
 		RotateCcw,
@@ -19,7 +20,7 @@
 	import ModDialog from "$lib/components/ModDialog.svelte";
 	import RewriteDialog from "$lib/components/RewriteDialog.svelte";
 	import VerifyDialog from "$lib/components/VerifyDialog.svelte";
-	import { pickDirectory, pickSave, PACKAGE_FILTERS } from "$lib/platform/api";
+	import { pickDirectory, pickFile, pickSave, PACKAGE_FILTERS } from "$lib/platform/api";
 	import { CONTAINS_SCRIPT } from "$lib/studio/classes";
 	import { basename } from "$lib/studio/format";
 	import { rpc } from "$lib/studio/rpc";
@@ -46,6 +47,11 @@
 	const isScriptPackage = $derived(
 		studio.pkg ? (studio.pkg.summary.packageFlags & CONTAINS_SCRIPT) !== 0 : false,
 	);
+
+	async function openExternal() {
+		const f = await pickFile("Open a package from anywhere", PACKAGE_FILTERS);
+		if (f) await studio.openFiles([f]);
+	}
 
 	async function exportSources() {
 		if (!studio.pkg) return;
@@ -81,6 +87,13 @@
 	>
 		<FolderOpen size={14} />
 		{basename(studio.workspace?.dir ?? "")}
+	</button>
+	<button
+		class="btn btn-ghost btn-sm"
+		onclick={openExternal}
+		title="Open a package from any folder"
+	>
+		<FileUp size={14} /> Open file
 	</button>
 	<div class="divider divider-horizontal mx-0"></div>
 	<button class="btn btn-ghost btn-sm" onclick={onsearch} title="Search every package (Ctrl+K)">

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Clock, FolderOpen, Package } from "@lucide/svelte";
 	import { onMount } from "svelte";
-	import { invoke, pickDirectory } from "$lib/platform/api";
+	import { invoke, pickDirectory, pickFile, PACKAGE_FILTERS } from "$lib/platform/api";
 	import { studio } from "$lib/studio/state.svelte";
 
 	let backend = $state<{ running: boolean; binary: string | null; error: string | null } | null>(
@@ -15,6 +15,11 @@
 	async function browse() {
 		const dir = await pickDirectory("Open a cooked folder (CookedPCConsole)");
 		if (dir) await studio.openWorkspace(dir);
+	}
+
+	async function openFile() {
+		const f = await pickFile("Open a package", PACKAGE_FILTERS);
+		if (f) await studio.openFiles([f]);
 	}
 
 	async function restart() {
@@ -50,6 +55,21 @@
 			<FolderOpen size={18} />
 			Open cooked folder…
 		</button>
+		<button
+			class="btn btn-ghost btn-sm w-full"
+			onclick={openFile}
+			disabled={studio.busy !== null}
+		>
+			Open a single package file…
+		</button>
+		{#if studio.pendingFiles.length > 0}
+			<div class="alert alert-info text-xs">
+				<span
+					>{studio.pendingFiles.map((f) => f.split(/[/\\]/).at(-1)).join(", ")} will open once
+					a game folder is chosen (it provides the class database).</span
+				>
+			</div>
+		{/if}
 		<p class="text-xs opacity-60">
 			Pick the game's <code>ChaosGame/CookedPCConsole</code> folder (or any folder holding the
 			script packages). The class database is loaded from it; textures stream from its

@@ -54,7 +54,16 @@
 			{#if studio.dirty.includes(p.path)}
 				<span class="text-warning">•</span>
 			{/if}
-			<span class="ml-auto shrink-0 font-mono text-[10px] opacity-50">{bytes(p.size)}</span>
+			{#if p.size > 0}
+				<span class="ml-auto shrink-0 font-mono text-[10px] opacity-50"
+					>{bytes(p.size)}</span
+				>
+			{:else}
+				<span
+					class="badge badge-ghost badge-xs ml-auto shrink-0"
+					title="outside the workspace folder">ext</span
+				>
+			{/if}
 		</button>
 	{/each}
 </div>

@@ -2,7 +2,7 @@
 // tables are loaded, the selected export, and which packages have unsaved
 // changes. Every mutation goes through `upk serve`; this store mirrors it.
 import { invoke, listen } from "$lib/platform/api";
-import { basename } from "./format";
+import { basename, dirname, stem } from "./format";
 import { rpc } from "./rpc";
 import { toasts } from "./toast.svelte";
 import type {
@@ -53,7 +53,14 @@ class Studio {
 	object = $state<ParsedObject | null>(null);
 	objectLoading = $state(false);
 
-	packages = $derived<WorkspacePackage[]>(this.workspace?.packages ?? []);
+	/** Packages opened from outside the workspace folder (double-clicked files, mod folders). */
+	extraPackages = $state<WorkspacePackage[]>([]);
+	/** Files to open once a workspace exists (opened from the OS before any game folder was chosen). */
+	pendingFiles = $state<string[]>([]);
+	packages = $derived<WorkspacePackage[]>([
+		...this.extraPackages,
+		...(this.workspace?.packages ?? []),
+	]);
 	selectedRow = $derived<ExportRow | null>(
 		this.pkg && this.selected !== null ? (this.pkg.exports[this.selected] ?? null) : null,
 	);
@@ -125,7 +132,7 @@ class Studio {
 		}
 	}
 
-	async openWorkspace(dir: string): Promise<void> {
+	async openWorkspace(dir: string, quiet = false): Promise<boolean> {
 		try {
 			const ws = await this.run(`Loading class database from ${basename(dir)}…`, () =>
 				rpc("workspace.open", { dir }),
@@ -138,6 +145,7 @@ class Studio {
 			this.dirty = [];
 			this.history = [];
 			this.historyPos = -1;
+			this.extraPackages = [];
 			this.recents = [dir, ...this.recents.filter((r) => r !== dir)].slice(0, 8);
 			localStorage.setItem(RECENTS_KEY, JSON.stringify(this.recents));
 			toasts.push(
@@ -145,8 +153,15 @@ class Studio {
 				`${ws.packages.length} packages, ${ws.scriptPackages.length} script packages (${ws.loadMs} ms)`,
 				"Workspace open",
 			);
+			if (this.pendingFiles.length > 0) {
+				const files = this.pendingFiles;
+				this.pendingFiles = [];
+				await this.openFiles(files);
+			}
+			return true;
 		} catch (error) {
-			toasts.error(error, "Could not open workspace");
+			if (!quiet) toasts.error(error, "Could not open workspace");
+			return false;
 		}
 	}
 
@@ -342,13 +357,47 @@ class Studio {
 		}
 	}
 
-	/** A .upk opened from the OS: its directory becomes the workspace. */
-	private async openFromOs(files: string[]): Promise<void> {
+	/**
+	 * Packages opened from the OS (file association, argv, drag) or from
+	 * anywhere outside the workspace folder. The class database comes from a
+	 * game folder: the file's own folder when it is one, else the last one
+	 * used; without either, the files wait until a folder is picked.
+	 */
+	async openFiles(files: string[]): Promise<void> {
 		const file = files[0];
 		if (!file) return;
-		const dir = file.slice(0, Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\")));
-		if (this.workspace?.dir !== dir) await this.openWorkspace(dir);
-		if (this.workspace) await this.openPackage(file);
+		if (!this.workspace) {
+			const dir = dirname(file);
+			let opened = await this.openWorkspace(dir, true);
+			if (!opened && this.recents[0] && this.recents[0] !== dir) {
+				opened = await this.openWorkspace(this.recents[0], true);
+			}
+			if (!opened) {
+				this.pendingFiles = files;
+				toasts.push(
+					"info",
+					"Pick the game's CookedPCConsole folder first; the file opens right after.",
+					"Open package",
+				);
+				return;
+			}
+		}
+		for (const f of files) this.addExternal(f);
+		await this.openPackage(file);
+	}
+
+	/** List a package from outside the workspace folder in the package pane. */
+	addExternal(file: string): void {
+		const inWorkspace = this.workspace?.packages.some((p) => p.path === file) ?? false;
+		if (inWorkspace || this.extraPackages.some((p) => p.path === file)) return;
+		this.extraPackages = [
+			{ name: stem(file), path: file, size: 0, script: false, map: false, open: true },
+			...this.extraPackages,
+		];
+	}
+
+	private openFromOs(files: string[]): Promise<void> {
+		return this.openFiles(files);
 	}
 }
 
