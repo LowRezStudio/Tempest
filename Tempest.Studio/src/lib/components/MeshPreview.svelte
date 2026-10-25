@@ -5,7 +5,7 @@
 	import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 	import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 	import { bytes } from "$lib/studio/format";
-	import { fromBase64, rpc } from "$lib/studio/rpc";
+	import { rpc } from "$lib/studio/rpc";
 	import type { MeshInfo } from "../../../electron/src/ipc/contract";
 
 	interface Props {
@@ -133,7 +133,7 @@
 				images: r.images,
 				bytes: r.bytes,
 			};
-			const glb = fromBase64(r.glb ?? "");
+			const glb = r.glb ?? new Uint8Array();
 			const gltf = await new GLTFLoader().parseAsync(
 				glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength) as ArrayBuffer,
 				"",
@@ -175,17 +175,29 @@
 		void load();
 	});
 	$effect(() => {
-		void wireframe;
-		applyWireframe();
+		const on = wireframe;
+		model?.traverse((o) => {
+			if (o instanceof THREE.Mesh) {
+				const mats = Array.isArray(o.material) ? o.material : [o.material];
+				for (const m of mats) {
+					if ("wireframe" in m) (m as THREE.MeshStandardMaterial).wireframe = on;
+				}
+			}
+		});
+	});
+	// Read the state first: an effect only tracks what it actually reads, and
+	// the three.js objects do not exist yet on the first run.
+	$effect(() => {
+		const visible = showSkeleton;
+		if (skeletonHelper) skeletonHelper.visible = visible;
 	});
 	$effect(() => {
-		if (skeletonHelper) skeletonHelper.visible = showSkeleton;
+		const visible = showGrid;
+		if (grid) grid.visible = visible;
 	});
 	$effect(() => {
-		if (grid) grid.visible = showGrid;
-	});
-	$effect(() => {
-		if (scene) scene.background = new THREE.Color(BACKGROUNDS[background]);
+		const color = BACKGROUNDS[background];
+		if (scene) scene.background = new THREE.Color(color);
 	});
 
 	onDestroy(() => {

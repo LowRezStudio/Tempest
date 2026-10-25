@@ -515,17 +515,28 @@ pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
 
 /// Resolve the textures of every section's material into `g.materials` /
 /// `g.images` (PNG, largest available mip, de-duplicated by texture path).
-pub fn attach_materials(g: &mut Geometry, cache: &mut crate::material_ops::PackageCache, src: &crate::texcache::TextureSource, pkg_name: &str) -> Vec<String> {
+/// `max_size`: preview textures (largest mip within the bound, fast PNG);
+/// `png_cache`: encoded PNGs by `"<path>@<size>"`, reused across calls.
+pub fn attach_materials(
+    g: &mut Geometry,
+    cache: &mut crate::material_ops::PackageCache,
+    src: &crate::texcache::TextureSource,
+    pkg_name: &str,
+    max_size: Option<u32>,
+    png_cache: &mut std::collections::HashMap<String, Vec<u8>>,
+) -> Vec<String> {
     use crate::material_ops::{material_textures, texture_png, TextureSlot};
     let mut warnings = Vec::new();
     let mut image_index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for sec in &g.sections.clone() {
         let mut m = GltfMaterial { name: sec.material_name.clone(), ..Default::default() };
         for t in material_textures(cache, pkg_name, sec.material) {
+            let key = format!("{}@{}", t.path, max_size.unwrap_or(0));
             let idx = match image_index.get(&t.path) {
                 Some(&i) => Some(i),
-                None => match texture_png(cache, src, &t.package, t.export) {
+                None => match png_cache.get(&key).cloned().map(Ok).unwrap_or_else(|| texture_png(cache, src, &t.package, t.export, max_size)) {
                     Ok(png) => {
+                        png_cache.insert(key, png.clone());
                         g.images.push(GltfImage { name: t.path.clone(), png });
                         image_index.insert(t.path.clone(), g.images.len() - 1);
                         Some(g.images.len() - 1)

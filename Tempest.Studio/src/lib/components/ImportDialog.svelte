@@ -27,7 +27,7 @@
 	$effect(() => {
 		if (open) {
 			file = "";
-			mode = kind === "none" ? "raw" : kind;
+			mode = kind === "none" || kind === "material" ? "raw" : kind;
 		}
 	});
 
@@ -119,7 +119,7 @@
 
 <Modal bind:open title="Replace {row.name}" width="max-w-lg">
 	<form onsubmit={submit} class="space-y-3 text-sm">
-		{#if kind !== "none"}
+		{#if kind !== "none" && kind !== "material"}
 			<div role="tablist" class="tabs-box tabs tabs-xs">
 				<button
 					role="tab"

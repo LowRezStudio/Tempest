@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ExportTree from "$lib/components/ExportTree.svelte";
+	import FindReplaceDialog from "$lib/components/FindReplaceDialog.svelte";
 	import Inspector from "$lib/components/Inspector.svelte";
 	import PackageList from "$lib/components/PackageList.svelte";
 	import SearchDialog from "$lib/components/SearchDialog.svelte";
@@ -9,6 +10,7 @@
 	import { studio } from "$lib/studio/state.svelte";
 
 	let searchOpen = $state(false);
+	let replaceOpen = $state(false);
 
 	function onKeydown(event: KeyboardEvent) {
 		const mod = event.ctrlKey || event.metaKey;
@@ -20,6 +22,9 @@
 		} else if ((k === "k" || k === "f") && studio.workspace && !event.shiftKey) {
 			event.preventDefault();
 			searchOpen = true;
+		} else if (k === "h" && studio.pkg) {
+			event.preventDefault();
+			replaceOpen = true;
 		}
 	}
 </script>
@@ -45,4 +50,5 @@
 		<StatusBar />
 	</div>
 	<SearchDialog bind:open={searchOpen} />
+	<FindReplaceDialog bind:open={replaceOpen} />
 {/if}

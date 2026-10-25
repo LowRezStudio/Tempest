@@ -437,8 +437,10 @@ impl<'a> Editor<'a> {
 
     // ----- save -------------------------------------------------------------
 
-    /// Write touched objects back and save, compressed like the original.
-    pub fn save(&mut self, out: impl AsRef<Path>) -> Result<()> {
+    /// Serialise every touched object into the package's export data (they
+    /// stay dirty): for readers that work from `pkg` rather than the parsed
+    /// objects, such as previews of unsaved edits.
+    pub fn flush(&mut self) {
         let none = none_name(&self.pkg);
         let dirty: Vec<usize> = self.dirty.iter().copied().collect();
         for i in dirty {
@@ -447,6 +449,11 @@ impl<'a> Editor<'a> {
                 self.pkg.set_export_data(i, data);
             }
         }
+    }
+
+    /// Write touched objects back and save, compressed like the original.
+    pub fn save(&mut self, out: impl AsRef<Path>) -> Result<()> {
+        self.flush();
         self.dirty.clear();
         self.pkg.save(out, &WriteOptions { compress: self.was_compressed, obscure: self.obscured })?;
         self.rebuilt = false;

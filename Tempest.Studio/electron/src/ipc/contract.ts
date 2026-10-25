@@ -189,7 +189,8 @@ export type MeshInfo = {
 };
 
 export type MeshGlb = {
-	glb?: string;
+	/** GLB bytes (previews only; the host decodes the server's base64). */
+	glb?: Uint8Array;
 	bytes: number;
 	vertices: number;
 	triangles: number;
@@ -226,7 +227,7 @@ export type VerifyReport = {
 export type MediaPreview =
 	| {
 			kind: "sound";
-			ogg: string;
+			ogg: Uint8Array;
 			bytes: number;
 			channels: number | null;
 			sampleRate: number | null;
@@ -247,6 +248,46 @@ export type ScriptSource = {
 
 /** Parsed from a `script.compile` rejection (`compile failed: {json}`). */
 export type CompileFailure = { message: string; class?: string; line?: number; detail?: string };
+
+export type ReplaceMatch = {
+	index: number;
+	object: string;
+	/** Property path, or null for the object's own name. */
+	prop: string | null;
+	kind: "str" | "name" | "enum" | "object" | "objectname";
+	current: string;
+	replacement: string;
+};
+
+export type BatchEntry = {
+	file: string;
+	name: string;
+	package: string;
+	packagePath: string | null;
+	object: string | null;
+	index: number | null;
+	kind: string | null;
+	ok: boolean;
+	message: string;
+};
+
+export type BatchResult = { entries: BatchEntry[]; ok: number; failed: number; ran: boolean };
+
+export type MaterialPreview = {
+	chain: { package: string; object: string; class: string }[];
+	textures: {
+		parameter: string;
+		slot: "basecolor" | "normal" | "specular" | "emissive" | "mask" | "other";
+		path: string;
+		package: string;
+		export: number;
+		png: Uint8Array | null;
+		error: string | null;
+	}[];
+	scalars: { name: string; value: number }[];
+	vectors: { name: string; value: [number, number, number, number] }[];
+	switches: { name: string; value: boolean }[];
+};
 
 type Target = { path: string; index: number };
 
@@ -286,7 +327,7 @@ export interface UpkMethods {
 	"texture.info": { params: Target; result: TextureInfo };
 	"texture.preview": {
 		params: Target & { mip?: number };
-		result: { png: string; bytes: number };
+		result: { png: Uint8Array; bytes: number };
 	};
 	"texture.export": {
 		params: Target & { out: string; mip?: number };
@@ -337,6 +378,36 @@ export interface UpkMethods {
 	"script.export": {
 		params: { path: string; outDir: string };
 		result: { dir: string; classes: number };
+	};
+	"material.preview": { params: Target & { textureSize?: number }; result: MaterialPreview };
+	"material.setParameter": {
+		params: Target & {
+			name: string;
+			scalar?: number;
+			vector?: [number, number, number, number];
+			textureSize?: number;
+		};
+		result: MaterialPreview & { changed: number };
+	};
+	"package.findReplace": {
+		params: {
+			path: string;
+			query: string;
+			replacement?: string;
+			names?: boolean;
+			apply?: boolean;
+		};
+		result: {
+			matches: ReplaceMatch[];
+			applied: number;
+			errors: { index: number; object: string; prop: string | null; error: string }[];
+			dirty: boolean;
+		};
+	};
+	"batch.plan": { params: { dir: string; recursive?: boolean }; result: BatchResult };
+	"batch.run": {
+		params: { dir: string; recursive?: boolean; outDir?: string };
+		result: BatchResult;
 	};
 	"mod.dir": {
 		params: {

@@ -139,6 +139,18 @@ pub fn export_png(db: &ClassDb, pkg: &Package, pkg_name: &str, src: &TextureSour
     dds::write_png(*w, *h, &rgba)
 }
 
+/// PNG of the largest available mip no wider/taller than `max_size`
+/// (fast compression): preview quality, a fraction of the full-size cost.
+pub fn export_png_preview(db: &ClassDb, pkg: &Package, pkg_name: &str, src: &TextureSource, i: usize, obj: &Object, max_size: u32) -> Result<Vec<u8>> {
+    let fname = format_name(db, pkg, obj);
+    let format = PixelFormat::from_name(&fname).ok_or_else(|| Error::Format(format!("unsupported pixel format {fname}")))?;
+    let mips = available_mips(pkg, pkg_name, src, i, obj)?;
+    let pick = mips.iter().position(|(w, h, _)| *w <= max_size && *h <= max_size).unwrap_or(mips.len().saturating_sub(1));
+    let (w, h, d) = mips.get(pick).ok_or_else(|| Error::Format("no mips available".into()))?;
+    let rgba = dds::decode_rgba(format, *w, *h, d)?;
+    dds::write_png_with(*w, *h, &rgba, true)
+}
+
 // ----------------------------------------------------------------------------
 // Import
 // ----------------------------------------------------------------------------

@@ -451,11 +451,21 @@ pub fn half_to_f32(h: u16) -> f32 {
 
 /// Encode RGBA8 pixels as a PNG file.
 pub fn write_png(w: u32, h: u32, rgba: &[u8]) -> Result<Vec<u8>> {
+    write_png_with(w, h, rgba, false)
+}
+
+/// `fast`: fastest deflate level (bigger file), for previews.
+pub fn write_png_with(w: u32, h: u32, rgba: &[u8], fast: bool) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     {
         let mut enc = png::Encoder::new(&mut out, w, h);
         enc.set_color(png::ColorType::Rgba);
         enc.set_depth(png::BitDepth::Eight);
+        if fast {
+            // Fast deflate, adaptive filtering kept: the filter is what makes
+            // texture PNGs small, the deflate level barely matters.
+            enc.set_compression(png::Compression::Fast);
+        }
         let mut writer = enc.write_header().map_err(|e| Error::Format(e.to_string()))?;
         writer.write_image_data(rgba).map_err(|e| Error::Format(e.to_string()))?;
     }

@@ -4,6 +4,7 @@
 	import CopyDialog from "$lib/components/CopyDialog.svelte";
 	import DepsPanel from "$lib/components/DepsPanel.svelte";
 	import ImportDialog from "$lib/components/ImportDialog.svelte";
+	import MaterialPreview from "$lib/components/MaterialPreview.svelte";
 	import MeshPreview from "$lib/components/MeshPreview.svelte";
 	import PropertyTree from "$lib/components/PropertyTree.svelte";
 	import RenameDialog from "$lib/components/RenameDialog.svelte";
@@ -257,6 +258,8 @@
 					<TexturePreview path={studio.pkg.path} index={row.i} />
 				{:else if preview === "mesh"}
 					<MeshPreview path={studio.pkg.path} index={row.i} />
+				{:else if preview === "material"}
+					<MaterialPreview path={studio.pkg.path} index={row.i} />
 				{:else}
 					<SoundPreview path={studio.pkg.path} index={row.i} />
 				{/if}

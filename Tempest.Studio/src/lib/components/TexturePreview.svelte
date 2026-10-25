@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
 	import { bytes } from "$lib/studio/format";
-	import { rpc } from "$lib/studio/rpc";
+	import { blobUrl, rpc } from "$lib/studio/rpc";
 	import type { TextureInfo } from "../../../electron/src/ipc/contract";
 
 	interface Props {
@@ -25,7 +25,7 @@
 			if (!info) info = await rpc("texture.info", { path, index });
 			const r = await rpc("texture.preview", { path, index, mip: mipIndex });
 			if (url) URL.revokeObjectURL(url);
-			url = `data:image/png;base64,${r.png}`;
+			url = blobUrl(r.png, "image/png");
 		} catch (error_) {
 			error = error_ instanceof Error ? error_.message : String(error_);
 		} finally {

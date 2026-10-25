@@ -42,6 +42,10 @@ fn usage() -> ExitCode {
            upk deps <pkg> <idx|path>                           what it references, what references it\n  \
            upk mod-dir <dir> --id <id> --name <name> [--version 1.0.0] [--author <name>] <file.upk>...\n                                              \
                                                mod folder for `tempest mod pack` (files/, manifest.toml)\n  \
+           upk replace <pkg> <query> <replacement> -o <out.upk> [--names] [--dry-run]\n                                              \
+                                               find & replace in property values (strings, names, object refs) and object names\n  \
+           upk batch-import <cooked-dir> <files-dir> [-o <outdir>] [--dry-run] [-r]\n                                              \
+                                               import <package>.<object>.<ext> files into their packages\n  \
            upk serve                                  JSON-lines RPC over stdin/stdout (the Studio backend)\n\n\
          -I dir: directory holding the script packages (default: the package's own directory)\n\
          -j N: worker threads (default: all cores, or USCRIPT_JOBS)"
@@ -73,6 +77,8 @@ fn main() -> ExitCode {
         "sound" if args.len() >= 4 => cmd_media(&args[1..], false),
         "imagediff" if args.len() >= 2 => cmd_imagediff(&args[1]),
         "native-debug" if args.len() >= 3 => cmd_native_debug(&args[1], &args[2], &args[1..]),
+        "replace" if args.len() >= 4 => cmd_replace(&args[1..]),
+        "batch-import" if args.len() >= 3 => cmd_batch_import(&args[1..]),
         "serve" => {
             tempest_assets::serve::main();
             return ExitCode::SUCCESS;
@@ -602,7 +608,8 @@ fn cmd_mesh(args: &[String]) -> Res {
                 let pkg_name = Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
                 let mut cache = tempest_assets::material_ops::PackageCache::new(&db, &dir);
                 cache.insert(&pkg_name, pkg.clone());
-                for w in mesh_ops::attach_materials(&mut g, &mut cache, &src, &pkg_name) {
+                let mut png_cache = std::collections::HashMap::new();
+                for w in mesh_ops::attach_materials(&mut g, &mut cache, &src, &pkg_name, None, &mut png_cache) {
                     eprintln!("texture skipped: {w}");
                 }
                 eprintln!("{} materials, {} textures embedded", g.materials.len(), g.images.len());
@@ -762,6 +769,58 @@ fn cmd_deps(path: &str, what: &str, args: &[String]) -> Res {
     for j in back {
         println!("  {}", ed.pkg.full_name(PackageIndex::export(j)));
     }
+    Ok(())
+}
+
+fn cmd_replace(args: &[String]) -> Res {
+    use tempest_assets::batch;
+    use tempest_assets::edit::Editor;
+    let path = &args[0];
+    let db = load_db(&script_dir(args, path))?;
+    let mut ed = Editor::open(&db, path)?;
+    let names = args.iter().any(|a| a == "--names");
+    let dry = args.iter().any(|a| a == "--dry-run");
+    let matches = batch::find(&mut ed, &args[1], &args[2], names);
+    for m in &matches {
+        println!("{:<6} {} {} : {} -> {}", m.index, m.object, m.prop.as_deref().unwrap_or("(name)"), m.current, m.replacement);
+    }
+    println!("{} matches", matches.len());
+    if dry || matches.is_empty() {
+        return Ok(());
+    }
+    let out = out_arg(args)?;
+    let errors = batch::replace_all(&mut ed, &matches);
+    for (m, e) in &errors {
+        eprintln!("failed: {} {}: {e}", m.object, m.prop.as_deref().unwrap_or("(name)"));
+    }
+    ed.save(&out)?;
+    eprintln!("wrote {out} ({} replaced, {} failed)", matches.len() - errors.len(), errors.len());
+    Ok(())
+}
+
+fn cmd_batch_import(args: &[String]) -> Res {
+    use tempest_assets::batch;
+    let cooked = PathBuf::from(&args[0]);
+    let files_dir = PathBuf::from(&args[1]);
+    let dry = args.iter().any(|a| a == "--dry-run");
+    let recursive = args.iter().any(|a| a == "-r");
+    let out_dir = args.iter().position(|a| a == "-o").and_then(|p| args.get(p + 1)).map(PathBuf::from);
+    let db = load_db(&cooked)?;
+    let mut packages: Vec<(String, PathBuf)> = Vec::new();
+    for e in std::fs::read_dir(&cooked)?.flatten() {
+        let p = e.path();
+        let ext = p.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        if ext == "upk" || ext == "u" {
+            packages.push((p.file_stem().unwrap().to_string_lossy().to_string(), p));
+        }
+    }
+    let files = batch::collect_files(&files_dir, recursive);
+    let entries = if dry { batch::plan(&db, &packages, &files) } else { batch::run(&db, &packages, &files, out_dir.as_deref(), &mut |done, total, file| eprintln!("[{done}/{total}] {file}")) };
+    for e in &entries {
+        println!("{} {} : {}", if e.ok { "ok  " } else { "FAIL" }, e.file.file_name().unwrap().to_string_lossy(), e.message);
+    }
+    let ok = entries.iter().filter(|e| e.ok).count();
+    println!("{ok} ok, {} failed{}", entries.len() - ok, if dry { " (dry run)" } else { "" });
     Ok(())
 }
 

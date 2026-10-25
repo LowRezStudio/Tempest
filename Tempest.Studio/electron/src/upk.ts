@@ -155,7 +155,7 @@ class UpkClient {
 		if (!pending) return;
 		this.pending.delete(id);
 		if (message.ok) {
-			pending.resolve(message.result ?? null);
+			pending.resolve(decodeBinaryFields(message.result ?? null));
 		} else {
 			pending.reject(new Error(String(message.error ?? "unknown error")));
 		}
@@ -165,6 +165,27 @@ class UpkClient {
 		for (const [, pending] of this.pending) pending.reject(new Error(reason));
 		this.pending.clear();
 	}
+}
+
+/** Base64 payloads (previews) become Uint8Arrays here: structured cloning
+ * them over IPC is far cheaper than parsing megabytes of base64 in the renderer. */
+const BINARY_FIELDS = new Set(["glb", "png", "ogg", "data"]);
+function decodeBinaryFields(result: unknown): unknown {
+	if (!result || typeof result !== "object") return result;
+	if (Array.isArray(result)) {
+		for (const item of result) decodeBinaryFields(item);
+		return result;
+	}
+	const record = result as Record<string, unknown>;
+	for (const [key, value] of Object.entries(record)) {
+		if (BINARY_FIELDS.has(key) && typeof value === "string" && value.length > 0) {
+			const buffer = Buffer.from(value, "base64");
+			record[key] = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+		} else if (value && typeof value === "object") {
+			decodeBinaryFields(value);
+		}
+	}
+	return result;
 }
 
 function broadcast(channel: "upk:event" | "upk:exit", payload: unknown): void {

@@ -63,6 +63,8 @@ pub struct Server {
     scripts: HashMap<String, DecompiledPackage>,
     /// Script packages of the workspace in build order (lazily computed).
     order: Option<Vec<OrderedPackage>>,
+    /// Preview PNGs of material textures (`mesh.preview`), by path and size.
+    png_cache: HashMap<String, Vec<u8>>,
     out: std::io::Stdout,
 }
 
@@ -96,7 +98,7 @@ fn opt_b(p: &J, name: &str) -> Option<bool> {
 
 impl Server {
     pub fn new() -> Server {
-        Server { dir: None, db: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), scripts: HashMap::new(), order: None, out: std::io::stdout() }
+        Server { dir: None, db: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), scripts: HashMap::new(), order: None, png_cache: HashMap::new(), out: std::io::stdout() }
     }
 
     /// Serve stdin until EOF.
@@ -234,6 +236,11 @@ impl Server {
             "script.source" => self.script_source(p),
             "script.compile" => self.script_compile(p),
             "script.export" => self.script_export(p),
+            "package.findReplace" => self.find_replace(p),
+            "material.preview" => self.material_preview(p),
+            "material.setParameter" => self.material_set_parameter(p),
+            "batch.plan" => self.batch(p, false),
+            "batch.run" => self.batch(p, true),
             _ => Err(format!("unknown method {method}").into()),
         }
     }
@@ -722,8 +729,10 @@ impl Server {
         let o = self.mesh_object(path, i)?;
         let db = self.db()?;
         let dir = self.dir()?.to_path_buf();
-        let src = self.src()?;
-        let ed = self.editors.get(&key(path)).unwrap();
+        // Field borrows (not accessor methods): the PNG cache is taken mutably below.
+        self.editors.get_mut(&key(path)).ok_or("package not open")?.flush();
+        let src = self.src.as_ref().ok_or("no workspace open")?;
+        let ed = self.editors.get(&key(path)).ok_or("package not open")?;
         let name = ed.pkg.object_name(PackageIndex::export(i));
         let mut g = mesh_ops::geometry(&ed.pkg, &o, lod)?;
         if !skin {
@@ -731,9 +740,16 @@ impl Server {
         }
         let mut warnings = Vec::new();
         if textures {
+            // Previews use ≤ 1024² textures (fast PNG, cached); exports the full mips.
+            let max_size = if preview { Some(opt_u(p, "textureSize").unwrap_or(1024) as u32) } else { None };
             let mut cache = PackageCache::new(db, &dir);
             cache.insert(&ed.name, ed.pkg.clone());
-            warnings = mesh_ops::attach_materials(&mut g, &mut cache, src, &ed.name);
+            let mut png_cache = std::mem::take(&mut self.png_cache);
+            warnings = mesh_ops::attach_materials(&mut g, &mut cache, src, &ed.name, max_size, &mut png_cache);
+            if png_cache.len() > 256 {
+                png_cache.clear();
+            }
+            self.png_cache = png_cache;
         }
         let bytes = mesh_ops::write_glb(&name, &g)?;
         let mut v = json!({ "bytes": bytes.len(), "vertices": g.positions.len(), "triangles": g.indices.len() / 3, "materials": g.materials.len(), "images": g.images.len(), "warnings": warnings });
@@ -1052,6 +1068,169 @@ impl Server {
         let dp = self.decompiled(path)?;
         let dir = dp.write_to(&out)?;
         Ok(json!({ "dir": dir.to_string_lossy(), "classes": dp.classes.len() }))
+    }
+}
+
+impl Server {
+    // ----- materials --------------------------------------------------------
+
+    /// Resolved parameters of a material (instance) with preview PNGs of its textures.
+    fn material_preview(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let max_size = opt_u(p, "textureSize").unwrap_or(512) as u32;
+        let db = self.db()?;
+        let dir = self.dir()?.to_path_buf();
+        {
+            let ed = self.editor(path)?;
+            let class = ed.pkg.class_name_of(PackageIndex::export(i));
+            if !db.class_is_a(&class, "MaterialInterface") {
+                return Err(format!("{class} is not a material").into());
+            }
+        }
+        // Unsaved edits live in the parsed objects: flush them so the cache's
+        // copy of the package (parsed from export data) sees them.
+        self.editors.get_mut(&key(path)).ok_or("package not open")?.flush();
+        let src = self.src.as_ref().ok_or("no workspace open")?;
+        let ed = self.editors.get(&key(path)).ok_or("package not open")?;
+        let mut cache = PackageCache::new(db, &dir);
+        cache.insert(&ed.name, ed.pkg.clone());
+        let info = crate::material_ops::material_info(&mut cache, &ed.name, PackageIndex::export(i));
+        let mut png_cache = std::mem::take(&mut self.png_cache);
+        let mut textures = Vec::new();
+        for t in &info.textures {
+            let k = format!("{}@{}", t.path, max_size);
+            let png = match png_cache.get(&k) {
+                Some(b) => Ok(b.clone()),
+                None => crate::material_ops::texture_png(&mut cache, src, &t.package, t.export, Some(max_size)),
+            };
+            let (png, error) = match png {
+                Ok(b) => {
+                    png_cache.insert(k, b.clone());
+                    (Some(json::base64(&b)), None)
+                }
+                Err(e) => (None, Some(e.to_string())),
+            };
+            let slot = format!("{:?}", t.slot).to_ascii_lowercase();
+            textures.push(json!({ "parameter": t.parameter, "slot": slot, "path": t.path, "package": t.package, "export": t.export, "png": png, "error": error }));
+        }
+        if png_cache.len() > 256 {
+            png_cache.clear();
+        }
+        self.png_cache = png_cache;
+        Ok(json!({
+            "chain": info.chain.iter().map(|(p, o, c)| json!({ "package": p, "object": o, "class": c })).collect::<Vec<_>>(),
+            "textures": textures,
+            "scalars": info.scalars.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect::<Vec<_>>(),
+            "vectors": info.vectors.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect::<Vec<_>>(),
+            "switches": info.switches.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect::<Vec<_>>(),
+        }))
+    }
+
+    fn material_set_parameter(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let name = s(p, "name")?.to_string();
+        let value = if let Some(v) = p.get("vector").and_then(|v| v.as_array()) {
+            let mut c = [0f32; 4];
+            for (k, x) in v.iter().take(4).enumerate() {
+                c[k] = x.as_f64().unwrap_or(0.0) as f32;
+            }
+            crate::material_ops::ParamValue::Vector(c)
+        } else if let Some(f) = p.get("scalar").and_then(|v| v.as_f64()) {
+            crate::material_ops::ParamValue::Scalar(f as f32)
+        } else {
+            return Err("give scalar or vector".into());
+        };
+        let ed = self.editor(path)?;
+        let changed = crate::material_ops::set_parameter(ed, i, &name, value)?;
+        let mut v = self.material_preview(p)?;
+        v["changed"] = J::from(changed);
+        Ok(v)
+    }
+
+    // ----- bulk operations --------------------------------------------------
+
+    fn find_replace(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let query = s(p, "query")?.to_string();
+        let replacement = opt_s(p, "replacement").unwrap_or_default();
+        let names = opt_b(p, "names").unwrap_or(false);
+        let apply = opt_b(p, "apply").unwrap_or(false);
+        let ed = self.editor(path)?;
+        let matches = crate::batch::find(ed, &query, &replacement, names);
+        let errors = if apply { crate::batch::replace_all(ed, &matches) } else { Vec::new() };
+        let failed: Vec<usize> = errors.iter().map(|(m, _)| m.index).collect();
+        let _ = failed;
+        let rows: Vec<J> = matches.iter().map(|m| json!({ "index": m.index, "object": m.object, "prop": m.prop, "kind": m.kind, "current": m.current, "replacement": m.replacement })).collect();
+        let errs: Vec<J> = errors.iter().map(|(m, e)| json!({ "index": m.index, "object": m.object, "prop": m.prop, "error": e })).collect();
+        Ok(json!({ "matches": rows, "applied": if apply { matches.len() - errors.len() } else { 0 }, "errors": errs, "dirty": ed.is_dirty() }))
+    }
+
+    /// `batch.plan` (dry run) and `batch.run`: a folder of `<package>.<object>.<ext>` files.
+    fn batch(&mut self, p: &J, run: bool) -> Res<J> {
+        let dir = PathBuf::from(s(p, "dir")?);
+        let recursive = opt_b(p, "recursive").unwrap_or(false);
+        let out_dir = opt_s(p, "outDir").filter(|d| !d.is_empty()).map(PathBuf::from);
+        let db = self.db()?;
+        let packages: Vec<(String, PathBuf)> = self.packages.iter().map(|w| (w.name.clone(), w.path.clone())).collect();
+        let files = crate::batch::collect_files(&dir, recursive);
+        let entries = if run {
+            // Unsaved edits of the touched packages would be overwritten: refuse.
+            let plan = crate::batch::plan(db, &packages, &files);
+            for e in &plan {
+                if let Some(pp) = &e.package_path {
+                    if let Some(ed) = self.editors.get(&key(&pp.to_string_lossy())) {
+                        if ed.is_dirty() {
+                            return Err(format!("{} has unsaved edits in the Studio; save or close it before running the batch", e.package).into());
+                        }
+                    }
+                }
+            }
+            let mut events: Vec<(usize, usize, String)> = Vec::new();
+            let entries = crate::batch::run(db, &packages, &files, out_dir.as_deref(), &mut |done, total, file| events.push((done, total, file.to_string())));
+            for (done, total, file) in events {
+                let mut f = Map::new();
+                f.insert("done".into(), J::from(done));
+                f.insert("total".into(), J::from(total));
+                f.insert("file".into(), J::from(file));
+                self.event("batch.progress", f);
+            }
+            // Packages saved in place changed on disk: drop their open editors.
+            if out_dir.is_none() {
+                for e in &entries {
+                    if let Some(pp) = &e.package_path {
+                        let k = key(&pp.to_string_lossy());
+                        self.editors.remove(&k);
+                        self.index.remove(&k);
+                        self.scripts.remove(&k);
+                    }
+                }
+            } else {
+                self.packages = list_packages(self.dir()?);
+            }
+            entries
+        } else {
+            crate::batch::plan(db, &packages, &files)
+        };
+        let rows: Vec<J> = entries
+            .iter()
+            .map(|e| {
+                json!({
+                    "file": e.file.to_string_lossy(),
+                    "name": e.file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                    "package": e.package,
+                    "packagePath": e.package_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+                    "object": e.export.as_ref().map(|x| x.1.clone()),
+                    "index": e.export.as_ref().map(|x| x.0),
+                    "kind": e.kind.map(|k| k.label()),
+                    "ok": e.ok,
+                    "message": e.message,
+                })
+            })
+            .collect();
+        let ok = entries.iter().filter(|e| e.ok).count();
+        Ok(json!({ "entries": rows, "ok": ok, "failed": entries.len() - ok, "ran": run }))
     }
 }
 

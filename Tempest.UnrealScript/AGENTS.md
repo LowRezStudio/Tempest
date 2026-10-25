@@ -47,6 +47,7 @@ crates/tempest-assets/         Typed object layer over any package (see "Asset l
   src/material_ops.rs          PackageCache (cross-package import resolution) + material texture resolution (instance overrides → parent → expressions)
   src/visit.rs                 Visitor over every FName / object reference of an object (header, properties, every Native)
   src/edit.rs                  Editor: rename, delete (placeholder + reference clearing), cross-package copy (dependency closure), property get/set by path, save
+  src/batch.rs                 Find & replace over a package (values + object names) and folder batch import (`<package>.<object>.<ext>`)
   src/media.rs                 SwfMovie RawData export/import, SoundNodeWave Ogg export/import (+Duration/NumChannels/SampleRate), property setters
   src/dump.rs                  Text rendering (`upk dump`)
   src/verify.rs                Directory round-trip + coverage report

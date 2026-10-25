@@ -27,6 +27,14 @@
 		else expanded.add(index);
 	}
 
+	const isPackage = $derived(row.class.toLowerCase() === "package");
+
+	/** Packages are folders: a click opens them (and selects, for the info pane). */
+	function onClick(event: MouseEvent) {
+		if (isPackage && children.length > 0) toggle(event);
+		void studio.select(index);
+	}
+
 	function onKey(event: KeyboardEvent) {
 		if (event.key === "Enter" || event.key === " ") {
 			event.preventDefault();
@@ -50,7 +58,7 @@
 	tabindex="0"
 	aria-selected={studio.selected === index}
 	aria-expanded={children.length > 0 ? isOpen : undefined}
-	onclick={() => studio.select(index)}
+	onclick={onClick}
 	ondblclick={toggle}
 	onkeydown={onKey}
 	title="{row.class} · {row.path} · {row.size} bytes"

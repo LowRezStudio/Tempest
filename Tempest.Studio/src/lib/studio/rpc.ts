@@ -18,16 +18,9 @@ export function onUpkEvent(handler: (event: UpkEvent) => void): () => void {
 	return listen("upk:event", handler);
 }
 
-/** Decode a base64 payload from the server into bytes. */
-export function fromBase64(text: string): Uint8Array {
-	const binary = atob(text);
-	const bytes = new Uint8Array(binary.length);
-	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-	return bytes;
-}
-
-export function blobUrl(text: string, type: string): string {
-	return URL.createObjectURL(new Blob([fromBase64(text) as BlobPart], { type }));
+/** Object URL for bytes the host decoded from a preview response. */
+export function blobUrl(bytes: Uint8Array, type: string): string {
+	return URL.createObjectURL(new Blob([bytes as BlobPart], { type }));
 }
 
 /** The structured part of a `script.compile` rejection. */

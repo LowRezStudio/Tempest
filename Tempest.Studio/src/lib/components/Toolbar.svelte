@@ -2,6 +2,8 @@
 	import {
 		Archive,
 		Code2,
+		FolderInput,
+		Replace,
 		FolderOpen,
 		Moon,
 		Package,
@@ -10,6 +12,8 @@
 		ShieldCheck,
 		Sun,
 	} from "@lucide/svelte";
+	import BatchImportDialog from "$lib/components/BatchImportDialog.svelte";
+	import FindReplaceDialog from "$lib/components/FindReplaceDialog.svelte";
 	import ModDialog from "$lib/components/ModDialog.svelte";
 	import RewriteDialog from "$lib/components/RewriteDialog.svelte";
 	import VerifyDialog from "$lib/components/VerifyDialog.svelte";
@@ -26,6 +30,8 @@
 	const { onsearch }: Props = $props();
 
 	let modOpen = $state(false);
+	let replaceOpen = $state(false);
+	let batchOpen = $state(false);
 	let verifyOpen = $state(false);
 	let rewriteOpen = $state(false);
 
@@ -58,7 +64,7 @@
 
 	async function saveAs() {
 		if (!studio.pkg) return;
-		const out = await pickSave("Save package as", studio.pkg.path, PACKAGE_FILTERS);
+		const out = await pickSave("Save package as", studio.pkg.path, PACKAGE_FILTERS, "package");
 		if (out) await studio.save(out);
 	}
 </script>
@@ -76,6 +82,21 @@
 	<div class="divider divider-horizontal mx-0"></div>
 	<button class="btn btn-ghost btn-sm" onclick={onsearch} title="Search every package (Ctrl+K)">
 		<Search size={14} /> Search
+	</button>
+	<button
+		class="btn btn-ghost btn-sm"
+		onclick={() => (replaceOpen = true)}
+		disabled={!studio.pkg}
+		title="Find and replace in the open package's values and names (Ctrl+H)"
+	>
+		<Replace size={14} /> Replace
+	</button>
+	<button
+		class="btn btn-ghost btn-sm"
+		onclick={() => (batchOpen = true)}
+		title="Import a folder of <package>.<object>.<ext> files"
+	>
+		<FolderInput size={14} /> Batch import
 	</button>
 	<button
 		class="btn btn-ghost btn-sm"
@@ -130,5 +151,7 @@
 </div>
 
 <ModDialog bind:open={modOpen} />
+<FindReplaceDialog bind:open={replaceOpen} />
+<BatchImportDialog bind:open={batchOpen} />
 <VerifyDialog bind:open={verifyOpen} />
 <RewriteDialog bind:open={rewriteOpen} />
