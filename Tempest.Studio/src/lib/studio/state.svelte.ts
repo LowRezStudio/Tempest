@@ -41,6 +41,8 @@ class Studio {
 	backendError = $state<string | null>(null);
 	/** Bumped whenever the export table of `pkg` changed (rename, delete, copy). */
 	tablesVersion = $state(0);
+	/** Undo labels of the open package, newest first. */
+	undoLabels = $state<string[]>([]);
 	/** Edited class sources not yet compiled, keyed `path|class`. */
 	drafts = $state<Record<string, string>>({});
 	/** Object currently shown by the inspector (cache by export index). */
@@ -155,6 +157,7 @@ class Studio {
 			this.object = null;
 			this.tablesVersion++;
 			if (tables.dirty && !this.dirty.includes(path)) this.dirty.push(path);
+			void this.refreshUndo();
 			if (select !== undefined) await this.select(select);
 		} catch (error) {
 			toasts.error(error, `Could not open ${basename(path)}`);
@@ -187,6 +190,65 @@ class Studio {
 
 	markDirty(path = this.pkg?.path): void {
 		if (path && !this.dirty.includes(path)) this.dirty.push(path);
+		void this.refreshUndo();
+	}
+
+	async refreshUndo(): Promise<void> {
+		if (!this.pkg) {
+			this.undoLabels = [];
+			return;
+		}
+		const path = this.pkg.path;
+		try {
+			const r = await rpc("package.undoList", { path });
+			if (this.pkg?.path === path) {
+				this.undoLabels = r.labels;
+				if (!r.dirty) this.dirty = this.dirty.filter((d) => d !== path);
+			}
+		} catch {
+			this.undoLabels = [];
+		}
+	}
+
+	/** Revert the last operation on the open package. */
+	async undo(): Promise<void> {
+		if (!this.pkg) return;
+		const path = this.pkg.path;
+		const selected = this.selected;
+		try {
+			const r = await rpc("package.undo", { path });
+			if (r.label === null) {
+				toasts.push("info", "Nothing to undo", "Undo");
+				return;
+			}
+			toasts.push("success", r.label, "Undone");
+			this.undoLabels = r.remaining;
+			if (!r.dirty) this.dirty = this.dirty.filter((d) => d !== path);
+			this.clearDrafts(path);
+			await this.reloadTables();
+			await this.select(
+				selected !== null && selected < (this.pkg?.exports.length ?? 0) ? selected : null,
+			);
+		} catch (error) {
+			toasts.error(error, "Undo failed");
+		}
+	}
+
+	/** Throw away every unsaved change of the open package and reload it from disk. */
+	async discard(): Promise<void> {
+		if (!this.pkg) return;
+		const path = this.pkg.path;
+		const selected = this.selected;
+		try {
+			await rpc("package.discard", { path });
+			this.dirty = this.dirty.filter((d) => d !== path);
+			this.clearDrafts(path);
+			this.undoLabels = [];
+			await this.openPackage(path, selected ?? undefined);
+			toasts.push("success", "Reloaded from disk", "Changes discarded");
+		} catch (error) {
+			toasts.error(error, "Discard failed");
+		}
 	}
 
 	/** Save the open package in place (or to `out`). */

@@ -4,6 +4,8 @@
 		Code2,
 		FolderInput,
 		Replace,
+		RotateCcw,
+		Undo2,
 		FolderOpen,
 		Moon,
 		Package,
@@ -30,6 +32,7 @@
 	const { onsearch }: Props = $props();
 
 	let modOpen = $state(false);
+	let confirmDiscard = $state(false);
 	let replaceOpen = $state(false);
 	let batchOpen = $state(false);
 	let verifyOpen = $state(false);
@@ -122,6 +125,33 @@
 		<Package size={14} /> Mod folder
 	</button>
 	<div class="flex-1"></div>
+	<button
+		class="btn btn-ghost btn-sm"
+		onclick={() => studio.undo()}
+		disabled={studio.undoLabels.length === 0}
+		title={studio.undoLabels.length
+			? `Undo: ${studio.undoLabels[0]} (Ctrl+Z)`
+			: "Nothing to undo (Ctrl+Z)"}
+	>
+		<Undo2 size={14} /> Undo
+	</button>
+	<button
+		class="btn btn-sm {confirmDiscard ? 'btn-error' : 'btn-ghost'}"
+		onclick={() => {
+			if (confirmDiscard) {
+				confirmDiscard = false;
+				void studio.discard();
+			} else {
+				confirmDiscard = true;
+			}
+		}}
+		onblur={() => (confirmDiscard = false)}
+		disabled={!studio.isDirty}
+		title="Throw away every unsaved change of this package and reload it from disk"
+	>
+		<RotateCcw size={14} />
+		{confirmDiscard ? "Click again to discard" : "Discard"}
+	</button>
 	{#if studio.dirty.length > 0}
 		<span class="badge badge-sm badge-warning">{studio.dirty.length} unsaved</span>
 	{/if}

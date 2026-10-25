@@ -535,7 +535,7 @@ pub fn set_parameter(ed: &mut Editor, i: usize, name: &str, value: ParamValue) -
                 items.push(Value::Struct(StructValue::Tagged(ms)));
             }
         }
-        *ed.object(i)? = obj;
+        ed.replace_object(i, obj)?;
         ed.mark_dirty(i);
         return Ok(i);
     }
@@ -551,7 +551,7 @@ pub fn set_parameter(ed: &mut Editor, i: usize, name: &str, value: ParamValue) -
                 continue;
             }
             set_value_in(&mut ed.pkg, &mut eo.properties, "DefaultValue", value);
-            *ed.object(j)? = eo;
+            ed.replace_object(j, eo)?;
             ed.mark_dirty(j);
             return Ok(j);
         }

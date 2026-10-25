@@ -16,11 +16,17 @@ const bridge = (): PreloadApi => {
 	return window.electronAPI;
 };
 
-export function invoke<K extends IpcChannel>(
+export async function invoke<K extends IpcChannel>(
 	channel: K,
 	...args: IpcContract[K]["args"] extends void ? [] : [IpcContract[K]["args"]]
 ): Promise<IpcContract[K]["result"]> {
-	return bridge().invoke(channel, ...args);
+	try {
+		return await bridge().invoke(channel, ...args);
+	} catch (error) {
+		// Electron wraps rejections as "Error invoking remote method 'x': Error: msg".
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ""));
+	}
 }
 
 export function listen<K extends IpcEventChannel>(

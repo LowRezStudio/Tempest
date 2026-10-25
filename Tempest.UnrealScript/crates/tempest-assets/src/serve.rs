@@ -197,7 +197,9 @@ impl Server {
             "package.open" => self.package_open(s(p, "path")?),
             "package.tables" => {
                 let ed = self.editor(s(p, "path")?)?;
-                Ok(json::tables(&ed.pkg))
+                let mut v = json::tables(&ed.pkg);
+                v["name"] = J::from(ed.name.clone());
+                Ok(v)
             }
             "package.close" => {
                 let k = key(s(p, "path")?);
@@ -209,6 +211,21 @@ impl Server {
                 Ok(J::from(ed.is_dirty()))
             }
             "package.save" => self.package_save(p),
+            "package.undo" => {
+                let ed = self.editor(s(p, "path")?)?;
+                let label = ed.undo();
+                Ok(json!({ "label": label, "remaining": ed.undo_labels(), "dirty": ed.is_dirty() }))
+            }
+            "package.undoList" => {
+                let ed = self.editor(s(p, "path")?)?;
+                Ok(json!({ "labels": ed.undo_labels(), "dirty": ed.is_dirty() }))
+            }
+            "package.discard" => {
+                // Drop the in-memory package: the next open reads the file again.
+                let k = key(s(p, "path")?);
+                self.scripts.remove(&k);
+                Ok(J::from(self.editors.remove(&k).is_some()))
+            }
             "package.rewrite" => self.package_rewrite(p),
             "package.verify" => self.package_verify(s(p, "path")?),
             "object.get" => self.object_get(p),
@@ -354,6 +371,7 @@ impl Server {
         let t = std::time::Instant::now();
         let ed = self.editor(path)?;
         let mut v = json::tables(&ed.pkg);
+        v["name"] = J::from(ed.name.clone());
         v["path"] = J::from(path);
         v["dirty"] = J::from(ed.is_dirty());
         v["loadMs"] = J::from(t.elapsed().as_millis() as u64);
@@ -449,6 +467,7 @@ impl Server {
         let prop = s(p, "prop")?;
         let value = s(p, "value")?;
         let ed = self.editor(path)?;
+        ed.begin_undo(format!("set {prop}"));
         ed.set(i, prop, value)?;
         let parsed = ed.parsed(i)?.clone();
         let mut v = json::parsed(&ed.pkg, i, &parsed);
@@ -462,6 +481,8 @@ impl Server {
         let i = self.export_of(path, p)?;
         let name = s(p, "name")?;
         let ed = self.editor(path)?;
+        let old = ed.pkg.object_name(PackageIndex::export(i));
+        ed.begin_undo(format!("rename {old} → {name}"));
         ed.rename(i, name)?;
         ed.mark_dirty(i);
         Ok(json::export_row(&ed.pkg, i))
@@ -474,6 +495,7 @@ impl Server {
             return Err("missing parameter indices".into());
         }
         let ed = self.editor(path)?;
+        ed.begin_undo(format!("delete {} object(s)", indices.len()));
         let mut cleared = 0;
         for i in indices {
             if i >= ed.pkg.exports.len() {
@@ -510,6 +532,7 @@ impl Server {
                 return Err(e);
             }
         };
+        dst.begin_undo(format!("copy {}", src.pkg.object_name(PackageIndex::export(i))));
         let r = dst.copy_from(src, i, outer, deep);
         let _ = db;
         let result = match r {
@@ -681,8 +704,9 @@ impl Server {
             ImportSource::Rgba { width: w, height: h, rgba }
         };
         let ed = self.editor(path)?;
+        ed.begin_undo(format!("replace texture {}", ed.pkg.object_name(PackageIndex::export(i))));
         texture_ops::import(db, &mut ed.pkg, i, &mut o, source, &opts)?;
-        *ed.object(i)? = o;
+        ed.replace_object(i, o)?;
         ed.mark_dirty(i);
         self.texture_info(p)
     }
@@ -791,8 +815,9 @@ impl Server {
         let mut o = self.mesh_object(path, i)?;
         let bytes = std::fs::read(file)?;
         let ed = self.editor(path)?;
+        ed.begin_undo(format!("replace mesh {}", ed.pkg.object_name(PackageIndex::export(i))));
         let report = crate::mesh_import::import(&ed.pkg, &mut o, Path::new(file), &bytes, lod)?;
-        *ed.object(i)? = o;
+        ed.replace_object(i, o)?;
         ed.mark_dirty(i);
         let mut v = self.mesh_info(p)?;
         v["vertices"] = J::from(report.vertices);
@@ -810,6 +835,7 @@ impl Server {
         let bytes = std::fs::read(file)?;
         let n = bytes.len();
         let ed = self.editor(path)?;
+        ed.begin_undo(format!("replace raw payload of {}", ed.pkg.object_name(PackageIndex::export(i))));
         ed.set_raw(i, bytes)?;
         // Report whether the new payload still parses.
         let parsed = ed.parsed(i)?.clone();
@@ -880,13 +906,14 @@ impl Server {
         let kind = self.media_kind(path, i)?;
         let bytes = std::fs::read(file)?;
         let ed = self.editor(path)?;
+        ed.begin_undo(format!("replace {kind} {}", ed.pkg.object_name(PackageIndex::export(i))));
         let mut o = ed.object(i)?.clone();
         if kind == "sound" {
             media::sound_import(&mut ed.pkg, &mut o, &bytes)?;
         } else {
             media::swf_import(&mut ed.pkg, &mut o, &bytes)?;
         }
-        *ed.object(i)? = o;
+        ed.replace_object(i, o)?;
         ed.mark_dirty(i);
         Ok(json!({ "kind": kind, "bytes": bytes.len() }))
     }
@@ -944,7 +971,10 @@ impl Server {
         let mut guard = 0;
         loop {
             let e = &pkg.exports[cur];
-            let is_class = e.class.is_null() && e.serial_size > 0;
+            // Cooked packages leave a class export's class null; compiled ones
+            // may point it at Core.Class. Either way it is a UClass with a body.
+            let has_body = e.serial_size > 0 || pkg.export_data.get(cur).map(|d| !d.is_empty()).unwrap_or(false);
+            let is_class = has_body && (e.class.is_null() || pkg.class_name_of(PackageIndex::export(cur)).eq_ignore_ascii_case("Class"));
             if is_class {
                 return Some(cur);
             }
@@ -1000,12 +1030,20 @@ impl Server {
         let source = s(p, "source")?.to_string();
         let (name, cooked, dirty) = {
             let ed = self.editor(path)?;
-            (ed.name.clone(), ed.pkg.summary.is_cooked(), ed.is_dirty())
+            // A previous recompile is fine (it came from these sources); other
+            // unsaved edits would be lost in the rebuild.
+            (ed.name.clone(), ed.pkg.summary.is_cooked(), ed.has_object_edits())
         };
         if dirty {
-            return Err("the package has unsaved edits; save (or close) it before recompiling its scripts".into());
+            return Err("the package has unsaved property or asset edits; save (or discard) them before recompiling its scripts".into());
         }
-        let op = self.ordered(&name)?;
+        // The file may carry another name than the package (Save as…): the
+        // build order is keyed by the package's own name.
+        let internal = self.editor(path)?.pkg.package_name();
+        let op = match self.ordered(&name) {
+            Ok(op) => op,
+            Err(e) => self.ordered(&internal).map_err(|_| e)?,
+        };
         // Sources: the decompiled package with the edited class replaced.
         let dp = self.decompiled(path)?;
         let Some(slot) = dp.classes.iter_mut().find(|c| c.name.eq_ignore_ascii_case(&class)) else {
@@ -1031,8 +1069,10 @@ impl Server {
         match result {
             Ok(r) => {
                 let ed = self.editor(path)?;
+                ed.begin_undo(format!("recompile {class}"));
                 ed.replace_package(r.package);
                 let mut v = json::tables(&ed.pkg);
+                v["name"] = J::from(ed.name.clone());
                 v["path"] = J::from(path);
                 v["dirty"] = J::from(true);
                 v["warnings"] = J::from(r.warnings);
@@ -1143,6 +1183,7 @@ impl Server {
             return Err("give scalar or vector".into());
         };
         let ed = self.editor(path)?;
+        ed.begin_undo(format!("set parameter {name}"));
         let changed = crate::material_ops::set_parameter(ed, i, &name, value)?;
         let mut v = self.material_preview(p)?;
         v["changed"] = J::from(changed);
@@ -1159,6 +1200,9 @@ impl Server {
         let apply = opt_b(p, "apply").unwrap_or(false);
         let ed = self.editor(path)?;
         let matches = crate::batch::find(ed, &query, &replacement, names);
+        if apply {
+            ed.begin_undo(format!("replace {query} → {replacement}"));
+        }
         let errors = if apply { crate::batch::replace_all(ed, &matches) } else { Vec::new() };
         let failed: Vec<usize> = errors.iter().map(|(m, _)| m.index).collect();
         let _ = failed;

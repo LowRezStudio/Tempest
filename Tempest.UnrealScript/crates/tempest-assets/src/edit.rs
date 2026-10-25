@@ -35,6 +35,43 @@ pub struct Editor<'a> {
     obscured: bool,
     /// The whole package was regenerated (script recompile) and not saved yet.
     rebuilt: bool,
+    /// Undo journal: one entry per operation (`begin_undo`), newest last.
+    undo: Vec<UndoEntry>,
+    /// The entry capturing the operation in progress.
+    current: Option<UndoEntry>,
+}
+
+const MAX_UNDO: usize = 50;
+
+/// State of one export before an operation touched it.
+struct Snapshot {
+    index: usize,
+    export: ObjectExport,
+    data: Vec<u8>,
+    parsed: Option<Parsed>,
+    dirty: bool,
+}
+
+/// Everything needed to put the package back as it was before one operation.
+pub struct UndoEntry {
+    pub label: String,
+    snapshots: Vec<Snapshot>,
+    /// (exports, imports, names) counts before: anything appended is cut off.
+    lens: (usize, usize, usize),
+    /// Whole-package snapshot (script recompiles replace everything).
+    full: Option<Box<FullSnapshot>>,
+    /// The summary before (texture allocations change with texture imports).
+    summary: tempest_upk::package::Summary,
+}
+
+/// (package, parsed objects, dirty set, rebuilt flag) before a whole-package replacement.
+type FullSnapshot = (Package, HashMap<usize, Parsed>, HashSet<usize>, bool);
+
+impl UndoEntry {
+    /// Nothing was snapshotted and no table grew: not worth an entry.
+    fn is_empty(&self, pkg: &Package) -> bool {
+        self.snapshots.is_empty() && self.full.is_none() && self.lens == (pkg.exports.len(), pkg.imports.len(), pkg.names.len()) && self.summary == pkg.summary
+    }
 }
 
 impl<'a> Editor<'a> {
@@ -49,15 +86,141 @@ impl<'a> Editor<'a> {
     pub fn from_package(db: &'a ClassDb, name: String, pkg: Package) -> Editor<'a> {
         let layout = package_layout(&pkg);
         let obscured = pkg.summary.compression_flags & compression::OBSCURED != 0;
-        Editor { db, name, was_compressed: pkg.was_compressed, obscured, pkg, layout, objects: HashMap::new(), dirty: HashSet::new(), rebuilt: false }
+        Editor { db, name, was_compressed: pkg.was_compressed, obscured, pkg, layout, objects: HashMap::new(), dirty: HashSet::new(), rebuilt: false, undo: Vec::new(), current: None }
+    }
+
+    // ----- undo -------------------------------------------------------------
+
+    /// Start recording an operation; the previous one is filed (if it
+    /// changed anything). Every mutation below snapshots what it touches.
+    pub fn begin_undo(&mut self, label: impl Into<String>) {
+        self.end_undo();
+        self.current = Some(UndoEntry { label: label.into(), snapshots: Vec::new(), lens: (self.pkg.exports.len(), self.pkg.imports.len(), self.pkg.names.len()), full: None, summary: self.pkg.summary.clone() });
+    }
+
+    fn end_undo(&mut self) {
+        if let Some(e) = self.current.take() {
+            if !e.is_empty(&self.pkg) {
+                self.undo.push(e);
+                if self.undo.len() > MAX_UNDO {
+                    self.undo.remove(0);
+                }
+            }
+        }
+    }
+
+    /// Record export `i` before it changes (once per operation).
+    fn snapshot(&mut self, i: usize) {
+        let Some(cur) = &mut self.current else { return };
+        if cur.full.is_some() || cur.snapshots.iter().any(|s| s.index == i) || i >= self.pkg.exports.len() {
+            return;
+        }
+        // Exports appended by this operation are undone by truncation.
+        if i >= cur.lens.0 {
+            return;
+        }
+        cur.snapshots.push(Snapshot { index: i, export: self.pkg.exports[i].clone(), data: self.pkg.export_data.get(i).cloned().unwrap_or_default(), parsed: self.objects.get(&i).cloned(), dirty: self.dirty.contains(&i) });
+    }
+
+    /// Labels of what `undo` would revert, newest first.
+    pub fn undo_labels(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.undo.iter().map(|e| e.label.clone()).collect();
+        if let Some(c) = &self.current {
+            if !c.is_empty(&self.pkg) {
+                v.push(c.label.clone());
+            }
+        }
+        v.reverse();
+        v
+    }
+
+    /// Revert the last operation. Returns its label.
+    pub fn undo(&mut self) -> Option<String> {
+        self.end_undo();
+        let e = self.undo.pop()?;
+        if let Some(full) = e.full {
+            let (pkg, objects, dirty, rebuilt) = *full;
+            self.layout = package_layout(&pkg);
+            self.pkg = pkg;
+            self.objects = objects;
+            self.dirty = dirty;
+            self.rebuilt = rebuilt;
+            return Some(e.label);
+        }
+        for snap in e.snapshots.into_iter().rev() {
+            let i = snap.index;
+            if i < self.pkg.exports.len() {
+                self.pkg.exports[i] = snap.export;
+                while self.pkg.export_data.len() <= i {
+                    self.pkg.export_data.push(Vec::new());
+                }
+                self.pkg.export_data[i] = snap.data;
+            }
+            match snap.parsed {
+                Some(p) => {
+                    self.objects.insert(i, p);
+                }
+                None => {
+                    self.objects.remove(&i);
+                }
+            }
+            if snap.dirty {
+                self.dirty.insert(i);
+            } else {
+                self.dirty.remove(&i);
+            }
+        }
+        let (ne, ni, nn) = e.lens;
+        if self.pkg.exports.len() > ne {
+            for j in ne..self.pkg.exports.len() {
+                self.objects.remove(&j);
+                self.dirty.remove(&j);
+            }
+            self.pkg.exports.truncate(ne);
+            self.pkg.export_data.truncate(ne);
+            self.pkg.depends.truncate(ne);
+        }
+        if self.pkg.imports.len() > ni {
+            self.pkg.imports.truncate(ni);
+        }
+        if self.pkg.names.len() > nn {
+            self.pkg.names.truncate(nn);
+            self.pkg.rebuild_name_lookup();
+        }
+        self.pkg.summary = e.summary;
+        Some(e.label)
+    }
+
+    /// Store a rewritten object for export `i` (recorded for undo, marked dirty).
+    pub fn replace_object(&mut self, i: usize, obj: Object) -> Result<()> {
+        if i >= self.pkg.exports.len() {
+            return Err(Error::Format(format!("no export {i}")));
+        }
+        self.snapshot(i);
+        self.objects.insert(i, Parsed::Object(obj));
+        self.dirty.insert(i);
+        Ok(())
     }
 
     /// Swap in a regenerated package (a recompiled script package): parsed
     /// objects are dropped, the storage flags of the original are kept so
     /// `save` writes it the same way.
     pub fn replace_package(&mut self, pkg: Package) {
+        if let Some(cur) = &mut self.current {
+            if cur.full.is_none() {
+                cur.snapshots.clear();
+                cur.full = Some(Box::new((self.pkg.clone(), self.objects.clone(), self.dirty.clone(), self.rebuilt)));
+            }
+        }
         self.layout = package_layout(&pkg);
         self.pkg = pkg;
+        // A compiled package gets its serial sizes on save; the tables are
+        // shown (and classes recognised) before that, so fill them in now.
+        for i in 0..self.pkg.exports.len() {
+            if let Some(d) = self.pkg.export_data.get(i) {
+                self.pkg.exports[i].serial_size = d.len() as i32;
+            }
+        }
         self.objects.clear();
         self.dirty.clear();
         self.rebuilt = true;
@@ -100,6 +263,7 @@ impl<'a> Editor<'a> {
         if i >= self.pkg.exports.len() {
             return Err(Error::Format(format!("no export {i}")));
         }
+        self.snapshot(i);
         self.pkg.set_export_data(i, data);
         self.objects.remove(&i);
         self.dirty.insert(i);
@@ -108,6 +272,11 @@ impl<'a> Editor<'a> {
 
     pub fn is_dirty(&self) -> bool {
         self.rebuilt || !self.dirty.is_empty()
+    }
+
+    /// Unsaved edits to individual objects (as opposed to a whole-package rebuild).
+    pub fn has_object_edits(&self) -> bool {
+        !self.dirty.is_empty()
     }
 
     /// Resolve `<idx|path>` to an export index.
@@ -129,6 +298,7 @@ impl<'a> Editor<'a> {
         if clash {
             return Err(Error::Format(format!("an object called {new_name} already exists in the same outer")));
         }
+        self.snapshot(i);
         let n = self.pkg.intern_fname(new_name);
         self.pkg.exports[i].object_name = n;
         Ok(())
@@ -164,6 +334,9 @@ impl<'a> Editor<'a> {
         let victim_set: HashSet<PackageIndex> = victims.iter().map(|&v| PackageIndex::export(v)).collect();
         let none = self.pkg.intern_fname("None");
         for &v in &victims {
+            self.snapshot(v);
+        }
+        for &v in &victims {
             let e = &mut self.pkg.exports[v];
             e.class = PackageIndex::NONE;
             e.super_ = PackageIndex::NONE;
@@ -178,7 +351,13 @@ impl<'a> Editor<'a> {
             self.dirty.remove(&v);
         }
         let mut cleared = 0;
-        for e in &mut self.pkg.exports {
+        for j in 0..self.pkg.exports.len() {
+            let e = &self.pkg.exports[j];
+            if ![e.class, e.super_, e.archetype].iter().any(|r| victim_set.contains(r)) {
+                continue;
+            }
+            self.snapshot(j);
+            let e = &mut self.pkg.exports[j];
             for r in [&mut e.class, &mut e.super_, &mut e.archetype] {
                 if victim_set.contains(r) {
                     *r = PackageIndex::NONE;
@@ -203,11 +382,15 @@ impl<'a> Editor<'a> {
             if victim_set.contains(&PackageIndex::export(j)) {
                 continue;
             }
-            let parsed = match self.parsed(j) {
-                Ok(p) => p,
-                Err(_) => continue,
+            let touches = match self.parsed(j) {
+                Ok(Parsed::Object(o)) => references(o).iter().any(|r| victim_set.contains(r)),
+                _ => false,
             };
-            if let Parsed::Object(o) = parsed {
+            if !touches {
+                continue;
+            }
+            self.snapshot(j);
+            if let Ok(Parsed::Object(o)) = self.parsed(j) {
                 let mut c = Clear { victims: &victim_set, n: 0 };
                 o.visit(&mut c);
                 if c.n > 0 {
@@ -430,9 +613,7 @@ impl<'a> Editor<'a> {
         };
         let mut obj = self.object(i)?.clone();
         set_value(self.db, &mut self.pkg, &mut obj, class, &segs, text)?;
-        *self.object(i)? = obj;
-        self.dirty.insert(i);
-        Ok(())
+        self.replace_object(i, obj)
     }
 
     // ----- save -------------------------------------------------------------

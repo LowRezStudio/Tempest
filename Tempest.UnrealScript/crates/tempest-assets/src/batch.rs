@@ -262,7 +262,7 @@ pub fn import_file(db: &ClassDb, ed: &mut Editor, i: usize, file: &Path) -> Resu
         }
         ImportKind::Raw => unreachable!(),
     };
-    *ed.object(i)? = o;
+    ed.replace_object(i, o)?;
     ed.mark_dirty(i);
     Ok(text)
 }

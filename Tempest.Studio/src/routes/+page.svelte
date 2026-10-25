@@ -22,6 +22,12 @@
 		} else if ((k === "k" || k === "f") && studio.workspace && !event.shiftKey) {
 			event.preventDefault();
 			searchOpen = true;
+		} else if (k === "z" && studio.pkg && !event.shiftKey) {
+			// Inputs and the code editor keep their own undo.
+			const t = event.target as HTMLElement | null;
+			if (t?.closest("input, textarea, .cm-editor")) return;
+			event.preventDefault();
+			void studio.undo();
 		} else if (k === "h" && studio.pkg) {
 			event.preventDefault();
 			replaceOpen = true;

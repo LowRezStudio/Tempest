@@ -313,6 +313,12 @@ export interface UpkMethods {
 		result: { out: string; compress: boolean; obscure: boolean };
 	};
 	"package.verify": { params: { path: string }; result: VerifyReport };
+	"package.undo": {
+		params: { path: string };
+		result: { label: string | null; remaining: string[]; dirty: boolean };
+	};
+	"package.undoList": { params: { path: string }; result: { labels: string[]; dirty: boolean } };
+	"package.discard": { params: { path: string }; result: boolean };
 	"object.get": { params: Target; result: ParsedObject };
 	"object.text": { params: Target; result: string };
 	"object.set": { params: Target & { prop: string; value: string }; result: ParsedObject };
