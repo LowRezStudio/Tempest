@@ -3,7 +3,8 @@
 	import CursorFollower from "./CursorFollower.svelte";
 </script>
 
-<!-- The pumpkin only; the corner webs hang behind the pages (HalloweenWebs) -->
+<!-- The pumpkin only; the corner webs hang behind the pages (HalloweenWebs). `web` matches the
+     bottom-right one there (size-40, 160px) -->
 <div class="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
 	<CursorFollower
 		gait="hop"
@@ -11,6 +12,7 @@
 		throwable
 		goo="#f97316"
 		debris={["#ea580c", "#f97316", "#7c5a2e", "#84cc16"]}
+		web={160}
 	>
 		{#snippet children(look)}
 			<svg class="pumpkin" viewBox="0 0 64 60">

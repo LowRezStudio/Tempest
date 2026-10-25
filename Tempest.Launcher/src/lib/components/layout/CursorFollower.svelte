@@ -29,6 +29,11 @@
 		/** The colors of the chunks it blows apart into */
 		debris?: string[];
 		/**
+		 * The radius of a cobweb in the bottom-right corner, in px; flying into it gets it stuck
+		 * until it wriggles free or is pulled out
+		 */
+		web?: number;
+		/**
 		 * The art; `look` points toward the cursor, -1 to 1 on each axis, for its eyes, says
 		 * whether the cursor left the window and which face to pull
 		 */
@@ -41,6 +46,7 @@
 		throwable = false,
 		goo = "currentColor",
 		debris = [goo],
+		web = 0,
 		children,
 	}: Props = $props();
 
@@ -56,6 +62,7 @@
 	const SETTLE_SPEED = 160;
 	// Winces at hits harder than this, and three in one flight leave it dizzy
 	const HARD_HIT = 1300;
+	const STUCK_TIME = 3500;
 	// Share of the window's change in speed it keeps; the floor drags the rest along
 	const MOMENTUM = 0.7;
 	// This many throws at least this fast within the window and it blows up when it hits something
@@ -72,11 +79,19 @@
 	let dead = $state(false);
 	let primed = $state(false);
 	let airborne = $state(false);
+	// The strands holding it while it's stuck in the cobweb
+	let threads = $state<{ x: number; y: number; ends: { x: number; y: number }[] }>();
 	// Offset from its resting spot in the bottom-left corner; scale and rotation are about its center
 	const pose = $state({ tx: -1000, ty: 0, angle: 0, sx: 1, sy: 1, facing: 1, opacity: 1 });
 	const look = $state<Look>({ x: 0, y: 0, away: false, face: "calm" });
 	let bursts = $state<{ id: number; x: number; y: number; angle: number; start: number }[]>([]);
-	let tombstones = $state<{ id: number; x: number }[]>([]);
+	// Planted on the floor, ceiling or wall it blew up against, `at` along it
+	interface Grave {
+		id: number;
+		side: "floor" | "ceiling" | "left" | "right";
+		at: number;
+	}
+	let tombstones = $state<Grave[]>([]);
 	let ghost = $state<{ x: number; y: number }>();
 	let splatter = $state<{
 		opacity: number;
@@ -100,6 +115,15 @@
 	const soul: Look = { x: 0, y: -1, away: false, face: "calm" };
 
 	const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+	// Its base on the surface, standing up out of it
+	function graveSpot({ side, at }: Grave) {
+		const along = `min(${Math.max(20, at)}px, calc(100% - 20px))`;
+		if (side === "floor") return `left: ${along}; top: 100%;`;
+		if (side === "ceiling") return `left: ${along}; top: 0; transform: rotate(180deg);`;
+		if (side === "left") return `left: 0; top: ${along}; transform: rotate(90deg);`;
+		return `left: 100%; top: ${along}; transform: rotate(-90deg);`;
+	}
 
 	onMount(() => {
 		const ground = layer;
@@ -135,7 +159,7 @@
 		let vy = 0;
 		let angle = 0;
 		let spin = 0;
-		let mode: "ground" | "held" | "flying" | "dead" = "ground";
+		let mode: "ground" | "held" | "flying" | "stuck" | "dead" = "ground";
 
 		let hop:
 			| { from: number; to: number; height: number; start: number; duration: number }
@@ -159,6 +183,12 @@
 		let tombstoneId = 0;
 		let hardThrows: number[] = [];
 		let detonate = false;
+		let wasInWeb = false;
+		let stuckSince = 0;
+		// From the bottom-right corner, so it moves with the cobweb when the window's resized
+		let anchor = { dx: 0, dy: 0 };
+		let strands: { dx: number; dy: number }[] = [];
+		let blownAgainst: Grave["side"] = "floor";
 		// Builds up while the cursor strokes it, and wears off
 		let petting = 0;
 		let lastPointer: { x: number; y: number } | undefined;
@@ -187,6 +217,8 @@
 		let size: { w: number; h: number } | undefined;
 		let wallV = 0;
 		let floorV = 0;
+
+		const inWeb = () => web > 0 && Math.hypot(W - x, H - y) < web * 0.95;
 
 		function hopTowards(now: number, target: number, above: number, idle: boolean) {
 			if (hop) {
@@ -285,6 +317,7 @@
 			y = H - hy - lift;
 			// Leans into the window's pushes too small to knock it over
 			angle = tilt + clamp(vx * 0.06, -12, 12);
+			wasInWeb = inWeb();
 		}
 
 		function takeOff(now: number) {
@@ -369,8 +402,10 @@
 			vy = 0;
 			spin = 0;
 			ghost = { x: x - hx, y: y - hy };
-			tombstones.push({ id: tombstoneId++, x });
+			const sideways = blownAgainst === "left" || blownAgainst === "right";
+			tombstones.push({ id: tombstoneId++, side: blownAgainst, at: sideways ? y : x });
 			if (tombstones.length > MAX_TOMBSTONES) tombstones.shift();
+			blownAgainst = "floor";
 		}
 
 		function lieDead(now: number, dt: number) {
@@ -422,6 +457,7 @@
 			pose.facing = x > W / 2 ? -1 : 1;
 			mode = "flying";
 			dead = false;
+			wasInWeb = false;
 			ghost = undefined;
 			splatter = undefined;
 			blast = undefined;
@@ -432,6 +468,8 @@
 		function hit(speed: number, axis: "x" | "y", side: number, now: number) {
 			if (primed) {
 				detonate = true;
+				if (axis === "x") blownAgainst = side > 0 ? "right" : "left";
+				else blownAgainst = side > 0 ? "floor" : "ceiling";
 				return;
 			}
 			// Squashes flat against what it hit, then jiggles back
@@ -507,6 +545,10 @@
 			angle += spin * dt;
 			const resting = bounce(now);
 			if (detonate || (primed && resting)) return explode(now);
+			// Flying into the cobweb, not rolling along the floor under it, gets it stuck
+			const webbed = inWeb();
+			if (webbed && !wasInWeb && y + hy < H - 6) return stick(now);
+			wasInWeb = webbed;
 			if (!resting) return;
 			vx *= Math.exp(-FRICTION * dt);
 			if (Math.abs(vx) > 30) {
@@ -518,6 +560,57 @@
 			const upright = Math.round(angle / 360) * 360;
 			spin += (-(angle - upright) * 160 - spin * 9) * dt;
 			if (Math.abs(angle - upright) < 1 && Math.abs(spin) < 20) land(now);
+		}
+
+		function stick(now: number) {
+			mode = "stuck";
+			stuckSince = now;
+			wasInWeb = true;
+			spin = 0;
+			// Plows a little way in; the net gives under it and springs it back there
+			const speed = Math.hypot(vx, vy) || 1;
+			const plow = Math.min(30, speed * 0.03);
+			const ax = clamp(x + (vx / speed) * plow, hx, W - hx);
+			const ay = clamp(y + (vy / speed) * plow, hy, H - hy);
+			anchor = { dx: W - ax, dy: H - ay };
+			if (speed > 700) {
+				vx *= 700 / speed;
+				vy *= 700 / speed;
+			}
+			// Strands out to the wall and the floor, and down into the corner
+			const reach = (d: number) => clamp(d, 0, web);
+			strands = [
+				{ dx: 0, dy: reach(anchor.dy - 18) },
+				{ dx: 0, dy: reach(anchor.dy + 24) },
+				{ dx: reach(anchor.dx - 16), dy: 0 },
+				{ dx: reach(anchor.dx + 28), dy: 0 },
+				{ dx: 0, dy: 0 },
+			];
+		}
+
+		function dangle(now: number, dt: number) {
+			const ax = W - anchor.dx;
+			const ay = H - anchor.dy;
+			vx += (-(x - ax) * 140 - vx * 7) * dt;
+			vy += (-(y - ay) * 140 - vy * 7) * dt;
+			x = clamp(x + vx * dt, hx, W - hx);
+			y = clamp(y + vy * dt, hy, H - hy);
+			angle += (Math.round(angle / 360) * 360 - angle) * Math.min(1, 6 * dt);
+			threads = {
+				x,
+				y,
+				ends: strands.map((end) => ({ x: W - end.dx, y: H - end.dy })),
+			};
+			if (now - stuckSince > STUCK_TIME) breakFree(now);
+		}
+
+		// Wriggles out and drops
+		function breakFree(now: number) {
+			mode = "flying";
+			threads = undefined;
+			vx = -80;
+			vy = 150;
+			splat = { amount: -0.2, axis: "y", side: -1, start: now };
 		}
 
 		function lever() {
@@ -573,6 +666,8 @@
 			pivot = undefined;
 			mode = "flying";
 			hardHits = 0;
+			// Let go in the cobweb, it sticks there again
+			wasInWeb = false;
 			if (Math.hypot(vx, vy) < HARD_THROW) return;
 			// One hard throw too many and it blows up on whatever it hits next
 			const now = performance.now();
@@ -593,7 +688,7 @@
 			const sin = Math.sin(angle * DEG);
 			let lx = dx * cos + dy * sin;
 			let ly = dy * cos - dx * sin;
-			const catching = mode === "flying";
+			const catching = mode === "flying" || mode === "stuck";
 			if (catching) {
 				// Grabbed by the catch zone around it: held near its middle, not from thin air
 				const reach = Math.hypot(lx, ly);
@@ -614,7 +709,7 @@
 				lx,
 				ly,
 			};
-			// No need to move first: in the air it's caught the moment it's touched
+			// No need to move first: in the air or the cobweb it's caught the moment it's touched
 			if (catching) pickUp(e.timeStamp, e.clientX, e.clientY);
 		};
 		const onDrag = (e: PointerEvent) => {
@@ -632,7 +727,8 @@
 			held = true;
 			hop = undefined;
 			spin = 0;
-			if (mode === "flying") {
+			threads = undefined;
+			if (mode === "flying" || mode === "stuck") {
 				// Its momentum swings it around the hand, and it squishes into it
 				const { rx, ry } = lever();
 				const inertia = rx * rx + ry * ry + (hy * hy) / 2;
@@ -727,13 +823,14 @@
 						vx *= Math.exp(-10 * dt);
 						vy *= Math.exp(-10 * dt);
 					}
-				} else if (mode === "flying") {
+				} else if (mode === "flying" || mode === "stuck") {
 					vx += push.x;
 					vy += push.y;
 				}
 			}
 			if (mode === "ground") walk(now, dt, rect);
 			else if (mode === "held") hang(now, dt, rect);
+			else if (mode === "stuck") dangle(now, dt);
 			else if (mode === "dead") lieDead(now, dt);
 			else fly(dt, now);
 
@@ -767,16 +864,24 @@
 				}
 				if (t > 0.7) splat = undefined;
 			}
+			// Struggles in fits against the cobweb, a little after it gets caught
+			const caughtFor = now - stuckSince;
+			const struggling = mode === "stuck" && caughtFor > 400 && caughtFor % 900 < 380;
+			let wriggle = 0;
+			if (struggling) {
+				wriggle = Math.sin(caughtFor / 22) * 12;
+				ox += Math.sin(caughtFor / 31) * 2;
+			}
 			pose.tx = x - hx + ox;
 			pose.ty = y + hy - H + oy;
-			pose.angle = angle;
+			pose.angle = angle + wriggle;
 			pose.sx = sx;
 			pose.sy = sy;
 			// Gone while blown up, and fades back in when it drops in again
 			pose.opacity = mode === "dead" ? 0 : clamp((now - respawnedAt) / 250, 0, 1);
-			airborne = mode === "flying";
+			airborne = mode === "flying" || mode === "stuck";
 
-			if (now < ouchUntil) look.face = "ouch";
+			if (now < ouchUntil || struggling) look.face = "ouch";
 			else if (mode !== "ground") look.face = "wide";
 			else if (petting > 0.35 || now < happyUntil) look.face = "happy";
 			else look.face = now < dizzyUntil ? "dizzy" : "calm";
@@ -839,49 +944,51 @@
 		</svg>
 	{/each}
 	{#each tombstones as stone (stone.id)}
-		<svg
-			class="tombstone absolute bottom-0"
-			style="left: min({stone.x - 20}px, calc(100% - 40px));"
-			width="40"
-			height="46"
-			viewBox="0 0 40 46"
-		>
-			<ellipse cx="20" cy="45" rx="18" ry="3" fill="#57412f" />
-			<path
-				d="M7 45V17a13 13 0 0 1 26 0v28z"
-				fill="#9ca3af"
-				stroke="#6b7280"
-				stroke-width="1.5"
-			/>
-			<path
-				d="M10.5 43V17.5a9.5 9.5 0 0 1 5-8.4"
-				fill="none"
-				stroke="white"
-				stroke-width="1.5"
-				stroke-linecap="round"
-				opacity="0.3"
-			/>
-			<text
-				x="20"
-				y="25"
-				fill="#4b5563"
-				font-family="Georgia, serif"
-				font-size="8.5"
-				font-weight="700"
-				text-anchor="middle">RIP</text
+		<div class="absolute" style={graveSpot(stone)}>
+			<svg
+				class="tombstone absolute"
+				style="left: -20px; top: -46px;"
+				width="40"
+				height="46"
+				viewBox="0 0 40 46"
 			>
-			<g fill="none" stroke="#6b7280" stroke-linecap="round">
-				<path d="M14 31h12M16 35h8" stroke-width="1.2" />
-				<path d="M28.5 10l-2 3.5 2 2.5" stroke-width="0.8" />
-			</g>
-			<path
-				d="M5 45l1.5-4 1 4M8 45l1-3M32 45l1-4 2 4"
-				fill="none"
-				stroke="#65a30d"
-				stroke-width="1.3"
-				stroke-linecap="round"
-			/>
-		</svg>
+				<ellipse cx="20" cy="45" rx="18" ry="3" fill="#57412f" />
+				<path
+					d="M7 45V17a13 13 0 0 1 26 0v28z"
+					fill="#9ca3af"
+					stroke="#6b7280"
+					stroke-width="1.5"
+				/>
+				<path
+					d="M10.5 43V17.5a9.5 9.5 0 0 1 5-8.4"
+					fill="none"
+					stroke="white"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					opacity="0.3"
+				/>
+				<text
+					x="20"
+					y="25"
+					fill="#4b5563"
+					font-family="Georgia, serif"
+					font-size="8.5"
+					font-weight="700"
+					text-anchor="middle">RIP</text
+				>
+				<g fill="none" stroke="#6b7280" stroke-linecap="round">
+					<path d="M14 31h12M16 35h8" stroke-width="1.2" />
+					<path d="M28.5 10l-2 3.5 2 2.5" stroke-width="0.8" />
+				</g>
+				<path
+					d="M5 45l1.5-4 1 4M8 45l1-3M32 45l1-4 2 4"
+					fill="none"
+					stroke="#65a30d"
+					stroke-width="1.3"
+					stroke-linecap="round"
+				/>
+			</svg>
+		</div>
 	{/each}
 	{#if splatter}
 		<svg
@@ -905,6 +1012,18 @@
 				{:else}
 					<circle cx={drop.x} cy={drop.y} r={drop.r} />
 				{/if}
+			{/each}
+		</svg>
+	{/if}
+	{#if threads}
+		<svg
+			class="text-base-content/40 absolute inset-0 h-full w-full overflow-visible"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="0.8"
+		>
+			{#each threads.ends as end, i (i)}
+				<line x1={threads.x} y1={threads.y} x2={end.x} y2={end.y} />
 			{/each}
 		</svg>
 	{/if}
