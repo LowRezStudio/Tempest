@@ -73,14 +73,7 @@
 	$effect(() => {
 		if (coreUpdateChecked) return;
 		const instances = Object.values(instanceMap.value).filter(Boolean) as Instance[];
-		// Wait until instances are loaded (at least one) before checking - also runs if zero but we still want to record version
-		if (
-			!coreUpdateChecked &&
-			instances.length === 0 &&
-			Object.keys(instanceMap.value).length === 0
-		) {
-			return;
-		}
+		if (instances.length === 0 && Object.keys(instanceMap.value).length === 0) return;
 		coreUpdateChecked = true;
 		void checkForCoreUpdatesAndInstall(instances);
 	});

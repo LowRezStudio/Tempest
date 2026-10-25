@@ -1,5 +1,4 @@
 import { createCommand, processArgs, type ArgumentType } from "$lib/core/command";
-import { installAutoMods } from "$lib/core/mods";
 import { getInstancePaths } from "$lib/core/paths";
 import { invoke } from "$lib/platform/api";
 import { updateInstance } from "$lib/stores/instance.svelte";
@@ -45,10 +44,6 @@ export const setupInstance = async (instance: Instance): Promise<void> => {
 	log(`Setting up instance "${instance.label}" (${instance.path})`);
 
 	ensureShootingRangeArg(instance);
-
-	log("Installing auto mods...");
-	await installAutoMods(instance);
-	log("Auto mods installed");
 
 	// Resolve the game layout (game folder, token sources, assembly.dat) in one
 	// host-side operation; previously this was a filesystem walk over IPC.

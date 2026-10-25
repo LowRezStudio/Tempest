@@ -16,7 +16,7 @@ export const manifestIdOf = (instance: Instance): string | undefined =>
 	instance.manifestId ?? patchOf(instance.version)?.id;
 
 /**
- * Runs setup again: the bundled mods, then the token and assembly export launching needs.
+ * Runs setup again: the token and assembly export launching needs.
  * @param instance - The instance to set up.
  */
 export async function runSetup(instance: Instance): Promise<void> {
