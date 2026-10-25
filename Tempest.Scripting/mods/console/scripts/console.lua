@@ -4,8 +4,8 @@
 -- creating the Console interaction. This does what TgModGameViewportClient
 -- does: new a Console inside the viewport, register it as an interaction,
 -- and point it at player 0. Open it with the key below.
-local CONSOLE_KEY = "F2" -- any UE3 key name: Tilde, F2, ...
-local TYPE_KEY = "Tab" -- single-line input bar
+local CONSOLE_KEY = "Tilde" -- any UE3 key name: Tilde, F2, ...
+local TYPE_KEY = "F2" -- single-line input bar
 
 local function enable_console()
 	local engine = tempest.engine()

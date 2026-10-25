@@ -24,7 +24,7 @@ const TEMPLATE: &str = r#"# Tempest.Scripting runtime settings. Edit and restart
 # Log file. Default: %TEMP%\tempest-scripting.log
 # log = "C:/temp/tempest-scripting.log"
 # Open the console window (also a Lua REPL).
-console = true
+console = false
 # LuaJIT's trace compiler. Turn off to debug a suspected JIT issue.
 jit = true
 # Log every engine call made from Lua (obj:Func(), tempest.new) before and
@@ -142,10 +142,16 @@ pub fn mod_config_path(id: &str) -> Option<PathBuf> {
 }
 
 fn load() -> Config {
-    let mut c = Config { game_dir: game_dir(), ..Config::default() };
+    let mut c = Config {
+        game_dir: game_dir(),
+        ..Config::default()
+    };
     let path = match std::env::var("TEMPEST_SCRIPT_CONFIG") {
         Ok(p) if !p.is_empty() => Some(PathBuf::from(p)),
-        _ => c.game_dir.as_ref().map(|g| g.join("ChaosGame").join("Config").join("tempest.toml")),
+        _ => c
+            .game_dir
+            .as_ref()
+            .map(|g| g.join("ChaosGame").join("Config").join("tempest.toml")),
     };
     let Some(path) = path else {
         c.notes.push("game folder unknown (no TEMPEST_GAME_DIR, executable not under <game>/Binaries/<platform>); using defaults".into());
@@ -155,15 +161,21 @@ fn load() -> Config {
     match std::fs::read_to_string(&path) {
         Ok(text) => match text.parse::<toml::Table>() {
             Ok(t) => apply(&mut c, &t),
-            Err(e) => c.notes.push(format!("{}: {e}; using defaults", path.display())),
+            Err(e) => c
+                .notes
+                .push(format!("{}: {e}; using defaults", path.display())),
         },
         Err(_) => {
             if let Some(dir) = path.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
             match std::fs::write(&path, TEMPLATE) {
-                Ok(()) => c.notes.push(format!("wrote default settings to {}", path.display())),
-                Err(e) => c.notes.push(format!("cannot write {}: {e}", path.display())),
+                Ok(()) => c
+                    .notes
+                    .push(format!("wrote default settings to {}", path.display())),
+                Err(e) => c
+                    .notes
+                    .push(format!("cannot write {}: {e}", path.display())),
             }
         }
     }
@@ -173,7 +185,11 @@ fn load() -> Config {
 fn apply(c: &mut Config, t: &toml::Table) {
     let section = |name: &str| t.get(name).and_then(|v| v.as_table());
     if let Some(r) = section("runtime") {
-        if let Some(s) = r.get("log").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        if let Some(s) = r
+            .get("log")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
             c.log = Some(s.to_string());
         }
         if let Some(b) = r.get("console").and_then(|v| v.as_bool()) {
@@ -206,7 +222,10 @@ fn apply(c: &mut Config, t: &toml::Table) {
         }
     }
     if let Some(u) = section("ui") {
-        if let Some(f) = u.get("scale").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))) {
+        if let Some(f) = u
+            .get("scale")
+            .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
+        {
             if f > 0.0 {
                 c.ui_scale = f as f32;
             }
@@ -219,7 +238,9 @@ fn apply(c: &mut Config, t: &toml::Table) {
 /// files written.
 pub fn seed_dev_types(runtime_types: &Path) -> Vec<PathBuf> {
     let mut written = Vec::new();
-    let Some(dev) = dev_mods_dir().filter(|d| d.is_dir()) else { return written };
+    let Some(dev) = dev_mods_dir().filter(|d| d.is_dir()) else {
+        return written;
+    };
     let types = dev.join("types");
     if let Ok(entries) = std::fs::read_dir(runtime_types) {
         for entry in entries.flatten() {
@@ -233,7 +254,8 @@ pub fn seed_dev_types(runtime_types: &Path) -> Vec<PathBuf> {
                 (Ok(_), Err(_)) => true,
                 _ => false,
             };
-            if fresh && std::fs::create_dir_all(&types).is_ok() && std::fs::copy(&src, &dst).is_ok() {
+            if fresh && std::fs::create_dir_all(&types).is_ok() && std::fs::copy(&src, &dst).is_ok()
+            {
                 written.push(dst);
             }
         }
@@ -266,7 +288,10 @@ pub fn merge(base: &mut toml::Table, over: &toml::Table) {
 
 fn read_table(path: &Path) -> Result<Option<toml::Table>, String> {
     match std::fs::read_to_string(path) {
-        Ok(text) => text.parse::<toml::Table>().map(Some).map_err(|e| format!("{}: {e}", path.display())),
+        Ok(text) => text
+            .parse::<toml::Table>()
+            .map(Some)
+            .map_err(|e| format!("{}: {e}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("{}: {e}", path.display())),
     }
@@ -287,7 +312,10 @@ pub fn config_file(m: &crate::loader::Mod) -> Option<PathBuf> {
 /// `config.toml` (next to its `scripts/`), then, for installed mods, the
 /// user's file. The editable file (`config_file`) is created from the merged
 /// values when it does not exist, so there is always something to edit.
-pub fn load_mod_config(m: &crate::loader::Mod, defaults: toml::Table) -> Result<(toml::Table, Option<PathBuf>), String> {
+pub fn load_mod_config(
+    m: &crate::loader::Mod,
+    defaults: toml::Table,
+) -> Result<(toml::Table, Option<PathBuf>), String> {
     let mut merged = defaults;
     if let Some(shipped) = read_table(&m.root.join("config.toml"))? {
         merge(&mut merged, &shipped);
@@ -298,7 +326,10 @@ pub fn load_mod_config(m: &crate::loader::Mod, defaults: toml::Table) -> Result<
             Some(user) => merge(&mut merged, &user),
             None if !merged.is_empty() => {
                 write_table(path, &merged)?;
-                crate::log::line("config", &format!("[{}] wrote defaults to {}", m.id, path.display()));
+                crate::log::line(
+                    "config",
+                    &format!("[{}] wrote defaults to {}", m.id, path.display()),
+                );
             }
             None => {}
         }
@@ -386,7 +417,12 @@ pub fn from_lua(v: &mlua::Value) -> Result<toml::Value, String> {
                         L::String(s) => s.to_string_lossy().to_string(),
                         L::Integer(i) => i.to_string(),
                         L::Number(n) => n.to_string(),
-                        other => return Err(format!("config key must be a string or number, not {}", other.type_name())),
+                        other => {
+                            return Err(format!(
+                                "config key must be a string or number, not {}",
+                                other.type_name()
+                            ))
+                        }
                     };
                     if x.is_nil() {
                         continue;
@@ -397,7 +433,12 @@ pub fn from_lua(v: &mlua::Value) -> Result<toml::Value, String> {
             }
         }
         L::Nil => return Err("nil cannot be stored in a config".into()),
-        other => return Err(format!("{} cannot be stored in a config", other.type_name())),
+        other => {
+            return Err(format!(
+                "{} cannot be stored in a config",
+                other.type_name()
+            ))
+        }
     })
 }
 
