@@ -17,7 +17,6 @@ electronLanguages:
     - es-419
     - pl
     - ru
-compression: maximum
 directories:
     output: ../dist
 files:
