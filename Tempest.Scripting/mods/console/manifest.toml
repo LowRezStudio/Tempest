@@ -1,7 +1,8 @@
 [mod]
 id = "tempest-console"
 name = "Tempest Console"
-version = "1.0.2"
+version = "1.0.3"
+icon = "icon.png"
 authors = ["Tempest", "Tom"]
 readme = "Enables the in-game console (~ opens it, F2 for the single-line prompt). Requires Tempest Scripting."
 dependencies = ["tempest-scripting>=1.0.0"]
