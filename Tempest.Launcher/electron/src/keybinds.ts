@@ -21,13 +21,7 @@ function buildDefaultInputIni(config: KeybindsConfig): string {
 }
 
 function buildDefaultEngineIni(config: KeybindsConfig): string {
-	const lines = ["[Engine.GameEngine]"];
-	if (config.unlockFps) {
-		lines.push("bSmoothFrameRate=FALSE", "MinSmoothedFrameRate=0", "MaxSmoothedFrameRate=0");
-	} else {
-		lines.push(`MaxSmoothedFrameRate=${config.fpsLimit}`);
-	}
-	return `${lines.join("\n")}\n`;
+	return `[Engine.GameEngine]\nMaxSmoothedFrameRate=${config.fpsLimit}\n`;
 }
 
 function buildManifest(name: string, version: string): string {

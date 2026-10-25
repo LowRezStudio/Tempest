@@ -125,7 +125,6 @@ export type Keybind = { name: string; command: string };
 export type KeybindsConfig = {
 	mouseSensitivity: number;
 	fpsLimit: number;
-	unlockFps: boolean;
 	bindings: Keybind[];
 };
 

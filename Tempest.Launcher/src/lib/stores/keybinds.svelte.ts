@@ -4,7 +4,6 @@ import type { KeybindsConfig } from "$ipc/contract";
 export const DEFAULT_KEYBINDS: KeybindsConfig = {
 	mouseSensitivity: 25,
 	fpsLimit: 144,
-	unlockFps: false,
 	bindings: [
 		{ name: "W", command: "GBA_MoveForward" },
 		{ name: "A", command: "GBA_StrafeLeft" },
