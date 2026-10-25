@@ -62,6 +62,9 @@ pub struct UndoEntry {
     full: Option<Box<FullSnapshot>>,
     /// The summary before (texture allocations change with texture imports).
     summary: tempest_upk::package::Summary,
+    /// The operation's result has been written to disk: undoing it makes the
+    /// package dirty again instead of restoring the pre-operation dirty flags.
+    saved: bool,
 }
 
 /// (package, parsed objects, dirty set, rebuilt flag) before a whole-package replacement.
@@ -95,7 +98,7 @@ impl<'a> Editor<'a> {
     /// changed anything). Every mutation below snapshots what it touches.
     pub fn begin_undo(&mut self, label: impl Into<String>) {
         self.end_undo();
-        self.current = Some(UndoEntry { label: label.into(), snapshots: Vec::new(), lens: (self.pkg.exports.len(), self.pkg.imports.len(), self.pkg.names.len()), full: None, summary: self.pkg.summary.clone() });
+        self.current = Some(UndoEntry { label: label.into(), snapshots: Vec::new(), lens: (self.pkg.exports.len(), self.pkg.imports.len(), self.pkg.names.len()), full: None, summary: self.pkg.summary.clone(), saved: false });
     }
 
     fn end_undo(&mut self) {
@@ -144,9 +147,12 @@ impl<'a> Editor<'a> {
             self.pkg = pkg;
             self.objects = objects;
             self.dirty = dirty;
-            self.rebuilt = rebuilt;
+            // The whole package differs from the saved file again.
+            self.rebuilt = rebuilt || e.saved;
             return Some(e.label);
         }
+        let saved = e.saved;
+        let tables_changed = e.lens != (self.pkg.exports.len(), self.pkg.imports.len(), self.pkg.names.len()) || e.summary != self.pkg.summary;
         for snap in e.snapshots.into_iter().rev() {
             let i = snap.index;
             if i < self.pkg.exports.len() {
@@ -164,11 +170,14 @@ impl<'a> Editor<'a> {
                     self.objects.remove(&i);
                 }
             }
-            if snap.dirty {
+            if snap.dirty || saved {
                 self.dirty.insert(i);
             } else {
                 self.dirty.remove(&i);
             }
+        }
+        if saved && tables_changed {
+            self.rebuilt = true;
         }
         let (ne, ni, nn) = e.lens;
         if self.pkg.exports.len() > ne {
@@ -635,10 +644,19 @@ impl<'a> Editor<'a> {
     /// Write touched objects back and save, compressed like the original.
     pub fn save(&mut self, out: impl AsRef<Path>) -> Result<()> {
         self.flush();
-        self.dirty.clear();
         self.pkg.save(out, &WriteOptions { compress: self.was_compressed, obscure: self.obscured })?;
+        self.dirty.clear();
         self.rebuilt = false;
         Ok(())
+    }
+
+    /// The package was saved to its own file: everything journaled so far is
+    /// on disk now (undoing it will dirty the package again).
+    pub fn mark_saved(&mut self) {
+        self.end_undo();
+        for e in &mut self.undo {
+            e.saved = true;
+        }
     }
 }
 

@@ -381,17 +381,19 @@ impl Server {
     fn package_save(&mut self, p: &J) -> Res<J> {
         let path = s(p, "path")?;
         let out = opt_s(p, "out").unwrap_or_else(|| path.to_string());
+        let in_place = key(&out) == key(path);
         let ed = self.editor(path)?;
         ed.save(&out)?;
-        if key(&out) != key(path) {
-            // Saved elsewhere: the open editor still describes `path`.
-            return Ok(json!({ "out": out, "reopened": false }));
+        if !in_place {
+            // Saved elsewhere: the open editor still describes `path`, and stays dirty.
+            return Ok(json!({ "out": out, "reopened": false, "dirty": ed.is_dirty(), "undo": ed.undo_labels() }));
         }
-        // Saving in place: the file changed under the memory-mapped original;
-        // drop and reopen so later reads come from the new file.
+        // Saved in place: the package stays open with its undo journal (the
+        // in-memory copy is now what the file holds); disk-based caches go.
+        ed.mark_saved();
+        let labels = ed.undo_labels();
+        let is_script = ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0;
         let k = key(path);
-        let is_script = self.editors.get(&k).map(|e| e.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0).unwrap_or(false);
-        self.editors.remove(&k);
         self.index.remove(&k);
         self.scripts.remove(&k);
         // A changed script package changes reflection for every other package.
@@ -404,7 +406,7 @@ impl Server {
                 }
             }
         }
-        Ok(json!({ "out": out, "reopened": true, "dbReloaded": db_reloaded }))
+        Ok(json!({ "out": out, "reopened": false, "dirty": false, "undo": labels, "dbReloaded": db_reloaded }))
     }
 
     fn package_rewrite(&mut self, p: &J) -> Res<J> {

@@ -306,7 +306,13 @@ export interface UpkMethods {
 	"package.dirty": { params: { path: string }; result: boolean };
 	"package.save": {
 		params: { path: string; out?: string };
-		result: { out: string; reopened: boolean };
+		result: {
+			out: string;
+			reopened: boolean;
+			dirty: boolean;
+			undo: string[];
+			dbReloaded?: boolean;
+		};
 	};
 	"package.rewrite": {
 		params: { path: string; out: string; compress: boolean; obscure?: boolean };

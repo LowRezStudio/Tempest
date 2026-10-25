@@ -326,10 +326,14 @@ class Studio {
 			const r = await this.run(`Saving ${basename(out ?? path)}…`, () =>
 				rpc("package.save", { path, out }),
 			);
+			if (!r.dirty) this.dirty = this.dirty.filter((d) => d !== path);
+			this.undoLabels = r.undo;
 			if (r.reopened) {
-				this.dirty = this.dirty.filter((d) => d !== path);
 				this.clearDrafts(path);
 				await this.openPackage(path, selected ?? undefined);
+			} else if (!out || out === path) {
+				// Saved in place: the package (and its undo history) stays open.
+				await this.reloadTables();
 			}
 			toasts.push("success", r.out, "Saved");
 			return true;
