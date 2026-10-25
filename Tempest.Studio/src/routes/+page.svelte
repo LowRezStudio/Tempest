@@ -13,6 +13,16 @@
 	let replaceOpen = $state(false);
 
 	function onKeydown(event: KeyboardEvent) {
+		if (event.altKey && !event.ctrlKey && !event.metaKey) {
+			if (event.key === "ArrowLeft") {
+				event.preventDefault();
+				void studio.back();
+			} else if (event.key === "ArrowRight") {
+				event.preventDefault();
+				void studio.forward();
+			}
+			return;
+		}
 		const mod = event.ctrlKey || event.metaKey;
 		if (!mod) return;
 		const k = event.key.toLowerCase();
@@ -33,9 +43,14 @@
 			replaceOpen = true;
 		}
 	}
+	// Mouse side buttons (3 = back, 4 = forward).
+	function onMouseUp(event: MouseEvent) {
+		if (event.button === 3) void studio.back();
+		else if (event.button === 4) void studio.forward();
+	}
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onmouseup={onMouseUp} />
 
 {#if !studio.workspace}
 	<Welcome />

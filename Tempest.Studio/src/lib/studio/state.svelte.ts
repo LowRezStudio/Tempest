@@ -41,6 +41,10 @@ class Studio {
 	backendError = $state<string | null>(null);
 	/** Bumped whenever the export table of `pkg` changed (rename, delete, copy). */
 	tablesVersion = $state(0);
+	/** Navigation history of selections (package path + export), browser style. */
+	history = $state<{ path: string; index: number }[]>([]);
+	historyPos = $state(-1);
+	private navigating = false;
 	/** Undo labels of the open package, newest first. */
 	undoLabels = $state<string[]>([]);
 	/** Edited class sources not yet compiled, keyed `path|class`. */
@@ -54,6 +58,8 @@ class Studio {
 		this.pkg && this.selected !== null ? (this.pkg.exports[this.selected] ?? null) : null,
 	);
 	isDirty = $derived(this.pkg ? this.dirty.includes(this.pkg.path) : false);
+	canBack = $derived(this.historyPos > 0);
+	canForward = $derived(this.historyPos < this.history.length - 1);
 
 	constructor() {
 		$effect.root(() => {
@@ -130,6 +136,8 @@ class Studio {
 			this.object = null;
 			this.selected = null;
 			this.dirty = [];
+			this.history = [];
+			this.historyPos = -1;
 			this.recents = [dir, ...this.recents.filter((r) => r !== dir)].slice(0, 8);
 			localStorage.setItem(RECENTS_KEY, JSON.stringify(this.recents));
 			toasts.push(
@@ -177,6 +185,7 @@ class Studio {
 		this.object = null;
 		if (index === null || !this.pkg) return;
 		const path = this.pkg.path;
+		this.record(path, index);
 		this.objectLoading = true;
 		try {
 			const obj = await rpc("object.get", { path, index });
@@ -186,6 +195,48 @@ class Studio {
 		} finally {
 			this.objectLoading = false;
 		}
+	}
+
+	/** Append a selection to the history (dropping any forward entries). */
+	private record(path: string, index: number): void {
+		if (this.navigating) return;
+		const current = this.history[this.historyPos];
+		if (current && current.path === path && current.index === index) return;
+		this.history = [...this.history.slice(0, this.historyPos + 1), { path, index }].slice(-200);
+		this.historyPos = this.history.length - 1;
+	}
+
+	/** Where Back / Forward would go, as "package › object" text. */
+	historyLabel(offset: -1 | 1): string | null {
+		const entry = this.history[this.historyPos + offset];
+		if (!entry) return null;
+		const object =
+			this.pkg?.path === entry.path
+				? this.pkg.exports[entry.index]?.path
+				: `export #${entry.index}`;
+		return `${basename(entry.path)} › ${object ?? entry.index}`;
+	}
+
+	private async goTo(pos: number): Promise<void> {
+		const entry = this.history[pos];
+		if (!entry) return;
+		this.historyPos = pos;
+		this.navigating = true;
+		try {
+			await (this.pkg?.path === entry.path
+				? this.select(entry.index)
+				: this.openPackage(entry.path, entry.index));
+		} finally {
+			this.navigating = false;
+		}
+	}
+
+	back(): Promise<void> {
+		return this.canBack ? this.goTo(this.historyPos - 1) : Promise.resolve();
+	}
+
+	forward(): Promise<void> {
+		return this.canForward ? this.goTo(this.historyPos + 1) : Promise.resolve();
 	}
 
 	markDirty(path = this.pkg?.path): void {
