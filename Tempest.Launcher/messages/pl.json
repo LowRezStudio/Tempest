@@ -1187,24 +1187,26 @@
 	"converter_dependencies_label": "Zależności",
 	"converter_dependencies_placeholder": "tempest-scripting>=1.0.0\ntempest>=1.3.0",
 	"converter_dependencies_hint": "Jedna na linię: ID modu i opcjonalne wymaganie wersji (>=1.0.0, ^1.2). „tempest” to sam launcher. Launcher instaluje je razem z modem.",
-	"converter_drop_more": "Upuść więcej plików lub kliknij, aby je wybrać",
-	"converter_icon_dropped": "Ikona nie została dodana. {reason}",
-	"converter_icon_hint": "PNG, maks. 1 MB",
-	"converter_icon_not_png": "Ikona musi być obrazem PNG.",
-	"converter_icon_too_big": "Ikona ma {size}, przekracza limit 1 MB.",
+	"converter_drop_more": "Upuść więcej plików tutaj lub kliknij, aby je wybrać",
+	"converter_icon_dropped": "Pominięto ikonę. {reason}",
+	"converter_icon_hint": "PNG, do 1 MB",
+	"converter_icon_not_png": "Ikona musi być w formacie PNG.",
+	"converter_icon_too_big": "Ikona ma {size}, co przekracza limit 1 MB.",
 	"deps_dialog_both_message": "Wyłączone zależności zostaną włączone, a brakujące zainstalowane, aby mod od razu działał.",
 	"deps_dialog_enable": "Włącz",
 	"deps_dialog_enable_install": "Włącz i zainstaluj",
-	"deps_dialog_enable_message": {
-		"declarations": ["input count", "local countPlural = count: plural"],
-		"selectors": ["countPlural"],
-		"match": {
-			"countPlural=one": "Jest zainstalowana, ale wyłączona. Włącz ją ponownie, aby mod działał.",
-			"countPlural=few": "Są zainstalowane, ale wyłączone. Włącz je ponownie, aby mod działał.",
-			"countPlural=many": "Są zainstalowane, ale wyłączone. Włącz je ponownie, aby mod działał.",
-			"countPlural=other": "Zależności są zainstalowane, ale wyłączone. Włącz je ponownie, aby mod działał."
+	"deps_dialog_enable_message": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Ta zależność jest już zainstalowana, ale wyłączona. Włącz ją, aby mod mógł działać.",
+				"countPlural=few": "Te zależności są już zainstalowane, ale wyłączone. Włącz je, aby mod mógł działać.",
+				"countPlural=many": "Te zależności są już zainstalowane, ale wyłączone. Włącz je, aby mod mógł działać.",
+				"countPlural=other": "Te zależności są już zainstalowane, ale wyłączone. Włącz je, aby mod mógł działać."
+			}
 		}
-	},
+	],
 	"deps_dialog_keep_off": "Pozostaw wyłączone",
 	"deps_dialog_turned_off": "wyłączone",
 	"downloads_eta": "Pozostało {time}",
@@ -1217,14 +1219,25 @@
 	"mods_drop_anywhere": "Upuść pliki .tempest, .zip, .upk lub .pck w dowolnym miejscu na tej stronie, aby je zainstalować",
 	"mods_drop_hint": "Mody zostaną zainstalowane w {name}",
 	"mods_drop_title": "Upuść, aby zainstalować",
-	"mods_empty_hint": "Upuść pliki .tempest w dowolnym miejscu na tej stronie, wybierz je z dysku lub znajdź coś w sekcji Odkryj.",
-	"mods_empty_title": "Brak zainstalowanych modów",
+	"mods_empty_hint": "Upuść pliki .tempest w dowolnym miejscu na tej stronie, wybierz plik z dysku lub znajdź coś w zakładce Przeglądaj.",
+	"mods_empty_title": "Nic jeszcze nie zainstalowano",
 	"mods_enable": "Włącz {name}",
 	"mods_no_match": "Żaden z Twoich modów nie pasuje.",
-	"mods_search_placeholder": "Szukaj swoich modów",
-	"mods_version_count": "Liczba wersji: {count}",
+	"mods_search_placeholder": "Szukaj w swoich modach",
+	"mods_version_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} wersja",
+				"countPlural=few": "{count} wersje",
+				"countPlural=many": "{count} wersji",
+				"countPlural=other": "{count} wersji"
+			}
+		}
+	],
 	"onboarding_download_version": "Pobierz {version}",
-	"onboarding_multiplayer_legend": "Wersja {version} obsługuje tryb wieloosobowy",
+	"onboarding_multiplayer_legend": "{version} to łatka z trybem wieloosobowym",
 	"settings_sidebar_layout": "Układ paska bocznego",
-	"settings_sidebar_layout_hint": "Przeciągaj karty paska bocznego, aby je przenosić, także na dowolny koniec listy instancji. Przeciągnij ponownie, aby je przywrócić."
+	"settings_sidebar_layout_hint": "Przeciągaj zakładki paska bocznego, aby zmienić ich układ, również przed lub za listę instancji. Ten przycisk przywraca domyślny układ."
 }
