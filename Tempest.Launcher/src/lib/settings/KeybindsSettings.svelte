@@ -191,7 +191,12 @@
 		const previous = stagedPath;
 		stagedPath = null;
 		try {
-			stagedPath = await cookKeybindsMod(modName, modVersion, keybinds.value);
+			// A $state proxy cannot cross the context bridge.
+			stagedPath = await cookKeybindsMod(
+				modName,
+				modVersion,
+				$state.snapshot(keybinds.value),
+			);
 			// Only the newest cook stays staged; an install may still be reading the
 			// previous package, so it is dropped here rather than on unmount.
 			if (previous && previous !== stagedPath) {
@@ -312,17 +317,9 @@
 			</div>
 		</div>
 		<div class="flex flex-col gap-1">
-			<span class="text-base-content/60 flex min-h-5 items-center justify-between text-xs">
-				{m.settings_keybinds_fps_limit()}
-				<label class="flex cursor-pointer items-center gap-1.5">
-					<input
-						type="checkbox"
-						class="checkbox checkbox-xs"
-						bind:checked={keybinds.value.unlockFps}
-					/>
-					{m.settings_keybinds_unlock_fps()}
-				</label>
-			</span>
+			<span class="text-base-content/60 flex min-h-5 items-center text-xs"
+				>{m.settings_keybinds_fps_limit()}</span
+			>
 			<div class="flex items-center gap-2">
 				<input
 					type="range"
@@ -333,7 +330,6 @@
 					min="30"
 					max="1000"
 					step="1"
-					disabled={keybinds.value.unlockFps}
 				/>
 				<input
 					type="number"
@@ -344,7 +340,6 @@
 					min="30"
 					max="1000"
 					step="1"
-					disabled={keybinds.value.unlockFps}
 				/>
 			</div>
 		</div>
