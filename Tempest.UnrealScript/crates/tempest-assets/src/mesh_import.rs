@@ -100,7 +100,8 @@ pub fn parse_file(path: &Path, bytes: &[u8]) -> Result<ImportedMesh> {
     match ext.as_str() {
         "obj" => parse_obj(std::str::from_utf8(bytes).map_err(|_| Error::Format("OBJ is not UTF-8".into()))?),
         "glb" | "gltf" => parse_gltf(path, bytes),
-        _ => Err(Error::Format(format!("unsupported mesh format .{ext} (use .glb, .gltf or .obj)"))),
+        "fbx" => crate::mesh_fbx::parse_fbx(bytes),
+        _ => Err(Error::Format(format!("unsupported mesh format .{ext} (use .glb, .gltf, .fbx or .obj)"))),
     }
 }
 
@@ -220,7 +221,7 @@ fn parse_obj(text: &str) -> Result<ImportedMesh> {
     Ok(mesh)
 }
 
-fn compute_normals(sec: &mut ImportedSection) {
+pub(crate) fn compute_normals(sec: &mut ImportedSection) {
     let mut acc = vec![[0f32; 3]; sec.vertices.len()];
     for t in sec.indices.chunks(3) {
         let (a, b, c) = (t[0] as usize, t[1] as usize, t[2] as usize);

@@ -1,6 +1,14 @@
 // What the inspector can do with an export, decided from its class name
 // (content packages lowercase everything, so compare case-insensitively).
-export type Preview = "texture" | "mesh" | "sound" | "swf" | "material" | "none";
+export type Preview =
+	| "texture"
+	| "mesh"
+	| "sound"
+	| "swf"
+	| "material"
+	| "none"
+	| "wwise"
+	| "particle";
 
 const TEXTURES = new Set([
 	"texture2d",
@@ -18,6 +26,15 @@ export function previewFor(className: string, nativeType?: string): Preview {
 		return "mesh";
 	}
 	if (c === "soundnodewave") return "sound";
+	if (c === "akevent" || c === "akbank") return "wwise";
+	if (
+		c === "particlesystem" ||
+		c === "particlespriteemitter" ||
+		c === "particlelodlevel" ||
+		c.startsWith("particlemodule")
+	) {
+		return "particle";
+	}
 	if (c === "swfmovie" || c === "gfxmovieinfo") return "swf";
 	if (c.startsWith("materialinstance") || c === "material" || c === "decalmaterial") {
 		return "material";

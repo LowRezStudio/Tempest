@@ -28,11 +28,13 @@ fn usage() -> ExitCode {
            upk texture import <pkg> <idx|path> <in.png|in.dds> -o <out.upk> [--mips|--no-mips] [--format PF_DXT5] [-I dir]\n  \
            upk swf export <pkg> <idx|path> <out.gfx>          the compiled Scaleform movie (RawData)\n  \
            upk swf import <pkg> <idx|path> <in.gfx|swf> -o <out.upk>\n  \
+           upk swf info <pkg> <idx|path>                     tags, texts, scripts and images of a movie\n  \
+           upk swf verify <pkg>                              parse + rewrite every movie, byte-identical check\n  \
            upk sound export <pkg> <idx|path> <out.ogg>        PC audio of a SoundNodeWave\n  \
            upk sound import <pkg> <idx|path> <in.ogg> -o <out.upk>\n  \
            upk mesh info <pkg> <idx|path>                    LODs, sections, bones of a static/skeletal mesh\n  \
-           upk mesh export <pkg> <idx|path> <out.glb|out.obj> [--lod N] [--no-textures] [--no-skin]\n  \
-           upk mesh import <pkg> <idx|path> <in.glb|in.gltf|in.obj> -o <out.upk> [--lod N]   replace the geometry\n  \
+           upk mesh export <pkg> <idx|path> <out.glb|out.fbx|out.obj> [--lod N] [--no-textures] [--no-skin]\n  \
+           upk mesh import <pkg> <idx|path> <in.glb|in.gltf|in.fbx|in.obj> -o <out.upk> [--lod N]   replace the geometry\n  \
            upk inject <pkg> <idx|path> <in.bin> -o <out.upk>   replace an export's raw payload (inverse of extract)\n  \
            upk prop get <pkg> <idx|path> [Prop.Path[2].Member]\n  \
            upk prop set <pkg> <idx|path> <Prop.Path> <value> [<Prop.Path> <value>]... -o <out.upk>\n  \
@@ -46,6 +48,19 @@ fn usage() -> ExitCode {
                                                find & replace in property values (strings, names, object refs) and object names\n  \
            upk batch-import <cooked-dir> <files-dir> [-o <outdir>] [--dry-run] [-r]\n                                              \
                                                import <package>.<object>.<ext> files into their packages\n  \
+           upk wwise ls <pck>                          banks, embedded and streamed media, events of a Wwise package\n  \
+           upk wwise export <pck> <id|name> <out.ogg|out.wav|out.wem>   one media file (by id, or every media of a named event)\n  \
+           upk wwise import <pck> <id> <in.ogg|in.wav|in.wem> -o <out.pck> [--quality 0.4]   replace a media file\n  \
+           upk wwise event <pck> <id|name>             what an event plays\n  \
+           upk wwise convert <in.wem|in.ogg|in.wav> <out.ogg|out.wem|out.wav> [--quality 0.4]   Wwise Vorbis <-> Ogg/WAV\n  \
+           upk mcts ls <file.dat>                         tables and header of an assembly / Lang_*.dat marshal\n  \
+           upk mcts dump <file.dat> <table> [--limit N] [--find <field>=<value>]   rows of a table as JSON lines\n  \
+           upk mcts export <file.dat> <out.json>          the whole marshal as JSON\n  \
+           upk mcts import <in.json> <out.dat>            JSON back to an obscured marshal\n  \
+           upk mcts set <file.dat> <table> <key>=<id> <field>=<value>... -o <out.dat>   edit cells of one row\n  \
+           upk mcts verify <file.dat|dir>...              parse + rewrite every .dat, byte-identical check\n  \
+           upk mcts tokens [<game dir>]                   where the field/function tables come from\n  \
+           (mcts: --tokens <MctsInterface.dll> uses that binary's tables; default: the game's next to the file, else built-in)\n  \
            upk serve                                  JSON-lines RPC over stdin/stdout (the Studio backend)\n\n\
          -I dir: directory holding the script packages (default: the package's own directory)\n\
          -j N: worker threads (default: all cores, or USCRIPT_JOBS)"
@@ -73,12 +88,15 @@ fn main() -> ExitCode {
         "obj" if args.len() >= 4 => cmd_obj(&args[1..]),
         "deps" if args.len() >= 3 => cmd_deps(&args[1], &args[2], &args[1..]),
         "mod-dir" if args.len() >= 2 => cmd_mod_dir(&args[1..]),
+        "swf" if args.len() >= 3 && (args[1] == "verify" || args[1] == "info") => cmd_swf(&args[1..]),
         "swf" if args.len() >= 4 => cmd_media(&args[1..], true),
         "sound" if args.len() >= 4 => cmd_media(&args[1..], false),
         "imagediff" if args.len() >= 2 => cmd_imagediff(&args[1]),
         "native-debug" if args.len() >= 3 => cmd_native_debug(&args[1], &args[2], &args[1..]),
         "replace" if args.len() >= 4 => cmd_replace(&args[1..]),
         "batch-import" if args.len() >= 3 => cmd_batch_import(&args[1..]),
+        "wwise" if args.len() >= 3 => cmd_wwise(&args[1..]),
+        "mcts" if args.len() >= 2 => cmd_mcts(&args[1..]),
         "serve" => {
             tempest_assets::serve::main();
             return ExitCode::SUCCESS;
@@ -609,12 +627,19 @@ fn cmd_mesh(args: &[String]) -> Res {
                 let mut cache = tempest_assets::material_ops::PackageCache::new(&db, &dir);
                 cache.insert(&pkg_name, pkg.clone());
                 let mut png_cache = std::collections::HashMap::new();
-                for w in mesh_ops::attach_materials(&mut g, &mut cache, &src, &pkg_name, None, &mut png_cache) {
+                for w in mesh_ops::attach_materials(&mut g, &mut cache, &src, &pkg_name, PackageIndex::export(i), None, &mut png_cache) {
                     eprintln!("texture skipped: {w}");
                 }
                 eprintln!("{} materials, {} textures embedded", g.materials.len(), g.images.len());
             }
-            let bytes = if out.to_ascii_lowercase().ends_with(".obj") { mesh_ops::write_obj(&name, &g).into_bytes() } else { mesh_ops::write_glb(&name, &g)? };
+            let lower = out.to_ascii_lowercase();
+            let bytes = if lower.ends_with(".obj") {
+                mesh_ops::write_obj(&name, &g).into_bytes()
+            } else if lower.ends_with(".fbx") {
+                tempest_assets::mesh_fbx::write_fbx(&name, &g)?
+            } else {
+                mesh_ops::write_glb(&name, &g)?
+            };
             std::fs::write(out, &bytes)?;
             eprintln!("wrote {} bytes to {out} ({} vertices, {} triangles)", bytes.len(), g.positions.len(), g.indices.len() / 3);
         }
@@ -815,7 +840,8 @@ fn cmd_batch_import(args: &[String]) -> Res {
         }
     }
     let files = batch::collect_files(&files_dir, recursive);
-    let entries = if dry { batch::plan(&db, &packages, &files) } else { batch::run(&db, &packages, &files, out_dir.as_deref(), &mut |done, total, file| eprintln!("[{done}/{total}] {file}")) };
+    let mut lookup = batch::scan_lookup(&packages);
+    let entries = if dry { batch::plan(&db, &packages, &files, &mut lookup) } else { batch::run(&db, &packages, &files, &mut lookup, out_dir.as_deref(), &mut |done, total, file| eprintln!("[{done}/{total}] {file}")) };
     for e in &entries {
         println!("{} {} : {}", if e.ok { "ok  " } else { "FAIL" }, e.file.file_name().unwrap().to_string_lossy(), e.message);
     }
@@ -849,5 +875,396 @@ fn cmd_mod_dir(args: &[String]) -> Res {
         eprintln!("added files/{}", fname.to_string_lossy());
     }
     eprintln!("mod folder ready: {}\n  package + sign it with: just mod-pack {} <out.tempest>", dir.display(), dir.display());
+    Ok(())
+}
+
+/// `upk wwise …`: Wwise packages, banks and media.
+fn cmd_wwise(args: &[String]) -> Res {
+    use tempest_assets::audio;
+    use tempest_assets::wwise::{akpk, bnk, fnv, vorbis};
+    let sub = args[0].as_str();
+    let quality = args.iter().position(|a| a == "--quality").and_then(|p| args.get(p + 1)).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.4);
+    if sub == "convert" {
+        let input = args.get(1).ok_or("missing input")?;
+        let out = args.get(2).ok_or("missing output")?;
+        let bytes = std::fs::read(input)?;
+        let lower = out.to_ascii_lowercase();
+        let result = if lower.ends_with(".wem") {
+            let ogg = if bytes.starts_with(b"OggS") { bytes } else { audio::encode_ogg(&audio::decode_any(&bytes)?, quality)? };
+            vorbis::ogg_to_wem(&ogg)?
+        } else if lower.ends_with(".ogg") {
+            if bytes.starts_with(b"RIFF") && bytes.len() > 22 && u16::from_le_bytes([bytes[20], bytes[21]]) == 0xFFFF {
+                vorbis::wem_to_ogg(&bytes)?.0
+            } else {
+                audio::encode_ogg(&audio::decode_any(&bytes)?, quality)?
+            }
+        } else {
+            audio::encode_wav(&audio::decode_any(&bytes)?)
+        };
+        std::fs::write(out, &result)?;
+        eprintln!("wrote {} bytes to {out}", result.len());
+        return Ok(());
+    }
+    let path = args.get(1).ok_or("missing package")?;
+    let pck = akpk::Package::parse(&std::fs::read(path)?)?;
+    let banks: Vec<(u64, bnk::Bank)> = pck.banks.iter().filter_map(|e| bnk::Bank::parse(&e.data).ok().map(|b| (e.id, b))).collect();
+    // Every media file reachable: `(id, bytes, where)`.
+    let media = |id: u32| -> Option<(Vec<u8>, String)> {
+        for (bid, b) in &banks {
+            if let Some((_, d)) = b.media().into_iter().find(|(i, _)| *i == id) {
+                return Some((d.to_vec(), format!("bank {bid:08x}")));
+            }
+        }
+        pck.streams.iter().find(|s| s.id == id as u64).map(|s| (s.data.clone(), "stream".to_string()))
+    };
+    let parse_id = |s: &str| -> u32 { s.parse::<u32>().or_else(|_| u32::from_str_radix(s.trim_start_matches("0x"), 16)).unwrap_or_else(|_| fnv::name_id(s)) };
+    match sub {
+        "ls" => {
+            println!("{}: version {}, languages {:?}, {} banks, {} streams, {} externals", path, pck.version, pck.languages, pck.banks.len(), pck.streams.len(), pck.externals.len());
+            for (bid, b) in &banks {
+                let objects = b.objects();
+                println!("bank {bid:08x}: version {}, {} embedded media, {} objects", b.version, b.media().len(), objects.len());
+                for (id, d) in b.media() {
+                    match vorbis::info(d) {
+                        Ok(i) => println!("  media {id:>10}  {:>8} B  {} {} Hz {} ch {:.2}s", d.len(), i.codec, i.sample_rate, i.channels, i.duration()),
+                        Err(e) => println!("  media {id:>10}  {:>8} B  {e}", d.len()),
+                    }
+                }
+                for o in objects.iter().filter(|o| o.kind == bnk::EVENT) {
+                    let (sources, _) = bnk::event_media(&objects, o.id);
+                    let ids: Vec<String> = sources.iter().map(|s| format!("{}{}", s.id, if s.stream_type == 2 { " (stream)" } else { "" })).collect();
+                    println!("  event {:>10}: {} action(s) -> media [{}]", o.id, bnk::event_actions(o).len(), ids.join(", "));
+                }
+            }
+            for s in &pck.streams {
+                match vorbis::info(&s.data) {
+                    Ok(i) => println!("stream {:>10}  {:>8} B  {} {} Hz {} ch {:.2}s  lang {}", s.id, s.data.len(), i.codec, i.sample_rate, i.channels, i.duration(), pck.language_name(s.language)),
+                    Err(e) => println!("stream {:>10}  {:>8} B  {e}", s.id, s.data.len()),
+                }
+            }
+        }
+        "event" => {
+            let what = args.get(2).ok_or("missing event id or name")?;
+            let id = parse_id(what);
+            for (bid, b) in &banks {
+                let objects = b.objects();
+                if !objects.iter().any(|o| o.id == id && o.kind == bnk::EVENT) {
+                    continue;
+                }
+                let (sources, trail) = bnk::event_media(&objects, id);
+                println!("event {id} ({what}) in bank {bid:08x}:");
+                for (k, oid) in trail {
+                    println!("  {} {oid}", bnk::kind_name(k));
+                }
+                for s in sources {
+                    println!("  media {} plugin {:#x} {} ({} bytes in memory)", s.id, s.plugin, match s.stream_type { 0 => "in bank", 1 => "prefetch", _ => "streamed" }, s.in_memory_size);
+                }
+                return Ok(());
+            }
+            return Err(format!("no event {id} ({what}) in {path}").into());
+        }
+        "export" => {
+            let what = args.get(2).ok_or("missing media id or event name")?;
+            let out = args.get(3).ok_or("missing output file")?;
+            let id = parse_id(what);
+            let mut targets: Vec<u32> = Vec::new();
+            if media(id).is_some() {
+                targets.push(id);
+            } else {
+                for (_, b) in &banks {
+                    let objects = b.objects();
+                    if objects.iter().any(|o| o.id == id && o.kind == bnk::EVENT) {
+                        targets.extend(bnk::event_media(&objects, id).0.into_iter().map(|s| s.id));
+                    }
+                }
+            }
+            if targets.is_empty() {
+                return Err(format!("no media or event {id} ({what}) in {path}").into());
+            }
+            for (k, t) in targets.iter().enumerate() {
+                let (bytes, place) = media(*t).ok_or_else(|| format!("media {t} is not in this package"))?;
+                let name = if targets.len() == 1 { out.clone() } else { format!("{}.{t}.{}", out.rsplit_once('.').map(|x| x.0).unwrap_or(out), out.rsplit('.').next().unwrap_or("ogg")) };
+                let lower = name.to_ascii_lowercase();
+                let data = if lower.ends_with(".wem") {
+                    bytes
+                } else if lower.ends_with(".wav") {
+                    audio::encode_wav(&audio::decode_any(&bytes)?)
+                } else {
+                    vorbis::wem_to_ogg(&bytes)?.0
+                };
+                std::fs::write(&name, &data)?;
+                eprintln!("[{}/{}] media {t} ({place}) -> {name} ({} bytes)", k + 1, targets.len(), data.len());
+            }
+        }
+        "import" => {
+            let what = args.get(2).ok_or("missing media id")?;
+            let input = args.get(3).ok_or("missing input file")?;
+            let out = out_arg(args)?;
+            let id = parse_id(what);
+            let bytes = std::fs::read(input)?;
+            let wem = if bytes.starts_with(b"RIFF") && bytes.len() > 22 && u16::from_le_bytes([bytes[20], bytes[21]]) == 0xFFFF {
+                bytes
+            } else {
+                let ogg = if bytes.starts_with(b"OggS") { bytes } else { audio::encode_ogg(&audio::decode_any(&bytes)?, quality)? };
+                vorbis::ogg_to_wem(&ogg)?
+            };
+            let mut pck = pck;
+            let mut done = false;
+            for e in pck.banks.iter_mut() {
+                let mut b = bnk::Bank::parse(&e.data)?;
+                if b.media().iter().any(|(i, _)| *i == id) {
+                    b.replace_media(id, &wem)?;
+                    e.data = b.to_bytes();
+                    done = true;
+                }
+            }
+            for s in pck.streams.iter_mut() {
+                if s.id == id as u64 {
+                    s.data = wem.clone();
+                    done = true;
+                }
+            }
+            if !done {
+                return Err(format!("media {id} is not in {path}").into());
+            }
+            std::fs::write(&out, pck.to_bytes())?;
+            eprintln!("replaced media {id} ({} bytes) -> {out}", wem.len());
+        }
+        "rewrite" => {
+            let out = args.get(2).ok_or("missing output file")?;
+            let bytes = pck.to_bytes();
+            std::fs::write(out, &bytes)?;
+            let same = std::fs::read(path)? == bytes;
+            eprintln!("wrote {} bytes to {out}{}", bytes.len(), if same { " (identical)" } else { " (differs from the original)" });
+        }
+        _ => return Err(format!("unknown wwise subcommand {sub}").into()),
+    }
+    Ok(())
+}
+
+fn cmd_mcts(args: &[String]) -> Res {
+    use serde_json::json;
+    use tempest_assets::mcts::{self, doc::Doc, Kind, Tokens, Value};
+    let sub = args[0].as_str();
+    let tokens_for = |file: &Path| -> Tokens {
+        if let Some(p) = args.iter().position(|a| a == "--tokens").and_then(|p| args.get(p + 1)) {
+            if let Ok(bytes) = std::fs::read(p) {
+                if let Some(mut t) = Tokens::from_binary(&bytes) {
+                    t.source = p.clone();
+                    return t;
+                }
+            }
+            eprintln!("warning: no token tables in {p}, using the built-in ones");
+        }
+        let dir = file.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+        Tokens::for_dir(&dir)
+    };
+    let opt = |name: &str| args.iter().position(|a| a == name).and_then(|p| args.get(p + 1)).cloned();
+    match sub {
+        "tokens" => {
+            let dir = args.get(1).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+            let t = tokens_for(&dir.join("x.dat"));
+            println!("{} fields, {} functions from {}", t.field_count(), t.function_count(), t.source);
+            Ok(())
+        }
+        "ls" => {
+            let path = Path::new(args.get(1).ok_or("missing file")?);
+            let t = tokens_for(path);
+            let doc = Doc::open(path, &t)?;
+            println!("function {} ({:#x}), flags {}, tokens: {}", t.function_name(doc.marshal.function).unwrap_or("?"), doc.marshal.function, doc.marshal.flags, t.source);
+            let (tables, header) = doc.tables();
+            for h in header {
+                let v = doc.marshal.root.get(h).unwrap();
+                println!("  {:<34} {}", t.name(h), mcts::doc::cell_text(&t, h, v));
+            }
+            for tb in tables {
+                let info = doc.table_info(&[], tb)?;
+                let cols: Vec<String> = info.columns.iter().map(|(c, n)| if *n == info.rows { t.name(*c) } else { format!("{}({n})", t.name(*c)) }).collect();
+                println!("  {:<34} {:>7} rows  {}", t.name(tb), info.rows, cols.join(" "));
+            }
+            Ok(())
+        }
+        "dump" => {
+            let path = Path::new(args.get(1).ok_or("missing file")?);
+            let table = args.get(2).ok_or("missing table")?;
+            let t = tokens_for(path);
+            let doc = Doc::open(path, &t)?;
+            let tb = t.token(table).ok_or("unknown table")?;
+            let limit: usize = opt("--limit").and_then(|v| v.parse().ok()).unwrap_or(usize::MAX);
+            let find = opt("--find").map(|f| {
+                let (k, v) = f.split_once('=').unwrap_or((&f, ""));
+                (k.to_string(), v.to_string())
+            });
+            let rows = doc.row_at(&[])?.rows(tb).ok_or("not a table")?;
+            let mut n = 0;
+            for (i, r) in rows.iter().enumerate() {
+                if let Some((k, v)) = &find {
+                    let kt = t.token(k).ok_or("unknown field")?;
+                    match r.get(kt) {
+                        Some(val) if mcts::doc::cell_text(&t, kt, val) == *v => {}
+                        _ => continue,
+                    }
+                }
+                println!("{i}\t{}", mcts::row_json(&t, r));
+                n += 1;
+                if n >= limit {
+                    break;
+                }
+            }
+            Ok(())
+        }
+        "export" => {
+            let path = Path::new(args.get(1).ok_or("missing file")?);
+            let out = args.get(2).ok_or("missing output")?;
+            let t = tokens_for(path);
+            let doc = Doc::open(path, &t)?;
+            let j = json!({ "function": t.function_name(doc.marshal.function).map(|s| s.to_string()).unwrap_or_else(|| format!("{:#x}", doc.marshal.function)), "flags": doc.marshal.flags, "encoding": doc.marshal.encoding, "root": mcts::row_json(&t, &doc.marshal.root) });
+            std::fs::write(out, serde_json::to_vec_pretty(&j)?)?;
+            eprintln!("wrote {out}");
+            Ok(())
+        }
+        "import" => {
+            let input = args.get(1).ok_or("missing input")?;
+            let out = Path::new(args.get(2).ok_or("missing output")?);
+            let t = tokens_for(out);
+            let j: serde_json::Value = serde_json::from_slice(&std::fs::read(input)?)?;
+            let function = match j.get("function") {
+                Some(serde_json::Value::String(s)) if s.starts_with("0x") => u32::from_str_radix(&s[2..], 16)?,
+                Some(serde_json::Value::String(s)) => t.function(s),
+                Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0) as u32,
+                _ => 0,
+            };
+            let m = mcts::Marshal { flags: j.get("flags").and_then(|v| v.as_u64()).unwrap_or(0) as u8, function, encoding: j.get("encoding").and_then(|v| v.as_u64()).unwrap_or(4) as u8, root: mcts::row_from_json(&t, j.get("root").ok_or("no root")?)? };
+            std::fs::write(out, mcts::write_obscured(&m, &t))?;
+            eprintln!("wrote {}", out.display());
+            Ok(())
+        }
+        "set" => {
+            let path = Path::new(args.get(1).ok_or("missing file")?);
+            let table = args.get(2).ok_or("missing table")?;
+            let out = opt("-o").ok_or("missing -o <out.dat>")?;
+            let t = tokens_for(path);
+            let mut doc = Doc::open(path, &t)?;
+            let tb = t.token(table).ok_or("unknown table")?;
+            let mut pairs = args[3..].iter().take_while(|a| !a.starts_with('-')).filter_map(|a| a.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())));
+            let (key, id) = pairs.next().ok_or("missing <key>=<id>")?;
+            let kt = t.token(&key).ok_or("unknown key field")?;
+            let id = mcts::num_parse(t.kind(kt), &id)?;
+            let found = doc.find(&[], tb, kt, id)?;
+            let index = *found.first().ok_or("no row with that key")?;
+            for (field, value) in pairs {
+                let ft = t.token(&field).ok_or("unknown field")?;
+                doc.set_text(&t, &[(tb, index)], ft, &value)?;
+                eprintln!("{}[{index}].{} = {value}", table, field);
+            }
+            doc.save(&t, Some(Path::new(&out)))?;
+            eprintln!("wrote {out}");
+            Ok(())
+        }
+        "verify" => {
+            let mut files: Vec<PathBuf> = Vec::new();
+            for a in args[1..].iter().filter(|a| !a.starts_with('-')) {
+                let p = PathBuf::from(a);
+                if p.is_dir() {
+                    collect_dats(&p, &mut files);
+                } else {
+                    files.push(p);
+                }
+            }
+            let mut failed = 0;
+            for f in &files {
+                let t = tokens_for(f);
+                let bytes = std::fs::read(f)?;
+                let t0 = std::time::Instant::now();
+                match mcts::parse_obscured(&bytes, &t) {
+                    Ok(m) => {
+                        let back = mcts::write_obscured(&m, &t);
+                        let same = back == bytes;
+                        let (tables, _) = { let d = &m.root; (d.entries.iter().filter(|(_, v)| matches!(v, Value::Rows(_))).count(), 0) };
+                        let strings = m.root.entries.iter().filter(|(k, _)| t.kind(*k) == Kind::String).count();
+                        let _ = strings;
+                        println!("{} {}: {} bytes, {tables} tables, function {} ({:.2}s)", if same { "ok  " } else { "DIFF" }, f.display(), bytes.len(), t.function_name(m.function).unwrap_or("?"), t0.elapsed().as_secs_f32());
+                        if !same {
+                            failed += 1;
+                            if let Some(i) = back.iter().zip(bytes.iter()).position(|(a, b)| a != b) {
+                                println!("     first difference at {i:#x} (rewrote {} bytes)", back.len());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        println!("FAIL {}: {e}", f.display());
+                    }
+                }
+            }
+            println!("{} files, {failed} failed", files.len());
+            if failed > 0 {
+                return Err("verification failed".into());
+            }
+            Ok(())
+        }
+        _ => Err(format!("unknown mcts command {sub}").into()),
+    }
+}
+
+/// Every `assembly.dat`, `Lang_*.dat` and `WordFilter.dat` under a folder.
+fn collect_dats(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut entries: Vec<_> = rd.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+    for e in entries {
+        let p = e.path();
+        if p.is_dir() {
+            collect_dats(&p, out);
+        } else if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+            let lower = name.to_ascii_lowercase();
+            if lower == "assembly.dat" || lower == "wordfilter.dat" || (lower.starts_with("lang_") && lower.ends_with(".dat")) {
+                out.push(p);
+            }
+        }
+    }
+}
+
+fn cmd_swf(args: &[String]) -> Res {
+    use tempest_assets::media;
+    use tempest_assets::object::Parsed;
+    use tempest_assets::swf::{info, Movie};
+    let path = args.get(1).ok_or("missing package")?;
+    let dir = script_dir(args, path);
+    let db = load_db(&dir)?;
+    let pf = PackageFile::open(path)?;
+    let pkg = pf.load()?;
+    let layout = package_layout(&pkg);
+    let movies: Vec<usize> = (0..pkg.exports.len()).filter(|&i| pkg.class_name_of(PackageIndex::export(i)).eq_ignore_ascii_case("SwfMovie")).collect();
+    if args[0] == "verify" {
+        let mut failed = 0;
+        for i in &movies {
+            let Parsed::Object(o) = parse_export(&db, &pkg, layout, *i, &pkg.export_data[*i]) else { continue };
+            let bytes = match media::swf_export(&pkg, &o) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            match Movie::parse(&bytes) {
+                Ok(m) => {
+                    let back = m.write();
+                    if back != bytes {
+                        failed += 1;
+                        println!("DIFF {} ({} vs {} bytes)", pkg.object_path(PackageIndex::export(*i)), back.len(), bytes.len());
+                    }
+                }
+                Err(e) => {
+                    failed += 1;
+                    println!("FAIL {}: {e}", pkg.object_path(PackageIndex::export(*i)));
+                }
+            }
+        }
+        println!("{} movies, {failed} failed", movies.len());
+        return if failed == 0 { Ok(()) } else { Err("verification failed".into()) };
+    }
+    let what = args.get(2).ok_or("missing export")?;
+    let i = what.parse::<usize>().ok().or_else(|| movies.iter().copied().find(|&i| pkg.object_path(PackageIndex::export(i)).eq_ignore_ascii_case(what))).ok_or("no such movie")?;
+    let Parsed::Object(o) = parse_export(&db, &pkg, layout, i, &pkg.export_data[i]) else { return Err("not an object".into()) };
+    let m = Movie::parse(&media::swf_export(&pkg, &o)?)?;
+    println!("{}", serde_json::to_string_pretty(&info(&m))?);
     Ok(())
 }

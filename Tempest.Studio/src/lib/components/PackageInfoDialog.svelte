@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Modal from "$lib/components/Modal.svelte";
+	import { rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
 
 	let { open = $bindable(false) }: { open?: boolean } = $props();
@@ -11,11 +12,17 @@
 		const q = filter.trim().toLowerCase();
 		return (studio.pkg?.imports ?? []).filter((i) => !q || i.path.toLowerCase().includes(q));
 	});
+	// The name table is fetched when its tab opens (it is not part of the tables payload).
+	let nameTable = $state<{ path: string; names: string[] } | null>(null);
+	$effect(() => {
+		const path = studio.pkg?.path;
+		if (!open || tab !== "names" || !path || nameTable?.path === path) return;
+		void rpc("package.names", { path }).then((names) => (nameTable = { path, names }));
+	});
 	const names = $derived.by(() => {
 		const q = filter.trim().toLowerCase();
-		return (studio.pkg?.names ?? [])
-			.map((n, i) => ({ n, i }))
-			.filter((x) => !q || x.n.toLowerCase().includes(q));
+		const table = nameTable && nameTable.path === studio.pkg?.path ? nameTable.names : [];
+		return table.map((n, i) => ({ n, i })).filter((x) => !q || x.n.toLowerCase().includes(q));
 	});
 </script>
 

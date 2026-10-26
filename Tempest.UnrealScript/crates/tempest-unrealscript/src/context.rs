@@ -34,6 +34,18 @@ pub struct LoadedPackage {
 }
 
 impl LoadedPackage {
+    /// A package with its tables indexed and no exports parsed yet.
+    pub fn new(name: String, path: PathBuf, pkg: Package) -> LoadedPackage {
+        let layout = objects::probe_layout(&pkg);
+        let none_name = pkg.find_name("None").unwrap_or(0);
+        let mut lp = LoadedPackage { name, path, pkg, layout, objects: Vec::new(), none_name, path_index: HashMap::new(), shadow: false };
+        for i in 0..lp.pkg.exports.len() {
+            let p = lp.pkg.object_path(PackageIndex::export(i)).to_ascii_lowercase();
+            lp.path_index.entry(p).or_insert(i);
+        }
+        lp
+    }
+
     pub fn object(&self, i: usize) -> Option<&ParsedObject> {
         self.objects.get(i).and_then(|o| o.as_ref())
     }
@@ -73,23 +85,8 @@ impl Context {
     }
 
     pub fn add_package(&mut self, name: String, path: PathBuf, pkg: Package) -> usize {
-        let layout = objects::probe_layout(&pkg);
-        let none_name = pkg.find_name("None").unwrap_or(0);
         let slot = self.packages.len();
-        let mut lp = LoadedPackage {
-            name: name.clone(),
-            path,
-            pkg,
-            layout,
-            objects: Vec::new(),
-            none_name,
-            path_index: HashMap::new(),
-            shadow: false,
-        };
-        for i in 0..lp.pkg.exports.len() {
-            let p = lp.pkg.object_path(PackageIndex::export(i)).to_ascii_lowercase();
-            lp.path_index.entry(p).or_insert(i);
-        }
+        let lp = LoadedPackage::new(name.clone(), path, pkg);
         self.by_name.insert(name.to_ascii_lowercase(), slot);
         self.packages.push(lp);
         self.parse_all(slot);
@@ -162,24 +159,13 @@ impl Context {
     }
 
     fn parse_all(&mut self, slot: usize) {
-        let n = self.packages[slot].pkg.exports.len();
-        let mut objs: Vec<Option<ParsedObject>> = Vec::with_capacity(n);
-        for i in 0..n {
-            let lp = &self.packages[slot];
-            let e = &lp.pkg.exports[i];
-            let cn = lp.pkg.class_name_of(PackageIndex::export(i));
-            if e.serial_size == 0 && e.class.is_null() {
-                objs.push(None);
-                continue;
-            }
-            let native_prefix_len = self.native_prefix_len(ObjRef { pkg: slot, export: i });
-            let lp = &self.packages[slot];
-            let e = &lp.pkg.exports[i];
-            let info = ExportInfo { class_name: &cn, object_flags: e.object_flags, is_component: false, native_prefix_len };
-            let r = objects::parse_export(&lp.pkg.export_data[i], &lp.pkg, info, lp.layout);
-            objs.push(r.ok());
-        }
+        let objs = parse_objects(&self.packages[slot]);
         self.packages[slot].objects = objs;
+        self.register_natives(slot);
+    }
+
+    fn register_natives(&mut self, slot: usize) {
+        let n = self.packages[slot].pkg.exports.len();
         for i in 0..n {
             if let Some(ParsedObject { body: ObjectBody::Function { function, .. }, .. }) = self.packages[slot].object(i) {
                 if function.function_flags & func::NATIVE != 0 && function.native_index != 0 && !self.packages[slot].shadow {
@@ -187,6 +173,28 @@ impl Context {
                 }
             }
         }
+    }
+
+    /// Load and parse several packages at once (the files are independent
+    /// until they are registered), then add them in the given order.
+    pub fn load_files_parallel(&mut self, files: &[PathBuf]) -> Result<Vec<usize>> {
+        let loaded: Vec<Result<LoadedPackage>> = crate::par::map(files, |path| {
+            let pkg = Package::load(path)?;
+            let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let mut lp = LoadedPackage::new(name, path.clone(), pkg);
+            lp.objects = parse_objects(&lp);
+            Ok(lp)
+        });
+        let mut slots = Vec::with_capacity(files.len());
+        for lp in loaded {
+            let lp = lp?;
+            let slot = self.packages.len();
+            self.by_name.insert(lp.name.to_ascii_lowercase(), slot);
+            self.packages.push(lp);
+            self.register_natives(slot);
+            slots.push(slot);
+        }
+        Ok(slots)
     }
 
     /// Re-parse exports whose class derives from `Component`.
@@ -601,4 +609,27 @@ impl Context {
     pub fn none_fname(&self, pkg: usize) -> FName {
         FName::new(self.packages[pkg].none_name)
     }
+}
+
+/// Parse every export of a package (`None` when the payload could not be
+/// interpreted). `UDominant*LightComponent::Serialize` writes its shadow map
+/// before `Super::Serialize` (an empty array on templates): instances of
+/// those classes carry a 4-byte prefix, class default objects do not.
+fn parse_objects(lp: &LoadedPackage) -> Vec<Option<ParsedObject>> {
+    const DOMINANT: [&str; 2] = ["DominantDirectionalLightComponent", "DominantSpotLightComponent"];
+    let n = lp.pkg.exports.len();
+    let mut objs: Vec<Option<ParsedObject>> = Vec::with_capacity(n);
+    for i in 0..n {
+        let e = &lp.pkg.exports[i];
+        let cn = lp.pkg.class_name_of(PackageIndex::export(i));
+        if e.serial_size == 0 && e.class.is_null() {
+            objs.push(None);
+            continue;
+        }
+        let is_cdo = e.object_flags & tempest_upk::flags::rf::CLASS_DEFAULT_OBJECT != 0;
+        let native_prefix_len = if !is_cdo && DOMINANT.iter().any(|d| cn.eq_ignore_ascii_case(d)) { 4 } else { 0 };
+        let info = ExportInfo { class_name: &cn, object_flags: e.object_flags, is_component: false, native_prefix_len };
+        objs.push(objects::parse_export(&lp.pkg.export_data[i], &lp.pkg, info, lp.layout).ok());
+    }
+    objs
 }

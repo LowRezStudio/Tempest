@@ -27,7 +27,10 @@
 	$effect(() => {
 		if (open) {
 			file = "";
-			mode = kind === "none" || kind === "material" ? "raw" : kind;
+			mode =
+				kind === "none" || kind === "material" || kind === "wwise" || kind === "particle"
+					? "raw"
+					: (kind as Mode);
 		}
 	});
 
@@ -37,10 +40,15 @@
 				return [{ name: "Images", extensions: ["png", "dds"] }];
 			}
 			case "mesh": {
-				return [{ name: "Meshes", extensions: ["glb", "gltf", "obj"] }];
+				return [{ name: "Meshes", extensions: ["glb", "gltf", "fbx", "obj"] }];
 			}
 			case "sound": {
-				return [{ name: "Ogg Vorbis", extensions: ["ogg"] }];
+				return [
+					{
+						name: "Audio (Ogg Vorbis, WAV, Wwise .wem)",
+						extensions: ["ogg", "wav", "wem"],
+					},
+				];
 			}
 			case "swf": {
 				return [{ name: "Scaleform / Flash", extensions: ["gfx", "swf"] }];
@@ -119,7 +127,7 @@
 
 <Modal bind:open title="Replace {row.name}" width="max-w-lg">
 	<form onsubmit={submit} class="space-y-3 text-sm">
-		{#if kind !== "none" && kind !== "material"}
+		{#if kind !== "none" && kind !== "material" && kind !== "wwise" && kind !== "particle"}
 			<div role="tablist" class="tabs-box tabs tabs-xs">
 				<button
 					role="tab"
@@ -183,16 +191,17 @@
 				<input type="number" class="input input-xs w-16" min="0" bind:value={lod} />
 			</label>
 			<p class="text-xs opacity-60">
-				glTF (.glb/.gltf) or OBJ, in the layout the exporter writes: metres, Y up, materials
-				named after the mesh's material slots (otherwise sections map to slots in order).
-				Static meshes get new vertex/index buffers, bounds and per-triangle collision; the
-				simple collision (RB_BodySetup) stays. Skeletal meshes need a skin whose joints are
-				named like the existing bones; the skeleton itself is kept.
+				glTF (.glb/.gltf), FBX (binary) or OBJ, in the layout the exporter writes: Y up,
+				metres for glTF/OBJ and centimetres for FBX, materials named after the mesh's
+				material slots (otherwise sections map to slots in order). Static meshes get new
+				vertex/index buffers, bounds and per-triangle collision; the simple collision
+				(RB_BodySetup) stays. Skeletal meshes need a skin whose joints are named like the
+				existing bones; the skeleton itself is kept.
 			</p>
 		{:else if mode === "sound"}
 			<p class="text-xs opacity-60">
-				The Ogg Vorbis stream replaces the PC audio of this SoundNodeWave; duration,
-				channels and sample rate are updated from the file.
+				Ogg Vorbis is stored as is; WAV and Wwise .wem files are re-encoded as Ogg Vorbis
+				(quality 0.7). Duration, channels and sample rate are updated from the file.
 			</p>
 		{:else if mode === "swf"}
 			<p class="text-xs opacity-60">

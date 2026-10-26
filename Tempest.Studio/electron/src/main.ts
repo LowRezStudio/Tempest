@@ -1,6 +1,7 @@
-// Electron main entry of Tempest Studio: one window, the `upk serve`
-// backend, file associations for .upk files. IPC handlers live in their own
-// modules and register themselves when imported.
+// Electron main entry of Tempest Studio: windows (one `upk serve` backend
+// each, so every window can work on its own game folder), file associations
+// for .upk files. IPC handlers live in their own modules and register
+// themselves when imported.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,13 +9,22 @@ import { app, BrowserWindow, session } from "electron";
 import serve from "electron-serve";
 import "./dialog.js";
 import "./system.js";
+import { handle } from "./ipc/handle.js";
+import { onCreateWindow, startMcp } from "./mcp.js";
 import { installSmoke } from "./smoke.js";
-import { upk } from "./upk.js";
+import { upkFor } from "./upk.js";
+import type { WindowStartup } from "./ipc/contract.js";
 
 const DEV_URL = "http://localhost:1421";
 
-let mainWindow: BrowserWindow | null = null;
+/** Files opened from the OS while no window could take them yet. */
 let pendingFiles: string[] = [];
+let smokeInstalled = false;
+/** What each window (by WebContents id) opens once its renderer asks; the
+ * renderer pulls it, so nothing is lost to a reload or a late listener. */
+const startups = new Map<number, WindowStartup>();
+/** Windows whose renderer has asked for its startup: events reach them. */
+const ready = new Set<number>();
 
 function upkFilesFromArgs(args: string[], workingDirectory: string): string[] {
 	return args.flatMap((argument) => {
@@ -33,13 +43,31 @@ function upkFilesFromArgs(args: string[], workingDirectory: string): string[] {
 	});
 }
 
+/** The window an OS request goes to: the focused one, else the last one created. */
+function targetWindow(): BrowserWindow | null {
+	const focused = BrowserWindow.getFocusedWindow();
+	if (focused && !focused.isDestroyed()) return focused;
+	const all = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+	return all.at(-1) ?? null;
+}
+
 function queueOpenFiles(files: string[]): void {
 	if (files.length === 0) return;
-	pendingFiles.push(...files);
-	if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isLoading()) {
-		mainWindow.webContents.send("open-files", pendingFiles);
-		pendingFiles = [];
+	const window = targetWindow();
+	if (!window) {
+		pendingFiles.push(...files);
+		return;
 	}
+	const id = window.webContents.id;
+	if (ready.has(id) && !window.webContents.isLoading()) {
+		window.webContents.send("open-files", files);
+	} else {
+		const startup = startups.get(id) ?? {};
+		startups.set(id, { ...startup, files: [...(startup.files ?? []), ...files] });
+	}
+	if (window.isMinimized()) window.restore();
+	window.show();
+	window.focus();
 }
 
 queueOpenFiles(upkFilesFromArgs(process.argv.slice(1), process.cwd()));
@@ -54,27 +82,39 @@ if (!hasInstanceLock) {
 	app.quit();
 } else {
 	app.on("second-instance", (_event, commandLine, workingDirectory) => {
-		queueOpenFiles(upkFilesFromArgs(commandLine, workingDirectory));
-		if (mainWindow) {
-			if (mainWindow.isMinimized()) mainWindow.restore();
-			mainWindow.show();
-			mainWindow.focus();
+		const files = upkFilesFromArgs(commandLine, workingDirectory);
+		if (files.length > 0) {
+			queueOpenFiles(files);
+			return;
+		}
+		const window = targetWindow();
+		if (window) {
+			if (window.isMinimized()) window.restore();
+			window.show();
+			window.focus();
+		} else {
+			createWindow();
 		}
 	});
 }
 
 const loadURL = serve({ directory: "build" });
 
-function createWindow(): void {
+function createWindow(options: WindowStartup = {}): BrowserWindow {
 	const icon = app.isPackaged
 		? path.join(process.resourcesPath, "icon.png")
 		: path.join(import.meta.dirname, "..", "resources", "icons", "icon.png");
+
+	// Cascade from the window the request came from.
+	const anchor = targetWindow();
+	const position = anchor ? anchor.getPosition() : null;
 
 	const window = new BrowserWindow({
 		width: 1600,
 		height: 950,
 		minWidth: 1100,
 		minHeight: 700,
+		...(position ? { x: position[0] + 40, y: position[1] + 40 } : {}),
 		title: "Tempest Studio",
 		icon,
 		autoHideMenuBar: true,
@@ -87,15 +127,18 @@ function createWindow(): void {
 			devTools: true,
 		},
 	});
-	mainWindow = window;
-	if (!app.isPackaged) installSmoke(window);
+	// The screenshot harness drives the first window only.
+	if (!app.isPackaged && !smokeInstalled) {
+		smokeInstalled = true;
+		installSmoke(window);
+	}
+	upkFor(window.webContents).start();
 
-	window.webContents.on("did-finish-load", () => {
-		if (pendingFiles.length > 0) {
-			window.webContents.send("open-files", pendingFiles);
-			pendingFiles = [];
-		}
-	});
+	const files = [...pendingFiles, ...(options.files ?? [])];
+	pendingFiles = [];
+	if (options.dir || files.length > 0) {
+		startups.set(window.webContents.id, { ...options, files });
+	}
 
 	window.webContents.on("will-navigate", (event, url) => {
 		try {
@@ -115,11 +158,20 @@ function createWindow(): void {
 	} else {
 		void loadURL(window);
 	}
-
-	window.on("closed", () => {
-		mainWindow = null;
-	});
+	return window;
 }
+
+handle("window:new", (_event, options) => {
+	createWindow(options ?? {});
+});
+
+handle("window:startup", (event, { done }) => {
+	const id = event.sender.id;
+	ready.add(id);
+	const startup = startups.get(id) ?? null;
+	if (done) startups.delete(id);
+	return startup;
+});
 
 app.whenReady()
 	.then(() => {
@@ -128,8 +180,9 @@ app.whenReady()
 		session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) =>
 			callback(false),
 		);
-		upk.start();
 		createWindow();
+		onCreateWindow(createWindow);
+		startMcp();
 		app.on("activate", () => {
 			if (BrowserWindow.getAllWindows().length === 0) createWindow();
 		});

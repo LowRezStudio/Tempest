@@ -191,7 +191,7 @@ impl ImportKind {
     pub fn from_extension(ext: &str) -> Option<ImportKind> {
         Some(match ext.to_ascii_lowercase().as_str() {
             "png" | "dds" => ImportKind::Texture,
-            "glb" | "gltf" | "obj" => ImportKind::Mesh,
+            "glb" | "gltf" | "obj" | "fbx" => ImportKind::Mesh,
             "ogg" => ImportKind::Sound,
             "gfx" | "swf" => ImportKind::Swf,
             "bin" | "raw" => ImportKind::Raw,
@@ -313,9 +313,40 @@ pub fn collect_files(dir: &Path, recursive: bool) -> Vec<PathBuf> {
     out
 }
 
+/// Packages of the workspace that contain an export whose full object path
+/// is `path` (case-insensitive): the fallback when a file's first name part is
+/// not a package file but the top-level group of the object (cooked seekfree
+/// packages keep their content under such groups, e.g.
+/// `loadingart_zhin.loadingart_zhin_conqueror` inside `ZHIN_TRANS_ASSETS_SF`).
+pub type PathLookup<'a> = dyn FnMut(&str) -> Vec<(String, PathBuf)> + 'a;
+
+/// A [`PathLookup`] that opens every workspace package once and scans its
+/// export table (what the CLI uses; the Studio answers from its search index).
+pub fn scan_lookup(packages: &[(String, PathBuf)]) -> impl FnMut(&str) -> Vec<(String, PathBuf)> + '_ {
+    let mut paths: Vec<Option<Vec<String>>> = Vec::new();
+    move |path: &str| {
+        if paths.is_empty() {
+            paths = packages
+                .iter()
+                .map(|(_, p)| {
+                    PackageFile::open(p).ok().map(|pf| {
+                        let pkg = pf.tables();
+                        (0..pkg.exports.len()).filter(|&i| pkg.exports[i].serial_size != 0).map(|i| pkg.object_path(PackageIndex::export(i)).to_ascii_lowercase()).collect()
+                    })
+                })
+                .collect();
+        }
+        let want = path.to_ascii_lowercase();
+        packages.iter().zip(&paths).filter(|(_, ps)| ps.as_ref().is_some_and(|ps| ps.contains(&want))).map(|(p, _)| p.clone()).collect()
+    }
+}
+
 /// Resolve the files against the workspace packages (`(name, path)` pairs)
-/// without changing anything.
-pub fn plan(db: &ClassDb, packages: &[(String, PathBuf)], files: &[PathBuf]) -> Vec<BatchEntry> {
+/// without changing anything. A file `<package>.<object>.<ext>` goes to the
+/// package file called `<package>` when there is one and the object resolves
+/// in it; otherwise the whole `<package>.<object>` is taken as an object path
+/// and the file goes to every package `lookup` finds it in.
+pub fn plan(db: &ClassDb, packages: &[(String, PathBuf)], files: &[PathBuf], lookup: &mut PathLookup) -> Vec<BatchEntry> {
     let mut tables: BTreeMap<String, Option<PackageFile>> = BTreeMap::new();
     let mut out = Vec::new();
     for file in files {
@@ -327,37 +358,45 @@ pub fn plan(db: &ClassDb, packages: &[(String, PathBuf)], files: &[PathBuf]) -> 
             continue;
         };
         let kind = ImportKind::from_extension(&ext);
-        let mut entry = BatchEntry { file: file.clone(), package: pkg_name.to_string(), package_path: None, export: None, kind, ok: false, message: String::new() };
         let Some(kind) = kind else {
-            entry.message = format!("unsupported file type .{ext}");
-            out.push(entry);
+            out.push(BatchEntry { file: file.clone(), package: pkg_name.to_string(), package_path: None, export: None, kind, ok: false, message: format!("unsupported file type .{ext}") });
             continue;
         };
-        let Some((pname, ppath)) = packages.iter().find(|(n, _)| n.eq_ignore_ascii_case(pkg_name)) else {
-            entry.message = format!("no package {pkg_name} in the workspace");
-            out.push(entry);
+        let named = packages.iter().find(|(n, _)| n.eq_ignore_ascii_case(pkg_name));
+        let direct = named.map(|(pname, ppath)| resolve_in(db, &mut tables, pname, ppath, object, kind, file));
+        if direct.as_ref().is_some_and(|e| e.ok) {
+            out.push(direct.unwrap());
             continue;
-        };
-        entry.package = pname.clone();
-        entry.package_path = Some(ppath.clone());
-        let key = pname.to_ascii_lowercase();
-        let pf = tables.entry(key).or_insert_with(|| PackageFile::open(ppath).ok());
-        let Some(pf) = pf else {
-            entry.message = format!("cannot open {}", ppath.display());
-            out.push(entry);
-            continue;
-        };
-        match resolve_object(db, pf.tables(), object, kind) {
-            Ok((i, path)) => {
-                entry.message = format!("{} → {}", kind.label(), path);
-                entry.export = Some((i, path));
-                entry.ok = true;
-            }
-            Err(e) => entry.message = e.to_string(),
         }
-        out.push(entry);
+        let holders = lookup(stem);
+        if holders.is_empty() {
+            out.push(direct.unwrap_or_else(|| BatchEntry { file: file.clone(), package: pkg_name.to_string(), package_path: None, export: None, kind: Some(kind), ok: false, message: format!("no package {pkg_name} in the workspace, and no object {stem} in any package") }));
+            continue;
+        }
+        for (pname, ppath) in &holders {
+            out.push(resolve_in(db, &mut tables, pname, ppath, stem, kind, file));
+        }
     }
     out
+}
+
+/// The entry of `file` for `object` inside the package `pname` at `ppath`.
+fn resolve_in(db: &ClassDb, tables: &mut BTreeMap<String, Option<PackageFile>>, pname: &str, ppath: &Path, object: &str, kind: ImportKind, file: &Path) -> BatchEntry {
+    let mut entry = BatchEntry { file: file.to_path_buf(), package: pname.to_string(), package_path: Some(ppath.to_path_buf()), export: None, kind: Some(kind), ok: false, message: String::new() };
+    let pf = tables.entry(pname.to_ascii_lowercase()).or_insert_with(|| PackageFile::open(ppath).ok());
+    let Some(pf) = pf else {
+        entry.message = format!("cannot open {}", ppath.display());
+        return entry;
+    };
+    match resolve_object(db, pf.tables(), object, kind) {
+        Ok((i, path)) => {
+            entry.message = format!("{} → {}", kind.label(), path);
+            entry.export = Some((i, path));
+            entry.ok = true;
+        }
+        Err(e) => entry.message = e.to_string(),
+    }
+    entry
 }
 
 /// The export `object` names: a full object path, or a unique object name
@@ -390,8 +429,8 @@ fn resolve_object(db: &ClassDb, pkg: &Package, object: &str, kind: ImportKind) -
 /// Import every resolvable file, package by package, and save each touched
 /// package in place or into `out_dir`. `progress(done, total, file)` is
 /// called before each file.
-pub fn run(db: &ClassDb, packages: &[(String, PathBuf)], files: &[PathBuf], out_dir: Option<&Path>, progress: &mut dyn FnMut(usize, usize, &str)) -> Vec<BatchEntry> {
-    let mut entries = plan(db, packages, files);
+pub fn run(db: &ClassDb, packages: &[(String, PathBuf)], files: &[PathBuf], lookup: &mut PathLookup, out_dir: Option<&Path>, progress: &mut dyn FnMut(usize, usize, &str)) -> Vec<BatchEntry> {
+    let mut entries = plan(db, packages, files, lookup);
     let total = entries.len();
     let mut done = 0usize;
     // Group by package, preserving file order.

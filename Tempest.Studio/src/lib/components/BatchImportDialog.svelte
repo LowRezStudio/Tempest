@@ -103,10 +103,13 @@
 	<div class="space-y-3 text-sm">
 		<p class="text-xs opacity-60">
 			Every file named <code>&lt;package&gt;.&lt;object&gt;.&lt;ext&gt;</code> (for example
-			<code>loadingart_androxus.loadingart_androxus_antlers.dds</code>) replaces that object
-			in that package: textures from .png/.dds, meshes from .glb/.gltf/.obj, sounds from .ogg,
-			movies from .gfx/.swf, raw payloads from .bin. The object part is a name (unique among
-			objects the file type can replace) or a full path like <code>group.sub.name</code>.
+			<code>loadingart_androxus.loadingart_androxus_antlers.dds</code>) replaces that object:
+			textures from .png/.dds, meshes from .glb/.gltf/.fbx/.obj, sounds from .ogg, movies from
+			.gfx/.swf, raw payloads from .bin. The first part is a package file of the workspace, or
+			the object's top-level group as shown in the export tree: then the whole name is the
+			object path and every package holding it is updated. The object part is a name (unique
+			among objects the file type can replace) or a full path like
+			<code>group.sub.name</code>.
 		</p>
 		<div class="flex gap-1">
 			<input
@@ -174,7 +177,7 @@
 			<div class="max-h-[45vh] overflow-auto">
 				<table class="table-xs table font-mono">
 					<tbody>
-						{#each result.entries as e (e.file)}
+						{#each result.entries as e, k (k)}
 							<tr class={e.ok ? "" : "opacity-70"}>
 								<td class="w-4">
 									{#if e.ok}<CircleCheck

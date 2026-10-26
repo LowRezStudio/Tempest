@@ -9,6 +9,10 @@ export type Tree = {
 	descendants: Map<number, number>;
 };
 
+// A collator is an order of magnitude faster than localeCompare with options
+// (a script package sorts 65k names).
+const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+
 function compareRows(rows: ExportRow[]) {
 	return (a: number, b: number) => {
 		const ra = rows[a]!;
@@ -16,7 +20,7 @@ function compareRows(rows: ExportRow[]) {
 		const pa = ra.class.toLowerCase() === "package" ? 0 : 1;
 		const pb = rb.class.toLowerCase() === "package" ? 0 : 1;
 		if (pa !== pb) return pa - pb;
-		return ra.name.localeCompare(rb.name, undefined, { sensitivity: "base", numeric: true });
+		return collator.compare(ra.name, rb.name);
 	};
 }
 

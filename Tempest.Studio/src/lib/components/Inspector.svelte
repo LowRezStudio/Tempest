@@ -16,11 +16,14 @@
 	import ImportDialog from "$lib/components/ImportDialog.svelte";
 	import MaterialPreview from "$lib/components/MaterialPreview.svelte";
 	import MeshPreview from "$lib/components/MeshPreview.svelte";
+	import ParticlePreview from "$lib/components/ParticlePreview.svelte";
 	import PropertyTree from "$lib/components/PropertyTree.svelte";
 	import RenameDialog from "$lib/components/RenameDialog.svelte";
 	import ScriptEditor from "$lib/components/ScriptEditor.svelte";
 	import SoundPreview from "$lib/components/SoundPreview.svelte";
+	import SwfPreview from "$lib/components/SwfPreview.svelte";
 	import TexturePreview from "$lib/components/TexturePreview.svelte";
+	import WwisePreview from "$lib/components/WwisePreview.svelte";
 	import { invoke, pickSave } from "$lib/platform/api";
 	import { isScriptExport, previewFor } from "$lib/studio/classes";
 	import { bytes, safeName } from "$lib/studio/format";
@@ -42,6 +45,17 @@
 		row ? previewFor(row.class, obj?.kind === "object" ? obj.native.type : undefined) : "none",
 	);
 	const placeholder = $derived(row ? row.size === 0 && row.classRef === 0 : false);
+	// Flag names are not in the compact tables: fetched for the selected row.
+	let flagsText = $state("");
+	$effect(() => {
+		const path = studio.pkg?.path;
+		const index = row?.i;
+		flagsText = row?.flagsHex ?? "";
+		if (!path || index === undefined) return;
+		void rpc("package.export", { path, index }).then((full) => {
+			if (studio.pkg?.path === path && studio.selected === index) flagsText = full.flags;
+		});
+	});
 	const script = $derived(row ? !placeholder && isScriptExport(row) : false);
 
 	// Jump to the preview tab for previewable assets, back otherwise.
@@ -98,6 +112,7 @@
 			} else if (preview === "mesh") {
 				const out = await pickSave("Export mesh", `${safeName(row.path)}.glb`, [
 					{ name: "glTF binary (textures + skeleton)", extensions: ["glb"] },
+					{ name: "Autodesk FBX (textures + skeleton)", extensions: ["fbx"] },
 					{ name: "Wavefront OBJ", extensions: ["obj"] },
 				]);
 				if (!out) return;
@@ -183,7 +198,7 @@
 					{row.path}
 				</div>
 				<div class="selectable truncate font-mono text-[11px] opacity-60">
-					{row.class} · export #{row.i} · {bytes(row.size)} @ {row.offset} · {row.flags}
+					{row.class} · export #{row.i} · {bytes(row.size)} @ {row.offset} · {flagsText}
 				</div>
 			</div>
 		</div>
@@ -294,6 +309,12 @@
 					<MeshPreview path={studio.pkg.path} index={row.i} />
 				{:else if preview === "material"}
 					<MaterialPreview path={studio.pkg.path} index={row.i} />
+				{:else if preview === "wwise"}
+					<WwisePreview path={studio.pkg.path} index={row.i} />
+				{:else if preview === "particle"}
+					<ParticlePreview path={studio.pkg.path} index={row.i} />
+				{:else if preview === "swf"}
+					<SwfPreview path={studio.pkg.path} index={row.i} />
 				{:else}
 					<SoundPreview path={studio.pkg.path} index={row.i} />
 				{/if}

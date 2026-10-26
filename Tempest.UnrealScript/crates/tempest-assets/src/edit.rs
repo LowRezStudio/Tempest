@@ -214,7 +214,15 @@ impl<'a> Editor<'a> {
     /// Swap in a regenerated package (a recompiled script package): parsed
     /// objects are dropped, the storage flags of the original are kept so
     /// `save` writes it the same way.
-    pub fn replace_package(&mut self, pkg: Package) {
+    pub fn replace_package(&mut self, mut pkg: Package) {
+        // Shown as "compressed" when it will be saved that way: the editor's
+        // storage flags come from the file, not from the compiler's output.
+        pkg.was_compressed = self.was_compressed;
+        if self.obscured {
+            pkg.summary.compression_flags |= compression::OBSCURED;
+        } else {
+            pkg.summary.compression_flags &= !compression::OBSCURED;
+        }
         if let Some(cur) = &mut self.current {
             if cur.full.is_none() {
                 cur.snapshots.clear();

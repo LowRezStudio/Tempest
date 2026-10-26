@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Clock, FolderOpen, Package } from "@lucide/svelte";
+	import { AppWindow, Clock, FolderOpen, Package } from "@lucide/svelte";
 	import { onMount } from "svelte";
 	import { invoke, pickDirectory, pickFile, PACKAGE_FILTERS } from "$lib/platform/api";
 	import { studio } from "$lib/studio/state.svelte";
@@ -85,13 +85,20 @@
 				</div>
 				<ul class="menu rounded-box bg-base-200 w-full p-1">
 					{#each studio.recents as dir (dir)}
-						<li>
+						<li class="flex-row items-center">
 							<button
-								class="font-mono text-xs"
+								class="flex-1 font-mono text-xs"
 								onclick={() => studio.openWorkspace(dir)}
 								disabled={studio.busy !== null}
 							>
 								{dir}
+							</button>
+							<button
+								class="btn btn-ghost btn-xs"
+								onclick={() => studio.newWindow(dir)}
+								title="Open in a new window"
+							>
+								<AppWindow size={12} />
 							</button>
 						</li>
 					{/each}

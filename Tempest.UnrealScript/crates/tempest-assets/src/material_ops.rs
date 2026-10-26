@@ -37,11 +37,56 @@ pub struct PackageCache<'a> {
     /// Boxed so a package's address is stable across map growth (callers
     /// hold references across further lookups).
     loaded: HashMap<String, Option<Box<LoadedPackage>>>,
+    /// Which package file holds an object path (lower-case, with its
+    /// top-level group), for imports whose root is a group rather than a
+    /// package file: `None` when nothing is known.
+    lookup: Option<Lookup<'a>>,
+}
+
+/// Object path (lower-case) → name of the package file holding it.
+pub type Lookup<'a> = Box<dyn Fn(&str) -> Option<String> + 'a>;
+
+/// A path lookup that scans the export tables of every package of `dir`
+/// the first time it is asked (a few seconds for a full cooked folder).
+pub fn dir_lookup(dir: &Path) -> impl Fn(&str) -> Option<String> {
+    let dir = dir.to_path_buf();
+    let index: std::cell::RefCell<Option<HashMap<String, String>>> = std::cell::RefCell::new(None);
+    move |path: &str| {
+        let mut idx = index.borrow_mut();
+        let idx = idx.get_or_insert_with(|| {
+            let mut map = HashMap::new();
+            let Ok(rd) = std::fs::read_dir(&dir) else { return map };
+            let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| matches!(p.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).as_deref(), Some("upk" | "u"))).collect();
+            files.sort();
+            for p in files {
+                let Ok(pf) = PackageFile::open(&p) else { continue };
+                let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                let pkg = pf.tables();
+                for i in 0..pkg.exports.len() {
+                    if pkg.exports[i].serial_size == 0 {
+                        continue;
+                    }
+                    map.entry(pkg.object_path(PackageIndex::export(i)).to_ascii_lowercase()).or_insert_with(|| stem.clone());
+                }
+            }
+            map
+        });
+        idx.get(&path.to_ascii_lowercase()).cloned()
+    }
 }
 
 impl<'a> PackageCache<'a> {
+    /// A cache over `dir`; unresolvable imports are looked up by scanning
+    /// the folder's packages (see [`dir_lookup`]).
     pub fn new(db: &'a ClassDb, dir: impl AsRef<Path>) -> PackageCache<'a> {
-        PackageCache { db, dir: dir.as_ref().to_path_buf(), loaded: HashMap::new() }
+        let dir = dir.as_ref().to_path_buf();
+        let lookup: Lookup<'a> = Box::new(dir_lookup(&dir));
+        PackageCache { db, dir, loaded: HashMap::new(), lookup: Some(lookup) }
+    }
+
+    /// Replace the path lookup (the Studio answers from its search index).
+    pub fn set_lookup(&mut self, f: impl Fn(&str) -> Option<String> + 'a) {
+        self.lookup = Some(Box::new(f));
     }
 
     /// Insert an already loaded package (the one being exported).
@@ -93,9 +138,32 @@ impl<'a> PackageCache<'a> {
         if path.is_empty() {
             return None;
         }
-        let target = self.get(&root)?;
-        let e = target.pkg.find_export(&path, None)?;
+        if let Some(target) = self.get(&root) {
+            if let Some(e) = target.pkg.find_export(&path, None) {
+                return Some((target.name.clone(), e));
+            }
+        }
+        // No package file of that name (or the object is not in it): the
+        // root is a group of some other package, e.g. `pc_mastermaterial`
+        // content cooked into a `*_SF` package.
+        let full = format!("{root}.{path}");
+        let holder = self.lookup.as_ref().and_then(|l| l(&full))?;
+        let target = self.get(&holder)?;
+        let e = target.pkg.find_export(&full, None)?;
         Some((target.name.clone(), e))
+    }
+
+    /// The class name of an export of a loaded package.
+    pub fn class_name(&mut self, pkg_name: &str, i: usize) -> Option<String> {
+        self.get(pkg_name).map(|lp| lp.pkg.class_name_of(PackageIndex::export(i)))
+    }
+
+    /// Where an unresolvable reference points, for warnings.
+    pub fn describe(&mut self, from: &str, idx: PackageIndex) -> String {
+        match self.get(from) {
+            Some(lp) => lp.pkg.object_path(idx),
+            None => format!("{idx:?}"),
+        }
     }
 
     /// Parse an export of a loaded package.
@@ -132,7 +200,7 @@ pub fn classify(param: &str, texture: &str) -> TextureSlot {
         TextureSlot::Mask
     } else if p.contains("normal") || p.contains("nrm") || p.contains("bump") {
         TextureSlot::Normal
-    } else if p.contains("diffuse") || p.contains("diff") || p.contains("albedo") || p.contains("basecolor") || p.contains("base color") || p == "color" || p == "texture" {
+    } else if p.contains("diffuse") || p.contains("diff") || p.contains("_dif") || p.ends_with("dif") || p.contains("albedo") || p.contains("basecolor") || p.contains("base color") || p == "color" || p == "texture" {
         TextureSlot::BaseColor
     } else if p.contains("spec") || p.contains("rough") || p.contains("gloss") || p.contains("metal") {
         TextureSlot::Specular
@@ -163,7 +231,14 @@ fn struct_field<'v>(members: &'v [Property], pkg: &Package, name: &str) -> Optio
 /// Texture parameters of a material or instance, walking up the parent chain
 /// (nearest override wins). Returns textures in slot priority order.
 pub fn material_textures(cache: &mut PackageCache, pkg_name: &str, material: PackageIndex) -> Vec<MaterialTexture> {
+    material_textures_ext(cache, pkg_name, material).0
+}
+
+/// [`material_textures`] plus the parameters whose texture could not be
+/// found (`"<parameter>: <object path>"`), for warnings.
+pub fn material_textures_ext(cache: &mut PackageCache, pkg_name: &str, material: PackageIndex) -> (Vec<MaterialTexture>, Vec<String>) {
     let mut out: Vec<MaterialTexture> = Vec::new();
+    let mut unresolved: Vec<String> = Vec::new();
     let mut seen_params: Vec<String> = Vec::new();
     let mut cur = cache.resolve(pkg_name, material);
     let mut guard = 0;
@@ -223,7 +298,13 @@ pub fn material_textures(cache: &mut PackageCache, pkg_name: &str, material: Pac
             if seen_params.iter().any(|s| s.eq_ignore_ascii_case(&name)) {
                 continue;
             }
-            let Some((tp, te)) = cache.resolve(&pname, t) else { continue };
+            let Some((tp, te)) = cache.resolve(&pname, t) else {
+                if !t.is_null() {
+                    seen_params.push(name.clone());
+                    unresolved.push(format!("{name}: {}", cache.describe(&pname, t)));
+                }
+                continue;
+            };
             let path = {
                 let lp = cache.get(&tp).unwrap();
                 texture_ops::engine_path(&lp.pkg, &lp.name, te)
@@ -232,6 +313,32 @@ pub fn material_textures(cache: &mut PackageCache, pkg_name: &str, material: Pac
             out.push(MaterialTexture { slot: classify(&name, &path), parameter: name, package: tp, export: te, path });
         }
         if is_material {
+            // Cooked materials usually keep no expression sub-objects (the
+            // map packages strip them): fall back to the textures the
+            // compiled material resource samples, named after themselves.
+            if out.is_empty() && unresolved.is_empty() {
+                if let crate::object::Native::Material(m) = &obj.native {
+                    let textures: Vec<PackageIndex> = m.resources.first().map(|(_, r)| r.uniform_expression_textures.clone()).unwrap_or_default();
+                    for t in textures {
+                        if t.is_null() || out.iter().any(|o| o.package.eq_ignore_ascii_case(&pname) && PackageIndex::export(o.export) == t) {
+                            continue;
+                        }
+                        let Some((tp, te)) = cache.resolve(&pname, t) else {
+                            unresolved.push(cache.describe(&pname, t));
+                            continue;
+                        };
+                        let path = {
+                            let lp = cache.get(&tp).unwrap();
+                            texture_ops::engine_path(&lp.pkg, &lp.name, te)
+                        };
+                        if out.iter().any(|o| o.path.eq_ignore_ascii_case(&path)) {
+                            continue;
+                        }
+                        let name = path.rsplit('.').next().unwrap_or(&path).to_string();
+                        out.push(MaterialTexture { slot: classify(&name, &path), parameter: name, package: tp, export: te, path });
+                    }
+                }
+            }
             break;
         }
         cur = match obj.property("Parent", pkg).map(|p| &p.value) {
@@ -247,7 +354,7 @@ pub fn material_textures(cache: &mut PackageCache, pkg_name: &str, material: Pac
         TextureSlot::Mask => 4,
         TextureSlot::Other => 5,
     });
-    out
+    (out, unresolved)
 }
 
 /// PNG of a texture export in any loaded package (largest available mip).
@@ -272,6 +379,10 @@ pub struct MaterialInfo {
     pub scalars: Vec<(String, f32)>,
     pub vectors: Vec<(String, [f32; 4])>,
     pub switches: Vec<(String, bool)>,
+    /// `BlendMode` of the nearest object in the chain that sets it.
+    pub blend_mode: Option<String>,
+    /// `TwoSided` likewise.
+    pub two_sided: Option<bool>,
 }
 
 fn linear_color(pkg: &Package, v: &Value) -> Option<[f32; 4]> {
@@ -302,6 +413,16 @@ pub fn material_info(cache: &mut PackageCache, pkg_name: &str, material: Package
         // SAFETY: see `material_textures`.
         let pkg: &Package = unsafe { &*pkg_ptr };
         info.chain.push((pname.clone(), pkg.object_path(PackageIndex::export(idx)), class_name.clone()));
+        if info.blend_mode.is_none() {
+            if let Some(Value::Enum(n)) = obj.property("BlendMode", pkg).map(|p| &p.value) {
+                info.blend_mode = Some(pkg.fname_to_string(*n));
+            }
+        }
+        if info.two_sided.is_none() {
+            if let Some(Value::Bool(b)) = obj.property("TwoSided", pkg).map(|p| &p.value) {
+                info.two_sided = Some(*b);
+            }
+        }
         let mut push_scalar = |name: String, v: f32| {
             if !info.scalars.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
                 info.scalars.push((name, v));

@@ -9,12 +9,12 @@
 
 use tempest_unrealscript::objects::PropertyKind;
 use tempest_upk::flags::compression;
-use tempest_upk::io::{Error, FName, Result};
+use tempest_upk::io::{Error, Result};
 use tempest_upk::Package;
 
 use crate::bulk::BulkData;
 use crate::object::{Native, Object};
-use crate::value::{tag_type_name, Property, Value};
+use crate::value::Value;
 
 // ----------------------------------------------------------------------------
 // Properties
@@ -34,16 +34,7 @@ pub fn byte_array_property(pkg: &Package, obj: &Object, name: &str) -> Option<Ve
 
 /// Set (or add) a scalar/array property by name.
 pub fn set_property(pkg: &mut Package, obj: &mut Object, name: &str, kind: PropertyKind, value: Value) {
-    let fname = pkg.intern_fname(name);
-    let type_name = tag_type_name(pkg, kind);
-    if let Some(p) = obj.properties.iter_mut().find(|p| p.array_index == 0 && p.name == fname) {
-        p.value = value;
-        p.kind = kind;
-        p.type_name = type_name;
-        return;
-    }
-    let enum_name = (kind == PropertyKind::Byte).then(|| FName::new(pkg.intern_name("None")));
-    obj.properties.push(Property { name: fname, array_index: 0, kind, type_name, struct_name: None, enum_name, value });
+    crate::particle::set_member(pkg, &mut obj.properties, name, kind, value);
 }
 
 pub fn remove_property(pkg: &Package, obj: &mut Object, name: &str) {

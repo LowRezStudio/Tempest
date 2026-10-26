@@ -196,6 +196,78 @@ pub fn import_row(pkg: &Package, i: usize) -> J {
 }
 
 /// Tables of a loaded package (what the tree view needs).
+/// The tables as the Studio receives them: the summary, the import rows and
+/// the export table as columns (names, class/outer/super/archetype refs,
+/// sizes, offsets, flags) that the renderer turns into rows. A script
+/// package has 65k exports: columns of numbers parse in a fraction of the
+/// time of 65k objects with their paths and flag texts spelled out, which
+/// the renderer derives on demand (`package.export`, `package.names`).
+pub fn tables_compact(pkg: &Package) -> J {
+    let mut v = tables_summary(pkg);
+    let n = pkg.exports.len();
+    let mut names = Vec::with_capacity(n);
+    let mut classes = Vec::with_capacity(n);
+    let mut outers = Vec::with_capacity(n);
+    let mut supers = Vec::with_capacity(n);
+    let mut archetypes = Vec::with_capacity(n);
+    let mut sizes = Vec::with_capacity(n);
+    let mut offsets = Vec::with_capacity(n);
+    let mut export_flags = Vec::with_capacity(n);
+    let mut object_flags = Vec::with_capacity(n);
+    for (i, e) in pkg.exports.iter().enumerate() {
+        names.push(J::from(pkg.object_name(PackageIndex::export(i))));
+        classes.push(e.class.0);
+        outers.push(e.outer.0);
+        supers.push(e.super_.0);
+        archetypes.push(e.archetype.0);
+        sizes.push(e.serial_size);
+        offsets.push(e.serial_offset);
+        export_flags.push(e.export_flags);
+        object_flags.push(format!("{:x}", e.object_flags));
+    }
+    v["imports"] = J::Array((0..pkg.imports.len()).map(|i| import_row(pkg, i)).collect());
+    v["exports"] = json!({
+        "names": names,
+        "classes": classes,
+        "outers": outers,
+        "supers": supers,
+        "archetypes": archetypes,
+        "sizes": sizes,
+        "offsets": offsets,
+        "exportFlags": export_flags,
+        "objectFlags": object_flags,
+    });
+    v
+}
+
+fn tables_summary(pkg: &Package) -> J {
+    let s = &pkg.summary;
+    json!({
+        "name": pkg.package_name(),
+        "summary": {
+            "fileVersion": s.file_version,
+            "licenseeVersion": s.licensee_version,
+            "engineVersion": s.engine_version,
+            "cookedContentVersion": s.cooked_content_version,
+            "packageFlags": s.package_flags,
+            "packageFlagsText": describe(s.package_flags as u64, tempest_upk::flags::PACKAGE_FLAG_NAMES),
+            "compressionFlags": s.compression_flags,
+            "compressed": pkg.was_compressed,
+            "obscured": s.compression_flags & tempest_upk::flags::compression::OBSCURED != 0,
+            "cooked": s.is_cooked(),
+            "folder": s.folder_name,
+            "guid": s.guid.to_string(),
+            "chunks": s.compressed_chunks.len(),
+            "headerSize": s.total_header_size,
+            "names": pkg.names.len(),
+            "imports": pkg.imports.len(),
+            "exports": pkg.exports.len(),
+            "additionalPackages": s.additional_packages_to_cook,
+            "textureAllocations": s.texture_allocations.len(),
+        },
+    })
+}
+
 pub fn tables(pkg: &Package) -> J {
     let s = &pkg.summary;
     json!({

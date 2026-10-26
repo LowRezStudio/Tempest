@@ -89,10 +89,25 @@ export type PackageTables = {
 	dirty: boolean;
 	loadMs?: number;
 	summary: PackageSummary;
-	names: string[];
 	imports: ImportRow[];
 	exports: ExportRow[];
 };
+
+/** The export table as the backend sends it: one column per field (the
+ * renderer builds the `ExportRow`s, their paths and class names). */
+export type ExportColumns = {
+	names: string[];
+	classes: number[];
+	outers: number[];
+	supers: number[];
+	archetypes: number[];
+	sizes: number[];
+	offsets: number[];
+	exportFlags: number[];
+	/** Object flags as hex. */
+	objectFlags: string[];
+};
+export type PackageTablesWire = Omit<PackageTables, "exports"> & { exports: ExportColumns };
 
 export type WorkspacePackage = {
 	name: string;
@@ -235,6 +250,87 @@ export type MediaPreview =
 	  }
 	| { kind: "swf"; bytes: number; signature: string };
 
+/** One Wwise media file (in a bank or streamed). */
+export type WwiseMedia = {
+	id: number;
+	bytes: number;
+	codec: string;
+	channels: number;
+	sampleRate: number;
+	duration: number;
+	streamed: boolean;
+	bank: number | null;
+	hash?: string;
+	error?: string;
+};
+
+export type WwiseEvent = { id: number; name: string | null; media: number[] };
+
+export type WwiseBank = {
+	id: number;
+	name: string | null;
+	version?: number;
+	objects?: number;
+	error?: string;
+	media: WwiseMedia[];
+	events: WwiseEvent[];
+};
+
+/** A `.pck` file package. */
+export type WwisePackage = {
+	path: string;
+	name: string;
+	languages: string[];
+	banks: WwiseBank[];
+	streams: WwiseMedia[];
+};
+
+/** What an AkEvent / AkBank export resolves to. */
+export type WwiseObject = {
+	pck: string | null;
+	bank: string;
+	bankId: number;
+	eventId: number | null;
+	name: string;
+	found?: boolean;
+	media: WwiseMedia[];
+	trail: { kind: string; id: number }[];
+};
+
+/** Edited PCM sent back to the backend (interleaved 16-bit, base64). */
+export type PcmPayload = { pcm: string; channels: number; sampleRate: number; quality?: number };
+
+/** A cooked particle system for the preview: every object as its parsed view. */
+export type ParticleSystemJson = {
+	root: number;
+	system: ParsedObject;
+	emitters: {
+		index: number;
+		path: string;
+		class: string;
+		props: ParsedObject;
+		lods: {
+			index: number;
+			props: ParsedObject;
+			required: ParsedObject | null;
+			spawn: ParsedObject | null;
+			typeData: ParsedObject | null;
+			modules: ParsedObject[];
+		}[];
+	}[];
+	materials: Record<
+		string,
+		{
+			blendMode: string | null;
+			twoSided: boolean | null;
+			png: Uint8Array | null;
+			texture: string | null;
+			color: number[] | null;
+		}
+	>;
+	meshes: Record<string, { path: string; index: number }>;
+};
+
 /** A decompiled class (the one owning the selected export). */
 export type ScriptSource = {
 	class: string;
@@ -292,6 +388,107 @@ export type MaterialPreview = {
 type Target = { path: string; index: number };
 
 /** Every `upk serve` method with its params and result. */
+/** A column of a marshal row set: present in `count` of its rows. */
+export type McsColumn = { name: string; token: number; kind: McsKind; count: number };
+export type McsKind =
+	| "unknown"
+	| "byte"
+	| "int"
+	| "word"
+	| "dword"
+	| "float"
+	| "double"
+	| "qword"
+	| "netid"
+	| "datetime"
+	| "string"
+	| "rowset"
+	| "guid"
+	| "blob";
+export type McsTable = { name: string; token: number; rows: number; columns: McsColumn[] };
+export type McsHeaderField = { name: string; token: number; kind: McsKind; value: McsCell };
+/** A scalar cell as JSON; 64-bit numbers travel as decimal strings; row sets as `{rows}`. */
+export type McsCell = number | string | { rows: number } | null;
+export type McsDoc = {
+	id: string;
+	path: string;
+	function: string;
+	flags: number;
+	dirty: boolean;
+	undo: string[];
+	header: McsHeaderField[];
+	tables: McsTable[];
+};
+export type McsSummary = { tokens: string; fields: number; docs: McsDoc[] };
+/** A row set address: field names and row indices from the document root. */
+export type McsPath = [string, number][];
+export type McsRowsPage = {
+	total: number;
+	offset: number;
+	rows: [number, Record<string, McsCell>][];
+};
+export type McsField = { name: string; token: number; kind: McsKind; value: McsCell };
+export type McsStatus = { doc: string; dirty: boolean; undo: string[] };
+export type McsMessage = { text: string; name: string; path: McsPath };
+export type McsValidValue = { group: number; msgId: number; text: string };
+
+export type SwfTag = {
+	index: number;
+	code: number;
+	name: string;
+	len: number;
+	id: number | null;
+	detail: string;
+};
+export type SwfImage = {
+	tag: number;
+	id: number;
+	format: number;
+	width: number;
+	height: number;
+	exportName: string;
+	fileName: string;
+};
+export type SwfText = {
+	tag: number;
+	id: number;
+	variable: string;
+	text: string | null;
+	fontId: number | null;
+	fontClass: string | null;
+	fontHeight: number | null;
+	html: boolean;
+	multiline: boolean;
+};
+export type SwfScript = {
+	tag: number;
+	kind: string;
+	sprite: number | null;
+	bytes: number;
+	strings: { index: number; text: string; action: string }[];
+};
+export type SwfInfo = {
+	signature: string;
+	version: number;
+	compressed: boolean;
+	width: number;
+	height: number;
+	frameRate: number;
+	frames: number;
+	tags: SwfTag[];
+	images: SwfImage[];
+	texts: SwfText[];
+	scripts: SwfScript[];
+	exports: { tag: number; id: number; name: string }[];
+	imports: { tag: number; url: string; symbols: { id: number; name: string }[] }[];
+};
+export type SwfEdit = {
+	kind: "text" | "string" | "image";
+	tag: number;
+	index?: number;
+	text: string;
+};
+
 export interface UpkMethods {
 	ping: { params: Record<string, never>; result: { version: string; pid: number } };
 	"workspace.open": { params: { dir: string }; result: Workspace };
@@ -302,6 +499,10 @@ export interface UpkMethods {
 	};
 	"package.open": { params: { path: string }; result: PackageTables };
 	"package.tables": { params: { path: string }; result: PackageTables };
+	/** The name table of an open package. */
+	"package.names": { params: { path: string }; result: string[] };
+	/** One export row in full (path, flag names). */
+	"package.export": { params: { path: string; index: number }; result: ExportRow };
 	"package.close": { params: { path: string }; result: boolean };
 	"package.dirty": { params: { path: string }; result: boolean };
 	"package.save": {
@@ -355,7 +556,7 @@ export interface UpkMethods {
 	};
 	"mesh.info": { params: Target; result: MeshInfo };
 	"mesh.preview": {
-		params: Target & { lod?: number; textures?: boolean; skin?: boolean };
+		params: Target & { lod?: number; textures?: boolean; skin?: boolean; textureSize?: number };
 		result: MeshGlb;
 	};
 	"mesh.export": {
@@ -381,7 +582,173 @@ export interface UpkMethods {
 		params: Target & { out: string };
 		result: { out: string; bytes: number; kind: string };
 	};
-	"media.import": { params: Target & { file: string }; result: { kind: string; bytes: number } };
+	"media.import": {
+		params: Target & { file: string; quality?: number };
+		result: { kind: string; bytes: number };
+	};
+	"sound.replacePcm": {
+		params: Target & PcmPayload;
+		result: { bytes: number; duration: number; channels: number; sampleRate: number };
+	};
+	"wwise.packages": {
+		params: Record<string, never>;
+		result: { packages: { name: string; path: string; size: number }[] };
+	};
+	"wwise.open": { params: { path: string }; result: WwisePackage };
+	"wwise.preview": {
+		params: { path: string; id: number };
+		result: WwiseMedia & { ogg: Uint8Array };
+	};
+	"wwise.export": {
+		params: { path: string; id: number; out: string };
+		result: { out: string; bytes: number };
+	};
+	"wwise.import": {
+		params: { path: string; id: number; file: string; quality?: number; out?: string };
+		result: { out: string; bytes: number };
+	};
+	"wwise.replacePcm": {
+		params: { path: string; id: number; out?: string } & PcmPayload;
+		result: { out: string; bytes: number };
+	};
+	"wwise.forObject": { params: Target; result: WwiseObject };
+	/** Open assembly.dat and the Lang_*.dat files of a cooked folder (the workspace by default). */
+	"mcts.open": { params: { dir?: string; reload?: boolean }; result: McsSummary };
+	"mcts.summary": { params: Record<string, never>; result: McsSummary };
+	"mcts.doc": { params: { doc: string }; result: McsDoc };
+	"mcts.table": { params: { doc: string; path?: McsPath; table: string }; result: McsTable };
+	"mcts.rows": {
+		params: {
+			doc: string;
+			path?: McsPath;
+			table: string;
+			offset?: number;
+			limit?: number;
+			filter?: string;
+			sort?: string;
+			desc?: boolean;
+		};
+		result: McsRowsPage;
+	};
+	"mcts.row": { params: { doc: string; path: McsPath }; result: { fields: McsField[] } };
+	"mcts.rowFull": { params: { doc: string; path: McsPath }; result: Record<string, unknown> };
+	/** Set a field of a row from typed text (`text`) or JSON (`value`, null removes it). */
+	"mcts.set": {
+		params: { doc: string; path: McsPath; field: string; text?: string; value?: unknown };
+		result: McsStatus & { row: Record<string, McsCell> };
+	};
+	"mcts.setHeader": {
+		params: { doc: string; field: string; text?: string; value?: unknown };
+		result: McsStatus;
+	};
+	"mcts.insert": {
+		params: { doc: string; path?: McsPath; table: string; index?: number; clone?: number };
+		result: McsStatus & { index: number };
+	};
+	"mcts.delete": { params: { doc: string; path: McsPath }; result: McsStatus };
+	"mcts.undo": { params: { doc: string }; result: McsStatus & { undone: string | null } };
+	"mcts.save": { params: { doc: string; out?: string }; result: McsStatus & { out: string } };
+	"mcts.discard": { params: { doc: string }; result: McsStatus };
+	"mcts.find": {
+		params: { doc: string; table: string; key: string; value: number | string };
+		result: number[];
+	};
+	"mcts.messages": {
+		params: { ids: number[]; langs?: string[] };
+		result: Record<string, Record<string, McsMessage>>;
+	};
+	"mcts.setMessage": {
+		params: { lang: string; id: number; text: string; name?: string };
+		result: McsStatus;
+	};
+	"mcts.validValues": { params: Record<string, never>; result: Record<string, McsValidValue> };
+	/** The next free ids of every kind (items and devices share one space). */
+	"mcts.nextIds": {
+		params: Record<string, never>;
+		result: {
+			item: number;
+			device: number;
+			bot: number;
+			res: number;
+			icon: number;
+			fx: number;
+			msg: number;
+			deviceMode: number;
+			skin: number;
+		};
+	};
+	/** Clone a device/card (DEVICE_ID), item (ITEM_ID) or champion (BOT_ID) with fresh ids and new messages. */
+	"mcts.create": {
+		params: {
+			kind: "device" | "card" | "item" | "champion";
+			template: number;
+			name: string;
+			description?: string;
+			shortDescription?: string;
+			bot?: number;
+			slot?: number;
+			itemType?: number;
+		};
+		result: {
+			kind: string;
+			deviceId?: number;
+			itemId?: number;
+			botId?: number;
+			messages: number[];
+			device?: McsPath;
+			item?: McsPath | null;
+			bot?: McsPath;
+			skin?: McsPath | null;
+			devices?: unknown[];
+			items?: unknown[];
+		};
+	};
+	/** The GET_PROFILE_CLASSES row and inventory items of a champion, for the private server. */
+	"mcts.serverRows": {
+		params: { bot: number };
+		result: { profileClass: Record<string, unknown>; inventory: unknown[] };
+	};
+	/** Write a mod folder: manifest, changed .dat files, paserver.json, Lua + UnrealScript scaffold. */
+	"mcts.scaffold": {
+		params: {
+			dir: string;
+			id: string;
+			name?: string;
+			version?: string;
+			author?: string;
+			bot?: number;
+			devices?: number[];
+			allLanguages?: boolean;
+			package?: string;
+		};
+		result: { dir: string; files: string[]; classes: string[]; package: string };
+	};
+	"mcts.close": { params: Record<string, never>; result: boolean };
+	/** Tags, texts, scripts and external images of a Scaleform movie export. */
+	"swf.info": { params: { path: string; index: number }; result: SwfInfo };
+	/** ActionScript 2 disassembly of one script tag. */
+	"swf.script": {
+		params: { path: string; index: number; tag: number };
+		result: { listing: string };
+	};
+	/** Write edits (edit-text initial text, script strings, external image names) back into the package. */
+	"swf.apply": {
+		params: { path: string; index: number; edits: SwfEdit[] };
+		result: { edits: number; bytes: number; undo: string[] };
+	};
+	"particle.system": { params: Target & { textureSize?: number }; result: ParticleSystemJson };
+	"particle.setTable": {
+		params: Target & {
+			prop: string;
+			table: number[];
+			timeScale?: number;
+			startTime?: number;
+			op?: number;
+			numElements?: number;
+			chunkSize?: number;
+		};
+		result: ParsedObject;
+	};
 	"script.source": { params: Target; result: ScriptSource };
 	"script.compile": {
 		params: { path: string; class: string; source: string };
@@ -437,6 +804,8 @@ export interface UpkMethods {
 export type UpkMethod = keyof UpkMethods;
 
 /** Status of the backend process. */
+export type McpInfo = { url: string; token: string; configPath: string; running: boolean };
+
 export type UpkStatus = {
 	running: boolean;
 	binary: string | null;
@@ -446,6 +815,11 @@ export type UpkStatus = {
 
 /** An event line pushed by `upk serve` (no request id). */
 export type UpkEvent = { event: string; [key: string]: unknown };
+
+/** A framed response as the host hands it to the renderer: the result JSON
+ * bytes (or an already parsed `value` for unframed replies) and the binary
+ * payloads referenced by `{"$bin": n}` markers inside it. */
+export type UpkFrame = { json: Uint8Array | null; value?: unknown; bins: Uint8Array[] };
 
 // ---- Dialogs ----
 
@@ -464,6 +838,9 @@ export type SaveDialogOptions = {
 };
 
 /** OS info injected by preload (see `window.__os`). */
+/** What a new window opens once its renderer is up (pulled through `window:startup`). */
+export type WindowStartup = { dir?: string; files?: string[] };
+
 export type OsInfo = {
 	platform: "windows" | "macos" | "linux";
 	arch: string;
@@ -479,6 +856,10 @@ export interface IpcContract {
 	"app:temp-path": { args: { name: string }; result: string };
 
 	"window:set-title": { args: { title: string }; result: void };
+	/** Open another Studio window (with its own backend), optionally on a workspace or packages. */
+	"window:new": { args: WindowStartup; result: void };
+	/** What this window was asked to open when it was created; `done` clears it once applied. */
+	"window:startup": { args: { done?: boolean }; result: WindowStartup | null };
 
 	"dialog:open": { args: OpenDialogOptions; result: string[] | null };
 	"dialog:save": { args: SaveDialogOptions; result: string | null };
@@ -493,6 +874,8 @@ export interface IpcContract {
 
 	/** One `upk serve` call. Rejects with the server's error text. */
 	"upk:call": { args: { method: UpkMethod; params: unknown }; result: unknown };
+	/** Where the MCP server listens and the token clients must send. */
+	"mcp:info": { args: void; result: McpInfo };
 	"upk:status": { args: void; result: UpkStatus };
 	"upk:restart": { args: void; result: UpkStatus };
 }

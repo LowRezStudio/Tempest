@@ -30,7 +30,8 @@ class Studio {
 	workspace = $state<Workspace | null>(null);
 	/** Busy message shown in the status bar while a long call runs. */
 	busy = $state<string | null>(null);
-	pkg = $state<PackageTables | null>(null);
+	/** Raw state: 65k export rows must not become proxies; the tables are replaced, never mutated. */
+	pkg = $state.raw<PackageTables | null>(null);
 	selected = $state<number | null>(null);
 	/** Package paths with unsaved edits. */
 	dirty = $state<string[]>([]);
@@ -39,6 +40,8 @@ class Studio {
 		(localStorage.getItem(THEME_KEY) as "mocha" | "latte" | null) ?? "mocha",
 	);
 	backendError = $state<string | null>(null);
+	/** What the window shows: the package editor, or the assembly/lang editor. */
+	mode = $state<"packages" | "assembly">("packages");
 	/** Bumped whenever the export table of `pkg` changed (rename, delete, copy). */
 	tablesVersion = $state(0);
 	/** Navigation history of selections (package path + export), browser style. */
@@ -97,6 +100,7 @@ class Studio {
 					dir: this.workspace?.dir ?? null,
 					pkg: this.pkg?.path ?? null,
 					selected: this.selected,
+					mode: this.mode,
 				};
 				try {
 					sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
@@ -105,12 +109,26 @@ class Studio {
 				}
 			});
 		});
-		void this.restoreSession();
+		void this.restoreSession().then(() => this.applyStartup());
+	}
+
+	/** Open what this window was created for (a folder, files); kept by the
+	 * host until applied, so a dev reload mid-way replays it. */
+	private async applyStartup(): Promise<void> {
+		const startup = await invoke("window:startup", {});
+		if (!startup) return;
+		if (startup.dir && !this.workspace) await this.openWorkspace(startup.dir);
+		if (startup.files?.length) await this.openFiles(startup.files);
+		await invoke("window:startup", { done: true });
 	}
 
 	private async restoreSession(): Promise<void> {
-		let session: { dir: string | null; pkg: string | null; selected: number | null } | null =
-			null;
+		let session: {
+			dir: string | null;
+			pkg: string | null;
+			selected: number | null;
+			mode?: "packages" | "assembly";
+		} | null = null;
 		try {
 			session = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? "null");
 		} catch {
@@ -118,6 +136,7 @@ class Studio {
 		}
 		if (!session?.dir) return;
 		await this.openWorkspace(session.dir);
+		if (session.mode) this.mode = session.mode;
 		if (this.workspace && session.pkg) {
 			await this.openPackage(session.pkg, session.selected ?? undefined);
 		}
@@ -130,6 +149,11 @@ class Studio {
 		} finally {
 			this.busy = null;
 		}
+	}
+
+	/** Another Studio window, with its own backend: a second workspace side by side. */
+	async newWindow(dir?: string): Promise<void> {
+		await invoke("window:new", dir ? { dir } : {});
 	}
 
 	async openWorkspace(dir: string, quiet = false): Promise<boolean> {

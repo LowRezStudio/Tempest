@@ -88,9 +88,8 @@ impl ClassDb {
 
     pub fn load_files(files: &[PathBuf]) -> Result<ClassDb> {
         let mut db = ClassDb::new();
-        for f in files {
-            db.ctx.load_file(f)?;
-        }
+        // The packages parse independently: spread them over the cores.
+        db.ctx.load_files_parallel(files)?;
         db.index();
         Ok(db)
     }

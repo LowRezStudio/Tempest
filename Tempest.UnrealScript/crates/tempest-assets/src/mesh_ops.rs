@@ -26,6 +26,8 @@ pub struct Section {
     pub num_triangles: u32,
     pub material: PackageIndex,
     pub material_name: String,
+    /// Material slot of the mesh (what a component's `Materials[]` overrides).
+    pub slot: usize,
 }
 
 /// Triangle-list geometry of one LOD.
@@ -38,8 +40,8 @@ pub struct Geometry {
     pub indices: Vec<u32>,
     pub sections: Vec<Section>,
     /// Per-vertex (bone index, weight) × 4 for skeletal meshes (bone indices
-    /// are into `bone_names`, weights 0..255; limited to 255 bones).
-    pub influences: Vec<[(u8, u8); 4]>,
+    /// are into `bone_names`, weights 0..255).
+    pub influences: Vec<[(u16, u8); 4]>,
     pub bone_names: Vec<String>,
     /// Reference skeleton (parent index, local transform in Unreal space,
     /// column-major, `v' = M v`).
@@ -177,7 +179,7 @@ pub fn static_mesh_geometry(pkg: &Package, m: &StaticMesh, lod: usize) -> Result
         s => return Err(Error::Format(format!("index size {s}"))),
     };
     for e in &l.elements {
-        g.sections.push(Section { first_index: e.first_index, num_triangles: e.num_triangles, material: e.material, material_name: pkg.object_path(e.material) });
+        g.sections.push(Section { first_index: e.first_index, num_triangles: e.num_triangles, material: e.material, material_name: pkg.object_path(e.material), slot: e.material_index.max(0) as usize });
     }
     Ok(g)
 }
@@ -238,11 +240,11 @@ pub fn skeletal_mesh_geometry(pkg: &Package, m: &SkeletalMesh, lod: usize) -> Re
         }
         let uv = if full { [f(uv_off), f(uv_off + 4)] } else { [half_to_f32(u16::from_le_bytes([e[uv_off], e[uv_off + 1]])), half_to_f32(u16::from_le_bytes([e[uv_off + 2], e[uv_off + 3]]))] };
         g.uvs.push(uv);
-        let mut inf = [(0u8, 0u8); 4];
+        let mut inf = [(0u16, 0u8); 4];
         let bone_map = chunk_of.get(i).and_then(|&ci| l.chunks.get(ci)).map(|c| c.bone_map.as_slice()).unwrap_or(&[]);
         for k in 0..4 {
             let local = e[8 + k] as usize;
-            let bone = bone_map.get(local).copied().unwrap_or(local as u16) as u8;
+            let bone = bone_map.get(local).copied().unwrap_or(local as u16);
             inf[k] = (bone, e[12 + k]);
         }
         g.influences.push(inf);
@@ -250,16 +252,42 @@ pub fn skeletal_mesh_geometry(pkg: &Package, m: &SkeletalMesh, lod: usize) -> Re
     g.indices = l.index_container.to_u32();
     for s in &l.sections {
         let material = m.materials.get(s.material_index as usize).copied().unwrap_or_default();
-        g.sections.push(Section { first_index: s.base_index, num_triangles: s.num_triangles, material, material_name: pkg.object_path(material) });
+        g.sections.push(Section { first_index: s.base_index, num_triangles: s.num_triangles, material, material_name: pkg.object_path(material), slot: s.material_index as usize });
     }
     Ok(g)
+}
+
+/// `LODInfo[lod].LODMaterialMap`: section material slot → mesh material
+/// slot for the lower LODs of a skeletal mesh (empty when identity).
+fn lod_material_map(pkg: &Package, obj: &Object, lod: usize) -> Vec<usize> {
+    use crate::value::{StructValue, Value};
+    let Some(p) = obj.property("LODInfo", pkg) else { return Vec::new() };
+    let Value::Array(items) = &p.value else { return Vec::new() };
+    let Some(Value::Struct(StructValue::Tagged(members))) = items.get(lod) else { return Vec::new() };
+    let Some(map) = members.iter().find(|m| pkg.fname_to_string(m.name).eq_ignore_ascii_case("LODMaterialMap")) else { return Vec::new() };
+    let Value::Array(ids) = &map.value else { return Vec::new() };
+    ids.iter().map(|v| if let Value::Int(i) = v { (*i).max(0) as usize } else { 0 }).collect()
 }
 
 /// Geometry of a parsed mesh object (static or skeletal).
 pub fn geometry(pkg: &Package, obj: &Object, lod: usize) -> Result<Geometry> {
     match &obj.native {
         Native::StaticMesh(m) => static_mesh_geometry(pkg, m, lod),
-        Native::SkeletalMesh(m) => skeletal_mesh_geometry(pkg, m, lod),
+        Native::SkeletalMesh(m) => {
+            let mut g = skeletal_mesh_geometry(pkg, m, lod)?;
+            let map = lod_material_map(pkg, obj, lod);
+            if !map.is_empty() {
+                let l = &m.lod_models[lod];
+                for (sec, s) in g.sections.iter_mut().zip(&l.sections) {
+                    let Some(&slot) = map.get(s.material_index as usize) else { continue };
+                    let material = m.materials.get(slot).copied().unwrap_or_default();
+                    sec.material = material;
+                    sec.material_name = pkg.object_path(material);
+                    sec.slot = slot;
+                }
+            }
+            Ok(g)
+        }
         _ => Err(Error::Format("not a static or skeletal mesh".into())),
     }
 }
@@ -368,7 +396,7 @@ pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
         for inf in &g.influences {
             let total: u32 = inf.iter().map(|(_, w)| *w as u32).sum();
             for (b, w) in inf {
-                joints.extend_from_slice(&(*b as u16).to_le_bytes());
+                joints.extend_from_slice(&b.to_le_bytes());
                 let wf = if total > 0 { *w as f32 / total as f32 } else { 0.0 };
                 weights.extend_from_slice(&wf.to_le_bytes());
             }
@@ -513,6 +541,47 @@ pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// Meshes placed in maps often carry no materials of their own: the cooked
+/// map sets them on the components. For every section without a material,
+/// take the first component of the package that uses `mesh` and overrides
+/// that slot.
+fn component_materials(g: &mut Geometry, cache: &mut crate::material_ops::PackageCache, pkg_name: &str, mesh: PackageIndex) {
+    use crate::value::Value;
+    if g.sections.iter().all(|s| !s.material.is_null()) {
+        return;
+    }
+    let n = cache.get(pkg_name).map(|lp| lp.pkg.exports.len()).unwrap_or(0);
+    for i in 0..n {
+        let class = cache.class_name(pkg_name, i).unwrap_or_default();
+        if !cache.db.class_is_a(&class, "MeshComponent") {
+            continue;
+        }
+        let Some(obj) = cache.object(pkg_name, i) else { continue };
+        let Some(lp) = cache.get(pkg_name) else { break };
+        let pkg = &lp.pkg;
+        let uses = ["StaticMesh", "SkeletalMesh"].iter().any(|p| matches!(obj.property(p, pkg).map(|p| &p.value), Some(Value::Object(m)) if *m == mesh));
+        if !uses {
+            continue;
+        }
+        let Some(Value::Array(mats)) = obj.property("Materials", pkg).map(|p| &p.value) else { continue };
+        let mut done = true;
+        for sec in g.sections.iter_mut() {
+            if sec.material.is_null() {
+                if let Some(Value::Object(m)) = mats.get(sec.slot) {
+                    if !m.is_null() {
+                        sec.material = *m;
+                        sec.material_name = pkg.object_path(*m);
+                    }
+                }
+            }
+            done &= !sec.material.is_null();
+        }
+        if done {
+            break;
+        }
+    }
+}
+
 /// Resolve the textures of every section's material into `g.materials` /
 /// `g.images` (PNG, largest available mip, de-duplicated by texture path).
 /// `max_size`: preview textures (largest mip within the bound, fast PNG);
@@ -522,15 +591,29 @@ pub fn attach_materials(
     cache: &mut crate::material_ops::PackageCache,
     src: &crate::texcache::TextureSource,
     pkg_name: &str,
+    mesh: PackageIndex,
     max_size: Option<u32>,
     png_cache: &mut std::collections::HashMap<String, Vec<u8>>,
 ) -> Vec<String> {
-    use crate::material_ops::{material_textures, texture_png, TextureSlot};
-    let mut warnings = Vec::new();
+    use crate::material_ops::{material_textures_ext, texture_png, TextureSlot};
+    component_materials(g, cache, pkg_name, mesh);
+    let mut warnings: Vec<String> = Vec::new();
     let mut image_index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for sec in &g.sections.clone() {
         let mut m = GltfMaterial { name: sec.material_name.clone(), ..Default::default() };
-        for t in material_textures(cache, pkg_name, sec.material) {
+        let (textures, unresolved) = material_textures_ext(cache, pkg_name, sec.material);
+        for u in unresolved {
+            let w = format!("{}: {u}: not found in the folder", sec.material_name);
+            if !warnings.contains(&w) {
+                warnings.push(w);
+            }
+        }
+        for t in textures {
+            // Only 2D textures have a place in a model file: cube maps
+            // (reflections), render targets and the like are left out.
+            if !cache.class_name(&t.package, t.export).is_some_and(|c| cache.db.class_is_a(&c, "Texture2D")) {
+                continue;
+            }
             let key = format!("{}@{}", t.path, max_size.unwrap_or(0));
             let idx = match image_index.get(&t.path) {
                 Some(&i) => Some(i),
@@ -542,7 +625,10 @@ pub fn attach_materials(
                         Some(g.images.len() - 1)
                     }
                     Err(e) => {
-                        warnings.push(format!("{}: {e}", t.path));
+                        let w = format!("{}: {e}", t.path);
+                        if !warnings.contains(&w) {
+                            warnings.push(w);
+                        }
                         None
                     }
                 },
@@ -554,6 +640,11 @@ pub fn attach_materials(
                 TextureSlot::Emissive if m.emissive.is_none() => m.emissive = Some(idx),
                 _ => m.extra.push((t.parameter.clone(), idx)),
             }
+        }
+        // Hi-Rez's master material "emits" through the diffuse texture and a
+        // mask: as a model file's emissive map that would just glow.
+        if m.emissive.is_some() && m.emissive == m.base_color {
+            m.emissive = None;
         }
         g.materials.push(m);
     }
