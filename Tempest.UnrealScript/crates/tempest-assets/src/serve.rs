@@ -915,15 +915,17 @@ impl Server {
 
     /// GLB bytes of a mesh (`preview`: base64 in the response).
     fn mesh_glb(&mut self, p: &J, preview: bool) -> Res<J> {
+        let (bytes, mut v) = self.mesh_glb_bytes(p, preview)?;
+        v["glb"] = self.bins.add(bytes);
+        Ok(v)
+    }
+
+    /// The GLB bytes and the summary of a mesh.
+    fn mesh_glb_bytes(&mut self, p: &J, preview: bool) -> Res<(Vec<u8>, J)> {
         let (name, g, warnings) = self.mesh_geometry(p, preview)?;
         let bytes = mesh_ops::write_glb(&name, &g)?;
-        let mut v = json!({ "bytes": bytes.len(), "vertices": g.positions.len(), "triangles": g.indices.len() / 3, "materials": g.materials.len(), "images": g.images.len(), "warnings": warnings });
-        if preview {
-            v["glb"] = self.bins.add(bytes);
-        } else {
-            v["data"] = self.bins.add(bytes);
-        }
-        Ok(v)
+        let v = json!({ "bytes": bytes.len(), "vertices": g.positions.len(), "triangles": g.indices.len() / 3, "materials": g.materials.len(), "images": g.images.len(), "warnings": warnings });
+        Ok((bytes, v))
     }
 
     /// Geometry of a mesh with its textured materials and skeleton
@@ -987,10 +989,10 @@ impl Server {
             std::fs::write(&out, text.as_bytes())?;
             return Ok(json!({ "out": out, "bytes": text.len(), "vertices": g.positions.len(), "triangles": g.indices.len() / 3, "warnings": [] }));
         }
-        let mut v = self.mesh_glb(p, false)?;
-        let data = v["data"].as_str().unwrap_or("").to_string();
-        std::fs::write(&out, base64_decode(&data))?;
-        v["data"] = J::Null;
+        // Written straight from the bytes: the response must not carry the
+        // payload (under framed responses it would be a `$bin` marker, not base64).
+        let (bytes, mut v) = self.mesh_glb_bytes(p, false)?;
+        std::fs::write(&out, &bytes)?;
         v["out"] = J::from(out);
         Ok(v)
     }
