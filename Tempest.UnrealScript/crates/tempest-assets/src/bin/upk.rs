@@ -841,7 +841,7 @@ fn cmd_batch_import(args: &[String]) -> Res {
     }
     let files = batch::collect_files(&files_dir, recursive);
     let mut lookup = batch::scan_lookup(&packages);
-    let entries = if dry { batch::plan(&db, &packages, &files, &mut lookup) } else { batch::run(&db, &packages, &files, &mut lookup, out_dir.as_deref(), &mut |done, total, file| eprintln!("[{done}/{total}] {file}")) };
+    let entries = if dry { batch::plan(&db, &packages, &files, &mut lookup) } else { batch::run(&db, &packages, &files, &mut lookup, out_dir.as_deref(), None, &mut |done, total, file| eprintln!("[{done}/{total}] {file}")) };
     for e in &entries {
         println!("{} {} : {}", if e.ok { "ok  " } else { "FAIL" }, e.file.file_name().unwrap().to_string_lossy(), e.message);
     }

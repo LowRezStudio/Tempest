@@ -429,8 +429,19 @@ fn resolve_object(db: &ClassDb, pkg: &Package, object: &str, kind: ImportKind) -
 /// Import every resolvable file, package by package, and save each touched
 /// package in place or into `out_dir`. `progress(done, total, file)` is
 /// called before each file.
-pub fn run(db: &ClassDb, packages: &[(String, PathBuf)], files: &[PathBuf], lookup: &mut PathLookup, out_dir: Option<&Path>, progress: &mut dyn FnMut(usize, usize, &str)) -> Vec<BatchEntry> {
+/// `only`: when given, the package files (lowercased paths) to write; entries
+/// of other packages are reported as not selected and left alone.
+#[allow(clippy::too_many_arguments)]
+pub fn run(db: &ClassDb, packages: &[(String, PathBuf)], files: &[PathBuf], lookup: &mut PathLookup, out_dir: Option<&Path>, only: Option<&std::collections::HashSet<String>>, progress: &mut dyn FnMut(usize, usize, &str)) -> Vec<BatchEntry> {
     let mut entries = plan(db, packages, files, lookup);
+    if let Some(only) = only {
+        for e in entries.iter_mut() {
+            if e.ok && !e.package_path.as_ref().is_some_and(|p| only.contains(&p.to_string_lossy().to_ascii_lowercase())) {
+                e.ok = false;
+                e.message = "package not selected".to_string();
+            }
+        }
+    }
     let total = entries.len();
     let mut done = 0usize;
     // Group by package, preserving file order.

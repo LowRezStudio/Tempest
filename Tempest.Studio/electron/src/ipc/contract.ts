@@ -803,7 +803,8 @@ export interface UpkMethods {
 	};
 	"batch.plan": { params: { dir: string; recursive?: boolean }; result: BatchResult };
 	"batch.run": {
-		params: { dir: string; recursive?: boolean; outDir?: string };
+		/** `packages`: the package files (paths from the plan) to write; every touched one when absent. */
+		params: { dir: string; recursive?: boolean; outDir?: string; packages?: string[] };
 		result: BatchResult;
 	};
 	"mod.dir": {

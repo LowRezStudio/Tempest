@@ -2001,7 +2001,9 @@ impl Server {
                 }
             }
             let mut events: Vec<(usize, usize, String)> = Vec::new();
-            let entries = crate::batch::run(db, &packages, &files, &mut lookup, out_dir.as_deref(), &mut |done, total, file| events.push((done, total, file.to_string())));
+            // `packages`: the package files to write (every touched one when absent).
+            let only: Option<std::collections::HashSet<String>> = p.get("packages").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|v| v.as_str()).map(|s| s.to_ascii_lowercase()).collect());
+            let entries = crate::batch::run(db, &packages, &files, &mut lookup, out_dir.as_deref(), only.as_ref(), &mut |done, total, file| events.push((done, total, file.to_string())));
             for (done, total, file) in events {
                 let mut f = Map::new();
                 f.insert("done".into(), J::from(done));
