@@ -114,7 +114,8 @@ async function provide(
 		sha256: dep.sha256,
 		dependencies,
 	});
-	return outcome.status === "installed";
+	// Queued behind the running game: it installs before anything queued after it.
+	return outcome.status === "installed" || outcome.status === "queued";
 }
 
 // What a repository version needs before it installs: asks the repository for the resolved

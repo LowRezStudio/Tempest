@@ -146,7 +146,8 @@ internal class ModCommands
     /// <param name="noDeps">When modFile is a repository id, do not install the dependencies it declares</param>
     /// <param name="ignoreTempestVersion">Install even when the package needs a newer Tempest than this one</param>
     /// <param name="tempestVersion">The Tempest version to check "tempest" requirements against (the launcher passes its own; default: the version this CLI was built with)</param>
-    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool stack = false, bool allowUntrusted = false, bool json = false, string? patch = null, bool noDeps = false, bool ignoreTempestVersion = false, string? tempestVersion = null)
+    /// <param name="defer">Run every check and stop before writing anything, reporting Deferred (the launcher queues installs this way while the game runs)</param>
+    public async Task Install([Argument] string path, [Argument] string modFile, bool replace = false, bool stack = false, bool allowUntrusted = false, bool json = false, string? patch = null, bool noDeps = false, bool ignoreTempestVersion = false, string? tempestVersion = null, bool defer = false)
     {
         if (!string.IsNullOrWhiteSpace(tempestVersion)) Environment.SetEnvironmentVariable("TEMPEST_VERSION", tempestVersion);
         try
@@ -177,7 +178,7 @@ internal class ModCommands
                 modFile = downloaded;
                 // What the version declares it needs goes in first, leaves of the tree before
                 // the mods that need them, so the mod itself never reports a missing dependency.
-                if (pick != null && !noDeps)
+                if (pick != null && !noDeps && !defer)
                 {
                     var failure = await InstallDependenciesAsync(path, pick, patch, allowUntrusted, ignoreTempestVersion, installedDeps, modLock);
                     if (failure != null)
@@ -189,7 +190,7 @@ internal class ModCommands
                 }
             }
 
-            var result = await InstallOneAsync(path, modFile, replace, stack, allowUntrusted, ignoreTempestVersion, modLock);
+            var result = await InstallOneAsync(path, modFile, replace, stack, allowUntrusted, ignoreTempestVersion, modLock, defer);
             if (installedDeps.Count > 0) result.InstalledDependencies = installedDeps;
 
             PrintResult(result, json);
@@ -203,11 +204,14 @@ internal class ModCommands
     }
 
     /// <summary>Installs one package under <paramref name="modLock"/> and records it; the install result is returned as is.</summary>
-    private static async Task<ModInstallResult> InstallOneAsync(string path, string modFile, bool replace, bool stack, bool allowUntrusted, bool ignoreTempestVersion, ModLock modLock)
+    private static async Task<ModInstallResult> InstallOneAsync(string path, string modFile, bool replace, bool stack, bool allowUntrusted, bool ignoreTempestVersion, ModLock modLock, bool defer = false)
     {
         var installer = ModInstallerFactory.CreateForFile(modFile);
+        // Legacy packages have no checks to run ahead; deferring them only reports so.
+        if (defer && installer is not ModV2Installer)
+            return new ModInstallResult { Success = false, Deferred = true, Message = $"'{Path.GetFileName(modFile)}' was not installed (--defer)." };
         var result = installer is ModV2Installer v2
-            ? await v2.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock, ignoreTempestVersion)
+            ? await v2.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock, ignoreTempestVersion, defer)
             : await installer.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock);
 
         if (result.Success && result.Mod != null) RecordInstall(path, result.Mod);

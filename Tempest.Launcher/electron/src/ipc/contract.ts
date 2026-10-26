@@ -276,6 +276,15 @@ export interface IpcContract {
 		result: { dir: string; saved: string[] } | null;
 	};
 	"mods:discard-staged-pack": { args: { stagedPath: string }; result: void };
+	/**
+	 * Copies a package into the install queue's folder (keeping its file name), so a queued
+	 * install still has it when it runs, whatever happens to the original. Returns the copy.
+	 */
+	"mods:queue-stage": { args: { path: string }; result: string };
+	/** Deletes a copy `mods:queue-stage` made; other paths are ignored. */
+	"mods:queue-discard": { args: { path: string }; result: void };
+	/** Deletes every copy in the install queue's folder except `keep`. */
+	"mods:queue-prune": { args: { keep: string[] }; result: void };
 	"mods:open-location": { args: { gamePath: string; mod: ModLocation }; result: void };
 	"mods:has-dlls": { args: { gamePath: string; modId: string }; result: boolean };
 	/** The per-mod TOML config, or null when the mod has no config file. */

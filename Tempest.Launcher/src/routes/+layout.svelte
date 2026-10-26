@@ -12,6 +12,7 @@
 	import OnboardingPage from "$lib/components/onboarding/OnboardingPage.svelte";
 	import { restoreRunningGames } from "$lib/core/launch";
 	import { checkForCoreUpdatesAndInstall } from "$lib/core/mods";
+	import { startInstallQueue } from "$lib/mods/installQueue.svelte";
 	import { invoke } from "$lib/platform/api";
 	import { setQueryClient } from "$lib/queries/client";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
@@ -59,7 +60,9 @@
 	$effect(() => {
 		if (restored) return;
 		restored = true;
-		void restoreRunningGames();
+		// Queued mod installs wait for their game to close, so they start once the running
+		// games are known.
+		void restoreRunningGames().finally(startInstallQueue);
 		void restoreQueue.adoptRunning();
 	});
 

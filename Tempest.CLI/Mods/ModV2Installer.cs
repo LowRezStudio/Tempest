@@ -88,6 +88,64 @@ public class ModV2Installer : IModInstaller
         return found;
     }
 
+    /// <summary>
+    /// Files an install would overwrite or delete (the package's destinations, the mod's folder,
+    /// and the files and folders of <paramref name="removedMods"/>) that another process holds
+    /// open without sharing write access, relative to the game folder. Windows only: elsewhere an
+    /// open file does not stop it being replaced.
+    /// </summary>
+    private static List<string> FindFilesInUse(ZipArchive archive, string resolvedGame, string targetModDir, IEnumerable<ModRecord> removedMods)
+    {
+        if (!OperatingSystem.IsWindows()) return [];
+
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void AddFolder(string dir)
+        {
+            if (!Directory.Exists(dir)) return;
+            foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)) candidates.Add(file);
+        }
+
+        foreach (var entry in archive.Entries)
+        {
+            if (IsDirectoryEntry(entry)) continue;
+            var relativePath = NormalizeEntryPath(entry.FullName);
+            candidates.Add(relativePath.StartsWith("files/", StringComparison.OrdinalIgnoreCase)
+                ? ResolveUnder(resolvedGame, relativePath["files/".Length..])
+                : ResolveUnder(targetModDir, relativePath));
+        }
+        AddFolder(targetModDir);
+        foreach (var mod in removedMods)
+        {
+            foreach (var file in mod.OwnedFiles) candidates.Add(Path.GetFullPath(file, resolvedGame));
+            AddFolder(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id));
+        }
+
+        return candidates
+            .Where(file => File.Exists(file) && IsInUse(file))
+            .Select(file => Path.GetRelativePath(resolvedGame, file).Replace('\\', '/'))
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>Another process has the file open without letting others write it (sharing or lock violation, or a mapped image such as a loaded DLL).</summary>
+    private static bool IsInUse(string file)
+    {
+        try
+        {
+            using var _ = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+            return false;
+        }
+        catch (IOException ex) when ((ex.HResult & 0xFFFF) is 32 or 33 or 1224)
+        {
+            return true;
+        }
+        catch
+        {
+            // Read-only or inaccessible: not something waiting for the game fixes.
+            return false;
+        }
+    }
+
     private static async Task<string> ReadEntryAsync(ZipArchiveEntry entry)
     {
         using var reader = new StreamReader(await entry.OpenAsync(), Encoding.UTF8);
@@ -97,7 +155,8 @@ public class ModV2Installer : IModInstaller
     public Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted, ModLock modLock) =>
         InstallAsync(gamePath, modFilePath, replace, stack, allowUntrusted, modLock, ignoreTempestVersion: false);
 
-    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted, ModLock modLock, bool ignoreTempestVersion)
+    /// <param name="defer">Stop after every check passed, before anything is written, with a <see cref="ModInstallResult.Deferred"/> result.</param>
+    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted, ModLock modLock, bool ignoreTempestVersion, bool defer = false)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
 
@@ -237,27 +296,9 @@ public class ModV2Installer : IModInstaller
             var idInstalled = Directory.Exists(targetModDir);
             if (idInstalled && !replace) return IdConflict();
 
-            // An update or reinstall stays where the mod was first added.
-            DateTime? installedAt = null;
-            if (idInstalled)
-            {
-                var existingModsForId = ModCommands.LoadMetadata(gamePath);
-                var existingModForId = existingModsForId.FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
-                if (existingModForId != null)
-                {
-                    installedAt = existingModForId.InstalledAt;
-                    await RemoveAsync(gamePath, existingModForId);
-                    existingModsForId.Remove(existingModForId);
-                    ModCommands.SaveMetadata(gamePath, existingModsForId);
-                }
-                else
-                {
-                    try { Directory.Delete(targetModDir, recursive: true); } catch { }
-                }
-            }
-
             // File-overlap detection: compare new mod's files against every installed mod's OwnedFiles
-            // (files they currently manage, not just historically installed)
+            // (files they currently manage, not just historically installed). Only reads: the mod
+            // being replaced (same id) is skipped, so it may still be installed at this point.
             var metadataMods = ModCommands.LoadMetadata(gamePath);
             var conflicts = new List<ModConflictInfo>();
             foreach (var existingMod in metadataMods)
@@ -287,23 +328,70 @@ public class ModV2Installer : IModInstaller
                 }
             }
 
+            if (conflicts.Count > 0 && !replace && !stack)
+            {
+                var names = string.Join(", ", conflicts.Select(c => $"'{c.ModName}'"));
+                var files = string.Join(", ", conflicts.SelectMany(c => c.ConflictingFiles).Distinct(StringComparer.OrdinalIgnoreCase));
+                return new ModInstallResult
+                {
+                    Success = false,
+                    Conflict = true,
+                    IsModConflict = true,
+                    Message = $"Mod '{manifest.Name}' conflicts with {names} (overlapping files: {files}).",
+                    ConflictingMods = conflicts,
+                    NewModName = manifest.Name
+                };
+            }
+
+            // Nothing on disk has changed yet. A file the install would overwrite or delete that
+            // another process holds open (a running game keeps its DLLs and packages open) would
+            // make it fail halfway, with the replaced mod already gone; refuse it whole instead.
+            var removedMods = metadataMods.Where(m =>
+                string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase) ||
+                replace && conflicts.Any(c => string.Equals(c.ModId, m.Id, StringComparison.OrdinalIgnoreCase)));
+            var inUse = FindFilesInUse(archive, resolvedGame, targetModDir, removedMods);
+            if (inUse.Count > 0)
+            {
+                var shownFiles = string.Join(", ", inUse.Take(3)) + (inUse.Count > 3 ? $" and {inUse.Count - 3} more" : "");
+                return new ModInstallResult
+                {
+                    Success = false,
+                    FilesInUse = true,
+                    LockedFiles = inUse,
+                    Message = $"'{manifest.Name}' cannot be installed while {shownFiles} {(inUse.Count == 1 ? "is" : "are")} in use, most likely by the running game. Close it and install again.",
+                };
+            }
+            if (defer)
+            {
+                return new ModInstallResult
+                {
+                    Success = false,
+                    Deferred = true,
+                    Message = $"'{manifest.Name}' can be installed; nothing was written (--defer).",
+                };
+            }
+
+            // An update or reinstall stays where the mod was first added.
+            DateTime? installedAt = null;
+            if (idInstalled)
+            {
+                var existingModsForId = ModCommands.LoadMetadata(gamePath);
+                var existingModForId = existingModsForId.FirstOrDefault(m => string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase));
+                if (existingModForId != null)
+                {
+                    installedAt = existingModForId.InstalledAt;
+                    await RemoveAsync(gamePath, existingModForId);
+                    existingModsForId.Remove(existingModForId);
+                    ModCommands.SaveMetadata(gamePath, existingModsForId);
+                }
+                else
+                {
+                    try { Directory.Delete(targetModDir, recursive: true); } catch { }
+                }
+            }
+
             if (conflicts.Count > 0)
             {
-                if (!replace && !stack)
-                {
-                    var names = string.Join(", ", conflicts.Select(c => $"'{c.ModName}'"));
-                    var files = string.Join(", ", conflicts.SelectMany(c => c.ConflictingFiles).Distinct(StringComparer.OrdinalIgnoreCase));
-                    return new ModInstallResult
-                    {
-                        Success = false,
-                        Conflict = true,
-                        IsModConflict = true,
-                        Message = $"Mod '{manifest.Name}' conflicts with {names} (overlapping files: {files}).",
-                        ConflictingMods = conflicts,
-                        NewModName = manifest.Name
-                    };
-                }
-
                 if (replace)
                 {
                     // replace requested — remove all conflicting mods before installing new one

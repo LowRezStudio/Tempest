@@ -3175,5 +3175,17 @@
 	"repo_needs_newer_tempest": "Needs Tempest {requirement}",
 	"converter_dependencies_label": "Dependencies",
 	"converter_dependencies_placeholder": "tempest-scripting>=1.0.0\ntempest>=1.3.0",
-	"converter_dependencies_hint": "One per line: a mod id and an optional version requirement (>=1.0.0, ^1.2). \"tempest\" is the launcher itself. The launcher installs these alongside the mod."
+	"converter_dependencies_hint": "One per line: a mod id and an optional version requirement (>=1.0.0, ^1.2). \"tempest\" is the launcher itself. The launcher installs these alongside the mod.",
+	"install_queue_title": "Waiting to install",
+	"install_queue_hint_running": "The game is running. These install automatically once it is closed.",
+	"install_queue_hint_idle": "Their files were in use when they were added. They install when the game closes, or try again now.",
+	"install_queue_added_title": "Queued for install",
+	"install_queue_added_message": "{name} installs once the game is closed.",
+	"install_queue_still_in_use_title": "Still in use",
+	"install_queue_still_in_use_message": "{name} could not be installed yet: its files are still in use.",
+	"install_queue_install_now": "Install now",
+	"install_queue_remove": "Remove from queue",
+	"install_queue_queued": "Queued",
+	"install_queue_in_use": "In use: {files}",
+	"repo_install_queued_hint": "The game is running: this installs once it is closed"
 }

@@ -137,6 +137,13 @@ export type ModInstallResult = {
 	MissingDependencies?: ModDependency[];
 	/** Refused: the package needs this Tempest version and the launcher is older. */
 	TempestRequired?: string;
+	/** Refused before anything was written: files it would replace are held open, most likely
+	 * by the running game. The launcher queues the install for when the game has closed. */
+	FilesInUse?: boolean;
+	/** The files of a FilesInUse refusal, relative to the game folder. */
+	LockedFiles?: string[];
+	/** `defer`: every check passed but nothing was written (queued while the game runs). */
+	Deferred?: boolean;
 };
 
 export type ModListResult = {
@@ -230,10 +237,13 @@ export const installMod = async (
 	replace = false,
 	allowUntrusted = false,
 	stack = false,
+	/** Run every check, then stop before writing (Deferred): the game is running. */
+	defer = false,
 ): Promise<ModInstallResult> => {
 	const args = ["mod", "install", gamePath, modFile];
 	if (replace) args.push("--replace");
 	if (stack) args.push("--stack");
+	if (defer) args.push("--defer");
 	if (allowUntrusted) args.push("--allow-untrusted");
 	// The CLI checks the package's "tempest" requirement against the launcher's version.
 	const appVersion = await getAppVersion().catch(() => undefined);

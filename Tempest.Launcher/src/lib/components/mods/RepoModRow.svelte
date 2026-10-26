@@ -1,5 +1,13 @@
 <script lang="ts">
-	import { Check, Clock, Download, Gamepad2, Trash2, TriangleAlert } from "@lucide/svelte";
+	import {
+		Check,
+		Clock,
+		Download,
+		Gamepad2,
+		Hourglass,
+		Trash2,
+		TriangleAlert,
+	} from "@lucide/svelte";
 	import { compatibleWith } from "$lib/mods/browse.svelte";
 	import { cardImageOf, formatCount, kindLabel, relativeDate } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
@@ -16,6 +24,8 @@
 		patch?: string;
 		/** This mod's install in flight */
 		pending?: PendingInstall;
+		/** Version of this mod waiting in the install queue for the game to close */
+		queuedVersion?: string;
 		isRunning: boolean;
 		onInstall: (mod: RepoMod) => void;
 		onUninstall: (mod: RepoMod) => void;
@@ -27,6 +37,7 @@
 		installedVersion,
 		patch,
 		pending,
+		queuedVersion,
 		isRunning,
 		onInstall,
 		onUninstall,
@@ -40,13 +51,11 @@
 		if (installedVersion === undefined) return "install";
 		return compareVersions(mod.latest.version, installedVersion) > 0 ? "update" : "installed";
 	});
+	// While the game runs an install still goes ahead: it waits in the install queue.
 	const blockedReason = $derived(
-		isRunning
-			? m.repo_close_game_first()
-			: !compatible
-				? m.repo_incompatible({ patch: patch ?? "" })
-				: undefined,
+		!compatible ? m.repo_incompatible({ patch: patch ?? "" }) : undefined,
 	);
+	const queued = $derived(!!queuedVersion && queuedVersion === mod.latest?.version);
 	const compat = $derived(mod.latest ? describeCompat(mod.latest.compat) : "");
 
 	let loaded = $state(false);
@@ -157,6 +166,14 @@
 					? m.mod_row_installing()
 					: `${Math.round(pending.progress * 100)}%`}
 			</span>
+		{:else if queued}
+			<span
+				class="text-warning flex min-w-28 items-center justify-center gap-1.5 text-sm font-semibold"
+				title={m.install_queue_added_message({ name: mod.name })}
+			>
+				<Hourglass size={15} />
+				{m.install_queue_queued()}
+			</span>
 		{:else if action === "installed" && isRunning}
 			<span
 				class="text-success flex min-w-28 items-center justify-center gap-1.5 text-sm font-semibold"
@@ -191,9 +208,11 @@
 					class="btn btn-sm btn-primary min-w-28"
 					disabled={!!blockedReason}
 					onclick={() => onInstall(mod)}
-					title={action === "update"
-						? m.repo_update_available({ version: mod.latest!.version })
-						: `v${mod.latest!.version}`}
+					title={isRunning
+						? m.repo_install_queued_hint()
+						: action === "update"
+							? m.repo_update_available({ version: mod.latest!.version })
+							: `v${mod.latest!.version}`}
 				>
 					<Download size={14} />
 					{action === "update" ? m.repo_update() : m.repo_install()}

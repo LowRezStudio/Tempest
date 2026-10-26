@@ -164,8 +164,8 @@
 					{:else}
 						<button
 							class="btn btn-primary btn-sm shrink-0"
-							disabled={isRunning || installing !== null}
-							title={isRunning ? m.repo_close_game_first() : `v${primary.version}`}
+							disabled={installing !== null}
+							title={isRunning ? m.repo_install_queued_hint() : `v${primary.version}`}
 							onclick={() => install(primary)}
 						>
 							{#if installing === primary.version}<span
@@ -347,7 +347,8 @@
 										class="btn btn-sm {what === 'downgrade'
 											? ''
 											: 'btn-primary'}"
-										disabled={isRunning || installing !== null}
+										disabled={installing !== null}
+										title={isRunning ? m.repo_install_queued_hint() : undefined}
 										onclick={() => install(v)}
 									>
 										{#if installing === v.version}
