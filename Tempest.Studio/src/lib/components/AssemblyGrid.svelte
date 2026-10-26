@@ -11,6 +11,7 @@
 	} from "@lucide/svelte";
 	import NewContentDialog from "$lib/components/NewContentDialog.svelte";
 	import { assembly, isMessageColumn, refOf } from "$lib/studio/assembly.svelte";
+	import { inField, reveal } from "$lib/studio/keys";
 	import type { McsCell, McsColumn } from "../../../electron/src/ipc/contract";
 
 	let filterText = $state("");
@@ -84,6 +85,54 @@
 	$effect(() => {
 		if (page?.doc === "assembly") void assembly.loadValidValues();
 	});
+
+	let gridEl = $state<HTMLDivElement | null>(null);
+
+	async function selectAt(pos: number) {
+		if (!page) return;
+		let target = pos;
+		if (target < 0) {
+			if (page.offset === 0) return;
+			await assembly.prevPage();
+			target = (assembly.page?.rows.length ?? 1) - 1;
+		} else if (target >= page.rows.length) {
+			if (page.offset + assembly.limit >= page.total) return;
+			await assembly.nextPage();
+			target = 0;
+		}
+		const row = assembly.page?.rows[target];
+		if (!row) return;
+		await assembly.select(row[0]);
+		reveal(`[data-row="${row[0]}"]`, false);
+	}
+
+	async function onKey(event: KeyboardEvent) {
+		if (!page || inField(event) || event.altKey || event.ctrlKey || event.metaKey) return;
+		const at =
+			assembly.selected === null ? -1 : page.rows.findIndex(([i]) => i === assembly.selected);
+		const key = event.key;
+		if (key === "ArrowDown") {
+			event.preventDefault();
+			await selectAt(at + 1);
+		} else if (key === "ArrowUp") {
+			event.preventDefault();
+			await selectAt(at < 0 ? 0 : at - 1);
+		} else if (key === "PageDown") {
+			event.preventDefault();
+			await assembly.nextPage();
+			await selectAt(0);
+		} else if (key === "PageUp") {
+			event.preventDefault();
+			await assembly.prevPage();
+			await selectAt(0);
+		} else if (key === "Home") {
+			event.preventDefault();
+			await selectAt(0);
+		} else if (key === "End") {
+			event.preventDefault();
+			await selectAt(page.rows.length - 1);
+		}
+	}
 </script>
 
 {#if page}
@@ -167,7 +216,14 @@
 			onclick={() => assembly.nextPage()}><ChevronRight size={12} /></button
 		>
 	</div>
-	<div class="min-h-0 flex-1 overflow-auto">
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<div
+		class="min-h-0 flex-1 overflow-auto outline-none"
+		role="grid"
+		tabindex="0"
+		bind:this={gridEl}
+		onkeydown={onKey}
+	>
 		<table class="table-xs table-pin-rows table w-max font-mono text-[11px]">
 			<thead>
 				<tr>
@@ -198,7 +254,11 @@
 						class="cursor-default {assembly.selected === index
 							? 'row-selected'
 							: 'row-hover'}"
-						onclick={() => assembly.select(index)}
+						data-row={index}
+						onclick={() => {
+							gridEl?.focus({ preventScroll: true });
+							void assembly.select(index);
+						}}
 					>
 						<td class="text-right opacity-50">{index}</td>
 						{#each page.columns as c (c.name)}

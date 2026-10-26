@@ -34,17 +34,6 @@
 		if (isPackage && children.length > 0) toggle(event);
 		void studio.select(index);
 	}
-
-	function onKey(event: KeyboardEvent) {
-		if (event.key === "Enter" || event.key === " ") {
-			event.preventDefault();
-			void studio.select(index);
-		} else if (event.key === "ArrowRight" && !isOpen && children.length > 0) {
-			expanded.add(index);
-		} else if (event.key === "ArrowLeft" && isOpen) {
-			expanded.delete(index);
-		}
-	}
 </script>
 
 <div
@@ -60,7 +49,13 @@
 	aria-expanded={children.length > 0 ? isOpen : undefined}
 	onclick={onClick}
 	ondblclick={toggle}
-	onkeydown={onKey}
+	onkeydown={(e) => {
+		// Arrows and Enter are handled by the tree; space selects.
+		if (e.key === " ") {
+			e.preventDefault();
+			void studio.select(index);
+		}
+	}}
 	title="{row.class} · {row.path} · {row.size} bytes"
 >
 	{#if children.length > 0}

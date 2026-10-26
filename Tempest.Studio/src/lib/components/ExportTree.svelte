@@ -4,6 +4,7 @@
 	import ClassIcon from "$lib/components/ClassIcon.svelte";
 	import PackageInfoDialog from "$lib/components/PackageInfoDialog.svelte";
 	import TreeNode from "$lib/components/TreeNode.svelte";
+	import { inField, reveal, step } from "$lib/studio/keys";
 	import { studio } from "$lib/studio/state.svelte";
 	import { ancestors, buildTree, classCounts } from "$lib/studio/tree";
 
@@ -38,6 +39,73 @@
 			document.querySelector(`[data-export="${i}"]`)?.scrollIntoView({ block: "nearest" });
 		});
 	});
+
+	/** The rows on screen, top to bottom (expanded nodes only). */
+	function visibleRows(): number[] {
+		if (filtering) return flat;
+		const out: number[] = [];
+		const walk = (i: number) => {
+			out.push(i);
+			if (expanded.has(i)) for (const c of tree.children.get(i) ?? []) walk(c);
+		};
+		for (const r of tree.roots) walk(r);
+		return out;
+	}
+
+	function go(i: number) {
+		void studio.select(i);
+		reveal(`[data-export="${i}"]`);
+	}
+
+	function onKey(event: KeyboardEvent) {
+		if (inField(event) || event.altKey || event.ctrlKey || event.metaKey) return;
+		const sel = studio.selected;
+		switch (event.key) {
+			case "ArrowDown":
+			case "ArrowUp": {
+				const order = visibleRows();
+				const at = sel === null ? -1 : order.indexOf(sel);
+				const next = order[step(at, event.key === "ArrowDown" ? 1 : -1, order.length)];
+				if (next !== undefined) go(next);
+				break;
+			}
+			case "Home":
+			case "End": {
+				const order = visibleRows();
+				const next = order[event.key === "Home" ? 0 : order.length - 1];
+				if (next !== undefined) go(next);
+				break;
+			}
+			case "ArrowRight": {
+				if (sel === null || filtering) return;
+				const children = tree.children.get(sel) ?? [];
+				if (children.length === 0) return;
+				if (expanded.has(sel)) go(children[0]!);
+				else expanded.add(sel);
+				break;
+			}
+			case "ArrowLeft": {
+				if (sel === null || filtering) return;
+				if (expanded.has(sel)) {
+					expanded.delete(sel);
+				} else {
+					const parent = rows[sel]!.outer - 1;
+					if (parent >= 0 && parent < rows.length) go(parent);
+				}
+				break;
+			}
+			case "Enter": {
+				if (sel === null || filtering) return;
+				if (expanded.has(sel)) expanded.delete(sel);
+				else if ((tree.children.get(sel) ?? []).length > 0) expanded.add(sel);
+				break;
+			}
+			default: {
+				return;
+			}
+		}
+		event.preventDefault();
+	}
 
 	const filtering = $derived(filter.trim() !== "" || classFilter !== "");
 	const MAX_FLAT = 3000;
@@ -82,7 +150,8 @@
 			{/each}
 		</select>
 	</div>
-	<div class="min-h-0 flex-1 overflow-auto py-1">
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<div class="min-h-0 flex-1 overflow-auto py-1" role="tree" tabindex="-1" onkeydown={onKey}>
 		{#if filtering}
 			{#each flat as i (i)}
 				{@const row = rows[i]!}
