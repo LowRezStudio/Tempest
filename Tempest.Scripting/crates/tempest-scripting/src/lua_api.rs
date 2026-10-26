@@ -15,8 +15,10 @@
 //! Object properties go through live `UProperty` reflection, so they track
 //! patches; unknown names read as `nil` (logged once) and raise on write.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use mlua::{AnyUserData, Function, IntoLua, Lua, MetaMethod, Table, UserData, UserDataMethods, Value};
 
@@ -1299,7 +1301,7 @@ impl UserData for Object {
         m.add_method("has", |_, this, key: String| {
             Ok(property(this.0, &key).is_some() || function(this.0, &key).is_some())
         });
-        // obj:prop("Name") -> { class, kind, offset, size, ext, ext_name } or nil
+        // obj:prop("Name") -> { class, ptr, kind, offset, size, ext, ext_name, bitmask } or nil
         m.add_method("prop", |lua, this, key: String| {
             let Some(class) = unreal::object_class(this.0) else { return Ok(Value::Nil) };
             let Some(field) = unreal::find_property_object(class, &key) else { return Ok(Value::Nil) };
@@ -1312,6 +1314,9 @@ impl UserData for Object {
                 t.set("size", p.elem_size)?;
                 t.set("ext", p.ext as i64)?;
                 t.set("ext_name", unreal::object_name(p.ext))?;
+                if p.kind == PropKind::Bool {
+                    t.set("bitmask", p.bitmask)?;
+                }
             }
             Ok(Value::Table(t))
         });
@@ -1390,11 +1395,56 @@ impl UserData for Object {
 // memory.*
 // ---------------------------------------------------------------------------
 
+/// How often one call site may report unreadable addresses.
+const BAD_READ_REPORT_EVERY: Duration = Duration::from_secs(10);
+
+/// `file:line` for a `debug.getinfo` source and line. Mod scripts are named
+/// by full path; the folder and file name say enough next to the mod id.
+fn lua_site(source: Option<&str>, line: Option<i64>) -> String {
+    let (Some(source), Some(line)) = (source, line) else { return "?".into() };
+    let file = match source.strip_prefix('@') {
+        Some(path) => {
+            let mut tail: Vec<&str> = path.rsplit(['\\', '/']).take(2).collect();
+            tail.reverse();
+            tail.join("/")
+        }
+        None => source.trim_start_matches('=').to_string(),
+    };
+    format!("{file}:{line}")
+}
+
+/// Logs that a script read an unreadable address (`call` got nil): the mod
+/// and the Lua line, at most once per call site every `BAD_READ_REPORT_EVERY`,
+/// with how many it left out in between. The prelude's wrappers pass the
+/// site: Rust callbacks run on a Lua thread of their own and cannot see it.
+fn report_bad_read(call: &str, addr: i64, site: &str) {
+    // "mod|site" -> (last report, reads left out since)
+    type Sites = HashMap<String, (Option<Instant>, u32)>;
+    static SITES: Mutex<Option<Sites>> = Mutex::new(None);
+    let owner = crate::loader::current_mod();
+    let now = Instant::now();
+    let left_out = {
+        let mut sites = SITES.lock().unwrap();
+        let (last, left_out) = sites.get_or_insert_default().entry(format!("{owner}|{site}")).or_insert((None, 0));
+        if last.is_some_and(|t| now.duration_since(t) < BAD_READ_REPORT_EVERY) {
+            *left_out += 1;
+            return;
+        }
+        *last = Some(now);
+        std::mem::take(left_out)
+    };
+    let owner = if owner.is_empty() { String::new() } else { format!("[{owner}] ") };
+    let more = if left_out > 0 { format!(" ({left_out} more there since the last report)") } else { String::new() };
+    crate::log::line("lua", &format!("{owner}memory.{call}(0x{addr:x}) at {site}: address not readable, returned nil{more}"));
+}
+
 fn memory_table(lua: &Lua) -> mlua::Result<Table> {
     let m = lua.create_table()?;
     m.set("base", lua.create_function(|_, ()| Ok(memory::main_module().map(|m| m.base as i64)))?)?;
     m.set("size", lua.create_function(|_, ()| Ok(memory::main_module().map(|m| m.size as i64)))?)?;
 
+    // Script addresses are unchecked: the readers return nil where a plain read
+    // would fault (the prelude wraps them to log where that happened).
     macro_rules! reader {
         ($name:literal, $ty:ty, $conv:ty) => {
             m.set(
@@ -1403,7 +1453,7 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
                     if addr <= 0 {
                         return Ok(None);
                     }
-                    Ok(unsafe { memory::read::<$ty>(addr as usize) }.map(|v| v as $conv))
+                    Ok(memory::try_read::<$ty>(addr as usize).map(|v| v as $conv))
                 })?,
             )?;
         };
@@ -1453,13 +1503,21 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
     m.set(
         "read_str",
         lua.create_function(|_, (addr, max): (i64, Option<usize>)| {
-            Ok((addr > 0).then(|| memory::read_cstr(addr as usize, max.unwrap_or(256))).flatten())
+            Ok((addr > 0).then(|| memory::try_read_cstr(addr as usize, max.unwrap_or(256))).flatten())
         })?,
     )?;
     m.set(
         "read_wstr",
         lua.create_function(|_, (addr, max): (i64, Option<usize>)| {
-            Ok((addr > 0).then(|| memory::read_wstr(addr as usize, max.unwrap_or(256))).flatten())
+            Ok((addr > 0).then(|| memory::try_read_wstr(addr as usize, max.unwrap_or(256))).flatten())
+        })?,
+    )?;
+    // memory._report_unreadable(call, addr, source, line): the prelude's read wrappers.
+    m.set(
+        "_report_unreadable",
+        lua.create_function(|_, (call, addr, source, line): (String, i64, Option<String>, Option<i64>)| {
+            report_bad_read(&call, addr, &lua_site(source.as_deref(), line));
+            Ok(())
         })?,
     )?;
     m.set(

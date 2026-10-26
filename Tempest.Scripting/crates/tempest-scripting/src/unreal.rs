@@ -1070,13 +1070,21 @@ fn prop_at(field: usize) -> Option<Prop> {
     }
     let offset: i32 = unsafe { memory::read(field + UPROP_OFFSET)? };
     let elem_size: i32 = unsafe { memory::read(field + UPROP_ELEMENT_SIZE)? };
+    // UPROP_EXT holds an object pointer only for these kinds (a byte's Enum
+    // may be null). A bool keeps its BitMask there and the other kinds end
+    // before it; naming either as an object (`ext_name`) would crash.
     // Maps keep the UMapProperty itself so Key (+0x98) and Value (+0xA0)
     // can both be reached later.
-    let ext: usize = if kind == PropKind::Map { field } else { unsafe { memory::read(field + UPROP_EXT)? } };
+    let (ext, bitmask): (usize, u32) = match kind {
+        PropKind::Map => (field, 0),
+        PropKind::Object | PropKind::Struct | PropKind::Array | PropKind::Byte => (unsafe { memory::read(field + UPROP_EXT)? }, 0),
+        PropKind::Bool => (0, unsafe { memory::read(field + UPROP_EXT)? }),
+        _ => (0, 0),
+    };
     Some(Prop {
         offset: offset.max(0) as usize,
         kind,
-        bitmask: ext as u32,
+        bitmask,
         ext,
         elem_size: elem_size.max(0) as usize,
     })

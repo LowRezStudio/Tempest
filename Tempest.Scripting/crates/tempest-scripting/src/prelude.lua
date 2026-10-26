@@ -142,13 +142,45 @@ function tempest.spawn(class, location, rotation, owner, context, opts)
 	return result
 end
 
+-- The memory readers return nil for 0 or an unreadable address. For a non-null
+-- one, log the Lua line that read it (from here: the Rust readers run on a Lua
+-- thread of their own and cannot see the caller).
+local function report_unreadable(call, addr)
+	-- Level 3 is the reader's caller; `return memory.read_*(...)` is a tail call that
+	-- drops that frame, so take the nearest Lua frame with a line.
+	for level = 3, 12 do
+		local at = debug.getinfo(level, "Sl")
+		if not at then break end
+		if at.what ~= "C" and at.currentline >= 0 then
+			return memory._report_unreadable(call, addr, at.source, at.currentline)
+		end
+	end
+	memory._report_unreadable(call, addr)
+end
+-- The unwrapped readers stay in memory._raw: a full reload runs this file again.
+memory._raw = memory._raw or {}
+for _, name in ipairs({ "read_u8", "read_u16", "read_u32", "read_u64", "read_i8", "read_i16", "read_i32",
+	"read_i64", "read_f32", "read_f64", "read_ptr", "read_str", "read_wstr" }) do
+	local read = memory._raw[name] or memory[name]
+	memory._raw[name] = read
+	memory[name] = function(addr, ...)
+		local v = read(addr, ...)
+		if v == nil and addr ~= 0 then report_unreadable(name, addr) end
+		return v
+	end
+end
+
 -- memory.read_c(addr, "uint64_t") / memory.write_c(addr, "float", v): typed
 -- access through the FFI for anything the fixed readers do not cover (exact
 -- 64-bit integers come back as cdata). nil / false when the bytes are not readable.
 local ffi = require("ffi")
 function memory.read_c(addr, ctype)
 	local n = ffi.sizeof(ctype)
-	if not n or not memory.readable(addr, n) then return nil end
+	if not n then return nil end
+	if not memory.readable(addr, n) then
+		if addr ~= 0 then report_unreadable("read_c", addr) end
+		return nil
+	end
 	return ffi.cast(ctype .. "*", addr)[0]
 end
 function memory.write_c(addr, ctype, value)
