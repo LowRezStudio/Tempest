@@ -109,7 +109,6 @@ commented template on first run; `TEMPEST_SCRIPT_CONFIG=<path>` overrides):
 
 ```toml
 [runtime]
-console = true            # console window + Lua REPL
 jit = true                # LuaJIT trace compiler
 # log = "C:/temp/tempest-scripting.log"
 [dev]
@@ -122,6 +121,12 @@ configs = "ChaosGame/Config/mods"   # <configs>/<mod-id>.toml, see tempest.confi
 [ui]
 scale = 1.0
 ```
+
+The console window (log plus Lua REPL) is the Tempest Scripting mod's own
+option, the config the launcher shows for it:
+`<configs>/tempest-scripting.toml` with `console = false` (the default, from
+`mods/scripting/config.toml`; the runtime writes the file on first start).
+Restart the game after changing it.
 
 `<game>/mods/<folder>/scripts/*.lua` (or `.lua` files straight in the
 folder) is a mod; `manifest.toml` is optional, the folder name is the id
@@ -137,7 +142,7 @@ installed mods, the user's `<configs>/<id>.toml`. The editable file (a dev
 mod's own `config.toml`, an installed mod's `<configs>/<id>.toml`) is created
 from the merged values when missing; `tempest.save_config(tbl)` writes it.
 
-Environment (overrides the file): `TEMPEST_SCRIPT_DIR` (single scripts
+Environment (overrides the files): `TEMPEST_SCRIPT_DIR` (single scripts
 folder, replaces mod discovery), `TEMPEST_SCRIPT_LOG` (log path),
 `TEMPEST_SCRIPT_CONSOLE=0` (no console window), `TEMPEST_GAME_DIR` (game
 folder when the DLL is not injected from `<game>/Binaries/Win64` or `Win32`).
@@ -225,9 +230,11 @@ ui.WindowFlags / Cond / Col / StyleVar / Key / TableFlags / ... -- every ImGui e
 ui.C.igXxx(...)                      -- the whole cimgui API through LuaJIT's FFI (types/imgui.d.lua)
 
 memory.base() memory.size()
-memory.read_u8/u16/u32/u64/i8/i16/i32/i64/f32/f64/ptr(addr)
+memory.read_u8/u16/u32/u64/i8/i16/i32/i64/f32/f64/ptr(addr) -- nil for 0 or an unreadable address
 memory.write_u8/u16/u32/u64/i32/i64/f32/f64(addr, v)
-memory.read_str(addr, max) memory.read_wstr(addr, max)
+memory.read_str(addr, max) memory.read_wstr(addr, max)    -- nil when a character is unreadable
+-- An unreadable non-null address (read_c too) logs "[mod] memory.read_u32(0x10) at scripts/main.lua:42:
+-- address not readable, returned nil", at most every 10 s per call site with a count of the ones left out.
 memory.scan("48 8B 05 ? ? ? ?", limit) -- absolute addresses
 
 memory.hook(addr, fn, {args=N}) -> id -- detour any function entry: fn(original, a1..aN)

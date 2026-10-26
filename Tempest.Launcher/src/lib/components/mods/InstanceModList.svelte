@@ -29,6 +29,7 @@
 	import { createRepoModsQuery, createRepoVersionCountsQuery } from "$lib/queries/repo";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import InstalledModRow from "./InstalledModRow.svelte";
+	import InstallQueuePanel from "./InstallQueuePanel.svelte";
 	import type { ModRecord } from "$lib/core/mods";
 	import type { PendingInstall } from "$lib/mods/pendingInstalls.svelte";
 	import type { RepoUpdate } from "$lib/queries/repo";
@@ -194,6 +195,7 @@
 </script>
 
 <div class="@container">
+	<InstallQueuePanel {gamePath} {isRunning} />
 	{#if empty}
 		<div class="flex flex-col items-center px-6 py-14 text-center">
 			<div class="relative mb-6 h-16 w-36" aria-hidden="true">

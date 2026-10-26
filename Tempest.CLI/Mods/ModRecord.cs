@@ -57,6 +57,12 @@ public class ModInstallResult
     public string? TempestRequired { get; set; }
     /// <summary>Repository dependencies installed along with the mod (`mod install &lt;id&gt;`), as "id@version".</summary>
     public List<string>? InstalledDependencies { get; set; }
+    /// <summary>Refused before anything was written: files the install would overwrite or delete are held open by another process (usually the running game). The launcher queues the install and retries once the game has closed.</summary>
+    public bool FilesInUse { get; set; }
+    /// <summary>The files of a <see cref="FilesInUse"/> refusal, relative to the game folder.</summary>
+    public List<string>? LockedFiles { get; set; }
+    /// <summary>`mod install --defer`: every check passed (trust, conflicts, checksums, files in use), but nothing was written. The launcher queues it while the game runs.</summary>
+    public bool Deferred { get; set; }
 }
 
 public class ModListResult

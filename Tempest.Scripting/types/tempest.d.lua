@@ -107,8 +107,10 @@ function Object:is_a(class) end
 ---@param name string
 ---@return boolean
 function Object:has(name) end
+--- `ptr`: the UProperty object. `ext`: the property class / struct / array inner / byte enum (0 for other
+--- kinds), `ext_name` its name. `bitmask`: a bool property's bit within the dword at `offset`.
 ---@param name string
----@return { class: string, kind: string, offset: integer, size: integer, ext: integer, ext_name: string }|nil
+---@return { class: string, ptr: integer, kind: string, offset: integer, size: integer, ext: integer, ext_name: string?, bitmask: integer? }|nil
 function Object:prop(name) end
 ---@param name string
 ---@param ... any
@@ -270,6 +272,8 @@ memory = {}
 function memory.base() end
 ---@return integer|nil
 function memory.size() end
+--- The memory.read_* functions return nil for 0 or an address that is not readable instead of crashing;
+--- an unreadable non-null address also logs the mod and the Lua line (at most every 10 s per call site).
 ---@param addr integer
 ---@return integer|nil
 function memory.read_u8(addr) end

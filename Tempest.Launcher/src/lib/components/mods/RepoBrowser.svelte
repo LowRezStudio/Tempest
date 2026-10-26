@@ -17,6 +17,7 @@
 		kinds,
 		matches,
 	} from "$lib/mods/browse.svelte";
+	import { installQueue } from "$lib/mods/installQueue.svelte";
 	import { kindHint, kindLabel } from "$lib/mods/listing";
 	import { pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { installFromRepo } from "$lib/mods/repoInstall";
@@ -84,6 +85,15 @@
 			pendingInstalls.value
 				.filter((p) => p.gamePath === gamePath && p.modId)
 				.map((p) => [p.modId!, p] as const),
+		),
+	);
+
+	// Mods waiting in the install queue for the game to close.
+	const queuedByMod = $derived(
+		new Map(
+			installQueue.value
+				.filter((q) => q.gamePath === gamePath && q.modId)
+				.map((q) => [q.modId!, q] as const),
 		),
 	);
 
@@ -326,6 +336,7 @@
 							installedVersion={installedById.get(mod.id)?.Version}
 							{patch}
 							pending={pendingByMod.get(mod.id)}
+							queuedVersion={queuedByMod.get(mod.id)?.version}
 							{isRunning}
 							onInstall={install}
 							onUninstall={uninstall}

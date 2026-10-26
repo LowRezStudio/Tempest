@@ -6,7 +6,8 @@
 //! 1. `%TEMP%\tempest-scripting.log` (override: `TEMPEST_SCRIPT_LOG=<path>`),
 //!    started fresh on every run; the previous run is kept as `*.prev.log`
 //! 2. `OutputDebugStringA` (DebugView / WinDbg)
-//! 3. the console allocated at init (skip with `TEMPEST_SCRIPT_CONSOLE=0`)
+//! 3. the console allocated at init when the runtime's `console` option is on
+//!    (never with `TEMPEST_SCRIPT_CONSOLE=0`)
 //!
 //! A panic hook logs Rust panics, and on Windows a vectored exception handler
 //! logs hard faults (access violation, illegal instruction, stack overflow)
@@ -79,7 +80,8 @@ pub fn path() -> Option<String> {
     PATH.get().cloned()
 }
 
-/// Console window + REPL: `[runtime] console` unless `TEMPEST_SCRIPT_CONSOLE=0`.
+/// Console window + REPL: the runtime's `console` option (launcher config,
+/// off by default) unless `TEMPEST_SCRIPT_CONSOLE=0`.
 pub fn console_wanted() -> bool {
     std::env::var("TEMPEST_SCRIPT_CONSOLE").as_deref() != Ok("0") && crate::config::get().console
 }
