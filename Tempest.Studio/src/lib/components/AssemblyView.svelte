@@ -14,13 +14,13 @@
 
 {#if assembly.summary}
 	<div class="flex min-h-0 flex-1">
-		<div class="border-base-300 flex w-64 shrink-0 flex-col border-r">
+		<div class="border-base-300 flex w-52 shrink-0 flex-col border-r xl:w-64">
 			<AssemblyTables />
 		</div>
 		<div class="flex min-w-0 flex-1 flex-col">
 			<AssemblyGrid />
 		</div>
-		<div class="border-base-300 flex w-[26rem] shrink-0 flex-col border-l">
+		<div class="border-base-300 flex w-80 shrink-0 flex-col border-l xl:w-[26rem]">
 			<AssemblyRecord />
 		</div>
 	</div>

@@ -109,11 +109,14 @@ function createWindow(options: WindowStartup = {}): BrowserWindow {
 	const anchor = targetWindow();
 	const position = anchor ? anchor.getPosition() : null;
 
+	// Dev harness: STUDIO_SMOKE_SIZE=WxH opens the window at that size.
+	const size = /^(\d+)x(\d+)$/.exec(process.env.STUDIO_SMOKE_SIZE ?? "");
 	const window = new BrowserWindow({
-		width: 1600,
-		height: 950,
-		minWidth: 1100,
-		minHeight: 700,
+		width: size ? Number(size[1]) : 1600,
+		height: size ? Number(size[2]) : 950,
+		// Small laptops at 125 % scaling have about 1090 × 650 DIP to give.
+		minWidth: 900,
+		minHeight: 560,
 		...(position ? { x: position[0] + 40, y: position[1] + 40 } : {}),
 		title: "Tempest Studio",
 		icon,

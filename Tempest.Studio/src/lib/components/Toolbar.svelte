@@ -4,8 +4,10 @@
 		Archive,
 		Code2,
 		Database,
+		FolderOutput,
 		Plug,
 		RefreshCw,
+		Wrench,
 		FileUp,
 		FolderInput,
 		Music,
@@ -71,6 +73,58 @@
 	}
 
 	const inAssembly = $derived(studio.mode === "assembly");
+	/** The package tools: buttons on wide windows, a menu on narrow ones. */
+	const tools = $derived([
+		{
+			label: "Search",
+			icon: Search,
+			title: "Search every package (Ctrl+K)",
+			disabled: false,
+			run: onsearch,
+		},
+		{
+			label: "Replace",
+			icon: Replace,
+			title: "Find and replace in the open package's values and names (Ctrl+H)",
+			disabled: !studio.pkg,
+			run: () => (replaceOpen = true),
+		},
+		{
+			label: "Batch import",
+			icon: FolderInput,
+			title: "Import a folder of <package>.<object>.<ext> files",
+			disabled: false,
+			run: () => (batchOpen = true),
+		},
+		{
+			label: "Wwise audio",
+			icon: Music,
+			title: "Browse, play, edit and replace the Wwise sounds of the .pck packages",
+			disabled: !studio.workspace,
+			run: () => (wwiseOpen = true),
+		},
+		{
+			label: "Verify",
+			icon: ShieldCheck,
+			title: "Round-trip every export of the open package",
+			disabled: !studio.pkg,
+			run: () => (verifyOpen = true),
+		},
+		{
+			label: "Rewrite",
+			icon: Archive,
+			title: "Write a compressed or uncompressed copy",
+			disabled: !studio.pkg,
+			run: () => (rewriteOpen = true),
+		},
+		{
+			label: "Mod folder",
+			icon: Package,
+			title: "Prepare a mod folder",
+			disabled: false,
+			run: () => (modOpen = true),
+		},
+	]);
 	const canUndo = $derived(
 		inAssembly ? assembly.undoLabels.length > 0 : studio.undoLabels.length > 0,
 	);
@@ -104,21 +158,21 @@
 </script>
 
 <div class="border-base-300 bg-base-200 flex h-11 shrink-0 items-center gap-1 border-b px-2">
-	<Package size={18} class="text-primary mx-1" />
+	<Package size={18} class="text-primary mx-1 max-xl:hidden" />
 	<button
-		class="btn btn-ghost btn-sm font-mono text-xs"
+		class="btn btn-ghost btn-sm max-w-44 font-mono text-xs"
 		onclick={switchWorkspace}
 		title={studio.workspace?.dir}
 	>
-		<FolderOpen size={14} />
-		{basename(studio.workspace?.dir ?? "")}
+		<FolderOpen size={14} class="shrink-0" />
+		<span class="truncate">{basename(studio.workspace?.dir ?? "")}</span>
 	</button>
 	<button
 		class="btn btn-ghost btn-sm"
 		onclick={openExternal}
 		title="Open a package from any folder"
 	>
-		<FileUp size={14} /> Open file
+		<FileUp size={14} /><span class="max-2xl:hidden">Open file</span>
 	</button>
 	<button
 		class="btn btn-ghost btn-sm"
@@ -133,86 +187,75 @@
 			onclick={() => (studio.mode = "packages")}
 			title="Packages: textures, meshes, sounds, scripts…"
 		>
-			<Package size={14} /> Packages
+			<Package size={14} /><span class="max-xl:hidden">Packages</span>
 		</button>
 		<button
 			class="btn join-item btn-sm {inAssembly ? 'btn-active' : 'btn-ghost'}"
 			onclick={() => (studio.mode = "assembly")}
 			title="assembly.dat (items, devices, skins, bots, effects…) and the Lang_*.dat messages"
 		>
-			<Database size={14} /> Assembly
+			<Database size={14} /><span class="max-xl:hidden">Assembly</span>
 		</button>
 	</div>
 	{#if inAssembly}
 		<div class="divider divider-horizontal mx-0"></div>
 		<button
 			class="btn btn-ghost btn-sm"
-			onclick={() => assembly.open()}
+			onclick={() => assembly.open(true)}
 			disabled={assembly.loading}
 			title="Reload assembly.dat and the language files from disk"
 		>
-			<RefreshCw size={14} /> Reload
+			<RefreshCw size={14} /><span class="max-2xl:hidden">Reload</span>
+		</button>
+		<button
+			class="btn btn-ghost btn-sm"
+			onclick={() => (modExportOpen = true)}
+			disabled={!assembly.summary}
+			title="Write a mod folder with the changed .dat files, the private server rows and a Lua/UnrealScript scaffold"
+		>
+			<Package size={14} /><span class="max-2xl:hidden">Export mod…</span>
 		</button>
 		{#if assembly.summary}
-			<span class="font-mono text-[11px] opacity-50" title="Field and function tables">
+			<span
+				class="font-mono text-[11px] opacity-50 max-2xl:hidden"
+				title="Field and function tables"
+			>
 				tokens: {assembly.summary.tokens.split(/[/\\]/).at(-1)}
 			</span>
 		{/if}
 	{:else}
 		<div class="divider divider-horizontal mx-0"></div>
-		<button
-			class="btn btn-ghost btn-sm"
-			onclick={onsearch}
-			title="Search every package (Ctrl+K)"
-		>
-			<Search size={14} /> Search
-		</button>
-		<button
-			class="btn btn-ghost btn-sm"
-			onclick={() => (replaceOpen = true)}
-			disabled={!studio.pkg}
-			title="Find and replace in the open package's values and names (Ctrl+H)"
-		>
-			<Replace size={14} /> Replace
-		</button>
-		<button
-			class="btn btn-ghost btn-sm"
-			onclick={() => (batchOpen = true)}
-			title="Import a folder of <package>.<object>.<ext> files"
-		>
-			<FolderInput size={14} /> Batch import
-		</button>
-		<button
-			class="btn btn-ghost btn-sm"
-			onclick={() => (wwiseOpen = true)}
-			disabled={!studio.workspace}
-			title="Browse, play, edit and replace the Wwise sounds of the .pck packages"
-		>
-			<Music size={14} /> Wwise audio
-		</button>
-		<button
-			class="btn btn-ghost btn-sm"
-			onclick={() => (verifyOpen = true)}
-			disabled={!studio.pkg}
-			title="Round-trip every export of the open package"
-		>
-			<ShieldCheck size={14} /> Verify
-		</button>
-		<button
-			class="btn btn-ghost btn-sm"
-			onclick={() => (rewriteOpen = true)}
-			disabled={!studio.pkg}
-			title="Write a compressed or uncompressed copy"
-		>
-			<Archive size={14} /> Rewrite
-		</button>
-		<button
-			class="btn btn-ghost btn-sm"
-			onclick={() => (modOpen = true)}
-			title="Prepare a mod folder"
-		>
-			<Package size={14} /> Mod folder
-		</button>
+		<!-- Wide: every tool as a button (labels from 2xl up). Narrow: a Tools menu. -->
+		{#each tools as t (t.label)}
+			<button
+				class="btn btn-ghost btn-sm max-xl:hidden"
+				onclick={t.run}
+				disabled={t.disabled}
+				title={t.title}
+			>
+				<t.icon size={14} /><span class="max-2xl:hidden">{t.label}</span>
+			</button>
+		{/each}
+		<div class="dropdown xl:hidden">
+			<div
+				tabindex="0"
+				role="button"
+				class="btn btn-ghost btn-sm"
+				title="Search, replace, batch import, Wwise audio, verify, rewrite, mod folder"
+			>
+				<Wrench size={14} /> Tools
+			</div>
+			<ul class="dropdown-content menu bg-base-200 rounded-box z-20 w-56 p-1 shadow">
+				{#each tools as t (t.label)}
+					<li>
+						<button onclick={t.run} disabled={t.disabled} title={t.title}>
+							<t.icon size={14} />
+							{t.label}
+						</button>
+					</li>
+				{/each}
+			</ul>
+		</div>
 	{/if}
 	<div class="flex-1"></div>
 	<button
@@ -221,7 +264,7 @@
 		disabled={!canUndo}
 		title={canUndo ? `Undo: ${undoLabel} (Ctrl+Z)` : "Nothing to undo (Ctrl+Z)"}
 	>
-		<Undo2 size={14} /> Undo
+		<Undo2 size={14} /><span class="max-2xl:hidden">Undo</span>
 	</button>
 	<button
 		class="btn btn-sm {confirmDiscard ? 'btn-error' : 'btn-ghost'}"
@@ -244,10 +287,13 @@
 			: "Throw away every unsaved change of this package and reload it from disk"}
 	>
 		<RotateCcw size={14} />
-		{confirmDiscard ? "Click again to discard" : "Discard"}
+		{#if confirmDiscard}Click again to discard{:else}<span class="max-2xl:hidden">Discard</span
+			>{/if}
 	</button>
 	{#if dirtyCount > 0}
-		<span class="badge badge-sm badge-warning">{dirtyCount} unsaved</span>
+		<span class="badge badge-sm badge-warning" title="{dirtyCount} unsaved"
+			>{dirtyCount}<span class="max-2xl:hidden">&nbsp;unsaved</span></span
+		>
 	{/if}
 	<button
 		class="btn btn-ghost btn-sm"
@@ -255,7 +301,7 @@
 		disabled={inAssembly ? !assembly.summary : !studio.pkg}
 		title={inAssembly ? "Save the changed .dat files into another folder" : "Save a copy"}
 	>
-		Save as…
+		<FolderOutput size={14} /><span class="max-2xl:hidden">Save as…</span>
 	</button>
 	<button
 		class="btn btn-sm btn-primary"
