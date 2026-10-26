@@ -703,6 +703,24 @@ export interface UpkMethods {
 			items?: unknown[];
 		};
 	};
+	/** The Champion Vendor loot table (475, what the client lists as champions) against the champion bots. */
+	"mcts.vendor": {
+		params: Record<string, never>;
+		result: {
+			table: number;
+			/** Row index of the loot table in DATA_SET_LOOT_TABLES, null when the table is absent. */
+			index: number | null;
+			total: number;
+			active: number;
+			listed: { bot: number | null; item: number; active: boolean }[];
+			missing: { bot: number; item: number; reference: string; name: string }[];
+		};
+	};
+	/** Add a champion's Character Class item to the Champion Vendor. */
+	"mcts.vendorAdd": {
+		params: { bot: number };
+		result: { bot: number; item: number; vendor: McsPath | null; existed: boolean };
+	};
 	/** The GET_PROFILE_CLASSES row and inventory items of a champion, for the private server. */
 	"mcts.serverRows": {
 		params: { bot: number };

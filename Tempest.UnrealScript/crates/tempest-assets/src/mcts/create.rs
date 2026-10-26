@@ -316,9 +316,13 @@ impl Workspace {
         let ref_dev_t = self.t("REF_DEVICE_ID")?;
         let item_id_t = self.t("ITEM_ID")?;
         const CHARACTER_CLASS: u64 = 10149;
+        /// Loot table "Champion Vendor": the client's champion list.
+        const CHAMPION_VENDOR: u64 = 475;
         const WEAPON: u64 = 15041;
         const SKIN: u64 = 10230;
         let mut skin_done = false;
+        let mut class_item: Option<u64> = None;
+        let mut template_class_item: Option<u64> = None;
         for r in item_rows.iter().filter(|r| r.num(ref_bot_t) == Some(template)) {
             let ty = r.num(type_t).unwrap_or(0);
             let keep = ty == CHARACTER_CLASS || ty == WEAPON || (ty == SKIN && !skin_done);
@@ -329,6 +333,9 @@ impl Workspace {
                 skin_done = true;
             }
             let old = r.num(item_id_t).unwrap_or(0);
+            if ty == CHARACTER_CLASS {
+                template_class_item = Some(old);
+            }
             let iname = self.message_text(r.num(self.t("NAME_MSG_ID")?)).unwrap_or_default();
             let created = self.create_item(old, format!("{name} {iname}").trim(), "", "", Some(new_bot), None, ids)?;
             if ty == WEAPON {
@@ -340,9 +347,154 @@ impl Workspace {
                     }
                 }
             }
+            if ty == CHARACTER_CLASS {
+                class_item = created["itemId"].as_u64();
+            }
             items.push(created);
         }
-        Ok(json!({ "botId": new_bot, "messages": msgs, "bot": [["DATA_SET_BOTS", bat]], "devices": devices, "items": items }))
+        // The client builds its champion list (lobby, champion select) from
+        // the "Champion Vendor" loot table, not from the bots: one entry per
+        // Character Class item. Without an entry the champion exists but is
+        // never listed.
+        let vendor = match class_item {
+            Some(item) => self.add_vendor_entry(CHAMPION_VENDOR, template_class_item, item)?,
+            None => None,
+        };
+        Ok(json!({ "botId": new_bot, "messages": msgs, "bot": [["DATA_SET_BOTS", bat]], "devices": devices, "items": items, "vendor": vendor }))
+    }
+
+    /// Add `item` to loot table `table` (`DATA_SET_LOOT_TABLE_ITEMS`), as a
+    /// copy of `like`'s entry when that item is in the table (else of the
+    /// last entry), active, with a fresh LOOT_TABLE_ITEM_ID and the next
+    /// SORT_ORDER. The path of the new entry, or None when the table does
+    /// not exist.
+    fn add_vendor_entry(&mut self, table: u64, like: Option<u64>, item: u64) -> Result<Option<J>> {
+        let Some(ti) = self.find_row("DATA_SET_LOOT_TABLES", "LOOT_TABLE_ID", table)? else { return Ok(None) };
+        let tables_t = self.t("DATA_SET_LOOT_TABLES")?;
+        let entries_t = self.t("DATA_SET_LOOT_TABLE_ITEMS")?;
+        let item_t = self.t("ITEM_ID")?;
+        let entry_t = self.t("LOOT_TABLE_ITEM_ID")?;
+        let sort_t = self.t("SORT_ORDER")?;
+        let active_t = self.t("ACTIVE_FLAG")?;
+        let lt = self.row_of("DATA_SET_LOOT_TABLES", ti)?;
+        let entries = lt.rows(entries_t).cloned().unwrap_or_default();
+        if entries.iter().any(|e| e.num(item_t) == Some(item)) {
+            return Ok(None);
+        }
+        let template = like
+            .and_then(|l| entries.iter().find(|e| e.num(item_t) == Some(l)))
+            .or_else(|| entries.iter().rev().find(|e| e.str(active_t) == Some("y")))
+            .or_else(|| entries.last())
+            .cloned();
+        // An entry may carry its own name/description messages; those are
+        // the template champion's, not the new one's.
+        let own_msgs: Vec<u16> = ["NAME_MSG_ID", "DESC_MSG_ID", "SHORT_DESC_MSG_ID"].iter().filter_map(|f| self.tokens.token(f)).collect();
+        let mut row = match template {
+            Some(r) => {
+                let mut r = self.clone_row(&r, &HashMap::new(), &mut HashMap::new());
+                r.entries.retain(|(t, _)| !own_msgs.contains(t));
+                r
+            }
+            None => {
+                let mut r = Row::default();
+                r.set(self.t("LOOT_TABLE_ID")?, Value::Num(table));
+                r.set(self.t("QUANTITY")?, Value::Num(1));
+                r
+            }
+        };
+        Self::set_num(&mut row, item_t, item);
+        Self::set_num(&mut row, entry_t, self.max_nested("DATA_SET_LOOT_TABLES", "LOOT_TABLE_ITEM_ID")? + 1);
+        Self::set_num(&mut row, sort_t, entries.iter().filter_map(|e| e.num(sort_t)).max().map(|m| m + 1).unwrap_or(0));
+        row.set(active_t, Value::Str("y".into()));
+        let tokens = self.tokens.clone();
+        let at = self.doc_mut("assembly")?.insert_row(&tokens, &[(tables_t, ti)], entries_t, row)?;
+        Ok(Some(json!([["DATA_SET_LOOT_TABLES", ti], ["DATA_SET_LOOT_TABLE_ITEMS", at]])))
+    }
+
+    /// `mcts.vendor`: the Champion Vendor loot table (475) against the
+    /// champion bots: `{table, total, active, listed: [{bot, item, active}],
+    /// missing: [{bot, name, item}]}`. `missing` are the bots of champion
+    /// type with a Character Class item that has no entry (an entry is what
+    /// makes the client list a champion).
+    pub fn vendor(&self) -> Result<J> {
+        const CHAMPION: u64 = 10849;
+        const CHARACTER_CLASS: u64 = 10149;
+        const CHAMPION_VENDOR: u64 = 475;
+        let item_t = self.t("ITEM_ID")?;
+        let ref_bot_t = self.t("REF_BOT_ID")?;
+        let type_t = self.t("ITEM_TYPE_VALUE_ID")?;
+        let active_t = self.t("ACTIVE_FLAG")?;
+        let doc = self.doc("assembly")?;
+        let Some(ti) = self.find_row("DATA_SET_LOOT_TABLES", "LOOT_TABLE_ID", CHAMPION_VENDOR)? else {
+            return Ok(json!({ "table": CHAMPION_VENDOR, "index": null, "total": 0, "active": 0, "listed": [], "missing": [] }));
+        };
+        let entries: Vec<Row> = self.row_of("DATA_SET_LOOT_TABLES", ti)?.rows(self.t("DATA_SET_LOOT_TABLE_ITEMS")?).cloned().unwrap_or_default();
+        // Character Class items per bot (a champion can have several; one in
+        // the vendor is enough).
+        let mut class_of: HashMap<u64, Vec<u64>> = HashMap::new();
+        let mut bot_of: HashMap<u64, u64> = HashMap::new();
+        for r in doc.marshal.root.rows(self.t("DATA_SET_ITEMS")?).map(|v| v.as_slice()).unwrap_or(&[]) {
+            if r.num(type_t) == Some(CHARACTER_CLASS) {
+                if let (Some(b), Some(i)) = (r.num(ref_bot_t), r.num(item_t)) {
+                    class_of.entry(b).or_default().push(i);
+                    bot_of.insert(i, b);
+                }
+            }
+        }
+        let listed: Vec<J> = entries
+            .iter()
+            .map(|e| {
+                let item = e.num(item_t).unwrap_or(0);
+                json!({ "bot": bot_of.get(&item), "item": item, "active": e.str(active_t) == Some("y") })
+            })
+            .collect();
+        let in_vendor: std::collections::HashSet<u64> = entries.iter().filter_map(|e| e.num(item_t)).collect();
+        let bot_id_t = self.t("BOT_ID")?;
+        let bot_type_t = self.t("BOT_TYPE_VALUE_ID")?;
+        let name_t = self.t("REFERENCE_NAME")?;
+        let msg_t = self.t("NAME_MSG_ID")?;
+        let mut missing: Vec<J> = Vec::new();
+        for b in doc.marshal.root.rows(self.t("DATA_SET_BOTS")?).map(|v| v.as_slice()).unwrap_or(&[]) {
+            if b.num(bot_type_t) != Some(CHAMPION) {
+                continue;
+            }
+            let Some(bot) = b.num(bot_id_t) else { continue };
+            let Some(items) = class_of.get(&bot) else { continue };
+            if items.iter().any(|i| in_vendor.contains(i)) {
+                continue;
+            }
+            let name = self.message_text(b.num(msg_t)).unwrap_or_default();
+            missing.push(json!({ "bot": bot, "item": items[0], "reference": b.str(name_t).unwrap_or(""), "name": name }));
+        }
+        missing.sort_by(|a, b| a["reference"].as_str().unwrap_or("").to_lowercase().cmp(&b["reference"].as_str().unwrap_or("").to_lowercase()));
+        Ok(json!({
+            "table": CHAMPION_VENDOR,
+            "index": ti,
+            "total": entries.len(),
+            "active": entries.iter().filter(|e| e.str(active_t) == Some("y")).count(),
+            "listed": listed,
+            "missing": missing,
+        }))
+    }
+
+    /// `mcts.vendorAdd` `{bot}`: add the bot's Character Class item to the
+    /// Champion Vendor; `{bot, item, vendor: path | null, existed}`.
+    pub fn vendor_add(&mut self, p: &J) -> Result<J> {
+        const CHARACTER_CLASS: u64 = 10149;
+        const CHAMPION_VENDOR: u64 = 475;
+        let bot = p.get("bot").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("missing bot".into()))?;
+        let item_t = self.t("ITEM_ID")?;
+        let ref_bot_t = self.t("REF_BOT_ID")?;
+        let type_t = self.t("ITEM_TYPE_VALUE_ID")?;
+        let item = self
+            .doc("assembly")?
+            .marshal
+            .root
+            .rows(self.t("DATA_SET_ITEMS")?)
+            .and_then(|rows| rows.iter().find(|r| r.num(ref_bot_t) == Some(bot) && r.num(type_t) == Some(CHARACTER_CLASS)).and_then(|r| r.num(item_t)))
+            .ok_or_else(|| Error::Format(format!("bot {bot} has no Character Class item (ITEM_TYPE_VALUE_ID 10149 with REF_BOT_ID {bot}); create one first")))?;
+        let vendor = self.add_vendor_entry(CHAMPION_VENDOR, None, item)?;
+        Ok(json!({ "bot": bot, "item": item, "vendor": vendor, "existed": vendor.is_none() }))
     }
 
     fn device_msg(&self, device: u64, field: &str) -> Result<Option<u64>> {

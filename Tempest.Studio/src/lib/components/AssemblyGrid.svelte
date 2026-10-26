@@ -8,7 +8,9 @@
 		ExternalLink,
 		Sparkles,
 		Trash2,
+		Users,
 	} from "@lucide/svelte";
+	import ChampionVendorDialog from "$lib/components/ChampionVendorDialog.svelte";
 	import NewContentDialog from "$lib/components/NewContentDialog.svelte";
 	import { assembly, isMessageColumn, refOf } from "$lib/studio/assembly.svelte";
 	import { inField, reveal } from "$lib/studio/keys";
@@ -20,6 +22,7 @@
 	let editing = $state<string | null>(null);
 	let confirmDelete = $state(false);
 	let newOpen = $state(false);
+	let vendorOpen = $state(false);
 	let newKind = $state<"device" | "card" | "item" | "champion">("device");
 
 	const page = $derived(assembly.page);
@@ -168,6 +171,13 @@
 				title="Create a device, card, item or champion from a template row, with new ids and messages"
 			>
 				<Sparkles size={12} /> New content…
+			</button>
+			<button
+				class="btn btn-ghost btn-xs"
+				onclick={() => (vendorOpen = true)}
+				title="The Champion Vendor loot table decides which champions the client lists; add an existing champion to it"
+			>
+				<Users size={12} /> Champion Vendor…
 			</button>
 		{/if}
 		<button
@@ -322,3 +332,4 @@
 {/if}
 
 <NewContentDialog bind:open={newOpen} bind:kind={newKind} />
+<ChampionVendorDialog bind:open={vendorOpen} />

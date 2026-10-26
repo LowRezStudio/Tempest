@@ -371,6 +371,8 @@ impl Server {
             "mcts.nextIds" => Ok(self.mcts_mut()?.next_ids_json()?),
             "mcts.create" => Ok(self.mcts_mut()?.create(p)?),
             "mcts.serverRows" => Ok(self.mcts()?.server_rows(p)?),
+            "mcts.vendor" => Ok(self.mcts()?.vendor()?),
+            "mcts.vendorAdd" => Ok(self.mcts_mut()?.vendor_add(p)?),
             "mcts.scaffold" => Ok(self.mcts_mut()?.scaffold(p)?),
             "mcts.close" => {
                 self.mcts = None;
