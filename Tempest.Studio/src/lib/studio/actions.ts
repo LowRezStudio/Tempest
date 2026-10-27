@@ -31,7 +31,7 @@ import {
 	Users,
 	ZoomIn,
 } from "@lucide/svelte";
-import { pickDirectory, pickFile, pickSave, PACKAGE_FILTERS } from "$lib/platform/api";
+import { invoke, pickDirectory, pickFile, pickSave, PACKAGE_FILTERS } from "$lib/platform/api";
 import { assembly } from "./assembly.svelte";
 import { CONTAINS_SCRIPT } from "./classes";
 import { commands, type Command } from "./commands.svelte";
@@ -159,7 +159,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "workspace.open",
-			title: "Open workspace file…",
+			title: "Open project…",
+			detail: "A .twrk project or workspace file",
 			group: "Workspace",
 			keys: "Mod+Alt+O",
 			icon: PackageOpen,
@@ -168,8 +169,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "workspace.save",
-			detail: "Every unsaved edit and where you were, in a .twrk, for later",
-			title: "Save workspace file",
+			detail: "Every edit and where you were, in a .twrk, for later",
+			title: "Save as a workspace file",
 			group: "Workspace",
 			keys: "Mod+Alt+S",
 			icon: Save,
@@ -180,7 +181,7 @@ export function registerActions(): () => void {
 		{
 			id: "workspace.saveAs",
 			detail: "Choose the file and whether it is linked (small) or portable",
-			title: "Save workspace as…",
+			title: "Save a copy of the workspace as…",
 			group: "Workspace",
 			icon: FolderOutput,
 			enabled: ws,
@@ -196,14 +197,51 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "file.save",
-			detail: "Writes the open file in place; the Studio keeps its original for mod deltas",
-			title: "Save into the game folder",
+			get title() {
+				return session.project ? "Save project" : "Save into the game folder";
+			},
+			get detail() {
+				return session.project
+					? "Your edits are kept in the project (it also saves by itself); the game folder is not touched"
+					: "Writes the open file in place; the Studio keeps its original for mod deltas";
+			},
 			group: "File",
 			keys: "Mod+S",
 			icon: Save,
 			global: true,
-			enabled: () => (inAssembly() ? assembly.dirtyDocs.length > 0 : studio.isDirty),
-			run: () => (inAssembly() ? assembly.saveAll() : studio.save()),
+			enabled: () =>
+				session.project
+					? true
+					: inAssembly()
+						? assembly.dirtyDocs.length > 0
+						: studio.isDirty,
+			run: () =>
+				session.project
+					? session.saveProject()
+					: inAssembly()
+						? assembly.saveAll()
+						: studio.save(),
+		},
+		{
+			id: "file.saveToGame",
+			title: "Write the edits into the game folder",
+			detail: "Overwrites the game's files with this file's edits (to test without building a mod)",
+			group: "File",
+			icon: FolderInput,
+			enabled: () =>
+				!!session.project &&
+				(inAssembly() ? assembly.dirtyDocs.length > 0 : studio.isDirty),
+			run: async () => {
+				const name = inAssembly()
+					? "the changed .dat files"
+					: (studio.pkg?.name ?? "this file");
+				const ok = await ui.confirm({
+					title: `Write the edits into the game folder?`,
+					message: `${name} in the game folder is overwritten with your edits. Your project and your mod don't need this: build the mod instead to test it cleanly.`,
+					confirm: "Write into the game folder",
+				});
+				if (ok === true) await (inAssembly() ? assembly.saveAll() : studio.save());
+			},
 		},
 		{
 			id: "file.saveAs",
@@ -358,7 +396,7 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "view.mod",
-			title: "Mod cooker (package the changes as a .tempest)",
+			title: "Build the mod",
 			group: "View",
 			keys: "Mod+3",
 			icon: Hammer,
@@ -436,8 +474,18 @@ export function registerActions(): () => void {
 			id: "tools.search",
 			title: "Search every package…",
 			group: "Tools",
-			keys: "Mod+Shift+F",
+			keys: "Mod+F",
 			icon: Search,
+			global: true,
+			enabled: ws,
+			run: () => ui.open("search"),
+		},
+		{
+			id: "tools.search2",
+			title: "Search every package…",
+			group: "Tools",
+			keys: "Mod+Shift+F",
+			hidden: true,
 			global: true,
 			enabled: ws,
 			run: () => ui.open("search"),
@@ -559,6 +607,33 @@ export function registerActions(): () => void {
 			run: () => ui.open("modExport"),
 		},
 	];
+	list.push(
+		{
+			id: "project.new",
+			title: "New mod project…",
+			detail: "Name your mod, pick the game folder and where to keep it",
+			group: "Project",
+			icon: Hammer,
+			global: true,
+			run: () => ui.open("newProject"),
+		},
+		{
+			id: "project.close",
+			title: "Close the project",
+			detail: "Back to plain editing; the project stays saved in its folder",
+			group: "Project",
+			enabled: () => !!session.project,
+			run: () => session.closeProject(),
+		},
+		{
+			id: "project.folder",
+			title: "Show the project folder",
+			group: "Project",
+			icon: FolderOpen,
+			enabled: () => !!session.project,
+			run: () => session.project && invoke("shell:open-path", { path: session.project.dir }),
+		},
+	);
 	list.push({
 		id: "edit.discardAll",
 		title: "Discard all changes…",

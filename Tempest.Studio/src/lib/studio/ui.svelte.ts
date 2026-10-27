@@ -17,7 +17,8 @@ export type DialogId =
 	| "vendor"
 	| "shortcuts"
 	| "saveWorkspace"
-	| "idRange";
+	| "idRange"
+	| "newProject";
 
 export type PaletteMode = "commands" | "open" | "objects";
 

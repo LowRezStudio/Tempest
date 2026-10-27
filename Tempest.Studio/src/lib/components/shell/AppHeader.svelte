@@ -1,9 +1,15 @@
-<!-- The title bar: workspace menu, Back/Forward, the command palette field,
-	and the save actions of whatever is being edited. -->
+<!-- The title bar: the project (or game folder) menu with its save state,
+	Back/Forward, the palette field, and the actions for what is being edited.
+	In a mod project the edits are kept in the project, which saves itself;
+	the main button builds the mod. Without a project, Save writes into the
+	game folder. -->
 <script lang="ts">
 	import {
+		Check,
 		ChevronDown,
+		CircleAlert,
 		FolderOpen,
+		Hammer,
 		Moon,
 		RotateCcw,
 		Save,
@@ -31,21 +37,20 @@
 				)
 			: "",
 	);
-	const unsaved = $derived(studio.dirty.length + assembly.dirtyDocs.length);
+	const edited = $derived(studio.dirty.length + assembly.dirtyDocs.length);
 	const canUndo = $derived(
 		inAssembly ? assembly.undoLabels.length > 0 : studio.undoLabels.length > 0,
 	);
 	const undoLabel = $derived(inAssembly ? assembly.undoLabels[0] : studio.undoLabels[0]);
-	const canSave = $derived(inAssembly ? assembly.dirtyDocs.length > 0 : studio.isDirty);
-	const saveTitle = $derived(
-		inAssembly
-			? `Save the changed .dat files in place (${keyLabel("Mod+S")})`
-			: `Save ${studio.pkg?.name ?? "the package"} in place (${keyLabel("Mod+S")})`,
-	);
+	const fileEdited = $derived(inAssembly ? assembly.dirtyDocs.length > 0 : studio.isDirty);
 
-	/** The unsaved files, each opening its file; then the bulk actions. */
-	const unsavedItems = $derived<MenuItem[]>([
-		{ heading: "Unsaved files" },
+	/** The edited files, each opening its file; then the bulk actions. */
+	const editedItems = $derived<MenuItem[]>([
+		{
+			heading: session.project
+				? "Edited files (kept in your project)"
+				: "Files with unsaved edits",
+		},
 		...studio.dirty.map((p) => ({
 			label: basename(p),
 			detail: p,
@@ -64,36 +69,72 @@
 			},
 		})),
 		"-",
-		"file.saveAll",
-		"workspace.save",
+		...(session.project ? ["view.mod"] : ["file.saveAll", "workspace.save"]),
 		"edit.discardAll",
 	]);
 
-	const workspaceItems = $derived<MenuItem[]>([
+	const recentProjects = $derived(
+		session.recents
+			.filter((r) => r !== session.file?.path)
+			.slice(0, 5)
+			.map((r) => ({
+				label: basename(r).replace(/\.twrk$/i, ""),
+				detail: r,
+				run: () => session.open(r),
+			})),
+	);
+
+	const mainItems = $derived<MenuItem[]>([
+		...(session.project
+			? [
+					{ heading: `Project ${session.project.name}` },
+					"project.folder",
+					"project.close",
+					"-",
+				]
+			: []),
+		"project.new",
+		"workspace.open",
+		...(recentProjects.length > 0 ? [{ heading: "Recent projects" }, ...recentProjects] : []),
+		"-",
+		{ heading: `Game folder: ${gameName}` },
 		"folder.open",
 		"file.open",
 		"window.new",
-		"-",
-		{
-			heading: session.file
-				? `Workspace file: ${basename(session.file.path)}`
-				: "Workspace file",
-		},
-		"workspace.open",
-		"workspace.save",
-		"workspace.saveAs",
-		...(session.recovery ? ["workspace.recover"] : []),
-		...(studio.recents.length > 1 ? ["-" as const, { heading: "Recent game folders" }] : []),
-		...studio.recents
-			.filter((r) => r !== studio.workspace?.dir)
-			.slice(0, 6)
-			.map((r) => ({
-				label:
-					basename(r.replace(/[\\/](ChaosGame[\\/])?CookedPCConsole[\\/]?$/i, "")) || r,
-				detail: r,
-				run: () => studio.openWorkspace(r),
-			})),
 	]);
+
+	const saveItems = $derived<MenuItem[]>(
+		session.project
+			? [
+					"file.save",
+					"file.saveToGame",
+					"file.saveAs",
+					"-",
+					"edit.discard",
+					"edit.discardAll",
+				]
+			: [
+					"file.save",
+					"file.saveAs",
+					"file.saveAll",
+					"-",
+					"workspace.save",
+					"workspace.saveAs",
+					"-",
+					"edit.discard",
+					"edit.discardAll",
+				],
+	);
+
+	const stateText = $derived(
+		session.projectState === "saved"
+			? "Saved"
+			: session.projectState === "saving"
+				? "Saving…"
+				: session.projectState === "pending"
+					? "Edited"
+					: "Not saved",
+	);
 </script>
 
 <header
@@ -101,19 +142,37 @@
 >
 	<img src="/studio-icon.png" alt="" class="mx-1 h-6 w-6" />
 	<Menu
-		items={workspaceItems}
-		buttonClass="btn btn-ghost btn-sm max-w-64 gap-1.5 px-2"
-		title={studio.workspace?.dir}
+		items={mainItems}
+		buttonClass="btn btn-ghost btn-sm max-w-72 gap-1.5 px-2"
+		title={session.project ? session.project.dir : studio.workspace?.dir}
+		width="w-80"
 	>
-		<FolderOpen size={14} class="shrink-0" />
-		<span class="truncate font-semibold">{gameName}</span>
-		{#if session.file}
-			<span class="truncate font-normal opacity-60 max-lg:hidden"
-				>· {basename(session.file.path)}</span
-			>
+		{#if session.project}
+			<Hammer size={14} class="text-primary shrink-0" />
+			<span class="truncate font-semibold">{session.project.name}</span>
+		{:else}
+			<FolderOpen size={14} class="shrink-0" />
+			<span class="truncate font-semibold">{gameName}</span>
 		{/if}
 		<ChevronDown size={12} class="shrink-0 opacity-60" />
 	</Menu>
+	{#if session.project}
+		<span
+			class="flex shrink-0 items-center gap-1 text-xs {session.projectState === 'error'
+				? 'text-error'
+				: 'opacity-60'} max-md:hidden"
+			title={session.projectState === "error"
+				? "The project could not be saved; press Ctrl+S to retry"
+				: "Your edits are kept in the project file, which saves itself"}
+		>
+			{#if session.projectState === "saved"}<Check
+					size={12}
+				/>{:else if session.projectState === "error"}<CircleAlert size={12} />{:else}<span
+					class="loading loading-xs loading-spinner"
+				></span>{/if}
+			{stateText}
+		</span>
+	{/if}
 	<NavButtons />
 	<div class="flex min-w-0 flex-1 justify-center px-2">
 		<button
@@ -137,50 +196,55 @@
 	>
 		<Undo2 size={15} />
 	</button>
-	{#if unsaved > 0}
+	{#if edited > 0}
 		<Menu
-			items={unsavedItems}
-			buttonClass="badge badge-warning cursor-pointer gap-1 font-medium"
-			title="Files with unsaved edits"
+			items={editedItems}
+			buttonClass="badge {session.project
+				? 'badge-ghost'
+				: 'badge-warning'} cursor-pointer gap-1 font-medium"
+			title={session.project
+				? "Files you edited: kept in your project, not written into the game folder"
+				: "Files with unsaved edits"}
 			align="end"
 			width="w-80"
 		>
-			{unsaved}<span class="max-lg:hidden">unsaved</span>
+			{edited}<span class="max-lg:hidden">{session.project ? "edited" : "unsaved"}</span>
 			<ChevronDown size={11} />
 		</Menu>
 	{/if}
 	<button
 		class="btn btn-ghost btn-sm shrink-0"
 		onclick={() => commands.run("edit.discard")}
-		disabled={!canSave}
-		title="Discard the unsaved changes of this file (asks first)"
+		disabled={!fileEdited}
+		title="Throw away your edits to this file (asks first)"
 	>
 		<RotateCcw size={14} /><span class="max-xl:hidden">Discard</span>
 	</button>
 	<div class="join shrink-0">
-		<button
-			class="btn btn-primary btn-sm join-item"
-			onclick={() => commands.run("file.save")}
-			disabled={!canSave}
-			title={saveTitle}
-		>
-			<Save size={14} /><span class="max-md:hidden">Save</span>
-		</button>
+		{#if session.project}
+			<button
+				class="btn btn-primary btn-sm join-item"
+				onclick={() => (studio.mode = "mod")}
+				title="Build the mod from your edits"
+			>
+				<Hammer size={14} /><span class="max-md:hidden">Build mod</span>
+			</button>
+		{:else}
+			<button
+				class="btn btn-primary btn-sm join-item"
+				onclick={() => commands.run("file.save")}
+				disabled={!fileEdited}
+				title="Save into the game folder ({keyLabel('Mod+S')})"
+			>
+				<Save size={14} /><span class="max-md:hidden">Save</span>
+			</button>
+		{/if}
 		<Menu
-			items={[
-				"file.save",
-				"file.saveAs",
-				"file.saveAll",
-				"-",
-				"workspace.save",
-				"workspace.saveAs",
-				"-",
-				"edit.discard",
-				"edit.discardAll",
-			]}
+			items={saveItems}
 			buttonClass="btn btn-primary btn-sm join-item px-1.5"
-			title="More save actions"
+			title="More"
 			align="end"
+			width="w-96"
 		>
 			<ChevronDown size={14} />
 		</Menu>

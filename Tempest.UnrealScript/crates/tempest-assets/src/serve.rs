@@ -2277,7 +2277,8 @@ impl Server {
         }
         match crate::basestore::launcher_backup(target) {
             Some(b) => json!({ "kind": "backup", "path": b.to_string_lossy() }),
-            None => json!({ "kind": "none" }),
+            // The game folder's own file is taken as the original.
+            None => json!({ "kind": "game" }),
         }
     }
 
@@ -2350,7 +2351,7 @@ impl Server {
         let rel = crate::basestore::game_relative(&target);
         let whole = it["mode"].as_str() == Some("whole");
         let sk = key(&source.to_string_lossy());
-        let base_err = || format!("needs-original: {rel}: no original of this game file is known; confirm the game file is unmodified or pick the original");
+        let missing = || format!("{rel}: the game file is not in the game folder, so there is nothing to compare with; ship the whole file instead");
         if it["kind"] == "mcts" {
             let (tokens, edited) = match self.mcts.as_ref().and_then(|ws| ws.docs.iter().find(|(_, d)| key(&d.path.to_string_lossy()) == sk).map(|(_, d)| (ws.tokens.clone(), d.marshal.clone()))) {
                 Some(x) => x,
@@ -2371,7 +2372,12 @@ impl Server {
                         let base = mcts::parse_obscured(&std::fs::read(b)?, &tokens)?;
                         mcts::delta::create(&tokens, mcts::delta::Base::Marshal(&base), &edited, &rel)?
                     }
-                    None => return Err(base_err().into()),
+                    // The game folder's file is the original by default.
+                    None => {
+                        let bytes = std::fs::read(&target).map_err(|_| missing())?;
+                        let base = mcts::parse_obscured(&bytes, &tokens)?;
+                        mcts::delta::create(&tokens, mcts::delta::Base::Marshal(&base), &edited, &rel)?
+                    }
                 },
             };
             let mut changes: Vec<J> = Vec::new();
@@ -2414,7 +2420,14 @@ impl Server {
                     let base = PackageFile::open(&b)?.load()?;
                     crate::delta::create(db, crate::delta::Base::Package(&base), &edited, &rel)?
                 }
-                None => return Err(base_err().into()),
+                // The game folder's file is the original by default.
+                None => {
+                    if !target.exists() {
+                        return Err(missing().into());
+                    }
+                    let base = PackageFile::open(&target)?.load()?;
+                    crate::delta::create(db, crate::delta::Base::Package(&base), &edited, &rel)?
+                }
             },
         };
         let ops = d.ops();
@@ -2509,6 +2522,28 @@ impl Server {
         for x in p.get("extras").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
             let src = PathBuf::from(x["src"].as_str().unwrap_or_default());
             let dest = x["dest"].as_str().unwrap_or_default().trim_start_matches('/').replace('\\', "/");
+            // A folder with no destination is laid out like the mod itself
+            // (a project's `mod-files/`: scripts/, dlls/, files/…).
+            if dest.is_empty() && src.is_dir() {
+                let mut n = 0;
+                for e in std::fs::read_dir(&src)? {
+                    let e = e?;
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if name.starts_with('.') || name.eq_ignore_ascii_case("manifest.toml") || name.eq_ignore_ascii_case(".tempest") {
+                        continue;
+                    }
+                    if e.file_type()?.is_dir() {
+                        copy_dir(&e.path(), &dir.join(&name))?;
+                    } else {
+                        std::fs::copy(e.path(), dir.join(&name))?;
+                    }
+                    n += 1;
+                }
+                if n > 0 {
+                    entries.push(json!({ "rel": src.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(), "entry": ".", "mode": "extra" }));
+                }
+                continue;
+            }
             if dest.is_empty() || dest.contains("..") || dest.starts_with(".tempest") {
                 return Err(format!("bad destination for {}", src.display()).into());
             }

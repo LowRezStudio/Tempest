@@ -17,6 +17,7 @@
 	import AppHeader from "$lib/components/shell/AppHeader.svelte";
 	import CommandPalette from "$lib/components/shell/CommandPalette.svelte";
 	import ConfirmDialog from "$lib/components/shell/ConfirmDialog.svelte";
+	import NewProjectDialog from "$lib/components/shell/NewProjectDialog.svelte";
 	import SaveWorkspaceDialog from "$lib/components/shell/SaveWorkspaceDialog.svelte";
 	import ShortcutsDialog from "$lib/components/shell/ShortcutsDialog.svelte";
 	import TabBar from "$lib/components/shell/TabBar.svelte";
@@ -35,6 +36,13 @@
 	import { ui, type DialogId } from "$lib/studio/ui.svelte";
 
 	onMount(() => registerActions());
+
+	function errorText(error: unknown): string {
+		return error instanceof Error ? error.message : String(error);
+	}
+	function reportError(error: unknown): void {
+		console.error(error);
+	}
 
 	const isOpen = (id: DialogId) => ui.dialog === id;
 	function setOpen(id: DialogId, v: boolean) {
@@ -142,35 +150,76 @@
 			<ActivityBar />
 			<main class="flex min-w-0 flex-1 flex-col">
 				<TabBar />
-				{#if studio.mode === "assembly"}
-					<AssemblyView />
-				{:else if studio.mode === "mod"}
-					<ModView />
-				{:else}
-					<PackagesView />
-				{/if}
+				<svelte:boundary onerror={reportError}>
+					{#if studio.mode === "assembly"}
+						<AssemblyView />
+					{:else if studio.mode === "mod"}
+						<ModView />
+					{:else}
+						<PackagesView />
+					{/if}
+					{#snippet failed(error, reset)}
+						{@render crashed(error, reset)}
+					{/snippet}
+				</svelte:boundary>
 			</main>
 		</div>
 		<StatusBar />
 	</div>
-	<SearchDialog bind:open={() => isOpen("search"), (v) => setOpen("search", v)} />
-	<FindReplaceDialog bind:open={() => isOpen("replace"), (v) => setOpen("replace", v)} />
-	<BatchImportDialog bind:open={() => isOpen("batch"), (v) => setOpen("batch", v)} />
-	<VerifyDialog bind:open={() => isOpen("verify"), (v) => setOpen("verify", v)} />
-	<RewriteDialog bind:open={() => isOpen("rewrite"), (v) => setOpen("rewrite", v)} />
-	<ModDialog bind:open={() => isOpen("modFolder"), (v) => setOpen("modFolder", v)} />
-	<WwiseDialog bind:open={() => isOpen("wwise"), (v) => setOpen("wwise", v)} />
-	<ModExportDialog bind:open={() => isOpen("modExport"), (v) => setOpen("modExport", v)} />
-	<ChampionVendorDialog bind:open={() => isOpen("vendor"), (v) => setOpen("vendor", v)} />
-	<SaveWorkspaceDialog
-		bind:open={() => isOpen("saveWorkspace"), (v) => setOpen("saveWorkspace", v)}
-	/>
-	<NewContentDialog
-		bind:open={() => isOpen("newContent"), (v) => setOpen("newContent", v)}
-		kind={newKind}
-	/>
+	<svelte:boundary onerror={reportError}>
+		<SearchDialog bind:open={() => isOpen("search"), (v) => setOpen("search", v)} />
+		<FindReplaceDialog bind:open={() => isOpen("replace"), (v) => setOpen("replace", v)} />
+		<BatchImportDialog bind:open={() => isOpen("batch"), (v) => setOpen("batch", v)} />
+		<VerifyDialog bind:open={() => isOpen("verify"), (v) => setOpen("verify", v)} />
+		<RewriteDialog bind:open={() => isOpen("rewrite"), (v) => setOpen("rewrite", v)} />
+		<ModDialog bind:open={() => isOpen("modFolder"), (v) => setOpen("modFolder", v)} />
+		<WwiseDialog bind:open={() => isOpen("wwise"), (v) => setOpen("wwise", v)} />
+		<ModExportDialog bind:open={() => isOpen("modExport"), (v) => setOpen("modExport", v)} />
+		<ChampionVendorDialog bind:open={() => isOpen("vendor"), (v) => setOpen("vendor", v)} />
+		<SaveWorkspaceDialog
+			bind:open={() => isOpen("saveWorkspace"), (v) => setOpen("saveWorkspace", v)}
+		/>
+		<NewContentDialog
+			bind:open={() => isOpen("newContent"), (v) => setOpen("newContent", v)}
+			kind={newKind}
+		/>
+		{#snippet failed(error, reset)}
+			{@render dialogCrashed(error, reset)}
+		{/snippet}
+	</svelte:boundary>
 {/if}
+
+<!-- A view that throws while rendering shows this instead of an empty window. -->
+{#snippet crashed(error: unknown, reset: () => void)}
+	<div class="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+		<p class="font-semibold">This view stopped working.</p>
+		<p class="max-w-xl font-mono text-xs [overflow-wrap:anywhere] opacity-70">
+			{errorText(error)}
+		</p>
+		<p class="text-xs opacity-60">Your edits are not lost.</p>
+		<button class="btn btn-primary btn-sm" onclick={reset}>Show it again</button>
+	</div>
+{/snippet}
+
+{#snippet dialogCrashed(error: unknown, reset: () => void)}
+	<div class="modal modal-open" role="alertdialog" aria-label="Dialog error">
+		<div class="modal-box flex flex-col gap-3">
+			<p class="font-semibold">This dialog stopped working.</p>
+			<p class="font-mono text-xs [overflow-wrap:anywhere] opacity-70">{errorText(error)}</p>
+			<div class="flex justify-end">
+				<button
+					class="btn btn-primary btn-sm"
+					onclick={() => {
+						ui.dialog = null;
+						reset();
+					}}>Close</button
+				>
+			</div>
+		</div>
+	</div>
+{/snippet}
 <McpDialog bind:open={() => isOpen("mcp"), (v) => setOpen("mcp", v)} />
 <ShortcutsDialog bind:open={() => isOpen("shortcuts"), (v) => setOpen("shortcuts", v)} />
+<NewProjectDialog bind:open={() => isOpen("newProject"), (v) => setOpen("newProject", v)} />
 <CommandPalette />
 <ConfirmDialog />

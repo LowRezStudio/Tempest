@@ -289,7 +289,11 @@ class Studio {
 		await (this.pkg?.path === path ? this.select(index) : this.openPackage(path, index));
 	}
 
+	/** Bumped on every edit (and discard): a project saves itself when it changes. */
+	edits = $state(0);
+
 	markDirty(path = this.pkg?.path): void {
+		this.edits++;
 		if (path && !this.dirty.includes(path)) this.dirty.push(path);
 		void this.refreshUndo();
 	}
@@ -342,6 +346,7 @@ class Studio {
 		const selected = this.selected;
 		try {
 			await rpc("package.discard", { path });
+			this.edits++;
 			this.dirty = this.dirty.filter((d) => d !== path);
 			this.clearDrafts(path);
 			this.undoLabels = [];
@@ -422,6 +427,7 @@ class Studio {
 
 	/** Throw away the unsaved edits of packages (reloaded from disk). */
 	async discardPaths(paths: string[]): Promise<void> {
+		this.edits++;
 		for (const path of paths) {
 			try {
 				await rpc("package.discard", { path });

@@ -6,6 +6,7 @@
 // DLLs, loose files). Cooked into a signed `.tempest` with tempest-cli, then
 // saved, installed or published like the launcher's cooker does.
 import { invoke, pickDirectory, pickFile, pickFiles, pickSave } from "$lib/platform/api";
+import { assembly } from "./assembly.svelte";
 import { basename, dirname } from "./format";
 import { rpc } from "./rpc";
 import { studio } from "./state.svelte";
@@ -14,6 +15,21 @@ import { ui } from "./ui.svelte";
 import type { CookItem, CookPreview, CookSource } from "../../../electron/src/ipc/contract";
 
 export const MOD_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/;
+/** Semantic versioning: 1.2.3, optionally -beta.1 and +build. */
+export const SEMVER_PATTERN =
+	/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const SCRIPTING = "tempest-scripting>=1.0.0";
+
+/** A mod id from a name: "My Champion!" → "my-champion". */
+export function slugify(name: string): string {
+	return name
+		.toLowerCase()
+		.normalize("NFKD")
+		.replaceAll(/[\u0300-\u036f]/g, "")
+		.replaceAll(/[^a-z0-9._-]+/g, "-")
+		.replaceAll(/^[-._]+|[-._]+$/g, "")
+		.slice(0, 64);
+}
 const PROJECT_KEY = "studio.cooker";
 
 export type Extra = { src: string; dest: string };
@@ -33,6 +49,8 @@ export type Entry = {
 
 export type Meta = {
 	id: string;
+	/** The id was typed by the user; otherwise it follows the name. */
+	idCustom: boolean;
 	name: string;
 	version: string;
 	authors: Author[];
@@ -47,10 +65,19 @@ export type Meta = {
 };
 
 /** What a workspace's mod project keeps (per game folder, and in workspace files). */
-type Project = { meta: Meta; extras: Extra[]; choices: Record<string, Choice> };
+type Project = {
+	meta: Meta;
+	extras: Extra[];
+	choices: Record<string, Choice>;
+	/** The mod project folder (`mod-files/`, `builds/`), when the mod is a project. */
+	projectDir?: string | null;
+	/** The game files a project works on: edited while it was open, or added to it. */
+	targets?: string[];
+};
 
 const emptyMeta = (): Meta => ({
 	id: "",
+	idCustom: false,
 	name: "",
 	version: "1.0.0",
 	authors: [{ name: "", link: "" }],
@@ -103,6 +130,12 @@ class Cooker {
 	log = $state<LogLine[]>([]);
 	/** The last package cooked: where it is and who signed it. */
 	cooked = $state<{ path: string; signer: string | null } | null>(null);
+	/** The mod project folder: builds go to `builds/`, `mod-files/` is shipped as laid out. */
+	projectDir = $state<string | null>(null);
+	/** Files in the project's `mod-files/` (relative paths). */
+	projectFiles = $state<string[]>([]);
+	/** The game files the project works on (other folders' copies and saves stay out of it). */
+	targets = $state<string[]>([]);
 
 	/** The game folder the project belongs to. */
 	private dir: string | null = null;
@@ -110,7 +143,9 @@ class Cooker {
 
 	entries = $derived.by<Entry[]>(() => {
 		const byTarget = new Map<string, CookSource[]>();
+		const mine = new Set(this.targets);
 		for (const s of this.sources) {
+			if (this.projectDir && !mine.has(s.target)) continue;
 			const list = byTarget.get(s.target) ?? [];
 			list.push(s);
 			byTarget.set(s.target, list);
@@ -136,19 +171,68 @@ class Cooker {
 			})
 			.sort((a, b) => a.rel.localeCompare(b.rel));
 	});
-	included = $derived(this.entries.filter((e) => e.choice.on && e.chosen));
-	/** Included delta entries whose original is not known yet: cooking waits for them. */
-	missingOriginals = $derived(
-		this.included.filter((e) => e.choice.mode === "delta" && e.chosen?.base.kind === "none"),
+	/** Files saved in place earlier that hold no changes any more: hidden from the list. */
+	unchanged = $derived(
+		this.entries.filter(
+			(e) =>
+				e.sources.every((s) => s.origin === "saved") &&
+				e.chosen &&
+				(() => {
+					const p = this.previews[e.chosen.id];
+					return (
+						!!p &&
+						!p.error &&
+						(p.changed ?? 0) + (p.added ?? 0) + (p.deleted ?? 0) === 0
+					);
+				})(),
+		),
 	);
-	idValid = $derived(MOD_ID_PATTERN.test(this.meta.id));
-	canCook = $derived(
-		this.idValid &&
-			this.meta.name.trim() !== "" &&
-			(this.included.length > 0 || this.extras.length > 0) &&
-			this.missingOriginals.length === 0 &&
-			!!this.cli?.available,
+	shown = $derived(this.entries.filter((e) => !this.unchanged.includes(e)));
+	included = $derived(
+		this.entries.filter((e) => e.choice.on && e.chosen && !this.unchanged.includes(e)),
 	);
+	/** The id the mod gets: typed, or made from the name. */
+	modId = $derived(this.meta.idCustom ? this.meta.id : slugify(this.meta.name));
+	idValid = $derived(MOD_ID_PATTERN.test(this.modId));
+	versionValid = $derived(SEMVER_PATTERN.test(this.meta.version.trim()));
+	/** Dependencies as shipped: the typed ones, plus the Lua runtime when the mod has scripts. */
+	dependencies = $derived.by(() => {
+		const typed = this.meta.dependencies
+			.split(/[\n,]/)
+			.map((d) => d.trim())
+			.filter(Boolean);
+		const scripts =
+			this.extras.some(
+				(x) => /\.lua$/i.test(x.dest) || /(^|\/)scripts(\/|$)/i.test(x.dest),
+			) || this.projectFiles.some((f) => /\.lua$/i.test(f));
+		if (scripts && !typed.some((d) => d.startsWith("tempest-scripting"))) typed.push(SCRIPTING);
+		return typed;
+	});
+	/** What is missing before the mod can be built, in plain words. */
+	problems = $derived.by(() => {
+		const out: string[] = [];
+		const ID =
+			"The id may only hold lowercase letters, digits, dots, dashes and underscores (2 to 64).";
+		const VERSION = "The version must look like 1.0.0 (major.minor.patch, optionally -beta.1).";
+		if (!this.meta.name.trim()) {
+			out.push("Give the mod a name.");
+		} else if (!this.idValid) {
+			out.push(ID);
+		}
+		if (!this.versionValid) {
+			out.push(VERSION);
+		}
+		if (
+			this.included.length === 0 &&
+			this.extras.length === 0 &&
+			this.projectFiles.length === 0
+		) {
+			out.push("Add at least one file.");
+		}
+		if (this.cli && !this.cli.available) out.push("tempest-cli was not found.");
+		return out;
+	});
+	canCook = $derived(this.problems.length === 0 && !!this.cli?.available);
 
 	constructor() {
 		$effect.root(() => {
@@ -181,8 +265,31 @@ class Cooker {
 			// a damaged project starts over
 		}
 		this.meta = { ...emptyMeta(), ...p.meta };
+		if (this.meta.authors.length === 0) this.meta.authors = [{ name: "", link: "" }];
 		this.extras = p.extras ?? [];
 		this.choices = p.choices ?? {};
+	}
+
+	/** Set up the cooker for a new mod project. */
+	startProject(
+		m: { name: string; id: string; author: string; version: string },
+		dir: string,
+	): void {
+		this.meta = {
+			...emptyMeta(),
+			name: m.name,
+			id: m.id,
+			idCustom: m.id !== slugify(m.name),
+			version: m.version,
+			authors: [{ name: m.author, link: "" }],
+		};
+		this.extras = [];
+		this.choices = {};
+		this.cooked = null;
+		this.log = [];
+		this.projectDir = dir;
+		this.targets = [];
+		void this.refresh();
 	}
 
 	/** Start a new mod: empty details, every file included again, no other files. */
@@ -213,9 +320,22 @@ class Cooker {
 
 	async refresh(): Promise<void> {
 		this.cli = await invoke("cli:status", {});
+		this.projectFiles = this.projectDir
+			? (await invoke("fs:list", { path: `${this.projectDir}/mod-files` })).filter(
+					(f) => f.toLowerCase() !== "readme.txt",
+				)
+			: [];
 		if (!studio.workspace) return;
 		try {
 			this.sources = (await rpc("mod.changes", {})).files;
+			// A project takes in every game file edited while it is open.
+			if (this.projectDir) {
+				const edited = this.sources
+					.filter((x) => x.origin === "unsaved")
+					.map((x) => x.target);
+				const add = edited.filter((t) => !this.targets.includes(t));
+				if (add.length > 0) this.targets = [...this.targets, ...add];
+			}
 		} catch (error) {
 			toasts.error(error, "Could not list the changes");
 		}
@@ -239,10 +359,7 @@ class Cooker {
 
 	/** What each included file would put in the mod. */
 	async preview(): Promise<void> {
-		const items = this.items().filter((i) => {
-			const e = this.included.find((x) => x.chosen?.id === i.id);
-			return !(i.mode === "delta" && e?.chosen?.base.kind === "none");
-		});
+		const items = this.items();
 		if (items.length === 0) return;
 		this.previewing = true;
 		try {
@@ -254,57 +371,6 @@ class Cooker {
 			toasts.error(error, "Could not preview the mod");
 		} finally {
 			this.previewing = false;
-		}
-	}
-
-	/** "The game file is unmodified": take it as the original from now on. */
-	async useGameFile(target: string): Promise<void> {
-		const ok = await ui.confirm({
-			title: "Use the game file as the original?",
-			message: `${basename(target)} in the game folder becomes the original this mod is compared with. Only do this if the file was never modified (by you, another tool or a mod installed as a whole file); otherwise pick a clean copy instead.`,
-			confirm: "It is unmodified",
-			alt: "Pick the original…",
-		});
-		if (ok === "alt") return this.pickOriginal(target);
-		if (ok !== true) return;
-		try {
-			await rpc("delta.record", { path: target });
-			await this.refresh();
-		} catch (error) {
-			toasts.error(error, "Could not record the original");
-		}
-	}
-
-	/** Pick a clean copy of a game file (a backup, another install) as its original. */
-	async pickOriginal(target: string): Promise<void> {
-		const ext = target.toLowerCase().endsWith(".dat") ? "dat" : "upk";
-		const file = await pickFile(
-			`The original ${basename(target)} (from a backup or a clean install)`,
-			[{ name: basename(target), extensions: [ext] }],
-			undefined,
-			"originals",
-		);
-		if (!file) return;
-		if (basename(file).toLowerCase() !== basename(target).toLowerCase()) {
-			const ok = await ui.confirm({
-				title: "Different file name",
-				message: `${basename(file)} does not have the name of ${basename(target)}. Use it as its original anyway?`,
-				confirm: "Use it",
-			});
-			if (ok !== true) return;
-		}
-		try {
-			await studio.run("Recording the original…", () =>
-				rpc("delta.record", { path: target, from: file }),
-			);
-			await this.refresh();
-			toasts.push(
-				"success",
-				`${basename(file)} is the original of ${basename(target)}`,
-				"Original set",
-			);
-		} catch (error) {
-			toasts.error(error, "Could not read the original");
 		}
 	}
 
@@ -344,6 +410,7 @@ class Cooker {
 				if (!target) continue;
 			}
 			await rpc("mod.addCopy", { path: file, target });
+			if (!this.targets.includes(target)) this.targets = [...this.targets, target];
 			this.choices = { ...this.choices, [target]: { on: true, source: null, mode: "delta" } };
 		}
 		await this.refresh();
@@ -354,6 +421,24 @@ class Cooker {
 			);
 			if (s) this.setChoice(s.target, { on: true, source: s.id });
 		}
+	}
+
+	/** Throw away the unsaved edits a game file has in the Studio (asks first). */
+	async discardEdits(e: Entry): Promise<void> {
+		const unsaved = e.sources.find((x) => x.origin === "unsaved");
+		if (!unsaved) return;
+		const ok = await ui.confirm({
+			title: `Discard your edits to ${basename(e.target)}?`,
+			message:
+				"The edits you made in the Studio are lost and the file is reloaded from the game folder. Copies you exported are not touched.",
+			confirm: "Discard edits",
+			danger: true,
+		});
+		if (ok !== true) return;
+		await (unsaved.kind === "mcts" && unsaved.doc
+			? assembly.discard(unsaved.doc)
+			: studio.discardPaths([unsaved.source]));
+		await this.refresh();
 	}
 
 	async forgetCopy(s: CookSource): Promise<void> {
@@ -426,11 +511,24 @@ class Cooker {
 	async cook(out?: string): Promise<string | null> {
 		if (!this.canCook) return null;
 		const m = this.meta;
+		const inProject = this.projectDir
+			? `${this.projectDir}/builds/${this.modId}-${m.version.trim()}.tempest`
+			: null;
+		if (!out && inProject && (await invoke("fs:exists", { path: inProject }))) {
+			const ok = await ui.confirm({
+				title: `Version ${m.version.trim()} was already built`,
+				message:
+					"Replace that build? To keep it, raise the version first (for example 1.0.1).",
+				confirm: "Replace it",
+			});
+			if (ok !== true) return null;
+		}
 		const target =
 			out ??
+			inProject ??
 			(await pickSave(
 				"Save the mod package",
-				`${m.id}-${m.version}.tempest`,
+				`${this.modId}-${m.version.trim()}.tempest`,
 				[{ name: "Tempest mod", extensions: ["tempest"] }],
 				"cooker-out",
 			));
@@ -438,22 +536,24 @@ class Cooker {
 		this.busy = "Cooking…";
 		this.log = [];
 		try {
-			const staging = await invoke("cli:staging", { id: m.id });
+			const staging = await invoke("cli:staging", { id: this.modId });
 			const r = await studio.run("Cooking the mod…", () =>
 				rpc("mod.cook", {
 					dir: staging,
-					id: m.id,
+					id: this.modId,
 					name: m.name.trim(),
 					version: m.version.trim() || "1.0.0",
 					authors: ($state.snapshot(m.authors) as Author[]).filter((a) => a.name.trim()),
 					readme: m.readme,
-					dependencies: m.dependencies
-						.split(/[\n,]/)
-						.map((d) => d.trim())
-						.filter(Boolean),
+					dependencies: this.dependencies,
 					icon: m.icon ?? undefined,
 					items: this.items(),
-					extras: $state.snapshot(this.extras) as Extra[],
+					extras: [
+						...($state.snapshot(this.extras) as Extra[]),
+						...(this.projectDir && this.projectFiles.length > 0
+							? [{ src: `${this.projectDir}/mod-files`, dest: "" }]
+							: []),
+					],
 				}),
 			);
 			for (const e of r.entries) {
@@ -482,7 +582,7 @@ class Cooker {
 			toasts.push(
 				"success",
 				`${basename(target)}${signer ? `, signed by ${signer}` : ", unsigned"}`,
-				"Mod cooked",
+				"Mod built",
 			);
 			return target;
 		} catch (error) {
@@ -585,14 +685,21 @@ class Cooker {
 			meta: $state.snapshot(this.meta) as Meta,
 			extras: $state.snapshot(this.extras) as Extra[],
 			choices: $state.snapshot(this.choices) as Record<string, Choice>,
+			projectDir: this.projectDir,
+			targets: $state.snapshot(this.targets) as string[],
 		};
 	}
 
 	restore(v: unknown): void {
 		const s = v as Partial<Project> | null;
 		if (!s) return;
-		if (s.meta) this.meta = { ...emptyMeta(), ...s.meta };
+		if (s.meta) {
+			this.meta = { ...emptyMeta(), ...s.meta };
+			if (this.meta.authors.length === 0) this.meta.authors = [{ name: "", link: "" }];
+		}
 		if (s.extras) this.extras = s.extras;
+		this.projectDir = s.projectDir ?? null;
+		this.targets = s.targets ?? [];
 		// Workspace files of 0.0.15 kept a list of choices; they start over.
 		if (s.choices && !Array.isArray(s.choices)) this.choices = s.choices;
 	}

@@ -5,6 +5,7 @@
 // a crash-recovery copy per game folder.
 import { invoke, pickFile, pickSave } from "$lib/platform/api";
 import { assembly } from "./assembly.svelte";
+import { cooker } from "./cooker.svelte";
 import { basename, dirname } from "./format";
 import { nav, type Place } from "./nav.svelte";
 import { rpc } from "./rpc";
@@ -28,7 +29,12 @@ type SavedState = {
 	assembly: { doc: string; table: string; path: McsPath; selected: number | null } | null;
 	nav: { history: Place[]; pos: number };
 	ui?: unknown;
+	/** Set when the workspace file is a mod project. */
+	project?: Project | null;
 };
+
+/** A mod project: a folder holding the workspace file, `mod-files/` and `builds/`. */
+export type Project = { dir: string; name: string };
 
 class Session {
 	/** The workspace file this window saves to, once saved or opened. */
@@ -36,6 +42,12 @@ class Session {
 	/** Mode for new workspace files (remembered). */
 	defaultMode = $state<TwrkMode>((localStorage.getItem(MODE_KEY) as TwrkMode | null) ?? "linked");
 	saving = $state(false);
+	/** The mod project open in this window (its workspace file is `file`). */
+	project = $state<Project | null>(null);
+	/** Project mode: whether the project file holds every edit. */
+	projectState = $state<"saved" | "pending" | "saving" | "error">("saved");
+	private projectTimer: ReturnType<typeof setTimeout> | null = null;
+	private lastSeen = "";
 	/** Workspace files saved or opened lately, newest first. */
 	recents = $state<string[]>(JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]") as string[]);
 	/** When the workspace file was last written. */
@@ -57,6 +69,19 @@ class Session {
 		$effect.root(() => {
 			$effect(() => {
 				if (studio.workspace?.dir) void this.checkRecovery();
+			});
+			// A project keeps every edit: it saves itself a moment after each change.
+			$effect(() => {
+				const seen = `${studio.edits}|${assembly.edits}|${JSON.stringify(cooker.snapshot())}`;
+				if (!this.project || !this.file) {
+					this.lastSeen = seen;
+					return;
+				}
+				if (seen === this.lastSeen) return;
+				this.lastSeen = seen;
+				this.projectState = "pending";
+				if (this.projectTimer) clearTimeout(this.projectTimer);
+				this.projectTimer = setTimeout(() => void this.saveProject(), 1500);
 			});
 			$effect(() => {
 				// Everything saved or discarded: the recovery copy would bring back stale changes.
@@ -92,6 +117,7 @@ class Session {
 				: null,
 			nav: { history: $state.snapshot(nav.history) as Place[], pos: nav.pos },
 			ui: this.extraState(),
+			project: this.project ? { ...this.project } : null,
 		};
 	}
 
@@ -100,7 +126,7 @@ class Session {
 	 * @param as Ask for a new file and mode even when one is set.
 	 * @param mode The mode for a new file; the remembered default otherwise.
 	 */
-	async save(as = false, mode?: TwrkMode): Promise<boolean> {
+	async save(as = false, mode?: TwrkMode, quiet = false): Promise<boolean> {
 		if (!studio.workspace) return false;
 		let target = this.file;
 		if (as || !target) {
@@ -119,34 +145,133 @@ class Session {
 		}
 		this.saving = true;
 		try {
-			const r = await studio.run(`Saving ${basename(target.path)}…`, () =>
+			const call = () =>
 				rpc("twrk.save", {
 					out: target.path,
 					mode: target.mode,
 					state: this.collect(),
 					include: studio.extraPackages.map((p) => p.path),
-				}),
-			);
+				});
+			const r = quiet
+				? await call()
+				: await studio.run(`Saving ${basename(target.path)}…`, call);
 			this.file = target;
 			this.savedAt = Date.now();
 			this.remember(target.path);
 			localStorage.setItem(MODE_KEY, target.mode);
 			this.defaultMode = target.mode;
+			if (this.project) this.projectState = "saved";
 			const whole = r.files.filter((f) => f.stored === "full" && !f.unchanged).length;
 			const deltas = r.files.filter((f) => f.stored === "delta").length;
-			toasts.push(
-				r.warnings.length > 0 ? "warning" : "success",
-				`${r.files.length} file${r.files.length === 1 ? "" : "s"} (${deltas} as changes, ${whole} whole), ${fmtSize(r.size)}${r.warnings.length > 0 ? `; ${r.warnings.join("; ")}` : ""}`,
-				`Workspace saved (${r.mode})`,
-			);
+			if (!quiet) {
+				toasts.push(
+					r.warnings.length > 0 ? "warning" : "success",
+					`${r.files.length} file${r.files.length === 1 ? "" : "s"} (${deltas} as changes, ${whole} whole), ${fmtSize(r.size)}${r.warnings.length > 0 ? `; ${r.warnings.join("; ")}` : ""}`,
+					`Workspace saved (${r.mode})`,
+				);
+			}
 			void this.clearRecovery();
 			return true;
 		} catch (error) {
-			toasts.error(error, "Could not save the workspace");
+			if (this.project) this.projectState = "error";
+			toasts.error(
+				error,
+				this.project ? "Could not save the project" : "Could not save the workspace",
+			);
 			return false;
 		} finally {
 			this.saving = false;
 		}
+	}
+
+	/** Save the project file now (also runs by itself after each change). */
+	async saveProject(): Promise<void> {
+		if (!this.project || !this.file) return;
+		// Files edited since the last save join the project's list before it is written.
+		await cooker.refresh();
+		if (this.saving) {
+			this.projectState = "pending";
+			if (this.projectTimer) clearTimeout(this.projectTimer);
+			this.projectTimer = setTimeout(() => void this.saveProject(), 1000);
+			return;
+		}
+		this.projectState = "saving";
+		await this.save(false, undefined, true);
+	}
+
+	/**
+	 * Create a mod project: its folder (workspace file, `mod-files/`, `builds/`), the game
+	 * folder open, the mod's details set; the current edits of that game folder come along.
+	 */
+	async createProject(p: {
+		dir: string;
+		name: string;
+		id: string;
+		author: string;
+		version: string;
+		gameDir: string;
+	}): Promise<boolean> {
+		try {
+			await invoke("fs:mkdir", { path: `${p.dir}/mod-files` });
+			await invoke("fs:mkdir", { path: `${p.dir}/builds` });
+			await invoke("fs:write-text", {
+				path: `${p.dir}/mod-files/README.txt`,
+				text: [
+					"Files in this folder go into the mod as they are laid out here:",
+					"",
+					"  scripts/main.lua        Lua scripts (needs tempest-scripting)",
+					"  dlls/64/your.dll        DLLs injected into the 64-bit client (dlls/32/ for 32-bit)",
+					"  files/ChaosGame/...     any game file, shipped whole",
+					"",
+					"Packages and .dat files you edit in Tempest Studio are not copied here:",
+					"the mod gets only what you changed in them.",
+					"",
+				].join("\n"),
+			});
+			if (studio.workspace?.dir !== p.gameDir && !(await studio.openWorkspace(p.gameDir))) {
+				return false;
+			}
+			cooker.startProject(
+				{ name: p.name, id: p.id, author: p.author, version: p.version },
+				p.dir,
+			);
+			this.project = { dir: p.dir, name: p.name };
+			this.file = { path: `${p.dir}/${p.id}.twrk`, mode: "linked" };
+			this.projectState = "saving";
+			const ok = await this.save(false, undefined, true);
+			if (ok) {
+				toasts.push(
+					"success",
+					`Saved in ${p.dir}. Everything you change is kept there.`,
+					`Project ${p.name} created`,
+				);
+			}
+			return ok;
+		} catch (error) {
+			toasts.error(error, "Could not create the project");
+			return false;
+		}
+	}
+
+	/** Write a pending project save now (before closing it or opening another). */
+	async flush(): Promise<void> {
+		if (!this.projectTimer && this.projectState !== "pending") return;
+		if (this.projectTimer) clearTimeout(this.projectTimer);
+		this.projectTimer = null;
+		if (this.project && this.file) {
+			this.projectState = "saving";
+			await cooker.refresh();
+			await this.save(false, undefined, true);
+		}
+	}
+
+	/** Close the project: the window goes back to plain editing (nothing is lost). */
+	async closeProject(): Promise<void> {
+		await this.flush();
+		this.project = null;
+		this.file = null;
+		cooker.projectDir = null;
+		cooker.projectFiles = [];
 	}
 
 	/** Choose a workspace file and open it. */
@@ -162,6 +287,9 @@ class Session {
 	 * @param recovered A recovery copy: not adopted as this window's workspace file.
 	 */
 	async open(path: string, recovered = false): Promise<boolean> {
+		// The project being left is saved first; nothing of it may land in the next one.
+		await this.flush();
+		this.project = null;
 		try {
 			const info = await rpc("twrk.read", { path });
 			if (
@@ -223,6 +351,8 @@ class Session {
 	}
 
 	private async restore(state: SavedState | null): Promise<void> {
+		this.project = state?.project ?? null;
+		this.projectState = "saved";
 		if (!state || state.version !== 1) return;
 		if (state.idRange !== undefined) studio.idRange = state.idRange;
 		if (state.assembly) {

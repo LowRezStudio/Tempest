@@ -437,8 +437,8 @@ export type CookSource = {
 	doc?: string;
 	/** Unix seconds: when the original was recorded (saved) or the copy written (copy). */
 	when?: number;
-	/** What it is compared with: the Studio's record, the launcher's backup, or nothing known. */
-	base: { kind: "recorded" | "backup" | "none"; path?: string; recorded?: number };
+	/** What it is compared with: the Studio's record, the launcher's backup, or the game folder's file. */
+	base: { kind: "recorded" | "backup" | "game"; path?: string; recorded?: number };
 };
 export type CookItem = {
 	id: string;
@@ -1112,6 +1112,8 @@ export type OsInfo = {
 export interface IpcContract {
 	"app:version": { args: void; result: string };
 	"app:home": { args: void; result: string };
+	/** The user's Documents folder (default home of mod projects). */
+	"app:documents": { args: void; result: string };
 	"app:temp-path": { args: { name: string }; result: string };
 
 	"window:set-title": { args: { title: string }; result: void };
@@ -1151,6 +1153,10 @@ export interface IpcContract {
 	"fs:read-text": { args: { path: string }; result: string };
 	"fs:write-text": { args: { path: string; text: string }; result: void };
 	"fs:remove": { args: { path: string }; result: void };
+	/** Create a folder (and its parents). */
+	"fs:mkdir": { args: { path: string }; result: void };
+	/** Files of a folder, recursively, relative to it (for a project's mod-files/). */
+	"fs:list": { args: { path: string }; result: string[] };
 
 	"shell:show-item": { args: { path: string }; result: void };
 	"shell:open-path": { args: { path: string }; result: string };

@@ -180,7 +180,11 @@ class Assembly {
 	}
 
 	/** Refresh one document's summary (dirty flag, undo labels, row counts). */
+	/** Bumped on every change of a document (edits, saves, discards). */
+	edits = $state(0);
+
 	private async refreshDoc(id: string): Promise<void> {
+		this.edits++;
 		const doc = await rpc("mcts.doc", { doc: id });
 		if (this.summary) {
 			this.summary.docs = this.summary.docs.map((d) => (d.id === id ? doc : d));

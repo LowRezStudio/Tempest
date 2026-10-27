@@ -4,6 +4,7 @@
 	import { Database, FileBox, Plus, X } from "@lucide/svelte";
 	import { assembly } from "$lib/studio/assembly.svelte";
 	import { keyLabel } from "$lib/studio/commands.svelte";
+	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
 	import { tabs, type Tab } from "$lib/studio/tabs.svelte";
 
@@ -40,7 +41,11 @@
 						class="shrink-0 opacity-70"
 					/>{:else}<FileBox size={12} class="shrink-0 opacity-70" />{/if}
 				<span class="flex-1 truncate font-mono">{l.title}</span>
-				{#if unsaved(t)}<span class="text-warning shrink-0" title="Unsaved changes">●</span
+				{#if unsaved(t)}<span
+						class="text-warning shrink-0"
+						title={session.project
+							? "Edited (kept in your project)"
+							: "Unsaved changes"}>●</span
 					>{/if}
 				<button
 					class="btn btn-ghost btn-xs btn-square h-5 min-h-5 w-5 {active
