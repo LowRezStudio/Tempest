@@ -16,6 +16,22 @@ import type {
 const RECENTS_KEY = "studio.recents";
 const SESSION_KEY = "studio.session";
 const THEME_KEY = "studio.theme";
+const ID_RANGE_KEY = "studio.idRange";
+
+/** The id range new content takes its ids from, `null` for "past the largest in use". */
+export type IdRange = { start: number; end: number } | null;
+
+function loadIdRange(): IdRange {
+	try {
+		const raw = localStorage.getItem(ID_RANGE_KEY);
+		const v = raw ? (JSON.parse(raw) as IdRange) : null;
+		return v && Number.isFinite(v.start) && Number.isFinite(v.end) && v.end > v.start
+			? v
+			: null;
+	} catch {
+		return null;
+	}
+}
 
 function loadRecents(): string[] {
 	try {
@@ -39,6 +55,12 @@ class Studio {
 	theme = $state<"mocha" | "latte">(
 		(localStorage.getItem(THEME_KEY) as "mocha" | "latte" | null) ?? "mocha",
 	);
+	/**
+	 * Ids for new content (devices, items, champions, messages…) come from this
+	 * range, so two mods made with the Studio do not allocate the same ids; a
+	 * per-user setting, applied to the backend when the assembly opens.
+	 */
+	idRange = $state<IdRange>(loadIdRange());
 	backendError = $state<string | null>(null);
 	/** What the window shows: the package editor, or the assembly/lang editor. */
 	mode = $state<"packages" | "assembly">("packages");
@@ -76,6 +98,15 @@ class Studio {
 			$effect(() => {
 				document.documentElement.setAttribute("data-theme", this.theme);
 				localStorage.setItem(THEME_KEY, this.theme);
+			});
+			$effect(() => {
+				try {
+					if (this.idRange)
+						localStorage.setItem(ID_RANGE_KEY, JSON.stringify(this.idRange));
+					else localStorage.removeItem(ID_RANGE_KEY);
+				} catch {
+					// Storage unavailable: the range lives for this session only.
+				}
 			});
 			$effect(() => {
 				const title = this.pkg

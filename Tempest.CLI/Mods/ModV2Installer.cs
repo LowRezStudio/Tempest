@@ -44,6 +44,15 @@ public class ModV2Installer : IModInstaller
                 if (IsSameOrBelow(dest, tempestDir, StringComparison.OrdinalIgnoreCase))
                     throw new Exception($"'{relativePath}' would write into the game's .tempest folder.");
             }
+            else if (relativePath.StartsWith("deltas/", StringComparison.OrdinalIgnoreCase))
+            {
+                // `deltas/<game path>.tdelta` is applied to that game file.
+                var target = DeltaResolver.TargetOf(relativePath) ?? throw new Exception($"'{relativePath}' is not a delta (expected deltas/<game path>.tdelta).");
+                var dest = ResolveUnder(resolvedGame, target);
+                if (IsSameOrBelow(dest, tempestDir, StringComparison.OrdinalIgnoreCase))
+                    throw new Exception($"'{relativePath}' would change a file in the game's .tempest folder.");
+                ResolveUnder(targetModDir, relativePath);
+            }
             else
             {
                 ResolveUnder(targetModDir, relativePath);
@@ -112,6 +121,8 @@ public class ModV2Installer : IModInstaller
             candidates.Add(relativePath.StartsWith("files/", StringComparison.OrdinalIgnoreCase)
                 ? ResolveUnder(resolvedGame, relativePath["files/".Length..])
                 : ResolveUnder(targetModDir, relativePath));
+            // The game file a delta rebuilds is rewritten too.
+            if (DeltaResolver.TargetOf(relativePath) is { } target) candidates.Add(ResolveUnder(resolvedGame, target));
         }
         AddFolder(targetModDir);
         foreach (var mod in removedMods)
@@ -260,6 +271,31 @@ public class ModV2Installer : IModInstaller
                     newRelativeFilesList.Add(normalized);
             }
 
+            // Deltas conflict per object or row, not per file: two mods changing different
+            // objects of the same package both install. Keys by game-relative target.
+            var newDeltas = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in archive.Entries)
+            {
+                if (IsDirectoryEntry(entry)) continue;
+                var target = DeltaResolver.TargetOf(NormalizeEntryPath(entry.FullName));
+                if (target == null) continue;
+                List<string> keys;
+                try
+                {
+                    await using var stream = await entry.OpenAsync();
+                    using var buffer = new MemoryStream();
+                    await stream.CopyToAsync(buffer);
+                    buffer.Position = 0;
+                    keys = DeltaResolver.Keys(buffer);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"'{entry.FullName}' is not a readable delta: {ex.Message}");
+                }
+                if (!newDeltas.TryGetValue(target, out var set)) newDeltas[target] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                set.UnionWith(keys);
+            }
+
             // ID collision — same modId already installed (component-level conflict)
             ModInstallResult IdConflict()
             {
@@ -315,6 +351,25 @@ public class ModV2Installer : IModInstaller
                     catch { continue; }
                     if (newRelativeFiles.Contains(relativeExisting))
                         overlapping.Add(relativeExisting);
+                }
+                // Both mods change the same object or row of a delta-managed file.
+                foreach (var deltaFile in existingMod.DeltaFiles)
+                {
+                    string relativeExisting;
+                    try { relativeExisting = Path.GetRelativePath(resolvedGame, deltaFile).Replace('\\', '/'); }
+                    catch { continue; }
+                    if (!newDeltas.TryGetValue(relativeExisting, out var newKeys)) continue;
+                    var existingDelta = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, existingMod.Id), "deltas", relativeExisting + ".tdelta");
+                    if (!File.Exists(existingDelta)) continue;
+                    List<string> existingKeys;
+                    try
+                    {
+                        await using var stream = File.OpenRead(existingDelta);
+                        existingKeys = DeltaResolver.Keys(stream);
+                    }
+                    catch { continue; }
+                    foreach (var key in existingKeys.Where(newKeys.Contains).Order(StringComparer.OrdinalIgnoreCase))
+                        overlapping.Add($"{relativeExisting}: {key}");
                 }
                 if (overlapping.Count > 0)
                 {
@@ -539,6 +594,8 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
             var ownedFiles = installedFiles
                 .Where(f => Path.GetExtension(f).ToLowerInvariant() != ".ini")
                 .ToList();
+            // The game files the deltas apply to; built by the resolver once this record is saved.
+            var deltaFiles = newDeltas.Keys.Select(t => ResolveUnder(resolvedGame, t)).Order(StringComparer.OrdinalIgnoreCase).ToList();
 
             var modRecord = new ModRecord
             {
@@ -552,6 +609,7 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
                 OriginalPath = modFilePath,
                 InstalledFiles = installedFiles,
                 OwnedFiles = ownedFiles,
+                DeltaFiles = deltaFiles,
                 MetadataVersion = 2,
                 Readme = manifest.Readme,
                 Signer = verification.Key == null ? "" : ModSigning.Fingerprint(verification.Key),

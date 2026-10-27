@@ -390,6 +390,12 @@ fn script_class(name: &str) -> Option<&'static str> {
     SCRIPT_CLASSES.iter().copied().find(|c| c.eq_ignore_ascii_case(name))
 }
 
+/// Is `name` one of the classes whose exports are script objects (parsed
+/// without the class database)?
+pub fn is_script_class(name: &str) -> bool {
+    script_class(name).is_some()
+}
+
 /// Per-package serialisation layout (`UProperty` editor data present or not).
 pub fn package_layout(pkg: &Package) -> Layout {
     objects::probe_layout(pkg)

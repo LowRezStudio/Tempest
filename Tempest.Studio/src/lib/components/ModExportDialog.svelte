@@ -5,6 +5,7 @@
 	import { rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
+	import type { UpkMethods } from "../../../electron/src/ipc/contract";
 
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -16,12 +17,7 @@
 	let devices = $state("");
 	let allLanguages = $state(false);
 	let busy = $state(false);
-	let result = $state<{
-		dir: string;
-		files: string[];
-		classes: string[];
-		package: string;
-	} | null>(null);
+	let result = $state<UpkMethods["mcts.scaffold"]["result"] | null>(null);
 
 	$effect(() => {
 		// Prefill from the selected row: a bot, or a device.
@@ -74,9 +70,11 @@
 <Modal bind:open title="Export mod folder" width="max-w-xl">
 	<div class="space-y-3 text-sm">
 		<p class="text-xs opacity-70">
-			Writes a launcher mod: <code>manifest.toml</code>, the assembly and the changed language
-			files under <code>files/ChaosGame/…</code> (installed over the game's), the rows the
-			private server needs for a champion (<code>paserver.json</code>), and a scaffold for the
+			Writes a launcher mod: <code>manifest.toml</code>, the rows this mod adds or changes in
+			the assembly and the language files as deltas under <code>deltas/ChaosGame/…</code>
+			(applied over the game's files by the launcher, so other content mods keep working; a file
+			the Studio has no record of goes whole under <code>files/</code>), the rows the private
+			server needs for a champion (<code>paserver.json</code>), and a scaffold for the
 			devices' behaviour: UnrealScript class stubs with <code>dllimport</code> functions and a Lua
 			script implementing them. The in-memory edits are written as they are; save first if you also
 			want them in the game folder.
@@ -126,6 +124,12 @@
 					>
 				</div>
 				{#each result.files as f (f)}<div class="opacity-70">{f}</div>{/each}
+				{#each result.deltas as d (d.file)}
+					<div class="text-success">
+						{d.file}: {d.ops} changed rows ({(d.bytes / 1024).toFixed(1)} KB instead of the
+						whole file)
+					</div>
+				{/each}
 				{#if result.classes.length > 0}<div class="mt-1">
 						classes: {result.classes.join(", ")} ({result.package})
 					</div>{/if}

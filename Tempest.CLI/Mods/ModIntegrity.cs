@@ -39,10 +39,12 @@ internal static class ModIntegrity
 
             // Only mods no other enabled V2 mod writes the same game file with are checked
             // in the game folder; overlapping installs overwrite each other by design.
+            // A delta-managed file is derived (the owner's copy plus every delta), so a
+            // delta contributor counts as another owner and the game copy is not compared.
             var gameFileOwners = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (var mod in v2Enabled)
             {
-                foreach (var file in mod.OwnedFiles)
+                foreach (var file in mod.OwnedFiles.Concat(mod.DeltaFiles))
                 {
                     var relative = TryGameRelative(resolvedGame, file);
                     if (relative != null) gameFileOwners[relative] = gameFileOwners.TryGetValue(relative, out var n) ? n + 1 : 1;

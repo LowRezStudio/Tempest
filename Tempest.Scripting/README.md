@@ -195,6 +195,8 @@ params.ReturnValue                   -- readable after, settable in a cancelling
 
 s.Field / s.Field = v / s:fields()   -- Struct proxy (any struct but Vector/Rotator); assign a table to set fields
 arr[i], #arr, ipairs(arr), arr:items() -- Array proxy (1-based); arr[i] = v, arr:add(v), arr:remove(i), arr:clear()
+obj.m_mcChampion[i]                  -- static arrays (`var GFxObject m_mcChampion[60]`) are a Fixed proxy:
+                                     -- same indexing/`#`/items(), fixed length, no add/remove
 map[key], map:get(key), map:pairs(), pairs(map), #map, map:set(key, v) -- Map proxy (set = existing keys only)
 obj:map("m_Scenes", "name", "object") -- Map proxy for a `var native Map{}` (no pair types in reflection)
 

@@ -822,6 +822,10 @@ fn to_lua(lua: &Lua, v: &unreal::Value) -> Value {
             .create_userdata(Array { addr: *addr, inner: *inner })
             .map(Value::UserData)
             .unwrap_or(Value::Nil),
+        V::Fixed { addr, inner, dim } => lua
+            .create_userdata(Fixed { addr: *addr, inner: *inner, dim: *dim })
+            .map(Value::UserData)
+            .unwrap_or(Value::Nil),
         V::Map { addr, key, value, elem_size } => lua
             .create_userdata(Map { addr: *addr, key: *key, value: *value, elem_size: *elem_size })
             .map(Value::UserData)
@@ -1056,6 +1060,57 @@ impl UserData for Array {
         });
         // for i, v in arr:items() do ... end  — also what `ipairs(arr)` uses:
         // LuaJIT's ipairs only accepts userdata through `__ipairs`.
+        m.add_method("items", |lua, this, ()| this.iterator(lua));
+        m.add_meta_method(MetaMethod::IPairs, |lua, this, ()| this.iterator(lua));
+    }
+}
+
+/// A static array (`var X m_Items[N]`): `#`, `arr[i]` (1-based), `arr[i] = v`,
+/// `arr:items()` / `ipairs`. Its length is fixed by the class.
+#[derive(Debug, Clone, Copy)]
+pub struct Fixed {
+    addr: usize,
+    inner: Prop,
+    dim: usize,
+}
+
+impl Fixed {
+    fn elem(&self, i: i64) -> Option<usize> {
+        if i < 1 || i as usize > self.dim {
+            return None;
+        }
+        Some(self.addr + (i as usize - 1) * self.inner.elem_size.max(1))
+    }
+
+    fn iterator(self, lua: &Lua) -> mlua::Result<(Function, Value, i64)> {
+        let f = lua.create_function(move |lua, (_, i): (Value, i64)| {
+            let next = i + 1;
+            match self.elem(next) {
+                Some(e) => Ok((int(next), unreal::read_prop(e, &self.inner).map(|v| to_lua(lua, &v)).unwrap_or(Value::Nil))),
+                None => Ok((Value::Nil, Value::Nil)),
+            }
+        })?;
+        Ok((f, Value::Nil, 0))
+    }
+}
+
+impl UserData for Fixed {
+    fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
+        m.add_method("addr", |_, this, ()| Ok(this.addr as i64));
+        m.add_method("kind", |_, this, ()| Ok(format!("{:?}", this.inner.kind)));
+        m.add_meta_method(MetaMethod::Len, |_, this, ()| Ok(this.dim));
+        m.add_meta_method(MetaMethod::ToString, |_, this, ()| Ok(format!("Fixed<{:?}>[{}] @0x{:x}", this.inner.kind, this.dim, this.addr)));
+        m.add_meta_method(MetaMethod::Index, |lua, this, key: Value| {
+            let Value::Integer(i) = key else { return Ok(Value::Nil) };
+            Ok(match this.elem(to_i64(i)) {
+                Some(e) => unreal::read_prop(e, &this.inner).map(|v| to_lua(lua, &v)).unwrap_or(Value::Nil),
+                None => Value::Nil,
+            })
+        });
+        m.add_meta_method(MetaMethod::NewIndex, |_, this, (i, value): (i64, Value)| {
+            let e = this.elem(i).ok_or_else(|| mlua::Error::external(format!("index {i} out of range (1..{})", this.dim)))?;
+            write_field(e, &this.inner, &format!("[{i}]"), &value)
+        });
         m.add_method("items", |lua, this, ()| this.iterator(lua));
         m.add_meta_method(MetaMethod::IPairs, |lua, this, ()| this.iterator(lua));
     }

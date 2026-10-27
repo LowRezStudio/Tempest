@@ -675,6 +675,8 @@ export interface UpkMethods {
 			msg: number;
 			deviceMode: number;
 			skin: number;
+			/** The id range in force (`mcts.idRange`), when one is set. */
+			range: { start: number; end: number } | null;
 		};
 	};
 	/** Clone a device/card (DEVICE_ID), item (ITEM_ID) or champion (BOT_ID) with fresh ids and new messages. */
@@ -738,8 +740,21 @@ export interface UpkMethods {
 			devices?: number[];
 			allLanguages?: boolean;
 			package?: string;
+			/** Ship the .dat files whose base is recorded as row deltas (default true). */
+			deltas?: boolean;
 		};
-		result: { dir: string; files: string[]; classes: string[]; package: string };
+		result: {
+			dir: string;
+			files: string[];
+			deltas: { file: string; ops: number; bytes: number }[];
+			classes: string[];
+			package: string;
+		};
+	};
+	/** New ids come from `start..end` (a per-mod range so two Studio-made mods never collide); both absent clears it. */
+	"mcts.idRange": {
+		params: { start?: number; end?: number };
+		result: UpkMethods["mcts.nextIds"]["result"];
 	};
 	"mcts.close": { params: Record<string, never>; result: boolean };
 	/** Tags, texts, scripts and external images of a Scaleform movie export. */
@@ -815,9 +830,53 @@ export interface UpkMethods {
 			version?: string;
 			author?: string;
 			files: string[];
+			/** Ship files whose base is recorded as deltas (default true); false copies every file whole. */
+			deltas?: boolean;
 		};
-		result: { dir: string; files: string[] };
+		result: { dir: string; files: string[]; entries: ModDirEntry[] };
 	};
+	/** Is the file's base (its state before the first in-place save) recorded, so a delta can be made? */
+	"delta.status": { params: { path: string }; result: DeltaStatus };
+	/** Take the file as it is now as the base (replacing any earlier record). */
+	"delta.record": { params: { path: string }; result: DeltaStatus & { ms: number } };
+	"delta.reset": { params: { path: string }; result: boolean };
+	"delta.info": {
+		params: { file: string };
+		result: { kind: string; target: string; header: Record<string, unknown> };
+	};
+	/** One delta file from a game file and its recorded base. */
+	"delta.create": {
+		params: { path: string; out: string; target?: string };
+		result: {
+			out: string;
+			target: string;
+			kind: string;
+			ops: { op: string; path: string; class: string }[];
+			tables: unknown;
+			bytes: number;
+			warnings: string[];
+		};
+	};
+}
+
+/** How one file went into a mod folder (`mod.dir`). */
+export interface ModDirEntry {
+	/** Game-relative path (`ChaosGame/CookedPCConsole/Foo.upk`). */
+	file: string;
+	/** `delta`: only what changed; `copy`: the whole file (no base recorded); `unchanged`: skipped. */
+	mode: "delta" | "copy" | "unchanged";
+	ops: number;
+	bytes: number;
+	warnings: string[];
+}
+
+export interface DeltaStatus {
+	recorded: boolean;
+	/** Unix seconds when the base was recorded. */
+	when?: number;
+	size?: number;
+	objects?: number;
+	target?: string;
 }
 
 export type UpkMethod = keyof UpkMethods;

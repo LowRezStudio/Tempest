@@ -421,8 +421,25 @@ impl<'a> Editor<'a> {
 
     // ----- copy -------------------------------------------------------------
 
+    /// The table entry of export `i`, recorded for undo before it changes.
+    pub fn export_mut(&mut self, i: usize) -> Result<&mut ObjectExport> {
+        if i >= self.pkg.exports.len() {
+            return Err(Error::Format(format!("no export {i}")));
+        }
+        self.snapshot(i);
+        Ok(&mut self.pkg.exports[i])
+    }
+
+    /// Append an export (recorded for undo by truncation). Returns its index.
+    pub fn add_export(&mut self, export: ObjectExport, data: Vec<u8>) -> usize {
+        let idx = self.pkg.add_export(export, data);
+        let i = idx.export_index().unwrap();
+        self.dirty.insert(i);
+        i
+    }
+
     /// Ensure `src`'s import `idx` (with its outer chain) exists here.
-    fn ensure_import(&mut self, src: &Package, idx: PackageIndex) -> PackageIndex {
+    pub fn ensure_import(&mut self, src: &Package, idx: PackageIndex) -> PackageIndex {
         let Some(ii) = idx.import_index() else { return PackageIndex::NONE };
         let imp = src.imports[ii].clone();
         let outer = if imp.outer.is_import() { self.ensure_import(src, imp.outer) } else { PackageIndex::NONE };

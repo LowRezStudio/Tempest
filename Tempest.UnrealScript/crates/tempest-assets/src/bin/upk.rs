@@ -59,6 +59,12 @@ fn usage() -> ExitCode {
            upk mcts import <in.json> <out.dat>            JSON back to an obscured marshal\n  \
            upk mcts set <file.dat> <table> <key>=<id> <field>=<value>... -o <out.dat>   edit cells of one row\n  \
            upk mcts verify <file.dat|dir>...              parse + rewrite every .dat, byte-identical check\n  \
+           upk delta create <base.upk|digest.json> <edited.upk> -o <out.tdelta> [--target <game path>]\n  \
+                                                      what the edited package changed, as a mod delta\n  \
+           upk delta apply <pkg> <d.tdelta>... -o <out.upk> [--strict]   apply deltas over a package (in order)\n  \
+           upk delta info <d.tdelta>                      target, operations, references\n  \
+           upk delta digest <pkg> -o <digest.json>        canonical hashes of every object (a base for `create`)\n  \
+           upk delta verify <base.upk> <edited.upk>       create + apply, compare with the edited package\n  \
            upk mcts tokens [<game dir>]                   where the field/function tables come from\n  \
            (mcts: --tokens <MctsInterface.dll> uses that binary's tables; default: the game's next to the file, else built-in)\n  \
            upk serve                                  JSON-lines RPC over stdin/stdout (the Studio backend)\n\n\
@@ -88,6 +94,7 @@ fn main() -> ExitCode {
         "obj" if args.len() >= 4 => cmd_obj(&args[1..]),
         "deps" if args.len() >= 3 => cmd_deps(&args[1], &args[2], &args[1..]),
         "mod-dir" if args.len() >= 2 => cmd_mod_dir(&args[1..]),
+        "delta" if args.len() >= 3 => cmd_delta(&args[1..]),
         "swf" if args.len() >= 3 && (args[1] == "verify" || args[1] == "info") => cmd_swf(&args[1..]),
         "swf" if args.len() >= 4 => cmd_media(&args[1..], true),
         "sound" if args.len() >= 4 => cmd_media(&args[1..], false),
@@ -848,6 +855,310 @@ fn cmd_batch_import(args: &[String]) -> Res {
     let ok = entries.iter().filter(|e| e.ok).count();
     println!("{ok} ok, {} failed{}", entries.len() - ok, if dry { " (dry run)" } else { "" });
     Ok(())
+}
+
+/// `upk delta create|apply|info|digest|verify`.
+fn cmd_delta(args: &[String]) -> Res {
+    use tempest_assets::delta::{self, Base, Delta};
+    let get = |flag: &str| args.iter().position(|a| a == flag).and_then(|p| args.get(p + 1)).cloned();
+    let positional: Vec<&String> = {
+        let mut out = Vec::new();
+        let mut skip = false;
+        for a in &args[1..] {
+            if skip {
+                skip = false;
+                continue;
+            }
+            if a == "-o" || a == "--target" || a == "-I" || a == "-j" {
+                skip = true;
+                continue;
+            }
+            if a.starts_with("--") {
+                continue;
+            }
+            out.push(a);
+        }
+        out
+    };
+    let game_path = |file: &str| -> String {
+        get("--target").unwrap_or_else(|| format!("ChaosGame/CookedPCConsole/{}", Path::new(file).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default()))
+    };
+    // The class database: `-I`, else the first of the given packages' folders
+    // that holds script packages (an edited copy often sits outside the game).
+    let db_dir = |files: &[&str]| -> PathBuf {
+        if let Some(i) = args.iter().position(|a| a == "-I") {
+            if let Some(d) = args.get(i + 1) {
+                return PathBuf::from(d);
+            }
+        }
+        let dirs: Vec<PathBuf> = files.iter().map(|f| Path::new(f).parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))).collect();
+        // A cooked folder has Core; a folder with a stray script package only comes second.
+        if let Some(d) = dirs.iter().find(|d| d.join("Core.upk").is_file()) {
+            return d.clone();
+        }
+        if let Some(d) = dirs.iter().find(|d| ClassDb::script_packages_in(d).map(|v| !v.is_empty()).unwrap_or(false)) {
+            return d.clone();
+        }
+        script_dir(args, files.first().copied().unwrap_or("."))
+    };
+    // Marshal files (`assembly.dat`, `Lang_*.dat`) take the row-delta path.
+    let is_dat = |p: &str| p.to_ascii_lowercase().ends_with(".dat");
+    let subject = match args[0].as_str() {
+        "create" | "verify" => positional.get(1).map(|s| s.as_str()),
+        "apply" | "digest" => positional.first().map(|s| s.as_str()),
+        _ => None,
+    };
+    if subject.is_some_and(is_dat) {
+        return cmd_delta_mcts(args, &positional, &get, &game_path);
+    }
+    match args[0].as_str() {
+        "info" => {
+            let d = Delta::read(positional.first().ok_or("missing delta file")?)?;
+            println!("kind: {}\ntarget: {}\npackage: {}", d.kind(), d.target(), d.header["package"].as_str().unwrap_or(""));
+            let ops = d.ops();
+            println!("{} operations, {} references, {} bytes of payload", ops.len(), d.header["refs"].as_array().map(|a| a.len()).unwrap_or(0), d.image.len());
+            for op in ops {
+                println!("  {:6} {} ({}){}", op.op, op.path, op.class, op.base.as_deref().map(|b| format!("  base {b}")).unwrap_or_default());
+            }
+            Ok(())
+        }
+        "digest" => {
+            let pkg_path = positional.first().ok_or("missing package")?;
+            let out = get("-o").ok_or("missing -o <digest.json>")?;
+            let db = load_db(&db_dir(&[pkg_path]))?;
+            let pkg = PackageFile::open(pkg_path)?.load()?;
+            let t = std::time::Instant::now();
+            let d = delta::digest(&db, &pkg);
+            std::fs::write(&out, serde_json::to_vec(&d)?)?;
+            eprintln!("{} objects digested in {:.2}s -> {out}", d["exports"].as_object().map(|m| m.len()).unwrap_or(0), t.elapsed().as_secs_f32());
+            Ok(())
+        }
+        "create" => {
+            let base_path = positional.first().ok_or("missing base")?;
+            let edited_path = positional.get(1).ok_or("missing edited package")?;
+            let out = get("-o").ok_or("missing -o <out.tdelta>")?;
+            let db = load_db(&db_dir(&[edited_path, base_path]))?;
+            let edited = PackageFile::open(edited_path)?.load()?;
+            let t = std::time::Instant::now();
+            let (d, warnings) = if base_path.to_ascii_lowercase().ends_with(".json") {
+                let digest: serde_json::Value = serde_json::from_slice(&std::fs::read(base_path)?)?;
+                delta::create(&db, Base::Digest(&digest), &edited, &game_path(edited_path))?
+            } else {
+                let base = PackageFile::open(base_path)?.load()?;
+                delta::create(&db, Base::Package(&base), &edited, &game_path(edited_path))?
+            };
+            for w in &warnings {
+                eprintln!("warning: {w}");
+            }
+            d.write(&out)?;
+            let ops = d.ops();
+            let (adds, sets, dels) = ops.iter().fold((0, 0, 0), |(a, s, d), o| match o.op.as_str() { "add" => (a + 1, s, d), "set" => (a, s + 1, d), _ => (a, s, d + 1) });
+            eprintln!("{adds} added, {sets} changed, {dels} deleted objects; {} bytes in {:.2}s -> {out}", d.to_bytes().len(), t.elapsed().as_secs_f32());
+            Ok(())
+        }
+        "apply" => {
+            let target = positional.first().ok_or("missing target package")?;
+            let deltas: Vec<Delta> = positional[1..].iter().map(Delta::read).collect::<Result<_, _>>()?;
+            if deltas.is_empty() {
+                return Err("no delta files given".into());
+            }
+            let out = get("-o").ok_or("missing -o <out.upk>")?;
+            let strict = args.iter().any(|a| a == "--strict");
+            let dir = db_dir(&[target]);
+            let t = std::time::Instant::now();
+            let report = apply_deltas(&dir, target, &deltas, &out)?;
+            for w in &report.warnings {
+                eprintln!("warning: {w}");
+            }
+            for d in &report.drift {
+                eprintln!("drift: {d} was changed since the delta was made; the delta's version won");
+            }
+            eprintln!("{} added, {} replaced, {} deleted objects in {:.2}s -> {out}", report.added, report.replaced, report.deleted, t.elapsed().as_secs_f32());
+            if strict && !report.drift.is_empty() {
+                return Err(format!("{} objects drifted (--strict)", report.drift.len()).into());
+            }
+            Ok(())
+        }
+        "verify" => {
+            let base_path = positional.first().ok_or("missing base")?;
+            let edited_path = positional.get(1).ok_or("missing edited package")?;
+            let dir = db_dir(&[edited_path, base_path]);
+            let db = load_db(&dir)?;
+            let base = PackageFile::open(base_path)?.load()?;
+            let edited = PackageFile::open(edited_path)?.load()?;
+            let t = std::time::Instant::now();
+            let (d, warnings) = delta::create(&db, Base::Package(&base), &edited, &game_path(edited_path))?;
+            for w in &warnings {
+                eprintln!("warning: {w}");
+            }
+            let bytes = d.to_bytes();
+            let d = Delta::from_bytes(&bytes)?;
+            eprintln!("delta: {} operations, {} bytes ({:.2}s)", d.ops().len(), bytes.len(), t.elapsed().as_secs_f32());
+            let tmp = std::env::temp_dir().join(format!("tdelta-verify-{}.upk", std::process::id()));
+            let t = std::time::Instant::now();
+            let report = apply_deltas(&dir, base_path, &[d], tmp.to_str().unwrap_or_default())?;
+            for w in &report.warnings {
+                eprintln!("warning: {w}");
+            }
+            eprintln!("applied: {} added, {} replaced, {} deleted ({:.2}s)", report.added, report.replaced, report.deleted, t.elapsed().as_secs_f32());
+            let result = PackageFile::open(&tmp)?.load()?;
+            let _ = std::fs::remove_file(&tmp);
+            let diffs = delta::compare(&db, &edited, &result);
+            if diffs.is_empty() {
+                eprintln!("OK: the result matches the edited package ({} objects)", result.exports.len());
+                Ok(())
+            } else {
+                for d in diffs.iter().take(50) {
+                    eprintln!("  {d}");
+                }
+                Err(format!("{} objects differ", diffs.len()).into())
+            }
+        }
+        _ => Err("usage: upk delta create|apply|info|digest|verify".into()),
+    }
+}
+
+/// `upk delta …` for marshal files: rows keyed by the table's id column.
+fn cmd_delta_mcts(args: &[String], positional: &[&String], get: &dyn Fn(&str) -> Option<String>, game_path: &dyn Fn(&str) -> String) -> Res {
+    use tempest_assets::delta::Delta;
+    use tempest_assets::mcts::delta::{self as mdelta, Base};
+    use tempest_assets::mcts::{parse_obscured, write_obscured, Tokens};
+    let tokens_for = |file: &str| Tokens::for_dir(Path::new(file).parent().unwrap_or(Path::new(".")));
+    let load = |file: &str, tokens: &Tokens| -> Res2<tempest_assets::mcts::Marshal> { Ok(parse_obscured(&std::fs::read(file)?, tokens)?) };
+    let counts = |d: &Delta| -> (usize, usize, usize) {
+        let mut c = (0, 0, 0);
+        for t in d.header["tables"].as_array().cloned().unwrap_or_default() {
+            for op in t["ops"].as_array().cloned().unwrap_or_default() {
+                match op["op"].as_str().unwrap_or("") {
+                    "add" => c.0 += 1,
+                    "set" => c.1 += 1,
+                    _ => c.2 += 1,
+                }
+            }
+        }
+        c
+    };
+    match args[0].as_str() {
+        "digest" => {
+            let file = positional.first().ok_or("missing file")?;
+            let out = get("-o").ok_or("missing -o <digest.json>")?;
+            let tokens = tokens_for(file);
+            let m = load(file, &tokens)?;
+            std::fs::write(&out, serde_json::to_vec(&mdelta::digest(&tokens, &m))?)?;
+            eprintln!("digest -> {out}");
+            Ok(())
+        }
+        "create" => {
+            let base_path = positional.first().ok_or("missing base")?;
+            let edited_path = positional.get(1).ok_or("missing edited file")?;
+            let out = get("-o").ok_or("missing -o <out.tdelta>")?;
+            let tokens = tokens_for(edited_path);
+            let edited = load(edited_path, &tokens)?;
+            let d = if base_path.to_ascii_lowercase().ends_with(".json") {
+                let digest: serde_json::Value = serde_json::from_slice(&std::fs::read(base_path)?)?;
+                mdelta::create(&tokens, Base::Digest(&digest), &edited, &game_path(edited_path))?
+            } else {
+                let base = load(base_path, &tokens)?;
+                mdelta::create(&tokens, Base::Marshal(&base), &edited, &game_path(edited_path))?
+            };
+            d.write(&out)?;
+            let (a, s, del) = counts(&d);
+            eprintln!("{a} added, {s} changed, {del} deleted rows, {} header fields; {} bytes -> {out}", d.header["header"].as_object().map(|m| m.len()).unwrap_or(0), d.to_bytes().len());
+            Ok(())
+        }
+        "apply" => {
+            let target = positional.first().ok_or("missing target file")?;
+            let out = get("-o").ok_or("missing -o <out.dat>")?;
+            let tokens = tokens_for(target);
+            let mut m = load(target, &tokens)?;
+            for p in &positional[1..] {
+                let d = Delta::read(p)?;
+                let r = mdelta::apply(&tokens, &mut m, &d)?;
+                for w in &r.warnings {
+                    eprintln!("warning: {w}");
+                }
+                for x in &r.drift {
+                    eprintln!("drift: {x} was changed since the delta was made; the delta's version won");
+                }
+                eprintln!("{p}: {} added, {} replaced, {} deleted rows, {} header fields", r.added, r.replaced, r.deleted, r.header);
+            }
+            std::fs::write(&out, write_obscured(&m, &tokens))?;
+            eprintln!("-> {out}");
+            Ok(())
+        }
+        "verify" => {
+            let base_path = positional.first().ok_or("missing base")?;
+            let edited_path = positional.get(1).ok_or("missing edited file")?;
+            let tokens = tokens_for(edited_path);
+            let mut base = load(base_path, &tokens)?;
+            let edited = load(edited_path, &tokens)?;
+            let d = mdelta::create(&tokens, Base::Marshal(&base), &edited, &game_path(edited_path))?;
+            let d = Delta::from_bytes(&d.to_bytes())?;
+            let (a, s, del) = counts(&d);
+            eprintln!("delta: {a} added, {s} changed, {del} deleted rows, {} bytes", d.to_bytes().len());
+            let r = mdelta::apply(&tokens, &mut base, &d)?;
+            eprintln!("applied: {} added, {} replaced, {} deleted", r.added, r.replaced, r.deleted);
+            let diffs = mdelta::compare(&tokens, &edited, &base);
+            if diffs.is_empty() {
+                let same = write_obscured(&base, &tokens) == std::fs::read(edited_path)?;
+                eprintln!("OK: the result matches the edited file{}", if same { " byte for byte" } else { " (rows equal, bytes differ)" });
+                Ok(())
+            } else {
+                for x in diffs.iter().take(50) {
+                    eprintln!("  {x}");
+                }
+                Err(format!("{} rows differ", diffs.len()).into())
+            }
+        }
+        _ => Err("usage: upk delta create|apply|digest|verify <file.dat> …".into()),
+    }
+}
+
+/// Apply deltas to a package file in order and write the result. A delta
+/// that adds classes is applied in two passes, with the class database
+/// reloaded in between so the new classes' objects decode.
+fn apply_deltas(script_dir: &Path, target: &str, deltas: &[tempest_assets::delta::Delta], out: &str) -> Res2<tempest_assets::delta::Applied> {
+    use tempest_assets::delta::{apply, Applied, Phase};
+    use tempest_assets::edit::Editor;
+    let mut total = Applied::default();
+    let db: &'static ClassDb = Box::leak(Box::new(load_db(script_dir)?));
+    let mut ed = Editor::open(db, target)?;
+    let name = ed.name.clone();
+    let mut current_db = db;
+    let target_abs = std::fs::canonicalize(target).unwrap_or_else(|_| PathBuf::from(target));
+    for d in deltas {
+        let new_classes: Vec<String> = d.added_classes().into_iter().filter(|c| current_db.class(c).is_none()).collect();
+        let merge = |total: &mut Applied, r: Applied| {
+            total.added += r.added;
+            total.replaced += r.replaced;
+            total.deleted += r.deleted;
+            total.drift.extend(r.drift);
+            total.warnings.extend(r.warnings);
+        };
+        if new_classes.is_empty() {
+            merge(&mut total, apply(current_db, &mut ed, d, Phase::All)?);
+            continue;
+        }
+        eprintln!("delta adds classes {}: applying script objects first", new_classes.join(", "));
+        merge(&mut total, apply(current_db, &mut ed, d, Phase::Script)?);
+        // Reload the class database with this package as it is now.
+        let tmp = std::env::temp_dir().join(format!("tdelta-classes-{}-{name}.upk", std::process::id()));
+        ed.save(&tmp)?;
+        let files: Vec<PathBuf> = ClassDb::script_packages_in(script_dir)?
+            .into_iter()
+            .map(|p| if std::fs::canonicalize(&p).map(|c| c == target_abs).unwrap_or(false) { tmp.clone() } else { p })
+            .collect();
+        let files = if files.contains(&tmp) { files } else { files.into_iter().chain(std::iter::once(tmp.clone())).collect() };
+        let reloaded: &'static ClassDb = Box::leak(Box::new(ClassDb::load_files(&files)?));
+        let _ = std::fs::remove_file(&tmp);
+        ed.flush();
+        let pkg = std::mem::take(&mut ed.pkg);
+        current_db = reloaded;
+        ed = Editor::from_package(current_db, name.clone(), pkg);
+        merge(&mut total, apply(current_db, &mut ed, d, Phase::Objects)?);
+    }
+    ed.save(out)?;
+    Ok(total)
 }
 
 fn cmd_mod_dir(args: &[String]) -> Res {

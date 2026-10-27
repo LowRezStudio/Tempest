@@ -4,6 +4,7 @@
 // turn `*_ID` columns into links.
 import { invoke } from "$lib/platform/api";
 import { rpc } from "./rpc";
+import { studio } from "./state.svelte";
 import { toasts } from "./toast.svelte";
 import type {
 	McsCell,
@@ -121,11 +122,22 @@ class Assembly {
 	canBack = $derived(this.historyPos > 0);
 	canForward = $derived(this.historyPos < this.history.length - 1);
 
+	/** Tell the backend which id range new content takes its ids from (the user's setting). */
+	async applyIdRange(): Promise<void> {
+		const r = studio.idRange;
+		try {
+			await rpc("mcts.idRange", r ? { start: r.start, end: r.end } : {});
+		} catch (error) {
+			toasts.error(error, "Could not apply the id range");
+		}
+	}
+
 	/** Open (or reload) the assembly and languages of a cooked folder. */
 	async open(reload = false): Promise<boolean> {
 		this.loading = true;
 		try {
 			this.summary = await rpc("mcts.open", { reload });
+			await this.applyIdRange();
 			this.page = null;
 			this.selected = null;
 			this.fields = null;

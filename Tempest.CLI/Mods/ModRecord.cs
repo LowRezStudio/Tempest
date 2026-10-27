@@ -12,6 +12,8 @@ public class ModRecord
     public string OriginalPath { get; set; } = string.Empty;
     public List<string> InstalledFiles { get; set; } = [];
     public List<string> OwnedFiles { get; set; } = [];
+    /// <summary>Game files this mod changes through deltas (<c>deltas/…tdelta</c> entries), rebuilt by <see cref="DeltaResolver"/>; absolute paths like <see cref="OwnedFiles"/>.</summary>
+    public List<string> DeltaFiles { get; set; } = [];
     public int MetadataVersion { get; set; } = 1;
     public string Readme { get; set; } = string.Empty;
     public string ReadmeContent { get; set; } = string.Empty;

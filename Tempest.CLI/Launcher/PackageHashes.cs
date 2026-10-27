@@ -27,7 +27,7 @@ internal static class PackageHashes
         if (!File.Exists(ModCommands.GetMetadataPath(gamePath))) return [];
         var modFiles = ModCommands.LoadMetadata(gamePath)
             .Where(m => m.Enabled)
-            .SelectMany(m => m.OwnedFiles)
+            .SelectMany(m => m.OwnedFiles.Concat(m.DeltaFiles))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (modFiles.Count == 0) return [];

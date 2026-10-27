@@ -43,21 +43,46 @@ impl Workspace {
         self.tokens.token(name).ok_or_else(|| Error::Format(format!("unknown field {name}")))
     }
 
+    /// Does an id count when looking for the largest one in use? With an id
+    /// range set, only ids inside it do: ids another mod allocated outside
+    /// the range leave this mod's numbering alone.
+    fn counts(&self, n: u64) -> bool {
+        match self.id_range {
+            Some((start, end)) => n >= start && n < end,
+            None => true,
+        }
+    }
+
+    /// The id after `max`: `max + 1`, or the start of the id range when nothing
+    /// in the range is used yet; an error when the range is exhausted.
+    fn after(&self, max: u64) -> Result<u64> {
+        let next = match self.id_range {
+            Some((start, _)) => (max + 1).max(start),
+            None => max + 1,
+        };
+        if let Some((start, end)) = self.id_range {
+            if next >= end {
+                return Err(Error::Format(format!("the id range {start}..{end} is used up; widen it in the settings")));
+            }
+        }
+        Ok(next)
+    }
+
     /// Largest value of `key` in a top-level table of the assembly.
     fn max_of(&self, table: &str, key: &str) -> Result<u64> {
         let doc = self.doc("assembly")?;
         let rows = doc.marshal.root.rows(self.t(table)?).ok_or_else(|| Error::Format(format!("no {table}")))?;
         let k = self.t(key)?;
-        Ok(rows.iter().filter_map(|r| r.num(k)).max().unwrap_or(0))
+        Ok(rows.iter().filter_map(|r| r.num(k)).filter(|&n| self.counts(n)).max().unwrap_or(0))
     }
 
     /// Largest value of a field anywhere inside a table (nested row sets included).
     fn max_nested(&self, table: &str, key: &str) -> Result<u64> {
-        fn walk(row: &Row, k: u16, best: &mut u64) {
+        fn walk(row: &Row, k: u16, best: &mut u64, counts: &dyn Fn(u64) -> bool) {
             for (t, v) in &row.entries {
                 match v {
-                    Value::Num(n) if *t == k => *best = (*best).max(*n),
-                    Value::Rows(rows) => rows.iter().for_each(|r| walk(r, k, best)),
+                    Value::Num(n) if *t == k && counts(*n) => *best = (*best).max(*n),
+                    Value::Rows(rows) => rows.iter().for_each(|r| walk(r, k, best, counts)),
                     _ => {}
                 }
             }
@@ -66,7 +91,7 @@ impl Workspace {
         let rows = doc.marshal.root.rows(self.t(table)?).ok_or_else(|| Error::Format(format!("no {table}")))?;
         let k = self.t(key)?;
         let mut best = 0;
-        rows.iter().for_each(|r| walk(r, k, &mut best));
+        rows.iter().for_each(|r| walk(r, k, &mut best, &|n| self.counts(n)));
         Ok(best)
     }
 
@@ -81,28 +106,42 @@ impl Workspace {
             }
             for set in ["DATA_SET_MSG_TRANSLATIONS", "DATA_SET"] {
                 if let Some(rows) = self.tokens.token(set).and_then(|t| doc.marshal.root.rows(t)) {
-                    msg = msg.max(rows.iter().filter_map(|r| r.num(msg_id)).filter(|&v| v < 1_000_000_000).max().unwrap_or(0));
+                    msg = msg.max(rows.iter().filter_map(|r| r.num(msg_id)).filter(|&v| v < 1_000_000_000 && self.counts(v)).max().unwrap_or(0));
                 }
             }
         }
         // Items and devices share one id space (a device's item has its id).
-        let item = self.max_of("DATA_SET_ITEMS", "ITEM_ID")?.max(self.max_of("DATA_SET_DEVICES", "DEVICE_ID")?).max(self.max_of("DATA_SET_SKINS", "SKIN_ID")?) + 1;
+        let item = self.after(self.max_of("DATA_SET_ITEMS", "ITEM_ID")?.max(self.max_of("DATA_SET_DEVICES", "DEVICE_ID")?).max(self.max_of("DATA_SET_SKINS", "SKIN_ID")?))?;
         Ok(NextIds {
             item,
             device: item,
             skin: item,
-            bot: self.max_of("DATA_SET_BOTS", "BOT_ID")? + 1,
-            res: self.max_of("DATA_SET_RESOURCES", "RES_ID")? + 1,
-            icon: self.max_of("DATA_SET_ICONS", "ICON_ID")? + 1,
-            fx: self.max_of("DATA_SET_SPECIAL_FX", "FX_ID")? + 1,
-            msg: msg + 1,
-            device_mode: self.max_nested("DATA_SET_DEVICES", "DEVICE_MODE_ID")? + 1,
+            bot: self.after(self.max_of("DATA_SET_BOTS", "BOT_ID")?)?,
+            res: self.after(self.max_of("DATA_SET_RESOURCES", "RES_ID")?)?,
+            icon: self.after(self.max_of("DATA_SET_ICONS", "ICON_ID")?)?,
+            fx: self.after(self.max_of("DATA_SET_SPECIAL_FX", "FX_ID")?)?,
+            msg: self.after(msg)?,
+            device_mode: self.after(self.max_nested("DATA_SET_DEVICES", "DEVICE_MODE_ID")?)?,
         })
     }
 
     pub fn next_ids_json(&mut self) -> Result<J> {
         let n = self.next_ids()?;
-        Ok(json!({ "item": n.item, "device": n.device, "bot": n.bot, "res": n.res, "icon": n.icon, "fx": n.fx, "msg": n.msg, "deviceMode": n.device_mode, "skin": n.skin }))
+        let range = self.id_range.map(|(s, e)| json!({ "start": s, "end": e }));
+        Ok(json!({ "item": n.item, "device": n.device, "bot": n.bot, "res": n.res, "icon": n.icon, "fx": n.fx, "msg": n.msg, "deviceMode": n.device_mode, "skin": n.skin, "range": range }))
+    }
+
+    /// `mcts.idRange {start, end}`: new ids come from `start..end` (a per-mod
+    /// range, so two mods made with the Studio do not collide); `null` clears it.
+    pub fn set_id_range(&mut self, p: &J) -> Result<J> {
+        let start = p.get("start").and_then(|v| v.as_u64());
+        let end = p.get("end").and_then(|v| v.as_u64());
+        self.id_range = match (start, end) {
+            (Some(s), Some(e)) if e > s => Some((s, e)),
+            (None, None) => None,
+            _ => return Err(Error::Format("id range needs start < end".into())),
+        };
+        self.next_ids_json()
     }
 
     /// Create a message in every language (`texts` by language, INT text for
@@ -606,11 +645,15 @@ impl Workspace {
         manifest.push_str(&format!("readme = {}\ndependencies = [\"tempest-scripting>=1.0.0\"]\n", esc("Content rows in assembly.dat and the language files, with a Lua scaffold for the new devices.")));
         std::fs::write(dir.join("manifest.toml"), manifest)?;
 
-        // The .dat files: the assembly, and the languages that changed (or all).
+        // The .dat files: the assembly, and the languages that changed (or
+        // all). A file whose base the Studio recorded ships as a row delta
+        // (`deltas/<game path>.tdelta`); the others as whole files.
         let mut written = Vec::new();
+        let mut deltas = Vec::new();
         let tokens = self.tokens.clone();
         let cooked = self.dir.clone();
         let game_root = game_root_of(&cooked);
+        let use_deltas = p.get("deltas").and_then(|v| v.as_bool()).unwrap_or(true);
         let ids: Vec<String> = self.docs.iter().map(|(k, _)| k.clone()).collect();
         for doc_id in ids {
             let (dirty, path) = {
@@ -621,9 +664,27 @@ impl Workspace {
                 continue;
             }
             let rel = path.strip_prefix(&game_root).map(|r| r.to_path_buf()).unwrap_or_else(|_| PathBuf::from(path.file_name().unwrap_or_default()));
-            let out = dir.join("files").join(&rel);
-            self.doc_mut(&doc_id)?.save(&tokens, Some(&out))?;
-            written.push(rel.to_string_lossy().to_string());
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            let digest = if use_deltas { crate::basestore::read(&path) } else { None };
+            if let Some(digest) = digest {
+                let doc = self.doc(&doc_id)?;
+                let d = super::delta::create(&tokens, super::delta::Base::Digest(&digest), &doc.marshal, &rel_str)?;
+                let ops: usize = d.header["tables"].as_array().map(|a| a.iter().map(|t| t["ops"].as_array().map(|o| o.len()).unwrap_or(0)).sum()).unwrap_or(0) + d.header["header"].as_object().map(|h| h.len()).unwrap_or(0);
+                if ops == 0 {
+                    continue;
+                }
+                let out = dir.join("deltas").join(format!("{rel_str}.tdelta"));
+                if let Some(parent) = out.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                d.write(&out)?;
+                written.push(format!("deltas/{rel_str}.tdelta"));
+                deltas.push(json!({ "file": rel_str, "ops": ops, "bytes": d.to_bytes().len() }));
+            } else {
+                let out = dir.join("files").join(&rel);
+                self.doc_mut(&doc_id)?.save(&tokens, Some(&out))?;
+                written.push(format!("files/{rel_str}"));
+            }
         }
 
         if let Some(b) = bot {
@@ -668,13 +729,13 @@ impl Workspace {
         written.push("scripts/main.lua".into());
 
         let readme = format!(
-            "# {name}\n\nGenerated by Tempest Studio.\n\n- `files/`: the changed `assembly.dat` and language files, installed over the game's by the launcher.\n- `paserver.json`: the GET_PROFILE_CLASSES row and inventory items the private server must answer for the champion (bot {bot}).\n- `scripts/main.lua`: Lua handlers for the devices' `dllimport` functions (needs the tempest-scripting mod).\n- `src/{pkg}/Classes/*.uc`: UnrealScript stubs for the new device classes.\n\nBuild the script package:\n\n```\nuscript project init <CookedPCConsole> <project>   # once\n# copy src/{pkg} into the project, then\nuscript project build <project> --package {pkg}\n```\n\nthen put `{pkg}.u` under `files/ChaosGame/CookedPCConsole/` and point the devices' FORM_CLASS_RES_ID / DEVICE_FORM_CLASS_RES_ID resources at `{pkg}.<class>` (Assembly tab, DATA_SET_RESOURCES). Pack with `tempest mod pack <this folder> <out.tempest>`.\n\nClasses: {classes}\n",
+            "# {name}\n\nGenerated by Tempest Studio.\n\n- `deltas/`: the rows this mod adds or changes in `assembly.dat` and the language files (applied over the game's files by the launcher, so other content mods still work); `files/` holds whole files when the Studio had no record of the original.\n- `paserver.json`: the GET_PROFILE_CLASSES row and inventory items the private server must answer for the champion (bot {bot}).\n- `scripts/main.lua`: Lua handlers for the devices' `dllimport` functions (needs the tempest-scripting mod).\n- `src/{pkg}/Classes/*.uc`: UnrealScript stubs for the new device classes.\n\nBuild the script package:\n\n```\nuscript project init <CookedPCConsole> <project>   # once\n# copy src/{pkg} into the project, then\nuscript project build <project> --package {pkg}\n```\n\nthen put `{pkg}.u` under `files/ChaosGame/CookedPCConsole/` and point the devices' FORM_CLASS_RES_ID / DEVICE_FORM_CLASS_RES_ID resources at `{pkg}.<class>` (Assembly tab, DATA_SET_RESOURCES). Pack with `tempest mod pack <this folder> <out.tempest>`.\n\nClasses: {classes}\n",
             bot = bot.map(|b| b.to_string()).unwrap_or_else(|| "none".into()),
             classes = classes.join(", ")
         );
         std::fs::write(dir.join("README.md"), readme)?;
         written.push("README.md".into());
-        Ok(json!({ "dir": dir.to_string_lossy(), "files": written, "classes": classes, "package": pkg }))
+        Ok(json!({ "dir": dir.to_string_lossy(), "files": written, "deltas": deltas, "classes": classes, "package": pkg }))
     }
 
     fn resource_name(&self, id: Option<u64>) -> Option<String> {

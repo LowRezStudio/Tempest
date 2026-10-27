@@ -1,0 +1,13 @@
+# The champion this mod adds to the champion select. The bot and its items
+# must exist in assembly.dat (Studio: Assembly > New content… > Champion).
+bot_id = 2599
+name = "ViktorTheGreat"
+subtitle = "Custom champion"
+# Texture the icon slot loads (a Texture2D path in a package the game can find).
+icon = "MissionScreen_Icons.Texture.Cassie"
+# Existing champion whose UI data entry serves as template for the lobby list.
+template_bot_id = 2420
+# Skins and voice pack passed to SwitchChampion (0 = defaults).
+body_skin_id = 0
+weapon_skin_id = 0
+voice_pack_id = 0

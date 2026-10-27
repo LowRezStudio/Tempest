@@ -214,7 +214,12 @@ internal class ModCommands
             ? await v2.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock, ignoreTempestVersion, defer)
             : await installer.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock);
 
-        if (result.Success && result.Mod != null) RecordInstall(path, result.Mod);
+        if (result.Success && result.Mod != null)
+        {
+            RecordInstall(path, result.Mod);
+            // Delta-managed game files are rebuilt from the enabled mods, including this one.
+            await DeltaResolver.ResolveAndReportAsync(path);
+        }
         return result;
     }
 
@@ -617,6 +622,7 @@ internal class ModCommands
             await installer.RemoveAsync(path, mod);
             mods.Remove(mod);
             SaveMetadata(path, mods);
+            await DeltaResolver.ResolveAndReportAsync(path);
 
             var note = dependants.Count == 0 ? "" : $" {string.Join(", ", dependants.Select(d => $"'{d.Name}'"))} depend{(dependants.Count == 1 ? "s" : "")} on it.";
             var ok = new ModInstallResult { Success = true, Message = $"Mod '{modName}' removed successfully.{note}" };
@@ -662,6 +668,7 @@ internal class ModCommands
             // re-checks them against the mod's signed CHECKSUMS first.
             mod.Verified = false;
             SaveMetadata(path, mods);
+            await DeltaResolver.ResolveAndReportAsync(path);
 
             var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' enabled successfully." };
             PrintResult(result, json);
@@ -704,6 +711,7 @@ internal class ModCommands
             await installer.DisableAsync(path, mod);
             mod.Enabled = false;
             SaveMetadata(path, mods);
+            await DeltaResolver.ResolveAndReportAsync(path);
 
             var note = dependants.Count == 0 ? "" : $" {string.Join(", ", dependants.Select(d => $"'{d.Name}'"))} depend{(dependants.Count == 1 ? "s" : "")} on it.";
             var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' disabled successfully.{note}" };
@@ -740,6 +748,7 @@ internal class ModCommands
                 await Console.Error.WriteLineAsync($"Warning: disabled '{mod.Name}': the key it was signed with ({mod.Signer}) has been revoked.");
             }
             SaveMetadata(path, mods);
+            await DeltaResolver.ResolveAndReportAsync(path);
         }
         catch (Exception ex)
         {

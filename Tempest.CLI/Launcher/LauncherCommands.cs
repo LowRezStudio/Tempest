@@ -72,6 +72,13 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
         await ModCommands.DisableRevokedModsAsync(path);
         await ModIntegrity.VerifyAtLaunchAsync(path);
         ModDependencies.WarnAtLaunch(path);
+        // Files mods change through deltas are rebuilt from the enabled set when it changed
+        // (a mod disabled just now, a game file replaced since); one hash per file otherwise.
+        if (File.Exists(ModCommands.GetMetadataPath(path)))
+        {
+            using var modLock = await ModLock.AcquireAsync(path);
+            await DeltaResolver.ResolveAndReportAsync(path);
+        }
 
         var exePath = LauncherUtility.GetExecutablePath(path, platform, game);
         var defaultArgs = !noDefaultArgs;

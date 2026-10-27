@@ -1,10 +1,12 @@
 //! Walks every `FName` and object reference inside a parsed object, so the
 //! editor can remap them when objects move between packages or are removed.
 
+use tempest_unrealscript::bytecode::{Assembler, Disassembler};
+use tempest_unrealscript::objects::{ObjectBody, ParsedObject, StructData, TaggedProperty};
 use tempest_upk::io::{FName, PackageIndex};
 
 use crate::level::LightMap;
-use crate::object::{Native, Object};
+use crate::object::{Native, Object, Parsed};
 use crate::value::{Property, StructValue, Value};
 
 pub trait Visitor {
@@ -224,6 +226,161 @@ impl Visit for Object {
         }
         self.properties.iter_mut().for_each(|p| p.visit(v));
         self.native.visit(v);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Script objects (classes, functions, properties…)
+// ----------------------------------------------------------------------------
+
+impl Visit for TaggedProperty {
+    /// The tag's names only: the value bytes stay as they are (a struct
+    /// default holding an object reference is not remapped).
+    fn visit(&mut self, v: &mut dyn Visitor) {
+        v.name(&mut self.name);
+        v.name(&mut self.type_name);
+        if let Some(s) = &mut self.struct_name {
+            v.name(s);
+        }
+        if let Some(e) = &mut self.enum_name {
+            v.name(e);
+        }
+    }
+}
+
+/// Remap the references and names inside a struct's bytecode. The bytecode
+/// is disassembled, mapped token by token and reassembled; a stream the
+/// disassembler does not understand is left as it is and reported.
+fn visit_bytecode(s: &mut StructData, none_index: Option<u32>, v: &mut dyn Visitor) -> Result<(), String> {
+    if s.script.is_empty() {
+        return Ok(());
+    }
+    let mut script = Disassembler::disassemble(&s.script, none_index).map_err(|e| e.to_string())?;
+    // `map_refs` takes one closure per kind; the visitor is borrowed by one at a time.
+    for st in &mut script.statements {
+        st.token.map_refs(
+            &mut |p: PackageIndex| {
+                let mut p = p;
+                v.index(&mut p);
+                p
+            },
+            &mut |n: FName| n,
+        );
+    }
+    for st in &mut script.statements {
+        st.token.map_refs(&mut |p: PackageIndex| p, &mut |n: FName| {
+            let mut n = n;
+            v.name(&mut n);
+            n
+        });
+    }
+    let (bytes, mem) = Assembler::assemble(&script);
+    s.script = bytes;
+    s.bytecode_size = mem as i32;
+    Ok(())
+}
+
+fn visit_struct(s: &mut StructData, none_index: Option<u32>, v: &mut dyn Visitor) -> Result<(), String> {
+    v.index(&mut s.super_struct);
+    v.index(&mut s.script_text);
+    v.index(&mut s.children);
+    v.index(&mut s.cpp_text);
+    visit_bytecode(s, none_index, v)
+}
+
+/// Every name and reference of a script object (`tempest_unrealscript::objects`
+/// form). `none_index` is the package's `None` name, which the bytecode
+/// disassembler needs. Returns what could not be reached.
+pub fn visit_script(o: &mut ParsedObject, none_index: Option<u32>, v: &mut dyn Visitor) -> Vec<String> {
+    let mut problems = Vec::new();
+    if let Some(sf) = &mut o.header.state_frame {
+        v.index(&mut sf.node);
+        v.index(&mut sf.state_node);
+        for s in &mut sf.state_stack {
+            v.index(&mut s.state);
+            v.index(&mut s.node);
+        }
+    }
+    if let Some(c) = &mut o.header.component {
+        v.index(&mut c.template_owner_class);
+        if let Some(n) = &mut c.template_name {
+            v.name(n);
+        }
+    }
+    o.header.properties.iter_mut().for_each(|p| p.visit(v));
+    if let Some(n) = &mut o.next {
+        v.index(n);
+    }
+    let mut code = |s: &mut StructData, v: &mut dyn Visitor| {
+        if let Err(e) = visit_struct(s, none_index, v) {
+            problems.push(format!("bytecode not remapped: {e}"));
+        }
+    };
+    match &mut o.body {
+        ObjectBody::Class { s, state, class } => {
+            code(s, v);
+            state.func_map.iter_mut().for_each(|(n, i)| {
+                v.name(n);
+                v.index(i);
+            });
+            v.index(&mut class.class_within);
+            v.name(&mut class.class_config_name);
+            class.component_name_to_default_object.iter_mut().for_each(|(n, i)| {
+                v.name(n);
+                v.index(i);
+            });
+            class.interfaces.iter_mut().for_each(|(a, b)| {
+                v.index(a);
+                v.index(b);
+            });
+            if let Some(e) = &mut class.editor {
+                for list in [&mut e.dont_sort_categories, &mut e.hide_categories, &mut e.auto_expand_categories, &mut e.auto_collapse_categories, &mut e.class_group_names] {
+                    list.iter_mut().for_each(|n| v.name(n));
+                }
+            }
+            v.name(&mut class.dll_bind_name);
+            v.index(&mut class.class_default_object);
+        }
+        ObjectBody::State { s, state } => {
+            code(s, v);
+            state.func_map.iter_mut().for_each(|(n, i)| {
+                v.name(n);
+                v.index(i);
+            });
+        }
+        ObjectBody::Function { s, function } => {
+            code(s, v);
+            v.name(&mut function.friendly_name);
+        }
+        ObjectBody::ScriptStruct { s, data } => {
+            code(s, v);
+            data.defaults.iter_mut().for_each(|p| p.visit(v));
+        }
+        ObjectBody::Enum(e) => e.names.iter_mut().for_each(|n| v.name(n)),
+        ObjectBody::Property { data, .. } => {
+            if let Some(c) = &mut data.category {
+                v.name(c);
+            }
+            for r in [&mut data.array_size_enum, &mut data.ref1, &mut data.ref2].into_iter().flatten() {
+                v.index(r);
+            }
+        }
+        ObjectBody::Const(_) | ObjectBody::TextBuffer(_) | ObjectBody::Other { .. } => {}
+    }
+    problems
+}
+
+/// Every name and reference of any parsed export. Returns what could not be reached
+/// (raw payloads, bytecode the disassembler refused).
+pub fn visit_parsed(p: &mut Parsed, none_index: Option<u32>, v: &mut dyn Visitor) -> Vec<String> {
+    match p {
+        Parsed::Object(o) => {
+            o.visit(v);
+            Vec::new()
+        }
+        Parsed::Script(o) => visit_script(o, none_index, v),
+        Parsed::Empty => Vec::new(),
+        Parsed::Raw { error, .. } => vec![format!("raw payload, references inside not remapped: {error}")],
     }
 }
 

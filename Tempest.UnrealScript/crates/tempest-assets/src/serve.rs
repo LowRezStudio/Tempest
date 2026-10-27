@@ -359,7 +359,33 @@ impl Server {
             "mcts.insert" => Ok(self.mcts_mut()?.insert(p)?),
             "mcts.delete" => Ok(self.mcts_mut()?.delete(p)?),
             "mcts.undo" => Ok(self.mcts_mut()?.undo(p)?),
-            "mcts.save" => Ok(self.mcts_mut()?.save(p)?),
+            "mcts.save" => {
+                // Saving in place: remember the file as it was first, so a
+                // mod delta can be made from it later.
+                if p.get("out").and_then(|v| v.as_str()).is_none() {
+                    let id = p.get("doc").and_then(|v| v.as_str()).unwrap_or("assembly");
+                    let ws = self.mcts()?;
+                    let path = ws.doc(id)?.path.clone();
+                    if let Err(e) = crate::basestore::record_mcts(&ws.tokens, &path) {
+                        eprintln!("basestore: {}: {e}", path.display());
+                    }
+                }
+                Ok(self.mcts_mut()?.save(p)?)
+            }
+            "mcts.idRange" => Ok(self.mcts_mut()?.set_id_range(p)?),
+            "delta.status" => {
+                let path = PathBuf::from(s(p, "path")?);
+                let mut st = crate::basestore::status(&path);
+                st["target"] = J::from(crate::basestore::game_relative(&path));
+                Ok(st)
+            }
+            "delta.record" => self.delta_record(p),
+            "delta.reset" => Ok(J::from(crate::basestore::remove(Path::new(s(p, "path")?)))),
+            "delta.info" => {
+                let d = crate::delta::Delta::read(s(p, "file")?)?;
+                Ok(json!({ "kind": d.kind(), "target": d.target(), "header": d.header }))
+            }
+            "delta.create" => self.delta_create(p),
             "mcts.discard" => Ok(self.mcts_mut()?.discard(p)?),
             "mcts.find" => Ok(self.mcts()?.find(p)?),
             "mcts.messages" => Ok(self.mcts_mut()?.messages(p)?),
@@ -551,6 +577,16 @@ impl Server {
         let path = s(p, "path")?;
         let out = opt_s(p, "out").unwrap_or_else(|| path.to_string());
         let in_place = key(&out) == key(path);
+        if in_place {
+            // The file as it is on disk now is the base a mod delta is made
+            // against later; recorded once, before the first overwrite.
+            let t = std::time::Instant::now();
+            match crate::basestore::record_upk(self.db()?, Path::new(path)) {
+                Ok(true) => eprintln!("basestore: recorded {} ({:.2}s)", path, t.elapsed().as_secs_f32()),
+                Ok(false) => {}
+                Err(e) => eprintln!("basestore: {path}: {e}"),
+            }
+        }
         let ed = self.editor(path)?;
         ed.save(&out)?;
         if !in_place {
@@ -1665,14 +1701,90 @@ impl Server {
             manifest.push_str(&format!("\n[[mod.authors]]\nname = {}\n", esc(&a)));
         }
         std::fs::write(dir.join("manifest.toml"), manifest)?;
+        // A file whose base the Studio recorded ships as a delta
+        // (`deltas/<game path>.tdelta`, applied by the launcher over the
+        // game's file); the others are copied whole under `files/`.
+        let use_deltas = opt_b(p, "deltas").unwrap_or(true);
         let mut added = Vec::new();
+        let mut entries = Vec::new();
         for f in files {
-            let p = Path::new(&f);
-            let fname = p.file_name().ok_or("bad file name")?;
-            std::fs::copy(p, dir.join("files").join(fname))?;
-            added.push(fname.to_string_lossy().to_string());
+            let path = Path::new(&f);
+            let rel = crate::basestore::game_relative(path);
+            let digest = if use_deltas { crate::basestore::read(path) } else { None };
+            match digest {
+                Some(digest) => {
+                    let (d, warnings) = self.make_delta(path, &digest, &rel)?;
+                    let ops = d.ops().len() + d.header["tables"].as_array().map(|a| a.iter().map(|t| t["ops"].as_array().map(|o| o.len()).unwrap_or(0)).sum::<usize>()).unwrap_or(0) + d.header["header"].as_object().map(|h| h.len()).unwrap_or(0);
+                    if ops == 0 {
+                        entries.push(json!({ "file": rel, "mode": "unchanged", "ops": 0, "bytes": 0, "warnings": warnings }));
+                        continue;
+                    }
+                    let out = dir.join("deltas").join(format!("{rel}.tdelta"));
+                    if let Some(parent) = out.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    d.write(&out)?;
+                    added.push(format!("deltas/{rel}.tdelta"));
+                    entries.push(json!({ "file": rel, "mode": "delta", "ops": ops, "bytes": d.to_bytes().len(), "warnings": warnings }));
+                }
+                None => {
+                    let out = dir.join("files").join(&rel);
+                    if let Some(parent) = out.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::copy(path, &out)?;
+                    added.push(format!("files/{rel}"));
+                    entries.push(json!({ "file": rel, "mode": "copy", "ops": 0, "bytes": std::fs::metadata(path).map(|m| m.len()).unwrap_or(0), "warnings": [] }));
+                }
+            }
         }
-        Ok(json!({ "dir": dir.to_string_lossy(), "files": added }))
+        Ok(json!({ "dir": dir.to_string_lossy(), "files": added, "entries": entries }))
+    }
+
+    /// The delta of a file on disk against its recorded base: rows for a
+    /// marshal, objects for a package (the open editor's unsaved edits are
+    /// not part of it; the dialog asks for a save first).
+    fn make_delta(&mut self, path: &Path, digest: &J, target: &str) -> Res<(crate::delta::Delta, Vec<String>)> {
+        let lower = path.to_string_lossy().to_ascii_lowercase();
+        if lower.ends_with(".dat") {
+            let tokens = mcts::Tokens::for_dir(path.parent().unwrap_or(Path::new(".")));
+            let m = mcts::parse_obscured(&std::fs::read(path)?, &tokens)?;
+            let d = mcts::delta::create(&tokens, mcts::delta::Base::Digest(digest), &m, target)?;
+            return Ok((d, Vec::new()));
+        }
+        let db = self.db()?;
+        let pkg = PackageFile::open(path)?.load()?;
+        Ok(crate::delta::create(db, crate::delta::Base::Digest(digest), &pkg, target)?)
+    }
+
+    /// `delta.record {path}`: take the file as it is now as the base (after
+    /// restoring the original, or when a package was edited before the
+    /// Studio kept records). Replaces any earlier record.
+    fn delta_record(&mut self, p: &J) -> Res<J> {
+        let path = PathBuf::from(s(p, "path")?);
+        crate::basestore::remove(&path);
+        let t = std::time::Instant::now();
+        if path.to_string_lossy().to_ascii_lowercase().ends_with(".dat") {
+            let tokens = mcts::Tokens::for_dir(path.parent().unwrap_or(Path::new(".")));
+            crate::basestore::record_mcts(&tokens, &path)?;
+        } else {
+            crate::basestore::record_upk(self.db()?, &path)?;
+        }
+        let mut st = crate::basestore::status(&path);
+        st["ms"] = J::from(t.elapsed().as_millis() as u64);
+        Ok(st)
+    }
+
+    /// `delta.create {path, out, target?}`: one delta file from a game file and its record.
+    fn delta_create(&mut self, p: &J) -> Res<J> {
+        let path = PathBuf::from(s(p, "path")?);
+        let out = s(p, "out")?;
+        let target = opt_s(p, "target").unwrap_or_else(|| crate::basestore::game_relative(&path));
+        let digest = crate::basestore::read(&path).ok_or("no base recorded for this file (save it in place once, or use delta.record)")?;
+        let (d, warnings) = self.make_delta(&path, &digest, &target)?;
+        d.write(out)?;
+        let ops: Vec<J> = d.ops().into_iter().map(|o| json!({ "op": o.op, "path": o.path, "class": o.class })).collect();
+        Ok(json!({ "out": out, "target": target, "kind": d.kind(), "ops": ops, "tables": d.header["tables"], "bytes": d.to_bytes().len(), "warnings": warnings }))
     }
 }
 

@@ -11,9 +11,11 @@
 //!   directories and measures how much of every export is understood.
 
 pub mod actors;
+pub mod basestore;
 pub mod batch;
 pub mod bulk;
 pub mod dds;
+pub mod delta;
 pub mod dump;
 pub mod edit;
 pub mod json;
