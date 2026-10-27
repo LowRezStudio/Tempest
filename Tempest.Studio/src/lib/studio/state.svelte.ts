@@ -101,9 +101,11 @@ class Studio {
 			});
 			$effect(() => {
 				try {
-					if (this.idRange)
+					if (this.idRange) {
 						localStorage.setItem(ID_RANGE_KEY, JSON.stringify(this.idRange));
-					else localStorage.removeItem(ID_RANGE_KEY);
+					} else {
+						localStorage.removeItem(ID_RANGE_KEY);
+					}
 				} catch {
 					// Storage unavailable: the range lives for this session only.
 				}
