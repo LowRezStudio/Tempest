@@ -196,6 +196,12 @@ class Studio {
 		await invoke("window:new", dir ? { dir } : {});
 	}
 
+	/** Take game folders off the recent list (all of them without a path); the folders stay. */
+	forgetRecent(dir?: string): void {
+		this.recents = dir ? this.recents.filter((r) => r !== dir) : [];
+		localStorage.setItem(RECENTS_KEY, JSON.stringify(this.recents));
+	}
+
 	async openWorkspace(dir: string, quiet = false): Promise<boolean> {
 		try {
 			const ws = await this.run(`Loading class database from ${basename(dir)}…`, () =>
@@ -246,7 +252,8 @@ class Studio {
 			this.tablesVersion++;
 			if (tables.dirty && !this.dirty.includes(path)) this.dirty.push(path);
 			void this.refreshUndo();
-			if (select !== undefined) await this.select(select);
+			// An export added by an edit that was since discarded is gone: select nothing.
+			if (select !== undefined && select < tables.exports.length) await this.select(select);
 		} catch (error) {
 			toasts.error(error, `Could not open ${basename(path)}`);
 		}

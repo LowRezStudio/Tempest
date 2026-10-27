@@ -11,6 +11,7 @@ import { nav, type Place } from "./nav.svelte";
 import { rpc } from "./rpc";
 import { studio, type IdRange, type StudioMode } from "./state.svelte";
 import { toasts } from "./toast.svelte";
+import { ui } from "./ui.svelte";
 import type { McsPath, TwrkMode } from "../../../electron/src/ipc/contract";
 
 export const TWRK_FILTERS = [{ name: "Tempest Studio workspace", extensions: ["twrk"] }];
@@ -95,6 +96,12 @@ class Session {
 
 	private remember(path: string): void {
 		this.recents = [path, ...this.recents.filter((r) => r !== path)].slice(0, 8);
+		localStorage.setItem(RECENT_KEY, JSON.stringify(this.recents));
+	}
+
+	/** Take projects off the recent list (all of them without a path); the files stay. */
+	forgetRecent(path?: string): void {
+		this.recents = path ? this.recents.filter((r) => r !== path) : [];
 		localStorage.setItem(RECENT_KEY, JSON.stringify(this.recents));
 	}
 
@@ -211,6 +218,7 @@ class Session {
 		version: string;
 		gameDir: string;
 	}): Promise<boolean> {
+		if (this.project && !(await this.closeProject())) return false;
 		try {
 			await invoke("fs:mkdir", { path: `${p.dir}/mod-files` });
 			await invoke("fs:mkdir", { path: `${p.dir}/builds` });
@@ -265,13 +273,67 @@ class Session {
 		}
 	}
 
-	/** Close the project: the window goes back to plain editing (nothing is lost). */
-	async closeProject(): Promise<void> {
-		await this.flush();
+	/**
+	 * Close the project: its edits are unloaded from the Studio (they live in the
+	 * project file and come back when it is opened again), so nothing of the
+	 * project can be saved into the game folder by mistake. Asks first: Save and
+	 * close or Discard and close when a save is pending or failed, else Close.
+	 * @returns false when the user cancelled or the project could not be saved.
+	 */
+	async closeProject(): Promise<boolean> {
+		const project = this.project;
+		if (!project) return true;
+		// A save already running finishes first: there is nothing to ask about it.
+		for (let i = 0; i < 600 && this.projectState === "saving"; i++) {
+			await new Promise((r) => setTimeout(r, 100));
+		}
+		const files = [...studio.dirty, ...assembly.dirtyDocs.map((d) => d.path)].map(basename);
+		const unsaved = this.projectState !== "saved";
+		if (unsaved) {
+			const answer = await ui.confirm({
+				title: `Save the changes to ${project.name}?`,
+				message:
+					this.projectState === "error"
+						? "The project could not be saved. Try again, or discard the changes made since it was last saved."
+						: "Some changes are not saved in the project yet. Save them, or discard the changes made since the last save.",
+				items: files,
+				confirm: "Save and close",
+				alt: "Discard and close",
+			});
+			if (answer === false) return false;
+			if (answer === true) {
+				await this.flush();
+				if (this.projectState !== "saved" && !(await this.save(false, undefined, true))) {
+					return false;
+				}
+			} else {
+				if (this.projectTimer) clearTimeout(this.projectTimer);
+				this.projectTimer = null;
+			}
+		} else if (files.length > 0) {
+			const answer = await ui.confirm({
+				title: `Close ${project.name}?`,
+				message:
+					"Your edits are saved in the project and come back when you open it again. They are unloaded from the Studio, so the game folder's files show as they are on disk.",
+				items: files,
+				confirm: "Close the project",
+			});
+			if (answer !== true) return false;
+		}
 		this.project = null;
 		this.file = null;
+		this.projectState = "saved";
 		cooker.projectDir = null;
 		cooker.projectFiles = [];
+		cooker.targets = [];
+		await this.unload();
+		return true;
+	}
+
+	/** Drop every edit held in memory (they are kept elsewhere: a project file). */
+	private async unload(): Promise<void> {
+		if (studio.dirty.length > 0) await studio.discardPaths([...studio.dirty]);
+		for (const d of assembly.dirtyDocs) await assembly.discard(d.id);
 	}
 
 	/** Choose a workspace file and open it. */
@@ -287,9 +349,9 @@ class Session {
 	 * @param recovered A recovery copy: not adopted as this window's workspace file.
 	 */
 	async open(path: string, recovered = false): Promise<boolean> {
-		// The project being left is saved first; nothing of it may land in the next one.
-		await this.flush();
-		this.project = null;
+		// The project being left is closed first (it asks when a save is pending);
+		// nothing of it may land in the next one.
+		if (this.project && !(await this.closeProject())) return false;
 		try {
 			const info = await rpc("twrk.read", { path });
 			if (
@@ -345,6 +407,15 @@ class Session {
 			);
 			return true;
 		} catch (error) {
+			if (!recovered && !(await invoke("fs:exists", { path }))) {
+				this.forgetRecent(path);
+				toasts.push(
+					"warning",
+					`${path} was moved or deleted, so it was removed from the recent projects.`,
+					"Project not found",
+				);
+				return false;
+			}
 			toasts.error(error, "Could not open the workspace");
 			return false;
 		}

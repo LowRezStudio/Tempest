@@ -4,36 +4,23 @@
 	import "@fontsource-variable/ubuntu-sans-mono";
 	import ToastStack from "$lib/components/ToastStack.svelte";
 	import { assembly } from "$lib/studio/assembly.svelte";
+	import { commands } from "$lib/studio/commands.svelte";
+	import { cooker } from "$lib/studio/cooker.svelte";
+	import { nav } from "$lib/studio/nav.svelte";
 	import { rpc } from "$lib/studio/rpc";
+	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
+	import { tabs } from "$lib/studio/tabs.svelte";
+	import { ui } from "$lib/studio/ui.svelte";
 
 	const { children } = $props();
 
-	// The MCP server of the host drives the renderer through this (electron/src/mcp.ts).
-	(window as unknown as { __tempest: unknown }).__tempest = { studio, assembly, rpc };
-	// Dev builds expose the store for the screenshot harness (electron/src/smoke.ts).
-	if (import.meta.env.DEV) {
-		(window as unknown as { studio: unknown; assembly: unknown }).studio = studio;
-		(window as unknown as { studio: unknown; assembly: unknown }).assembly = assembly;
-		(window as unknown as { rpc: unknown }).rpc = rpc;
-		void Promise.all([
-			import("$lib/studio/session.svelte"),
-			import("$lib/studio/ui.svelte"),
-			import("$lib/studio/tabs.svelte"),
-			import("$lib/studio/commands.svelte"),
-			import("$lib/studio/nav.svelte"),
-			import("$lib/studio/cooker.svelte"),
-		]).then(([s, u, t, c, n, k]) => {
-			Object.assign(window, {
-				session: s.session,
-				ui: u.ui,
-				tabs: t.tabs,
-				commands: c.commands,
-				nav: n.nav,
-				cooker: k.cooker,
-			});
-		});
-	}
+	// The MCP server of the host drives the renderer through this (electron/src/mcp.ts);
+	// dev builds also put the stores on `window` for the screenshot harness
+	// (electron/src/smoke.ts).
+	const stores = { studio, assembly, rpc, session, ui, tabs, commands, nav, cooker };
+	(window as unknown as { __tempest: unknown }).__tempest = stores;
+	if (import.meta.env.DEV) Object.assign(window, stores);
 </script>
 
 <div class="bg-base-100 text-base-content h-screen w-screen overflow-hidden">

@@ -20,6 +20,13 @@ export const SEMVER_PATTERN =
 	/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const SCRIPTING = "tempest-scripting>=1.0.0";
 
+/** The next patch version: 1.2.3 → 1.2.4 (a pre-release keeps its numbers: 1.2.3-beta.1 → 1.2.3). */
+function nextPatch(version: string): string {
+	const m = /^(\d+)\.(\d+)\.(\d+)(-.+)?$/.exec(version);
+	if (!m) return "1.0.1";
+	return m[4] ? `${m[1]}.${m[2]}.${m[3]}` : `${m[1]}.${m[2]}.${Number(m[3]) + 1}`;
+}
+
 /** A mod id from a name: "My Champion!" → "my-champion". */
 export function slugify(name: string): string {
 	return name
@@ -517,8 +524,7 @@ class Cooker {
 		if (!out && inProject && (await invoke("fs:exists", { path: inProject }))) {
 			const ok = await ui.confirm({
 				title: `Version ${m.version.trim()} was already built`,
-				message:
-					"Replace that build? To keep it, raise the version first (for example 1.0.1).",
+				message: `Replace that build? To keep it, raise the version first (for example ${nextPatch(m.version.trim())}).`,
 				confirm: "Replace it",
 			});
 			if (ok !== true) return null;

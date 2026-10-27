@@ -95,7 +95,17 @@
 			: []),
 		"project.new",
 		"workspace.open",
-		...(recentProjects.length > 0 ? [{ heading: "Recent projects" }, ...recentProjects] : []),
+		...(recentProjects.length > 0
+			? [
+					{ heading: "Recent projects" },
+					...recentProjects,
+					{
+						label: "Clear recent projects",
+						detail: "Empties this list; the project files stay where they are",
+						run: () => session.forgetRecent(),
+					},
+				]
+			: []),
 		"-",
 		{ heading: `Game folder: ${gameName}` },
 		"folder.open",

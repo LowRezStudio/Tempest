@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AppWindow, Clock, FileUp, FolderOpen, Hammer, PackageOpen } from "@lucide/svelte";
+	import { AppWindow, Clock, FileUp, FolderOpen, Hammer, PackageOpen, X } from "@lucide/svelte";
 	import { onMount } from "svelte";
 	import { invoke, pickDirectory, pickFile, PACKAGE_FILTERS } from "$lib/platform/api";
 	import { basename } from "$lib/studio/format";
@@ -104,12 +104,18 @@
 					class="mb-1 flex items-center gap-1 text-xs font-semibold uppercase opacity-60"
 				>
 					<PackageOpen size={12} /> Recent projects
+					<span class="flex-1"></span>
+					<button
+						class="btn btn-ghost btn-xs font-normal normal-case"
+						onclick={() => session.forgetRecent()}
+						title="Clear the list (the project files stay where they are)">Clear</button
+					>
 				</div>
 				<ul class="menu rounded-box bg-base-200 w-full overflow-hidden p-1">
 					{#each session.recents as file (file)}
-						<li>
+						<li class="min-w-0 flex-row flex-nowrap items-center">
 							<button
-								class="flex-col items-start gap-0"
+								class="min-w-0 flex-1 flex-col items-start gap-0"
 								onclick={() => session.open(file)}
 								disabled={studio.busy !== null}
 								title={file}
@@ -120,6 +126,14 @@
 								<span class="max-w-full truncate font-mono text-[11px] opacity-60"
 									>{file}</span
 								>
+							</button>
+							<button
+								class="btn btn-ghost btn-xs btn-square"
+								onclick={() => session.forgetRecent(file)}
+								title="Remove from the list (the project stays where it is)"
+								aria-label="Remove from recent projects"
+							>
+								<X size={12} />
 							</button>
 						</li>
 					{/each}
@@ -133,6 +147,12 @@
 					class="mb-1 flex items-center gap-1 text-xs font-semibold uppercase opacity-60"
 				>
 					<Clock size={12} /> Recent game folders
+					<span class="flex-1"></span>
+					<button
+						class="btn btn-ghost btn-xs font-normal normal-case"
+						onclick={() => studio.forgetRecent()}
+						title="Clear the list (the folders stay where they are)">Clear</button
+					>
 				</div>
 				<ul class="menu rounded-box bg-base-200 w-full overflow-hidden p-1">
 					{#each studio.recents as dir (dir)}
@@ -151,6 +171,14 @@
 								title="Open in a new window"
 							>
 								<AppWindow size={12} />
+							</button>
+							<button
+								class="btn btn-ghost btn-xs btn-square"
+								onclick={() => studio.forgetRecent(dir)}
+								title="Remove from the list (the folder stays where it is)"
+								aria-label="Remove from recent game folders"
+							>
+								<X size={12} />
 							</button>
 						</li>
 					{/each}

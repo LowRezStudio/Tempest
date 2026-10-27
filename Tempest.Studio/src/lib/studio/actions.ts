@@ -620,7 +620,7 @@ export function registerActions(): () => void {
 		{
 			id: "project.close",
 			title: "Close the project",
-			detail: "Back to plain editing; the project stays saved in its folder",
+			detail: "Back to plain editing; its edits stay in the project and are unloaded (asks first)",
 			group: "Project",
 			enabled: () => !!session.project,
 			run: () => session.closeProject(),
