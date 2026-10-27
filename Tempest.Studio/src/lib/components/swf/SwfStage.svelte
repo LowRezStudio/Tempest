@@ -256,8 +256,23 @@
 		event.preventDefault();
 	}
 
+	/** Drop a drag without applying it. */
+	function cancelDrag() {
+		drag = null;
+		live = null;
+	}
+
+	// A press the page never sees released (the window manager takes
+	// Alt+click on Linux, the window loses focus) must not leave a drag
+	// running: the selection would keep following the pointer.
+	$effect(() => {
+		window.addEventListener("blur", cancelDrag);
+		return () => window.removeEventListener("blur", cancelDrag);
+	});
+
 	function onPointerDown(event: PointerEvent) {
 		if (event.button !== 0) return;
+		cancelDrag();
 		viewport?.focus({ preventScroll: true });
 		const [x, y] = toMovie(event);
 		const hits = under(x, y);
@@ -313,6 +328,11 @@
 	function onPointerMove(event: PointerEvent) {
 		const d = drag;
 		if (!d) return;
+		// The release happened where we could not see it.
+		if (event.buttons === 0 && event.pointerType === "mouse" && event.isTrusted) {
+			onPointerUp();
+			return;
+		}
 		const [x, y] = toMovie(event);
 		if (d.kind === "move") {
 			const far = Math.abs(event.clientX - d.x0) + Math.abs(event.clientY - d.y0) > 3;
@@ -491,6 +511,7 @@
 				request={baseRequest}
 				key={baseKey}
 				transparent={target.kind !== "root"}
+				still={!(target.kind === "character" && target.play)}
 				onload={(r) => {
 					baseRect = r.rect;
 					missing = r.missing;
@@ -521,10 +542,8 @@
 					onpointerdown={onPointerDown}
 					onpointermove={onPointerMove}
 					onpointerup={onPointerUp}
-					onpointercancel={() => {
-						drag = null;
-						live = null;
-					}}
+					onpointercancel={cancelDrag}
+					onlostpointercapture={() => drag && onPointerUp()}
 					ondblclick={onDoubleClick}
 				>
 					{#if outline && timeline}

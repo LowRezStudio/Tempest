@@ -34,6 +34,8 @@ export type RuffleElement = HTMLElement & {
 	play(): void;
 	pause(): void;
 	readonly isPlaying: boolean;
+	/** 0: nothing, 1: loading, 2: loaded (the `loadeddata` event fires then). */
+	readonly readyState: number;
 	volume: number;
 	/** Ruffle enlarges its own element; the promise is not awaited. */
 	requestFullscreen(): Promise<void>;

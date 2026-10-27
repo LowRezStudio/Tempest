@@ -50,6 +50,39 @@
 	const HINT =
 		"Click to select (Alt+click: the one below) · drag or arrows move it (Shift: 10 px) · Q: scale and rotate handles, V: move · double-click or Enter edits inside a clip · Backspace goes up · nothing is written until Apply";
 
+	// The timeline under the stage: resizable, its height remembered like a pane's.
+	const TIMELINE = "swf.timeline";
+	const TIMELINE_DEFAULT = 260;
+	let center = $state<HTMLDivElement | null>(null);
+	let resizing = $state(false);
+	const timelineHeight = $derived(ui.size(TIMELINE, TIMELINE_DEFAULT));
+	function setTimeline(px: number) {
+		const max = Math.max(120, (center?.clientHeight ?? 800) - 140);
+		ui.setSize(TIMELINE, Math.min(max, Math.max(80, px)));
+	}
+	function startResize(event: PointerEvent) {
+		event.preventDefault();
+		const y0 = event.clientY;
+		const h0 = timelineHeight;
+		const el = event.currentTarget as HTMLElement;
+		try {
+			el.setPointerCapture(event.pointerId);
+		} catch {
+			// Not an active pointer: moves are still seen over the handle.
+		}
+		resizing = true;
+		const move = (e: PointerEvent) => setTimeline(h0 - (e.clientY - y0));
+		const up = () => {
+			resizing = false;
+			el.removeEventListener("pointermove", move);
+			el.removeEventListener("pointerup", up);
+			el.removeEventListener("pointercancel", up);
+		};
+		el.addEventListener("pointermove", move);
+		el.addEventListener("pointerup", up);
+		el.addEventListener("pointercancel", up);
+	}
+
 	/** The package list and export tree are both hidden. */
 	const focused = $derived(ui.isCollapsed("side") && ui.isCollapsed("details"));
 	function toggleFocus() {
@@ -280,7 +313,7 @@
 			<Pane id="swf.tree" side="left" initial={230} min={150} max={480}>
 				<SwfTree {doc} />
 			</Pane>
-			<div class="flex min-w-0 flex-1 flex-col">
+			<div class="flex min-w-0 flex-1 flex-col" bind:this={center}>
 				{#if doc.node === "movie"}
 					<div class="flex h-full min-h-0 flex-col p-1">
 						<p class="px-1 pb-1 text-[10px] opacity-50">
@@ -311,7 +344,26 @@
 						outline={layout ? outline : null}
 					/>
 					{#if layout}
-						<div class="border-base-300 h-[38%] min-h-28 border-t">
+						<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+						<div
+							class="group bg-base-300 hover:bg-primary/40 h-1 shrink-0 cursor-row-resize {resizing
+								? 'bg-primary/60'
+								: ''}"
+							role="separator"
+							aria-orientation="horizontal"
+							aria-label="Resize the timeline"
+							tabindex="0"
+							title="Drag to resize, double-click to reset"
+							onpointerdown={startResize}
+							ondblclick={() => ui.setSize(TIMELINE, TIMELINE_DEFAULT)}
+							onkeydown={(e) => {
+								if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+									e.preventDefault();
+									setTimeline(timelineHeight + (e.key === "ArrowUp" ? 20 : -20));
+								}
+							}}
+						></div>
+						<div class="shrink-0" style="height: {timelineHeight}px">
 							<SwfTimeline {doc} {outline} />
 						</div>
 					{/if}
