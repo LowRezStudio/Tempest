@@ -109,9 +109,12 @@
 	const local = $derived(selected ? localOf(selected) : null);
 
 	/** Objects with a layer of their own (see `SwfDoc.float`). */
+	/** The display list minus the layers hidden in the editor. */
+	const shown = $derived(entries.filter((e) => !doc.hidden.includes(e.depth)));
+
 	const floats = $derived(
 		timeline
-			? entries.filter(
+			? shown.filter(
 					(e) => doc.floated.includes(e.depth) && e.clipDepth === null && !!localOf(e),
 				)
 			: [],
@@ -155,7 +158,9 @@
 		edits: doc.pending.filter(
 			(e: SwfEdit) => !(e.kind === "place" && e.sprite === sprite && readyTags.has(e.tag)),
 		),
-		exclude: ready.map((e) => e.depth),
+		exclude: [...new Set([...ready.map((e) => e.depth), ...(timeline ? doc.hidden : [])])].sort(
+			(a, b) => a - b,
+		),
 		rect: view ?? undefined,
 	});
 	const baseKey = $derived(JSON.stringify(baseRequest));
@@ -207,7 +212,7 @@
 
 	// ----- picking --------------------------------------------------------------
 
-	const pickable = $derived(entries.filter((e) => e.rect && e.clipDepth === null));
+	const pickable = $derived(shown.filter((e) => e.rect && e.clipDepth === null));
 
 	function contains(e: SwfEntry, x: number, y: number): boolean {
 		const L = e === selected ? local : null;

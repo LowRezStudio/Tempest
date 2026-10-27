@@ -454,6 +454,30 @@ export class SwfDoc {
 	}
 
 	/**
+	 * Layers (depths) left out of the stage render, by sprite (0: the root):
+	 * scaffolding the game shows or moves at runtime (hidden states, masks,
+	 * panels parked off-stage) only clutters a layout. Editor view only,
+	 * never written to the movie.
+	 */
+	hiddenBySprite = $state<Record<number, number[]>>({});
+	hidden = $derived(this.sprite !== null ? (this.hiddenBySprite[this.sprite] ?? []) : []);
+
+	/** Show or hide layers of the current timeline in the render. */
+	setHidden(depths: number[], hide: boolean): void {
+		if (this.sprite === null) return;
+		const cur = new Set(this.hiddenBySprite[this.sprite] ?? []);
+		for (const d of depths) {
+			if (hide) cur.add(d);
+			else cur.delete(d);
+		}
+		this.hiddenBySprite = {
+			...this.hiddenBySprite,
+			[this.sprite]: [...cur].sort((a, b) => a - b),
+		};
+		if (hide && this.depth !== null && cur.has(this.depth)) this.depth = null;
+	}
+
+	/**
 	 * Objects of the current timeline frame drawn on layers of their own
 	 * (by `sprite|frame`): an object gets one when it is first edited and
 	 * keeps it, so moving, scaling or fading it never re-renders the frame.

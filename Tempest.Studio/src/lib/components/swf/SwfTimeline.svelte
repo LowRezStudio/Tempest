@@ -3,10 +3,12 @@
 	labels and frame scripts when there is more than one frame, then the
 	display list of the current frame. A row selects the object (the stage
 	highlights it), double-click opens its character. Objects outside the
-	stage and objects with pending edits are marked.
+	stage and objects with pending edits are marked. The eye column hides a
+	layer from the stage render (editor only, the movie is not changed), with
+	show all / hide all / hide off-stage above the list.
 -->
 <script lang="ts">
-	import { EyeOff, FileCode, Pencil } from "@lucide/svelte";
+	import { Eye, EyeOff, FileCode, Pencil } from "@lucide/svelte";
 	import { inField, reveal, step } from "$lib/studio/keys";
 	import { decompose, type SwfDoc } from "$lib/studio/swf.svelte";
 	import type { SwfEntry, SwfRect } from "../../../../electron/src/ipc/contract";
@@ -33,6 +35,11 @@
 			r.y + r.h <= outline.y
 		);
 	}
+
+	const offStageDepths = $derived(
+		doc.entries.filter((e) => offStage(e) && !doc.hidden.includes(e.depth)).map((e) => e.depth),
+	);
+	const hiddenHere = $derived(doc.entries.filter((e) => doc.hidden.includes(e.depth)).length);
 
 	function hidden(e: SwfEntry): boolean {
 		return (e.cxform?.mul[3] ?? 1) === 0;
@@ -95,11 +102,46 @@
 				>{/if}
 		</div>
 	{/if}
+	<div class="border-base-300 flex items-center gap-1 border-b px-2 py-0.5">
+		<span class="opacity-60"
+			>{doc.entries.length} layer{doc.entries.length === 1 ? "" : "s"}{doc.hidden.length > 0
+				? ` · ${hiddenHere} hidden in the view`
+				: ""}</span
+		>
+		<div class="flex-1"></div>
+		<button
+			class="btn btn-ghost btn-xs"
+			title="Hide every layer that lies entirely outside the stage"
+			disabled={offStageDepths.length === 0}
+			onclick={() => doc.setHidden(offStageDepths, true)}
+			><EyeOff size={11} /> Hide off-stage{offStageDepths.length > 0
+				? ` (${offStageDepths.length})`
+				: ""}</button
+		>
+		<button
+			class="btn btn-ghost btn-xs"
+			title="Hide every layer (then tick the ones to look at)"
+			onclick={() =>
+				doc.setHidden(
+					doc.entries.map((e) => e.depth),
+					true,
+				)}><EyeOff size={11} /> Hide all</button
+		>
+		<button
+			class="btn btn-ghost btn-xs"
+			title="Show every layer again"
+			disabled={doc.hidden.length === 0}
+			onclick={() => doc.setHidden(doc.hidden, false)}><Eye size={11} /> Show all</button
+		>
+	</div>
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="min-h-0 flex-1 overflow-auto" onkeydown={onKeyDown}>
 		<table class="table-xs table-pin-rows table font-mono">
 			<thead>
 				<tr>
+					<th class="w-6" title="Shown in the stage render (editor only)"
+						><Eye size={11} /></th
+					>
 					<th>depth</th>
 					<th>name</th>
 					<th>character</th>
@@ -118,12 +160,28 @@
 					<tr
 						class="cursor-pointer {e.depth === doc.depth
 							? 'bg-primary/20'
-							: 'hover:bg-base-300'}"
+							: 'hover:bg-base-300'} {doc.hidden.includes(e.depth)
+							? 'opacity-45'
+							: ''}"
 						data-swf-depth={e.depth}
 						tabindex="-1"
 						onclick={() => (doc.depth = e.depth)}
 						ondblclick={() => doc.openCharacter(e.character)}
 					>
+						<td>
+							<input
+								type="checkbox"
+								class="checkbox checkbox-xs"
+								checked={!doc.hidden.includes(e.depth)}
+								title={doc.hidden.includes(e.depth)
+									? "Hidden in the stage render: tick to show it"
+									: "Untick to hide it in the stage render (the movie is not changed)"}
+								onclick={(ev) => ev.stopPropagation()}
+								ondblclick={(ev) => ev.stopPropagation()}
+								onchange={(ev) =>
+									doc.setHidden([e.depth], !ev.currentTarget.checked)}
+							/>
+						</td>
 						<td class="opacity-60">
 							{e.depth}{#if e.clipDepth !== null}<span
 									title="mask up to depth {e.clipDepth}">⌁{e.clipDepth}</span
@@ -170,7 +228,7 @@
 						>
 					</tr>
 				{:else}
-					<tr><td colspan="9" class="opacity-60">Nothing on this frame.</td></tr>
+					<tr><td colspan="10" class="opacity-60">Nothing on this frame.</td></tr>
 				{/each}
 			</tbody>
 		</table>
