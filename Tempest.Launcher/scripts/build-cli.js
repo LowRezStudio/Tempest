@@ -30,6 +30,15 @@ for (const f of files) {
 	}
 }
 
+// The upk tool applies mod deltas (deltas/<game path>.tdelta package entries)
+// for tempest-cli, which looks for it next to its own executable.
+await $`cargo build --release -p tempest-assets`.cwd(path.join(root, "..", "Tempest.UnrealScript"));
+const upkName = process.platform === "win32" ? "upk.exe" : "upk";
+fs.copyFileSync(
+	path.join(root, "..", "Tempest.UnrealScript", "target", "release", upkName),
+	path.join(binariesDir, upkName),
+);
+
 // Zig <0.16 on macOS 26 needs the zign wrapper to link (same rule as the
 // justfile's utils recipes); override with ZIG=.
 const zig =

@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { AppWindow, Clock, FolderOpen, Package } from "@lucide/svelte";
+	import { AppWindow, Clock, FileUp, FolderOpen, PackageOpen } from "@lucide/svelte";
 	import { onMount } from "svelte";
 	import { invoke, pickDirectory, pickFile, PACKAGE_FILTERS } from "$lib/platform/api";
+	import { basename } from "$lib/studio/format";
+	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
 
 	let backend = $state<{ running: boolean; binary: string | null; error: string | null } | null>(
@@ -27,10 +29,10 @@
 	}
 </script>
 
-<div class="flex h-full items-center justify-center">
-	<div class="w-[34rem] space-y-6">
+<div class="flex h-full items-center justify-center overflow-y-auto p-6">
+	<div class="w-[min(36rem,100%)] space-y-6">
 		<div class="flex items-center gap-3">
-			<Package size={36} class="text-primary" />
+			<img src="/studio-icon.png" alt="" class="h-12 w-12" />
 			<div>
 				<h1 class="text-2xl font-bold">Tempest Studio</h1>
 				<p class="text-sm opacity-70">Browse, extract and edit Paladins packages.</p>
@@ -55,13 +57,19 @@
 			<FolderOpen size={18} />
 			Open cooked folder…
 		</button>
-		<button
-			class="btn btn-ghost btn-sm w-full"
-			onclick={openFile}
-			disabled={studio.busy !== null}
-		>
-			Open a single package file…
-		</button>
+		<div class="grid grid-cols-2 gap-2">
+			<button
+				class="btn btn-sm"
+				onclick={() => session.pickAndOpen()}
+				disabled={studio.busy !== null}
+				title="A .twrk saved from the Studio: unsaved changes, open package, tabs and layout"
+			>
+				<PackageOpen size={15} /> Open workspace file…
+			</button>
+			<button class="btn btn-sm" onclick={openFile} disabled={studio.busy !== null}>
+				<FileUp size={15} /> Open a package file…
+			</button>
+		</div>
 		{#if studio.pendingFiles.length > 0}
 			<div class="alert alert-info text-xs">
 				<span
@@ -76,18 +84,46 @@
 			<code>.tfc</code> caches.
 		</p>
 
+		{#if session.recents.length > 0}
+			<div>
+				<div
+					class="mb-1 flex items-center gap-1 text-xs font-semibold uppercase opacity-60"
+				>
+					<PackageOpen size={12} /> Recent workspace files
+				</div>
+				<ul class="menu rounded-box bg-base-200 w-full overflow-hidden p-1">
+					{#each session.recents as file (file)}
+						<li>
+							<button
+								class="flex-col items-start gap-0"
+								onclick={() => session.open(file)}
+								disabled={studio.busy !== null}
+								title={file}
+							>
+								<span class="font-semibold">{basename(file)}</span>
+								<span class="max-w-full truncate font-mono text-[11px] opacity-60"
+									>{file}</span
+								>
+							</button>
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+
 		{#if studio.recents.length > 0}
 			<div>
 				<div
 					class="mb-1 flex items-center gap-1 text-xs font-semibold uppercase opacity-60"
 				>
-					<Clock size={12} /> Recent
+					<Clock size={12} /> Recent game folders
 				</div>
-				<ul class="menu rounded-box bg-base-200 w-full p-1">
+				<ul class="menu rounded-box bg-base-200 w-full overflow-hidden p-1">
 					{#each studio.recents as dir (dir)}
-						<li class="flex-row items-center">
+						<li class="min-w-0 flex-row flex-nowrap items-center">
 							<button
-								class="flex-1 font-mono text-xs"
+								class="min-w-0 flex-1 truncate font-mono text-xs"
+								title={dir}
 								onclick={() => studio.openWorkspace(dir)}
 								disabled={studio.busy !== null}
 							>

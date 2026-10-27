@@ -422,6 +422,19 @@ export type McsDoc = {
 export type McsSummary = { tokens: string; fields: number; docs: McsDoc[] };
 /** A row set address: field names and row indices from the document root. */
 export type McsPath = [string, number][];
+
+/** Linked: deltas against the game folder (small); portable: whole files (opens anywhere). */
+export type TwrkMode = "linked" | "portable";
+export type TwrkFile = {
+	kind: "upk" | "mcts";
+	path: string;
+	rel: string | null;
+	stored: "delta" | "full";
+	entry: string;
+	bytes: number;
+	doc?: string;
+	unchanged?: boolean;
+};
 export type McsRowsPage = {
 	total: number;
 	offset: number;
@@ -537,13 +550,27 @@ export interface UpkMethods {
 	"package.discard": { params: { path: string }; result: boolean };
 	"object.get": { params: Target; result: ParsedObject };
 	"object.text": { params: Target; result: string };
-	"object.set": { params: Target & { prop: string; value: string }; result: ParsedObject };
+	"object.set": {
+		params: Target & { prop: string; value: string };
+		result: ParsedObject;
+	};
+	/** Add / duplicate / remove an array element, or reset a property to its class default. */
+	"object.list": {
+		params: Target & {
+			prop: string;
+			op: "add" | "duplicate" | "remove" | "removeProperty";
+			at?: number;
+		};
+		result: ParsedObject;
+	};
 	"object.rename": { params: Target & { name: string }; result: ExportRow };
 	"object.delete": { params: { path: string; indices: number[] }; result: { cleared: number } };
 	"object.copy": {
 		params: { src: string; index: number; dst: string; outer?: number | "top"; deep?: boolean };
 		result: { index: number; path: string; warnings: string[] };
 	};
+	/** A copy of an export next to it (`…_copy`), same payload, no sub-objects. */
+	"object.duplicate": { params: Target; result: { index: number; path: string } };
 	"object.deps": { params: Target; result: Deps };
 	"object.extract": { params: Target & { out: string }; result: { out: string; bytes: number } };
 	"texture.info": { params: Target; result: TextureInfo };
@@ -654,6 +681,33 @@ export interface UpkMethods {
 		params: { doc: string; path?: McsPath; table: string; index?: number; clone?: number };
 		result: McsStatus & { index: number };
 	};
+	/**
+	 * Append a row at the end of a row set: empty (the last row's shape) or a copy of `clone`;
+	 * the set's id column gets a fresh id, nested sets are renumbered and, with `messages`
+	 * (default true), the copy's `*_MSG_ID`s get new messages with the same texts.
+	 */
+	"mcts.addRow": {
+		params: {
+			doc: string;
+			path?: McsPath;
+			table: string;
+			clone?: number;
+			/** A row as JSON (paste): used instead of `clone`. */
+			row?: Record<string, unknown>;
+			messages?: boolean;
+		};
+		result: McsStatus & {
+			index: number;
+			key: string | null;
+			id: number | null;
+			messages: { field: string; from: number; to: number }[];
+		};
+	};
+	/** Rows that refer to an id (same id family: BOT_ID, REF_BOT_ID…), at most 500. */
+	"mcts.usages": {
+		params: { doc?: string; field: string; value: number };
+		result: { usages: { path: McsPath; field: string; label: string }[]; truncated: boolean };
+	};
 	"mcts.delete": { params: { doc: string; path: McsPath }; result: McsStatus };
 	"mcts.undo": { params: { doc: string }; result: McsStatus & { undone: string | null } };
 	"mcts.save": { params: { doc: string; out?: string }; result: McsStatus & { out: string } };
@@ -684,6 +738,8 @@ export interface UpkMethods {
 			msg: number;
 			deviceMode: number;
 			skin: number;
+			/** The id range in force (`mcts.idRange`), when one is set. */
+			range: { start: number; end: number } | null;
 		};
 	};
 	/** Clone a device/card (DEVICE_ID), item (ITEM_ID) or champion (BOT_ID) with fresh ids and new messages. */
@@ -712,6 +768,24 @@ export interface UpkMethods {
 			items?: unknown[];
 		};
 	};
+	/** The Champion Vendor loot table (475, what the client lists as champions) against the champion bots. */
+	"mcts.vendor": {
+		params: Record<string, never>;
+		result: {
+			table: number;
+			/** Row index of the loot table in DATA_SET_LOOT_TABLES, null when the table is absent. */
+			index: number | null;
+			total: number;
+			active: number;
+			listed: { bot: number | null; item: number; active: boolean }[];
+			missing: { bot: number; item: number; reference: string; name: string }[];
+		};
+	};
+	/** Add a champion's Character Class item to the Champion Vendor. */
+	"mcts.vendorAdd": {
+		params: { bot: number };
+		result: { bot: number; item: number; vendor: McsPath | null; existed: boolean };
+	};
 	/** The GET_PROFILE_CLASSES row and inventory items of a champion, for the private server. */
 	"mcts.serverRows": {
 		params: { bot: number };
@@ -729,8 +803,21 @@ export interface UpkMethods {
 			devices?: number[];
 			allLanguages?: boolean;
 			package?: string;
+			/** Ship the .dat files whose base is recorded as row deltas (default true). */
+			deltas?: boolean;
 		};
-		result: { dir: string; files: string[]; classes: string[]; package: string };
+		result: {
+			dir: string;
+			files: string[];
+			deltas: { file: string; ops: number; bytes: number }[];
+			classes: string[];
+			package: string;
+		};
+	};
+	/** New ids come from `start..end` (a per-mod range so two Studio-made mods never collide); both absent clears it. */
+	"mcts.idRange": {
+		params: { start?: number; end?: number };
+		result: UpkMethods["mcts.nextIds"]["result"];
 	};
 	"mcts.close": { params: Record<string, never>; result: boolean };
 	/** Tags, texts, scripts and external images of a Scaleform movie export. */
@@ -808,9 +895,85 @@ export interface UpkMethods {
 			dirty: boolean;
 		};
 	};
+	/** Write the session's unsaved packages and marshal files to a workspace file. */
+	"twrk.save": {
+		params: { out: string; mode: TwrkMode; state: unknown; include?: string[] };
+		result: {
+			out: string;
+			mode: TwrkMode;
+			files: TwrkFile[];
+			size: number;
+			warnings: string[];
+		};
+	};
+	/** A workspace file's manifest, without applying it. */
+	"twrk.read": {
+		params: { path: string };
+		result: {
+			format: number;
+			mode: TwrkMode;
+			gameDir: string;
+			saved: number;
+			files: TwrkFile[];
+			state: unknown;
+		};
+	};
+	/** Put a workspace file's changes into the open workspace (all unsaved afterwards). */
+	"twrk.apply": {
+		params: { path: string };
+		result: {
+			packages: { path: string; stored: "delta" | "full"; changes: number; dirty: boolean }[];
+			docs: string[];
+			extras: string[];
+			problems: string[];
+			state: unknown;
+			mode: TwrkMode;
+		};
+	};
+	/** What a mod made from this workspace could hold (unsaved edits, files saved since their base). */
+	"mod.changes": {
+		params: Record<string, never>;
+		result: {
+			files: {
+				path: string;
+				kind: "upk" | "mcts";
+				doc?: string;
+				state: "unsaved" | "saved";
+				rel: string;
+				base: boolean;
+				script: boolean;
+			}[];
+		};
+	};
+	/** Write a launcher mod folder (manifest, README, icon, deltas/files, extra files). */
+	"mod.cook": {
+		params: {
+			dir: string;
+			id: string;
+			name: string;
+			version: string;
+			authors: { name: string; link: string }[];
+			readme?: string;
+			dependencies?: string[];
+			icon?: string;
+			items: { path: string; kind: "upk" | "mcts"; doc?: string; mode: "delta" | "whole" }[];
+			extras: { src: string; dest: string }[];
+		};
+		result: {
+			dir: string;
+			entries: {
+				file: string;
+				entry?: string;
+				mode: "delta" | "whole" | "unchanged" | "extra";
+				ops?: number;
+				warnings?: string[];
+			}[];
+		};
+	};
 	"batch.plan": { params: { dir: string; recursive?: boolean }; result: BatchResult };
 	"batch.run": {
-		params: { dir: string; recursive?: boolean; outDir?: string };
+		/** `packages`: the package files (paths from the plan) to write; every touched one when absent. */
+		params: { dir: string; recursive?: boolean; outDir?: string; packages?: string[] };
 		result: BatchResult;
 	};
 	"mod.dir": {
@@ -821,9 +984,53 @@ export interface UpkMethods {
 			version?: string;
 			author?: string;
 			files: string[];
+			/** Ship files whose base is recorded as deltas (default true); false copies every file whole. */
+			deltas?: boolean;
 		};
-		result: { dir: string; files: string[] };
+		result: { dir: string; files: string[]; entries: ModDirEntry[] };
 	};
+	/** Is the file's base (its state before the first in-place save) recorded, so a delta can be made? */
+	"delta.status": { params: { path: string }; result: DeltaStatus };
+	/** Take the file as it is now as the base (replacing any earlier record). */
+	"delta.record": { params: { path: string }; result: DeltaStatus & { ms: number } };
+	"delta.reset": { params: { path: string }; result: boolean };
+	"delta.info": {
+		params: { file: string };
+		result: { kind: string; target: string; header: Record<string, unknown> };
+	};
+	/** One delta file from a game file and its recorded base. */
+	"delta.create": {
+		params: { path: string; out: string; target?: string };
+		result: {
+			out: string;
+			target: string;
+			kind: string;
+			ops: { op: string; path: string; class: string }[];
+			tables: unknown;
+			bytes: number;
+			warnings: string[];
+		};
+	};
+}
+
+/** How one file went into a mod folder (`mod.dir`). */
+export interface ModDirEntry {
+	/** Game-relative path (`ChaosGame/CookedPCConsole/Foo.upk`). */
+	file: string;
+	/** `delta`: only what changed; `copy`: the whole file (no base recorded); `unchanged`: skipped. */
+	mode: "delta" | "copy" | "unchanged";
+	ops: number;
+	bytes: number;
+	warnings: string[];
+}
+
+export interface DeltaStatus {
+	recorded: boolean;
+	/** Unix seconds when the base was recorded. */
+	when?: number;
+	size?: number;
+	objects?: number;
+	target?: string;
 }
 
 export type UpkMethod = keyof UpkMethods;
@@ -885,6 +1092,30 @@ export interface IpcContract {
 	"window:new": { args: WindowStartup; result: void };
 	/** What this window was asked to open when it was created; `done` clears it once applied. */
 	"window:startup": { args: { done?: boolean }; result: WindowStartup | null };
+
+	/**
+	 * The crash-recovery workspace file of a game folder (`<userData>/recovery/<hash>.twrk`):
+	 * its path and, when it exists, its modification time; `clear` deletes it.
+	 */
+	"workspace:recovery": {
+		args: { dir: string; clear?: boolean };
+		result: { path: string; exists: boolean; mtime: number | null };
+	};
+
+	/** tempest-cli for the mod cooker: where it is and whether a signing key exists. */
+	"cli:status": {
+		args: Record<string, never>;
+		result: { path: string | null; available: boolean; signingKey: string; hasKey: boolean };
+	};
+	/** Run `tempest-cli mod <args>` (pack, sign, verify, install, publish, login, gen-key…). */
+	"cli:mod": {
+		args: { args: string[] };
+		result: { code: number; stdout: string; stderr: string };
+	};
+	/** A fresh staging folder path for a cooked mod. */
+	"cli:staging": { args: { id: string }; result: string };
+	/** Zoom the window's content (UI scale), 0.6–2. */
+	"window:zoom": { args: { factor: number }; result: void };
 
 	"dialog:open": { args: OpenDialogOptions; result: string[] | null };
 	"dialog:save": { args: SaveDialogOptions; result: string | null };

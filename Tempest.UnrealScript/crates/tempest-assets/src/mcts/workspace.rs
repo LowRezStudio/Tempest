@@ -20,6 +20,8 @@ pub struct Workspace {
     /// the edit count it was built at.
     msg_index: HashMap<String, (usize, HashMap<u64, usize>)>,
     edits: HashMap<String, usize>,
+    /// `start..end` new ids are taken from (`mcts.idRange`); none = past the largest in use.
+    pub id_range: Option<(u64, u64)>,
 }
 
 /// `Lang_<EXT>.dat` files under a `Localization` folder next to the cooked folder.
@@ -64,7 +66,7 @@ impl Workspace {
         if docs.is_empty() {
             return Err(Error::Format(format!("no assembly.dat or Localization/*/Lang_*.dat next to {}", cooked.display())));
         }
-        Ok(Workspace { dir: cooked.to_path_buf(), tokens, docs, msg_index: HashMap::new(), edits: HashMap::new() })
+        Ok(Workspace { dir: cooked.to_path_buf(), tokens, docs, msg_index: HashMap::new(), edits: HashMap::new(), id_range: None })
     }
 
     pub fn doc(&self, id: &str) -> Result<&Doc> {
@@ -192,7 +194,7 @@ impl Workspace {
         Ok(full_row(&self.tokens, doc.row_at(&path)?))
     }
 
-    fn status(&self, id: &str) -> Result<J> {
+    pub(crate) fn status(&self, id: &str) -> Result<J> {
         let doc = self.doc(id)?;
         Ok(json!({ "doc": id, "dirty": doc.dirty, "undo": doc.undo_labels() }))
     }

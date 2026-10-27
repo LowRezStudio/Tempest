@@ -44,6 +44,15 @@ public class ModV2Installer : IModInstaller
                 if (IsSameOrBelow(dest, tempestDir, StringComparison.OrdinalIgnoreCase))
                     throw new Exception($"'{relativePath}' would write into the game's .tempest folder.");
             }
+            else if (relativePath.StartsWith("deltas/", StringComparison.OrdinalIgnoreCase))
+            {
+                // `deltas/<game path>.tdelta` is applied to that game file.
+                var target = DeltaResolver.TargetOf(relativePath) ?? throw new Exception($"'{relativePath}' is not a delta (expected deltas/<game path>.tdelta).");
+                var dest = ResolveUnder(resolvedGame, target);
+                if (IsSameOrBelow(dest, tempestDir, StringComparison.OrdinalIgnoreCase))
+                    throw new Exception($"'{relativePath}' would change a file in the game's .tempest folder.");
+                ResolveUnder(targetModDir, relativePath);
+            }
             else
             {
                 ResolveUnder(targetModDir, relativePath);
@@ -88,6 +97,66 @@ public class ModV2Installer : IModInstaller
         return found;
     }
 
+    /// <summary>
+    /// Files an install would overwrite or delete (the package's destinations, the mod's folder,
+    /// and the files and folders of <paramref name="removedMods"/>) that another process holds
+    /// open without sharing write access, relative to the game folder. Windows only: elsewhere an
+    /// open file does not stop it being replaced.
+    /// </summary>
+    private static List<string> FindFilesInUse(ZipArchive archive, string resolvedGame, string targetModDir, IEnumerable<ModRecord> removedMods)
+    {
+        if (!OperatingSystem.IsWindows()) return [];
+
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void AddFolder(string dir)
+        {
+            if (!Directory.Exists(dir)) return;
+            foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)) candidates.Add(file);
+        }
+
+        foreach (var entry in archive.Entries)
+        {
+            if (IsDirectoryEntry(entry)) continue;
+            var relativePath = NormalizeEntryPath(entry.FullName);
+            candidates.Add(relativePath.StartsWith("files/", StringComparison.OrdinalIgnoreCase)
+                ? ResolveUnder(resolvedGame, relativePath["files/".Length..])
+                : ResolveUnder(targetModDir, relativePath));
+            // The game file a delta rebuilds is rewritten too.
+            if (DeltaResolver.TargetOf(relativePath) is { } target) candidates.Add(ResolveUnder(resolvedGame, target));
+        }
+        AddFolder(targetModDir);
+        foreach (var mod in removedMods)
+        {
+            foreach (var file in mod.OwnedFiles) candidates.Add(Path.GetFullPath(file, resolvedGame));
+            AddFolder(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id));
+        }
+
+        return candidates
+            .Where(file => File.Exists(file) && IsInUse(file))
+            .Select(file => Path.GetRelativePath(resolvedGame, file).Replace('\\', '/'))
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>Another process has the file open without letting others write it (sharing or lock violation, or a mapped image such as a loaded DLL).</summary>
+    private static bool IsInUse(string file)
+    {
+        try
+        {
+            using var _ = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+            return false;
+        }
+        catch (IOException ex) when ((ex.HResult & 0xFFFF) is 32 or 33 or 1224)
+        {
+            return true;
+        }
+        catch
+        {
+            // Read-only or inaccessible: not something waiting for the game fixes.
+            return false;
+        }
+    }
+
     private static async Task<string> ReadEntryAsync(ZipArchiveEntry entry)
     {
         using var reader = new StreamReader(await entry.OpenAsync(), Encoding.UTF8);
@@ -97,7 +166,8 @@ public class ModV2Installer : IModInstaller
     public Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted, ModLock modLock) =>
         InstallAsync(gamePath, modFilePath, replace, stack, allowUntrusted, modLock, ignoreTempestVersion: false);
 
-    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted, ModLock modLock, bool ignoreTempestVersion)
+    /// <param name="defer">Stop after every check passed, before anything is written, with a <see cref="ModInstallResult.Deferred"/> result.</param>
+    public async Task<ModInstallResult> InstallAsync(string gamePath, string modFilePath, bool replace, bool stack, bool allowUntrusted, ModLock modLock, bool ignoreTempestVersion, bool defer = false)
     {
         var resolvedGame = GameFolderResolver.Resolve(gamePath);
 
@@ -201,6 +271,31 @@ public class ModV2Installer : IModInstaller
                     newRelativeFilesList.Add(normalized);
             }
 
+            // Deltas conflict per object or row, not per file: two mods changing different
+            // objects of the same package both install. Keys by game-relative target.
+            var newDeltas = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in archive.Entries)
+            {
+                if (IsDirectoryEntry(entry)) continue;
+                var target = DeltaResolver.TargetOf(NormalizeEntryPath(entry.FullName));
+                if (target == null) continue;
+                List<string> keys;
+                try
+                {
+                    await using var stream = await entry.OpenAsync();
+                    using var buffer = new MemoryStream();
+                    await stream.CopyToAsync(buffer);
+                    buffer.Position = 0;
+                    keys = DeltaResolver.Keys(buffer);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"'{entry.FullName}' is not a readable delta: {ex.Message}");
+                }
+                if (!newDeltas.TryGetValue(target, out var set)) newDeltas[target] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                set.UnionWith(keys);
+            }
+
             // ID collision — same modId already installed (component-level conflict)
             ModInstallResult IdConflict()
             {
@@ -237,6 +332,100 @@ public class ModV2Installer : IModInstaller
             var idInstalled = Directory.Exists(targetModDir);
             if (idInstalled && !replace) return IdConflict();
 
+            // File-overlap detection: compare new mod's files against every installed mod's OwnedFiles
+            // (files they currently manage, not just historically installed). Only reads: the mod
+            // being replaced (same id) is skipped, so it may still be installed at this point.
+            var metadataMods = ModCommands.LoadMetadata(gamePath);
+            var conflicts = new List<ModConflictInfo>();
+            foreach (var existingMod in metadataMods)
+            {
+                if (string.Equals(existingMod.Id, modId, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var overlapping = new List<string>();
+                foreach (var ownedFile in existingMod.OwnedFiles)
+                {
+                    var ext = Path.GetExtension(ownedFile).ToLowerInvariant();
+                    if (ext == ".ini") continue;
+                    string relativeExisting;
+                    try { relativeExisting = Path.GetRelativePath(resolvedGame, ownedFile).Replace('\\', '/'); }
+                    catch { continue; }
+                    if (newRelativeFiles.Contains(relativeExisting))
+                        overlapping.Add(relativeExisting);
+                }
+                // Both mods change the same object or row of a delta-managed file.
+                foreach (var deltaFile in existingMod.DeltaFiles)
+                {
+                    string relativeExisting;
+                    try { relativeExisting = Path.GetRelativePath(resolvedGame, deltaFile).Replace('\\', '/'); }
+                    catch { continue; }
+                    if (!newDeltas.TryGetValue(relativeExisting, out var newKeys)) continue;
+                    var existingDelta = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, existingMod.Id), "deltas", relativeExisting + ".tdelta");
+                    if (!File.Exists(existingDelta)) continue;
+                    List<string> existingKeys;
+                    try
+                    {
+                        await using var stream = File.OpenRead(existingDelta);
+                        existingKeys = DeltaResolver.Keys(stream);
+                    }
+                    catch { continue; }
+                    foreach (var key in existingKeys.Where(newKeys.Contains).Order(StringComparer.OrdinalIgnoreCase))
+                        overlapping.Add($"{relativeExisting}: {key}");
+                }
+                if (overlapping.Count > 0)
+                {
+                    conflicts.Add(new ModConflictInfo
+                    {
+                        ModId = existingMod.Id,
+                        ModName = existingMod.Name,
+                        ModVersion = existingMod.Version,
+                        ConflictingFiles = overlapping
+                    });
+                }
+            }
+
+            if (conflicts.Count > 0 && !replace && !stack)
+            {
+                var names = string.Join(", ", conflicts.Select(c => $"'{c.ModName}'"));
+                var files = string.Join(", ", conflicts.SelectMany(c => c.ConflictingFiles).Distinct(StringComparer.OrdinalIgnoreCase));
+                return new ModInstallResult
+                {
+                    Success = false,
+                    Conflict = true,
+                    IsModConflict = true,
+                    Message = $"Mod '{manifest.Name}' conflicts with {names} (overlapping files: {files}).",
+                    ConflictingMods = conflicts,
+                    NewModName = manifest.Name
+                };
+            }
+
+            // Nothing on disk has changed yet. A file the install would overwrite or delete that
+            // another process holds open (a running game keeps its DLLs and packages open) would
+            // make it fail halfway, with the replaced mod already gone; refuse it whole instead.
+            var removedMods = metadataMods.Where(m =>
+                string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase) ||
+                replace && conflicts.Any(c => string.Equals(c.ModId, m.Id, StringComparison.OrdinalIgnoreCase)));
+            var inUse = FindFilesInUse(archive, resolvedGame, targetModDir, removedMods);
+            if (inUse.Count > 0)
+            {
+                var shownFiles = string.Join(", ", inUse.Take(3)) + (inUse.Count > 3 ? $" and {inUse.Count - 3} more" : "");
+                return new ModInstallResult
+                {
+                    Success = false,
+                    FilesInUse = true,
+                    LockedFiles = inUse,
+                    Message = $"'{manifest.Name}' cannot be installed while {shownFiles} {(inUse.Count == 1 ? "is" : "are")} in use, most likely by the running game. Close it and install again.",
+                };
+            }
+            if (defer)
+            {
+                return new ModInstallResult
+                {
+                    Success = false,
+                    Deferred = true,
+                    Message = $"'{manifest.Name}' can be installed; nothing was written (--defer).",
+                };
+            }
+
             // An update or reinstall stays where the mod was first added.
             DateTime? installedAt = null;
             if (idInstalled)
@@ -256,54 +445,8 @@ public class ModV2Installer : IModInstaller
                 }
             }
 
-            // File-overlap detection: compare new mod's files against every installed mod's OwnedFiles
-            // (files they currently manage, not just historically installed)
-            var metadataMods = ModCommands.LoadMetadata(gamePath);
-            var conflicts = new List<ModConflictInfo>();
-            foreach (var existingMod in metadataMods)
-            {
-                if (string.Equals(existingMod.Id, modId, StringComparison.OrdinalIgnoreCase)) continue;
-
-                var overlapping = new List<string>();
-                foreach (var ownedFile in existingMod.OwnedFiles)
-                {
-                    var ext = Path.GetExtension(ownedFile).ToLowerInvariant();
-                    if (ext == ".ini") continue;
-                    string relativeExisting;
-                    try { relativeExisting = Path.GetRelativePath(resolvedGame, ownedFile).Replace('\\', '/'); }
-                    catch { continue; }
-                    if (newRelativeFiles.Contains(relativeExisting))
-                        overlapping.Add(relativeExisting);
-                }
-                if (overlapping.Count > 0)
-                {
-                    conflicts.Add(new ModConflictInfo
-                    {
-                        ModId = existingMod.Id,
-                        ModName = existingMod.Name,
-                        ModVersion = existingMod.Version,
-                        ConflictingFiles = overlapping
-                    });
-                }
-            }
-
             if (conflicts.Count > 0)
             {
-                if (!replace && !stack)
-                {
-                    var names = string.Join(", ", conflicts.Select(c => $"'{c.ModName}'"));
-                    var files = string.Join(", ", conflicts.SelectMany(c => c.ConflictingFiles).Distinct(StringComparer.OrdinalIgnoreCase));
-                    return new ModInstallResult
-                    {
-                        Success = false,
-                        Conflict = true,
-                        IsModConflict = true,
-                        Message = $"Mod '{manifest.Name}' conflicts with {names} (overlapping files: {files}).",
-                        ConflictingMods = conflicts,
-                        NewModName = manifest.Name
-                    };
-                }
-
                 if (replace)
                 {
                     // replace requested — remove all conflicting mods before installing new one
@@ -451,6 +594,8 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
             var ownedFiles = installedFiles
                 .Where(f => Path.GetExtension(f).ToLowerInvariant() != ".ini")
                 .ToList();
+            // The game files the deltas apply to; built by the resolver once this record is saved.
+            var deltaFiles = newDeltas.Keys.Select(t => ResolveUnder(resolvedGame, t)).Order(StringComparer.OrdinalIgnoreCase).ToList();
 
             var modRecord = new ModRecord
             {
@@ -464,6 +609,7 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
                 OriginalPath = modFilePath,
                 InstalledFiles = installedFiles,
                 OwnedFiles = ownedFiles,
+                DeltaFiles = deltaFiles,
                 MetadataVersion = 2,
                 Readme = manifest.Readme,
                 Signer = verification.Key == null ? "" : ModSigning.Fingerprint(verification.Key),

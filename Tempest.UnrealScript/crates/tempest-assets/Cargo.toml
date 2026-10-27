@@ -18,6 +18,9 @@ tempest-unrealscript = { path = "../tempest-unrealscript" }
 md-5 = "0.10"
 png = "0.17"
 texpresso = "2.0"
-serde_json = "1"
+# preserve_order: marshal rows travel through JSON (deltas, import/export) and
+# must come back with their fields in the original order to rewrite byte-identically.
+serde_json = { version = "1", features = ["preserve_order"] }
 flate2 = "1"
 vorbis_rs = "0.5"
+zip = { version = "2", default-features = false, features = ["deflate"] }

@@ -187,8 +187,15 @@ export interface IpcContract {
 		args: { program: string; args: string[]; options?: SpawnOptions; sidecar?: boolean };
 		result: { pid: number };
 	};
+	/** With `streamId`, stderr is also forwarded as it arrives, as `shell:execute-stderr` events tagged with it. */
 	"shell:execute": {
-		args: { program: string; args: string[]; options?: SpawnOptions; sidecar?: boolean };
+		args: {
+			program: string;
+			args: string[];
+			options?: SpawnOptions;
+			sidecar?: boolean;
+			streamId?: string;
+		};
 		result: ShellExecuteResult;
 	};
 	"shell:kill": { args: { pid: number }; result: void };
@@ -276,6 +283,15 @@ export interface IpcContract {
 		result: { dir: string; saved: string[] } | null;
 	};
 	"mods:discard-staged-pack": { args: { stagedPath: string }; result: void };
+	/**
+	 * Copies a package into the install queue's folder (keeping its file name), so a queued
+	 * install still has it when it runs, whatever happens to the original. Returns the copy.
+	 */
+	"mods:queue-stage": { args: { path: string }; result: string };
+	/** Deletes a copy `mods:queue-stage` made; other paths are ignored. */
+	"mods:queue-discard": { args: { path: string }; result: void };
+	/** Deletes every copy in the install queue's folder except `keep`. */
+	"mods:queue-prune": { args: { keep: string[] }; result: void };
 	"mods:open-location": { args: { gamePath: string; mod: ModLocation }; result: void };
 	"mods:has-dlls": { args: { gamePath: string; modId: string }; result: boolean };
 	/** The per-mod TOML config, or null when the mod has no config file. */
@@ -338,6 +354,7 @@ export interface IpcEvents {
 	"tray:navigate": { route: string };
 	/** Child-process stream events, demultiplexed by pid. */
 	"shell:process": ShellProcessEvent;
+	"shell:execute-stderr": { id: string; data: string };
 	"updater:download-progress": UpdaterProgress;
 	/** `total` is null when the server sends no Content-Length. */
 	"mods:download-progress": { id: string; received: number; total: number | null };

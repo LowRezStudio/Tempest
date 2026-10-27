@@ -79,10 +79,10 @@ handle("shell:spawn", (event, { program, args, options, sidecar }) => {
 	return { pid: id };
 });
 
-handle("shell:execute", (_event, { program, args, options, sidecar }) => {
+handle("shell:execute", (event, { program, args, options, sidecar, streamId }) => {
 	const resolvedProgram = sidecar ? resolveSidecar(program) : program;
 	return new Promise((resolve) => {
-		execFile(
+		const child = execFile(
 			resolvedProgram,
 			args,
 			{
@@ -97,6 +97,11 @@ handle("shell:execute", (_event, { program, args, options, sidecar }) => {
 				resolve({ code, signal: err?.signal ?? null, stdout, stderr });
 			},
 		);
+		if (streamId) {
+			child.stderr?.on("data", (data: string | Buffer) => {
+				send(event.sender, "shell:execute-stderr", { id: streamId, data: data.toString() });
+			});
+		}
 	});
 });
 

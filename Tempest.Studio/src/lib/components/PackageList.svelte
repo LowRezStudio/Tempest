@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { Code2, Map as MapIcon } from "@lucide/svelte";
 	import { bytes } from "$lib/studio/format";
+	import { inField, reveal, step } from "$lib/studio/keys";
 	import { studio } from "$lib/studio/state.svelte";
+	import { tabs } from "$lib/studio/tabs.svelte";
 
 	let filter = $state("");
 	let kind = $state<"all" | "content" | "maps" | "script">("all");
@@ -15,6 +17,30 @@
 			return q === "" || p.name.toLowerCase().includes(q);
 		});
 	});
+
+	function onKey(event: KeyboardEvent) {
+		if (inField(event) || event.altKey || event.ctrlKey || event.metaKey) return;
+		if (
+			event.key !== "ArrowDown" &&
+			event.key !== "ArrowUp" &&
+			event.key !== "Home" &&
+			event.key !== "End"
+		) {
+			return;
+		}
+		event.preventDefault();
+		const at = visible.findIndex((p) => p.path === studio.pkg?.path);
+		const i =
+			event.key === "Home"
+				? 0
+				: event.key === "End"
+					? visible.length - 1
+					: step(at, event.key === "ArrowDown" ? 1 : -1, visible.length);
+		const next = visible[i];
+		if (!next || next.path === studio.pkg?.path) return;
+		void studio.openPackage(next.path);
+		reveal(`[data-package="${CSS.escape(next.path)}"]`);
+	}
 </script>
 
 <div class="pane-title">
@@ -36,14 +62,24 @@
 		<option value="script">Script</option>
 	</select>
 </div>
-<div class="min-h-0 flex-1 overflow-y-auto">
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div class="min-h-0 flex-1 overflow-y-auto" role="listbox" tabindex="-1" onkeydown={onKey}>
 	{#each visible as p (p.path)}
 		<button
 			class="row-hover flex w-full items-center gap-2 px-3 py-1 text-left text-xs {studio.pkg
 				?.path === p.path
 				? 'row-selected'
 				: ''}"
-			onclick={() => studio.openPackage(p.path)}
+			data-package={p.path}
+			onclick={(e) => {
+				if (e.ctrlKey || e.metaKey) tabs.openInNewTab();
+				void studio.openPackage(p.path);
+			}}
+			onauxclick={(e) => {
+				if (e.button !== 1) return;
+				tabs.openInNewTab();
+				void studio.openPackage(p.path);
+			}}
 			ondblclick={() => studio.openPackage(p.path)}
 			title={p.path}
 		>

@@ -1,0 +1,7 @@
+[mod]
+id = "champion-viktor"
+name = "ViktorTheGreat"
+version = "0.1.0"
+authors = ["Tempest"]
+readme = "Shows a custom champion (bot 2599, created with the Studio's assembly wizard) in the in-match champion select and switches to it; `viktor` in the console does the switch directly."
+dependencies = ["tempest-scripting>=1.0.0"]

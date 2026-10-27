@@ -1,6 +1,6 @@
 {
 	"name": "tempest-studio-electron",
-	"version": "0.0.7",
+	"version": "0.0.15",
 	"private": true,
 	"homepage": "https://github.com/LowRezStudio/Tempest",
 	"author": {

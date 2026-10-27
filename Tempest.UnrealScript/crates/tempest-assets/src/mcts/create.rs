@@ -43,21 +43,46 @@ impl Workspace {
         self.tokens.token(name).ok_or_else(|| Error::Format(format!("unknown field {name}")))
     }
 
+    /// Does an id count when looking for the largest one in use? With an id
+    /// range set, only ids inside it do: ids another mod allocated outside
+    /// the range leave this mod's numbering alone.
+    fn counts(&self, n: u64) -> bool {
+        match self.id_range {
+            Some((start, end)) => n >= start && n < end,
+            None => true,
+        }
+    }
+
+    /// The id after `max`: `max + 1`, or the start of the id range when nothing
+    /// in the range is used yet; an error when the range is exhausted.
+    fn after(&self, max: u64) -> Result<u64> {
+        let next = match self.id_range {
+            Some((start, _)) => (max + 1).max(start),
+            None => max + 1,
+        };
+        if let Some((start, end)) = self.id_range {
+            if next >= end {
+                return Err(Error::Format(format!("the id range {start}..{end} is used up; widen it in the settings")));
+            }
+        }
+        Ok(next)
+    }
+
     /// Largest value of `key` in a top-level table of the assembly.
     fn max_of(&self, table: &str, key: &str) -> Result<u64> {
         let doc = self.doc("assembly")?;
         let rows = doc.marshal.root.rows(self.t(table)?).ok_or_else(|| Error::Format(format!("no {table}")))?;
         let k = self.t(key)?;
-        Ok(rows.iter().filter_map(|r| r.num(k)).max().unwrap_or(0))
+        Ok(rows.iter().filter_map(|r| r.num(k)).filter(|&n| self.counts(n)).max().unwrap_or(0))
     }
 
     /// Largest value of a field anywhere inside a table (nested row sets included).
     fn max_nested(&self, table: &str, key: &str) -> Result<u64> {
-        fn walk(row: &Row, k: u16, best: &mut u64) {
+        fn walk(row: &Row, k: u16, best: &mut u64, counts: &dyn Fn(u64) -> bool) {
             for (t, v) in &row.entries {
                 match v {
-                    Value::Num(n) if *t == k => *best = (*best).max(*n),
-                    Value::Rows(rows) => rows.iter().for_each(|r| walk(r, k, best)),
+                    Value::Num(n) if *t == k && counts(*n) => *best = (*best).max(*n),
+                    Value::Rows(rows) => rows.iter().for_each(|r| walk(r, k, best, counts)),
                     _ => {}
                 }
             }
@@ -66,7 +91,7 @@ impl Workspace {
         let rows = doc.marshal.root.rows(self.t(table)?).ok_or_else(|| Error::Format(format!("no {table}")))?;
         let k = self.t(key)?;
         let mut best = 0;
-        rows.iter().for_each(|r| walk(r, k, &mut best));
+        rows.iter().for_each(|r| walk(r, k, &mut best, &|n| self.counts(n)));
         Ok(best)
     }
 
@@ -81,28 +106,42 @@ impl Workspace {
             }
             for set in ["DATA_SET_MSG_TRANSLATIONS", "DATA_SET"] {
                 if let Some(rows) = self.tokens.token(set).and_then(|t| doc.marshal.root.rows(t)) {
-                    msg = msg.max(rows.iter().filter_map(|r| r.num(msg_id)).filter(|&v| v < 1_000_000_000).max().unwrap_or(0));
+                    msg = msg.max(rows.iter().filter_map(|r| r.num(msg_id)).filter(|&v| v < 1_000_000_000 && self.counts(v)).max().unwrap_or(0));
                 }
             }
         }
         // Items and devices share one id space (a device's item has its id).
-        let item = self.max_of("DATA_SET_ITEMS", "ITEM_ID")?.max(self.max_of("DATA_SET_DEVICES", "DEVICE_ID")?).max(self.max_of("DATA_SET_SKINS", "SKIN_ID")?) + 1;
+        let item = self.after(self.max_of("DATA_SET_ITEMS", "ITEM_ID")?.max(self.max_of("DATA_SET_DEVICES", "DEVICE_ID")?).max(self.max_of("DATA_SET_SKINS", "SKIN_ID")?))?;
         Ok(NextIds {
             item,
             device: item,
             skin: item,
-            bot: self.max_of("DATA_SET_BOTS", "BOT_ID")? + 1,
-            res: self.max_of("DATA_SET_RESOURCES", "RES_ID")? + 1,
-            icon: self.max_of("DATA_SET_ICONS", "ICON_ID")? + 1,
-            fx: self.max_of("DATA_SET_SPECIAL_FX", "FX_ID")? + 1,
-            msg: msg + 1,
-            device_mode: self.max_nested("DATA_SET_DEVICES", "DEVICE_MODE_ID")? + 1,
+            bot: self.after(self.max_of("DATA_SET_BOTS", "BOT_ID")?)?,
+            res: self.after(self.max_of("DATA_SET_RESOURCES", "RES_ID")?)?,
+            icon: self.after(self.max_of("DATA_SET_ICONS", "ICON_ID")?)?,
+            fx: self.after(self.max_of("DATA_SET_SPECIAL_FX", "FX_ID")?)?,
+            msg: self.after(msg)?,
+            device_mode: self.after(self.max_nested("DATA_SET_DEVICES", "DEVICE_MODE_ID")?)?,
         })
     }
 
     pub fn next_ids_json(&mut self) -> Result<J> {
         let n = self.next_ids()?;
-        Ok(json!({ "item": n.item, "device": n.device, "bot": n.bot, "res": n.res, "icon": n.icon, "fx": n.fx, "msg": n.msg, "deviceMode": n.device_mode, "skin": n.skin }))
+        let range = self.id_range.map(|(s, e)| json!({ "start": s, "end": e }));
+        Ok(json!({ "item": n.item, "device": n.device, "bot": n.bot, "res": n.res, "icon": n.icon, "fx": n.fx, "msg": n.msg, "deviceMode": n.device_mode, "skin": n.skin, "range": range }))
+    }
+
+    /// `mcts.idRange {start, end}`: new ids come from `start..end` (a per-mod
+    /// range, so two mods made with the Studio do not collide); `null` clears it.
+    pub fn set_id_range(&mut self, p: &J) -> Result<J> {
+        let start = p.get("start").and_then(|v| v.as_u64());
+        let end = p.get("end").and_then(|v| v.as_u64());
+        self.id_range = match (start, end) {
+            (Some(s), Some(e)) if e > s => Some((s, e)),
+            (None, None) => None,
+            _ => return Err(Error::Format("id range needs start < end".into())),
+        };
+        self.next_ids_json()
     }
 
     /// Create a message in every language (`texts` by language, INT text for
@@ -316,9 +355,13 @@ impl Workspace {
         let ref_dev_t = self.t("REF_DEVICE_ID")?;
         let item_id_t = self.t("ITEM_ID")?;
         const CHARACTER_CLASS: u64 = 10149;
+        /// Loot table "Champion Vendor": the client's champion list.
+        const CHAMPION_VENDOR: u64 = 475;
         const WEAPON: u64 = 15041;
         const SKIN: u64 = 10230;
         let mut skin_done = false;
+        let mut class_item: Option<u64> = None;
+        let mut template_class_item: Option<u64> = None;
         for r in item_rows.iter().filter(|r| r.num(ref_bot_t) == Some(template)) {
             let ty = r.num(type_t).unwrap_or(0);
             let keep = ty == CHARACTER_CLASS || ty == WEAPON || (ty == SKIN && !skin_done);
@@ -329,6 +372,9 @@ impl Workspace {
                 skin_done = true;
             }
             let old = r.num(item_id_t).unwrap_or(0);
+            if ty == CHARACTER_CLASS {
+                template_class_item = Some(old);
+            }
             let iname = self.message_text(r.num(self.t("NAME_MSG_ID")?)).unwrap_or_default();
             let created = self.create_item(old, format!("{name} {iname}").trim(), "", "", Some(new_bot), None, ids)?;
             if ty == WEAPON {
@@ -340,9 +386,378 @@ impl Workspace {
                     }
                 }
             }
+            if ty == CHARACTER_CLASS {
+                class_item = created["itemId"].as_u64();
+            }
             items.push(created);
         }
-        Ok(json!({ "botId": new_bot, "messages": msgs, "bot": [["DATA_SET_BOTS", bat]], "devices": devices, "items": items }))
+        // The client builds its champion list (lobby, champion select) from
+        // the "Champion Vendor" loot table, not from the bots: one entry per
+        // Character Class item. Without an entry the champion exists but is
+        // never listed.
+        let vendor = match class_item {
+            Some(item) => self.add_vendor_entry(CHAMPION_VENDOR, template_class_item, item)?,
+            None => None,
+        };
+        Ok(json!({ "botId": new_bot, "messages": msgs, "bot": [["DATA_SET_BOTS", bat]], "devices": devices, "items": items, "vendor": vendor }))
+    }
+
+    /// A fresh value for the id column `key` of `doc`: one past the largest
+    /// value of that field anywhere in the file (items, devices and skins
+    /// share one id space), within the id range when one is set.
+    fn fresh_id(&self, doc: &str, key: u16) -> Result<u64> {
+        fn walk(row: &Row, keys: &[u16], best: &mut u64, counts: &dyn Fn(u64) -> bool) {
+            for (t, v) in &row.entries {
+                match v {
+                    Value::Num(n) if keys.contains(t) && counts(*n) => *best = (*best).max(*n),
+                    Value::Rows(rows) => rows.iter().for_each(|r| walk(r, keys, best, counts)),
+                    _ => {}
+                }
+            }
+        }
+        let shared: Vec<u16> = ["ITEM_ID", "DEVICE_ID", "SKIN_ID"].iter().filter_map(|n| self.tokens.token(n)).collect();
+        let keys = if shared.contains(&key) { shared } else { vec![key] };
+        let mut best = 0;
+        walk(&self.doc(doc)?.marshal.root, &keys, &mut best, &|n| self.counts(n));
+        self.after(best)
+    }
+
+    /// The id column of a row set, from its name: `DATA_SET_DEVICE_MODES`
+    /// → `DEVICE_MODE_ID`, `DATA_SET_ITEMS` → `ITEM_ID`,
+    /// `DATA_SET_ITEM_CHILDREN` → none. Only a field present in every row
+    /// with distinct values counts. Sets like `DATA_SET_BOT_DEVICES` have no
+    /// own id (their `*_ID` fields point elsewhere) and get none.
+    fn named_key(&self, set: u16, rows: &[Row]) -> Option<u16> {
+        let name = self.tokens.name(set);
+        let stem = name.strip_prefix("DATA_SET_")?;
+        let mut candidates = vec![format!("{stem}_ID")];
+        if let Some(s) = stem.strip_suffix("IES") {
+            candidates.push(format!("{s}Y_ID"));
+        }
+        if let Some(s) = stem.strip_suffix("ES") {
+            candidates.push(format!("{s}_ID"));
+        }
+        if let Some(s) = stem.strip_suffix('S') {
+            candidates.push(format!("{s}_ID"));
+        }
+        for c in candidates {
+            let Some(t) = self.tokens.token(&c) else { continue };
+            let mut seen = std::collections::HashSet::new();
+            if !rows.is_empty() && rows.iter().all(|r| r.num(t).is_some_and(|n| seen.insert(n))) {
+                return Some(t);
+            }
+        }
+        None
+    }
+
+    fn shared_ids(&self) -> Vec<u16> {
+        ["ITEM_ID", "DEVICE_ID", "SKIN_ID"].iter().filter_map(|n| self.tokens.token(n)).collect()
+    }
+
+    /// Apply id rewrites `(field, old, new)` to a copied row and give its
+    /// nested row sets fresh ids of their own: a field naming an old id gets
+    /// the new one (items, devices and skins count as one id space).
+    fn renumber(&self, doc: &str, row: &mut Row, rewrites: &[(u16, u64, u64)], next: &mut HashMap<u16, u64>) -> Result<()> {
+        let shared = self.shared_ids();
+        let hit = |t: u16, n: u64| -> Option<u64> {
+            rewrites.iter().find(|(k, old, _)| *old == n && (*k == t || (shared.contains(k) && shared.contains(&t)))).map(|(_, _, new)| *new)
+        };
+        for (t, v) in row.entries.iter_mut() {
+            match v {
+                Value::Num(n) => {
+                    if let Some(new) = hit(*t, *n) {
+                        *n = new;
+                    }
+                }
+                Value::Rows(rows) => {
+                    let key = self.named_key(*t, rows).filter(|k| !rewrites.iter().any(|(r, _, _)| r == k));
+                    for r in rows.iter_mut() {
+                        let mut rw = rewrites.to_vec();
+                        if let Some(k) = key {
+                            if let Some(old) = r.num(k) {
+                                let id = match next.get(&k) {
+                                    Some(&n) => n,
+                                    None => self.fresh_id(doc, k)?,
+                                };
+                                next.insert(k, id + 1);
+                                Self::set_num(r, k, id);
+                                rw.push((k, old, id));
+                            }
+                        }
+                        self.renumber(doc, r, &rw, next)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// `mcts.addRow {doc, path, table, clone?, messages?}`: append a row at
+    /// the end of a row set, never in the middle. Without `clone` the row
+    /// has the shape of the set's last row with every value empty; with it,
+    /// it is a copy of that row. Either way the set's id column gets a fresh
+    /// id, nested row sets are renumbered, and with `messages` (default
+    /// true) every `*_MSG_ID` of the copy gets a new message with the same
+    /// text in every language.
+    pub fn append_row(&mut self, p: &J) -> Result<J> {
+        let doc = p.get("doc").and_then(|v| v.as_str()).unwrap_or("assembly").to_string();
+        let path = self.path(p.get("path"))?;
+        let table = self.t(p.get("table").and_then(|v| v.as_str()).ok_or_else(|| Error::Format("missing table".into()))?)?;
+        let clone = p.get("clone").and_then(|v| v.as_u64()).map(|v| v as usize);
+        let copy_messages = p.get("messages").and_then(|v| v.as_bool()).unwrap_or(true);
+        let rows: Vec<Row> = self.doc(&doc)?.row_at(&path)?.rows(table).cloned().ok_or_else(|| Error::Format("this row has no such row set".into()))?;
+        let key = self.named_key(table, &rows).or_else(|| if path.is_empty() { super::delta::key_column(&self.tokens, &rows) } else { None });
+        let pasted = match p.get("row") {
+            Some(j) if j.is_object() => Some(super::row_from_json(&self.tokens, j)?),
+            _ => None,
+        };
+        let clone = if pasted.is_some() { Some(usize::MAX) } else { clone };
+        let mut row = match (pasted, clone) {
+            (Some(r), _) => r,
+            (None, Some(i)) => rows.get(i).cloned().ok_or_else(|| Error::Format(format!("row {i} is out of range")))?,
+            (None, None) => {
+                let mut r = rows.last().cloned().unwrap_or_default();
+                for (_, v) in r.entries.iter_mut() {
+                    *v = match v {
+                        Value::Num(_) => Value::Num(0),
+                        Value::Str(_) => Value::Str(String::new()),
+                        Value::Rows(_) => Value::Rows(Vec::new()),
+                        Value::Guid(_) => Value::Guid([0; 16]),
+                        Value::Blob(_) => Value::Blob(Vec::new()),
+                    };
+                }
+                r
+            }
+        };
+        let mut new_id = None;
+        let mut next: HashMap<u16, u64> = HashMap::new();
+        if let Some(k) = key {
+            let old = row.num(k).unwrap_or(0);
+            let id = self.fresh_id(&doc, k)?;
+            Self::set_num(&mut row, k, id);
+            new_id = Some(id);
+            if clone.is_some() {
+                self.renumber(&doc, &mut row, &[(k, old, id)], &mut next)?;
+            }
+        }
+        // Messages of the copy.
+        let mut messages = Vec::new();
+        if copy_messages && clone.is_some() && doc == "assembly" {
+            let msg_fields: Vec<(u16, u64)> = row
+                .entries
+                .iter()
+                .filter(|(t, _)| self.tokens.name(*t).ends_with("_MSG_ID"))
+                .filter_map(|(t, v)| match v {
+                    Value::Num(n) if *n > 0 && *n < 1_000_000_000 => Some((*t, *n)),
+                    _ => None,
+                })
+                .collect();
+            if !msg_fields.is_empty() {
+                let mut next_msg = self.next_ids()?.msg;
+                for (field, old) in msg_fields {
+                    let found = self.messages(&json!({ "ids": [old] }))?;
+                    let Some(per_lang) = found.get(old.to_string()).and_then(|v| v.as_object()).cloned() else { continue };
+                    let mut texts = HashMap::new();
+                    let mut name = String::new();
+                    for (lang, m) in &per_lang {
+                        texts.insert(lang.clone(), m["text"].as_str().unwrap_or("").to_string());
+                        if name.is_empty() {
+                            name = m["name"].as_str().unwrap_or("").to_string();
+                        }
+                    }
+                    let id = next_msg;
+                    next_msg += 1;
+                    self.new_message(id, &name, &texts)?;
+                    Self::set_num(&mut row, field, id);
+                    messages.push(json!({ "field": self.tokens.name(field), "from": old, "to": id }));
+                }
+            }
+        }
+        let tokens = self.tokens.clone();
+        let at = self.doc_mut(&doc)?.insert_row(&tokens, &path, table, row)?;
+        let mut out = self.status(&doc)?;
+        out["index"] = json!(at);
+        out["key"] = json!(key.map(|k| self.tokens.name(k)));
+        out["id"] = json!(new_id);
+        out["messages"] = json!(messages);
+        Ok(out)
+    }
+
+    /// `mcts.usages {doc, field, value}`: the rows that refer to an id: every
+    /// field of the same id family (`BOT_ID`, `REF_BOT_ID`, `SPAWN_BOT_ID`…;
+    /// items, devices and skins count as one family) holding `value`, with the
+    /// path of the row and a readable label. At most 500.
+    pub fn usages(&self, p: &J) -> Result<J> {
+        let doc = p.get("doc").and_then(|v| v.as_str()).unwrap_or("assembly");
+        let field = p.get("field").and_then(|v| v.as_str()).ok_or_else(|| Error::Format("missing field".into()))?.to_string();
+        let value = p.get("value").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("missing value".into()))?;
+        let shared = ["ITEM_ID", "DEVICE_ID", "SKIN_ID"];
+        let family: Vec<String> = if shared.contains(&field.as_str()) { shared.iter().map(|s| s.to_string()).collect() } else { vec![field.clone()] };
+        let matches = |name: &str| family.iter().any(|f| name == f || name.ends_with(&format!("_{f}")));
+        let label_fields: Vec<u16> = ["REFERENCE_NAME", "NAME", "DESCRIPTION"].iter().filter_map(|n| self.tokens.token(n)).collect();
+        let mut out: Vec<J> = Vec::new();
+        #[allow(clippy::too_many_arguments)]
+        fn walk(ws: &Workspace, row: &Row, path: &mut Vec<(String, usize)>, value: u64, matches: &dyn Fn(&str) -> bool, labels: &[u16], out: &mut Vec<J>) {
+            if out.len() >= 500 {
+                return;
+            }
+            for (t, v) in &row.entries {
+                match v {
+                    Value::Num(n) if *n == value && !path.is_empty() => {
+                        let name = ws.tokens.name(*t);
+                        if matches(&name) {
+                            let label = labels.iter().find_map(|l| row.str(*l)).unwrap_or("");
+                            out.push(json!({ "path": path.iter().map(|(t, i)| json!([t, i])).collect::<Vec<_>>(), "field": name, "label": label }));
+                        }
+                    }
+                    Value::Rows(rows) => {
+                        for (i, r) in rows.iter().enumerate() {
+                            path.push((ws.tokens.name(*t).to_string(), i));
+                            walk(ws, r, path, value, matches, labels, out);
+                            path.pop();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        walk(self, &self.doc(doc)?.marshal.root, &mut Vec::new(), value, &matches, &label_fields, &mut out);
+        Ok(json!({ "usages": out, "truncated": out.len() >= 500 }))
+    }
+
+    /// Add `item` to loot table `table` (`DATA_SET_LOOT_TABLE_ITEMS`), as a
+    /// copy of `like`'s entry when that item is in the table (else of the
+    /// last entry), active, with a fresh LOOT_TABLE_ITEM_ID and the next
+    /// SORT_ORDER. The path of the new entry, or None when the table does
+    /// not exist.
+    fn add_vendor_entry(&mut self, table: u64, like: Option<u64>, item: u64) -> Result<Option<J>> {
+        let Some(ti) = self.find_row("DATA_SET_LOOT_TABLES", "LOOT_TABLE_ID", table)? else { return Ok(None) };
+        let tables_t = self.t("DATA_SET_LOOT_TABLES")?;
+        let entries_t = self.t("DATA_SET_LOOT_TABLE_ITEMS")?;
+        let item_t = self.t("ITEM_ID")?;
+        let entry_t = self.t("LOOT_TABLE_ITEM_ID")?;
+        let sort_t = self.t("SORT_ORDER")?;
+        let active_t = self.t("ACTIVE_FLAG")?;
+        let lt = self.row_of("DATA_SET_LOOT_TABLES", ti)?;
+        let entries = lt.rows(entries_t).cloned().unwrap_or_default();
+        if entries.iter().any(|e| e.num(item_t) == Some(item)) {
+            return Ok(None);
+        }
+        let template = like
+            .and_then(|l| entries.iter().find(|e| e.num(item_t) == Some(l)))
+            .or_else(|| entries.iter().rev().find(|e| e.str(active_t) == Some("y")))
+            .or_else(|| entries.last())
+            .cloned();
+        // An entry may carry its own name/description messages; those are
+        // the template champion's, not the new one's.
+        let own_msgs: Vec<u16> = ["NAME_MSG_ID", "DESC_MSG_ID", "SHORT_DESC_MSG_ID"].iter().filter_map(|f| self.tokens.token(f)).collect();
+        let mut row = match template {
+            Some(r) => {
+                let mut r = self.clone_row(&r, &HashMap::new(), &mut HashMap::new());
+                r.entries.retain(|(t, _)| !own_msgs.contains(t));
+                r
+            }
+            None => {
+                let mut r = Row::default();
+                r.set(self.t("LOOT_TABLE_ID")?, Value::Num(table));
+                r.set(self.t("QUANTITY")?, Value::Num(1));
+                r
+            }
+        };
+        Self::set_num(&mut row, item_t, item);
+        Self::set_num(&mut row, entry_t, self.max_nested("DATA_SET_LOOT_TABLES", "LOOT_TABLE_ITEM_ID")? + 1);
+        Self::set_num(&mut row, sort_t, entries.iter().filter_map(|e| e.num(sort_t)).max().map(|m| m + 1).unwrap_or(0));
+        row.set(active_t, Value::Str("y".into()));
+        let tokens = self.tokens.clone();
+        let at = self.doc_mut("assembly")?.insert_row(&tokens, &[(tables_t, ti)], entries_t, row)?;
+        Ok(Some(json!([["DATA_SET_LOOT_TABLES", ti], ["DATA_SET_LOOT_TABLE_ITEMS", at]])))
+    }
+
+    /// `mcts.vendor`: the Champion Vendor loot table (475) against the
+    /// champion bots: `{table, total, active, listed: [{bot, item, active}],
+    /// missing: [{bot, name, item}]}`. `missing` are the bots of champion
+    /// type with a Character Class item that has no entry (an entry is what
+    /// makes the client list a champion).
+    pub fn vendor(&self) -> Result<J> {
+        const CHAMPION: u64 = 10849;
+        const CHARACTER_CLASS: u64 = 10149;
+        const CHAMPION_VENDOR: u64 = 475;
+        let item_t = self.t("ITEM_ID")?;
+        let ref_bot_t = self.t("REF_BOT_ID")?;
+        let type_t = self.t("ITEM_TYPE_VALUE_ID")?;
+        let active_t = self.t("ACTIVE_FLAG")?;
+        let doc = self.doc("assembly")?;
+        let Some(ti) = self.find_row("DATA_SET_LOOT_TABLES", "LOOT_TABLE_ID", CHAMPION_VENDOR)? else {
+            return Ok(json!({ "table": CHAMPION_VENDOR, "index": null, "total": 0, "active": 0, "listed": [], "missing": [] }));
+        };
+        let entries: Vec<Row> = self.row_of("DATA_SET_LOOT_TABLES", ti)?.rows(self.t("DATA_SET_LOOT_TABLE_ITEMS")?).cloned().unwrap_or_default();
+        // Character Class items per bot (a champion can have several; one in
+        // the vendor is enough).
+        let mut class_of: HashMap<u64, Vec<u64>> = HashMap::new();
+        let mut bot_of: HashMap<u64, u64> = HashMap::new();
+        for r in doc.marshal.root.rows(self.t("DATA_SET_ITEMS")?).map(|v| v.as_slice()).unwrap_or(&[]) {
+            if r.num(type_t) == Some(CHARACTER_CLASS) {
+                if let (Some(b), Some(i)) = (r.num(ref_bot_t), r.num(item_t)) {
+                    class_of.entry(b).or_default().push(i);
+                    bot_of.insert(i, b);
+                }
+            }
+        }
+        let listed: Vec<J> = entries
+            .iter()
+            .map(|e| {
+                let item = e.num(item_t).unwrap_or(0);
+                json!({ "bot": bot_of.get(&item), "item": item, "active": e.str(active_t) == Some("y") })
+            })
+            .collect();
+        let in_vendor: std::collections::HashSet<u64> = entries.iter().filter_map(|e| e.num(item_t)).collect();
+        let bot_id_t = self.t("BOT_ID")?;
+        let bot_type_t = self.t("BOT_TYPE_VALUE_ID")?;
+        let name_t = self.t("REFERENCE_NAME")?;
+        let msg_t = self.t("NAME_MSG_ID")?;
+        let mut missing: Vec<J> = Vec::new();
+        for b in doc.marshal.root.rows(self.t("DATA_SET_BOTS")?).map(|v| v.as_slice()).unwrap_or(&[]) {
+            if b.num(bot_type_t) != Some(CHAMPION) {
+                continue;
+            }
+            let Some(bot) = b.num(bot_id_t) else { continue };
+            let Some(items) = class_of.get(&bot) else { continue };
+            if items.iter().any(|i| in_vendor.contains(i)) {
+                continue;
+            }
+            let name = self.message_text(b.num(msg_t)).unwrap_or_default();
+            missing.push(json!({ "bot": bot, "item": items[0], "reference": b.str(name_t).unwrap_or(""), "name": name }));
+        }
+        missing.sort_by(|a, b| a["reference"].as_str().unwrap_or("").to_lowercase().cmp(&b["reference"].as_str().unwrap_or("").to_lowercase()));
+        Ok(json!({
+            "table": CHAMPION_VENDOR,
+            "index": ti,
+            "total": entries.len(),
+            "active": entries.iter().filter(|e| e.str(active_t) == Some("y")).count(),
+            "listed": listed,
+            "missing": missing,
+        }))
+    }
+
+    /// `mcts.vendorAdd` `{bot}`: add the bot's Character Class item to the
+    /// Champion Vendor; `{bot, item, vendor: path | null, existed}`.
+    pub fn vendor_add(&mut self, p: &J) -> Result<J> {
+        const CHARACTER_CLASS: u64 = 10149;
+        const CHAMPION_VENDOR: u64 = 475;
+        let bot = p.get("bot").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("missing bot".into()))?;
+        let item_t = self.t("ITEM_ID")?;
+        let ref_bot_t = self.t("REF_BOT_ID")?;
+        let type_t = self.t("ITEM_TYPE_VALUE_ID")?;
+        let item = self
+            .doc("assembly")?
+            .marshal
+            .root
+            .rows(self.t("DATA_SET_ITEMS")?)
+            .and_then(|rows| rows.iter().find(|r| r.num(ref_bot_t) == Some(bot) && r.num(type_t) == Some(CHARACTER_CLASS)).and_then(|r| r.num(item_t)))
+            .ok_or_else(|| Error::Format(format!("bot {bot} has no Character Class item (ITEM_TYPE_VALUE_ID 10149 with REF_BOT_ID {bot}); create one first")))?;
+        let vendor = self.add_vendor_entry(CHAMPION_VENDOR, None, item)?;
+        Ok(json!({ "bot": bot, "item": item, "vendor": vendor, "existed": vendor.is_none() }))
     }
 
     fn device_msg(&self, device: u64, field: &str) -> Result<Option<u64>> {
@@ -454,11 +869,15 @@ impl Workspace {
         manifest.push_str(&format!("readme = {}\ndependencies = [\"tempest-scripting>=1.0.0\"]\n", esc("Content rows in assembly.dat and the language files, with a Lua scaffold for the new devices.")));
         std::fs::write(dir.join("manifest.toml"), manifest)?;
 
-        // The .dat files: the assembly, and the languages that changed (or all).
+        // The .dat files: the assembly, and the languages that changed (or
+        // all). A file whose base the Studio recorded ships as a row delta
+        // (`deltas/<game path>.tdelta`); the others as whole files.
         let mut written = Vec::new();
+        let mut deltas = Vec::new();
         let tokens = self.tokens.clone();
         let cooked = self.dir.clone();
         let game_root = game_root_of(&cooked);
+        let use_deltas = p.get("deltas").and_then(|v| v.as_bool()).unwrap_or(true);
         let ids: Vec<String> = self.docs.iter().map(|(k, _)| k.clone()).collect();
         for doc_id in ids {
             let (dirty, path) = {
@@ -469,9 +888,27 @@ impl Workspace {
                 continue;
             }
             let rel = path.strip_prefix(&game_root).map(|r| r.to_path_buf()).unwrap_or_else(|_| PathBuf::from(path.file_name().unwrap_or_default()));
-            let out = dir.join("files").join(&rel);
-            self.doc_mut(&doc_id)?.save(&tokens, Some(&out))?;
-            written.push(rel.to_string_lossy().to_string());
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            let digest = if use_deltas { crate::basestore::read(&path) } else { None };
+            if let Some(digest) = digest {
+                let doc = self.doc(&doc_id)?;
+                let d = super::delta::create(&tokens, super::delta::Base::Digest(&digest), &doc.marshal, &rel_str)?;
+                let ops: usize = d.header["tables"].as_array().map(|a| a.iter().map(|t| t["ops"].as_array().map(|o| o.len()).unwrap_or(0)).sum()).unwrap_or(0) + d.header["header"].as_object().map(|h| h.len()).unwrap_or(0);
+                if ops == 0 {
+                    continue;
+                }
+                let out = dir.join("deltas").join(format!("{rel_str}.tdelta"));
+                if let Some(parent) = out.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                d.write(&out)?;
+                written.push(format!("deltas/{rel_str}.tdelta"));
+                deltas.push(json!({ "file": rel_str, "ops": ops, "bytes": d.to_bytes().len() }));
+            } else {
+                let out = dir.join("files").join(&rel);
+                self.doc_mut(&doc_id)?.save(&tokens, Some(&out))?;
+                written.push(format!("files/{rel_str}"));
+            }
         }
 
         if let Some(b) = bot {
@@ -516,13 +953,13 @@ impl Workspace {
         written.push("scripts/main.lua".into());
 
         let readme = format!(
-            "# {name}\n\nGenerated by Tempest Studio.\n\n- `files/`: the changed `assembly.dat` and language files, installed over the game's by the launcher.\n- `paserver.json`: the GET_PROFILE_CLASSES row and inventory items the private server must answer for the champion (bot {bot}).\n- `scripts/main.lua`: Lua handlers for the devices' `dllimport` functions (needs the tempest-scripting mod).\n- `src/{pkg}/Classes/*.uc`: UnrealScript stubs for the new device classes.\n\nBuild the script package:\n\n```\nuscript project init <CookedPCConsole> <project>   # once\n# copy src/{pkg} into the project, then\nuscript project build <project> --package {pkg}\n```\n\nthen put `{pkg}.u` under `files/ChaosGame/CookedPCConsole/` and point the devices' FORM_CLASS_RES_ID / DEVICE_FORM_CLASS_RES_ID resources at `{pkg}.<class>` (Assembly tab, DATA_SET_RESOURCES). Pack with `tempest mod pack <this folder> <out.tempest>`.\n\nClasses: {classes}\n",
+            "# {name}\n\nGenerated by Tempest Studio.\n\n- `deltas/`: the rows this mod adds or changes in `assembly.dat` and the language files (applied over the game's files by the launcher, so other content mods still work); `files/` holds whole files when the Studio had no record of the original.\n- `paserver.json`: the GET_PROFILE_CLASSES row and inventory items the private server must answer for the champion (bot {bot}).\n- `scripts/main.lua`: Lua handlers for the devices' `dllimport` functions (needs the tempest-scripting mod).\n- `src/{pkg}/Classes/*.uc`: UnrealScript stubs for the new device classes.\n\nBuild the script package:\n\n```\nuscript project init <CookedPCConsole> <project>   # once\n# copy src/{pkg} into the project, then\nuscript project build <project> --package {pkg}\n```\n\nthen put `{pkg}.u` under `files/ChaosGame/CookedPCConsole/` and point the devices' FORM_CLASS_RES_ID / DEVICE_FORM_CLASS_RES_ID resources at `{pkg}.<class>` (Assembly tab, DATA_SET_RESOURCES). Pack with `tempest mod pack <this folder> <out.tempest>`.\n\nClasses: {classes}\n",
             bot = bot.map(|b| b.to_string()).unwrap_or_else(|| "none".into()),
             classes = classes.join(", ")
         );
         std::fs::write(dir.join("README.md"), readme)?;
         written.push("README.md".into());
-        Ok(json!({ "dir": dir.to_string_lossy(), "files": written, "classes": classes, "package": pkg }))
+        Ok(json!({ "dir": dir.to_string_lossy(), "files": written, "deltas": deltas, "classes": classes, "package": pkg }))
     }
 
     fn resource_name(&self, id: Option<u64>) -> Option<String> {

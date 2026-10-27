@@ -2,6 +2,7 @@
 	import Modal from "$lib/components/Modal.svelte";
 	import { assembly } from "$lib/studio/assembly.svelte";
 	import { rpc } from "$lib/studio/rpc";
+	import { studio } from "$lib/studio/state.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
 	import type { McsCell } from "../../../electron/src/ipc/contract";
 
@@ -20,6 +21,38 @@
 	let busy = $state(false);
 	let champions = $state<{ id: number; name: string }[]>([]);
 	let slots = $state<{ id: number; text: string }[]>([]);
+	/** The id range setting as typed (empty = past the largest id in use). */
+	let rangeStart = $state(studio.idRange ? String(studio.idRange.start) : "");
+	let rangeEnd = $state(studio.idRange ? String(studio.idRange.end) : "");
+	let nextIds = $state<{ item: number; bot: number; msg: number } | null>(null);
+	let rangeError = $state<string | null>(null);
+
+	/** Save the typed range (both fields, start < end) and tell the backend; refreshes the next ids. */
+	async function applyRange() {
+		const s = Number(rangeStart);
+		const e = Number(rangeEnd);
+		if (rangeStart === "" && rangeEnd === "") studio.idRange = null;
+		else if (Number.isInteger(s) && Number.isInteger(e) && s >= 0 && e > s) {
+			studio.idRange = { start: s, end: e };
+		} else {
+			rangeError = "start and end must be whole numbers with start < end";
+			return;
+		}
+		rangeError = null;
+		await assembly.applyIdRange();
+		await loadNextIds();
+	}
+
+	async function loadNextIds() {
+		try {
+			const n = await rpc("mcts.nextIds", {});
+			nextIds = { item: n.item, bot: n.bot, msg: n.msg };
+			rangeError = null;
+		} catch (error) {
+			nextIds = null;
+			rangeError = error instanceof Error ? error.message : String(error);
+		}
+	}
 
 	const KINDS: { id: Kind; label: string; table: string; key: string; hint: string }[] = [
 		{
@@ -94,6 +127,7 @@
 		if (open) {
 			fromSelection();
 			if (champions.length === 0) void loadLists();
+			void loadNextIds();
 		}
 	});
 
@@ -198,6 +232,35 @@
 				{/if}
 			</div>
 		{/if}
+		<div class="bg-base-200 rounded-box space-y-1 p-2">
+			<div class="flex flex-wrap items-center gap-2 text-xs">
+				<span
+					class="opacity-70"
+					title="Ids of new rows and messages are taken from this range. Give every mod its own range (say 100000 wide) so mods made with the Studio never allocate the same ids; empty means one past the largest id in use."
+				>
+					Id range for new content
+				</span>
+				<input
+					class="input input-xs w-28 font-mono"
+					bind:value={rangeStart}
+					placeholder="start"
+					onchange={applyRange}
+				/>
+				<span class="opacity-50">…</span>
+				<input
+					class="input input-xs w-28 font-mono"
+					bind:value={rangeEnd}
+					placeholder="end"
+					onchange={applyRange}
+				/>
+				{#if nextIds}
+					<span class="ml-auto font-mono opacity-60"
+						>next: item {nextIds.item}, bot {nextIds.bot}, msg {nextIds.msg}</span
+					>
+				{/if}
+			</div>
+			{#if rangeError}<div class="text-error text-xs">{rangeError}</div>{/if}
+		</div>
 		<div class="flex justify-end gap-2">
 			<button class="btn btn-sm" onclick={() => (open = false)}>Cancel</button>
 			<button

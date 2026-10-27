@@ -17,7 +17,11 @@
 		offerMissingDependencies,
 		turnedOff,
 	} from "$lib/mods/dependencies";
-	import { justInstalled, pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
+	import {
+		justInstalled,
+		pendingInstalls,
+		pendingStatus,
+	} from "$lib/mods/pendingInstalls.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { invoke } from "$lib/platform/api";
 	import {
@@ -29,8 +33,8 @@
 	import { createRepoModsQuery, createRepoVersionCountsQuery } from "$lib/queries/repo";
 	import { addToast } from "$lib/stores/ui.svelte";
 	import InstalledModRow from "./InstalledModRow.svelte";
+	import InstallQueuePanel from "./InstallQueuePanel.svelte";
 	import type { ModRecord } from "$lib/core/mods";
-	import type { PendingInstall } from "$lib/mods/pendingInstalls.svelte";
 	import type { RepoUpdate } from "$lib/queries/repo";
 
 	interface Props {
@@ -179,11 +183,6 @@
 		else onOpenFiles(mod);
 	}
 
-	const statusOf = (install: PendingInstall) =>
-		install.progress === null
-			? m.mod_row_installing()
-			: `${Math.round(install.progress * 100)}%`;
-
 	const empty = $derived(mods.length === 0 && placeholders.length === 0);
 	// One tile per kind of mod, fanned out above the empty state
 	const emptyTiles = [
@@ -194,6 +193,7 @@
 </script>
 
 <div class="@container">
+	<InstallQueuePanel {gamePath} {isRunning} />
 	{#if empty}
 		<div class="flex flex-col items-center px-6 py-14 text-center">
 			<div class="relative mb-6 h-16 w-36" aria-hidden="true">
@@ -297,8 +297,8 @@
 										<p class="truncate text-sm font-bold">{install.name}</p>
 										<p class="truncate text-xs tabular-nums opacity-70">
 											{install.author
-												? `by ${install.author} · ${statusOf(install)}`
-												: statusOf(install)}
+												? `by ${install.author} · ${pendingStatus(install)}`
+												: pendingStatus(install)}
 										</p>
 									</div>
 								</div>

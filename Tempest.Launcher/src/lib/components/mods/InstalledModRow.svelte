@@ -12,6 +12,7 @@
 		TriangleAlert,
 	} from "@lucide/svelte";
 	import { trustOf } from "$lib/mods/listing";
+	import { pendingStatus } from "$lib/mods/pendingInstalls.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import type { ModRecord } from "$lib/core/mods";
 	import type { PendingInstall } from "$lib/mods/pendingInstalls.svelte";
@@ -65,12 +66,7 @@
 
 	const trust = $derived(repo?.latest?.signer?.trust);
 	const updateTo = $derived(update?.updateAvailable ? update.latest?.version : undefined);
-	const status = $derived(
-		busy &&
-			(busy.progress === null
-				? m.mod_row_installing()
-				: `${Math.round(busy.progress * 100)}%`),
-	);
+	const status = $derived(busy && pendingStatus(busy));
 	const toggleLabel = $derived(
 		mod.Enabled ? m.mods_disable({ name: mod.Name }) : m.mods_enable({ name: mod.Name }),
 	);

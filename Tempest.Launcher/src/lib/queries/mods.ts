@@ -1,7 +1,9 @@
 import { createMutation, createQueries, createQuery, useQueryClient } from "@tanstack/svelte-query";
 import { disableMod, enableMod, installMod, listMods, removeMod } from "$lib/core/mods";
+import { trackInstall } from "$lib/mods/pendingInstalls.svelte";
 import { invoke } from "$lib/platform/api";
-import type { ModInstallResult, ModRecord } from "$lib/core/mods";
+import type { ModInstallResult, ModRecord, PatchProgress } from "$lib/core/mods";
+import type { InstallTracker } from "$lib/mods/pendingInstalls.svelte";
 
 export const createModsQuery = (instancePath: () => string) =>
 	createQuery(() => {
@@ -107,18 +109,32 @@ export const createInstallModMutation = () => {
 };
 
 // Applies the change to the cached list immediately instead of waiting for the CLI,
-// rolls it back on failure, and resyncs once no other mod edit is in flight.
-const createOptimisticModMutation = <V extends { gamePath: string }>(
-	run: (variables: V) => Promise<ModInstallResult>,
+// rolls it back on failure, and resyncs once no other mod edit is in flight. While the CLI
+// rebuilds game files from mod deltas, the mod's row (a placeholder once it is removed) shows
+// how far it got.
+const createOptimisticModMutation = <V extends ModNameVariables>(
+	run: (variables: V, onProgress: PatchProgress) => Promise<ModInstallResult>,
 	update: (mods: ModRecord[], variables: V) => ModRecord[],
 ) => {
 	const queryClient = useQueryClient();
 	return createMutation(() => ({
 		mutationKey: ["mods-edit"],
 		mutationFn: async (variables: V) => {
-			const res = await run(variables);
-			if (!res.Success) throw new Error(res.Message || "Unknown error");
-			return res;
+			const { gamePath, modName } = variables;
+			const modId = queryClient
+				.getQueryData<ModRecord[]>(["mods", gamePath])
+				?.find((mod) => mod.Name === modName)?.Id;
+			let tracker: InstallTracker | undefined;
+			try {
+				const res = await run(variables, (fraction) => {
+					tracker ??= trackInstall(gamePath, { name: modName, modId });
+					tracker.setPatching(fraction);
+				});
+				if (!res.Success) throw new Error(res.Message || "Unknown error");
+				return res;
+			} finally {
+				void tracker?.finish(false);
+			}
 		},
 		onMutate: async (variables: V) => {
 			const queryKey = ["mods", variables.gamePath];
@@ -147,18 +163,18 @@ const setEnabled = (mods: ModRecord[], modName: string, Enabled: boolean) =>
 
 export const createEnableModMutation = () =>
 	createOptimisticModMutation<ModNameVariables>(
-		({ gamePath, modName }) => enableMod(gamePath, modName),
+		({ gamePath, modName }, onProgress) => enableMod(gamePath, modName, onProgress),
 		(mods, { modName }) => setEnabled(mods, modName, true),
 	);
 
 export const createDisableModMutation = () =>
 	createOptimisticModMutation<ModNameVariables>(
-		({ gamePath, modName }) => disableMod(gamePath, modName),
+		({ gamePath, modName }, onProgress) => disableMod(gamePath, modName, onProgress),
 		(mods, { modName }) => setEnabled(mods, modName, false),
 	);
 
 export const createRemoveModMutation = () =>
 	createOptimisticModMutation<ModNameVariables>(
-		({ gamePath, modName }) => removeMod(gamePath, modName),
+		({ gamePath, modName }, onProgress) => removeMod(gamePath, modName, onProgress),
 		(mods, { modName }) => mods.filter((mod) => mod.Name !== modName),
 	);

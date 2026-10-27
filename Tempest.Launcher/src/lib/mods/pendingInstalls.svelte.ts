@@ -1,4 +1,5 @@
 import { SvelteSet } from "svelte/reactivity";
+import { m } from "$lib/paraglide/messages";
 import { invoke } from "$lib/platform/api";
 import { getQueryClient } from "$lib/queries/client";
 
@@ -13,9 +14,19 @@ export type PendingInstall = {
 	name: string;
 	version?: string;
 	author?: string;
-	/** Download progress 0–1; null while installing or when the size is unknown. */
+	/** Download progress 0–1, or patching progress with `patching`; null while installing or
+	 * when the size is unknown. */
 	progress: number | null;
+	/** The CLI rebuilds game files from mod deltas and `progress` follows it. */
+	patching?: boolean;
 };
+
+/** What a busy row says: download or patching percentage, else installing. */
+export function pendingStatus(install: PendingInstall): string {
+	if (install.progress === null) return m.mod_row_installing();
+	const percent = Math.round(install.progress * 100);
+	return install.patching ? m.mod_row_patching({ percent }) : `${percent}%`;
+}
 
 export const pendingInstalls = $state<{ value: PendingInstall[] }>({ value: [] });
 
@@ -65,6 +76,7 @@ export function trackInstall(
 		patch(Object.fromEntries(Object.entries(info).filter(([, v]) => v)));
 	return {
 		setProgress: (progress: number | null) => patch({ progress }),
+		setPatching: (progress: number) => patch({ progress, patching: true }),
 		setInfo,
 		// Lets the bar ease to full before it gives way to the installing spinner; the install
 		// itself does not wait for this.

@@ -137,6 +137,13 @@ export type ModInstallResult = {
 	MissingDependencies?: ModDependency[];
 	/** Refused: the package needs this Tempest version and the launcher is older. */
 	TempestRequired?: string;
+	/** Refused before anything was written: files it would replace are held open, most likely
+	 * by the running game. The launcher queues the install for when the game has closed. */
+	FilesInUse?: boolean;
+	/** The files of a FilesInUse refusal, relative to the game folder. */
+	LockedFiles?: string[];
+	/** `defer`: every check passed but nothing was written (queued while the game runs). */
+	Deferred?: boolean;
 };
 
 export type ModListResult = {
@@ -224,99 +231,80 @@ export const listMods = async (gamePath: string): Promise<ModRecord[]> => {
 	}
 };
 
+/** Fraction 0–1 of the game files the CLI is rebuilding from mod deltas. */
+export type PatchProgress = (fraction: number) => void;
+
+// `[progress] 42% Applying changes to X.upk (2/5)` on stderr while game files are rebuilt.
+const PROGRESS_LINE = /^\[progress\] (\d+(?:\.\d+)?)%/;
+
+// Runs a mod command that answers a ModInstallResult and logs its output, progress lines left out.
+async function runModCommand(
+	args: string[],
+	what: string,
+	onProgress?: PatchProgress,
+): Promise<ModInstallResult> {
+	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
+	let partial = "";
+	const res = await createCommand(args).execute(
+		onProgress &&
+			((data) => {
+				const lines = (partial + data).split("\n");
+				partial = lines.pop() ?? "";
+				for (const line of lines) {
+					const match = PROGRESS_LINE.exec(line.trim());
+					if (match) onProgress(Number(match[1]) / 100);
+				}
+			}),
+	);
+
+	if (res.stdout) {
+		appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
+	}
+	const stderr = res.stderr
+		.split("\n")
+		.filter((line) => line && !PROGRESS_LINE.test(line.trim()));
+	if (stderr.length) {
+		appendProcessLogs(stderr, true, "mods");
+	}
+
+	try {
+		return JSON.parse(res.stdout) as ModInstallResult;
+	} catch (error) {
+		console.error(`Failed to parse ${what} result:`, error, res.stdout, res.stderr);
+		return { Success: false, Message: "Internal error parsing CLI output" };
+	}
+}
+
 export const installMod = async (
 	gamePath: string,
 	modFile: string,
 	replace = false,
 	allowUntrusted = false,
 	stack = false,
+	/** Run every check, then stop before writing (Deferred): the game is running. */
+	defer = false,
+	onProgress?: PatchProgress,
 ): Promise<ModInstallResult> => {
 	const args = ["mod", "install", gamePath, modFile];
 	if (replace) args.push("--replace");
 	if (stack) args.push("--stack");
+	if (defer) args.push("--defer");
 	if (allowUntrusted) args.push("--allow-untrusted");
 	// The CLI checks the package's "tempest" requirement against the launcher's version.
 	const appVersion = await getAppVersion().catch(() => undefined);
 	if (appVersion) args.push("--tempest-version", appVersion);
 	args.push("--json");
-
-	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
-	const res = await createCommand(args).execute();
-
-	if (res.stdout) {
-		appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
-	}
-	if (res.stderr) {
-		appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
-	}
-
-	try {
-		return JSON.parse(res.stdout) as ModInstallResult;
-	} catch (error) {
-		console.error("Failed to parse install mod result:", error, res.stdout, res.stderr);
-		return { Success: false, Message: "Internal error parsing CLI output" };
-	}
+	return runModCommand(args, "install mod", onProgress);
 };
 
-export const removeMod = async (gamePath: string, modName: string): Promise<ModInstallResult> => {
-	const args = ["mod", "remove", gamePath, modName, "--json"];
-	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
-	const res = await createCommand(args).execute();
+export const removeMod = (gamePath: string, modName: string, onProgress?: PatchProgress) =>
+	runModCommand(["mod", "remove", gamePath, modName, "--json"], "remove mod", onProgress);
 
-	if (res.stdout) {
-		appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
-	}
-	if (res.stderr) {
-		appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
-	}
+export const enableMod = (gamePath: string, modName: string, onProgress?: PatchProgress) =>
+	runModCommand(["mod", "enable", gamePath, modName, "--json"], "enable mod", onProgress);
 
-	try {
-		return JSON.parse(res.stdout) as ModInstallResult;
-	} catch (error) {
-		console.error("Failed to parse remove mod result:", error, res.stdout, res.stderr);
-		return { Success: false, Message: "Internal error parsing CLI output" };
-	}
-};
-
-export const enableMod = async (gamePath: string, modName: string): Promise<ModInstallResult> => {
-	const args = ["mod", "enable", gamePath, modName, "--json"];
-	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
-	const res = await createCommand(args).execute();
-
-	if (res.stdout) {
-		appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
-	}
-	if (res.stderr) {
-		appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
-	}
-
-	try {
-		return JSON.parse(res.stdout) as ModInstallResult;
-	} catch (error) {
-		console.error("Failed to parse enable mod result:", error, res.stdout, res.stderr);
-		return { Success: false, Message: "Internal error parsing CLI output" };
-	}
-};
-
-export const disableMod = async (gamePath: string, modName: string): Promise<ModInstallResult> => {
-	const args = ["mod", "disable", gamePath, modName, "--json"];
-	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
-	const res = await createCommand(args).execute();
-
-	if (res.stdout) {
-		appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
-	}
-	if (res.stderr) {
-		appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
-	}
-
-	try {
-		return JSON.parse(res.stdout) as ModInstallResult;
-	} catch (error) {
-		console.error("Failed to parse disable mod result:", error, res.stdout, res.stderr);
-		return { Success: false, Message: "Internal error parsing CLI output" };
-	}
-};
+export const disableMod = (gamePath: string, modName: string, onProgress?: PatchProgress) =>
+	runModCommand(["mod", "disable", gamePath, modName, "--json"], "disable mod", onProgress);
 
 export const reloadModDll = async (gamePath: string, modId: string): Promise<ModInstallResult> => {
 	const args = ["mod", "reload-dll", gamePath, modId, "--json"];

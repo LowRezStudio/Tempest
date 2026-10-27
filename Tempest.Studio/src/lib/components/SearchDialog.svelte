@@ -4,6 +4,7 @@
 	import { onUpkEvent, rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
+	import { ui } from "$lib/studio/ui.svelte";
 	import type { SearchHit } from "../../../electron/src/ipc/contract";
 
 	let { open = $bindable(false) }: { open?: boolean } = $props();
@@ -24,6 +25,15 @@
 			}
 		});
 		return stop;
+	});
+
+	// Opened from the palette with a query: run it.
+	$effect(() => {
+		if (open && ui.searchQuery) {
+			query = ui.searchQuery;
+			ui.searchQuery = "";
+			void search();
+		}
 	});
 
 	async function search(event?: Event) {

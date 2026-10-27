@@ -113,6 +113,20 @@ body {
 	@apply bg-primary/20 text-base-content;
 }
 
+/* Pinned grid cells sit over scrolled ones: opaque versions of the row colours. */
+.pin-plain {
+	background-color: var(--color-base-100);
+}
+tr:hover > .pin-plain {
+	background-color: var(--color-base-200);
+}
+.pin-marked {
+	background-color: color-mix(in oklab, var(--color-primary) 10%, var(--color-base-100));
+}
+.pin-selected {
+	background-color: color-mix(in oklab, var(--color-primary) 20%, var(--color-base-100));
+}
+
 .kbd-hint {
 	@apply bg-base-300 rounded px-1 font-mono text-[10px] opacity-70;
 }

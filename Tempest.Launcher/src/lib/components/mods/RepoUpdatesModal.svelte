@@ -27,6 +27,8 @@
 
 	let busy = $state<string | null>(null);
 	let done = $state<string[]>([]);
+	// Updates waiting in the install queue for the game to close.
+	let queued = $state<string[]>([]);
 	const remaining = $derived(pending.filter(({ mod }) => !done.includes(mod.Id)));
 
 	$effect(() => {
@@ -45,6 +47,10 @@
 				{ replace: true },
 			);
 			if (outcome.status === "installed") done = [...done, mod.Id];
+			if (outcome.status === "queued") {
+				done = [...done, mod.Id];
+				queued = [...queued, mod.Id];
+			}
 		} finally {
 			busy = null;
 		}
@@ -52,7 +58,6 @@
 
 	async function updateAll() {
 		for (const { mod, update } of remaining) {
-			if (isRunning) break;
 			await updateOne(mod, update);
 		}
 	}
@@ -68,14 +73,19 @@
 					<span class="font-mono text-xs">{mod.Version}</span>
 					<ArrowRight size={12} class="opacity-50" />
 					<span class="font-mono text-xs font-semibold">{update.latest?.version}</span>
-					{#if done.includes(mod.Id)}
+					{#if queued.includes(mod.Id)}
+						<span class="badge badge-warning badge-outline badge-xs ml-auto"
+							>{m.install_queue_queued()}</span
+						>
+					{:else if done.includes(mod.Id)}
 						<span class="badge badge-success badge-xs ml-auto"
 							>{m.repo_installed()}</span
 						>
 					{:else}
 						<button
 							class="btn btn-primary btn-xs ml-auto"
-							disabled={isRunning || busy !== null}
+							disabled={busy !== null}
+							title={isRunning ? m.repo_install_queued_hint() : undefined}
 							onclick={() => updateOne(mod, update)}
 						>
 							{#if busy === mod.Id}<span class="loading loading-spinner loading-xs"
@@ -98,7 +108,7 @@
 		>
 		<button
 			class="btn btn-primary btn-sm"
-			disabled={isRunning || busy !== null || remaining.length === 0}
+			disabled={busy !== null || remaining.length === 0}
 			onclick={updateAll}
 		>
 			<Download size={14} />

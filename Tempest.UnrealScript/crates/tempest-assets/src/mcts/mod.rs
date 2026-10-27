@@ -29,6 +29,7 @@
 //! kind does not match the field's type class.
 
 pub mod create;
+pub mod delta;
 pub mod doc;
 pub mod workspace;
 

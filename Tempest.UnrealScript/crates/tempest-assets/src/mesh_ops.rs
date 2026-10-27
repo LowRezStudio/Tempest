@@ -114,6 +114,56 @@ pub fn mat_inverse_rigid(m: &[[f32; 4]; 4]) -> [[f32; 4]; 4] {
     inv
 }
 
+/// The rotation (column-major 4x4) taking the +Y axis onto the unit vector `d`.
+pub fn rotation_y_to(d: [f32; 3]) -> [[f32; 4]; 4] {
+    let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    let mut id = [[0f32; 4]; 4];
+    for (i, col) in id.iter_mut().enumerate() {
+        col[i] = 1.0;
+    }
+    if l < 1e-6 {
+        return id;
+    }
+    let d = [d[0] / l, d[1] / l, d[2] / l];
+    let c = d[1]; // Y · d
+    if c > 1.0 - 1e-6 {
+        return id;
+    }
+    if c < -1.0 + 1e-6 {
+        // Opposite: half turn around X.
+        return [[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+    }
+    // Axis = Y × d = (d.z, 0, -d.x); Rodrigues' formula.
+    let axis = [d[2], 0.0, -d[0]];
+    let s = (axis[0] * axis[0] + axis[2] * axis[2]).sqrt();
+    let k = [axis[0] / s, 0.0, axis[2] / s];
+    let t = 1.0 - c;
+    let r = |i: usize, j: usize| -> f32 {
+        let kk = k[i] * k[j] * t;
+        let delta = if i == j { c } else { 0.0 };
+        // Levi-Civita term s * ε_{ijk} k_k.
+        let cross = match (i, j) {
+            (0, 1) => -k[2],
+            (1, 0) => k[2],
+            (0, 2) => k[1],
+            (2, 0) => -k[1],
+            (1, 2) => -k[0],
+            (2, 1) => k[0],
+            _ => 0.0,
+        } * s;
+        kk + delta + cross
+    };
+    // Column-major: out[col][row] = R[row][col].
+    let mut out = [[0f32; 4]; 4];
+    for (col, column) in out.iter_mut().enumerate().take(3) {
+        for (row, cell) in column.iter_mut().enumerate().take(3) {
+            *cell = r(row, col);
+        }
+    }
+    out[3][3] = 1.0;
+    out
+}
+
 /// Re-express an Unreal-space transform in glTF space (`C M C⁻¹` with the
 /// y/z swap and centimetre → metre scale).
 pub fn to_gltf_matrix(m: &[[f32; 4]; 4]) -> [[f32; 4]; 4] {
@@ -469,21 +519,101 @@ pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
     nodes.push(mesh_node);
     let mut scene_nodes = vec![0usize];
     if skinned {
-        let mut globals: Vec<[[f32; 4]; 4]> = Vec::with_capacity(g.bones.len());
-        let mut ibm = Vec::with_capacity(g.bones.len() * 64);
-        let mut children: Vec<Vec<usize>> = vec![Vec::new(); g.bones.len()];
+        // Unreal bones point their +X at the child; glTF viewers and Blender
+        // draw a bone along its node's +Y. Each joint gets an extra rotation
+        // so that +Y points at its (first) child, leaves keep the direction of
+        // their parent, and the inverse bind matrices absorb it, so the skin
+        // is unchanged while the skeleton reads as limbs rather than sticks.
+        let n_bones = g.bones.len();
+        let mut globals_ue: Vec<[[f32; 4]; 4]> = Vec::with_capacity(n_bones);
+        let mut children: Vec<Vec<usize>> = vec![Vec::new(); n_bones];
         for (i, b) in g.bones.iter().enumerate() {
             let global = match b.parent {
-                Some(p) if p < i => mat_mul(&globals[p], &b.local),
+                Some(p) if p < i => mat_mul(&globals_ue[p], &b.local),
                 _ => b.local,
             };
-            globals.push(global);
+            globals_ue.push(global);
             if let Some(p) = b.parent {
                 if p < i {
                     children[p].push(i);
                 }
             }
-            let inv = mat_inverse_rigid(&to_gltf_matrix(&global));
+        }
+        let globals: Vec<[[f32; 4]; 4]> = globals_ue.iter().map(to_gltf_matrix).collect();
+        let pos = |m: &[[f32; 4]; 4]| [m[3][0], m[3][1], m[3][2]];
+        // World direction each bone should point at: towards the child that
+        // continues the chain (a neck points at the head, not between the
+        // clavicles; a pelvis at the spine, not at a prop socket): the child
+        // with the biggest subtree, skipping helpers (weighted, prop, socket,
+        // ik, twist, roll, attach) and children of another side than the
+        // parent (l_/r_ markers). A leaf keeps its parent's direction.
+        let mut subtree = vec![1usize; n_bones];
+        for i in (0..n_bones).rev() {
+            if let Some(p) = g.bones[i].parent.filter(|&p| p < i) {
+                subtree[p] += subtree[i];
+            }
+        }
+        let side = |name: &str| -> Option<char> {
+            let n = name.to_ascii_lowercase();
+            let left = n.starts_with("l_") || n.ends_with("_l") || n.contains("_l_") || n.contains("left");
+            let right = n.starts_with("r_") || n.ends_with("_r") || n.contains("_r_") || n.contains("right");
+            if left && !right {
+                Some('l')
+            } else if right && !left {
+                Some('r')
+            } else {
+                None
+            }
+        };
+        let helper = |name: &str| -> bool {
+            let n = name.to_ascii_lowercase();
+            ["weighted", "prop", "socket", "ik", "twist", "roll", "attach", "fx"].iter().any(|w| n.contains(w))
+        };
+        let mut dirs: Vec<[f32; 3]> = vec![[0.0, 1.0, 0.0]; n_bones];
+        for i in 0..n_bones {
+            let p = pos(&globals[i]);
+            let parent_side = side(&g.bones[i].name);
+            let best = children[i]
+                .iter()
+                .copied()
+                .filter(|&c| {
+                    let q = pos(&globals[c]);
+                    (q[0] - p[0]).hypot(q[1] - p[1]).hypot(q[2] - p[2]) > 1e-4
+                })
+                .max_by_key(|&c| {
+                    let name = &g.bones[c].name;
+                    let mut score = subtree[c] as i64;
+                    if helper(name) {
+                        score -= 1_000_000;
+                    }
+                    if side(name).is_some() && side(name) != parent_side {
+                        score -= 1_000;
+                    }
+                    score
+                });
+            dirs[i] = match best {
+                Some(c) => {
+                    let q = pos(&globals[c]);
+                    let d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+                    let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                    [d[0] / l, d[1] / l, d[2] / l]
+                }
+                None => g.bones[i].parent.filter(|&p| p < i).map(|p| dirs[p]).unwrap_or([0.0, 1.0, 0.0]),
+            };
+        }
+        // Per-bone rotation (in the bone's frame) taking +Y to that direction.
+        let fixes: Vec<[[f32; 4]; 4]> = (0..n_bones)
+            .map(|i| {
+                let m = &globals[i];
+                let d = dirs[i];
+                // Direction in the bone's own frame: Rᵀ d.
+                let local = [m[0][0] * d[0] + m[0][1] * d[1] + m[0][2] * d[2], m[1][0] * d[0] + m[1][1] * d[1] + m[1][2] * d[2], m[2][0] * d[0] + m[2][1] * d[1] + m[2][2] * d[2]];
+                rotation_y_to(local)
+            })
+            .collect();
+        let mut ibm = Vec::with_capacity(n_bones * 64);
+        for i in 0..n_bones {
+            let inv = mat_inverse_rigid(&mat_mul(&globals[i], &fixes[i]));
             for col in inv {
                 for x in col {
                     ibm.extend_from_slice(&x.to_le_bytes());
@@ -491,7 +621,11 @@ pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
             }
         }
         for (i, b) in g.bones.iter().enumerate() {
-            let m = to_gltf_matrix(&b.local);
+            let local = to_gltf_matrix(&b.local);
+            let m = match b.parent {
+                Some(p) if p < i => mat_mul(&mat_mul(&mat_inverse_rigid(&fixes[p]), &local), &fixes[i]),
+                _ => mat_mul(&local, &fixes[i]),
+            };
             let flat: Vec<String> = m.iter().flatten().map(|x| format!("{x}")).collect();
             let kids: Vec<String> = children[i].iter().map(|c| (c + 1).to_string()).collect();
             let kids = if kids.is_empty() { String::new() } else { format!(",\"children\":[{}]", kids.join(",")) };

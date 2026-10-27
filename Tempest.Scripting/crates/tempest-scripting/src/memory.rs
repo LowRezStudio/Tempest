@@ -57,6 +57,25 @@ pub unsafe fn read<T: Copy>(addr: usize) -> Option<T> {
     None
 }
 
+/// `read` for addresses nothing vouches for (script input): `None` when any
+/// byte is unreadable, instead of faulting. One `ReadProcessMemory` on this
+/// process per call.
+pub fn try_read<T: Copy>(addr: usize) -> Option<T> {
+    if addr == 0 {
+        return None;
+    }
+    #[cfg(windows)]
+    unsafe {
+        let size = std::mem::size_of::<T>();
+        let mut value = std::mem::MaybeUninit::<T>::uninit();
+        let mut copied = 0usize;
+        let ok = ReadProcessMemory(GetCurrentProcess(), addr as *const _, value.as_mut_ptr().cast(), size, &mut copied);
+        (ok != 0 && copied == size).then(|| value.assume_init())
+    }
+    #[cfg(not(windows))]
+    None
+}
+
 /// Volatile write. `false` for a null address or on the host build.
 ///
 /// # Safety
@@ -77,30 +96,38 @@ pub unsafe fn write<T: Copy>(addr: usize, value: T) -> bool {
     }
 }
 
-/// NUL-terminated ANSI string, at most `max` bytes.
-pub fn read_cstr(addr: usize, max: usize) -> Option<String> {
+/// The code units of a NUL-terminated string at `addr`, at most `max` of them,
+/// each read with `read_unit`; `None` when one is unreadable.
+fn read_units<U: Copy + Default + PartialEq>(addr: usize, max: usize, read_unit: impl Fn(usize) -> Option<U>) -> Option<Vec<U>> {
     let mut out = Vec::new();
     for i in 0..max {
-        let b: u8 = unsafe { read(addr + i)? };
-        if b == 0 {
+        let unit = read_unit(addr + i * std::mem::size_of::<U>())?;
+        if unit == U::default() {
             break;
         }
-        out.push(b);
+        out.push(unit);
     }
-    Some(String::from_utf8_lossy(&out).into_owned())
+    Some(out)
+}
+
+/// NUL-terminated ANSI string, at most `max` bytes.
+pub fn read_cstr(addr: usize, max: usize) -> Option<String> {
+    read_units(addr, max, |a| unsafe { read::<u8>(a) }).map(|b| String::from_utf8_lossy(&b).into_owned())
 }
 
 /// NUL-terminated UTF-16 string, at most `max` code units.
 pub fn read_wstr(addr: usize, max: usize) -> Option<String> {
-    let mut out = Vec::new();
-    for i in 0..max {
-        let w: u16 = unsafe { read(addr + i * 2)? };
-        if w == 0 {
-            break;
-        }
-        out.push(w);
-    }
-    Some(String::from_utf16_lossy(&out))
+    read_units(addr, max, |a| unsafe { read::<u16>(a) }).map(|w| String::from_utf16_lossy(&w))
+}
+
+/// `read_cstr` through `try_read`.
+pub fn try_read_cstr(addr: usize, max: usize) -> Option<String> {
+    read_units(addr, max, try_read::<u8>).map(|b| String::from_utf8_lossy(&b).into_owned())
+}
+
+/// `read_wstr` through `try_read`.
+pub fn try_read_wstr(addr: usize, max: usize) -> Option<String> {
+    read_units(addr, max, try_read::<u16>).map(|w| String::from_utf16_lossy(&w))
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +352,14 @@ struct MemoryBasicInformation {
 #[link(name = "kernel32")]
 extern "system" {
     fn GetModuleHandleA(name: *const u8) -> *mut std::ffi::c_void;
+    fn GetCurrentProcess() -> *mut std::ffi::c_void;
+    fn ReadProcessMemory(
+        process: *mut std::ffi::c_void,
+        addr: *const std::ffi::c_void,
+        buffer: *mut std::ffi::c_void,
+        size: usize,
+        copied: *mut usize,
+    ) -> i32;
     fn VirtualQuery(
         addr: *const std::ffi::c_void,
         info: *mut MemoryBasicInformation,
@@ -353,6 +388,17 @@ mod tests {
         assert_eq!(find_all(hay, &p, 1), vec![1]);
         assert!(find_all(hay, &parse_pattern("FF").unwrap(), 10).is_empty());
         assert!(find_all(b"\x01", &parse_pattern("01 02").unwrap(), 10).is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn try_read_returns_none_instead_of_faulting() {
+        let value: u32 = 0xDEAD_BEEF;
+        assert_eq!(try_read::<u32>(&value as *const u32 as usize), Some(0xDEAD_BEEF));
+        assert_eq!(try_read::<u32>(0x10), None);
+        let text = b"hi\0";
+        assert_eq!(try_read_cstr(text.as_ptr() as usize, 16).as_deref(), Some("hi"));
+        assert_eq!(try_read_cstr(0x10, 16), None);
     }
 
     #[test]

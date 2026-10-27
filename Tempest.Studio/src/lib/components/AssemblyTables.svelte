@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Database, Languages } from "@lucide/svelte";
 	import { assembly, versionRaw, versionText } from "$lib/studio/assembly.svelte";
+	import { inField, reveal, step } from "$lib/studio/keys";
+	import { tabs } from "$lib/studio/tabs.svelte";
 	import type { McsDoc, McsHeaderField } from "../../../electron/src/ipc/contract";
 
 	let filter = $state("");
@@ -36,6 +38,24 @@
 		await assembly.setHeader(doc.id, f.name, value);
 	}
 
+	function onKey(event: KeyboardEvent) {
+		if (inField(event) || event.altKey || event.ctrlKey || event.metaKey) return;
+		if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+		event.preventDefault();
+		const all = assembly.docs.flatMap((d) =>
+			tablesOf(d).map((t) => ({ doc: d.id, table: t.name })),
+		);
+		const p = assembly.page;
+		const at =
+			p && p.path.length === 0
+				? all.findIndex((x) => x.doc === p.doc && x.table === p.table)
+				: -1;
+		const next = all[step(at, event.key === "ArrowDown" ? 1 : -1, all.length)];
+		if (!next) return;
+		void assembly.openTable(next.doc, next.table, []);
+		reveal(`[data-table="${next.doc}|${next.table}"]`);
+	}
+
 	const isCurrent = (doc: McsDoc, table: string) =>
 		assembly.page?.doc === doc.id &&
 		assembly.page.table === table &&
@@ -53,7 +73,8 @@
 		bind:value={filter}
 	/>
 </div>
-<div class="min-h-0 flex-1 overflow-y-auto">
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div class="min-h-0 flex-1 overflow-y-auto" role="listbox" tabindex="-1" onkeydown={onKey}>
 	{#each assembly.docs as doc (doc.id)}
 		<div
 			class="bg-base-200/60 sticky top-0 flex items-center gap-1.5 px-3 py-1 text-xs font-semibold"
@@ -104,7 +125,11 @@
 				)
 					? 'row-selected'
 					: ''}"
-				onclick={() => assembly.openTable(doc.id, t.name, [])}
+				data-table="{doc.id}|{t.name}"
+				onclick={(e) => {
+					if (e.ctrlKey || e.metaKey) tabs.openInNewTab();
+					void assembly.openTable(doc.id, t.name, []);
+				}}
 				title="{t.columns.length} columns"
 			>
 				<span class="truncate font-mono">{t.name.replace(/^DATA_SET_/, "")}</span>

@@ -12,6 +12,8 @@ public class ModRecord
     public string OriginalPath { get; set; } = string.Empty;
     public List<string> InstalledFiles { get; set; } = [];
     public List<string> OwnedFiles { get; set; } = [];
+    /// <summary>Game files this mod changes through deltas (<c>deltas/…tdelta</c> entries), rebuilt by <see cref="DeltaResolver"/>; absolute paths like <see cref="OwnedFiles"/>.</summary>
+    public List<string> DeltaFiles { get; set; } = [];
     public int MetadataVersion { get; set; } = 1;
     public string Readme { get; set; } = string.Empty;
     public string ReadmeContent { get; set; } = string.Empty;
@@ -57,6 +59,12 @@ public class ModInstallResult
     public string? TempestRequired { get; set; }
     /// <summary>Repository dependencies installed along with the mod (`mod install &lt;id&gt;`), as "id@version".</summary>
     public List<string>? InstalledDependencies { get; set; }
+    /// <summary>Refused before anything was written: files the install would overwrite or delete are held open by another process (usually the running game). The launcher queues the install and retries once the game has closed.</summary>
+    public bool FilesInUse { get; set; }
+    /// <summary>The files of a <see cref="FilesInUse"/> refusal, relative to the game folder.</summary>
+    public List<string>? LockedFiles { get; set; }
+    /// <summary>`mod install --defer`: every check passed (trust, conflicts, checksums, files in use), but nothing was written. The launcher queues it while the game runs.</summary>
+    public bool Deferred { get; set; }
 }
 
 public class ModListResult

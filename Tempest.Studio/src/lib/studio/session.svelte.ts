@@ -1,0 +1,290 @@
+// Workspace files (`.twrk`): the session's unsaved work and where the user
+// was, saved to a file and reopened later, independent of saving packages in
+// place or "Save as". The backend writes and applies the file (`twrk.*`);
+// this store collects and restores the renderer's state around it, and keeps
+// a crash-recovery copy per game folder.
+import { invoke, pickFile, pickSave } from "$lib/platform/api";
+import { assembly } from "./assembly.svelte";
+import { basename, dirname } from "./format";
+import { nav, type Place } from "./nav.svelte";
+import { rpc } from "./rpc";
+import { studio, type IdRange, type StudioMode } from "./state.svelte";
+import { toasts } from "./toast.svelte";
+import type { McsPath, TwrkMode } from "../../../electron/src/ipc/contract";
+
+export const TWRK_FILTERS = [{ name: "Tempest Studio workspace", extensions: ["twrk"] }];
+const MODE_KEY = "studio.twrkMode";
+const RECENT_KEY = "studio.twrkRecents";
+const AUTOSAVE_MS = 2 * 60 * 1000;
+
+/** What the renderer keeps in a workspace file besides the files themselves. */
+type SavedState = {
+	version: 1;
+	mode: StudioMode;
+	pkg: string | null;
+	selected: number | null;
+	extras: string[];
+	idRange: IdRange;
+	assembly: { doc: string; table: string; path: McsPath; selected: number | null } | null;
+	nav: { history: Place[]; pos: number };
+	ui?: unknown;
+};
+
+class Session {
+	/** The workspace file this window saves to, once saved or opened. */
+	file = $state<{ path: string; mode: TwrkMode } | null>(null);
+	/** Mode for new workspace files (remembered). */
+	defaultMode = $state<TwrkMode>((localStorage.getItem(MODE_KEY) as TwrkMode | null) ?? "linked");
+	saving = $state(false);
+	/** Workspace files saved or opened lately, newest first. */
+	recents = $state<string[]>(JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]") as string[]);
+	/** When the workspace file was last written. */
+	savedAt = $state<number | null>(null);
+	/** Anything unsaved anywhere (packages or `.dat` files). */
+	hasChanges = $derived(studio.dirty.length > 0 || assembly.dirtyDocs.length > 0);
+	/** A recovery copy of an earlier session of this game folder, offered on open. */
+	recovery = $state<{ path: string; mtime: number } | null>(null);
+	/** Extra renderer state (pane layout…) the shell contributes. */
+	extraState: () => unknown = () => undefined;
+	extraRestore: (ui: unknown) => void = () => {};
+
+	/** A recovery copy was written by this window (cleared once nothing is unsaved). */
+	private wroteRecovery = false;
+
+	constructor() {
+		setInterval(() => void this.autosave(), AUTOSAVE_MS);
+		studio.openWorkspaceFile = (path) => this.open(path).then(() => {});
+		$effect.root(() => {
+			$effect(() => {
+				if (studio.workspace?.dir) void this.checkRecovery();
+			});
+			$effect(() => {
+				// Everything saved or discarded: the recovery copy would bring back stale changes.
+				if (!this.hasChanges && this.wroteRecovery) {
+					this.wroteRecovery = false;
+					void this.clearRecovery();
+				}
+			});
+		});
+	}
+
+	private remember(path: string): void {
+		this.recents = [path, ...this.recents.filter((r) => r !== path)].slice(0, 8);
+		localStorage.setItem(RECENT_KEY, JSON.stringify(this.recents));
+	}
+
+	private collect(): SavedState {
+		const page = assembly.page;
+		return {
+			version: 1,
+			mode: studio.mode,
+			pkg: studio.pkg?.path ?? null,
+			selected: studio.selected,
+			extras: studio.extraPackages.map((p) => p.path),
+			idRange: studio.idRange,
+			assembly: page
+				? {
+						doc: page.doc,
+						table: page.table,
+						path: $state.snapshot(page.path) as McsPath,
+						selected: assembly.selected,
+					}
+				: null,
+			nav: { history: $state.snapshot(nav.history) as Place[], pos: nav.pos },
+			ui: this.extraState(),
+		};
+	}
+
+	/**
+	 * Save the workspace file: to the current file, else (or with `as`) to a chosen one.
+	 * @param as Ask for a new file and mode even when one is set.
+	 * @param mode The mode for a new file; the remembered default otherwise.
+	 */
+	async save(as = false, mode?: TwrkMode): Promise<boolean> {
+		if (!studio.workspace) return false;
+		let target = this.file;
+		if (as || !target) {
+			const name = `${basename(dirname(dirname(studio.workspace.dir))) || "workspace"}.twrk`;
+			const out = await pickSave(
+				"Save workspace",
+				this.file?.path ?? name,
+				TWRK_FILTERS,
+				"twrk",
+			);
+			if (!out) return false;
+			target = {
+				path: out.endsWith(".twrk") ? out : `${out}.twrk`,
+				mode: mode ?? this.defaultMode,
+			};
+		}
+		this.saving = true;
+		try {
+			const r = await studio.run(`Saving ${basename(target.path)}…`, () =>
+				rpc("twrk.save", {
+					out: target.path,
+					mode: target.mode,
+					state: this.collect(),
+					include: studio.extraPackages.map((p) => p.path),
+				}),
+			);
+			this.file = target;
+			this.savedAt = Date.now();
+			this.remember(target.path);
+			localStorage.setItem(MODE_KEY, target.mode);
+			this.defaultMode = target.mode;
+			const whole = r.files.filter((f) => f.stored === "full" && !f.unchanged).length;
+			const deltas = r.files.filter((f) => f.stored === "delta").length;
+			toasts.push(
+				r.warnings.length > 0 ? "warning" : "success",
+				`${r.files.length} file${r.files.length === 1 ? "" : "s"} (${deltas} as changes, ${whole} whole), ${fmtSize(r.size)}${r.warnings.length > 0 ? `; ${r.warnings.join("; ")}` : ""}`,
+				`Workspace saved (${r.mode})`,
+			);
+			void this.clearRecovery();
+			return true;
+		} catch (error) {
+			toasts.error(error, "Could not save the workspace");
+			return false;
+		} finally {
+			this.saving = false;
+		}
+	}
+
+	/** Choose a workspace file and open it. */
+	async pickAndOpen(): Promise<void> {
+		const file = await pickFile("Open workspace", TWRK_FILTERS, undefined, "twrk");
+		if (file) await this.open(file);
+	}
+
+	/**
+	 * Open a workspace file: its game folder (or another one, for a portable file whose
+	 * folder is not on this machine), its changes, then where the user was.
+	 * @param path The `.twrk` file.
+	 * @param recovered A recovery copy: not adopted as this window's workspace file.
+	 */
+	async open(path: string, recovered = false): Promise<boolean> {
+		try {
+			const info = await rpc("twrk.read", { path });
+			if (
+				(studio.dirty.length > 0 || assembly.dirtyDocs.length > 0) &&
+				!recovered &&
+				studio.workspace
+			) {
+				toasts.push(
+					"warning",
+					"Save or discard the unsaved changes first, or open the workspace in a new window.",
+					"Unsaved changes",
+				);
+				return false;
+			}
+			let dir = info.gameDir;
+			const exists = await invoke("fs:exists", { path: `${dir}/Core.upk` });
+			if (!exists) {
+				if (info.mode === "linked") {
+					toasts.push(
+						"info",
+						`${dir} is not on this machine; pick the same game version's CookedPCConsole folder (a linked workspace only holds the changes).`,
+						"Game folder",
+					);
+				}
+				const picked = await invoke("dialog:open", {
+					title: "CookedPCConsole folder for this workspace",
+					directory: true,
+				});
+				if (!picked?.[0]) return false;
+				dir = picked[0];
+			}
+			if (studio.workspace?.dir !== dir || studio.dirty.length > 0) {
+				if (!(await studio.openWorkspace(dir))) return false;
+			}
+			const r = await studio.run(`Applying ${basename(path)}…`, () =>
+				rpc("twrk.apply", { path }),
+			);
+			for (const p of r.packages) {
+				if (p.dirty && !studio.dirty.includes(p.path)) studio.dirty.push(p.path);
+			}
+			for (const e of r.extras) studio.addExternal(e);
+			if (r.docs.length > 0) await assembly.open();
+			await this.restore(r.state as SavedState | null);
+			if (!recovered) {
+				this.file = { path, mode: r.mode };
+				this.remember(path);
+			}
+			const n = r.packages.length + r.docs.length;
+			toasts.push(
+				r.problems.length > 0 ? "warning" : "success",
+				`${n} file${n === 1 ? "" : "s"} with unsaved changes${r.problems.length > 0 ? `; ${r.problems.join("; ")}` : ""}`,
+				recovered ? "Session recovered" : "Workspace opened",
+			);
+			return true;
+		} catch (error) {
+			toasts.error(error, "Could not open the workspace");
+			return false;
+		}
+	}
+
+	private async restore(state: SavedState | null): Promise<void> {
+		if (!state || state.version !== 1) return;
+		if (state.idRange !== undefined) studio.idRange = state.idRange;
+		if (state.assembly) {
+			if (!assembly.summary) await assembly.open();
+			if (assembly.summary) {
+				await assembly.openTable(
+					state.assembly.doc,
+					state.assembly.table,
+					state.assembly.path,
+					state.assembly.selected,
+				);
+			}
+		}
+		if (state.pkg) await studio.openPackage(state.pkg, state.selected ?? undefined);
+		studio.mode = state.mode;
+		if (state.nav?.history?.length) {
+			nav.history = state.nav.history;
+			nav.pos = Math.min(state.nav.pos, state.nav.history.length - 1);
+		}
+		if (state.ui !== undefined) this.extraRestore(state.ui);
+	}
+
+	// ----- crash recovery ------------------------------------------------------
+
+	/** Every two minutes with unsaved changes: a linked copy in the app's data folder. */
+	private async autosave(): Promise<void> {
+		if (!studio.workspace || !this.hasChanges || this.saving || studio.busy) return;
+		try {
+			const r = await invoke("workspace:recovery", { dir: studio.workspace.dir });
+			await rpc("twrk.save", { out: r.path, mode: "linked", state: this.collect() });
+			this.wroteRecovery = true;
+		} catch {
+			// A failed autosave must not interrupt the work; the next one retries.
+		}
+	}
+
+	/** Look for a recovery copy of the open game folder (called when a folder opens). */
+	async checkRecovery(): Promise<void> {
+		this.recovery = null;
+		if (!studio.workspace || this.wroteRecovery) return;
+		const r = await invoke("workspace:recovery", { dir: studio.workspace.dir });
+		if (r.exists && r.mtime) this.recovery = { path: r.path, mtime: r.mtime };
+	}
+
+	async restoreRecovery(): Promise<void> {
+		if (!this.recovery) return;
+		const ok = await this.open(this.recovery.path, true);
+		if (ok) this.recovery = null;
+	}
+
+	async clearRecovery(): Promise<void> {
+		this.recovery = null;
+		if (studio.workspace) {
+			await invoke("workspace:recovery", { dir: studio.workspace.dir, clear: true });
+		}
+	}
+}
+
+function fmtSize(n: number): string {
+	if (n < 1024) return `${n} B`;
+	if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+	return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+export const session = new Session();

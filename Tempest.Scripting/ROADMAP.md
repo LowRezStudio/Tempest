@@ -154,8 +154,10 @@ reach script → script and script → native calls.
 
 ## Settings, dev folder, hot reload (2026-10-16)
 
-- [~] `<game>/ChaosGame/Config/tempest.toml` (template written on first run): console, jit, log,
+- [~] `<game>/ChaosGame/Config/tempest.toml` (template written on first run): jit, log,
   dev folder, hot reload, mod config dir, ui scale. `tempest.settings()`, `tempest_config`.
+- [~] Console window as a launcher option: `<configs>/tempest-scripting.toml` (`console`, off by
+  default; written on first start so the launcher shows it).
 - [~] Dev mods in `<game>/mods/<folder>` (manifest optional, override installed ids), editor
   types + `.luarc.json` seeded there, `tempest.dump_sdk()` defaults there.
 - [~] Hot reload: polling watcher (500 ms, debounced) reloads a dev mod on save and any mod when

@@ -869,8 +869,35 @@ fn decompress_image(bytes: &[u8], summary: &Summary, limit: usize) -> Result<Vec
     Ok(image)
 }
 
-/// Compress everything after the summary into a single chunk, the way the
-/// cooker stores script packages, and rewrite the summary accordingly.
+/// LZO every chunk; the chunks are independent, so they are spread over the
+/// cores (compression is three quarters of a package rewrite otherwise).
+fn compress_chunks(image: &[u8], ranges: &[(usize, usize)], obscure: bool) -> Vec<Vec<u8>> {
+    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(ranges.len()).max(1);
+    if workers == 1 {
+        return ranges.iter().map(|&(o, s)| write_compressed_chunk(&image[o..o + s], obscure)).collect();
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let mut out: Vec<Option<Vec<u8>>> = vec![None; ranges.len()];
+    let slots: Vec<std::sync::Mutex<Option<Vec<u8>>>> = (0..ranges.len()).map(|_| std::sync::Mutex::new(None)).collect();
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if i >= ranges.len() {
+                    break;
+                }
+                let (o, s) = ranges[i];
+                let c = write_compressed_chunk(&image[o..o + s], obscure);
+                *slots[i].lock().unwrap() = Some(c);
+            });
+        }
+    });
+    for (dst, slot) in out.iter_mut().zip(slots) {
+        *dst = slot.into_inner().unwrap();
+    }
+    out.into_iter().map(|c| c.unwrap()).collect()
+}
+
 /// Compress the file image the way the cooker does: the header tables form one chunk,
 /// then whole export payloads are grouped into chunks of at most 1 MiB. Offsets in the
 /// summary stay in uncompressed-image coordinates (the summary there has no chunk table).
@@ -895,7 +922,7 @@ fn compress_image(image: &[u8], summary: &mut Summary, obscure: bool, exports: &
         }
     }
     ranges.push(cur);
-    let comp_chunks: Vec<Vec<u8>> = ranges.iter().map(|&(o, s)| write_compressed_chunk(&image[o..o + s], obscure)).collect();
+    let comp_chunks = compress_chunks(image, &ranges, obscure);
     summary.compression_flags = compression::LZO | if obscure { compression::OBSCURED } else { 0 };
     summary.package_flags |= pkg::STORE_COMPRESSED;
     summary.compressed_chunks = vec![CompressedChunk::default(); ranges.len()];

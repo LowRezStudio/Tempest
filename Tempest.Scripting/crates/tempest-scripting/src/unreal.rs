@@ -1007,6 +1007,8 @@ pub enum PropKind {
 pub struct Prop {
     pub offset: usize,
     pub kind: PropKind,
+    /// `UProperty.ArrayDim`: > 1 for a static array (`var GFxObject m_mc[60]`).
+    pub dim: usize,
     /// `UBoolProperty.BitMask`.
     pub bitmask: u32,
     /// `UStructProperty.Struct` / `UObjectProperty.PropertyClass` / `UArrayProperty.Inner`.
@@ -1030,6 +1032,9 @@ pub enum Value {
     Struct { addr: usize, kind: usize },
     /// `TArray` with its element property (offset 0 within an element).
     Array { addr: usize, inner: Prop },
+    /// A static array (`ArrayDim` > 1): `dim` elements of `inner` laid out
+    /// back to back from `addr`.
+    Fixed { addr: usize, inner: Prop, dim: usize },
     /// `TMap` with key/value properties (offsets relative to a pair).
     Map { addr: usize, key: Prop, value: Prop, elem_size: usize },
     Addr(usize),
@@ -1070,13 +1075,24 @@ fn prop_at(field: usize) -> Option<Prop> {
     }
     let offset: i32 = unsafe { memory::read(field + UPROP_OFFSET)? };
     let elem_size: i32 = unsafe { memory::read(field + UPROP_ELEMENT_SIZE)? };
+    // ArrayDim sits right before ElementSize in UProperty.
+    let dim: i32 = unsafe { memory::read(field + UPROP_ELEMENT_SIZE - 4)? };
+    // UPROP_EXT holds an object pointer only for these kinds (a byte's Enum
+    // may be null). A bool keeps its BitMask there and the other kinds end
+    // before it; naming either as an object (`ext_name`) would crash.
     // Maps keep the UMapProperty itself so Key (+0x98) and Value (+0xA0)
     // can both be reached later.
-    let ext: usize = if kind == PropKind::Map { field } else { unsafe { memory::read(field + UPROP_EXT)? } };
+    let (ext, bitmask): (usize, u32) = match kind {
+        PropKind::Map => (field, 0),
+        PropKind::Object | PropKind::Struct | PropKind::Array | PropKind::Byte => (unsafe { memory::read(field + UPROP_EXT)? }, 0),
+        PropKind::Bool => (0, unsafe { memory::read(field + UPROP_EXT)? }),
+        _ => (0, 0),
+    };
     Some(Prop {
         offset: offset.max(0) as usize,
         kind,
-        bitmask: ext as u32,
+        dim: dim.max(1) as usize,
+        bitmask,
         ext,
         elem_size: elem_size.max(0) as usize,
     })
@@ -1184,7 +1200,7 @@ pub fn synthetic_prop(kind: &str) -> Option<Prop> {
         }
         _ => return None,
     };
-    Some(Prop { offset: 0, kind: k, bitmask: 0, ext, elem_size: size })
+    Some(Prop { offset: 0, kind: k, dim: 1, bitmask: 0, ext, elem_size: size })
 }
 
 /// A `Map` value over the `TMap` at `addr` with explicit pair types.
@@ -1411,6 +1427,7 @@ pub fn release_at(addr: usize, prop: &Prop) {
 pub fn snapshot_prop(base: usize, prop: &Prop) -> Value {
     match read_prop(base, prop) {
         Some(Value::Array { addr, inner }) => Value::List((0..array_len(addr)).map(|i| array_elem(addr, &inner, i).map(|e| snapshot_prop(e, &inner)).unwrap_or(Value::Nil)).collect()),
+        Some(Value::Fixed { addr, inner, dim }) => Value::List((0..dim).map(|i| snapshot_prop(addr + i * inner.elem_size.max(1), &inner)).collect()),
         Some(Value::Struct { addr, kind }) => Value::Record(
             super_chain(Some(kind))
                 .flat_map(children)
@@ -1479,6 +1496,9 @@ pub fn read_prop(base: usize, prop: &Prop) -> Option<Value> {
         return None;
     }
     let addr = base + prop.offset;
+    if prop.dim > 1 {
+        return Some(Value::Fixed { addr, inner: Prop { offset: 0, dim: 1, ..*prop }, dim: prop.dim });
+    }
     unsafe {
         Some(match prop.kind {
             PropKind::Int => Value::Int(memory::read::<i32>(addr)? as i64),

@@ -6,7 +6,7 @@
 //! Boot sequence, all on a worker thread spawned from `DllMain`:
 //!
 //! 1. [`log::init`] — `%TEMP%\tempest-scripting.log`, debugger output, and
-//!    (unless `TEMPEST_SCRIPT_CONSOLE=0`) a console window.
+//!    a console window when the `console` option is on (launcher config).
 //! 2. [`unreal::resolve`] — the client's signatures give GObjects, GNames,
 //!    the engine slot, `ProcessEvent` and the anti-cheat XOR mask.
 //!    Then it waits for the game to populate the arrays (`GNames[0] == "None"`).

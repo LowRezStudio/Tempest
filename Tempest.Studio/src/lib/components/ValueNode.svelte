@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronDown, ChevronRight } from "@lucide/svelte";
+	import { ChevronDown, ChevronRight, CopyPlus, Plus, RotateCcw, X } from "@lucide/svelte";
 	import ScalarEditor from "$lib/components/ScalarEditor.svelte";
 	import ValueNode from "$lib/components/ValueNode.svelte";
 	import type { PropValue } from "../../../electron/src/ipc/contract";
@@ -17,6 +17,14 @@
 		onset: (path: string, value: string) => Promise<void>;
 		/** Binary struct members with one element are edited at `path` directly. */
 		editable?: boolean;
+		/** Structural edits: add/duplicate/remove an array element, reset a property. */
+		onlist?: (
+			path: string,
+			op: "add" | "duplicate" | "remove" | "removeProperty",
+			at?: number,
+		) => Promise<void>;
+		/** Set on array elements: the array's path and this element's index. */
+		element?: { array: string; at: number };
 	}
 	const {
 		label,
@@ -28,6 +36,8 @@
 		depth,
 		onset,
 		editable = true,
+		onlist,
+		element,
 	}: Props = $props();
 
 	const compound = $derived(value.t === "struct" || value.t === "binary" || value.t === "array");
@@ -60,6 +70,47 @@
 			<span class="ml-4">{label}</span>
 		{/if}
 		<span class="ml-2 text-[10px] opacity-40">{typeLabel}</span>
+		{#if onlist && editable}
+			<span
+				class="ml-1 inline-flex gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+			>
+				{#if value.t === "array"}
+					<button
+						class="btn btn-ghost btn-xs btn-square h-4 min-h-4 w-4"
+						title="Add an element (a copy of the last one)"
+						aria-label="Add an element"
+						onclick={() => {
+							open = true;
+							void onlist(path, "add");
+						}}><Plus size={10} /></button
+					>
+				{/if}
+				{#if element}
+					<button
+						class="btn btn-ghost btn-xs btn-square h-4 min-h-4 w-4"
+						title="Duplicate this element"
+						aria-label="Duplicate this element"
+						onclick={() => onlist(element.array, "duplicate", element.at)}
+						><CopyPlus size={10} /></button
+					>
+					<button
+						class="btn btn-ghost btn-xs btn-square hover:text-error h-4 min-h-4 w-4"
+						title="Remove this element"
+						aria-label="Remove this element"
+						onclick={() => onlist(element.array, "remove", element.at)}
+						><X size={10} /></button
+					>
+				{:else if depth === 0}
+					<button
+						class="btn btn-ghost btn-xs btn-square h-4 min-h-4 w-4"
+						title="Reset to the class default (remove the property from this object)"
+						aria-label="Reset to default"
+						onclick={() => onlist(path, "removeProperty")}
+						><RotateCcw size={10} /></button
+					>
+				{/if}
+			</span>
+		{/if}
 	</td>
 	<td class="py-0.5 align-top">
 		{#if value.t === "struct"}
@@ -85,6 +136,7 @@
 				enumName={p.enum}
 				depth={depth + 1}
 				{onset}
+				{onlist}
 			/>
 		{/each}
 	{:else if value.t === "binary"}
@@ -120,6 +172,8 @@
 				{type}
 				depth={depth + 1}
 				{onset}
+				{onlist}
+				element={{ array: path, at: j }}
 			/>
 		{/each}
 		{#if value.v.length > 2000}

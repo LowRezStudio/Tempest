@@ -16,6 +16,23 @@
 		(window as unknown as { studio: unknown; assembly: unknown }).studio = studio;
 		(window as unknown as { studio: unknown; assembly: unknown }).assembly = assembly;
 		(window as unknown as { rpc: unknown }).rpc = rpc;
+		void Promise.all([
+			import("$lib/studio/session.svelte"),
+			import("$lib/studio/ui.svelte"),
+			import("$lib/studio/tabs.svelte"),
+			import("$lib/studio/commands.svelte"),
+			import("$lib/studio/nav.svelte"),
+			import("$lib/studio/cooker.svelte"),
+		]).then(([s, u, t, c, n, k]) => {
+			Object.assign(window, {
+				session: s.session,
+				ui: u.ui,
+				tabs: t.tabs,
+				commands: c.commands,
+				nav: n.nav,
+				cooker: k.cooker,
+			});
+		});
 	}
 </script>
 

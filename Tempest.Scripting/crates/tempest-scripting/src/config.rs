@@ -5,26 +5,27 @@
 //!
 //! * `ChaosGame/Config/tempest.toml`: the runtime settings (written as a
 //!   commented template on first run; `TEMPEST_SCRIPT_CONFIG` overrides the path)
+//! * `ChaosGame/Config/mods/tempest-scripting.toml`: the runtime's player
+//!   options (`console`), the config the launcher shows for this mod
 //! * `mods/<name>/`: dev mods, loaded like installed ones and hot-reloaded
 //! * `ChaosGame/Config/mods/<mod-id>.toml`: one config file per installed
 //!   mod (a dev mod's is the `config.toml` in its folder), read with
 //!   `tempest.config()` and written with `tempest.save_config()`
 //!
-//! Environment variables keep working and win over the file:
+//! Environment variables keep working and win over the files:
 //! `TEMPEST_SCRIPT_LOG`, `TEMPEST_SCRIPT_CONSOLE=0`, `TEMPEST_SCRIPT_DIR`.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 const TEMPLATE: &str = r#"# Tempest.Scripting runtime settings. Edit and restart the game.
-# Environment variables (TEMPEST_SCRIPT_LOG, TEMPEST_SCRIPT_CONSOLE=0, TEMPEST_SCRIPT_DIR)
-# override what is set here.
+# Environment variables (TEMPEST_SCRIPT_LOG, TEMPEST_SCRIPT_DIR) override what
+# is set here. The console window is an option of the Tempest Scripting mod in
+# the launcher (ChaosGame/Config/mods/tempest-scripting.toml).
 
 [runtime]
 # Log file. Default: %TEMP%\tempest-scripting.log
 # log = "C:/temp/tempest-scripting.log"
-# Open the console window (also a Lua REPL).
-console = false
 # LuaJIT's trace compiler. Turn off to debug a suspected JIT issue.
 jit = true
 # Log every engine call made from Lua (obj:Func(), tempest.new) before and
@@ -57,6 +58,12 @@ configs = "ChaosGame/Config/mods"
 scale = 1.0
 "#;
 
+/// The runtime's mod id; `<configs>/<id>.toml` is the config the launcher
+/// shows for it.
+const RUNTIME_MOD_ID: &str = "tempest-scripting";
+
+const RUNTIME_MOD_TEMPLATE: &str = include_str!("../../../mods/scripting/config.toml");
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub path: Option<PathBuf>,
@@ -82,7 +89,7 @@ impl Default for Config {
             path: None,
             game_dir: None,
             log: None,
-            console: true,
+            console: false,
             jit: true,
             trace_calls: false,
             dev_mods: "mods".into(),
@@ -142,6 +149,37 @@ pub fn mod_config_path(id: &str) -> Option<PathBuf> {
 }
 
 fn load() -> Config {
+    let mut c = load_settings();
+    if let Some(dir) = resolve(c.game_dir.as_deref(), &c.mod_configs) {
+        load_runtime_options(&mut c, &dir.join(format!("{RUNTIME_MOD_ID}.toml")));
+    }
+    c
+}
+
+/// Reads the runtime's player options, writing the defaults when the file is
+/// missing so the launcher has a config to show.
+fn load_runtime_options(c: &mut Config, path: &Path) {
+    match read_table(path) {
+        Ok(Some(t)) => {
+            if let Some(b) = t.get("console").and_then(|v| v.as_bool()) {
+                c.console = b;
+            }
+        }
+        Ok(None) => {
+            let written = path
+                .parent()
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .and_then(|()| std::fs::write(path, RUNTIME_MOD_TEMPLATE));
+            c.notes.push(match written {
+                Ok(()) => format!("wrote default options to {}", path.display()),
+                Err(e) => format!("cannot write {}: {e}", path.display()),
+            });
+        }
+        Err(e) => c.notes.push(format!("{e}; using defaults")),
+    }
+}
+
+fn load_settings() -> Config {
     let mut c = Config {
         game_dir: game_dir(),
         ..Config::default()
@@ -192,8 +230,10 @@ fn apply(c: &mut Config, t: &toml::Table) {
         {
             c.log = Some(s.to_string());
         }
-        if let Some(b) = r.get("console").and_then(|v| v.as_bool()) {
-            c.console = b;
+        if r.contains_key("console") {
+            c.notes.push(format!(
+                "[runtime] console in tempest.toml is no longer read; set console in the launcher's Tempest Scripting config ({RUNTIME_MOD_ID}.toml)"
+            ));
         }
         if let Some(b) = r.get("jit").and_then(|v| v.as_bool()) {
             c.jit = b;
@@ -446,5 +486,29 @@ pub fn table_from_lua(v: &mlua::Value) -> Result<toml::Table, String> {
     match from_lua(v)? {
         toml::Value::Table(t) => Ok(t),
         _ => Err("config must be a table".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_options_default_to_no_console_and_follow_the_file() {
+        let dir = std::env::temp_dir().join(format!("tempest-config-test-{}", std::process::id()));
+        let path = dir.join(format!("{RUNTIME_MOD_ID}.toml"));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let mut c = Config::default();
+        load_runtime_options(&mut c, &path);
+        assert!(!c.console);
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("console = false"));
+
+        std::fs::write(&path, written.replace("console = false", "console = true")).unwrap();
+        let mut c = Config::default();
+        load_runtime_options(&mut c, &path);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(c.console);
     }
 }

@@ -6,7 +6,7 @@
 	import { username } from "$lib/stores/settings.svelte";
 	import { today, weatherOf, weatherOverride } from "$lib/theme/weather.svelte";
 	import { patchOf } from "$lib/utils/versions";
-	import { greetingTitle, pickQuip } from "./greetings";
+	import { greetingTitle, pickQuip, rerollQuip, weatherQuip } from "./greetings";
 	import type { Instance } from "$lib/types/instance";
 	import type { GreetingContext } from "./greetings";
 
@@ -18,13 +18,6 @@
 
 	let { instance, instances }: Props = $props();
 
-	const weatherQuip = {
-		snow: m.home_quip_weather_snow,
-		leaves: m.home_quip_weather_leaves,
-		petals: m.home_quip_weather_petals,
-		fireflies: m.home_quip_weather_fireflies,
-	};
-
 	const running = $derived(processesList.value.length > 0);
 	const ctx = $derived.by((): GreetingContext => {
 		const patch = patchOf(instance?.version);
@@ -33,6 +26,7 @@
 			name: username.value,
 			instance: instance && {
 				label: instance.label,
+				version: instance.version,
 				lastPlayedAt: instance.lastPlayedAt,
 				patchName: patch?.name,
 				patchDate: patch?.date,
@@ -44,17 +38,14 @@
 	});
 	const title = $derived(greetingTitle(ctx));
 
-	let quip = $state(untrack(() => pickQuip(ctx, undefined)));
+	let quip = $state(untrack(() => pickQuip(ctx)));
 
 	// A game starting or stopping is worth a new quip.
 	let wasRunning = untrack(() => running);
 	$effect(() => {
 		if (running === wasRunning) return;
 		wasRunning = running;
-		quip = pickQuip(
-			untrack(() => ctx),
-			untrack(() => quip),
-		);
+		quip = pickQuip(untrack(() => ctx));
 	});
 
 	// The Konami code, typed anywhere in the launcher, gets its answer here.
@@ -63,7 +54,7 @@
 		const override = weatherOverride.value;
 		if (override === lastOverride) return;
 		lastOverride = override;
-		quip = override ? weatherQuip[weatherOf(today()).kind]() : m.home_quip_weather_off();
+		quip = weatherQuip(override ? weatherOf(today()).kind : "off");
 	});
 
 	let rerolls = 0;
@@ -76,7 +67,7 @@
 			lastOverride = true;
 			weatherOverride.value = true;
 		} else {
-			quip = pickQuip(ctx, quip);
+			quip = rerollQuip(rerolls) ?? pickQuip(ctx);
 		}
 	}
 </script>

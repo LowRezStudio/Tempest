@@ -82,6 +82,15 @@ jobs:
       - name: Setup Zig 0.16.0
         uses: marler8997/setup-anyzig@master
 
+      # The upk sidecar (mod deltas) is Rust, built by scripts/build-cli.js.
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Tempest.UnrealScript
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -108,7 +117,7 @@ jobs:
         # Includes the embedded key lists, protocol contract, zig utils and
         # the build script itself.
         run: |
-          hash="${{ hashFiles('Tempest.CLI/**', 'MarshalLib/**', 'MarshalLib.Database/**', 'Tempest.Utils/**', 'Tempest.Protocol/**', 'Tempest.Launcher/scripts/build-cli.js', 'keys/*.keys') }}"
+          hash="${{ hashFiles('Tempest.CLI/**', 'MarshalLib/**', 'MarshalLib.Database/**', 'Tempest.Utils/**', 'Tempest.Protocol/**', 'Tempest.UnrealScript/crates/**', 'Tempest.UnrealScript/Cargo.*', 'Tempest.Launcher/scripts/build-cli.js', 'keys/*.keys') }}"
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
           echo "$hash" > cli-inputs.sha256
 

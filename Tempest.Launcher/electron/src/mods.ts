@@ -1,6 +1,6 @@
 // Mod package file operations: remote downloads, save/stage of cooked packs,
 // "show in explorer" resolution and sandboxed mod file previews.
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -158,6 +158,41 @@ handle("mods:discard-staged-pack", async (_event, { stagedPath }) => {
 	const tmp = path.resolve(os.tmpdir());
 	if (!resolved.startsWith(tmp + path.sep)) return;
 	await fs.promises.rm(resolved, { force: true }).catch(() => {});
+});
+
+// Packages waiting in the launcher's install queue (an install refused because the game holds
+// files it would replace), one folder per entry so the package keeps its own file name.
+function installQueueDir(): string {
+	return path.join(app.getPath("userData"), "install-queue");
+}
+
+// The entry folder of a copy `mods:queue-stage` made, or null for any other path.
+function queueEntryOf(file: string): string | null {
+	const entry = path.dirname(path.resolve(file));
+	return path.dirname(entry) === path.resolve(installQueueDir()) ? entry : null;
+}
+
+handle("mods:queue-stage", async (_event, { path: file }) => {
+	const entry = path.join(installQueueDir(), randomUUID());
+	await fs.promises.mkdir(entry, { recursive: true });
+	const dest = path.join(entry, path.basename(file));
+	await fs.promises.copyFile(file, dest);
+	return dest;
+});
+
+handle("mods:queue-discard", async (_event, { path: file }) => {
+	const entry = queueEntryOf(file);
+	if (entry) await fs.promises.rm(entry, { recursive: true, force: true }).catch(() => {});
+});
+
+handle("mods:queue-prune", async (_event, { keep }) => {
+	const kept = new Set(keep.flatMap((file) => queueEntryOf(file) ?? []));
+	const dir = installQueueDir();
+	const entries = await fs.promises.readdir(dir).catch(() => [] as string[]);
+	for (const name of entries) {
+		const entry = path.join(dir, name);
+		if (!kept.has(entry)) await fs.promises.rm(entry, { recursive: true, force: true });
+	}
 });
 
 handle("mods:open-location", async (_event, { gamePath, mod }) => {

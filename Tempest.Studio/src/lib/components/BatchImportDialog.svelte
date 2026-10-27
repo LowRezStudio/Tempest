@@ -16,6 +16,35 @@
 	let result = $state<BatchResult | null>(null);
 	let working = $state(false);
 	let progress = $state<{ done: number; total: number; file: string } | null>(null);
+	/** Package files the plan would write, unselected ones excluded from the run. */
+	let packages = $state<{ path: string; name: string; files: number; on: boolean }[]>([]);
+	const selectedPaths = $derived(packages.filter((p) => p.on).map((p) => p.path));
+	const selectedFiles = $derived(packages.filter((p) => p.on).reduce((n, p) => n + p.files, 0));
+	const unselected = $derived(new Set(packages.filter((p) => !p.on).map((p) => p.path)));
+
+	/** The distinct packages of a plan, all selected. */
+	function packagesOf(r: BatchResult) {
+		const map = new Map<string, { path: string; name: string; files: number; on: boolean }>();
+		for (const e of r.entries) {
+			if (!e.ok || !e.packagePath) continue;
+			const cur = map.get(e.packagePath);
+			if (cur) {
+				cur.files += 1;
+			} else {
+				map.set(e.packagePath, {
+					path: e.packagePath,
+					name: e.package,
+					files: 1,
+					on: true,
+				});
+			}
+		}
+		return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+	}
+
+	function selectAll(on: boolean) {
+		packages = packages.map((p) => ({ ...p, on }));
+	}
 
 	$effect(() => {
 		if (!open) return;
@@ -53,6 +82,7 @@
 		working = true;
 		try {
 			result = await rpc("batch.plan", { dir, recursive });
+			packages = packagesOf(result);
 		} catch (error) {
 			toasts.error(error, "Scan failed");
 		} finally {
@@ -61,7 +91,7 @@
 	}
 
 	async function run() {
-		if (!dir || !result || result.ok === 0) return;
+		if (!dir || !result || selectedFiles === 0) return;
 		if (mode === "folder" && !outDir) return;
 		working = true;
 		progress = null;
@@ -73,6 +103,7 @@
 					dir,
 					recursive,
 					outDir: mode === "folder" ? outDir : undefined,
+					packages: selectedPaths,
 				}),
 			);
 			result = r;
@@ -149,12 +180,48 @@
 			</label>
 		</fieldset>
 
+		{#if result && !result.ran && packages.length > 1}
+			<fieldset class="border-base-300 rounded border p-2 text-xs">
+				<legend class="flex items-center gap-2 px-1 opacity-70">
+					Packages to write ({selectedPaths.length}/{packages.length})
+					<button
+						class="btn btn-ghost btn-xs"
+						type="button"
+						onclick={() => selectAll(true)}>Select all</button
+					>
+					<button
+						class="btn btn-ghost btn-xs"
+						type="button"
+						onclick={() => selectAll(false)}>Deselect all</button
+					>
+				</legend>
+				<div class="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1 overflow-auto md:grid-cols-3">
+					{#each packages as p (p.path)}
+						<label class="flex items-center gap-2 truncate" title={p.path}>
+							<input
+								type="checkbox"
+								class="checkbox checkbox-xs"
+								bind:checked={p.on}
+							/>
+							<span class="truncate font-mono">{p.name}</span>
+							<span class="opacity-50">{p.files}</span>
+						</label>
+					{/each}
+				</div>
+			</fieldset>
+		{/if}
 		{#if result}
 			<div class="flex items-center gap-2">
 				<span>
-					<b>{result.ok}</b> file{result.ok === 1 ? "" : "s"}
+					<b>{result.ran ? result.ok : selectedFiles}</b> file{(result.ran
+						? result.ok
+						: selectedFiles) === 1
+						? ""
+						: "s"}
 					{result.ran ? "imported" : "ready"}{result.failed
 						? `, ${result.failed} skipped`
+						: ""}{!result.ran && result.ok - selectedFiles > 0
+						? `, ${result.ok - selectedFiles} unselected`
 						: ""}
 				</span>
 				{#if progress && working}
@@ -167,10 +234,10 @@
 					<button
 						class="btn btn-sm btn-primary"
 						onclick={run}
-						disabled={working || result.ok === 0 || (mode === "folder" && !outDir)}
+						disabled={working || selectedFiles === 0 || (mode === "folder" && !outDir)}
 					>
 						{#if working}<span class="loading loading-xs loading-spinner"></span>{/if}
-						Import {result.ok} file{result.ok === 1 ? "" : "s"}
+						Import {selectedFiles} file{selectedFiles === 1 ? "" : "s"}
 					</button>
 				{/if}
 			</div>
@@ -178,7 +245,12 @@
 				<table class="table-xs table font-mono">
 					<tbody>
 						{#each result.entries as e, k (k)}
-							<tr class={e.ok ? "" : "opacity-70"}>
+							<tr
+								class={!e.ok ||
+								(e.packagePath !== null && unselected.has(e.packagePath))
+									? "opacity-50"
+									: ""}
+							>
 								<td class="w-4">
 									{#if e.ok}<CircleCheck
 											size={13}
