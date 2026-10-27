@@ -22,7 +22,8 @@ export type PropValue =
 	| { t: "delegate"; v: { object: ObjRef; function: string } }
 	| { t: "struct"; v: Prop[] }
 	| { t: "binary"; v: BinaryMember[] }
-	| { t: "array"; v: PropValue[] }
+	/** `len`: the array's length when only its first elements were sent (`v`). */
+	| { t: "array"; v: PropValue[]; len?: number }
 	| { t: "raw"; v: { len: number; hex: string } };
 
 export type Prop = {
@@ -504,12 +505,102 @@ export type SwfInfo = {
 	exports: { tag: number; id: number; name: string }[];
 	imports: { tag: number; url: string; symbols: { id: number; name: string }[] }[];
 };
-export type SwfEdit = {
-	kind: "text" | "string" | "image";
-	tag: number;
-	index?: number;
-	text: string;
+/** A 2×3 transform: `x' = a·x + c·y + tx`, `y' = b·x + d·y + ty` (translation in pixels). */
+export type SwfMatrix = { a: number; b: number; c: number; d: number; tx: number; ty: number };
+/** Colour transform: `mul` factors (1 = unchanged) and `add` terms (-255..255), RGBA. */
+export type SwfCxform = { mul: number[]; add: number[] };
+export type SwfRect = { x: number; y: number; w: number; h: number };
+/**
+ * A pending movie edit. `text`/`string`/`image` address a top-level tag;
+ * `place` rewrites the placement tag `tag` of the stream of `sprite` (0: the
+ * root timeline; omitted fields stay, `null` removes a name or colour
+ * transform) and `deletePlace` drops one.
+ */
+export type SwfEdit =
+	| { kind: "text" | "string" | "image"; tag: number; index?: number; text: string }
+	| {
+			kind: "place";
+			sprite: number;
+			tag: number;
+			matrix?: Partial<SwfMatrix>;
+			name?: string | null;
+			cxform?: SwfCxform | null;
+			character?: number;
+			depth?: number;
+	  }
+	| { kind: "deletePlace"; sprite: number; tag: number };
+export type SwfCharacterKind =
+	| "shape"
+	| "morph"
+	| "sprite"
+	| "button"
+	| "text"
+	| "edittext"
+	| "font"
+	| "bitmap"
+	| "image"
+	| "subimage"
+	| "sound"
+	| "video"
+	| "binary"
+	| "import";
+/** One entry of a movie's character dictionary (`swf.tree`). */
+export type SwfCharacter = {
+	id: number;
+	kind: SwfCharacterKind;
+	/** Top-level index of the defining tag; null for imports. */
+	tag: number | null;
+	tagName: string;
+	/** Linkage names (`ExportAssets`), or the imported symbol name. */
+	names: string[];
+	/** Bounds in the character's own space (sprites at frame 1); null when unknown. */
+	rect: SwfRect | null;
+	frames: number;
+	deps: number[];
+	usedBy: number[];
+	import: { url: string; name: string } | null;
+	attached: { tag: number; name: string }[];
 };
+export type SwfTree = {
+	characters: SwfCharacter[];
+	stage: SwfRect;
+	frames: number;
+	rootFrames: number;
+	labels: { frame: number; name: string }[];
+};
+/** One object of a display list (`swf.timeline`); tag indices are in the sprite's own stream. */
+export type SwfEntry = {
+	depth: number;
+	character: number;
+	name: string | null;
+	className: string | null;
+	matrix: SwfMatrix;
+	cxform: SwfCxform | null;
+	ratio: number | null;
+	clipDepth: number | null;
+	placedBy: number;
+	matrixBy: number;
+	changedBy: number;
+	/** Tag code of the placing tag (4, 26, 70). */
+	placeCode: number;
+	since: number;
+	/** The placement carries filters, a blend mode or other PlaceObject3 extras. */
+	extras: boolean;
+	/** Bounds in the sprite's space; null when the character's are unknown. */
+	rect: SwfRect | null;
+};
+export type SwfTimeline = {
+	sprite: number;
+	/** Display list after each frame. */
+	frames: SwfEntry[][];
+	labels: { frame: number; name: string }[];
+	actions: { frame: number; tag: number }[];
+	tags: number;
+};
+export type SwfPreviewTarget =
+	| { kind: "root"; frame: number }
+	| { kind: "frame"; id: number; frame: number }
+	| { kind: "character"; id: number; play?: boolean };
 
 export interface UpkMethods {
 	ping: { params: Record<string, never>; result: { version: string; pid: number } };
@@ -821,7 +912,25 @@ export interface UpkMethods {
 	};
 	"mcts.close": { params: Record<string, never>; result: boolean };
 	/** Tags, texts, scripts and external images of a Scaleform movie export. */
-	"swf.info": { params: { path: string; index: number }; result: SwfInfo };
+	"swf.info": { params: { path: string; index: number; edits?: SwfEdit[] }; result: SwfInfo };
+	/** The character dictionary of a movie (pending `edits` applied). */
+	"swf.tree": { params: { path: string; index: number; edits?: SwfEdit[] }; result: SwfTree };
+	/** The display list of a sprite (0: the root) after every frame. */
+	"swf.timeline": {
+		params: { path: string; index: number; sprite: number; edits?: SwfEdit[]; limit?: number };
+		result: SwfTimeline;
+	};
+	/** A movie showing one character or timeline frame, cut to its bounds (`rect`). */
+	"swf.preview": {
+		params: { path: string; index: number; target: SwfPreviewTarget; edits?: SwfEdit[] };
+		result: {
+			swf: Uint8Array;
+			bytes: number;
+			rect: SwfRect;
+			images: number;
+			missing: string[];
+		};
+	};
 	/** The movie bytes themselves (Scaleform GFx), for the Ruffle player. */
 	"swf.bytes": {
 		params: { path: string; index: number };
@@ -829,7 +938,7 @@ export interface UpkMethods {
 	};
 	/** The movie with its GFx external images embedded as standard bitmaps. */
 	"swf.player": {
-		params: { path: string; index: number };
+		params: { path: string; index: number; edits?: SwfEdit[] };
 		result: { swf: Uint8Array; bytes: number; images: number; missing: string[] };
 	};
 	/** The workspace movies a movie imports (shared libraries, fonts), with their bytes. */
@@ -843,7 +952,7 @@ export interface UpkMethods {
 		params: { path: string; index: number; tag: number };
 		result: { listing: string };
 	};
-	/** Write edits (edit-text initial text, script strings, external image names) back into the package. */
+	/** Write edits (edit-text initial text, script strings, external image names, placements) back into the package. */
 	"swf.apply": {
 		params: { path: string; index: number; edits: SwfEdit[] };
 		result: { edits: number; bytes: number; undo: string[] };

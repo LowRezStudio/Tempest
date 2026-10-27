@@ -24,7 +24,11 @@ import.meta.glob(
 /** The `<ruffle-player>` custom element Ruffle creates. */
 export type RuffleElement = HTMLElement & {
 	ruffle(): {
-		load(options: { url: string } | { data: Uint8Array; swfFileName?: string }): Promise<void>;
+		/** Per-player options (`wmode`, `scale`, …) override the global config. */
+		load(
+			options: ({ url: string } | { data: Uint8Array; swfFileName?: string }) &
+				Record<string, unknown>,
+		): Promise<void>;
 	};
 	reload(): Promise<void>;
 	play(): void;

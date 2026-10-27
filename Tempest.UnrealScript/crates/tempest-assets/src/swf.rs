@@ -12,6 +12,13 @@
 //! the bytecode is position-independent relative branches, so only the
 //! enclosing `DefineFunction` sizes would move, and those are left alone
 //! by editing outside function bodies), and external image file names.
+//! The submodules hold the rest of the editor: the character dictionary
+//! (`dict`), the display list and timelines (`display`, whose placements
+//! `apply` edits) and per-character preview movies (`preview`).
+
+pub mod dict;
+pub mod display;
+pub mod preview;
 
 use std::io::{Read, Write};
 
@@ -226,7 +233,7 @@ impl Movie {
     }
 }
 
-struct BitReader<'a> {
+pub(crate) struct BitReader<'a> {
     d: &'a [u8],
     pos: usize,
 }
@@ -882,10 +889,77 @@ pub fn script_listing(m: &Movie, tag: usize) -> Result<String> {
     Ok(disassemble(body))
 }
 
-/// Apply edits (`{kind: text|string|image, tag, …}`) and return the new movie bytes.
+/// The tag stream of a sprite (0: the root timeline), handed to `f` and
+/// written back into the `DefineSprite` afterwards.
+fn with_stream<T>(m: &mut Movie, sprite: u16, f: impl FnOnce(&mut Vec<Tag>) -> Result<T>) -> Result<T> {
+    if sprite == 0 {
+        return f(&mut m.tags);
+    }
+    let t = m.tags.iter_mut().find(|t| t.code == 39 && u16_at(&t.data, 0) == Some(sprite)).ok_or_else(|| Error::Format(format!("no sprite {sprite}")))?;
+    let mut body = parse_tags(t.data.get(4..).unwrap_or(&[]))?;
+    let r = f(&mut body)?;
+    let mut data = t.data[..4].to_vec();
+    write_tags(&body, &mut data);
+    t.data = data;
+    Ok(r)
+}
+
+/// A placement edit: `{kind: "place", sprite, tag, matrix?, name?, cxform?, character?, depth?}`
+/// rewrites the place tag at stream index `tag`. `name: null` / `cxform: null`
+/// remove the field; omitted fields stay.
+fn edit_place(m: &mut Movie, e: &J) -> Result<()> {
+    let sprite = e.get("sprite").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+    let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("place edit without tag".into()))? as usize;
+    with_stream(m, sprite, |tags| {
+        let t = tags.get_mut(tag).ok_or_else(|| Error::Format(format!("no tag {tag} in sprite {sprite}")))?;
+        let mut p = display::Place::parse(t.code, &t.data).ok_or_else(|| Error::Format(format!("tag {tag} is not a placement")))?;
+        if let Some(mx) = e.get("matrix").filter(|v| v.is_object()) {
+            p.matrix = Some(display::Matrix::from_json(mx, p.matrix.unwrap_or_default()));
+        }
+        if let Some(v) = e.get("name") {
+            if p.code == 4 {
+                return Err(Error::Format("a PlaceObject (version 1) has no name".into()));
+            }
+            p.name = v.as_str().filter(|s| !s.is_empty()).map(str::to_string);
+        }
+        if let Some(v) = e.get("cxform") {
+            p.cxform = if v.is_null() { None } else { Some(display::Cxform::from_json(v, p.cxform.unwrap_or_default())) };
+        }
+        if let Some(c) = e.get("character").and_then(|v| v.as_u64()) {
+            p.character = Some(c as u16);
+        }
+        if let Some(d) = e.get("depth").and_then(|v| v.as_u64()) {
+            p.depth = d as u16;
+        }
+        t.data = p.write();
+        t.long = t.long || t.data.len() >= 0x3F;
+        Ok(())
+    })
+}
+
+/// Apply edits and return how many were applied. Kinds: `text` (edit-text
+/// initial text), `string` (script string), `image` (external image file
+/// name), `place` (see `edit_place`) and `deletePlace` (`{sprite, tag}`:
+/// drop a place/remove tag; deletions run last, highest index first, so
+/// the other edits' indices stay valid).
 pub fn apply(m: &mut Movie, edits: &[J]) -> Result<usize> {
     let mut n = 0;
+    let mut deletes: Vec<(u16, usize)> = Vec::new();
     for e in edits {
+        match e.get("kind").and_then(|v| v.as_str()) {
+            Some("place") => {
+                edit_place(m, e)?;
+                n += 1;
+                continue;
+            }
+            Some("deletePlace") => {
+                let sprite = e.get("sprite").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+                let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("deletePlace without tag".into()))? as usize;
+                deletes.push((sprite, tag));
+                continue;
+            }
+            _ => {}
+        }
         let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("edit without tag".into()))? as usize;
         let t = m.tags.get_mut(tag).ok_or_else(|| Error::Format(format!("no tag {tag}")))?;
         let kind = e.get("kind").and_then(|v| v.as_str()).unwrap_or("");
@@ -907,6 +981,19 @@ pub fn apply(m: &mut Movie, edits: &[J]) -> Result<usize> {
             }
             _ => return Err(Error::Format(format!("edit {kind} does not apply to {}", tag_name(t.code)))),
         }
+        n += 1;
+    }
+    deletes.sort_by(|a, b| b.cmp(a));
+    deletes.dedup();
+    for (sprite, tag) in deletes {
+        with_stream(m, sprite, |tags| {
+            let t = tags.get(tag).ok_or_else(|| Error::Format(format!("no tag {tag} in sprite {sprite}")))?;
+            if !display::is_place(t.code) && !matches!(t.code, 5 | 28) {
+                return Err(Error::Format(format!("tag {tag} is a {}, not a placement", tag_name(t.code))));
+            }
+            tags.remove(tag);
+            Ok(())
+        })?;
         n += 1;
     }
     Ok(n)

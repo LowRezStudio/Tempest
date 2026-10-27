@@ -23,7 +23,8 @@
 			import("$lib/studio/commands.svelte"),
 			import("$lib/studio/nav.svelte"),
 			import("$lib/studio/cooker.svelte"),
-		]).then(([s, u, t, c, n, k]) => {
+			import("$lib/studio/swf.svelte"),
+		]).then(([s, u, t, c, n, k, w]) => {
 			Object.assign(window, {
 				session: s.session,
 				ui: u.ui,
@@ -31,6 +32,7 @@
 				commands: c.commands,
 				nav: n.nav,
 				cooker: k.cooker,
+				swfDoc: w.swfDoc,
 			});
 		});
 	}

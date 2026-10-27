@@ -42,11 +42,15 @@
 
 	const compound = $derived(value.t === "struct" || value.t === "binary" || value.t === "array");
 	const count = $derived(
-		value.t === "array" || value.t === "struct" || value.t === "binary" ? value.v.length : 0,
+		value.t === "array"
+			? (value.len ?? value.v.length)
+			: value.t === "struct" || value.t === "binary"
+				? value.v.length
+				: 0,
 	);
 	// Initial expansion only: the user owns the state afterwards.
 	// svelte-ignore state_referenced_locally
-	let open = $state(depth < 1 && !(value.t === "array" && value.v.length > 64));
+	let open = $state(depth < 1 && !(value.t === "array" && (value.len ?? value.v.length) > 64));
 
 	const typeLabel = $derived.by(() => {
 		if (value.t === "struct" || value.t === "binary") return structName ?? "struct";
@@ -176,13 +180,13 @@
 				element={{ array: path, at: j }}
 			/>
 		{/each}
-		{#if value.v.length > 2000}
+		{#if count > 2000}
 			<tr
 				><td
 					colspan="2"
 					class="text-xs opacity-60"
 					style="padding-left: {(depth + 1) * 14 + 4}px"
-					>… {value.v.length - 2000} more elements</td
+					>… {count - 2000} more elements</td
 				></tr
 			>
 		{/if}
