@@ -39,6 +39,44 @@
 	const offStageDepths = $derived(
 		doc.entries.filter((e) => offStage(e) && !doc.hidden.includes(e.depth)).map((e) => e.depth),
 	);
+	/**
+	 * Visible layers drawn over nearly the same rectangle as each layer:
+	 * stacked states (GoToScene/Event/Chest/BattlePass share one spot), so
+	 * hiding one changes nothing visible until the others are hidden too.
+	 */
+	const stacked = $derived.by(() => {
+		const out = new Map<number, string[]>();
+		// Overlap over union: the stacked states differ by a few pixels in size.
+		const near = (a: SwfRect, b: SwfRect) => {
+			const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+			const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+			if (w <= 0 || h <= 0) return false;
+			const inter = w * h;
+			return inter / (a.w * a.h + b.w * b.h - inter) >= 0.75;
+		};
+		const shown = doc.entries.filter((e) => e.rect && !doc.hidden.includes(e.depth));
+		for (const e of doc.entries) {
+			if (!e.rect) continue;
+			const others = shown.filter((o) => o.depth !== e.depth && near(o.rect!, e.rect!));
+			if (others.length > 0) {
+				out.set(
+					e.depth,
+					others.map((o) => o.name ?? doc.label(o.character)),
+				);
+			}
+		}
+		return out;
+	});
+
+	/** Show only these layers. */
+	function solo(depths: number[]) {
+		doc.setHidden(
+			doc.entries.map((e) => e.depth).filter((d) => !depths.includes(d)),
+			true,
+		);
+		doc.setHidden(depths, false);
+	}
+
 	const hiddenHere = $derived(doc.entries.filter((e) => doc.hidden.includes(e.depth)).length);
 
 	function hidden(e: SwfEntry): boolean {
@@ -120,6 +158,13 @@
 		>
 		<button
 			class="btn btn-ghost btn-xs"
+			title="Show only the selected layer (Alt+click an eye does the same for its layer)"
+			disabled={doc.depth === null}
+			onclick={() => doc.depth !== null && solo([doc.depth])}
+			><Eye size={11} /> Solo selected</button
+		>
+		<button
+			class="btn btn-ghost btn-xs"
 			title="Hide every layer (then tick the ones to look at)"
 			onclick={() =>
 				doc.setHidden(
@@ -169,18 +214,26 @@
 						ondblclick={() => doc.openCharacter(e.character)}
 					>
 						<td>
-							<input
-								type="checkbox"
-								class="checkbox checkbox-xs"
-								checked={!doc.hidden.includes(e.depth)}
-								title={doc.hidden.includes(e.depth)
-									? "Hidden in the stage render: tick to show it"
-									: "Untick to hide it in the stage render (the movie is not changed)"}
-								onclick={(ev) => ev.stopPropagation()}
+							<button
+								class="btn btn-ghost btn-xs btn-square h-5 min-h-5 w-5"
+								aria-pressed={!doc.hidden.includes(e.depth)}
+								aria-label={doc.hidden.includes(e.depth)
+									? "Show this layer"
+									: "Hide this layer"}
+								title={`${doc.hidden.includes(e.depth) ? "Hidden in the stage render: click to show it" : "Click to hide it in the stage render (the movie is not changed)"}. Alt+click: show only this layer.`}
+								data-swf-eye
+								onclick={(ev) => {
+									ev.stopPropagation();
+									if (ev.altKey) solo([e.depth]);
+									else doc.setHidden([e.depth], !doc.hidden.includes(e.depth));
+								}}
 								ondblclick={(ev) => ev.stopPropagation()}
-								onchange={(ev) =>
-									doc.setHidden([e.depth], !ev.currentTarget.checked)}
-							/>
+							>
+								{#if doc.hidden.includes(e.depth)}<EyeOff
+										size={12}
+										class="opacity-50"
+									/>{:else}<Eye size={12} />{/if}
+							</button>
 						</td>
 						<td class="opacity-60">
 							{e.depth}{#if e.clipDepth !== null}<span
@@ -192,6 +245,15 @@
 								{e.name ?? ""}
 								{#if doc.entryEdited(e)}<span title="pending edit"
 										><Pencil size={10} class="text-warning" /></span
+									>{/if}
+								{#if stacked.has(e.depth) && !doc.hidden.includes(e.depth)}<span
+										class="badge badge-info badge-xs"
+										title="Drawn at the same place as {stacked
+											.get(e.depth)!
+											.join(
+												', ',
+											)}: hide those too to see what is under (or Alt+click the eye to show only this one)"
+										>stacked ×{stacked.get(e.depth)!.length + 1}</span
 									>{/if}
 								{#if offStage(e)}<span
 										class="badge badge-warning badge-xs"

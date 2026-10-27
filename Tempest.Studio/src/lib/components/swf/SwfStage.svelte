@@ -52,6 +52,8 @@
 	/** Area the base layer showed last (character targets: their bounds). */
 	let baseRect = $state<SwfRect | null>(null);
 	let baseShown = $state("");
+	/** The base layer is rendering a new picture (shown with a badge until it swaps in). */
+	let baseBusy = $state(false);
 
 	const targetKey = $derived(JSON.stringify(target));
 	const timeline = $derived(target.kind !== "character");
@@ -524,6 +526,7 @@
 					error = null;
 				}}
 				onerror={(m) => (error = m)}
+				onbusy={(b) => (baseBusy = b)}
 			/>
 			{#each floats as e (e.depth)}
 				<div class="pointer-events-none absolute top-0 left-0" style={layerStyle(e)}>
@@ -660,6 +663,13 @@
 		<div class="alert alert-error absolute inset-x-3 top-3 block text-xs">
 			<p class="font-semibold">The preview could not be rendered</p>
 			<p class="mt-1 font-mono break-words">{error}</p>
+		</div>
+	{/if}
+	{#if baseBusy && baseReady}
+		<div
+			class="bg-base-100/90 pointer-events-none absolute top-2 right-2 flex items-center gap-1 rounded px-2 py-0.5 text-[10px] shadow"
+		>
+			<span class="loading loading-xs loading-spinner"></span> updating view…
 		</div>
 	{/if}
 	{#if missing.length > 0}

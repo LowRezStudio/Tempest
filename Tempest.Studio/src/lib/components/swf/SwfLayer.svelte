@@ -26,6 +26,8 @@
 		still?: boolean;
 		onload?: (r: { rect: SwfRect; missing: string[]; key: string }) => void;
 		onerror?: (message: string) => void;
+		/** A new movie started loading (true) or is on screen / failed (false). */
+		onbusy?: (busy: boolean) => void;
 	}
 	const {
 		doc,
@@ -35,6 +37,7 @@
 		still = true,
 		onload,
 		onerror,
+		onbusy,
 	}: Props = $props();
 
 	let host = $state<HTMLDivElement | null>(null);
@@ -145,6 +148,7 @@
 
 	async function show(r: Request, k: string): Promise<void> {
 		const gen = ++generation;
+		onbusy?.(true);
 		try {
 			const [preview, libraries, ruffle] = await Promise.all([
 				rpc("swf.preview", { path: doc.path, index: doc.index, ...r }),
@@ -197,8 +201,10 @@
 			// playing layer costs a third of a core, a paused one nothing).
 			if (still) player.pause();
 			onload?.({ rect: preview.rect, missing: preview.missing, key: k });
+			onbusy?.(false);
 		} catch (error) {
 			if (gen !== generation) return;
+			onbusy?.(false);
 			onerror?.(error instanceof Error ? error.message : String(error));
 		}
 	}
