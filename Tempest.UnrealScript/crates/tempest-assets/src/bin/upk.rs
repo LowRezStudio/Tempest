@@ -65,6 +65,7 @@ fn usage() -> ExitCode {
            upk delta info <d.tdelta>                      target, operations, references\n  \
            upk delta digest <pkg> -o <digest.json>        canonical hashes of every object (a base for `create`)\n  \
            upk delta verify <base.upk> <edited.upk>       create + apply, compare with the edited package\n  \
+           upk delta batch <plan.json>                    several applies in one process, progress as JSON lines (the launcher's)\n  \
            upk mcts tokens [<game dir>]                   where the field/function tables come from\n  \
            (mcts: --tokens <MctsInterface.dll> uses that binary's tables; default: the game's next to the file, else built-in)\n  \
            upk serve                                  JSON-lines RPC over stdin/stdout (the Studio backend)\n\n\
@@ -857,7 +858,7 @@ fn cmd_batch_import(args: &[String]) -> Res {
     Ok(())
 }
 
-/// `upk delta create|apply|info|digest|verify`.
+/// `upk delta create|apply|info|digest|verify|batch`.
 fn cmd_delta(args: &[String]) -> Res {
     use tempest_assets::delta::{self, Base, Delta};
     let get = |flag: &str| args.iter().position(|a| a == flag).and_then(|p| args.get(p + 1)).cloned();
@@ -966,7 +967,8 @@ fn cmd_delta(args: &[String]) -> Res {
             let strict = args.iter().any(|a| a == "--strict");
             let dir = db_dir(&[target]);
             let t = std::time::Instant::now();
-            let report = apply_deltas(&dir, target, &deltas, &out)?;
+            let db: &'static ClassDb = Box::leak(Box::new(load_db(&dir)?));
+            let report = apply_deltas(db, &dir, target, None, &deltas, &out, &mut |_| {})?;
             for w in &report.warnings {
                 eprintln!("warning: {w}");
             }
@@ -983,11 +985,11 @@ fn cmd_delta(args: &[String]) -> Res {
             let base_path = positional.first().ok_or("missing base")?;
             let edited_path = positional.get(1).ok_or("missing edited package")?;
             let dir = db_dir(&[edited_path, base_path]);
-            let db = load_db(&dir)?;
+            let db: &'static ClassDb = Box::leak(Box::new(load_db(&dir)?));
             let base = PackageFile::open(base_path)?.load()?;
             let edited = PackageFile::open(edited_path)?.load()?;
             let t = std::time::Instant::now();
-            let (d, warnings) = delta::create(&db, Base::Package(&base), &edited, &game_path(edited_path))?;
+            let (d, warnings) = delta::create(db, Base::Package(&base), &edited, &game_path(edited_path))?;
             for w in &warnings {
                 eprintln!("warning: {w}");
             }
@@ -996,14 +998,14 @@ fn cmd_delta(args: &[String]) -> Res {
             eprintln!("delta: {} operations, {} bytes ({:.2}s)", d.ops().len(), bytes.len(), t.elapsed().as_secs_f32());
             let tmp = std::env::temp_dir().join(format!("tdelta-verify-{}.upk", std::process::id()));
             let t = std::time::Instant::now();
-            let report = apply_deltas(&dir, base_path, &[d], tmp.to_str().unwrap_or_default())?;
+            let report = apply_deltas(db, &dir, base_path, None, &[d], tmp.to_str().unwrap_or_default(), &mut |_| {})?;
             for w in &report.warnings {
                 eprintln!("warning: {w}");
             }
             eprintln!("applied: {} added, {} replaced, {} deleted ({:.2}s)", report.added, report.replaced, report.deleted, t.elapsed().as_secs_f32());
             let result = PackageFile::open(&tmp)?.load()?;
             let _ = std::fs::remove_file(&tmp);
-            let diffs = delta::compare(&db, &edited, &result);
+            let diffs = delta::compare(db, &edited, &result);
             if diffs.is_empty() {
                 eprintln!("OK: the result matches the edited package ({} objects)", result.exports.len());
                 Ok(())
@@ -1014,7 +1016,8 @@ fn cmd_delta(args: &[String]) -> Res {
                 Err(format!("{} objects differ", diffs.len()).into())
             }
         }
-        _ => Err("usage: upk delta create|apply|info|digest|verify".into()),
+        "batch" => cmd_delta_batch(positional.first().ok_or("missing plan")?),
+        _ => Err("usage: upk delta create|apply|info|digest|verify|batch".into()),
     }
 }
 
@@ -1116,16 +1119,21 @@ fn cmd_delta_mcts(args: &[String], positional: &[&String], get: &dyn Fn(&str) ->
 
 /// Apply deltas to a package file in order and write the result. A delta
 /// that adds classes is applied in two passes, with the class database
-/// reloaded in between so the new classes' objects decode.
-fn apply_deltas(script_dir: &Path, target: &str, deltas: &[tempest_assets::delta::Delta], out: &str) -> Res2<tempest_assets::delta::Applied> {
+/// reloaded in between so the new classes' objects decode; in that reload the
+/// package stands in for the script package at `target` or at `replaces`
+/// (the game's file when `target` is a copy elsewhere). `stage` hears
+/// "open", "apply" and "save" as each begins.
+fn apply_deltas(db: &'static ClassDb, script_dir: &Path, target: &str, replaces: Option<&Path>, deltas: &[tempest_assets::delta::Delta], out: &str, stage: &mut dyn FnMut(&str)) -> Res2<tempest_assets::delta::Applied> {
     use tempest_assets::delta::{apply, Applied, Phase};
     use tempest_assets::edit::Editor;
     let mut total = Applied::default();
-    let db: &'static ClassDb = Box::leak(Box::new(load_db(script_dir)?));
+    stage("open");
     let mut ed = Editor::open(db, target)?;
+    stage("apply");
     let name = ed.name.clone();
     let mut current_db = db;
     let target_abs = std::fs::canonicalize(target).unwrap_or_else(|_| PathBuf::from(target));
+    let replaces_abs = replaces.and_then(|p| std::fs::canonicalize(p).ok());
     for d in deltas {
         let new_classes: Vec<String> = d.added_classes().into_iter().filter(|c| current_db.class(c).is_none()).collect();
         let merge = |total: &mut Applied, r: Applied| {
@@ -1146,7 +1154,10 @@ fn apply_deltas(script_dir: &Path, target: &str, deltas: &[tempest_assets::delta
         ed.save(&tmp)?;
         let files: Vec<PathBuf> = ClassDb::script_packages_in(script_dir)?
             .into_iter()
-            .map(|p| if std::fs::canonicalize(&p).map(|c| c == target_abs).unwrap_or(false) { tmp.clone() } else { p })
+            .map(|p| match std::fs::canonicalize(&p) {
+                Ok(c) if c == target_abs || Some(&c) == replaces_abs.as_ref() => tmp.clone(),
+                _ => p,
+            })
             .collect();
         let files = if files.contains(&tmp) { files } else { files.into_iter().chain(std::iter::once(tmp.clone())).collect() };
         let reloaded: &'static ClassDb = Box::leak(Box::new(ClassDb::load_files(&files)?));
@@ -1157,8 +1168,106 @@ fn apply_deltas(script_dir: &Path, target: &str, deltas: &[tempest_assets::delta
         ed = Editor::from_package(current_db, name.clone(), pkg);
         merge(&mut total, apply(current_db, &mut ed, d, Phase::Objects)?);
     }
+    stage("save");
     ed.save(out)?;
     Ok(total)
+}
+
+/// `upk delta batch <plan.json>`: every file the launcher rebuilds, in one
+/// process, so a folder's class database is loaded once. The plan is
+/// `{"jobs": [{"base", "deltas": [...], "out", "dir", "game"}]}`: `dir` holds
+/// the script packages (a marshal's token tables for `.dat` files), `game` is
+/// the file `out` will replace. Jobs run in order; after one that added
+/// classes the database is reloaded with its output in place of `game`.
+/// Events are JSON lines on stdout: `progress` (`fraction` of the whole plan,
+/// `job`, `stage`), `warning` / `drift` (`job`, `text`), then `done` or
+/// `error` per job; a failed job does not stop the others.
+fn cmd_delta_batch(plan_path: &str) -> Res {
+    use std::collections::{HashMap, HashSet};
+    use tempest_assets::delta::{Applied, Delta};
+    use tempest_assets::mcts::delta as mdelta;
+    use tempest_assets::mcts::{parse_obscured, write_obscured, Tokens};
+    // Shares of the plan: a job weighs its base file's size, a class database
+    // load as much as a 64 MiB package (about as long on a warm disk).
+    const DB_WEIGHT: f64 = 64.0 * 1024.0 * 1024.0;
+    let stage_at = |stage: &str| match stage {
+        "apply" => 0.3,
+        "save" => 0.5,
+        _ => 0.0,
+    };
+    let plan: serde_json::Value = serde_json::from_slice(&std::fs::read(plan_path)?)?;
+    let jobs = plan["jobs"].as_array().cloned().unwrap_or_default();
+    let field = |j: &serde_json::Value, k: &str| j[k].as_str().unwrap_or("").to_string();
+    let is_dat = |p: &str| p.to_ascii_lowercase().ends_with(".dat");
+    let sizes: Vec<f64> = jobs.iter().map(|j| std::fs::metadata(field(j, "base")).map(|m| m.len() as f64).unwrap_or(0.0).max(1024.0 * 1024.0)).collect();
+    let db_dirs: HashSet<String> = jobs.iter().filter(|j| !is_dat(&field(j, "base"))).map(|j| field(j, "dir")).collect();
+    let total = sizes.iter().sum::<f64>() + DB_WEIGHT * db_dirs.len() as f64;
+    let emit = |v: serde_json::Value| println!("{v}");
+    let progress = |done: f64, job: usize, stage: &str| emit(serde_json::json!({"event": "progress", "fraction": (done / total).min(1.0), "job": job, "stage": stage}));
+    let mut dbs: HashMap<String, &'static ClassDb> = HashMap::new();
+    let mut done = 0.0;
+    for (i, job) in jobs.iter().enumerate() {
+        let (base, out, dir, game) = (field(job, "base"), field(job, "out"), field(job, "dir"), field(job, "game"));
+        let paths: Vec<String> = job["deltas"].as_array().map(|a| a.iter().filter_map(|d| d.as_str().map(String::from)).collect()).unwrap_or_default();
+        let result: Res2<Applied> = (|| {
+            let deltas: Vec<Delta> = paths.iter().map(Delta::read).collect::<Result<_, _>>()?;
+            if is_dat(&base) {
+                progress(done, i, "open");
+                let tokens = Tokens::for_dir(Path::new(&dir));
+                let mut m = parse_obscured(&std::fs::read(&base)?, &tokens)?;
+                progress(done + stage_at("apply") * sizes[i], i, "apply");
+                let mut total = Applied::default();
+                for d in &deltas {
+                    let r = mdelta::apply(&tokens, &mut m, d)?;
+                    total.added += r.added;
+                    total.replaced += r.replaced;
+                    total.deleted += r.deleted;
+                    total.drift.extend(r.drift);
+                    total.warnings.extend(r.warnings);
+                }
+                progress(done + stage_at("save") * sizes[i], i, "save");
+                std::fs::write(&out, write_obscured(&m, &tokens))?;
+                return Ok(total);
+            }
+            let db = match dbs.get(&dir) {
+                Some(&db) => db,
+                None => {
+                    progress(done, i, "classes");
+                    let db: &'static ClassDb = Box::leak(Box::new(load_db(Path::new(&dir))?));
+                    done += DB_WEIGHT;
+                    dbs.insert(dir.clone(), db);
+                    db
+                }
+            };
+            let adds_classes = deltas.iter().any(|d| d.added_classes().iter().any(|c| db.class(c).is_none()));
+            let start = done;
+            let applied = apply_deltas(db, Path::new(&dir), &base, (!game.is_empty()).then(|| Path::new(&game)), &deltas, &out, &mut |stage| progress(start + stage_at(stage) * sizes[i], i, stage))?;
+            if adds_classes {
+                // The next packages decode against the classes as written.
+                progress(start + sizes[i], i, "classes");
+                let game_abs = std::fs::canonicalize(&game).ok();
+                let mut files: Vec<PathBuf> = ClassDb::script_packages_in(&dir)?.into_iter().filter(|p| std::fs::canonicalize(p).ok() != game_abs).collect();
+                files.push(PathBuf::from(&out));
+                dbs.insert(dir.clone(), Box::leak(Box::new(ClassDb::load_files(&files)?)));
+            }
+            Ok(applied)
+        })();
+        match result {
+            Ok(a) => {
+                for text in &a.warnings {
+                    emit(serde_json::json!({"event": "warning", "job": i, "text": text}));
+                }
+                for text in &a.drift {
+                    emit(serde_json::json!({"event": "drift", "job": i, "text": text}));
+                }
+                emit(serde_json::json!({"event": "done", "job": i, "added": a.added, "replaced": a.replaced, "deleted": a.deleted}));
+            }
+            Err(e) => emit(serde_json::json!({"event": "error", "job": i, "message": e.to_string()})),
+        }
+        done += sizes[i];
+    }
+    progress(total, jobs.len(), "done");
+    Ok(())
 }
 
 fn cmd_mod_dir(args: &[String]) -> Res {

@@ -2672,6 +2672,7 @@
 	"toast_mod_installing_title": "Installing Mod",
 	"toast_mod_installing_message": "Installing {name}...",
 	"mod_row_installing": "Installing...",
+	"mod_row_patching": "Patching game files {percent}%",
 	"toast_installation_failed_title": "Installation Failed",
 	"toast_installation_failed_unknown": "An unknown error occurred.",
 	"toast_installation_failed_internal": "Internal error occurred.",

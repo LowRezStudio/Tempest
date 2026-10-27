@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -114,15 +115,121 @@ internal static class DeltaResolver
         throw new Exception("the upk tool that applies mod deltas is not installed next to tempest-cli (set TEMPEST_UPK to its path)");
     }
 
-    private static async Task<(int Code, string Stderr)> RunUpkAsync(IEnumerable<string> args)
+    /// <summary>
+    /// Rebuilds every file of <paramref name="jobs"/> in one <c>upk delta batch</c> run, so the
+    /// class database is loaded once, and moves the outputs over the game files once it exited.
+    /// </summary>
+    private static async Task RebuildAsync(List<Job> jobs, Dictionary<string, ResolvedFile> state, Report report, Action<double, string>? progress)
     {
-        var psi = new ProcessStartInfo(FindUpk()) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
-        foreach (var a in args) psi.ArgumentList.Add(a);
-        using var process = Process.Start(psi) ?? throw new Exception("could not start upk");
-        var stderr = process.StandardError.ReadToEndAsync();
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        return (process.ExitCode, (await stderr) + (await stdout));
+        var plan = Path.Combine(Path.GetTempPath(), $"tempest-deltas-{Environment.ProcessId}.json");
+        using (var stream = File.Create(plan))
+        using (var json = new Utf8JsonWriter(stream))
+        {
+            json.WriteStartObject();
+            json.WriteStartArray("jobs");
+            foreach (var job in jobs)
+            {
+                json.WriteStartObject();
+                json.WriteString("base", job.BasePath);
+                json.WriteStartArray("deltas");
+                foreach (var c in job.Stack) json.WriteStringValue(c.DeltaFile);
+                json.WriteEndArray();
+                json.WriteString("out", job.Tmp);
+                // Script packages, or a marshal's token tables, come from the game file's folder (the backup folder has none).
+                json.WriteString("dir", Path.GetDirectoryName(job.GameFile));
+                json.WriteString("game", job.GameFile);
+                json.WriteEndObject();
+            }
+            json.WriteEndArray();
+            json.WriteEndObject();
+        }
+
+        var results = new string?[jobs.Count];
+        string stderr;
+        int code;
+        try
+        {
+            var psi = new ProcessStartInfo(FindUpk()) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            foreach (var a in new[] { "delta", "batch", plan }) psi.ArgumentList.Add(a);
+            using var process = Process.Start(psi) ?? throw new Exception("could not start upk");
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            while (await process.StandardOutput.ReadLineAsync() is { } line)
+            {
+                JsonDocument doc;
+                try { doc = JsonDocument.Parse(line); }
+                catch (JsonException) { continue; }
+                using (doc)
+                {
+                    var e = doc.RootElement;
+                    var i = e.TryGetProperty("job", out var j) && j.TryGetInt32(out var n) ? n : -1;
+                    var job = i >= 0 && i < jobs.Count ? jobs[i] : null;
+                    var text = (string name) => e.TryGetProperty(name, out var v) ? v.GetString() ?? "" : "";
+                    switch (text("event"))
+                    {
+                        case "progress":
+                            progress?.Invoke(e.GetProperty("fraction").GetDouble(), Describe(text("stage"), job, i, jobs.Count));
+                            break;
+                        case "warning" when job != null:
+                            report.Warnings.Add($"{job.Relative}: {text("text")}");
+                            break;
+                        case "drift" when job != null:
+                            report.Drift.Add($"{job.Relative}: {text("text")} was changed since the delta was made; the delta's version won");
+                            break;
+                        case "done" when job != null:
+                            results[i] = "";
+                            break;
+                        case "error" when job != null:
+                            results[i] = text("message");
+                            break;
+                    }
+                }
+            }
+            await process.WaitForExitAsync();
+            stderr = await stderrTask;
+            code = process.ExitCode;
+        }
+        catch (Exception ex)
+        {
+            stderr = $"error: {ex.Message}";
+            code = -1;
+        }
+        finally
+        {
+            try { File.Delete(plan); } catch { }
+        }
+
+        for (var i = 0; i < jobs.Count; i++)
+        {
+            var job = jobs[i];
+            try
+            {
+                if (results[i] is { Length: > 0 } message) throw new Exception(message);
+                if (results[i] == null || !File.Exists(job.Tmp))
+                    throw new Exception(stderr.Split('\n').LastOrDefault(l => l.Contains("error", StringComparison.OrdinalIgnoreCase))?.Trim() ?? $"upk exited {code}");
+                Directory.CreateDirectory(Path.GetDirectoryName(job.GameFile)!);
+                File.Move(job.Tmp, job.GameFile, overwrite: true);
+                state[job.Relative] = new ResolvedFile { Stack = job.StackHash, Output = HashFile(job.GameFile) };
+                report.Rebuilt.Add(job.Relative);
+            }
+            catch (Exception ex)
+            {
+                try { if (File.Exists(job.Tmp)) File.Delete(job.Tmp); } catch { }
+                report.Warnings.Add($"{job.Relative}: could not apply the deltas of {string.Join(", ", job.Stack.Select(c => $"'{c.Mod.Name}'"))}: {ex.Message}");
+            }
+        }
+    }
+
+    private static string Describe(string stage, Job? job, int index, int count)
+    {
+        var file = job == null ? "" : $"{Path.GetFileName(job.Relative)} ({index + 1}/{count})";
+        return stage switch
+        {
+            "classes" => "Loading the game's classes",
+            "open" => $"Reading {file}",
+            "apply" => $"Applying changes to {file}",
+            "save" => $"Writing {file}",
+            _ => "Done",
+        };
     }
 
     // ----- state ----------------------------------------------------------------------------
@@ -170,13 +277,21 @@ internal static class DeltaResolver
 
     private sealed record Contribution(ModRecord Mod, string DeltaFile);
 
+    /// <summary>A file whose stack changed since it was last built.</summary>
+    private sealed record Job(string Relative, string GameFile, string BasePath, List<Contribution> Stack, string StackHash)
+    {
+        public string Tmp => GameFile + ".tempest-resolving";
+    }
+
     // ----- resolving --------------------------------------------------------------------------
 
     /// <summary>
     /// Bring every delta-managed game file up to date with the enabled mods. Call under the
     /// mod lock, after mods.json was saved. Never throws: problems are reported.
+    /// <paramref name="progress"/> hears the fraction done and what is being worked on while
+    /// files are rebuilt (nothing when every file is up to date).
     /// </summary>
-    public static async Task<Report> ResolveAsync(string gamePath)
+    public static async Task<Report> ResolveAsync(string gamePath, Action<double, string>? progress = null)
     {
         var report = new Report();
         try
@@ -223,6 +338,7 @@ internal static class DeltaResolver
                 .ToList();
 
             var changed = false;
+            var jobs = new List<Job>();
             foreach (var relative in ordered)
             {
                 var gameFile = Path.GetFullPath(Path.Combine(resolvedGame, relative));
@@ -289,39 +405,12 @@ internal static class DeltaResolver
                 var stackHash = StackHash(baseId, stack);
                 if (state.TryGetValue(relative, out var previous) && previous.Stack == stackHash && File.Exists(gameFile) && HashFile(gameFile) == previous.Output)
                     continue;
-
-                var tmp = gameFile + ".tempest-resolving";
-                try
-                {
-                    var args = new List<string> { "delta", "apply", basePath };
-                    args.AddRange(stack.Select(c => c.DeltaFile));
-                    args.Add("-o");
-                    args.Add(tmp);
-                    if (!relative.EndsWith(".dat", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Reflection comes from the game's script packages, where the file lives (the backup folder has none).
-                        args.Add("-I");
-                        args.Add(Path.GetDirectoryName(gameFile)!);
-                    }
-                    var (code, output) = await RunUpkAsync(args);
-                    foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                    {
-                        if (line.StartsWith("drift:", StringComparison.Ordinal)) report.Drift.Add($"{relative}: {line["drift:".Length..].Trim()}");
-                        else if (line.StartsWith("warning:", StringComparison.Ordinal)) report.Warnings.Add($"{relative}: {line["warning:".Length..].Trim()}");
-                    }
-                    if (code != 0 || !File.Exists(tmp))
-                        throw new Exception(output.Split('\n').LastOrDefault(l => l.Contains("error", StringComparison.OrdinalIgnoreCase))?.Trim() ?? $"upk exited {code}");
-                    Directory.CreateDirectory(Path.GetDirectoryName(gameFile)!);
-                    File.Move(tmp, gameFile, overwrite: true);
-                    state[relative] = new ResolvedFile { Stack = stackHash, Output = HashFile(gameFile) };
-                    changed = true;
-                    report.Rebuilt.Add(relative);
-                }
-                catch (Exception ex)
-                {
-                    try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
-                    report.Warnings.Add($"{relative}: could not apply the deltas of {string.Join(", ", stack.Select(c => $"'{c.Mod.Name}'"))}: {ex.Message}");
-                }
+                jobs.Add(new Job(relative, gameFile, basePath, stack, stackHash));
+            }
+            if (jobs.Count > 0)
+            {
+                await RebuildAsync(jobs, state, report, progress);
+                changed = true;
             }
             if (changed) SaveState(resolvedGame, state);
         }
@@ -332,10 +421,13 @@ internal static class DeltaResolver
         return report;
     }
 
-    /// <summary>Runs the resolver and prints what it did on stderr (JSON outputs on stdout stay clean).</summary>
+    /// <summary>
+    /// Runs the resolver and prints what it did on stderr (JSON outputs on stdout stay clean),
+    /// with <c>[progress] 42% what</c> lines while it rebuilds files (the launcher's progress bar).
+    /// </summary>
     public static async Task ResolveAndReportAsync(string gamePath)
     {
-        var report = await ResolveAsync(gamePath);
+        var report = await ResolveAsync(gamePath, (fraction, what) => Console.Error.WriteLine(string.Create(CultureInfo.InvariantCulture, $"[progress] {Math.Floor(fraction * 100)}% {what}")));
         foreach (var f in report.Rebuilt) await Console.Error.WriteLineAsync($"[deltas] rebuilt {f}");
         foreach (var f in report.Restored) await Console.Error.WriteLineAsync($"[deltas] restored {f}");
         foreach (var d in report.Drift) await Console.Error.WriteLineAsync($"[deltas] note: {d}");

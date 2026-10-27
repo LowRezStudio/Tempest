@@ -5,7 +5,7 @@ import { trackInstall } from "$lib/mods/pendingInstalls.svelte";
 import { confirmReplaceMod, confirmUnverifiedMod } from "$lib/mods/ui.svelte";
 import { m } from "$lib/paraglide/messages";
 import { addToast } from "$lib/stores/ui.svelte";
-import type { ModInstallResult } from "$lib/core/mods";
+import type { ModInstallResult, PatchProgress } from "$lib/core/mods";
 import type { DependencyMode } from "$lib/mods/dependencies";
 import type { InstallChoices, QueuedInstall } from "$lib/mods/installQueue.svelte";
 import type { InstallTracker } from "$lib/mods/pendingInstalls.svelte";
@@ -138,6 +138,7 @@ export async function installModFile(
 			allowUntrusted: options.allowUntrusted ?? false,
 		},
 		defer,
+		tracker.setPatching,
 	);
 	if (result.status === "in-use") {
 		// The manifest's fields are empty strings when missing.
@@ -216,6 +217,7 @@ async function runInstall(
 	displayName: string,
 	choices: InstallChoices,
 	defer: boolean,
+	onProgress: PatchProgress,
 ): Promise<RunResult> {
 	let { replace, stack, allowUntrusted } = choices;
 	try {
@@ -226,6 +228,7 @@ async function runInstall(
 			allowUntrusted,
 			stack,
 			defer,
+			onProgress,
 		);
 		if (res.Unverified) {
 			const confirmed = await confirmUnverifiedMod(
@@ -235,7 +238,15 @@ async function runInstall(
 			);
 			if (!confirmed) return { status: "cancelled" };
 			allowUntrusted = true;
-			res = await limitedInstallMod(gamePath, filePath, replace, true, stack, defer);
+			res = await limitedInstallMod(
+				gamePath,
+				filePath,
+				replace,
+				true,
+				stack,
+				defer,
+				onProgress,
+			);
 		}
 		if (res.Conflict) {
 			const choice = await confirmReplaceMod(
@@ -258,6 +269,7 @@ async function runInstall(
 				allowUntrusted,
 				stack,
 				defer,
+				onProgress,
 			);
 		}
 		if (res.Success) return { status: "installed", result: res };

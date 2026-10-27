@@ -10,6 +10,7 @@
 	} from "@lucide/svelte";
 	import { compatibleWith } from "$lib/mods/browse.svelte";
 	import { cardImageOf, formatCount, kindLabel, relativeDate } from "$lib/mods/listing";
+	import { pendingStatus } from "$lib/mods/pendingInstalls.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { compareVersions, describeCompat } from "$lib/utils/version";
 	import RepoModIcon from "./RepoModIcon.svelte";
@@ -162,9 +163,7 @@
 		{#if pending}
 			<span class="btn btn-sm btn-disabled min-w-28 tabular-nums">
 				<span class="loading loading-spinner loading-xs"></span>
-				{pending.progress === null
-					? m.mod_row_installing()
-					: `${Math.round(pending.progress * 100)}%`}
+				{pendingStatus(pending)}
 			</span>
 		{:else if queued}
 			<span

@@ -187,8 +187,15 @@ export interface IpcContract {
 		args: { program: string; args: string[]; options?: SpawnOptions; sidecar?: boolean };
 		result: { pid: number };
 	};
+	/** With `streamId`, stderr is also forwarded as it arrives, as `shell:execute-stderr` events tagged with it. */
 	"shell:execute": {
-		args: { program: string; args: string[]; options?: SpawnOptions; sidecar?: boolean };
+		args: {
+			program: string;
+			args: string[];
+			options?: SpawnOptions;
+			sidecar?: boolean;
+			streamId?: string;
+		};
 		result: ShellExecuteResult;
 	};
 	"shell:kill": { args: { pid: number }; result: void };
@@ -347,6 +354,7 @@ export interface IpcEvents {
 	"tray:navigate": { route: string };
 	/** Child-process stream events, demultiplexed by pid. */
 	"shell:process": ShellProcessEvent;
+	"shell:execute-stderr": { id: string; data: string };
 	"updater:download-progress": UpdaterProgress;
 	/** `total` is null when the server sends no Content-Length. */
 	"mods:download-progress": { id: string; received: number; total: number | null };

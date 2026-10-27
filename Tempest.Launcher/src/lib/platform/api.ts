@@ -191,18 +191,32 @@ export class Command<O = string> {
 		return child;
 	}
 
-	execute(): Promise<{
+	/**
+	 * Run to completion and collect the output.
+	 * @param onStderr - Hears stderr as it arrives, before the result (which still holds all of it).
+	 */
+	async execute(onStderr?: (data: string) => void): Promise<{
 		code: number | null;
 		signal: string | null;
 		stdout: string;
 		stderr: string;
 	}> {
-		return eio().invoke("shell:execute", {
+		const request = {
 			program: this.program,
 			args: this.args,
 			options: this.options,
 			sidecar: this._sidecar,
+		};
+		if (!onStderr) return eio().invoke("shell:execute", request);
+		const streamId = crypto.randomUUID();
+		const unlisten = eio().on("shell:execute-stderr", ({ id, data }) => {
+			if (id === streamId) onStderr(data);
 		});
+		try {
+			return await eio().invoke("shell:execute", { ...request, streamId });
+		} finally {
+			unlisten();
+		}
 	}
 }
 
