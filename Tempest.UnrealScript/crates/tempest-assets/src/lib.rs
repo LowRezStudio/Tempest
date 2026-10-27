@@ -13,6 +13,7 @@
 pub mod actors;
 pub mod basestore;
 pub mod batch;
+pub mod copies;
 pub mod bulk;
 pub mod dds;
 pub mod delta;

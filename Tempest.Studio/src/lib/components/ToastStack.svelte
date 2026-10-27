@@ -3,7 +3,7 @@
 	import { toasts } from "$lib/studio/toast.svelte";
 </script>
 
-<div class="toast toast-end toast-bottom z-50 max-w-md" aria-live="polite">
+<div class="toast toast-end toast-bottom z-50 w-[min(28rem,calc(100vw-2rem))]" aria-live="polite">
 	{#each toasts.items as toast (toast.id)}
 		<div
 			class="alert alert-{toast.tone} relative block whitespace-normal shadow-lg"
@@ -22,7 +22,9 @@
 				{#if toast.title}
 					<div class="text-sm font-semibold">{toast.title}</div>
 				{/if}
-				<div class="selectable text-sm break-words">{toast.message}</div>
+				<div class="selectable text-sm [overflow-wrap:anywhere] break-words">
+					{toast.message}
+				</div>
 			</div>
 		</div>
 	{/each}

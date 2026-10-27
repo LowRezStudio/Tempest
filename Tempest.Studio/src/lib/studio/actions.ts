@@ -31,10 +31,11 @@ import {
 	Users,
 	ZoomIn,
 } from "@lucide/svelte";
-import { pickDirectory, pickFile, pickSave, PACKAGE_FILTERS } from "$lib/platform/api";
+import { invoke, pickDirectory, pickFile, pickSave, PACKAGE_FILTERS } from "$lib/platform/api";
 import { assembly } from "./assembly.svelte";
 import { CONTAINS_SCRIPT } from "./classes";
 import { commands, type Command } from "./commands.svelte";
+import { basename } from "./format";
 import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
 import { session } from "./session.svelte";
@@ -84,24 +85,48 @@ async function exportSources(): Promise<void> {
 	}
 }
 
-/** Discard asks once: the second run within a few seconds discards. */
-let discardArmed = 0;
-function discard(): void {
-	if (Date.now() - discardArmed > 4000) {
-		discardArmed = Date.now();
-		toasts.push(
-			"warning",
-			"Run Discard again within 4 seconds to throw away the unsaved changes of this file.",
-			"Discard",
-		);
-		return;
-	}
-	discardArmed = 0;
+/** Every file with unsaved edits, as labels for confirmations. */
+function unsavedFiles(): string[] {
+	return [
+		...studio.dirty.map((p) => basename(p)),
+		...assembly.dirtyDocs.map((d) => basename(d.path)),
+	];
+}
+
+/** Throw away the unsaved edits of the file being edited, after asking. */
+async function discard(): Promise<void> {
+	const name = inAssembly() ? assembly.doc && basename(assembly.doc.path) : studio.pkg?.name;
+	if (!name) return;
+	const ok = await ui.confirm({
+		title: `Discard the changes of ${name}?`,
+		message:
+			"Every unsaved edit of this file is lost and it is reloaded from disk. Copies you exported and files saved in place are not touched.",
+		confirm: "Discard changes",
+		danger: true,
+	});
+	if (ok !== true) return;
 	if (inAssembly()) {
-		if (assembly.doc) void assembly.discard(assembly.doc.id);
+		if (assembly.doc) await assembly.discard(assembly.doc.id);
 	} else {
-		void studio.discard();
+		await studio.discard();
 	}
+}
+
+/** Throw away every unsaved edit of the window, after asking. */
+async function discardAll(): Promise<void> {
+	const files = unsavedFiles();
+	if (files.length === 0) return;
+	const ok = await ui.confirm({
+		title: `Discard the changes of ${files.length} file${files.length === 1 ? "" : "s"}?`,
+		message: "Every unsaved edit is lost and the files are reloaded from disk.",
+		items: files,
+		confirm: "Discard all",
+		danger: true,
+	});
+	if (ok !== true) return;
+	await studio.discardPaths([...studio.dirty]);
+	for (const d of assembly.dirtyDocs) await assembly.discard(d.id);
+	toasts.push("success", `${files.length} file(s) reloaded from disk`, "Changes discarded");
 }
 
 export function registerActions(): () => void {
@@ -134,7 +159,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "workspace.open",
-			title: "Open workspace file…",
+			title: "Open project…",
+			detail: "A .twrk project or workspace file",
 			group: "Workspace",
 			keys: "Mod+Alt+O",
 			icon: PackageOpen,
@@ -143,7 +169,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "workspace.save",
-			title: "Save workspace",
+			detail: "Every edit and where you were, in a .twrk, for later",
+			title: "Save as a workspace file",
 			group: "Workspace",
 			keys: "Mod+Alt+S",
 			icon: Save,
@@ -153,7 +180,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "workspace.saveAs",
-			title: "Save workspace as…",
+			detail: "Choose the file and whether it is linked (small) or portable",
+			title: "Save a copy of the workspace as…",
 			group: "Workspace",
 			icon: FolderOutput,
 			enabled: ws,
@@ -169,17 +197,56 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "file.save",
-			title: "Save",
+			get title() {
+				return session.project ? "Save project" : "Save into the game folder";
+			},
+			get detail() {
+				return session.project
+					? "Your edits are kept in the project (it also saves by itself); the game folder is not touched"
+					: "Writes the open file in place; the Studio keeps its original for mod deltas";
+			},
 			group: "File",
 			keys: "Mod+S",
 			icon: Save,
 			global: true,
-			enabled: () => (inAssembly() ? assembly.dirtyDocs.length > 0 : studio.isDirty),
-			run: () => (inAssembly() ? assembly.saveAll() : studio.save()),
+			enabled: () =>
+				session.project
+					? true
+					: inAssembly()
+						? assembly.dirtyDocs.length > 0
+						: studio.isDirty,
+			run: () =>
+				session.project
+					? session.saveProject()
+					: inAssembly()
+						? assembly.saveAll()
+						: studio.save(),
+		},
+		{
+			id: "file.saveToGame",
+			title: "Write the edits into the game folder",
+			detail: "Overwrites the game's files with this file's edits (to test without building a mod)",
+			group: "File",
+			icon: FolderInput,
+			enabled: () =>
+				!!session.project &&
+				(inAssembly() ? assembly.dirtyDocs.length > 0 : studio.isDirty),
+			run: async () => {
+				const name = inAssembly()
+					? "the changed .dat files"
+					: (studio.pkg?.name ?? "this file");
+				const ok = await ui.confirm({
+					title: `Write the edits into the game folder?`,
+					message: `${name} in the game folder is overwritten with your edits. Your project and your mod don't need this: build the mod instead to test it cleanly.`,
+					confirm: "Write into the game folder",
+				});
+				if (ok === true) await (inAssembly() ? assembly.saveAll() : studio.save());
+			},
 		},
 		{
 			id: "file.saveAs",
-			title: "Save as…",
+			detail: "Writes a copy elsewhere; the edits stay unsaved here and the mod cooker can use the copy",
+			title: "Export a copy…",
 			group: "File",
 			keys: "Mod+Shift+S",
 			icon: FolderOutput,
@@ -189,7 +256,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "file.saveAll",
-			title: "Save all changed files",
+			detail: "Every file with unsaved edits, in place",
+			title: "Save all into the game folder",
 			group: "File",
 			icon: SaveAll,
 			enabled: () => studio.dirty.length > 0 || assembly.dirtyDocs.length > 0,
@@ -210,7 +278,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "edit.discard",
-			title: "Discard the changes of this file",
+			detail: "Reloads this file from disk after asking",
+			title: "Discard changes…",
 			group: "Edit",
 			icon: RotateCcw,
 			enabled: () => (inAssembly() ? assembly.isDirty : studio.isDirty),
@@ -327,7 +396,7 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "view.mod",
-			title: "Mod cooker (package the changes as a .tempest)",
+			title: "Build the mod",
 			group: "View",
 			keys: "Mod+3",
 			icon: Hammer,
@@ -405,8 +474,18 @@ export function registerActions(): () => void {
 			id: "tools.search",
 			title: "Search every package…",
 			group: "Tools",
-			keys: "Mod+Shift+F",
+			keys: "Mod+F",
 			icon: Search,
+			global: true,
+			enabled: ws,
+			run: () => ui.open("search"),
+		},
+		{
+			id: "tools.search2",
+			title: "Search every package…",
+			group: "Tools",
+			keys: "Mod+Shift+F",
+			hidden: true,
 			global: true,
 			enabled: ws,
 			run: () => ui.open("search"),
@@ -528,5 +607,41 @@ export function registerActions(): () => void {
 			run: () => ui.open("modExport"),
 		},
 	];
+	list.push(
+		{
+			id: "project.new",
+			title: "New mod project…",
+			detail: "Name your mod, pick the game folder and where to keep it",
+			group: "Project",
+			icon: Hammer,
+			global: true,
+			run: () => ui.open("newProject"),
+		},
+		{
+			id: "project.close",
+			title: "Close the project",
+			detail: "Back to plain editing; its edits stay in the project and are unloaded (asks first)",
+			group: "Project",
+			enabled: () => !!session.project,
+			run: () => session.closeProject(),
+		},
+		{
+			id: "project.folder",
+			title: "Show the project folder",
+			group: "Project",
+			icon: FolderOpen,
+			enabled: () => !!session.project,
+			run: () => session.project && invoke("shell:open-path", { path: session.project.dir }),
+		},
+	);
+	list.push({
+		id: "edit.discardAll",
+		title: "Discard all changes…",
+		detail: "Reloads every file with unsaved edits from disk after asking",
+		group: "Edit",
+		icon: RotateCcw,
+		enabled: () => studio.dirty.length > 0 || assembly.dirtyDocs.length > 0,
+		run: discardAll,
+	});
 	return commands.register(list);
 }

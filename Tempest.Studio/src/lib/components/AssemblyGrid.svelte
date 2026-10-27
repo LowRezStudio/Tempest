@@ -31,7 +31,6 @@
 	let col = $state<string | null>(null);
 	/** Shift+click anchor for range marks. */
 	let anchor: number | null = null;
-	let confirmDelete = $state(false);
 
 	const page = $derived(assembly.page);
 	const from = $derived(page ? Math.min(page.offset + 1, page.total) : 0);
@@ -320,14 +319,20 @@
 
 	async function deleteTargets() {
 		const rows = assembly.targets();
-		if (rows.length === 0) return;
-		if (confirmDelete) {
-			confirmDelete = false;
-			await assembly.deleteRows(rows);
-			return;
-		}
-		confirmDelete = true;
-		setTimeout(() => (confirmDelete = false), 3000);
+		if (rows.length === 0 || !page) return;
+		const ok = await ui.confirm({
+			title: rows.length === 1 ? "Delete this row?" : `Delete ${rows.length} rows?`,
+			message: `From ${page.table.replace(/^DATA_SET_/, "")}. Undo (Ctrl+Z) brings ${rows.length === 1 ? "it" : "them"} back until you discard.`,
+			items: rows.slice(0, 50).map((i) => {
+				const cells = page.rows.find(([x]) => x === i)?.[1];
+				const label = (keyCol && cells?.[keyCol]) ?? "";
+				const name = (nameCol && cells?.[nameCol]) ?? "";
+				return `#${i} ${label} ${name}`.trim();
+			}),
+			confirm: "Delete",
+			danger: true,
+		});
+		if (ok === true) await assembly.deleteRows(rows);
 	}
 
 	async function onModKey(event: KeyboardEvent, rows: [number, Record<string, McsCell>][]) {
@@ -527,19 +532,16 @@
 			<CopyPlus size={12} /><span class="@max-3xl:hidden">Duplicate</span>
 		</button>
 		<button
-			class="btn btn-xs {confirmDelete ? 'btn-error' : 'btn-ghost'}"
+			class="btn btn-ghost btn-xs"
 			disabled={assembly.targets().length === 0}
-			onblur={() => (confirmDelete = false)}
 			onclick={deleteTargets}
-			title="Delete the selected or marked rows (Delete key, twice)"
+			title="Delete the selected or marked rows (Delete key)"
 		>
 			<Trash2 size={12} />
 			<span class="@max-3xl:hidden"
-				>{confirmDelete
-					? "Click again"
-					: assembly.marked.length > 1
-						? `Delete ${assembly.marked.length}`
-						: "Delete"}</span
+				>{assembly.marked.length > 1
+					? `Delete ${assembly.marked.length}…`
+					: "Delete…"}</span
 			>
 		</button>
 		<details class="dropdown dropdown-end">

@@ -58,22 +58,29 @@
 		}
 	}
 
+	// The result is shown in the Packages view, whichever view the search
+	// was opened from.
 	async function go(hit: SearchHit) {
 		open = false;
-		await (studio.pkg?.path === hit.path
-			? studio.select(hit.index)
-			: studio.openPackage(hit.path, hit.index));
+		await studio.visit(hit.path, hit.index);
 	}
+
+	let input = $state<HTMLInputElement>();
+	$effect(() => {
+		if (open && input) {
+			input.focus();
+			input.select();
+		}
+	});
 </script>
 
 <Modal bind:open title="Search every package" width="max-w-4xl">
 	<form class="flex gap-2" onsubmit={search}>
-		<!-- svelte-ignore a11y_autofocus -->
 		<input
 			class="input input-sm flex-1 font-mono"
 			placeholder="object path contains… (e.g. androxus_arms)"
 			bind:value={query}
-			autofocus
+			bind:this={input}
 		/>
 		<input
 			class="input input-sm w-48 font-mono"

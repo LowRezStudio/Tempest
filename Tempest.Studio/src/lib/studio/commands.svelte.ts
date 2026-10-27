@@ -6,6 +6,8 @@ import { untrack, type Component } from "svelte";
 export type Command = {
 	id: string;
 	title: string;
+	/** One line under the title in menus and the palette: what the command does. */
+	detail?: string;
 	/** Palette section. */
 	group: string;
 	/** Shortcut as written in the UI: `Mod+S`, `Mod+Shift+P`, `Alt+ArrowLeft`, `F1`. */

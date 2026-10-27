@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { AppWindow, Clock, FileUp, FolderOpen, PackageOpen } from "@lucide/svelte";
+	import { AppWindow, Clock, FileUp, FolderOpen, Hammer, PackageOpen, X } from "@lucide/svelte";
 	import { onMount } from "svelte";
 	import { invoke, pickDirectory, pickFile, PACKAGE_FILTERS } from "$lib/platform/api";
 	import { basename } from "$lib/studio/format";
 	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
+	import { ui } from "$lib/studio/ui.svelte";
 
 	let backend = $state<{ running: boolean; binary: string | null; error: string | null } | null>(
 		null,
@@ -35,7 +36,9 @@
 			<img src="/studio-icon.png" alt="" class="h-12 w-12" />
 			<div>
 				<h1 class="text-2xl font-bold">Tempest Studio</h1>
-				<p class="text-sm opacity-70">Browse, extract and edit Paladins packages.</p>
+				<p class="text-sm opacity-70">
+					Make Paladins mods: edit packages and the game data, build a mod.
+				</p>
 			</div>
 		</div>
 
@@ -53,21 +56,37 @@
 			</div>
 		{/if}
 
-		<button class="btn btn-primary w-full" onclick={browse} disabled={studio.busy !== null}>
-			<FolderOpen size={18} />
-			Open cooked folder…
-		</button>
-		<div class="grid grid-cols-2 gap-2">
+		<div class="grid gap-3 sm:grid-cols-2">
 			<button
-				class="btn btn-sm"
+				class="btn btn-primary h-auto flex-col items-start gap-1 py-3 text-left normal-case"
+				onclick={() => ui.open("newProject")}
+				disabled={studio.busy !== null}
+			>
+				<span class="flex items-center gap-2 text-base"
+					><Hammer size={18} /> New mod project</span
+				>
+				<span class="text-xs font-normal opacity-80"
+					>Name your mod, pick the game folder; your edits are kept as you work.</span
+				>
+			</button>
+			<button
+				class="btn h-auto flex-col items-start gap-1 py-3 text-left normal-case"
 				onclick={() => session.pickAndOpen()}
 				disabled={studio.busy !== null}
-				title="A .twrk saved from the Studio: unsaved changes, open package, tabs and layout"
 			>
-				<PackageOpen size={15} /> Open workspace file…
+				<span class="flex items-center gap-2 text-base"
+					><PackageOpen size={18} /> Open a project</span
+				>
+				<span class="text-xs font-normal opacity-70">Continue a mod (a .twrk file).</span>
 			</button>
-			<button class="btn btn-sm" onclick={openFile} disabled={studio.busy !== null}>
-				<FileUp size={15} /> Open a package file…
+		</div>
+		<div class="flex flex-wrap items-center gap-2 text-xs">
+			<span class="opacity-60">Or just look around:</span>
+			<button class="btn btn-ghost btn-xs" onclick={browse} disabled={studio.busy !== null}>
+				<FolderOpen size={13} /> Open a game folder…
+			</button>
+			<button class="btn btn-ghost btn-xs" onclick={openFile} disabled={studio.busy !== null}>
+				<FileUp size={13} /> Open a package file…
 			</button>
 		</div>
 		{#if studio.pendingFiles.length > 0}
@@ -78,32 +97,43 @@
 				>
 			</div>
 		{/if}
-		<p class="text-xs opacity-60">
-			Pick the game's <code>ChaosGame/CookedPCConsole</code> folder (or any folder holding the
-			script packages). The class database is loaded from it; textures stream from its
-			<code>.tfc</code> caches.
-		</p>
 
 		{#if session.recents.length > 0}
 			<div>
 				<div
 					class="mb-1 flex items-center gap-1 text-xs font-semibold uppercase opacity-60"
 				>
-					<PackageOpen size={12} /> Recent workspace files
+					<PackageOpen size={12} /> Recent projects
+					<span class="flex-1"></span>
+					<button
+						class="btn btn-ghost btn-xs font-normal normal-case"
+						onclick={() => session.forgetRecent()}
+						title="Clear the list (the project files stay where they are)">Clear</button
+					>
 				</div>
 				<ul class="menu rounded-box bg-base-200 w-full overflow-hidden p-1">
 					{#each session.recents as file (file)}
-						<li>
+						<li class="min-w-0 flex-row flex-nowrap items-center">
 							<button
-								class="flex-col items-start gap-0"
+								class="min-w-0 flex-1 flex-col items-start gap-0"
 								onclick={() => session.open(file)}
 								disabled={studio.busy !== null}
 								title={file}
 							>
-								<span class="font-semibold">{basename(file)}</span>
+								<span class="font-semibold"
+									>{basename(file).replace(/\.twrk$/i, "")}</span
+								>
 								<span class="max-w-full truncate font-mono text-[11px] opacity-60"
 									>{file}</span
 								>
+							</button>
+							<button
+								class="btn btn-ghost btn-xs btn-square"
+								onclick={() => session.forgetRecent(file)}
+								title="Remove from the list (the project stays where it is)"
+								aria-label="Remove from recent projects"
+							>
+								<X size={12} />
 							</button>
 						</li>
 					{/each}
@@ -117,6 +147,12 @@
 					class="mb-1 flex items-center gap-1 text-xs font-semibold uppercase opacity-60"
 				>
 					<Clock size={12} /> Recent game folders
+					<span class="flex-1"></span>
+					<button
+						class="btn btn-ghost btn-xs font-normal normal-case"
+						onclick={() => studio.forgetRecent()}
+						title="Clear the list (the folders stay where they are)">Clear</button
+					>
 				</div>
 				<ul class="menu rounded-box bg-base-200 w-full overflow-hidden p-1">
 					{#each studio.recents as dir (dir)}
@@ -135,6 +171,14 @@
 								title="Open in a new window"
 							>
 								<AppWindow size={12} />
+							</button>
+							<button
+								class="btn btn-ghost btn-xs btn-square"
+								onclick={() => studio.forgetRecent(dir)}
+								title="Remove from the list (the folder stays where it is)"
+								aria-label="Remove from recent game folders"
+							>
+								<X size={12} />
 							</button>
 						</li>
 					{/each}

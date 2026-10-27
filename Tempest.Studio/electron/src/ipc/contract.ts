@@ -424,6 +424,43 @@ export type McsSummary = { tokens: string; fields: number; docs: McsDoc[] };
 /** A row set address: field names and row indices from the document root. */
 export type McsPath = [string, number][];
 
+/** A source of edited content for the mod cooker (`mod.changes`). */
+export type CookSource = {
+	id: string;
+	/** Where the edited content is: the game file (unsaved or saved in place) or a copy. */
+	source: string;
+	/** The game file it changes. */
+	target: string;
+	rel: string;
+	kind: "upk" | "mcts";
+	origin: "unsaved" | "saved" | "copy";
+	script: boolean;
+	doc?: string;
+	/** Unix seconds: when the original was recorded (saved) or the copy written (copy). */
+	when?: number;
+	/** What it is compared with: the Studio's record, the launcher's backup, or the game folder's file. */
+	base: { kind: "recorded" | "backup" | "game"; path?: string; recorded?: number };
+};
+export type CookItem = {
+	id: string;
+	source: string;
+	target: string;
+	kind: "upk" | "mcts";
+	mode: "delta" | "whole";
+};
+export type CookPreview = {
+	id?: string;
+	rel?: string;
+	mode?: "delta" | "whole" | "unchanged" | "extra";
+	added?: number;
+	changed?: number;
+	deleted?: number;
+	bytes?: number;
+	changes?: { op: string; what: string }[];
+	warnings?: string[];
+	error?: string;
+};
+
 /** Linked: deltas against the game folder (small); portable: whole files (opens anywhere). */
 export type TwrkMode = "linked" | "portable";
 export type TwrkFile = {
@@ -1048,21 +1085,16 @@ export interface UpkMethods {
 			mode: TwrkMode;
 		};
 	};
-	/** What a mod made from this workspace could hold (unsaved edits, files saved since their base). */
-	"mod.changes": {
-		params: Record<string, never>;
-		result: {
-			files: {
-				path: string;
-				kind: "upk" | "mcts";
-				doc?: string;
-				state: "unsaved" | "saved";
-				rel: string;
-				base: boolean;
-				script: boolean;
-			}[];
-		};
-	};
+	/** Every source of edited content a mod could take: unsaved edits, files saved in place, exported copies. */
+	"mod.changes": { params: Record<string, never>; result: { files: CookSource[] } };
+	/** What each cooker entry would put in the mod (nothing written). */
+	"mod.preview": { params: { items: CookItem[] }; result: { items: CookPreview[] } };
+	/** The game file a package or .dat from anywhere is a modified copy of (same name). */
+	"mod.match": { params: { path: string }; result: { target: string | null } };
+	/** Remember a file as a modified copy of a game file (listed by the cooker). */
+	"mod.addCopy": { params: { path: string; target: string }; result: boolean };
+	/** Drop an exported copy from the cooker's list (the file stays). */
+	"mod.forgetCopy": { params: { path: string }; result: boolean };
 	/** Write a launcher mod folder (manifest, README, icon, deltas/files, extra files). */
 	"mod.cook": {
 		params: {
@@ -1074,19 +1106,10 @@ export interface UpkMethods {
 			readme?: string;
 			dependencies?: string[];
 			icon?: string;
-			items: { path: string; kind: "upk" | "mcts"; doc?: string; mode: "delta" | "whole" }[];
+			items: CookItem[];
 			extras: { src: string; dest: string }[];
 		};
-		result: {
-			dir: string;
-			entries: {
-				file: string;
-				entry?: string;
-				mode: "delta" | "whole" | "unchanged" | "extra";
-				ops?: number;
-				warnings?: string[];
-			}[];
-		};
+		result: { dir: string; entries: (CookPreview & { entry?: string })[] };
 	};
 	"batch.plan": { params: { dir: string; recursive?: boolean }; result: BatchResult };
 	"batch.run": {
@@ -1110,7 +1133,11 @@ export interface UpkMethods {
 	/** Is the file's base (its state before the first in-place save) recorded, so a delta can be made? */
 	"delta.status": { params: { path: string }; result: DeltaStatus };
 	/** Take the file as it is now as the base (replacing any earlier record). */
-	"delta.record": { params: { path: string }; result: DeltaStatus & { ms: number } };
+	"delta.record": {
+		/** `from`: another file holding the original (a backup, a clean install). */
+		params: { path: string; from?: string };
+		result: DeltaStatus & { ms: number };
+	};
 	"delta.reset": { params: { path: string }; result: boolean };
 	"delta.info": {
 		params: { file: string };
@@ -1203,6 +1230,8 @@ export type OsInfo = {
 export interface IpcContract {
 	"app:version": { args: void; result: string };
 	"app:home": { args: void; result: string };
+	/** The user's Documents folder (default home of mod projects). */
+	"app:documents": { args: void; result: string };
 	"app:temp-path": { args: { name: string }; result: string };
 
 	"window:set-title": { args: { title: string }; result: void };
@@ -1242,6 +1271,10 @@ export interface IpcContract {
 	"fs:read-text": { args: { path: string }; result: string };
 	"fs:write-text": { args: { path: string; text: string }; result: void };
 	"fs:remove": { args: { path: string }; result: void };
+	/** Create a folder (and its parents). */
+	"fs:mkdir": { args: { path: string }; result: void };
+	/** Files of a folder, recursively, relative to it (for a project's mod-files/). */
+	"fs:list": { args: { path: string }; result: string[] };
 
 	"shell:show-item": { args: { path: string }; result: void };
 	"shell:open-path": { args: { path: string }; result: string };

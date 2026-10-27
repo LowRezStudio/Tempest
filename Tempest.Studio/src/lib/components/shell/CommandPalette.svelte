@@ -66,6 +66,7 @@
 					.map((c) => ({
 						key: c.id,
 						label: c.title,
+						detail: c.detail,
 						group: c.group,
 						keys: c.keys,
 						icon: c.icon,

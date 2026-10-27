@@ -32,6 +32,7 @@
 	import { rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
+	import { ui } from "$lib/studio/ui.svelte";
 
 	type Tab = "properties" | "preview" | "native" | "deps" | "text" | "source";
 	let tab = $state<Tab>("properties");
@@ -39,7 +40,6 @@
 	let copyOpen = $state(false);
 	let importOpen = $state(false);
 	let text = $state<string | null>(null);
-	let confirmDelete = $state(false);
 
 	const row = $derived(studio.selectedRow);
 	const obj = $derived(studio.object);
@@ -65,7 +65,6 @@
 		const i = studio.selected;
 		if (i === null) return;
 		text = null;
-		confirmDelete = false;
 		if (preview !== "none") tab = "preview";
 		else if (script) tab = "source";
 		else if (tab === "preview" || tab === "source") tab = "properties";
@@ -144,11 +143,15 @@
 
 	async function deleteObject() {
 		if (!studio.pkg || !row) return;
-		if (!confirmDelete) {
-			confirmDelete = true;
-			return;
-		}
-		confirmDelete = false;
+		const ok = await ui.confirm({
+			title: `Delete ${row.name}?`,
+			message:
+				"The object and its sub-objects become empty placeholders and every reference to them is cleared. Undo (Ctrl+Z) brings them back.",
+			items: [row.path],
+			confirm: "Delete",
+			danger: true,
+		});
+		if (ok !== true) return;
 		try {
 			const r = await rpc("object.delete", { path: studio.pkg.path, indices: [row.i] });
 			studio.markDirty();
@@ -236,14 +239,13 @@
 				<Copy size={14} /> Copy to…
 			</button>
 			<button
-				class="btn btn-sm {confirmDelete ? 'btn-error' : 'btn-ghost'}"
+				class="btn btn-ghost btn-sm"
 				onclick={deleteObject}
-				onblur={() => (confirmDelete = false)}
 				disabled={placeholder}
 				title="Turn the object (and its sub-objects) into empty placeholders and clear references"
 			>
 				<Trash2 size={14} />
-				{confirmDelete ? "Click again to delete" : "Delete"}
+				Delete…
 			</button>
 			<div class="flex-1"></div>
 			<button
