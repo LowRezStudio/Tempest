@@ -126,8 +126,9 @@ export class SwfDoc {
 		this.index = index;
 	}
 
+	/** The pending edits as plain objects: they travel over IPC, which cannot clone `$state` proxies. */
 	get pending(): SwfEdit[] {
-		return Object.values(this.edits);
+		return Object.values($state.snapshot(this.edits)) as SwfEdit[];
 	}
 
 	chars = $derived(new Map((this.tree?.characters ?? []).map((c) => [c.id, c])));
