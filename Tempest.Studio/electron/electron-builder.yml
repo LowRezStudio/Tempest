@@ -7,6 +7,10 @@ fileAssociations:
       name: Unreal Package
       description: Unreal Engine 3 package
       role: Editor
+    - ext: twrk
+      name: Tempest Studio Workspace
+      description: Tempest Studio workspace
+      role: Editor
 directories:
     output: ../dist
 files:

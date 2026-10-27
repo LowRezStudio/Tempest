@@ -3,6 +3,7 @@
 	import { bytes } from "$lib/studio/format";
 	import { inField, reveal, step } from "$lib/studio/keys";
 	import { studio } from "$lib/studio/state.svelte";
+	import { tabs } from "$lib/studio/tabs.svelte";
 
 	let filter = $state("");
 	let kind = $state<"all" | "content" | "maps" | "script">("all");
@@ -70,7 +71,15 @@
 				? 'row-selected'
 				: ''}"
 			data-package={p.path}
-			onclick={() => studio.openPackage(p.path)}
+			onclick={(e) => {
+				if (e.ctrlKey || e.metaKey) tabs.openInNewTab();
+				void studio.openPackage(p.path);
+			}}
+			onauxclick={(e) => {
+				if (e.button !== 1) return;
+				tabs.openInNewTab();
+				void studio.openPackage(p.path);
+			}}
 			ondblclick={() => studio.openPackage(p.path)}
 			title={p.path}
 		>

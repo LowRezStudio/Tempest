@@ -319,9 +319,19 @@ impl Server {
             "object.get" => self.object_get(p),
             "object.text" => self.object_text(p),
             "object.set" => self.object_set(p),
+            "object.list" => self.object_list(p),
             "object.rename" => self.object_rename(p),
             "object.delete" => self.object_delete(p),
             "object.copy" => self.object_copy(p),
+            "object.duplicate" => {
+                let path = s(p, "path")?.to_string();
+                let i = self.export_of(&path, p)?;
+                let ed = self.editor(&path)?;
+                let name = ed.pkg.object_name(PackageIndex::export(i));
+                ed.begin_undo(format!("duplicate {name}"));
+                let n = ed.duplicate(i)?;
+                Ok(json!({ "index": n, "path": ed.pkg.object_path(PackageIndex::export(n)) }))
+            }
             "object.deps" => self.object_deps(p),
             "object.extract" => self.object_extract(p),
             "texture.info" => self.texture_info(p),
@@ -357,6 +367,8 @@ impl Server {
             "mcts.set" => Ok(self.mcts_mut()?.set(p)?),
             "mcts.setHeader" => Ok(self.mcts_mut()?.set_header(p)?),
             "mcts.insert" => Ok(self.mcts_mut()?.insert(p)?),
+            "mcts.addRow" => Ok(self.mcts_mut()?.append_row(p)?),
+            "mcts.usages" => Ok(self.mcts()?.usages(p)?),
             "mcts.delete" => Ok(self.mcts_mut()?.delete(p)?),
             "mcts.undo" => Ok(self.mcts_mut()?.undo(p)?),
             "mcts.save" => {
@@ -381,6 +393,11 @@ impl Server {
             }
             "delta.record" => self.delta_record(p),
             "delta.reset" => Ok(J::from(crate::basestore::remove(Path::new(s(p, "path")?)))),
+            "twrk.save" => self.twrk_save(p),
+            "mod.changes" => self.mod_changes(),
+            "mod.cook" => self.mod_cook(p),
+            "twrk.read" => Ok(crate::twrk::summary(&crate::twrk::Reader::open(Path::new(s(p, "path")?))?.manifest)),
+            "twrk.apply" => self.twrk_apply(p),
             "delta.info" => {
                 let d = crate::delta::Delta::read(s(p, "file")?)?;
                 Ok(json!({ "kind": d.kind(), "target": d.target(), "header": d.header }))
@@ -614,6 +631,250 @@ impl Server {
         Ok(json!({ "out": out, "reopened": false, "dirty": false, "undo": labels, "dbReloaded": db_reloaded }))
     }
 
+    /// `twrk.save {out, mode: "linked"|"portable", state, include?}`: write
+    /// every unsaved package and marshal file of the session to a workspace
+    /// file (see `twrk.rs`). `include` lists packages opened from outside the
+    /// game folder that a portable workspace carries even when unchanged.
+    fn twrk_save(&mut self, p: &J) -> Res<J> {
+        use crate::twrk::{relative, Entry};
+        let out = PathBuf::from(s(p, "out")?);
+        let portable = opt_s(p, "mode").as_deref() == Some("portable");
+        let dir = self.dir()?.to_path_buf();
+        let root = crate::twrk::game_root(&dir);
+        let db = self.db()?;
+        let mut files: Vec<J> = Vec::new();
+        let mut entries: Vec<Entry> = Vec::new();
+        let mut warnings: Vec<String> = Vec::new();
+        let mut n = 0usize;
+        let mut push = |files: &mut Vec<J>, entries: &mut Vec<Entry>, mut meta: J, bytes: Vec<u8>, base: Option<J>| {
+            n += 1;
+            let stored = meta["stored"].as_str().unwrap_or("full").to_string();
+            let name = Path::new(meta["path"].as_str().unwrap_or("file")).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+            let entry = if stored == "delta" { format!("deltas/{n:04}-{name}.tdelta") } else { format!("files/{n:04}-{name}") };
+            meta["entry"] = J::from(entry.clone());
+            meta["bytes"] = J::from(bytes.len());
+            entries.push(Entry { meta: meta.clone(), bytes });
+            if let Some(b) = base {
+                let be = format!("bases/{n:04}-{name}.json");
+                meta["base"] = J::from(be.clone());
+                entries.push(Entry { meta: json!({ "entry": be }), bytes: serde_json::to_vec(&b).unwrap_or_default() });
+            }
+            files.push(meta);
+        };
+        // Packages.
+        let keys: Vec<String> = self.editors.iter().filter(|(_, e)| e.is_dirty()).map(|(k, _)| k.clone()).collect();
+        for k in &keys {
+            let path = PathBuf::from(k);
+            let rel = relative(&root, &path);
+            let ed = self.editors.get_mut(k).unwrap();
+            let is_script = ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0;
+            let target = rel.clone().unwrap_or_else(|| crate::basestore::game_relative(&path));
+            let meta = json!({ "kind": "upk", "path": path.to_string_lossy(), "rel": rel });
+            let mut delta = None;
+            if !portable && !is_script && path.exists() {
+                // Compared as Save would write it: the in-memory package can
+                // differ from its saved form in ways a delta would count.
+                let edited = Package::parse(&ed.bytes());
+                match tempest_upk::PackageFile::open(&path).and_then(|f| f.load()).and_then(|b| edited.map(|e| (b, e))) {
+                    Ok((base, edited)) => match crate::delta::create(db, crate::delta::Base::Package(&base), &edited, &target) {
+                        Ok((d, w)) if w.is_empty() => delta = Some(d.to_bytes()),
+                        Ok((_, w)) => warnings.push(format!("{}: stored whole ({})", ed.name, w.join("; "))),
+                        Err(e) => warnings.push(format!("{}: stored whole ({e})", ed.name)),
+                    },
+                    Err(e) => warnings.push(format!("{}: stored whole ({e})", ed.name)),
+                }
+            }
+            let base = if portable { crate::basestore::read(&path) } else { None };
+            match delta {
+                Some(bytes) => push(&mut files, &mut entries, with_field(&meta, "stored", "delta"), bytes, base),
+                None => {
+                    let bytes = ed.bytes();
+                    push(&mut files, &mut entries, with_field(&meta, "stored", "full"), bytes, base);
+                }
+            }
+        }
+        // Packages from outside the game folder, carried by portable workspaces.
+        if portable {
+            for f in p.get("include").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+                let Some(f) = f.as_str() else { continue };
+                if keys.contains(&key(f)) || relative(&root, Path::new(f)).is_some() {
+                    continue;
+                }
+                if let Ok(bytes) = std::fs::read(f) {
+                    push(&mut files, &mut entries, json!({ "kind": "upk", "path": f, "rel": null, "stored": "full", "unchanged": true }), bytes, None);
+                }
+            }
+        }
+        // Marshal files.
+        if let Some(ws) = self.mcts.as_mut() {
+            let tokens = ws.tokens.clone();
+            for (id, doc) in ws.docs.iter_mut() {
+                if !doc.dirty {
+                    continue;
+                }
+                let rel = relative(&root, &doc.path);
+                let target = rel.clone().unwrap_or_else(|| crate::basestore::game_relative(&doc.path));
+                let meta = json!({ "kind": "mcts", "doc": id, "path": doc.path.to_string_lossy(), "rel": rel });
+                let mut delta = None;
+                if !portable {
+                    let base = std::fs::read(&doc.path).map_err(tempest_upk::io::Error::from).and_then(|b| mcts::parse_obscured(&b, &tokens));
+                    match base {
+                        Ok(base) => match mcts::delta::create(&tokens, mcts::delta::Base::Marshal(&base), &doc.marshal, &target) {
+                            Ok(d) => delta = Some(d.to_bytes()),
+                            Err(e) => warnings.push(format!("{id}: stored whole ({e})")),
+                        },
+                        Err(e) => warnings.push(format!("{id}: stored whole ({e})")),
+                    }
+                }
+                let base = if portable { crate::basestore::read(&doc.path) } else { None };
+                match delta {
+                    Some(bytes) => push(&mut files, &mut entries, with_field(&meta, "stored", "delta"), bytes, base),
+                    None => {
+                        let bytes = mcts::write_obscured(&doc.marshal, &tokens);
+                        push(&mut files, &mut entries, with_field(&meta, "stored", "full"), bytes, base);
+                    }
+                }
+            }
+        }
+        let saved = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let manifest = json!({
+            "format": crate::twrk::FORMAT,
+            "mode": if portable { "portable" } else { "linked" },
+            "gameDir": dir.to_string_lossy(),
+            "saved": saved,
+            "files": files,
+            "state": p.get("state").cloned().unwrap_or(J::Null),
+        });
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        crate::twrk::write(&out, &manifest, &entries)?;
+        let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+        Ok(json!({ "out": out.to_string_lossy(), "mode": manifest["mode"], "files": manifest["files"], "size": size, "warnings": warnings }))
+    }
+
+    /// `twrk.apply {path}`: put a workspace file's changes into the open
+    /// workspace (which must be its game folder, or another copy of the game
+    /// for a portable one): deltas are applied, whole files replace the
+    /// in-memory package or marshal. Everything ends up unsaved, as it was.
+    fn twrk_apply(&mut self, p: &J) -> Res<J> {
+        let mut r = crate::twrk::Reader::open(Path::new(s(p, "path")?))?;
+        let dir = self.dir()?.to_path_buf();
+        let root = crate::twrk::game_root(&dir);
+        let db = self.db()?;
+        let files: Vec<J> = r.manifest["files"].as_array().cloned().unwrap_or_default();
+        let mut packages: Vec<J> = Vec::new();
+        let mut docs: Vec<String> = Vec::new();
+        let mut extras: Vec<String> = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
+        for meta in &files {
+            let stored = meta["stored"].as_str().unwrap_or("full");
+            let entry = meta["entry"].as_str().unwrap_or_default().to_string();
+            let mut target = crate::twrk::resolve(&root, meta);
+            let label = target.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+            let bytes = match r.bytes(&entry) {
+                Ok(b) => b,
+                Err(e) => {
+                    problems.push(format!("{label}: {e}"));
+                    continue;
+                }
+            };
+            if let Some(be) = meta["base"].as_str() {
+                if let Ok(b) = r.bytes(be) {
+                    if let Ok(digest) = serde_json::from_slice::<J>(&b) {
+                        let _ = crate::basestore::restore(&target, digest);
+                    }
+                }
+            }
+            if meta["kind"] == "mcts" {
+                if self.mcts.is_none() {
+                    self.mcts = Some(mcts::workspace::Workspace::open(&dir)?);
+                }
+                let ws = self.mcts.as_mut().unwrap();
+                let id = meta["doc"].as_str().unwrap_or_default().to_string();
+                let tokens = ws.tokens.clone();
+                let doc = match ws.doc_mut(&id) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        problems.push(format!("{label}: {e}"));
+                        continue;
+                    }
+                };
+                let res: Res<()> = if stored == "delta" {
+                    crate::delta::Delta::from_bytes(&bytes).map_err(Into::into).and_then(|d| {
+                        let a = mcts::delta::apply(&tokens, &mut doc.marshal, &d)?;
+                        if !a.drift.is_empty() {
+                            problems.push(format!("{label}: {} rows changed on disk since the workspace was saved", a.drift.len()));
+                        }
+                        Ok(())
+                    })
+                } else {
+                    mcts::parse_obscured(&bytes, &tokens).map(|m| doc.marshal = m).map_err(Into::into)
+                };
+                match res {
+                    Ok(()) => {
+                        doc.dirty = true;
+                        docs.push(id);
+                    }
+                    Err(e) => problems.push(format!("{label}: {e}")),
+                }
+                continue;
+            }
+            // A package from outside the game folder that is not on this machine:
+            // a portable workspace carries it; unpack it into the cache.
+            if !target.exists() && stored == "full" && meta["rel"].is_null() {
+                let Some(cache) = crate::basestore::cache_dir() else {
+                    problems.push(format!("{label}: not found"));
+                    continue;
+                };
+                let d = cache.join("twrk").join(format!("{:08x}", meta["path"].as_str().unwrap_or_default().bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32))));
+                std::fs::create_dir_all(&d)?;
+                target = d.join(&label);
+                std::fs::write(&target, &bytes)?;
+            }
+            if meta["unchanged"].as_bool().unwrap_or(false) {
+                extras.push(target.to_string_lossy().to_string());
+                continue;
+            }
+            if !target.exists() {
+                problems.push(format!("{label}: {} not found", target.display()));
+                continue;
+            }
+            let path = target.to_string_lossy().to_string();
+            if crate::twrk::relative(&root, &target).is_none() {
+                extras.push(path.clone());
+            }
+            let ed = match self.editor(&path) {
+                Ok(e) => e,
+                Err(e) => {
+                    problems.push(format!("{label}: {e}"));
+                    continue;
+                }
+            };
+            ed.begin_undo("load workspace");
+            let res: Res<usize> = if stored == "delta" {
+                crate::delta::Delta::from_bytes(&bytes).map_err(Into::into).and_then(|d| {
+                    let a = crate::delta::apply(db, ed, &d, crate::delta::Phase::All)?;
+                    if !a.drift.is_empty() {
+                        problems.push(format!("{label}: {} objects changed on disk since the workspace was saved", a.drift.len()));
+                    }
+                    Ok(a.added + a.replaced + a.deleted)
+                })
+            } else {
+                Package::parse(&bytes).map(|pkg| {
+                    ed.replace_package(pkg);
+                    0
+                }).map_err(Into::into)
+            };
+            ed.end_undo();
+            match res {
+                Ok(changes) => packages.push(json!({ "path": path, "stored": stored, "changes": changes, "dirty": ed.is_dirty() })),
+                Err(e) => problems.push(format!("{label}: {e}")),
+            }
+        }
+        Ok(json!({ "packages": packages, "docs": docs, "extras": extras, "problems": problems, "state": r.manifest["state"], "mode": r.manifest["mode"] }))
+    }
+
     fn package_rewrite(&mut self, p: &J) -> Res<J> {
         let path = s(p, "path")?;
         let out = s(p, "out")?;
@@ -676,6 +937,36 @@ impl Server {
         let ed = self.editor(path)?;
         ed.begin_undo(format!("set {prop}"));
         ed.set(i, prop, value)?;
+        let parsed = ed.parsed(i)?.clone();
+        let mut v = json::parsed(&ed.pkg, i, &parsed);
+        v["row"] = json::export_row(&ed.pkg, i);
+        v["dirty"] = J::from(true);
+        Ok(v)
+    }
+
+    /// `object.list {path, index, prop, op: add|duplicate|remove|removeProperty, at?}`.
+    fn object_list(&mut self, p: &J) -> Res<J> {
+        use crate::edit::ListOp;
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let prop = s(p, "prop")?;
+        let at = p.get("at").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let op = match s(p, "op")? {
+            "add" => ListOp::Add,
+            "duplicate" => ListOp::Duplicate(at),
+            "remove" => ListOp::Remove(at),
+            "removeProperty" => ListOp::RemoveProperty,
+            other => return Err(format!("unknown op {other}").into()),
+        };
+        let ed = self.editor(path)?;
+        let label = match op {
+            ListOp::Add => format!("add {prop} element"),
+            ListOp::Duplicate(n) => format!("duplicate {prop}[{n}]"),
+            ListOp::Remove(n) => format!("remove {prop}[{n}]"),
+            ListOp::RemoveProperty => format!("reset {prop} to default"),
+        };
+        ed.begin_undo(label);
+        ed.edit_list(i, prop, op)?;
         let parsed = ed.parsed(i)?.clone();
         let mut v = json::parsed(&ed.pkg, i, &parsed);
         v["row"] = json::export_row(&ed.pkg, i);
@@ -1741,6 +2032,199 @@ impl Server {
         Ok(json!({ "dir": dir.to_string_lossy(), "files": added, "entries": entries }))
     }
 
+    /// `mod.changes`: what a mod made from this workspace could hold: files
+    /// with unsaved edits (packages, `.dat` files) and files saved in place
+    /// since the Studio recorded their base. Each with whether a delta can be
+    /// made (a base exists, or the unsaved edits can be compared with the
+    /// file on disk).
+    fn mod_changes(&mut self) -> Res<J> {
+        let dir = self.dir()?.to_path_buf();
+        let root = crate::twrk::game_root(&dir);
+        let mut out: Vec<J> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (k, ed) in &self.editors {
+            if !ed.is_dirty() {
+                continue;
+            }
+            let path = PathBuf::from(k);
+            seen.insert(key(k));
+            let is_script = ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0;
+            out.push(json!({
+                "path": k, "kind": "upk", "state": "unsaved",
+                "rel": crate::basestore::game_relative(&path),
+                "base": crate::basestore::read(&path).is_some(),
+                "script": is_script,
+            }));
+        }
+        if let Some(ws) = &self.mcts {
+            for (id, doc) in &ws.docs {
+                if !doc.dirty {
+                    continue;
+                }
+                seen.insert(key(&doc.path.to_string_lossy()));
+                out.push(json!({
+                    "path": doc.path.to_string_lossy(), "kind": "mcts", "doc": id, "state": "unsaved",
+                    "rel": crate::basestore::game_relative(&doc.path),
+                    "base": crate::basestore::read(&doc.path).is_some(),
+                    "script": false,
+                }));
+            }
+        }
+        for (file, info) in crate::basestore::all() {
+            let k = key(&file.to_string_lossy());
+            if seen.contains(&k) || !file.exists() || crate::twrk::relative(&root, &file).is_none() {
+                continue;
+            }
+            let lower = file.to_string_lossy().to_ascii_lowercase();
+            out.push(json!({
+                "path": file.to_string_lossy(), "kind": if lower.ends_with(".dat") { "mcts" } else { "upk" },
+                "state": "saved", "rel": crate::basestore::game_relative(&file), "base": true, "script": false,
+                "recorded": info["recorded"],
+            }));
+        }
+        out.sort_by(|a, b| a["rel"].as_str().cmp(&b["rel"].as_str()));
+        Ok(json!({ "files": out }))
+    }
+
+    /// `mod.cook {dir, id, name, version, authors, readme, dependencies, icon,
+    /// items: [{path, kind, doc?, mode: delta|whole}], extras: [{src, dest}]}`:
+    /// write a launcher mod folder (what `tempest mod pack` packages):
+    /// `manifest.toml` (the launcher cooker's format), `README.md`,
+    /// `icon.png`, every item as `deltas/<game path>.tdelta` or
+    /// `files/<game path>` (unsaved edits included, taken from memory), and
+    /// the extra files at their destination inside the mod.
+    fn mod_cook(&mut self, p: &J) -> Res<J> {
+        let dir = PathBuf::from(s(p, "dir")?);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
+        }
+        std::fs::create_dir_all(&dir)?;
+        let esc = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n"));
+        let id = s(p, "id")?.to_string();
+        let mut m = format!("[mod]\nid = {}\nname = {}\nversion = {}\n", esc(&id), esc(&opt_s(p, "name").unwrap_or_else(|| id.clone())), esc(&opt_s(p, "version").unwrap_or_else(|| "1.0.0".into())));
+        if let Some(icon) = opt_s(p, "icon").filter(|i| !i.is_empty()) {
+            std::fs::copy(&icon, dir.join("icon.png"))?;
+            m.push_str("icon = \"icon.png\"\n");
+        }
+        if let Some(readme) = opt_s(p, "readme").filter(|r| !r.trim().is_empty()) {
+            std::fs::write(dir.join("README.md"), readme.trim())?;
+            m.push_str("readme = \"README.md\"\n");
+        }
+        let deps: Vec<String> = p.get("dependencies").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str()).map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
+        if !deps.is_empty() {
+            m.push_str("dependencies = [\n");
+            for d in &deps {
+                m.push_str(&format!("    {},\n", esc(d)));
+            }
+            m.push_str("]\n");
+        }
+        m.push('\n');
+        for a in p.get("authors").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+            let name = a["name"].as_str().unwrap_or("").trim().to_string();
+            if name.is_empty() {
+                continue;
+            }
+            m.push_str(&format!("[[mod.authors]]\nname = {}\n", esc(&name)));
+            if let Some(link) = a["link"].as_str().map(str::trim).filter(|l| !l.is_empty()) {
+                m.push_str(&format!("link = {}\n", esc(link)));
+            }
+            m.push('\n');
+        }
+        std::fs::write(dir.join("manifest.toml"), m)?;
+
+        let db = self.db()?;
+        let mut entries: Vec<J> = Vec::new();
+        let write = |rel: &str, bytes: &[u8], folder: &str| -> Res<String> {
+            let name = if folder == "deltas" { format!("{rel}.tdelta") } else { rel.to_string() };
+            let out = dir.join(folder).join(&name);
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&out, bytes)?;
+            Ok(format!("{folder}/{name}"))
+        };
+        for it in p.get("items").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+            let path = PathBuf::from(it["path"].as_str().unwrap_or_default());
+            let rel = crate::basestore::game_relative(&path);
+            let whole = it["mode"].as_str() == Some("whole");
+            let k = key(&path.to_string_lossy());
+            let label = rel.clone();
+            if it["kind"] == "mcts" {
+                // The marshal as it is now: in memory when edited, else on disk.
+                let (tokens, edited) = match self.mcts.as_ref().and_then(|ws| ws.docs.iter().find(|(_, d)| key(&d.path.to_string_lossy()) == k).map(|(_, d)| (ws.tokens.clone(), d.marshal.clone()))) {
+                    Some(x) => x,
+                    None => {
+                        let tokens = mcts::Tokens::for_dir(path.parent().unwrap_or(Path::new(".")));
+                        let m = mcts::parse_obscured(&std::fs::read(&path)?, &tokens)?;
+                        (tokens, m)
+                    }
+                };
+                if whole {
+                    let f = write(&rel, &mcts::write_obscured(&edited, &tokens), "files")?;
+                    entries.push(json!({ "file": label, "entry": f, "mode": "whole" }));
+                    continue;
+                }
+                let d = match crate::basestore::read(&path) {
+                    Some(digest) => mcts::delta::create(&tokens, mcts::delta::Base::Digest(&digest), &edited, &rel)?,
+                    None => {
+                        let base = mcts::parse_obscured(&std::fs::read(&path)?, &tokens)?;
+                        mcts::delta::create(&tokens, mcts::delta::Base::Marshal(&base), &edited, &rel)?
+                    }
+                };
+                let ops = d.header["tables"].as_array().map(|a| a.iter().map(|t| t["ops"].as_array().map(|o| o.len()).unwrap_or(0)).sum::<usize>()).unwrap_or(0) + d.header["header"].as_object().map(|h| h.len()).unwrap_or(0);
+                if ops == 0 {
+                    entries.push(json!({ "file": label, "mode": "unchanged" }));
+                    continue;
+                }
+                let f = write(&rel, &d.to_bytes(), "deltas")?;
+                entries.push(json!({ "file": label, "entry": f, "mode": "delta", "ops": ops }));
+                continue;
+            }
+            // Packages: the bytes Save would write when edited, else the file.
+            let edited_bytes = match self.editors.get_mut(&k) {
+                Some(ed) if ed.is_dirty() => ed.bytes(),
+                _ => std::fs::read(&path)?,
+            };
+            if whole {
+                let f = write(&rel, &edited_bytes, "files")?;
+                entries.push(json!({ "file": label, "entry": f, "mode": "whole" }));
+                continue;
+            }
+            let edited = Package::parse(&edited_bytes)?;
+            let (d, warnings) = match crate::basestore::read(&path) {
+                Some(digest) => crate::delta::create(db, crate::delta::Base::Digest(&digest), &edited, &rel)?,
+                None => {
+                    let base = PackageFile::open(&path)?.load()?;
+                    crate::delta::create(db, crate::delta::Base::Package(&base), &edited, &rel)?
+                }
+            };
+            if d.ops().is_empty() {
+                entries.push(json!({ "file": label, "mode": "unchanged" }));
+                continue;
+            }
+            let f = write(&rel, &d.to_bytes(), "deltas")?;
+            entries.push(json!({ "file": label, "entry": f, "mode": "delta", "ops": d.ops().len(), "warnings": warnings }));
+        }
+        for x in p.get("extras").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+            let src = PathBuf::from(x["src"].as_str().unwrap_or_default());
+            let dest = x["dest"].as_str().unwrap_or_default().trim_start_matches('/').replace('\\', "/");
+            if dest.is_empty() || dest.contains("..") || dest.starts_with(".tempest") {
+                return Err(format!("bad destination for {}", src.display()).into());
+            }
+            let out = dir.join(&dest);
+            if src.is_dir() {
+                copy_dir(&src, &out)?;
+            } else {
+                if let Some(parent) = out.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&src, &out)?;
+            }
+            entries.push(json!({ "file": dest, "entry": dest, "mode": "extra" }));
+        }
+        Ok(json!({ "dir": dir.to_string_lossy(), "entries": entries }))
+    }
+
     /// The delta of a file on disk against its recorded base: rows for a
     /// marshal, objects for a package (the open editor's unsaved edits are
     /// not part of it; the dialog asks for a save first).
@@ -2389,4 +2873,26 @@ pub fn main() {
     let mut server = Server::new();
     eprintln!("upk serve: ready (pid {})", std::process::id());
     server.run();
+}
+
+/// A copy of a JSON object with one more field.
+fn with_field(meta: &J, key: &str, value: &str) -> J {
+    let mut m = meta.clone();
+    m[key] = J::from(value);
+    m
+}
+
+/// Copy a folder recursively.
+fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for e in std::fs::read_dir(src)? {
+        let e = e?;
+        let to = dst.join(e.file_name());
+        if e.file_type()?.is_dir() {
+            copy_dir(&e.path(), &to)?;
+        } else {
+            std::fs::copy(e.path(), to)?;
+        }
+    }
+    Ok(())
 }

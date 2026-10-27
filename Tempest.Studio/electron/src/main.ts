@@ -2,11 +2,13 @@
 // each, so every window can work on its own game folder), file associations
 // for .upk files. IPC handlers live in their own modules and register
 // themselves when imported.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, session } from "electron";
 import serve from "electron-serve";
+import "./cli.js";
 import "./dialog.js";
 import "./system.js";
 import { handle } from "./ipc/handle.js";
@@ -39,7 +41,9 @@ function upkFilesFromArgs(args: string[], workingDirectory: string): string[] {
 			return [];
 		}
 		const ext = path.extname(filePath).toLowerCase();
-		return (ext === ".upk" || ext === ".u") && fs.existsSync(filePath) ? [filePath] : [];
+		return (ext === ".upk" || ext === ".u" || ext === ".twrk") && fs.existsSync(filePath)
+			? [filePath]
+			: [];
 	});
 }
 
@@ -166,6 +170,19 @@ function createWindow(options: WindowStartup = {}): BrowserWindow {
 
 handle("window:new", (_event, options) => {
 	createWindow(options ?? {});
+});
+
+handle("window:zoom", (event, { factor }) => {
+	event.sender.setZoomFactor(Math.min(2, Math.max(0.6, factor)));
+});
+
+handle("workspace:recovery", (_event, { dir, clear }) => {
+	const key = crypto.createHash("sha1").update(path.resolve(dir).toLowerCase()).digest("hex");
+	const file = path.join(app.getPath("userData"), "recovery", `${key.slice(0, 16)}.twrk`);
+	if (clear) fs.rmSync(file, { force: true });
+	else fs.mkdirSync(path.dirname(file), { recursive: true });
+	const stat = fs.statSync(file, { throwIfNoEntry: false });
+	return { path: file, exists: !!stat, mtime: stat ? stat.mtimeMs : null };
 });
 
 handle("window:startup", (event, { done }) => {

@@ -2,6 +2,7 @@
 	import { Database, Languages } from "@lucide/svelte";
 	import { assembly, versionRaw, versionText } from "$lib/studio/assembly.svelte";
 	import { inField, reveal, step } from "$lib/studio/keys";
+	import { tabs } from "$lib/studio/tabs.svelte";
 	import type { McsDoc, McsHeaderField } from "../../../electron/src/ipc/contract";
 
 	let filter = $state("");
@@ -125,7 +126,10 @@
 					? 'row-selected'
 					: ''}"
 				data-table="{doc.id}|{t.name}"
-				onclick={() => assembly.openTable(doc.id, t.name, [])}
+				onclick={(e) => {
+					if (e.ctrlKey || e.metaKey) tabs.openInNewTab();
+					void assembly.openTable(doc.id, t.name, []);
+				}}
 				title="{t.columns.length} columns"
 			>
 				<span class="truncate font-mono">{t.name.replace(/^DATA_SET_/, "")}</span>

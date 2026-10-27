@@ -3,6 +3,7 @@
 		ChevronLeft,
 		ChevronRight,
 		Copy,
+		CopyPlus,
 		Download,
 		FileCode2,
 		Link2,
@@ -26,6 +27,7 @@
 	import WwisePreview from "$lib/components/WwisePreview.svelte";
 	import { invoke, pickSave } from "$lib/platform/api";
 	import { isScriptExport, previewFor } from "$lib/studio/classes";
+	import { keyLabel } from "$lib/studio/commands.svelte";
 	import { bytes, safeName } from "$lib/studio/format";
 	import { rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
@@ -168,30 +170,6 @@
 {:else}
 	<div class="border-base-300 flex shrink-0 flex-col gap-2 border-b px-3 py-2">
 		<div class="flex items-center gap-2">
-			<div class="join shrink-0">
-				<button
-					class="btn join-item btn-ghost btn-xs"
-					onclick={() => studio.back()}
-					disabled={!studio.canBack}
-					title={studio.historyLabel(-1)
-						? `Back to ${studio.historyLabel(-1)} (Alt+←)`
-						: "Back (Alt+←)"}
-					aria-label="Back"
-				>
-					<ChevronLeft size={14} />
-				</button>
-				<button
-					class="btn join-item btn-ghost btn-xs"
-					onclick={() => studio.forward()}
-					disabled={!studio.canForward}
-					title={studio.historyLabel(1)
-						? `Forward to ${studio.historyLabel(1)} (Alt+→)`
-						: "Forward (Alt+→)"}
-					aria-label="Forward"
-				>
-					<ChevronRight size={14} />
-				</button>
-			</div>
 			<ClassIcon className={row.class} size={18} />
 			<div class="min-w-0 flex-1">
 				<div class="selectable truncate font-mono text-sm font-semibold" title={row.path}>
@@ -241,8 +219,19 @@
 			</button>
 			<button
 				class="btn btn-ghost btn-sm"
+				onclick={() => studio.duplicate()}
+				disabled={placeholder}
+				title="A copy of this object next to it, named …_copy (sub-objects are not copied) ({keyLabel(
+					'Mod+D',
+				)})"
+			>
+				<CopyPlus size={14} /> Duplicate
+			</button>
+			<button
+				class="btn btn-ghost btn-sm"
 				onclick={() => (copyOpen = true)}
 				disabled={placeholder}
+				title="Copy this object into another package"
 			>
 				<Copy size={14} /> Copy to…
 			</button>

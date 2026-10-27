@@ -124,6 +124,28 @@ jobs:
             cp Tempest.UnrealScript/target/release/upk Tempest.Studio/electron/resources/binaries/upk
           fi
 
+      # tempest-cli for the mod cooker (pack, sign, install, publish).
+      - name: Setup .NET 10.0
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Zig
+        uses: marler8997/setup-anyzig@master
+
+      - name: Bundle tempest-cli
+        shell: bash
+        run: |
+          dotnet publish Tempest.CLI -c Release -o cli-publish
+          bin=Tempest.Studio/electron/resources/binaries
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp cli-publish/Tempest.CLI.exe "$bin/tempest-cli.exe"
+          else
+            cp cli-publish/Tempest.CLI "$bin/tempest-cli"
+          fi
+          shopt -s nullglob
+          for lib in cli-publish/*.dylib cli-publish/*.so cli-publish/*.dll; do cp "$lib" "$bin/"; done
+
       - name: Restore Electron / electron-builder downloads
         uses: actions/cache@v4
         with:

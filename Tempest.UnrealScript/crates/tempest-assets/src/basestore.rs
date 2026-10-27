@@ -49,6 +49,19 @@ pub fn read(file: &Path) -> Option<Value> {
     serde_json::from_slice(&std::fs::read(p).ok()?).ok()
 }
 
+/// Every file with a recorded base, with when it was recorded.
+pub fn all() -> Vec<(PathBuf, Value)> {
+    let Some(dir) = cache_dir().map(|c| c.join("base")) else { return Vec::new() };
+    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+    rd.flatten()
+        .filter_map(|e| {
+            let v: Value = serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok()?;
+            let file = PathBuf::from(v["file"].as_str()?);
+            Some((file, json!({ "recorded": v["recorded"], "size": v["size"] })))
+        })
+        .collect()
+}
+
 pub fn remove(file: &Path) -> bool {
     digest_file(file).map(|p| std::fs::remove_file(p).is_ok()).unwrap_or(false)
 }
@@ -64,6 +77,16 @@ fn write(file: &Path, mut digest: Value) -> Result<()> {
     digest["recorded"] = json!(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0));
     std::fs::write(p, serde_json::to_vec(&digest).unwrap_or_default())?;
     Ok(())
+}
+
+/// Put back a digest carried by a portable workspace, unless `file` already
+/// has a record. Returns whether it was written.
+pub fn restore(file: &Path, digest: Value) -> Result<bool> {
+    if read(file).is_some() || !file.exists() {
+        return Ok(false);
+    }
+    write(file, digest)?;
+    Ok(true)
 }
 
 /// Record the package as it is on disk, unless a record exists. Returns

@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { ExternalLink, Table2 } from "@lucide/svelte";
+	import { ExternalLink, Link2, Table2 } from "@lucide/svelte";
 	import { assembly, isMessageColumn, refOf } from "$lib/studio/assembly.svelte";
+	import { tabs } from "$lib/studio/tabs.svelte";
 	import type { McsField } from "../../../electron/src/ipc/contract";
 
 	let editing = $state<string | null>(null);
@@ -10,6 +11,48 @@
 	const fields = $derived(assembly.fields);
 	const index = $derived(assembly.selected);
 	const isLang = $derived(assembly.page?.doc !== "assembly");
+
+	/** The row's own id field (DATA_SET_BOTS → BOT_ID), for "Used by". */
+	const idField = $derived.by(() => {
+		const table = assembly.page?.table;
+		if (!table || !fields) return null;
+		const stem = table.replace(/^DATA_SET_/, "");
+		const candidates = new Set([
+			`${stem}_ID`,
+			stem.endsWith("IES") ? `${stem.slice(0, -3)}Y_ID` : "",
+			stem.endsWith("ES") ? `${stem.slice(0, -2)}_ID` : "",
+			stem.endsWith("S") ? `${stem.slice(0, -1)}_ID` : "",
+		]);
+		return fields.find((f) => candidates.has(f.name) && typeof f.value === "number") ?? null;
+	});
+	let usages = $state<{ path: [string, number][]; field: string; label: string }[] | null>(null);
+	let usagesTruncated = $state(false);
+	let usagesLoading = $state(false);
+	$effect(() => {
+		void index;
+		void assembly.page?.table;
+		usages = null;
+	});
+
+	async function findUsages() {
+		if (!idField || typeof idField.value !== "number") return;
+		usagesLoading = true;
+		try {
+			const r = await assembly.usages(idField.name, idField.value);
+			const own = JSON.stringify(assembly.rowPath(index ?? -1));
+			usages = r.usages.filter((u) => JSON.stringify(u.path) !== own);
+			usagesTruncated = r.truncated;
+		} finally {
+			usagesLoading = false;
+		}
+	}
+
+	function goTo(u: { path: [string, number][] }, newTab: boolean) {
+		const last = u.path.at(-1);
+		if (!last || !assembly.page) return;
+		if (newTab) tabs.openInNewTab();
+		void assembly.openTable(assembly.page.doc, last[0], u.path.slice(0, -1), last[1]);
+	}
 
 	function text(f: McsField): string {
 		if (f.value === null) return "";
@@ -60,6 +103,56 @@
 </div>
 {#if fields && index !== null}
 	<div class="min-h-0 flex-1 overflow-y-auto p-2 text-xs">
+		{#if idField && !isLang}
+			<div class="border-base-300 mb-2 rounded border p-2">
+				<div class="flex items-center gap-2">
+					<Link2 size={12} class="opacity-60" />
+					<span class="font-semibold">Used by</span>
+					<span class="font-mono opacity-60">{idField.name} {idField.value}</span>
+					<span class="flex-1"></span>
+					{#if usages === null}
+						<button
+							class="btn btn-ghost btn-xs"
+							onclick={findUsages}
+							disabled={usagesLoading}
+						>
+							{#if usagesLoading}<span class="loading loading-xs loading-spinner"
+								></span>{/if}
+							Find
+						</button>
+					{:else}
+						<span class="opacity-60"
+							>{usages.length}{usagesTruncated ? "+" : ""} rows</span
+						>
+					{/if}
+				</div>
+				{#if usages && usages.length > 0}
+					<ul class="mt-1 max-h-48 overflow-y-auto">
+						{#each usages as u, k (k)}
+							<li>
+								<button
+									class="hover:bg-base-200 flex w-full items-center gap-2 rounded px-1 py-0.5 text-left font-mono"
+									onclick={(e) => goTo(u, e.ctrlKey || e.metaKey)}
+									onauxclick={(e) => e.button === 1 && goTo(u, true)}
+									title="Go to the row (Ctrl+click: new tab)"
+								>
+									<span class="truncate"
+										>{u.path
+											.map(([t, i]) => `${t.replace(/^DATA_SET_/, "")}[${i}]`)
+											.join(" › ")}</span
+									>
+									<span class="opacity-50">{u.field}</span>
+									{#if u.label}<span class="truncate opacity-60">{u.label}</span
+										>{/if}
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{:else if usages}
+					<p class="mt-1 opacity-60">Nothing in this file refers to it.</p>
+				{/if}
+			</div>
+		{/if}
 		{#each fields as f (f.name)}
 			{@const ref = refOf(f.name)}
 			{@const vv = validValue(f)}

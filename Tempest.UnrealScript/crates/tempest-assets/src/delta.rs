@@ -578,6 +578,19 @@ pub fn apply(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase) -> Resu
     let mut paths = path_index(&ed.pkg);
     let target_layout = ed.layout();
 
+    // Drift is judged against the package as it was before this delta: once
+    // the deletes below run, objects that referred to a deleted one hash
+    // differently even though nobody else changed them.
+    let mut drifted: HashSet<String> = HashSet::new();
+    for op in ops.iter().filter(|o| o.op == "set" && in_phase(&o.class)) {
+        let (Some(base), Some(&t)) = (&op.base, paths.get(&op.path.to_ascii_lowercase())) else { continue };
+        if let Some(h) = canonical(db, &ed.pkg, target_layout, t) {
+            if hex(&h) != *base {
+                drifted.insert(op.path.to_ascii_lowercase());
+            }
+        }
+    }
+
     // Deletes first, so an object deleted and re-created elsewhere does not
     // clash with its old self.
     if phase != Phase::Objects {
@@ -602,12 +615,8 @@ pub fn apply(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase) -> Resu
         let t = match paths.get(&key) {
             Some(&t) => {
                 if in_phase(&op.class) && op.op == "set" {
-                    if let Some(base) = &op.base {
-                        if let Some(h) = canonical(db, &ed.pkg, target_layout, t) {
-                            if hex(&h) != *base {
-                                out.drift.push(op.path.clone());
-                            }
-                        }
+                    if drifted.contains(&key) {
+                        out.drift.push(op.path.clone());
                     }
                     out.replaced += 1;
                 }

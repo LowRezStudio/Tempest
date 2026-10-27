@@ -422,6 +422,19 @@ export type McsDoc = {
 export type McsSummary = { tokens: string; fields: number; docs: McsDoc[] };
 /** A row set address: field names and row indices from the document root. */
 export type McsPath = [string, number][];
+
+/** Linked: deltas against the game folder (small); portable: whole files (opens anywhere). */
+export type TwrkMode = "linked" | "portable";
+export type TwrkFile = {
+	kind: "upk" | "mcts";
+	path: string;
+	rel: string | null;
+	stored: "delta" | "full";
+	entry: string;
+	bytes: number;
+	doc?: string;
+	unchanged?: boolean;
+};
 export type McsRowsPage = {
 	total: number;
 	offset: number;
@@ -528,13 +541,27 @@ export interface UpkMethods {
 	"package.discard": { params: { path: string }; result: boolean };
 	"object.get": { params: Target; result: ParsedObject };
 	"object.text": { params: Target; result: string };
-	"object.set": { params: Target & { prop: string; value: string }; result: ParsedObject };
+	"object.set": {
+		params: Target & { prop: string; value: string };
+		result: ParsedObject;
+	};
+	/** Add / duplicate / remove an array element, or reset a property to its class default. */
+	"object.list": {
+		params: Target & {
+			prop: string;
+			op: "add" | "duplicate" | "remove" | "removeProperty";
+			at?: number;
+		};
+		result: ParsedObject;
+	};
 	"object.rename": { params: Target & { name: string }; result: ExportRow };
 	"object.delete": { params: { path: string; indices: number[] }; result: { cleared: number } };
 	"object.copy": {
 		params: { src: string; index: number; dst: string; outer?: number | "top"; deep?: boolean };
 		result: { index: number; path: string; warnings: string[] };
 	};
+	/** A copy of an export next to it (`…_copy`), same payload, no sub-objects. */
+	"object.duplicate": { params: Target; result: { index: number; path: string } };
 	"object.deps": { params: Target; result: Deps };
 	"object.extract": { params: Target & { out: string }; result: { out: string; bytes: number } };
 	"texture.info": { params: Target; result: TextureInfo };
@@ -644,6 +671,33 @@ export interface UpkMethods {
 	"mcts.insert": {
 		params: { doc: string; path?: McsPath; table: string; index?: number; clone?: number };
 		result: McsStatus & { index: number };
+	};
+	/**
+	 * Append a row at the end of a row set: empty (the last row's shape) or a copy of `clone`;
+	 * the set's id column gets a fresh id, nested sets are renumbered and, with `messages`
+	 * (default true), the copy's `*_MSG_ID`s get new messages with the same texts.
+	 */
+	"mcts.addRow": {
+		params: {
+			doc: string;
+			path?: McsPath;
+			table: string;
+			clone?: number;
+			/** A row as JSON (paste): used instead of `clone`. */
+			row?: Record<string, unknown>;
+			messages?: boolean;
+		};
+		result: McsStatus & {
+			index: number;
+			key: string | null;
+			id: number | null;
+			messages: { field: string; from: number; to: number }[];
+		};
+	};
+	/** Rows that refer to an id (same id family: BOT_ID, REF_BOT_ID…), at most 500. */
+	"mcts.usages": {
+		params: { doc?: string; field: string; value: number };
+		result: { usages: { path: McsPath; field: string; label: string }[]; truncated: boolean };
 	};
 	"mcts.delete": { params: { doc: string; path: McsPath }; result: McsStatus };
 	"mcts.undo": { params: { doc: string }; result: McsStatus & { undone: string | null } };
@@ -816,6 +870,81 @@ export interface UpkMethods {
 			dirty: boolean;
 		};
 	};
+	/** Write the session's unsaved packages and marshal files to a workspace file. */
+	"twrk.save": {
+		params: { out: string; mode: TwrkMode; state: unknown; include?: string[] };
+		result: {
+			out: string;
+			mode: TwrkMode;
+			files: TwrkFile[];
+			size: number;
+			warnings: string[];
+		};
+	};
+	/** A workspace file's manifest, without applying it. */
+	"twrk.read": {
+		params: { path: string };
+		result: {
+			format: number;
+			mode: TwrkMode;
+			gameDir: string;
+			saved: number;
+			files: TwrkFile[];
+			state: unknown;
+		};
+	};
+	/** Put a workspace file's changes into the open workspace (all unsaved afterwards). */
+	"twrk.apply": {
+		params: { path: string };
+		result: {
+			packages: { path: string; stored: "delta" | "full"; changes: number; dirty: boolean }[];
+			docs: string[];
+			extras: string[];
+			problems: string[];
+			state: unknown;
+			mode: TwrkMode;
+		};
+	};
+	/** What a mod made from this workspace could hold (unsaved edits, files saved since their base). */
+	"mod.changes": {
+		params: Record<string, never>;
+		result: {
+			files: {
+				path: string;
+				kind: "upk" | "mcts";
+				doc?: string;
+				state: "unsaved" | "saved";
+				rel: string;
+				base: boolean;
+				script: boolean;
+			}[];
+		};
+	};
+	/** Write a launcher mod folder (manifest, README, icon, deltas/files, extra files). */
+	"mod.cook": {
+		params: {
+			dir: string;
+			id: string;
+			name: string;
+			version: string;
+			authors: { name: string; link: string }[];
+			readme?: string;
+			dependencies?: string[];
+			icon?: string;
+			items: { path: string; kind: "upk" | "mcts"; doc?: string; mode: "delta" | "whole" }[];
+			extras: { src: string; dest: string }[];
+		};
+		result: {
+			dir: string;
+			entries: {
+				file: string;
+				entry?: string;
+				mode: "delta" | "whole" | "unchanged" | "extra";
+				ops?: number;
+				warnings?: string[];
+			}[];
+		};
+	};
 	"batch.plan": { params: { dir: string; recursive?: boolean }; result: BatchResult };
 	"batch.run": {
 		/** `packages`: the package files (paths from the plan) to write; every touched one when absent. */
@@ -938,6 +1067,30 @@ export interface IpcContract {
 	"window:new": { args: WindowStartup; result: void };
 	/** What this window was asked to open when it was created; `done` clears it once applied. */
 	"window:startup": { args: { done?: boolean }; result: WindowStartup | null };
+
+	/**
+	 * The crash-recovery workspace file of a game folder (`<userData>/recovery/<hash>.twrk`):
+	 * its path and, when it exists, its modification time; `clear` deletes it.
+	 */
+	"workspace:recovery": {
+		args: { dir: string; clear?: boolean };
+		result: { path: string; exists: boolean; mtime: number | null };
+	};
+
+	/** tempest-cli for the mod cooker: where it is and whether a signing key exists. */
+	"cli:status": {
+		args: Record<string, never>;
+		result: { path: string | null; available: boolean; signingKey: string; hasKey: boolean };
+	};
+	/** Run `tempest-cli mod <args>` (pack, sign, verify, install, publish, login, gen-key…). */
+	"cli:mod": {
+		args: { args: string[] };
+		result: { code: number; stdout: string; stderr: string };
+	};
+	/** A fresh staging folder path for a cooked mod. */
+	"cli:staging": { args: { id: string }; result: string };
+	/** Zoom the window's content (UI scale), 0.6–2. */
+	"window:zoom": { args: { factor: number }; result: void };
 
 	"dialog:open": { args: OpenDialogOptions; result: string[] | null };
 	"dialog:save": { args: SaveDialogOptions; result: string | null };

@@ -402,6 +402,230 @@ impl Workspace {
         Ok(json!({ "botId": new_bot, "messages": msgs, "bot": [["DATA_SET_BOTS", bat]], "devices": devices, "items": items, "vendor": vendor }))
     }
 
+    /// A fresh value for the id column `key` of `doc`: one past the largest
+    /// value of that field anywhere in the file (items, devices and skins
+    /// share one id space), within the id range when one is set.
+    fn fresh_id(&self, doc: &str, key: u16) -> Result<u64> {
+        fn walk(row: &Row, keys: &[u16], best: &mut u64, counts: &dyn Fn(u64) -> bool) {
+            for (t, v) in &row.entries {
+                match v {
+                    Value::Num(n) if keys.contains(t) && counts(*n) => *best = (*best).max(*n),
+                    Value::Rows(rows) => rows.iter().for_each(|r| walk(r, keys, best, counts)),
+                    _ => {}
+                }
+            }
+        }
+        let shared: Vec<u16> = ["ITEM_ID", "DEVICE_ID", "SKIN_ID"].iter().filter_map(|n| self.tokens.token(n)).collect();
+        let keys = if shared.contains(&key) { shared } else { vec![key] };
+        let mut best = 0;
+        walk(&self.doc(doc)?.marshal.root, &keys, &mut best, &|n| self.counts(n));
+        self.after(best)
+    }
+
+    /// The id column of a row set, from its name: `DATA_SET_DEVICE_MODES`
+    /// → `DEVICE_MODE_ID`, `DATA_SET_ITEMS` → `ITEM_ID`,
+    /// `DATA_SET_ITEM_CHILDREN` → none. Only a field present in every row
+    /// with distinct values counts. Sets like `DATA_SET_BOT_DEVICES` have no
+    /// own id (their `*_ID` fields point elsewhere) and get none.
+    fn named_key(&self, set: u16, rows: &[Row]) -> Option<u16> {
+        let name = self.tokens.name(set);
+        let stem = name.strip_prefix("DATA_SET_")?;
+        let mut candidates = vec![format!("{stem}_ID")];
+        if let Some(s) = stem.strip_suffix("IES") {
+            candidates.push(format!("{s}Y_ID"));
+        }
+        if let Some(s) = stem.strip_suffix("ES") {
+            candidates.push(format!("{s}_ID"));
+        }
+        if let Some(s) = stem.strip_suffix('S') {
+            candidates.push(format!("{s}_ID"));
+        }
+        for c in candidates {
+            let Some(t) = self.tokens.token(&c) else { continue };
+            let mut seen = std::collections::HashSet::new();
+            if !rows.is_empty() && rows.iter().all(|r| r.num(t).is_some_and(|n| seen.insert(n))) {
+                return Some(t);
+            }
+        }
+        None
+    }
+
+    fn shared_ids(&self) -> Vec<u16> {
+        ["ITEM_ID", "DEVICE_ID", "SKIN_ID"].iter().filter_map(|n| self.tokens.token(n)).collect()
+    }
+
+    /// Apply id rewrites `(field, old, new)` to a copied row and give its
+    /// nested row sets fresh ids of their own: a field naming an old id gets
+    /// the new one (items, devices and skins count as one id space).
+    fn renumber(&self, doc: &str, row: &mut Row, rewrites: &[(u16, u64, u64)], next: &mut HashMap<u16, u64>) -> Result<()> {
+        let shared = self.shared_ids();
+        let hit = |t: u16, n: u64| -> Option<u64> {
+            rewrites.iter().find(|(k, old, _)| *old == n && (*k == t || (shared.contains(k) && shared.contains(&t)))).map(|(_, _, new)| *new)
+        };
+        for (t, v) in row.entries.iter_mut() {
+            match v {
+                Value::Num(n) => {
+                    if let Some(new) = hit(*t, *n) {
+                        *n = new;
+                    }
+                }
+                Value::Rows(rows) => {
+                    let key = self.named_key(*t, rows).filter(|k| !rewrites.iter().any(|(r, _, _)| r == k));
+                    for r in rows.iter_mut() {
+                        let mut rw = rewrites.to_vec();
+                        if let Some(k) = key {
+                            if let Some(old) = r.num(k) {
+                                let id = match next.get(&k) {
+                                    Some(&n) => n,
+                                    None => self.fresh_id(doc, k)?,
+                                };
+                                next.insert(k, id + 1);
+                                Self::set_num(r, k, id);
+                                rw.push((k, old, id));
+                            }
+                        }
+                        self.renumber(doc, r, &rw, next)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// `mcts.addRow {doc, path, table, clone?, messages?}`: append a row at
+    /// the end of a row set, never in the middle. Without `clone` the row
+    /// has the shape of the set's last row with every value empty; with it,
+    /// it is a copy of that row. Either way the set's id column gets a fresh
+    /// id, nested row sets are renumbered, and with `messages` (default
+    /// true) every `*_MSG_ID` of the copy gets a new message with the same
+    /// text in every language.
+    pub fn append_row(&mut self, p: &J) -> Result<J> {
+        let doc = p.get("doc").and_then(|v| v.as_str()).unwrap_or("assembly").to_string();
+        let path = self.path(p.get("path"))?;
+        let table = self.t(p.get("table").and_then(|v| v.as_str()).ok_or_else(|| Error::Format("missing table".into()))?)?;
+        let clone = p.get("clone").and_then(|v| v.as_u64()).map(|v| v as usize);
+        let copy_messages = p.get("messages").and_then(|v| v.as_bool()).unwrap_or(true);
+        let rows: Vec<Row> = self.doc(&doc)?.row_at(&path)?.rows(table).cloned().ok_or_else(|| Error::Format("this row has no such row set".into()))?;
+        let key = self.named_key(table, &rows).or_else(|| if path.is_empty() { super::delta::key_column(&self.tokens, &rows) } else { None });
+        let pasted = match p.get("row") {
+            Some(j) if j.is_object() => Some(super::row_from_json(&self.tokens, j)?),
+            _ => None,
+        };
+        let clone = if pasted.is_some() { Some(usize::MAX) } else { clone };
+        let mut row = match (pasted, clone) {
+            (Some(r), _) => r,
+            (None, Some(i)) => rows.get(i).cloned().ok_or_else(|| Error::Format(format!("row {i} is out of range")))?,
+            (None, None) => {
+                let mut r = rows.last().cloned().unwrap_or_default();
+                for (_, v) in r.entries.iter_mut() {
+                    *v = match v {
+                        Value::Num(_) => Value::Num(0),
+                        Value::Str(_) => Value::Str(String::new()),
+                        Value::Rows(_) => Value::Rows(Vec::new()),
+                        Value::Guid(_) => Value::Guid([0; 16]),
+                        Value::Blob(_) => Value::Blob(Vec::new()),
+                    };
+                }
+                r
+            }
+        };
+        let mut new_id = None;
+        let mut next: HashMap<u16, u64> = HashMap::new();
+        if let Some(k) = key {
+            let old = row.num(k).unwrap_or(0);
+            let id = self.fresh_id(&doc, k)?;
+            Self::set_num(&mut row, k, id);
+            new_id = Some(id);
+            if clone.is_some() {
+                self.renumber(&doc, &mut row, &[(k, old, id)], &mut next)?;
+            }
+        }
+        // Messages of the copy.
+        let mut messages = Vec::new();
+        if copy_messages && clone.is_some() && doc == "assembly" {
+            let msg_fields: Vec<(u16, u64)> = row
+                .entries
+                .iter()
+                .filter(|(t, _)| self.tokens.name(*t).ends_with("_MSG_ID"))
+                .filter_map(|(t, v)| match v {
+                    Value::Num(n) if *n > 0 && *n < 1_000_000_000 => Some((*t, *n)),
+                    _ => None,
+                })
+                .collect();
+            if !msg_fields.is_empty() {
+                let mut next_msg = self.next_ids()?.msg;
+                for (field, old) in msg_fields {
+                    let found = self.messages(&json!({ "ids": [old] }))?;
+                    let Some(per_lang) = found.get(old.to_string()).and_then(|v| v.as_object()).cloned() else { continue };
+                    let mut texts = HashMap::new();
+                    let mut name = String::new();
+                    for (lang, m) in &per_lang {
+                        texts.insert(lang.clone(), m["text"].as_str().unwrap_or("").to_string());
+                        if name.is_empty() {
+                            name = m["name"].as_str().unwrap_or("").to_string();
+                        }
+                    }
+                    let id = next_msg;
+                    next_msg += 1;
+                    self.new_message(id, &name, &texts)?;
+                    Self::set_num(&mut row, field, id);
+                    messages.push(json!({ "field": self.tokens.name(field), "from": old, "to": id }));
+                }
+            }
+        }
+        let tokens = self.tokens.clone();
+        let at = self.doc_mut(&doc)?.insert_row(&tokens, &path, table, row)?;
+        let mut out = self.status(&doc)?;
+        out["index"] = json!(at);
+        out["key"] = json!(key.map(|k| self.tokens.name(k)));
+        out["id"] = json!(new_id);
+        out["messages"] = json!(messages);
+        Ok(out)
+    }
+
+    /// `mcts.usages {doc, field, value}`: the rows that refer to an id: every
+    /// field of the same id family (`BOT_ID`, `REF_BOT_ID`, `SPAWN_BOT_ID`…;
+    /// items, devices and skins count as one family) holding `value`, with the
+    /// path of the row and a readable label. At most 500.
+    pub fn usages(&self, p: &J) -> Result<J> {
+        let doc = p.get("doc").and_then(|v| v.as_str()).unwrap_or("assembly");
+        let field = p.get("field").and_then(|v| v.as_str()).ok_or_else(|| Error::Format("missing field".into()))?.to_string();
+        let value = p.get("value").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("missing value".into()))?;
+        let shared = ["ITEM_ID", "DEVICE_ID", "SKIN_ID"];
+        let family: Vec<String> = if shared.contains(&field.as_str()) { shared.iter().map(|s| s.to_string()).collect() } else { vec![field.clone()] };
+        let matches = |name: &str| family.iter().any(|f| name == f || name.ends_with(&format!("_{f}")));
+        let label_fields: Vec<u16> = ["REFERENCE_NAME", "NAME", "DESCRIPTION"].iter().filter_map(|n| self.tokens.token(n)).collect();
+        let mut out: Vec<J> = Vec::new();
+        #[allow(clippy::too_many_arguments)]
+        fn walk(ws: &Workspace, row: &Row, path: &mut Vec<(String, usize)>, value: u64, matches: &dyn Fn(&str) -> bool, labels: &[u16], out: &mut Vec<J>) {
+            if out.len() >= 500 {
+                return;
+            }
+            for (t, v) in &row.entries {
+                match v {
+                    Value::Num(n) if *n == value && !path.is_empty() => {
+                        let name = ws.tokens.name(*t);
+                        if matches(&name) {
+                            let label = labels.iter().find_map(|l| row.str(*l)).unwrap_or("");
+                            out.push(json!({ "path": path.iter().map(|(t, i)| json!([t, i])).collect::<Vec<_>>(), "field": name, "label": label }));
+                        }
+                    }
+                    Value::Rows(rows) => {
+                        for (i, r) in rows.iter().enumerate() {
+                            path.push((ws.tokens.name(*t).to_string(), i));
+                            walk(ws, r, path, value, matches, labels, out);
+                            path.pop();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        walk(self, &self.doc(doc)?.marshal.root, &mut Vec::new(), value, &matches, &label_fields, &mut out);
+        Ok(json!({ "usages": out, "truncated": out.len() >= 500 }))
+    }
+
     /// Add `item` to loot table `table` (`DATA_SET_LOOT_TABLE_ITEMS`), as a
     /// copy of `like`'s entry when that item is in the table (else of the
     /// last entry), active, with a fresh LOOT_TABLE_ITEM_ID and the next

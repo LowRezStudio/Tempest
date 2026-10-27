@@ -101,7 +101,7 @@ impl<'a> Editor<'a> {
         self.current = Some(UndoEntry { label: label.into(), snapshots: Vec::new(), lens: (self.pkg.exports.len(), self.pkg.imports.len(), self.pkg.names.len()), full: None, summary: self.pkg.summary.clone(), saved: false });
     }
 
-    fn end_undo(&mut self) {
+    pub fn end_undo(&mut self) {
         if let Some(e) = self.current.take() {
             if !e.is_empty(&self.pkg) {
                 self.undo.push(e);
@@ -431,6 +431,26 @@ impl<'a> Editor<'a> {
     }
 
     /// Append an export (recorded for undo by truncation). Returns its index.
+    /// A copy of export `i` next to it, named `<name>_copy` (or `_copy2`…):
+    /// same class, outer, archetype and flags, the same serialized payload
+    /// (references keep pointing where the original's do). Sub-objects are
+    /// not copied. Returns the new export's index.
+    pub fn duplicate(&mut self, i: usize) -> Result<usize> {
+        self.flush();
+        let src = self.pkg.exports.get(i).cloned().ok_or_else(|| Error::Format(format!("no export {i}")))?;
+        let base = self.pkg.object_name(PackageIndex::export(i));
+        let taken = |ed: &Self, n: &str| (0..ed.pkg.exports.len()).any(|j| ed.pkg.exports[j].outer == src.outer && ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(n));
+        let mut name = format!("{base}_copy");
+        let mut k = 2;
+        while taken(self, &name) {
+            name = format!("{base}_copy{k}");
+            k += 1;
+        }
+        let data = self.pkg.export_data.get(i).cloned().unwrap_or_default();
+        let export = ObjectExport { object_name: self.pkg.intern_fname(&name), ..src };
+        Ok(self.add_export(export, data))
+    }
+
     pub fn add_export(&mut self, export: ObjectExport, data: Vec<u8>) -> usize {
         let idx = self.pkg.add_export(export, data);
         let i = idx.export_index().unwrap();
@@ -650,6 +670,15 @@ impl<'a> Editor<'a> {
         self.replace_object(i, obj)
     }
 
+    /// Add, duplicate or remove an array element, or remove a property (back
+    /// to its class default), at a property path (`Arr`, `S.Arr`, `Arr[2]`).
+    pub fn edit_list(&mut self, i: usize, path: &str, op: ListOp) -> Result<()> {
+        let segs = parse_path(path)?;
+        let mut obj = self.object(i)?.clone();
+        edit_props(&self.pkg, &mut obj.properties, &segs, op)?;
+        self.replace_object(i, obj)
+    }
+
     // ----- save -------------------------------------------------------------
 
     /// Serialise every touched object into the package's export data (they
@@ -673,6 +702,12 @@ impl<'a> Editor<'a> {
         self.dirty.clear();
         self.rebuilt = false;
         Ok(())
+    }
+
+    /// The bytes Save would write, without saving: the package stays dirty.
+    pub fn bytes(&mut self) -> Vec<u8> {
+        self.flush();
+        self.pkg.to_bytes(&WriteOptions { compress: self.was_compressed, obscure: self.obscured })
     }
 
     /// The package was saved to its own file: everything journaled so far is
@@ -895,6 +930,66 @@ fn set_in_list(db: &ClassDb, pkg: &mut Package, props: &mut Vec<Property>, scope
             let it = items.get_mut(ix).ok_or_else(|| Error::Format(format!("array has {len} elements")))?;
             match it {
                 Value::Struct(StructValue::Tagged(ps)) => set_in_list(db, pkg, ps, elem_scope, &segs[1..], text),
+                _ => Err(Error::Format("element is not a struct".into())),
+            }
+        }
+        _ => Err(Error::Format(format!("{} is not a struct or array", seg.name))),
+    }
+}
+
+/// Structural edits of a property list (see `Editor::edit_list`).
+#[derive(Clone, Copy, Debug)]
+pub enum ListOp {
+    /// Append a copy of the array's last element.
+    Add,
+    /// Insert a copy of element `n` after it.
+    Duplicate(usize),
+    /// Remove element `n`.
+    Remove(usize),
+    /// Remove the property itself: the object falls back to the class default.
+    RemoveProperty,
+}
+
+fn edit_props(pkg: &Package, props: &mut Vec<Property>, segs: &[Segment], op: ListOp) -> Result<()> {
+    let seg = &segs[0];
+    let pos = props
+        .iter()
+        .position(|p| pkg.fname_to_string(p.name).eq_ignore_ascii_case(&seg.name) && (seg.index.is_none() || p.kind == PropertyKind::Array || p.array_index as usize == seg.index.unwrap_or(0)))
+        .ok_or_else(|| Error::Format(format!("no property {} (it has its class default)", seg.name)))?;
+    let last = segs.len() == 1;
+    if last {
+        if let ListOp::RemoveProperty = op {
+            props.remove(pos);
+            return Ok(());
+        }
+        let Value::Array(items) = &mut props[pos].value else {
+            return Err(Error::Format(format!("{} is not an array", seg.name)));
+        };
+        match op {
+            ListOp::Add => {
+                let v = items.last().cloned().ok_or_else(|| Error::Format("the array is empty: set element [0] first".into()))?;
+                items.push(v);
+            }
+            ListOp::Duplicate(n) => {
+                let v = items.get(n).cloned().ok_or_else(|| Error::Format(format!("no element {n}")))?;
+                items.insert(n + 1, v);
+            }
+            ListOp::Remove(n) => {
+                if n >= items.len() {
+                    return Err(Error::Format(format!("no element {n}")));
+                }
+                items.remove(n);
+            }
+            ListOp::RemoveProperty => unreachable!(),
+        }
+        return Ok(());
+    }
+    match &mut props[pos].value {
+        Value::Struct(StructValue::Tagged(ps)) => edit_props(pkg, ps, &segs[1..], op),
+        Value::Array(items) => {
+            let ix = seg.index.ok_or_else(|| Error::Format("give an element index".into()))?;
+            match items.get_mut(ix) {
+                Some(Value::Struct(StructValue::Tagged(ps))) => edit_props(pkg, ps, &segs[1..], op),
                 _ => Err(Error::Format("element is not a struct".into())),
             }
         }

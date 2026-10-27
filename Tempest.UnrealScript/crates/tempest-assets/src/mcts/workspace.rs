@@ -194,7 +194,7 @@ impl Workspace {
         Ok(full_row(&self.tokens, doc.row_at(&path)?))
     }
 
-    fn status(&self, id: &str) -> Result<J> {
+    pub(crate) fn status(&self, id: &str) -> Result<J> {
         let doc = self.doc(id)?;
         Ok(json!({ "doc": id, "dirty": doc.dirty, "undo": doc.undo_labels() }))
     }

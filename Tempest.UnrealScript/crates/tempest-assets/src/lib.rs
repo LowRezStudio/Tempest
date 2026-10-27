@@ -41,6 +41,7 @@ pub mod serve;
 pub mod texcache;
 pub mod texture;
 pub mod texture_ops;
+pub mod twrk;
 pub mod value;
 pub mod verify;
 pub mod visit;

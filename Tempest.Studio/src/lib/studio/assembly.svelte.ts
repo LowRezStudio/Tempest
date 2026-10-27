@@ -3,6 +3,7 @@
 // table and page on screen, the selected row, and the reference rules that
 // turn `*_ID` columns into links.
 import { invoke } from "$lib/platform/api";
+import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
 import { studio } from "./state.svelte";
 import { toasts } from "./toast.svelte";
@@ -85,8 +86,6 @@ export type Page = {
 	rows: [number, Record<string, McsCell>][];
 };
 
-type Place = { doc: string; path: McsPath; table: string; index: number | null };
-
 const LIMIT = 200;
 
 class Assembly {
@@ -103,10 +102,6 @@ class Assembly {
 	/** Message texts by id and language, filled on demand. */
 	messages = $state<Record<string, Record<string, McsMessage>>>({});
 	validValues = $state<Record<string, McsValidValue> | null>(null);
-	/** Back/forward over the places visited (table + row). */
-	history = $state<Place[]>([]);
-	historyPos = $state(-1);
-	private navigating = false;
 	private requestId = 0;
 
 	docs = $derived<McsDoc[]>(this.summary?.docs ?? []);
@@ -119,8 +114,31 @@ class Assembly {
 	isDirty = $derived(this.doc?.dirty ?? false);
 	undoLabels = $derived(this.doc?.undo ?? []);
 	languages = $derived(this.docs.filter((d) => d.id !== "assembly").map((d) => d.id));
-	canBack = $derived(this.historyPos > 0);
-	canForward = $derived(this.historyPos < this.history.length - 1);
+
+	/** The game folder opening the files belong to; a new one starts over. */
+	private epoch = 0;
+
+	constructor() {
+		$effect.root(() => {
+			$effect(() => {
+				const epoch = studio.workspaceEpoch;
+				if (epoch !== this.epoch) {
+					this.epoch = epoch;
+					this.reset();
+				}
+			});
+		});
+	}
+
+	/** Forget the files of the previous game folder (the backend dropped them too). */
+	reset(): void {
+		this.summary = null;
+		this.page = null;
+		this.selected = null;
+		this.fields = null;
+		this.messages = {};
+		this.validValues = null;
+	}
 
 	/** Tell the backend which id range new content takes its ids from (the user's setting). */
 	async applyIdRange(): Promise<void> {
@@ -143,8 +161,6 @@ class Assembly {
 			this.fields = null;
 			this.messages = {};
 			this.validValues = null;
-			this.history = [];
-			this.historyPos = -1;
 			const first = this.summary.docs[0];
 			if (first?.tables[0]) await this.openTable(first.id, first.tables[0].name, []);
 			return true;
@@ -181,6 +197,7 @@ class Assembly {
 	): Promise<void> {
 		// Proxied state does not survive the IPC's structured clone.
 		const path = $state.snapshot(statePath) as McsPath;
+		this.marked = [];
 		if (!keepFilter) {
 			this.filter = "";
 			this.sort = "";
@@ -386,23 +403,162 @@ class Assembly {
 	}
 
 	/** Add a row after the selected one (a copy of it), or at the end. */
-	async insertRow(clone: number | null): Promise<void> {
+	/**
+	 * Append a row at the end of the open row set: empty, or a copy of row `clone` with a fresh
+	 * id and (with `messages`) its own copies of the name/description messages.
+	 */
+	async addRow(clone: number | null, messages = true): Promise<void> {
 		const p = this.page;
 		if (!p) return;
 		try {
-			const r = await rpc("mcts.insert", {
+			const path = $state.snapshot(p.path) as McsPath;
+			const r = await rpc("mcts.addRow", {
 				doc: p.doc,
-				path: $state.snapshot(p.path) as McsPath,
+				path,
 				table: p.table,
-				index: clone === null ? undefined : clone + 1,
 				clone: clone ?? undefined,
+				messages,
 			});
 			await this.refreshDoc(p.doc);
-			await this.reload();
-			await this.select(r.index);
+			await this.openTable(p.doc, p.table, path, r.index);
+			const what = clone === null ? "New row" : `Copy of row ${clone}`;
+			const id = r.key && r.id !== null ? ` with ${r.key} ${r.id}` : "";
+			const msgs = r.messages.length > 0 ? `, ${r.messages.length} messages copied` : "";
+			toasts.push("success", `${what} added at the end${id}${msgs}`, "Row added");
 		} catch (error) {
 			toasts.error(error, "Could not add the row");
 		}
+	}
+
+	// ----- several rows ------------------------------------------------------
+
+	/** Rows marked with Ctrl/Shift+click on the open page (besides the selected one). */
+	marked = $state<number[]>([]);
+
+	/** The rows an action applies to: the marked ones, else the selected one. */
+	targets(): number[] {
+		if (this.marked.length > 0) return [...this.marked].sort((a, b) => a - b);
+		return this.selected === null ? [] : [this.selected];
+	}
+
+	/** Set one field on several rows (one request each, one refresh). */
+	async setMany(indices: number[], field: string, text: string): Promise<void> {
+		const p = this.page;
+		if (!p || indices.length === 0) return;
+		let done = 0;
+		for (const index of indices) {
+			try {
+				await rpc("mcts.set", { doc: p.doc, path: this.rowPath(index), field, text });
+				done++;
+			} catch (error) {
+				toasts.error(error, `Could not set ${field} on row ${index}`);
+				break;
+			}
+		}
+		await this.refreshDoc(p.doc);
+		await this.reload();
+		if (this.selected !== null) await this.select(this.selected);
+		if (done > 1) toasts.push("success", `${field} set on ${done} rows`, "Rows updated");
+	}
+
+	/** The full JSON of rows, for the clipboard (pasted back with `pasteRows`). */
+	async copyRows(indices: number[]): Promise<number> {
+		const p = this.page;
+		if (!p || indices.length === 0) return 0;
+		const rows: unknown[] = [];
+		for (const index of indices) {
+			rows.push(await rpc("mcts.rowFull", { doc: p.doc, path: this.rowPath(index) }));
+		}
+		await navigator.clipboard.writeText(
+			JSON.stringify({ tempestRows: p.table, rows }, null, 1),
+		);
+		return rows.length;
+	}
+
+	/** Visible cells of rows as tab-separated text (spreadsheets). */
+	async copyTsv(indices: number[], columns: string[]): Promise<void> {
+		const p = this.page;
+		if (!p) return;
+		const cell = (v: McsCell | undefined) =>
+			v === undefined || v === null
+				? ""
+				: typeof v === "object"
+					? `${v.rows} rows`
+					: String(v);
+		const lines = [columns.join("\t")];
+		for (const [i, cells] of p.rows) {
+			if (indices.includes(i)) lines.push(columns.map((c) => cell(cells[c])).join("\t"));
+		}
+		await navigator.clipboard.writeText(lines.join("\n"));
+	}
+
+	/**
+	 * Paste rows copied with `copyRows`: each is appended with a fresh id (nested sets
+	 * renumbered, messages copied). Returns false when the clipboard holds no rows.
+	 */
+	async pasteRows(text: string): Promise<boolean> {
+		const p = this.page;
+		if (!p) return false;
+		let data: { tempestRows?: string; rows?: Record<string, unknown>[] };
+		try {
+			data = JSON.parse(text) as typeof data;
+		} catch {
+			return false;
+		}
+		if (!data.tempestRows || !Array.isArray(data.rows)) return false;
+		if (data.tempestRows !== p.table) {
+			toasts.push(
+				"warning",
+				`The clipboard holds ${data.tempestRows} rows; open that table to paste them.`,
+				"Paste",
+			);
+			return true;
+		}
+		const path = $state.snapshot(p.path) as McsPath;
+		let last = -1;
+		for (const row of data.rows) {
+			try {
+				const r = await rpc("mcts.addRow", { doc: p.doc, path, table: p.table, row });
+				last = r.index;
+			} catch (error) {
+				toasts.error(error, "Could not paste a row");
+				break;
+			}
+		}
+		await this.refreshDoc(p.doc);
+		if (last >= 0) {
+			await this.openTable(p.doc, p.table, path, last, true);
+			toasts.push(
+				"success",
+				`${data.rows.length} row(s) pasted at the end with fresh ids`,
+				"Paste",
+			);
+		}
+		return true;
+	}
+
+	/** Delete several rows (highest index first, so the others keep theirs). */
+	async deleteRows(indices: number[]): Promise<void> {
+		const p = this.page;
+		if (!p || indices.length === 0) return;
+		for (const index of [...indices].sort((a, b) => b - a)) {
+			try {
+				await rpc("mcts.delete", { doc: p.doc, path: this.rowPath(index) });
+			} catch (error) {
+				toasts.error(error, `Could not delete row ${index}`);
+				break;
+			}
+		}
+		this.marked = [];
+		this.selected = null;
+		this.fields = null;
+		await this.refreshDoc(p.doc);
+		await this.reload();
+	}
+
+	/** Rows of the open document that refer to `value` as a `field` id. */
+	usages(field: string, value: number) {
+		return rpc("mcts.usages", { doc: this.page?.doc ?? "assembly", field, value });
 	}
 
 	async deleteRow(index: number): Promise<void> {
@@ -502,40 +658,25 @@ class Assembly {
 
 	// ----- history ------------------------------------------------------------
 
-	private record(place: Place): void {
-		if (this.navigating) return;
-		const last = this.history[this.historyPos];
-		if (
-			last &&
-			last.doc === place.doc &&
-			last.table === place.table &&
-			last.index === place.index &&
-			JSON.stringify(last.path) === JSON.stringify(place.path)
-		) {
-			return;
-		}
-		this.history = [...this.history.slice(0, this.historyPos + 1), place].slice(-100);
-		this.historyPos = this.history.length - 1;
+	private record(place: {
+		doc: string;
+		path: McsPath;
+		table: string;
+		index: number | null;
+	}): void {
+		nav.record({ kind: "assembly", ...place, path: $state.snapshot(place.path) as McsPath });
 	}
 
-	private async goTo(pos: number): Promise<void> {
-		const place = this.history[pos];
-		if (!place) return;
-		this.historyPos = pos;
-		this.navigating = true;
-		try {
-			await this.openTable(place.doc, place.table, place.path, place.index);
-		} finally {
-			this.navigating = false;
-		}
-	}
-
-	back(): Promise<void> {
-		return this.canBack ? this.goTo(this.historyPos - 1) : Promise.resolve();
-	}
-
-	forward(): Promise<void> {
-		return this.canForward ? this.goTo(this.historyPos + 1) : Promise.resolve();
+	/** Go to an assembly place of the history (registered with `nav`). */
+	async visit(place: {
+		doc: string;
+		path: McsPath;
+		table: string;
+		index: number | null;
+	}): Promise<void> {
+		studio.mode = "assembly";
+		if (!this.summary) await this.open();
+		await this.openTable(place.doc, place.table, place.path, place.index);
 	}
 
 	/** Reveal a saved file in the file manager. */
@@ -545,3 +686,8 @@ class Assembly {
 }
 
 export const assembly = new Assembly();
+
+nav.register({
+	package: (p) => studio.visit(p.path, p.index),
+	assembly: (p) => assembly.visit(p),
+});

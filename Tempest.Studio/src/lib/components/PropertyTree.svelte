@@ -34,6 +34,27 @@
 		}
 	}
 
+	async function list(
+		path: string,
+		op: "add" | "duplicate" | "remove" | "removeProperty",
+		at?: number,
+	) {
+		if (!studio.pkg) return;
+		try {
+			const updated = await rpc("object.list", {
+				path: studio.pkg.path,
+				index: obj.index,
+				prop: path,
+				op,
+				at,
+			});
+			studio.object = updated;
+			studio.markDirty();
+		} catch (error) {
+			toasts.error(error, `Could not change ${path}`);
+		}
+	}
+
 	async function addProperty() {
 		const name = newName.trim();
 		if (!name) return;
@@ -62,6 +83,7 @@
 					enumName={p.enum}
 					depth={0}
 					onset={set}
+					onlist={list}
 				/>
 			{/each}
 		</tbody>

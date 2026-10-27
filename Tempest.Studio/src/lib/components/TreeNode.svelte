@@ -3,6 +3,7 @@
 	import ClassIcon from "$lib/components/ClassIcon.svelte";
 	import TreeNode from "$lib/components/TreeNode.svelte";
 	import { studio } from "$lib/studio/state.svelte";
+	import { tabs } from "$lib/studio/tabs.svelte";
 	import type { Tree } from "$lib/studio/tree";
 	import type { ExportRow } from "../../../electron/src/ipc/contract";
 	import type { SvelteSet } from "svelte/reactivity";
@@ -31,7 +32,8 @@
 
 	/** Packages are folders: a click opens them (and selects, for the info pane). */
 	function onClick(event: MouseEvent) {
-		if (isPackage && children.length > 0) toggle(event);
+		if (event.ctrlKey || event.metaKey) tabs.openInNewTab();
+		else if (isPackage && children.length > 0) toggle(event);
 		void studio.select(index);
 	}
 </script>
@@ -48,6 +50,11 @@
 	aria-selected={studio.selected === index}
 	aria-expanded={children.length > 0 ? isOpen : undefined}
 	onclick={onClick}
+	onauxclick={(e) => {
+		if (e.button !== 1) return;
+		tabs.openInNewTab();
+		void studio.select(index);
+	}}
 	ondblclick={toggle}
 	onkeydown={(e) => {
 		// Arrows and Enter are handled by the tree; space selects.

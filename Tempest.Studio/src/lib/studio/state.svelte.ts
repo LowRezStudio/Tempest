@@ -3,6 +3,7 @@
 // changes. Every mutation goes through `upk serve`; this store mirrors it.
 import { invoke, listen } from "$lib/platform/api";
 import { basename, dirname, stem } from "./format";
+import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
 import { toasts } from "./toast.svelte";
 import type {
@@ -17,6 +18,9 @@ const RECENTS_KEY = "studio.recents";
 const SESSION_KEY = "studio.session";
 const THEME_KEY = "studio.theme";
 const ID_RANGE_KEY = "studio.idRange";
+
+/** The editor the window shows. */
+export type StudioMode = "packages" | "assembly" | "mod";
 
 /** The id range new content takes its ids from, `null` for "past the largest in use". */
 export type IdRange = { start: number; end: number } | null;
@@ -44,6 +48,8 @@ function loadRecents(): string[] {
 
 class Studio {
 	workspace = $state<Workspace | null>(null);
+	/** Bumped on every (re)opened game folder: the backend dropped everything it held. */
+	workspaceEpoch = $state(0);
 	/** Busy message shown in the status bar while a long call runs. */
 	busy = $state<string | null>(null);
 	/** Raw state: 65k export rows must not become proxies; the tables are replaced, never mutated. */
@@ -63,13 +69,9 @@ class Studio {
 	idRange = $state<IdRange>(loadIdRange());
 	backendError = $state<string | null>(null);
 	/** What the window shows: the package editor, or the assembly/lang editor. */
-	mode = $state<"packages" | "assembly">("packages");
+	mode = $state<StudioMode>("packages");
 	/** Bumped whenever the export table of `pkg` changed (rename, delete, copy). */
 	tablesVersion = $state(0);
-	/** Navigation history of selections (package path + export), browser style. */
-	history = $state<{ path: string; index: number }[]>([]);
-	historyPos = $state(-1);
-	private navigating = false;
 	/** Undo labels of the open package, newest first. */
 	undoLabels = $state<string[]>([]);
 	/** Edited class sources not yet compiled, keyed `path|class`. */
@@ -80,6 +82,8 @@ class Studio {
 
 	/** Packages opened from outside the workspace folder (double-clicked files, mod folders). */
 	extraPackages = $state<WorkspacePackage[]>([]);
+	/** Opens a `.twrk` workspace file (set by the session store). */
+	openWorkspaceFile: ((path: string) => Promise<void>) | null = null;
 	/** Files to open once a workspace exists (opened from the OS before any game folder was chosen). */
 	pendingFiles = $state<string[]>([]);
 	packages = $derived<WorkspacePackage[]>([
@@ -90,8 +94,6 @@ class Studio {
 		this.pkg && this.selected !== null ? (this.pkg.exports[this.selected] ?? null) : null,
 	);
 	isDirty = $derived(this.pkg ? this.dirty.includes(this.pkg.path) : false);
-	canBack = $derived(this.historyPos > 0);
-	canForward = $derived(this.historyPos < this.history.length - 1);
 
 	constructor() {
 		$effect.root(() => {
@@ -160,7 +162,7 @@ class Studio {
 			dir: string | null;
 			pkg: string | null;
 			selected: number | null;
-			mode?: "packages" | "assembly";
+			mode?: StudioMode;
 		} | null = null;
 		try {
 			session = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? "null");
@@ -195,13 +197,13 @@ class Studio {
 				rpc("workspace.open", { dir }),
 			);
 			this.workspace = ws;
+			this.workspaceEpoch++;
 			this.backendError = null;
 			this.pkg = null;
 			this.object = null;
 			this.selected = null;
 			this.dirty = [];
-			this.history = [];
-			this.historyPos = -1;
+			nav.clear();
 			this.extraPackages = [];
 			this.recents = [dir, ...this.recents.filter((r) => r !== dir)].slice(0, 8);
 			localStorage.setItem(RECENTS_KEY, JSON.stringify(this.recents));
@@ -269,46 +271,16 @@ class Studio {
 		}
 	}
 
-	/** Append a selection to the history (dropping any forward entries). */
+	/** Append a selection to the window's history. */
 	private record(path: string, index: number): void {
-		if (this.navigating) return;
-		const current = this.history[this.historyPos];
-		if (current && current.path === path && current.index === index) return;
-		this.history = [...this.history.slice(0, this.historyPos + 1), { path, index }].slice(-200);
-		this.historyPos = this.history.length - 1;
+		const label = this.pkg?.path === path ? this.pkg.exports[index]?.path : undefined;
+		nav.record({ kind: "package", path, index, label });
 	}
 
-	/** Where Back / Forward would go, as "package › object" text. */
-	historyLabel(offset: -1 | 1): string | null {
-		const entry = this.history[this.historyPos + offset];
-		if (!entry) return null;
-		const object =
-			this.pkg?.path === entry.path
-				? this.pkg.exports[entry.index]?.path
-				: `export #${entry.index}`;
-		return `${basename(entry.path)} › ${object ?? entry.index}`;
-	}
-
-	private async goTo(pos: number): Promise<void> {
-		const entry = this.history[pos];
-		if (!entry) return;
-		this.historyPos = pos;
-		this.navigating = true;
-		try {
-			await (this.pkg?.path === entry.path
-				? this.select(entry.index)
-				: this.openPackage(entry.path, entry.index));
-		} finally {
-			this.navigating = false;
-		}
-	}
-
-	back(): Promise<void> {
-		return this.canBack ? this.goTo(this.historyPos - 1) : Promise.resolve();
-	}
-
-	forward(): Promise<void> {
-		return this.canForward ? this.goTo(this.historyPos + 1) : Promise.resolve();
+	/** Go to a package place of the history (registered with `nav`). */
+	async visit(path: string, index: number): Promise<void> {
+		this.mode = "packages";
+		await (this.pkg?.path === path ? this.select(index) : this.openPackage(path, index));
 	}
 
 	markDirty(path = this.pkg?.path): void {
@@ -400,6 +372,49 @@ class Studio {
 		}
 	}
 
+	/** Duplicate the selected export next to it and select the copy. */
+	async duplicate(): Promise<void> {
+		if (!this.pkg || this.selected === null) return;
+		const path = this.pkg.path;
+		try {
+			const r = await rpc("object.duplicate", { path, index: this.selected });
+			this.markDirty(path);
+			await this.reloadTables();
+			await this.select(r.index);
+			toasts.push("success", r.path, "Duplicated");
+		} catch (error) {
+			toasts.error(error, "Could not duplicate");
+		}
+	}
+
+	/** Save every package with unsaved changes in place. */
+	async saveAll(): Promise<void> {
+		const paths = [...this.dirty];
+		let saved = 0;
+		for (const path of paths) {
+			try {
+				const r = await this.run(`Saving ${basename(path)}…`, () =>
+					rpc("package.save", { path }),
+				);
+				if (!r.dirty) this.dirty = this.dirty.filter((d) => d !== path);
+				saved++;
+			} catch (error) {
+				toasts.error(error, `Could not save ${basename(path)}`);
+			}
+		}
+		if (this.pkg && paths.includes(this.pkg.path)) {
+			await this.reloadTables();
+			await this.refreshUndo();
+		}
+		if (saved > 0) {
+			toasts.push(
+				"success",
+				`${saved} package${saved === 1 ? "" : "s"} saved in place`,
+				"Saved",
+			);
+		}
+	}
+
 	async closePackage(): Promise<void> {
 		if (!this.pkg) return;
 		const path = this.pkg.path;
@@ -425,6 +440,11 @@ class Studio {
 	 * used; without either, the files wait until a folder is picked.
 	 */
 	async openFiles(files: string[]): Promise<void> {
+		const twrk = files.find((f) => f.toLowerCase().endsWith(".twrk"));
+		if (twrk && this.openWorkspaceFile) {
+			await this.openWorkspaceFile(twrk);
+			return;
+		}
 		const file = files[0];
 		if (!file) return;
 		if (!this.workspace) {
