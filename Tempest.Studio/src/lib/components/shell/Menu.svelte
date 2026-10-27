@@ -70,7 +70,12 @@
 							{#if c.icon}<c.icon size={14} class="shrink-0 opacity-80" />{:else}<span
 									class="w-3.5"
 								></span>{/if}
-							<span class="flex-1 truncate">{c.title}</span>
+							<span class="flex min-w-0 flex-1 flex-col">
+								<span class="truncate">{c.title}</span>
+								{#if c.detail}<span class="truncate text-[11px] opacity-60"
+										>{c.detail}</span
+									>{/if}
+							</span>
 							{#if c.keys}<kbd class="kbd kbd-xs opacity-70">{keyLabel(c.keys)}</kbd
 								>{/if}
 						</button>
@@ -87,7 +92,12 @@
 						onclick={() => run(item.run)}
 					>
 						<span class="w-3.5"></span>
-						<span class="flex-1 truncate">{item.label}</span>
+						<span class="flex min-w-0 flex-1 flex-col">
+							<span class="truncate">{item.label}</span>
+							{#if item.detail}<span class="truncate text-[11px] opacity-60"
+									>{item.detail}</span
+								>{/if}
+						</span>
 					</button>
 				</li>
 			{/if}

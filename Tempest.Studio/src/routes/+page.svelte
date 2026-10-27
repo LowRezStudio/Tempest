@@ -16,6 +16,7 @@
 	import ActivityBar from "$lib/components/shell/ActivityBar.svelte";
 	import AppHeader from "$lib/components/shell/AppHeader.svelte";
 	import CommandPalette from "$lib/components/shell/CommandPalette.svelte";
+	import ConfirmDialog from "$lib/components/shell/ConfirmDialog.svelte";
 	import SaveWorkspaceDialog from "$lib/components/shell/SaveWorkspaceDialog.svelte";
 	import ShortcutsDialog from "$lib/components/shell/ShortcutsDialog.svelte";
 	import TabBar from "$lib/components/shell/TabBar.svelte";
@@ -172,3 +173,4 @@
 <McpDialog bind:open={() => isOpen("mcp"), (v) => setOpen("mcp", v)} />
 <ShortcutsDialog bind:open={() => isOpen("shortcuts"), (v) => setOpen("shortcuts", v)} />
 <CommandPalette />
+<ConfirmDialog />

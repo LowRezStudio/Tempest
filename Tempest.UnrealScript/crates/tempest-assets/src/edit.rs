@@ -704,6 +704,14 @@ impl<'a> Editor<'a> {
         Ok(())
     }
 
+    /// Write a copy of the package elsewhere ("Save as"): the edits stay
+    /// unsaved, since the package's own file has not changed.
+    pub fn save_copy(&mut self, out: impl AsRef<Path>) -> Result<()> {
+        let bytes = self.bytes();
+        std::fs::write(out, bytes)?;
+        Ok(())
+    }
+
     /// The bytes Save would write, without saving: the package stays dirty.
     pub fn bytes(&mut self) -> Vec<u8> {
         self.flush();

@@ -597,7 +597,16 @@ class Assembly {
 			const out = outDir ? `${outDir}/${doc.path.split(/[/\\]/).at(-1)}` : undefined;
 			const r = await rpc("mcts.save", { doc: id, out });
 			await this.refreshDoc(id);
-			toasts.push("success", r.out, "Saved");
+			if (out) {
+				toasts.push(
+					"success",
+					`${r.out}. The edits stay unsaved here (Save writes them into the game folder); the mod cooker lists the copy.`,
+					"Copy exported",
+				);
+			} else {
+				toasts.push("success", r.out, "Saved");
+			}
+			void studio.refreshMarks();
 			return true;
 		} catch (error) {
 			toasts.error(error, "Save failed");

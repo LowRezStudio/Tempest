@@ -1,7 +1,16 @@
 <!-- The title bar: workspace menu, Back/Forward, the command palette field,
 	and the save actions of whatever is being edited. -->
 <script lang="ts">
-	import { ChevronDown, FolderOpen, Moon, Save, Search, Sun, Undo2 } from "@lucide/svelte";
+	import {
+		ChevronDown,
+		FolderOpen,
+		Moon,
+		RotateCcw,
+		Save,
+		Search,
+		Sun,
+		Undo2,
+	} from "@lucide/svelte";
 	import NavButtons from "$lib/components/NavButtons.svelte";
 	import Menu, { type MenuItem } from "$lib/components/shell/Menu.svelte";
 	import { assembly } from "$lib/studio/assembly.svelte";
@@ -33,6 +42,32 @@
 			? `Save the changed .dat files in place (${keyLabel("Mod+S")})`
 			: `Save ${studio.pkg?.name ?? "the package"} in place (${keyLabel("Mod+S")})`,
 	);
+
+	/** The unsaved files, each opening its file; then the bulk actions. */
+	const unsavedItems = $derived<MenuItem[]>([
+		{ heading: "Unsaved files" },
+		...studio.dirty.map((p) => ({
+			label: basename(p),
+			detail: p,
+			run: () => {
+				studio.mode = "packages";
+				return studio.openPackage(p);
+			},
+		})),
+		...assembly.dirtyDocs.map((d) => ({
+			label: basename(d.path),
+			detail: d.path,
+			run: () => {
+				studio.mode = "assembly";
+				const t = d.tables[0];
+				return t ? assembly.openTable(d.id, t.name, []) : undefined;
+			},
+		})),
+		"-",
+		"file.saveAll",
+		"workspace.save",
+		"edit.discardAll",
+	]);
 
 	const workspaceItems = $derived<MenuItem[]>([
 		"folder.open",
@@ -103,13 +138,25 @@
 		<Undo2 size={15} />
 	</button>
 	{#if unsaved > 0}
-		<span
-			class="badge badge-sm badge-warning shrink-0"
-			title="{studio.dirty.length} package(s) and {assembly.dirtyDocs
-				.length} .dat file(s) unsaved"
-			>{unsaved}<span class="max-lg:hidden">&nbsp;unsaved</span></span
+		<Menu
+			items={unsavedItems}
+			buttonClass="badge badge-warning cursor-pointer gap-1 font-medium"
+			title="Files with unsaved edits"
+			align="end"
+			width="w-80"
 		>
+			{unsaved}<span class="max-lg:hidden">unsaved</span>
+			<ChevronDown size={11} />
+		</Menu>
 	{/if}
+	<button
+		class="btn btn-ghost btn-sm shrink-0"
+		onclick={() => commands.run("edit.discard")}
+		disabled={!canSave}
+		title="Discard the unsaved changes of this file (asks first)"
+	>
+		<RotateCcw size={14} /><span class="max-xl:hidden">Discard</span>
+	</button>
 	<div class="join shrink-0">
 		<button
 			class="btn btn-primary btn-sm join-item"
@@ -129,6 +176,7 @@
 				"workspace.saveAs",
 				"-",
 				"edit.discard",
+				"edit.discardAll",
 			]}
 			buttonClass="btn btn-primary btn-sm join-item px-1.5"
 			title="More save actions"

@@ -88,7 +88,20 @@
 			</span>
 			<span class="truncate font-mono">{p.name}</span>
 			{#if studio.dirty.includes(p.path)}
-				<span class="text-warning">•</span>
+				<span class="text-warning" title="Unsaved changes">●</span>
+			{/if}
+			{#if studio.marks.inPlace.includes(p.path)}
+				<span
+					class="badge badge-ghost badge-xs shrink-0"
+					title="Saved in the game folder; the Studio keeps the original for mod deltas"
+					>edited</span
+				>
+			{/if}
+			{#if studio.marks.copies[p.path]}
+				<span
+					class="badge badge-ghost badge-xs shrink-0"
+					title="Exported copies: {studio.marks.copies[p.path]?.join(', ')}">copy</span
+				>
 			{/if}
 			{#if p.size > 0}
 				<span class="ml-auto shrink-0 font-mono text-[10px] opacity-50"

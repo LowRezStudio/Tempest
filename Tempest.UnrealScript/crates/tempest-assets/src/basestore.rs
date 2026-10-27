@@ -89,6 +89,36 @@ pub fn restore(file: &Path, digest: Value) -> Result<bool> {
     Ok(true)
 }
 
+/// Record `target`'s base from another file holding its original (a backup,
+/// a clean install): replaces any earlier record.
+pub fn record_from(db: &ClassDb, tokens: Option<&Tokens>, target: &Path, original: &Path) -> Result<()> {
+    remove(target);
+    let digest = if original.to_string_lossy().to_ascii_lowercase().ends_with(".dat") {
+        let tokens = tokens.ok_or_else(|| tempest_upk::io::Error::Format("no field tokens for a .dat file".into()))?;
+        crate::mcts::delta::digest(tokens, &crate::mcts::parse_obscured(&std::fs::read(original)?, tokens)?)
+    } else {
+        crate::delta::digest(db, &tempest_upk::PackageFile::open(original)?.load()?)
+    };
+    write(target, digest)
+}
+
+/// A pristine copy the launcher keeps of a game file it changed
+/// (`<game>/.tempest/v2/backup/<path>` or `v1/backup/<name>`).
+pub fn launcher_backup(file: &Path) -> Option<PathBuf> {
+    let rel = game_relative(file);
+    let root = {
+        let comps: Vec<_> = file.components().collect();
+        let i = comps.iter().rposition(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case("ChaosGame"))?;
+        comps[..i].iter().collect::<PathBuf>()
+    };
+    let v2 = rel.split('/').fold(root.join(".tempest").join("v2").join("backup"), |p, c| p.join(c));
+    if v2.exists() {
+        return Some(v2);
+    }
+    let v1 = root.join(".tempest").join("v1").join("backup").join(file.file_name()?);
+    v1.exists().then_some(v1)
+}
+
 /// Record the package as it is on disk, unless a record exists. Returns
 /// whether one was made now.
 pub fn record_upk(db: &ClassDb, file: &Path) -> Result<bool> {

@@ -35,6 +35,7 @@ import { pickDirectory, pickFile, pickSave, PACKAGE_FILTERS } from "$lib/platfor
 import { assembly } from "./assembly.svelte";
 import { CONTAINS_SCRIPT } from "./classes";
 import { commands, type Command } from "./commands.svelte";
+import { basename } from "./format";
 import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
 import { session } from "./session.svelte";
@@ -84,24 +85,48 @@ async function exportSources(): Promise<void> {
 	}
 }
 
-/** Discard asks once: the second run within a few seconds discards. */
-let discardArmed = 0;
-function discard(): void {
-	if (Date.now() - discardArmed > 4000) {
-		discardArmed = Date.now();
-		toasts.push(
-			"warning",
-			"Run Discard again within 4 seconds to throw away the unsaved changes of this file.",
-			"Discard",
-		);
-		return;
-	}
-	discardArmed = 0;
+/** Every file with unsaved edits, as labels for confirmations. */
+function unsavedFiles(): string[] {
+	return [
+		...studio.dirty.map((p) => basename(p)),
+		...assembly.dirtyDocs.map((d) => basename(d.path)),
+	];
+}
+
+/** Throw away the unsaved edits of the file being edited, after asking. */
+async function discard(): Promise<void> {
+	const name = inAssembly() ? assembly.doc && basename(assembly.doc.path) : studio.pkg?.name;
+	if (!name) return;
+	const ok = await ui.confirm({
+		title: `Discard the changes of ${name}?`,
+		message:
+			"Every unsaved edit of this file is lost and it is reloaded from disk. Copies you exported and files saved in place are not touched.",
+		confirm: "Discard changes",
+		danger: true,
+	});
+	if (ok !== true) return;
 	if (inAssembly()) {
-		if (assembly.doc) void assembly.discard(assembly.doc.id);
+		if (assembly.doc) await assembly.discard(assembly.doc.id);
 	} else {
-		void studio.discard();
+		await studio.discard();
 	}
+}
+
+/** Throw away every unsaved edit of the window, after asking. */
+async function discardAll(): Promise<void> {
+	const files = unsavedFiles();
+	if (files.length === 0) return;
+	const ok = await ui.confirm({
+		title: `Discard the changes of ${files.length} file${files.length === 1 ? "" : "s"}?`,
+		message: "Every unsaved edit is lost and the files are reloaded from disk.",
+		items: files,
+		confirm: "Discard all",
+		danger: true,
+	});
+	if (ok !== true) return;
+	await studio.discardPaths([...studio.dirty]);
+	for (const d of assembly.dirtyDocs) await assembly.discard(d.id);
+	toasts.push("success", `${files.length} file(s) reloaded from disk`, "Changes discarded");
 }
 
 export function registerActions(): () => void {
@@ -143,7 +168,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "workspace.save",
-			title: "Save workspace",
+			detail: "Every unsaved edit and where you were, in a .twrk, for later",
+			title: "Save workspace file",
 			group: "Workspace",
 			keys: "Mod+Alt+S",
 			icon: Save,
@@ -153,6 +179,7 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "workspace.saveAs",
+			detail: "Choose the file and whether it is linked (small) or portable",
 			title: "Save workspace as…",
 			group: "Workspace",
 			icon: FolderOutput,
@@ -169,7 +196,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "file.save",
-			title: "Save",
+			detail: "Writes the open file in place; the Studio keeps its original for mod deltas",
+			title: "Save into the game folder",
 			group: "File",
 			keys: "Mod+S",
 			icon: Save,
@@ -179,7 +207,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "file.saveAs",
-			title: "Save as…",
+			detail: "Writes a copy elsewhere; the edits stay unsaved here and the mod cooker can use the copy",
+			title: "Export a copy…",
 			group: "File",
 			keys: "Mod+Shift+S",
 			icon: FolderOutput,
@@ -189,7 +218,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "file.saveAll",
-			title: "Save all changed files",
+			detail: "Every file with unsaved edits, in place",
+			title: "Save all into the game folder",
 			group: "File",
 			icon: SaveAll,
 			enabled: () => studio.dirty.length > 0 || assembly.dirtyDocs.length > 0,
@@ -210,7 +240,8 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "edit.discard",
-			title: "Discard the changes of this file",
+			detail: "Reloads this file from disk after asking",
+			title: "Discard changes…",
 			group: "Edit",
 			icon: RotateCcw,
 			enabled: () => (inAssembly() ? assembly.isDirty : studio.isDirty),
@@ -528,5 +559,14 @@ export function registerActions(): () => void {
 			run: () => ui.open("modExport"),
 		},
 	];
+	list.push({
+		id: "edit.discardAll",
+		title: "Discard all changes…",
+		detail: "Reloads every file with unsaved edits from disk after asking",
+		group: "Edit",
+		icon: RotateCcw,
+		enabled: () => studio.dirty.length > 0 || assembly.dirtyDocs.length > 0,
+		run: discardAll,
+	});
 	return commands.register(list);
 }

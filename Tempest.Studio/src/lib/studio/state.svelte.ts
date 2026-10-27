@@ -80,6 +80,11 @@ class Studio {
 	object = $state<ParsedObject | null>(null);
 	objectLoading = $state(false);
 
+	/** Game files saved in place (their original kept by the Studio), and exported copies by game file. */
+	marks = $state<{ inPlace: string[]; copies: Record<string, string[]> }>({
+		inPlace: [],
+		copies: {},
+	});
 	/** Packages opened from outside the workspace folder (double-clicked files, mod folders). */
 	extraPackages = $state<WorkspacePackage[]>([]);
 	/** Opens a `.twrk` workspace file (set by the session store). */
@@ -212,6 +217,7 @@ class Studio {
 				`${ws.packages.length} packages, ${ws.scriptPackages.length} script packages (${ws.loadMs} ms)`,
 				"Workspace open",
 			);
+			void this.refreshMarks();
 			if (this.pendingFiles.length > 0) {
 				const files = this.pendingFiles;
 				this.pendingFiles = [];
@@ -364,7 +370,16 @@ class Studio {
 				// Saved in place: the package (and its undo history) stays open.
 				await this.reloadTables();
 			}
-			toasts.push("success", r.out, "Saved");
+			if (out && out !== path) {
+				toasts.push(
+					"success",
+					`${r.out}. The edits stay unsaved here (Save writes them into the game folder); the mod cooker lists the copy.`,
+					"Copy exported",
+				);
+			} else {
+				toasts.push("success", r.out, "Saved");
+			}
+			void this.refreshMarks();
 			return true;
 		} catch (error) {
 			toasts.error(error, "Save failed");
@@ -387,6 +402,41 @@ class Studio {
 		}
 	}
 
+	/** Refresh which game files were saved in place or exported as copies (package list badges). */
+	async refreshMarks(): Promise<void> {
+		if (!this.workspace) return;
+		try {
+			const r = await rpc("mod.changes", {});
+			const copies: Record<string, string[]> = {};
+			for (const f of r.files) {
+				if (f.origin === "copy") (copies[f.target] ??= []).push(f.source);
+			}
+			this.marks = {
+				inPlace: r.files.filter((f) => f.origin === "saved").map((f) => f.target),
+				copies,
+			};
+		} catch {
+			// badges only
+		}
+	}
+
+	/** Throw away the unsaved edits of packages (reloaded from disk). */
+	async discardPaths(paths: string[]): Promise<void> {
+		for (const path of paths) {
+			try {
+				await rpc("package.discard", { path });
+				this.dirty = this.dirty.filter((d) => d !== path);
+				this.clearDrafts(path);
+			} catch (error) {
+				toasts.error(error, `Could not discard ${basename(path)}`);
+			}
+		}
+		if (this.pkg && paths.includes(this.pkg.path)) {
+			this.undoLabels = [];
+			await this.openPackage(this.pkg.path, this.selected ?? undefined);
+		}
+	}
+
 	/** Save every package with unsaved changes in place. */
 	async saveAll(): Promise<void> {
 		const paths = [...this.dirty];
@@ -406,6 +456,7 @@ class Studio {
 			await this.reloadTables();
 			await this.refreshUndo();
 		}
+		void this.refreshMarks();
 		if (saved > 0) {
 			toasts.push(
 				"success",

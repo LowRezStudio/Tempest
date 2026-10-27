@@ -32,6 +32,19 @@ function loadPanes(): Record<string, number> {
 	}
 }
 
+/** A question for the confirmation dialog (`ui.confirm`). */
+export type ConfirmRequest = {
+	title: string;
+	message: string;
+	/** Lines listed under the message (files, rows…). */
+	items?: string[];
+	confirm: string;
+	cancel?: string;
+	danger?: boolean;
+	/** A third choice (for example "Save first"); resolves to "alt". */
+	alt?: string;
+};
+
 class Ui {
 	/** Window width in CSS pixels (zoom included). */
 	width = $state(window.innerWidth);
@@ -49,6 +62,8 @@ class Ui {
 	/** Text the package search opens with (and runs). */
 	searchQuery = $state("");
 	zoom = $state(Number(localStorage.getItem(ZOOM_KEY) ?? "1") || 1);
+	/** The question the confirmation dialog shows, with its answer callback. */
+	asking = $state<(ConfirmRequest & { answer: (v: boolean | "alt") => void }) | null>(null);
 
 	constructor() {
 		window.addEventListener("resize", () => {
@@ -95,6 +110,24 @@ class Ui {
 		this.dialog = null;
 		this.paletteQuery = query;
 		this.palette = mode;
+	}
+
+	/**
+	 * Ask before something destructive; resolves true (confirmed), false (cancelled) or
+	 * "alt" (the optional third button).
+	 * @param req The question.
+	 */
+	confirm(req: ConfirmRequest): Promise<boolean | "alt"> {
+		this.asking?.answer(false);
+		return new Promise((resolve) => {
+			this.asking = {
+				...req,
+				answer: (v) => {
+					this.asking = null;
+					resolve(v);
+				},
+			};
+		});
 	}
 
 	setZoom(z: number): void {
