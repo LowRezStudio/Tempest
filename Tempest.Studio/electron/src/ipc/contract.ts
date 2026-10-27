@@ -467,6 +467,15 @@ export type SwfScript = {
 	bytes: number;
 	strings: { index: number; text: string; action: string }[];
 };
+/** An imported movie (`ImportAssets2` URL) resolved to a workspace export. */
+export type SwfLibrary = {
+	url: string;
+	path: string;
+	object: string;
+	index: number;
+	bytes: number;
+	swf: Uint8Array;
+};
 export type SwfInfo = {
 	signature: string;
 	version: number;
@@ -726,6 +735,22 @@ export interface UpkMethods {
 	"mcts.close": { params: Record<string, never>; result: boolean };
 	/** Tags, texts, scripts and external images of a Scaleform movie export. */
 	"swf.info": { params: { path: string; index: number }; result: SwfInfo };
+	/** The movie bytes themselves (Scaleform GFx), for the Ruffle player. */
+	"swf.bytes": {
+		params: { path: string; index: number };
+		result: { swf: Uint8Array; bytes: number };
+	};
+	/** The movie with its GFx external images embedded as standard bitmaps. */
+	"swf.player": {
+		params: { path: string; index: number };
+		result: { swf: Uint8Array; bytes: number; images: number; missing: string[] };
+	};
+	/** The workspace movies a movie imports (shared libraries, fonts), with their bytes. */
+	"swf.libraries": {
+		params: { path: string; index: number };
+		/** `missing`: ImportAssets2 URLs no workspace package provides. */
+		result: { libraries: SwfLibrary[]; missing: string[] };
+	};
 	/** ActionScript 2 disassembly of one script tag. */
 	"swf.script": {
 		params: { path: string; index: number; tag: number };

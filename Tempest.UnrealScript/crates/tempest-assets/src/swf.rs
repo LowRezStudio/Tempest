@@ -745,6 +745,43 @@ fn define_id(code: u16, d: &[u8]) -> Option<u16> {
     }
 }
 
+/// One `GFxDefineSubImage` (1008): a crop of an external image under its own
+/// character id, which is what the shapes reference.
+#[derive(Clone, Copy, Debug)]
+pub struct SubImage {
+    pub id: u16,
+    pub image_id: u16,
+    pub x1: u16,
+    pub y1: u16,
+    pub x2: u16,
+    pub y2: u16,
+}
+
+pub fn parse_sub_image(d: &[u8]) -> Option<SubImage> {
+    if d.len() < 12 {
+        return None;
+    }
+    Some(SubImage { id: u16_at(d, 0)?, image_id: u16_at(d, 2)?, x1: u16_at(d, 4)?, y1: u16_at(d, 6)?, x2: u16_at(d, 8)?, y2: u16_at(d, 10)? })
+}
+
+/// URLs of the movies this one imports (`ImportAssets`/`ImportAssets2`), in
+/// file order and without duplicates. Scaleform splits its UI into shared
+/// libraries (`../SharedAssets/SharedAssets.swf`, the font library, …) that
+/// the engine loads from the workspace; Ruffle needs them too.
+pub fn import_urls(m: &Movie) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    for t in &m.tags {
+        if t.code != 71 && t.code != 57 {
+            continue;
+        }
+        let (url, _) = cstr(&t.data, 0);
+        if !url.is_empty() && !urls.iter().any(|u| u.eq_ignore_ascii_case(&url)) {
+            urls.push(url);
+        }
+    }
+    urls
+}
+
 /// Everything the Studio shows about a movie.
 pub fn info(m: &Movie) -> J {
     let (xmin, xmax, ymin, ymax) = m.frame();

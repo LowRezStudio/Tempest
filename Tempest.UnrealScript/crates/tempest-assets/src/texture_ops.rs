@@ -151,6 +151,16 @@ pub fn export_png_preview(db: &ClassDb, pkg: &Package, pkg_name: &str, src: &Tex
     dds::write_png_with(*w, *h, &rgba, true)
 }
 
+/// RGBA8 pixels of the largest available mip (no PNG encoding), for embedding
+/// a texture into a movie the player can render.
+pub fn largest_rgba(db: &ClassDb, pkg: &Package, pkg_name: &str, src: &TextureSource, i: usize, obj: &Object) -> Result<(u32, u32, Vec<u8>)> {
+    let fname = format_name(db, pkg, obj);
+    let format = PixelFormat::from_name(&fname).ok_or_else(|| Error::Format(format!("unsupported pixel format {fname}")))?;
+    let mips = available_mips(pkg, pkg_name, src, i, obj)?;
+    let (w, h, d) = mips.first().ok_or_else(|| Error::Format("no mips available".into()))?;
+    Ok((*w, *h, dds::decode_rgba(format, *w, *h, d)?))
+}
+
 // ----------------------------------------------------------------------------
 // Import
 // ----------------------------------------------------------------------------

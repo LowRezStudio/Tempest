@@ -38,6 +38,9 @@ importers:
       '@lucide/svelte':
         specifier: ^1.21.0
         version: 1.60.0(svelte@5.57.2)
+      '@ruffle-rs/ruffle':
+        specifier: 0.7.1
+        version: 0.7.1
       '@sveltejs/adapter-static':
         specifier: ^3.0.10
         version: 3.0.10(@sveltejs/kit@2.70.3(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.57.2)(vite@8.3.5(@types/node@24.19.2)(jiti@2.7.0)))(svelte@5.57.2)(typescript@6.0.3)(vite@8.3.5(@types/node@24.19.2)(jiti@2.7.0)))
@@ -629,6 +632,9 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@ruffle-rs/ruffle@0.7.1':
+    resolution: {integrity: sha512-6ZWxx/cfX3RoNyQ1AVimECSae4gKqMxdPimOD+chiIcOFiJS0ATGKcjkretxNT03lqNUpiSyJjF55AuvvZ+QeA==}
 
   '@sindresorhus/is@4.6.0':
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
@@ -2932,6 +2938,8 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
+
+  '@ruffle-rs/ruffle@0.7.1': {}
 
   '@sindresorhus/is@4.6.0': {}
 

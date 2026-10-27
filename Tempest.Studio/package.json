@@ -26,6 +26,7 @@
 		"@codemirror/view": "^6.43.15",
 		"@fontsource-variable/ubuntu-sans-mono": "^5.2.10",
 		"@lucide/svelte": "^1.21.0",
+		"@ruffle-rs/ruffle": "0.7.1",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.66.0",
 		"@sveltejs/vite-plugin-svelte": "7.1.2",

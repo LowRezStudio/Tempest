@@ -366,6 +366,9 @@ impl Server {
             "mcts.setMessage" => Ok(self.mcts_mut()?.set_message(p)?),
             "mcts.validValues" => Ok(self.mcts_mut()?.valid_values()?),
             "swf.info" => self.swf_info(p),
+            "swf.bytes" => self.swf_bytes(p),
+            "swf.player" => self.swf_player(p),
+            "swf.libraries" => self.swf_libraries(p),
             "swf.script" => self.swf_script(p),
             "swf.apply" => self.swf_apply(p),
             "mcts.nextIds" => Ok(self.mcts_mut()?.next_ids_json()?),
@@ -1127,6 +1130,220 @@ impl Server {
     fn swf_info(&mut self, p: &J) -> Res<J> {
         let (_, _, m) = self.swf_movie(p)?;
         Ok(crate::swf::info(&m))
+    }
+
+    /// `swf.bytes`: the movie as the game's GFx loader receives it, for the
+    /// Studio's Ruffle player.
+    fn swf_bytes(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let bytes = {
+            let ed = self.editor(&path)?;
+            let o = ed.object(i)?.clone();
+            media::swf_export(&ed.pkg, &o)?
+        };
+        let len = bytes.len();
+        Ok(json!({ "swf": self.bins.add(bytes), "bytes": len }))
+    }
+
+    /// `swf.player`: the movie with its GFx external images embedded as
+    /// standard `DefineBitsLossless2` bitmaps. The engine resolves a
+    /// `DefineExternalImage2` (`Foo.tga`) to a `Texture2D` of the same package;
+    /// Ruffle has no engine assets, so the texture is decoded and written into
+    /// the movie instead (preview bytes only, the package is untouched).
+    /// `DefineSubImage` crops (Scaleform atlases) become bitmaps of their own,
+    /// because Ruffle has no sub-image tag.
+    fn swf_player(&mut self, p: &J) -> Res<J> {
+        let (path, _, mut m) = self.swf_movie(p)?;
+        let mut images = 0usize;
+        let mut missing: Vec<String> = Vec::new();
+        if self.src.is_none() {
+            let bytes = m.write();
+            let len = bytes.len();
+            return Ok(json!({ "swf": self.bins.add(bytes), "bytes": len, "images": 0, "missing": missing }));
+        }
+        {
+            let db = self.db()?;
+            let src = self.src.as_ref().unwrap();
+            let ed = self.editors.get_mut(&key(&path)).ok_or("package is not open")?;
+            let tags = std::mem::take(&mut m.tags);
+            // Sub-images are crops of an external image; the shapes reference
+            // the sub-image id, not the atlas.
+            let mut sub_by_image: HashMap<u16, Vec<crate::swf::SubImage>> = HashMap::new();
+            for tag in &tags {
+                if tag.code == 1008 {
+                    if let Some(sub) = crate::swf::parse_sub_image(&tag.data) {
+                        sub_by_image.entry(sub.image_id).or_default().push(sub);
+                    }
+                }
+            }
+            let mut consumed: std::collections::HashSet<u16> = std::collections::HashSet::new();
+            let mut out = Vec::with_capacity(tags.len());
+            for tag in tags {
+                if tag.code != 1001 && tag.code != 1009 {
+                    out.push(tag);
+                    continue;
+                }
+                let Some(img) = crate::swf::parse_external_image(tag.code, &tag.data) else {
+                    out.push(tag);
+                    continue;
+                };
+                // GFx external images use a 32-bit id whose low 16 bits are the
+                // character id SWF tags refer to (sub-images, bitmap fills); the
+                // high half is the image namespace (`0x0009_0000` in these movies).
+                let image_id = (img.id & 0xFFFF) as u16;
+                let file = img.file_name.rsplit('/').next().unwrap_or(&img.file_name);
+                let stem = file.rsplit_once('.').map(|(name, _)| name).unwrap_or(file);
+                let mut texture = None;
+                for i in 0..ed.pkg.exports.len() {
+                    let idx = PackageIndex::export(i);
+                    if ed.pkg.object_name(idx).eq_ignore_ascii_case(stem) && ed.pkg.class_name_of(idx).eq_ignore_ascii_case("Texture2D") {
+                        texture = Some(i);
+                        break;
+                    }
+                }
+                let Some(texture) = texture else {
+                    missing.push(format!("{}: no Texture2D named {stem}", img.file_name));
+                    out.push(tag);
+                    continue;
+                };
+                let o = match ed.object(texture) {
+                    Ok(o) => o.clone(),
+                    Err(e) => {
+                        missing.push(format!("{}: {e}", img.file_name));
+                        out.push(tag);
+                        continue;
+                    }
+                };
+                let (tw, th, rgba) = match crate::texture_ops::largest_rgba(db, &ed.pkg, &ed.name, src, texture, &o) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        missing.push(format!("{}: {e}", img.file_name));
+                        out.push(tag);
+                        continue;
+                    }
+                };
+                if tw == 0 || th == 0 {
+                    out.push(tag);
+                    continue;
+                }
+                if let Some(subs) = sub_by_image.remove(&image_id) {
+                    // The atlas rect is in target pixels; DXT textures can be
+                    // up to 3 px larger (block padding), so scale into the
+                    // decoded texture and crop there.
+                    let scale_x = |v: u16| ((v as u64 * tw as u64) / (img.width.max(1) as u64)) as u16;
+                    let scale_y = |v: u16| ((v as u64 * th as u64) / (img.height.max(1) as u64)) as u16;
+                    for sub in subs {
+                        let Some((w, h, pixels)) = crop_rgba(&rgba, tw, th, scale_x(sub.x1), scale_y(sub.y1), scale_x(sub.x2), scale_y(sub.y2)) else {
+                            missing.push(format!("{}: empty crop {}x{}", img.file_name, sub.x1, sub.y1));
+                            continue;
+                        };
+                        out.push(crate::swf::Tag { code: 36, data: define_bits_lossless2(sub.id, w, h, &pixels), long: true });
+                        consumed.insert(sub.id);
+                        images += 1;
+                    }
+                    // The atlas tag itself is no longer needed: only its
+                    // sub-images are referenced.
+                } else if img.width > 0 && img.height > 0 {
+                    let (w, h, pixels) = fit_rgba(&rgba, tw, th, img.width as u32, img.height as u32);
+                    out.push(crate::swf::Tag { code: 36, data: define_bits_lossless2(image_id, w, h, &pixels), long: true });
+                    images += 1;
+                } else {
+                    out.push(tag);
+                }
+            }
+            // Drop the sub-image tags whose cropped bitmap was emitted.
+            out.retain(|t| t.code != 1008 || !crate::swf::parse_sub_image(&t.data).is_some_and(|s| consumed.contains(&s.id)));
+            m.tags = out;
+        }
+        let bytes = m.write();
+        let len = bytes.len();
+        Ok(json!({ "swf": self.bins.add(bytes), "bytes": len, "images": images, "missing": missing }))
+    }
+
+    /// `swf.libraries`: the movies this movie imports (`ImportAssets2` URLs such
+    /// as `../SharedAssets/SharedAssets.swf`), found by export name among the
+    /// workspace's `SwfMovie`s and returned with their bytes. The Ruffle player
+    /// serves them beside the movie so the shared symbols (frames, fonts, image
+    /// stacks) draw instead of staying blank. Imports of imports are followed
+    /// too: the shared libraries themselves pull in the font library.
+    fn swf_libraries(&mut self, p: &J) -> Res<J> {
+        let (_, _, m) = self.swf_movie(p)?;
+        let mut pending = crate::swf::import_urls(&m);
+        if pending.is_empty() {
+            return Ok(json!({ "libraries": [], "missing": [] }));
+        }
+        self.index_all();
+        let mut looked_up: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut libraries = Vec::new();
+        let mut missing: Vec<String> = Vec::new();
+        while !pending.is_empty() {
+            let wave: Vec<(String, String)> = pending
+                .drain(..)
+                .filter_map(|url| {
+                    let stem = swf_stem(&url);
+                    (!stem.is_empty() && looked_up.insert(stem.clone())).then_some((url, stem))
+                })
+                .collect();
+            if wave.is_empty() {
+                break;
+            }
+            let wanted: std::collections::HashSet<&str> = wave.iter().map(|(_, stem)| stem.as_str()).collect();
+            // A library is looked up by the name its importer refers to (the
+            // URL's file stem), e.g. `SharedAssets`, not by the package it
+            // lives in.
+            let mut found: HashMap<String, (PathBuf, usize, String)> = HashMap::new();
+            for w in &self.packages {
+                if found.len() == wanted.len() {
+                    break;
+                }
+                let k = key(&w.path.to_string_lossy());
+                let Some(idx) = self.index.get(&k) else { continue };
+                for (i, (cid, object_path)) in idx.exports.iter().enumerate() {
+                    if !idx.classes[*cid as usize].eq_ignore_ascii_case("SwfMovie") {
+                        continue;
+                    }
+                    let name = object_path.rsplit('.').next().unwrap_or(object_path).to_ascii_lowercase();
+                    if wanted.contains(name.as_str()) && !found.contains_key(&name) {
+                        found.insert(name.clone(), (w.path.clone(), i, object_path.clone()));
+                        if found.len() == wanted.len() {
+                            break;
+                        }
+                    }
+                }
+            }
+            for (url, stem) in wave {
+                let Some((path, i, object)) = found.get(&stem) else {
+                    if !missing.contains(&url) {
+                        missing.push(url);
+                    }
+                    continue;
+                };
+                let path_text = path.to_string_lossy().to_string();
+                if !emitted.insert(format!("{path_text}#{i}")) {
+                    continue;
+                }
+                let bytes = {
+                    let ed = self.editor(&path_text)?;
+                    let o = ed.object(*i)?.clone();
+                    media::swf_export(&ed.pkg, &o)?
+                };
+                if let Ok(shared) = crate::swf::Movie::parse(&bytes) {
+                    pending.extend(crate::swf::import_urls(&shared));
+                }
+                let len = bytes.len();
+                libraries.push(json!({
+                    "url": url,
+                    "path": path_text,
+                    "object": object,
+                    "index": i,
+                    "bytes": len,
+                    "swf": self.bins.add(bytes),
+                }));
+            }
+        }
+        Ok(json!({ "libraries": libraries, "missing": missing }))
     }
 
     /// `swf.script`: the disassembly of one script tag.
@@ -2066,6 +2283,86 @@ fn list_packages(dir: &Path) -> Vec<WorkspacePackage> {
 
 /// The workspace package holding the object `path` (any case), from the
 /// search index.
+/// The name an import URL refers to (`../GFxFonts/gfxfontlib.swf` → `gfxfontlib`).
+fn swf_stem(url: &str) -> String {
+    let file = url.rsplit('/').next().unwrap_or(url);
+    let stem = file.split('.').next().unwrap_or(file);
+    stem.to_ascii_lowercase()
+}
+
+/// `DefineBitsLossless2` tag body for straight-alpha RGBA pixels: 32-bit ARGB
+/// (alpha first) zlib-compressed, which is what Ruffle and Flash decode.
+fn define_bits_lossless2(id: u16, width: u16, height: u16, rgba: &[u8]) -> Vec<u8> {
+    let mut argb = Vec::with_capacity(rgba.len());
+    for px in rgba.chunks_exact(4) {
+        // DefineBitsLossless2 stores premultiplied ARGB; the decoded texture
+        // is straight RGBA, so premultiply here or anti-aliased edges fringe.
+        let a = px[3] as u32;
+        let channel = |c: u8| ((c as u32 * a + 127) / 255) as u8;
+        argb.extend_from_slice(&[px[3], channel(px[0]), channel(px[1]), channel(px[2])]);
+    }
+    let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    let _ = enc.write_all(&argb);
+    let compressed = enc.finish().unwrap_or_default();
+    let mut body = Vec::with_capacity(7 + compressed.len());
+    body.extend_from_slice(&id.to_le_bytes());
+    body.push(5);
+    body.extend_from_slice(&width.to_le_bytes());
+    body.extend_from_slice(&height.to_le_bytes());
+    body.extend_from_slice(&compressed);
+    body
+}
+
+/// Fit decoded pixels to the size the movie declares. A texture larger than
+/// the target is the same image with DXT block padding (up to 3 px) on the
+/// right/bottom, so crop it; a smaller one is scaled up.
+fn fit_rgba(rgba: &[u8], w: u32, h: u32, tw: u32, th: u32) -> (u16, u16, Vec<u8>) {
+    if w >= tw && h >= th && tw > 0 && th > 0 {
+        if let Some(fit) = crop_rgba(rgba, w, h, 0, 0, tw as u16, th as u16) {
+            return fit;
+        }
+    }
+    (tw as u16, th as u16, resample_rgba(rgba, w, h, tw, th))
+}
+
+/// Crop a rectangle of an RGBA8 image, clamped to its bounds.
+fn crop_rgba(rgba: &[u8], w: u32, h: u32, x1: u16, y1: u16, x2: u16, y2: u16) -> Option<(u16, u16, Vec<u8>)> {
+    let x1 = (x1 as u32).min(w);
+    let y1 = (y1 as u32).min(h);
+    let x2 = (x2 as u32).min(w);
+    let y2 = (y2 as u32).min(h);
+    if x2 <= x1 || y2 <= y1 {
+        return None;
+    }
+    let cw = x2 - x1;
+    let ch = y2 - y1;
+    let mut out = Vec::with_capacity((cw * ch * 4) as usize);
+    for y in y1..y2 {
+        let start = ((y * w + x1) * 4) as usize;
+        out.extend_from_slice(&rgba[start..start + (cw * 4) as usize]);
+    }
+    Some((cw as u16, ch as u16, out))
+}
+
+/// Nearest-neighbour scale to the size the movie declares for the image (the
+/// engine's `DefineExternalImage2` dimensions); normally already equal.
+fn resample_rgba(rgba: &[u8], w: u32, h: u32, tw: u32, th: u32) -> Vec<u8> {
+    if w == tw && h == th {
+        return rgba.to_vec();
+    }
+    let mut out = vec![0u8; tw as usize * th as usize * 4];
+    for y in 0..th {
+        let sy = ((y as u64 * h as u64) / th as u64).min(h as u64 - 1) as usize;
+        for x in 0..tw {
+            let sx = ((x as u64 * w as u64) / tw as u64).min(w as u64 - 1) as usize;
+            let src = (sy * w as usize + sx) * 4;
+            let dst = (y as usize * tw as usize + x as usize) * 4;
+            out[dst..dst + 4].copy_from_slice(&rgba[src..src + 4]);
+        }
+    }
+    out
+}
+
 fn index_lookup(index: &HashMap<String, SearchIndex>, packages: &[WorkspacePackage], path: &str) -> Option<String> {
     packages.iter().find(|w| index.get(&key(&w.path.to_string_lossy())).is_some_and(|idx| idx.exports.iter().any(|(_, op)| op.eq_ignore_ascii_case(path)))).map(|w| w.name.clone())
 }
