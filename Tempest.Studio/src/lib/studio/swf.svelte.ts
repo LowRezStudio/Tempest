@@ -176,6 +176,12 @@ export class SwfDoc {
 	applying = $state(false);
 	private libraries: Promise<{ libraries: SwfLibrary[]; missing: string[] }> | null = null;
 	private timelineFor = "";
+	/** The reads in flight, for `settled`. */
+	private loadTask: Promise<void> | null = null;
+	private refreshTask: Promise<void> = Promise.resolve();
+	/** What the package looked like when the movie was last read (see `packageStamp`). */
+	private readAt = "";
+	private timelineTask: Promise<void> = Promise.resolve();
 	/** Character to select once the timeline being opened has loaded (going up a level). */
 	private reselect: number | null = null;
 
@@ -295,7 +301,26 @@ export class SwfDoc {
 		return c.names[0] ?? `${c.kind} ${id}`;
 	}
 
-	async load(): Promise<void> {
+	load(): Promise<void> {
+		this.loadTask = this.read();
+		return this.loadTask;
+	}
+
+	/** Resolves once the movie is read and every view includes the pending edits (the MCP tool waits on it). */
+	async settled(): Promise<void> {
+		await (this.loadTask ?? this.load());
+		// Undo, discard or another edit of the package since: read the movie again.
+		if (this.readAt !== packageStamp()) await this.load();
+		let task: Promise<void>;
+		do {
+			task = this.refreshTask;
+			await task;
+		} while (task !== this.refreshTask);
+		await this.loadTimeline();
+	}
+
+	private async read(): Promise<void> {
+		this.readAt = packageStamp();
 		this.loading = true;
 		this.error = null;
 		try {
@@ -329,15 +354,20 @@ export class SwfDoc {
 	}
 
 	/** Reload the current sprite's timeline when the sprite or the edits changed. */
-	async loadTimeline(): Promise<void> {
+	loadTimeline(): Promise<void> {
 		const sprite = this.sprite;
 		if (sprite === null) {
 			this.timeline = null;
-			return;
+			return Promise.resolve();
 		}
 		const key = `${sprite}|${this.version}`;
-		if (key === this.timelineFor && this.timeline) return;
+		if (key === this.timelineFor && this.timeline) return this.timelineTask;
 		this.timelineFor = key;
+		this.timelineTask = this.readTimeline(sprite, key);
+		return this.timelineTask;
+	}
+
+	private async readTimeline(sprite: number, key: string): Promise<void> {
 		try {
 			const t = await rpc("swf.timeline", {
 				path: this.path,
@@ -377,7 +407,7 @@ export class SwfDoc {
 
 	private changed(): void {
 		this.version++;
-		void this.refresh();
+		this.refreshTask = this.refresh();
 	}
 
 	/** Re-read what edits can change: the tree (bounds), texts and the timeline. */
@@ -577,6 +607,11 @@ export class SwfDoc {
 			this.applying = false;
 		}
 	}
+}
+
+/** Changes when the open package does (an edit, undo or discard). */
+function packageStamp(): string {
+	return `${studio.edits}|${studio.undoLabels.join("\n")}`;
 }
 
 const docs = new Map<string, SwfDoc>();

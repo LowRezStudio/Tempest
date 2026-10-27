@@ -3,8 +3,8 @@
 // (`upk_call`, every method of the IPC contract), read and change what the
 // window shows (workspace, package, selection, assembly table, view), run
 // the Studio's commands, answer its confirmation dialogs, work with mod
-// projects and the mod cooker, evaluate code against the renderer stores
-// (`studio_eval`) and take screenshots.
+// projects and the mod cooker, edit Scaleform movies (`studio_swf`), evaluate
+// code against the renderer stores (`studio_eval`) and take screenshots.
 // The endpoint and its bearer token are written to `<userData>/mcp.json`
 // and shown in the toolbar's MCP dialog.
 import { randomBytes, randomUUID } from "node:crypto";
@@ -58,12 +58,12 @@ function target(id?: number): BrowserWindow {
 
 /** Run code in a window against the stores; `code` is the body of an async function
  * with the stores (`studio`, `assembly`, `rpc`, `session`, `ui`, `tabs`, `commands`,
- * `nav`, `cooker`) and `watch` in scope. The returned value comes back as JSON. */
+ * `nav`, `cooker`, `swfDoc`, `swfTool`) and `watch` in scope. The returned value comes back as JSON. */
 async function evalIn(win: BrowserWindow, code: string): Promise<unknown> {
 	const wrapped = `(async () => {
 		const api = window.__tempest;
 		if (!api) throw new Error("the renderer is not ready");
-		const { studio, assembly, rpc, session, ui, tabs, commands, nav, cooker } = api;
+		const { studio, assembly, rpc, session, ui, tabs, commands, nav, cooker, swfDoc, swfTool } = api;
 		${WATCH_JS}
 		const __result = await (async () => { ${code} })();
 		return JSON.stringify(__result === undefined ? null : __result);
@@ -203,7 +203,7 @@ function buildServer(): McpServer {
 		{
 			title: "Call the backend",
 			description:
-				"Call any method of the window's `upk serve` backend (the UpkMethods of electron/src/ipc/contract.ts): workspace.search, package.open, object.get, prop.set, object.list, object.duplicate, texture.export, mesh.export, material.preview, particle.system, swf.info, mcts.rows, mcts.set, mcts.addRow, mcts.usages, mod.changes, mod.preview, delta.create, twrk.read, … Binary payloads come back as base64. Edits made here are not reflected in the window until it reloads (use studio_open_package / studio_select to refresh); prefer studio_eval with the stores (studio.setProp…) when the window should follow, so the edit also reaches undo, the project and the cooker.",
+				"Call any method of the window's `upk serve` backend (the UpkMethods of electron/src/ipc/contract.ts): workspace.search, package.open, object.get, prop.set, object.list, object.duplicate, texture.export, mesh.export, material.preview, particle.system, swf.info, swf.tree, swf.timeline, swf.script, mcts.rows, mcts.set, mcts.addRow, mcts.usages, mod.changes, mod.preview, delta.create, twrk.read, … Binary payloads come back as base64. Edits made here are not reflected in the window until it reloads (use studio_open_package / studio_select to refresh); prefer studio_eval with the stores (studio.setProp…) when the window should follow, so the edit also reaches undo, the project and the cooker.",
 			inputSchema: {
 				method: z.string().describe("method name, e.g. workspace.search"),
 				params: z.record(z.string(), z.unknown()).optional().describe("parameters object"),
@@ -324,10 +324,111 @@ function buildServer(): McpServer {
 		{
 			title: "Evaluate in the renderer",
 			description:
-				"Run JavaScript in a window with the renderer stores in scope: `studio` (packages, state.svelte.ts), `assembly` (assembly.svelte.ts), `rpc` (typed backend calls), `session` (projects and workspace files, session.svelte.ts), `cooker` (mod cooker, cooker.svelte.ts), `commands` (command registry), `ui` (dialogs, ui.asking = pending confirmation), `tabs`, `nav`; plus `watch(promise, ms)` which returns early with the question when the action asks for a confirmation. The code is the body of an async function and its return value comes back as JSON. Example: `return (await rpc('workspace.search', { query: 'zhin', limit: 5 })).results;`",
+				"Run JavaScript in a window with the renderer stores in scope: `studio` (packages, state.svelte.ts), `assembly` (assembly.svelte.ts), `rpc` (typed backend calls), `session` (projects and workspace files, session.svelte.ts), `cooker` (mod cooker, cooker.svelte.ts), `commands` (command registry), `ui` (dialogs, ui.asking = pending confirmation), `tabs`, `nav`, `swfDoc(path, index)` (the movie editor's document of a SwfMovie export, swf.svelte.ts; studio_swf covers it); plus `watch(promise, ms)` which returns early with the question when the action asks for a confirmation. The code is the body of an async function and its return value comes back as JSON. Example: `return (await rpc('workspace.search', { query: 'zhin', limit: 5 })).results;`",
 			inputSchema: { code: z.string(), window: win },
 		},
 		({ code, window }) => guarded(async () => text(await evalIn(target(window), code))),
+	);
+
+	server.registerTool(
+		"studio_swf",
+		{
+			title: "Movie editor",
+			description: [
+				"The Scaleform movie (SwfMovie / GFxMovieInfo export) editor of a window, the same one the user sees: every call selects the movie, so the window follows. A movie is `path` (package, default: the open one) plus `index` or `object` (export path or name), else the selected export.",
+				"Every action first goes to `sprite` (0: the root timeline, else a sprite character id), `character` (any character) or `node` (movie, frames, texts, scripts, images, linkage, tags), then to `frame`; the place is kept between calls.",
+				"Actions: `movies` (movies of the open package; with `query` also the workspace's), `open` (go somewhere, `depth` selects an object), `status` (movie summary, place with breadcrumb and selection, pending edits, hidden layers), `tree` (character dictionary: id, kind, linkage names, bounds, deps/usedBy; filter `kind`, `query`, page `limit`/`offset`), `timeline` (display list of the open sprite at the frame: depth, character, name, x/y in pixels, scaleX/scaleY as factors, rotation/skew in degrees, alpha in %, bounds, tags, edited, hidden; plus frame labels and frame scripts), `info` (`section`: texts, scripts with their editable strings, images with their external file names, linkage, tags; `query`, paging), `script` (ActionScript 2 listing of script `tag`).",
+				"Edits are pending until `apply`, like in the editor: `edit` the object at `depth` of the open sprite and frame (`x`, `y` absolute or `dx`, `dy` relative pixels, `scaleX`, `scaleY`, `rotation`, `skew`, or a raw `matrix`; `alpha` 0–100; `name`, empty removes it), `remove` the object at `depth`, `revert` its pending edits, `text` (`kind` text: an edit-text field's initial text by its `tag`; string: script string `index` of script `tag`; image: external image file name of `tag`), `layers` (`hide`/`show`/`solo` depths, `showAll`: the editor's render only, never written to the movie), `apply` (writes the pending edits into the package as one undo step; then save with studio_run_command file.save, or keep it in the project/mod cooker), `discard` (drops the pending edits).",
+				"See the result with studio_screenshot. Images are replaced through their Texture2D (upk_call), not the movie.",
+			].join(" "),
+			inputSchema: {
+				action: z.enum([
+					"movies",
+					"open",
+					"status",
+					"tree",
+					"timeline",
+					"info",
+					"script",
+					"edit",
+					"remove",
+					"revert",
+					"text",
+					"layers",
+					"apply",
+					"discard",
+				]),
+				path: z
+					.string()
+					.optional()
+					.describe("package of the movie (default: the open one)"),
+				index: z
+					.number()
+					.int()
+					.optional()
+					.describe(
+						"export index of the movie; with kind string: the script string's index",
+					),
+				object: z.string().optional().describe("export path or name of the movie"),
+				sprite: z
+					.number()
+					.int()
+					.optional()
+					.describe("timeline to open: 0 the root, else a sprite id"),
+				character: z.number().int().optional().describe("character to open"),
+				node: z
+					.enum(["movie", "frames", "texts", "scripts", "images", "linkage", "tags"])
+					.optional(),
+				frame: z.number().int().optional(),
+				depth: z.number().int().optional().describe("object of the open timeline"),
+				query: z.string().optional(),
+				kind: z
+					.string()
+					.optional()
+					.describe("tree: character kind; text: text, string or image"),
+				section: z.enum(["texts", "scripts", "images", "linkage", "tags"]).optional(),
+				tag: z
+					.number()
+					.int()
+					.optional()
+					.describe("top-level tag index (texts, scripts, images)"),
+				text: z.string().optional(),
+				limit: z.number().int().optional(),
+				offset: z.number().int().optional(),
+				x: z.number().optional(),
+				y: z.number().optional(),
+				dx: z.number().optional(),
+				dy: z.number().optional(),
+				scaleX: z.number().optional().describe("factor, 1 = 100%"),
+				scaleY: z.number().optional().describe("factor, 1 = 100%"),
+				rotation: z.number().optional().describe("degrees"),
+				skew: z.number().optional().describe("degrees"),
+				matrix: z
+					.object({
+						a: z.number(),
+						b: z.number(),
+						c: z.number(),
+						d: z.number(),
+						tx: z.number(),
+						ty: z.number(),
+					})
+					.partial()
+					.optional(),
+				alpha: z.number().optional().describe("percent, 0 hides the object"),
+				name: z.string().optional().describe("instance name; empty removes it"),
+				hide: z.array(z.number().int()).optional(),
+				show: z.array(z.number().int()).optional(),
+				solo: z.array(z.number().int()).optional(),
+				showAll: z.boolean().optional(),
+				window: win,
+			},
+		},
+		({ window, ...args }) =>
+			guarded(async () =>
+				text(
+					await evalIn(target(window), `return await swfTool(${JSON.stringify(args)});`),
+				),
+			),
 	);
 
 	server.registerTool(

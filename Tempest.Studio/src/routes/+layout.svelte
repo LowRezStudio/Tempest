@@ -10,6 +10,7 @@
 	import { rpc } from "$lib/studio/rpc";
 	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
+	import { swfTool } from "$lib/studio/swf-tool";
 	import { swfDoc } from "$lib/studio/swf.svelte";
 	import { tabs } from "$lib/studio/tabs.svelte";
 	import { ui } from "$lib/studio/ui.svelte";
@@ -19,7 +20,19 @@
 	// The MCP server of the host drives the renderer through this (electron/src/mcp.ts);
 	// dev builds also put the stores on `window` for the screenshot harness
 	// (electron/src/smoke.ts).
-	const stores = { studio, assembly, rpc, session, ui, tabs, commands, nav, cooker, swfDoc };
+	const stores = {
+		studio,
+		assembly,
+		rpc,
+		session,
+		ui,
+		tabs,
+		commands,
+		nav,
+		cooker,
+		swfDoc,
+		swfTool,
+	};
 	(window as unknown as { __tempest: unknown }).__tempest = stores;
 	if (import.meta.env.DEV) Object.assign(window, stores);
 </script>
