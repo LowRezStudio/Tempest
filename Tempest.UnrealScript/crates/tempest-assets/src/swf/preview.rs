@@ -62,10 +62,21 @@ pub enum Target {
     Character(u16, bool),
 }
 
-/// Build the preview from the player movie (external images already embedded).
-pub fn build(m: &Movie, dict: &Dict, target: Target) -> Preview {
+/// What the Studio's stage asks for besides the target.
+#[derive(Default)]
+pub struct Options {
+    /// Depths left out of a timeline target: the object being edited, which
+    /// the Studio draws on a layer of its own and moves without re-rendering.
+    pub exclude: Vec<u16>,
+    /// The stage area (twips), kept fixed while editing so the view does not
+    /// re-fit when an object moves; the content bounds otherwise.
+    pub view: Option<[i32; 4]>,
+}
+
+/// Build the preview from the movie (external images are embedded afterwards).
+pub fn build(m: &Movie, dict: &Dict, target: Target, opts: &Options) -> Preview {
     let play = matches!(target, Target::Character(_, true));
-    let (list, rect): (Vec<Entry>, Option<[i32; 4]>) = match target {
+    let (mut list, rect): (Vec<Entry>, Option<[i32; 4]>) = match target {
         Target::Root(frame) => {
             let tl = display::timeline(&m.tags, frame + 1);
             let list = tl.frames.get(frame).or(tl.frames.last()).cloned().unwrap_or_default();
@@ -91,7 +102,10 @@ pub fn build(m: &Movie, dict: &Dict, target: Target) -> Preview {
             (vec![e], dict.bounds(m, id))
         }
     };
-    let mut rect = rect.unwrap_or([0, 0, 200 * 20, 200 * 20]);
+    if !matches!(target, Target::Character(..)) {
+        list.retain(|e| !opts.exclude.contains(&e.depth));
+    }
+    let mut rect = opts.view.or(rect).unwrap_or([0, 0, 200 * 20, 200 * 20]);
     if rect[2] - rect[0] < 20 {
         rect[2] = rect[0] + 20;
     }

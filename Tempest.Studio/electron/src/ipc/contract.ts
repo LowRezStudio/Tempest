@@ -922,7 +922,16 @@ export interface UpkMethods {
 	};
 	/** A movie showing one character or timeline frame, cut to its bounds (`rect`). */
 	"swf.preview": {
-		params: { path: string; index: number; target: SwfPreviewTarget; edits?: SwfEdit[] };
+		params: {
+			path: string;
+			index: number;
+			target: SwfPreviewTarget;
+			edits?: SwfEdit[];
+			/** Depths left out of a timeline target (drawn on their own layer). */
+			exclude?: number[];
+			/** Fixed stage area in the target's coordinates (pixels). */
+			rect?: SwfRect;
+		};
 		result: {
 			swf: Uint8Array;
 			bytes: number;

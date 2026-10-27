@@ -1737,9 +1737,10 @@ impl Server {
         }))
     }
 
-    /// `swf.preview {target: {kind: root|frame|character, id, frame, play}}`:
+    /// `swf.preview {target: {kind: root|frame|character, id, frame, play}, exclude?, rect?}`:
     /// a movie showing one character or one frame of a timeline, cut to its
-    /// bounds, with pending `edits` applied and external images embedded.
+    /// bounds (or `rect`, pixels), without the depths in `exclude`, with
+    /// pending `edits` applied and external images embedded.
     fn swf_preview(&mut self, p: &J) -> Res<J> {
         use crate::swf::preview::{build, Target};
         let (path, _, m) = self.swf_edited(p)?;
@@ -1753,7 +1754,12 @@ impl Server {
             k => return Err(format!("unknown preview target {k}").into()),
         };
         let dict = crate::swf::dict::Dict::build(&m);
-        let mut preview = build(&m, &dict, target);
+        let exclude: Vec<u16> = p.get("exclude").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_u64()).map(|x| x as u16).collect()).unwrap_or_default();
+        let view = p.get("rect").filter(|r| r.is_object()).map(|r| {
+            let f = |k: &str| (r.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0) * 20.0).round() as i32;
+            [f("x"), f("y"), f("x") + f("w"), f("y") + f("h")]
+        });
+        let mut preview = build(&m, &dict, target, &crate::swf::preview::Options { exclude, view });
         let (images, missing) = self.embed_images(&path, &mut preview.movie)?;
         let bytes = preview.movie.write();
         let len = bytes.len();

@@ -131,6 +131,26 @@ class Cooker {
 		}
 	}
 
+	/**
+	 * Open the cooker on the workspace's changes with one file chosen as a
+	 * delta (the movie editor's "Make a mod"): the file must be listed, so the
+	 * changes are read again first.
+	 */
+	async propose(path: string): Promise<void> {
+		studio.mode = "mod";
+		await this.refresh();
+		const same = (p: string) =>
+			p.replaceAll("\\", "/").toLowerCase() === path.replaceAll("\\", "/").toLowerCase();
+		this.items = this.items.map((i) => (same(i.path) ? { ...i, on: true, mode: "delta" } : i));
+		if (!this.items.some((i) => same(i.path))) {
+			toasts.push(
+				"info",
+				"Apply the movie edits first: the package has no changes yet",
+				"Make a mod",
+			);
+		}
+	}
+
 	async addFiles(): Promise<void> {
 		const files = await pickFiles("Files to ship in the mod", [], "cooker");
 		for (const f of files) this.extras = [...this.extras, { src: f, dest: defaultDest(f) }];

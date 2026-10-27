@@ -1,19 +1,35 @@
 <!--
-	The movie editor's canvas: a Ruffle preview of one character or timeline
-	frame (`swf.preview`, pending edits applied), sized to the target's bounds
-	at the current zoom so the overlay maps movie pixels exactly. The overlay
-	draws each object's bounds; click selects (the smallest box under the
-	pointer, Alt+click cycles through the others), drag moves, arrow keys
-	nudge (Shift: 10 px). A new preview loads behind the old one and replaces
-	it once Ruffle has it, so edits do not flash the canvas.
+	The movie editor's canvas, stacked Ruffle layers (`SwfLayer`): the target
+	(a timeline frame or one character) without its floating objects, then
+	each floating object alone, placed with a CSS transform. An object floats
+	once it is first edited (`SwfDoc.float`): its layer loads, then the frame
+	re-renders without it, and from then on moving, scaling, rotating or
+	fading it only changes that transform, so nothing re-renders. The
+	visible area is fixed per target, so an edit never re-fits the view.
+
+	Click selects the smallest object under the pointer (Alt+click cycles
+	through the others), press and drag moves the selection, double-click or
+	Enter edits inside a clip, Backspace goes up, arrows nudge (Shift: 10 px).
+	The transform tool (Q; V goes back to move) adds handles: corners and
+	edges scale (Shift keeps proportions, Alt scales from the centre), the
+	knob rotates (Shift: 15° steps).
 -->
 <script lang="ts">
+	import SwfLayer from "$lib/components/swf/SwfLayer.svelte";
 	import { inField } from "$lib/studio/keys";
-	import { rpc } from "$lib/studio/rpc";
-	import { loadRuffle, registerMovie, type RuffleElement } from "$lib/studio/ruffle";
-	import { type SwfDoc } from "$lib/studio/swf.svelte";
+	import {
+		apply,
+		invert,
+		mul,
+		rotation,
+		scaling,
+		translate,
+		type SwfDoc,
+	} from "$lib/studio/swf.svelte";
 	import type {
+		SwfEdit,
 		SwfEntry,
+		SwfMatrix,
 		SwfPreviewTarget,
 		SwfRect,
 	} from "../../../../electron/src/ipc/contract";
@@ -29,18 +45,51 @@
 	const { doc, target, entries = [], outline = null }: Props = $props();
 
 	let viewport = $state<HTMLDivElement | null>(null);
-	let host = $state<HTMLDivElement | null>(null);
 	let vw = $state(0);
 	let vh = $state(0);
-	let rect = $state<SwfRect | null>(null);
-	let status = $state<"loading" | "ready" | "error">("loading");
 	let error = $state<string | null>(null);
 	let missing = $state<string[]>([]);
-	let current: { player: RuffleElement; route: { dispose(): void } } | null = null;
-	let generation = 0;
-	/** The target the visible preview shows (the overlay only fits that one). */
-	let shown = $state("");
+	/** Area the base layer showed last (character targets: their bounds). */
+	let baseRect = $state<SwfRect | null>(null);
+	let baseShown = $state("");
+
 	const targetKey = $derived(JSON.stringify(target));
+	const timeline = $derived(target.kind !== "character");
+
+	// ----- fixed view per target ---------------------------------------------
+
+	/** Areas already chosen, per target, for this document. */
+	const views = new Map<string, SwfRect>();
+	const view = $derived.by((): SwfRect | null => {
+		if (!timeline) return null;
+		const known = views.get(targetKey);
+		if (known) return known;
+		if (target.kind === "root" && outline) return outline;
+		if (entries.length === 0) return null;
+		let r: SwfRect | null = outline;
+		for (const e of entries) {
+			if (!e.rect) continue;
+			r = r ? union(r, e.rect) : e.rect;
+		}
+		if (!r) return null;
+		const pad = Math.max(r.w, r.h) * 0.03;
+		return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+	});
+	$effect(() => {
+		if (view && !views.has(targetKey)) views.set(targetKey, view);
+	});
+	const rect = $derived(view ?? baseRect);
+
+	function union(a: SwfRect, b: SwfRect): SwfRect {
+		const x = Math.min(a.x, b.x);
+		const y = Math.min(a.y, b.y);
+		return {
+			x,
+			y,
+			w: Math.max(a.x + a.w, b.x + b.w) - x,
+			h: Math.max(a.y + a.h, b.y + b.h) - y,
+		};
+	}
 
 	const PAD = 24;
 	const scale = $derived.by(() => {
@@ -52,157 +101,316 @@
 	const width = $derived(rect ? Math.max(1, Math.round(rect.w * scale)) : 0);
 	const height = $derived(rect ? Math.max(1, Math.round(rect.h * scale)) : 0);
 
-	$effect(() => {
-		const t = targetKey;
-		void doc.version;
-		if (!host) return;
-		void show(JSON.parse(t) as SwfPreviewTarget, t);
-	});
+	// ----- floating layers ------------------------------------------------------
 
-	$effect(() => {
-		return () => {
-			generation++;
-			current?.route.dispose();
-			current = null;
-		};
-	});
+	const selected = $derived(timeline ? doc.selectedEntry : null);
+	const sprite = $derived(doc.sprite);
+	const localOf = (e: SwfEntry) => doc.chars.get(e.character)?.rect ?? null;
+	const local = $derived(selected ? localOf(selected) : null);
 
-	async function show(t: SwfPreviewTarget, key: string): Promise<void> {
-		const gen = ++generation;
-		status = current && shown === key ? "ready" : "loading";
-		error = null;
-		try {
-			const [preview, libraries, ruffle] = await Promise.all([
-				rpc("swf.preview", {
-					path: doc.path,
-					index: doc.index,
-					target: t,
-					edits: doc.pending,
-				}),
-				doc.librariesOnce(),
-				loadRuffle(),
-			]);
-			if (gen !== generation || !host) return;
-			const route = registerMovie(preview.swf, libraries.libraries);
-			const player = ruffle.newest().createPlayer();
-			player.style.position = "absolute";
-			player.style.inset = "0";
-			player.style.width = "100%";
-			player.style.height = "100%";
-			player.style.opacity = "0";
-			host.append(player);
-			await player.ruffle().load({
-				url: route.url,
-				scale: "exactFit",
-				letterbox: "off",
-				wmode: t.kind === "root" ? "opaque" : "transparent",
-				backgroundColor: t.kind === "root" ? null : "#00000000",
-				contextMenu: "off",
-			});
-			if (gen !== generation) {
-				player.remove();
-				route.dispose();
-				return;
-			}
-			rect = preview.rect;
-			missing = preview.missing;
-			shown = key;
-			player.style.opacity = "1";
-			const old = current;
-			current = { player, route };
-			if (old) {
-				old.player.remove();
-				old.route.dispose();
-			}
-			status = "ready";
-		} catch (error_) {
-			if (gen !== generation) return;
-			error = error_ instanceof Error ? error_.message : String(error_);
-			status = "error";
+	/** Objects with a layer of their own (see `SwfDoc.float`). */
+	const floats = $derived(
+		timeline
+			? entries.filter(
+					(e) => doc.floated.includes(e.depth) && e.clipDepth === null && !!localOf(e),
+				)
+			: [],
+	);
+	/** Edits that change what an object draws (not where this timeline puts it). */
+	const contentEdits = $derived(
+		doc.pending.filter(
+			(e: SwfEdit) =>
+				!((e.kind === "place" || e.kind === "deletePlace") && e.sprite === sprite),
+		),
+	);
+	const contentKey = $derived(JSON.stringify(contentEdits));
+	const layerKey = (e: SwfEntry) => `${e.character}|${contentKey}`;
+	/** What each layer has rendered, by depth. */
+	let loaded = $state<Record<number, { key: string; rect: SwfRect }>>({});
+	let loadedFor = "";
+	$effect(() => {
+		if (loadedFor !== targetKey) {
+			loadedFor = targetKey;
+			loaded = {};
 		}
+	});
+	/** Floating objects whose layer is on screen: the frame is drawn without them. */
+	const ready = $derived(floats.filter((e) => loaded[e.depth]?.key === layerKey(e)));
+	const readyTags = $derived(new Set(ready.flatMap((e) => doc.tagsOf(e))));
+
+	/** A drag in progress: the matrix it would set. */
+	let live = $state<{ depth: number; m: SwfMatrix } | null>(null);
+	/** Set on release until the timeline reports it (keeps the layer from snapping back). */
+	let committed = $state<Record<number, { m: SwfMatrix; from: string }>>({});
+	function matrixOf(e: SwfEntry): SwfMatrix {
+		if (live?.depth === e.depth) return live.m;
+		const c = committed[e.depth];
+		return c && c.from === JSON.stringify(e.matrix) ? c.m : e.matrix;
+	}
+	const matrix = $derived(selected ? matrixOf(selected) : null);
+
+	const baseRequest = $derived({
+		target,
+		// The floating objects' own placement edits only move their layers.
+		edits: doc.pending.filter(
+			(e: SwfEdit) => !(e.kind === "place" && e.sprite === sprite && readyTags.has(e.tag)),
+		),
+		exclude: ready.map((e) => e.depth),
+		rect: view ?? undefined,
+	});
+	const baseKey = $derived(JSON.stringify(baseRequest));
+
+	function layerStyle(e: SwfEntry): string {
+		const m = matrixOf(e);
+		const L = loaded[e.depth]?.rect ?? localOf(e)!;
+		const [ox, oy] = screen(m.tx, m.ty);
+		const shown = loaded[e.depth]?.key === layerKey(e);
+		const alpha = shown ? (e.cxform?.mul[3] ?? 1) : 0;
+		return [
+			`width: ${L.w * scale}px`,
+			`height: ${L.h * scale}px`,
+			"transform-origin: 0 0",
+			`transform: matrix(${m.a}, ${m.b}, ${m.c}, ${m.d}, ${ox}, ${oy}) translate(${L.x * scale}px, ${L.y * scale}px)`,
+			`opacity: ${alpha}`,
+		].join("; ");
 	}
 
-	// ----- overlay -------------------------------------------------------------
+	// ----- coordinates ----------------------------------------------------------
 
-	const box = (r: SwfRect) => {
-		const o = rect ?? { x: 0, y: 0, w: 0, h: 0 };
-		return {
-			left: (r.x - o.x) * scale,
-			top: (r.y - o.y) * scale,
-			width: Math.max(1, r.w * scale),
-			height: Math.max(1, r.h * scale),
-		};
+	/** Movie pixels → overlay pixels. */
+	const screen = (x: number, y: number): [number, number] => {
+		const o = rect ?? { x: 0, y: 0 };
+		return [(x - o.x) * scale, (y - o.y) * scale];
 	};
 
-	const pickable = $derived(entries.filter((e) => e.rect && e.clipDepth === null));
-	let drag = $state<{
-		entry: SwfEntry;
-		x0: number;
-		y0: number;
-		dx: number;
-		dy: number;
-		moved: boolean;
-	} | null>(null);
-
-	function toMovie(event: PointerEvent): { x: number; y: number } {
-		const r = host!.getBoundingClientRect();
-		const o = rect ?? { x: 0, y: 0, w: 0, h: 0 };
-		return {
-			x: (event.clientX - r.left) / scale + o.x,
-			y: (event.clientY - r.top) / scale + o.y,
-		};
+	function toMovie(event: PointerEvent | MouseEvent): [number, number] {
+		const box = (event.currentTarget as HTMLElement)
+			.closest("[data-stage]")!
+			.getBoundingClientRect();
+		const o = rect ?? { x: 0, y: 0 };
+		return [(event.clientX - box.left) / scale + o.x, (event.clientY - box.top) / scale + o.y];
 	}
 
-	function underPointer(p: { x: number; y: number }): SwfEntry[] {
+	/** Corners of the selection in overlay pixels (TL, TR, BR, BL). */
+	const corners = $derived.by((): [number, number][] => {
+		if (!matrix || !local) return [];
+		const L = local;
+		return (
+			[
+				[L.x, L.y],
+				[L.x + L.w, L.y],
+				[L.x + L.w, L.y + L.h],
+				[L.x, L.y + L.h],
+			] as [number, number][]
+		).map(([x, y]) => screen(...apply(matrix, x, y)));
+	});
+
+	// ----- picking --------------------------------------------------------------
+
+	const pickable = $derived(entries.filter((e) => e.rect && e.clipDepth === null));
+
+	function contains(e: SwfEntry, x: number, y: number): boolean {
+		const L = e === selected ? local : null;
+		if (L) {
+			const inv = invert(matrixOf(e));
+			if (inv) {
+				const [lx, ly] = apply(inv, x, y);
+				return lx >= L.x && lx <= L.x + L.w && ly >= L.y && ly <= L.y + L.h;
+			}
+		}
+		const r = e.rect!;
+		return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+	}
+
+	function under(x: number, y: number): SwfEntry[] {
 		return pickable
-			.filter((e) => {
-				const r = e.rect!;
-				return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
-			})
+			.filter((e) => contains(e, x, y))
 			.sort((a, b) => a.rect!.w * a.rect!.h - b.rect!.w * b.rect!.h);
 	}
 
+	// ----- dragging ---------------------------------------------------------------
+
+	type Drag =
+		| {
+				kind: "move";
+				entry: SwfEntry;
+				m0: SwfMatrix;
+				p0: [number, number];
+				x0: number;
+				y0: number;
+				moved: boolean;
+				click: SwfEntry | null;
+		  }
+		| { kind: "scale"; entry: SwfEntry; m0: SwfMatrix; hx: number; hy: number; moved: boolean }
+		| { kind: "rotate"; entry: SwfEntry; m0: SwfMatrix; p0: [number, number]; moved: boolean };
+	let drag: Drag | null = null;
+
+	function begin(event: PointerEvent, d: Drag) {
+		drag = d;
+		try {
+			(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		} catch {
+			// Not an active pointer (synthetic events): the drag still works inside the stage.
+		}
+		event.stopPropagation();
+		event.preventDefault();
+	}
+
 	function onPointerDown(event: PointerEvent) {
-		if (event.button !== 0 || !host) return;
+		if (event.button !== 0) return;
 		viewport?.focus({ preventScroll: true });
-		const p = toMovie(event);
-		const hits = underPointer(p);
+		const [x, y] = toMovie(event);
+		const hits = under(x, y);
 		if (hits.length === 0) {
 			doc.depth = null;
 			return;
 		}
-		let pick = hits[0];
-		const sel = hits.findIndex((e) => e.depth === doc.depth);
-		if (event.altKey && sel >= 0) pick = hits[(sel + 1) % hits.length];
-		else if (sel >= 0 && !event.altKey) pick = hits[sel];
-		doc.depth = pick.depth;
-		drag = { entry: pick, x0: event.clientX, y0: event.clientY, dx: 0, dy: 0, moved: false };
-		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		const sel = selected ? hits.indexOf(selected) : -1;
+		let entry: SwfEntry;
+		let click: SwfEntry | null = null;
+		if (event.altKey && sel >= 0) {
+			entry = hits[(sel + 1) % hits.length];
+		} else if (sel >= 0) {
+			// Pressing on the selection drags it; a plain click still picks the
+			// smallest object under the pointer (a full-stage background must
+			// not swallow every later click).
+			entry = selected!;
+			click = hits[0] !== selected ? hits[0] : null;
+		} else {
+			entry = hits[0];
+		}
+		doc.depth = entry.depth;
+		begin(event, {
+			kind: "move",
+			entry,
+			m0: matrixOf(entry),
+			p0: [x, y],
+			x0: event.clientX,
+			y0: event.clientY,
+			moved: false,
+			click,
+		});
+	}
+
+	function onHandleDown(event: PointerEvent, hx: number, hy: number) {
+		if (event.button !== 0 || !selected || !matrix) return;
+		doc.float(selected);
+		begin(event, { kind: "scale", entry: selected, m0: matrix, hx, hy, moved: false });
+	}
+
+	function onKnobDown(event: PointerEvent) {
+		if (event.button !== 0 || !selected || !matrix) return;
+		doc.float(selected);
+		begin(event, {
+			kind: "rotate",
+			entry: selected,
+			m0: matrix,
+			p0: toMovie(event),
+			moved: false,
+		});
 	}
 
 	function onPointerMove(event: PointerEvent) {
-		if (!drag) return;
-		let dx = (event.clientX - drag.x0) / scale;
-		let dy = (event.clientY - drag.y0) / scale;
-		if (event.shiftKey) {
-			if (Math.abs(dx) > Math.abs(dy)) dy = 0;
-			else dx = 0;
+		const d = drag;
+		if (!d) return;
+		const [x, y] = toMovie(event);
+		if (d.kind === "move") {
+			const far = Math.abs(event.clientX - d.x0) + Math.abs(event.clientY - d.y0) > 3;
+			if (!d.moved && !far) return;
+			if (!d.moved) doc.float(d.entry);
+			d.moved = true;
+			let dx = x - d.p0[0];
+			let dy = y - d.p0[1];
+			if (event.shiftKey) {
+				if (Math.abs(dx) > Math.abs(dy)) dy = 0;
+				else dx = 0;
+			}
+			live = { depth: d.entry.depth, m: mul(translate(dx, dy), d.m0) };
+		} else if (d.kind === "scale" && local) {
+			const inv = invert(d.m0);
+			if (!inv) return;
+			d.moved = true;
+			const [px, py] = apply(inv, x, y);
+			const L = local;
+			const hx = L.x + d.hx * L.w;
+			const hy = L.y + d.hy * L.h;
+			const cx = event.altKey ? L.x + L.w / 2 : L.x + (1 - d.hx) * L.w;
+			const cy = event.altKey ? L.y + L.h / 2 : L.y + (1 - d.hy) * L.h;
+			let sx = d.hx === 0.5 || hx === cx ? 1 : (px - cx) / (hx - cx);
+			let sy = d.hy === 0.5 || hy === cy ? 1 : (py - cy) / (hy - cy);
+			if (event.shiftKey) {
+				const s =
+					d.hx === 0.5 ? sy : d.hy === 0.5 ? sx : Math.abs(sx) > Math.abs(sy) ? sx : sy;
+				sx = Math.sign(sx || 1) * Math.abs(s);
+				sy = Math.sign(sy || 1) * Math.abs(s);
+			}
+			const clamp = (v: number) => (Math.abs(v) < 0.01 ? (v < 0 ? -0.01 : 0.01) : v);
+			live = {
+				depth: d.entry.depth,
+				m: mul(
+					d.m0,
+					mul(translate(cx, cy), mul(scaling(clamp(sx), clamp(sy)), translate(-cx, -cy))),
+				),
+			};
+		} else if (d.kind === "rotate" && local) {
+			d.moved = true;
+			const [cx, cy] = apply(d.m0, local.x + local.w / 2, local.y + local.h / 2);
+			let r = Math.atan2(y - cy, x - cx) - Math.atan2(d.p0[1] - cy, d.p0[0] - cx);
+			if (event.shiftKey) r = Math.round(r / (Math.PI / 12)) * (Math.PI / 12);
+			live = {
+				depth: d.entry.depth,
+				m: mul(translate(cx, cy), mul(rotation(r), mul(translate(-cx, -cy), d.m0))),
+			};
 		}
-		const moved =
-			drag.moved || Math.abs(event.clientX - drag.x0) + Math.abs(event.clientY - drag.y0) > 3;
-		drag = { ...drag, dx, dy, moved };
 	}
 
 	function onPointerUp() {
-		if (drag?.moved && (drag.dx !== 0 || drag.dy !== 0)) {
-			doc.moveEntry(drag.entry, drag.dx, drag.dy);
-		}
+		const d = drag;
 		drag = null;
+		if (!d) return;
+		if (d.moved && live) {
+			committed = {
+				...committed,
+				[d.entry.depth]: { m: live.m, from: JSON.stringify(d.entry.matrix) },
+			};
+			doc.setMatrix(d.entry, live.m);
+		} else if (d.kind === "move" && d.click) {
+			doc.depth = d.click.depth;
+		}
+		live = null;
+	}
+
+	function onDoubleClick(event: MouseEvent) {
+		if (!selected) return;
+		event.preventDefault();
+		doc.enter(selected);
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
 		if (inField(event)) return;
-		const e = doc.selectedEntry;
+		const e = selected;
+		if (event.key === "Escape") {
+			doc.depth = null;
+			return;
+		}
+		if (event.key === "v" || event.key === "V") {
+			doc.tool = "move";
+			return;
+		}
+		if (event.key === "q" || event.key === "Q") {
+			doc.tool = "transform";
+			return;
+		}
+		if (event.key === "Enter" && e) {
+			event.preventDefault();
+			doc.enter(e);
+			return;
+		}
+		if (event.key === "Backspace") {
+			event.preventDefault();
+			doc.up();
+			return;
+		}
 		const step = event.shiftKey ? 10 : 1;
 		const moves: Record<string, [number, number]> = {
 			ArrowLeft: [-step, 0],
@@ -210,10 +418,6 @@
 			ArrowUp: [0, -step],
 			ArrowDown: [0, step],
 		};
-		if (event.key === "Escape") {
-			doc.depth = null;
-			return;
-		}
 		const m = moves[event.key];
 		if (!m || !e) return;
 		event.preventDefault();
@@ -226,6 +430,39 @@
 		const z = doc.zoom || scale;
 		doc.zoom = Math.max(0.05, Math.min(16, z * (event.deltaY < 0 ? 1.25 : 0.8)));
 	}
+
+	const HANDLES: [number, number, string][] = [
+		[0, 0, "nwse-resize"],
+		[0.5, 0, "ns-resize"],
+		[1, 0, "nesw-resize"],
+		[1, 0.5, "ew-resize"],
+		[1, 1, "nwse-resize"],
+		[0.5, 1, "ns-resize"],
+		[0, 1, "nesw-resize"],
+		[0, 0.5, "ew-resize"],
+	];
+	const handlePoint = (hx: number, hy: number): [number, number] => {
+		const L = local!;
+		return screen(...apply(matrix!, L.x + hx * L.w, L.y + hy * L.h));
+	};
+	const knob = $derived.by((): { top: [number, number]; at: [number, number] } | null => {
+		if (!matrix || !local) return null;
+		const top = handlePoint(0.5, 0);
+		const mid = handlePoint(0.5, 0.5);
+		let dx = top[0] - mid[0];
+		let dy = top[1] - mid[1];
+		const n = Math.hypot(dx, dy) || 1;
+		dx /= n;
+		dy /= n;
+		if (n < 1) {
+			dx = 0;
+			dy = -1;
+		}
+		return { top, at: [top[0] + dx * 22, top[1] + dy * 22] };
+	});
+
+	/** The base layer shows the current target (the overlay fits it). */
+	const baseReady = $derived(baseShown === targetKey);
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -241,22 +478,61 @@
 	onwheel={onWheel}
 >
 	<div class="flex min-h-full min-w-full items-center justify-center" style="padding: {PAD}px">
-		<div class="relative shrink-0" style="width: {width}px; height: {height}px">
-			<div bind:this={host} class="absolute inset-0"></div>
-			{#if status === "ready" && rect && shown === targetKey}
+		<div
+			class="relative shrink-0"
+			style="width: {width}px; height: {height}px"
+			data-stage
+			data-x={rect?.x}
+			data-y={rect?.y}
+			data-scale={scale}
+		>
+			<SwfLayer
+				{doc}
+				request={baseRequest}
+				key={baseKey}
+				transparent={target.kind !== "root"}
+				onload={(r) => {
+					baseRect = r.rect;
+					missing = r.missing;
+					baseShown = JSON.stringify(JSON.parse(r.key).target);
+					error = null;
+				}}
+				onerror={(m) => (error = m)}
+			/>
+			{#each floats as e (e.depth)}
+				<div class="pointer-events-none absolute top-0 left-0" style={layerStyle(e)}>
+					<SwfLayer
+						{doc}
+						request={{
+							target: { kind: "character", id: e.character },
+							edits: contentEdits,
+						}}
+						key={layerKey(e)}
+						onload={(r) =>
+							(loaded = { ...loaded, [e.depth]: { key: r.key, rect: r.rect } })}
+						onerror={(m) => (error = m)}
+					/>
+				</div>
+			{/each}
+			{#if rect && baseReady}
 				<div
 					class="absolute inset-0 cursor-default"
 					role="presentation"
 					onpointerdown={onPointerDown}
 					onpointermove={onPointerMove}
 					onpointerup={onPointerUp}
-					onpointercancel={() => (drag = null)}
+					onpointercancel={() => {
+						drag = null;
+						live = null;
+					}}
+					ondblclick={onDoubleClick}
 				>
-					{#if outline}
-						{@const b = box(outline)}
+					{#if outline && timeline}
+						{@const [x, y] = screen(outline.x, outline.y)}
 						<div
 							class="border-warning/70 pointer-events-none absolute border border-dashed"
-							style="left: {b.left}px; top: {b.top}px; width: {b.width}px; height: {b.height}px"
+							style="left: {x}px; top: {y}px; width: {outline.w *
+								scale}px; height: {outline.h * scale}px"
 						>
 							<span
 								class="bg-warning/80 text-warning-content absolute -top-4 left-0 px-1 text-[9px]"
@@ -264,43 +540,99 @@
 							>
 						</div>
 					{/if}
-					{#each pickable as e (e.depth)}
-						{@const sel = e.depth === doc.depth}
-						{#if doc.showBounds || sel}
-							{@const b = box(e.rect!)}
-							{@const dx = sel && drag ? drag.dx * scale : 0}
-							{@const dy = sel && drag ? drag.dy * scale : 0}
-							<div
-								class="pointer-events-none absolute {sel
-									? 'border-primary bg-primary/10 z-10 border-2'
-									: doc.entryEdited(e)
-										? 'border-warning/80 border'
-										: 'border border-white/25'}"
-								style="left: {b.left + dx}px; top: {b.top +
-									dy}px; width: {b.width}px; height: {b.height}px"
+					{#if doc.showBounds}
+						{#each pickable as e (e.depth)}
+							{#if e !== selected}
+								{@const [x, y] = screen(e.rect!.x, e.rect!.y)}
+								<div
+									class="pointer-events-none absolute border {doc.entryEdited(e)
+										? 'border-warning/80'
+										: 'border-white/25'}"
+									style="left: {x}px; top: {y}px; width: {Math.max(
+										1,
+										e.rect!.w * scale,
+									)}px; height: {Math.max(1, e.rect!.h * scale)}px"
+								></div>
+							{/if}
+						{/each}
+					{/if}
+					{#if selected}
+						{#if corners.length === 4}
+							<svg
+								class="pointer-events-none absolute inset-0 overflow-visible"
+								{width}
+								{height}
 							>
-								{#if sel}
-									<span
-										class="bg-primary text-primary-content absolute -top-4 left-0 px-1 font-mono text-[9px] whitespace-nowrap"
-										>{e.name ?? doc.label(e.character)} · {e.depth}{drag?.moved
-											? ` · ${(e.matrix.tx + (drag?.dx ?? 0)).toFixed(1)}, ${(e.matrix.ty + (drag?.dy ?? 0)).toFixed(1)}`
-											: ""}</span
-									>
+								<polygon
+									points={corners.map((c) => c.join(",")).join(" ")}
+									class="fill-primary/10 stroke-primary"
+									stroke-width="1.5"
+								/>
+								{#if doc.tool === "transform" && knob}
+									<line
+										x1={knob.top[0]}
+										y1={knob.top[1]}
+										x2={knob.at[0]}
+										y2={knob.at[1]}
+										class="stroke-primary"
+									/>
 								{/if}
-							</div>
+							</svg>
+							<span
+								class="bg-primary text-primary-content pointer-events-none absolute px-1 font-mono text-[9px] whitespace-nowrap"
+								style="left: {Math.min(
+									...corners.map((c) => c[0]),
+								)}px; top: {Math.min(...corners.map((c) => c[1])) - 14}px"
+								>{selected.name ?? doc.label(selected.character)} · {selected.depth}{live
+									? ` · ${live.m.tx.toFixed(1)}, ${live.m.ty.toFixed(1)}`
+									: ""}</span
+							>
+							{#if doc.tool === "transform"}
+								{#each HANDLES as [hx, hy, cursor] (`${hx}-${hy}`)}
+									{@const [x, y] = handlePoint(hx, hy)}
+									<div
+										class="bg-base-100 border-primary absolute z-20 size-2 -translate-x-1/2 -translate-y-1/2 border"
+										style="left: {x}px; top: {y}px; cursor: {cursor}"
+										role="presentation"
+										onpointerdown={(ev) => onHandleDown(ev, hx, hy)}
+										onpointermove={onPointerMove}
+										onpointerup={onPointerUp}
+									></div>
+								{/each}
+								{#if knob}
+									<div
+										class="bg-primary absolute z-20 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+										style="left: {knob.at[0]}px; top: {knob
+											.at[1]}px; cursor: grab"
+										title="Rotate (Shift: 15° steps)"
+										role="presentation"
+										onpointerdown={onKnobDown}
+										onpointermove={onPointerMove}
+										onpointerup={onPointerUp}
+									></div>
+								{/if}
+							{/if}
+						{:else if selected.rect}
+							{@const [x, y] = screen(selected.rect.x, selected.rect.y)}
+							<div
+								class="border-primary bg-primary/10 pointer-events-none absolute border-2"
+								style="left: {x}px; top: {y}px; width: {selected.rect.w *
+									scale}px; height: {selected.rect.h * scale}px"
+							></div>
 						{/if}
-					{/each}
+					{/if}
 				</div>
 			{/if}
 		</div>
 	</div>
-	{#if status === "loading"}
+	{#if !baseReady && !error}
 		<div
 			class="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-xs opacity-70"
 		>
 			<span class="loading loading-sm loading-spinner"></span> Rendering…
 		</div>
-	{:else if status === "error"}
+	{/if}
+	{#if error}
 		<div class="alert alert-error absolute inset-x-3 top-3 block text-xs">
 			<p class="font-semibold">The preview could not be rendered</p>
 			<p class="mt-1 font-mono break-words">{error}</p>

@@ -7,7 +7,7 @@
 	as pending edits.
 -->
 <script lang="ts">
-	import { Eye, EyeOff, Link2, RotateCcw, Trash2 } from "@lucide/svelte";
+	import { CornerDownRight, Eye, EyeOff, Link2, RotateCcw, Trash2 } from "@lucide/svelte";
 	import { studio } from "$lib/studio/state.svelte";
 	import { compose, decompose, type Decomposed, type SwfDoc } from "$lib/studio/swf.svelte";
 	import type { SwfCharacter, SwfEntry } from "../../../../electron/src/ipc/contract";
@@ -46,6 +46,7 @@
 		const mul = [...base.mul];
 		mul[3] = Math.max(0, Math.min(1, percent / 100));
 		const identity = mul.every((m) => m === 1) && base.add.every((a) => a === 0);
+		doc.float(e);
 		doc.editPlace(doc.sprite!, e.changedBy, {
 			cxform: identity ? null : { mul, add: base.add },
 		});
@@ -138,6 +139,15 @@
 					>
 				{/if}
 			</div>
+			{#if doc.chars.get(entry.character)?.kind === "sprite"}
+				<button
+					class="btn btn-primary btn-xs justify-start"
+					title="Open this clip's own timeline to move what is inside it (double-click on the stage, or Enter)"
+					onclick={() => doc.enter(entry)}
+					><CornerDownRight size={11} /> Edit inside {entry.name ??
+						doc.label(entry.character)}</button
+				>
+			{/if}
 			{@render field(
 				"name",
 				entry.name ?? "",

@@ -86,6 +86,60 @@ export function compose(d: Decomposed): SwfMatrix {
 	};
 }
 
+/** `A · B` (B applied first). */
+export function mul(A: SwfMatrix, B: SwfMatrix): SwfMatrix {
+	return {
+		a: A.a * B.a + A.c * B.b,
+		b: A.b * B.a + A.d * B.b,
+		c: A.a * B.c + A.c * B.d,
+		d: A.b * B.c + A.d * B.d,
+		tx: A.a * B.tx + A.c * B.ty + A.tx,
+		ty: A.b * B.tx + A.d * B.ty + A.ty,
+	};
+}
+
+export function invert(m: SwfMatrix): SwfMatrix | null {
+	const det = m.a * m.d - m.b * m.c;
+	if (Math.abs(det) < 1e-12) return null;
+	return {
+		a: m.d / det,
+		b: -m.b / det,
+		c: -m.c / det,
+		d: m.a / det,
+		tx: (m.c * m.ty - m.d * m.tx) / det,
+		ty: (m.b * m.tx - m.a * m.ty) / det,
+	};
+}
+
+export function apply(m: SwfMatrix, x: number, y: number): [number, number] {
+	return [m.a * x + m.c * y + m.tx, m.b * x + m.d * y + m.ty];
+}
+
+export const translate = (tx: number, ty: number): SwfMatrix => ({
+	a: 1,
+	b: 0,
+	c: 0,
+	d: 1,
+	tx,
+	ty,
+});
+export const scaling = (sx: number, sy: number): SwfMatrix => ({
+	a: sx,
+	b: 0,
+	c: 0,
+	d: sy,
+	tx: 0,
+	ty: 0,
+});
+export const rotation = (r: number): SwfMatrix => ({
+	a: Math.cos(r),
+	b: Math.sin(r),
+	c: -Math.sin(r),
+	d: Math.cos(r),
+	tx: 0,
+	ty: 0,
+});
+
 /** Twips are the file's unit: keep pixel values on the 1/20 grid. */
 export const twips = (v: number) => Math.round(v * 20) / 20;
 
@@ -116,10 +170,14 @@ export class SwfDoc {
 	/** Preview zoom; 0 fits the view. */
 	zoom = $state(0);
 	showBounds = $state(true);
+	/** Stage tool: move the selection, or free transform (scale and rotate handles). */
+	tool = $state<"move" | "transform">("move");
 	treeFilter = $state("");
 	applying = $state(false);
 	private libraries: Promise<{ libraries: SwfLibrary[]; missing: string[] }> | null = null;
 	private timelineFor = "";
+	/** Character to select once the timeline being opened has loaded (going up a level). */
+	private reselect: number | null = null;
 
 	constructor(path: string, index: number) {
 		this.path = path;
@@ -165,6 +223,71 @@ export class SwfDoc {
 	/** The root timeline's first frame, for the stage outline. */
 	rootList = $state.raw<SwfEntry[]>([]);
 
+	/**
+	 * The sprite that places a character: the root when its first frame does,
+	 * else the first sprite using it (a clip reused in several sprites goes up
+	 * to the first of them).
+	 */
+	parentOf(id: number): number | null {
+		if (id === 0) return null;
+		if (this.rootList.some((e) => e.character === id)) return 0;
+		const parent = this.chars
+			.get(id)
+			?.usedBy.find((p) => this.chars.get(p)?.kind === "sprite" && p !== id);
+		return parent ?? null;
+	}
+
+	/** Root › … › the open sprite, for the breadcrumb (empty outside sprite views). */
+	trail = $derived.by((): { id: number; label: string }[] => {
+		const sprite = this.sprite;
+		if (sprite === null) return [];
+		const out: { id: number; label: string }[] = [];
+		let cur: number | null = sprite;
+		const seen = new Set<number>();
+		while (cur !== null && cur !== 0 && !seen.has(cur) && out.length < 32) {
+			seen.add(cur);
+			out.unshift({ id: cur, label: this.label(cur) });
+			cur = this.parentOf(cur);
+		}
+		out.unshift({ id: 0, label: "Root" });
+		return out;
+	});
+
+	/** Open a sprite of the breadcrumb (0: the root), selecting the clip we came from. */
+	goTo(id: number): void {
+		const from = this.sprite;
+		if (id === from) return;
+		const child =
+			from !== null
+				? this.trail[this.trail.findIndex((t) => t.id === id) + 1]?.id
+				: undefined;
+		this.open(id === 0 ? "frames" : `char:${id}`);
+		this.reselect = child ?? null;
+		this.selectReselect();
+	}
+
+	/** Go up one level of the breadcrumb. */
+	up(): void {
+		const parent = this.trail.at(-2);
+		if (parent) this.goTo(parent.id);
+	}
+
+	/** Edit inside a placed clip (sprites only): the stage's double-click. */
+	enter(entry: SwfEntry): boolean {
+		if (this.chars.get(entry.character)?.kind !== "sprite") return false;
+		this.openCharacter(entry.character);
+		return true;
+	}
+
+	private selectReselect(): void {
+		if (this.reselect === null) return;
+		const e = this.entries.find((x) => x.character === this.reselect);
+		if (e) {
+			this.depth = e.depth;
+			this.reselect = null;
+		}
+	}
+
 	/** Label of a character: its linkage name, or kind and id. */
 	label(id: number): string {
 		const c = this.chars.get(id);
@@ -195,6 +318,8 @@ export class SwfDoc {
 				this.node = "frames";
 			}
 			this.timelineFor = "";
+			// Tag indices change on Apply: layers start over.
+			this.floating = {};
 			await this.loadTimeline();
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);
@@ -223,6 +348,7 @@ export class SwfDoc {
 			if (this.timelineFor !== key) return;
 			this.timeline = t;
 			if (this.frame >= t.frames.length) this.frame = Math.max(0, t.frames.length - 1);
+			this.selectReselect();
 		} catch (error) {
 			toasts.error(error, "Could not read the timeline");
 		}
@@ -241,6 +367,7 @@ export class SwfDoc {
 		this.frame = 0;
 		this.depth = null;
 		this.play = false;
+		this.reselect = null;
 	}
 
 	/** Show a character; sprites open on their timeline. */
@@ -326,9 +453,28 @@ export class SwfDoc {
 		this.setEdit(next);
 	}
 
+	/**
+	 * Objects of the current timeline frame drawn on layers of their own
+	 * (by `sprite|frame`): an object gets one when it is first edited and
+	 * keeps it, so moving, scaling or fading it never re-renders the frame.
+	 */
+	floating = $state<Record<string, number[]>>({});
+	floatKey = $derived(`${this.sprite}|${this.frame}`);
+	floated = $derived(this.floating[this.floatKey] ?? []);
+
+	/** Give an object its own layer (before editing its placement). */
+	float(entry: SwfEntry): void {
+		const k = this.floatKey;
+		const list = this.floating[k] ?? [];
+		if (list.includes(entry.depth)) return;
+		// A handful at most: each layer is a Ruffle player.
+		this.floating = { ...this.floating, [k]: [...list, entry.depth].slice(-8) };
+	}
+
 	/** Move an object of the current timeline by a pixel offset. */
 	moveEntry(entry: SwfEntry, dx: number, dy: number): void {
 		if (this.sprite === null) return;
+		this.float(entry);
 		this.editPlace(this.sprite, entry.matrixBy, {
 			matrix: { tx: twips(entry.matrix.tx + dx), ty: twips(entry.matrix.ty + dy) },
 		});
@@ -336,6 +482,7 @@ export class SwfDoc {
 
 	setMatrix(entry: SwfEntry, matrix: SwfMatrix): void {
 		if (this.sprite === null) return;
+		this.float(entry);
 		const m = { ...matrix, tx: twips(matrix.tx), ty: twips(matrix.ty) };
 		this.editPlace(this.sprite, entry.matrixBy, { matrix: m });
 	}

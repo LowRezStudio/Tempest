@@ -22,6 +22,7 @@
 		Tags,
 		Type,
 	} from "@lucide/svelte";
+	import { untrack } from "svelte";
 	import { inField, reveal, step } from "$lib/studio/keys";
 	import { SWF_GROUPS, type SwfDoc, type SwfNode } from "$lib/studio/swf.svelte";
 	import type { SwfCharacter } from "../../../../electron/src/ipc/contract";
@@ -87,6 +88,21 @@
 	}
 
 	const count = (n: number | undefined) => (n === undefined ? "" : ` (${n})`);
+
+	// Follow the editor: entering a clip on the stage or a breadcrumb opens
+	// its group and scrolls the tree to it.
+	// Only a new node counts: edits refresh the dictionary, and collapsing
+	// the group by hand must stay possible.
+	$effect(() => {
+		const node = doc.node;
+		if (!node.startsWith("char:")) return;
+		untrack(() => {
+			const c = doc.chars.get(Number(node.slice(5)));
+			const g = c && SWF_GROUPS.find((x) => x.kinds.includes(c.kind));
+			if (g && collapsed[g.id]) collapsed = { ...collapsed, [g.id]: false };
+			reveal(`[data-swf-node="${node}"]`, false);
+		});
+	});
 </script>
 
 {#snippet row(node: SwfNode, label: string, Icon: typeof Info, extra = "", indent = false)}
