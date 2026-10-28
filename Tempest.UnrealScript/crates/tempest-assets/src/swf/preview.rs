@@ -98,7 +98,7 @@ pub fn build(m: &Movie, dict: &Dict, target: Target, opts: &Options) -> Preview 
             (list, rect)
         }
         Target::Character(id, _) => {
-            let e = Entry { depth: 1, character: id, matrix: Matrix::default(), cxform: Default::default(), name: Some("__preview".into()), ratio: None, clip_depth: None, class_name: None, placed_by: 0, matrix_by: 0, changed_by: 0, since: 0 };
+            let e = Entry { depth: 1, character: id, matrix: Matrix::default(), cxform: Default::default(), name: Some("__preview".into()), ratio: None, clip_depth: None, class_name: None, placed_by: 0, matrix_by: 0, changed_by: 0, since: 0, visible: true };
             (vec![e], dict.bounds(m, id))
         }
     };

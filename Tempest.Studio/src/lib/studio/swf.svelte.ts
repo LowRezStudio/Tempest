@@ -13,6 +13,7 @@ import { toasts } from "./toast.svelte";
 import type {
 	SwfCharacter,
 	SwfEdit,
+	SwfEditTextProps,
 	SwfEntry,
 	SwfImage,
 	SwfInfo,
@@ -148,9 +149,28 @@ export const rotation = (r: number): SwfMatrix => ({
 export const twips = (v: number) => Math.round(v * 20) / 20;
 
 function editKey(e: SwfEdit): string {
-	if (e.kind === "place") return `place|${e.sprite}|${e.tag}`;
-	if (e.kind === "deletePlace") return `delete|${e.sprite}|${e.tag}`;
-	return `${e.kind}|${e.tag}|${e.index ?? 0}`;
+	switch (e.kind) {
+		case "place": {
+			return `place|${e.sprite}|${e.tag}`;
+		}
+		case "deletePlace": {
+			return `delete|${e.sprite}|${e.tag}`;
+		}
+		case "shapeColor": {
+			return `shapeColor|${e.tag}|${e.key}`;
+		}
+		case "staticText": {
+			return `staticText|${e.tag}|${e.record}`;
+		}
+		case "shapeSvg":
+		case "editText":
+		case "fontGlyphs": {
+			return `${e.kind}|${e.tag}`;
+		}
+		default: {
+			return `${e.kind}|${e.tag}|${e.index ?? 0}`;
+		}
+	}
 }
 
 export class SwfDoc {
@@ -459,7 +479,7 @@ export class SwfDoc {
 		index?: number,
 	): string {
 		const e = this.edits[`${kind}|${tag}|${index ?? 0}`];
-		return e && "text" in e ? e.text : original;
+		return e && "text" in e && e.text !== undefined ? e.text : original;
 	}
 
 	isEdited(key: string): boolean {
@@ -590,6 +610,48 @@ export class SwfDoc {
 		this.changed();
 	}
 
+	// ----- shapes, texts, fonts ----------------------------------------------------
+
+	/** A shape colour (`#rrggbbaa`) or line width (pixels, `width:` keys). */
+	setShapeStyle(tag: number, key: string, value: string): void {
+		this.setEdit({ kind: "shapeColor", tag, key, value });
+	}
+
+	/** Redraw a shape from an SVG document (its colour edits no longer apply). */
+	replaceShape(tag: number, svg: string, fit: boolean): void {
+		const next = { ...this.edits };
+		for (const k of Object.keys(next)) if (k.startsWith(`shapeColor|${tag}|`)) delete next[k];
+		next[`shapeSvg|${tag}`] = { kind: "shapeSvg", tag, svg, fit };
+		this.edits = next;
+		this.changed();
+	}
+
+	/** Merge edit-text properties into the pending edit of a field. */
+	setEditText(tag: number, props: Partial<SwfEditTextProps>): void {
+		const prev = this.edits[`editText|${tag}`] as
+			| Extract<SwfEdit, { kind: "editText" }>
+			| undefined;
+		this.setEdit({ kind: "editText", tag, props: { ...prev?.props, ...props } });
+	}
+
+	/** A static text record's characters and/or colour. */
+	setStaticText(tag: number, record: number, change: { text?: string; color?: string }): void {
+		const prev = this.edits[`staticText|${tag}|${record}`] as
+			| Extract<SwfEdit, { kind: "staticText" }>
+			| undefined;
+		this.setEdit({ kind: "staticText", tag, record, ...prev, ...change });
+	}
+
+	/** Characters to add to a font from a TrueType/OpenType file. */
+	addGlyphs(tag: number, file: string, chars: string): void {
+		this.setEdit({ kind: "fontGlyphs", tag, file, chars });
+	}
+
+	/** The pending edit of a tag, by its key. */
+	editOf<K extends SwfEdit["kind"]>(key: string): Extract<SwfEdit, { kind: K }> | undefined {
+		return this.edits[key] as Extract<SwfEdit, { kind: K }> | undefined;
+	}
+
 	// ----- images -----------------------------------------------------------------
 
 	/**
@@ -631,15 +693,21 @@ export class SwfDoc {
 	/** Store a PNG/DDS file in the image's texture (undoable); `stretched`: another aspect ratio. */
 	async replaceImageWith(texture: number, image: SwfImage, file: string) {
 		const t = await studio.run("Encoding texture…", () =>
-			rpc("texture.import", { path: this.path, index: texture, file, keepAlpha: true }),
+			rpc("texture.import", {
+				path: this.path,
+				index: texture,
+				file,
+				keepAlpha: true,
+				padBlocks: true,
+			}),
 		);
 		studio.markDirty(this.path);
 		const ratio = (w: number, h: number) => w / Math.max(1, h);
-		const stretched =
-			Math.abs(ratio(t.width, t.height) / ratio(image.width, image.height) - 1) > 0.01;
+		const { width: sw, height: sh } = t.source;
+		const stretched = Math.abs(ratio(sw, sh) / ratio(image.width, image.height) - 1) > 0.01;
 		return {
-			width: t.width,
-			height: t.height,
+			width: sw,
+			height: sh,
 			format: t.format,
 			stretched,
 			note: `the movie draws it at ${image.width}×${image.height}${stretched ? ", so it is stretched (another aspect ratio)" : ""}`,

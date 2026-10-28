@@ -24,3 +24,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 flate2 = "1"
 vorbis_rs = "0.5"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# SVG import of shapes (paths, styles and transforms resolved), no text.
+usvg = { version = "0.48", default-features = false }
+# Glyph outlines for adding characters to a movie font.
+ttf-parser = "0.25"

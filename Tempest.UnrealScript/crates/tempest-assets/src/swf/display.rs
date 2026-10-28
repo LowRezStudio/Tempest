@@ -448,6 +448,24 @@ impl Place {
         Place { code: 26, moves: false, depth, class_name: None, character: Some(character), matrix: Some(matrix), cxform: None, ratio: None, name: None, clip_depth: None, flags2: 0, tail: Vec::new(), clip_actions: false }
     }
 
+    /// PlaceObject3's `Visible` field, when the tag sets it.
+    pub fn visible(&self) -> Option<bool> {
+        if self.flags2 & 0x20 == 0 {
+            return None;
+        }
+        let mut at = 0;
+        if self.flags2 & 0x01 != 0 {
+            at += super::dict::filter_list_len(&self.tail, 0)?;
+        }
+        if self.flags2 & 0x02 != 0 {
+            at += 1;
+        }
+        if self.flags2 & 0x04 != 0 {
+            at += 1;
+        }
+        self.tail.get(at).map(|&v| v != 0)
+    }
+
     /// The tail holds a filter list, blend mode or other PlaceObject3 extras.
     pub fn has_extras(&self) -> bool {
         !self.tail.is_empty()
@@ -482,6 +500,8 @@ pub struct Entry {
     pub changed_by: usize,
     /// Frame (0-based) the object was placed on.
     pub since: usize,
+    /// PlaceObject3's `Visible` (scripts can still show it).
+    pub visible: bool,
 }
 
 /// What a timeline shows: the display list after each frame, frame labels
@@ -540,6 +560,7 @@ pub fn timeline(tags: &[Tag], limit: usize) -> Timeline {
                             matrix_by: i,
                             changed_by: i,
                             since: frame,
+                            visible: p.visible().unwrap_or(true),
                         },
                     );
                 } else if let Some(e) = list.get_mut(&p.depth) {
@@ -561,6 +582,9 @@ pub fn timeline(tags: &[Tag], limit: usize) -> Timeline {
                     }
                     if p.clip_depth.is_some() {
                         e.clip_depth = p.clip_depth;
+                    }
+                    if let Some(v) = p.visible() {
+                        e.visible = v;
                     }
                     e.changed_by = i;
                 }

@@ -565,7 +565,103 @@ export type SwfEdit =
 			character?: number;
 			depth?: number;
 	  }
-	| { kind: "deletePlace"; sprite: number; tag: number };
+	| { kind: "deletePlace"; sprite: number; tag: number }
+	/** A shape colour (`fill:g:i`, `stop:g:i:k`, `line:g:i`: `#rrggbbaa`) or line width (`width:g:i`: pixels), patched in place. */
+	| { kind: "shapeColor"; tag: number; key: string; value: string }
+	/** The shape redrawn from an SVG (fitted into its current bounds unless `fit` is false). */
+	| { kind: "shapeSvg"; tag: number; svg: string; fit?: boolean }
+	/** Edit-text properties, as `SwfEditTextProps` names them. */
+	| { kind: "editText"; tag: number; props: Partial<SwfEditTextProps> }
+	/** A static text record's characters and/or colour. */
+	| { kind: "staticText"; tag: number; record: number; text?: string; color?: string }
+	/** Characters added to a font from a TrueType/OpenType file. */
+	| { kind: "fontGlyphs"; tag: number; file: string; chars: string };
+export type SwfEditTextProps = {
+	bounds: SwfRect;
+	font: number | null;
+	fontClass: string | null;
+	/** Pixels. */
+	height: number | null;
+	/** `#rrggbbaa`. */
+	color: string | null;
+	maxLength: number | null;
+	layout: boolean;
+	align: "left" | "right" | "center" | "justify";
+	leftMargin: number;
+	rightMargin: number;
+	indent: number;
+	leading: number;
+	variable: string;
+	wordWrap: boolean;
+	multiline: boolean;
+	password: boolean;
+	readOnly: boolean;
+	autoSize: boolean;
+	noSelect: boolean;
+	border: boolean;
+	wasStatic: boolean;
+	html: boolean;
+	useOutlines: boolean;
+};
+/** What the editor shows of one character (`swf.character`). */
+export type SwfCharacterDetail =
+	| {
+			kind: "shape";
+			tagName: string;
+			/** Colours carry alpha (DefineShape3/4). */
+			alpha: boolean;
+			colors: { key: string; color: string }[];
+			lines: { key: string; colorKey: string; width: number; color: string }[];
+			bitmapFills: number;
+			edges: number;
+	  }
+	| {
+			kind: "font";
+			tagName: string;
+			name: string;
+			glyphs: number;
+			chars: string;
+			bold: boolean;
+			italic: boolean;
+			layout: boolean;
+			alignZones: boolean;
+			editable: boolean;
+	  }
+	| {
+			kind: "text";
+			tagName: string;
+			records: {
+				text: string;
+				font: number;
+				fontName: string | null;
+				height: number;
+				color: string;
+				x: number;
+				y: number;
+			}[];
+	  }
+	| {
+			kind: "edittext";
+			props: SwfEditTextProps;
+			text: string | null;
+			fonts: { id: number; name: string; imported: boolean }[];
+	  }
+	| {
+			kind: "sound";
+			format: string;
+			rate: number;
+			channels: number;
+			samples: number | null;
+			ext: "mp3" | "wav" | null;
+	  }
+	| { kind: "binary"; bytes: number }
+	| {
+			kind: Exclude<
+				SwfCharacterKind,
+				"shape" | "font" | "text" | "edittext" | "sound" | "binary"
+			>;
+			tagName?: string;
+	  };
 export type SwfCharacterKind =
 	| "shape"
 	| "morph"
@@ -716,9 +812,21 @@ export interface UpkMethods {
 		result: { exported: number; failed: number; errors: string[]; outDir: string };
 	};
 	"texture.import": {
-		/** `keepAlpha`: a translucent PNG going into a DXT1 texture is stored as DXT5. */
-		params: Target & { file: string; mips?: boolean; format?: string; keepAlpha?: boolean };
-		result: TextureInfo;
+		/**
+		 * `keepAlpha`: a translucent PNG going into a DXT1 texture is stored as DXT5.
+		 * A PNG whose size is not a multiple of 4 going into a DXT texture (which
+		 * D3D9 cannot create) is scaled to the nearest multiple of 4, or with
+		 * `padBlocks` padded on the right and bottom like GFx's own images.
+		 */
+		params: Target & {
+			file: string;
+			mips?: boolean;
+			format?: string;
+			keepAlpha?: boolean;
+			padBlocks?: boolean;
+		};
+		/** `source`: the file's own size. */
+		result: TextureInfo & { source: { width: number; height: number } };
 	};
 	"mesh.info": { params: Target; result: MeshInfo };
 	"mesh.preview": {
@@ -1032,6 +1140,27 @@ export interface UpkMethods {
 			undo: string[];
 		};
 	};
+	/** One character's details for the properties pane (pending `edits` applied). */
+	"swf.character": {
+		params: { path: string; index: number; id: number; edits?: SwfEdit[] };
+		result: SwfCharacterDetail;
+	};
+	/**
+	 * Write a file: `svg` of a `target` (character, sprite frame, root frame),
+	 * `ttf` of font `id`, `sound` (MP3/WAV) or `binary` data of character `id`.
+	 */
+	"swf.export": {
+		params: {
+			path: string;
+			index: number;
+			format: "svg" | "ttf" | "sound" | "binary";
+			out: string;
+			id?: number;
+			target?: SwfPreviewTarget;
+			edits?: SwfEdit[];
+		};
+		result: { out: string; bytes: number; warnings: string[] };
+	};
 	/** Write edits (edit-text initial text, script strings, external image names, placements) back into the package. */
 	"swf.apply": {
 		params: { path: string; index: number; edits: SwfEdit[] };
@@ -1304,6 +1433,7 @@ export interface IpcContract {
 	"fs:exists": { args: { path: string }; result: boolean };
 	"fs:read-text": { args: { path: string }; result: string };
 	"fs:write-text": { args: { path: string; text: string }; result: void };
+	"fs:write-bytes": { args: { path: string; bytes: Uint8Array }; result: void };
 	"fs:remove": { args: { path: string }; result: void };
 	/** Create a folder (and its parents). */
 	"fs:mkdir": { args: { path: string }; result: void };

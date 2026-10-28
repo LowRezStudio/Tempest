@@ -187,6 +187,11 @@ pub struct ImportOptions {
     /// RGBA input with translucent pixels going to a DXT1 texture (no alpha
     /// beyond a 1-bit cut-out) is encoded as DXT5 instead.
     pub keep_alpha: bool,
+    /// RGBA input whose size is not a whole number of 4x4 blocks going to a
+    /// block-compressed format is padded on the right and bottom (as the GFx
+    /// exporter does: the movie's image tag keeps the real size) instead of
+    /// scaled. D3D9 refuses DXT textures of any other size.
+    pub pad_blocks: bool,
 }
 
 use crate::media::{remove_property, set_property};
@@ -203,6 +208,14 @@ pub fn import(db: &ClassDb, pkg: &mut Package, i: usize, obj: &mut Object, sourc
     let want_mips = opts.mips.unwrap_or(had_mips);
     let (format, width, height, mips): (PixelFormat, u32, u32, Vec<Vec<u8>>) = match source {
         ImportSource::Encoded { format, width, height, mips } => {
+            if format.is_block_compressed() && (!width.is_multiple_of(4) || !height.is_multiple_of(4)) {
+                return Err(Error::Format(format!(
+                    "{width}x{height} {}: the game cannot create a block-compressed texture whose size is not a multiple of 4; use a PNG or a DDS of {}x{}",
+                    format.name(),
+                    width.next_multiple_of(4),
+                    height.next_multiple_of(4)
+                )));
+            }
             let mips = if want_mips { mips } else { mips.into_iter().take(1).collect() };
             (format, width, height, mips)
         }
@@ -211,6 +224,22 @@ pub fn import(db: &ClassDb, pkg: &mut Package, i: usize, obj: &mut Object, sourc
             if opts.keep_alpha && opts.format.is_none() && format == PixelFormat::Dxt1 && rgba.as_chunks::<4>().0.iter().any(|px| px[3] < 255) {
                 format = PixelFormat::Dxt5;
             }
+            // D3D9's CreateTexture fails (D3DERR_INVALIDCALL, a fatal error in
+            // game) for a DXT texture whose size is not a multiple of 4.
+            let (width, height, rgba) = if format.is_block_compressed() && (!width.is_multiple_of(4) || !height.is_multiple_of(4)) {
+                let (pw, ph) = (width.next_multiple_of(4), height.next_multiple_of(4));
+                // A texture already that padded size holds a GFx image of the new image's size.
+                let padded_before = int_property(pkg, obj, "SizeX") == Some(pw as i32) && int_property(pkg, obj, "SizeY") == Some(ph as i32);
+                if opts.pad_blocks || padded_before {
+                    (pw, ph, dds::pad_rgba(width, height, &rgba, pw, ph))
+                } else {
+                    let (nw, nh) = ((width + 2) / 4 * 4, (height + 2) / 4 * 4);
+                    let (nw, nh) = (nw.max(4), nh.max(4));
+                    (nw, nh, dds::resize_rgba(width, height, &rgba, nw, nh))
+                }
+            } else {
+                (width, height, rgba)
+            };
             let chain = if want_mips { dds::rgba_mip_chain(width, height, &rgba) } else { vec![(width, height, rgba)] };
             let mut encoded = Vec::with_capacity(chain.len());
             for (w, h, px) in &chain {

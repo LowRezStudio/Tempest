@@ -454,6 +454,8 @@ impl Server {
             "swf.libraries" => self.swf_libraries(p),
             "swf.script" => self.swf_script(p),
             "swf.addImage" => self.swf_add_image(p),
+            "swf.character" => self.swf_character(p),
+            "swf.export" => self.swf_export(p),
             "swf.apply" => self.swf_apply(p),
             "swf.tree" => self.swf_tree(p),
             "swf.timeline" => self.swf_timeline(p),
@@ -1245,7 +1247,7 @@ impl Server {
         let i = self.export_of(path, p)?;
         let mut o = self.texture_object(path, i)?;
         let db = self.db()?;
-        let mut opts = ImportOptions { mips: opt_b(p, "mips"), format: None, keep_alpha: opt_b(p, "keepAlpha").unwrap_or(false) };
+        let mut opts = ImportOptions { mips: opt_b(p, "mips"), format: None, keep_alpha: opt_b(p, "keepAlpha").unwrap_or(false), pad_blocks: opt_b(p, "padBlocks").unwrap_or(false) };
         if let Some(f) = opt_s(p, "format").filter(|f| !f.is_empty()) {
             opts.format = Some(crate::dds::PixelFormat::from_name(&f).ok_or_else(|| format!("unknown pixel format {f}"))?);
         }
@@ -1257,12 +1259,18 @@ impl Server {
             let (w, h, rgba) = crate::dds::read_png(&bytes)?;
             ImportSource::Rgba { width: w, height: h, rgba }
         };
+        let (sw, sh) = match &source {
+            ImportSource::Encoded { width, height, .. } | ImportSource::Rgba { width, height, .. } => (*width, *height),
+        };
         let ed = self.editor(path)?;
         ed.begin_undo(format!("replace texture {}", ed.pkg.object_name(PackageIndex::export(i))));
         texture_ops::import(db, &mut ed.pkg, i, &mut o, source, &opts)?;
         ed.replace_object(i, o)?;
         ed.mark_dirty(i);
-        self.texture_info(p)
+        let mut info = self.texture_info(p)?;
+        // The file's own size: the texture's differs when it was padded or scaled to whole blocks.
+        info["source"] = json!({ "width": sw, "height": sh });
+        Ok(info)
     }
 
     // ----- meshes -----------------------------------------------------------
@@ -1881,6 +1889,136 @@ impl Server {
         Ok(json!({ "listing": crate::swf::script_listing(&m, tag)? }))
     }
 
+    /// Bitmaps of a movie for SVG export, by character id: external images
+    /// decoded from their textures (as the preview embeds them) and the
+    /// movie's own lossless bitmaps, as PNG at the size the movie draws them.
+    fn swf_bitmaps(&mut self, path: &str, m: &crate::swf::Movie) -> HashMap<u16, (u32, u32, Vec<u8>)> {
+        let mut copy = m.clone();
+        let _ = self.embed_images(path, &mut copy);
+        let mut out = HashMap::new();
+        for t in &copy.tags {
+            if let Some((id, w, h, rgba)) = crate::swf::decode_lossless(t) {
+                if let Ok(png) = crate::dds::write_png(w, h, &rgba) {
+                    out.insert(id, (w, h, png));
+                }
+            }
+        }
+        out
+    }
+
+    /// `swf.character {id}`: what the editor shows and edits of one character
+    /// (pending `edits` applied): a shape's colours and line widths, a font's
+    /// glyphs, a static text's records, an edit-text field's properties and
+    /// the fonts it can use, a sound's format.
+    fn swf_character(&mut self, p: &J) -> Res<J> {
+        use crate::swf::{dict::Dict, font::Font, shape::Shape, text};
+        let (_, _, m) = self.swf_edited(p)?;
+        let id = opt_u(p, "id").ok_or("missing parameter id")? as u16;
+        let dict = Dict::build(&m);
+        let c = dict.chars.get(&id).ok_or(format!("no character {id}"))?;
+        let Some(tag) = c.tag else { return Ok(json!({ "kind": c.kind })) };
+        let t = &m.tags[tag];
+        let fonts = |fid: u16| dict.chars.get(&fid).and_then(|c| c.tag).and_then(|ft| Font::parse(&m, ft).ok());
+        Ok(match c.kind {
+            "shape" => {
+                let s = Shape::parse(t)?;
+                let lines: Vec<J> = s
+                    .groups
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(g, st)| st.lines.iter().enumerate().map(move |(i, l)| json!({ "key": format!("width:{g}:{i}"), "colorKey": format!("line:{g}:{i}"), "width": l.width as f64 / 20.0, "color": l.color.hex() })))
+                    .collect();
+                let bitmaps = s.groups.iter().flat_map(|g| g.fills.iter()).filter(|f| matches!(f, crate::swf::shape::Fill::Bitmap { .. })).count();
+                json!({
+                    "kind": "shape",
+                    "tagName": crate::swf::tag_name(t.code),
+                    "alpha": s.has_alpha(),
+                    "colors": s.colors().into_iter().filter(|(k, _)| !k.starts_with("line:")).map(|(k, c)| json!({ "key": k, "color": c.hex() })).collect::<Vec<_>>(),
+                    "lines": lines,
+                    "bitmapFills": bitmaps,
+                    "edges": s.edges.len(),
+                })
+            }
+            "font" => {
+                let f = Font::parse(&m, tag)?;
+                let chars: String = f.codes.iter().filter_map(|&c| char::from_u32(c as u32)).collect();
+                json!({
+                    "kind": "font",
+                    "tagName": crate::swf::tag_name(t.code),
+                    "name": f.name(),
+                    "glyphs": f.glyphs.len(),
+                    "chars": chars,
+                    "bold": f.bold(),
+                    "italic": f.italic(),
+                    "layout": f.layout.is_some(),
+                    "alignZones": m.tags.iter().any(|x| x.code == 73 && crate::swf::u16_at_pub(&x.data, 0) == Some(id)),
+                    "editable": t.code != 10,
+                })
+            }
+            "text" => {
+                let st = text::StaticText::parse(t).ok_or("bad DefineText")?;
+                json!({ "kind": "text", "tagName": crate::swf::tag_name(t.code), "records": st.json(&fonts) })
+            }
+            "edittext" => {
+                let et = text::EditText::parse(&t.data).ok_or("bad DefineEditText")?;
+                let available: Vec<J> = dict
+                    .chars
+                    .values()
+                    .filter(|c| c.kind == "font" || (c.kind == "import" && c.import.is_some()))
+                    .map(|c| {
+                        let name = if c.kind == "font" { fonts(c.id).map(|f| f.name()).unwrap_or_default() } else { c.names.first().cloned().unwrap_or_default() };
+                        json!({ "id": c.id, "name": name, "imported": c.kind == "import" })
+                    })
+                    .collect();
+                json!({ "kind": "edittext", "props": et.json(), "text": et.text, "fonts": available })
+            }
+            "sound" => {
+                let b = t.data.get(2).copied().unwrap_or(0);
+                let format = ["uncompressed", "ADPCM", "MP3", "uncompressed", "Nellymoser 16 kHz", "Nellymoser 8 kHz", "Nellymoser"].get((b >> 4) as usize).copied().unwrap_or("Speex");
+                let ext = text::sound_file(t).map(|(e, _)| e).ok();
+                const RATES: [u32; 4] = [5512, 11025, 22050, 44100];
+                json!({ "kind": "sound", "format": format, "rate": RATES[((b >> 2) & 3) as usize], "channels": 1 + (b & 1), "samples": crate::swf::u32_at_pub(&t.data, 3), "ext": ext })
+            }
+            "binary" => json!({ "kind": "binary", "bytes": t.data.len().saturating_sub(6) }),
+            k => json!({ "kind": k, "tagName": crate::swf::tag_name(t.code) }),
+        })
+    }
+
+    /// `swf.export {target | id, format: svg|ttf|sound|binary, out}`: a
+    /// character, sprite frame or root frame as SVG, a font as TrueType, a
+    /// sound as MP3/WAV, binary data as is (pending `edits` applied).
+    fn swf_export(&mut self, p: &J) -> Res<J> {
+        use crate::swf::{dict::Dict, font::Font, svg, text};
+        let (path, _, m) = self.swf_edited(p)?;
+        let out = s(p, "out")?.to_string();
+        let format = s(p, "format")?;
+        let tag_of = |m: &crate::swf::Movie, id: u16| -> Res<usize> { Dict::build(m).chars.get(&id).and_then(|c| c.tag).ok_or_else(|| format!("no character {id} defined in this movie").into()) };
+        let id = opt_u(p, "id").map(|v| v as u16);
+        let mut warnings: Vec<String> = Vec::new();
+        let bytes = match format {
+            "svg" => {
+                let t = p.get("target").cloned().unwrap_or_else(|| json!({ "kind": "character", "id": id }));
+                let frame = t.get("frame").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let tid = t.get("id").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+                let target = match t.get("kind").and_then(|v| v.as_str()).unwrap_or("character") {
+                    "root" => svg::Target::Root { frame },
+                    "frame" => svg::Target::Frame { sprite: tid, frame },
+                    _ => svg::Target::Character { id: tid },
+                };
+                let bitmaps = self.swf_bitmaps(&path, &m);
+                let (doc, w) = svg::export(&m, target, &mut |b| bitmaps.get(&b).cloned())?;
+                warnings = w;
+                doc.into_bytes()
+            }
+            "ttf" => Font::parse(&m, tag_of(&m, id.ok_or("missing parameter id")?)?)?.to_ttf()?,
+            "sound" => text::sound_file(&m.tags[tag_of(&m, id.ok_or("missing parameter id")?)?])?.1,
+            "binary" => text::binary_data(&m.tags[tag_of(&m, id.ok_or("missing parameter id")?)?])?,
+            f => return Err(format!("unknown export format {f}").into()),
+        };
+        std::fs::write(&out, &bytes)?;
+        Ok(json!({ "out": out, "bytes": bytes.len(), "warnings": warnings }))
+    }
+
     /// `swf.addImage {file, name?, shape?, place?: {sprite, frame, x, y, name?}, format?, mips?, edits?}`:
     /// a new external image in the movie (pending `edits` applied first, as
     /// `swf.apply` does): a Texture2D made from the PNG/DDS `file` with the
@@ -1901,7 +2039,7 @@ impl Server {
             let (w, h, rgba) = crate::dds::read_png(&bytes)?;
             (w, h, ImportSource::Rgba { width: w, height: h, rgba })
         };
-        let mut opts = ImportOptions { mips: opt_b(p, "mips"), format: None, keep_alpha: true };
+        let mut opts = ImportOptions { mips: opt_b(p, "mips"), format: None, keep_alpha: true, pad_blocks: true };
         if let Some(f) = opt_s(p, "format").filter(|f| !f.is_empty()) {
             opts.format = Some(crate::dds::PixelFormat::from_name(&f).ok_or_else(|| format!("unknown pixel format {f}"))?);
         }

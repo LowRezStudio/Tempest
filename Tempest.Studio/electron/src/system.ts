@@ -22,6 +22,7 @@ handle("window:set-title", (event, { title }) => {
 handle("fs:exists", (_event, { path: p }) => fs.existsSync(p));
 handle("fs:read-text", (_event, { path: p }) => fs.promises.readFile(p, "utf8"));
 handle("fs:write-text", (_event, { path: p, text }) => fs.promises.writeFile(p, text, "utf8"));
+handle("fs:write-bytes", (_event, { path: p, bytes }) => fs.promises.writeFile(p, bytes));
 handle("fs:remove", (_event, { path: p }) => fs.promises.rm(p, { force: true, recursive: true }));
 handle("fs:mkdir", async (_event, { path: p }) => {
 	await fs.promises.mkdir(p, { recursive: true });

@@ -543,6 +543,45 @@ pub fn rgba_mip_chain(w: u32, h: u32, rgba: &[u8]) -> Vec<(u32, u32, Vec<u8>)> {
     chain
 }
 
+/// An RGBA8 image grown to `pw`x`ph` by repeating its last column and row
+/// (the picture stays at the top left, so a movie that draws the image's own
+/// size from the texture sees no seam).
+pub fn pad_rgba(w: u32, h: u32, rgba: &[u8], pw: u32, ph: u32) -> Vec<u8> {
+    let mut padded = vec![0u8; (pw * ph * 4) as usize];
+    for y in 0..ph {
+        for x in 0..pw {
+            let sx = x.min(w - 1);
+            let sy = y.min(h - 1);
+            padded[((y * pw + x) * 4) as usize..][..4].copy_from_slice(&rgba[((sy * w + sx) * 4) as usize..][..4]);
+        }
+    }
+    padded
+}
+
+/// An RGBA8 image scaled to `nw`x`nh` (bilinear, pixel centres aligned).
+pub fn resize_rgba(w: u32, h: u32, rgba: &[u8], nw: u32, nh: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (nw * nh * 4) as usize];
+    let px = |x: u32, y: u32| &rgba[((y * w + x) * 4) as usize..][..4];
+    for y in 0..nh {
+        let fy = ((y as f32 + 0.5) * h as f32 / nh as f32 - 0.5).clamp(0.0, (h - 1) as f32);
+        let (y0, ty) = (fy.floor() as u32, fy.fract());
+        let y1 = (y0 + 1).min(h - 1);
+        for x in 0..nw {
+            let fx = ((x as f32 + 0.5) * w as f32 / nw as f32 - 0.5).clamp(0.0, (w - 1) as f32);
+            let (x0, tx) = (fx.floor() as u32, fx.fract());
+            let x1 = (x0 + 1).min(w - 1);
+            let (a, b, c, d) = (px(x0, y0), px(x1, y0), px(x0, y1), px(x1, y1));
+            let o = ((y * nw + x) * 4) as usize;
+            for k in 0..4 {
+                let top = a[k] as f32 * (1.0 - tx) + b[k] as f32 * tx;
+                let bottom = c[k] as f32 * (1.0 - tx) + d[k] as f32 * tx;
+                out[o + k] = (top * (1.0 - ty) + bottom * ty).round() as u8;
+            }
+        }
+    }
+    out
+}
+
 /// Encode RGBA8 pixels into `format`. Block formats need at least 4x4:
 /// smaller images are padded by edge replication, as the engine stores a
 /// full block for its smallest mips.
@@ -554,15 +593,7 @@ pub fn encode_rgba(format: PixelFormat, w: u32, h: u32, rgba: &[u8]) -> Result<V
     if format.is_block_compressed() {
         let (pw, ph) = (w.max(4), h.max(4));
         let src: std::borrow::Cow<[u8]> = if (pw, ph) != (w, h) {
-            let mut padded = vec![0u8; (pw * ph * 4) as usize];
-            for y in 0..ph {
-                for x in 0..pw {
-                    let sx = x.min(w - 1);
-                    let sy = y.min(h - 1);
-                    padded[((y * pw + x) * 4) as usize..][..4].copy_from_slice(&rgba[((sy * w + sx) * 4) as usize..][..4]);
-                }
-            }
-            padded.into()
+            pad_rgba(w, h, rgba, pw, ph).into()
         } else {
             rgba.into()
         };

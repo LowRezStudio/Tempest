@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
 	import { CornerDownRight, Eye, EyeOff, RotateCcw, Trash2 } from "@lucide/svelte";
+	import SwfCharacterEditor from "$lib/components/swf/SwfCharacterEditor.svelte";
 	import SwfImageCard from "$lib/components/swf/SwfImageCard.svelte";
 	import { compose, decompose, type Decomposed, type SwfDoc } from "$lib/studio/swf.svelte";
 	import type { SwfCharacter, SwfEntry } from "../../../../electron/src/ipc/contract";
@@ -279,6 +280,7 @@
 					<SwfImageCard {doc} image={im} />
 				{/if}
 			{/if}
+			<SwfCharacterEditor {doc} character={c} />
 			<div>
 				<div class="mb-0.5 opacity-60">uses</div>
 				{@render chips(c.deps)}

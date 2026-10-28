@@ -20,7 +20,11 @@
 pub mod add;
 pub mod dict;
 pub mod display;
+pub mod font;
 pub mod preview;
+pub mod shape;
+pub mod svg;
+pub mod text;
 
 use std::io::{Read, Write};
 
@@ -124,6 +128,14 @@ pub fn tag_name(code: u16) -> &'static str {
 
 fn u16_at(d: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_le_bytes([*d.get(at)?, *d.get(at + 1)?]))
+}
+
+pub fn u16_at_pub(d: &[u8], at: usize) -> Option<u16> {
+    u16_at(d, at)
+}
+
+pub fn u32_at_pub(d: &[u8], at: usize) -> Option<u32> {
+    u32_at(d, at)
 }
 
 fn u32_at(d: &[u8], at: usize) -> Option<u32> {
@@ -773,6 +785,46 @@ pub fn parse_sub_image(d: &[u8]) -> Option<SubImage> {
     Some(SubImage { id: u16_at(d, 0)?, image_id: u16_at(d, 2)?, x1: u16_at(d, 4)?, y1: u16_at(d, 6)?, x2: u16_at(d, 8)?, y2: u16_at(d, 10)? })
 }
 
+/// The pixels of a `DefineBitsLossless`/`DefineBitsLossless2` (straight
+/// RGBA): 32-bit (premultiplied in version 2) and colour-mapped formats.
+pub fn decode_lossless(t: &Tag) -> Option<(u16, u32, u32, Vec<u8>)> {
+    if t.code != 20 && t.code != 36 {
+        return None;
+    }
+    let d = &t.data;
+    let id = u16_at(d, 0)?;
+    let format = *d.get(2)?;
+    let (w, h) = (u16_at(d, 3)? as usize, u16_at(d, 5)? as usize);
+    let alpha = t.code == 36;
+    let (table, start) = if format == 3 { (*d.get(7)? as usize + 1, 8) } else { (0, 7) };
+    let mut raw = Vec::new();
+    flate2::read::ZlibDecoder::new(d.get(start..)?).read_to_end(&mut raw).ok()?;
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    match format {
+        5 => {
+            for px in raw.get(..w * h * 4)?.as_chunks::<4>().0 {
+                let a = if alpha { px[0] } else { 255 };
+                let un = |c: u8| if alpha && a > 0 && a < 255 { ((c as u32 * 255 + a as u32 / 2) / a as u32).min(255) as u8 } else { c };
+                rgba.extend_from_slice(&[un(px[1]), un(px[2]), un(px[3]), a]);
+            }
+        }
+        3 => {
+            let entry = if alpha { 4 } else { 3 };
+            let colors = raw.get(..table * entry)?;
+            let stride = w.div_ceil(4) * 4;
+            for y in 0..h {
+                for x in 0..w {
+                    let i = *raw.get(table * entry + y * stride + x)? as usize;
+                    let c = colors.get(i * entry..i * entry + entry)?;
+                    rgba.extend_from_slice(&[c[0], c[1], c[2], if alpha { c[3] } else { 255 }]);
+                }
+            }
+        }
+        _ => return None,
+    }
+    Some((id, w as u32, h as u32, rgba))
+}
+
 /// URLs of the movies this one imports (`ImportAssets`/`ImportAssets2`), in
 /// file order and without duplicates. Scaleform splits its UI into shared
 /// libraries (`../SharedAssets/SharedAssets.swf`, the font library, …) that
@@ -939,6 +991,47 @@ fn edit_place(m: &mut Movie, e: &J) -> Result<()> {
     })
 }
 
+/// The font a character id names, parsed (for static texts).
+fn font_of(m: &Movie, id: u16) -> Option<font::Font> {
+    let tag = m.tags.iter().position(|t| font::is_font(t.code) && u16_at(&t.data, 0) == Some(id))?;
+    font::Font::parse(m, tag).ok()
+}
+
+/// `{kind: "staticText", tag, record, text?, color?}`.
+fn edit_static_text(m: &mut Movie, e: &J) -> Result<()> {
+    let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("staticText without tag".into()))? as usize;
+    let t = m.tags.get(tag).ok_or_else(|| Error::Format(format!("no tag {tag}")))?;
+    let mut st = text::StaticText::parse(t).ok_or_else(|| Error::Format(format!("tag {tag} is not a static text")))?;
+    let record = e.get("record").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let color = match e.get("color").and_then(|v| v.as_str()) {
+        Some(c) => Some(shape::Rgba::parse(c).ok_or_else(|| Error::Format(format!("{c} is not a colour")))?),
+        None => None,
+    };
+    let fonts = |id: u16| font_of(m, id);
+    let known = text::known_advances(m, &|id| font_of(m, id).map(|f| f.em()).unwrap_or(1024.0));
+    st.edit(record, e.get("text").and_then(|v| v.as_str()), color, &fonts, &known)?;
+    m.tags[tag] = st.write();
+    Ok(())
+}
+
+/// `{kind: "fontGlyphs", tag, file, chars}`: characters from a TrueType/OpenType
+/// file added to a font; static texts and alignment zones follow the new glyph order.
+fn add_font_glyphs(m: &mut Movie, e: &J) -> Result<()> {
+    let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("fontGlyphs without tag".into()))? as usize;
+    let file = e.get("file").and_then(|v| v.as_str()).ok_or_else(|| Error::Format("fontGlyphs without file".into()))?;
+    let chars = e.get("chars").and_then(|v| v.as_str()).unwrap_or("");
+    let bytes = std::fs::read(file).map_err(|err| Error::Format(format!("{file}: {err}")))?;
+    let mut f = font::Font::parse(m, tag)?;
+    let (_, _, remap) = f.add_glyphs(&bytes, chars)?;
+    let total = f.glyphs.len();
+    m.tags[tag] = f.write()?;
+    text::remap_texts(m, f.id, &remap);
+    for t in m.tags.iter_mut().filter(|t| t.code == 73 && u16_at(&t.data, 0) == Some(f.id)) {
+        font::remap_align_zones(t, &remap, total)?;
+    }
+    Ok(())
+}
+
 /// Apply edits and return how many were applied. Kinds: `text` (edit-text
 /// initial text), `string` (script string), `image` (external image file
 /// name), `place` (see `edit_place`) and `deletePlace` (`{sprite, tag}`:
@@ -958,6 +1051,16 @@ pub fn apply(m: &mut Movie, edits: &[J]) -> Result<usize> {
                 let sprite = e.get("sprite").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
                 let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("deletePlace without tag".into()))? as usize;
                 deletes.push((sprite, tag));
+                continue;
+            }
+            Some("staticText") => {
+                edit_static_text(m, e)?;
+                n += 1;
+                continue;
+            }
+            Some("fontGlyphs") => {
+                add_font_glyphs(m, e)?;
+                n += 1;
                 continue;
             }
             _ => {}
@@ -980,6 +1083,24 @@ pub fn apply(m: &mut Movie, edits: &[J]) -> Result<usize> {
             }
             "image" if t.code == 1009 || t.code == 1001 => {
                 t.data = set_external_image_file(t.code, &t.data, text).ok_or_else(|| Error::Format("bad external image tag".into()))?;
+            }
+            "shapeColor" if shape::is_shape(t.code) => {
+                let s = shape::Shape::parse(t)?;
+                let key = e.get("key").and_then(|v| v.as_str()).unwrap_or("");
+                let value = e.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                s.patch(&mut t.data, key, value)?;
+            }
+            "shapeSvg" if shape::is_shape(t.code) => {
+                let id = u16_at(&t.data, 0).unwrap_or(0);
+                let fit = if e.get("fit").and_then(|v| v.as_bool()).unwrap_or(true) { dict::read_rect(&t.data, 2).map(|r| r.0) } else { None };
+                let svg = e.get("svg").and_then(|v| v.as_str()).ok_or_else(|| Error::Format("shapeSvg without svg".into()))?;
+                *t = svg::import(id, svg.as_bytes(), fit)?.0;
+            }
+            "editText" if t.code == 37 => {
+                let mut et = text::EditText::parse(&t.data).ok_or_else(|| Error::Format("bad DefineEditText".into()))?;
+                et.set(e.get("props").unwrap_or(&J::Null))?;
+                t.data = et.write();
+                t.long = true;
             }
             _ => return Err(Error::Format(format!("edit {kind} does not apply to {}", tag_name(t.code)))),
         }

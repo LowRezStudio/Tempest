@@ -12,6 +12,7 @@
 	import {
 		Check,
 		ChevronRight,
+		Download,
 		ImagePlus,
 		Maximize,
 		Move,
@@ -37,6 +38,7 @@
 	import SwfPlayer from "$lib/components/SwfPlayer.svelte";
 	import { cooker } from "$lib/studio/cooker.svelte";
 	import { studio } from "$lib/studio/state.svelte";
+	import { exportFrames, exportPng, exportSvg } from "$lib/studio/swf-export";
 	import { swfDoc } from "$lib/studio/swf.svelte";
 	import { ui } from "$lib/studio/ui.svelte";
 	import type { SwfPreviewTarget, SwfRect } from "../../../electron/src/ipc/contract";
@@ -284,6 +286,34 @@
 						title="Fit"
 						onclick={() => (doc.zoom = 0)}><Maximize size={11} /></button
 					>
+				</div>
+			{/if}
+			{#if target && !doc.play}
+				{@const t = target}
+				<div class="dropdown dropdown-end">
+					<button
+						tabindex="0"
+						class="btn btn-ghost btn-xs"
+						title="Export what the stage shows (pending edits included)"
+						><Download size={11} /> Export</button
+					>
+					<ul
+						tabindex="-1"
+						class="dropdown-content menu menu-xs bg-base-200 rounded-box z-30 w-56 p-1 shadow"
+					>
+						<li><button onclick={() => exportSvg(doc, t)}>SVG (vectors)</button></li>
+						{#each [1, 2, 4] as k (k)}
+							<li><button onclick={() => exportPng(doc, t, k)}>PNG {k}×</button></li>
+						{/each}
+						{#if doc.sprite !== null && (doc.timeline?.frames.length ?? 1) > 1}
+							{@const sprite = doc.sprite}
+							<li>
+								<button onclick={() => exportFrames(doc, sprite, 1)}
+									>All {doc.timeline?.frames.length} frames as PNGs…</button
+								>
+							</li>
+						{/if}
+					</ul>
 				</div>
 			{/if}
 			<button

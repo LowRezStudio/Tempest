@@ -479,8 +479,9 @@ export async function swfTool(a: SwfToolArgs): Promise<unknown> {
 						: null;
 			if (!image) throw new Error("give the image's character or tag (info section images)");
 			const texture = textureFor(doc.value("image", image.tag, image.fileName));
-			if (texture === null)
+			if (texture === null) {
 				throw new Error(`no Texture2D for ${image.fileName} in the package`);
+			}
 			if (!a.file) throw new Error("give file");
 			if (a.action === "exportImage") {
 				return rpc("texture.export", { path: doc.path, index: texture, out: a.file });
