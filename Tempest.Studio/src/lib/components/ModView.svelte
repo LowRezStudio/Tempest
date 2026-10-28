@@ -25,9 +25,10 @@
 	import Menu, { type MenuItem } from "$lib/components/shell/Menu.svelte";
 	import { invoke } from "$lib/platform/api";
 	import { cooker, type Entry } from "$lib/studio/cooker.svelte";
-	import { basename } from "$lib/studio/format";
+	import { basename, samePath } from "$lib/studio/format";
 	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
+	import { ui } from "$lib/studio/ui.svelte";
 	import type { CookSource } from "../../../electron/src/ipc/contract";
 
 	let keyId = $state("");
@@ -93,7 +94,7 @@
 			items.push("-", {
 				label: "Remove from the project",
 				detail: "This file is no longer part of the mod; nothing is deleted",
-				run: () => (cooker.targets = cooker.targets.filter((t) => t !== e.target)),
+				run: () => (cooker.targets = cooker.targets.filter((t) => !samePath(t, e.target))),
 			});
 		}
 		for (const s of e.sources.filter((x) => x.origin === "copy")) {
@@ -153,10 +154,19 @@
 			<div class="border-base-300 divide-base-300 divide-y rounded-lg border">
 				{#each cooker.shown as e (e.target)}
 					{@const p = e.chosen ? cooker.previews[e.chosen.id] : undefined}
-					<div class="px-3 py-2">
-						<div class="flex items-center gap-2 {e.choice.on ? '' : 'opacity-50'}">
-							<FileBox size={15} class="shrink-0 opacity-60" />
-							<div class="min-w-0 flex-1">
+					<div
+						class="px-3 py-2"
+						role="group"
+						oncontextmenu={(ev) => ui.openContextMenu(ev, actions(e))}
+					>
+						<!-- A file left out is dimmed, but not its menu: a dropdown inside a
+							translucent row would be translucent too. -->
+						<div class="flex items-center gap-2">
+							<FileBox
+								size={15}
+								class="shrink-0 {e.choice.on ? 'opacity-60' : 'opacity-30'}"
+							/>
+							<div class="min-w-0 flex-1 {e.choice.on ? '' : 'opacity-50'}">
 								<div class="truncate font-mono text-xs" title={e.target}>
 									{basename(e.target)}
 								</div>
@@ -167,7 +177,9 @@
 								{/if}
 							</div>
 							<button
-								class="btn btn-ghost btn-xs shrink-0 font-normal"
+								class="btn btn-ghost btn-xs shrink-0 font-normal {e.choice.on
+									? ''
+									: 'opacity-50'}"
 								disabled={!p?.changes?.length}
 								onclick={() => (open = { ...open, [e.target]: !open[e.target] })}
 								title="What the mod changes in this file"
@@ -458,6 +470,32 @@
 					{#each cooker.problems as p (p)}<li>{p}</li>{/each}
 				</ul>
 			{/if}
+			<div class="flex flex-col gap-1">
+				<span class="text-xs opacity-70">Compression</span>
+				<div class="join w-fit" role="radiogroup" aria-label="Compression">
+					<button
+						class="btn btn-sm join-item {m.compression === 'small' ? 'btn-active' : ''}"
+						role="radio"
+						aria-checked={m.compression === "small"}
+						onclick={() => (m.compression = "small")}
+						title="LZMA: the smallest mod, slower to build (a big mod takes a minute or so)"
+						>Smallest file</button
+					>
+					<button
+						class="btn btn-sm join-item {m.compression === 'fast' ? 'btn-active' : ''}"
+						role="radio"
+						aria-checked={m.compression === "fast"}
+						onclick={() => (m.compression = "fast")}
+						title="zstd: builds several times faster, the mod is about 30 % bigger"
+						>Faster build</button
+					>
+				</div>
+				<span class="text-[11px] opacity-60"
+					>{m.compression === "fast"
+						? "Builds several times faster; the mod is about 30 % bigger. Good while testing."
+						: "The smallest mod to download; slower to build. Best for publishing."}</span
+				>
+			</div>
 			<div class="flex flex-wrap items-center gap-2">
 				<button
 					class="btn btn-primary"

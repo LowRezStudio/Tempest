@@ -41,3 +41,24 @@ export function ms(n: number | undefined): string {
 	if (n === undefined) return "";
 	return n < 1000 ? `${n} ms` : `${(n / 1000).toFixed(1)} s`;
 }
+
+/**
+ * A path in a form to compare with another: forward slashes, no Windows
+ * verbatim prefix (`\\?\`), lower case (Windows and macOS folders ignore case).
+ * @param path The path.
+ */
+export function pathKey(path: string): string {
+	return path
+		.replaceAll("\\", "/")
+		.replace(/^\/\/\?\//, "")
+		.toLowerCase();
+}
+
+/**
+ * Whether two paths name the same file (see `pathKey`).
+ * @param a A path.
+ * @param b Another path.
+ */
+export function samePath(a: string, b: string): boolean {
+	return pathKey(a) === pathKey(b);
+}

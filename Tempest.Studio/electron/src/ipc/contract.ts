@@ -459,6 +459,8 @@ export type CookPreview = {
 	changes?: { op: string; what: string }[];
 	warnings?: string[];
 	error?: string;
+	/** Large objects of a delta kept as shared object files (one copy per mod). */
+	shared?: { hash: string; bytes: number }[];
 };
 
 /** Linked: deltas against the game folder (small); portable: whole files (opens anywhere). */
@@ -1279,8 +1281,15 @@ export interface UpkMethods {
 			icon?: string;
 			items: CookItem[];
 			extras: { src: string; dest: string }[];
+			/** "small" (LZMA, default) or "fast" (zstd: much faster, about 30 % bigger). */
+			compression?: "small" | "fast";
 		};
-		result: { dir: string; entries: (CookPreview & { entry?: string })[] };
+		result: {
+			dir: string;
+			entries: (CookPreview & { entry?: string })[];
+			/** Shared object files (`shared/<hash>.tobj`): written once, used `uses` times by the deltas; `saved` bytes not repeated. */
+			shared?: { files: number; uses: number; bytes: number; saved: number };
+		};
 	};
 	"batch.plan": { params: { dir: string; recursive?: boolean }; result: BatchResult };
 	"batch.run": {

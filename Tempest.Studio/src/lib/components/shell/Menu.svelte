@@ -4,14 +4,11 @@
 	an ad-hoc item (recent folders…).
 -->
 <script module lang="ts">
-	export type MenuItem =
-		| string
-		| { label: string; detail?: string; run: () => unknown; disabled?: boolean }
-		| { heading: string };
+	export type { MenuItem } from "./MenuItems.svelte";
 </script>
 
 <script lang="ts">
-	import { commands, keyLabel } from "$lib/studio/commands.svelte";
+	import MenuItems, { type MenuItem } from "./MenuItems.svelte";
 	import type { Snippet } from "svelte";
 
 	interface Props {
@@ -55,52 +52,6 @@
 	<ul
 		class="dropdown-content menu menu-sm bg-base-200 border-base-300 rounded-box z-40 mt-1 {width} border p-1 shadow-xl"
 	>
-		{#each items as item, i (i)}
-			{#if item === "-"}
-				<li class="border-base-300 my-1 border-t"></li>
-			{:else if typeof item === "string"}
-				{@const c = commands.get(item)}
-				{#if c}
-					<li class={commands.enabled(c) ? "" : "menu-disabled"}>
-						<button
-							type="button"
-							disabled={!commands.enabled(c)}
-							onclick={() => run(() => commands.run(c.id))}
-						>
-							{#if c.icon}<c.icon size={14} class="shrink-0 opacity-80" />{:else}<span
-									class="w-3.5"
-								></span>{/if}
-							<span class="flex min-w-0 flex-1 flex-col">
-								<span class="truncate">{c.title}</span>
-								{#if c.detail}<span class="truncate text-[11px] opacity-60"
-										>{c.detail}</span
-									>{/if}
-							</span>
-							{#if c.keys}<kbd class="kbd kbd-xs opacity-70">{keyLabel(c.keys)}</kbd
-								>{/if}
-						</button>
-					</li>
-				{/if}
-			{:else if "heading" in item}
-				<li class="menu-title text-[11px]">{item.heading}</li>
-			{:else}
-				<li class={item.disabled ? "menu-disabled" : ""}>
-					<button
-						type="button"
-						disabled={item.disabled}
-						title={item.detail}
-						onclick={() => run(item.run)}
-					>
-						<span class="w-3.5"></span>
-						<span class="flex min-w-0 flex-1 flex-col">
-							<span class="truncate">{item.label}</span>
-							{#if item.detail}<span class="truncate text-[11px] opacity-60"
-									>{item.detail}</span
-								>{/if}
-						</span>
-					</button>
-				</li>
-			{/if}
-		{/each}
+		<MenuItems {items} onrun={run} />
 	</ul>
 </details>

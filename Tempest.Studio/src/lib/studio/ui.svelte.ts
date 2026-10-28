@@ -2,6 +2,7 @@
 // collapsed panes (remembered per window size class), the one dialog open at
 // a time, the palette, and the zoom level.
 import { invoke } from "$lib/platform/api";
+import type { MenuItem } from "$lib/components/shell/MenuItems.svelte";
 
 export type DialogId =
 	| "search"
@@ -33,6 +34,9 @@ function loadPanes(): Record<string, number> {
 	}
 }
 
+/** An object action the inspector carries out for the selected export (asked from a context menu). */
+export type ObjectAction = "export" | "replace" | "raw" | "rename" | "copy" | "delete";
+
 /** A question for the confirmation dialog (`ui.confirm`). */
 export type ConfirmRequest = {
 	title: string;
@@ -63,6 +67,10 @@ class Ui {
 	/** Text the package search opens with (and runs). */
 	searchQuery = $state("");
 	zoom = $state(Number(localStorage.getItem(ZOOM_KEY) ?? "1") || 1);
+	/** The open context menu: where, and its items. */
+	contextMenu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
+	/** An action for the inspector to run on export `index` once it shows it. */
+	objectAction = $state<{ kind: ObjectAction; index: number } | null>(null);
 	/** The question the confirmation dialog shows, with its answer callback. */
 	asking = $state<(ConfirmRequest & { answer: (v: boolean | "alt") => void }) | null>(null);
 
@@ -105,6 +113,30 @@ class Ui {
 
 	close(): void {
 		this.dialog = null;
+	}
+
+	/**
+	 * Show a context menu for a right-click (or the keyboard's menu key: then
+	 * under the element). Items that are null or false are left out.
+	 * @param event The `contextmenu` event.
+	 * @param items The menu.
+	 */
+	openContextMenu(event: MouseEvent, items: (MenuItem | null | false | undefined)[]): void {
+		event.preventDefault();
+		event.stopPropagation();
+		const list = items.filter((i): i is MenuItem => !!i);
+		// No separator at either end or twice in a row.
+		const clean = list.filter(
+			(it, k) => it !== "-" || (k > 0 && k < list.length - 1 && list[k - 1] !== "-"),
+		);
+		if (clean.length === 0) return;
+		let { clientX: x, clientY: y } = event;
+		if (x === 0 && y === 0 && event.target instanceof Element) {
+			const r = event.target.getBoundingClientRect();
+			x = r.left + 12;
+			y = r.bottom;
+		}
+		this.contextMenu = { x, y, items: clean };
 	}
 
 	openPalette(mode: PaletteMode, query = ""): void {

@@ -61,10 +61,13 @@ fn usage() -> ExitCode {
            upk mcts verify <file.dat|dir>...              parse + rewrite every .dat, byte-identical check\n  \
            upk delta create <base.upk|digest.json> <edited.upk> -o <out.tdelta> [--target <game path>]\n  \
                                                       what the edited package changed, as a mod delta\n  \
+                     [--shared <dir>] [--share] [--share-min <bytes>]   payloads of 16 KiB+ as shared object files\n  \
+                     [--fast]                         zstd instead of LZMA: much faster to make, about 30 % bigger\n  \
+                                                      (<dir>/<sha256>.tobj, once for every delta using them; --share embeds)\n  \
            upk delta apply <pkg> <d.tdelta>... -o <out.upk> [--strict]   apply deltas over a package (in order)\n  \
            upk delta info <d.tdelta>                      target, operations, references\n  \
            upk delta digest <pkg> -o <digest.json>        canonical hashes of every object (a base for `create`)\n  \
-           upk delta verify <base.upk> <edited.upk>       create + apply, compare with the edited package\n  \
+           upk delta verify <base.upk> <edited.upk> [--share]   create + apply, compare with the edited package\n  \
            upk delta batch <plan.json>                    several applies in one process, progress as JSON lines (the launcher's)\n  \
            upk mcts tokens [<game dir>]                   where the field/function tables come from\n  \
            (mcts: --tokens <MctsInterface.dll> uses that binary's tables; default: the game's next to the file, else built-in)\n  \
@@ -870,7 +873,7 @@ fn cmd_delta(args: &[String]) -> Res {
                 skip = false;
                 continue;
             }
-            if a == "-o" || a == "--target" || a == "-I" || a == "-j" {
+            if a == "-o" || a == "--target" || a == "-I" || a == "-j" || a == "--shared" || a == "--share-min" {
                 skip = true;
                 continue;
             }
@@ -881,6 +884,17 @@ fn cmd_delta(args: &[String]) -> Res {
         }
         out
     };
+    // Shared object files: `--shared <dir>` writes them there (a mod's `shared/`),
+    // `--share` embeds them; `--share-min <bytes>` sets the size (default 16 KiB).
+    let share_dir = get("--shared");
+    let share_min = if share_dir.is_some() || args.iter().any(|a| a == "--share") {
+        Some(get("--share-min").and_then(|v| v.parse().ok()).unwrap_or(delta::SHARE_MIN))
+    } else {
+        None
+    };
+    // `--fast`: zstd instead of LZMA (much faster to make, bigger).
+    let compression = if args.iter().any(|a| a == "--fast") { delta::Compression::Fast } else { delta::Compression::Small };
+    let opts = delta::CreateOptions { share_min, compression, ..Default::default() };
     let game_path = |file: &str| -> String {
         get("--target").unwrap_or_else(|| format!("ChaosGame/CookedPCConsole/{}", Path::new(file).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default()))
     };
@@ -918,8 +932,13 @@ fn cmd_delta(args: &[String]) -> Res {
             println!("kind: {}\ntarget: {}\npackage: {}", d.kind(), d.target(), d.header["package"].as_str().unwrap_or(""));
             let ops = d.ops();
             println!("{} operations, {} references, {} bytes of payload", ops.len(), d.header["refs"].as_array().map(|a| a.len()).unwrap_or(0), d.image.len());
+            let shared = d.shared_hashes();
+            if !shared.is_empty() {
+                let bytes: usize = shared.iter().filter_map(|h| d.shared.get(h)).map(|b| b.len()).sum();
+                println!("{} shared object files, {bytes} bytes", shared.len());
+            }
             for op in ops {
-                println!("  {:6} {} ({}){}", op.op, op.path, op.class, op.base.as_deref().map(|b| format!("  base {b}")).unwrap_or_default());
+                println!("  {:6} {} ({}){}{}", op.op, op.path, op.class, op.base.as_deref().map(|b| format!("  base {b}")).unwrap_or_default(), op.shared.as_deref().map(|h| format!("  shared {}", &h[..12.min(h.len())])).unwrap_or_default());
             }
             Ok(())
         }
@@ -943,18 +962,22 @@ fn cmd_delta(args: &[String]) -> Res {
             let t = std::time::Instant::now();
             let (d, warnings) = if base_path.to_ascii_lowercase().ends_with(".json") {
                 let digest: serde_json::Value = serde_json::from_slice(&std::fs::read(base_path)?)?;
-                delta::create(&db, Base::Digest(&digest), &edited, &game_path(edited_path))?
+                delta::create_with(&db, Base::Digest(&digest), &edited, &game_path(edited_path), opts)?
             } else {
                 let base = PackageFile::open(base_path)?.load()?;
-                delta::create(&db, Base::Package(&base), &edited, &game_path(edited_path))?
+                delta::create_with(&db, Base::Package(&base), &edited, &game_path(edited_path), opts)?
             };
             for w in &warnings {
                 eprintln!("warning: {w}");
             }
-            d.write(&out)?;
+            match &share_dir {
+                Some(dir) => d.write_shared(&out, dir)?,
+                None => d.write(&out)?,
+            }
+            let written = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
             let ops = d.ops();
-            let (adds, sets, dels) = ops.iter().fold((0, 0, 0), |(a, s, d), o| match o.op.as_str() { "add" => (a + 1, s, d), "set" => (a, s + 1, d), _ => (a, s, d + 1) });
-            eprintln!("{adds} added, {sets} changed, {dels} deleted objects; {} bytes in {:.2}s -> {out}", d.to_bytes().len(), t.elapsed().as_secs_f32());
+            let (adds, sets, dels) = ops.iter().fold((0, 0, 0), |(a, s, d), o| match o.op.as_str() { "add" => (a + 1, s, d), "set" | "patch" => (a, s + 1, d), _ => (a, s, d + 1) });
+            eprintln!("{adds} added, {sets} changed, {dels} deleted objects; {written} bytes in {:.2}s -> {out}", t.elapsed().as_secs_f32());
             Ok(())
         }
         "apply" => {
@@ -989,11 +1012,14 @@ fn cmd_delta(args: &[String]) -> Res {
             let base = PackageFile::open(base_path)?.load()?;
             let edited = PackageFile::open(edited_path)?.load()?;
             let t = std::time::Instant::now();
-            let (d, warnings) = delta::create(db, Base::Package(&base), &edited, &game_path(edited_path))?;
+            let (d, warnings) = delta::create_with(db, Base::Package(&base), &edited, &game_path(edited_path), opts)?;
             for w in &warnings {
                 eprintln!("warning: {w}");
             }
             let bytes = d.to_bytes();
+            if !d.shared.is_empty() {
+                eprintln!("{} shared object files", d.shared.len());
+            }
             let d = Delta::from_bytes(&bytes)?;
             eprintln!("delta: {} operations, {} bytes ({:.2}s)", d.ops().len(), bytes.len(), t.elapsed().as_secs_f32());
             let tmp = std::env::temp_dir().join(format!("tdelta-verify-{}.upk", std::process::id()));
@@ -1124,11 +1150,15 @@ fn cmd_delta_mcts(args: &[String], positional: &[&String], get: &dyn Fn(&str) ->
 /// (the game's file when `target` is a copy elsewhere). `stage` hears
 /// "open", "apply" and "save" as each begins.
 fn apply_deltas(db: &'static ClassDb, script_dir: &Path, target: &str, replaces: Option<&Path>, deltas: &[tempest_assets::delta::Delta], out: &str, stage: &mut dyn FnMut(&str)) -> Res2<tempest_assets::delta::Applied> {
-    use tempest_assets::delta::{apply, Applied, Phase};
+    use tempest_assets::delta::{apply_with, Applied, Phase};
     use tempest_assets::edit::Editor;
     let mut total = Applied::default();
     stage("open");
     let mut ed = Editor::open(db, target)?;
+    // The package before any delta: payloads compressed against their base
+    // object decompress with it, whatever an earlier delta did to the object.
+    let original = deltas.iter().any(|d| !d.from.is_empty()).then(|| ed.pkg.clone());
+    let apply = |db: &ClassDb, ed: &mut Editor, d: &tempest_assets::delta::Delta, phase: Phase| apply_with(db, ed, d, phase, original.as_ref());
     stage("apply");
     let name = ed.name.clone();
     let mut current_db = db;

@@ -1,8 +1,10 @@
 <script lang="ts">
 	import ClassIcon from "$lib/components/ClassIcon.svelte";
 	import Modal from "$lib/components/Modal.svelte";
+	import { copyPathItem, revealItem } from "$lib/studio/contextmenus";
 	import { onUpkEvent, rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
+	import { tabs } from "$lib/studio/tabs.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
 	import { ui } from "$lib/studio/ui.svelte";
 	import type { SearchHit } from "../../../electron/src/ipc/contract";
@@ -105,6 +107,21 @@
 			<button
 				class="row-hover flex w-full items-center gap-2 px-2 py-1 text-left font-mono text-xs"
 				onclick={() => go(hit)}
+				oncontextmenu={(e) =>
+					ui.openContextMenu(e, [
+						{ heading: hit.object },
+						{ label: "Open", run: () => go(hit) },
+						{
+							label: "Open in a new tab",
+							run: () => {
+								tabs.openInNewTab();
+								return go(hit);
+							},
+						},
+						"-",
+						copyPathItem(`${hit.package}.${hit.object}`, "Copy the object path"),
+						revealItem(hit.path),
+					])}
 			>
 				<ClassIcon className={hit.class} />
 				<span class="w-44 shrink-0 truncate opacity-70">{hit.package}</span>

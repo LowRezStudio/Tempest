@@ -151,7 +151,7 @@ pub fn create(tokens: &Tokens, base: Base, edited: &Marshal, target: &str) -> Re
         "header": header_ops,
         "tables": tables,
     });
-    Ok(Delta { header, image: Vec::new() })
+    Ok(Delta { header, image: Vec::new(), ..Default::default() })
 }
 
 #[derive(Clone, Debug, Default)]

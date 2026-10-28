@@ -4,9 +4,11 @@
 	import { Database, FileBox, Plus, X } from "@lucide/svelte";
 	import { assembly } from "$lib/studio/assembly.svelte";
 	import { keyLabel } from "$lib/studio/commands.svelte";
+	import { tabMenu } from "$lib/studio/contextmenus";
 	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
 	import { tabs, type Tab } from "$lib/studio/tabs.svelte";
+	import { ui } from "$lib/studio/ui.svelte";
 
 	function unsaved(t: Tab): boolean {
 		const p = t.place;
@@ -35,6 +37,7 @@
 				onclick={() => tabs.activate(t.id)}
 				onkeydown={(e) => (e.key === "Enter" || e.key === " ") && tabs.activate(t.id)}
 				onauxclick={(e) => e.button === 1 && tabs.close(t.id)}
+				oncontextmenu={(e) => ui.openContextMenu(e, tabMenu(t.id))}
 			>
 				{#if t.place.kind === "assembly"}<Database
 						size={12}

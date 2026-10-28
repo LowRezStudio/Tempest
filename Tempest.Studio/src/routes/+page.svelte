@@ -17,6 +17,7 @@
 	import AppHeader from "$lib/components/shell/AppHeader.svelte";
 	import CommandPalette from "$lib/components/shell/CommandPalette.svelte";
 	import ConfirmDialog from "$lib/components/shell/ConfirmDialog.svelte";
+	import ContextMenu from "$lib/components/shell/ContextMenu.svelte";
 	import NewProjectDialog from "$lib/components/shell/NewProjectDialog.svelte";
 	import SaveWorkspaceDialog from "$lib/components/shell/SaveWorkspaceDialog.svelte";
 	import ShortcutsDialog from "$lib/components/shell/ShortcutsDialog.svelte";
@@ -223,3 +224,4 @@
 <NewProjectDialog bind:open={() => isOpen("newProject"), (v) => setOpen("newProject", v)} />
 <CommandPalette />
 <ConfirmDialog />
+<ContextMenu />

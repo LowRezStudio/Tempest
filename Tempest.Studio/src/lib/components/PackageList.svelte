@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { Code2, Map as MapIcon } from "@lucide/svelte";
+	import { packageMenu } from "$lib/studio/contextmenus";
 	import { bytes } from "$lib/studio/format";
 	import { inField, reveal, step } from "$lib/studio/keys";
 	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
 	import { tabs } from "$lib/studio/tabs.svelte";
+	import { ui } from "$lib/studio/ui.svelte";
 
 	let filter = $state("");
 	let kind = $state<"all" | "content" | "maps" | "script">("all");
@@ -82,6 +84,7 @@
 				void studio.openPackage(p.path);
 			}}
 			ondblclick={() => studio.openPackage(p.path)}
+			oncontextmenu={(e) => ui.openContextMenu(e, packageMenu(p.path))}
 			title={p.path}
 		>
 			<span class="w-3 shrink-0 opacity-60">
