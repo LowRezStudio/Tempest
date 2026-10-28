@@ -278,8 +278,11 @@ impl Server {
     }
 
     pub fn call(&mut self, method: &str, p: &J) -> Res<J> {
-        // Anything outside the SWF editor may change a movie or its textures.
-        if !method.starts_with("swf.") || method == "swf.apply" || method == "swf.import" {
+        // Anything outside the SWF editor may change a movie or its textures,
+        // except these reads (the inspector's tabs, texture thumbnails).
+        const READS: &[&str] = &["ping", "package.names", "package.export", "package.tables", "package.undoList", "object.get", "object.text", "object.deps", "texture.info", "texture.preview", "texture.export"];
+        if READS.contains(&method) {
+        } else if !method.starts_with("swf.") || method == "swf.apply" || method == "swf.import" {
             self.swf_cache = None;
             if !method.starts_with("swf.") {
                 self.swf_embeds.clear();
@@ -450,6 +453,7 @@ impl Server {
             "swf.player" => self.swf_player(p),
             "swf.libraries" => self.swf_libraries(p),
             "swf.script" => self.swf_script(p),
+            "swf.addImage" => self.swf_add_image(p),
             "swf.apply" => self.swf_apply(p),
             "swf.tree" => self.swf_tree(p),
             "swf.timeline" => self.swf_timeline(p),
@@ -1166,7 +1170,11 @@ impl Server {
         let db = self.db()?;
         let src = self.src.as_ref().ok_or("no workspace")?;
         let ed = self.editors.get(&key(path)).unwrap();
-        let png = texture_ops::export_png(db, &ed.pkg, &ed.name, src, i, &o, mip)?;
+        // `maxSize`: the largest mip that fits (thumbnails).
+        let png = match opt_u(p, "maxSize") {
+            Some(max) => texture_ops::export_png_preview(db, &ed.pkg, &ed.name, src, i, &o, max as u32)?,
+            None => texture_ops::export_png(db, &ed.pkg, &ed.name, src, i, &o, mip)?,
+        };
         let bytes = png.len();
         Ok(json!({ "png": self.bins.add(png), "bytes": bytes }))
     }
@@ -1237,7 +1245,7 @@ impl Server {
         let i = self.export_of(path, p)?;
         let mut o = self.texture_object(path, i)?;
         let db = self.db()?;
-        let mut opts = ImportOptions { mips: opt_b(p, "mips"), format: None };
+        let mut opts = ImportOptions { mips: opt_b(p, "mips"), format: None, keep_alpha: opt_b(p, "keepAlpha").unwrap_or(false) };
         if let Some(f) = opt_s(p, "format").filter(|f| !f.is_empty()) {
             opts.format = Some(crate::dds::PixelFormat::from_name(&f).ok_or_else(|| format!("unknown pixel format {f}"))?);
         }
@@ -1871,6 +1879,145 @@ impl Server {
         let (_, _, m) = self.swf_movie(p)?;
         let tag = opt_u(p, "tag").ok_or("missing parameter tag")?;
         Ok(json!({ "listing": crate::swf::script_listing(&m, tag)? }))
+    }
+
+    /// `swf.addImage {file, name?, shape?, place?: {sprite, frame, x, y, name?}, format?, mips?, edits?}`:
+    /// a new external image in the movie (pending `edits` applied first, as
+    /// `swf.apply` does): a Texture2D made from the PNG/DDS `file` with the
+    /// settings of a texture the movie already uses (same group, so the
+    /// engine finds `<name>.tga` next to the others) and listed in the
+    /// movie's `References`; a `DefineExternalImage2` naming it; with `shape`
+    /// (default) a shape that draws it, and with `place` that shape on a
+    /// frame of a timeline. One undo step.
+    fn swf_add_image(&mut self, p: &J) -> Res<J> {
+        use crate::swf::add;
+        let (path, i, mut m) = self.swf_edited(p)?;
+        let file = s(p, "file")?;
+        let bytes = std::fs::read(file)?;
+        let (width, height, source) = if file.to_ascii_lowercase().ends_with(".dds") {
+            let d = crate::dds::read_dds(&bytes)?;
+            (d.width, d.height, ImportSource::Encoded { format: d.format, width: d.width, height: d.height, mips: d.mips })
+        } else {
+            let (w, h, rgba) = crate::dds::read_png(&bytes)?;
+            (w, h, ImportSource::Rgba { width: w, height: h, rgba })
+        };
+        let mut opts = ImportOptions { mips: opt_b(p, "mips"), format: None, keep_alpha: true };
+        if let Some(f) = opt_s(p, "format").filter(|f| !f.is_empty()) {
+            opts.format = Some(crate::dds::PixelFormat::from_name(&f).ok_or_else(|| format!("unknown pixel format {f}"))?);
+        }
+        let db = self.db()?;
+
+        // The texture to copy: one the movie draws, preferably in the movie's group.
+        let style = add::ImageStyle::of(&m);
+        let stems: Vec<String> = m
+            .tags
+            .iter()
+            .filter_map(|t| crate::swf::parse_external_image(t.code, &t.data))
+            .map(|img| {
+                let file = img.file_name.rsplit('/').next().unwrap_or(&img.file_name).to_ascii_lowercase();
+                file.rsplit_once('.').map(|(n, _)| n.to_string()).unwrap_or(file)
+            })
+            .collect();
+        let ed = self.editor(&path)?;
+        let movie_outer = ed.pkg.exports[i].outer;
+        let is_texture = |ed: &Editor, j: usize| ed.pkg.class_name_of(PackageIndex::export(j)).eq_ignore_ascii_case("Texture2D");
+        let template = (0..ed.pkg.exports.len())
+            .filter(|&j| is_texture(ed, j) && stems.contains(&ed.pkg.object_name(PackageIndex::export(j)).to_ascii_lowercase()))
+            .min_by_key(|&j| ed.pkg.exports[j].outer != movie_outer)
+            .or_else(|| (0..ed.pkg.exports.len()).find(|&j| is_texture(ed, j) && ed.pkg.exports[j].outer == movie_outer))
+            .ok_or("the movie uses no texture of this package to copy the settings of a new one from")?;
+
+        // A name no other object of the package has, so `<name>.tga` is unambiguous.
+        let wanted = opt_s(p, "name").filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
+            let stem = std::path::Path::new(file).file_stem().and_then(|s| s.to_str()).unwrap_or("Image");
+            format!("{}_{stem}", ed.pkg.object_name(PackageIndex::export(i)))
+        });
+        let mut base: String = wanted.trim().chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
+        if base.is_empty() {
+            base = "Image".into();
+        }
+        let taken = |ed: &Editor, n: &str| (0..ed.pkg.exports.len()).any(|j| ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(n));
+        let mut name = base.clone();
+        let mut k = 2;
+        while taken(ed, &name) {
+            name = format!("{base}_{k}");
+            k += 1;
+        }
+        let file_name = format!("{name}{}", style.extension);
+
+        // The movie.
+        let image = add::next_id(&m)?;
+        let mut defs = vec![add::external_image(&style, image, width, height, &file_name)?];
+        let shape = if opt_b(p, "shape").unwrap_or(true) {
+            if image >= 0xFFFE {
+                return Err("the movie has no free character id for the shape".into());
+            }
+            defs.push(add::bitmap_shape(image + 1, image, width, height));
+            Some(image + 1)
+        } else {
+            None
+        };
+        add::insert_definitions(&mut m, defs);
+        let placed = match p.get("place").filter(|v| v.is_object()) {
+            Some(pl) => {
+                let shape = shape.ok_or("only a shape can be placed: add the image with its shape")?;
+                let sprite = pl.get("sprite").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+                let frame = pl.get("frame").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let x = pl.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let y = pl.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let depth = add::place(&mut m, sprite, frame, shape, x, y, pl.get("name").and_then(|v| v.as_str()))?;
+                Some(json!({ "sprite": sprite, "frame": frame, "depth": depth }))
+            }
+            None => None,
+        };
+        let movie_bytes = m.write();
+
+        // The package, as one undo step (rolled back if a step fails).
+        let ed = self.editor(&path)?;
+        ed.begin_undo(format!("add image {name} to {}", ed.pkg.object_name(PackageIndex::export(i))));
+        let result = (|| -> Res<usize> {
+            let t = ed.duplicate(template)?;
+            ed.rename(t, &name)?;
+            let mut o = ed.object(t)?.clone();
+            o.net_index = -1;
+            texture_ops::import(db, &mut ed.pkg, t, &mut o, source, &opts)?;
+            ed.replace_object(t, o)?;
+            ed.mark_dirty(t);
+            let mut movie = ed.object(i)?.clone();
+            media::swf_import(&mut ed.pkg, &mut movie, &movie_bytes)?;
+            let reference = crate::value::Value::Object(PackageIndex::export(t));
+            match movie.properties.iter_mut().find(|q| q.array_index == 0 && ed.pkg.fname_to_string(q.name).eq_ignore_ascii_case("References")) {
+                Some(q) => match &mut q.value {
+                    crate::value::Value::Array(items) => items.push(reference),
+                    _ => return Err("the movie's References is not an array".into()),
+                },
+                None => media::set_property(&mut ed.pkg, &mut movie, "References", tempest_unrealscript::objects::PropertyKind::Array, crate::value::Value::Array(vec![reference])),
+            }
+            ed.replace_object(i, movie)?;
+            ed.mark_dirty(i);
+            Ok(t)
+        })();
+        let texture = match result {
+            Ok(t) => t,
+            Err(e) => {
+                ed.undo();
+                return Err(e);
+            }
+        };
+        let undo = ed.undo_labels();
+        let texture_path = ed.pkg.object_path(PackageIndex::export(texture));
+        self.swf_cache = Some((format!("{}#{i}", key(&path)), m));
+        Ok(json!({
+            "texture": { "index": texture, "path": texture_path, "name": name },
+            "fileName": file_name,
+            "image": image,
+            "shape": shape,
+            "width": width,
+            "height": height,
+            "placed": placed,
+            "bytes": movie_bytes.len(),
+            "undo": undo,
+        }))
     }
 
     /// `swf.apply`: edits (`{kind: text|string|image, tag, index?, text}`) written back into the package (undoable).

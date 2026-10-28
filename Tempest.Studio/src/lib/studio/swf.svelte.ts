@@ -5,6 +5,8 @@
 // takes them as a parameter, so what is shown always includes them.
 // Documents outlive their component: an undo re-selects the export, which
 // remounts the editor, and the user's place must survive that.
+import { pickFile, pickSave } from "$lib/platform/api";
+import { bytes, safeName } from "./format";
 import { rpc } from "./rpc";
 import { studio } from "./state.svelte";
 import { toasts } from "./toast.svelte";
@@ -12,11 +14,13 @@ import type {
 	SwfCharacter,
 	SwfEdit,
 	SwfEntry,
+	SwfImage,
 	SwfInfo,
 	SwfLibrary,
 	SwfMatrix,
 	SwfTimeline,
 	SwfTree,
+	UpkMethods,
 } from "../../../electron/src/ipc/contract";
 
 /** What the editor shows: the movie, the root timeline, a character or a tag list. */
@@ -174,6 +178,8 @@ export class SwfDoc {
 	tool = $state<"move" | "transform">("move");
 	treeFilter = $state("");
 	applying = $state(false);
+	/** The Add image dialog is open. */
+	addingImage = $state(false);
 	private libraries: Promise<{ libraries: SwfLibrary[]; missing: string[] }> | null = null;
 	private timelineFor = "";
 	/** The reads in flight, for `settled`. */
@@ -584,6 +590,127 @@ export class SwfDoc {
 		this.changed();
 	}
 
+	// ----- images -----------------------------------------------------------------
+
+	/**
+	 * Changes whenever the package does (an edit, undo, a replaced texture):
+	 * part of every render's key, so a new picture of a texture shows at once.
+	 */
+	get stamp(): number {
+		return studio.edits;
+	}
+
+	/** The external image a character draws: its own, or a sub-image's atlas. */
+	imageOf(id: number): SwfImage | null {
+		const images = this.info?.images ?? [];
+		const own = images.find((i) => (i.id & 0xffff) === id);
+		if (own) return own;
+		const c = this.chars.get(id);
+		if (c?.kind !== "subimage") return null;
+		return images.find((i) => c.deps.includes(i.id & 0xffff)) ?? null;
+	}
+
+	/** Pick a PNG/DDS and store it in the image's texture (undoable). */
+	async replaceImage(texture: number, image: SwfImage): Promise<void> {
+		const file = await pickFile("Replace the image", [
+			{ name: "Images", extensions: ["png", "dds"] },
+		]);
+		if (!file) return;
+		try {
+			const r = await this.replaceImageWith(texture, image, file);
+			toasts.push(
+				r.stretched ? "warning" : "success",
+				`${r.width}×${r.height} ${r.format}; ${r.note}. Save the package to keep it.`,
+				"Image replaced",
+			);
+		} catch (error) {
+			toasts.error(error, "Could not replace the image");
+		}
+	}
+
+	/** Store a PNG/DDS file in the image's texture (undoable); `stretched`: another aspect ratio. */
+	async replaceImageWith(texture: number, image: SwfImage, file: string) {
+		const t = await studio.run("Encoding texture…", () =>
+			rpc("texture.import", { path: this.path, index: texture, file, keepAlpha: true }),
+		);
+		studio.markDirty(this.path);
+		const ratio = (w: number, h: number) => w / Math.max(1, h);
+		const stretched =
+			Math.abs(ratio(t.width, t.height) / ratio(image.width, image.height) - 1) > 0.01;
+		return {
+			width: t.width,
+			height: t.height,
+			format: t.format,
+			stretched,
+			note: `the movie draws it at ${image.width}×${image.height}${stretched ? ", so it is stretched (another aspect ratio)" : ""}`,
+		};
+	}
+
+	/** Write the image's texture as PNG or DDS. */
+	async exportImage(texture: number, image: SwfImage, ext: "png" | "dds"): Promise<void> {
+		const stem = image.fileName.replace(/^.*[\\/]/, "").replace(/\.[a-z0-9]+$/i, "");
+		const out = await pickSave(`Export ${stem}`, `${safeName(stem)}.${ext}`, [
+			{ name: ext.toUpperCase(), extensions: [ext] },
+		]);
+		if (!out) return;
+		try {
+			const r = await rpc("texture.export", { path: this.path, index: texture, out });
+			toasts.push("success", `${bytes(r.bytes)} written`, r.out);
+		} catch (error) {
+			toasts.error(error, "Could not export the image");
+		}
+	}
+
+	/**
+	 * Add an external image (and by default a shape drawing it, placed on the
+	 * open timeline frame at `place`): pending edits are written with it, as one
+	 * undo step. The new object is selected.
+	 */
+	async addImage(opts: {
+		file: string;
+		name?: string;
+		shape: boolean;
+		place?: { x: number; y: number; name?: string };
+	}): Promise<UpkMethods["swf.addImage"]["result"] | null> {
+		const place =
+			opts.shape && opts.place && this.sprite !== null
+				? { sprite: this.sprite, frame: this.frame, ...opts.place }
+				: undefined;
+		try {
+			const r = await studio.run("Adding the image…", () =>
+				rpc("swf.addImage", {
+					path: this.path,
+					index: this.index,
+					file: opts.file,
+					name: opts.name,
+					shape: opts.shape,
+					place,
+					edits: this.pending,
+				}),
+			);
+			studio.markDirty(this.path);
+			studio.undoLabels = r.undo;
+			this.edits = {};
+			this.version++;
+			await studio.reloadTables();
+			await this.load();
+			if (r.placed) {
+				this.depth = r.placed.depth;
+			} else {
+				this.openCharacter(r.shape ?? r.image);
+			}
+			toasts.push(
+				"success",
+				`${r.fileName} (${r.width}×${r.height}) → ${r.texture.path}${r.placed ? `, placed at depth ${r.placed.depth}` : ""}. Save the package to keep it.`,
+				"Image added",
+			);
+			return r;
+		} catch (error) {
+			toasts.error(error, "Could not add the image");
+			return null;
+		}
+	}
+
 	/** Write the pending edits into the package (one undo step). */
 	async apply(): Promise<void> {
 		const edits = this.pending;
@@ -607,6 +734,18 @@ export class SwfDoc {
 			this.applying = false;
 		}
 	}
+}
+
+/** The Texture2D of the open package an external image names (`Foo.tga` → `Foo`). */
+export function textureFor(fileName: string): number | null {
+	const stem = fileName
+		.replace(/^.*[\\/]/, "")
+		.replace(/\.[a-z0-9]+$/i, "")
+		.toLowerCase();
+	const row = studio.pkg?.exports.find(
+		(e) => e.class.toLowerCase() === "texture2d" && e.name.toLowerCase() === stem,
+	);
+	return row ? row.i : null;
 }
 
 /** Changes when the open package does (an edit, undo or discard). */

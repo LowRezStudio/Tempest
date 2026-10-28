@@ -7,8 +7,8 @@
 	as pending edits.
 -->
 <script lang="ts">
-	import { CornerDownRight, Eye, EyeOff, Link2, RotateCcw, Trash2 } from "@lucide/svelte";
-	import { studio } from "$lib/studio/state.svelte";
+	import { CornerDownRight, Eye, EyeOff, RotateCcw, Trash2 } from "@lucide/svelte";
+	import SwfImageCard from "$lib/components/swf/SwfImageCard.svelte";
 	import { compose, decompose, type Decomposed, type SwfDoc } from "$lib/studio/swf.svelte";
 	import type { SwfCharacter, SwfEntry } from "../../../../electron/src/ipc/contract";
 
@@ -67,19 +67,6 @@
 
 	function textOf(c: SwfCharacter) {
 		return doc.info?.texts.find((t) => t.id === c.id) ?? null;
-	}
-
-	function imageOf(c: SwfCharacter) {
-		return doc.info?.images.find((i) => (i.id & 0xffff) === c.id) ?? null;
-	}
-
-	/** The Texture2D an external image names (`Foo.tga` → `Foo`). */
-	function textureFor(fileName: string): number | null {
-		const stem = fileName.replace(/\.[a-z0-9]+$/i, "").toLowerCase();
-		const row = studio.pkg?.exports.find(
-			(e) => e.class.toLowerCase() === "texture2d" && e.name.toLowerCase() === stem,
-		);
-		return row ? row.i : null;
 	}
 
 	const commit = (fn: (v: string) => void) => (event: Event) =>
@@ -266,31 +253,30 @@
 					</div>
 				{/if}
 			{/if}
-			{#if c.kind === "image"}
-				{@const im = imageOf(c)}
+			{#if c.kind === "image" || c.kind === "subimage"}
+				{@const im = doc.imageOf(c.id)}
 				{#if im}
-					{@const tex = textureFor(im.fileName)}
-					<div class="flex items-center gap-1">
-						<span class="w-16 shrink-0 whitespace-nowrap opacity-60">file</span>
-						<input
-							class="input input-xs min-w-0 flex-1 font-mono {doc.isEdited(
-								`image|${im.tag}|0`,
-							)
-								? 'input-warning'
-								: ''}"
-							value={doc.value("image", im.tag, im.fileName)}
-							onchange={(e) => doc.editText("image", im.tag, e.currentTarget.value)}
-						/>
-						<button
-							class="btn btn-ghost btn-xs"
-							disabled={tex === null}
-							title={tex === null
-								? "no Texture2D of that name in this package"
-								: "Go to the texture (replace it there)"}
-							onclick={() => tex !== null && studio.select(tex)}
-							><Link2 size={11} /></button
-						>
-					</div>
+					{#if c.kind === "subimage"}
+						<p class="opacity-60">
+							A crop of image {im.id & 0xffff}: replacing the picture changes the
+							whole atlas.
+						</p>
+					{:else}
+						<div class="flex items-center gap-1">
+							<span class="w-16 shrink-0 whitespace-nowrap opacity-60">file</span>
+							<input
+								class="input input-xs min-w-0 flex-1 font-mono {doc.isEdited(
+									`image|${im.tag}|0`,
+								)
+									? 'input-warning'
+									: ''}"
+								value={doc.value("image", im.tag, im.fileName)}
+								onchange={(e) =>
+									doc.editText("image", im.tag, e.currentTarget.value)}
+							/>
+						</div>
+					{/if}
+					<SwfImageCard {doc} image={im} />
 				{/if}
 			{/if}
 			<div>

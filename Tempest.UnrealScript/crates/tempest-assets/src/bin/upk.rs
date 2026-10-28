@@ -487,7 +487,7 @@ fn cmd_texture(args: &[String]) -> Res {
             let input = args.get(3).ok_or("missing input image")?;
             let out = args.iter().position(|a| a == "-o").and_then(|p| args.get(p + 1)).ok_or("missing -o <out.upk>")?;
             let mips = if args.iter().any(|a| a == "--no-mips") { Some(false) } else if args.iter().any(|a| a == "--mips") { Some(true) } else { None };
-            let mut opts = texture_ops::ImportOptions { mips, format: None };
+            let mut opts = texture_ops::ImportOptions { mips, format: None, keep_alpha: false };
             if let Some(f) = args.iter().position(|a| a == "--format").and_then(|p| args.get(p + 1)) {
                 opts.format = Some(tempest_assets::dds::PixelFormat::from_name(f).ok_or_else(|| format!("unknown pixel format {f}"))?);
             }

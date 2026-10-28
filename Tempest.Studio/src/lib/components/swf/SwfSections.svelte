@@ -5,9 +5,9 @@
 	list like the stage's.
 -->
 <script lang="ts">
-	import { ExternalLink } from "@lucide/svelte";
+	import { ImagePlus } from "@lucide/svelte";
+	import SwfImageCard from "$lib/components/swf/SwfImageCard.svelte";
 	import { rpc } from "$lib/studio/rpc";
-	import { studio } from "$lib/studio/state.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
 	import type { SwfDoc } from "$lib/studio/swf.svelte";
 
@@ -32,15 +32,6 @@
 		} catch (error) {
 			toasts.error(error, "Could not disassemble");
 		}
-	}
-
-	/** The texture export an external image refers to (`Foo.tga` → `Foo`). */
-	function textureFor(fileName: string): number | null {
-		const stem = fileName.replace(/\.[a-z0-9]+$/i, "").toLowerCase();
-		const row = studio.pkg?.exports.find(
-			(e) => e.class.toLowerCase() === "texture2d" && e.name.toLowerCase() === stem,
-		);
-		return row ? row.i : null;
 	}
 
 	/** The class a DoInitAction defines, from its sprite's linkage name (`__Packages.a.B`). */
@@ -171,17 +162,23 @@
 				</details>
 			{/each}
 		{:else if section === "images"}
-			<p class="px-1 pb-1 opacity-60">
-				External images: the engine loads each file name as a Texture2D of this package.
-				Replace the texture to change the picture; rename the reference to point at another
-				texture.
-			</p>
+			<div class="flex items-start gap-2 px-1 pb-1">
+				<p class="flex-1 opacity-60">
+					External images: the engine loads each file name as a Texture2D of this package.
+					Replace the picture (PNG or DDS) to change it; the movie keeps drawing it at the
+					size listed here. Rename the reference to point at another texture.
+				</p>
+				<button class="btn btn-xs" onclick={() => (doc.addingImage = true)}
+					><ImagePlus size={11} /> Add image…</button
+				>
+			</div>
 			<table class="table-xs table-pin-rows table font-mono">
-				<thead><tr><th>id</th><th>size</th><th>format</th><th>file</th><th></th></tr></thead
+				<thead
+					><tr><th>id</th><th>size</th><th>format</th><th>file</th><th>picture</th></tr
+					></thead
 				>
 				<tbody>
 					{#each info.images as im (im.tag)}
-						{@const tex = textureFor(im.fileName)}
 						<tr>
 							<td
 								><button
@@ -202,21 +199,7 @@
 										doc.editText("image", im.tag, e.currentTarget.value)}
 								/>
 							</td>
-							<td>
-								{#if tex !== null}
-									<button
-										class="btn btn-ghost btn-xs"
-										title="Go to the texture"
-										onclick={() => studio.select(tex)}
-										><ExternalLink size={11} /></button
-									>
-								{:else}
-									<span
-										class="opacity-40"
-										title="no Texture2D of that name in this package">?</span
-									>
-								{/if}
-							</td>
+							<td><SwfImageCard {doc} image={im} compact /></td>
 						</tr>
 					{/each}
 				</tbody>

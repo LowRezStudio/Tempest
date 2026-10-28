@@ -12,6 +12,7 @@
 	import {
 		Check,
 		ChevronRight,
+		ImagePlus,
 		Maximize,
 		Move,
 		PackagePlus,
@@ -27,6 +28,7 @@
 	} from "@lucide/svelte";
 	import { untrack } from "svelte";
 	import Pane from "$lib/components/shell/Pane.svelte";
+	import SwfAddImageDialog from "$lib/components/swf/SwfAddImageDialog.svelte";
 	import SwfProps from "$lib/components/swf/SwfProps.svelte";
 	import SwfSections from "$lib/components/swf/SwfSections.svelte";
 	import SwfStage from "$lib/components/swf/SwfStage.svelte";
@@ -284,6 +286,11 @@
 					>
 				</div>
 			{/if}
+			<button
+				class="btn btn-ghost btn-xs"
+				title="Add a PNG or DDS to the movie as an external image (and a shape drawing it, placed on this frame)"
+				onclick={() => (doc.addingImage = true)}><ImagePlus size={11} /> Image</button
+			>
 			{#if doc.pending.length === 0 && studio.dirty.includes(path)}
 				<button
 					class="btn btn-secondary btn-xs"
@@ -322,7 +329,7 @@
 							movies (SharedAssets, fonts, image stacks) are resolved from the
 							workspace. Scaleform-only features can still differ from the game.
 						</p>
-						{#key doc.version}
+						{#key `${doc.version}|${doc.stamp}`}
 							<SwfPlayer {path} {index} edits={doc.pending} />
 						{/key}
 					</div>
@@ -377,3 +384,5 @@
 		</div>
 	</div>
 {/if}
+
+<SwfAddImageDialog bind:open={doc.addingImage} {doc} />

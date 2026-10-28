@@ -6,7 +6,7 @@
 import { previewFor } from "./classes";
 import { rpc } from "./rpc";
 import { studio } from "./state.svelte";
-import { compose, decompose, swfDoc, type SwfDoc, type SwfNode } from "./swf.svelte";
+import { compose, decompose, swfDoc, textureFor, type SwfDoc, type SwfNode } from "./swf.svelte";
 import type { SwfEntry, SwfMatrix } from "../../../electron/src/ipc/contract";
 
 export type SwfToolArgs = {
@@ -24,7 +24,10 @@ export type SwfToolArgs = {
 		| "text"
 		| "layers"
 		| "apply"
-		| "discard";
+		| "discard"
+		| "addImage"
+		| "replaceImage"
+		| "exportImage";
 	path?: string;
 	index?: number;
 	object?: string;
@@ -55,6 +58,14 @@ export type SwfToolArgs = {
 	show?: number[];
 	solo?: number[];
 	showAll?: boolean;
+	/** addImage / replaceImage: the PNG or DDS; exportImage: where to write (.png or .dds). */
+	file?: string;
+	/** addImage: the new Texture2D's name. */
+	texture?: string;
+	/** addImage: also make a shape drawing it (default true). */
+	shape?: boolean;
+	/** addImage: place the shape on the open timeline frame (default true). */
+	place?: boolean;
 };
 
 const isMovie = (cls: string) => previewFor(cls) === "swf";
@@ -308,10 +319,16 @@ export async function swfTool(a: SwfToolArgs): Promise<unknown> {
 				}
 				case "images": {
 					return page(
-						info.images.map((im) => ({
-							...im,
-							fileName: doc.value("image", im.tag, im.fileName),
-						})),
+						info.images.map((im) => {
+							const fileName = doc.value("image", im.tag, im.fileName);
+							const texture = textureFor(fileName);
+							return {
+								...im,
+								fileName,
+								texture:
+									texture === null ? null : studio.pkg?.exports[texture]?.path,
+							};
+						}),
 						a,
 					);
 				}
@@ -430,6 +447,47 @@ export async function swfTool(a: SwfToolArgs): Promise<unknown> {
 			doc.discardEdits();
 			await doc.settled();
 			return status(doc);
+		}
+
+		case "addImage": {
+			if (!a.file) throw new Error("give file (a PNG or DDS)");
+			const shape = a.shape ?? true;
+			const r = await doc.addImage({
+				file: a.file,
+				name: a.texture,
+				shape,
+				place:
+					shape && (a.place ?? true) && doc.sprite !== null
+						? { x: a.x ?? 0, y: a.y ?? 0, name: a.name }
+						: undefined,
+			});
+			if (!r) throw new Error("the image was not added (see the window's message)");
+			await doc.settled();
+			return {
+				...r,
+				note: "the package is changed in memory: save it (file.save) or build the mod",
+			};
+		}
+
+		case "replaceImage":
+		case "exportImage": {
+			const image =
+				a.tag !== undefined
+					? (doc.info?.images.find((im) => im.tag === a.tag) ?? null)
+					: a.character !== undefined
+						? doc.imageOf(a.character)
+						: null;
+			if (!image) throw new Error("give the image's character or tag (info section images)");
+			const texture = textureFor(doc.value("image", image.tag, image.fileName));
+			if (texture === null)
+				throw new Error(`no Texture2D for ${image.fileName} in the package`);
+			if (!a.file) throw new Error("give file");
+			if (a.action === "exportImage") {
+				return rpc("texture.export", { path: doc.path, index: texture, out: a.file });
+			}
+			const r = await doc.replaceImageWith(texture, image, a.file);
+			await doc.settled();
+			return { ...r, texture: studio.pkg?.exports[texture]?.path };
 		}
 	}
 	throw new Error(`unknown action ${a.action as string}`);

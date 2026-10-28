@@ -6,7 +6,8 @@
 //! definitions, `ExportAssets` linkage names, `ImportAssets2` font and
 //! shared-asset imports, and `DefineExternalImage2` (1009) references to
 //! textures by file name (the engine resolves `Foo.tga` to a `Texture2D`
-//! of the package, so images are replaced through the texture, not here).
+//! of the package, so pictures are replaced through the texture; `add`
+//! inserts new image references, shapes and placements).
 //! Editable here: the initial text of edit-text fields, the strings of the
 //! top-level actions of a script (constant pools and pushes: the rest of
 //! the bytecode is position-independent relative branches, so only the
@@ -16,6 +17,7 @@
 //! (`dict`), the display list and timelines (`display`, whose placements
 //! `apply` edits) and per-character preview movies (`preview`).
 
+pub mod add;
 pub mod dict;
 pub mod display;
 pub mod preview;

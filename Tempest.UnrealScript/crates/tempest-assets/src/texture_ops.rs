@@ -184,6 +184,9 @@ pub struct ImportOptions {
     pub mips: Option<bool>,
     /// Encode RGBA input in this format instead of the texture's current one.
     pub format: Option<PixelFormat>,
+    /// RGBA input with translucent pixels going to a DXT1 texture (no alpha
+    /// beyond a 1-bit cut-out) is encoded as DXT5 instead.
+    pub keep_alpha: bool,
 }
 
 use crate::media::{remove_property, set_property};
@@ -204,7 +207,10 @@ pub fn import(db: &ClassDb, pkg: &mut Package, i: usize, obj: &mut Object, sourc
             (format, width, height, mips)
         }
         ImportSource::Rgba { width, height, rgba } => {
-            let format = opts.format.or_else(|| PixelFormat::from_name(&current)).ok_or_else(|| Error::Format(format!("texture format {current} is not supported; pass an explicit format")))?;
+            let mut format = opts.format.or_else(|| PixelFormat::from_name(&current)).ok_or_else(|| Error::Format(format!("texture format {current} is not supported; pass an explicit format")))?;
+            if opts.keep_alpha && opts.format.is_none() && format == PixelFormat::Dxt1 && rgba.as_chunks::<4>().0.iter().any(|px| px[3] < 255) {
+                format = PixelFormat::Dxt5;
+            }
             let chain = if want_mips { dds::rgba_mip_chain(width, height, &rgba) } else { vec![(width, height, rgba)] };
             let mut encoded = Vec::with_capacity(chain.len());
             for (w, h, px) in &chain {

@@ -703,7 +703,8 @@ export interface UpkMethods {
 	"object.extract": { params: Target & { out: string }; result: { out: string; bytes: number } };
 	"texture.info": { params: Target; result: TextureInfo };
 	"texture.preview": {
-		params: Target & { mip?: number };
+		/** `maxSize`: the largest mip no wider or taller than that (thumbnails). */
+		params: Target & { mip?: number; maxSize?: number };
 		result: { png: Uint8Array; bytes: number };
 	};
 	"texture.export": {
@@ -715,7 +716,8 @@ export interface UpkMethods {
 		result: { exported: number; failed: number; errors: string[]; outDir: string };
 	};
 	"texture.import": {
-		params: Target & { file: string; mips?: boolean; format?: string };
+		/** `keepAlpha`: a translucent PNG going into a DXT1 texture is stored as DXT5. */
+		params: Target & { file: string; mips?: boolean; format?: string; keepAlpha?: boolean };
 		result: TextureInfo;
 	};
 	"mesh.info": { params: Target; result: MeshInfo };
@@ -997,6 +999,38 @@ export interface UpkMethods {
 	"swf.script": {
 		params: { path: string; index: number; tag: number };
 		result: { listing: string };
+	};
+	/**
+	 * A new external image in a movie (pending `edits` written first): a Texture2D
+	 * made from a PNG/DDS `file` with the settings of one the movie uses, its
+	 * `DefineExternalImage2`, a shape drawing it (`shape`, default true) and,
+	 * with `place`, that shape on a timeline frame. One undo step.
+	 */
+	"swf.addImage": {
+		params: {
+			path: string;
+			index: number;
+			file: string;
+			/** Texture name (default `<movie>_<file name>`; made unique). */
+			name?: string;
+			shape?: boolean;
+			/** Top-left corner in the timeline's pixels; `name` is the instance name. */
+			place?: { sprite: number; frame: number; x: number; y: number; name?: string };
+			format?: string;
+			mips?: boolean;
+			edits?: SwfEdit[];
+		};
+		result: {
+			texture: { index: number; path: string; name: string };
+			fileName: string;
+			image: number;
+			shape: number | null;
+			width: number;
+			height: number;
+			placed: { sprite: number; frame: number; depth: number } | null;
+			bytes: number;
+			undo: string[];
+		};
 	};
 	/** Write edits (edit-text initial text, script strings, external image names, placements) back into the package. */
 	"swf.apply": {

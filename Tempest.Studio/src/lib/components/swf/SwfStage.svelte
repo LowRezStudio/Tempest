@@ -129,7 +129,7 @@
 		),
 	);
 	const contentKey = $derived(JSON.stringify(contentEdits));
-	const layerKey = (e: SwfEntry) => `${e.character}|${contentKey}`;
+	const layerKey = (e: SwfEntry) => `${e.character}|${contentKey}|${doc.stamp}`;
 	/** What each layer has rendered, by depth. */
 	let loaded = $state<Record<number, { key: string; rect: SwfRect }>>({});
 	let loadedFor = "";
@@ -165,7 +165,8 @@
 		),
 		rect: view ?? undefined,
 	});
-	const baseKey = $derived(JSON.stringify(baseRequest));
+	// The package stamp re-renders after a texture is replaced or an undo.
+	const baseKey = $derived(JSON.stringify({ ...baseRequest, stamp: doc.stamp }));
 
 	function layerStyle(e: SwfEntry): string {
 		const m = matrixOf(e);
