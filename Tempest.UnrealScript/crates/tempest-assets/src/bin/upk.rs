@@ -32,6 +32,8 @@ fn usage() -> ExitCode {
            upk swf verify <pkg>                              parse + rewrite every movie, byte-identical check\n  \
            upk sound export <pkg> <idx|path> <out.ogg>        PC audio of a SoundNodeWave\n  \
            upk sound import <pkg> <idx|path> <in.ogg> -o <out.upk>\n  \
+           upk anim info <pkg> <idx|path>                   frames, length, formats, keys per track of an AnimSequence\n  \
+           upk anim verify <dir|pkg>...                     decode every AnimSequence, re-encode, byte-identical check\n  \
            upk mesh info <pkg> <idx|path>                    LODs, sections, bones of a static/skeletal mesh\n  \
            upk mesh export <pkg> <idx|path> <out.glb|out.fbx|out.obj> [--lod N] [--no-textures] [--no-skin]\n  \
            upk mesh import <pkg> <idx|path> <in.glb|in.gltf|in.fbx|in.obj> -o <out.upk> [--lod N]   replace the geometry\n  \
@@ -94,6 +96,7 @@ fn main() -> ExitCode {
         "verify" if args.len() >= 2 => cmd_verify(&args[1..]),
         "texture" if args.len() >= 3 => cmd_texture(&args[1..]),
         "mesh" if args.len() >= 3 => cmd_mesh(&args[1..]),
+        "anim" if args.len() >= 3 => cmd_anim(&args[1..]),
         "prop" if args.len() >= 4 => cmd_prop(&args[1..]),
         "obj" if args.len() >= 4 => cmd_obj(&args[1..]),
         "deps" if args.len() >= 3 => cmd_deps(&args[1], &args[2], &args[1..]),
@@ -590,6 +593,208 @@ fn cmd_media(args: &[String], swf: bool) -> Res {
         _ => return Err(format!("unknown subcommand {sub}").into()),
     }
     Ok(())
+}
+
+/// `upk anim info|verify`.
+fn cmd_anim(args: &[String]) -> Res {
+    use tempest_assets::anim;
+    use tempest_assets::object::Parsed;
+    match args[0].as_str() {
+        "info" => {
+            let path = &args[1];
+            let db = load_db(&script_dir(args, path))?;
+            let pkg = PackageFile::open(path)?.load()?;
+            let layout = package_layout(&pkg);
+            let i = find_export(&pkg, args.get(2).ok_or("missing export")?)?;
+            let Parsed::Object(o) = parse_export(&db, &pkg, layout, i, &pkg.export_data[i]) else {
+                return Err("not a decoded object".into());
+            };
+            let h = anim::header(&pkg, &o);
+            let stream = anim::stream(&o).ok_or("not an AnimSequence")?;
+            let a = anim::decode(&h, stream)?;
+            println!("{}: {} frames, {:.3} s, {:?} {:?} rotations, {:?} translations, {} tracks, {} bytes", pkg.object_path(PackageIndex::export(i)), h.num_frames, h.length, h.key_format, h.rot_format, h.trans_format, a.tracks.len(), stream.len());
+            for (t, tr) in a.tracks.iter().enumerate() {
+                println!("  track {t:3}: {:3} translation keys, {:3} rotation keys", tr.trans.len(), tr.rot.len());
+            }
+            Ok(())
+        }
+        "verify" => {
+            let mut files: Vec<PathBuf> = Vec::new();
+            let mut skip = false;
+            for a in &args[1..] {
+                if std::mem::take(&mut skip) {
+                    continue;
+                }
+                if a == "-I" {
+                    skip = true;
+                    continue;
+                }
+                let p = Path::new(a);
+                if p.is_dir() {
+                    let mut v: Vec<PathBuf> = std::fs::read_dir(p)?.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("upk"))).collect();
+                    v.sort();
+                    files.extend(v);
+                } else if !a.starts_with('-') {
+                    files.push(p.to_path_buf());
+                }
+            }
+            let first = files.first().ok_or("no packages")?.to_string_lossy().to_string();
+            let db = load_db(&script_dir(args, &first))?;
+            let (mut total, mut same, mut other_format, mut failed) = (0usize, 0usize, 0usize, 0usize);
+            let mut formats: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            for f in &files {
+                let Ok(pkg) = PackageFile::open(f).and_then(|pf| pf.load()) else { continue };
+                let layout = package_layout(&pkg);
+                for i in 0..pkg.exports.len() {
+                    if !pkg.class_name_of(PackageIndex::export(i)).eq_ignore_ascii_case("AnimSequence") {
+                        continue;
+                    }
+                    let Parsed::Object(o) = parse_export(&db, &pkg, layout, i, &pkg.export_data[i]) else { continue };
+                    let Some(stream) = anim::stream(&o) else { continue };
+                    total += 1;
+                    let h = anim::header(&pkg, &o);
+                    *formats.entry(format!("{:?} {:?} {:?}", h.key_format, h.rot_format, h.trans_format)).or_default() += 1;
+                    match anim::decode(&h, stream) {
+                        Ok(a) => {
+                            if h.key_format == anim::KeyFormat::VariableKeyLerp && h.rot_format == anim::Acf::Float96NoW && h.trans_format == anim::Acf::None {
+                                let (bytes, offsets) = anim::encode(&a);
+                                if bytes == stream && offsets == h.offsets {
+                                    same += 1;
+                                } else {
+                                    failed += 1;
+                                    if failed <= 10 {
+                                        let at = bytes.iter().zip(stream).position(|(a, b)| a != b).unwrap_or(bytes.len().min(stream.len()));
+                                        let track = h.offsets.chunks_exact(4).position(|t| t[0] as usize > at || t[2] as usize > at).unwrap_or(0);
+                                        eprintln!("differs: {} {} at byte {at} of {}/{} (offsets equal: {}), near track {track}: ours {:02x?} game {:02x?}", f.display(), pkg.object_path(PackageIndex::export(i)), bytes.len(), stream.len(), offsets == h.offsets, &bytes[at.saturating_sub(4)..(at + 12).min(bytes.len())], &stream[at.saturating_sub(4)..(at + 12).min(stream.len())]);
+                                    }
+                                }
+                            } else {
+                                other_format += 1;
+                            }
+                        }
+                        Err(e) => {
+                            failed += 1;
+                            if failed <= 10 {
+                                eprintln!("cannot decode: {} {}: {e}", f.display(), pkg.object_path(PackageIndex::export(i)));
+                            }
+                        }
+                    }
+                }
+            }
+            for (k, n) in &formats {
+                eprintln!("  {n:6}  {k}");
+            }
+            eprintln!("{total} sequences in {} packages: {same} re-encoded byte-identical, {other_format} decoded (other formats), {failed} failed", files.len());
+            if failed > 0 {
+                return Err(format!("{failed} sequences failed").into());
+            }
+            Ok(())
+        }
+        "export" | "import" => {
+            // upk anim export <pkg> <seq> <out.glb> [--mesh <idx|path>]
+            // upk anim import <pkg> <seq> <file.glb> -o <out.upk> [--mesh <idx|path>] [--anim N] [--fps F]
+            use tempest_assets::anim_ops;
+            use tempest_assets::object::Native;
+            let path = &args[1];
+            let db: &'static ClassDb = Box::leak(Box::new(load_db(&script_dir(args, path))?));
+            let get = |flag: &str| args.iter().position(|a| a == flag).and_then(|p| args.get(p + 1)).cloned();
+            let mut ed = tempest_assets::edit::Editor::open(db, path)?;
+            let i = ed.find(args.get(2).ok_or("missing sequence")?)?;
+            let o = ed.object(i)?.clone();
+            let h = anim::header(&ed.pkg, &o);
+            let a = anim::decode(&h, anim::stream(&o).ok_or("not an AnimSequence")?)?;
+            let set_idx = ed.pkg.exports[i].outer.export_index().ok_or("the sequence is not in an AnimSet")?;
+            let set = ed.object(set_idx)?.clone();
+            let (binding, preview) = anim_ops::binding_of(&ed.pkg, &set);
+            let mesh_i = match get("--mesh") {
+                Some(m) => ed.find(&m)?,
+                None => anim_ops::mesh_candidates(db, &ed.pkg, &binding, preview.as_deref()).first().map(|c| c.0).ok_or("no skeletal mesh in the package matches the animation's bones (use --mesh)")?,
+            };
+            let mesh = ed.object(mesh_i)?.clone();
+            if !matches!(mesh.native, Native::SkeletalMesh(_)) {
+                return Err("--mesh is not a skeletal mesh".into());
+            }
+            let g = tempest_assets::mesh_ops::geometry(&ed.pkg, &mesh, 0)?;
+            let name = ed.pkg.object_name(PackageIndex::export(i));
+            eprintln!("mesh {} ({} bones), {} tracks, {} frames", ed.pkg.object_path(PackageIndex::export(mesh_i)), g.bones.len(), a.tracks.len(), a.num_frames);
+            if args[0] == "export" {
+                let out = args.get(3).ok_or("missing output")?;
+                let ga = anim_ops::gltf_anim(&name, &a, &binding, &g.bones);
+                let bytes = if out.to_ascii_lowercase().ends_with(".fbx") { tempest_assets::mesh_fbx::write_fbx_anims(&name, &g, &[ga])? } else { tempest_assets::mesh_ops::write_glb_anims(&name, &g, &[ga])? };
+                std::fs::write(out, &bytes)?;
+                eprintln!("wrote {} bytes to {out}", bytes.len());
+                return Ok(());
+            }
+            let file = args.get(3).ok_or("missing input file")?;
+            let out = get("-o").ok_or("missing -o <out.upk>")?;
+            let fps = get("--fps").and_then(|f| f.parse().ok()).unwrap_or(if a.num_frames > 1 && a.length > 0.0 { (a.num_frames - 1) as f32 / a.length } else { 30.0 });
+            let bytes = std::fs::read(file)?;
+            let which = get("--anim").and_then(|n| n.parse().ok());
+            let fa = if file.to_ascii_lowercase().ends_with(".fbx") { tempest_assets::mesh_fbx::read_fbx_anim(&bytes, which, fps)? } else { anim_ops::read_gltf(Path::new(file), &bytes, which, fps)? };
+            let (frames, missing) = anim_ops::retarget(&fa, &g.bones);
+            if !missing.is_empty() {
+                eprintln!("{} bones not in the file keep their reference pose: {}", missing.len(), missing.iter().take(12).cloned().collect::<Vec<_>>().join(", "));
+            }
+            let tracks = anim_ops::tracks_from_locals(&frames, &binding, &g.bones, Some(&a));
+            let new = anim::Anim { num_frames: frames.len(), length: fa.duration, tracks };
+            anim_ops::write_sequence(&mut ed, i, &new)?;
+            ed.save(&out)?;
+            eprintln!("{} frames, {:.3} s at {fps:.1} fps -> {out}", new.num_frames, new.length);
+            Ok(())
+        }
+        "compare" => {
+            // upk anim compare <a.upk> <b.upk> <seq>: largest rotation (degrees)
+            // and translation (cm) difference of every track at every frame.
+            let db = load_db(&script_dir(args, &args[1]))?;
+            let load = |p: &str| -> Result<anim::Anim, Box<dyn std::error::Error>> {
+                let pkg = PackageFile::open(p)?.load()?;
+                let i = find_export(&pkg, args.get(3).ok_or("missing sequence")?)?;
+                let Parsed::Object(o) = parse_export(&db, &pkg, package_layout(&pkg), i, &pkg.export_data[i]) else { return Err("not decoded".into()) };
+                Ok(anim::decode(&anim::header(&pkg, &o), anim::stream(&o).ok_or("not an AnimSequence")?)?)
+            };
+            let (a, b) = (load(&args[1])?, load(&args[2])?);
+            let (mut rmax, mut tmax, mut worst) = (0f32, 0f32, 0usize);
+            for f in 0..a.num_frames.min(b.num_frames) {
+                for (t, (x, y)) in a.tracks.iter().zip(&b.tracks).enumerate() {
+                    let ((rx, tx), (ry, ty)) = (x.sample(f as f32), y.sample(f as f32));
+                    if let (Some(p), Some(q)) = (rx, ry) {
+                        let d = (p[0] * q[0] + p[1] * q[1] + p[2] * q[2] + p[3] * q[3]).abs().min(1.0);
+                        let ang = 2.0 * d.acos().to_degrees();
+                        if ang > rmax {
+                            rmax = ang;
+                            worst = t;
+                        }
+                    }
+                    if let (Some(p), Some(q)) = (tx, ty) {
+                        tmax = tmax.max(((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt());
+                    }
+                }
+            }
+            println!("frames {} / {}, tracks {} / {}: max rotation difference {rmax:.4}° (track {worst}), max translation difference {tmax:.4} cm", a.num_frames, b.num_frames, a.tracks.len(), b.tracks.len());
+            if let Some(t) = args.iter().position(|x| x == "--track").and_then(|p| args.get(p + 1)).and_then(|v| v.parse::<usize>().ok()) {
+                let errs: Vec<String> = (0..a.num_frames.min(b.num_frames)).filter_map(|f| {
+                    let (p, q) = (a.tracks[t].sample(f as f32).0?, b.tracks[t].sample(f as f32).0?);
+                    let d = 2.0 * (p[0] * q[0] + p[1] * q[1] + p[2] * q[2] + p[3] * q[3]).abs().min(1.0).acos().to_degrees();
+                    (d > 0.5).then(|| format!("{f}:{d:.1}"))
+                }).collect();
+                println!("track {t}: frames over 0.5°: {}", errs.join(" "));
+            }
+            if args.iter().any(|x| x == "--tracks") {
+                let mut per: Vec<(f32, usize)> = (0..a.tracks.len().min(b.tracks.len())).map(|t| {
+                    let m = (0..a.num_frames.min(b.num_frames)).filter_map(|f| {
+                        let (p, q) = (a.tracks[t].sample(f as f32).0?, b.tracks[t].sample(f as f32).0?);
+                        Some(2.0 * (p[0] * q[0] + p[1] * q[1] + p[2] * q[2] + p[3] * q[3]).abs().min(1.0).acos().to_degrees())
+                    }).fold(0f32, f32::max);
+                    (m, t)
+                }).collect();
+                per.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap());
+                let over = |d: f32| per.iter().filter(|p| p.0 > d).count();
+                println!("tracks over 1°: {}, over 5°: {}, over 20°: {}; worst: {:?}", over(1.0), over(5.0), over(20.0), per.iter().take(8).map(|(d, t)| format!("{t}:{d:.1}")).collect::<Vec<_>>());
+            }
+            Ok(())
+        }
+        _ => Err("usage: upk anim info|verify|export|import|compare".into()),
+    }
 }
 
 fn cmd_mesh(args: &[String]) -> Res {

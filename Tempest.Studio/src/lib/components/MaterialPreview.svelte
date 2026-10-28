@@ -323,7 +323,7 @@
 			</div>
 			<div class="pane-title">Textures</div>
 			<div class="px-2 py-1">
-				{#each info.textures as t (t.path)}
+				{#each info.textures as t, i (`${i}:${t.path}`)}
 					<button
 						class="row-hover flex w-full items-center gap-2 rounded p-1 text-left"
 						onclick={() => goTo(t.package, t.export)}
@@ -354,7 +354,7 @@
 				<div class="pane-title">Vectors</div>
 				<table class="table-xs table w-full table-fixed font-mono">
 					<tbody>
-						{#each info.vectors as v (v.name)}
+						{#each info.vectors as v, i (`${i}:${v.name}`)}
 							<tr class={saving === v.name ? "opacity-50" : ""}>
 								<td class="w-6">
 									<input
@@ -391,7 +391,7 @@
 				<div class="pane-title">Scalars</div>
 				<table class="table-xs table w-full table-fixed font-mono">
 					<tbody>
-						{#each info.scalars as sc (sc.name)}
+						{#each info.scalars as sc, i (`${i}:${sc.name}`)}
 							<tr class={saving === sc.name ? "opacity-50" : ""}>
 								<td class="truncate" title={sc.name}>{sc.name}</td>
 								<td class="w-24">
@@ -413,7 +413,7 @@
 				<div class="pane-title">Static switches</div>
 				<table class="table-xs table font-mono">
 					<tbody>
-						{#each info.switches as s (s.name)}
+						{#each info.switches as s, i (`${i}:${s.name}`)}
 							<tr
 								><td class="truncate">{s.name}</td><td class="text-right opacity-70"
 									>{s.value ? "on" : "off"}</td

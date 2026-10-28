@@ -243,13 +243,13 @@ pub(crate) fn compute_normals(sec: &mut ImportedSection) {
 // glTF
 // ----------------------------------------------------------------------------
 
-struct Gltf {
-    json: J,
+pub(crate) struct Gltf {
+    pub(crate) json: J,
     buffers: Vec<Vec<u8>>,
 }
 
 impl Gltf {
-    fn accessor(&self, index: usize) -> Result<Vec<[f32; 4]>> {
+    pub(crate) fn accessor(&self, index: usize) -> Result<Vec<[f32; 4]>> {
         let acc = self.json["accessors"].get(index).ok_or_else(|| Error::Format(format!("glTF: no accessor {index}")))?;
         if acc.get("sparse").is_some() {
             return Err(Error::Format("glTF: sparse accessors are not supported".into()));
@@ -309,7 +309,38 @@ impl Gltf {
         Ok(out)
     }
 
-    fn node_local(&self, node: &J) -> [[f32; 4]; 4] {
+    /// Every float of a float accessor (any type: MAT4 included), tightly packed.
+    pub(crate) fn accessor_floats(&self, index: usize) -> Result<Vec<f32>> {
+        let acc = self.json["accessors"].get(index).ok_or_else(|| Error::Format(format!("glTF: no accessor {index}")))?;
+        if acc["componentType"].as_u64() != Some(5126) {
+            return Err(Error::Format("glTF: expected a float accessor".into()));
+        }
+        let count = acc["count"].as_u64().unwrap_or(0) as usize;
+        let ncomp = match acc["type"].as_str().unwrap_or("") {
+            "SCALAR" => 1,
+            "VEC2" => 2,
+            "VEC3" => 3,
+            "VEC4" | "MAT2" => 4,
+            "MAT3" => 9,
+            "MAT4" => 16,
+            t => return Err(Error::Format(format!("glTF: accessor type {t} is not supported"))),
+        };
+        let bv = self.json["bufferViews"].get(acc["bufferView"].as_u64().unwrap_or(0) as usize).ok_or_else(|| Error::Format("glTF: bad bufferView".into()))?;
+        let buffer = self.buffers.get(bv["buffer"].as_u64().unwrap_or(0) as usize).ok_or_else(|| Error::Format("glTF: missing buffer".into()))?;
+        let base = bv["byteOffset"].as_u64().unwrap_or(0) as usize + acc["byteOffset"].as_u64().unwrap_or(0) as usize;
+        let stride = bv["byteStride"].as_u64().map(|s| s as usize).unwrap_or(4 * ncomp);
+        let mut out = Vec::with_capacity(count * ncomp);
+        for i in 0..count {
+            for c in 0..ncomp {
+                let off = base + i * stride + c * 4;
+                let b = buffer.get(off..off + 4).ok_or_else(|| Error::Format("glTF: accessor runs past its buffer".into()))?;
+                out.push(f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+            }
+        }
+        Ok(out)
+    }
+
+    pub(crate) fn node_local(&self, node: &J) -> [[f32; 4]; 4] {
         if let Some(m) = node["matrix"].as_array() {
             let v: Vec<f32> = m.iter().map(|x| x.as_f64().unwrap_or(0.0) as f32).collect();
             if v.len() == 16 {
@@ -361,7 +392,9 @@ fn transform_dir(m: &[[f32; 4]; 4], p: [f32; 3]) -> [f32; 3] {
     o
 }
 
-fn parse_gltf(path: &Path, bytes: &[u8]) -> Result<ImportedMesh> {
+/// Read a `.glb` or `.gltf` (with its buffers: the BIN chunk, data URIs or
+/// files next to it).
+pub(crate) fn load_gltf(path: &Path, bytes: &[u8]) -> Result<Gltf> {
     let (json, bin) = if bytes.len() >= 12 && &bytes[0..4] == b"glTF" {
         let mut pos = 12;
         let mut json: Option<J> = None;
@@ -398,7 +431,11 @@ fn parse_gltf(path: &Path, bytes: &[u8]) -> Result<ImportedMesh> {
             }
         }
     }
-    let g = Gltf { json, buffers };
+    Ok(Gltf { json, buffers })
+}
+
+fn parse_gltf(path: &Path, bytes: &[u8]) -> Result<ImportedMesh> {
+    let g = load_gltf(path, bytes)?;
     let mut mesh = ImportedMesh::default();
     // Joint names of the first skin.
     let mut skin_joint_nodes: Vec<usize> = Vec::new();

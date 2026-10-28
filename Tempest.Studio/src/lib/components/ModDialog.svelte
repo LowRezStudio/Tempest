@@ -150,7 +150,7 @@
 				<button class="btn btn-ghost btn-xs" type="button" onclick={addFiles}>Add…</button>
 			</div>
 			<ul class="rounded-box bg-base-200 mt-1 max-h-40 overflow-auto p-1 font-mono text-xs">
-				{#each files as f (f)}
+				{#each files as f, i (i)}
 					<li class="flex items-center gap-2 px-1 py-0.5">
 						<span class="truncate" title={f}>{basename(f)}</span>
 						{#if studio.dirty.includes(f)}<span class="badge badge-xs badge-warning"
@@ -217,7 +217,7 @@
 								>{e.ops} changed objects, {kb(e.bytes)}</span
 							>{:else if e.mode === "copy"}whole file, {kb(e.bytes)}{:else}unchanged,
 							skipped{/if}
-						{#each e.warnings as w (w)}<div class="text-warning">{w}</div>{/each}
+						{#each e.warnings as w, i (i)}<div class="text-warning">{w}</div>{/each}
 					</li>
 				{/each}
 			</ul>

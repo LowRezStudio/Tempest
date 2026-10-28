@@ -203,7 +203,7 @@ function buildServer(): McpServer {
 		{
 			title: "Call the backend",
 			description:
-				"Call any method of the window's `upk serve` backend (the UpkMethods of electron/src/ipc/contract.ts): workspace.search, package.open, object.get, prop.set, object.list, object.duplicate, texture.export, mesh.export, material.preview, particle.system, swf.info, mcts.rows, mcts.set, mcts.addRow, mcts.usages, mod.changes, mod.preview, delta.create, twrk.read, … Binary payloads come back as base64. Edits made here are not reflected in the window until it reloads (use studio_open_package / studio_select to refresh); prefer studio_eval with the stores (studio.setProp…) when the window should follow, so the edit also reaches undo, the project and the cooker.",
+				"Call any method of the window's `upk serve` backend (the UpkMethods of electron/src/ipc/contract.ts): workspace.search, package.open, object.get, prop.set, object.list, object.duplicate, texture.export, mesh.export, anim.info, anim.export, anim.import, anim.edit, material.preview, particle.system, swf.info, mcts.rows, mcts.set, mcts.addRow, mcts.usages, mod.changes, mod.preview, delta.create, twrk.read, … Binary payloads come back as base64. Edits made here are not reflected in the window until it reloads (use studio_open_package / studio_select to refresh); prefer studio_eval with the stores (studio.setProp…) when the window should follow, so the edit also reaches undo, the project and the cooker.",
 			inputSchema: {
 				method: z.string().describe("method name, e.g. workspace.search"),
 				params: z.record(z.string(), z.unknown()).optional().describe("parameters object"),

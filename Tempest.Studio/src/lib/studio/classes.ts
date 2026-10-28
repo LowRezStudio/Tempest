@@ -1,6 +1,7 @@
 // What the inspector can do with an export, decided from its class name
 // (content packages lowercase everything, so compare case-insensitively).
 export type Preview =
+	| "anim"
 	| "texture"
 	| "mesh"
 	| "sound"
@@ -26,6 +27,7 @@ export function previewFor(className: string, nativeType?: string): Preview {
 		return "mesh";
 	}
 	if (c === "soundnodewave") return "sound";
+	if (c === "animsequence" || c === "animset") return "anim";
 	if (c === "akevent" || c === "akbank") return "wwise";
 	if (
 		c === "particlesystem" ||

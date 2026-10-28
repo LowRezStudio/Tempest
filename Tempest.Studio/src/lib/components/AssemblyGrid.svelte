@@ -564,7 +564,7 @@
 
 {#if page}
 	<div class="pane-title @container gap-2">
-		{#each crumbs() as c (c.label)}
+		{#each crumbs() as c, i (i)}
 			<button
 				class="link link-hover font-mono normal-case"
 				onclick={() =>

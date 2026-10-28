@@ -11,6 +11,8 @@
 //!   directories and measures how much of every export is understood.
 
 pub mod actors;
+pub mod anim;
+pub mod anim_ops;
 pub mod basestore;
 pub mod batch;
 pub mod copies;

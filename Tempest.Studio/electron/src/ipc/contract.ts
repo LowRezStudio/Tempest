@@ -203,6 +203,57 @@ export type MeshInfo = {
 	)[];
 };
 
+/** A notify of an AnimSequence (`Notifies[index]`). */
+export type AnimNotify = {
+	index: number;
+	time: number;
+	duration: number;
+	notify: ObjRef;
+	comment: string;
+};
+
+/** A skeletal mesh an animation can play on. */
+export type AnimMesh = {
+	path: string;
+	index: number;
+	object: string;
+	matched: number;
+	preview: boolean;
+};
+
+/** `anim.info`: what a sequence holds. */
+export type AnimInfo = {
+	/** The sequence described (the AnimSet's first one when `index` was the set). */
+	index: number;
+	numFrames: number;
+	length: number;
+	fps: number;
+	rateScale: number;
+	keyFormat: string;
+	rotationFormat: string;
+	translationFormat: string;
+	tracks: number;
+	keys: number;
+	bytes: number;
+	animSet: { index: number; path: string; preview: string | null };
+	notifies: AnimNotify[];
+	meshes: AnimMesh[];
+	/** Every sequence of the AnimSet, by `SequenceName`. */
+	sequences: { index: number; name: string }[];
+};
+
+export type AnimGlb = {
+	mesh: { path: string; index: number; name: string };
+	/** Track bones the mesh does not have (they do not move in the preview). */
+	tracksWithoutBone: string[];
+	warnings: string[];
+	/** How many animations the file holds. */
+	animations: number;
+	glb?: Uint8Array;
+	out?: string;
+	bytes?: number;
+};
+
 export type MeshGlb = {
 	/** GLB bytes (previews only; the host decodes the server's base64). */
 	glb?: Uint8Array;
@@ -630,6 +681,62 @@ export interface UpkMethods {
 		result: TextureInfo;
 	};
 	"mesh.info": { params: Target; result: MeshInfo };
+	"anim.info": { params: Target; result: AnimInfo };
+	"anim.preview": {
+		params: Target & {
+			mesh?: { path: string; index: number };
+			textureSize?: number;
+			textures?: boolean;
+		};
+		result: AnimGlb;
+	};
+	/** `out` ending in `.fbx` writes FBX, else GLB (mesh + skeleton + the animation). */
+	/** `all` (or an AnimSet as `index`): every sequence of the AnimSet, named by `SequenceName`. */
+	"anim.export": {
+		params: Target & { out: string; mesh?: { path: string; index: number }; all?: boolean };
+		result: AnimGlb;
+	};
+	"anim.files": { params: { file: string }; result: { animations: string[] } };
+	/** Replace the motion from a glTF / FBX file (bones matched by name). */
+	"anim.import": {
+		params: Target & {
+			file: string;
+			mesh?: { path: string; index: number };
+			animation?: number;
+			fps?: number;
+			/** Every animation of the file into the AnimSet's sequence of the same name (one undo step). */
+			all?: boolean;
+		};
+		result: {
+			numFrames: number;
+			length: number;
+			animation: string;
+			bonesMatched: number;
+			bonesMissing: string[];
+			replaced: {
+				index: number;
+				sequence: string;
+				animation: string;
+				numFrames: number;
+				length: number;
+			}[];
+			/** File animations no sequence is named like. */
+			unmatched: string[];
+			/** Sequences of the set the file has no animation for. */
+			untouched: string[];
+		};
+	};
+	"anim.edit": {
+		params: Target &
+			(
+				| { op: "trim"; start: number; end: number }
+				| { op: "retime"; length: number }
+				| { op: "notifyMove"; notify: number; time: number; duration?: number }
+				| { op: "notifyRemove"; notify: number }
+				| { op: "notifyAdd"; notify: number; time: number }
+			);
+		result: AnimInfo;
+	};
 	"mesh.preview": {
 		params: Target & { lod?: number; textures?: boolean; skin?: boolean; textureSize?: number };
 		result: MeshGlb;

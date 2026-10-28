@@ -360,6 +360,12 @@ impl Server {
             "mesh.preview" => self.mesh_glb(p, true),
             "mesh.export" => self.mesh_export(p),
             "mesh.import" => self.mesh_import(p),
+            "anim.info" => self.anim_info(p),
+            "anim.preview" => self.anim_preview(p),
+            "anim.export" => self.anim_export(p),
+            "anim.import" => self.anim_import(p),
+            "anim.files" => self.anim_files(p),
+            "anim.edit" => self.anim_edit(p),
             "object.replaceRaw" => self.object_replace_raw(p),
             "media.preview" => self.media_preview(p),
             "media.export" => self.media_export(p),
@@ -3642,4 +3648,488 @@ fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+// ----------------------------------------------------------------------------
+// Animations (`anim.*`)
+// ----------------------------------------------------------------------------
+
+use crate::value::Value;
+
+/// What `anim.*` needs about a sequence.
+struct AnimContext {
+    anim: crate::anim::Anim,
+    header: crate::anim::Header,
+    binding: crate::anim_ops::Binding,
+    preview: Option<String>,
+    set: usize,
+}
+
+impl Server {
+    fn anim_context(&mut self, path: &str, i: usize) -> Res<AnimContext> {
+        let ed = self.editor(path)?;
+        ed.flush();
+        let o = ed.object(i)?.clone();
+        let header = crate::anim::header(&ed.pkg, &o);
+        let stream = crate::anim::stream(&o).ok_or("not an AnimSequence")?;
+        let anim = crate::anim::decode(&header, stream)?;
+        let set = ed.pkg.exports[i].outer.export_index().ok_or("this sequence is not in an AnimSet")?;
+        let set_obj = ed.object(set)?.clone();
+        let (binding, preview) = crate::anim_ops::binding_of(&ed.pkg, &set_obj);
+        Ok(AnimContext { anim, header, binding, preview, set })
+    }
+
+    /// Skeletal meshes the sequence can play on: the AnimSet's preview mesh
+    /// (found in any package of the workspace), then the sequence's package's
+    /// meshes by bones in common.
+    fn anim_meshes(&mut self, path: &str, ctx: &AnimContext) -> Res<Vec<J>> {
+        let db = self.db()?;
+        let mut out = Vec::new();
+        {
+            let ed = self.editor(path)?;
+            for (i, matched) in crate::anim_ops::mesh_candidates(db, &ed.pkg, &ctx.binding, ctx.preview.as_deref()) {
+                let p = ed.pkg.object_path(PackageIndex::export(i));
+                let is_preview = ctx.preview.as_deref().is_some_and(|pv| pv.eq_ignore_ascii_case(&p));
+                out.push(json!({ "path": path, "index": i, "object": p, "matched": matched, "preview": is_preview }));
+            }
+        }
+        if let Some(pv) = ctx.preview.clone() {
+            if !out.iter().any(|m| m["preview"] == true) {
+                self.index_all();
+                let found = index_lookup(&self.index, &self.packages, &pv).and_then(|name| self.packages.iter().find(|w| w.name == name).map(|w| w.path.to_string_lossy().to_string()));
+                if let Some(pkg_path) = found {
+                    let ed = self.editor(&pkg_path)?;
+                    if let Ok(i) = ed.find(&pv) {
+                        let matched = crate::anim_ops::mesh_candidates(db, &ed.pkg, &ctx.binding, Some(&pv)).into_iter().find(|c| c.0 == i).map(|c| c.1).unwrap_or(0);
+                        out.insert(0, json!({ "path": pkg_path, "index": i, "object": pv, "matched": matched, "preview": true }));
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The mesh to use: `mesh: {path, index}` or the best candidate.
+    fn anim_mesh(&mut self, p: &J, path: &str, ctx: &AnimContext) -> Res<(String, usize)> {
+        if let (Some(mp), Some(mi)) = (p["mesh"]["path"].as_str(), p["mesh"]["index"].as_u64()) {
+            return Ok((mp.to_string(), mi as usize));
+        }
+        let m = self.anim_meshes(path, ctx)?;
+        let first = m.first().ok_or("no skeletal mesh found for this animation's bones; pick one")?;
+        Ok((first["path"].as_str().unwrap_or(path).to_string(), first["index"].as_u64().unwrap_or(0) as usize))
+    }
+
+    fn notifies_json(&mut self, path: &str, i: usize) -> Res<Vec<J>> {
+        let ed = self.editor(path)?;
+        let o = ed.object(i)?.clone();
+        let pkg = &ed.pkg;
+        let mut out = Vec::new();
+        if let Some(Value::Array(items)) = o.property("Notifies", pkg).map(|p| &p.value) {
+            for (k, v) in items.iter().enumerate() {
+                let Value::Struct(crate::value::StructValue::Tagged(ps)) = v else { continue };
+                let field = |n: &str| ps.iter().find(|p| pkg.fname_to_string(p.name).eq_ignore_ascii_case(n)).map(|p| &p.value);
+                let time = if let Some(Value::Float(f)) = field("Time") { *f } else { 0.0 };
+                let duration = if let Some(Value::Float(f)) = field("Duration") { *f } else { 0.0 };
+                let notify = match field("Notify") {
+                    Some(Value::Object(idx)) => json::reference(pkg, *idx),
+                    _ => json::reference(pkg, PackageIndex::NONE),
+                };
+                let comment = if let Some(Value::Name(n)) = field("Comment") { pkg.fname_to_string(*n) } else { String::new() };
+                out.push(json!({ "index": k, "time": time, "duration": duration, "notify": notify, "comment": comment }));
+            }
+        }
+        Ok(out)
+    }
+
+    /// `anim.info {path, index}`.
+    fn anim_info(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.anim_target(&path, p)?;
+        let ctx = self.anim_context(&path, i)?;
+        let notifies = self.notifies_json(&path, i)?;
+        let meshes = self.anim_meshes(&path, &ctx)?;
+        let mut sequences = Vec::new();
+        for k in self.set_sequences(&path, ctx.set)? {
+            sequences.push(json!({ "index": k, "name": self.sequence_name(&path, k)? }));
+        }
+        let ed = self.editor(&path)?;
+        let o = ed.object(i)?.clone();
+        let rate = match o.property("RateScale", &ed.pkg).map(|p| &p.value) {
+            Some(Value::Float(f)) => *f,
+            _ => 1.0,
+        };
+        let keys: usize = ctx.anim.tracks.iter().map(|t| t.rot.len() + t.trans.len()).sum();
+        let a = &ctx.anim;
+        Ok(json!({
+            "index": i,
+            "numFrames": a.num_frames,
+            "length": a.length,
+            "fps": if a.num_frames > 1 && a.length > 0.0 { (a.num_frames - 1) as f32 / a.length } else { 30.0 },
+            "rateScale": rate,
+            "keyFormat": format!("{:?}", ctx.header.key_format),
+            "rotationFormat": format!("{:?}", ctx.header.rot_format),
+            "translationFormat": format!("{:?}", ctx.header.trans_format),
+            "tracks": a.tracks.len(),
+            "keys": keys,
+            "bytes": crate::anim::stream(&o).map(|s| s.len()).unwrap_or(0),
+            "animSet": { "index": ctx.set, "path": ed.pkg.object_path(PackageIndex::export(ctx.set)), "preview": ctx.preview },
+            "notifies": notifies,
+            "meshes": meshes,
+            "sequences": sequences,
+        }))
+    }
+
+    /// The mesh's geometry (with textures for previews and exports) and the sequence as a glTF animation.
+    /// The sequences of an AnimSet: its `Sequences` that are exports of the
+    /// package, else the AnimSequences inside it.
+    fn set_sequences(&mut self, path: &str, set: usize) -> Res<Vec<usize>> {
+        let ed = self.editor(path)?;
+        ed.flush();
+        let o = ed.object(set)?.clone();
+        let pkg = &ed.pkg;
+        let is_seq = |i: usize| pkg.class_name_of(PackageIndex::export(i)).eq_ignore_ascii_case("AnimSequence");
+        let mut out: Vec<usize> = match o.property("Sequences", pkg).map(|p| &p.value) {
+            Some(Value::Array(items)) => items.iter().filter_map(|v| if let Value::Object(idx) = v { idx.export_index() } else { None }).filter(|&i| is_seq(i)).collect(),
+            _ => Vec::new(),
+        };
+        if out.is_empty() {
+            out = (0..pkg.exports.len()).filter(|&i| pkg.exports[i].outer.export_index() == Some(set) && is_seq(i)).collect();
+        }
+        Ok(out)
+    }
+
+    /// A sequence's `SequenceName` (what the game plays it by), else its object name.
+    fn sequence_name(&mut self, path: &str, i: usize) -> Res<String> {
+        let ed = self.editor(path)?;
+        let o = ed.object(i)?.clone();
+        Ok(match o.property("SequenceName", &ed.pkg).map(|p| &p.value) {
+            Some(Value::Name(n)) if !ed.pkg.fname_to_string(*n).eq_ignore_ascii_case("None") => ed.pkg.fname_to_string(*n),
+            _ => ed.pkg.object_name(PackageIndex::export(i)),
+        })
+    }
+
+    /// The sequence an `anim.*` call works on: `index` itself, or the first
+    /// sequence of `index` when it is an AnimSet.
+    fn anim_target(&mut self, path: &str, p: &J) -> Res<usize> {
+        let i = self.export_of(path, p)?;
+        if self.editor(path)?.pkg.class_name_of(PackageIndex::export(i)).eq_ignore_ascii_case("AnimSet") {
+            return self.set_sequences(path, i)?.first().copied().ok_or_else(|| "this AnimSet has no sequences".into());
+        }
+        Ok(i)
+    }
+
+    /// The mesh's geometry (with textures for previews and exports) and the
+    /// sequence as a glTF animation; with `all` (or an AnimSet as `index`)
+    /// every sequence of its AnimSet, named by `SequenceName`.
+    fn anim_gltf(&mut self, p: &J, preview: bool) -> Res<(String, crate::mesh_ops::Geometry, Vec<crate::mesh_ops::GltfAnim>, J)> {
+        let path = s(p, "path")?.to_string();
+        let given = self.export_of(&path, p)?;
+        let i = self.anim_target(&path, p)?;
+        let ctx = self.anim_context(&path, i)?;
+        let (mesh_path, mesh_i) = self.anim_mesh(p, &path, &ctx)?;
+        let mut mp = json!({ "path": mesh_path, "index": mesh_i, "textures": opt_b(p, "textures").unwrap_or(true) });
+        if let Some(ts) = p.get("textureSize") {
+            mp["textureSize"] = ts.clone();
+        }
+        let (mesh_name, g, warnings) = self.mesh_geometry(&mp, preview)?;
+        if g.bones.is_empty() {
+            return Err("that mesh has no skeleton".into());
+        }
+        let all = given != i || opt_b(p, "all").unwrap_or(false);
+        let name = self.editor(&path)?.pkg.object_name(PackageIndex::export(if all { ctx.set } else { i }));
+        let map = crate::anim_ops::track_to_bone(&ctx.binding, &g.bones);
+        let missing: Vec<&String> = ctx.binding.track_bones.iter().zip(&map).filter(|(_, m)| m.is_none()).map(|(n, _)| n).collect();
+        let seqs = if all { self.set_sequences(&path, ctx.set)? } else { vec![i] };
+        let mut anims = Vec::new();
+        let mut names = Vec::new();
+        for k in seqs {
+            let anim = if k == i { ctx.anim.clone() } else { self.anim_context(&path, k)?.anim };
+            let mut n = self.sequence_name(&path, k)?;
+            // Animation names must be unique in a file.
+            if names.contains(&n.to_ascii_lowercase()) {
+                n = self.editor(&path)?.pkg.object_name(PackageIndex::export(k));
+            }
+            names.push(n.to_ascii_lowercase());
+            anims.push(crate::anim_ops::gltf_anim(&n, &anim, &ctx.binding, &g.bones));
+        }
+        let info = json!({ "mesh": { "path": mesh_path, "index": mesh_i, "name": mesh_name }, "tracksWithoutBone": missing, "warnings": warnings, "animations": anims.len() });
+        Ok((name, g, anims, info))
+    }
+
+    /// `anim.preview {path, index, mesh?, textureSize?}`: a GLB of the mesh playing the sequence.
+    fn anim_preview(&mut self, p: &J) -> Res<J> {
+        let (name, g, anims, mut info) = self.anim_gltf(p, true)?;
+        let bytes = crate::mesh_ops::write_glb_anims(&name, &g, &anims)?;
+        info["glb"] = self.bins.add(bytes);
+        Ok(info)
+    }
+
+    /// `anim.export {path, index, out, mesh?, all?}`: `.glb` or `.fbx` with the
+    /// mesh and the animation (every sequence of the AnimSet with `all`, or
+    /// when `index` is the AnimSet).
+    fn anim_export(&mut self, p: &J) -> Res<J> {
+        let out = s(p, "out")?.to_string();
+        let (name, g, anims, mut info) = self.anim_gltf(p, false)?;
+        let bytes = if out.to_ascii_lowercase().ends_with(".fbx") { crate::mesh_fbx::write_fbx_anims(&name, &g, &anims)? } else { crate::mesh_ops::write_glb_anims(&name, &g, &anims)? };
+        std::fs::write(&out, &bytes)?;
+        info["out"] = J::from(out);
+        info["bytes"] = J::from(bytes.len());
+        Ok(info)
+    }
+
+    /// `anim.files {file}`: the animations in a `.glb` / `.gltf` / `.fbx`.
+    fn anim_files(&mut self, p: &J) -> Res<J> {
+        let file = s(p, "file")?;
+        let bytes = std::fs::read(file)?;
+        let names = if file.to_ascii_lowercase().ends_with(".fbx") { crate::mesh_fbx::fbx_animation_names(&bytes)? } else { crate::anim_ops::gltf_animation_names(Path::new(file), &bytes)? };
+        Ok(json!({ "animations": names }))
+    }
+
+    /// Scale or shift every notify time: `t → (t - shift) * scale`, clamped to `[0, length]`.
+    fn anim_move_notifies(&mut self, path: &str, i: usize, shift: f32, scale: f32, length: f32) -> Res<()> {
+        let ed = self.editor(path)?;
+        let pkg = ed.pkg.clone();
+        let mut o = ed.object(i)?.clone();
+        if let Some(prop) = o.properties.iter_mut().find(|p| p.array_index == 0 && pkg.fname_to_string(p.name).eq_ignore_ascii_case("Notifies")) {
+            if let Value::Array(items) = &mut prop.value {
+                for v in items.iter_mut() {
+                    if let Value::Struct(crate::value::StructValue::Tagged(ps)) = v {
+                        if let Some(t) = ps.iter_mut().find(|p| pkg.fname_to_string(p.name).eq_ignore_ascii_case("Time")) {
+                            if let Value::Float(f) = &mut t.value {
+                                *f = ((*f - shift) * scale).clamp(0.0, length.max(0.0));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ed.replace_object(i, o)?;
+        Ok(())
+    }
+
+    /// Keep `Notifies` in time order (the engine walks them in order).
+    fn anim_sort_notifies(&mut self, path: &str, i: usize) -> Res<()> {
+        let ed = self.editor(path)?;
+        let pkg = ed.pkg.clone();
+        let mut o = ed.object(i)?.clone();
+        let time_of = |v: &Value| -> f32 {
+            if let Value::Struct(crate::value::StructValue::Tagged(ps)) = v {
+                if let Some(Value::Float(f)) = ps.iter().find(|p| pkg.fname_to_string(p.name).eq_ignore_ascii_case("Time")).map(|p| &p.value) {
+                    return *f;
+                }
+            }
+            0.0
+        };
+        if let Some(prop) = o.properties.iter_mut().find(|p| p.array_index == 0 && pkg.fname_to_string(p.name).eq_ignore_ascii_case("Notifies")) {
+            if let Value::Array(items) = &mut prop.value {
+                items.sort_by(|a, b| time_of(a).partial_cmp(&time_of(b)).unwrap_or(std::cmp::Ordering::Equal));
+            }
+        }
+        ed.replace_object(i, o)?;
+        Ok(())
+    }
+
+    /// `anim.import {path, index, file, mesh?, animation?, fps?, all?}`: replace
+    /// the sequence's motion from a glTF / FBX file (bones matched by name;
+    /// tracks whose bone the mesh lacks keep their keys, time-scaled); notify
+    /// times are scaled to the new length. With `all` (or an AnimSet as
+    /// `index`) every animation of the file replaces the sequence of the set
+    /// with its name (`SequenceName`, else the object name; a `Armature|`
+    /// prefix is ignored), as one undo step; `unmatched` lists the file's
+    /// other animations, `untouched` the set's other sequences.
+    fn anim_import(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let file = s(p, "file")?.to_string();
+        let given = self.export_of(&path, p)?;
+        let i = self.anim_target(&path, p)?;
+        let ctx = self.anim_context(&path, i)?;
+        let (mesh_path, mesh_i) = self.anim_mesh(p, &path, &ctx)?;
+        let (_, g, _) = self.mesh_geometry(&json!({ "path": mesh_path, "index": mesh_i, "textures": false }), true)?;
+        if g.bones.is_empty() {
+            return Err("that mesh has no skeleton".into());
+        }
+        let bytes = std::fs::read(&file)?;
+        let fbx = file.to_ascii_lowercase().ends_with(".fbx");
+        let all = given != i || opt_b(p, "all").unwrap_or(false);
+        // Which file animation goes into which sequence.
+        let mut plan: Vec<(usize, Option<usize>)> = Vec::new();
+        let mut unmatched: Vec<String> = Vec::new();
+        let mut untouched: Vec<String> = Vec::new();
+        if all {
+            let names = if fbx { crate::mesh_fbx::fbx_animation_names(&bytes)? } else { crate::anim_ops::gltf_animation_names(Path::new(&file), &bytes)? };
+            let seqs = self.set_sequences(&path, ctx.set)?;
+            let mut keys = Vec::new();
+            for &k in &seqs {
+                let seq = self.sequence_name(&path, k)?.to_ascii_lowercase();
+                let obj = self.editor(&path)?.pkg.object_name(PackageIndex::export(k)).to_ascii_lowercase();
+                keys.push((k, seq, obj));
+            }
+            // Blender and other tools may prefix the armature name (`Armature|emote`).
+            let leaf = |n: &str| n.rsplit('|').next().unwrap_or(n).trim().to_ascii_lowercase();
+            let mut used = Vec::new();
+            for (a, n) in names.iter().enumerate() {
+                let l = leaf(n);
+                let hit = keys.iter().find(|(k, seq, _)| !used.contains(k) && *seq == l).or_else(|| keys.iter().find(|(k, _, obj)| !used.contains(k) && *obj == l));
+                match hit {
+                    Some((k, _, _)) => {
+                        used.push(*k);
+                        plan.push((*k, Some(a)));
+                    }
+                    None => unmatched.push(n.clone()),
+                }
+            }
+            for (k, seq, _) in &keys {
+                if !used.contains(k) {
+                    untouched.push(seq.clone());
+                }
+            }
+            if plan.is_empty() {
+                return Err(format!("no animation of the file is named like a sequence of this AnimSet (file: {}; sequences: {})", names.join(", "), keys.iter().map(|k| k.1.as_str()).collect::<Vec<_>>().join(", ")).into());
+            }
+        } else {
+            plan.push((i, opt_u(p, "animation")));
+        }
+        let set_name = self.editor(&path)?.pkg.object_name(PackageIndex::export(if all { ctx.set } else { i }));
+        self.editor(&path)?.begin_undo(format!("import animation into {set_name}"));
+        let mut replaced = Vec::new();
+        let mut bones_missing: Vec<String> = Vec::new();
+        let mut matched = 0;
+        for (k, which) in plan {
+            let old = if k == i { ctx.anim.clone() } else { self.anim_context(&path, k)?.anim };
+            let fps = p["fps"].as_f64().map(|f| f as f32).unwrap_or(if old.num_frames > 1 && old.length > 0.0 { (old.num_frames - 1) as f32 / old.length } else { 30.0 });
+            let fa = if fbx { crate::mesh_fbx::read_fbx_anim(&bytes, which, fps)? } else { crate::anim_ops::read_gltf(Path::new(&file), &bytes, which, fps)? };
+            let (frames, missing) = crate::anim_ops::retarget(&fa, &g.bones);
+            matched = g.bones.len() - missing.len();
+            if matched == 0 {
+                return Err(format!("none of the bones of animation {} are named like the mesh's", fa.name).into());
+            }
+            for m in missing {
+                if !bones_missing.contains(&m) {
+                    bones_missing.push(m);
+                }
+            }
+            let tracks = crate::anim_ops::tracks_from_locals(&frames, &ctx.binding, &g.bones, Some(&old));
+            let new = crate::anim::Anim { num_frames: frames.len(), length: fa.duration, tracks };
+            crate::anim_ops::write_sequence(self.editor(&path)?, k, &new)?;
+            if old.length > 0.0 && (old.length - new.length).abs() > 1e-4 {
+                self.anim_move_notifies(&path, k, 0.0, new.length / old.length, new.length)?;
+            }
+            replaced.push(json!({ "index": k, "sequence": self.sequence_name(&path, k)?, "animation": fa.name, "numFrames": new.num_frames, "length": new.length }));
+        }
+        let first = &replaced[0];
+        Ok(json!({
+            "numFrames": first["numFrames"], "length": first["length"], "animation": first["animation"],
+            "bonesMatched": matched, "bonesMissing": bones_missing,
+            "replaced": replaced, "unmatched": unmatched, "untouched": untouched,
+        }))
+    }
+
+    /// `anim.edit {path, index, op, ...}`: `trim {start, end}` (frames, both
+    /// kept), `retime {length}` (seconds), `notifyMove {notify, time}`,
+    /// `notifyRemove {notify}`, `notifyAdd {notify, time}` (a copy of notify
+    /// `notify`, its object duplicated, at `time`).
+    fn anim_edit(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let op = s(p, "op")?.to_string();
+        let name = self.editor(&path)?.pkg.object_name(PackageIndex::export(i));
+        match op.as_str() {
+            "trim" => {
+                let ctx = self.anim_context(&path, i)?;
+                let a = &ctx.anim;
+                let last = a.num_frames.saturating_sub(1);
+                let start = opt_u(p, "start").unwrap_or(0).min(last);
+                let end = opt_u(p, "end").unwrap_or(last).clamp(start + 1, last.max(start + 1));
+                let step = if a.num_frames > 1 { a.length / (a.num_frames - 1) as f32 } else { 0.0 };
+                let tracks = a.tracks.iter().map(|t| {
+                    let frames = start..=end;
+                    let rot: Vec<[f32; 4]> = if t.rot.is_empty() { Vec::new() } else { frames.clone().map(|f| t.sample(f as f32).0.unwrap_or([0.0, 0.0, 0.0, 1.0])).collect() };
+                    let trans: Vec<[f32; 3]> = if t.trans.is_empty() { Vec::new() } else { frames.map(|f| t.sample(f as f32).1.unwrap_or([0.0; 3])).collect() };
+                    crate::anim::reduce(&rot, &trans, crate::anim::ROT_TOLERANCE, crate::anim::TRANS_TOLERANCE)
+                }).collect();
+                let new = crate::anim::Anim { num_frames: end - start + 1, length: (end - start) as f32 * step, tracks };
+                let ed = self.editor(&path)?;
+                ed.begin_undo(format!("trim {name}"));
+                crate::anim_ops::write_sequence(ed, i, &new)?;
+                self.anim_move_notifies(&path, i, start as f32 * step, 1.0, new.length)?;
+            }
+            "retime" => {
+                let length = p["length"].as_f64().ok_or("missing length")? as f32;
+                if length <= 0.0 {
+                    return Err("the length must be positive".into());
+                }
+                let mut ctx = self.anim_context(&path, i)?;
+                let old = ctx.anim.length;
+                ctx.anim.length = length;
+                let ed = self.editor(&path)?;
+                ed.begin_undo(format!("retime {name}"));
+                crate::anim_ops::write_sequence(ed, i, &ctx.anim)?;
+                if old > 0.0 {
+                    self.anim_move_notifies(&path, i, 0.0, length / old, length)?;
+                }
+            }
+            "notifyMove" => {
+                let k = opt_u(p, "notify").ok_or("missing notify")?;
+                let t = p["time"].as_f64().ok_or("missing time")?;
+                let ed = self.editor(&path)?;
+                ed.begin_undo(format!("move notify of {name}"));
+                ed.set(i, &format!("Notifies[{k}].Time"), &format!("{t}"))?;
+                if let Some(d) = p["duration"].as_f64() {
+                    ed.set(i, &format!("Notifies[{k}].Duration"), &format!("{d}"))?;
+                }
+                self.anim_sort_notifies(&path, i)?;
+            }
+            "notifyRemove" => {
+                let k = opt_u(p, "notify").ok_or("missing notify")?;
+                let ed = self.editor(&path)?;
+                ed.begin_undo(format!("remove notify of {name}"));
+                ed.edit_list(i, &format!("Notifies[{k}]"), crate::edit::ListOp::Remove(k))?;
+            }
+            "notifyAdd" => {
+                let k = opt_u(p, "notify").ok_or("missing notify")?;
+                let t = p["time"].as_f64().ok_or("missing time")? as f32;
+                let ed = self.editor(&path)?;
+                ed.begin_undo(format!("add notify to {name}"));
+                let pkg = ed.pkg.clone();
+                let o = ed.object(i)?.clone();
+                let Some(Value::Array(items)) = o.property("Notifies", &pkg).map(|p| p.value.clone()) else { return Err("the sequence has no notifies to copy".into()) };
+                let mut item = items.get(k).cloned().ok_or("no such notify")?;
+                // A copy of the notify object, so the two can be edited apart.
+                let mut copy_of: Option<usize> = None;
+                if let Value::Struct(crate::value::StructValue::Tagged(ps)) = &item {
+                    if let Some(Value::Object(idx)) = ps.iter().find(|p| pkg.fname_to_string(p.name).eq_ignore_ascii_case("Notify")).map(|p| &p.value) {
+                        copy_of = idx.export_index();
+                    }
+                }
+                let new_obj = match copy_of {
+                    Some(src) => Some(ed.duplicate(src)?),
+                    None => None,
+                };
+                let pkg = ed.pkg.clone();
+                if let Value::Struct(crate::value::StructValue::Tagged(ps)) = &mut item {
+                    for prop in ps.iter_mut() {
+                        let n = pkg.fname_to_string(prop.name);
+                        if n.eq_ignore_ascii_case("Time") {
+                            prop.value = Value::Float(t);
+                        } else if n.eq_ignore_ascii_case("Notify") {
+                            if let Some(no) = new_obj {
+                                prop.value = Value::Object(PackageIndex::export(no));
+                            }
+                        }
+                    }
+                }
+                let mut o = ed.object(i)?.clone();
+                if let Some(prop) = o.properties.iter_mut().find(|p| p.array_index == 0 && pkg.fname_to_string(p.name).eq_ignore_ascii_case("Notifies")) {
+                    if let Value::Array(list) = &mut prop.value {
+                        list.push(item);
+                    }
+                }
+                ed.replace_object(i, o)?;
+                self.anim_sort_notifies(&path, i)?;
+            }
+            other => return Err(format!("unknown animation edit {other}").into()),
+        }
+        self.editor(&path)?.mark_dirty(i);
+        self.anim_info(p)
+    }
 }

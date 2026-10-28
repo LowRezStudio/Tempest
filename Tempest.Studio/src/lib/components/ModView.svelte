@@ -467,7 +467,7 @@
 			{/if}
 			{#if cooker.problems.length > 0}
 				<ul class="list-inside list-disc text-xs opacity-80">
-					{#each cooker.problems as p (p)}<li>{p}</li>{/each}
+					{#each cooker.problems as p, i (i)}<li>{p}</li>{/each}
 				</ul>
 			{/if}
 			<div class="flex flex-col gap-1">

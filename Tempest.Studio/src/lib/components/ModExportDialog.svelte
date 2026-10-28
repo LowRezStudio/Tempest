@@ -123,7 +123,7 @@
 						>Show</button
 					>
 				</div>
-				{#each result.files as f (f)}<div class="opacity-70">{f}</div>{/each}
+				{#each result.files as f, i (i)}<div class="opacity-70">{f}</div>{/each}
 				{#each result.deltas as d (d.file)}
 					<div class="text-success">
 						{d.file}: {d.ops} changed rows ({(d.bytes / 1024).toFixed(1)} KB instead of the
