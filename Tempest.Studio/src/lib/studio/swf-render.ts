@@ -3,7 +3,13 @@
 // request, on disk by content) and a queue that renders views before they are
 // opened (hovering a clip in the tree or a movie in the export list).
 import { rpc } from "./rpc";
-import { libraryFetchedAt, loadRuffle, registerMovie, type RuffleElement } from "./ruffle";
+import {
+	libraryFetchedAt,
+	loadRuffle,
+	registerMovie,
+	ruffleBuild,
+	type RuffleElement,
+} from "./ruffle";
 import type { SwfRect, UpkMethods } from "../../../electron/src/ipc/contract";
 import type { SwfDoc } from "./swf.svelte";
 
@@ -207,9 +213,9 @@ export function copy(source: CanvasImageSource & { width: number; height: number
 // ----- on disk, by content ----------------------------------------------------------
 
 // The same preview bytes, libraries and background always draw the same
-// picture, so pictures are kept on disk under a digest of exactly that: a
-// movie seen in an earlier session, or the same view reached from another
-// document, shows without Ruffle.
+// picture with the same Ruffle build, so pictures are kept on disk under a
+// digest of exactly that: a movie seen in an earlier session, or the same view
+// reached from another document, shows without Ruffle.
 
 const hex = (b: ArrayBuffer) =>
 	Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, "0")).join("");
@@ -254,7 +260,7 @@ export async function contentKey(
 		crypto.subtle.digest("SHA-256", swf as BufferSource),
 		librariesDigest(libraries),
 	]);
-	const all = new TextEncoder().encode(`${hex(movie)}|${libs}|${transparent}`);
+	const all = new TextEncoder().encode(`${hex(movie)}|${libs}|${transparent}|${ruffleBuild}`);
 	return hex(await crypto.subtle.digest("SHA-256", all));
 }
 

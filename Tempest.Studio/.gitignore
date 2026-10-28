@@ -15,3 +15,7 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Patched Ruffle (scripts/build-ruffle.sh)
+/.ruffle
+/vendor/ruffle

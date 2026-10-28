@@ -1,25 +1,32 @@
 // The self-hosted Ruffle player: a prebuilt webpack bundle that registers
 // `window.RufflePlayer` and resolves its core chunk and wasm builds relative to its
-// own URL. The files are imported as URLs (served from `@ruffle-rs/ruffle` in dev,
+// own URL. The files are imported as URLs (served from `$ruffle` in dev: the
+// patched build in vendor/ruffle or `@ruffle-rs/ruffle`, see vite.config.ts;
 // emitted next to the bundle in a build) and the script is loaded on first play;
-// the wasm is ~28 MB.
+// the wasm is ~13 MB.
 //
 // Only the parts of Ruffle's JS API the player uses are typed.
 
-import ruffleScriptUrl from "@ruffle-rs/ruffle/ruffle.js?url";
+import ruffleScriptUrl from "$ruffle/ruffle.js?url";
 
 /**
  * The files the bundle asks for at runtime. It builds their URLs itself, so the
  * imports are only here to make a build emit them beside `ruffle.js`.
  */
-import.meta.glob(
-	[
-		"/node_modules/@ruffle-rs/ruffle/core.ruffle.*.js",
-		"/node_modules/@ruffle-rs/ruffle/*.wasm",
-		"/node_modules/@ruffle-rs/ruffle/LICENSE_*",
-	],
+const ruffleFiles = import.meta.glob(
+	["$ruffle/core.ruffle.*.js", "$ruffle/*.wasm", "$ruffle/LICENSE_*"],
 	{ query: "?url", import: "default", eager: true },
 );
+
+/**
+ * Names the Ruffle build: its wasm files are named by their content hash, so
+ * another build (the patched one or npm's) draws pictures cached under another key.
+ */
+export const ruffleBuild = Object.keys(ruffleFiles)
+	.filter((f) => f.endsWith(".wasm"))
+	.map((f) => f.slice(f.lastIndexOf("/") + 1))
+	.sort()
+	.join(",");
 
 /** The `<ruffle-player>` custom element Ruffle creates. */
 export type RuffleElement = HTMLElement & {

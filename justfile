@@ -236,6 +236,11 @@ studio-dev:
 studio-build:
     cd {{studio}} && pnpm electron:build
 
+# Ruffle v0.7.1 + Tempest.Studio/ruffle/*.patch (9-slice scaling) -> Tempest.Studio/vendor/ruffle (used instead of npm's when present)
+[group("studio")]
+studio-ruffle:
+    {{studio}}/scripts/build-ruffle.sh
+
 # svelte-check (renderer), electron typecheck (host), oxlint
 [group("studio")]
 studio-check:
