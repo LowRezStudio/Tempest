@@ -843,6 +843,103 @@ pub fn import_urls(m: &Movie) -> Vec<String> {
     urls
 }
 
+/// The URL and symbol names of an `ImportAssets`/`ImportAssets2` tag.
+pub fn import_entries(t: &Tag) -> Option<(String, Vec<String>)> {
+    let d = &t.data;
+    let url_len = d.iter().position(|&b| b == 0)?;
+    let head = url_len + 1 + if t.code == 71 { 2 } else { 0 };
+    let n = u16_at(d, head)?;
+    let mut pos = head + 2;
+    let mut names = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        u16_at(d, pos)?;
+        let (name, next) = cstr(d, pos + 2);
+        names.push(name);
+        pos = next;
+    }
+    Some((String::from_utf8_lossy(&d[..url_len]).into_owned(), names))
+}
+
+/// Point an import tag at another URL.
+pub fn set_import_url(t: &mut Tag, url: &str) {
+    if let Some(url_len) = t.data.iter().position(|&b| b == 0) {
+        let mut d = url.as_bytes().to_vec();
+        d.extend_from_slice(&t.data[url_len..]);
+        t.data = d;
+    }
+}
+
+/// Merge the `ImportAssets`/`ImportAssets2` tags of one URL into the first of
+/// them, keeping only the symbols `keep` accepts (a tag left empty is
+/// dropped). Flash writes one tag per imported symbol and Ruffle loads and
+/// parses the library again for every tag: the Home movie loaded the 1.4 MB
+/// font library eight times. Returns whether anything changed.
+pub fn merge_imports(tags: &mut Vec<Tag>, keep: impl Fn(u16) -> bool) -> bool {
+    struct Group {
+        at: usize,
+        code: u16,
+        url_len: usize,
+        head: Vec<u8>,
+        entries: Vec<u8>,
+        count: u16,
+    }
+    let mut groups: Vec<Group> = Vec::new();
+    let mut dropped = vec![false; tags.len()];
+    let mut changed = false;
+    for (i, t) in tags.iter().enumerate() {
+        if t.code != 57 && t.code != 71 {
+            continue;
+        }
+        let d = &t.data;
+        let Some(url_len) = d.iter().position(|&b| b == 0) else { continue };
+        let head_len = url_len + 1 + if t.code == 71 { 2 } else { 0 };
+        let Some(n) = u16_at(d, head_len) else { continue };
+        let mut pos = head_len + 2;
+        let mut entries = Vec::new();
+        let mut count = 0u16;
+        for _ in 0..n {
+            let Some(id) = u16_at(d, pos) else { break };
+            let end = d[pos + 2..].iter().position(|&b| b == 0).map_or(d.len(), |e| pos + 2 + e + 1);
+            if keep(id) {
+                entries.extend_from_slice(&d[pos..end]);
+                count += 1;
+            } else {
+                changed = true;
+            }
+            pos = end;
+        }
+        let url = &d[..url_len];
+        match groups.iter_mut().find(|g| g.code == t.code && g.head[..g.url_len].eq_ignore_ascii_case(url)) {
+            Some(g) => {
+                g.entries.extend_from_slice(&entries);
+                g.count += count;
+                dropped[i] = true;
+                changed = true;
+            }
+            None => groups.push(Group { at: i, code: t.code, url_len, head: d[..head_len].to_vec(), entries, count }),
+        }
+    }
+    if !changed {
+        return false;
+    }
+    for g in groups {
+        if g.count == 0 {
+            dropped[g.at] = true;
+            continue;
+        }
+        let mut data = g.head;
+        data.extend_from_slice(&g.count.to_le_bytes());
+        data.extend_from_slice(&g.entries);
+        tags[g.at].data = data;
+    }
+    let mut i = 0;
+    tags.retain(|_| {
+        i += 1;
+        !dropped[i - 1]
+    });
+    true
+}
+
 /// Everything the Studio shows about a movie.
 pub fn info(m: &Movie) -> J {
     let (xmin, xmax, ymin, ymax) = m.frame();
@@ -1125,6 +1222,36 @@ pub fn apply(m: &mut Movie, edits: &[J]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn import2(url: &str, symbols: &[(u16, &str)]) -> Tag {
+        let mut d = url.as_bytes().to_vec();
+        d.extend_from_slice(&[0, 1, 0]);
+        d.extend_from_slice(&(symbols.len() as u16).to_le_bytes());
+        for (id, name) in symbols {
+            d.extend_from_slice(&id.to_le_bytes());
+            d.extend_from_slice(name.as_bytes());
+            d.push(0);
+        }
+        Tag { code: 71, data: d, long: false }
+    }
+
+    #[test]
+    fn merges_imports_per_url() {
+        let shape = Tag { code: 2, data: vec![9, 0], long: false };
+        let mut tags = vec![import2("../A/a.swf", &[(1, "one")]), shape.clone(), import2("../B/b.swf", &[(2, "two")]), import2("../a/A.swf", &[(3, "three"), (4, "four")])];
+        assert!(merge_imports(&mut tags, |_| true));
+        assert_eq!(tags.len(), 3);
+        assert_eq!(tags[0].data, import2("../A/a.swf", &[(1, "one"), (3, "three"), (4, "four")]).data);
+        assert_eq!(tags[1].data, shape.data);
+        assert_eq!(tags[2].data, import2("../B/b.swf", &[(2, "two")]).data);
+        assert!(!merge_imports(&mut tags, |_| true));
+
+        // Pruned to the symbols kept; a library left without symbols is not imported.
+        assert!(merge_imports(&mut tags, |id| id == 4));
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0].data, import2("../A/a.swf", &[(4, "four")]).data);
+        assert_eq!(tags[1].code, 2);
+    }
 
     #[test]
     fn round_trips_a_small_movie() {

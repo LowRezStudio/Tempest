@@ -8,7 +8,9 @@
 import { pickFile, pickSave } from "$lib/platform/api";
 import { bytes, safeName } from "./format";
 import { rpc } from "./rpc";
+import { warmRuffle } from "./ruffle";
 import { studio } from "./state.svelte";
+import { prerender, type Request } from "./swf-render";
 import { toasts } from "./toast.svelte";
 import type {
 	SwfCharacter,
@@ -19,6 +21,8 @@ import type {
 	SwfInfo,
 	SwfLibrary,
 	SwfMatrix,
+	SwfPreviewTarget,
+	SwfRect,
 	SwfTimeline,
 	SwfTree,
 	UpkMethods,
@@ -269,6 +273,31 @@ export class SwfDoc {
 		return parent ?? null;
 	}
 
+	/** The current sprite's timeline has been read (until then the stage has nothing to fit). */
+	timelineReady = $derived(this.sprite === null || this.timeline?.sprite === this.sprite);
+
+	/** The movie's stage in a sprite's coordinates (0: the root), when the root places it. */
+	outlineOf(sprite: number | null): SwfRect | null {
+		const stage = this.tree?.stage;
+		if (!stage || sprite === null) return null;
+		if (sprite === 0) return stage;
+		const p = this.rootList.find((e) => e.character === sprite);
+		if (!p) return null;
+		const inv = invert(p.matrix);
+		if (!inv) return null;
+		const pts = [
+			apply(inv, stage.x, stage.y),
+			apply(inv, stage.x + stage.w, stage.y),
+			apply(inv, stage.x, stage.y + stage.h),
+			apply(inv, stage.x + stage.w, stage.y + stage.h),
+		];
+		const xs = pts.map((q) => q[0]);
+		const ys = pts.map((q) => q[1]);
+		const x = Math.min(...xs);
+		const y = Math.min(...ys);
+		return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+	}
+
 	/** Root › … › the open sprite, for the breadcrumb (empty outside sprite views). */
 	trail = $derived.by((): { id: number; label: string }[] => {
 		const sprite = this.sprite;
@@ -349,6 +378,7 @@ export class SwfDoc {
 		this.readAt = packageStamp();
 		this.loading = true;
 		this.error = null;
+		void warmRuffle();
 		try {
 			const edits = this.pending;
 			const [tree, info, root] = await Promise.all([
@@ -802,6 +832,139 @@ export class SwfDoc {
 			this.applying = false;
 		}
 	}
+}
+
+// ----- stage requests ---------------------------------------------------------------
+// What the stage asks `swf.preview` for, built in one place so a view rendered
+// ahead of time (`prerenderView`) has the key the stage will ask for.
+
+/** The stage viewport (CSS pixels), for the size of views rendered ahead. */
+export const stageViewport = { w: 0, h: 0 };
+/** Space around the stage's picture (CSS pixels). */
+export const STAGE_PAD = 24;
+
+/**
+ * The area a timeline target shows when first opened: the root's stage, else
+ * every object of the frame and the stage outline, with a 3 % margin.
+ */
+export function defaultView(
+	target: SwfPreviewTarget,
+	entries: SwfEntry[],
+	outline: SwfRect | null,
+): SwfRect | null {
+	if (target.kind === "character") return null;
+	if (target.kind === "root" && outline) return outline;
+	if (entries.length === 0) return null;
+	let r: SwfRect | null = outline;
+	for (const e of entries) {
+		if (!e.rect) continue;
+		r = r ? union(r, e.rect) : e.rect;
+	}
+	if (!r) return null;
+	const pad = Math.max(r.w, r.h) * 0.03;
+	return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+}
+
+function union(a: SwfRect, b: SwfRect): SwfRect {
+	const x = Math.min(a.x, b.x);
+	const y = Math.min(a.y, b.y);
+	return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+}
+
+/** The scale a stage of `viewport` size draws `rect` at. */
+export function stageScale(rect: SwfRect, zoom: number, viewport = stageViewport): number {
+	if (zoom > 0) return zoom;
+	const fit = Math.min(
+		(viewport.w - STAGE_PAD * 2) / rect.w,
+		(viewport.h - STAGE_PAD * 2) / rect.h,
+	);
+	return Math.max(0.02, Math.min(fit, 4));
+}
+
+/**
+ * The stage's base request: the target with the pending edits, without the
+ * layers hidden in the editor and the floating objects (`floating`: their
+ * depths, and the tags whose placement edits only move their layers).
+ */
+export function stageRequest(
+	doc: SwfDoc,
+	target: SwfPreviewTarget,
+	view: SwfRect | null,
+	floating: { depths: number[]; tags: Set<number> } = { depths: [], tags: new Set() },
+): Request {
+	const sprite = target.kind === "root" ? 0 : target.kind === "frame" ? target.id : null;
+	const hidden = sprite === null ? [] : (doc.hiddenBySprite[sprite] ?? []);
+	return {
+		target,
+		edits: doc.pending.filter(
+			(e) => !(e.kind === "place" && e.sprite === sprite && floating.tags.has(e.tag)),
+		),
+		exclude: [...new Set([...floating.depths, ...hidden])].sort((a, b) => a - b),
+		rect: view ?? undefined,
+	};
+}
+
+/** The layer key of a stage request (the package stamp redraws after a texture change or an undo). */
+export const stageKey = (request: Request, stamp: number) => JSON.stringify({ ...request, stamp });
+
+/** What the stage shows for a node of the tree (null: a tag view or the movie player). */
+export function nodeTarget(doc: SwfDoc, node: SwfNode, frame = 0): SwfPreviewTarget | null {
+	if (node === "frames") return { kind: "root", frame };
+	if (!node.startsWith("char:")) return null;
+	const c = doc.chars.get(Number(node.slice(5)));
+	if (!c) return null;
+	return c.kind === "sprite"
+		? { kind: "frame", id: c.id, frame }
+		: { kind: "character", id: c.id };
+}
+
+/**
+ * Render a node's first view in the background, as the stage would ask for
+ * it, so opening it shows the picture at once (hovering the tree or a movie).
+ */
+export async function prerenderView(doc: SwfDoc, node: SwfNode, frame = 0): Promise<void> {
+	if (!doc.tree || stageViewport.w === 0) return;
+	const target = nodeTarget(doc, node, frame);
+	if (!target) return;
+	let rect: SwfRect | null = null;
+	let view: SwfRect | null = null;
+	if (target.kind === "character") {
+		rect = doc.chars.get(target.id)?.rect ?? null;
+	} else {
+		const sprite = target.kind === "root" ? 0 : target.id;
+		const outline = doc.outlineOf(sprite);
+		let entries: SwfEntry[] = [];
+		if (target.kind === "frame") {
+			const t = await rpc("swf.timeline", {
+				path: doc.path,
+				index: doc.index,
+				sprite,
+				edits: doc.pending,
+				limit: 1,
+			});
+			entries = t.frames[0] ?? [];
+		}
+		view = defaultView(target, entries, outline);
+		rect = view;
+	}
+	if (!rect || rect.w <= 0 || rect.h <= 0) return;
+	const scale = stageScale(rect, doc.zoom);
+	const request = stageRequest(doc, target, view);
+	prerender(
+		doc,
+		request,
+		stageKey(request, doc.stamp),
+		target.kind !== "root",
+		Math.max(1, Math.round(rect.w * scale)),
+		Math.max(1, Math.round(rect.h * scale)),
+	);
+}
+
+/** Read a movie and render the view it opens on, ahead of its selection (hovering it). */
+export async function prerenderMovie(path: string, index: number): Promise<void> {
+	const doc = swfDoc(path, index);
+	if (!doc.tree) await doc.load();
+	if (!doc.play) await prerenderView(doc, doc.node, doc.frame);
 }
 
 /** The Texture2D of the open package an external image names (`Foo.tga` → `Foo`). */

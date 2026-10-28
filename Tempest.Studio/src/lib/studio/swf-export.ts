@@ -9,6 +9,7 @@ import { bytes } from "./format";
 import { rpc } from "./rpc";
 import { loadRuffle, registerMovie, type RuffleElement } from "./ruffle";
 import { studio } from "./state.svelte";
+import { previewLibraries } from "./swf-render";
 import { toasts } from "./toast.svelte";
 import type { SwfPreviewTarget, SwfRect } from "../../../electron/src/ipc/contract";
 import type { SwfDoc } from "./swf.svelte";
@@ -74,11 +75,11 @@ export async function renderPng(
 	scale = 1,
 	rect?: SwfRect,
 ): Promise<{ png: Uint8Array; width: number; height: number }> {
-	const [preview, libraries, ruffle] = await Promise.all([
+	const [preview, ruffle] = await Promise.all([
 		rpc("swf.preview", { path: doc.path, index: doc.index, target, edits: doc.pending, rect }),
-		doc.librariesOnce(),
 		loadRuffle(),
 	]);
+	const libraries = await previewLibraries(doc, preview);
 	// A fixed area gives every frame of a sequence the same size.
 	const area = rect ?? preview.rect;
 	const width = Math.max(1, Math.round(area.w * scale));
@@ -99,7 +100,7 @@ export async function renderPng(
 		zIndex: "-1",
 	});
 	document.body.append(host);
-	const route = registerMovie(preview.swf, libraries.libraries);
+	const route = registerMovie(preview.swf, libraries);
 	const player = ruffle.newest().createPlayer();
 	const style = document.createElement("style");
 	style.textContent = "#play-button { display: none !important; }";

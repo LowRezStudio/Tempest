@@ -113,6 +113,17 @@ body {
 	@apply bg-primary/20 text-base-content;
 }
 
+/* The package and export lists hold thousands of rows: off-screen rows skip
+   style and layout (a full layout with a big package open took ~130 ms). */
+[data-export] {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 20px;
+}
+[data-package] {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 24px;
+}
+
 /* Pinned grid cells sit over scrolled ones: opaque versions of the row colours. */
 .pin-plain {
 	background-color: var(--color-base-100);

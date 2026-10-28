@@ -6,6 +6,7 @@
 	import TreeNode from "$lib/components/TreeNode.svelte";
 	import { inField, reveal, step } from "$lib/studio/keys";
 	import { studio } from "$lib/studio/state.svelte";
+	import { prerenderMovie } from "$lib/studio/swf.svelte";
 	import { ancestors, buildTree, classCounts } from "$lib/studio/tree";
 
 	let filter = $state("");
@@ -30,10 +31,16 @@
 	});
 
 	// Reveal the selection when it was chosen from outside the tree (search,
-	// reference links).
+	// reference links). A row clicked here is on screen already, and
+	// scrolling to it costs a layout of the whole list (~20 ms).
+	let clicked = -1;
 	$effect(() => {
 		const i = studio.selected;
 		if (i === null) return;
+		if (i === clicked) {
+			clicked = -1;
+			return;
+		}
 		for (const a of ancestors(rows, i)) expanded.add(a);
 		requestAnimationFrame(() => {
 			document.querySelector(`[data-export="${i}"]`)?.scrollIntoView({ block: "nearest" });
@@ -52,7 +59,35 @@
 		return out;
 	}
 
+	// Resting on a movie reads it and renders its first view in the
+	// background, so selecting it shows the stage at once.
+	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+	let hovered = -1;
+	function onHover(event: PointerEvent) {
+		const el = (event.target as HTMLElement).closest<HTMLElement>("[data-export]");
+		const i = el ? Number(el.dataset.export) : -1;
+		// Moving over the parts of one row is still the same row.
+		if (i === hovered) return;
+		hovered = i;
+		if (hoverTimer) clearTimeout(hoverTimer);
+		hoverTimer = null;
+		if (isMovie(i) && i !== studio.selected) hoverTimer = setTimeout(() => ahead(i), 120);
+	}
+
+	const isMovie = (i: number) => rows[i]?.class.toLowerCase() === "swfmovie";
+
+	/** Read a movie and render its first view, if row `i` is one. */
+	function ahead(i: number) {
+		const path = studio.pkg?.path;
+		if (path && isMovie(i)) void prerenderMovie(path, i).catch(() => {});
+	}
+	$effect(() => () => {
+		if (hoverTimer) clearTimeout(hoverTimer);
+	});
+
 	function go(i: number) {
+		// `reveal` scrolls to it; the selection effect need not as well.
+		clicked = i;
 		void studio.select(i);
 		reveal(`[data-export="${i}"]`);
 	}
@@ -64,9 +99,14 @@
 			case "ArrowDown":
 			case "ArrowUp": {
 				const order = visibleRows();
+				const dir = event.key === "ArrowDown" ? 1 : -1;
 				const at = sel === null ? -1 : order.indexOf(sel);
-				const next = order[step(at, event.key === "ArrowDown" ? 1 : -1, order.length)];
+				const n = step(at, dir, order.length);
+				const next = order[n];
 				if (next !== undefined) go(next);
+				// Walking a list of movies: the next one is likely next.
+				const after = order[n + dir];
+				if (after !== undefined) ahead(after);
 				break;
 			}
 			case "Home":
@@ -151,7 +191,23 @@
 		</select>
 	</div>
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div class="min-h-0 flex-1 overflow-auto py-1" role="tree" tabindex="-1" onkeydown={onKey}>
+	<div
+		class="min-h-0 flex-1 overflow-auto py-1"
+		role="tree"
+		tabindex="-1"
+		onkeydown={onKey}
+		onpointerover={onHover}
+		onpointerdown={(e) => {
+			const el = (e.target as HTMLElement).closest<HTMLElement>("[data-export]");
+			clicked = el ? Number(el.dataset.export) : -1;
+			// The press comes well before the click: start on the movie now.
+			ahead(clicked);
+		}}
+		onpointerleave={() => {
+			hovered = -1;
+			if (hoverTimer) clearTimeout(hoverTimer);
+		}}
+	>
 		{#if filtering}
 			{#each flat as i (i)}
 				{@const row = rows[i]!}

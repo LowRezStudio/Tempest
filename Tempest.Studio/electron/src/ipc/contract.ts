@@ -1085,6 +1085,14 @@ export interface UpkMethods {
 			rect: SwfRect;
 			images: number;
 			missing: string[];
+			/** Import tags left in the movie: 0 means its first picture is complete. */
+			imports: number;
+			/**
+			 * Layouts: the cuts of the shared libraries the movie imports (at the URLs
+			 * its imports now name). Absent for a playing target, which needs the
+			 * whole libraries (`swf.libraries`).
+			 */
+			libraries?: { url: string; swf: Uint8Array }[];
 		};
 	};
 	/** The movie bytes themselves (Scaleform GFx), for the Ruffle player. */

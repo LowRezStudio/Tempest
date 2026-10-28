@@ -5,6 +5,7 @@ import { invoke, listen } from "$lib/platform/api";
 import { basename, dirname, stem } from "./format";
 import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
+import { warmRuffle } from "./ruffle";
 import { toasts } from "./toast.svelte";
 import type {
 	ExportRow,
@@ -251,6 +252,9 @@ class Studio {
 			this.object = null;
 			this.tablesVersion++;
 			if (tables.dirty && !this.dirty.includes(path)) this.dirty.push(path);
+			if (tables.exports.some((e) => e.class.toLowerCase() === "swfmovie")) {
+				requestIdleCallback(() => void warmRuffle(), { timeout: 2000 });
+			}
 			void this.refreshUndo();
 			// An export added by an edit that was since discarded is gone: select nothing.
 			if (select !== undefined && select < tables.exports.length) await this.select(select);

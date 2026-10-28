@@ -3,22 +3,44 @@
 	request (another `key`) loads in a second player behind the visible one,
 	which is only replaced once Ruffle has drawn the new movie, so changes
 	never flash an empty canvas. Only `key` triggers a load: the request
-	object is rebuilt by every refresh. The stage stacks these: the frame
-	without its floating objects, and each floating object alone.
+	object is rebuilt by every refresh; an empty key waits. The stage stacks
+	these: the frame without its floating objects, and each floating object
+	alone.
+
+	A still layer shows a picture it already has without Ruffle
+	(`$lib/studio/swf-render`): one kept in memory for this request (going
+	back up a clip, an undo), one being rendered ahead (hovering in the tree),
+	or one kept on disk for the same preview bytes (an earlier session).
+	Ruffle only runs again when the layer has grown past the picture's
+	resolution.
 -->
 <script lang="ts">
 	import { untrack } from "svelte";
 	import { rpc } from "$lib/studio/rpc";
-	import { loadRuffle, registerMovie, type RuffleElement } from "$lib/studio/ruffle";
+	import { registerMovie, type RuffleElement } from "$lib/studio/ruffle";
+	import {
+		contentKey,
+		copy,
+		loaded,
+		loadPicture,
+		mountPlayer,
+		pendingPicture,
+		pictureKey,
+		previewLibraries,
+		recall,
+		remember,
+		settled,
+		storePicture,
+		type Picture,
+		type Request,
+	} from "$lib/studio/swf-render";
 	import type { SwfDoc } from "$lib/studio/swf.svelte";
-	import type { UpkMethods, SwfRect } from "../../../../electron/src/ipc/contract";
-
-	type Request = Omit<UpkMethods["swf.preview"]["params"], "path" | "index">;
+	import type { SwfRect } from "../../../../electron/src/ipc/contract";
 
 	interface Props {
 		doc: SwfDoc;
 		request: Request;
-		/** Identity of the request: a new key loads a new movie. */
+		/** Identity of the request: a new key loads a new movie (empty: nothing yet). */
 		key: string;
 		/** Draw over what is beneath (no background colour). */
 		transparent?: boolean;
@@ -41,64 +63,15 @@
 	}: Props = $props();
 
 	let host = $state<HTMLDivElement | null>(null);
-	let current: { player: RuffleElement; route: { dispose(): void } } | null = null;
+	/** What is on screen: a Ruffle player, or a remembered picture (no player). */
+	let current: {
+		el: HTMLElement;
+		player?: RuffleElement;
+		route?: { dispose(): void };
+		/** A picture's resolution. */
+		width?: number;
+	} | null = null;
 	let generation = 0;
-
-	/** Resolves once Ruffle has parsed the movie (or after 20 s, not to hang a layer). */
-	const loaded = (player: RuffleElement) =>
-		new Promise<void>((resolve) => {
-			if (player.readyState === 2) {
-				resolve();
-				return;
-			}
-			player.addEventListener("loadeddata", () => resolve(), { once: true });
-			setTimeout(resolve, 20_000);
-		});
-
-	/**
-	 * Resolves once the movie is drawn. `loadeddata` comes before the shared
-	 * libraries it imports (fonts, SharedAssets) are fetched and parsed, and a
-	 * layer swapped in or paused then shows an empty frame. With the canvas
-	 * renderer the picture can be read: it is done when a thumbnail of it has
-	 * not changed for 600 ms (a uniform one, nothing drawn yet but the
-	 * background, only after 2.5 s), or after 6 s.
-	 */
-	async function settled(player: RuffleElement, stale: () => boolean): Promise<void> {
-		const probe = document.createElement("canvas");
-		probe.width = 48;
-		probe.height = 27;
-		const ctx = probe.getContext("2d", { willReadFrequently: true });
-		const start = performance.now();
-		let last = "";
-		let since = start;
-		while (performance.now() - start < 6000 && !stale()) {
-			await new Promise((r) => setTimeout(r, 120));
-			const canvas = player.shadowRoot?.querySelector("canvas");
-			if (!ctx || !canvas || canvas.width === 0 || canvas.height === 0) continue;
-			ctx.clearRect(0, 0, probe.width, probe.height);
-			ctx.drawImage(canvas, 0, 0, probe.width, probe.height);
-			const d = ctx.getImageData(0, 0, probe.width, probe.height).data;
-			let hash = 0;
-			let uniform = true;
-			for (let i = 0; i < d.length; i += 4) {
-				hash = (hash * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7 + d[i + 3] * 11) | 0;
-				if (
-					uniform &&
-					(d[i] !== d[0] || d[i + 1] !== d[1] || d[i + 2] !== d[2] || d[i + 3] !== d[3])
-				) {
-					uniform = false;
-				}
-			}
-			const now = performance.now();
-			const key = String(hash);
-			if (key !== last) {
-				last = key;
-				since = now;
-			} else if (now - since >= 600 && (!uniform || now - start >= 2500)) {
-				return;
-			}
-		}
-	}
 
 	const frames = (n: number) =>
 		new Promise<void>((resolve) => {
@@ -109,19 +82,37 @@
 
 	/** The key last asked for: an equal request rebuilt by a refresh is not a new movie. */
 	let asked = "";
+	let askedRequest: Request | null = null;
 	$effect(() => {
 		const k = key;
-		if (!host || k === asked) return;
+		if (!host || !k || k === asked) return;
 		asked = k;
-		void show(untrack(() => $state.snapshot(request)) as Request, k);
+		askedRequest = untrack(() => $state.snapshot(request)) as Request;
+		void show(askedRequest, k);
 	});
 
+	/**
+	 * Device pixels across the layer, as the resize observer last saw it (0
+	 * until then). Reading `clientWidth` here would force a layout of the
+	 * whole window in the middle of mounting the editor.
+	 */
+	let seenWidth = 0;
+	const hostWidth = () => Math.round(seenWidth * devicePixelRatio);
+
 	// A paused player redraws at a new size only while ticking: wake the
-	// visible one briefly whenever the layer is resized (zoom, panes).
+	// visible one briefly whenever the layer is resized (zoom, panes). A
+	// remembered picture grown past its resolution is rendered again.
 	$effect(() => {
 		if (!host || !still) return;
 		let timer: ReturnType<typeof setTimeout> | null = null;
-		const observer = new ResizeObserver(() => {
+		const observer = new ResizeObserver((entries) => {
+			seenWidth = entries.at(-1)?.contentRect.width ?? seenWidth;
+			if (current && !current.player) {
+				if (askedRequest && hostWidth() > (current.width ?? 0) * 1.02) {
+					void show(askedRequest, asked, true);
+				}
+				return;
+			}
 			const player = current?.player;
 			if (!player || player.readyState !== 2) return;
 			player.play();
@@ -140,71 +131,104 @@
 	$effect(() => {
 		return () => {
 			generation++;
-			current?.player.remove();
-			current?.route.dispose();
+			current?.el.remove();
+			current?.route?.dispose();
 			current = null;
 		};
 	});
 
-	async function show(r: Request, k: string): Promise<void> {
+	function swap(next: NonNullable<typeof current>): void {
+		const old = current;
+		current = next;
+		old?.el.remove();
+		old?.route?.dispose();
+	}
+
+	/** Put a picture on screen; false when it is too small for the layer. */
+	function showPicture(picture: Picture, k: string): boolean {
+		if (!host) return true;
+		const el = copy(picture.canvas);
+		Object.assign(el.style, {
+			position: "absolute",
+			inset: "0",
+			width: "100%",
+			height: "100%",
+			pointerEvents: "none",
+		});
+		host.append(el);
+		swap({ el, width: el.width });
+		onload?.({ rect: picture.rect, missing: picture.missing, key: k });
+		onbusy?.(false);
+		return hostWidth() <= el.width * 1.02;
+	}
+
+	/** `sharpen`: render the request again although a picture of it is on screen. */
+	async function show(r: Request, k: string, sharpen = false): Promise<void> {
 		const gen = ++generation;
-		onbusy?.(true);
+		const pk = pictureKey(doc, transparent, k);
+		let behind = sharpen;
+		if (still && !sharpen) {
+			const known = recall(pk) ?? (await pendingPicture(pk));
+			if (gen !== generation) return;
+			if (known) {
+				if (showPicture(known, k)) return;
+				behind = true;
+			}
+		}
+		if (!behind) onbusy?.(true);
 		try {
-			const [preview, libraries, ruffle] = await Promise.all([
-				rpc("swf.preview", { path: doc.path, index: doc.index, ...r }),
-				doc.librariesOnce(),
-				loadRuffle(),
-			]);
+			const preview = await rpc("swf.preview", { path: doc.path, index: doc.index, ...r });
+			const libraries = await previewLibraries(doc, preview);
 			if (gen !== generation || !host) return;
-			const route = registerMovie(preview.swf, libraries.libraries);
-			const player = ruffle.newest().createPlayer();
-			// Paused layers would show Ruffle's big play button over the movie.
-			const style = document.createElement("style");
-			style.textContent = "#play-button { display: none !important; }";
-			player.shadowRoot?.append(style);
-			Object.assign(player.style, {
-				position: "absolute",
-				inset: "0",
-				width: "100%",
-				height: "100%",
-				opacity: "0",
-				pointerEvents: "none",
-			});
-			host.append(player);
-			await player.ruffle().load({
-				url: route.url,
-				scale: "exactFit",
-				letterbox: "off",
-				wmode: transparent ? "transparent" : "opaque",
-				backgroundColor: transparent ? "#00000000" : null,
-				contextMenu: "off",
-				// A 2D canvas keeps its picture while the player is paused (a
-				// WebGL one goes blank), which is what lets layouts stop ticking.
-				...(still ? { preferredRenderer: "canvas" } : {}),
-			});
+			const ck = still ? await contentKey(preview.swf, libraries, transparent) : "";
+			if (ck && !behind) {
+				const stored = await loadPicture(ck, hostWidth());
+				if (gen !== generation) return;
+				if (stored) {
+					remember(pk, stored);
+					if (showPicture(stored, k)) return;
+					behind = true;
+				}
+			}
+			const route = registerMovie(preview.swf, libraries);
+			const player = await mountPlayer(host, route.url, transparent, still);
 			// `load` resolves when loading starts; the movie is parsed when
 			// `loadeddata` fires, and drawn on a frame after that.
 			await loaded(player);
-			await frames(4);
-			if (still) await settled(player, () => gen !== generation);
+			let complete = false;
+			if (still) complete = await settled(player, () => gen !== generation, preview, route);
+			else await frames(4);
 			if (gen !== generation) {
 				player.remove();
 				route.dispose();
 				return;
 			}
 			player.style.opacity = "1";
-			const old = current;
-			current = { player, route };
-			old?.player.remove();
-			old?.route.dispose();
-			// A layout never changes by itself: once drawn, stop ticking (a
-			// playing layer costs a third of a core, a paused one nothing).
-			if (still) player.pause();
+			swap({ el: player, player, route });
+			// A picture not seen complete keeps playing (it may still appear)
+			// and is not kept.
+			if (complete) {
+				// A layout never changes by itself: once drawn, stop ticking (a
+				// playing layer costs a third of a core, a paused one nothing).
+				player.pause();
+				const canvas = player.shadowRoot?.querySelector("canvas");
+				if (canvas && canvas.width > 0) {
+					const picture = {
+						canvas: copy(canvas),
+						rect: preview.rect,
+						missing: preview.missing,
+					};
+					remember(pk, picture);
+					storePicture(ck, picture);
+				}
+			}
 			onload?.({ rect: preview.rect, missing: preview.missing, key: k });
 			onbusy?.(false);
 		} catch (error) {
 			if (gen !== generation) return;
 			onbusy?.(false);
+			// The remembered picture stays on screen.
+			if (behind) return;
 			onerror?.(error instanceof Error ? error.message : String(error));
 		}
 	}

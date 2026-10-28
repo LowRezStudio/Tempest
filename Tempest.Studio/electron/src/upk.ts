@@ -55,6 +55,9 @@ export class UpkClient {
 	private pending = new Map<number, Pending>();
 	private nextId = 1;
 	private buffer: Buffer = Buffer.alloc(0);
+	/** Chunks of a frame still short of its length, joined once it is complete. */
+	private parts: Buffer[] = [];
+	private partsLength = 0;
 	private reading: Reading | null = null;
 	private lastError: string | null = null;
 	private binary: string | null = null;
@@ -87,6 +90,8 @@ export class UpkClient {
 		});
 		this.child = child;
 		this.buffer = Buffer.alloc(0);
+		this.parts = [];
+		this.partsLength = 0;
 		this.reading = null;
 		child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
 		child.stderr.setEncoding("utf8");
@@ -157,7 +162,22 @@ export class UpkClient {
 	}
 
 	private onData(chunk: Buffer): void {
-		this.buffer = this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
+		// A large frame (a movie, a mesh) arrives in 64 KB chunks: joining
+		// each one onto the buffer copied a 3 MB reply about 50 times.
+		if (this.reading) {
+			const have = this.buffer.length + this.partsLength + chunk.length;
+			if (have < this.reading.need) {
+				this.parts.push(chunk);
+				this.partsLength += chunk.length;
+				return;
+			}
+		}
+		this.buffer =
+			this.buffer.length === 0 && this.parts.length === 0
+				? chunk
+				: Buffer.concat([this.buffer, ...this.parts, chunk]);
+		this.parts = [];
+		this.partsLength = 0;
 		for (;;) {
 			if (this.reading) {
 				if (this.buffer.length < this.reading.need) return;

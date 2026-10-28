@@ -27,7 +27,7 @@ use crate::json;
 use crate::material_ops::PackageCache;
 use crate::media;
 use crate::mesh_ops;
-use crate::object::{package_layout, parse_export, Native, Parsed};
+use crate::object::{package_layout, parse_export, Native, Object, Parsed};
 use crate::reflect::ClassDb;
 use crate::texcache::{MipLocation, TextureSource};
 use crate::texture_ops::{self, ImportOptions, ImportSource};
@@ -112,7 +112,18 @@ pub struct Server {
     swf_cache: Option<(String, crate::swf::Movie)>,
     /// External images converted for Ruffle, by package and tag contents.
     swf_embeds: HashMap<u64, SwfEmbed>,
+    /// Where the libraries movies import live, by URL stem (`None`: no
+    /// workspace package has it). Found ones are checked on use; misses are
+    /// forgotten with `swf_embeds`.
+    swf_libs: HashMap<String, Option<(PathBuf, usize, String)>>,
+    /// Library subsets by library and imported names: the subset's URL and
+    /// every subset it brings (`swf_subsets`); dropped with `swf_embeds` and
+    /// whenever a movie changes.
+    swf_subset_cache: HashMap<String, LibrarySubset>,
 }
+
+/// A library subset's URL, and every subset it brings as `(url, movie)`.
+type LibrarySubset = (String, Vec<(String, Vec<u8>)>);
 
 /// What an external image (and its sub-images) became in a player movie.
 #[derive(Clone)]
@@ -122,6 +133,54 @@ struct SwfEmbed {
     missing: Vec<String>,
     /// Keep the original tag (the texture was not found).
     keep: bool,
+}
+
+/// An external image to convert, with its texture (`Err`: why there is none).
+struct ImageJob {
+    key: u64,
+    img: crate::swf::ExternalImage,
+    image_id: u16,
+    subs: Vec<crate::swf::SubImage>,
+    texture: Result<(usize, Object), String>,
+}
+
+/// Decode an external image's texture into `DefineBitsLossless2` bitmaps: the
+/// whole image, or one per sub-image crop (Scaleform atlases).
+fn convert_image(db: &ClassDb, pkg: &Package, pkg_name: &str, src: &TextureSource, j: &ImageJob) -> SwfEmbed {
+    let mut e = SwfEmbed { tags: Vec::new(), consumed: Vec::new(), missing: Vec::new(), keep: false };
+    let img = &j.img;
+    let (tw, th, rgba) = match j.texture.as_ref().map_err(String::clone).and_then(|(i, o)| crate::texture_ops::largest_rgba(db, pkg, pkg_name, src, *i, o).map_err(|err| format!("{}: {err}", img.file_name))) {
+        Ok(v) => v,
+        Err(err) => {
+            e.missing.push(err);
+            e.keep = true;
+            return e;
+        }
+    };
+    if tw == 0 || th == 0 {
+        e.keep = true;
+        return e;
+    }
+    if !j.subs.is_empty() {
+        // The atlas rect is in target pixels; DXT textures can be up to 3 px
+        // larger (block padding), so scale into the decoded texture and crop there.
+        let scale_x = |v: u16| ((v as u64 * tw as u64) / (img.width.max(1) as u64)) as u16;
+        let scale_y = |v: u16| ((v as u64 * th as u64) / (img.height.max(1) as u64)) as u16;
+        for sub in &j.subs {
+            let Some((w, h, pixels)) = crop_rgba(&rgba, tw, th, scale_x(sub.x1), scale_y(sub.y1), scale_x(sub.x2), scale_y(sub.y2)) else {
+                e.missing.push(format!("{}: empty crop {}x{}", img.file_name, sub.x1, sub.y1));
+                continue;
+            };
+            e.tags.push(crate::swf::Tag { code: 36, data: define_bits_lossless2(sub.id, w, h, &pixels), long: true });
+            e.consumed.push(sub.id);
+        }
+    } else if img.width > 0 && img.height > 0 {
+        let (w, h, pixels) = fit_rgba(&rgba, tw, th, img.width as u32, img.height as u32);
+        e.tags.push(crate::swf::Tag { code: 36, data: define_bits_lossless2(j.image_id, w, h, &pixels), long: true });
+    } else {
+        e.keep = true;
+    }
+    e
 }
 
 impl Default for Server {
@@ -154,7 +213,7 @@ fn opt_b(p: &J, name: &str) -> Option<bool> {
 
 impl Server {
     pub fn new() -> Server {
-        Server { dir: None, db: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), index_job: None, scripts: HashMap::new(), order: None, png_cache: HashMap::new(), out: std::io::stdout(), wwise: None, ak_names: None, mcts: None, bins: BinSink::default(), swf_cache: None, swf_embeds: HashMap::new() }
+        Server { dir: None, db: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), index_job: None, scripts: HashMap::new(), order: None, png_cache: HashMap::new(), out: std::io::stdout(), wwise: None, ak_names: None, mcts: None, bins: BinSink::default(), swf_cache: None, swf_embeds: HashMap::new(), swf_libs: HashMap::new(), swf_subset_cache: HashMap::new() }
     }
 
     /// Serve stdin until EOF.
@@ -282,10 +341,12 @@ impl Server {
         // except these reads (the inspector's tabs, texture thumbnails).
         const READS: &[&str] = &["ping", "package.names", "package.export", "package.tables", "package.undoList", "object.get", "object.text", "object.deps", "texture.info", "texture.preview", "texture.export"];
         if READS.contains(&method) {
-        } else if !method.starts_with("swf.") || method == "swf.apply" || method == "swf.import" {
+        } else if !method.starts_with("swf.") || method == "swf.apply" || method == "swf.import" || method == "swf.addImage" {
             self.swf_cache = None;
+            self.swf_subset_cache.clear();
             if !method.starts_with("swf.") {
                 self.swf_embeds.clear();
+                self.swf_libs.retain(|_, v| v.is_some());
             }
         }
         match method {
@@ -526,6 +587,7 @@ impl Server {
         let class_db_ms = t.elapsed().as_millis() as u64;
         self.editors.clear();
         self.index.clear();
+        self.swf_libs.clear();
         self.wwise = None;
         self.ak_names = None;
         self.mcts = None;
@@ -1556,6 +1618,8 @@ impl Server {
     fn swf_player(&mut self, p: &J) -> Res<J> {
         let (path, _, mut m) = self.swf_edited(p)?;
         let (images, missing) = self.embed_images(&path, &mut m)?;
+        crate::swf::merge_imports(&mut m.tags, |_| true);
+        uncompressed(&mut m);
         let bytes = m.write();
         let len = bytes.len();
         Ok(json!({ "swf": self.bins.add(bytes), "bytes": len, "images": images, "missing": missing }))
@@ -1587,16 +1651,13 @@ impl Server {
                 }
             }
         }
-        let mut images = 0usize;
-        let mut consumed: std::collections::HashSet<u16> = std::collections::HashSet::new();
-        let mut out = Vec::with_capacity(tags.len());
+        // Each external image with the key its conversion is cached under.
+        let mut items: Vec<(crate::swf::Tag, Option<u64>)> = Vec::with_capacity(tags.len());
+        let mut jobs: Vec<ImageJob> = Vec::new();
         for tag in tags {
-            if tag.code != 1001 && tag.code != 1009 {
-                out.push(tag);
-                continue;
-            }
-            let Some(img) = crate::swf::parse_external_image(tag.code, &tag.data) else {
-                out.push(tag);
+            let img = if tag.code == 1001 || tag.code == 1009 { crate::swf::parse_external_image(tag.code, &tag.data) } else { None };
+            let Some(img) = img else {
+                items.push((tag, None));
                 continue;
             };
             // GFx external images use a 32-bit id whose low 16 bits are the
@@ -1611,14 +1672,33 @@ impl Server {
                 d.hash(&mut h);
             }
             let ck = h.finish();
-            let embed = match self.swf_embeds.get(&ck) {
-                Some(e) => e.clone(),
-                None => {
-                    let e = self.convert_image(&pkg_key, &img, image_id, &subs.iter().map(|(s, _)| *s).collect::<Vec<_>>())?;
-                    self.swf_embeds.insert(ck, e.clone());
-                    e
-                }
+            if !self.swf_embeds.contains_key(&ck) && !jobs.iter().any(|j| j.key == ck) {
+                let texture = self.image_texture(&pkg_key, &img)?;
+                jobs.push(ImageJob { key: ck, image_id, subs: subs.iter().map(|(s, _)| *s).collect(), img, texture });
+            }
+            items.push((tag, Some(ck)));
+        }
+        if !jobs.is_empty() {
+            // Decoding a texture and compressing its bitmap is the slow part
+            // of a first preview (a header with 184 images took 250 ms): the
+            // images convert in parallel.
+            let db = self.db()?;
+            let src = self.src.as_ref().ok_or("no workspace")?;
+            let ed = self.editors.get(&pkg_key).ok_or("package is not open")?;
+            let done = tempest_unrealscript::par::map(&jobs, |j| convert_image(db, &ed.pkg, &ed.name, src, j));
+            for (j, e) in jobs.iter().zip(done) {
+                self.swf_embeds.insert(j.key, e);
+            }
+        }
+        let mut images = 0usize;
+        let mut consumed: std::collections::HashSet<u16> = std::collections::HashSet::new();
+        let mut out = Vec::with_capacity(items.len());
+        for (tag, ck) in items {
+            let Some(embed) = ck.and_then(|ck| self.swf_embeds.get(&ck)) else {
+                out.push(tag);
+                continue;
             };
+            let embed = embed.clone();
             missing.extend(embed.missing.iter().cloned());
             images += embed.tags.len();
             consumed.extend(embed.consumed.iter().copied());
@@ -1635,67 +1715,23 @@ impl Server {
         Ok((images, missing))
     }
 
-    fn convert_image(&mut self, pkg_key: &str, img: &crate::swf::ExternalImage, image_id: u16, subs: &[crate::swf::SubImage]) -> Res<SwfEmbed> {
-        let mut e = SwfEmbed { tags: Vec::new(), consumed: Vec::new(), missing: Vec::new(), keep: false };
-        let db = self.db()?;
-        let src = self.src.as_ref().ok_or("no workspace")?;
+    /// The `Texture2D` an external image names (`Foo.tga` → `Foo`) and its
+    /// parsed object, or why there is none.
+    fn image_texture(&mut self, pkg_key: &str, img: &crate::swf::ExternalImage) -> Res<Result<(usize, Object), String>> {
         let ed = self.editors.get_mut(pkg_key).ok_or("package is not open")?;
         let file = img.file_name.rsplit('/').next().unwrap_or(&img.file_name);
         let stem = file.rsplit_once('.').map(|(name, _)| name).unwrap_or(file);
-        let mut texture = None;
-        for i in 0..ed.pkg.exports.len() {
+        let texture = (0..ed.pkg.exports.len()).find(|&i| {
             let idx = PackageIndex::export(i);
-            if ed.pkg.object_name(idx).eq_ignore_ascii_case(stem) && ed.pkg.class_name_of(idx).eq_ignore_ascii_case("Texture2D") {
-                texture = Some(i);
-                break;
-            }
-        }
+            ed.pkg.object_name(idx).eq_ignore_ascii_case(stem) && ed.pkg.class_name_of(idx).eq_ignore_ascii_case("Texture2D")
+        });
         let Some(texture) = texture else {
-            e.missing.push(format!("{}: no Texture2D named {stem}", img.file_name));
-            e.keep = true;
-            return Ok(e);
+            return Ok(Err(format!("{}: no Texture2D named {stem}", img.file_name)));
         };
-        let o = match ed.object(texture) {
-            Ok(o) => o.clone(),
-            Err(err) => {
-                e.missing.push(format!("{}: {err}", img.file_name));
-                e.keep = true;
-                return Ok(e);
-            }
-        };
-        let (tw, th, rgba) = match crate::texture_ops::largest_rgba(db, &ed.pkg, &ed.name, src, texture, &o) {
-            Ok(v) => v,
-            Err(err) => {
-                e.missing.push(format!("{}: {err}", img.file_name));
-                e.keep = true;
-                return Ok(e);
-            }
-        };
-        if tw == 0 || th == 0 {
-            e.keep = true;
-            return Ok(e);
-        }
-        if !subs.is_empty() {
-            // The atlas rect is in target pixels; DXT textures can be
-            // up to 3 px larger (block padding), so scale into the
-            // decoded texture and crop there.
-            let scale_x = |v: u16| ((v as u64 * tw as u64) / (img.width.max(1) as u64)) as u16;
-            let scale_y = |v: u16| ((v as u64 * th as u64) / (img.height.max(1) as u64)) as u16;
-            for sub in subs {
-                let Some((w, h, pixels)) = crop_rgba(&rgba, tw, th, scale_x(sub.x1), scale_y(sub.y1), scale_x(sub.x2), scale_y(sub.y2)) else {
-                    e.missing.push(format!("{}: empty crop {}x{}", img.file_name, sub.x1, sub.y1));
-                    continue;
-                };
-                e.tags.push(crate::swf::Tag { code: 36, data: define_bits_lossless2(sub.id, w, h, &pixels), long: true });
-                e.consumed.push(sub.id);
-            }
-        } else if img.width > 0 && img.height > 0 {
-            let (w, h, pixels) = fit_rgba(&rgba, tw, th, img.width as u32, img.height as u32);
-            e.tags.push(crate::swf::Tag { code: 36, data: define_bits_lossless2(image_id, w, h, &pixels), long: true });
-        } else {
-            e.keep = true;
-        }
-        Ok(e)
+        Ok(match ed.object(texture) {
+            Ok(o) => Ok((texture, o.clone())),
+            Err(err) => Err(format!("{}: {err}", img.file_name)),
+        })
     }
 
     /// `swf.tree`: the character dictionary (kinds, linkage names, bounds,
@@ -1794,11 +1830,27 @@ impl Server {
             let f = |k: &str| (r.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0) * 20.0).round() as i32;
             [f("x"), f("y"), f("x") + f("w"), f("y") + f("h")]
         });
+        let play = matches!(target, Target::Character(_, true));
         let mut preview = build(&m, &dict, target, &crate::swf::preview::Options { exclude, view });
         let (images, missing) = self.embed_images(&path, &mut preview.movie)?;
+        let imports = preview.movie.tags.iter().filter(|t| t.code == 57 || t.code == 71).count();
+        // A layout gets its own cut of each library; a playing target uses
+        // the whole libraries (`swf.libraries`), its scripts may want any symbol.
+        let mut subsets = Vec::new();
+        if !play {
+            if self.swf_subset_cache.len() > 256 {
+                self.swf_subset_cache.clear();
+            }
+            self.swf_subsets(&mut preview.movie.tags, 0, &mut subsets)?;
+        }
+        let libraries: Vec<J> = subsets.into_iter().map(|(url, bytes)| json!({ "url": url, "swf": self.bins.add(bytes) })).collect();
         let bytes = preview.movie.write();
         let len = bytes.len();
-        Ok(json!({ "swf": self.bins.add(bytes), "bytes": len, "rect": crate::swf::dict::rect_json(preview.rect), "images": images, "missing": missing }))
+        let mut out = json!({ "swf": self.bins.add(bytes), "bytes": len, "rect": crate::swf::dict::rect_json(preview.rect), "images": images, "missing": missing, "imports": imports });
+        if !play {
+            out["libraries"] = J::Array(libraries);
+        }
+        Ok(out)
     }
 
     /// `swf.libraries`: the movies this movie imports (`ImportAssets2` URLs such
@@ -1813,7 +1865,6 @@ impl Server {
         if pending.is_empty() {
             return Ok(json!({ "libraries": [], "missing": [] }));
         }
-        self.index_all();
         let mut looked_up: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut libraries = Vec::new();
@@ -1829,30 +1880,8 @@ impl Server {
             if wave.is_empty() {
                 break;
             }
-            let wanted: std::collections::HashSet<&str> = wave.iter().map(|(_, stem)| stem.as_str()).collect();
-            // A library is looked up by the name its importer refers to (the
-            // URL's file stem), e.g. `SharedAssets`, not by the package it
-            // lives in.
-            let mut found: HashMap<String, (PathBuf, usize, String)> = HashMap::new();
-            for w in &self.packages {
-                if found.len() == wanted.len() {
-                    break;
-                }
-                let k = key(&w.path.to_string_lossy());
-                let Some(idx) = self.index.get(&k) else { continue };
-                for (i, (cid, object_path)) in idx.exports.iter().enumerate() {
-                    if !idx.classes[*cid as usize].eq_ignore_ascii_case("SwfMovie") {
-                        continue;
-                    }
-                    let name = object_path.rsplit('.').next().unwrap_or(object_path).to_ascii_lowercase();
-                    if wanted.contains(name.as_str()) && !found.contains_key(&name) {
-                        found.insert(name.clone(), (w.path.clone(), i, object_path.clone()));
-                        if found.len() == wanted.len() {
-                            break;
-                        }
-                    }
-                }
-            }
+            let stems: Vec<&str> = wave.iter().map(|(_, stem)| stem.as_str()).collect();
+            let found = self.swf_lib_locations(&stems);
             for (url, stem) in wave {
                 let Some((path, i, object)) = found.get(&stem) else {
                     if !missing.contains(&url) {
@@ -1864,9 +1893,14 @@ impl Server {
                 if !emitted.insert(format!("{path_text}#{i}")) {
                     continue;
                 }
-                let bytes = self.editor(&path_text)?.with_object(*i, media::swf_export)??;
-                if let Ok(shared) = crate::swf::Movie::parse(&bytes) {
+                let mut bytes = self.editor(&path_text)?.with_object(*i, media::swf_export)??;
+                if let Ok(mut shared) = crate::swf::Movie::parse(&bytes) {
                     pending.extend(crate::swf::import_urls(&shared));
+                    let merged = crate::swf::merge_imports(&mut shared.tags, |_| true);
+                    let inflated = uncompressed(&mut shared);
+                    if merged || inflated {
+                        bytes = shared.write();
+                    }
                 }
                 let len = bytes.len();
                 libraries.push(json!({
@@ -1880,6 +1914,108 @@ impl Server {
             }
         }
         Ok(json!({ "libraries": libraries, "missing": missing }))
+    }
+
+    /// Where the libraries named by import URL stems live. A library is
+    /// looked up by the name its importer refers to (`SharedAssets`), not by
+    /// the package it lives in; scanning every package's exports takes ~30 ms,
+    /// so locations are remembered (`swf_libs`).
+    fn swf_lib_locations(&mut self, stems: &[&str]) -> HashMap<String, (PathBuf, usize, String)> {
+        let mut found: HashMap<String, (PathBuf, usize, String)> = HashMap::new();
+        let mut unknown: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for &stem in stems {
+            match self.swf_libs.get(stem).cloned() {
+                Some(Some(loc)) if self.swf_lib_valid(&loc, stem) => {
+                    found.insert(stem.to_string(), loc);
+                }
+                Some(None) => {}
+                _ => {
+                    unknown.insert(stem);
+                }
+            }
+        }
+        if unknown.is_empty() {
+            return found;
+        }
+        self.index_all();
+        let mut hits: HashMap<String, (PathBuf, usize, String)> = HashMap::new();
+        'packages: for w in &self.packages {
+            let k = key(&w.path.to_string_lossy());
+            let Some(idx) = self.index.get(&k) else { continue };
+            for (i, (cid, object_path)) in idx.exports.iter().enumerate() {
+                if !idx.classes[*cid as usize].eq_ignore_ascii_case("SwfMovie") {
+                    continue;
+                }
+                let name = object_path.rsplit('.').next().unwrap_or(object_path).to_ascii_lowercase();
+                if unknown.contains(name.as_str()) && !hits.contains_key(&name) {
+                    hits.insert(name.clone(), (w.path.clone(), i, object_path.clone()));
+                    if hits.len() == unknown.len() {
+                        break 'packages;
+                    }
+                }
+            }
+        }
+        for stem in unknown {
+            self.swf_libs.insert(stem.to_string(), hits.get(stem).cloned());
+        }
+        found.extend(hits);
+        found
+    }
+
+    /// Point a layout's imports at subsets of their libraries
+    /// (`preview::library_subset`), recursively for the libraries' own
+    /// imports, each served under a URL made of its contents; `out` gets
+    /// every subset. Imports of libraries the workspace lacks are left alone.
+    fn swf_subsets(&mut self, tags: &mut [crate::swf::Tag], depth: usize, out: &mut Vec<(String, Vec<u8>)>) -> Res<()> {
+        use std::hash::{Hash, Hasher};
+        for t in tags.iter_mut().filter(|t| t.code == 57 || t.code == 71) {
+            let Some((url, names)) = crate::swf::import_entries(t) else { continue };
+            let stem = swf_stem(&url);
+            let Some((path, i, _)) = self.swf_lib_locations(&[stem.as_str()]).remove(&stem) else { continue };
+            let path_text = path.to_string_lossy().to_string();
+            let mut sorted = names.clone();
+            sorted.sort_unstable();
+            let ck = format!("{}#{i}|{}", key(&path_text), sorted.join("\u{1}"));
+            let subset = match self.swf_subset_cache.get(&ck) {
+                Some(s) => s.clone(),
+                None => {
+                    let bytes = self.editor(&path_text)?.with_object(i, media::swf_export)??;
+                    let Some(mut sub) = crate::swf::Movie::parse(&bytes).ok().and_then(|lib| crate::swf::preview::library_subset(&lib, &names)) else { continue };
+                    let mut all = Vec::new();
+                    if depth < 4 {
+                        self.swf_subsets(&mut sub.tags, depth + 1, &mut all)?;
+                    }
+                    // The library's images come from its own package.
+                    self.embed_images(&path_text, &mut sub)?;
+                    let bytes = sub.write();
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    bytes.hash(&mut h);
+                    let url = format!("swf-lib/{:016x}.swf", h.finish());
+                    all.push((url.clone(), bytes));
+                    self.swf_subset_cache.insert(ck, (url.clone(), all.clone()));
+                    (url, all)
+                }
+            };
+            let (sub_url, all) = subset;
+            for (u, b) in all {
+                if !out.iter().any(|(x, _)| *x == u) {
+                    out.push((u, b));
+                }
+            }
+            crate::swf::set_import_url(t, &sub_url);
+        }
+        Ok(())
+    }
+
+    /// A remembered library location still names a `SwfMovie` of that name
+    /// (exports can be renamed or deleted since).
+    fn swf_lib_valid(&mut self, (path, i, _): &(PathBuf, usize, String), stem: &str) -> bool {
+        let Ok(ed) = self.editor(&path.to_string_lossy()) else { return false };
+        if *i >= ed.pkg.exports.len() {
+            return false;
+        }
+        let idx = PackageIndex::export(*i);
+        ed.pkg.class_name_of(idx).eq_ignore_ascii_case("SwfMovie") && ed.pkg.object_name(idx).eq_ignore_ascii_case(stem)
     }
 
     /// `swf.script`: the disassembly of one script tag.
@@ -3507,6 +3643,19 @@ fn swf_stem(url: &str) -> String {
     stem.to_ascii_lowercase()
 }
 
+/// Write a movie for Ruffle without zlib (`CFX` → `GFX`, `CWS` → `FWS`):
+/// deflating a 7 MB movie costs more than the bytes it saves over IPC, and
+/// Ruffle inflates every library again on each load. Returns whether it was
+/// compressed.
+fn uncompressed(m: &mut crate::swf::Movie) -> bool {
+    match &m.signature {
+        b"CFX" => m.signature = *b"GFX",
+        b"CWS" => m.signature = *b"FWS",
+        _ => return false,
+    }
+    true
+}
+
 /// `DefineBitsLossless2` tag body for straight-alpha RGBA pixels: 32-bit ARGB
 /// (alpha first) zlib-compressed, which is what Ruffle and Flash decode.
 fn define_bits_lossless2(id: u16, width: u16, height: u16, rgba: &[u8]) -> Vec<u8> {
@@ -3518,7 +3667,9 @@ fn define_bits_lossless2(id: u16, width: u16, height: u16, rgba: &[u8]) -> Vec<u
         let channel = |c: u8| ((c as u32 * a + 127) / 255) as u8;
         argb.extend_from_slice(&[px[3], channel(px[0]), channel(px[1]), channel(px[2])]);
     }
-    let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    // Only Ruffle in this process reads these: the fast level compresses
+    // several times quicker for slightly larger bitmaps.
+    let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
     let _ = enc.write_all(&argb);
     let compressed = enc.finish().unwrap_or_default();
     let mut body = Vec::with_capacity(7 + compressed.len());

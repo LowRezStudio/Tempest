@@ -15,14 +15,22 @@
 	knob rotates (Shift: 15° steps).
 -->
 <script lang="ts">
+	import { untrack } from "svelte";
 	import SwfLayer from "$lib/components/swf/SwfLayer.svelte";
 	import { inField } from "$lib/studio/keys";
 	import {
 		apply,
+		defaultView,
 		invert,
 		mul,
+		prerenderView,
 		rotation,
 		scaling,
+		STAGE_PAD as PAD,
+		stageKey,
+		stageRequest,
+		stageScale,
+		stageViewport,
 		translate,
 		type SwfDoc,
 	} from "$lib/studio/swf.svelte";
@@ -64,42 +72,18 @@
 	const views = new Map<string, SwfRect>();
 	const view = $derived.by((): SwfRect | null => {
 		if (!timeline) return null;
-		const known = views.get(targetKey);
-		if (known) return known;
-		if (target.kind === "root" && outline) return outline;
-		if (entries.length === 0) return null;
-		let r: SwfRect | null = outline;
-		for (const e of entries) {
-			if (!e.rect) continue;
-			r = r ? union(r, e.rect) : e.rect;
-		}
-		if (!r) return null;
-		const pad = Math.max(r.w, r.h) * 0.03;
-		return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+		return views.get(targetKey) ?? defaultView(target, entries, outline);
 	});
 	$effect(() => {
 		if (view && !views.has(targetKey)) views.set(targetKey, view);
 	});
 	const rect = $derived(view ?? baseRect);
 
-	function union(a: SwfRect, b: SwfRect): SwfRect {
-		const x = Math.min(a.x, b.x);
-		const y = Math.min(a.y, b.y);
-		return {
-			x,
-			y,
-			w: Math.max(a.x + a.w, b.x + b.w) - x,
-			h: Math.max(a.y + a.h, b.y + b.h) - y,
-		};
-	}
-
-	const PAD = 24;
-	const scale = $derived.by(() => {
-		if (!rect) return 1;
-		if (doc.zoom > 0) return doc.zoom;
-		const fit = Math.min((vw - PAD * 2) / rect.w, (vh - PAD * 2) / rect.h);
-		return Math.max(0.02, Math.min(fit, 4));
+	$effect(() => {
+		stageViewport.w = vw;
+		stageViewport.h = vh;
 	});
+	const scale = $derived(rect ? stageScale(rect, doc.zoom, { w: vw, h: vh }) : 1);
 	const width = $derived(rect ? Math.max(1, Math.round(rect.w * scale)) : 0);
 	const height = $derived(rect ? Math.max(1, Math.round(rect.h * scale)) : 0);
 
@@ -154,19 +138,22 @@
 	}
 	const matrix = $derived(selected ? matrixOf(selected) : null);
 
-	const baseRequest = $derived({
-		target,
-		// The floating objects' own placement edits only move their layers.
-		edits: doc.pending.filter(
-			(e: SwfEdit) => !(e.kind === "place" && e.sprite === sprite && readyTags.has(e.tag)),
-		),
-		exclude: [...new Set([...ready.map((e) => e.depth), ...(timeline ? doc.hidden : [])])].sort(
-			(a, b) => a - b,
-		),
-		rect: view ?? undefined,
+	// A selected clip is often entered next (Enter, double-click): render it ahead.
+	$effect(() => {
+		const id = selected?.character;
+		if (id === undefined || doc.chars.get(id)?.kind !== "sprite") return;
+		untrack(() => void prerenderView(doc, `char:${id}`).catch(() => {}));
 	});
-	// The package stamp re-renders after a texture is replaced or an undo.
-	const baseKey = $derived(JSON.stringify({ ...baseRequest, stamp: doc.stamp }));
+
+	// The floating objects' own placement edits only move their layers.
+	const baseRequest = $derived(
+		stageRequest(doc, target, view, { depths: ready.map((e) => e.depth), tags: readyTags }),
+	);
+	// A timeline target waits for its timeline: without it the view is
+	// unknown, and the picture would be rendered twice.
+	const baseKey = $derived(
+		!timeline || doc.timelineReady ? stageKey(baseRequest, doc.stamp) : "",
+	);
 
 	function layerStyle(e: SwfEntry): string {
 		const m = matrixOf(e);
@@ -514,21 +501,26 @@
 			data-y={rect?.y}
 			data-scale={scale}
 		>
-			<SwfLayer
-				{doc}
-				request={baseRequest}
-				key={baseKey}
-				transparent={target.kind !== "root"}
-				still={!(target.kind === "character" && target.play)}
-				onload={(r) => {
-					baseRect = r.rect;
-					missing = r.missing;
-					baseShown = JSON.stringify(JSON.parse(r.key).target);
-					error = null;
-				}}
-				onerror={(m) => (error = m)}
-				onbusy={(b) => (baseBusy = b)}
-			/>
+			<!-- Another clip or character starts from an empty layer: keeping the
+				last one's picture until the new one is drawn showed the wrong
+				thing for a moment. Frames and edits of one target swap in place. -->
+			{#key `${target.kind}|${"id" in target ? target.id : 0}`}
+				<SwfLayer
+					{doc}
+					request={baseRequest}
+					key={baseKey}
+					transparent={target.kind !== "root"}
+					still={!(target.kind === "character" && target.play)}
+					onload={(r) => {
+						baseRect = r.rect;
+						missing = r.missing;
+						baseShown = JSON.stringify(JSON.parse(r.key).target);
+						error = null;
+					}}
+					onerror={(m) => (error = m)}
+					onbusy={(b) => (baseBusy = b)}
+				/>
+			{/key}
 			{#each floats as e (e.depth)}
 				<div class="pointer-events-none absolute top-0 left-0" style={layerStyle(e)}>
 					<SwfLayer
