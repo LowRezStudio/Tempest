@@ -11,7 +11,7 @@
 //! calls, which is what makes a property inspector responsive: the class
 //! database alone takes a second or two to load.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -97,6 +97,18 @@ pub struct Server {
     order: Option<Vec<OrderedPackage>>,
     /// Preview PNGs of material textures (`mesh.preview`), by path and size.
     png_cache: HashMap<String, Vec<u8>>,
+    /// `mod.preview` results of items read from disk, by what they depend on
+    /// (source and game file sizes and times, mode, base record).
+    preview_cache: HashMap<String, J>,
+    /// The cooker's finished items (encoded), by `item_stamp` and sharing:
+    /// building again after a small change only redoes the files that changed.
+    cook_cache: HashMap<String, Item>,
+    /// Large objects each item holds (the cooker's first pass), by `item_stamp`.
+    holds_cache: HashMap<String, Vec<String>>,
+    /// Compressed shared object files, by hash and compression.
+    packed_cache: HashMap<String, Vec<u8>>,
+    /// How the mod being cooked is compressed (`mod.cook {compression}`).
+    compression: crate::delta::Compression,
     out: std::io::Stdout,
     /// The last Wwise package opened (`(canonical path, package)`).
     wwise: Option<(String, akpk::Package)>,
@@ -139,7 +151,12 @@ fn opt_b(p: &J, name: &str) -> Option<bool> {
 
 impl Server {
     pub fn new() -> Server {
-        Server { dir: None, db: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), index_job: None, scripts: HashMap::new(), order: None, png_cache: HashMap::new(), out: std::io::stdout(), wwise: None, ak_names: None, mcts: None, bins: BinSink::default() }
+        Server { dir: None, db: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), index_job: None, scripts: HashMap::new(), order: None, png_cache: HashMap::new(),
+            preview_cache: HashMap::new(),
+            cook_cache: HashMap::new(),
+            holds_cache: HashMap::new(),
+            packed_cache: HashMap::new(),
+            compression: crate::delta::Compression::Small, out: std::io::stdout(), wwise: None, ak_names: None, mcts: None, bins: BinSink::default() }
     }
 
     /// Serve stdin until EOF.
@@ -2240,7 +2257,7 @@ impl Server {
             let digest = if use_deltas { crate::basestore::read(path) } else { None };
             match digest {
                 Some(digest) => {
-                    let (d, warnings) = self.make_delta(path, &digest, &rel)?;
+                    let (d, warnings) = self.make_delta(path, &digest, &rel, false)?;
                     let ops = d.ops().len() + d.header["tables"].as_array().map(|a| a.iter().map(|t| t["ops"].as_array().map(|o| o.len()).unwrap_or(0)).sum::<usize>()).unwrap_or(0) + d.header["header"].as_object().map(|h| h.len()).unwrap_or(0);
                     if ops == 0 {
                         entries.push(json!({ "file": rel, "mode": "unchanged", "ops": 0, "bytes": 0, "warnings": warnings }));
@@ -2250,9 +2267,9 @@ impl Server {
                     if let Some(parent) = out.parent() {
                         std::fs::create_dir_all(parent)?;
                     }
-                    d.write(&out)?;
+                    d.write_shared(&out, dir.join("shared"))?;
                     added.push(format!("deltas/{rel}.tdelta"));
-                    entries.push(json!({ "file": rel, "mode": "delta", "ops": ops, "bytes": d.to_bytes().len(), "warnings": warnings }));
+                    entries.push(json!({ "file": rel, "mode": "delta", "ops": ops, "bytes": d.to_bytes_external().len(), "warnings": warnings }));
                 }
                 None => {
                     let out = dir.join("files").join(&rel);
@@ -2345,7 +2362,7 @@ impl Server {
     /// summary and, when something changed, the folder (`deltas`/`files`),
     /// path and bytes to write. Errors with `needs-original:` when no
     /// original is known for a delta.
-    fn mod_item(&mut self, it: &J) -> Res<(J, Option<ModFile>)> {
+    fn mod_item(&mut self, it: &J, sharing: Sharing, preview: bool) -> Res<Item> {
         let source = PathBuf::from(it["source"].as_str().unwrap_or_default());
         let target = it["target"].as_str().map(PathBuf::from).unwrap_or_else(|| source.clone());
         let rel = crate::basestore::game_relative(&target);
@@ -2363,7 +2380,7 @@ impl Server {
             };
             if whole {
                 let bytes = mcts::write_obscured(&edited, &tokens);
-                return Ok((json!({ "rel": rel, "mode": "whole", "bytes": bytes.len() }), Some(("files", rel, bytes))));
+                return Ok((json!({ "rel": rel, "mode": "whole", "bytes": bytes.len() }), Some(("files", rel, Payload::Bytes(bytes))), Shared::new()));
             }
             let d = match crate::basestore::read(&target) {
                 Some(digest) => mcts::delta::create(&tokens, mcts::delta::Base::Digest(&digest), &edited, &rel)?,
@@ -2399,10 +2416,13 @@ impl Server {
             changed += header;
             let summary = json!({ "rel": rel, "mode": "delta", "added": added, "changed": changed, "deleted": deleted, "changes": changes });
             if added + changed + deleted == 0 {
-                return Ok((summary, None));
+                return Ok((summary, None, Shared::new()));
             }
-            return Ok((summary, Some(("deltas", format!("{rel}.tdelta"), d.to_bytes()))));
+            return Ok((summary, Some(("deltas", format!("{rel}.tdelta"), Payload::Bytes(d.to_bytes()))), Shared::new()));
         }
+        // Large payloads go to shared object files: an object the mod changes
+        // the same way in several packages is shipped once.
+        let share = share_options(sharing, preview, self.compression);
         let db = self.db()?;
         let edited_bytes = match self.editors.get_mut(&sk) {
             Some(ed) if ed.is_dirty() => ed.bytes(),
@@ -2410,48 +2430,103 @@ impl Server {
         };
         if whole {
             let n = edited_bytes.len();
-            return Ok((json!({ "rel": rel, "mode": "whole", "bytes": n }), Some(("files", rel, edited_bytes))));
+            return Ok((json!({ "rel": rel, "mode": "whole", "bytes": n }), Some(("files", rel, Payload::Bytes(edited_bytes))), Shared::new()));
         }
-        let edited = Package::parse(&edited_bytes)?;
-        let (d, warnings) = match crate::basestore::read(&target) {
-            Some(digest) => crate::delta::create(db, crate::delta::Base::Digest(&digest), &edited, &rel)?,
-            None => match crate::basestore::launcher_backup(&target) {
-                Some(b) => {
-                    let base = PackageFile::open(&b)?.load()?;
-                    crate::delta::create(db, crate::delta::Base::Package(&base), &edited, &rel)?
-                }
-                // The game folder's file is the original by default.
-                None => {
-                    if !target.exists() {
-                        return Err(missing().into());
+        package_item(db, &edited_bytes, &target, &rel, share, preview).map_err(|e| e.into())
+    }
+
+    /// What a cooker item's result depends on, for the caches: `None` when it
+    /// has unsaved edits in memory (always made again).
+    fn item_stamp(&self, it: &J) -> Option<String> {
+        let source = it["source"].as_str().unwrap_or_default().to_string();
+        let target = it["target"].as_str().unwrap_or_default().to_string();
+        let sk = key(&source);
+        if self.editors.get(&sk).is_some_and(|e| e.is_dirty()) || self.mcts.as_ref().is_some_and(|ws| ws.docs.iter().any(|(_, d)| d.dirty && key(&d.path.to_string_lossy()) == sk)) {
+            return None;
+        }
+        let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| format!("{}:{:?}", m.len(), m.modified().ok()));
+        let t = Path::new(&target);
+        Some(format!("{source}|{target}|{}|{}|{:?}|{:?}|{:?}|{:?}", it["mode"], it["kind"], stamp(Path::new(&source)), stamp(t), crate::basestore::launcher_backup(t).as_deref().and_then(stamp), crate::basestore::read(t).map(|d| d.to_string().len())))
+    }
+
+    /// [`Server::mod_item`] for several items, the package comparisons (the
+    /// slow part: parsing and diffing whole packages) on every core.
+    fn mod_items(&mut self, items: &[J], sharing: &dyn Fn(usize) -> Sharing, preview: bool) -> Vec<Res<Item>> {
+        let mut out: Vec<Option<Res<Item>>> = (0..items.len()).map(|_| None).collect();
+        struct Job {
+            k: usize,
+            bytes: Vec<u8>,
+            target: PathBuf,
+            rel: String,
+            share: crate::delta::CreateOptions,
+        }
+        let mut jobs: Vec<Job> = Vec::new();
+        for (k, it) in items.iter().enumerate() {
+            let source = PathBuf::from(it["source"].as_str().unwrap_or_default());
+            if it["kind"] == "mcts" || it["mode"].as_str() == Some("whole") {
+                out[k] = Some(self.mod_item(it, sharing(k), preview));
+                continue;
+            }
+            let target = it["target"].as_str().map(PathBuf::from).unwrap_or_else(|| source.clone());
+            let sk = key(&source.to_string_lossy());
+            let bytes = match self.editors.get_mut(&sk) {
+                Some(ed) if ed.is_dirty() => Ok(ed.bytes()),
+                _ => std::fs::read(&source),
+            };
+            match bytes {
+                Ok(bytes) => jobs.push(Job { k, bytes, rel: crate::basestore::game_relative(&target), target, share: share_options(sharing(k), preview, self.compression) }),
+                Err(e) => out[k] = Some(Err(e.into())),
+            }
+        }
+        if !jobs.is_empty() {
+            match self.db() {
+                Ok(db) => {
+                    let done = crate::delta::parallel_map(&jobs, |j| package_item(db, &j.bytes, &j.target, &j.rel, j.share.clone(), preview));
+                    for (j, r) in jobs.iter().zip(done) {
+                        out[j.k] = Some(r.map_err(|e| e.into()));
                     }
-                    let base = PackageFile::open(&target)?.load()?;
-                    crate::delta::create(db, crate::delta::Base::Package(&base), &edited, &rel)?
                 }
-            },
-        };
-        let ops = d.ops();
-        let count = |k: &str| ops.iter().filter(|o| o.op == k).count();
-        let changes: Vec<J> = ops.iter().take(300).map(|o| json!({ "op": o.op, "what": format!("{} ({})", o.path, o.class) })).collect();
-        let summary = json!({ "rel": rel, "mode": "delta", "added": count("add"), "changed": count("set"), "deleted": count("delete"), "changes": changes, "warnings": warnings });
-        if ops.is_empty() {
-            return Ok((summary, None));
+                Err(e) => {
+                    let msg = e.to_string();
+                    for j in &jobs {
+                        out[j.k] = Some(Err(msg.clone().into()));
+                    }
+                }
+            }
         }
-        Ok((summary, Some(("deltas", format!("{rel}.tdelta"), d.to_bytes()))))
+        out.into_iter().map(|r| r.unwrap_or_else(|| Err("item not made".into()))).collect()
     }
 
     /// `mod.preview {items}`: what each cooker entry would put in the mod,
     /// without writing anything (`error` set on entries that cannot be made).
     fn mod_preview(&mut self, p: &J) -> Res<J> {
-        let mut out = Vec::new();
+        let mut out: Vec<J> = Vec::new();
+        let mut todo: Vec<(usize, J, Option<String>)> = Vec::new();
         for it in p.get("items").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
-            match self.mod_item(&it) {
-                Ok((mut summary, _)) => {
-                    summary["id"] = it["id"].clone();
-                    out.push(summary);
-                }
-                Err(e) => out.push(json!({ "id": it["id"], "error": e.to_string() })),
+            // Files on disk that did not change since the last preview: the same answer.
+            let cache_key = self.item_stamp(&it);
+            if let Some(hit) = cache_key.as_ref().and_then(|k| self.preview_cache.get(k)) {
+                let mut summary = hit.clone();
+                summary["id"] = it["id"].clone();
+                out.push(summary);
+                continue;
             }
+            todo.push((out.len(), it, cache_key));
+            out.push(J::Null);
+        }
+        let items: Vec<J> = todo.iter().map(|(_, it, _)| it.clone()).collect();
+        let made = self.mod_items(&items, &|_| Sharing::No, true);
+        for ((at, it, cache_key), r) in todo.into_iter().zip(made) {
+            out[at] = match r {
+                Ok((mut summary, _, _)) => {
+                    if let Some(k) = cache_key {
+                        self.preview_cache.insert(k, summary.clone());
+                    }
+                    summary["id"] = it["id"].clone();
+                    summary
+                }
+                Err(e) => json!({ "id": it["id"], "error": e.to_string() }),
+            };
         }
         Ok(json!({ "items": out }))
     }
@@ -2503,10 +2578,97 @@ impl Server {
         std::fs::write(dir.join("manifest.toml"), m)?;
 
         let mut entries: Vec<J> = Vec::new();
-        for it in p.get("items").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
-            let (mut summary, file) = self.mod_item(&it)?;
+        // Shared object files, written once at `shared/<hash>.tobj` however
+        // many deltas use them.
+        // Only objects two or more deltas use are shared: a delta whose large
+        // objects are its own is made again without sharing, so it stays a
+        // version 1 file that every launcher reads.
+        let items = p.get("items").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        // Keep the caches from growing without bound (a few builds of big mods).
+        if self.cook_cache.values().map(|m| m.1.as_ref().map(|f| f.2.len()).unwrap_or(0)).sum::<usize>() + self.packed_cache.values().map(|b| b.len()).sum::<usize>() > (1 << 30) {
+            self.cook_cache.clear();
+            self.packed_cache.clear();
+        }
+        self.compression = crate::delta::Compression::parse(&opt_s(p, "compression").unwrap_or_default());
+        let mode = self.compression;
+        let stamps: Vec<Option<String>> = items.iter().map(|it| self.item_stamp(it)).collect();
+        // Which large objects several deltas contain: found without compressing
+        // (remembered for files that did not change).
+        let mut holds: Vec<Vec<String>> = stamps.iter().map(|st| st.as_ref().and_then(|k| self.holds_cache.get(k)).cloned().unwrap_or_default()).collect();
+        let unknown: Vec<usize> = (0..items.len()).filter(|&k| stamps[k].as_ref().is_none_or(|st| !self.holds_cache.contains_key(st))).collect();
+        let found = self.mod_items(&unknown.iter().map(|&k| items[k].clone()).collect::<Vec<_>>(), &|_| Sharing::All, true);
+        for (&k, r) in unknown.iter().zip(found) {
+            holds[k] = r?.2.into_keys().collect();
+            if let Some(st) = &stamps[k] {
+                self.holds_cache.insert(st.clone(), holds[k].clone());
+            }
+        }
+        let mut users: HashMap<&str, usize> = HashMap::new();
+        for h in holds.iter().flatten() {
+            *users.entry(h.as_str()).or_default() += 1;
+        }
+        let multi: std::sync::Arc<HashSet<String>> = std::sync::Arc::new(users.into_iter().filter(|(_, n)| *n >= 2).map(|(h, _)| h.to_string()).collect());
+        // Those objects are stored once, as shared object files; everything
+        // else stays in each delta, where like objects compress together
+        // (sharing every large object made Cassie Bow 80.8 MB, sharing none
+        // 74.6 MB, sharing those 63.7 MB).
+        let sharing_key = |k: usize| {
+            let mut mine: Vec<&String> = holds[k].iter().filter(|h| multi.contains(*h)).collect();
+            mine.sort();
+            mine.iter().map(|h| &h[..16]).collect::<Vec<_>>().join(",")
+        };
+        let cache_keys: Vec<Option<String>> = (0..items.len()).map(|k| stamps[k].as_ref().map(|st| format!("{st}|{}|{mode:?}", sharing_key(k)))).collect();
+        let mut made: Vec<Option<Item>> = cache_keys.iter().map(|ck| ck.as_ref().and_then(|c| self.cook_cache.get(c)).map(cached_copy)).collect();
+        let todo: Vec<usize> = (0..items.len()).filter(|&k| made[k].is_none()).collect();
+        let todo_items: Vec<J> = todo.iter().map(|&k| items[k].clone()).collect();
+        let holds_ref = &holds;
+        let fresh = self.mod_items(&todo_items, &|t| if holds_ref[todo[t]].iter().any(|h| multi.contains(h)) { Sharing::Only(multi.clone()) } else { Sharing::No }, false);
+        for (&k, r) in todo.iter().zip(fresh) {
+            made[k] = Some(r?);
+        }
+        let mut made: Vec<Item> = made.into_iter().map(|m| m.expect("every item made")).collect();
+        // Shared object files not compressed yet go through the same pool as the deltas.
+        let mut unique: Vec<(String, Vec<u8>)> = Vec::new();
+        for m in &made {
+            for (h, b) in &m.2 {
+                if !b.is_empty() && !self.packed_cache.contains_key(&format!("{h}|{mode:?}")) && !unique.iter().any(|(x, _)| x == h) {
+                    unique.push((h.clone(), b.clone()));
+                }
+            }
+        }
+        let extra: Vec<(&[u8], crate::delta::Compression)> = unique.iter().map(|(_, b)| (b.as_slice(), mode)).collect();
+        let packed_list = {
+            let mut all: Vec<&mut Item> = made.iter_mut().collect();
+            encode_pending(&mut all, &extra)
+        };
+        for ((h, _), p) in unique.iter().zip(packed_list) {
+            self.packed_cache.insert(format!("{h}|{mode:?}"), p);
+        }
+        drop(extra);
+        for (k, ck) in cache_keys.iter().enumerate() {
+            if let (Some(c), true) = (ck, todo.contains(&k)) {
+                self.cook_cache.insert(c.clone(), cached_copy(&made[k]));
+            }
+        }
+        let packed_objects: HashMap<String, Vec<u8>> = made.iter().flat_map(|m| m.2.keys()).filter_map(|h| Some((h.clone(), self.packed_cache.get(&format!("{h}|{mode:?}"))?.clone()))).collect();
+        let mut shared_written: HashMap<String, usize> = HashMap::new();
+        let mut shared_uses = 0usize;
+        let mut shared_saved = 0usize;
+        for (mut summary, file, shared) in made {
+            for (hash, bytes) in shared {
+                shared_uses += 1;
+                if let Some(&n) = shared_written.get(&hash) {
+                    shared_saved += n;
+                    continue;
+                }
+                let out = dir.join("shared").join(format!("{hash}.{}", crate::delta::SHARED_EXT));
+                std::fs::create_dir_all(dir.join("shared"))?;
+                let packed = packed_objects.get(&hash).cloned().unwrap_or_else(|| crate::delta::pack_with(&bytes, mode));
+                std::fs::write(&out, &packed)?;
+                shared_written.insert(hash, packed.len());
+            }
             match file {
-                Some((folder, name, bytes)) => {
+                Some((folder, name, Payload::Bytes(bytes))) => {
                     let out = dir.join(folder).join(&name);
                     if let Some(parent) = out.parent() {
                         std::fs::create_dir_all(parent)?;
@@ -2514,6 +2676,7 @@ impl Server {
                     std::fs::write(&out, bytes)?;
                     summary["entry"] = J::from(format!("{folder}/{name}"));
                 }
+                Some((_, _, Payload::Delta(_))) => unreachable!("encoded above"),
                 None => summary["mode"] = J::from("unchanged"),
             }
             summary.as_object_mut().map(|o| o.remove("changes"));
@@ -2558,7 +2721,8 @@ impl Server {
             }
             entries.push(json!({ "rel": dest, "entry": dest, "mode": "extra" }));
         }
-        Ok(json!({ "dir": dir.to_string_lossy(), "entries": entries }))
+        let shared_bytes: usize = shared_written.values().sum();
+        Ok(json!({ "dir": dir.to_string_lossy(), "entries": entries, "shared": { "files": shared_written.len(), "uses": shared_uses, "bytes": shared_bytes, "saved": shared_saved } }))
     }
 
     /// `mod.match {path}`: the game file a package or `.dat` from anywhere is
@@ -2595,7 +2759,7 @@ impl Server {
     /// The delta of a file on disk against its recorded base: rows for a
     /// marshal, objects for a package (the open editor's unsaved edits are
     /// not part of it; the dialog asks for a save first).
-    fn make_delta(&mut self, path: &Path, digest: &J, target: &str) -> Res<(crate::delta::Delta, Vec<String>)> {
+    fn make_delta(&mut self, path: &Path, digest: &J, target: &str, share: bool) -> Res<(crate::delta::Delta, Vec<String>)> {
         let lower = path.to_string_lossy().to_ascii_lowercase();
         if lower.ends_with(".dat") {
             let tokens = mcts::Tokens::for_dir(path.parent().unwrap_or(Path::new(".")));
@@ -2605,7 +2769,8 @@ impl Server {
         }
         let db = self.db()?;
         let pkg = PackageFile::open(path)?.load()?;
-        Ok(crate::delta::create(db, crate::delta::Base::Digest(digest), &pkg, target)?)
+        let opts = crate::delta::CreateOptions { share_min: share.then_some(crate::delta::SHARE_MIN), ..Default::default() };
+        Ok(crate::delta::create_with(db, crate::delta::Base::Digest(digest), &pkg, target, opts)?)
     }
 
     /// `delta.record {path}`: take the file as it is now as the base (after
@@ -2640,7 +2805,7 @@ impl Server {
         let out = s(p, "out")?;
         let target = opt_s(p, "target").unwrap_or_else(|| crate::basestore::game_relative(&path));
         let digest = crate::basestore::read(&path).ok_or("no base recorded for this file (save it in place once, or use delta.record)")?;
-        let (d, warnings) = self.make_delta(&path, &digest, &target)?;
+        let (d, warnings) = self.make_delta(&path, &digest, &target, false)?;
         d.write(out)?;
         let ops: Vec<J> = d.ops().into_iter().map(|o| json!({ "op": o.op, "path": o.path, "class": o.class })).collect();
         Ok(json!({ "out": out, "target": target, "kind": d.kind(), "ops": ops, "tables": d.header["tables"], "bytes": d.to_bytes().len(), "warnings": warnings }))
@@ -3331,7 +3496,131 @@ pub fn main() {
 }
 
 /// A file of a cooked mod: folder (`deltas`/`files`), path inside it, bytes.
-type ModFile = (&'static str, String, Vec<u8>);
+type ModFile = (&'static str, String, Payload);
+
+/// What a mod file holds: its bytes, or a delta still to encode (compressing
+/// is the slow part; the cooker encodes them all at once, in parallel).
+enum Payload {
+    Bytes(Vec<u8>),
+    Delta(Box<crate::delta::Delta>),
+}
+
+impl Payload {
+    fn len(&self) -> usize {
+        match self {
+            Payload::Bytes(b) => b.len(),
+            Payload::Delta(_) => 0,
+        }
+    }
+}
+
+/// Encode every pending delta of `made` (in parallel), and note its size.
+fn encode_pending(made: &mut [&mut Item], extra: &[(&[u8], crate::delta::Compression)]) -> Vec<Vec<u8>> {
+    let mut jobs: Vec<(usize, Box<crate::delta::Delta>)> = Vec::new();
+    for (i, m) in made.iter_mut().enumerate() {
+        if let Some(f) = m.1.as_mut() {
+            if matches!(f.2, Payload::Delta(_)) {
+                if let Payload::Delta(d) = std::mem::replace(&mut f.2, Payload::Bytes(Vec::new())) {
+                    jobs.push((i, d));
+                }
+            }
+        }
+    }
+    // Every part of every delta through one compression pool (biggest first,
+    // within the memory budget), then each delta assembled.
+    // (`extra`, the shared object files, go through the same pool.)
+    let parts: Vec<Vec<&[u8]>> = jobs.iter().map(|(_, d)| d.parts(false)).collect();
+    let flat: Vec<(&[u8], crate::delta::Compression)> = jobs.iter().zip(&parts).flat_map(|((_, d), p)| p.iter().map(|b| (*b, d.compression))).chain(extra.iter().copied()).collect();
+    let mut packed = crate::delta::pack_all_with(&flat).into_iter();
+    let encoded: Vec<Vec<u8>> = jobs.iter().zip(&parts).map(|((_, d), p)| d.assemble(packed.by_ref().take(p.len()).collect(), false)).collect();
+    let extra_packed: Vec<Vec<u8>> = packed.collect();
+    drop(parts);
+    for ((i, _), bytes) in jobs.into_iter().zip(encoded) {
+        made[i].0["bytes"] = J::from(bytes.len());
+        if let Some(f) = made[i].1.as_mut() {
+            f.2 = Payload::Bytes(bytes);
+        }
+    }
+    extra_packed
+}
+/// The package part of a cooker item (`Server::mod_item`): parse the edited
+/// package, compare it with its original, summarise. Needs no server state,
+/// so the cooker runs it for several files at once.
+fn package_item(db: &ClassDb, edited_bytes: &[u8], target: &Path, rel: &str, share: crate::delta::CreateOptions, preview: bool) -> Result<Item, String> {
+    let run = || -> Res<Item> {
+        let rel = rel.to_string();
+        let missing = || format!("{rel}: the game file is not in the game folder, so there is nothing to compare with; ship the whole file instead");
+            let edited = Package::parse(edited_bytes)?;
+            let (mut d, warnings) = match crate::basestore::read(target) {
+                Some(digest) => crate::delta::create_with(db, crate::delta::Base::Digest(&digest), &edited, &rel, share.clone())?,
+                None => match crate::basestore::launcher_backup(target) {
+                    Some(b) => {
+                        let base = PackageFile::open(&b)?.load()?;
+                        crate::delta::create_with(db, crate::delta::Base::Package(&base), &edited, &rel, share.clone())?
+                    }
+                    // The game folder's file is the original by default.
+                    None => {
+                        if !target.exists() {
+                            return Err(missing().into());
+                        }
+                        let base = PackageFile::open(target)?.load()?;
+                        crate::delta::create_with(db, crate::delta::Base::Package(&base), &edited, &rel, share.clone())?
+                    }
+                },
+            };
+            let ops = d.ops();
+            let count = |k: &str| ops.iter().filter(|o| o.op == k).count();
+            let changes: Vec<J> = ops.iter().take(300).map(|o| json!({ "op": o.op, "what": format!("{} ({})", o.path, o.class) })).collect();
+            let shared: Vec<J> = d.shared.iter().map(|(h, b)| json!({ "hash": h, "bytes": b.len() })).collect();
+            let summary = json!({ "rel": rel, "mode": "delta", "added": count("add"), "changed": count("set") + count("patch"), "deleted": count("delete"), "changes": changes, "warnings": warnings, "shared": shared });
+            if ops.is_empty() {
+                return Ok((summary, None, Shared::new()));
+            }
+            // Encoding (compressing) is left to the build (`encode_pending`); a preview never needs it.
+            let objects = std::mem::take(&mut d.shared);
+            Ok((summary, Some(("deltas", format!("{rel}.tdelta"), if preview { Payload::Bytes(Vec::new()) } else { Payload::Delta(Box::new(d)) })), objects))
+    };
+    run().map_err(|e| e.to_string())
+}
+
+/// A copy of a finished cooker item for the cache (or out of it): the encoded
+/// file, and the shared objects' hashes (their files are in `packed_cache`).
+fn cached_copy(m: &Item) -> Item {
+    let file = m.1.as_ref().map(|(folder, name, payload)| {
+        let bytes = match payload {
+            Payload::Bytes(b) => b.clone(),
+            Payload::Delta(_) => Vec::new(),
+        };
+        (*folder, name.clone(), Payload::Bytes(bytes))
+    });
+    (m.0.clone(), file, m.2.keys().map(|h| (h.clone(), Vec::new())).collect())
+}
+
+/// The delta options for a cooker item.
+fn share_options(sharing: Sharing, preview: bool, compression: crate::delta::Compression) -> crate::delta::CreateOptions {
+    crate::delta::CreateOptions {
+        compression,
+        share_min: (!matches!(sharing, Sharing::No)).then_some(crate::delta::SHARE_MIN),
+        fast: preview,
+        share_only: match sharing {
+            Sharing::Only(set) => Some(set),
+            _ => None,
+        },
+    }
+}
+
+/// How the cooker makes a delta: sharing no large object, every one (to find
+/// which ones several deltas contain), or only these.
+enum Sharing {
+    No,
+    All,
+    Only(std::sync::Arc<HashSet<String>>),
+}
+
+/// Shared object files of a delta, by hash.
+type Shared = std::collections::BTreeMap<String, Vec<u8>>;
+/// A cooker item: its summary, the file it puts in the mod, its shared objects.
+type Item = (J, Option<ModFile>, Shared);
 
 /// A copy of a JSON object with one more field.
 fn with_field(meta: &J, key: &str, value: &str) -> J {

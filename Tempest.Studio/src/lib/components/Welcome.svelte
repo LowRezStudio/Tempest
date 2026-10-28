@@ -2,6 +2,7 @@
 	import { AppWindow, Clock, FileUp, FolderOpen, Hammer, PackageOpen, X } from "@lucide/svelte";
 	import { onMount } from "svelte";
 	import { invoke, pickDirectory, pickFile, PACKAGE_FILTERS } from "$lib/platform/api";
+	import { recentFolderMenu, recentProjectMenu } from "$lib/studio/contextmenus";
 	import { basename } from "$lib/studio/format";
 	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
@@ -117,6 +118,8 @@
 							<button
 								class="min-w-0 flex-1 flex-col items-start gap-0"
 								onclick={() => session.open(file)}
+								oncontextmenu={(e) =>
+									ui.openContextMenu(e, recentProjectMenu(file))}
 								disabled={studio.busy !== null}
 								title={file}
 							>
@@ -161,6 +164,7 @@
 								class="min-w-0 flex-1 truncate font-mono text-xs"
 								title={dir}
 								onclick={() => studio.openWorkspace(dir)}
+								oncontextmenu={(e) => ui.openContextMenu(e, recentFolderMenu(dir))}
 								disabled={studio.busy !== null}
 							>
 								{dir}

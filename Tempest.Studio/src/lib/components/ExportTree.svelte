@@ -4,9 +4,11 @@
 	import ClassIcon from "$lib/components/ClassIcon.svelte";
 	import PackageInfoDialog from "$lib/components/PackageInfoDialog.svelte";
 	import TreeNode from "$lib/components/TreeNode.svelte";
+	import { exportMenu } from "$lib/studio/contextmenus";
 	import { inField, reveal, step } from "$lib/studio/keys";
 	import { studio } from "$lib/studio/state.svelte";
 	import { ancestors, buildTree, classCounts } from "$lib/studio/tree";
+	import { ui } from "$lib/studio/ui.svelte";
 
 	let filter = $state("");
 	let classFilter = $state("");
@@ -162,6 +164,7 @@
 						: ''}"
 					data-export={i}
 					onclick={() => studio.select(i)}
+					oncontextmenu={(e) => ui.openContextMenu(e, exportMenu(i))}
 					title="{row.class} · {row.path}"
 				>
 					<ClassIcon className={row.class} />

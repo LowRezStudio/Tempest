@@ -2,8 +2,10 @@
 	import { ChevronDown, ChevronRight } from "@lucide/svelte";
 	import ClassIcon from "$lib/components/ClassIcon.svelte";
 	import TreeNode from "$lib/components/TreeNode.svelte";
+	import { exportMenu } from "$lib/studio/contextmenus";
 	import { studio } from "$lib/studio/state.svelte";
 	import { tabs } from "$lib/studio/tabs.svelte";
+	import { ui } from "$lib/studio/ui.svelte";
 	import type { Tree } from "$lib/studio/tree";
 	import type { ExportRow } from "../../../electron/src/ipc/contract";
 	import type { SvelteSet } from "svelte/reactivity";
@@ -56,6 +58,7 @@
 		void studio.select(index);
 	}}
 	ondblclick={toggle}
+	oncontextmenu={(e) => ui.openContextMenu(e, exportMenu(index))}
 	onkeydown={(e) => {
 		// Arrows and Enter are handled by the tree; space selects.
 		if (e.key === " ") {

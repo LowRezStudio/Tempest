@@ -72,6 +72,21 @@ class Tabs {
 		if (neighbour) await this.activate(neighbour.id);
 	}
 
+	/** Close every tab but `id` (and show it). */
+	async closeOthers(id: number): Promise<void> {
+		this.list = this.list.filter((t) => t.id === id);
+		if (this.active !== id) await this.activate(id);
+	}
+
+	/** Close the tabs after `id`. */
+	async closeToRight(id: number): Promise<void> {
+		const i = this.list.findIndex((t) => t.id === id);
+		if (i < 0) return;
+		const activeGone = this.list.slice(i + 1).some((t) => t.id === this.active);
+		this.list = this.list.slice(0, i + 1);
+		if (activeGone) await this.activate(id);
+	}
+
 	async cycle(step: 1 | -1): Promise<void> {
 		if (this.list.length < 2) return;
 		const i = this.list.findIndex((t) => t.id === this.active);

@@ -70,6 +70,20 @@
 		else if (tab === "preview" || tab === "source") tab = "properties";
 	});
 
+	// An action asked from the export tree's context menu, once this export shows.
+	$effect(() => {
+		const a = ui.objectAction;
+		if (!a || !row || row.i !== a.index) return;
+		ui.objectAction = null;
+		if (placeholder && a.kind !== "raw") return;
+		if (a.kind === "export") void exportAsset();
+		else if (a.kind === "raw") void extractRaw();
+		else if (a.kind === "replace") importOpen = true;
+		else if (a.kind === "rename") renameOpen = true;
+		else if (a.kind === "copy") copyOpen = true;
+		else if (a.kind === "delete") void deleteObject();
+	});
+
 	async function loadText() {
 		if (!studio.pkg || studio.selected === null) return;
 		try {

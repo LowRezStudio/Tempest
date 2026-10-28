@@ -87,7 +87,8 @@ internal static class DeltaResolver
         if (fixedPart[0] != (byte)'T' || fixedPart[1] != (byte)'D' || fixedPart[2] != (byte)'L' || fixedPart[3] != (byte)'T')
             throw new Exception("not a Tempest delta (bad magic)");
         var version = BitConverter.ToUInt32(fixedPart, 4);
-        if (version != 1) throw new Exception($"delta version {version} is not supported by this Tempest");
+        // 1: self-contained; 2: may use shared object files (`shared/<hash>.tobj` in the mod folder).
+        if (version is < 1 or > 2) throw new Exception($"delta version {version} is not supported by this Tempest");
         var length = BitConverter.ToInt32(fixedPart, 8);
         if (length < 2 || length > 256 * 1024 * 1024) throw new Exception("delta header length out of range");
         var json = new byte[length];

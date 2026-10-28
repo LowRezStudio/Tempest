@@ -7,7 +7,7 @@
 // saved, installed or published like the launcher's cooker does.
 import { invoke, pickDirectory, pickFile, pickFiles, pickSave } from "$lib/platform/api";
 import { assembly } from "./assembly.svelte";
-import { basename, dirname } from "./format";
+import { basename, bytes, dirname, pathKey, samePath } from "./format";
 import { rpc } from "./rpc";
 import { studio } from "./state.svelte";
 import { toasts } from "./toast.svelte";
@@ -69,6 +69,8 @@ export type Meta = {
 	summary: string;
 	changelog: string;
 	tags: string;
+	/** "small": LZMA, the smallest mod; "fast": zstd, a much faster build, a bigger mod. */
+	compression: "small" | "fast";
 };
 
 /** What a workspace's mod project keeps (per game folder, and in workspace files). */
@@ -96,6 +98,7 @@ const emptyMeta = (): Meta => ({
 	summary: "",
 	changelog: "",
 	tags: "",
+	compression: "small",
 });
 
 /** Where a loose file goes inside the mod by default. */
@@ -150,9 +153,9 @@ class Cooker {
 
 	entries = $derived.by<Entry[]>(() => {
 		const byTarget = new Map<string, CookSource[]>();
-		const mine = new Set(this.targets);
+		const mine = new Set(this.targets.map(pathKey));
 		for (const s of this.sources) {
-			if (this.projectDir && !mine.has(s.target)) continue;
+			if (this.projectDir && !mine.has(pathKey(s.target))) continue;
 			const list = byTarget.get(s.target) ?? [];
 			list.push(s);
 			byTarget.set(s.target, list);
@@ -317,7 +320,7 @@ class Cooker {
 	}
 
 	setChoice(target: string, patch: Partial<Choice>): void {
-		const e = this.entries.find((x) => x.target === target);
+		const e = this.entries.find((x) => samePath(x.target, target));
 		if (!e) return;
 		this.choices = { ...this.choices, [target]: { ...e.choice, ...patch } };
 		this.schedulePreview();
@@ -340,7 +343,7 @@ class Cooker {
 				const edited = this.sources
 					.filter((x) => x.origin === "unsaved")
 					.map((x) => x.target);
-				const add = edited.filter((t) => !this.targets.includes(t));
+				const add = edited.filter((t) => !this.targets.some((x) => samePath(x, t)));
 				if (add.length > 0) this.targets = [...this.targets, ...add];
 			}
 		} catch (error) {
@@ -417,15 +420,15 @@ class Cooker {
 				if (!target) continue;
 			}
 			await rpc("mod.addCopy", { path: file, target });
-			if (!this.targets.includes(target)) this.targets = [...this.targets, target];
+			if (!this.targets.some((x) => samePath(x, target!))) {
+				this.targets = [...this.targets, target];
+			}
 			this.choices = { ...this.choices, [target]: { on: true, source: null, mode: "delta" } };
 		}
 		await this.refresh();
 		// The new copy becomes the chosen source of its game file.
 		for (const file of picked) {
-			const s = this.sources.find(
-				(x) => x.origin === "copy" && x.source.toLowerCase() === file.toLowerCase(),
-			);
+			const s = this.sources.find((x) => x.origin === "copy" && samePath(x.source, file));
 			if (s) this.setChoice(s.target, { on: true, source: s.id });
 		}
 	}
@@ -554,6 +557,7 @@ class Cooker {
 					dependencies: this.dependencies,
 					icon: m.icon ?? undefined,
 					items: this.items(),
+					compression: m.compression,
 					extras: [
 						...($state.snapshot(this.extras) as Extra[]),
 						...(this.projectDir && this.projectFiles.length > 0
@@ -565,11 +569,17 @@ class Cooker {
 			for (const e of r.entries) {
 				const what =
 					e.mode === "delta"
-						? `delta: ${e.changed ?? 0} changed, ${e.added ?? 0} added, ${e.deleted ?? 0} removed`
+						? `delta: ${e.changed ?? 0} changed, ${e.added ?? 0} added, ${e.deleted ?? 0} removed${e.bytes === undefined ? "" : `, ${bytes(e.bytes)}`}`
 						: e.mode === "unchanged"
 							? "no changes, left out"
 							: e.mode;
 				this.say(e.mode === "unchanged" ? "info" : "ok", `${e.rel}: ${what}`);
+			}
+			if (r.shared && r.shared.saved > 0) {
+				this.say(
+					"ok",
+					`Objects changed the same way in several files are stored once: ${r.shared.files} shared, ${(r.shared.saved / 1048576).toFixed(1)} MB saved`,
+				);
 			}
 			const packed = await this.cli$(["pack", staging, target]);
 			if (packed.code !== 0) throw new Error("tempest mod pack failed (see the log)");

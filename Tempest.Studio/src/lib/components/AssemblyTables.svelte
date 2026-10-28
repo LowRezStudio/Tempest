@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { Database, Languages } from "@lucide/svelte";
 	import { assembly, versionRaw, versionText } from "$lib/studio/assembly.svelte";
+	import { revealItem } from "$lib/studio/contextmenus";
 	import { inField, reveal, step } from "$lib/studio/keys";
 	import { tabs } from "$lib/studio/tabs.svelte";
+	import { ui } from "$lib/studio/ui.svelte";
 	import type { McsDoc, McsHeaderField } from "../../../electron/src/ipc/contract";
 
 	let filter = $state("");
@@ -130,6 +132,27 @@
 					if (e.ctrlKey || e.metaKey) tabs.openInNewTab();
 					void assembly.openTable(doc.id, t.name, []);
 				}}
+				oncontextmenu={(e) =>
+					ui.openContextMenu(e, [
+						{ heading: t.name },
+						{
+							label: "Open",
+							run: () => assembly.openTable(doc.id, t.name, []),
+						},
+						{
+							label: "Open in a new tab",
+							run: () => {
+								tabs.openInNewTab();
+								return assembly.openTable(doc.id, t.name, []);
+							},
+						},
+						"-",
+						{
+							label: "Copy the table name",
+							run: () => navigator.clipboard.writeText(t.name),
+						},
+						revealItem(doc.path),
+					])}
 				title="{t.columns.length} columns"
 			>
 				<span class="truncate font-mono">{t.name.replace(/^DATA_SET_/, "")}</span>

@@ -4,8 +4,10 @@
 		ArrowUp,
 		ChevronLeft,
 		ChevronRight,
+		ClipboardCopy,
 		Columns3,
 		Copy,
+		Pencil,
 		CopyPlus,
 		ExternalLink,
 		Plus,
@@ -286,6 +288,90 @@
 			anchor = index;
 		}
 		void assembly.select(index);
+	}
+
+	/** Right-click on a row: select it (unless it is one of the marked rows), then its actions. */
+	function onRowMenu(event: MouseEvent, index: number) {
+		const name =
+			(event.target as Element | null)?.closest("[data-col]")?.getAttribute("data-col") ??
+			null;
+		if (!assembly.marked.includes(index) && assembly.selected !== index) {
+			assembly.marked = [];
+			anchor = index;
+			void assembly.select(index);
+		}
+		if (name) col = name;
+		const rows = assembly.marked.includes(index) ? assembly.marked : [index];
+		const many = rows.length > 1;
+		const column = name ? columns.find((c) => c.name === name) : undefined;
+		const value = name ? text(cellOf(index, name)) : "";
+		ui.openContextMenu(event, [
+			{ heading: many ? `${rows.length} marked rows` : `Row #${index}` },
+			column && editable(column)
+				? {
+						label: `Edit ${column.name}`,
+						icon: Pencil,
+						keys: "F2",
+						run: () => startEdit(index, column.name),
+					}
+				: null,
+			name
+				? {
+						label: "Copy the value",
+						detail: value || "(empty)",
+						icon: ClipboardCopy,
+						run: () => navigator.clipboard.writeText(value),
+					}
+				: null,
+			"-",
+			{
+				label: many ? "Copy the rows" : "Copy the row",
+				detail: "To paste into this table as new rows",
+				icon: Copy,
+				keys: "Mod+C",
+				run: copy,
+			},
+			{
+				label: "Copy as TSV",
+				detail: "For a spreadsheet",
+				run: () =>
+					assembly.copyTsv(
+						assembly.targets(),
+						columns.map((c) => c.name),
+					),
+			},
+			{ label: "Paste", keys: "Mod+V", run: paste },
+			"-",
+			{
+				label: "Duplicate",
+				detail: "A copy at the end, with a fresh id",
+				icon: CopyPlus,
+				keys: "Mod+D",
+				disabled: many,
+				run: () => assembly.addRow(index),
+			},
+			{
+				label: "New row",
+				icon: Plus,
+				keys: "Mod+Shift+Enter",
+				run: () => assembly.addRow(null),
+			},
+			{
+				label: "Open in a new tab",
+				icon: ExternalLink,
+				run: () => {
+					tabs.openInNewTab();
+					return assembly.select(index);
+				},
+			},
+			"-",
+			{
+				label: many ? `Delete ${rows.length} rows…` : "Delete the row…",
+				icon: Trash2,
+				danger: true,
+				run: deleteTargets,
+			},
+		]);
 	}
 
 	async function copy() {
@@ -686,6 +772,7 @@
 							tabs.openInNewTab();
 							void assembly.select(index);
 						}}
+						oncontextmenu={(e) => onRowMenu(e, index)}
 					>
 						<td
 							class="{pinBg(
