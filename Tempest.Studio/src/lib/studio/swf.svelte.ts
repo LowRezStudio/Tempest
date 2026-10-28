@@ -614,20 +614,34 @@ function packageStamp(): string {
 	return `${studio.edits}|${studio.undoLabels.join("\n")}`;
 }
 
-const docs = new Map<string, SwfDoc>();
+const docs = new Map<string, { doc: SwfDoc; dispose: () => void }>();
 
-/** The document of a movie export, kept across remounts. */
+/**
+ * The document of a movie export, kept across remounts. It is created in a
+ * root of its own: a `$derived` belongs to the reactive context that creates
+ * it, so a document made inside the editor's `$derived` lost its derived
+ * fields (character, sprite, entries) with the first editor, and after a
+ * remount the stage kept showing the last character whatever was selected.
+ */
 export function swfDoc(path: string, index: number): SwfDoc {
 	const key = `${path}#${index}`;
-	let doc = docs.get(key);
-	if (!doc) {
-		doc = new SwfDoc(path, index);
-		docs.set(key, doc);
+	let entry = docs.get(key);
+	if (!entry) {
+		let doc!: SwfDoc;
+		const dispose = $effect.root(() => {
+			doc = new SwfDoc(path, index);
+		});
+		entry = { doc, dispose };
+		docs.set(key, entry);
 	}
-	return doc;
+	return entry.doc;
 }
 
 /** Forget the documents of a package (closed, discarded). */
 export function dropSwfDocs(path: string): void {
-	for (const key of [...docs.keys()]) if (key.startsWith(`${path}#`)) docs.delete(key);
+	for (const [key, entry] of [...docs]) {
+		if (!key.startsWith(`${path}#`)) continue;
+		entry.dispose();
+		docs.delete(key);
+	}
 }

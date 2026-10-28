@@ -125,6 +125,14 @@ export class UpkClient {
 		this.failAll("backend stopped");
 	}
 
+	/** Stops the server for good once its window is gone. Nobody is left to receive the
+	 * replies, so pending calls are dropped instead of rejected: a rejection would only be
+	 * logged by Electron as an error in the `upk:call` handler. */
+	dispose(): void {
+		this.pending.clear();
+		this.stop();
+	}
+
 	private write(id: number, method: string, params: unknown, onError?: (e: Error) => void): void {
 		this.child?.stdin.write(
 			`${JSON.stringify({ id, method, params: params ?? {} })}\n`,
@@ -239,7 +247,7 @@ export function upkFor(sender: WebContents): UpkClient {
 		clients.set(sender.id, created);
 		sender.once("destroyed", () => {
 			clients.delete(sender.id);
-			created.stop();
+			created.dispose();
 		});
 		client = created;
 	}
@@ -247,7 +255,7 @@ export function upkFor(sender: WebContents): UpkClient {
 }
 
 export function stopAllUpk(): void {
-	for (const client of clients.values()) client.stop();
+	for (const client of clients.values()) client.dispose();
 	clients.clear();
 }
 
