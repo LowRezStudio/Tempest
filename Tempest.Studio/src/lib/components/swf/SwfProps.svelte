@@ -7,10 +7,25 @@
 	as pending edits.
 -->
 <script lang="ts">
-	import { CornerDownRight, Eye, EyeOff, RotateCcw, Trash2 } from "@lucide/svelte";
+	import {
+		Binary,
+		ChevronRight,
+		CornerDownRight,
+		Eye,
+		EyeOff,
+		RotateCcw,
+		Trash2,
+	} from "@lucide/svelte";
 	import SwfCharacterEditor from "$lib/components/swf/SwfCharacterEditor.svelte";
 	import SwfImageCard from "$lib/components/swf/SwfImageCard.svelte";
-	import { compose, decompose, type Decomposed, type SwfDoc } from "$lib/studio/swf.svelte";
+	import { groupIcons } from "$lib/components/swf/SwfTree.svelte";
+	import {
+		compose,
+		decompose,
+		SWF_GROUPS,
+		type Decomposed,
+		type SwfDoc,
+	} from "$lib/studio/swf.svelte";
 	import type { SwfCharacter, SwfEntry } from "../../../../electron/src/ipc/contract";
 
 	interface Props {
@@ -66,6 +81,27 @@
 		doc.removeEntry(e);
 	}
 
+	/** Position of a character's group in the tree (characters not in the movie last). */
+	function groupOf(id: number) {
+		const kind = doc.chars.get(id)?.kind;
+		const i = SWF_GROUPS.findIndex((g) => kind !== undefined && g.kinds.includes(kind));
+		return i < 0 ? SWF_GROUPS.length : i;
+	}
+
+	const unnamed = (id: number) => (doc.chars.get(id)?.names[0] === undefined ? 1 : 0);
+
+	/** Characters by group (tree order), then linkage names A–Z, then the unnamed ones by id. */
+	const sorted = (ids: number[]) =>
+		ids.toSorted(
+			(a, b) =>
+				groupOf(a) - groupOf(b) ||
+				unnamed(a) - unnamed(b) ||
+				(unnamed(a)
+					? 0
+					: doc.label(a).localeCompare(doc.label(b), undefined, { numeric: true })) ||
+				a - b,
+		);
+
 	function textOf(c: SwfCharacter) {
 		return doc.info?.texts.find((t) => t.id === c.id) ?? null;
 	}
@@ -97,16 +133,40 @@
 	</label>
 {/snippet}
 
-{#snippet chips(ids: number[])}
-	<div class="flex flex-wrap gap-1">
-		{#each ids as id (id)}
-			<button
-				class="badge badge-ghost badge-sm hover:badge-primary font-mono"
-				onclick={() => doc.openCharacter(id)}>{doc.label(id)}</button
-			>
-		{:else}
+{#snippet characters(title: string, ids: number[])}
+	<div>
+		<div class="mb-0.5 flex gap-1 opacity-60">
+			{title}{#if ids.length > 0}<span class="opacity-70">{ids.length}</span>{/if}
+		</div>
+		{#if ids.length === 0}
 			<span class="opacity-50">none</span>
-		{/each}
+		{:else}
+			<ul class="border-base-300 max-h-56 overflow-auto rounded border" aria-label={title}>
+				{#each sorted(ids) as id (id)}
+					{@const g = SWF_GROUPS[groupOf(id)]}
+					{@const Icon = g
+						? (groupIcons[g.id as keyof typeof groupIcons] ?? Binary)
+						: Binary}
+					<li>
+						<button
+							class="hover:bg-base-300 group flex w-full items-center gap-1.5 px-1.5 py-0.5 text-left"
+							title="Open {doc.label(id)}"
+							onclick={() => doc.openCharacter(id)}
+						>
+							<Icon size={12} class="shrink-0 opacity-60" />
+							<span class="min-w-0 flex-1 truncate">{doc.label(id)}</span>
+							{#if doc.chars.get(id)?.names[0] !== undefined}
+								<span class="font-mono opacity-40">{id}</span>
+							{/if}
+							<ChevronRight
+								size={12}
+								class="shrink-0 opacity-30 group-hover:opacity-80"
+							/>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 	</div>
 {/snippet}
 
@@ -281,14 +341,8 @@
 				{/if}
 			{/if}
 			<SwfCharacterEditor {doc} character={c} />
-			<div>
-				<div class="mb-0.5 opacity-60">uses</div>
-				{@render chips(c.deps)}
-			</div>
-			<div>
-				<div class="mb-0.5 opacity-60">used by</div>
-				{@render chips(c.usedBy)}
-			</div>
+			{@render characters("Uses", c.deps)}
+			{@render characters("Used by", c.usedBy)}
 			{#if c.attached.length > 0}
 				<div>
 					<div class="mb-0.5 opacity-60">attached tags</div>

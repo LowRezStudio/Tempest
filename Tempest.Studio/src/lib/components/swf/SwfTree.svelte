@@ -4,23 +4,40 @@
 	(texts, scripts, images, linkage, every tag). A filter matches ids and
 	names; Up/Down walk the visible rows.
 -->
-<script lang="ts">
+<script lang="ts" module>
 	import {
 		Binary,
 		CaseSensitive,
+		Film,
+		Image,
+		Import,
+		MousePointerClick,
+		Shapes,
+		Type,
+	} from "@lucide/svelte";
+
+	/** Icon of each character group (`SWF_GROUPS` ids). */
+	export const groupIcons = {
+		sprites: Film,
+		shapes: Shapes,
+		images: Image,
+		texts: Type,
+		fonts: CaseSensitive,
+		buttons: MousePointerClick,
+		others: Binary,
+		imports: Import,
+	} as const;
+</script>
+
+<script lang="ts">
+	import {
 		ChevronDown,
 		ChevronRight,
 		Clapperboard,
 		FileCode,
-		Film,
-		Image,
-		Import,
 		Info,
 		Link,
-		MousePointerClick,
-		Shapes,
 		Tags,
-		Type,
 	} from "@lucide/svelte";
 	import { untrack } from "svelte";
 	import { inField, reveal, step } from "$lib/studio/keys";
@@ -31,17 +48,6 @@
 		doc: SwfDoc;
 	}
 	const { doc }: Props = $props();
-
-	const icons = {
-		sprites: Film,
-		shapes: Shapes,
-		images: Image,
-		texts: Type,
-		fonts: CaseSensitive,
-		buttons: MousePointerClick,
-		others: Binary,
-		imports: Import,
-	} as const;
 
 	let collapsed = $state<Record<string, boolean>>({ imports: true, others: true });
 
@@ -140,7 +146,7 @@
 		)}
 		{@render row("frames", "Frames", Clapperboard, doc.tree ? `${doc.tree.rootFrames}` : "")}
 		{#each groups as g (g.id)}
-			{@const Icon = icons[g.id as keyof typeof icons] ?? Binary}
+			{@const Icon = groupIcons[g.id as keyof typeof groupIcons] ?? Binary}
 			<button
 				class="hover:bg-base-300 mt-1 flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-xs font-semibold"
 				onclick={() => (collapsed = { ...collapsed, [g.id]: !collapsed[g.id] })}
