@@ -74,9 +74,11 @@ fn flat(m: &Mat) -> Prop {
 /// Euler XYZ angles in degrees of a column-major rotation (`R = Rz·Ry·Rx`).
 fn euler_xyz_deg(m: &Mat) -> [f64; 3] {
     let r = |row: usize, col: usize| m[col][row] as f64;
-    let sy = (-r(2, 0)).clamp(-1.0, 1.0);
-    let y = sy.asin();
-    let (x, z) = if y.cos().abs() > 1e-6 { (r(2, 1).atan2(r(2, 2)), r(1, 0).atan2(r(0, 0))) } else { ((-r(1, 2)).atan2(r(1, 1)), 0.0) };
+    // y from atan2 (asin loses precision near ±90°); near gimbal lock x and z
+    // are computed from noise in f32 matrices, so x takes the whole turn.
+    let cy = r(0, 0).hypot(r(1, 0));
+    let y = (-r(2, 0)).atan2(cy);
+    let (x, z) = if cy > 1e-3 { (r(2, 1).atan2(r(2, 2)), r(1, 0).atan2(r(0, 0))) } else { ((-r(1, 2)).atan2(r(1, 1)), 0.0) };
     [x.to_degrees(), y.to_degrees(), z.to_degrees()]
 }
 
@@ -174,6 +176,48 @@ fn conn_op(connections: &mut Node, child: i64, parent: i64, prop: &str) {
 /// Binary FBX of a mesh: one `Mesh` model (materials, embedded textures)
 /// and, when `g.bones` is filled, its skeleton and skin.
 pub fn write_fbx(name: &str, g: &Geometry) -> Result<Vec<u8>> {
+    write_fbx_anims(name, g, &[])
+}
+
+/// FBX time units per second.
+const KTIME: f64 = 46_186_158_000.0;
+
+/// Euler XYZ degrees of every frame, each frame the solution (of the two,
+/// with whole turns added) closest to the previous one, so curves do not jump.
+fn euler_track(mats: &[Mat]) -> Vec<[f64; 3]> {
+    let mut out: Vec<[f64; 3]> = Vec::with_capacity(mats.len());
+    for m in mats {
+        let e = euler_xyz_deg(m);
+        let alt = [e[0] + 180.0, 180.0 - e[1], e[2] + 180.0];
+        let near = |v: [f64; 3], prev: [f64; 3]| -> [f64; 3] { std::array::from_fn(|i| v[i] + 360.0 * ((prev[i] - v[i]) / 360.0).round()) };
+        let pick = match out.last() {
+            Some(&prev) => {
+                let (a, b) = (near(e, prev), near(alt, prev));
+                let d = |v: [f64; 3]| (0..3).map(|i| (v[i] - prev[i]).abs()).sum::<f64>();
+                if d(b) < d(a) { b } else { a }
+            }
+            None => e,
+        };
+        out.push(pick);
+    }
+    out
+}
+
+fn anim_curve(id: i64, times: &[i64], values: &[f32]) -> Node {
+    Node::with("AnimationCurve", vec![Prop::I64(id), Prop::Str(obj_name("", "AnimCurve")), Prop::Str(String::new())])
+        .with_child(one("Default", Prop::F64(values.first().copied().unwrap_or(0.0) as f64)))
+        .with_child(one("KeyVer", Prop::I32(4009)))
+        .with_child(one("KeyTime", Prop::I64s(times.to_vec())))
+        .with_child(one("KeyValueFloat", Prop::F32s(values.to_vec())))
+        // Linear interpolation for every key.
+        .with_child(one("KeyAttrFlags", Prop::I32s(vec![4])))
+        .with_child(one("KeyAttrDataFloat", Prop::F32s(vec![0.0, 0.0, 0.0, 0.0])))
+        .with_child(one("KeyAttrRefCount", Prop::I32s(vec![times.len() as i32])))
+}
+
+/// [`write_fbx`] with animations of the skeleton (one `AnimationStack` each:
+/// per bone, keyed `Lcl Translation` and `Lcl Rotation`, linear).
+pub fn write_fbx_anims(name: &str, g: &Geometry, anims: &[crate::mesh_ops::GltfAnim]) -> Result<Vec<u8>> {
     let mut next = 100_000i64;
     let mut id = move || {
         next += 1;
@@ -406,6 +450,43 @@ pub fn write_fbx(name: &str, g: &Geometry) -> Result<Vec<u8>> {
         }
         objects.children.push(pose);
         *counts.entry("Pose").or_default() += 1;
+
+        for a in anims.iter().filter(|a| !a.frames.is_empty()) {
+            let times: Vec<i64> = a.times.iter().map(|t| (*t as f64 * KTIME).round() as i64).collect();
+            let stop = times.last().copied().unwrap_or(0);
+            let stack_id = id();
+            let layer_id = id();
+            objects.children.push(
+                Node::with("AnimationStack", vec![Prop::I64(stack_id), Prop::Str(obj_name(&a.name, "AnimStack")), Prop::Str(String::new())])
+                    .with_child(p70(vec![p("LocalStop", "KTime", "Time", "", vec![Prop::I64(stop)]), p("ReferenceStop", "KTime", "Time", "", vec![Prop::I64(stop)])])),
+            );
+            objects.children.push(Node::with("AnimationLayer", vec![Prop::I64(layer_id), Prop::Str(obj_name("BaseLayer", "AnimLayer")), Prop::Str(String::new())]));
+            conn_oo(&mut connections, layer_id, stack_id);
+            *counts.entry("AnimationStack").or_default() += 1;
+            *counts.entry("AnimationLayer").or_default() += 1;
+            for (bi, &bone_id) in bone_ids.iter().enumerate() {
+                let locals: Vec<Mat> = a.frames.iter().map(|f| swap_matrix(&f[bi])).collect();
+                let trans: Vec<[f64; 3]> = locals.iter().map(|m| [m[3][0] as f64, m[3][1] as f64, m[3][2] as f64]).collect();
+                let rots = euler_track(&locals);
+                for (kind, prop, values) in [("T", "Lcl Translation", &trans), ("R", "Lcl Rotation", &rots)] {
+                    let node_id = id();
+                    objects.children.push(
+                        Node::with("AnimationCurveNode", vec![Prop::I64(node_id), Prop::Str(obj_name(kind, "AnimCurveNode")), Prop::Str(String::new())])
+                            .with_child(p70(vec![p("d|X", "Number", "", "A", vec![Prop::F64(values[0][0])]), p("d|Y", "Number", "", "A", vec![Prop::F64(values[0][1])]), p("d|Z", "Number", "", "A", vec![Prop::F64(values[0][2])])])),
+                    );
+                    conn_op(&mut connections, node_id, bone_id, prop);
+                    conn_oo(&mut connections, node_id, layer_id);
+                    *counts.entry("AnimationCurveNode").or_default() += 1;
+                    for (axis, label) in ["d|X", "d|Y", "d|Z"].iter().enumerate() {
+                        let curve_id = id();
+                        let v: Vec<f32> = values.iter().map(|x| x[axis] as f32).collect();
+                        objects.children.push(anim_curve(curve_id, &times, &v));
+                        conn_op(&mut connections, curve_id, node_id, label);
+                        *counts.entry("AnimationCurve").or_default() += 1;
+                    }
+                }
+            }
+        }
     }
     *counts.entry("Model").or_default() += 1;
     *counts.entry("Geometry").or_default() += 1;
@@ -447,19 +528,20 @@ pub fn write_fbx(name: &str, g: &Geometry) -> Result<Vec<u8>> {
         p("OriginalUnitScaleFactor", "double", "Number", "", vec![Prop::F64(1.0)]),
         p("AmbientColor", "ColorRGB", "Color", "", vec![Prop::F64(0.0), Prop::F64(0.0), Prop::F64(0.0)]),
         p("DefaultCamera", "KString", "", "", vec![Prop::Str("Producer Perspective".into())]),
-        p("TimeMode", "enum", "", "", vec![Prop::I32(11)]),
+        // Custom frame rate: the animation's (30 for the game's sequences).
+        p("TimeMode", "enum", "", "", vec![Prop::I32(14)]),
         p("TimeSpanStart", "KTime", "Time", "", vec![Prop::I64(0)]),
-        p("TimeSpanStop", "KTime", "Time", "", vec![Prop::I64(46186158000)]),
-        p("CustomFrameRate", "double", "Number", "", vec![Prop::F64(24.0)]),
+        p("TimeSpanStop", "KTime", "Time", "", vec![Prop::I64(anims.first().and_then(|a| a.times.last()).map(|t| (*t as f64 * KTIME).round() as i64).unwrap_or(46186158000))]),
+        p("CustomFrameRate", "double", "Number", "", vec![Prop::F64(anims.first().filter(|a| a.times.len() > 1).map(|a| (a.times.len() - 1) as f64 / a.times.last().copied().unwrap_or(1.0).max(1e-6) as f64).unwrap_or(24.0))]),
     ]));
     let documents = Node::new("Documents").with_child(one("Count", Prop::I32(1))).with_child(
         Node::with("Document", vec![Prop::I64(id()), Prop::Str(String::new()), Prop::Str("Scene".into())])
-            .with_child(p70(vec![p("SourceObject", "object", "", "", vec![]), p("ActiveAnimStackName", "KString", "", "", vec![Prop::Str(String::new())])]))
+            .with_child(p70(vec![p("SourceObject", "object", "", "", vec![]), p("ActiveAnimStackName", "KString", "", "", vec![Prop::Str(anims.first().map(|a| a.name.clone()).unwrap_or_default())])]))
             .with_child(one("RootNode", Prop::I64(0))),
     );
     let mut definitions = Node::new("Definitions").with_child(one("Version", Prop::I32(100))).with_child(one("Count", Prop::I32(counts.values().sum::<usize>() as i32 + 1)));
     definitions.children.push(Node::with("ObjectType", vec![Prop::Str("GlobalSettings".into())]).with_child(one("Count", Prop::I32(1))));
-    for (ty, template) in [("Model", "FbxNode"), ("Geometry", "FbxMesh"), ("Material", "FbxSurfacePhong"), ("Texture", "FbxFileTexture"), ("Video", "FbxVideo"), ("NodeAttribute", "FbxNull"), ("Deformer", ""), ("Pose", "")] {
+    for (ty, template) in [("Model", "FbxNode"), ("Geometry", "FbxMesh"), ("Material", "FbxSurfacePhong"), ("Texture", "FbxFileTexture"), ("Video", "FbxVideo"), ("NodeAttribute", "FbxNull"), ("Deformer", ""), ("Pose", ""), ("AnimationStack", "FbxAnimStack"), ("AnimationLayer", "FbxAnimLayer"), ("AnimationCurveNode", "FbxAnimCurveNode"), ("AnimationCurve", "")] {
         let Some(&c) = counts.get(ty) else { continue };
         let mut ot = Node::with("ObjectType", vec![Prop::Str(ty.into())]).with_child(one("Count", Prop::I32(c as i32)));
         if !template.is_empty() {
@@ -778,6 +860,210 @@ pub fn parse_fbx(bytes: &[u8]) -> Result<ImportedMesh> {
         return Err(Error::Format("FBX: no mesh with polygons".into()));
     }
     Ok(mesh)
+}
+
+// ----------------------------------------------------------------------------
+// Animation import
+// ----------------------------------------------------------------------------
+
+/// Rotation (column-major) from Euler degrees applied in `order`
+/// (`RotationOrder`: 0 XYZ, 1 XZY, 2 YZX, 3 YXZ, 4 ZXY, 5 ZYX; XYZ is
+/// `Rz·Ry·Rx`).
+fn rotation_ordered(deg: [f64; 3], order: i64) -> Mat {
+    let axis = |i: usize| -> Mat {
+        let mut d = [0.0; 3];
+        d[i] = deg[i];
+        rotation_xyz(d)
+    };
+    let seq: [usize; 3] = match order {
+        1 => [0, 2, 1],
+        2 => [1, 2, 0],
+        3 => [1, 0, 2],
+        4 => [2, 0, 1],
+        5 => [2, 1, 0],
+        _ => [0, 1, 2],
+    };
+    // Applied first to last: R = R_last · R_mid · R_first.
+    mat_mul(&mat_mul(&axis(seq[2]), &axis(seq[1])), &axis(seq[0]))
+}
+
+struct Curve {
+    times: Vec<f64>,
+    values: Vec<f32>,
+}
+
+impl Curve {
+    fn at(&self, t: f64) -> Option<f64> {
+        let (first, last) = (*self.times.first()?, *self.times.last()?);
+        if t <= first {
+            return self.values.first().map(|v| *v as f64);
+        }
+        if t >= last {
+            return self.values.last().map(|v| *v as f64);
+        }
+        let i = self.times.partition_point(|&x| x <= t).saturating_sub(1).min(self.times.len() - 2);
+        let s = (t - self.times[i]) / (self.times[i + 1] - self.times[i]).max(1e-12);
+        Some(self.values[i] as f64 + (self.values[i + 1] as f64 - self.values[i] as f64) * s)
+    }
+}
+
+/// The animation stacks of a binary FBX, by name.
+pub fn fbx_animation_names(bytes: &[u8]) -> Result<Vec<String>> {
+    let (_, nodes) = fbx::parse(bytes)?;
+    Ok(nodes.iter().find(|n| n.name == "Objects").map(|o| o.children.iter().filter(|n| n.name == "AnimationStack").map(|n| plain_name(n.str(1).unwrap_or(""))).collect()).unwrap_or_default())
+}
+
+/// Read animation stack `which` (default the first) of a binary FBX, sampled
+/// at `fps`: every model's world transform per frame, and the bind pose of
+/// the skin's bones (cluster `TransformLink`, else the bind pose, else the
+/// rest pose), in Unreal space.
+pub fn read_fbx_anim(bytes: &[u8], which: Option<usize>, fps: f32) -> Result<crate::anim_ops::FileAnim> {
+    let (_, nodes) = fbx::parse(bytes)?;
+    let top = |name: &str| nodes.iter().find(|n| n.name == name);
+    let settings = top("GlobalSettings");
+    let unit = settings.and_then(|g| g.property("UnitScaleFactor")).and_then(|p| p.f64(4)).unwrap_or(1.0) as f32;
+    let up_axis = settings.and_then(|g| g.property("UpAxis")).and_then(|p| p.i64(4)).unwrap_or(1);
+    let objects = top("Objects").ok_or_else(|| Error::Format("FBX: no Objects".into()))?;
+    let mut scene = Scene { objects: HashMap::new(), connections: Vec::new() };
+    for o in &objects.children {
+        if let Some(id) = o.i64(0) {
+            scene.objects.insert(id, o);
+        }
+    }
+    if let Some(c) = top("Connections") {
+        for conn in c.children_named("C") {
+            if let (Some(child), Some(parent)) = (conn.i64(1), conn.i64(2)) {
+                scene.connections.push((child, parent, conn.str(3).map(str::to_string)));
+            }
+        }
+    }
+    let stacks: Vec<&Node> = objects.children.iter().filter(|n| n.name == "AnimationStack").collect();
+    let stack = *stacks.get(which.unwrap_or(0)).ok_or_else(|| Error::Format("the file has no animation".into()))?;
+    let stack_id = stack.i64(0).unwrap_or(0);
+    // Curves per model: (model, "T"/"R"/"S", axis) → curve.
+    let mut curves: HashMap<(i64, char, usize), Curve> = HashMap::new();
+    let mut duration = 0f64;
+    let mut start = f64::MAX;
+    for layer in scene.children(stack_id, "AnimationLayer") {
+        let layer_id = layer.i64(0).unwrap_or(0);
+        for cn in scene.children(layer_id, "AnimationCurveNode") {
+            let cn_id = cn.i64(0).unwrap_or(0);
+            let Some((model, prop)) = scene.connections.iter().find(|(c, p, _)| *c == cn_id && scene.objects.get(p).is_some_and(|n| n.name == "Model")).map(|(_, p, prop)| (*p, prop.clone().unwrap_or_default())) else { continue };
+            let kind = match prop.as_str() {
+                "Lcl Translation" => 'T',
+                "Lcl Rotation" => 'R',
+                "Lcl Scaling" => 'S',
+                _ => continue,
+            };
+            for (c, _, label) in scene.connections.iter().filter(|(_, p, _)| *p == cn_id) {
+                let Some(curve) = scene.objects.get(c).filter(|n| n.name == "AnimationCurve") else { continue };
+                let axis = match label.as_deref() {
+                    Some("d|X") => 0,
+                    Some("d|Y") => 1,
+                    Some("d|Z") => 2,
+                    _ => continue,
+                };
+                let times: Vec<f64> = curve.child("KeyTime").and_then(|k| k.i64s(0)).unwrap_or_default().iter().map(|t| *t as f64 / KTIME).collect();
+                let values: Vec<f32> = curve.child("KeyValueFloat").and_then(|k| k.f64s(0)).unwrap_or_default().iter().map(|v| *v as f32).collect();
+                if times.len() != values.len() || times.is_empty() {
+                    continue;
+                }
+                duration = duration.max(*times.last().unwrap());
+                start = start.min(times[0]);
+                curves.insert((model, kind, axis), Curve { times, values });
+            }
+        }
+    }
+    let models: Vec<&Node> = objects.children.iter().filter(|n| n.name == "Model").collect();
+    let index: HashMap<i64, usize> = models.iter().enumerate().map(|(i, m)| (m.i64(0).unwrap_or(0), i)).collect();
+    let parent: Vec<Option<usize>> = models.iter().map(|m| scene.parents(m.i64(0).unwrap_or(0), "Model").first().and_then(|p| index.get(&p.i64(0).unwrap_or(0)).copied())).collect();
+    let local_at = |mi: usize, t: Option<f64>| -> Mat {
+        let m = models[mi];
+        let id = m.i64(0).unwrap_or(0);
+        let get = |kind: char, name: &str, d: [f64; 3]| -> [f64; 3] {
+            let base = vec3(m, name, d);
+            std::array::from_fn(|a| t.and_then(|t| curves.get(&(id, kind, a)).and_then(|c| c.at(t))).unwrap_or(base[a]))
+        };
+        let tr = get('T', "Lcl Translation", [0.0; 3]);
+        let r = get('R', "Lcl Rotation", [0.0; 3]);
+        let sc = get('S', "Lcl Scaling", [1.0; 3]);
+        let order = m.property("RotationOrder").and_then(|p| p.i64(4)).unwrap_or(0);
+        let pre = rotation_xyz(vec3(m, "PreRotation", [0.0; 3]));
+        let post = rotation_xyz(vec3(m, "PostRotation", [0.0; 3]));
+        let mut out = mat_mul(&mat_mul(&pre, &rotation_ordered(r, order)), &mat_inverse_rigid(&post));
+        for (c, col) in out.iter_mut().enumerate().take(3) {
+            for cell in col.iter_mut().take(3) {
+                *cell *= sc[c] as f32;
+            }
+        }
+        out[3] = [tr[0] as f32, tr[1] as f32, tr[2] as f32, 1.0];
+        out
+    };
+    let worlds = |t: Option<f64>| -> Vec<Mat> {
+        let locals: Vec<Mat> = (0..models.len()).map(|i| local_at(i, t)).collect();
+        let mut memo: Vec<Option<Mat>> = vec![None; models.len()];
+        fn get(i: usize, parent: &[Option<usize>], locals: &[Mat], memo: &mut Vec<Option<Mat>>, depth: usize) -> Mat {
+            if let Some(m) = memo[i] {
+                return m;
+            }
+            let m = match parent[i] {
+                Some(p) if depth < 256 => mat_mul(&get(p, parent, locals, memo, depth + 1), &locals[i]),
+                _ => locals[i],
+            };
+            memo[i] = Some(m);
+            m
+        }
+        (0..models.len()).map(|i| get(i, &parent, &locals, &mut memo, 0)).collect()
+    };
+    // File space (Y-up, or Z-up when the file says so; `unit` cm per unit) → Unreal.
+    let perm: Mat = if up_axis == 2 {
+        // (x, y, z) Z-up → Y-up (x, z, -y) → Unreal (x, -y, z).
+        [[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+    } else {
+        // Y-up (x, y, z) → Unreal (x, z, y).
+        [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+    };
+    let to_ue = |m: &Mat| -> Mat {
+        let mut r = mat_mul(&mat_mul(&perm, m), &mat_inverse_rigid(&perm));
+        for v in r[3].iter_mut().take(3) {
+            *v *= unit;
+        }
+        r
+    };
+    // Bind pose: skin clusters, else the bind pose, else the rest pose.
+    let rest = worlds(None);
+    let mut bind: Vec<Mat> = rest.clone();
+    for pose in objects.children.iter().filter(|n| n.name == "Pose") {
+        for pn in pose.children_named("PoseNode") {
+            if let (Some(id), Some(m)) = (pn.child("Node").and_then(|n| n.i64(0)), pn.child("Matrix").and_then(|n| n.f64s(0))) {
+                if let (Some(&i), true) = (index.get(&id), m.len() == 16) {
+                    bind[i] = std::array::from_fn(|c| std::array::from_fn(|r| m[c * 4 + r] as f32));
+                }
+            }
+        }
+    }
+    for cluster in objects.children.iter().filter(|n| n.name == "Deformer" && n.str(2) == Some("Cluster")) {
+        let Some(link) = cluster.child("TransformLink").and_then(|n| n.f64s(0)).filter(|m| m.len() == 16) else { continue };
+        if let Some(bone) = scene.children(cluster.i64(0).unwrap_or(0), "Model").first() {
+            if let Some(&i) = index.get(&bone.i64(0).unwrap_or(0)) {
+                bind[i] = std::array::from_fn(|c| std::array::from_fn(|r| link[c * 4 + r] as f32));
+            }
+        }
+    }
+    // The animation starts at its first key (Blender's importer shifts
+    // animations to frame 1, so its exports start one frame late).
+    let start = if start.is_finite() { start } else { 0.0 };
+    let duration = (duration - start).max(0.0);
+    let fps = if fps > 0.0 { fps as f64 } else { 30.0 };
+    let n_frames = ((duration * fps).round() as usize + 1).max(2);
+    let frames = (0..n_frames).map(|k| worlds(Some(start + (k as f64 / fps).min(duration))).iter().map(to_ue).collect()).collect();
+    Ok(crate::anim_ops::FileAnim {
+        name: plain_name(stack.str(1).unwrap_or("animation")),
+        duration: duration as f32,
+        joints: models.iter().enumerate().map(|(i, m)| (plain_name(m.str(1).unwrap_or("")).to_ascii_lowercase(), i)).collect(),
+        bind: bind.iter().map(to_ue).collect(),
+        frames,
+    })
 }
 
 #[cfg(test)]

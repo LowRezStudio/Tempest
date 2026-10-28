@@ -11,6 +11,8 @@
 		Trash2,
 		Upload,
 	} from "@lucide/svelte";
+	import AnimExportDialog from "$lib/components/AnimExportDialog.svelte";
+	import AnimPreview from "$lib/components/AnimPreview.svelte";
 	import ClassIcon from "$lib/components/ClassIcon.svelte";
 	import CopyDialog from "$lib/components/CopyDialog.svelte";
 	import DepsPanel from "$lib/components/DepsPanel.svelte";
@@ -39,6 +41,7 @@
 	let renameOpen = $state(false);
 	let copyOpen = $state(false);
 	let importOpen = $state(false);
+	let animExportOpen = $state(false);
 	let text = $state<string | null>(null);
 
 	const row = $derived(studio.selectedRow);
@@ -124,6 +127,8 @@
 					rpc("texture.export", { path, index: row.i, out }),
 				);
 				toasts.push("success", `${bytes(r.bytes)} → ${out}`, "Exported");
+			} else if (preview === "anim") {
+				animExportOpen = true;
 			} else if (preview === "mesh") {
 				const out = await pickSave("Export mesh", `${safeName(row.path)}.glb`, [
 					{ name: "glTF binary (textures + skeleton)", extensions: ["glb"] },
@@ -312,6 +317,8 @@
 					<TexturePreview path={studio.pkg.path} index={row.i} />
 				{:else if preview === "mesh"}
 					<MeshPreview path={studio.pkg.path} index={row.i} />
+				{:else if preview === "anim"}
+					<AnimPreview path={studio.pkg.path} index={row.i} />
 				{:else if preview === "material"}
 					<MaterialPreview path={studio.pkg.path} index={row.i} />
 				{:else if preview === "wwise"}
@@ -393,4 +400,5 @@
 	<RenameDialog bind:open={renameOpen} {row} />
 	<CopyDialog bind:open={copyOpen} {row} />
 	<ImportDialog bind:open={importOpen} {row} kind={preview} />
+	<AnimExportDialog bind:open={animExportOpen} {row} />
 {/if}

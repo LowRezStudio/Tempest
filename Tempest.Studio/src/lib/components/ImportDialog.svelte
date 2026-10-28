@@ -14,19 +14,45 @@
 		kind,
 	}: { open?: boolean; row: ExportRow; kind: Preview } = $props();
 
-	type Mode = "texture" | "mesh" | "sound" | "swf" | "raw";
+	type Mode = "texture" | "mesh" | "sound" | "swf" | "anim" | "raw";
 	let mode = $state<Mode>("raw");
 	let file = $state("");
 	let mips = $state<"auto" | "yes" | "no">("auto");
 	let format = $state("");
 	let lod = $state(0);
 	let working = $state(false);
+	/** Animations in the chosen file (anim mode), and which one to import. */
+	let animations = $state<string[]>([]);
+	let animation = $state(0);
+	/** Every animation of the file into the AnimSet's sequence of the same name. */
+	let allSequences = $state(false);
+	/** The AnimSet's sequences (anim mode), to show what the file replaces. */
+	let sequences = $state<{ index: number; name: string }[]>([]);
+	const isSet = $derived(row.class.toLowerCase() === "animset");
+	/** How `upk` pairs them: the name after an `Armature|` prefix, any case. */
+	const leaf = (n: string) => (n.split("|").at(-1) ?? n).trim().toLowerCase();
+	const pairs = $derived.by(() => {
+		const free = new Set(sequences.map((q) => q.name.toLowerCase()));
+		return animations.map((a) => {
+			const l = leaf(a);
+			const hit = free.has(l);
+			if (hit) free.delete(l);
+			return { animation: a, sequence: hit ? l : null };
+		});
+	});
 
 	const FORMATS = ["", "PF_DXT1", "PF_DXT5", "PF_A8R8G8B8", "PF_G8"];
 
 	$effect(() => {
 		if (open) {
 			file = "";
+			allSequences = row.class.toLowerCase() === "animset";
+			sequences = [];
+			if (kind === "anim" && studio.pkg) {
+				void rpc("anim.info", { path: studio.pkg.path, index: row.i })
+					.then((i) => (sequences = i.sequences))
+					.catch(() => {});
+			}
 			mode =
 				kind === "none" || kind === "material" || kind === "wwise" || kind === "particle"
 					? "raw"
@@ -53,6 +79,9 @@
 			case "swf": {
 				return [{ name: "Scaleform / Flash", extensions: ["gfx", "swf"] }];
 			}
+			case "anim": {
+				return [{ name: "Animations (glTF, FBX)", extensions: ["glb", "gltf", "fbx"] }];
+			}
 			default: {
 				return [{ name: "Raw payload", extensions: ["bin", "*"] }];
 			}
@@ -63,6 +92,19 @@
 		const f = await pickFile("Replace with", filters);
 		if (f) file = f;
 	}
+
+	// The animations of the chosen file (a file can hold several).
+	$effect(() => {
+		const f = file;
+		animations = [];
+		animation = 0;
+		if (mode !== "anim" || !f) return;
+		void rpc("anim.files", { file: f })
+			.then((r) => {
+				if (file === f) animations = r.animations;
+			})
+			.catch(() => {});
+	});
 
 	async function submit(event: Event) {
 		event.preventDefault();
@@ -99,6 +141,30 @@
 					`${r.vertices} vertices, ${r.triangles} triangles, ${r.sections} sections${r.chunks ? `, ${r.chunks} chunks` : ""}`,
 					"Mesh replaced",
 				);
+			} else if (mode === "anim") {
+				const all = isSet || allSequences;
+				const r = await studio.run("Importing animation…", () =>
+					rpc("anim.import", { path, index: row.i, file, animation, all }),
+				);
+				const kept = r.bonesMissing.length
+					? `; ${r.bonesMissing.length} bones not in the file keep their pose`
+					: "";
+				if (all) {
+					const skipped = r.unmatched.length
+						? `; not matched: ${r.unmatched.join(", ")}`
+						: "";
+					toasts.push(
+						"success",
+						`${r.replaced.length} sequence${r.replaced.length === 1 ? "" : "s"} replaced (${r.replaced.map((x) => x.sequence).join(", ")})${skipped}${kept}`,
+						"Animations replaced",
+					);
+				} else {
+					toasts.push(
+						"success",
+						`${r.animation}: ${r.numFrames} frames, ${r.length.toFixed(2)} s, ${r.bonesMatched} bones${kept}`,
+						"Animation replaced",
+					);
+				}
 			} else if (mode === "sound" || mode === "swf") {
 				const r = await rpc("media.import", { path, index: row.i, file });
 				toasts.push("success", `${bytes(r.bytes)} of ${r.kind} data`, "Replaced");
@@ -141,11 +207,13 @@
 				>
 					{kind === "texture"
 						? "Image"
-						: kind === "mesh"
-							? "Mesh file"
-							: kind === "sound"
-								? "Audio"
-								: "Movie"}
+						: kind === "anim"
+							? "Animation file"
+							: kind === "mesh"
+								? "Mesh file"
+								: kind === "sound"
+									? "Audio"
+									: "Movie"}
 				</button>
 				<button
 					role="tab"
@@ -165,6 +233,48 @@
 			/>
 			<button class="btn btn-sm" type="button" onclick={browse}>Browse…</button>
 		</div>
+		{#if mode === "anim"}
+			<label class="flex items-start gap-2">
+				<input
+					type="checkbox"
+					class="checkbox checkbox-sm mt-0.5"
+					bind:checked={allSequences}
+					disabled={isSet}
+				/>
+				<span>
+					Every sequence of the AnimSet{sequences.length ? ` (${sequences.length})` : ""}
+					<span class="block text-xs opacity-60"
+						>Each animation of the file replaces the sequence with its name (as Export
+						names them); the others are left as they are.</span
+					>
+				</span>
+			</label>
+			{#if (isSet || allSequences) && animations.length > 0}
+				<div class="border-base-300 max-h-40 overflow-auto rounded border p-2 text-xs">
+					{#each pairs as p, k (k)}
+						<div class="flex gap-2 {p.sequence ? '' : 'opacity-50'}">
+							<span class="font-mono">{p.animation}</span>
+							<span class="opacity-60">→</span>
+							<span>{p.sequence ?? "no sequence of that name, skipped"}</span>
+						</div>
+					{/each}
+				</div>
+			{:else if animations.length > 1}
+				<label class="block">
+					<span class="text-xs opacity-70">Animation in the file</span>
+					<select class="select select-sm mt-1 w-full" bind:value={animation}>
+						{#each animations as a, k (k)}<option value={k}>{a}</option>{/each}
+					</select>
+				</label>
+			{/if}
+			<p class="text-xs opacity-60">
+				Bones are matched by name with the animation's mesh; the file's bones can point any
+				way (Blender re-orients them), only their names and bind pose matter. The motion is
+				sampled at the sequence's frame rate, keyed like the game's own sequences, and
+				notify times follow the new length. In Blender, set the scene to 30 fps before
+				importing a game animation so it is not resampled.
+			</p>
+		{/if}
 		{#if mode === "texture"}
 			<div class="grid grid-cols-2 gap-2">
 				<label class="block">
@@ -211,7 +321,7 @@
 			<p class="text-xs opacity-60">
 				The movie's RawData is replaced by the file (a compiled .gfx, or a plain .swf).
 			</p>
-		{:else}
+		{:else if mode === "raw"}
 			<p class="text-xs opacity-60">
 				The export's serialized payload is replaced byte for byte by the file (the inverse
 				of
@@ -224,7 +334,16 @@
 			<button class="btn btn-ghost btn-sm" type="button" onclick={() => (open = false)}>
 				Cancel
 			</button>
-			<button class="btn btn-sm btn-primary" type="submit" disabled={!file || working}>
+			<button
+				class="btn btn-sm btn-primary"
+				type="submit"
+				disabled={!file ||
+					working ||
+					(mode === "anim" &&
+						(isSet || allSequences) &&
+						animations.length > 0 &&
+						!pairs.some((p) => p.sequence))}
+			>
 				Replace
 			</button>
 		</div>

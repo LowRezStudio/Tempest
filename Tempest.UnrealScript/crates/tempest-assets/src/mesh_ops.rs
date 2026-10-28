@@ -390,7 +390,146 @@ pub fn write_obj(name: &str, g: &Geometry) -> String {
 /// Binary glTF 2.0: one mesh with a primitive per section, textured
 /// materials when `materials`/`images` are filled, and a skin with the
 /// reference skeleton when `bones` is filled.
+/// An animation for [`write_glb_anims`]: frame times (seconds) and, per
+/// frame, every bone's local transform in Unreal space (as `Bone::local`).
+#[derive(Clone, Debug)]
+pub struct GltfAnim {
+    pub name: String,
+    pub times: Vec<f32>,
+    pub frames: Vec<Vec<[[f32; 4]; 4]>>,
+}
+
+/// Rotation of a column-major rigid matrix as a quaternion (x, y, z, w).
+pub fn mat_to_quat(m: &[[f32; 4]; 4]) -> [f32; 4] {
+    let (m00, m11, m22) = (m[0][0], m[1][1], m[2][2]);
+    let tr = m00 + m11 + m22;
+    // r(row, col) = m[col][row]
+    let r = |row: usize, col: usize| m[col][row];
+    let q = if tr > 0.0 {
+        let s = (tr + 1.0).sqrt() * 2.0;
+        [(r(2, 1) - r(1, 2)) / s, (r(0, 2) - r(2, 0)) / s, (r(1, 0) - r(0, 1)) / s, 0.25 * s]
+    } else if m00 > m11 && m00 > m22 {
+        let s = (1.0 + m00 - m11 - m22).sqrt() * 2.0;
+        [0.25 * s, (r(0, 1) + r(1, 0)) / s, (r(0, 2) + r(2, 0)) / s, (r(2, 1) - r(1, 2)) / s]
+    } else if m11 > m22 {
+        let s = (1.0 + m11 - m00 - m22).sqrt() * 2.0;
+        [(r(0, 1) + r(1, 0)) / s, 0.25 * s, (r(1, 2) + r(2, 1)) / s, (r(0, 2) - r(2, 0)) / s]
+    } else {
+        let s = (1.0 + m22 - m00 - m11).sqrt() * 2.0;
+        [(r(0, 2) + r(2, 0)) / s, (r(1, 2) + r(2, 1)) / s, 0.25 * s, (r(1, 0) - r(0, 1)) / s]
+    };
+    let l = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt().max(1e-12);
+    [q[0] / l, q[1] / l, q[2] / l, q[3] / l]
+}
+
+/// The per-bone fix rotations of a skeleton in glTF space (see
+/// `write_glb_anims`): what turns each joint so +Y points along its limb.
+pub fn joint_fixes(g: &Geometry) -> Vec<[[f32; 4]; 4]> {
+    skeleton_fixes(g).1
+}
+
+/// The skeleton's children lists, per-bone fix rotations (glTF space) and
+/// global bind matrices (glTF space): see `write_glb_anims`.
+#[allow(clippy::type_complexity)]
+fn skeleton_fixes(g: &Geometry) -> (Vec<Vec<usize>>, Vec<[[f32; 4]; 4]>, Vec<[[f32; 4]; 4]>) {
+    let n_bones = g.bones.len();
+    let mut globals_ue: Vec<[[f32; 4]; 4]> = Vec::with_capacity(n_bones);
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); n_bones];
+    for (i, b) in g.bones.iter().enumerate() {
+        let global = match b.parent {
+            Some(p) if p < i => mat_mul(&globals_ue[p], &b.local),
+            _ => b.local,
+        };
+        globals_ue.push(global);
+        if let Some(p) = b.parent {
+            if p < i {
+                children[p].push(i);
+            }
+        }
+    }
+    let globals: Vec<[[f32; 4]; 4]> = globals_ue.iter().map(to_gltf_matrix).collect();
+    let pos = |m: &[[f32; 4]; 4]| [m[3][0], m[3][1], m[3][2]];
+    // World direction each bone should point at: towards the child that
+    // continues the chain (a neck points at the head, not between the
+    // clavicles; a pelvis at the spine, not at a prop socket): the child
+    // with the biggest subtree, skipping helpers (weighted, prop, socket,
+    // ik, twist, roll, attach) and children of another side than the
+    // parent (l_/r_ markers). A leaf keeps its parent's direction.
+    let mut subtree = vec![1usize; n_bones];
+    for i in (0..n_bones).rev() {
+        if let Some(p) = g.bones[i].parent.filter(|&p| p < i) {
+            subtree[p] += subtree[i];
+        }
+    }
+    let side = |name: &str| -> Option<char> {
+        let n = name.to_ascii_lowercase();
+        let left = n.starts_with("l_") || n.ends_with("_l") || n.contains("_l_") || n.contains("left");
+        let right = n.starts_with("r_") || n.ends_with("_r") || n.contains("_r_") || n.contains("right");
+        if left && !right {
+            Some('l')
+        } else if right && !left {
+            Some('r')
+        } else {
+            None
+        }
+    };
+    let helper = |name: &str| -> bool {
+        let n = name.to_ascii_lowercase();
+        ["weighted", "prop", "socket", "ik", "twist", "roll", "attach", "fx"].iter().any(|w| n.contains(w))
+    };
+    let mut dirs: Vec<[f32; 3]> = vec![[0.0, 1.0, 0.0]; n_bones];
+    for i in 0..n_bones {
+        let p = pos(&globals[i]);
+        let parent_side = side(&g.bones[i].name);
+        let best = children[i]
+            .iter()
+            .copied()
+            .filter(|&c| {
+                let q = pos(&globals[c]);
+                (q[0] - p[0]).hypot(q[1] - p[1]).hypot(q[2] - p[2]) > 1e-4
+            })
+            .max_by_key(|&c| {
+                let name = &g.bones[c].name;
+                let mut score = subtree[c] as i64;
+                if helper(name) {
+                    score -= 1_000_000;
+                }
+                if side(name).is_some() && side(name) != parent_side {
+                    score -= 1_000;
+                }
+                score
+            });
+        dirs[i] = match best {
+            Some(c) => {
+                let q = pos(&globals[c]);
+                let d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+                let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                [d[0] / l, d[1] / l, d[2] / l]
+            }
+            None => g.bones[i].parent.filter(|&p| p < i).map(|p| dirs[p]).unwrap_or([0.0, 1.0, 0.0]),
+        };
+    }
+    // Per-bone rotation (in the bone's frame) taking +Y to that direction.
+    let fixes: Vec<[[f32; 4]; 4]> = (0..n_bones)
+        .map(|i| {
+            let m = &globals[i];
+            let d = dirs[i];
+            // Direction in the bone's own frame: Rᵀ d.
+            let local = [m[0][0] * d[0] + m[0][1] * d[1] + m[0][2] * d[2], m[1][0] * d[0] + m[1][1] * d[1] + m[1][2] * d[2], m[2][0] * d[0] + m[2][1] * d[1] + m[2][2] * d[2]];
+            rotation_y_to(local)
+        })
+        .collect();
+    (children, fixes, globals)
+}
+
 pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
+    write_glb_anims(name, g, &[])
+}
+
+/// A skinned GLB with animations: each frame's bone locals become the joint
+/// nodes' translation and rotation channels (through the same joint fixes as
+/// the bind pose, `F_parent⁻¹ · G(local) · F_self`).
+pub fn write_glb_anims(name: &str, g: &Geometry, anims: &[GltfAnim]) -> Result<Vec<u8>> {
     let mut bin: Vec<u8> = Vec::new();
     let mut views = Vec::new();
     let mut accessors = Vec::new();
@@ -514,6 +653,7 @@ pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
 
     // Nodes: mesh node first, then one node per bone (joint i = node i + 1).
     let mut nodes = Vec::new();
+    let mut animations = String::new();
     let mut skins = String::new();
     let mesh_node = if skinned { format!("{{\"mesh\":0,\"name\":\"{}\",\"skin\":0}}", name.replace('"', "'")) } else { format!("{{\"mesh\":0,\"name\":\"{}\"}}", name.replace('"', "'")) };
     nodes.push(mesh_node);
@@ -525,92 +665,7 @@ pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
         // their parent, and the inverse bind matrices absorb it, so the skin
         // is unchanged while the skeleton reads as limbs rather than sticks.
         let n_bones = g.bones.len();
-        let mut globals_ue: Vec<[[f32; 4]; 4]> = Vec::with_capacity(n_bones);
-        let mut children: Vec<Vec<usize>> = vec![Vec::new(); n_bones];
-        for (i, b) in g.bones.iter().enumerate() {
-            let global = match b.parent {
-                Some(p) if p < i => mat_mul(&globals_ue[p], &b.local),
-                _ => b.local,
-            };
-            globals_ue.push(global);
-            if let Some(p) = b.parent {
-                if p < i {
-                    children[p].push(i);
-                }
-            }
-        }
-        let globals: Vec<[[f32; 4]; 4]> = globals_ue.iter().map(to_gltf_matrix).collect();
-        let pos = |m: &[[f32; 4]; 4]| [m[3][0], m[3][1], m[3][2]];
-        // World direction each bone should point at: towards the child that
-        // continues the chain (a neck points at the head, not between the
-        // clavicles; a pelvis at the spine, not at a prop socket): the child
-        // with the biggest subtree, skipping helpers (weighted, prop, socket,
-        // ik, twist, roll, attach) and children of another side than the
-        // parent (l_/r_ markers). A leaf keeps its parent's direction.
-        let mut subtree = vec![1usize; n_bones];
-        for i in (0..n_bones).rev() {
-            if let Some(p) = g.bones[i].parent.filter(|&p| p < i) {
-                subtree[p] += subtree[i];
-            }
-        }
-        let side = |name: &str| -> Option<char> {
-            let n = name.to_ascii_lowercase();
-            let left = n.starts_with("l_") || n.ends_with("_l") || n.contains("_l_") || n.contains("left");
-            let right = n.starts_with("r_") || n.ends_with("_r") || n.contains("_r_") || n.contains("right");
-            if left && !right {
-                Some('l')
-            } else if right && !left {
-                Some('r')
-            } else {
-                None
-            }
-        };
-        let helper = |name: &str| -> bool {
-            let n = name.to_ascii_lowercase();
-            ["weighted", "prop", "socket", "ik", "twist", "roll", "attach", "fx"].iter().any(|w| n.contains(w))
-        };
-        let mut dirs: Vec<[f32; 3]> = vec![[0.0, 1.0, 0.0]; n_bones];
-        for i in 0..n_bones {
-            let p = pos(&globals[i]);
-            let parent_side = side(&g.bones[i].name);
-            let best = children[i]
-                .iter()
-                .copied()
-                .filter(|&c| {
-                    let q = pos(&globals[c]);
-                    (q[0] - p[0]).hypot(q[1] - p[1]).hypot(q[2] - p[2]) > 1e-4
-                })
-                .max_by_key(|&c| {
-                    let name = &g.bones[c].name;
-                    let mut score = subtree[c] as i64;
-                    if helper(name) {
-                        score -= 1_000_000;
-                    }
-                    if side(name).is_some() && side(name) != parent_side {
-                        score -= 1_000;
-                    }
-                    score
-                });
-            dirs[i] = match best {
-                Some(c) => {
-                    let q = pos(&globals[c]);
-                    let d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
-                    let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-                    [d[0] / l, d[1] / l, d[2] / l]
-                }
-                None => g.bones[i].parent.filter(|&p| p < i).map(|p| dirs[p]).unwrap_or([0.0, 1.0, 0.0]),
-            };
-        }
-        // Per-bone rotation (in the bone's frame) taking +Y to that direction.
-        let fixes: Vec<[[f32; 4]; 4]> = (0..n_bones)
-            .map(|i| {
-                let m = &globals[i];
-                let d = dirs[i];
-                // Direction in the bone's own frame: Rᵀ d.
-                let local = [m[0][0] * d[0] + m[0][1] * d[1] + m[0][2] * d[2], m[1][0] * d[0] + m[1][1] * d[1] + m[1][2] * d[2], m[2][0] * d[0] + m[2][1] * d[1] + m[2][2] * d[2]];
-                rotation_y_to(local)
-            })
-            .collect();
+        let (children, fixes, globals) = skeleton_fixes(g);
         let mut ibm = Vec::with_capacity(n_bones * 64);
         for i in 0..n_bones {
             let inv = mat_inverse_rigid(&mat_mul(&globals[i], &fixes[i]));
@@ -634,6 +689,60 @@ pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
         let iv = push_view(&mut bin, &ibm, None);
         accessors.push(format!("{{\"bufferView\":{iv},\"componentType\":5126,\"count\":{},\"type\":\"MAT4\"}}", g.bones.len()));
         let ibm_acc = accessors.len() - 1;
+        // Animations: per bone, the node's translation and rotation per frame.
+        let mut anim_json = Vec::new();
+        for a in anims {
+            if a.frames.is_empty() {
+                continue;
+            }
+            let mut tb = Vec::with_capacity(a.times.len() * 4);
+            for t in &a.times {
+                tb.extend_from_slice(&t.to_le_bytes());
+            }
+            let tv = push_view(&mut bin, &tb, None);
+            let (t0, t1) = (a.times.first().copied().unwrap_or(0.0), a.times.last().copied().unwrap_or(0.0));
+            accessors.push(format!("{{\"bufferView\":{tv},\"componentType\":5126,\"count\":{},\"type\":\"SCALAR\",\"min\":[{t0}],\"max\":[{t1}]}}", a.times.len()));
+            let time_acc = accessors.len() - 1;
+            let mut samplers = Vec::new();
+            let mut channels = Vec::new();
+            for i in 0..n_bones {
+                let (mut pos, mut rot) = (Vec::with_capacity(a.frames.len() * 12), Vec::with_capacity(a.frames.len() * 16));
+                let mut prev: Option<[f32; 4]> = None;
+                for f in &a.frames {
+                    let local = to_gltf_matrix(&f[i]);
+                    let m = match g.bones[i].parent {
+                        Some(p) if p < i => mat_mul(&mat_mul(&mat_inverse_rigid(&fixes[p]), &local), &fixes[i]),
+                        _ => mat_mul(&local, &fixes[i]),
+                    };
+                    for v in &m[3][..3] {
+                        pos.extend_from_slice(&v.to_le_bytes());
+                    }
+                    let mut q = mat_to_quat(&m);
+                    // Keep neighbouring keys on the same side (no spins between frames).
+                    if let Some(p) = prev {
+                        if p[0] * q[0] + p[1] * q[1] + p[2] * q[2] + p[3] * q[3] < 0.0 {
+                            q = [-q[0], -q[1], -q[2], -q[3]];
+                        }
+                    }
+                    prev = Some(q);
+                    for c in q {
+                        rot.extend_from_slice(&c.to_le_bytes());
+                    }
+                }
+                let pv = push_view(&mut bin, &pos, None);
+                accessors.push(format!("{{\"bufferView\":{pv},\"componentType\":5126,\"count\":{},\"type\":\"VEC3\"}}", a.frames.len()));
+                samplers.push(format!("{{\"input\":{time_acc},\"output\":{},\"interpolation\":\"LINEAR\"}}", accessors.len() - 1));
+                channels.push(format!("{{\"sampler\":{},\"target\":{{\"node\":{},\"path\":\"translation\"}}}}", samplers.len() - 1, i + 1));
+                let rv = push_view(&mut bin, &rot, None);
+                accessors.push(format!("{{\"bufferView\":{rv},\"componentType\":5126,\"count\":{},\"type\":\"VEC4\"}}", a.frames.len()));
+                samplers.push(format!("{{\"input\":{time_acc},\"output\":{},\"interpolation\":\"LINEAR\"}}", accessors.len() - 1));
+                channels.push(format!("{{\"sampler\":{},\"target\":{{\"node\":{},\"path\":\"rotation\"}}}}", samplers.len() - 1, i + 1));
+            }
+            anim_json.push(format!("{{\"name\":\"{}\",\"samplers\":[{}],\"channels\":[{}]}}", a.name.replace('"', "'"), samplers.join(","), channels.join(",")));
+        }
+        if !anim_json.is_empty() {
+            animations = format!(",\"animations\":[{}]", anim_json.join(","));
+        }
         let joints: Vec<String> = (0..g.bones.len()).map(|i| (i + 1).to_string()).collect();
         skins = format!(",\"skins\":[{{\"inverseBindMatrices\":{ibm_acc},\"skeleton\":1,\"joints\":[{}]}}]", joints.join(","));
         scene_nodes.push(1);
@@ -645,7 +754,7 @@ pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
     let img_json = if images.is_empty() { String::new() } else { format!(",\"images\":[{}],\"textures\":[{}]", images.join(","), textures.join(",")) };
     let scene_list: Vec<String> = scene_nodes.iter().map(|n| n.to_string()).collect();
     let json = format!(
-        "{{\"asset\":{{\"version\":\"2.0\",\"generator\":\"tempest-assets\"}},\"scene\":0,\"scenes\":[{{\"nodes\":[{}]}}],\"nodes\":[{}],\"meshes\":[{{\"name\":\"{}\",\"primitives\":[{}]}}],\"materials\":[{}]{}{}{},\"accessors\":[{}],\"bufferViews\":[{}],\"buffers\":[{{\"byteLength\":{}}}]}}",
+        "{{\"asset\":{{\"version\":\"2.0\",\"generator\":\"tempest-assets\"}},\"scene\":0,\"scenes\":[{{\"nodes\":[{}]}}],\"nodes\":[{}],\"meshes\":[{{\"name\":\"{}\",\"primitives\":[{}]}}],\"materials\":[{}]{}{}{}{},\"accessors\":[{}],\"bufferViews\":[{}],\"buffers\":[{{\"byteLength\":{}}}]}}",
         scene_list.join(","),
         nodes.join(","),
         name.replace('"', "'"),
@@ -654,6 +763,7 @@ pub fn write_glb(name: &str, g: &Geometry) -> Result<Vec<u8>> {
         img_json,
         samplers,
         skins,
+        animations,
         accessors.join(","),
         views.join(","),
         bin.len()

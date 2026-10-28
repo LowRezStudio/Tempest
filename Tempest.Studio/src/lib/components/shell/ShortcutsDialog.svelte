@@ -36,7 +36,7 @@
 				</h4>
 				<table class="w-full">
 					<tbody>
-						{#each list as s (s.title)}
+						{#each list as s, i (`${i}:${s.title}`)}
 							<tr>
 								<td class="py-0.5 pr-3">{s.title}</td>
 								<td class="py-0.5 text-right whitespace-nowrap"
