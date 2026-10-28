@@ -18,6 +18,7 @@ export type SwfToolArgs = {
 		| "timeline"
 		| "info"
 		| "script"
+		| "setScript"
 		| "edit"
 		| "remove"
 		| "revert"
@@ -40,6 +41,10 @@ export type SwfToolArgs = {
 	kind?: string;
 	section?: "texts" | "scripts" | "images" | "linkage" | "tags";
 	tag?: number;
+	/** A script's key (`info` section scripts lists them). */
+	key?: string;
+	source?: string;
+	pcode?: string;
 	text?: string;
 	limit?: number;
 	offset?: number;
@@ -342,9 +347,42 @@ export async function swfTool(a: SwfToolArgs): Promise<unknown> {
 			throw new Error(`unknown section ${a.section}`);
 		}
 
-		case "script": {
-			if (a.tag === undefined) throw new Error("give tag (info section scripts lists them)");
-			return rpc("swf.script", { path: doc.path, index: doc.index, tag: a.tag });
+		case "script":
+		case "setScript": {
+			const scripts = doc.info?.scripts ?? [];
+			const sc =
+				a.key !== undefined
+					? scripts.find((s) => s.key === a.key)
+					: scripts.find((s) => s.owner === 0 && s.tag === a.tag && !s.loc.event);
+			if (!sc) throw new Error("give key (info section scripts lists them) or a root tag");
+			doc.openScript(sc.key);
+			if (a.action === "setScript") {
+				const mode = a.pcode !== undefined ? "pcode" : "source";
+				const text = a.pcode ?? a.source;
+				if (text === undefined) throw new Error("give source (ActionScript) or pcode");
+				// Compile first: a pending edit that does not compile would fail every view.
+				const r = await rpc(
+					"swf.compile",
+					mode === "source" ? { source: text } : { pcode: text },
+				);
+				doc.setScript(sc.loc, text, mode);
+				await doc.settled();
+				return { key: sc.key, bytes: r.bytes, pending: doc.pending.length };
+			}
+			const r = await rpc("swf.script", {
+				path: doc.path,
+				index: doc.index,
+				loc: sc.loc,
+				edits: doc.pending,
+			});
+			return {
+				key: sc.key,
+				kind: sc.kind,
+				source: r.source,
+				pcode: r.pcode,
+				problems: r.problems,
+				staged: doc.scriptEdit(sc.loc) !== undefined,
+			};
 		}
 
 		case "edit": {

@@ -337,8 +337,8 @@ function buildServer(): McpServer {
 			description: [
 				"The Scaleform movie (SwfMovie / GFxMovieInfo export) editor of a window, the same one the user sees: every call selects the movie, so the window follows. A movie is `path` (package, default: the open one) plus `index` or `object` (export path or name), else the selected export.",
 				"Every action first goes to `sprite` (0: the root timeline, else a sprite character id), `character` (any character) or `node` (movie, frames, texts, scripts, images, linkage, tags), then to `frame`; the place is kept between calls.",
-				"Actions: `movies` (movies of the open package; with `query` also the workspace's), `open` (go somewhere, `depth` selects an object), `status` (movie summary, place with breadcrumb and selection, pending edits, hidden layers), `tree` (character dictionary: id, kind, linkage names, bounds, deps/usedBy; filter `kind`, `query`, page `limit`/`offset`), `timeline` (display list of the open sprite at the frame: depth, character, name, x/y in pixels, scaleX/scaleY as factors, rotation/skew in degrees, alpha in %, bounds, tags, edited, hidden; plus frame labels and frame scripts), `info` (`section`: texts, scripts with their editable strings, images with their external file names, linkage, tags; `query`, paging), `script` (ActionScript 2 listing of script `tag`).",
-				"Edits are pending until `apply`, like in the editor: `edit` the object at `depth` of the open sprite and frame (`x`, `y` absolute or `dx`, `dy` relative pixels, `scaleX`, `scaleY`, `rotation`, `skew`, or a raw `matrix`; `alpha` 0–100; `name`, empty removes it), `remove` the object at `depth`, `revert` its pending edits, `text` (`kind` text: an edit-text field's initial text by its `tag`; string: script string `index` of script `tag`; image: external image file name of `tag`), `layers` (`hide`/`show`/`solo` depths, `showAll`: the editor's render only, never written to the movie), `apply` (writes the pending edits into the package as one undo step; then save with studio_run_command file.save, or keep it in the project/mod cooker), `discard` (drops the pending edits).",
+				"Actions: `movies` (movies of the open package; with `query` also the workspace's), `open` (go somewhere, `depth` selects an object), `status` (movie summary, place with breadcrumb and selection, pending edits, hidden layers), `tree` (character dictionary: id, kind, linkage names, bounds, deps/usedBy; filter `kind`, `query`, page `limit`/`offset`), `timeline` (display list of the open sprite at the frame: depth, character, name, x/y in pixels, scaleX/scaleY as factors, rotation/skew in degrees, alpha in %, bounds, tags, edited, hidden; plus frame labels and frame scripts), `info` (`section`: texts, scripts (every script with its `key`: classes, frame scripts of the root and of sprites, clip events, buttons), images with their external file names, linkage, tags; `query`, paging), `script` (script `key`: decompiled ActionScript 2 `source`, `pcode`, and `problems`, parts kept as P-code).",
+				"Edits are pending until `apply`, like in the editor: `edit` the object at `depth` of the open sprite and frame (`x`, `y` absolute or `dx`, `dy` relative pixels, `scaleX`, `scaleY`, `rotation`, `skew`, or a raw `matrix`; `alpha` 0–100; `name`, empty removes it), `remove` the object at `depth`, `revert` its pending edits, `text` (`kind` text: an edit-text field's initial text by its `tag`; string: script string `index` of script `tag`; image: external image file name of `tag`), `setScript` (script `key` replaced by ActionScript 2 `source` (as `script` returns it: class syntax, `__pcode { … }` blocks, `__cast`/`__extends` built-ins) or by `pcode`; compiled first, errors name the line), `layers` (`hide`/`show`/`solo` depths, `showAll`: the editor's render only, never written to the movie), `apply` (writes the pending edits into the package as one undo step; then save with studio_run_command file.save, or keep it in the project/mod cooker), `discard` (drops the pending edits).",
 				"Images (written at once, undoable, not pending): `addImage` (`file` PNG/DDS → a new Texture2D named `texture` next to the movie's images, its DefineExternalImage2, with `shape` (default true) a shape drawing it, and with `place` (default true) that shape on the open sprite and frame at `x`, `y` (top-left, pixels) with instance `name`; pending edits are applied with it), `replaceImage` (`file` PNG/DDS into the texture of the image `character` or `tag`; the movie keeps drawing it at its listed size), `exportImage` (that texture to `file`, .png or .dds).",
 				"See the result with studio_screenshot.",
 			].join(" "),
@@ -351,6 +351,7 @@ function buildServer(): McpServer {
 					"timeline",
 					"info",
 					"script",
+					"setScript",
 					"edit",
 					"remove",
 					"revert",
@@ -397,6 +398,12 @@ function buildServer(): McpServer {
 					.optional()
 					.describe("top-level tag index (texts, scripts, images)"),
 				text: z.string().optional(),
+				key: z
+					.string()
+					.optional()
+					.describe("script / setScript: the script's key from info scripts"),
+				source: z.string().optional().describe("setScript: ActionScript 2"),
+				pcode: z.string().optional().describe("setScript: P-code"),
 				limit: z.number().int().optional(),
 				offset: z.number().int().optional(),
 				x: z.number().optional(),

@@ -1,14 +1,13 @@
 <!--
 	The movie editor's tag views: edit-text fields (initial text), scripts
-	(P-code listing and their top-level strings), external images, linkage
+	(`SwfScripts`: decompiled ActionScript and P-code), external images, linkage
 	(exports and imports) and every tag. Edits go to the document's pending
 	list like the stage's.
 -->
 <script lang="ts">
 	import { ImagePlus } from "@lucide/svelte";
 	import SwfImageCard from "$lib/components/swf/SwfImageCard.svelte";
-	import { rpc } from "$lib/studio/rpc";
-	import { toasts } from "$lib/studio/toast.svelte";
+	import SwfScripts from "$lib/components/swf/SwfScripts.svelte";
 	import type { SwfDoc } from "$lib/studio/swf.svelte";
 
 	interface Props {
@@ -18,28 +17,7 @@
 	const { doc, section }: Props = $props();
 
 	const info = $derived(doc.info);
-	let listing = $state<{ tag: number; text: string } | null>(null);
 	let tagFilter = $state("");
-
-	async function showScript(tag: number) {
-		if (listing?.tag === tag) {
-			listing = null;
-			return;
-		}
-		try {
-			const r = await rpc("swf.script", { path: doc.path, index: doc.index, tag });
-			listing = { tag, text: r.listing };
-		} catch (error) {
-			toasts.error(error, "Could not disassemble");
-		}
-	}
-
-	/** The class a DoInitAction defines, from its sprite's linkage name (`__Packages.a.B`). */
-	function scriptName(sprite: number | null): string {
-		if (sprite === null) return "";
-		const n = doc.chars.get(sprite)?.names[0];
-		return n ? n.replace(/^__Packages\./, "") : doc.label(sprite);
-	}
 
 	const visibleTags = $derived(
 		info
@@ -58,6 +36,8 @@
 
 {#if !info}
 	<div class="p-3 text-xs opacity-60">Reading the movie…</div>
+{:else if section === "scripts"}
+	<SwfScripts {doc} />
 {:else}
 	<div class="h-full min-h-0 overflow-auto p-1 text-xs">
 		{#if section === "texts"}
@@ -101,66 +81,6 @@
 					{/each}
 				</tbody>
 			</table>
-		{:else if section === "scripts"}
-			<p class="px-1 pb-1 opacity-60">
-				ActionScript 2. The strings of the top-level actions (constant pools, pushes) can be
-				edited; the bytecode is shown as a listing.
-			</p>
-			{#each info.scripts as sc (sc.tag)}
-				<details class="border-base-300 mb-1 rounded border">
-					<summary class="cursor-pointer px-2 py-1 font-mono">
-						{#if sc.sprite !== null}<span class="font-semibold"
-								>{scriptName(sc.sprite)}</span
-							> ·
-						{/if}{sc.kind} #{sc.tag} · {sc.bytes} bytes · {sc.strings.length} strings
-					</summary>
-					<div class="px-2 pb-2">
-						<div class="flex gap-1">
-							<button class="btn btn-ghost btn-xs" onclick={() => showScript(sc.tag)}
-								>{listing?.tag === sc.tag ? "Hide listing" : "Listing"}</button
-							>
-							{#if sc.sprite !== null}
-								<button
-									class="btn btn-ghost btn-xs"
-									onclick={() => doc.openCharacter(sc.sprite!)}
-									>Sprite {sc.sprite}</button
-								>
-							{/if}
-						</div>
-						{#if listing?.tag === sc.tag}
-							<pre
-								class="bg-base-300 selectable max-h-96 overflow-auto rounded p-2 font-mono text-[10px]">{listing.text}</pre>
-						{/if}
-						<table class="table-xs table font-mono">
-							<tbody>
-								{#each sc.strings as s (s.index)}
-									<tr>
-										<td class="w-8 opacity-50">{s.index}</td>
-										<td class="w-20 opacity-50">{s.action}</td>
-										<td>
-											<input
-												class="input input-xs w-full {doc.isEdited(
-													`string|${sc.tag}|${s.index}`,
-												)
-													? 'input-warning'
-													: ''}"
-												value={doc.value("string", sc.tag, s.text, s.index)}
-												onchange={(e) =>
-													doc.editText(
-														"string",
-														sc.tag,
-														e.currentTarget.value,
-														s.index,
-													)}
-											/>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				</details>
-			{/each}
 		{:else if section === "images"}
 			<div class="flex items-start gap-2 px-1 pb-1">
 				<p class="flex-1 opacity-60">

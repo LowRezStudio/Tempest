@@ -466,6 +466,27 @@ impl Place {
         self.tail.get(at).map(|&v| v != 0)
     }
 
+    /// Byte offset of the clip actions (`CLIPACTIONS`) in the tag's data, when it has them.
+    pub fn clip_actions_at(&self, data_len: usize) -> Option<usize> {
+        if !self.clip_actions {
+            return None;
+        }
+        let mut at = 0;
+        if self.flags2 & 0x01 != 0 {
+            at += super::dict::filter_list_len(&self.tail, 0)?;
+        }
+        if self.flags2 & 0x02 != 0 {
+            at += 1;
+        }
+        if self.flags2 & 0x04 != 0 {
+            at += 1;
+        }
+        if self.flags2 & 0x20 != 0 {
+            at += 5;
+        }
+        (at <= self.tail.len()).then(|| data_len - self.tail.len() + at)
+    }
+
     /// The tail holds a filter list, blend mode or other PlaceObject3 extras.
     pub fn has_extras(&self) -> bool {
         !self.tail.is_empty()

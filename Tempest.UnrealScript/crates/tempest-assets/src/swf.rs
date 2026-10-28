@@ -18,6 +18,7 @@
 //! `apply` edits) and per-character preview movies (`preview`).
 
 pub mod add;
+pub mod as2;
 pub mod dict;
 pub mod display;
 pub mod font;
@@ -400,112 +401,6 @@ pub fn set_external_image_file(code: u16, d: &[u8], file_name: &str) -> Option<V
 // ActionScript 2
 // ----------------------------------------------------------------------------
 
-fn action_name(op: u8) -> &'static str {
-    match op {
-        0x00 => "End",
-        0x04 => "NextFrame",
-        0x05 => "PreviousFrame",
-        0x06 => "Play",
-        0x07 => "Stop",
-        0x08 => "ToggleQuality",
-        0x09 => "StopSounds",
-        0x0A => "Add",
-        0x0B => "Subtract",
-        0x0C => "Multiply",
-        0x0D => "Divide",
-        0x0E => "Equals",
-        0x0F => "Less",
-        0x10 => "And",
-        0x11 => "Or",
-        0x12 => "Not",
-        0x13 => "StringEquals",
-        0x14 => "StringLength",
-        0x15 => "StringExtract",
-        0x17 => "Pop",
-        0x18 => "ToInteger",
-        0x1C => "GetVariable",
-        0x1D => "SetVariable",
-        0x20 => "SetTarget2",
-        0x21 => "StringAdd",
-        0x22 => "GetProperty",
-        0x23 => "SetProperty",
-        0x24 => "CloneSprite",
-        0x25 => "RemoveSprite",
-        0x26 => "Trace",
-        0x27 => "StartDrag",
-        0x28 => "EndDrag",
-        0x29 => "StringLess",
-        0x2A => "Throw",
-        0x2B => "CastOp",
-        0x2C => "ImplementsOp",
-        0x30 => "RandomNumber",
-        0x31 => "MBStringLength",
-        0x32 => "CharToAscii",
-        0x33 => "AsciiToChar",
-        0x34 => "GetTime",
-        0x35 => "MBStringExtract",
-        0x36 => "MBCharToAscii",
-        0x37 => "MBAsciiToChar",
-        0x3A => "Delete",
-        0x3B => "Delete2",
-        0x3C => "DefineLocal",
-        0x3D => "CallFunction",
-        0x3E => "Return",
-        0x3F => "Modulo",
-        0x40 => "NewObject",
-        0x41 => "DefineLocal2",
-        0x42 => "InitArray",
-        0x43 => "InitObject",
-        0x44 => "TypeOf",
-        0x45 => "TargetPath",
-        0x46 => "Enumerate",
-        0x47 => "Add2",
-        0x48 => "Less2",
-        0x49 => "Equals2",
-        0x4A => "ToNumber",
-        0x4B => "ToString",
-        0x4C => "PushDuplicate",
-        0x4D => "StackSwap",
-        0x4E => "GetMember",
-        0x4F => "SetMember",
-        0x50 => "Increment",
-        0x51 => "Decrement",
-        0x52 => "CallMethod",
-        0x53 => "NewMethod",
-        0x54 => "InstanceOf",
-        0x55 => "Enumerate2",
-        0x60 => "BitAnd",
-        0x61 => "BitOr",
-        0x62 => "BitXor",
-        0x63 => "BitLShift",
-        0x64 => "BitRShift",
-        0x65 => "BitURShift",
-        0x66 => "StrictEquals",
-        0x67 => "Greater",
-        0x68 => "StringGreater",
-        0x69 => "Extends",
-        0x81 => "GotoFrame",
-        0x83 => "GetURL",
-        0x87 => "StoreRegister",
-        0x88 => "ConstantPool",
-        0x8A => "WaitForFrame",
-        0x8B => "SetTarget",
-        0x8C => "GoToLabel",
-        0x8D => "WaitForFrame2",
-        0x8E => "DefineFunction2",
-        0x8F => "Try",
-        0x94 => "With",
-        0x96 => "Push",
-        0x99 => "Jump",
-        0x9A => "GetURL2",
-        0x9B => "DefineFunction",
-        0x9D => "If",
-        0x9E => "Call",
-        0x9F => "GotoFrame2",
-        _ => "?",
-    }
-}
-
 /// A string of the top-level actions of a script: in a constant pool or a push.
 pub struct ScriptString {
     pub index: usize,
@@ -643,116 +538,6 @@ pub fn set_script_string(a: &[u8], index: usize, text: &str) -> Option<Vec<u8>> 
         out.extend_from_slice(&new_payload);
     }
     Some(out)
-}
-
-/// A readable listing of a script body (nested function bodies indented).
-pub fn disassemble(a: &[u8]) -> String {
-    let mut out = String::new();
-    disassemble_into(a, 0, &mut out, 0);
-    out
-}
-
-fn disassemble_into(a: &[u8], base: usize, out: &mut String, depth: usize) {
-    let indent = "  ".repeat(depth);
-    let mut pool: Vec<String> = Vec::new();
-    let mut pos = 0;
-    while pos < a.len() {
-        let op = a[pos];
-        let at = base + pos;
-        pos += 1;
-        let payload: &[u8] = if op >= 0x80 {
-            let len = u16_at(a, pos).unwrap_or(0) as usize;
-            pos += 2;
-            let p = a.get(pos..pos + len).unwrap_or(&[]);
-            pos += len;
-            p
-        } else {
-            &[]
-        };
-        let name = action_name(op);
-        match op {
-            0x88 => {
-                let count = u16_at(payload, 0).unwrap_or(0) as usize;
-                pool.clear();
-                let mut p = 2;
-                for _ in 0..count {
-                    let (s, next) = cstr(payload, p);
-                    pool.push(s);
-                    p = next;
-                }
-                out.push_str(&format!("{indent}{at:05x}  ConstantPool [{}]\n", pool.iter().enumerate().map(|(i, s)| format!("{i}:{s:?}")).collect::<Vec<_>>().join(" ")));
-            }
-            0x96 => {
-                let items: Vec<String> = push_items(payload)
-                    .into_iter()
-                    .map(|(off, ty, s)| match ty {
-                        0 => format!("{:?}", s.unwrap_or_default()),
-                        1 => format!("{}", f32::from_le_bytes(payload[off + 1..off + 5].try_into().unwrap_or([0; 4]))),
-                        2 => "null".into(),
-                        3 => "undefined".into(),
-                        4 => format!("r{}", payload.get(off + 1).copied().unwrap_or(0)),
-                        5 => (payload.get(off + 1).copied().unwrap_or(0) != 0).to_string(),
-                        6 => format!("{}", f64::from_le_bytes(payload[off + 1..off + 9].try_into().unwrap_or([0; 8]))),
-                        7 => format!("{}", u32_at(payload, off + 1).unwrap_or(0) as i32),
-                        8 => {
-                            let i = payload.get(off + 1).copied().unwrap_or(0) as usize;
-                            pool.get(i).map(|s| format!("c{i}={s:?}")).unwrap_or_else(|| format!("c{i}"))
-                        }
-                        9 => {
-                            let i = u16_at(payload, off + 1).unwrap_or(0) as usize;
-                            pool.get(i).map(|s| format!("c{i}={s:?}")).unwrap_or_else(|| format!("c{i}"))
-                        }
-                        _ => "?".into(),
-                    })
-                    .collect();
-                out.push_str(&format!("{indent}{at:05x}  Push {}\n", items.join(", ")));
-            }
-            0x9B | 0x8E => {
-                // DefineFunction: name, params, then the body follows the record.
-                let (fname, mut p) = cstr(payload, 0);
-                let (nparams, body_len);
-                if op == 0x9B {
-                    nparams = u16_at(payload, p).unwrap_or(0) as usize;
-                    p += 2;
-                    let mut params = Vec::new();
-                    for _ in 0..nparams {
-                        let (s, next) = cstr(payload, p);
-                        params.push(s);
-                        p = next;
-                    }
-                    body_len = u16_at(payload, p).unwrap_or(0) as usize;
-                    out.push_str(&format!("{indent}{at:05x}  DefineFunction {fname:?}({}) {{\n", params.join(", ")));
-                } else {
-                    nparams = u16_at(payload, p).unwrap_or(0) as usize;
-                    p += 2 + 1 + 2;
-                    let mut params = Vec::new();
-                    for _ in 0..nparams {
-                        p += 1;
-                        let (s, next) = cstr(payload, p);
-                        params.push(s);
-                        p = next;
-                    }
-                    body_len = u16_at(payload, p).unwrap_or(0) as usize;
-                    out.push_str(&format!("{indent}{at:05x}  DefineFunction2 {fname:?}({}) {{\n", params.join(", ")));
-                }
-                let body = a.get(pos..pos + body_len).unwrap_or(&[]);
-                disassemble_into(body, base + pos, out, depth + 1);
-                out.push_str(&format!("{indent}}}\n"));
-                pos += body_len;
-            }
-            0x99 | 0x9D => {
-                let off = u16_at(payload, 0).unwrap_or(0) as i16;
-                out.push_str(&format!("{indent}{at:05x}  {name} -> {:05x}\n", (base + pos) as i64 + off as i64));
-            }
-            0x87 => out.push_str(&format!("{indent}{at:05x}  StoreRegister r{}\n", payload.first().copied().unwrap_or(0))),
-            0x8C => out.push_str(&format!("{indent}{at:05x}  GoToLabel {:?}\n", cstr(payload, 0).0)),
-            _ if op >= 0x80 => out.push_str(&format!("{indent}{at:05x}  {name} {}\n", payload.iter().map(|b| format!("{b:02x}")).collect::<String>())),
-            _ => out.push_str(&format!("{indent}{at:05x}  {name}\n")),
-        }
-        if op == 0 {
-            break;
-        }
-    }
 }
 
 // ----------------------------------------------------------------------------
@@ -946,7 +731,6 @@ pub fn info(m: &Movie) -> J {
     let mut tags = Vec::new();
     let mut images = Vec::new();
     let mut texts = Vec::new();
-    let mut scripts = Vec::new();
     let mut exports = Vec::new();
     let mut imports = Vec::new();
     for (i, t) in m.tags.iter().enumerate() {
@@ -966,9 +750,7 @@ pub fn info(m: &Movie) -> J {
             }
             59 | 12 => {
                 let (sprite, body) = if t.code == 59 { (u16_at(&t.data, 0), t.data.get(2..).unwrap_or(&[])) } else { (None, &t.data[..]) };
-                let strings: Vec<J> = script_strings(body).iter().map(|s| json!({ "index": s.index, "text": s.text, "action": s.action })).collect();
                 detail = sprite.map(|s| format!("sprite {s}, {} bytes", body.len())).unwrap_or_else(|| format!("{} bytes", body.len()));
-                scripts.push(json!({ "tag": i, "kind": tag_name(t.code), "sprite": sprite, "bytes": body.len(), "strings": strings }));
             }
             56 => {
                 let n = u16_at(&t.data, 0).unwrap_or(0) as usize;
@@ -1012,6 +794,20 @@ pub fn info(m: &Movie) -> J {
         }
         tags.push(json!({ "index": i, "code": t.code, "name": tag_name(t.code), "len": t.data.len(), "id": define_id(t.code, &t.data), "detail": detail }));
     }
+    let scripts: Vec<J> = as2::scripts(m)
+        .into_iter()
+        .map(|s| {
+            let (owner, tag) = match s.loc {
+                as2::Loc::Tag { sprite, tag } | as2::Loc::Clip { sprite, tag, .. } => (sprite, tag),
+                as2::Loc::Button { tag, .. } => (0, tag),
+            };
+            // The class a DoInitAction defines is its sprite's; other scripts belong to the timeline they are on.
+            let sprite = if s.kind == "DoInitAction" { s.label.parse::<u16>().ok() } else { (owner != 0).then_some(owner) };
+            let strings: Vec<J> = if owner == 0 && matches!(s.loc, as2::Loc::Tag { .. }) { script_strings(&s.bytes).iter().map(|s| json!({ "index": s.index, "text": s.text, "action": s.action })).collect() } else { Vec::new() };
+            let placed = s.placed.as_ref().map(|(depth, character, name)| json!({ "depth": depth, "character": character, "name": name }));
+            json!({ "key": s.loc.key(), "loc": s.loc.to_json(), "kind": s.kind, "label": s.label, "tag": tag, "owner": owner, "sprite": sprite, "placed": placed, "frame": s.frame, "bytes": s.bytes.len(), "strings": strings })
+        })
+        .collect();
     json!({
         "signature": String::from_utf8_lossy(&m.signature),
         "version": m.version,
@@ -1027,17 +823,6 @@ pub fn info(m: &Movie) -> J {
         "exports": exports,
         "imports": imports,
     })
-}
-
-/// Disassembly of the script in tag `tag`.
-pub fn script_listing(m: &Movie, tag: usize) -> Result<String> {
-    let t = m.tags.get(tag).ok_or_else(|| Error::Format(format!("no tag {tag}")))?;
-    let body = match t.code {
-        59 => t.data.get(2..).unwrap_or(&[]),
-        12 => &t.data[..],
-        _ => return Err(Error::Format("not a script tag".into())),
-    };
-    Ok(disassemble(body))
 }
 
 /// The tag stream of a sprite (0: the root timeline), handed to `f` and
@@ -1130,8 +915,10 @@ fn add_font_glyphs(m: &mut Movie, e: &J) -> Result<()> {
 }
 
 /// Apply edits and return how many were applied. Kinds: `text` (edit-text
-/// initial text), `string` (script string), `image` (external image file
-/// name), `place` (see `edit_place`) and `deletePlace` (`{sprite, tag}`:
+/// initial text), `string` (script string), `script` / `pcode` (`{loc,
+/// source}` / `{loc, pcode}`: a script replaced by compiled ActionScript or
+/// assembled P-code, `loc` as `as2::Loc::from_json` reads it), `image`
+/// (external image file name), `place` (see `edit_place`) and `deletePlace` (`{sprite, tag}`:
 /// drop a place/remove tag; deletions run last, highest index first, so
 /// the other edits' indices stay valid).
 pub fn apply(m: &mut Movie, edits: &[J]) -> Result<usize> {
@@ -1157,6 +944,14 @@ pub fn apply(m: &mut Movie, edits: &[J]) -> Result<usize> {
             }
             Some("fontGlyphs") => {
                 add_font_glyphs(m, e)?;
+                n += 1;
+                continue;
+            }
+            Some(kind @ ("script" | "pcode")) => {
+                let loc = as2::Loc::from_json(e.get("loc").unwrap_or(&J::Null))?;
+                let text = |k: &str| e.get(k).and_then(|v| v.as_str()).ok_or_else(|| Error::Format(format!("{kind} edit without {k}")));
+                let script = if kind == "script" { as2::compile::compile(text("source")?)? } else { as2::pcode::parse(text("pcode")?)? };
+                as2::replace(m, &loc, &script.encode()?)?;
                 n += 1;
                 continue;
             }
@@ -1288,6 +1083,7 @@ mod tests {
         assert_eq!(info3["texts"][0]["text"], "hello");
         assert_eq!(info3["scripts"][0]["strings"][1]["text"], "ccc");
         assert_eq!(info3["scripts"][0]["strings"][2]["text"], "yy");
-        assert!(disassemble(&m3.tags[2].data[2..]).contains("ConstantPool"));
+        let script = as2::action::Script::decode(&m3.tags[2].data[2..]).unwrap();
+        assert!(as2::pcode::print(&script).contains("ConstantPool"));
     }
 }

@@ -538,6 +538,7 @@ impl Server {
             "swf.player" => self.swf_player(p),
             "swf.libraries" => self.swf_libraries(p),
             "swf.script" => self.swf_script(p),
+            "swf.compile" => self.swf_compile(p),
             "swf.addImage" => self.swf_add_image(p),
             "swf.character" => self.swf_character(p),
             "swf.export" => self.swf_export(p),
@@ -2042,11 +2043,31 @@ impl Server {
         ed.pkg.class_name_of(idx).eq_ignore_ascii_case("SwfMovie") && ed.pkg.object_name(idx).eq_ignore_ascii_case(stem)
     }
 
-    /// `swf.script`: the disassembly of one script tag.
+    /// `swf.script {loc | tag, edits?}`: one script as P-code and decompiled
+    /// ActionScript (with the pending edits applied), and what the decompiler
+    /// had to keep as P-code.
     fn swf_script(&mut self, p: &J) -> Res<J> {
-        let (_, _, m) = self.swf_movie(p)?;
-        let tag = opt_u(p, "tag").ok_or("missing parameter tag")?;
-        Ok(json!({ "listing": crate::swf::script_listing(&m, tag)? }))
+        use crate::swf::as2;
+        let (_, _, m) = self.swf_edited(p)?;
+        let loc = match p.get("loc") {
+            Some(l) => as2::Loc::from_json(l)?,
+            None => as2::Loc::Tag { sprite: 0, tag: opt_u(p, "tag").ok_or("missing parameter loc")? },
+        };
+        let script = as2::action::Script::decode(&as2::script_bytes(&m, &loc)?)?;
+        let pcode = as2::pcode::print(&script);
+        Ok(json!({ "listing": pcode, "pcode": pcode, "source": as2::decompile::source(&script), "problems": as2::decompile::problems(&script) }))
+    }
+
+    /// `swf.compile {source | pcode}`: compile ActionScript or assemble P-code
+    /// without writing it (errors name the line); the result as P-code.
+    fn swf_compile(&mut self, p: &J) -> Res<J> {
+        use crate::swf::as2;
+        let script = match opt_s(p, "source") {
+            Some(src) => as2::compile::compile(&src)?,
+            None => as2::pcode::parse(s(p, "pcode")?)?,
+        };
+        let bytes = script.encode()?;
+        Ok(json!({ "bytes": bytes.len(), "pcode": as2::pcode::print(&script) }))
     }
 
     /// Bitmaps of a movie for SVG export, by character id: external images

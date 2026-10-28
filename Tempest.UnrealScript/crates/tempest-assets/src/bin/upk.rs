@@ -30,6 +30,11 @@ fn usage() -> ExitCode {
            upk swf import <pkg> <idx|path> <in.gfx|swf> -o <out.upk>\n  \
            upk swf info <pkg> <idx|path>                     tags, texts, scripts and images of a movie\n  \
            upk swf verify <pkg>                              parse + rewrite every movie, byte-identical check\n  \
+           upk swf dump <pkg> <dir>                          every movie of a package as <dir>/<path>.gfx\n  \
+           upk as2 list <movie.gfx>                          the scripts of a movie (frame, init, clip, button actions)\n  \
+           upk as2 pcode|source <movie.gfx> [<script>]       P-code / decompiled ActionScript of one script or all\n  \
+           upk as2 verify <movie.gfx|dir>...                 P-code and decompile/compile round trips of every script\n  \
+           upk as2 recompile <in.gfx> <out.gfx>              every script replaced by its decompiled source, compiled\n  \
            upk sound export <pkg> <idx|path> <out.ogg>        PC audio of a SoundNodeWave\n  \
            upk sound import <pkg> <idx|path> <in.ogg> -o <out.upk>\n  \
            upk anim info <pkg> <idx|path>                   frames, length, formats, keys per track of an AnimSequence\n  \
@@ -102,8 +107,9 @@ fn main() -> ExitCode {
         "deps" if args.len() >= 3 => cmd_deps(&args[1], &args[2], &args[1..]),
         "mod-dir" if args.len() >= 2 => cmd_mod_dir(&args[1..]),
         "delta" if args.len() >= 3 => cmd_delta(&args[1..]),
-        "swf" if args.len() >= 3 && (args[1] == "verify" || args[1] == "info") => cmd_swf(&args[1..]),
+        "swf" if args.len() >= 3 && (args[1] == "verify" || args[1] == "info" || args[1] == "dump") => cmd_swf(&args[1..]),
         "swf" if args.len() >= 4 => cmd_media(&args[1..], true),
+        "as2" if args.len() >= 3 => cmd_as2(&args[1..]),
         "sound" if args.len() >= 4 => cmd_media(&args[1..], false),
         "imagediff" if args.len() >= 2 => cmd_imagediff(&args[1]),
         "native-debug" if args.len() >= 3 => cmd_native_debug(&args[1], &args[2], &args[1..]),
@@ -1916,10 +1922,93 @@ fn cmd_swf(args: &[String]) -> Res {
         println!("{} movies, {failed} failed", movies.len());
         return if failed == 0 { Ok(()) } else { Err("verification failed".into()) };
     }
+    if args[0] == "dump" {
+        let out = PathBuf::from(args.get(2).ok_or("missing directory")?);
+        std::fs::create_dir_all(&out)?;
+        for i in &movies {
+            let Parsed::Object(o) = parse_export(&db, &pkg, layout, *i, &pkg.export_data[*i]) else { continue };
+            let Ok(bytes) = media::swf_export(&pkg, &o) else { continue };
+            std::fs::write(out.join(format!("{}.gfx", pkg.object_path(PackageIndex::export(*i)))), &bytes)?;
+        }
+        println!("{} movies", movies.len());
+        return Ok(());
+    }
     let what = args.get(2).ok_or("missing export")?;
     let i = what.parse::<usize>().ok().or_else(|| movies.iter().copied().find(|&i| pkg.object_path(PackageIndex::export(i)).eq_ignore_ascii_case(what))).ok_or("no such movie")?;
     let Parsed::Object(o) = parse_export(&db, &pkg, layout, i, &pkg.export_data[i]) else { return Err("not an object".into()) };
     let m = Movie::parse(&media::swf_export(&pkg, &o)?)?;
     println!("{}", serde_json::to_string_pretty(&info(&m))?);
     Ok(())
+}
+
+/// `upk as2 list|pcode|source|verify` over extracted movies.
+fn cmd_as2(args: &[String]) -> Res {
+    use tempest_assets::swf::{as2, Movie};
+    let load = |p: &str| -> Result<Movie, Box<dyn std::error::Error>> { Ok(Movie::parse(&std::fs::read(p)?)?) };
+    match args[0].as_str() {
+        "list" => {
+            let m = load(&args[1])?;
+            for s in as2::scripts(&m) {
+                println!("{:<14} {:<12} {:>7} bytes  {}", s.loc.key(), s.kind, s.bytes.len(), s.label);
+            }
+            Ok(())
+        }
+        "pcode" | "source" => {
+            let m = load(&args[1])?;
+            for s in as2::scripts(&m) {
+                if args.get(2).is_some_and(|k| *k != s.loc.key()) {
+                    continue;
+                }
+                println!("// ---- {} {} {}", s.loc.key(), s.kind, s.label);
+                let script = as2::action::Script::decode(&s.bytes)?;
+                if args[0] == "pcode" {
+                    print!("{}", as2::pcode::print(&script));
+                } else {
+                    print!("{}", as2::decompile::source(&script));
+                }
+            }
+            Ok(())
+        }
+        "recompile" => {
+            let mut m = load(&args[1])?;
+            let out = args.get(2).ok_or("missing output file")?;
+            let mut n = 0;
+            for s in as2::scripts(&m.clone()) {
+                let script = as2::action::Script::decode(&s.bytes)?;
+                let compiled = as2::compile::compile(&as2::decompile::source(&script))?;
+                as2::replace(&mut m, &s.loc, &compiled.encode()?)?;
+                n += 1;
+            }
+            std::fs::write(out, m.write())?;
+            println!("{n} scripts recompiled");
+            Ok(())
+        }
+        "verify" => {
+            let mut files = Vec::new();
+            for a in &args[1..] {
+                let p = Path::new(a);
+                if p.is_dir() {
+                    let mut v: Vec<PathBuf> = std::fs::read_dir(p)?.filter_map(|e| e.ok().map(|e| e.path())).collect();
+                    v.sort();
+                    files.extend(v);
+                } else {
+                    files.push(p.to_path_buf());
+                }
+            }
+            let stats = as2::verify::Stats::default();
+            let mut stats = stats;
+            for f in &files {
+                let Ok(m) = Movie::parse(&std::fs::read(f)?) else { continue };
+                for s in as2::scripts(&m) {
+                    let what = format!("{} {}", f.file_name().unwrap_or_default().to_string_lossy(), s.loc.key());
+                    for problem in stats.check(&s.bytes) {
+                        println!("{what}: {problem}");
+                    }
+                }
+            }
+            println!("{stats}");
+            Ok(())
+        }
+        _ => Err(format!("unknown as2 subcommand {}", args[0]).into()),
+    }
 }

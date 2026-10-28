@@ -23,6 +23,7 @@ import type {
 	SwfMatrix,
 	SwfPreviewTarget,
 	SwfRect,
+	SwfScriptLoc,
 	SwfTimeline,
 	SwfTree,
 	UpkMethods,
@@ -152,6 +153,14 @@ export const rotation = (r: number): SwfMatrix => ({
 /** Twips are the file's unit: keep pixel values on the 1/20 grid. */
 export const twips = (v: number) => Math.round(v * 20) / 20;
 
+/** The backend's key of a script location (`as2::Loc::key`). */
+export function scriptKey(loc: SwfScriptLoc): string {
+	if (loc.button !== undefined) return `b${loc.tag}:${loc.button}`;
+	const sprite = loc.sprite ?? 0;
+	if (loc.event !== undefined) return `s${sprite}:${loc.tag}e${loc.event}`;
+	return sprite === 0 ? `${loc.tag}` : `s${sprite}:${loc.tag}`;
+}
+
 function editKey(e: SwfEdit): string {
 	switch (e.kind) {
 		case "place": {
@@ -170,6 +179,11 @@ function editKey(e: SwfEdit): string {
 		case "editText":
 		case "fontGlyphs": {
 			return `${e.kind}|${e.tag}`;
+		}
+		// Source and P-code replace the same script: the last one made wins.
+		case "script":
+		case "pcode": {
+			return `script|${scriptKey(e.loc)}`;
 		}
 		default: {
 			return `${e.kind}|${e.tag}|${e.index ?? 0}`;
@@ -675,6 +689,37 @@ export class SwfDoc {
 	/** Characters to add to a font from a TrueType/OpenType file. */
 	addGlyphs(tag: number, file: string, chars: string): void {
 		this.setEdit({ kind: "fontGlyphs", tag, file, chars });
+	}
+
+	// ----- scripts ----------------------------------------------------------------
+
+	/** The script the Scripts view shows (`SwfScript.key`). */
+	script = $state<string | null>(null);
+
+	/** The pending replacement of a script, as ActionScript or P-code. */
+	scriptEdit(loc: SwfScriptLoc): Extract<SwfEdit, { kind: "script" | "pcode" }> | undefined {
+		return this.edits[`script|${scriptKey(loc)}`] as
+			| Extract<SwfEdit, { kind: "script" | "pcode" }>
+			| undefined;
+	}
+
+	/** Replace a script (pending, like every edit): `text` is ActionScript or P-code. */
+	setScript(loc: SwfScriptLoc, text: string, mode: "source" | "pcode"): void {
+		this.setEdit(
+			mode === "source"
+				? { kind: "script", loc, source: text }
+				: { kind: "pcode", loc, pcode: text },
+		);
+	}
+
+	revertScript(loc: SwfScriptLoc): void {
+		this.dropEdit(`script|${scriptKey(loc)}`);
+	}
+
+	/** Show a script in the Scripts view. */
+	openScript(key: string): void {
+		this.open("scripts");
+		this.script = key;
 	}
 
 	/** The pending edit of a tag, by its key. */

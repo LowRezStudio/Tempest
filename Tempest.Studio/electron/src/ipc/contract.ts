@@ -564,11 +564,27 @@ export type SwfText = {
 	html: boolean;
 	multiline: boolean;
 };
+/** Where a script lives: on the timeline `sprite` (0: the root) at stream index `tag`; `event`: the clip action of a placement; `button`: a button condition. */
+export type SwfScriptLoc = { sprite?: number; tag: number; event?: number; button?: number };
 export type SwfScript = {
+	/** Short location key: `12`, `s40:3`, `s40:3e1` (clip event), `b7:0` (button). */
+	key: string;
+	loc: SwfScriptLoc;
+	kind: "DoAction" | "DoInitAction" | "ClipAction" | "ButtonAction";
+	/** Clip events or button conditions; a DoInitAction's sprite id. */
+	label: string;
+	/** Stream index of the tag in its timeline. */
 	tag: number;
-	kind: string;
+	/** The timeline the tag is on (0: the root). */
+	owner: number;
+	/** A DoInitAction's class sprite, else the sprite whose timeline holds it (null: the root). */
 	sprite: number | null;
+	/** Clip actions: the placement they belong to. */
+	placed: { depth: number; character: number | null; name: string | null } | null;
+	/** Frame (from 0) of its timeline. */
+	frame: number;
 	bytes: number;
+	/** Root scripts: the strings of the top-level actions (the `string` edit). */
 	strings: { index: number; text: string; action: string }[];
 };
 /** An imported movie (`ImportAssets2` URL) resolved to a workspace export. */
@@ -628,7 +644,11 @@ export type SwfEdit =
 	/** A static text record's characters and/or colour. */
 	| { kind: "staticText"; tag: number; record: number; text?: string; color?: string }
 	/** Characters added to a font from a TrueType/OpenType file. */
-	| { kind: "fontGlyphs"; tag: number; file: string; chars: string };
+	| { kind: "fontGlyphs"; tag: number; file: string; chars: string }
+	/** A script replaced by compiled ActionScript 2. */
+	| { kind: "script"; loc: SwfScriptLoc; source: string }
+	/** A script replaced by assembled P-code. */
+	| { kind: "pcode"; loc: SwfScriptLoc; pcode: string };
 export type SwfEditTextProps = {
 	bounds: SwfRect;
 	font: number | null;
@@ -1220,10 +1240,24 @@ export interface UpkMethods {
 		/** `missing`: ImportAssets2 URLs no workspace package provides. */
 		result: { libraries: SwfLibrary[]; missing: string[] };
 	};
-	/** ActionScript 2 disassembly of one script tag. */
+	/**
+	 * One script (with the pending `edits` applied) as P-code and as decompiled
+	 * ActionScript 2; `problems`: functions the decompiler kept as P-code.
+	 */
 	"swf.script": {
-		params: { path: string; index: number; tag: number };
-		result: { listing: string };
+		params: {
+			path: string;
+			index: number;
+			loc?: SwfScriptLoc;
+			tag?: number;
+			edits?: SwfEdit[];
+		};
+		result: { listing: string; pcode: string; source: string; problems: string[] };
+	};
+	/** Compile ActionScript (`source`) or assemble `pcode` without writing it; errors start with `line N:`. */
+	"swf.compile": {
+		params: { source?: string; pcode?: string };
+		result: { bytes: number; pcode: string };
 	};
 	/**
 	 * A new external image in a movie (pending `edits` written first): a Texture2D
