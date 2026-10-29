@@ -55,6 +55,8 @@
 			label: basename(p),
 			detail: p,
 			run: () => {
+				// Wwise packages are edited in the Wwise audio dialog.
+				if (p.toLowerCase().endsWith(".pck")) return ui.open("wwise");
 				studio.mode = "packages";
 				return studio.openPackage(p);
 			},

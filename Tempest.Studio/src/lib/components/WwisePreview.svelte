@@ -1,8 +1,8 @@
 <script lang="ts">
 	import WwiseMediaList from "$lib/components/WwiseMediaList.svelte";
-	import WwiseOutput from "$lib/components/WwiseOutput.svelte";
 	import { basename } from "$lib/studio/format";
 	import { rpc } from "$lib/studio/rpc";
+	import { studio } from "$lib/studio/state.svelte";
 	import type { WwiseObject } from "../../../electron/src/ipc/contract";
 
 	interface Props {
@@ -13,11 +13,12 @@
 
 	let info = $state<WwiseObject | null>(null);
 	let error = $state<string | null>(null);
-	let outDir = $state<string | null>(null);
 	let version = $state(0);
 
 	$effect(() => {
 		void version;
+		// Saving or discarding the .pck changes what it holds.
+		void studio.edits;
 		void (async () => {
 			try {
 				info = await rpc("wwise.forObject", { path, index });
@@ -54,14 +55,8 @@
 				Bank <code>{info.bank}</code> ({basename(info.pck)}): {info.media.length} media files
 			{/if}
 		</p>
-		<WwiseOutput bind:outDir />
 		{#key version}
-			<WwiseMediaList
-				pck={info.pck}
-				media={info.media}
-				{outDir}
-				onchanged={() => version++}
-			/>
+			<WwiseMediaList pck={info.pck} media={info.media} onchanged={() => version++} />
 		{/key}
 	{/if}
 </div>

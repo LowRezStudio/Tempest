@@ -81,11 +81,8 @@ class Studio {
 	object = $state<ParsedObject | null>(null);
 	objectLoading = $state(false);
 
-	/** Game files saved in place (their original kept by the Studio), and exported copies by game file. */
-	marks = $state<{ inPlace: string[]; copies: Record<string, string[]> }>({
-		inPlace: [],
-		copies: {},
-	});
+	/** Exported copies by game file (package list badges). */
+	marks = $state<{ copies: Record<string, string[]> }>({ copies: {} });
 	/** Packages opened from outside the workspace folder (double-clicked files, mod folders). */
 	extraPackages = $state<WorkspacePackage[]>([]);
 	/** Opens a `.twrk` workspace file (set by the session store). */
@@ -418,7 +415,7 @@ class Studio {
 		}
 	}
 
-	/** Refresh which game files were saved in place or exported as copies (package list badges). */
+	/** Refresh which game files were exported as copies (package list badges). */
 	async refreshMarks(): Promise<void> {
 		if (!this.workspace) return;
 		try {
@@ -427,10 +424,7 @@ class Studio {
 			for (const f of r.files) {
 				if (f.origin === "copy") (copies[f.target] ??= []).push(f.source);
 			}
-			this.marks = {
-				inPlace: r.files.filter((f) => f.origin === "saved").map((f) => f.target),
-				copies,
-			};
+			this.marks = { copies };
 		} catch {
 			// badges only
 		}

@@ -392,6 +392,10 @@ class Session {
 			for (const p of r.packages) {
 				if (p.dirty && !studio.dirty.includes(p.path)) studio.dirty.push(p.path);
 			}
+			// Wwise packages with replaced media.
+			for (const path of r.pcks ?? []) {
+				if (!studio.dirty.includes(path)) studio.dirty.push(path);
+			}
 			for (const e of r.extras) studio.addExternal(e);
 			if (r.docs.length > 0) await assembly.open();
 			await this.restore(r.state as SavedState | null);
@@ -399,7 +403,7 @@ class Session {
 				this.file = { path, mode: r.mode };
 				this.remember(path);
 			}
-			const n = r.packages.length + r.docs.length;
+			const n = r.packages.length + r.docs.length + (r.pcks?.length ?? 0);
 			toasts.push(
 				r.problems.length > 0 ? "warning" : "success",
 				`${n} file${n === 1 ? "" : "s"} with unsaved changes${r.problems.length > 0 ? `; ${r.problems.join("; ")}` : ""}`,

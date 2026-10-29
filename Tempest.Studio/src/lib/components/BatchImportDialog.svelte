@@ -11,8 +11,6 @@
 
 	let dir = $state("");
 	let recursive = $state(false);
-	let mode = $state<"inplace" | "folder">("folder");
-	let outDir = $state("");
 	let result = $state<BatchResult | null>(null);
 	let working = $state(false);
 	let progress = $state<{ done: number; total: number; file: string } | null>(null);
@@ -72,11 +70,6 @@
 		}
 	}
 
-	async function browseOut() {
-		const d = await pickDirectory("Folder for the modified packages", outDir || undefined);
-		if (d) outDir = d;
-	}
-
 	async function scan() {
 		if (!dir) return;
 		working = true;
@@ -90,36 +83,31 @@
 		}
 	}
 
+	/** Import into the open packages: unsaved edits (one undo step per package), saved like any other. */
 	async function run() {
 		if (!dir || !result || selectedFiles === 0) return;
-		if (mode === "folder" && !outDir) return;
 		working = true;
 		progress = null;
-		const openPath = studio.pkg?.path ?? null;
-		const selected = studio.selected;
 		try {
 			const r = await studio.run("Importing…", () =>
-				rpc("batch.run", {
-					dir,
-					recursive,
-					outDir: mode === "folder" ? outDir : undefined,
-					packages: selectedPaths,
-				}),
+				rpc("batch.run", { dir, recursive, packages: selectedPaths }),
 			);
 			result = r;
+			const touched = [
+				...new Set(
+					r.entries.flatMap((e) => (e.ok && e.packagePath ? [e.packagePath] : [])),
+				),
+			];
+			for (const path of touched) studio.markDirty(path);
 			toasts.push(
 				r.failed ? "warning" : "success",
-				`${r.ok} imported${r.failed ? `, ${r.failed} failed` : ""}${mode === "folder" ? ` → ${outDir}` : ""}`,
+				`${r.ok} imported${r.failed ? `, ${r.failed} failed` : ""}; ${touched.length} package${touched.length === 1 ? "" : "s"} unsaved until you save (or build the mod)`,
 				"Batch import",
 			);
-			await studio.refreshPackages();
-			// Packages saved in place changed on disk: reopen the one on screen.
-			if (
-				mode === "inplace" &&
-				openPath &&
-				r.entries.some((e) => e.ok && e.packagePath === openPath)
-			) {
-				await studio.openPackage(openPath, selected ?? undefined);
+			// The package on screen changed in memory: show it as it is now.
+			if (studio.pkg && touched.includes(studio.pkg.path)) {
+				await studio.reloadTables();
+				if (studio.selected !== null) await studio.select(studio.selected);
 			}
 		} catch (error) {
 			toasts.error(error, "Batch import failed");
@@ -156,34 +144,15 @@
 		<label class="flex items-center gap-2 text-xs">
 			<input type="checkbox" class="checkbox checkbox-xs" bind:checked={recursive} /> include subfolders
 		</label>
-		<fieldset class="space-y-1 text-xs">
-			<legend class="opacity-70">Write the modified packages</legend>
-			<label class="flex items-center gap-2">
-				<input type="radio" class="radio radio-xs" bind:group={mode} value="folder" /> into
-				a folder (ready for a mod):
-				<input
-					class="input input-xs flex-1 font-mono"
-					bind:value={outDir}
-					placeholder="output folder"
-					disabled={mode !== "folder"}
-				/>
-				<button
-					class="btn btn-xs"
-					type="button"
-					onclick={browseOut}
-					disabled={mode !== "folder"}>Browse…</button
-				>
-			</label>
-			<label class="flex items-center gap-2">
-				<input type="radio" class="radio radio-xs" bind:group={mode} value="inplace" /> in place,
-				overwriting the game's packages
-			</label>
-		</fieldset>
+		<p class="text-xs opacity-60">
+			The imports are edits of the packages, like Replace: they stay unsaved (and in your
+			project) until you save, can be undone, and go into the mod like any other edit.
+		</p>
 
 		{#if result && !result.ran && packages.length > 1}
 			<fieldset class="border-base-300 rounded border p-2 text-xs">
 				<legend class="flex items-center gap-2 px-1 opacity-70">
-					Packages to write ({selectedPaths.length}/{packages.length})
+					Packages to change ({selectedPaths.length}/{packages.length})
 					<button
 						class="btn btn-ghost btn-xs"
 						type="button"
@@ -234,7 +203,7 @@
 					<button
 						class="btn btn-sm btn-primary"
 						onclick={run}
-						disabled={working || selectedFiles === 0 || (mode === "folder" && !outDir)}
+						disabled={working || selectedFiles === 0}
 					>
 						{#if working}<span class="loading loading-xs loading-spinner"></span>{/if}
 						Import {selectedFiles} file{selectedFiles === 1 ? "" : "s"}

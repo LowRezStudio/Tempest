@@ -98,13 +98,6 @@
 					>●</span
 				>
 			{/if}
-			{#if studio.marks.inPlace.includes(p.path)}
-				<span
-					class="badge badge-ghost badge-xs shrink-0"
-					title="Saved in the game folder; the Studio keeps the original for mod deltas"
-					>edited</span
-				>
-			{/if}
 			{#if studio.marks.copies[p.path]}
 				<span
 					class="badge badge-ghost badge-xs shrink-0"

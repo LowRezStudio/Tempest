@@ -483,12 +483,14 @@ export type CookSource = {
 	/** The game file it changes. */
 	target: string;
 	rel: string;
-	kind: "upk" | "mcts";
+	kind: "upk" | "mcts" | "pck";
 	origin: "unsaved" | "saved" | "copy";
 	script: boolean;
 	doc?: string;
 	/** Unix seconds: when the original was recorded (saved) or the copy written (copy). */
 	when?: number;
+	/** Unix seconds: when a file saved in place was last written. */
+	modified?: number;
 	/** What it is compared with: the Studio's record, the launcher's backup, or the game folder's file. */
 	base: { kind: "recorded" | "backup" | "game"; path?: string; recorded?: number };
 };
@@ -496,7 +498,7 @@ export type CookItem = {
 	id: string;
 	source: string;
 	target: string;
-	kind: "upk" | "mcts";
+	kind: "upk" | "mcts" | "pck";
 	mode: "delta" | "whole";
 };
 export type CookPreview = {
@@ -1006,13 +1008,14 @@ export interface UpkMethods {
 		params: { path: string; id: number; out: string };
 		result: { out: string; bytes: number };
 	};
+	/** Replaced media stay in memory: the `.pck` is unsaved until `package.save`. */
 	"wwise.import": {
-		params: { path: string; id: number; file: string; quality?: number; out?: string };
-		result: { out: string; bytes: number };
+		params: { path: string; id: number; file: string; quality?: number };
+		result: { path: string; bytes: number; dirty: boolean };
 	};
 	"wwise.replacePcm": {
-		params: { path: string; id: number; out?: string } & PcmPayload;
-		result: { out: string; bytes: number };
+		params: { path: string; id: number } & PcmPayload;
+		result: { path: string; bytes: number; dirty: boolean };
 	};
 	"wwise.forObject": { params: Target; result: WwiseObject };
 	/** Open assembly.dat and the Lang_*.dat files of a cooked folder (the workspace by default). */
@@ -1393,6 +1396,8 @@ export interface UpkMethods {
 		result: {
 			packages: { path: string; stored: "delta" | "full"; changes: number; dirty: boolean }[];
 			docs: string[];
+			/** Wwise `.pck` files whose replaced media were put back (unsaved). */
+			pcks?: string[];
 			extras: string[];
 			problems: string[];
 			state: unknown;
@@ -1434,8 +1439,11 @@ export interface UpkMethods {
 	};
 	"batch.plan": { params: { dir: string; recursive?: boolean }; result: BatchResult };
 	"batch.run": {
-		/** `packages`: the package files (paths from the plan) to write; every touched one when absent. */
-		params: { dir: string; recursive?: boolean; outDir?: string; packages?: string[] };
+		/**
+		 * Imports into the open packages as unsaved edits (one undo step each).
+		 * `packages`: the package files (paths from the plan) to change; every touched one when absent.
+		 */
+		params: { dir: string; recursive?: boolean; packages?: string[] };
 		result: BatchResult;
 	};
 	"mod.dir": {

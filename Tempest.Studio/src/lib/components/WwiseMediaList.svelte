@@ -4,7 +4,7 @@
 	import SoundEditor from "$lib/components/SoundEditor.svelte";
 	import { pickFile, pickSave } from "$lib/platform/api";
 	import { formatTime } from "$lib/studio/audio";
-	import { bytes } from "$lib/studio/format";
+	import { basename, bytes } from "$lib/studio/format";
 	import { blobUrl, rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
@@ -14,14 +14,12 @@
 		/** The .pck file. */
 		pck: string;
 		media: WwiseMedia[];
-		/** Write replaced packages here instead of in place (null = in place). */
-		outDir: string | null;
-		/** Called after a package was written. */
-		onchanged?: (out: string) => void;
+		/** Called after a media file was replaced. */
+		onchanged?: () => void;
 		/** Highlighted ids (what an event plays). */
 		highlight?: Set<number>;
 	}
-	const { pck, media, outDir, onchanged, highlight }: Props = $props();
+	const { pck, media, onchanged, highlight }: Props = $props();
 
 	let playingId = $state<number | null>(null);
 	let audio: HTMLAudioElement | null = null;
@@ -29,8 +27,6 @@
 	let loading = $state<number | null>(null);
 	let editing = $state<{ id: number; ogg: Uint8Array } | null>(null);
 	let busy = $state(false);
-
-	const outPath = $derived(outDir ? `${outDir}/${pck.split(/[\\/]/).pop()}` : undefined);
 
 	function release() {
 		if (audio) {
@@ -85,6 +81,17 @@
 		}
 	}
 
+	/** A replaced media file is an unsaved edit of the .pck, like a package's. */
+	function replaced(n: number) {
+		studio.markDirty(pck);
+		toasts.push(
+			"success",
+			`${bytes(n)}; ${basename(pck)} is unsaved until you save (or build the mod)`,
+			"Media replaced",
+		);
+		onchanged?.();
+	}
+
 	async function replaceMedia(m: WwiseMedia) {
 		const file = await pickFile(`Replace media ${m.id}`, [
 			{ name: "Audio (Ogg Vorbis, WAV, Wwise .wem)", extensions: ["ogg", "wav", "wem"] },
@@ -94,10 +101,9 @@
 		release();
 		try {
 			const r = await studio.run("Encoding…", () =>
-				rpc("wwise.import", { path: pck, id: m.id, file, quality: 0.7, out: outPath }),
+				rpc("wwise.import", { path: pck, id: m.id, file, quality: 0.7 }),
 			);
-			toasts.push("success", `${bytes(r.bytes)} written to ${r.out}`, "Media replaced");
-			onchanged?.(r.out);
+			replaced(r.bytes);
 		} catch (error) {
 			toasts.error(error, "Replace failed");
 		} finally {
@@ -126,11 +132,10 @@
 		if (!editing) return;
 		const id = editing.id;
 		const r = await studio.run("Encoding…", () =>
-			rpc("wwise.replacePcm", { path: pck, id, ...payload, out: outPath }),
+			rpc("wwise.replacePcm", { path: pck, id, ...payload }),
 		);
-		toasts.push("success", `${bytes(r.bytes)} written to ${r.out}`, "Media replaced");
 		editing = null;
-		onchanged?.(r.out);
+		replaced(r.bytes);
 	}
 
 	onDestroy(release);

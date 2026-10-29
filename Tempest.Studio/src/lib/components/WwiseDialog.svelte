@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Modal from "$lib/components/Modal.svelte";
 	import WwiseMediaList from "$lib/components/WwiseMediaList.svelte";
-	import WwiseOutput from "$lib/components/WwiseOutput.svelte";
 	import { bytes } from "$lib/studio/format";
 	import { rpc } from "$lib/studio/rpc";
+	import { studio } from "$lib/studio/state.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
 	import type { WwisePackage } from "../../../electron/src/ipc/contract";
 
@@ -14,7 +14,6 @@
 	let selected = $state<string | null>(null);
 	let pkg = $state<WwisePackage | null>(null);
 	let loading = $state(false);
-	let outDir = $state<string | null>(null);
 	let eventFilter = $state("");
 	let highlight = $state<Set<number> | undefined>(undefined);
 	let selectedEvent = $state<number | null>(null);
@@ -48,6 +47,26 @@
 			loading = false;
 		}
 	}
+
+	/** Read the open package again (a replace, save or discard), keeping the event picked. */
+	async function reload() {
+		if (!selected) return;
+		try {
+			pkg = await rpc("wwise.open", { path: selected });
+		} catch (error) {
+			toasts.error(error, "Cannot open package");
+		}
+	}
+
+	// Saving or discarding the .pck changes what it holds.
+	let seenEdits = studio.edits;
+	$effect(() => {
+		const e = studio.edits;
+		if (e !== seenEdits) {
+			seenEdits = e;
+			void reload();
+		}
+	});
 
 	const allMedia = $derived(pkg ? [...pkg.banks.flatMap((b) => b.media), ...pkg.streams] : []);
 	const events = $derived(
@@ -106,7 +125,6 @@
 					{pkg.banks.reduce((n, b) => n + b.media.length, 0)} embedded · {pkg.streams
 						.length} streamed · languages {pkg.languages.join(", ") || "-"}
 				</div>
-				<WwiseOutput bind:outDir />
 				<div class="flex min-h-0 flex-1 gap-2">
 					<div class="flex w-72 shrink-0 flex-col gap-1">
 						<input
@@ -138,9 +156,8 @@
 							<WwiseMediaList
 								pck={pkg.path}
 								media={listed}
-								{outDir}
 								{highlight}
-								onchanged={() => selected && openPackage(selected)}
+								onchanged={() => void reload()}
 							/>
 						{/key}
 					</div>

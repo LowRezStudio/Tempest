@@ -48,7 +48,7 @@ export type Choice = { on: boolean; source: string | null; mode: "delta" | "whol
 export type Entry = {
 	target: string;
 	rel: string;
-	kind: "upk" | "mcts";
+	kind: "upk" | "mcts" | "pck";
 	sources: CookSource[];
 	choice: Choice;
 	chosen: CookSource | null;
@@ -82,6 +82,8 @@ type Project = {
 	projectDir?: string | null;
 	/** The game files a project works on: edited while it was open, or added to it. */
 	targets?: string[];
+	/** Files saved in place the user removed from the list, with when they were last written. */
+	dismissed?: Record<string, number>;
 };
 
 const emptyMeta = (): Meta => ({
@@ -146,6 +148,12 @@ class Cooker {
 	projectFiles = $state<string[]>([]);
 	/** The game files the project works on (other folders' copies and saves stay out of it). */
 	targets = $state<string[]>([]);
+	/**
+	 * Game files saved in place that the user removed from the list (by
+	 * target, with the file's write time then): they come back once the file
+	 * is written again.
+	 */
+	dismissed = $state<Record<string, number>>({});
 
 	/** The game folder the project belongs to. */
 	private dir: string | null = null;
@@ -156,6 +164,7 @@ class Cooker {
 		const mine = new Set(this.targets.map(pathKey));
 		for (const s of this.sources) {
 			if (this.projectDir && !mine.has(pathKey(s.target))) continue;
+			if (s.origin === "saved" && this.isDismissed(s)) continue;
 			const list = byTarget.get(s.target) ?? [];
 			list.push(s);
 			byTarget.set(s.target, list);
@@ -167,7 +176,8 @@ class Cooker {
 				const choice: Choice = saved ?? {
 					on: true,
 					source: fallback?.id ?? null,
-					mode: sources.some((s) => s.script) ? "whole" : "delta",
+					// Script packages and Wwise .pck files have no delta.
+					mode: sources.some((s) => s.script || s.kind === "pck") ? "whole" : "delta",
 				};
 				const chosen = sources.find((s) => s.id === choice.source) ?? fallback;
 				return {
@@ -278,6 +288,7 @@ class Cooker {
 		if (this.meta.authors.length === 0) this.meta.authors = [{ name: "", link: "" }];
 		this.extras = p.extras ?? [];
 		this.choices = p.choices ?? {};
+		this.dismissed = p.dismissed ?? {};
 	}
 
 	/** Set up the cooker for a new mod project. */
@@ -480,6 +491,27 @@ class Cooker {
 			? assembly.discard(unsaved.doc)
 			: studio.discardPaths([unsaved.source]));
 		await this.refresh();
+	}
+
+	private isDismissed(s: CookSource): boolean {
+		const at = Object.entries(this.dismissed).find(([t]) => samePath(t, s.target))?.[1];
+		return at !== undefined && at === (s.modified ?? 0);
+	}
+
+	/**
+	 * Take a game file saved in place off the list (outside a project; a
+	 * project drops it from its targets). It comes back if the file is saved
+	 * again; nothing on disk changes.
+	 */
+	dismiss(e: Entry): void {
+		const saved = e.sources.find((x) => x.origin === "saved");
+		if (this.projectDir) {
+			this.targets = this.targets.filter((t) => !samePath(t, e.target));
+		}
+		if (saved) this.dismissed = { ...this.dismissed, [e.target]: saved.modified ?? 0 };
+		const next = { ...this.choices };
+		delete next[e.target];
+		this.choices = next;
 	}
 
 	async forgetCopy(s: CookSource): Promise<void> {
@@ -734,6 +766,7 @@ class Cooker {
 			choices: $state.snapshot(this.choices) as Record<string, Choice>,
 			projectDir: this.projectDir,
 			targets: $state.snapshot(this.targets) as string[],
+			dismissed: $state.snapshot(this.dismissed) as Record<string, number>,
 		};
 	}
 
@@ -747,6 +780,7 @@ class Cooker {
 		if (s.extras) this.extras = s.extras;
 		this.projectDir = s.projectDir ?? null;
 		this.targets = s.targets ?? [];
+		this.dismissed = s.dismissed ?? {};
 		// Workspace files of 0.0.15 kept a list of choices; they start over.
 		if (s.choices && !Array.isArray(s.choices)) this.choices = s.choices;
 	}

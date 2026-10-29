@@ -74,15 +74,19 @@
 			label: e.choice.on ? "Leave it out of the mod" : "Put it back in the mod",
 			run: () => cooker.setChoice(e.target, { on: !e.choice.on }),
 		});
-		items.push({
-			label: e.choice.mode === "whole" ? "Ship only my changes" : "Ship the whole file",
-			detail:
-				e.choice.mode === "whole"
-					? "Recommended: works together with other mods"
-					: "Replaces the game file; conflicts with other mods changing it",
-			run: () =>
-				cooker.setChoice(e.target, { mode: e.choice.mode === "whole" ? "delta" : "whole" }),
-		});
+		if (e.kind !== "pck" && !e.sources.some((s) => s.script)) {
+			items.push({
+				label: e.choice.mode === "whole" ? "Ship only my changes" : "Ship the whole file",
+				detail:
+					e.choice.mode === "whole"
+						? "Recommended: works together with other mods"
+						: "Replaces the game file; conflicts with other mods changing it",
+				run: () =>
+					cooker.setChoice(e.target, {
+						mode: e.choice.mode === "whole" ? "delta" : "whole",
+					}),
+			});
+		}
 		if (e.sources.some((s) => s.origin === "unsaved")) {
 			items.push("-", {
 				label: "Discard my edits to this file…",
@@ -90,11 +94,13 @@
 				run: () => cooker.discardEdits(e),
 			});
 		}
-		if (cooker.projectDir && !e.sources.some((s) => s.origin === "unsaved")) {
+		if (!e.sources.some((s) => s.origin === "unsaved")) {
 			items.push("-", {
-				label: "Remove from the project",
-				detail: "This file is no longer part of the mod; nothing is deleted",
-				run: () => (cooker.targets = cooker.targets.filter((t) => !samePath(t, e.target))),
+				label: cooker.projectDir ? "Remove from the project" : "Remove from the list",
+				detail: e.sources.some((s) => s.origin === "saved")
+					? "Nothing is deleted; it comes back if you save the file again"
+					: "This file is no longer part of the mod; nothing is deleted",
+				run: () => cooker.dismiss(e),
 			});
 		}
 		for (const s of e.sources.filter((x) => x.origin === "copy")) {

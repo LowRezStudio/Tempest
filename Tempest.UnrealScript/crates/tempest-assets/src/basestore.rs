@@ -140,6 +140,17 @@ pub fn record_mcts(tokens: &Tokens, file: &Path) -> Result<bool> {
     Ok(true)
 }
 
+/// Record that a Wwise `.pck` is about to be overwritten in place, unless a
+/// record exists: no digest (a `.pck` ships whole), only the mark that lists
+/// it among the files saved in place.
+pub fn record_pck(file: &Path) -> Result<bool> {
+    if read(file).is_some() {
+        return Ok(false);
+    }
+    write(file, json!({ "kind": "pck" }))?;
+    Ok(true)
+}
+
 /// What the Studio shows: whether a base is recorded, and when.
 pub fn status(file: &Path) -> Value {
     match read(file) {

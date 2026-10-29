@@ -112,6 +112,9 @@ pub struct Server {
     out: std::io::Stdout,
     /// The last Wwise package opened (`(canonical path, package)`).
     wwise: Option<(String, akpk::Package)>,
+    /// Wwise `.pck` files with replaced media, by key: unsaved like a
+    /// package's edits until `package.save` writes them.
+    pck_edits: HashMap<String, PckEdit>,
     /// Wwise object names from the AkEvent / AkBank exports of the workspace,
     /// by FNV id (built from the search index on first use).
     ak_names: Option<HashMap<u32, String>>,
@@ -230,7 +233,7 @@ impl Server {
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
             packed_cache: HashMap::new(),
-            compression: crate::delta::Compression::Small, out: std::io::stdout(), wwise: None, ak_names: None, mcts: None, bins: BinSink::default(),
+            compression: crate::delta::Compression::Small, out: std::io::stdout(), wwise: None, pck_edits: HashMap::new(), ak_names: None, mcts: None, bins: BinSink::default(),
             swf_cache: None, swf_embeds: HashMap::new(), swf_libs: HashMap::new(), swf_subset_cache: HashMap::new() }
     }
 
@@ -393,6 +396,7 @@ impl Server {
                 v["dirty"] = J::from(ed.is_dirty());
                 Ok(v)
             }
+            "package.close" | "package.discard" | "package.dirty" | "package.undo" | "package.undoList" | "package.save" if is_pck(s(p, "path")?) => self.pck_call(method, p),
             "package.close" => {
                 let k = key(s(p, "path")?);
                 self.scripts.remove(&k);
@@ -845,6 +849,14 @@ impl Server {
                 }
             }
         }
+        // Wwise packages: only the replaced media, applied to the game's file on load.
+        for edit in self.pck_edits.values() {
+            let rel = relative(&root, &edit.path);
+            for (id, wem) in &edit.media {
+                let meta = json!({ "kind": "pck", "path": edit.path.to_string_lossy(), "rel": rel, "media": id, "stored": "media" });
+                push(&mut files, &mut entries, meta, wem.clone(), None);
+            }
+        }
         // Marshal files.
         if let Some(ws) = self.mcts.as_mut() {
             let tokens = ws.tokens.clone();
@@ -905,6 +917,7 @@ impl Server {
         let files: Vec<J> = r.manifest["files"].as_array().cloned().unwrap_or_default();
         let mut packages: Vec<J> = Vec::new();
         let mut docs: Vec<String> = Vec::new();
+        let mut pcks: Vec<String> = Vec::new();
         let mut extras: Vec<String> = Vec::new();
         let mut problems: Vec<String> = Vec::new();
         for meta in &files {
@@ -925,6 +938,19 @@ impl Server {
                         let _ = crate::basestore::restore(&target, digest);
                     }
                 }
+            }
+            if meta["kind"] == "pck" {
+                let path = target.to_string_lossy().to_string();
+                let id = meta["media"].as_u64().unwrap_or(0) as u32;
+                match self.wwise_write(&path, id, bytes) {
+                    Ok(_) => {
+                        if !pcks.contains(&path) {
+                            pcks.push(path);
+                        }
+                    }
+                    Err(e) => problems.push(format!("{label}: {e}")),
+                }
+                continue;
             }
             if meta["kind"] == "mcts" {
                 if self.mcts.is_none() {
@@ -1012,7 +1038,7 @@ impl Server {
                 Err(e) => problems.push(format!("{label}: {e}")),
             }
         }
-        Ok(json!({ "packages": packages, "docs": docs, "extras": extras, "problems": problems, "state": r.manifest["state"], "mode": r.manifest["mode"] }))
+        Ok(json!({ "packages": packages, "docs": docs, "pcks": pcks, "extras": extras, "problems": problems, "state": r.manifest["state"], "mode": r.manifest["mode"] }))
     }
 
     fn package_rewrite(&mut self, p: &J) -> Res<J> {
@@ -2625,6 +2651,9 @@ impl Server {
 
     fn wwise_package(&mut self, path: &str) -> Res<&akpk::Package> {
         let k = key(path);
+        if self.pck_edits.contains_key(&k) {
+            return Ok(&self.pck_edits[&k].pkg);
+        }
         if self.wwise.as_ref().map(|(p, _)| p != &k).unwrap_or(true) {
             let pkg = akpk::Package::parse(&std::fs::read(path)?)?;
             self.wwise = Some((k, pkg));
@@ -2717,35 +2746,65 @@ impl Server {
         Ok(json!({ "out": out, "bytes": data.len() }))
     }
 
-    /// Replace a media file in a package with Wwise Vorbis bytes and write
-    /// the package to `out` (or in place).
-    fn wwise_write(&mut self, path: &str, id: u32, wem: Vec<u8>, out: Option<String>) -> Res<J> {
-        let mut pkg = self.wwise_package(path)?.clone();
-        let mut done = false;
-        for e in pkg.banks.iter_mut() {
-            let mut b = bnk::Bank::parse(&e.data)?;
-            if b.media().iter().any(|(i, _)| *i == id) {
-                b.replace_media(id, &wem)?;
-                e.data = b.to_bytes();
-                done = true;
-            }
+    /// Replace a media file of a package with Wwise Vorbis bytes, in memory:
+    /// the `.pck` is unsaved until `package.save` writes it.
+    fn wwise_write(&mut self, path: &str, id: u32, wem: Vec<u8>) -> Res<J> {
+        let k = key(path);
+        if !self.pck_edits.contains_key(&k) {
+            let pkg = self.wwise_package(path)?.clone();
+            self.pck_edits.insert(k.clone(), PckEdit { path: PathBuf::from(path), pkg, media: Default::default() });
         }
-        for st in pkg.streams.iter_mut() {
-            if st.id == id as u64 {
-                st.data = wem.clone();
-                done = true;
+        let edit = self.pck_edits.get_mut(&k).unwrap();
+        if !replace_pck_media(&mut edit.pkg, id, &wem)? {
+            if edit.media.is_empty() {
+                self.pck_edits.remove(&k);
             }
-        }
-        if !done {
             return Err(format!("media {id} is not in {path}").into());
         }
-        let out = out.unwrap_or_else(|| path.to_string());
-        if let Some(parent) = Path::new(&out).parent() {
-            let _ = std::fs::create_dir_all(parent);
+        let n = wem.len();
+        edit.media.insert(id, wem);
+        Ok(json!({ "path": path, "bytes": n, "dirty": true }))
+    }
+
+    /// `package.*` on a Wwise `.pck`: save (in place, or a copy to `out`),
+    /// discard / close (drop the replaced media), dirty, undo (none kept).
+    fn pck_call(&mut self, method: &str, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let k = key(&path);
+        let dirty = self.pck_edits.contains_key(&k);
+        match method {
+            "package.close" | "package.discard" => {
+                if self.wwise.as_ref().is_some_and(|(wk, _)| wk == &k) {
+                    self.wwise = None;
+                }
+                Ok(J::from(self.pck_edits.remove(&k).is_some()))
+            }
+            "package.dirty" => Ok(J::from(dirty)),
+            "package.undo" => Ok(json!({ "label": null, "remaining": [], "dirty": dirty })),
+            "package.undoList" => Ok(json!({ "labels": [], "dirty": dirty })),
+            _ => {
+                let out = opt_s(p, "out").unwrap_or_else(|| path.clone());
+                let Some(edit) = self.pck_edits.get(&k) else {
+                    return Ok(json!({ "out": out, "reopened": false, "dirty": false, "undo": [] }));
+                };
+                let bytes = edit.pkg.to_bytes();
+                if key(&out) != k {
+                    if let Some(parent) = Path::new(&out).parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&out, &bytes)?;
+                    crate::copies::add(Path::new(&path), Path::new(&out));
+                    return Ok(json!({ "out": out, "reopened": false, "dirty": true, "undo": [] }));
+                }
+                if let Err(e) = crate::basestore::record_pck(Path::new(&path)) {
+                    eprintln!("basestore: {path}: {e}");
+                }
+                std::fs::write(&path, &bytes)?;
+                self.pck_edits.remove(&k);
+                self.wwise = None;
+                Ok(json!({ "out": out, "reopened": false, "dirty": false, "undo": [] }))
+            }
         }
-        std::fs::write(&out, pkg.to_bytes())?;
-        self.wwise = None;
-        Ok(json!({ "out": out, "bytes": wem.len() }))
     }
 
     /// Audio file bytes → Wwise Vorbis (`.wem` verbatim; Ogg/WAV re-encoded).
@@ -2763,9 +2822,8 @@ impl Server {
         let file = s(p, "file")?.to_string();
         let id = opt_u(p, "id").ok_or("missing parameter id")? as u32;
         let quality = p.get("quality").and_then(|q| q.as_f64()).unwrap_or(0.7) as f32;
-        let out = opt_s(p, "out").filter(|o| !o.is_empty());
         let wem = Self::to_wem(std::fs::read(&file)?, quality)?;
-        self.wwise_write(&path, id, wem, out)
+        self.wwise_write(&path, id, wem)
     }
 
     /// `wwise.replacePcm`: edited PCM from the sound editor into a media file.
@@ -2773,10 +2831,9 @@ impl Server {
         let path = s(p, "path")?.to_string();
         let id = opt_u(p, "id").ok_or("missing parameter id")? as u32;
         let quality = p.get("quality").and_then(|q| q.as_f64()).unwrap_or(0.7) as f32;
-        let out = opt_s(p, "out").filter(|o| !o.is_empty());
         let pcm = Self::pcm_param(p)?;
         let wem = vorbis::ogg_to_wem(&audio::encode_ogg(&pcm, quality)?)?;
-        self.wwise_write(&path, id, wem, out)
+        self.wwise_write(&path, id, wem)
     }
 
     /// `wwise.forObject`: the package and media behind an AkEvent or AkBank
@@ -2959,19 +3016,26 @@ impl Server {
                 }
             }
         }
+        for edit in self.pck_edits.values() {
+            seen.insert(key(&edit.path.to_string_lossy()));
+            out.push(entry(&edit.path, &edit.path, "pck", "unsaved", false, json!({})));
+        }
         for (file, info) in crate::basestore::all() {
             let k = key(&file.to_string_lossy());
             if seen.contains(&k) || !file.exists() || crate::twrk::relative(&root, &file).is_none() {
                 continue;
             }
-            let kind = if file.to_string_lossy().to_ascii_lowercase().ends_with(".dat") { "mcts" } else { "upk" };
-            out.push(entry(&file, &file, kind, "saved", false, json!({ "when": info["recorded"] })));
+            let kind = file_kind(&file);
+            // When the file was last written: a cooker entry the user removed
+            // comes back only once the file changes again.
+            let modified = std::fs::metadata(&file).ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs());
+            out.push(entry(&file, &file, kind, "saved", false, json!({ "when": info["recorded"], "modified": modified })));
         }
         for (original, copy, saved) in crate::copies::all() {
             if crate::twrk::relative(&root, &original).is_none() {
                 continue;
             }
-            let kind = if copy.to_string_lossy().to_ascii_lowercase().ends_with(".dat") { "mcts" } else { "upk" };
+            let kind = file_kind(&copy);
             out.push(entry(&copy, &original, kind, "copy", false, json!({ "when": saved })));
         }
         out.sort_by(|a, b| (a["rel"].as_str(), a["origin"].as_str()).cmp(&(b["rel"].as_str(), b["origin"].as_str())));
@@ -2990,6 +3054,14 @@ impl Server {
         let whole = it["mode"].as_str() == Some("whole");
         let sk = key(&source.to_string_lossy());
         let missing = || format!("{rel}: the game file is not in the game folder, so there is nothing to compare with; ship the whole file instead");
+        if it["kind"] == "pck" {
+            // Wwise packages have no delta format: always the whole file.
+            let bytes = match self.pck_edits.get(&sk) {
+                Some(edit) => edit.pkg.to_bytes(),
+                None => std::fs::read(&source)?,
+            };
+            return Ok((json!({ "rel": rel, "mode": "whole", "bytes": bytes.len() }), Some(("files", rel, Payload::Bytes(bytes))), Shared::new()));
+        }
         if it["kind"] == "mcts" {
             let (tokens, edited) = match self.mcts.as_ref().and_then(|ws| ws.docs.iter().find(|(_, d)| key(&d.path.to_string_lossy()) == sk).map(|(_, d)| (ws.tokens.clone(), d.marshal.clone()))) {
                 Some(x) => x,
@@ -3062,7 +3134,7 @@ impl Server {
         let source = it["source"].as_str().unwrap_or_default().to_string();
         let target = it["target"].as_str().unwrap_or_default().to_string();
         let sk = key(&source);
-        if self.editors.get(&sk).is_some_and(|e| e.is_dirty()) || self.mcts.as_ref().is_some_and(|ws| ws.docs.iter().any(|(_, d)| d.dirty && key(&d.path.to_string_lossy()) == sk)) {
+        if self.editors.get(&sk).is_some_and(|e| e.is_dirty()) || self.pck_edits.contains_key(&sk) || self.mcts.as_ref().is_some_and(|ws| ws.docs.iter().any(|(_, d)| d.dirty && key(&d.path.to_string_lossy()) == sk)) {
             return None;
         }
         let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| format!("{}:{:?}", m.len(), m.modified().ok()));
@@ -3084,7 +3156,7 @@ impl Server {
         let mut jobs: Vec<Job> = Vec::new();
         for (k, it) in items.iter().enumerate() {
             let source = PathBuf::from(it["source"].as_str().unwrap_or_default());
-            if it["kind"] == "mcts" || it["mode"].as_str() == Some("whole") {
+            if it["kind"] == "mcts" || it["kind"] == "pck" || it["mode"].as_str() == Some("whole") {
                 out[k] = Some(self.mod_item(it, sharing(k), preview));
                 continue;
             }
@@ -3734,7 +3806,6 @@ impl Server {
     fn batch(&mut self, p: &J, run: bool) -> Res<J> {
         let dir = PathBuf::from(s(p, "dir")?);
         let recursive = opt_b(p, "recursive").unwrap_or(false);
-        let out_dir = opt_s(p, "outDir").filter(|d| !d.is_empty()).map(PathBuf::from);
         let db = self.db()?;
         let packages: Vec<(String, PathBuf)> = self.packages.iter().map(|w| (w.name.clone(), w.path.clone())).collect();
         let files = crate::batch::collect_files(&dir, recursive);
@@ -3746,40 +3817,58 @@ impl Server {
             packages.iter().filter(|(_, p)| index.get(&key(&p.to_string_lossy())).is_some_and(|idx| idx.exports.iter().any(|(_, op)| op.eq_ignore_ascii_case(path)))).cloned().collect()
         };
         let entries = if run {
-            // Unsaved edits of the touched packages would be overwritten: refuse.
-            let plan = crate::batch::plan(db, &packages, &files, &mut lookup);
-            for e in &plan {
-                if let Some(pp) = &e.package_path {
-                    if let Some(ed) = self.editors.get(&key(&pp.to_string_lossy())) {
-                        if ed.is_dirty() {
-                            return Err(format!("{} has unsaved edits in the Studio; save or close it before running the batch", e.package).into());
+            // The imports are edits of the open packages, like Replace: unsaved
+            // (one undo step per package) until the user saves them.
+            let mut entries = crate::batch::plan(db, &packages, &files, &mut lookup);
+            // `packages`: the package files to change (every touched one when absent).
+            let only: Option<std::collections::HashSet<String>> = p.get("packages").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|v| v.as_str()).map(key).collect());
+            for e in entries.iter_mut() {
+                if e.ok && only.as_ref().is_some_and(|only| !e.package_path.as_ref().is_some_and(|pp| only.contains(&key(&pp.to_string_lossy())))) {
+                    e.ok = false;
+                    e.message = "package not selected".to_string();
+                }
+            }
+            let total = entries.len();
+            let mut done = entries.iter().filter(|e| !e.ok).count();
+            let mut by_package: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+            for (k, e) in entries.iter().enumerate() {
+                if e.ok {
+                    by_package.entry(key(&e.package_path.as_ref().unwrap().to_string_lossy())).or_default().push(k);
+                }
+            }
+            for (_, idxs) in by_package {
+                let path = entries[idxs[0]].package_path.as_ref().unwrap().to_string_lossy().to_string();
+                match self.editor(&path) {
+                    Ok(ed) => ed.begin_undo(format!("batch import ({} files)", idxs.len())),
+                    Err(e) => {
+                        for k in idxs {
+                            entries[k].ok = false;
+                            entries[k].message = format!("cannot open {path}: {e}");
+                        }
+                        continue;
+                    }
+                }
+                for &k in &idxs {
+                    done += 1;
+                    let mut f = Map::new();
+                    f.insert("done".into(), J::from(done));
+                    f.insert("total".into(), J::from(total));
+                    f.insert("file".into(), J::from(entries[k].file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()));
+                    self.event("batch.progress", f);
+                    let (i, opath) = entries[k].export.clone().unwrap();
+                    let ed = self.editor(&path)?;
+                    match crate::batch::import_file(db, ed, i, &entries[k].file) {
+                        Ok(msg) => entries[k].message = format!("{opath}: {msg}"),
+                        Err(e) => {
+                            entries[k].ok = false;
+                            entries[k].message = format!("{opath}: {e}");
                         }
                     }
                 }
-            }
-            let mut events: Vec<(usize, usize, String)> = Vec::new();
-            // `packages`: the package files to write (every touched one when absent).
-            let only: Option<std::collections::HashSet<String>> = p.get("packages").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|v| v.as_str()).map(|s| s.to_ascii_lowercase()).collect());
-            let entries = crate::batch::run(db, &packages, &files, &mut lookup, out_dir.as_deref(), only.as_ref(), &mut |done, total, file| events.push((done, total, file.to_string())));
-            for (done, total, file) in events {
-                let mut f = Map::new();
-                f.insert("done".into(), J::from(done));
-                f.insert("total".into(), J::from(total));
-                f.insert("file".into(), J::from(file));
-                self.event("batch.progress", f);
-            }
-            // Packages saved in place changed on disk: drop their open editors.
-            if out_dir.is_none() {
-                for e in &entries {
-                    if let Some(pp) = &e.package_path {
-                        let k = key(&pp.to_string_lossy());
-                        self.editors.remove(&k);
-                        self.index.remove(&k);
-                        self.scripts.remove(&k);
-                    }
-                }
-            } else {
-                self.packages = list_packages(self.dir()?);
+                let ed = self.editor(&path)?;
+                ed.end_undo();
+                let k = key(&path);
+                self.index.remove(&k);
             }
             entries
         } else {
@@ -4287,6 +4376,50 @@ fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
 use crate::value::Value;
 
 /// What `anim.*` needs about a sequence.
+/// A Wwise `.pck` with replaced media, kept in memory until saved.
+struct PckEdit {
+    path: PathBuf,
+    pkg: akpk::Package,
+    /// The replaced media (Wwise Vorbis bytes) by id, what workspace files keep.
+    media: std::collections::BTreeMap<u32, Vec<u8>>,
+}
+
+/// Replace media `id` wherever the package holds it (bank data or stream).
+fn replace_pck_media(pkg: &mut akpk::Package, id: u32, wem: &[u8]) -> Res<bool> {
+    let mut done = false;
+    for e in pkg.banks.iter_mut() {
+        let mut b = bnk::Bank::parse(&e.data)?;
+        if b.media().iter().any(|(i, _)| *i == id) {
+            b.replace_media(id, wem)?;
+            e.data = b.to_bytes();
+            done = true;
+        }
+    }
+    for st in pkg.streams.iter_mut() {
+        if st.id == id as u64 {
+            st.data = wem.to_vec();
+            done = true;
+        }
+    }
+    Ok(done)
+}
+
+/// The cooker's kind of a game file: `mcts` (`.dat`), `pck` (Wwise) or `upk`.
+fn file_kind(path: &Path) -> &'static str {
+    let lower = path.to_string_lossy().to_ascii_lowercase();
+    if lower.ends_with(".dat") {
+        "mcts"
+    } else if lower.ends_with(".pck") {
+        "pck"
+    } else {
+        "upk"
+    }
+}
+
+fn is_pck(path: &str) -> bool {
+    path.to_ascii_lowercase().ends_with(".pck")
+}
+
 struct AnimContext {
     anim: crate::anim::Anim,
     header: crate::anim::Header,
