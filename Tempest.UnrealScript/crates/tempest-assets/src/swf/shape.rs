@@ -897,7 +897,7 @@ mod tests {
     use super::*;
 
     fn square(x: f64, y: f64, s: f64, clockwise: bool) -> Vec<Edge> {
-        let mut p = vec![(x, y), (x + s, y), (x + s, y + s), (x, y + s)];
+        let mut p = [(x, y), (x + s, y), (x + s, y + s), (x, y + s)];
         if !clockwise {
             p.reverse();
         }

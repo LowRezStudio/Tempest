@@ -159,7 +159,7 @@ pub fn build(m: &Movie, dict: &Dict, target: Target, opts: &Options) -> Preview 
         // empty frames while it is still parsing a large movie (an 8 MB one
         // takes 0.7 s), and an empty layout draws nothing otherwise.
         if let Some(id) = (1..=u16::MAX).rev().find(|id| !dict.chars.contains_key(id)) {
-            let pixel = vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)];
+            let pixel = [(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)];
             let edges = (0..4).map(|i| super::shape::Edge { from: pixel[i], ctrl: None, to: pixel[(i + 1) % 4] }).collect();
             let path = super::shape::NewPath { fill: Some(super::shape::NewFill::Solid(super::shape::Rgba { r: 0, g: 0, b: 0, a: 0 })), line: None, contours: vec![edges] };
             let at = tags.iter().position(|t| t.code == 26).unwrap_or(tags.len());

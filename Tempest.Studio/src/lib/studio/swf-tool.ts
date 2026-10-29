@@ -1,3 +1,4 @@
+import { invoke } from "$lib/platform/api";
 // The movie editor for agents: what the MCP tool `studio_swf` runs in the
 // renderer (electron/src/mcp.ts). It drives the same `SwfDoc` as the editor
 // (selecting the export mounts it), so the window follows every step, edits
@@ -6,8 +7,16 @@
 import { previewFor } from "./classes";
 import { rpc } from "./rpc";
 import { studio } from "./state.svelte";
+import { renderPng } from "./swf-export";
 import { compose, decompose, swfDoc, textureFor, type SwfDoc, type SwfNode } from "./swf.svelte";
-import type { SwfEntry, SwfMatrix } from "../../../electron/src/ipc/contract";
+import type {
+	SwfCharacterKind,
+	SwfCxform,
+	SwfEditTextProps,
+	SwfEntry,
+	SwfMatrix,
+	SwfPreviewTarget,
+} from "../../../electron/src/ipc/contract";
 
 export type SwfToolArgs = {
 	action:
@@ -28,7 +37,15 @@ export type SwfToolArgs = {
 		| "discard"
 		| "addImage"
 		| "replaceImage"
-		| "exportImage";
+		| "exportImage"
+		| "character"
+		| "shapeStyle"
+		| "shapeSvg"
+		| "editText"
+		| "staticText"
+		| "addGlyphs"
+		| "export"
+		| "compile";
 	path?: string;
 	index?: number;
 	object?: string;
@@ -71,6 +88,24 @@ export type SwfToolArgs = {
 	shape?: boolean;
 	/** addImage: place the shape on the open timeline frame (default true). */
 	place?: boolean;
+	/** edit: a raw colour transform (`mul` and `add`, RGBA; null drops it). */
+	cxform?: SwfCxform | null;
+	/** shapeStyle: the style key (`fill:g:i`, `stop:g:i:k`, `line:g:i`, `width:g:i`) and its value. */
+	styleKey?: string;
+	value?: string;
+	/** shapeSvg: the SVG document (or `file`); `fit` into the current bounds (default true). */
+	svg?: string;
+	fit?: boolean;
+	/** editText: edit-text properties to change. */
+	props?: Partial<SwfEditTextProps>;
+	/** staticText: the record and its new characters / colour. */
+	record?: number;
+	color?: string;
+	/** addGlyphs: the characters to add from the font `file`. */
+	chars?: string;
+	/** export: svg, png (rendered at `scale`), ttf (fonts), sound, binary. */
+	format?: "svg" | "png" | "ttf" | "sound" | "binary";
+	scale?: number;
 };
 
 const isMovie = (cls: string) => previewFor(cls) === "swf";
@@ -248,8 +283,35 @@ export async function swfTool(a: SwfToolArgs): Promise<unknown> {
 		};
 	}
 
+	if (a.action === "compile") {
+		if (a.source === undefined && a.pcode === undefined) {
+			throw new Error("give source (ActionScript) or pcode");
+		}
+		return rpc(
+			"swf.compile",
+			a.source !== undefined ? { source: a.source } : { pcode: a.pcode! },
+		);
+	}
+
 	const doc = await movie(a);
-	await goTo(doc, a);
+	if (a.action !== "character" && a.action !== "export") await goTo(doc, a);
+	else if (a.sprite !== undefined || a.node) await goTo(doc, { ...a, character: undefined });
+
+	/** The character an action edits (`character`), with its defining tag. */
+	const defined = (want: SwfCharacterKind) => {
+		if (a.character === undefined) throw new Error("give character (action tree lists them)");
+		const c = doc.tree?.characters.find((x) => x.id === a.character);
+		if (!c) throw new Error(`no character ${a.character}`);
+		if (c.kind !== want) throw new Error(`character ${c.id} is a ${c.kind}, not a ${want}`);
+		if (c.tag === null || c.tag === undefined) {
+			throw new Error(`character ${c.id} is imported from another movie`);
+		}
+		return { id: c.id, tag: c.tag };
+	};
+	const pendingNow = async () => {
+		await doc.settled();
+		return { pending: doc.pending.length };
+	};
 
 	switch (a.action) {
 		case "open":
@@ -414,6 +476,10 @@ export async function swfTool(a: SwfToolArgs): Promise<unknown> {
 					cxform: identity ? null : { mul, add: base.add },
 				});
 			}
+			if (a.cxform !== undefined) {
+				doc.float(e);
+				doc.editPlace(sprite, e.changedBy, { cxform: a.cxform });
+			}
 			if (a.name !== undefined) {
 				doc.editPlace(sprite, e.placedBy, {
 					name: a.name.trim() === "" ? null : a.name.trim(),
@@ -527,6 +593,97 @@ export async function swfTool(a: SwfToolArgs): Promise<unknown> {
 			const r = await doc.replaceImageWith(texture, image, a.file);
 			await doc.settled();
 			return { ...r, texture: studio.pkg?.exports[texture]?.path };
+		}
+
+		case "character": {
+			if (a.character === undefined) {
+				throw new Error("give character (action tree lists them)");
+			}
+			doc.openCharacter(a.character);
+			await doc.settled();
+			const detail = await rpc("swf.character", {
+				path: doc.path,
+				index: doc.index,
+				id: a.character,
+				edits: doc.pending,
+			});
+			return { id: a.character, label: doc.label(a.character), ...detail };
+		}
+
+		case "shapeStyle": {
+			const c = defined("shape");
+			if (!a.styleKey || a.value === undefined) {
+				throw new Error("give styleKey and value (action character lists the keys)");
+			}
+			doc.setShapeStyle(c.tag, a.styleKey, a.value);
+			return pendingNow();
+		}
+
+		case "shapeSvg": {
+			const c = defined("shape");
+			const svg =
+				a.svg ?? (a.file ? await invoke("fs:read-text", { path: a.file }) : undefined);
+			if (!svg) throw new Error("give svg (the document) or file");
+			doc.replaceShape(c.tag, svg, a.fit ?? true);
+			return pendingNow();
+		}
+
+		case "editText": {
+			const c = defined("edittext");
+			if (!a.props) throw new Error("give props (action character lists them)");
+			doc.setEditText(c.tag, a.props);
+			return pendingNow();
+		}
+
+		case "staticText": {
+			const c = defined("text");
+			if (a.record === undefined || (a.text === undefined && a.color === undefined)) {
+				throw new Error("give record and text and/or color");
+			}
+			doc.setStaticText(c.tag, a.record, { text: a.text, color: a.color });
+			return pendingNow();
+		}
+
+		case "addGlyphs": {
+			const c = defined("font");
+			if (!a.file || !a.chars) throw new Error("give file (TrueType/OpenType) and chars");
+			doc.addGlyphs(c.tag, a.file, a.chars);
+			return pendingNow();
+		}
+
+		case "export": {
+			if (!a.file) throw new Error("give file (where to write)");
+			const format = a.format ?? "svg";
+			if (format === "ttf" || format === "sound" || format === "binary") {
+				if (a.character === undefined) throw new Error(`${format} needs character`);
+				return rpc("swf.export", {
+					path: doc.path,
+					index: doc.index,
+					format,
+					id: a.character,
+					out: a.file,
+					edits: doc.pending,
+				});
+			}
+			const target: SwfPreviewTarget =
+				a.character !== undefined
+					? { kind: "character", id: a.character }
+					: a.sprite !== undefined && a.sprite !== 0
+						? { kind: "frame", id: a.sprite, frame: a.frame ?? 0 }
+						: { kind: "root", frame: a.frame ?? 0 };
+			if (format === "svg") {
+				return rpc("swf.export", {
+					path: doc.path,
+					index: doc.index,
+					format: "svg",
+					target,
+					out: a.file,
+					edits: doc.pending,
+				});
+			}
+			const r = await renderPng(doc, target, a.scale ?? 1);
+			await invoke("fs:write-bytes", { path: a.file, bytes: r.png });
+			return { out: a.file, width: r.width, height: r.height, bytes: r.png.length };
 		}
 	}
 	throw new Error(`unknown action ${a.action as string}`);

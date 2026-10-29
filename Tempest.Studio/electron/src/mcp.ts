@@ -339,6 +339,7 @@ function buildServer(): McpServer {
 				"Every action first goes to `sprite` (0: the root timeline, else a sprite character id), `character` (any character) or `node` (movie, frames, texts, scripts, images, linkage, tags), then to `frame`; the place is kept between calls.",
 				"Actions: `movies` (movies of the open package; with `query` also the workspace's), `open` (go somewhere, `depth` selects an object), `status` (movie summary, place with breadcrumb and selection, pending edits, hidden layers), `tree` (character dictionary: id, kind, linkage names, bounds, deps/usedBy; filter `kind`, `query`, page `limit`/`offset`), `timeline` (display list of the open sprite at the frame: depth, character, name, x/y in pixels, scaleX/scaleY as factors, rotation/skew in degrees, alpha in %, bounds, tags, edited, hidden; plus frame labels and frame scripts), `info` (`section`: texts, scripts (every script with its `key`: classes, frame scripts of the root and of sprites, clip events, buttons), images with their external file names, linkage, tags; `query`, paging), `script` (script `key`: decompiled ActionScript 2 `source`, `pcode`, and `problems`, parts kept as P-code).",
 				"Edits are pending until `apply`, like in the editor: `edit` the object at `depth` of the open sprite and frame (`x`, `y` absolute or `dx`, `dy` relative pixels, `scaleX`, `scaleY`, `rotation`, `skew`, or a raw `matrix`; `alpha` 0–100; `name`, empty removes it), `remove` the object at `depth`, `revert` its pending edits, `text` (`kind` text: an edit-text field's initial text by its `tag`; string: script string `index` of script `tag`; image: external image file name of `tag`), `setScript` (script `key` replaced by ActionScript 2 `source` (as `script` returns it: class syntax, `__pcode { … }` blocks, `__cast`/`__extends` built-ins) or by `pcode`; compiled first, errors name the line), `layers` (`hide`/`show`/`solo` depths, `showAll`: the editor's render only, never written to the movie), `apply` (writes the pending edits into the package as one undo step; then save with studio_run_command file.save, or keep it in the project/mod cooker), `discard` (drops the pending edits).",
+				"Characters (pending until `apply` like the rest): `character` (what the editor shows of `character`: a shape's fill/line/gradient-stop colours and line widths with their keys, a font's glyphs, a static text's records, an edit-text field's properties and usable fonts, a sound's format), `shapeStyle` (`character` shape, `styleKey` from `character`, `value` `#rrggbbaa` or a width in pixels for `width:` keys), `shapeSvg` (redraw a shape from `svg` or an SVG `file`, fitted into its bounds unless `fit` false), `editText` (`character` edit-text field, `props`: bounds, font, fontClass, height (px), color `#rrggbbaa`, maxLength, align, margins, indent, leading, variable, wordWrap, multiline, password, readOnly, autoSize, noSelect, border, html, useOutlines…), `staticText` (`character` static text, `record`, new `text` and/or `color`), `addGlyphs` (`character` font, `chars` taken from the TrueType/OpenType `file`). `edit` also takes a raw colour transform `cxform` ({mul, add}, RGBA; null removes it). `export` (`file`; `format` svg (default) or png (`scale`) of `character`, of `frame` of `sprite`, or of a root `frame`; ttf for a font, sound, binary for those characters; pending edits included). `compile` (check `source` or `pcode` without a movie: errors name the line, else the P-code).",
 				"Images (written at once, undoable, not pending): `addImage` (`file` PNG/DDS → a new Texture2D named `texture` next to the movie's images, its DefineExternalImage2, with `shape` (default true) a shape drawing it, and with `place` (default true) that shape on the open sprite and frame at `x`, `y` (top-left, pixels) with instance `name`; pending edits are applied with it), `replaceImage` (`file` PNG/DDS into the texture of the image `character` or `tag`; the movie keeps drawing it at its listed size), `exportImage` (that texture to `file`, .png or .dds).",
 				"See the result with studio_screenshot.",
 			].join(" "),
@@ -362,6 +363,14 @@ function buildServer(): McpServer {
 					"addImage",
 					"replaceImage",
 					"exportImage",
+					"character",
+					"shapeStyle",
+					"shapeSvg",
+					"editText",
+					"staticText",
+					"addGlyphs",
+					"export",
+					"compile",
 				]),
 				path: z
 					.string()
@@ -430,10 +439,47 @@ function buildServer(): McpServer {
 				file: z
 					.string()
 					.optional()
-					.describe("addImage/replaceImage: PNG or DDS; exportImage: output .png/.dds"),
+					.describe(
+						"addImage/replaceImage: PNG or DDS; exportImage: output .png/.dds; export: output; shapeSvg: SVG; addGlyphs: TTF/OTF",
+					),
 				texture: z.string().optional().describe("addImage: name of the new Texture2D"),
 				shape: z.boolean().optional().describe("addImage: make a shape drawing it"),
 				place: z.boolean().optional().describe("addImage: place the shape on this frame"),
+				cxform: z
+					.object({
+						mul: z.array(z.number()).length(4),
+						add: z.array(z.number()).length(4),
+					})
+					.nullable()
+					.optional()
+					.describe(
+						"edit: colour transform, RGBA multipliers (1 = unchanged) and additions (0–255)",
+					),
+				styleKey: z
+					.string()
+					.optional()
+					.describe("shapeStyle: fill:g:i, stop:g:i:k, line:g:i, width:g:i"),
+				value: z
+					.string()
+					.optional()
+					.describe("shapeStyle: #rrggbbaa, or pixels for width keys"),
+				svg: z.string().optional().describe("shapeSvg: the SVG document"),
+				fit: z
+					.boolean()
+					.optional()
+					.describe("shapeSvg: fit into the shape's bounds (default true)"),
+				props: z
+					.record(z.string(), z.unknown())
+					.optional()
+					.describe("editText: properties to change"),
+				record: z.number().int().optional().describe("staticText: the text record"),
+				color: z.string().optional().describe("staticText: #rrggbbaa"),
+				chars: z.string().optional().describe("addGlyphs: the characters to add"),
+				format: z
+					.enum(["svg", "png", "ttf", "sound", "binary"])
+					.optional()
+					.describe("export"),
+				scale: z.number().optional().describe("export png: scale (default 1)"),
 				hide: z.array(z.number().int()).optional(),
 				show: z.array(z.number().int()).optional(),
 				solo: z.array(z.number().int()).optional(),
