@@ -85,12 +85,15 @@
 		[...servers]
 			.sort((a, b) => {
 				switch (arrangement) {
-					case "name":
+					case "name": {
 						return a.name.localeCompare(b.name);
-					case "gamemode":
+					}
+					case "gamemode": {
 						return a.gamemode.localeCompare(b.gamemode) || a.name.localeCompare(b.name);
-					default:
+					}
+					default: {
 						return b.players - a.players || a.name.localeCompare(b.name);
+					}
 				}
 			})
 			.filter(
