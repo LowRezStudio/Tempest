@@ -9,13 +9,12 @@
 	import { Progress } from "bits-ui";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { platform } from "$lib/platform/api";
 	import { createReleasesQuery, type Release } from "$lib/queries/release";
 	import { updaterStore } from "$lib/stores/updater.svelte";
 	import { compareSemver } from "$lib/utils/deps";
 
 	let isOpen = $state(false);
-	const isWindows = platform() === "windows";
+	const canInstall = $derived(updaterStore.update?.canInstall ?? false);
 
 	const releasesQuery = createReleasesQuery(() => updaterStore.status === "available");
 	// Every release the update brings, newest first: one that skips versions shows theirs too. The
@@ -68,7 +67,7 @@
 					<div>
 						<h3 class="text-base font-bold">{m.updater_available_title()}</h3>
 						<p class="text-base-content/60 text-sm">
-							{#if isWindows}
+							{#if canInstall}
 								{m.updater_available_desc_win()}
 							{:else}
 								{m.updater_available_desc_other()}
@@ -206,7 +205,7 @@
 				{m.common_close()}
 			</button>
 		{:else if updaterStore.status === "available" && updaterStore.update}
-			{#if isWindows}
+			{#if canInstall}
 				<button class="btn btn-ghost" onclick={() => (isOpen = false)}>
 					{m.updater_btn_remind()}
 				</button>
@@ -231,7 +230,7 @@
 			<button class="btn btn-ghost" onclick={() => (isOpen = false)}>
 				{m.common_close()}
 			</button>
-			{#if isWindows}
+			{#if canInstall}
 				{#if updaterStore.update}
 					<button class="btn btn-primary" onclick={() => updaterStore.startUpdate()}>
 						{m.updater_btn_retry()}

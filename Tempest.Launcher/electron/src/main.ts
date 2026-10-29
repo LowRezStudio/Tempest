@@ -26,12 +26,12 @@ import "./publishing.js";
 import "./repo.js";
 import { injectOs } from "./os.js";
 import "./tray.js";
-import "./updater.js";
+import { activeChildren, killChild } from "./shell.js";
 import "./upk.js";
 import "./window.js";
 import "./zip.js";
 import "./state.js";
-import { activeChildren, killChild } from "./shell.js";
+import { waitForUpdatedParent } from "./updater.js";
 function tempestFilesFromArgs(args: string[], workingDirectory: string): string[] {
 	return args.flatMap((argument) => {
 		let filePath: string;
@@ -108,7 +108,9 @@ if (process.platform === "linux") {
 
 // A second instance shares the pinned userData profile but cannot acquire its
 // localStorage LevelDB lock, so it would silently run with empty, ephemeral
-// storage. Refuse to start and surface the existing window instead.
+// storage. Refuse to start and surface the existing window instead. A process
+// relaunched by an update first waits for the one that installed it to exit.
+waitForUpdatedParent();
 const hasInstanceLock = app.requestSingleInstanceLock();
 if (!hasInstanceLock) {
 	app.quit();
