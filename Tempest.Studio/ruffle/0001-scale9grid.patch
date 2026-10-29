@@ -1,0 +1,1771 @@
+diff --git a/core/src/avm1/globals/button.rs b/core/src/avm1/globals/button.rs
+index 94cd355c7..83cc52fb4 100644
+--- a/core/src/avm1/globals/button.rs
++++ b/core/src/avm1/globals/button.rs
+@@ -7,9 +7,9 @@ use crate::avm1::globals::bitmap_filter;
+ use crate::avm1::globals::movie_clip::{new_rectangle, object_to_rectangle};
+ use crate::avm1::property_decl::{DeclContext, PropertyOrder, StaticDeclarations, SystemClass};
+ use crate::avm1::{Object, Value, globals};
+-use crate::avm1_stub;
+ use crate::display_object::{Avm1Button, TDisplayObject, TInteractiveObject};
+ use crate::string::AvmString;
++use swf::Rectangle;
+ 
+ macro_rules! button_getter {
+     ($name:ident) => {
+@@ -137,7 +137,6 @@ fn scale_9_grid<'gc>(
+     this: Avm1Button<'gc>,
+     activation: &mut Activation<'_, 'gc>,
+ ) -> Result<Value<'gc>, Error<'gc>> {
+-    avm1_stub!(activation, "Button", "scale9Grid");
+     let rect = this.scaling_grid();
+     if rect.is_valid() {
+         new_rectangle(activation, rect)
+@@ -151,13 +150,18 @@ fn set_scale_9_grid<'gc>(
+     activation: &mut Activation<'_, 'gc>,
+     value: Value<'gc>,
+ ) -> Result<(), Error<'gc>> {
+-    avm1_stub!(activation, "Button", "scale9Grid");
++    // Same lax handling as `MovieClip.scale9Grid`: nothing is validated, and a negative
++    // width or height clears the grid.
+     if let Value::Object(object) = value {
+         if let Some(rectangle) = object_to_rectangle(activation, object)? {
+-            this.set_scaling_grid(rectangle);
++            if rectangle.x_max < rectangle.x_min || rectangle.y_max < rectangle.y_min {
++                this.set_scaling_grid(Rectangle::default());
++            } else {
++                this.set_scaling_grid(rectangle);
++            }
+         }
+     } else {
+-        this.set_scaling_grid(Default::default());
++        this.set_scaling_grid(Rectangle::default());
+     };
+     Ok(())
+ }
+diff --git a/core/src/avm1/globals/movie_clip.rs b/core/src/avm1/globals/movie_clip.rs
+index a12c75f72..24fff6067 100644
+--- a/core/src/avm1/globals/movie_clip.rs
++++ b/core/src/avm1/globals/movie_clip.rs
+@@ -16,7 +16,7 @@ use crate::ecma_conversions::f64_to_wrapping_i32;
+ use crate::prelude::*;
+ use crate::string::AvmString;
+ use crate::vminterface::Instantiator;
+-use crate::{avm_error, avm_warn, avm1_stub};
++use crate::{avm_error, avm_warn};
+ use ruffle_macros::istr;
+ use ruffle_render::shape_utils::{DrawCommand, GradientType};
+ use swf::{
+@@ -202,7 +202,6 @@ fn scale_9_grid<'gc>(
+     this: MovieClip<'gc>,
+     activation: &mut Activation<'_, 'gc>,
+ ) -> Result<Value<'gc>, Error<'gc>> {
+-    avm1_stub!(activation, "MovieClip", "scale9Grid");
+     let rect = this.scaling_grid();
+     if rect.is_valid() {
+         new_rectangle(activation, rect)
+@@ -216,10 +215,15 @@ fn set_scale_9_grid<'gc>(
+     activation: &mut Activation<'_, 'gc>,
+     value: Value<'gc>,
+ ) -> Result<(), Error<'gc>> {
+-    avm1_stub!(activation, "MovieClip", "scale9Grid");
++    // No validation here, unlike AVM2: any rectangle is accepted, and a negative width or
++    // height clears the grid instead of throwing.
+     if let Value::Object(object) = value {
+         if let Some(rectangle) = object_to_rectangle(activation, object)? {
+-            this.set_scaling_grid(rectangle);
++            if rectangle.x_max < rectangle.x_min || rectangle.y_max < rectangle.y_min {
++                this.set_scaling_grid(Rectangle::default());
++            } else {
++                this.set_scaling_grid(rectangle);
++            }
+         }
+     } else {
+         this.set_scaling_grid(Rectangle::default());
+diff --git a/core/src/avm2/globals/flash/display/display_object.rs b/core/src/avm2/globals/flash/display/display_object.rs
+index b87ee606c..0c41c8eb1 100644
+--- a/core/src/avm2/globals/flash/display/display_object.rs
++++ b/core/src/avm2/globals/flash/display/display_object.rs
+@@ -2,7 +2,10 @@
+ 
+ use crate::avm2::StageObject;
+ use crate::avm2::activation::Activation;
+-use crate::avm2::error::{make_error_2005, make_error_2007, make_error_2008, make_error_2078};
++use crate::avm2::error::{
++    Error2004Type, make_error_2004, make_error_2005, make_error_2007, make_error_2008,
++    make_error_2078,
++};
+ use crate::avm2::filters::FilterAvm2Ext;
+ use crate::avm2::function::FunctionArgs;
+ use crate::avm2::globals::flash::geom::transform::color_transform_from_transform_object;
+@@ -127,11 +130,24 @@ pub fn get_scale9grid<'gc>(
+ ) -> Result<Value<'gc>, Error<'gc>> {
+     let this = this.as_object().unwrap();
+ 
+-    avm2_stub_getter!(activation, "flash.display.DisplayObject", "scale9Grid");
+     if let Some(dobj) = this.as_display_object() {
+         let rect = dobj.scaling_grid();
+         return if rect.is_valid() {
+-            new_rectangle(activation, rect)
++            // Stored to the twip, reported in whole pixels, truncated per field: (10.5, 10.5,
++            // 39.5, 39.5) reads back (10, 10, 39, 39), not (10, 10, 40, 40).
++            let x = rect.x_min.to_pixels().trunc();
++            let y = rect.y_min.to_pixels().trunc();
++            let width = rect.width().to_pixels().trunc();
++            let height = rect.height().to_pixels().trunc();
++            new_rectangle(
++                activation,
++                Rectangle {
++                    x_min: Twips::from_pixels(x),
++                    y_min: Twips::from_pixels(y),
++                    x_max: Twips::from_pixels(x + width),
++                    y_max: Twips::from_pixels(y + height),
++                },
++            )
+         } else {
+             Ok(Value::Null)
+         };
+@@ -148,13 +164,46 @@ pub fn set_scale9grid<'gc>(
+ ) -> Result<Value<'gc>, Error<'gc>> {
+     let this = this.as_object().unwrap();
+ 
+-    avm2_stub_setter!(activation, "flash.display.DisplayObject", "scale9Grid");
+     if let Some(dobj) = this.as_display_object() {
+-        let rect = match args.try_get_object(0) {
+-            None => Rectangle::default(),
+-            Some(rect) => object_to_rectangle(rect),
++        let Some(rect) = args.try_get_object(0) else {
++            dobj.set_scaling_grid(Rectangle::default());
++            return Ok(Value::Undefined);
+         };
+-        dobj.set_scaling_grid(rect);
++
++        let [x, y, width, height] = [
++            rectangle_slots::X,
++            rectangle_slots::Y,
++            rectangle_slots::WIDTH,
++            rectangle_slots::HEIGHT,
++        ]
++        .map(|slot| rect.get_slot(slot).as_f64());
++
++        // Validate the raw f64s before converting: `NaN as i32` is 0, so a NaN field would
++        // pass both checks below as a zero-sized grid, which Flash Player throws for.
++        if [x, y, width, height].iter().any(|v| !v.is_finite()) || width <= 0.0 || height <= 0.0 {
++            return Err(make_error_2004(activation, Error2004Type::ArgumentError));
++        }
++
++        // Round each field to the nearest twip; `Twips::from_pixels` would truncate instead.
++        let twips = |v: f64| Twips::new((v * Twips::TWIPS_PER_PIXEL as f64).round() as i32);
++        let grid = Rectangle {
++            x_min: twips(x),
++            y_min: twips(y),
++            x_max: Twips::new(twips(x).get().saturating_add(twips(width).get())),
++            y_max: Twips::new(twips(y).get().saturating_add(twips(height).get())),
++        };
++
++        // Flash Player refuses a grid edge flush with the bounds, hence strict inequality.
++        let bounds = dobj.self_bounds_for_scale9();
++        if grid.x_min <= bounds.x_min
++            || grid.y_min <= bounds.y_min
++            || grid.x_max >= bounds.x_max
++            || grid.y_max >= bounds.y_max
++        {
++            return Err(make_error_2004(activation, Error2004Type::ArgumentError));
++        }
++
++        dobj.set_scaling_grid(grid);
+     }
+ 
+     Ok(Value::Undefined)
+diff --git a/core/src/bitmap/operations.rs b/core/src/bitmap/operations.rs
+index 4db9211aa..1e0246b57 100644
+--- a/core/src/bitmap/operations.rs
++++ b/core/src/bitmap/operations.rs
+@@ -1480,6 +1480,10 @@ pub fn draw<'gc>(
+         is_offscreen: true,
+         use_bitmap_cache: false,
+         stage: context.stage,
++        untransformed_source: match &source {
++            IBitmapDrawable::DisplayObject(object) => Some(*object),
++            IBitmapDrawable::BitmapData(_) => None,
++        },
+     };
+ 
+     // Make the screen opacity match the opacity of this bitmap
+diff --git a/core/src/context.rs b/core/src/context.rs
+index 7c36d00a9..9acbbd4c0 100644
+--- a/core/src/context.rs
++++ b/core/src/context.rs
+@@ -601,6 +601,10 @@ pub struct RenderContext<'a, 'gc> {
+ 
+     /// The current player's stage (including all loaded levels)
+     pub stage: Stage<'gc>,
++
++    /// The object `BitmapData.draw` is drawing without its own transform, if any. Its scaling
++    /// grid is left off with the transform: there is no scale left for the grid to stretch.
++    pub untransformed_source: Option<DisplayObject<'gc>>,
+ }
+ 
+ impl<'gc> RenderContext<'_, 'gc> {
+diff --git a/core/src/display_object.rs b/core/src/display_object.rs
+index 64e3a3258..e20ee8197 100644
+--- a/core/src/display_object.rs
++++ b/core/src/display_object.rs
+@@ -20,6 +20,7 @@ use gc_arena::{Collect, Gc, Mutation};
+ use ruffle_macros::{enum_trait_object, istr};
+ use ruffle_render::perspective_projection::PerspectiveProjection;
+ use ruffle_render::pixel_bender::PixelBenderShaderHandle;
++use ruffle_render::shape_utils::Scale9;
+ use ruffle_render::transform::{Transform, TransformStack};
+ use std::cell::{Cell, Ref, RefCell, RefMut};
+ use std::fmt::Debug;
+@@ -826,9 +827,11 @@ impl<'gc> DisplayObjectBase<'gc> {
+         self.contains_flag(DisplayObjectFlags::CACHE_AS_BITMAP)
+     }
+ 
+-    fn set_bitmap_cached_preference(&self, value: bool) {
++    fn set_bitmap_cached_preference(&self, value: bool) -> bool {
++        let changed = self.is_bitmap_cached_preference() != value;
+         self.set_flag(DisplayObjectFlags::CACHE_AS_BITMAP, value);
+         self.recheck_cache_as_bitmap();
++        changed
+     }
+ 
+     fn bitmap_cache_mut(&self) -> RefMut<'_, Option<BitmapCache>> {
+@@ -958,6 +961,22 @@ struct DrawCacheInfo {
+     filters: Vec<Filter>,
+ }
+ 
++/// Whether `object` is the one `BitmapData.draw` is drawing without its transform.
++fn is_untransformed_source<'gc>(
++    context: &RenderContext<'_, 'gc>,
++    object: DisplayObject<'gc>,
++) -> bool {
++    matches!(context.untransformed_source, Some(source) if DisplayObject::ptr_eq(source, object))
++}
++
++/// Whether `object` is being rendered as a mask. Every masker scales plainly -- timeline,
++/// scripted, and the alpha kind alike -- but the pipelines expose it differently: timeline
++/// and stencil masks draw with the mask flag up, while an alpha masker renders into its
++/// own command list and only its `maskee` link gives it away.
++fn is_masking<'gc>(context: &RenderContext<'_, 'gc>, object: DisplayObject<'gc>) -> bool {
++    context.commands.drawing_mask() || object.maskee().is_some()
++}
++
+ pub fn render_base<'gc>(
+     this: DisplayObject<'gc>,
+     context: &mut RenderContext<'_, 'gc>,
+@@ -1097,6 +1116,7 @@ pub fn render_base<'gc>(
+                 is_offscreen: true,
+                 use_bitmap_cache: true,
+                 stage: context.stage,
++                untransformed_source: context.untransformed_source,
+             };
+             this.render_self(&mut offscreen_context);
+             offscreen_context.cache_draws.push(BitmapCacheEntry {
+@@ -2066,6 +2086,108 @@ pub trait TDisplayObject<'gc>:
+     #[no_dynamic]
+     fn set_scaling_grid(self, rect: Rectangle<Twips>) {
+         self.base().scaling_grid.set(rect);
++        // A cached bitmap only redraws on matrix or size changes, and the grid moves
++        // neither. Children need none of this: one without a cached bitmap has nothing
++        // stale to drop, and one with a cached bitmap ignores the grid entirely.
++        self.invalidate_cached_bitmap();
++    }
++
++    /// The grid to 9-slice this object's geometry with, gated on the object's *own* matrix:
++    /// rotation, skew and negative scale disable slicing, while an ancestor's scale or
++    /// rotation applies to the sliced result instead of suppressing it. The sign half of
++    /// the rule needs no test here: the axis solver refuses a non-positive scale.
++    #[no_dynamic]
++    fn active_scaling_grid(self) -> Option<Scale9> {
++        let grid = self.scaling_grid();
++        if !grid.is_valid() {
++            return None;
++        }
++
++        // Authoring rounds a nominally axis-aligned matrix to the nearest 1/65536, so real
++        // content arrives carrying a skew of a few units. Flash Player still slices at
++        // 1/4096 and no longer at 1/2048, and the cutoff does not move with the scale.
++        const SKEW_EPSILON: f32 = 1.0 / 4096.0;
++        let matrix = self.base().matrix();
++        if matrix.b.abs() > SKEW_EPSILON || matrix.c.abs() > SKEW_EPSILON {
++            return None;
++        }
++
++        Some(Scale9 {
++            bounds: self.self_bounds_for_scale9(),
++            grid,
++            scale_x: matrix.a,
++            scale_y: matrix.d,
++        })
++        .filter(Scale9::is_usable)
++    }
++
++    /// This object's own geometry as a grid sees it. Morph shapes override this to re-anchor
++    /// on the frame being shown, and text has none: a grid neither applies to it nor sees it.
++    fn self_geometry_for_scale9(self) -> Rectangle<Twips> {
++        if self.is_text() {
++            return Rectangle::INVALID;
++        }
++        self.self_bounds(BoundsMode::ScriptWithoutStrokes)
++    }
++
++    /// Whether this is one of the text types.
++    #[no_dynamic]
++    fn is_text(self) -> bool {
++        self.as_edit_text().is_some() || self.as_text().is_some() || self.as_text_line().is_some()
++    }
++
++    /// Bounds the grid is validated against: this object's own geometry plus its *direct*
++    /// children's, without stroke inflation. Unlike `getBounds`, grandchildren are excluded.
++    fn self_bounds_for_scale9(self) -> Rectangle<Twips> {
++        let mut bounds = self.self_geometry_for_scale9();
++        if let Some(container) = self.as_container() {
++            for child in container.iter_render_list() {
++                bounds = bounds.union(&(child.base().matrix() * child.self_geometry_for_scale9()));
++            }
++        }
++        bounds
++    }
++
++    /// The parent's grid. Flash Player does not propagate past one level. A child whose own
++    /// grid can slice never gets here -- render tries the child's own grid first -- and one
++    /// whose grid cannot slice still inherits, with its matrix discarded rather than folded
++    /// (`Scale9Space::Detached`).
++    #[no_dynamic]
++    fn inherited_scaling_grid(self) -> Option<Scale9> {
++        // A bitmap-cached child is a bitmap as far as the parent's grid is concerned, and
++        // grids leave bitmaps alone, even one cached before the grid was set.
++        if self.is_bitmap_cached() {
++            return None;
++        }
++        self.parent()?.active_scaling_grid()
++    }
++
++    /// The grid to slice with while rendering, which is `active_scaling_grid` except for a
++    /// masker -- Flash Player scales every kind plainly -- and for the object
++    /// `BitmapData.draw` is drawing: that one keeps neither its transform nor its grid, so
++    /// Flash Player draws it whole and the clip rects a caller carves it with stay in the
++    /// coordinates it was authored in.
++    #[no_dynamic]
++    fn scaling_grid_for_render(self, context: &RenderContext<'_, 'gc>) -> Option<Scale9> {
++        if is_masking(context, self) || is_untransformed_source(context, self) {
++            return None;
++        }
++        self.active_scaling_grid()
++    }
++
++    /// `inherited_scaling_grid`, likewise blank while masking and when the child or its
++    /// parent is the object being drawn -- the source's grid does not reach its children
++    /// any more than the source itself, though a child's own grid still applies.
++    #[no_dynamic]
++    fn inherited_scaling_grid_for_render(self, context: &RenderContext<'_, 'gc>) -> Option<Scale9> {
++        let parent = self.parent()?;
++        if is_masking(context, self)
++            || is_untransformed_source(context, self)
++            || is_untransformed_source(context, parent)
++        {
++            return None;
++        }
++        self.inherited_scaling_grid()
+     }
+ 
+     #[no_dynamic]
+@@ -2246,7 +2368,11 @@ pub trait TDisplayObject<'gc>:
+     /// Note that the object will still be bitmap cached if a filter is active.
+     #[no_dynamic]
+     fn set_bitmap_cached_preference(self, value: bool) {
+-        self.base().set_bitmap_cached_preference(value)
++        // The flag also decides whether a parent's scale9Grid slices this child, so a
++        // cached ancestor has to redraw when it flips.
++        if self.base().set_bitmap_cached_preference(value) {
++            self.invalidate_cached_bitmap();
++        }
+     }
+ 
+     /// Whether this display object has a scroll rectangle applied.
+diff --git a/core/src/display_object/avm2_button.rs b/core/src/display_object/avm2_button.rs
+index 078366a55..dd244a448 100644
+--- a/core/src/display_object/avm2_button.rs
++++ b/core/src/display_object/avm2_button.rs
+@@ -580,6 +580,22 @@ impl<'gc> TDisplayObject<'gc> for Avm2Button<'gc> {
+         Default::default()
+     }
+ 
++    /// Bounds come from the state currently being shown, descending one level further than
++    /// elsewhere. A state built from a single button record IS that record's character; one
++    /// built from several records has no authored container, so `create_state` synthesizes
++    /// a Sprite to hold them, and that Sprite is the child measured here.
++    ///
++    /// A grid reaches exactly one level of children, so art behind the synthesized Sprite
++    /// sits one level too deep to slice; Flash Player leaves multi-record states unsliced
++    /// too, which the visual/scale9grid_tag test pins. Validation still runs against these
++    /// bounds, so the property round-trips even where it has no visual effect.
++    fn self_bounds_for_scale9(self) -> Rectangle<Twips> {
++        match self.get_state_child(self.0.state.get().into()) {
++            Some(child) => child.base().matrix() * child.self_bounds_for_scale9(),
++            None => Default::default(),
++        }
++    }
++
+     fn bounds_with_transform(self, matrix: &Matrix, mode: BoundsMode) -> Rectangle<Twips> {
+         // A scroll rect completely overrides an object's bounds,
+         // and can even grow the bounding box to be larger than the actual content
+diff --git a/core/src/display_object/graphic.rs b/core/src/display_object/graphic.rs
+index 8b139136b..47454276c 100644
+--- a/core/src/display_object/graphic.rs
++++ b/core/src/display_object/graphic.rs
+@@ -8,6 +8,7 @@ use crate::display_object::{BoundsMode, DisplayObjectBase};
+ use crate::drawing::Drawing;
+ use crate::library::MovieLibrarySource;
+ use crate::prelude::*;
++use crate::scale9_cache::{Scale9Cache, Scale9Key};
+ use crate::tag_utils::SwfMovie;
+ use crate::tessellation_cache::TessellationCache;
+ use crate::vminterface::Instantiator;
+@@ -18,6 +19,7 @@ use gc_arena::{Collect, Gc, Mutation};
+ use ruffle_common::utils::HasPrefixField;
+ use ruffle_render::backend::ShapeHandle;
+ use ruffle_render::commands::CommandHandler;
++use ruffle_render::shape_utils::{DistilledShape, Scale9, Scale9Space};
+ use std::cell::{OnceCell, RefCell, RefMut};
+ use std::sync::Arc;
+ 
+@@ -44,6 +46,10 @@ pub struct GraphicData<'gc> {
+     /// This is lazily allocated on demand, to make `GraphicData` smaller in the common case.
+     #[collect(require_static)]
+     drawing: OnceCell<Box<RefCell<Drawing>>>,
++
++    /// Sliced tessellation of the library shape.
++    #[collect(require_static)]
++    scale9_cache: Scale9Cache,
+ }
+ 
+ impl<'gc> Graphic<'gc> {
+@@ -76,6 +82,7 @@ impl<'gc> Graphic<'gc> {
+                 class: Lock::new(None),
+                 avm2_object: Lock::new(None),
+                 drawing: OnceCell::new(),
++                scale9_cache: Scale9Cache::default(),
+             },
+         ))
+     }
+@@ -111,6 +118,7 @@ impl<'gc> Graphic<'gc> {
+                 class: Lock::new(None),
+                 avm2_object: Lock::new(None),
+                 drawing: OnceCell::new(),
++                scale9_cache: Scale9Cache::default(),
+             },
+         ))
+     }
+@@ -131,6 +139,28 @@ impl<'gc> Graphic<'gc> {
+         unlock!(Gc::write(mc, self.0), GraphicData, shared).set(shared);
+     }
+ 
++    /// Tessellation of the library shape 9-sliced against `scale9`, cached per instance
++    /// since `GraphicShared::scaled_handle` is per character.
++    fn sliced_handle(
++        self,
++        context: &mut RenderContext,
++        scale9: &Scale9,
++        space: Scale9Space,
++        world_scale: f32,
++    ) -> Option<ShapeHandle> {
++        let key = Scale9Key::new(scale9, space).with_tessellation_scale(world_scale);
++        self.0.scale9_cache.get_or_register(key, || {
++            let shared = self.0.shared.get();
++            let library = context.library.library_for_movie(shared.movie.clone())?;
++            let distilled: DistilledShape = (&shared.shape).into();
++            Some(context.renderer.register_shape_with_scale(
++                scale9.apply(distilled, space),
++                &MovieLibrarySource { library },
++                world_scale,
++            ))
++        })
++    }
++
+     /// Returns the best shape handle for the current scale, retessellating if necessary.
+     fn get_or_retessellate_handle(
+         self,
+@@ -237,14 +267,38 @@ impl<'gc> TDisplayObject<'gc> for Graphic<'gc> {
+             .get_graphic(id)
+         {
+             self.set_shared(context.gc(), new_graphic.0.shared.get());
++            // The cache key holds no character id, so entries built for the old shape would
++            // still match.
++            self.0.scale9_cache.clear();
+         } else {
+             tracing::warn!("PlaceObject: expected Graphic at character ID {}", id);
+         }
+         self.invalidate_cached_bitmap();
+     }
+ 
+-    fn render_self(self, context: &mut RenderContext) {
+-        if !context.is_offscreen
++    fn render_self(self, context: &mut RenderContext<'_, 'gc>) {
++        // The parent's grid is in the parent's space, so a child's matrix folds in -- unless
++        // the child carries a grid of its own that cannot slice, where Flash Player throws
++        // the matrix away and remaps the raw coordinates.
++        let scale9 = self
++            .scaling_grid_for_render(context)
++            .map(|scale9| (scale9, Scale9Space::Own))
++            .or_else(|| {
++                self.inherited_scaling_grid_for_render(context)
++                    .map(|scale9| {
++                        let matrix = self.base().matrix();
++                        if self.scaling_grid().is_valid() {
++                            (scale9, Scale9Space::Detached(matrix))
++                        } else {
++                            (scale9, Scale9Space::Child(matrix))
++                        }
++                    })
++            });
++
++        // Sliced geometry is not contained in the plainly scaled bounds -- an inherited
++        // grid can move a child far outside them -- so a sliced shape skips the cull.
++        if scale9.is_none()
++            && !context.is_offscreen
+             && !self
+                 .world_bounds(BoundsMode::Engine)
+                 .intersects(&context.stage.view_bounds())
+@@ -254,7 +308,11 @@ impl<'gc> TDisplayObject<'gc> for Graphic<'gc> {
+         }
+ 
+         if let Some(drawing) = self.0.drawing.get() {
+-            drawing.borrow().render(context);
++            let drawing = drawing.borrow();
++            match scale9 {
++                Some((scale9, space)) => drawing.render_scale9(context, &scale9, space),
++                None => drawing.render(context),
++            }
+         } else if let Some(base_handle) = self.0.shared.get().render_handle.clone() {
+             let transform = context.transform_stack.transform();
+ 
+@@ -265,6 +323,22 @@ impl<'gc> TDisplayObject<'gc> for Graphic<'gc> {
+             let scale_y = f32::abs(matrix.b + matrix.d);
+             let current_scale = ((scale_x * scale_x + scale_y * scale_y) / 2.0).sqrt();
+ 
++            if let Some((scale9, space)) = scale9 {
++                // Sliced geometry is already at final size, so only the scale on top counts.
++                // `max` guards against `own` underflowing to zero at tiny script scales.
++                let own = ((scale9.scale_x * scale9.scale_x + scale9.scale_y * scale9.scale_y)
++                    / 2.0)
++                    .sqrt();
++                let world_scale = current_scale / own.max(f32::EPSILON);
++
++                if let Some(handle) = self.sliced_handle(context, &scale9, space, world_scale) {
++                    let mut sliced = transform.clone();
++                    sliced.matrix *= scale9.unscale(space);
++                    context.commands.render_shape(handle, sliced);
++                    return;
++                }
++            }
++
+             let handle = self.get_or_retessellate_handle(context, &base_handle, current_scale);
+ 
+             context.commands.render_shape(handle, transform)
+diff --git a/core/src/display_object/morph_shape.rs b/core/src/display_object/morph_shape.rs
+index 7d81315aa..b5457c015 100644
+--- a/core/src/display_object/morph_shape.rs
++++ b/core/src/display_object/morph_shape.rs
+@@ -4,6 +4,7 @@ use crate::context::{RenderContext, UpdateContext};
+ use crate::display_object::{BoundsMode, DisplayObjectBase};
+ use crate::library::MovieLibrarySource;
+ use crate::prelude::*;
++use crate::scale9_cache::{Scale9Cache, Scale9Key};
+ use crate::tag_utils::SwfMovie;
+ use crate::vminterface::Instantiator;
+ use core::fmt;
+@@ -13,6 +14,7 @@ use gc_arena::{Collect, Gc, Mutation};
+ use ruffle_common::utils::HasPrefixField;
+ use ruffle_render::backend::ShapeHandle;
+ use ruffle_render::commands::CommandHandler;
++use ruffle_render::shape_utils::{DistilledShape, Scale9, Scale9Space};
+ use std::cell::{RefCell, RefMut};
+ use std::sync::Arc;
+ use swf::{Fixed8, Fixed16};
+@@ -37,9 +39,35 @@ pub struct MorphShapeData<'gc> {
+     shared: Lock<Gc<'gc, MorphShapeShared>>,
+     /// The AVM2 representation of this MorphShape.
+     object: Lock<Option<Avm2StageObject<'gc>>>,
++
++    /// Sliced tessellation of the interpolated frame.
++    #[collect(require_static)]
++    scale9_cache: Scale9Cache,
+ }
+ 
+ impl<'gc> MorphShape<'gc> {
++    /// Tessellation of the interpolated frame 9-sliced against `scale9`, cached per instance
++    /// and keyed by the ratio it was built from.
++    fn sliced_handle(
++        self,
++        context: &mut RenderContext,
++        scale9: &Scale9,
++        space: Scale9Space,
++        ratio: u16,
++    ) -> Option<ShapeHandle> {
++        let key = Scale9Key::new(scale9, space).with_ratio(ratio);
++        self.0.scale9_cache.get_or_register(key, || {
++            let shared = self.0.shared.get();
++            let library = context.library.library_for_movie(shared.movie.clone())?;
++            let frame = shared.get_frame(ratio);
++            let distilled: DistilledShape = (&frame.shape).into();
++            Some(context.renderer.register_shape(
++                scale9.apply(distilled, space),
++                &MovieLibrarySource { library },
++            ))
++        })
++    }
++
+     pub fn from_swf_tag(
+         gc_context: &Mutation<'gc>,
+         tag: swf::DefineMorphShape,
+@@ -52,6 +80,7 @@ impl<'gc> MorphShape<'gc> {
+                 base: Default::default(),
+                 shared: Lock::new(Gc::new(gc_context, shared)),
+                 object: Lock::new(None),
++                scale9_cache: Scale9Cache::default(),
+             },
+         ))
+     }
+@@ -77,7 +106,9 @@ impl<'gc> TDisplayObject<'gc> for MorphShape<'gc> {
+             .get_morph_shape(id)
+         {
+             unlock!(Gc::write(context.gc(), self.0), MorphShapeData, shared)
+-                .set(new_morph_shape.0.shared.get())
++                .set(new_morph_shape.0.shared.get());
++            // The key carries no character identity, so the new art could pass for the old.
++            self.0.scale9_cache.clear();
+         } else {
+             tracing::warn!("PlaceObject: expected morph shape at character ID {}", id);
+         }
+@@ -111,8 +142,35 @@ impl<'gc> TDisplayObject<'gc> for MorphShape<'gc> {
+         }
+     }
+ 
+-    fn render_self(self, context: &mut RenderContext) {
++    fn render_self(self, context: &mut RenderContext<'_, 'gc>) {
+         let ratio = self.ratio();
++
++        let scale9 = self
++            .scaling_grid_for_render(context)
++            .map(|scale9| (scale9, Scale9Space::Own))
++            .or_else(|| {
++                // The parent's grid is in the parent's space, so a child's matrix folds in --
++                // unless the child carries a grid of its own that cannot slice, where Flash
++                // Player throws the matrix away and remaps the raw coordinates.
++                self.inherited_scaling_grid_for_render(context)
++                    .map(|scale9| {
++                        let matrix = self.base().matrix();
++                        if self.scaling_grid().is_valid() {
++                            (scale9, Scale9Space::Detached(matrix))
++                        } else {
++                            (scale9, Scale9Space::Child(matrix))
++                        }
++                    })
++            });
++        if let Some((scale9, space)) = scale9
++            && let Some(handle) = self.sliced_handle(context, &scale9, space, ratio)
++        {
++            let mut transform = context.transform_stack.transform();
++            transform.matrix *= scale9.unscale(space);
++            context.commands.render_shape(handle, transform);
++            return;
++        }
++
+         let shared = self.0.shared.get();
+         let shape_handle = shared.get_shape(context, ratio);
+         context
+@@ -120,6 +178,13 @@ impl<'gc> TDisplayObject<'gc> for MorphShape<'gc> {
+             .render_shape(shape_handle, context.transform_stack.transform());
+     }
+ 
++    /// The grid re-anchors on the frame being shown rather than the authored start bounds:
++    /// Flash Player pins an interpolated frame's caps to that frame's own edges. This holds
++    /// whether the grid is the morph's own or a container's.
++    fn self_geometry_for_scale9(self) -> Rectangle<Twips> {
++        self.0.shared.get().get_frame(self.ratio()).bounds
++    }
++
+     fn self_bounds(self, mode: BoundsMode) -> Rectangle<Twips> {
+         let shared = self.0.shared.get();
+ 
+diff --git a/core/src/display_object/movie_clip.rs b/core/src/display_object/movie_clip.rs
+index 63b3eae7e..8d4324087 100644
+--- a/core/src/display_object/movie_clip.rs
++++ b/core/src/display_object/movie_clip.rs
+@@ -47,6 +47,7 @@ use gc_arena::{Collect, DynamicRoot, Gc, GcWeak, Mutation, Rootable};
+ use ruffle_common::utils::HasPrefixField;
+ use ruffle_macros::istr;
+ use ruffle_render::perspective_projection::PerspectiveProjection;
++use ruffle_render::shape_utils::Scale9Space;
+ use smallvec::SmallVec;
+ use std::borrow::Cow;
+ use std::cell::{Cell, OnceCell, Ref, RefCell, RefMut};
+@@ -2657,7 +2658,10 @@ impl<'gc> TDisplayObject<'gc> for MovieClip<'gc> {
+ 
+     fn render_self(self, context: &mut RenderContext<'_, 'gc>) {
+         if let Some(drawing) = self.drawing() {
+-            drawing.render(context);
++            match self.scaling_grid_for_render(context) {
++                Some(scale9) => drawing.render_scale9(context, &scale9, Scale9Space::Own),
++                None => drawing.render(context),
++            }
+         }
+         self.render_children(context);
+     }
+@@ -3512,10 +3516,15 @@ impl<'gc, 'a> MovieClipShared<'gc> {
+         let id = reader.read_u16()?;
+         let rect = reader.read_rectangle()?;
+         if let Some(character) = self.library_mut(context).character_by_id(id) {
+-            if let Character::MovieClip(clip) = character {
+-                clip.set_scaling_grid(rect);
+-            } else {
+-                tracing::warn!("DefineScalingGrid for invalid ID {}", id);
++            // Flash Player honors the tag on shapes, buttons and morph shapes as well as
++            // sprites. Text refuses a grid outright, so it is not listed here.
++            match character {
++                Character::MovieClip(clip) => clip.set_scaling_grid(rect),
++                Character::Graphic(graphic) => graphic.set_scaling_grid(rect),
++                Character::Avm1Button(button) => button.set_scaling_grid(rect),
++                Character::Avm2Button(button) => button.set_scaling_grid(rect),
++                Character::MorphShape(shape) => shape.set_scaling_grid(rect),
++                _ => tracing::warn!("DefineScalingGrid for invalid ID {}", id),
+             }
+         }
+         Ok(())
+diff --git a/core/src/drawing.rs b/core/src/drawing.rs
+index f3dc5bd0f..6097323ca 100644
+--- a/core/src/drawing.rs
++++ b/core/src/drawing.rs
+@@ -1,16 +1,20 @@
+ use crate::context::RenderContext;
++use crate::scale9_cache::{Scale9Cache, Scale9Key};
+ use ruffle_render::backend::{RenderBackend, ShapeHandle};
+ use ruffle_render::bitmap::{BitmapHandle, BitmapInfo, BitmapSize, BitmapSource};
+ use ruffle_render::commands::CommandHandler;
+ use ruffle_render::shape_utils::{
+-    DistilledShape, DrawCommand, DrawPath, FillRule, cubic_curve_bounds, quadratic_curve_bounds,
++    DistilledShape, DrawCommand, DrawPath, FillRule, Scale9, Scale9Space, cubic_curve_bounds,
++    quadratic_curve_bounds,
+ };
++use std::borrow::Cow;
+ use std::cell::OnceCell;
+ use swf::{FillStyle, LineStyle, Point, Rectangle, Twips};
+ 
+ #[derive(Clone, Debug)]
+ pub struct Drawing {
+     render_handle: OnceCell<ShapeHandle>,
++    scale9_cache: Scale9Cache,
+     shape_bounds: Rectangle<Twips>,
+     edge_bounds: Rectangle<Twips>,
+     paths: Vec<DrawingPath>,
+@@ -35,6 +39,7 @@ impl Drawing {
+     pub fn new() -> Self {
+         Self {
+             render_handle: OnceCell::new(),
++            scale9_cache: Scale9Cache::default(),
+             shape_bounds: Default::default(),
+             edge_bounds: Default::default(),
+             paths: Vec::new(),
+@@ -52,6 +57,7 @@ impl Drawing {
+     pub fn from_swf_shape(shape: &swf::Shape) -> Self {
+         let mut this = Self {
+             render_handle: OnceCell::new(),
++            scale9_cache: Scale9Cache::default(),
+             shape_bounds: shape.shape_bounds,
+             edge_bounds: shape.edge_bounds,
+             paths: Vec::new(),
+@@ -77,7 +83,7 @@ impl Drawing {
+                     is_closed: _,
+                     commands,
+                 } => {
+-                    this.set_line_style(Some(style.clone()));
++                    this.set_line_style(Some(style.into_owned()));
+ 
+                     for command in commands {
+                         this.draw_command(command);
+@@ -90,7 +96,7 @@ impl Drawing {
+                     commands,
+                     winding_rule,
+                 } => {
+-                    this.new_fill(Some(style.clone()), Some(winding_rule));
++                    this.new_fill(Some(style.into_owned()), Some(winding_rule));
+ 
+                     for command in commands {
+                         this.draw_command(command);
+@@ -107,6 +113,7 @@ impl Drawing {
+     fn mark_dirty(&mut self) {
+         self.is_empty = false;
+         self.render_handle.take();
++        self.scale9_cache.clear();
+     }
+ 
+     /// Set fill style and reset fill rule to default.
+@@ -163,6 +170,7 @@ impl Drawing {
+ 
+         // An empty drawing doesn't need to hold onto a `ShapeHandle`.
+         self.render_handle.take();
++        self.scale9_cache.clear();
+     }
+ 
+     pub fn set_line_style(&mut self, style: Option<LineStyle>) {
+@@ -239,84 +247,105 @@ impl Drawing {
+         id
+     }
+ 
+-    /// Obtain a `ShapeHandle` that represents this `Drawing`, or `None` if it is empty.
+-    pub fn register_or_replace(&self, renderer: &mut dyn RenderBackend) -> Option<ShapeHandle> {
+-        if self.is_empty {
+-            return None;
+-        }
++    /// Assemble this drawing's paths into a shape ready for tessellation.
++    fn distill(&self) -> DistilledShape<'_> {
++        let mut paths = Vec::with_capacity(self.paths.len());
+ 
+-        let handle = self.render_handle.get_or_init(|| {
+-            let mut paths = Vec::with_capacity(self.paths.len());
+-
+-            for path in &self.paths {
+-                match path {
+-                    DrawingPath::Fill(fill) => {
+-                        paths.push(DrawPath::Fill {
+-                            style: &fill.style,
+-                            commands: fill.commands.to_owned(),
+-                            winding_rule: fill.rule,
+-                        });
+-                    }
+-                    DrawingPath::Line(line) => {
+-                        paths.push(DrawPath::Stroke {
+-                            style: &line.style,
+-                            commands: line.commands.to_owned(),
+-                            is_closed: line.is_closed,
+-                        });
+-                    }
++        for path in &self.paths {
++            match path {
++                DrawingPath::Fill(fill) => {
++                    paths.push(DrawPath::Fill {
++                        style: Cow::Borrowed(&fill.style),
++                        commands: fill.commands.to_owned(),
++                        winding_rule: fill.rule,
++                    });
++                }
++                DrawingPath::Line(line) => {
++                    paths.push(DrawPath::Stroke {
++                        style: Cow::Borrowed(&line.style),
++                        commands: line.commands.to_owned(),
++                        is_closed: line.is_closed,
++                    });
+                 }
+             }
++        }
+ 
+-            if let Some(fill) = &self.current_fill {
+-                paths.push(DrawPath::Fill {
+-                    style: &fill.style,
+-                    commands: fill.commands.to_owned(),
+-                    winding_rule: fill.rule,
+-                })
+-            }
+-
+-            for line in &self.pending_lines {
+-                let mut commands = line.commands.to_owned();
+-                let is_closed = if self.current_fill.is_some() {
+-                    commands.push(DrawCommand::LineTo(self.fill_start));
+-                    true
+-                } else {
+-                    self.cursor == self.fill_start
+-                };
+-                paths.push(DrawPath::Stroke {
+-                    style: &line.style,
+-                    commands,
+-                    is_closed,
+-                })
+-            }
++        if let Some(fill) = &self.current_fill {
++            paths.push(DrawPath::Fill {
++                style: Cow::Borrowed(&fill.style),
++                commands: fill.commands.to_owned(),
++                winding_rule: fill.rule,
++            })
++        }
+ 
+-            if let Some(line) = &self.current_line {
+-                let mut commands = line.commands.to_owned();
+-                let is_closed = if self.current_fill.is_some() {
+-                    commands.push(DrawCommand::LineTo(self.fill_start));
+-                    true
+-                } else {
+-                    self.cursor == self.fill_start
+-                };
+-                paths.push(DrawPath::Stroke {
+-                    style: &line.style,
+-                    commands,
+-                    is_closed,
+-                })
+-            }
++        for line in &self.pending_lines {
++            let mut commands = line.commands.to_owned();
++            let is_closed = if self.current_fill.is_some() {
++                commands.push(DrawCommand::LineTo(self.fill_start));
++                true
++            } else {
++                self.cursor == self.fill_start
++            };
++            paths.push(DrawPath::Stroke {
++                style: Cow::Borrowed(&line.style),
++                commands,
++                is_closed,
++            })
++        }
+ 
+-            let shape = DistilledShape {
+-                paths,
+-                shape_bounds: self.shape_bounds,
+-                edge_bounds: self.edge_bounds,
+-                id: 0,
++        if let Some(line) = &self.current_line {
++            let mut commands = line.commands.to_owned();
++            let is_closed = if self.current_fill.is_some() {
++                commands.push(DrawCommand::LineTo(self.fill_start));
++                true
++            } else {
++                self.cursor == self.fill_start
+             };
+-            renderer.register_shape(shape, self)
+-        });
++            paths.push(DrawPath::Stroke {
++                style: Cow::Borrowed(&line.style),
++                commands,
++                is_closed,
++            })
++        }
++
++        DistilledShape {
++            paths,
++            shape_bounds: self.shape_bounds,
++            edge_bounds: self.edge_bounds,
++            id: 0,
++        }
++    }
++
++    /// Obtain a `ShapeHandle` that represents this `Drawing`, or `None` if it is empty.
++    pub fn register_or_replace(&self, renderer: &mut dyn RenderBackend) -> Option<ShapeHandle> {
++        if self.is_empty {
++            return None;
++        }
++
++        let handle = self
++            .render_handle
++            .get_or_init(|| renderer.register_shape(self.distill(), self));
+ 
+         Some(handle.clone())
+     }
+ 
++    /// Obtain a `ShapeHandle` for this drawing 9-sliced against `grid`.
++    fn register_scale9(
++        &self,
++        renderer: &mut dyn RenderBackend,
++        scale9: &Scale9,
++        space: Scale9Space,
++    ) -> Option<ShapeHandle> {
++        if self.is_empty {
++            return None;
++        }
++
++        self.scale9_cache
++            .get_or_register(Scale9Key::new(scale9, space), || {
++                Some(renderer.register_shape(scale9.apply(self.distill(), space), self))
++            })
++    }
++
+     pub fn render(&self, context: &mut RenderContext) {
+         if let Some(handle) = self.register_or_replace(context.renderer) {
+             context
+@@ -325,6 +354,16 @@ impl Drawing {
+         }
+     }
+ 
++    /// Render 9-sliced. `space` carries the child's matrix when a container's grid is being
++    /// applied to it, and is `Own` when this drawing owns the grid.
++    pub fn render_scale9(&self, context: &mut RenderContext, scale9: &Scale9, space: Scale9Space) {
++        if let Some(handle) = self.register_scale9(context.renderer, scale9, space) {
++            let mut transform = context.transform_stack.transform();
++            transform.matrix *= scale9.unscale(space);
++            context.commands.render_shape(handle, transform);
++        }
++    }
++
+     pub fn self_bounds(&self, include_strokes: bool) -> Rectangle<Twips> {
+         if include_strokes {
+             self.shape_bounds
+diff --git a/core/src/lib.rs b/core/src/lib.rs
+index d76c1cba7..a1d194e15 100644
+--- a/core/src/lib.rs
++++ b/core/src/lib.rs
+@@ -39,6 +39,7 @@ mod orphan_manager;
+ pub mod pixel_bender;
+ mod player;
+ mod prelude;
++mod scale9_cache;
+ pub mod socket;
+ mod streams;
+ pub mod string;
+diff --git a/core/src/player.rs b/core/src/player.rs
+index 675ef3a78..aa544cd7c 100644
+--- a/core/src/player.rs
++++ b/core/src/player.rs
+@@ -2114,6 +2114,7 @@ impl Player {
+                 is_offscreen: false,
+                 use_bitmap_cache: true,
+                 stage,
++                untransformed_source: None,
+             };
+ 
+             stage.render_viewport(&mut render_context);
+diff --git a/core/src/scale9_cache.rs b/core/src/scale9_cache.rs
+new file mode 100644
+index 000000000..7cb9ad1e9
+--- /dev/null
++++ b/core/src/scale9_cache.rs
+@@ -0,0 +1,94 @@
++use ruffle_render::backend::ShapeHandle;
++use ruffle_render::shape_utils::{Scale9, Scale9Space};
++use std::cell::{OnceCell, RefCell};
++use swf::{Rectangle, Twips};
++
++/// Identifies a 9-sliced tessellation.
++///
++/// The scale is baked into the vertices and divided back out of the render matrix, so it is
++/// compared by bit pattern: reusing a near-miss renders the object at the wrong size.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(crate) struct Scale9Key {
++    bounds: Rectangle<Twips>,
++    grid: Rectangle<Twips>,
++    scale_x: u32,
++    scale_y: u32,
++    /// The linear part by bit pattern, the translation in twips. `None` when nothing folds,
++    /// which covers both the owning object and a detached child: their geometry is the same,
++    /// only the render matrix differs.
++    to_grid_space: Option<([u32; 4], [i32; 2])>,
++    tessellation_scale: i32,
++    /// Distinguishes the interpolated frames of a morph; zero for anything that does not morph.
++    ratio: u16,
++}
++
++impl Scale9Key {
++    pub(crate) fn new(scale9: &Scale9, space: Scale9Space) -> Self {
++        Self {
++            bounds: scale9.bounds,
++            grid: scale9.grid,
++            scale_x: scale9.scale_x.to_bits(),
++            scale_y: scale9.scale_y.to_bits(),
++            to_grid_space: match space {
++                Scale9Space::Child(m) => Some((
++                    [m.a.to_bits(), m.b.to_bits(), m.c.to_bits(), m.d.to_bits()],
++                    [m.tx.get(), m.ty.get()],
++                )),
++                Scale9Space::Own | Scale9Space::Detached(_) => None,
++            },
++            tessellation_scale: 0,
++            ratio: 0,
++        }
++    }
++
++    /// Unlike the rest of the key this is bucketed, since it only sets how finely curves are
++    /// subdivided and not where any vertex lands.
++    pub(crate) fn with_tessellation_scale(mut self, scale: f32) -> Self {
++        self.tessellation_scale = (scale * 16.0) as i32;
++        self
++    }
++
++    pub(crate) fn with_ratio(mut self, ratio: u16) -> Self {
++        self.ratio = ratio;
++        self
++    }
++}
++
++type Slot = RefCell<Option<(Scale9Key, ShapeHandle)>>;
++
++/// One-slot cache of the most recent 9-sliced tessellation of a shape.
++///
++/// An unsliced shape tessellates once and rescales through the render matrix, but
++/// slicing bakes the scale into the vertices, so every distinct scale is a distinct
++/// tessellation; without a cache a gridded object would re-tessellate every frame.
++/// One slot suffices because an object renders against a single grid and scale per
++/// frame, and it is allocated on first sliced render so the common ungridded object
++/// pays a pointer.
++#[derive(Clone, Debug, Default)]
++pub(crate) struct Scale9Cache(OnceCell<Box<Slot>>);
++
++impl Scale9Cache {
++    /// The cached handle for `key`, or the one `build` makes, kept for the next lookup.
++    /// `None` from `build` passes through uncached.
++    pub(crate) fn get_or_register(
++        &self,
++        key: Scale9Key,
++        build: impl FnOnce() -> Option<ShapeHandle>,
++    ) -> Option<ShapeHandle> {
++        let slot = self.0.get_or_init(Default::default);
++        if let Some((cached, handle)) = slot.borrow().as_ref()
++            && *cached == key
++        {
++            return Some(handle.clone());
++        }
++        let handle = build()?;
++        *slot.borrow_mut() = Some((key, handle.clone()));
++        Some(handle)
++    }
++
++    pub(crate) fn clear(&self) {
++        if let Some(slot) = self.0.get() {
++            *slot.borrow_mut() = None;
++        }
++    }
++}
+diff --git a/render/canvas/src/lib.rs b/render/canvas/src/lib.rs
+index 11d5425c0..265e60a65 100644
+--- a/render/canvas/src/lib.rs
++++ b/render/canvas/src/lib.rs
+@@ -975,7 +975,7 @@ fn swf_shape_to_canvas_commands(
+                     bounds_viewbox_matrix.unchecked_ref(),
+                 );
+ 
+-                let fill_style = match style {
++                let fill_style = match style.as_ref() {
+                     FillStyle::Color(color) => CanvasFillStyle::Color((*color).into()),
+                     FillStyle::LinearGradient(gradient) => CanvasFillStyle::Gradient(
+                         create_linear_gradient(&backend.context, gradient, true)
+diff --git a/render/src/shape_utils.rs b/render/src/shape_utils.rs
+index abe2c31ae..4afc0b643 100644
+--- a/render/src/shape_utils.rs
++++ b/render/src/shape_utils.rs
+@@ -2,6 +2,7 @@ use crate::matrix::Matrix;
+ use enum_map::Enum;
+ use ruffle_wstr::{FromWStr, WStr};
+ use smallvec::SmallVec;
++use std::borrow::Cow;
+ use swf::{CharacterId, FillStyle, LineStyle, Rectangle, Shape, ShapeRecord, Twips};
+ 
+ /// Controls the accuracy of the approximated quadratic curve, when splitting up a cubic curve
+@@ -117,12 +118,12 @@ pub fn calculate_shape_bounds(shape_records: &[swf::ShapeRecord]) -> swf::Rectan
+ #[cfg_attr(test, derive(PartialEq))]
+ pub enum DrawPath<'a> {
+     Stroke {
+-        style: &'a LineStyle,
++        style: Cow<'a, LineStyle>,
+         is_closed: bool,
+         commands: Vec<DrawCommand>,
+     },
+     Fill {
+-        style: &'a FillStyle,
++        style: Cow<'a, FillStyle>,
+         commands: Vec<DrawCommand>,
+         winding_rule: FillRule,
+     },
+@@ -547,7 +548,7 @@ impl<'a> ShapeConverter<'a> {
+             }
+             let style = unsafe { self.fill_styles.get_unchecked(i) };
+             self.commands.push(DrawPath::Fill {
+-                style,
++                style: Cow::Borrowed(style),
+                 commands: path.to_draw_commands().collect(),
+                 winding_rule: self.winding_rule,
+             });
+@@ -565,7 +566,7 @@ impl<'a> ShapeConverter<'a> {
+                     continue;
+                 }
+                 self.commands.push(DrawPath::Stroke {
+-                    style,
++                    style: Cow::Borrowed(style),
+                     is_closed: segment.is_closed(),
+                     commands: segment.to_draw_commands().collect(),
+                 });
+@@ -733,23 +734,15 @@ pub fn draw_command_fill_hit_test(
+                 control_b,
+                 anchor,
+             } => {
+-                lyon_geom::CubicBezierSegment {
+-                    from: lyon_geom::Point::new(cursor.x.to_pixels(), cursor.y.to_pixels()),
+-                    ctrl1: lyon_geom::Point::new(control_a.x.to_pixels(), control_a.y.to_pixels()),
+-                    ctrl2: lyon_geom::Point::new(control_b.x.to_pixels(), control_b.y.to_pixels()),
+-                    to: lyon_geom::Point::new(anchor.x.to_pixels(), anchor.y.to_pixels()),
+-                }
+-                .for_each_quadratic_bezier(
+-                    CUBIC_CURVE_TOLERANCE,
+-                    &mut |quadratic_curve| {
++                cubic_bezier_segment(cursor, *control_a, *control_b, *anchor)
++                    .for_each_quadratic_bezier(CUBIC_CURVE_TOLERANCE, &mut |quadratic_curve| {
+                         winding += winding_number_curve(
+                             test_point,
+                             swf::Point::from_pixels(quadratic_curve.from.x, quadratic_curve.from.y),
+                             swf::Point::from_pixels(quadratic_curve.ctrl.x, quadratic_curve.ctrl.y),
+                             swf::Point::from_pixels(quadratic_curve.to.x, quadratic_curve.to.y),
+                         );
+-                    },
+-                );
++                    });
+                 cursor = *anchor;
+             }
+         }
+@@ -797,15 +790,8 @@ pub fn draw_command_stroke_hit_test(
+                 anchor,
+             } => {
+                 let mut hit = false;
+-                lyon_geom::CubicBezierSegment {
+-                    from: lyon_geom::Point::new(cursor.x.to_pixels(), cursor.y.to_pixels()),
+-                    ctrl1: lyon_geom::Point::new(control_a.x.to_pixels(), control_a.y.to_pixels()),
+-                    ctrl2: lyon_geom::Point::new(control_b.x.to_pixels(), control_b.y.to_pixels()),
+-                    to: lyon_geom::Point::new(anchor.x.to_pixels(), anchor.y.to_pixels()),
+-                }
+-                .for_each_quadratic_bezier(
+-                    CUBIC_CURVE_TOLERANCE,
+-                    &mut |quadratic_curve| {
++                cubic_bezier_segment(cursor, *control_a, *control_b, *anchor)
++                    .for_each_quadratic_bezier(CUBIC_CURVE_TOLERANCE, &mut |quadratic_curve| {
+                         if !hit
+                             && hit_test_stroke_curve(
+                                 test_point,
+@@ -823,8 +809,7 @@ pub fn draw_command_stroke_hit_test(
+                         {
+                             hit = true;
+                         }
+-                    },
+-                );
++                    });
+                 cursor = *anchor;
+ 
+                 if hit {
+@@ -1332,6 +1317,22 @@ pub fn quadratic_curve_bounds(
+         ))
+ }
+ 
++/// The lyon segment for a cubic from `from` to `anchor`, in pixels.
++fn cubic_bezier_segment(
++    from: swf::Point<Twips>,
++    control_a: swf::Point<Twips>,
++    control_b: swf::Point<Twips>,
++    anchor: swf::Point<Twips>,
++) -> lyon_geom::CubicBezierSegment<f64> {
++    let pt = |p: swf::Point<Twips>| lyon_geom::Point::new(p.x.to_pixels(), p.y.to_pixels());
++    lyon_geom::CubicBezierSegment {
++        from: pt(from),
++        ctrl1: pt(control_a),
++        ctrl2: pt(control_b),
++        to: pt(anchor),
++    }
++}
++
+ pub fn cubic_curve_bounds(
+     start: swf::Point<Twips>,
+     stroke_width: Twips,
+@@ -1340,13 +1341,7 @@ pub fn cubic_curve_bounds(
+     anchor: swf::Point<Twips>,
+ ) -> Rectangle<Twips> {
+     // [NA] Should we just move most of our math in this file to lyon_geom?
+-    let bounds = lyon_geom::CubicBezierSegment {
+-        from: lyon_geom::Point::new(start.x.to_pixels(), start.y.to_pixels()),
+-        ctrl1: lyon_geom::Point::new(control_a.x.to_pixels(), control_a.y.to_pixels()),
+-        ctrl2: lyon_geom::Point::new(control_b.x.to_pixels(), control_b.y.to_pixels()),
+-        to: lyon_geom::Point::new(anchor.x.to_pixels(), anchor.y.to_pixels()),
+-    }
+-    .bounding_box();
++    let bounds = cubic_bezier_segment(start, control_a, control_b, anchor).bounding_box();
+ 
+     let radius = stroke_width / 2;
+     Rectangle {
+@@ -1357,6 +1352,457 @@ pub fn cubic_curve_bounds(
+     }
+ }
+ 
++/// One axis of a 9-slice grid, resolved against the shape bounds and the object's scale.
++#[derive(Copy, Clone, Debug)]
++struct Scale9Axis {
++    bounds_min: f64,
++    bounds_max: f64,
++    grid_min: f64,
++    grid_max: f64,
++    scale: f64,
++}
++
++impl Scale9Axis {
++    /// `None` if the grid is unusable on this axis: `DefineScalingGrid` validates nothing, and
++    /// only a rectangle strictly inside the bounds keeps `map`'s divisors non-zero.
++    fn new(
++        bounds_min: Twips,
++        bounds_max: Twips,
++        grid_min: Twips,
++        grid_max: Twips,
++        scale: f32,
++    ) -> Option<Self> {
++        if grid_min <= bounds_min || grid_max >= bounds_max || grid_min >= grid_max || scale <= 0.0
++        {
++            return None;
++        }
++
++        Some(Self {
++            bounds_min: bounds_min.get() as f64,
++            bounds_max: bounds_max.get() as f64,
++            grid_min: grid_min.get() as f64,
++            grid_max: grid_max.get() as f64,
++            scale: scale as f64,
++        })
++    }
++
++    /// Where the map sends a coordinate, in the shape's own space scaled by `scale`.
++    fn map(&self, p: f64) -> f64 {
++        let corner_lo = self.grid_min - self.bounds_min;
++        let corner_hi = self.bounds_max - self.grid_max;
++        let span = (self.bounds_max - self.bounds_min) * self.scale;
++        let center = span - corner_lo - corner_hi;
++        if center >= 0.0 {
++            if p <= self.grid_min {
++                self.bounds_min * self.scale + (p - self.bounds_min)
++            } else if p >= self.grid_max {
++                self.bounds_max * self.scale - (self.bounds_max - p)
++            } else {
++                self.bounds_min * self.scale
++                    + corner_lo
++                    + (p - self.grid_min) * center / (self.grid_max - self.grid_min)
++            }
++        } else {
++            // Squeezed below the corners: the center is dropped entirely and the corners
++            // split what is left in proportion to their authored sizes.
++            let total = corner_lo + corner_hi;
++            let lo = span * corner_lo / total;
++            let hi = span * corner_hi / total;
++            if p <= self.grid_min {
++                self.bounds_min * self.scale + (p - self.bounds_min) * lo / corner_lo
++            } else if p >= self.grid_max {
++                self.bounds_max * self.scale - (self.bounds_max - p) * hi / corner_hi
++            } else {
++                self.bounds_min * self.scale + lo
++            }
++        }
++    }
++
++    fn remap(self, p: Twips) -> Twips {
++        Twips::new(self.map(p.get() as f64).round() as i32)
++    }
++
++    /// The affine taking `[lo, hi]` to where the map sends it, as `(scale, offset)`. Exact
++    /// within one region, a two-point fit across them; a zero-extent range only translates.
++    ///
++    /// `stroke_width` is nonzero for a stroke's fill, which Flash Player anchors on the
++    /// remapped path bounds widened by half the width but maps from the authored bounds
++    /// widened by only three eighths of it. Both constants are measured, across widths,
++    /// insets and scales; the asymmetry is Flash Player's, not a model.
++    fn span_affine(&self, lo: f64, hi: f64, stroke_width: f64) -> (f64, f64) {
++        let (out_lo, out_hi) = (
++            self.map(lo) - stroke_width / 2.0,
++            self.map(hi) + stroke_width / 2.0,
++        );
++        let (lo, hi) = (lo - stroke_width * 0.375, hi + stroke_width * 0.375);
++        if hi - lo <= f64::EPSILON {
++            return (1.0, out_lo - lo);
++        }
++        let k = (out_hi - out_lo) / (hi - lo);
++        (k, out_lo - lo * k)
++    }
++}
++
++/// Reposition a fill's texture by `transform`, or `None` if it has no matrix to move.
++fn transformed_fill(style: &FillStyle, transform: Matrix) -> Option<FillStyle> {
++    let moved = |m: swf::Matrix| -> swf::Matrix { (transform * Matrix::from(m)).into() };
++    Some(match style {
++        FillStyle::Color(_) => return None,
++        FillStyle::LinearGradient(gradient) => {
++            let mut gradient = gradient.clone();
++            gradient.matrix = moved(gradient.matrix);
++            FillStyle::LinearGradient(gradient)
++        }
++        FillStyle::RadialGradient(gradient) => {
++            let mut gradient = gradient.clone();
++            gradient.matrix = moved(gradient.matrix);
++            FillStyle::RadialGradient(gradient)
++        }
++        FillStyle::FocalGradient {
++            gradient,
++            focal_point,
++        } => {
++            let mut gradient = gradient.clone();
++            gradient.matrix = moved(gradient.matrix);
++            FillStyle::FocalGradient {
++                gradient,
++                focal_point: *focal_point,
++            }
++        }
++        FillStyle::Bitmap {
++            id,
++            matrix,
++            is_smoothed,
++            is_repeating,
++        } => FillStyle::Bitmap {
++            id: *id,
++            matrix: moved(*matrix),
++            is_smoothed: *is_smoothed,
++            is_repeating: *is_repeating,
++        },
++    })
++}
++
++/// A 9-slice grid resolved against the bounds and scale it applies to. Coordinates are in the
++/// space of the object that owns the grid, which is the container's when slicing a child.
++#[derive(Copy, Clone, Debug)]
++pub struct Scale9 {
++    pub bounds: Rectangle<Twips>,
++    pub grid: Rectangle<Twips>,
++    pub scale_x: f32,
++    pub scale_y: f32,
++}
++
++/// How a shape's coordinates relate to the grid's.
++#[derive(Copy, Clone, Debug)]
++pub enum Scale9Space {
++    /// The shape owns the grid: its coordinates are the grid's already.
++    Own,
++    /// A child sliced by its parent: the matrix folds the child's coordinates into the
++    /// grid's for the map and is undone afterwards.
++    Child(Matrix),
++    /// A child that carries a grid of its own that cannot slice. Flash Player throws such
++    /// a child's matrix away: raw coordinates go through the parent's map as if the parent
++    /// had drawn them, and `unscale` cancels the matrix instead of conjugating by it.
++    Detached(Matrix),
++}
++
++impl Scale9Space {
++    fn to_grid_space(self) -> Option<Matrix> {
++        match self {
++            Scale9Space::Child(m) => Some(m),
++            Scale9Space::Own | Scale9Space::Detached(_) => None,
++        }
++    }
++}
++
++impl Scale9 {
++    /// Remaps a shape's geometry, returning it unchanged if the grid is unusable. Control
++    /// points go through the map like anchors; Flash Player does not subdivide curves.
++    ///
++    /// Must run before tessellation, since fill texture coordinates come from vertex positions.
++    pub fn apply<'a>(&self, shape: DistilledShape<'a>, space: Scale9Space) -> DistilledShape<'a> {
++        apply_scale9(shape, self, space.to_grid_space())
++    }
++
++    /// Whether this grid can slice, i.e. whether it is strictly inside the bounds on both axes.
++    ///
++    /// Callers must check this rather than relying on `apply` returning the shape untouched,
++    /// which would leave `unscale` stripping a scale nothing had applied.
++    pub fn is_usable(&self) -> bool {
++        Scale9Axis::new(
++            self.bounds.x_min,
++            self.bounds.x_max,
++            self.grid.x_min,
++            self.grid.x_max,
++            self.scale_x,
++        )
++        .and(Scale9Axis::new(
++            self.bounds.y_min,
++            self.bounds.y_max,
++            self.grid.y_min,
++            self.grid.y_max,
++            self.scale_y,
++        ))
++        .is_some()
++    }
++
++    /// Right-multiply an object's render matrix by this to draw geometry `apply` produced.
++    ///
++    /// The remap consumes the object's own scale, so it has to come back out of the matrix or
++    /// the shape is scaled twice. For a child sliced by its parent it is conjugated by the
++    /// child's matrix; for a detached child the matrix is cancelled outright.
++    pub fn unscale(&self, space: Scale9Space) -> Matrix {
++        let unscale = Matrix {
++            a: 1.0 / self.scale_x,
++            d: 1.0 / self.scale_y,
++            ..Default::default()
++        };
++        match space {
++            Scale9Space::Own => unscale,
++            Scale9Space::Child(m) => match m.inverse() {
++                Some(inverse) => inverse * unscale * m,
++                None => Matrix::IDENTITY,
++            },
++            Scale9Space::Detached(m) => match m.inverse() {
++                Some(inverse) => inverse * unscale,
++                None => Matrix::IDENTITY,
++            },
++        }
++    }
++}
++
++/// Rewrites every `CubicCurveTo` as the quadratics Flash Player turns it into: the smallest
++/// power of two with `|P3 - 3P2 + 3P1 - P0| <= 4px * k^3`, each uniform-t subsegment
++/// collapsed by the midpoint rule. Measured on the FP 32 projector: a degree-elevated
++/// quadratic stays one quadratic, the thresholds sit at exactly 4, 32 and 256 pixels, and
++/// visual/scale9grid_cubics pins one column per regime. Twips round
++/// rather than truncate, so the map's slope cannot amplify a conversion bias.
++fn split_cubics(commands: &mut Vec<DrawCommand>) {
++    if !commands
++        .iter()
++        .any(|c| matches!(c, DrawCommand::CubicCurveTo { .. }))
++    {
++        return;
++    }
++
++    let mut out = Vec::with_capacity(commands.len());
++    let mut cursor = swf::Point::new(Twips::ZERO, Twips::ZERO);
++    for command in commands.drain(..) {
++        match command {
++            DrawCommand::CubicCurveTo {
++                control_a,
++                control_b,
++                anchor,
++            } => {
++                let segment = cubic_bezier_segment(cursor, control_a, control_b, anchor);
++                let dx =
++                    segment.to.x - 3.0 * segment.ctrl2.x + 3.0 * segment.ctrl1.x - segment.from.x;
++                let dy =
++                    segment.to.y - 3.0 * segment.ctrl2.y + 3.0 * segment.ctrl1.y - segment.from.y;
++                let third_difference = (dx * dx + dy * dy).sqrt();
++                let mut count = 1u32;
++                while third_difference > 4.0 * f64::from(count).powi(3) && count < 256 {
++                    count *= 2;
++                }
++
++                let back = |x: f64, y: f64| {
++                    swf::Point::new(
++                        Twips::new((x * Twips::TWIPS_PER_PIXEL as f64).round() as i32),
++                        Twips::new((y * Twips::TWIPS_PER_PIXEL as f64).round() as i32),
++                    )
++                };
++                for i in 0..count {
++                    let sub = segment.split_range(
++                        f64::from(i) / f64::from(count)..f64::from(i + 1) / f64::from(count),
++                    );
++                    out.push(DrawCommand::QuadraticCurveTo {
++                        control: back(
++                            (3.0 * (sub.ctrl1.x + sub.ctrl2.x) - sub.from.x - sub.to.x) / 4.0,
++                            (3.0 * (sub.ctrl1.y + sub.ctrl2.y) - sub.from.y - sub.to.y) / 4.0,
++                        ),
++                        anchor: back(sub.to.x, sub.to.y),
++                    });
++                }
++                cursor = anchor;
++            }
++            other => {
++                cursor = other.end_point();
++                out.push(other);
++            }
++        }
++    }
++    *commands = out;
++}
++
++fn apply_scale9<'a>(
++    mut shape: DistilledShape<'a>,
++    scale9: &Scale9,
++    to_grid_space: Option<Matrix>,
++) -> DistilledShape<'a> {
++    let Scale9 {
++        bounds,
++        grid,
++        scale_x,
++        scale_y,
++    } = scale9;
++    let (Some(x), Some(y)) = (
++        Scale9Axis::new(bounds.x_min, bounds.x_max, grid.x_min, grid.x_max, *scale_x),
++        Scale9Axis::new(bounds.y_min, bounds.y_max, grid.y_min, grid.y_max, *scale_y),
++    ) else {
++        return shape;
++    };
++
++    // A singular child matrix cannot be undone, so there is nothing sensible to render.
++    let from_grid_space = match to_grid_space {
++        Some(m) => match m.inverse() {
++            Some(inverse) => Some(inverse),
++            None => return shape,
++        },
++        None => None,
++    };
++
++    let map_point = |point: swf::Point<Twips>| {
++        let mut p = match to_grid_space {
++            Some(m) => m * point,
++            None => point,
++        };
++        p.x = x.remap(p.x);
++        p.y = y.remap(p.y);
++        match from_grid_space {
++            Some(m) => m * p,
++            None => p,
++        }
++    };
++    let remap = |point: &mut swf::Point<Twips>| *point = map_point(*point);
++
++    for path in shape.paths.iter_mut() {
++        let (commands, movable_style, stroke_width) = match path {
++            DrawPath::Stroke {
++                commands, style, ..
++            } => {
++                let movable = !matches!(style.fill_style(), FillStyle::Color(_));
++                (commands, movable, style.width().get() as f64)
++            }
++            DrawPath::Fill {
++                commands, style, ..
++            } => {
++                let movable = !matches!(style.as_ref(), FillStyle::Color(_));
++                (commands, movable, 0.0)
++            }
++        };
++
++        // Flash Player moves a path's fill by the affine taking the path's own bounds
++        // before the remap to its bounds after, not by the object's scale. A solid path
++        // has no texture to move, and one that never puts ink down keeps its style.
++        let fill_transform = movable_style
++            .then(|| grid_space_bbox(commands, to_grid_space))
++            .flatten()
++            .map(|region| {
++                let (kx, ox) = x.span_affine(region[0], region[2], stroke_width);
++                let (ky, oy) = y.span_affine(region[1], region[3], stroke_width);
++                let fit = Matrix {
++                    a: kx as f32,
++                    b: 0.0,
++                    c: 0.0,
++                    d: ky as f32,
++                    tx: Twips::new(ox.round() as i32),
++                    ty: Twips::new(oy.round() as i32),
++                };
++                match (to_grid_space, from_grid_space) {
++                    (Some(m), Some(inverse)) => inverse * fit * m,
++                    _ => fit,
++                }
++            });
++
++        // A cubic has to become quadratics before the map runs, not after. The map is
++        // piecewise linear, so it does not commute with the conversion, and Flash Player has
++        // only quadratics to remap -- SWF has no cubic segment.
++        split_cubics(commands);
++
++        for command in commands.iter_mut() {
++            match command {
++                DrawCommand::MoveTo(point) | DrawCommand::LineTo(point) => remap(point),
++                DrawCommand::QuadraticCurveTo { control, anchor } => {
++                    remap(control);
++                    remap(anchor);
++                }
++                DrawCommand::CubicCurveTo { .. } => unreachable!("cubics are split above"),
++            }
++        }
++
++        if let Some(fill_transform) = fill_transform {
++            match path {
++                DrawPath::Fill { style, .. } => {
++                    if let Some(moved) = transformed_fill(style, fill_transform) {
++                        *style = Cow::Owned(moved);
++                    }
++                }
++                DrawPath::Stroke { style, .. } => {
++                    if let Some(moved) = transformed_fill(style.fill_style(), fill_transform) {
++                        let updated = style.as_ref().clone().with_fill_style(moved);
++                        *style = Cow::Owned(updated);
++                    }
++                }
++            }
++        }
++    }
++    shape
++}
++
++/// `[x_min, y_min, x_max, y_max]` in the grid's coordinate space, over anchors and control
++/// points alike, so a curve bulging into the next region is not misread as belonging here.
++/// `None` when the path never puts ink down.
++fn grid_space_bbox(commands: &[DrawCommand], to_grid_space: Option<Matrix>) -> Option<[f64; 4]> {
++    let mut bbox = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
++    let mut include = |p: swf::Point<Twips>| {
++        let p = match to_grid_space {
++            Some(m) => m * p,
++            None => p,
++        };
++        bbox[0] = bbox[0].min(p.x.get() as f64);
++        bbox[1] = bbox[1].min(p.y.get() as f64);
++        bbox[2] = bbox[2].max(p.x.get() as f64);
++        bbox[3] = bbox[3].max(p.y.get() as f64);
++    };
++    // `Drawing` opens each path with a `MoveTo` at the previous path's end and closes an
++    // open stroke with a zero-length `LineTo` back to its start; neither puts ink down, so
++    // neither may stretch the bbox. A `MoveTo` only counts once ink departs from it.
++    let mut pending_move = None;
++    for command in commands {
++        match command {
++            DrawCommand::MoveTo(point) => pending_move = Some(*point),
++            DrawCommand::LineTo(point) if pending_move == Some(*point) => {}
++            DrawCommand::LineTo(point) => {
++                if let Some(start) = pending_move.take() {
++                    include(start);
++                }
++                include(*point);
++            }
++            DrawCommand::QuadraticCurveTo { control, anchor } => {
++                if let Some(start) = pending_move.take() {
++                    include(start);
++                }
++                include(*control);
++                include(*anchor);
++            }
++            DrawCommand::CubicCurveTo {
++                control_a,
++                control_b,
++                anchor,
++            } => {
++                if let Some(start) = pending_move.take() {
++                    include(start);
++                }
++                include(*control_a);
++                include(*control_b);
++                include(*anchor);
++            }
++        }
++    }
++    (bbox[0] <= bbox[2]).then_some(bbox)
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -1414,7 +1860,7 @@ mod tests {
+         ]);
+         let commands = ShapeConverter::from_shape(&shape).into_commands();
+         let expected = vec![DrawPath::Fill {
+-            style: &FILL_STYLES[0],
++            style: Cow::Borrowed(&FILL_STYLES[0]),
+             commands: vec![
+                 DrawCommand::MoveTo(swf::Point::from_pixels(100.0, 100.0)),
+                 DrawCommand::LineTo(swf::Point::from_pixels(200.0, 100.0)),
+@@ -1460,7 +1906,7 @@ mod tests {
+         ]);
+         let commands = ShapeConverter::from_shape(&shape).into_commands();
+         let expected = vec![DrawPath::Fill {
+-            style: &FILL_STYLES[0],
++            style: Cow::Borrowed(&FILL_STYLES[0]),
+             commands: vec![
+                 DrawCommand::MoveTo(swf::Point::from_pixels(100.0, 100.0)),
+                 DrawCommand::LineTo(swf::Point::from_pixels(200.0, 100.0)),
+diff --git a/render/src/tessellator.rs b/render/src/tessellator.rs
+index 55d6bc843..ce605e642 100644
+--- a/render/src/tessellator.rs
++++ b/render/src/tessellator.rs
+@@ -61,7 +61,11 @@ impl ShapeTessellator {
+                     style,
+                     commands,
+                     winding_rule: _,
+-                } => (*style, ruffle_path_to_lyon_path(commands, true), false),
++                } => (
++                    style.as_ref(),
++                    ruffle_path_to_lyon_path(commands, true),
++                    false,
++                ),
+                 DrawPath::Stroke {
+                     style,
+                     commands,

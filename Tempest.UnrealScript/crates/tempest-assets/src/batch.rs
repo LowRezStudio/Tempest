@@ -245,7 +245,7 @@ pub fn import_file(db: &ClassDb, ed: &mut Editor, i: usize, file: &Path) -> Resu
                 let (w, h, rgba) = crate::dds::read_png(&bytes)?;
                 ImportSource::Rgba { width: w, height: h, rgba }
             };
-            texture_ops::import(db, &mut ed.pkg, i, &mut o, source, &ImportOptions { mips: None, format: None })?;
+            texture_ops::import(db, &mut ed.pkg, i, &mut o, source, &ImportOptions { mips: None, format: None, keep_alpha: false, pad_blocks: false })?;
             "texture replaced".to_string()
         }
         ImportKind::Mesh => {

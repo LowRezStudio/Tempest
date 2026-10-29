@@ -122,9 +122,13 @@
 						format: format || undefined,
 					}),
 				);
+				const resized =
+					info.width !== info.source.width || info.height !== info.source.height
+						? ` (the image is ${info.source.width}×${info.source.height}; compressed textures need multiples of 4)`
+						: "";
 				toasts.push(
 					"success",
-					`${info.width}×${info.height} ${info.format}, ${info.mips.length} mips stored inline`,
+					`${info.width}×${info.height} ${info.format}, ${info.mips.length} mips stored inline${resized}`,
 					"Texture replaced",
 				);
 			} else if (mode === "mesh") {

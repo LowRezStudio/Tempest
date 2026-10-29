@@ -6,12 +6,26 @@
 //! definitions, `ExportAssets` linkage names, `ImportAssets2` font and
 //! shared-asset imports, and `DefineExternalImage2` (1009) references to
 //! textures by file name (the engine resolves `Foo.tga` to a `Texture2D`
-//! of the package, so images are replaced through the texture, not here).
+//! of the package, so pictures are replaced through the texture; `add`
+//! inserts new image references, shapes and placements).
 //! Editable here: the initial text of edit-text fields, the strings of the
 //! top-level actions of a script (constant pools and pushes: the rest of
 //! the bytecode is position-independent relative branches, so only the
 //! enclosing `DefineFunction` sizes would move, and those are left alone
 //! by editing outside function bodies), and external image file names.
+//! The submodules hold the rest of the editor: the character dictionary
+//! (`dict`), the display list and timelines (`display`, whose placements
+//! `apply` edits) and per-character preview movies (`preview`).
+
+pub mod add;
+pub mod as2;
+pub mod dict;
+pub mod display;
+pub mod font;
+pub mod preview;
+pub mod shape;
+pub mod svg;
+pub mod text;
 
 use std::io::{Read, Write};
 
@@ -115,6 +129,14 @@ pub fn tag_name(code: u16) -> &'static str {
 
 fn u16_at(d: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_le_bytes([*d.get(at)?, *d.get(at + 1)?]))
+}
+
+pub fn u16_at_pub(d: &[u8], at: usize) -> Option<u16> {
+    u16_at(d, at)
+}
+
+pub fn u32_at_pub(d: &[u8], at: usize) -> Option<u32> {
+    u32_at(d, at)
 }
 
 fn u32_at(d: &[u8], at: usize) -> Option<u32> {
@@ -226,7 +248,7 @@ impl Movie {
     }
 }
 
-struct BitReader<'a> {
+pub(crate) struct BitReader<'a> {
     d: &'a [u8],
     pos: usize,
 }
@@ -379,112 +401,6 @@ pub fn set_external_image_file(code: u16, d: &[u8], file_name: &str) -> Option<V
 // ActionScript 2
 // ----------------------------------------------------------------------------
 
-fn action_name(op: u8) -> &'static str {
-    match op {
-        0x00 => "End",
-        0x04 => "NextFrame",
-        0x05 => "PreviousFrame",
-        0x06 => "Play",
-        0x07 => "Stop",
-        0x08 => "ToggleQuality",
-        0x09 => "StopSounds",
-        0x0A => "Add",
-        0x0B => "Subtract",
-        0x0C => "Multiply",
-        0x0D => "Divide",
-        0x0E => "Equals",
-        0x0F => "Less",
-        0x10 => "And",
-        0x11 => "Or",
-        0x12 => "Not",
-        0x13 => "StringEquals",
-        0x14 => "StringLength",
-        0x15 => "StringExtract",
-        0x17 => "Pop",
-        0x18 => "ToInteger",
-        0x1C => "GetVariable",
-        0x1D => "SetVariable",
-        0x20 => "SetTarget2",
-        0x21 => "StringAdd",
-        0x22 => "GetProperty",
-        0x23 => "SetProperty",
-        0x24 => "CloneSprite",
-        0x25 => "RemoveSprite",
-        0x26 => "Trace",
-        0x27 => "StartDrag",
-        0x28 => "EndDrag",
-        0x29 => "StringLess",
-        0x2A => "Throw",
-        0x2B => "CastOp",
-        0x2C => "ImplementsOp",
-        0x30 => "RandomNumber",
-        0x31 => "MBStringLength",
-        0x32 => "CharToAscii",
-        0x33 => "AsciiToChar",
-        0x34 => "GetTime",
-        0x35 => "MBStringExtract",
-        0x36 => "MBCharToAscii",
-        0x37 => "MBAsciiToChar",
-        0x3A => "Delete",
-        0x3B => "Delete2",
-        0x3C => "DefineLocal",
-        0x3D => "CallFunction",
-        0x3E => "Return",
-        0x3F => "Modulo",
-        0x40 => "NewObject",
-        0x41 => "DefineLocal2",
-        0x42 => "InitArray",
-        0x43 => "InitObject",
-        0x44 => "TypeOf",
-        0x45 => "TargetPath",
-        0x46 => "Enumerate",
-        0x47 => "Add2",
-        0x48 => "Less2",
-        0x49 => "Equals2",
-        0x4A => "ToNumber",
-        0x4B => "ToString",
-        0x4C => "PushDuplicate",
-        0x4D => "StackSwap",
-        0x4E => "GetMember",
-        0x4F => "SetMember",
-        0x50 => "Increment",
-        0x51 => "Decrement",
-        0x52 => "CallMethod",
-        0x53 => "NewMethod",
-        0x54 => "InstanceOf",
-        0x55 => "Enumerate2",
-        0x60 => "BitAnd",
-        0x61 => "BitOr",
-        0x62 => "BitXor",
-        0x63 => "BitLShift",
-        0x64 => "BitRShift",
-        0x65 => "BitURShift",
-        0x66 => "StrictEquals",
-        0x67 => "Greater",
-        0x68 => "StringGreater",
-        0x69 => "Extends",
-        0x81 => "GotoFrame",
-        0x83 => "GetURL",
-        0x87 => "StoreRegister",
-        0x88 => "ConstantPool",
-        0x8A => "WaitForFrame",
-        0x8B => "SetTarget",
-        0x8C => "GoToLabel",
-        0x8D => "WaitForFrame2",
-        0x8E => "DefineFunction2",
-        0x8F => "Try",
-        0x94 => "With",
-        0x96 => "Push",
-        0x99 => "Jump",
-        0x9A => "GetURL2",
-        0x9B => "DefineFunction",
-        0x9D => "If",
-        0x9E => "Call",
-        0x9F => "GotoFrame2",
-        _ => "?",
-    }
-}
-
 /// A string of the top-level actions of a script: in a constant pool or a push.
 pub struct ScriptString {
     pub index: usize,
@@ -624,116 +540,6 @@ pub fn set_script_string(a: &[u8], index: usize, text: &str) -> Option<Vec<u8>> 
     Some(out)
 }
 
-/// A readable listing of a script body (nested function bodies indented).
-pub fn disassemble(a: &[u8]) -> String {
-    let mut out = String::new();
-    disassemble_into(a, 0, &mut out, 0);
-    out
-}
-
-fn disassemble_into(a: &[u8], base: usize, out: &mut String, depth: usize) {
-    let indent = "  ".repeat(depth);
-    let mut pool: Vec<String> = Vec::new();
-    let mut pos = 0;
-    while pos < a.len() {
-        let op = a[pos];
-        let at = base + pos;
-        pos += 1;
-        let payload: &[u8] = if op >= 0x80 {
-            let len = u16_at(a, pos).unwrap_or(0) as usize;
-            pos += 2;
-            let p = a.get(pos..pos + len).unwrap_or(&[]);
-            pos += len;
-            p
-        } else {
-            &[]
-        };
-        let name = action_name(op);
-        match op {
-            0x88 => {
-                let count = u16_at(payload, 0).unwrap_or(0) as usize;
-                pool.clear();
-                let mut p = 2;
-                for _ in 0..count {
-                    let (s, next) = cstr(payload, p);
-                    pool.push(s);
-                    p = next;
-                }
-                out.push_str(&format!("{indent}{at:05x}  ConstantPool [{}]\n", pool.iter().enumerate().map(|(i, s)| format!("{i}:{s:?}")).collect::<Vec<_>>().join(" ")));
-            }
-            0x96 => {
-                let items: Vec<String> = push_items(payload)
-                    .into_iter()
-                    .map(|(off, ty, s)| match ty {
-                        0 => format!("{:?}", s.unwrap_or_default()),
-                        1 => format!("{}", f32::from_le_bytes(payload[off + 1..off + 5].try_into().unwrap_or([0; 4]))),
-                        2 => "null".into(),
-                        3 => "undefined".into(),
-                        4 => format!("r{}", payload.get(off + 1).copied().unwrap_or(0)),
-                        5 => (payload.get(off + 1).copied().unwrap_or(0) != 0).to_string(),
-                        6 => format!("{}", f64::from_le_bytes(payload[off + 1..off + 9].try_into().unwrap_or([0; 8]))),
-                        7 => format!("{}", u32_at(payload, off + 1).unwrap_or(0) as i32),
-                        8 => {
-                            let i = payload.get(off + 1).copied().unwrap_or(0) as usize;
-                            pool.get(i).map(|s| format!("c{i}={s:?}")).unwrap_or_else(|| format!("c{i}"))
-                        }
-                        9 => {
-                            let i = u16_at(payload, off + 1).unwrap_or(0) as usize;
-                            pool.get(i).map(|s| format!("c{i}={s:?}")).unwrap_or_else(|| format!("c{i}"))
-                        }
-                        _ => "?".into(),
-                    })
-                    .collect();
-                out.push_str(&format!("{indent}{at:05x}  Push {}\n", items.join(", ")));
-            }
-            0x9B | 0x8E => {
-                // DefineFunction: name, params, then the body follows the record.
-                let (fname, mut p) = cstr(payload, 0);
-                let (nparams, body_len);
-                if op == 0x9B {
-                    nparams = u16_at(payload, p).unwrap_or(0) as usize;
-                    p += 2;
-                    let mut params = Vec::new();
-                    for _ in 0..nparams {
-                        let (s, next) = cstr(payload, p);
-                        params.push(s);
-                        p = next;
-                    }
-                    body_len = u16_at(payload, p).unwrap_or(0) as usize;
-                    out.push_str(&format!("{indent}{at:05x}  DefineFunction {fname:?}({}) {{\n", params.join(", ")));
-                } else {
-                    nparams = u16_at(payload, p).unwrap_or(0) as usize;
-                    p += 2 + 1 + 2;
-                    let mut params = Vec::new();
-                    for _ in 0..nparams {
-                        p += 1;
-                        let (s, next) = cstr(payload, p);
-                        params.push(s);
-                        p = next;
-                    }
-                    body_len = u16_at(payload, p).unwrap_or(0) as usize;
-                    out.push_str(&format!("{indent}{at:05x}  DefineFunction2 {fname:?}({}) {{\n", params.join(", ")));
-                }
-                let body = a.get(pos..pos + body_len).unwrap_or(&[]);
-                disassemble_into(body, base + pos, out, depth + 1);
-                out.push_str(&format!("{indent}}}\n"));
-                pos += body_len;
-            }
-            0x99 | 0x9D => {
-                let off = u16_at(payload, 0).unwrap_or(0) as i16;
-                out.push_str(&format!("{indent}{at:05x}  {name} -> {:05x}\n", (base + pos) as i64 + off as i64));
-            }
-            0x87 => out.push_str(&format!("{indent}{at:05x}  StoreRegister r{}\n", payload.first().copied().unwrap_or(0))),
-            0x8C => out.push_str(&format!("{indent}{at:05x}  GoToLabel {:?}\n", cstr(payload, 0).0)),
-            _ if op >= 0x80 => out.push_str(&format!("{indent}{at:05x}  {name} {}\n", payload.iter().map(|b| format!("{b:02x}")).collect::<String>())),
-            _ => out.push_str(&format!("{indent}{at:05x}  {name}\n")),
-        }
-        if op == 0 {
-            break;
-        }
-    }
-}
-
 // ----------------------------------------------------------------------------
 // Studio view
 // ----------------------------------------------------------------------------
@@ -764,6 +570,46 @@ pub fn parse_sub_image(d: &[u8]) -> Option<SubImage> {
     Some(SubImage { id: u16_at(d, 0)?, image_id: u16_at(d, 2)?, x1: u16_at(d, 4)?, y1: u16_at(d, 6)?, x2: u16_at(d, 8)?, y2: u16_at(d, 10)? })
 }
 
+/// The pixels of a `DefineBitsLossless`/`DefineBitsLossless2` (straight
+/// RGBA): 32-bit (premultiplied in version 2) and colour-mapped formats.
+pub fn decode_lossless(t: &Tag) -> Option<(u16, u32, u32, Vec<u8>)> {
+    if t.code != 20 && t.code != 36 {
+        return None;
+    }
+    let d = &t.data;
+    let id = u16_at(d, 0)?;
+    let format = *d.get(2)?;
+    let (w, h) = (u16_at(d, 3)? as usize, u16_at(d, 5)? as usize);
+    let alpha = t.code == 36;
+    let (table, start) = if format == 3 { (*d.get(7)? as usize + 1, 8) } else { (0, 7) };
+    let mut raw = Vec::new();
+    flate2::read::ZlibDecoder::new(d.get(start..)?).read_to_end(&mut raw).ok()?;
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    match format {
+        5 => {
+            for px in raw.get(..w * h * 4)?.as_chunks::<4>().0 {
+                let a = if alpha { px[0] } else { 255 };
+                let un = |c: u8| if alpha && a > 0 && a < 255 { ((c as u32 * 255 + a as u32 / 2) / a as u32).min(255) as u8 } else { c };
+                rgba.extend_from_slice(&[un(px[1]), un(px[2]), un(px[3]), a]);
+            }
+        }
+        3 => {
+            let entry = if alpha { 4 } else { 3 };
+            let colors = raw.get(..table * entry)?;
+            let stride = w.div_ceil(4) * 4;
+            for y in 0..h {
+                for x in 0..w {
+                    let i = *raw.get(table * entry + y * stride + x)? as usize;
+                    let c = colors.get(i * entry..i * entry + entry)?;
+                    rgba.extend_from_slice(&[c[0], c[1], c[2], if alpha { c[3] } else { 255 }]);
+                }
+            }
+        }
+        _ => return None,
+    }
+    Some((id, w as u32, h as u32, rgba))
+}
+
 /// URLs of the movies this one imports (`ImportAssets`/`ImportAssets2`), in
 /// file order and without duplicates. Scaleform splits its UI into shared
 /// libraries (`../SharedAssets/SharedAssets.swf`, the font library, …) that
@@ -782,13 +628,109 @@ pub fn import_urls(m: &Movie) -> Vec<String> {
     urls
 }
 
+/// The URL and symbol names of an `ImportAssets`/`ImportAssets2` tag.
+pub fn import_entries(t: &Tag) -> Option<(String, Vec<String>)> {
+    let d = &t.data;
+    let url_len = d.iter().position(|&b| b == 0)?;
+    let head = url_len + 1 + if t.code == 71 { 2 } else { 0 };
+    let n = u16_at(d, head)?;
+    let mut pos = head + 2;
+    let mut names = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        u16_at(d, pos)?;
+        let (name, next) = cstr(d, pos + 2);
+        names.push(name);
+        pos = next;
+    }
+    Some((String::from_utf8_lossy(&d[..url_len]).into_owned(), names))
+}
+
+/// Point an import tag at another URL.
+pub fn set_import_url(t: &mut Tag, url: &str) {
+    if let Some(url_len) = t.data.iter().position(|&b| b == 0) {
+        let mut d = url.as_bytes().to_vec();
+        d.extend_from_slice(&t.data[url_len..]);
+        t.data = d;
+    }
+}
+
+/// Merge the `ImportAssets`/`ImportAssets2` tags of one URL into the first of
+/// them, keeping only the symbols `keep` accepts (a tag left empty is
+/// dropped). Flash writes one tag per imported symbol and Ruffle loads and
+/// parses the library again for every tag: the Home movie loaded the 1.4 MB
+/// font library eight times. Returns whether anything changed.
+pub fn merge_imports(tags: &mut Vec<Tag>, keep: impl Fn(u16) -> bool) -> bool {
+    struct Group {
+        at: usize,
+        code: u16,
+        url_len: usize,
+        head: Vec<u8>,
+        entries: Vec<u8>,
+        count: u16,
+    }
+    let mut groups: Vec<Group> = Vec::new();
+    let mut dropped = vec![false; tags.len()];
+    let mut changed = false;
+    for (i, t) in tags.iter().enumerate() {
+        if t.code != 57 && t.code != 71 {
+            continue;
+        }
+        let d = &t.data;
+        let Some(url_len) = d.iter().position(|&b| b == 0) else { continue };
+        let head_len = url_len + 1 + if t.code == 71 { 2 } else { 0 };
+        let Some(n) = u16_at(d, head_len) else { continue };
+        let mut pos = head_len + 2;
+        let mut entries = Vec::new();
+        let mut count = 0u16;
+        for _ in 0..n {
+            let Some(id) = u16_at(d, pos) else { break };
+            let end = d[pos + 2..].iter().position(|&b| b == 0).map_or(d.len(), |e| pos + 2 + e + 1);
+            if keep(id) {
+                entries.extend_from_slice(&d[pos..end]);
+                count += 1;
+            } else {
+                changed = true;
+            }
+            pos = end;
+        }
+        let url = &d[..url_len];
+        match groups.iter_mut().find(|g| g.code == t.code && g.head[..g.url_len].eq_ignore_ascii_case(url)) {
+            Some(g) => {
+                g.entries.extend_from_slice(&entries);
+                g.count += count;
+                dropped[i] = true;
+                changed = true;
+            }
+            None => groups.push(Group { at: i, code: t.code, url_len, head: d[..head_len].to_vec(), entries, count }),
+        }
+    }
+    if !changed {
+        return false;
+    }
+    for g in groups {
+        if g.count == 0 {
+            dropped[g.at] = true;
+            continue;
+        }
+        let mut data = g.head;
+        data.extend_from_slice(&g.count.to_le_bytes());
+        data.extend_from_slice(&g.entries);
+        tags[g.at].data = data;
+    }
+    let mut i = 0;
+    tags.retain(|_| {
+        i += 1;
+        !dropped[i - 1]
+    });
+    true
+}
+
 /// Everything the Studio shows about a movie.
 pub fn info(m: &Movie) -> J {
     let (xmin, xmax, ymin, ymax) = m.frame();
     let mut tags = Vec::new();
     let mut images = Vec::new();
     let mut texts = Vec::new();
-    let mut scripts = Vec::new();
     let mut exports = Vec::new();
     let mut imports = Vec::new();
     for (i, t) in m.tags.iter().enumerate() {
@@ -808,9 +750,7 @@ pub fn info(m: &Movie) -> J {
             }
             59 | 12 => {
                 let (sprite, body) = if t.code == 59 { (u16_at(&t.data, 0), t.data.get(2..).unwrap_or(&[])) } else { (None, &t.data[..]) };
-                let strings: Vec<J> = script_strings(body).iter().map(|s| json!({ "index": s.index, "text": s.text, "action": s.action })).collect();
                 detail = sprite.map(|s| format!("sprite {s}, {} bytes", body.len())).unwrap_or_else(|| format!("{} bytes", body.len()));
-                scripts.push(json!({ "tag": i, "kind": tag_name(t.code), "sprite": sprite, "bytes": body.len(), "strings": strings }));
             }
             56 => {
                 let n = u16_at(&t.data, 0).unwrap_or(0) as usize;
@@ -854,6 +794,20 @@ pub fn info(m: &Movie) -> J {
         }
         tags.push(json!({ "index": i, "code": t.code, "name": tag_name(t.code), "len": t.data.len(), "id": define_id(t.code, &t.data), "detail": detail }));
     }
+    let scripts: Vec<J> = as2::scripts(m)
+        .into_iter()
+        .map(|s| {
+            let (owner, tag) = match s.loc {
+                as2::Loc::Tag { sprite, tag } | as2::Loc::Clip { sprite, tag, .. } => (sprite, tag),
+                as2::Loc::Button { tag, .. } => (0, tag),
+            };
+            // The class a DoInitAction defines is its sprite's; other scripts belong to the timeline they are on.
+            let sprite = if s.kind == "DoInitAction" { s.label.parse::<u16>().ok() } else { (owner != 0).then_some(owner) };
+            let strings: Vec<J> = if owner == 0 && matches!(s.loc, as2::Loc::Tag { .. }) { script_strings(&s.bytes).iter().map(|s| json!({ "index": s.index, "text": s.text, "action": s.action })).collect() } else { Vec::new() };
+            let placed = s.placed.as_ref().map(|(depth, character, name)| json!({ "depth": depth, "character": character, "name": name }));
+            json!({ "key": s.loc.key(), "loc": s.loc.to_json(), "kind": s.kind, "label": s.label, "tag": tag, "owner": owner, "sprite": sprite, "placed": placed, "frame": s.frame, "bytes": s.bytes.len(), "strings": strings })
+        })
+        .collect();
     json!({
         "signature": String::from_utf8_lossy(&m.signature),
         "version": m.version,
@@ -871,21 +825,138 @@ pub fn info(m: &Movie) -> J {
     })
 }
 
-/// Disassembly of the script in tag `tag`.
-pub fn script_listing(m: &Movie, tag: usize) -> Result<String> {
-    let t = m.tags.get(tag).ok_or_else(|| Error::Format(format!("no tag {tag}")))?;
-    let body = match t.code {
-        59 => t.data.get(2..).unwrap_or(&[]),
-        12 => &t.data[..],
-        _ => return Err(Error::Format("not a script tag".into())),
-    };
-    Ok(disassemble(body))
+/// The tag stream of a sprite (0: the root timeline), handed to `f` and
+/// written back into the `DefineSprite` afterwards.
+fn with_stream<T>(m: &mut Movie, sprite: u16, f: impl FnOnce(&mut Vec<Tag>) -> Result<T>) -> Result<T> {
+    if sprite == 0 {
+        return f(&mut m.tags);
+    }
+    let t = m.tags.iter_mut().find(|t| t.code == 39 && u16_at(&t.data, 0) == Some(sprite)).ok_or_else(|| Error::Format(format!("no sprite {sprite}")))?;
+    let mut body = parse_tags(t.data.get(4..).unwrap_or(&[]))?;
+    let r = f(&mut body)?;
+    let mut data = t.data[..4].to_vec();
+    write_tags(&body, &mut data);
+    t.data = data;
+    Ok(r)
 }
 
-/// Apply edits (`{kind: text|string|image, tag, …}`) and return the new movie bytes.
+/// A placement edit: `{kind: "place", sprite, tag, matrix?, name?, cxform?, character?, depth?}`
+/// rewrites the place tag at stream index `tag`. `name: null` / `cxform: null`
+/// remove the field; omitted fields stay.
+fn edit_place(m: &mut Movie, e: &J) -> Result<()> {
+    let sprite = e.get("sprite").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+    let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("place edit without tag".into()))? as usize;
+    with_stream(m, sprite, |tags| {
+        let t = tags.get_mut(tag).ok_or_else(|| Error::Format(format!("no tag {tag} in sprite {sprite}")))?;
+        let mut p = display::Place::parse(t.code, &t.data).ok_or_else(|| Error::Format(format!("tag {tag} is not a placement")))?;
+        if let Some(mx) = e.get("matrix").filter(|v| v.is_object()) {
+            p.matrix = Some(display::Matrix::from_json(mx, p.matrix.unwrap_or_default()));
+        }
+        if let Some(v) = e.get("name") {
+            if p.code == 4 {
+                return Err(Error::Format("a PlaceObject (version 1) has no name".into()));
+            }
+            p.name = v.as_str().filter(|s| !s.is_empty()).map(str::to_string);
+        }
+        if let Some(v) = e.get("cxform") {
+            p.cxform = if v.is_null() { None } else { Some(display::Cxform::from_json(v, p.cxform.unwrap_or_default())) };
+        }
+        if let Some(c) = e.get("character").and_then(|v| v.as_u64()) {
+            p.character = Some(c as u16);
+        }
+        if let Some(d) = e.get("depth").and_then(|v| v.as_u64()) {
+            p.depth = d as u16;
+        }
+        t.data = p.write();
+        t.long = t.long || t.data.len() >= 0x3F;
+        Ok(())
+    })
+}
+
+/// The font a character id names, parsed (for static texts).
+fn font_of(m: &Movie, id: u16) -> Option<font::Font> {
+    let tag = m.tags.iter().position(|t| font::is_font(t.code) && u16_at(&t.data, 0) == Some(id))?;
+    font::Font::parse(m, tag).ok()
+}
+
+/// `{kind: "staticText", tag, record, text?, color?}`.
+fn edit_static_text(m: &mut Movie, e: &J) -> Result<()> {
+    let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("staticText without tag".into()))? as usize;
+    let t = m.tags.get(tag).ok_or_else(|| Error::Format(format!("no tag {tag}")))?;
+    let mut st = text::StaticText::parse(t).ok_or_else(|| Error::Format(format!("tag {tag} is not a static text")))?;
+    let record = e.get("record").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let color = match e.get("color").and_then(|v| v.as_str()) {
+        Some(c) => Some(shape::Rgba::parse(c).ok_or_else(|| Error::Format(format!("{c} is not a colour")))?),
+        None => None,
+    };
+    let fonts = |id: u16| font_of(m, id);
+    let known = text::known_advances(m, &|id| font_of(m, id).map(|f| f.em()).unwrap_or(1024.0));
+    st.edit(record, e.get("text").and_then(|v| v.as_str()), color, &fonts, &known)?;
+    m.tags[tag] = st.write();
+    Ok(())
+}
+
+/// `{kind: "fontGlyphs", tag, file, chars}`: characters from a TrueType/OpenType
+/// file added to a font; static texts and alignment zones follow the new glyph order.
+fn add_font_glyphs(m: &mut Movie, e: &J) -> Result<()> {
+    let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("fontGlyphs without tag".into()))? as usize;
+    let file = e.get("file").and_then(|v| v.as_str()).ok_or_else(|| Error::Format("fontGlyphs without file".into()))?;
+    let chars = e.get("chars").and_then(|v| v.as_str()).unwrap_or("");
+    let bytes = std::fs::read(file).map_err(|err| Error::Format(format!("{file}: {err}")))?;
+    let mut f = font::Font::parse(m, tag)?;
+    let (_, _, remap) = f.add_glyphs(&bytes, chars)?;
+    let total = f.glyphs.len();
+    m.tags[tag] = f.write()?;
+    text::remap_texts(m, f.id, &remap);
+    for t in m.tags.iter_mut().filter(|t| t.code == 73 && u16_at(&t.data, 0) == Some(f.id)) {
+        font::remap_align_zones(t, &remap, total)?;
+    }
+    Ok(())
+}
+
+/// Apply edits and return how many were applied. Kinds: `text` (edit-text
+/// initial text), `string` (script string), `script` / `pcode` (`{loc,
+/// source}` / `{loc, pcode}`: a script replaced by compiled ActionScript or
+/// assembled P-code, `loc` as `as2::Loc::from_json` reads it), `image`
+/// (external image file name), `place` (see `edit_place`) and `deletePlace` (`{sprite, tag}`:
+/// drop a place/remove tag; deletions run last, highest index first, so
+/// the other edits' indices stay valid).
 pub fn apply(m: &mut Movie, edits: &[J]) -> Result<usize> {
     let mut n = 0;
+    let mut deletes: Vec<(u16, usize)> = Vec::new();
     for e in edits {
+        match e.get("kind").and_then(|v| v.as_str()) {
+            Some("place") => {
+                edit_place(m, e)?;
+                n += 1;
+                continue;
+            }
+            Some("deletePlace") => {
+                let sprite = e.get("sprite").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+                let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("deletePlace without tag".into()))? as usize;
+                deletes.push((sprite, tag));
+                continue;
+            }
+            Some("staticText") => {
+                edit_static_text(m, e)?;
+                n += 1;
+                continue;
+            }
+            Some("fontGlyphs") => {
+                add_font_glyphs(m, e)?;
+                n += 1;
+                continue;
+            }
+            Some(kind @ ("script" | "pcode")) => {
+                let loc = as2::Loc::from_json(e.get("loc").unwrap_or(&J::Null))?;
+                let text = |k: &str| e.get(k).and_then(|v| v.as_str()).ok_or_else(|| Error::Format(format!("{kind} edit without {k}")));
+                let script = if kind == "script" { as2::compile::compile(text("source")?)? } else { as2::pcode::parse(text("pcode")?)? };
+                as2::replace(m, &loc, &script.encode()?)?;
+                n += 1;
+                continue;
+            }
+            _ => {}
+        }
         let tag = e.get("tag").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("edit without tag".into()))? as usize;
         let t = m.tags.get_mut(tag).ok_or_else(|| Error::Format(format!("no tag {tag}")))?;
         let kind = e.get("kind").and_then(|v| v.as_str()).unwrap_or("");
@@ -905,8 +976,39 @@ pub fn apply(m: &mut Movie, edits: &[J]) -> Result<usize> {
             "image" if t.code == 1009 || t.code == 1001 => {
                 t.data = set_external_image_file(t.code, &t.data, text).ok_or_else(|| Error::Format("bad external image tag".into()))?;
             }
+            "shapeColor" if shape::is_shape(t.code) => {
+                let s = shape::Shape::parse(t)?;
+                let key = e.get("key").and_then(|v| v.as_str()).unwrap_or("");
+                let value = e.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                s.patch(&mut t.data, key, value)?;
+            }
+            "shapeSvg" if shape::is_shape(t.code) => {
+                let id = u16_at(&t.data, 0).unwrap_or(0);
+                let fit = if e.get("fit").and_then(|v| v.as_bool()).unwrap_or(true) { dict::read_rect(&t.data, 2).map(|r| r.0) } else { None };
+                let svg = e.get("svg").and_then(|v| v.as_str()).ok_or_else(|| Error::Format("shapeSvg without svg".into()))?;
+                *t = svg::import(id, svg.as_bytes(), fit)?.0;
+            }
+            "editText" if t.code == 37 => {
+                let mut et = text::EditText::parse(&t.data).ok_or_else(|| Error::Format("bad DefineEditText".into()))?;
+                et.set(e.get("props").unwrap_or(&J::Null))?;
+                t.data = et.write();
+                t.long = true;
+            }
             _ => return Err(Error::Format(format!("edit {kind} does not apply to {}", tag_name(t.code)))),
         }
+        n += 1;
+    }
+    deletes.sort_by(|a, b| b.cmp(a));
+    deletes.dedup();
+    for (sprite, tag) in deletes {
+        with_stream(m, sprite, |tags| {
+            let t = tags.get(tag).ok_or_else(|| Error::Format(format!("no tag {tag} in sprite {sprite}")))?;
+            if !display::is_place(t.code) && !matches!(t.code, 5 | 28) {
+                return Err(Error::Format(format!("tag {tag} is a {}, not a placement", tag_name(t.code))));
+            }
+            tags.remove(tag);
+            Ok(())
+        })?;
         n += 1;
     }
     Ok(n)
@@ -915,6 +1017,36 @@ pub fn apply(m: &mut Movie, edits: &[J]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn import2(url: &str, symbols: &[(u16, &str)]) -> Tag {
+        let mut d = url.as_bytes().to_vec();
+        d.extend_from_slice(&[0, 1, 0]);
+        d.extend_from_slice(&(symbols.len() as u16).to_le_bytes());
+        for (id, name) in symbols {
+            d.extend_from_slice(&id.to_le_bytes());
+            d.extend_from_slice(name.as_bytes());
+            d.push(0);
+        }
+        Tag { code: 71, data: d, long: false }
+    }
+
+    #[test]
+    fn merges_imports_per_url() {
+        let shape = Tag { code: 2, data: vec![9, 0], long: false };
+        let mut tags = vec![import2("../A/a.swf", &[(1, "one")]), shape.clone(), import2("../B/b.swf", &[(2, "two")]), import2("../a/A.swf", &[(3, "three"), (4, "four")])];
+        assert!(merge_imports(&mut tags, |_| true));
+        assert_eq!(tags.len(), 3);
+        assert_eq!(tags[0].data, import2("../A/a.swf", &[(1, "one"), (3, "three"), (4, "four")]).data);
+        assert_eq!(tags[1].data, shape.data);
+        assert_eq!(tags[2].data, import2("../B/b.swf", &[(2, "two")]).data);
+        assert!(!merge_imports(&mut tags, |_| true));
+
+        // Pruned to the symbols kept; a library left without symbols is not imported.
+        assert!(merge_imports(&mut tags, |id| id == 4));
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0].data, import2("../A/a.swf", &[(4, "four")]).data);
+        assert_eq!(tags[1].code, 2);
+    }
 
     #[test]
     fn round_trips_a_small_movie() {
@@ -951,6 +1083,7 @@ mod tests {
         assert_eq!(info3["texts"][0]["text"], "hello");
         assert_eq!(info3["scripts"][0]["strings"][1]["text"], "ccc");
         assert_eq!(info3["scripts"][0]["strings"][2]["text"], "yy");
-        assert!(disassemble(&m3.tags[2].data[2..]).contains("ConstantPool"));
+        let script = as2::action::Script::decode(&m3.tags[2].data[2..]).unwrap();
+        assert!(as2::pcode::print(&script).contains("ConstantPool"));
     }
 }

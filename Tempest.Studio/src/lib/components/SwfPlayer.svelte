@@ -2,12 +2,15 @@
 	import { Maximize2, Pause, Play, RotateCcw, Volume2, VolumeX } from "@lucide/svelte";
 	import { rpc } from "$lib/studio/rpc";
 	import { loadRuffle, registerMovie, type RuffleElement } from "$lib/studio/ruffle";
+	import type { SwfEdit } from "../../../electron/src/ipc/contract";
 
 	interface Props {
 		path: string;
 		index: number;
+		/** Pending movie edits to play with (not yet applied to the package). */
+		edits?: SwfEdit[];
 	}
-	const { path, index }: Props = $props();
+	const { path, index, edits = [] }: Props = $props();
 
 	let host = $state<HTMLDivElement | null>(null);
 	let element = $state<RuffleElement | null>(null);
@@ -43,7 +46,7 @@
 		void (async () => {
 			try {
 				const [movie, libraries] = await Promise.all([
-					rpc("swf.player", { path: at, index: i }),
+					rpc("swf.player", { path: at, index: i, edits }),
 					rpc("swf.libraries", { path: at, index: i }).catch(() => ({
 						libraries: [],
 						missing: [],

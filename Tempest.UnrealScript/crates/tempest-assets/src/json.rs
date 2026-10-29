@@ -23,6 +23,12 @@ pub fn reference(pkg: &Package, idx: PackageIndex) -> J {
     json!({ "ref": idx.0, "path": pkg.object_path(idx), "class": pkg.class_name_of(idx) })
 }
 
+/// Elements of a byte array sent to the Studio (it draws 2000).
+const ARRAY_BYTES_SHOWN: usize = 2000;
+/// Elements of any other array: high enough for every lookup table the
+/// particle editor reads, low enough to bound a level's huge arrays.
+const ARRAY_SHOWN: usize = 50_000;
+
 pub fn value(pkg: &Package, v: &Value) -> J {
     match v {
         Value::Bool(b) => json!({ "t": "bool", "v": b }),
@@ -36,7 +42,19 @@ pub fn value(pkg: &Package, v: &Value) -> J {
         Value::Delegate { object, function } => json!({ "t": "delegate", "v": { "object": reference(pkg, *object), "function": pkg.fname_to_string(*function) } }),
         Value::Struct(StructValue::Tagged(ps)) => json!({ "t": "struct", "v": ps.iter().map(|p| property(pkg, p)).collect::<Vec<_>>() }),
         Value::Struct(StructValue::Binary(ms)) => json!({ "t": "binary", "v": ms.iter().map(|m| member(pkg, m)).collect::<Vec<_>>() }),
-        Value::Array(items) => json!({ "t": "array", "v": items.iter().map(|i| value(pkg, i)).collect::<Vec<_>>() }),
+        Value::Array(items) => {
+            // A movie's `RawData` is millions of bytes, one value each: as
+            // JSON objects that is gigabytes for the backend and the
+            // renderer. The Studio draws 2000 elements at most, so only
+            // those travel, with the real length.
+            let bytes = items.first().is_some_and(|i| matches!(i, Value::Byte(_)));
+            let cap = if bytes { ARRAY_BYTES_SHOWN } else { ARRAY_SHOWN };
+            if items.len() > cap {
+                json!({ "t": "array", "v": items[..cap].iter().map(|i| value(pkg, i)).collect::<Vec<_>>(), "len": items.len() })
+            } else {
+                json!({ "t": "array", "v": items.iter().map(|i| value(pkg, i)).collect::<Vec<_>>() })
+            }
+        }
         Value::Raw(b) => json!({ "t": "raw", "v": { "len": b.len(), "hex": hex_prefix(b, 64) } }),
     }
 }

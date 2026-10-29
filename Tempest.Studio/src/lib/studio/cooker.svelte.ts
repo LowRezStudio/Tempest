@@ -352,6 +352,37 @@ class Cooker {
 		this.schedulePreview(0);
 	}
 
+	/**
+	 * Open the cooker on the workspace's changes with one game file chosen as a
+	 * delta (the movie editor's "Make a mod"): the file must be listed, so the
+	 * changes are read again first.
+	 */
+	async propose(path: string): Promise<void> {
+		studio.mode = "mod";
+		await this.refresh();
+		const norm = (p: string) => p.replaceAll("\\", "/").toLowerCase();
+		const source = this.sources.find(
+			(s) => norm(s.source) === norm(path) || norm(s.target) === norm(path),
+		);
+		if (!source) {
+			toasts.push(
+				"info",
+				"Apply the movie edits first: the package has no changes yet",
+				"Make a mod",
+			);
+			return;
+		}
+		if (this.projectDir && !this.targets.includes(source.target)) {
+			this.targets = [...this.targets, source.target];
+		}
+		const chosen = preferred(this.sources.filter((s) => s.target === source.target)) ?? source;
+		this.choices = {
+			...this.choices,
+			[source.target]: { on: true, source: chosen.id, mode: "delta" },
+		};
+		this.schedulePreview();
+	}
+
 	schedulePreview(delay = 300): void {
 		if (this.previewTimer) clearTimeout(this.previewTimer);
 		this.previewTimer = setTimeout(() => void this.preview(), delay);

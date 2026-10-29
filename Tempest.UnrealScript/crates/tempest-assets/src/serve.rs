@@ -27,7 +27,7 @@ use crate::json;
 use crate::material_ops::PackageCache;
 use crate::media;
 use crate::mesh_ops;
-use crate::object::{package_layout, parse_export, Native, Parsed};
+use crate::object::{package_layout, parse_export, Native, Object, Parsed};
 use crate::reflect::ClassDb;
 use crate::texcache::{MipLocation, TextureSource};
 use crate::texture_ops::{self, ImportOptions, ImportSource};
@@ -119,6 +119,80 @@ pub struct Server {
     mcts: Option<mcts::workspace::Workspace>,
     /// Binary payloads of the response being built.
     bins: BinSink,
+    /// The last movie parsed (`path#export`), valid until a call outside the
+    /// SWF editor or `swf.apply` (the only ways a movie can change).
+    swf_cache: Option<(String, crate::swf::Movie)>,
+    /// External images converted for Ruffle, by package and tag contents.
+    swf_embeds: HashMap<u64, SwfEmbed>,
+    /// Where the libraries movies import live, by URL stem (`None`: no
+    /// workspace package has it). Found ones are checked on use; misses are
+    /// forgotten with `swf_embeds`.
+    swf_libs: HashMap<String, Option<(PathBuf, usize, String)>>,
+    /// Library subsets by library and imported names: the subset's URL and
+    /// every subset it brings (`swf_subsets`); dropped with `swf_embeds` and
+    /// whenever a movie changes.
+    swf_subset_cache: HashMap<String, LibrarySubset>,
+}
+
+/// A library subset's URL, and every subset it brings as `(url, movie)`.
+type LibrarySubset = (String, Vec<(String, Vec<u8>)>);
+
+/// What an external image (and its sub-images) became in a player movie.
+#[derive(Clone)]
+struct SwfEmbed {
+    tags: Vec<crate::swf::Tag>,
+    consumed: Vec<u16>,
+    missing: Vec<String>,
+    /// Keep the original tag (the texture was not found).
+    keep: bool,
+}
+
+/// An external image to convert, with its texture (`Err`: why there is none).
+struct ImageJob {
+    key: u64,
+    img: crate::swf::ExternalImage,
+    image_id: u16,
+    subs: Vec<crate::swf::SubImage>,
+    texture: Result<(usize, Object), String>,
+}
+
+/// Decode an external image's texture into `DefineBitsLossless2` bitmaps: the
+/// whole image, or one per sub-image crop (Scaleform atlases).
+fn convert_image(db: &ClassDb, pkg: &Package, pkg_name: &str, src: &TextureSource, j: &ImageJob) -> SwfEmbed {
+    let mut e = SwfEmbed { tags: Vec::new(), consumed: Vec::new(), missing: Vec::new(), keep: false };
+    let img = &j.img;
+    let (tw, th, rgba) = match j.texture.as_ref().map_err(String::clone).and_then(|(i, o)| crate::texture_ops::largest_rgba(db, pkg, pkg_name, src, *i, o).map_err(|err| format!("{}: {err}", img.file_name))) {
+        Ok(v) => v,
+        Err(err) => {
+            e.missing.push(err);
+            e.keep = true;
+            return e;
+        }
+    };
+    if tw == 0 || th == 0 {
+        e.keep = true;
+        return e;
+    }
+    if !j.subs.is_empty() {
+        // The atlas rect is in target pixels; DXT textures can be up to 3 px
+        // larger (block padding), so scale into the decoded texture and crop there.
+        let scale_x = |v: u16| ((v as u64 * tw as u64) / (img.width.max(1) as u64)) as u16;
+        let scale_y = |v: u16| ((v as u64 * th as u64) / (img.height.max(1) as u64)) as u16;
+        for sub in &j.subs {
+            let Some((w, h, pixels)) = crop_rgba(&rgba, tw, th, scale_x(sub.x1), scale_y(sub.y1), scale_x(sub.x2), scale_y(sub.y2)) else {
+                e.missing.push(format!("{}: empty crop {}x{}", img.file_name, sub.x1, sub.y1));
+                continue;
+            };
+            e.tags.push(crate::swf::Tag { code: 36, data: define_bits_lossless2(sub.id, w, h, &pixels), long: true });
+            e.consumed.push(sub.id);
+        }
+    } else if img.width > 0 && img.height > 0 {
+        let (w, h, pixels) = fit_rgba(&rgba, tw, th, img.width as u32, img.height as u32);
+        e.tags.push(crate::swf::Tag { code: 36, data: define_bits_lossless2(j.image_id, w, h, &pixels), long: true });
+    } else {
+        e.keep = true;
+    }
+    e
 }
 
 impl Default for Server {
@@ -156,7 +230,8 @@ impl Server {
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
             packed_cache: HashMap::new(),
-            compression: crate::delta::Compression::Small, out: std::io::stdout(), wwise: None, ak_names: None, mcts: None, bins: BinSink::default() }
+            compression: crate::delta::Compression::Small, out: std::io::stdout(), wwise: None, ak_names: None, mcts: None, bins: BinSink::default(),
+            swf_cache: None, swf_embeds: HashMap::new(), swf_libs: HashMap::new(), swf_subset_cache: HashMap::new() }
     }
 
     /// Serve stdin until EOF.
@@ -280,6 +355,18 @@ impl Server {
     }
 
     pub fn call(&mut self, method: &str, p: &J) -> Res<J> {
+        // Anything outside the SWF editor may change a movie or its textures,
+        // except these reads (the inspector's tabs, texture thumbnails).
+        const READS: &[&str] = &["ping", "package.names", "package.export", "package.tables", "package.undoList", "object.get", "object.text", "object.deps", "texture.info", "texture.preview", "texture.export"];
+        if READS.contains(&method) {
+        } else if !method.starts_with("swf.") || method == "swf.apply" || method == "swf.import" || method == "swf.addImage" {
+            self.swf_cache = None;
+            self.swf_subset_cache.clear();
+            if !method.starts_with("swf.") {
+                self.swf_embeds.clear();
+                self.swf_libs.retain(|_, v| v.is_some());
+            }
+        }
         match method {
             "ping" => Ok(json!({ "version": env!("CARGO_PKG_VERSION"), "pid": std::process::id() })),
             "workspace.open" => self.workspace_open(s(p, "dir")?),
@@ -451,7 +538,14 @@ impl Server {
             "swf.player" => self.swf_player(p),
             "swf.libraries" => self.swf_libraries(p),
             "swf.script" => self.swf_script(p),
+            "swf.compile" => self.swf_compile(p),
+            "swf.addImage" => self.swf_add_image(p),
+            "swf.character" => self.swf_character(p),
+            "swf.export" => self.swf_export(p),
             "swf.apply" => self.swf_apply(p),
+            "swf.tree" => self.swf_tree(p),
+            "swf.timeline" => self.swf_timeline(p),
+            "swf.preview" => self.swf_preview(p),
             "mcts.nextIds" => Ok(self.mcts_mut()?.next_ids_json()?),
             "mcts.create" => Ok(self.mcts_mut()?.create(p)?),
             "mcts.serverRows" => Ok(self.mcts()?.server_rows(p)?),
@@ -518,6 +612,7 @@ impl Server {
         let class_db_ms = t.elapsed().as_millis() as u64;
         self.editors.clear();
         self.index.clear();
+        self.swf_libs.clear();
         self.wwise = None;
         self.ak_names = None;
         self.mcts = None;
@@ -1164,7 +1259,11 @@ impl Server {
         let db = self.db()?;
         let src = self.src.as_ref().ok_or("no workspace")?;
         let ed = self.editors.get(&key(path)).unwrap();
-        let png = texture_ops::export_png(db, &ed.pkg, &ed.name, src, i, &o, mip)?;
+        // `maxSize`: the largest mip that fits (thumbnails).
+        let png = match opt_u(p, "maxSize") {
+            Some(max) => texture_ops::export_png_preview(db, &ed.pkg, &ed.name, src, i, &o, max as u32)?,
+            None => texture_ops::export_png(db, &ed.pkg, &ed.name, src, i, &o, mip)?,
+        };
         let bytes = png.len();
         Ok(json!({ "png": self.bins.add(png), "bytes": bytes }))
     }
@@ -1235,7 +1334,7 @@ impl Server {
         let i = self.export_of(path, p)?;
         let mut o = self.texture_object(path, i)?;
         let db = self.db()?;
-        let mut opts = ImportOptions { mips: opt_b(p, "mips"), format: None };
+        let mut opts = ImportOptions { mips: opt_b(p, "mips"), format: None, keep_alpha: opt_b(p, "keepAlpha").unwrap_or(false), pad_blocks: opt_b(p, "padBlocks").unwrap_or(false) };
         if let Some(f) = opt_s(p, "format").filter(|f| !f.is_empty()) {
             opts.format = Some(crate::dds::PixelFormat::from_name(&f).ok_or_else(|| format!("unknown pixel format {f}"))?);
         }
@@ -1247,12 +1346,18 @@ impl Server {
             let (w, h, rgba) = crate::dds::read_png(&bytes)?;
             ImportSource::Rgba { width: w, height: h, rgba }
         };
+        let (sw, sh) = match &source {
+            ImportSource::Encoded { width, height, .. } | ImportSource::Rgba { width, height, .. } => (*width, *height),
+        };
         let ed = self.editor(path)?;
         ed.begin_undo(format!("replace texture {}", ed.pkg.object_name(PackageIndex::export(i))));
         texture_ops::import(db, &mut ed.pkg, i, &mut o, source, &opts)?;
         ed.replace_object(i, o)?;
         ed.mark_dirty(i);
-        self.texture_info(p)
+        let mut info = self.texture_info(p)?;
+        // The file's own size: the texture's differs when it was padded or scaled to whole blocks.
+        info["source"] = json!({ "width": sw, "height": sh });
+        Ok(info)
     }
 
     // ----- meshes -----------------------------------------------------------
@@ -1435,17 +1540,17 @@ impl Server {
         let path = s(p, "path")?;
         let i = self.export_of(path, p)?;
         let kind = self.media_kind(path, i)?;
-        let ed = self.editor(path)?;
-        let o = ed.object(i)?.clone();
+        let sound = kind == "sound";
+        let bytes = self.editor(path)?.with_object(i, |pkg, o| if sound { media::sound_export(pkg, o) } else { media::swf_export(pkg, o) })??;
         match kind {
             "sound" => {
-                let ogg = media::sound_export(&ed.pkg, &o)?;
+                let ogg = bytes;
                 let info = media::ogg_info(&ogg).ok();
                 let len = ogg.len();
                 Ok(json!({ "kind": "sound", "ogg": self.bins.add(ogg), "bytes": len, "channels": info.as_ref().map(|i| i.channels), "sampleRate": info.as_ref().map(|i| i.sample_rate), "duration": info.as_ref().map(|i| i.duration()) }))
             }
             _ => {
-                let gfx = media::swf_export(&ed.pkg, &o)?;
+                let gfx = bytes;
                 let head = String::from_utf8_lossy(&gfx[..gfx.len().min(3)]).to_string();
                 Ok(json!({ "kind": "swf", "bytes": gfx.len(), "signature": head }))
             }
@@ -1457,9 +1562,8 @@ impl Server {
         let out = s(p, "out")?;
         let i = self.export_of(path, p)?;
         let kind = self.media_kind(path, i)?;
-        let ed = self.editor(path)?;
-        let o = ed.object(i)?.clone();
-        let bytes = if kind == "sound" { media::sound_export(&ed.pkg, &o)? } else { media::swf_export(&ed.pkg, &o)? };
+        let sound = kind == "sound";
+        let bytes = self.editor(path)?.with_object(i, |pkg, o| if sound { media::sound_export(pkg, o) } else { media::swf_export(pkg, o) })??;
         std::fs::write(out, &bytes)?;
         Ok(json!({ "out": out, "bytes": bytes.len(), "kind": kind }))
     }
@@ -1493,145 +1597,285 @@ impl Server {
     fn swf_movie(&mut self, p: &J) -> Res<(String, usize, crate::swf::Movie)> {
         let path = s(p, "path")?.to_string();
         let i = self.export_of(&path, p)?;
+        let k = format!("{}#{i}", key(&path));
+        if let Some((ck, m)) = &self.swf_cache {
+            if *ck == k {
+                return Ok((path, i, m.clone()));
+            }
+        }
         let ed = self.editor(&path)?;
-        let o = ed.object(i)?.clone();
-        let bytes = media::swf_export(&ed.pkg, &o)?;
-        Ok((path, i, crate::swf::Movie::parse(&bytes)?))
+        let bytes = ed.with_object(i, media::swf_export)??;
+        let m = crate::swf::Movie::parse(&bytes)?;
+        self.swf_cache = Some((k, m.clone()));
+        Ok((path, i, m))
+    }
+
+    /// The movie with the Studio's pending edits (`edits`, as `swf.apply`
+    /// takes them) applied, without writing anything.
+    fn swf_edited(&mut self, p: &J) -> Res<(String, usize, crate::swf::Movie)> {
+        let (path, i, mut m) = self.swf_movie(p)?;
+        if let Some(edits) = p.get("edits").and_then(|v| v.as_array()) {
+            if !edits.is_empty() {
+                crate::swf::apply(&mut m, edits)?;
+            }
+        }
+        Ok((path, i, m))
     }
 
     /// `swf.info`: tags, texts, scripts, external images, linkage of a movie.
     fn swf_info(&mut self, p: &J) -> Res<J> {
-        let (_, _, m) = self.swf_movie(p)?;
+        let (_, _, m) = self.swf_edited(p)?;
         Ok(crate::swf::info(&m))
     }
 
     /// `swf.bytes`: the movie as the game's GFx loader receives it, for the
     /// Studio's Ruffle player.
     fn swf_bytes(&mut self, p: &J) -> Res<J> {
-        let path = s(p, "path")?.to_string();
-        let i = self.export_of(&path, p)?;
-        let bytes = {
-            let ed = self.editor(&path)?;
-            let o = ed.object(i)?.clone();
-            media::swf_export(&ed.pkg, &o)?
-        };
+        let (_, _, m) = self.swf_movie(p)?;
+        let bytes = m.write();
         let len = bytes.len();
         Ok(json!({ "swf": self.bins.add(bytes), "bytes": len }))
     }
 
     /// `swf.player`: the movie with its GFx external images embedded as
-    /// standard `DefineBitsLossless2` bitmaps. The engine resolves a
-    /// `DefineExternalImage2` (`Foo.tga`) to a `Texture2D` of the same package;
-    /// Ruffle has no engine assets, so the texture is decoded and written into
-    /// the movie instead (preview bytes only, the package is untouched).
-    /// `DefineSubImage` crops (Scaleform atlases) become bitmaps of their own,
-    /// because Ruffle has no sub-image tag.
+    /// standard `DefineBitsLossless2` bitmaps (`embed_images`), pending
+    /// `edits` applied.
     fn swf_player(&mut self, p: &J) -> Res<J> {
-        let (path, _, mut m) = self.swf_movie(p)?;
-        let mut images = 0usize;
-        let mut missing: Vec<String> = Vec::new();
-        if self.src.is_none() {
-            let bytes = m.write();
-            let len = bytes.len();
-            return Ok(json!({ "swf": self.bins.add(bytes), "bytes": len, "images": 0, "missing": missing }));
-        }
-        {
-            let db = self.db()?;
-            let src = self.src.as_ref().unwrap();
-            let ed = self.editors.get_mut(&key(&path)).ok_or("package is not open")?;
-            let tags = std::mem::take(&mut m.tags);
-            // Sub-images are crops of an external image; the shapes reference
-            // the sub-image id, not the atlas.
-            let mut sub_by_image: HashMap<u16, Vec<crate::swf::SubImage>> = HashMap::new();
-            for tag in &tags {
-                if tag.code == 1008 {
-                    if let Some(sub) = crate::swf::parse_sub_image(&tag.data) {
-                        sub_by_image.entry(sub.image_id).or_default().push(sub);
-                    }
-                }
-            }
-            let mut consumed: std::collections::HashSet<u16> = std::collections::HashSet::new();
-            let mut out = Vec::with_capacity(tags.len());
-            for tag in tags {
-                if tag.code != 1001 && tag.code != 1009 {
-                    out.push(tag);
-                    continue;
-                }
-                let Some(img) = crate::swf::parse_external_image(tag.code, &tag.data) else {
-                    out.push(tag);
-                    continue;
-                };
-                // GFx external images use a 32-bit id whose low 16 bits are the
-                // character id SWF tags refer to (sub-images, bitmap fills); the
-                // high half is the image namespace (`0x0009_0000` in these movies).
-                let image_id = (img.id & 0xFFFF) as u16;
-                let file = img.file_name.rsplit('/').next().unwrap_or(&img.file_name);
-                let stem = file.rsplit_once('.').map(|(name, _)| name).unwrap_or(file);
-                let mut texture = None;
-                for i in 0..ed.pkg.exports.len() {
-                    let idx = PackageIndex::export(i);
-                    if ed.pkg.object_name(idx).eq_ignore_ascii_case(stem) && ed.pkg.class_name_of(idx).eq_ignore_ascii_case("Texture2D") {
-                        texture = Some(i);
-                        break;
-                    }
-                }
-                let Some(texture) = texture else {
-                    missing.push(format!("{}: no Texture2D named {stem}", img.file_name));
-                    out.push(tag);
-                    continue;
-                };
-                let o = match ed.object(texture) {
-                    Ok(o) => o.clone(),
-                    Err(e) => {
-                        missing.push(format!("{}: {e}", img.file_name));
-                        out.push(tag);
-                        continue;
-                    }
-                };
-                let (tw, th, rgba) = match crate::texture_ops::largest_rgba(db, &ed.pkg, &ed.name, src, texture, &o) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        missing.push(format!("{}: {e}", img.file_name));
-                        out.push(tag);
-                        continue;
-                    }
-                };
-                if tw == 0 || th == 0 {
-                    out.push(tag);
-                    continue;
-                }
-                if let Some(subs) = sub_by_image.remove(&image_id) {
-                    // The atlas rect is in target pixels; DXT textures can be
-                    // up to 3 px larger (block padding), so scale into the
-                    // decoded texture and crop there.
-                    let scale_x = |v: u16| ((v as u64 * tw as u64) / (img.width.max(1) as u64)) as u16;
-                    let scale_y = |v: u16| ((v as u64 * th as u64) / (img.height.max(1) as u64)) as u16;
-                    for sub in subs {
-                        let Some((w, h, pixels)) = crop_rgba(&rgba, tw, th, scale_x(sub.x1), scale_y(sub.y1), scale_x(sub.x2), scale_y(sub.y2)) else {
-                            missing.push(format!("{}: empty crop {}x{}", img.file_name, sub.x1, sub.y1));
-                            continue;
-                        };
-                        out.push(crate::swf::Tag { code: 36, data: define_bits_lossless2(sub.id, w, h, &pixels), long: true });
-                        consumed.insert(sub.id);
-                        images += 1;
-                    }
-                    // The atlas tag itself is no longer needed: only its
-                    // sub-images are referenced.
-                } else if img.width > 0 && img.height > 0 {
-                    let (w, h, pixels) = fit_rgba(&rgba, tw, th, img.width as u32, img.height as u32);
-                    out.push(crate::swf::Tag { code: 36, data: define_bits_lossless2(image_id, w, h, &pixels), long: true });
-                    images += 1;
-                } else {
-                    out.push(tag);
-                }
-            }
-            // Drop the sub-image tags whose cropped bitmap was emitted.
-            out.retain(|t| t.code != 1008 || !crate::swf::parse_sub_image(&t.data).is_some_and(|s| consumed.contains(&s.id)));
-            m.tags = out;
-        }
+        let (path, _, mut m) = self.swf_edited(p)?;
+        let (images, missing) = self.embed_images(&path, &mut m)?;
+        crate::swf::merge_imports(&mut m.tags, |_| true);
+        uncompressed(&mut m);
         let bytes = m.write();
         let len = bytes.len();
         Ok(json!({ "swf": self.bins.add(bytes), "bytes": len, "images": images, "missing": missing }))
+    }
+
+    /// Replace the GFx external images of a movie by standard bitmaps. The
+    /// engine resolves a `DefineExternalImage2` (`Foo.tga`) to a `Texture2D`
+    /// of the same package; Ruffle has no engine assets, so the texture is
+    /// decoded and written into the movie instead (preview bytes only, the
+    /// package is untouched). `DefineSubImage` crops (Scaleform atlases)
+    /// become bitmaps of their own, because Ruffle has no sub-image tag.
+    /// Conversions are cached by package and tag contents: decoding and
+    /// compressing a 2048² atlas is the slow part of every preview.
+    fn embed_images(&mut self, path: &str, m: &mut crate::swf::Movie) -> Res<(usize, Vec<String>)> {
+        use std::hash::{Hash, Hasher};
+        let mut missing: Vec<String> = Vec::new();
+        if self.src.is_none() {
+            return Ok((0, missing));
+        }
+        let pkg_key = key(path);
+        let tags = std::mem::take(&mut m.tags);
+        // Sub-images are crops of an external image; the shapes reference
+        // the sub-image id, not the atlas.
+        let mut sub_by_image: HashMap<u16, Vec<(crate::swf::SubImage, Vec<u8>)>> = HashMap::new();
+        for tag in &tags {
+            if tag.code == 1008 {
+                if let Some(sub) = crate::swf::parse_sub_image(&tag.data) {
+                    sub_by_image.entry(sub.image_id).or_default().push((sub, tag.data.clone()));
+                }
+            }
+        }
+        // Each external image with the key its conversion is cached under.
+        let mut items: Vec<(crate::swf::Tag, Option<u64>)> = Vec::with_capacity(tags.len());
+        let mut jobs: Vec<ImageJob> = Vec::new();
+        for tag in tags {
+            let img = if tag.code == 1001 || tag.code == 1009 { crate::swf::parse_external_image(tag.code, &tag.data) } else { None };
+            let Some(img) = img else {
+                items.push((tag, None));
+                continue;
+            };
+            // GFx external images use a 32-bit id whose low 16 bits are the
+            // character id SWF tags refer to (sub-images, bitmap fills); the
+            // high half is the image namespace (`0x0009_0000` in these movies).
+            let image_id = (img.id & 0xFFFF) as u16;
+            let subs = sub_by_image.remove(&image_id).unwrap_or_default();
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            pkg_key.hash(&mut h);
+            tag.data.hash(&mut h);
+            for (_, d) in &subs {
+                d.hash(&mut h);
+            }
+            let ck = h.finish();
+            if !self.swf_embeds.contains_key(&ck) && !jobs.iter().any(|j| j.key == ck) {
+                let texture = self.image_texture(&pkg_key, &img)?;
+                jobs.push(ImageJob { key: ck, image_id, subs: subs.iter().map(|(s, _)| *s).collect(), img, texture });
+            }
+            items.push((tag, Some(ck)));
+        }
+        if !jobs.is_empty() {
+            // Decoding a texture and compressing its bitmap is the slow part
+            // of a first preview (a header with 184 images took 250 ms): the
+            // images convert in parallel.
+            let db = self.db()?;
+            let src = self.src.as_ref().ok_or("no workspace")?;
+            let ed = self.editors.get(&pkg_key).ok_or("package is not open")?;
+            let done = tempest_unrealscript::par::map(&jobs, |j| convert_image(db, &ed.pkg, &ed.name, src, j));
+            for (j, e) in jobs.iter().zip(done) {
+                self.swf_embeds.insert(j.key, e);
+            }
+        }
+        let mut images = 0usize;
+        let mut consumed: std::collections::HashSet<u16> = std::collections::HashSet::new();
+        let mut out = Vec::with_capacity(items.len());
+        for (tag, ck) in items {
+            let Some(embed) = ck.and_then(|ck| self.swf_embeds.get(&ck)) else {
+                out.push(tag);
+                continue;
+            };
+            let embed = embed.clone();
+            missing.extend(embed.missing.iter().cloned());
+            images += embed.tags.len();
+            consumed.extend(embed.consumed.iter().copied());
+            out.extend(embed.tags);
+            if embed.keep {
+                out.push(tag);
+            }
+            // An atlas with sub-images is no longer needed: only its
+            // sub-images are referenced.
+        }
+        // Drop the sub-image tags whose cropped bitmap was emitted.
+        out.retain(|t| t.code != 1008 || !crate::swf::parse_sub_image(&t.data).is_some_and(|s| consumed.contains(&s.id)));
+        m.tags = out;
+        Ok((images, missing))
+    }
+
+    /// The `Texture2D` an external image names (`Foo.tga` → `Foo`) and its
+    /// parsed object, or why there is none.
+    fn image_texture(&mut self, pkg_key: &str, img: &crate::swf::ExternalImage) -> Res<Result<(usize, Object), String>> {
+        let ed = self.editors.get_mut(pkg_key).ok_or("package is not open")?;
+        let file = img.file_name.rsplit('/').next().unwrap_or(&img.file_name);
+        let stem = file.rsplit_once('.').map(|(name, _)| name).unwrap_or(file);
+        let texture = (0..ed.pkg.exports.len()).find(|&i| {
+            let idx = PackageIndex::export(i);
+            ed.pkg.object_name(idx).eq_ignore_ascii_case(stem) && ed.pkg.class_name_of(idx).eq_ignore_ascii_case("Texture2D")
+        });
+        let Some(texture) = texture else {
+            return Ok(Err(format!("{}: no Texture2D named {stem}", img.file_name)));
+        };
+        Ok(match ed.object(texture) {
+            Ok(o) => Ok((texture, o.clone())),
+            Err(err) => Err(format!("{}: {err}", img.file_name)),
+        })
+    }
+
+    /// `swf.tree`: the character dictionary (kinds, linkage names, bounds,
+    /// dependencies, attached tags) and the root timeline's size.
+    fn swf_tree(&mut self, p: &J) -> Res<J> {
+        let (_, _, m) = self.swf_edited(p)?;
+        let dict = crate::swf::dict::Dict::build(&m);
+        let (x0, x1, y0, y1) = m.frame();
+        let root = crate::swf::display::timeline(&m.tags, 100_000);
+        Ok(json!({
+            "characters": dict.json(&m),
+            "stage": { "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0 },
+            "frames": m.frame_count(),
+            "rootFrames": root.frames.len(),
+            "labels": root.labels.iter().map(|(f, l)| json!({ "frame": f, "name": l })).collect::<Vec<_>>(),
+        }))
+    }
+
+    /// `swf.timeline {sprite}`: the display list of a sprite (0: the root)
+    /// after every frame, with the tag that placed, moved and last changed
+    /// each object and its bounds in the sprite's coordinates.
+    fn swf_timeline(&mut self, p: &J) -> Res<J> {
+        let (_, _, m) = self.swf_edited(p)?;
+        let sprite = opt_u(p, "sprite").unwrap_or(0) as u16;
+        let limit = opt_u(p, "limit").unwrap_or(2000);
+        let dict = crate::swf::dict::Dict::build(&m);
+        let body;
+        let tags: &[crate::swf::Tag] = if sprite == 0 {
+            &m.tags
+        } else {
+            let c = dict.chars.get(&sprite).filter(|c| c.kind == "sprite").ok_or(format!("no sprite {sprite}"))?;
+            body = crate::swf::display::sprite_body(&m.tags[c.tag.ok_or("imported sprite")?]);
+            &body
+        };
+        let tl = crate::swf::display::timeline(tags, limit);
+        let codes: Vec<u16> = tags.iter().map(|t| t.code).collect();
+        let frames: Vec<J> = tl
+            .frames
+            .iter()
+            .map(|list| {
+                J::Array(
+                    list.iter()
+                        .map(|e| {
+                            let rect = dict.bounds(&m, e.character).map(|r| crate::swf::dict::rect_json(e.matrix.apply_rect(r)));
+                            let extras = crate::swf::display::Place::parse(codes[e.changed_by], &tags[e.changed_by].data).is_some_and(|p| p.has_extras());
+                            json!({
+                                "depth": e.depth,
+                                "character": e.character,
+                                "name": e.name,
+                                "className": e.class_name,
+                                "matrix": e.matrix.json(),
+                                "cxform": (!e.cxform.is_identity()).then(|| e.cxform.json()),
+                                "ratio": e.ratio,
+                                "clipDepth": e.clip_depth,
+                                "placedBy": e.placed_by,
+                                "matrixBy": e.matrix_by,
+                                "changedBy": e.changed_by,
+                                "placeCode": codes[e.placed_by],
+                                "since": e.since,
+                                "extras": extras,
+                                "rect": rect,
+                            })
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+        Ok(json!({
+            "sprite": sprite,
+            "frames": frames,
+            "labels": tl.labels.iter().map(|(f, l)| json!({ "frame": f, "name": l })).collect::<Vec<_>>(),
+            "actions": tl.actions.iter().map(|(f, t)| json!({ "frame": f, "tag": t })).collect::<Vec<_>>(),
+            "tags": tags.len(),
+        }))
+    }
+
+    /// `swf.preview {target: {kind: root|frame|character, id, frame, play}, exclude?, rect?}`:
+    /// a movie showing one character or one frame of a timeline, cut to its
+    /// bounds (or `rect`, pixels), without the depths in `exclude`, with
+    /// pending `edits` applied and external images embedded.
+    fn swf_preview(&mut self, p: &J) -> Res<J> {
+        use crate::swf::preview::{build, Target};
+        let (path, _, m) = self.swf_edited(p)?;
+        let t = p.get("target").cloned().unwrap_or(J::Null);
+        let id = t.get("id").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+        let frame = t.get("frame").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let target = match t.get("kind").and_then(|v| v.as_str()).unwrap_or("root") {
+            "root" => Target::Root(frame),
+            "frame" => Target::Frame(id, frame),
+            "character" => Target::Character(id, t.get("play").and_then(|v| v.as_bool()).unwrap_or(false)),
+            k => return Err(format!("unknown preview target {k}").into()),
+        };
+        let dict = crate::swf::dict::Dict::build(&m);
+        let exclude: Vec<u16> = p.get("exclude").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_u64()).map(|x| x as u16).collect()).unwrap_or_default();
+        let view = p.get("rect").filter(|r| r.is_object()).map(|r| {
+            let f = |k: &str| (r.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0) * 20.0).round() as i32;
+            [f("x"), f("y"), f("x") + f("w"), f("y") + f("h")]
+        });
+        let play = matches!(target, Target::Character(_, true));
+        let mut preview = build(&m, &dict, target, &crate::swf::preview::Options { exclude, view });
+        let (images, missing) = self.embed_images(&path, &mut preview.movie)?;
+        let imports = preview.movie.tags.iter().filter(|t| t.code == 57 || t.code == 71).count();
+        // A layout gets its own cut of each library; a playing target uses
+        // the whole libraries (`swf.libraries`), its scripts may want any symbol.
+        let mut subsets = Vec::new();
+        if !play {
+            if self.swf_subset_cache.len() > 256 {
+                self.swf_subset_cache.clear();
+            }
+            self.swf_subsets(&mut preview.movie.tags, 0, &mut subsets)?;
+        }
+        let libraries: Vec<J> = subsets.into_iter().map(|(url, bytes)| json!({ "url": url, "swf": self.bins.add(bytes) })).collect();
+        let bytes = preview.movie.write();
+        let len = bytes.len();
+        let mut out = json!({ "swf": self.bins.add(bytes), "bytes": len, "rect": crate::swf::dict::rect_json(preview.rect), "images": images, "missing": missing, "imports": imports });
+        if !play {
+            out["libraries"] = J::Array(libraries);
+        }
+        Ok(out)
     }
 
     /// `swf.libraries`: the movies this movie imports (`ImportAssets2` URLs such
@@ -1646,7 +1890,6 @@ impl Server {
         if pending.is_empty() {
             return Ok(json!({ "libraries": [], "missing": [] }));
         }
-        self.index_all();
         let mut looked_up: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut libraries = Vec::new();
@@ -1662,30 +1905,8 @@ impl Server {
             if wave.is_empty() {
                 break;
             }
-            let wanted: std::collections::HashSet<&str> = wave.iter().map(|(_, stem)| stem.as_str()).collect();
-            // A library is looked up by the name its importer refers to (the
-            // URL's file stem), e.g. `SharedAssets`, not by the package it
-            // lives in.
-            let mut found: HashMap<String, (PathBuf, usize, String)> = HashMap::new();
-            for w in &self.packages {
-                if found.len() == wanted.len() {
-                    break;
-                }
-                let k = key(&w.path.to_string_lossy());
-                let Some(idx) = self.index.get(&k) else { continue };
-                for (i, (cid, object_path)) in idx.exports.iter().enumerate() {
-                    if !idx.classes[*cid as usize].eq_ignore_ascii_case("SwfMovie") {
-                        continue;
-                    }
-                    let name = object_path.rsplit('.').next().unwrap_or(object_path).to_ascii_lowercase();
-                    if wanted.contains(name.as_str()) && !found.contains_key(&name) {
-                        found.insert(name.clone(), (w.path.clone(), i, object_path.clone()));
-                        if found.len() == wanted.len() {
-                            break;
-                        }
-                    }
-                }
-            }
+            let stems: Vec<&str> = wave.iter().map(|(_, stem)| stem.as_str()).collect();
+            let found = self.swf_lib_locations(&stems);
             for (url, stem) in wave {
                 let Some((path, i, object)) = found.get(&stem) else {
                     if !missing.contains(&url) {
@@ -1697,13 +1918,14 @@ impl Server {
                 if !emitted.insert(format!("{path_text}#{i}")) {
                     continue;
                 }
-                let bytes = {
-                    let ed = self.editor(&path_text)?;
-                    let o = ed.object(*i)?.clone();
-                    media::swf_export(&ed.pkg, &o)?
-                };
-                if let Ok(shared) = crate::swf::Movie::parse(&bytes) {
+                let mut bytes = self.editor(&path_text)?.with_object(*i, media::swf_export)??;
+                if let Ok(mut shared) = crate::swf::Movie::parse(&bytes) {
                     pending.extend(crate::swf::import_urls(&shared));
+                    let merged = crate::swf::merge_imports(&mut shared.tags, |_| true);
+                    let inflated = uncompressed(&mut shared);
+                    if merged || inflated {
+                        bytes = shared.write();
+                    }
                 }
                 let len = bytes.len();
                 libraries.push(json!({
@@ -1719,11 +1941,402 @@ impl Server {
         Ok(json!({ "libraries": libraries, "missing": missing }))
     }
 
-    /// `swf.script`: the disassembly of one script tag.
+    /// Where the libraries named by import URL stems live. A library is
+    /// looked up by the name its importer refers to (`SharedAssets`), not by
+    /// the package it lives in; scanning every package's exports takes ~30 ms,
+    /// so locations are remembered (`swf_libs`).
+    fn swf_lib_locations(&mut self, stems: &[&str]) -> HashMap<String, (PathBuf, usize, String)> {
+        let mut found: HashMap<String, (PathBuf, usize, String)> = HashMap::new();
+        let mut unknown: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for &stem in stems {
+            match self.swf_libs.get(stem).cloned() {
+                Some(Some(loc)) if self.swf_lib_valid(&loc, stem) => {
+                    found.insert(stem.to_string(), loc);
+                }
+                Some(None) => {}
+                _ => {
+                    unknown.insert(stem);
+                }
+            }
+        }
+        if unknown.is_empty() {
+            return found;
+        }
+        self.index_all();
+        let mut hits: HashMap<String, (PathBuf, usize, String)> = HashMap::new();
+        'packages: for w in &self.packages {
+            let k = key(&w.path.to_string_lossy());
+            let Some(idx) = self.index.get(&k) else { continue };
+            for (i, (cid, object_path)) in idx.exports.iter().enumerate() {
+                if !idx.classes[*cid as usize].eq_ignore_ascii_case("SwfMovie") {
+                    continue;
+                }
+                let name = object_path.rsplit('.').next().unwrap_or(object_path).to_ascii_lowercase();
+                if unknown.contains(name.as_str()) && !hits.contains_key(&name) {
+                    hits.insert(name.clone(), (w.path.clone(), i, object_path.clone()));
+                    if hits.len() == unknown.len() {
+                        break 'packages;
+                    }
+                }
+            }
+        }
+        for stem in unknown {
+            self.swf_libs.insert(stem.to_string(), hits.get(stem).cloned());
+        }
+        found.extend(hits);
+        found
+    }
+
+    /// Point a layout's imports at subsets of their libraries
+    /// (`preview::library_subset`), recursively for the libraries' own
+    /// imports, each served under a URL made of its contents; `out` gets
+    /// every subset. Imports of libraries the workspace lacks are left alone.
+    fn swf_subsets(&mut self, tags: &mut [crate::swf::Tag], depth: usize, out: &mut Vec<(String, Vec<u8>)>) -> Res<()> {
+        use std::hash::{Hash, Hasher};
+        for t in tags.iter_mut().filter(|t| t.code == 57 || t.code == 71) {
+            let Some((url, names)) = crate::swf::import_entries(t) else { continue };
+            let stem = swf_stem(&url);
+            let Some((path, i, _)) = self.swf_lib_locations(&[stem.as_str()]).remove(&stem) else { continue };
+            let path_text = path.to_string_lossy().to_string();
+            let mut sorted = names.clone();
+            sorted.sort_unstable();
+            let ck = format!("{}#{i}|{}", key(&path_text), sorted.join("\u{1}"));
+            let subset = match self.swf_subset_cache.get(&ck) {
+                Some(s) => s.clone(),
+                None => {
+                    let bytes = self.editor(&path_text)?.with_object(i, media::swf_export)??;
+                    let Some(mut sub) = crate::swf::Movie::parse(&bytes).ok().and_then(|lib| crate::swf::preview::library_subset(&lib, &names)) else { continue };
+                    let mut all = Vec::new();
+                    if depth < 4 {
+                        self.swf_subsets(&mut sub.tags, depth + 1, &mut all)?;
+                    }
+                    // The library's images come from its own package.
+                    self.embed_images(&path_text, &mut sub)?;
+                    let bytes = sub.write();
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    bytes.hash(&mut h);
+                    let url = format!("swf-lib/{:016x}.swf", h.finish());
+                    all.push((url.clone(), bytes));
+                    self.swf_subset_cache.insert(ck, (url.clone(), all.clone()));
+                    (url, all)
+                }
+            };
+            let (sub_url, all) = subset;
+            for (u, b) in all {
+                if !out.iter().any(|(x, _)| *x == u) {
+                    out.push((u, b));
+                }
+            }
+            crate::swf::set_import_url(t, &sub_url);
+        }
+        Ok(())
+    }
+
+    /// A remembered library location still names a `SwfMovie` of that name
+    /// (exports can be renamed or deleted since).
+    fn swf_lib_valid(&mut self, (path, i, _): &(PathBuf, usize, String), stem: &str) -> bool {
+        let Ok(ed) = self.editor(&path.to_string_lossy()) else { return false };
+        if *i >= ed.pkg.exports.len() {
+            return false;
+        }
+        let idx = PackageIndex::export(*i);
+        ed.pkg.class_name_of(idx).eq_ignore_ascii_case("SwfMovie") && ed.pkg.object_name(idx).eq_ignore_ascii_case(stem)
+    }
+
+    /// `swf.script {loc | tag, edits?}`: one script as P-code and decompiled
+    /// ActionScript (with the pending edits applied), and what the decompiler
+    /// had to keep as P-code.
     fn swf_script(&mut self, p: &J) -> Res<J> {
-        let (_, _, m) = self.swf_movie(p)?;
-        let tag = opt_u(p, "tag").ok_or("missing parameter tag")?;
-        Ok(json!({ "listing": crate::swf::script_listing(&m, tag)? }))
+        use crate::swf::as2;
+        let (_, _, m) = self.swf_edited(p)?;
+        let loc = match p.get("loc") {
+            Some(l) => as2::Loc::from_json(l)?,
+            None => as2::Loc::Tag { sprite: 0, tag: opt_u(p, "tag").ok_or("missing parameter loc")? },
+        };
+        let script = as2::action::Script::decode(&as2::script_bytes(&m, &loc)?)?;
+        let pcode = as2::pcode::print(&script);
+        Ok(json!({ "listing": pcode, "pcode": pcode, "source": as2::decompile::source(&script), "problems": as2::decompile::problems(&script) }))
+    }
+
+    /// `swf.compile {source | pcode}`: compile ActionScript or assemble P-code
+    /// without writing it (errors name the line); the result as P-code.
+    fn swf_compile(&mut self, p: &J) -> Res<J> {
+        use crate::swf::as2;
+        let script = match opt_s(p, "source") {
+            Some(src) => as2::compile::compile(&src)?,
+            None => as2::pcode::parse(s(p, "pcode")?)?,
+        };
+        let bytes = script.encode()?;
+        Ok(json!({ "bytes": bytes.len(), "pcode": as2::pcode::print(&script) }))
+    }
+
+    /// Bitmaps of a movie for SVG export, by character id: external images
+    /// decoded from their textures (as the preview embeds them) and the
+    /// movie's own lossless bitmaps, as PNG at the size the movie draws them.
+    fn swf_bitmaps(&mut self, path: &str, m: &crate::swf::Movie) -> HashMap<u16, (u32, u32, Vec<u8>)> {
+        let mut copy = m.clone();
+        let _ = self.embed_images(path, &mut copy);
+        let mut out = HashMap::new();
+        for t in &copy.tags {
+            if let Some((id, w, h, rgba)) = crate::swf::decode_lossless(t) {
+                if let Ok(png) = crate::dds::write_png(w, h, &rgba) {
+                    out.insert(id, (w, h, png));
+                }
+            }
+        }
+        out
+    }
+
+    /// `swf.character {id}`: what the editor shows and edits of one character
+    /// (pending `edits` applied): a shape's colours and line widths, a font's
+    /// glyphs, a static text's records, an edit-text field's properties and
+    /// the fonts it can use, a sound's format.
+    fn swf_character(&mut self, p: &J) -> Res<J> {
+        use crate::swf::{dict::Dict, font::Font, shape::Shape, text};
+        let (_, _, m) = self.swf_edited(p)?;
+        let id = opt_u(p, "id").ok_or("missing parameter id")? as u16;
+        let dict = Dict::build(&m);
+        let c = dict.chars.get(&id).ok_or(format!("no character {id}"))?;
+        let Some(tag) = c.tag else { return Ok(json!({ "kind": c.kind })) };
+        let t = &m.tags[tag];
+        let fonts = |fid: u16| dict.chars.get(&fid).and_then(|c| c.tag).and_then(|ft| Font::parse(&m, ft).ok());
+        Ok(match c.kind {
+            "shape" => {
+                let s = Shape::parse(t)?;
+                let lines: Vec<J> = s
+                    .groups
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(g, st)| st.lines.iter().enumerate().map(move |(i, l)| json!({ "key": format!("width:{g}:{i}"), "colorKey": format!("line:{g}:{i}"), "width": l.width as f64 / 20.0, "color": l.color.hex() })))
+                    .collect();
+                let bitmaps = s.groups.iter().flat_map(|g| g.fills.iter()).filter(|f| matches!(f, crate::swf::shape::Fill::Bitmap { .. })).count();
+                json!({
+                    "kind": "shape",
+                    "tagName": crate::swf::tag_name(t.code),
+                    "alpha": s.has_alpha(),
+                    "colors": s.colors().into_iter().filter(|(k, _)| !k.starts_with("line:")).map(|(k, c)| json!({ "key": k, "color": c.hex() })).collect::<Vec<_>>(),
+                    "lines": lines,
+                    "bitmapFills": bitmaps,
+                    "edges": s.edges.len(),
+                })
+            }
+            "font" => {
+                let f = Font::parse(&m, tag)?;
+                let chars: String = f.codes.iter().filter_map(|&c| char::from_u32(c as u32)).collect();
+                json!({
+                    "kind": "font",
+                    "tagName": crate::swf::tag_name(t.code),
+                    "name": f.name(),
+                    "glyphs": f.glyphs.len(),
+                    "chars": chars,
+                    "bold": f.bold(),
+                    "italic": f.italic(),
+                    "layout": f.layout.is_some(),
+                    "alignZones": m.tags.iter().any(|x| x.code == 73 && crate::swf::u16_at_pub(&x.data, 0) == Some(id)),
+                    "editable": t.code != 10,
+                })
+            }
+            "text" => {
+                let st = text::StaticText::parse(t).ok_or("bad DefineText")?;
+                json!({ "kind": "text", "tagName": crate::swf::tag_name(t.code), "records": st.json(&fonts) })
+            }
+            "edittext" => {
+                let et = text::EditText::parse(&t.data).ok_or("bad DefineEditText")?;
+                let available: Vec<J> = dict
+                    .chars
+                    .values()
+                    .filter(|c| c.kind == "font" || (c.kind == "import" && c.import.is_some()))
+                    .map(|c| {
+                        let name = if c.kind == "font" { fonts(c.id).map(|f| f.name()).unwrap_or_default() } else { c.names.first().cloned().unwrap_or_default() };
+                        json!({ "id": c.id, "name": name, "imported": c.kind == "import" })
+                    })
+                    .collect();
+                json!({ "kind": "edittext", "props": et.json(), "text": et.text, "fonts": available })
+            }
+            "sound" => {
+                let b = t.data.get(2).copied().unwrap_or(0);
+                let format = ["uncompressed", "ADPCM", "MP3", "uncompressed", "Nellymoser 16 kHz", "Nellymoser 8 kHz", "Nellymoser"].get((b >> 4) as usize).copied().unwrap_or("Speex");
+                let ext = text::sound_file(t).map(|(e, _)| e).ok();
+                const RATES: [u32; 4] = [5512, 11025, 22050, 44100];
+                json!({ "kind": "sound", "format": format, "rate": RATES[((b >> 2) & 3) as usize], "channels": 1 + (b & 1), "samples": crate::swf::u32_at_pub(&t.data, 3), "ext": ext })
+            }
+            "binary" => json!({ "kind": "binary", "bytes": t.data.len().saturating_sub(6) }),
+            k => json!({ "kind": k, "tagName": crate::swf::tag_name(t.code) }),
+        })
+    }
+
+    /// `swf.export {target | id, format: svg|ttf|sound|binary, out}`: a
+    /// character, sprite frame or root frame as SVG, a font as TrueType, a
+    /// sound as MP3/WAV, binary data as is (pending `edits` applied).
+    fn swf_export(&mut self, p: &J) -> Res<J> {
+        use crate::swf::{dict::Dict, font::Font, svg, text};
+        let (path, _, m) = self.swf_edited(p)?;
+        let out = s(p, "out")?.to_string();
+        let format = s(p, "format")?;
+        let tag_of = |m: &crate::swf::Movie, id: u16| -> Res<usize> { Dict::build(m).chars.get(&id).and_then(|c| c.tag).ok_or_else(|| format!("no character {id} defined in this movie").into()) };
+        let id = opt_u(p, "id").map(|v| v as u16);
+        let mut warnings: Vec<String> = Vec::new();
+        let bytes = match format {
+            "svg" => {
+                let t = p.get("target").cloned().unwrap_or_else(|| json!({ "kind": "character", "id": id }));
+                let frame = t.get("frame").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let tid = t.get("id").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+                let target = match t.get("kind").and_then(|v| v.as_str()).unwrap_or("character") {
+                    "root" => svg::Target::Root { frame },
+                    "frame" => svg::Target::Frame { sprite: tid, frame },
+                    _ => svg::Target::Character { id: tid },
+                };
+                let bitmaps = self.swf_bitmaps(&path, &m);
+                let (doc, w) = svg::export(&m, target, &mut |b| bitmaps.get(&b).cloned())?;
+                warnings = w;
+                doc.into_bytes()
+            }
+            "ttf" => Font::parse(&m, tag_of(&m, id.ok_or("missing parameter id")?)?)?.to_ttf()?,
+            "sound" => text::sound_file(&m.tags[tag_of(&m, id.ok_or("missing parameter id")?)?])?.1,
+            "binary" => text::binary_data(&m.tags[tag_of(&m, id.ok_or("missing parameter id")?)?])?,
+            f => return Err(format!("unknown export format {f}").into()),
+        };
+        std::fs::write(&out, &bytes)?;
+        Ok(json!({ "out": out, "bytes": bytes.len(), "warnings": warnings }))
+    }
+
+    /// `swf.addImage {file, name?, shape?, place?: {sprite, frame, x, y, name?}, format?, mips?, edits?}`:
+    /// a new external image in the movie (pending `edits` applied first, as
+    /// `swf.apply` does): a Texture2D made from the PNG/DDS `file` with the
+    /// settings of a texture the movie already uses (same group, so the
+    /// engine finds `<name>.tga` next to the others) and listed in the
+    /// movie's `References`; a `DefineExternalImage2` naming it; with `shape`
+    /// (default) a shape that draws it, and with `place` that shape on a
+    /// frame of a timeline. One undo step.
+    fn swf_add_image(&mut self, p: &J) -> Res<J> {
+        use crate::swf::add;
+        let (path, i, mut m) = self.swf_edited(p)?;
+        let file = s(p, "file")?;
+        let bytes = std::fs::read(file)?;
+        let (width, height, source) = if file.to_ascii_lowercase().ends_with(".dds") {
+            let d = crate::dds::read_dds(&bytes)?;
+            (d.width, d.height, ImportSource::Encoded { format: d.format, width: d.width, height: d.height, mips: d.mips })
+        } else {
+            let (w, h, rgba) = crate::dds::read_png(&bytes)?;
+            (w, h, ImportSource::Rgba { width: w, height: h, rgba })
+        };
+        let mut opts = ImportOptions { mips: opt_b(p, "mips"), format: None, keep_alpha: true, pad_blocks: true };
+        if let Some(f) = opt_s(p, "format").filter(|f| !f.is_empty()) {
+            opts.format = Some(crate::dds::PixelFormat::from_name(&f).ok_or_else(|| format!("unknown pixel format {f}"))?);
+        }
+        let db = self.db()?;
+
+        // The texture to copy: one the movie draws, preferably in the movie's group.
+        let style = add::ImageStyle::of(&m);
+        let stems: Vec<String> = m
+            .tags
+            .iter()
+            .filter_map(|t| crate::swf::parse_external_image(t.code, &t.data))
+            .map(|img| {
+                let file = img.file_name.rsplit('/').next().unwrap_or(&img.file_name).to_ascii_lowercase();
+                file.rsplit_once('.').map(|(n, _)| n.to_string()).unwrap_or(file)
+            })
+            .collect();
+        let ed = self.editor(&path)?;
+        let movie_outer = ed.pkg.exports[i].outer;
+        let is_texture = |ed: &Editor, j: usize| ed.pkg.class_name_of(PackageIndex::export(j)).eq_ignore_ascii_case("Texture2D");
+        let template = (0..ed.pkg.exports.len())
+            .filter(|&j| is_texture(ed, j) && stems.contains(&ed.pkg.object_name(PackageIndex::export(j)).to_ascii_lowercase()))
+            .min_by_key(|&j| ed.pkg.exports[j].outer != movie_outer)
+            .or_else(|| (0..ed.pkg.exports.len()).find(|&j| is_texture(ed, j) && ed.pkg.exports[j].outer == movie_outer))
+            .ok_or("the movie uses no texture of this package to copy the settings of a new one from")?;
+
+        // A name no other object of the package has, so `<name>.tga` is unambiguous.
+        let wanted = opt_s(p, "name").filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
+            let stem = std::path::Path::new(file).file_stem().and_then(|s| s.to_str()).unwrap_or("Image");
+            format!("{}_{stem}", ed.pkg.object_name(PackageIndex::export(i)))
+        });
+        let mut base: String = wanted.trim().chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
+        if base.is_empty() {
+            base = "Image".into();
+        }
+        let taken = |ed: &Editor, n: &str| (0..ed.pkg.exports.len()).any(|j| ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(n));
+        let mut name = base.clone();
+        let mut k = 2;
+        while taken(ed, &name) {
+            name = format!("{base}_{k}");
+            k += 1;
+        }
+        let file_name = format!("{name}{}", style.extension);
+
+        // The movie.
+        let image = add::next_id(&m)?;
+        let mut defs = vec![add::external_image(&style, image, width, height, &file_name)?];
+        let shape = if opt_b(p, "shape").unwrap_or(true) {
+            if image >= 0xFFFE {
+                return Err("the movie has no free character id for the shape".into());
+            }
+            defs.push(add::bitmap_shape(image + 1, image, width, height));
+            Some(image + 1)
+        } else {
+            None
+        };
+        add::insert_definitions(&mut m, defs);
+        let placed = match p.get("place").filter(|v| v.is_object()) {
+            Some(pl) => {
+                let shape = shape.ok_or("only a shape can be placed: add the image with its shape")?;
+                let sprite = pl.get("sprite").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+                let frame = pl.get("frame").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let x = pl.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let y = pl.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let depth = add::place(&mut m, sprite, frame, shape, x, y, pl.get("name").and_then(|v| v.as_str()))?;
+                Some(json!({ "sprite": sprite, "frame": frame, "depth": depth }))
+            }
+            None => None,
+        };
+        let movie_bytes = m.write();
+
+        // The package, as one undo step (rolled back if a step fails).
+        let ed = self.editor(&path)?;
+        ed.begin_undo(format!("add image {name} to {}", ed.pkg.object_name(PackageIndex::export(i))));
+        let result = (|| -> Res<usize> {
+            let t = ed.duplicate(template)?;
+            ed.rename(t, &name)?;
+            let mut o = ed.object(t)?.clone();
+            o.net_index = -1;
+            texture_ops::import(db, &mut ed.pkg, t, &mut o, source, &opts)?;
+            ed.replace_object(t, o)?;
+            ed.mark_dirty(t);
+            let mut movie = ed.object(i)?.clone();
+            media::swf_import(&mut ed.pkg, &mut movie, &movie_bytes)?;
+            let reference = crate::value::Value::Object(PackageIndex::export(t));
+            match movie.properties.iter_mut().find(|q| q.array_index == 0 && ed.pkg.fname_to_string(q.name).eq_ignore_ascii_case("References")) {
+                Some(q) => match &mut q.value {
+                    crate::value::Value::Array(items) => items.push(reference),
+                    _ => return Err("the movie's References is not an array".into()),
+                },
+                None => media::set_property(&mut ed.pkg, &mut movie, "References", tempest_unrealscript::objects::PropertyKind::Array, crate::value::Value::Array(vec![reference])),
+            }
+            ed.replace_object(i, movie)?;
+            ed.mark_dirty(i);
+            Ok(t)
+        })();
+        let texture = match result {
+            Ok(t) => t,
+            Err(e) => {
+                ed.undo();
+                return Err(e);
+            }
+        };
+        let undo = ed.undo_labels();
+        let texture_path = ed.pkg.object_path(PackageIndex::export(texture));
+        self.swf_cache = Some((format!("{}#{i}", key(&path)), m));
+        Ok(json!({
+            "texture": { "index": texture, "path": texture_path, "name": name },
+            "fileName": file_name,
+            "image": image,
+            "shape": shape,
+            "width": width,
+            "height": height,
+            "placed": placed,
+            "bytes": movie_bytes.len(),
+            "undo": undo,
+        }))
     }
 
     /// `swf.apply`: edits (`{kind: text|string|image, tag, index?, text}`) written back into the package (undoable).
@@ -1738,7 +2351,9 @@ impl Server {
         media::swf_import(&mut ed.pkg, &mut o, &bytes)?;
         ed.replace_object(i, o)?;
         ed.mark_dirty(i);
-        Ok(json!({ "edits": n, "bytes": bytes.len(), "undo": ed.undo_labels() }))
+        let undo = ed.undo_labels();
+        self.swf_cache = Some((format!("{}#{i}", key(&path)), m));
+        Ok(json!({ "edits": n, "bytes": bytes.len(), "undo": undo }))
     }
 
     // ----- sound editing ------------------------------------------------------
@@ -3221,6 +3836,19 @@ fn swf_stem(url: &str) -> String {
     stem.to_ascii_lowercase()
 }
 
+/// Write a movie for Ruffle without zlib (`CFX` → `GFX`, `CWS` → `FWS`):
+/// deflating a 7 MB movie costs more than the bytes it saves over IPC, and
+/// Ruffle inflates every library again on each load. Returns whether it was
+/// compressed.
+fn uncompressed(m: &mut crate::swf::Movie) -> bool {
+    match &m.signature {
+        b"CFX" => m.signature = *b"GFX",
+        b"CWS" => m.signature = *b"FWS",
+        _ => return false,
+    }
+    true
+}
+
 /// `DefineBitsLossless2` tag body for straight-alpha RGBA pixels: 32-bit ARGB
 /// (alpha first) zlib-compressed, which is what Ruffle and Flash decode.
 fn define_bits_lossless2(id: u16, width: u16, height: u16, rgba: &[u8]) -> Vec<u8> {
@@ -3232,7 +3860,9 @@ fn define_bits_lossless2(id: u16, width: u16, height: u16, rgba: &[u8]) -> Vec<u
         let channel = |c: u8| ((c as u32 * a + 127) / 255) as u8;
         argb.extend_from_slice(&[px[3], channel(px[0]), channel(px[1]), channel(px[2])]);
     }
-    let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    // Only Ruffle in this process reads these: the fast level compresses
+    // several times quicker for slightly larger bitmaps.
+    let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
     let _ = enc.write_all(&argb);
     let compressed = enc.finish().unwrap_or_default();
     let mut body = Vec::with_capacity(7 + compressed.len());

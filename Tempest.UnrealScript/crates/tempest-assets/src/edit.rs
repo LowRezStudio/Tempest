@@ -114,6 +114,7 @@ impl<'a> Editor<'a> {
 
     /// Record export `i` before it changes (once per operation).
     fn snapshot(&mut self, i: usize) {
+        const SNAPSHOT_PARSED_MAX: usize = 1 << 20;
         let Some(cur) = &mut self.current else { return };
         if cur.full.is_some() || cur.snapshots.iter().any(|s| s.index == i) || i >= self.pkg.exports.len() {
             return;
@@ -122,7 +123,13 @@ impl<'a> Editor<'a> {
         if i >= cur.lens.0 {
             return;
         }
-        cur.snapshots.push(Snapshot { index: i, export: self.pkg.exports[i].clone(), data: self.pkg.export_data.get(i).cloned().unwrap_or_default(), parsed: self.objects.get(&i).cloned(), dirty: self.dirty.contains(&i) });
+        let data = self.pkg.export_data.get(i).cloned().unwrap_or_default();
+        let dirty = self.dirty.contains(&i);
+        // A clean export's payload is its exact state, and undo reparses an
+        // export whose snapshot has no parsed form; a large one (a movie's
+        // millions of byte values) is not worth a second parsed copy.
+        let parsed = if dirty || data.len() < SNAPSHOT_PARSED_MAX { self.objects.get(&i).cloned() } else { None };
+        cur.snapshots.push(Snapshot { index: i, export: self.pkg.exports[i].clone(), data, parsed, dirty });
     }
 
     /// Labels of what `undo` would revert, newest first.
@@ -257,6 +264,14 @@ impl<'a> Editor<'a> {
             self.objects.insert(i, p);
         }
         Ok(self.objects.get_mut(&i).unwrap())
+    }
+
+    /// Read export `i` as an object next to the package, without copying it
+    /// (a movie's `RawData` alone is millions of values).
+    pub fn with_object<T>(&mut self, i: usize, f: impl FnOnce(&Package, &Object) -> T) -> Result<T> {
+        self.object(i)?;
+        let Some(Parsed::Object(o)) = self.objects.get(&i) else { unreachable!("object() parsed it") };
+        Ok(f(&self.pkg, o))
     }
 
     /// Export `i` as an editable object (error for script objects and raw payloads).

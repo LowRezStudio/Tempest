@@ -45,8 +45,47 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --draft --title "Tempest Studio $version" --notes "$NOTES"
           fi
 
+  # Ruffle with 9-slice scaling (Tempest.Studio/ruffle/*.patch): built once, on Linux
+  # (the output is wasm + JS), cached on the patches and the script.
+  ruffle:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore patched Ruffle
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: Tempest.Studio/vendor/ruffle
+          key: studio-ruffle-${{ hashFiles('Tempest.Studio/ruffle/*.patch', 'Tempest.Studio/scripts/build-ruffle.sh') }}
+
+      - name: Setup Rust
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build patched Ruffle
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: Tempest.Studio/scripts/build-ruffle.sh
+
+      - name: Upload patched Ruffle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruffle
+          path: Tempest.Studio/vendor/ruffle
+          include-hidden-files: true
+          if-no-files-found: error
+
   build:
-    needs: release
+    needs: [release, ruffle]
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +106,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Download patched Ruffle
+        uses: actions/download-artifact@v4
+        with:
+          name: ruffle
+          path: Tempest.Studio/vendor/ruffle
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

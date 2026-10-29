@@ -1,35 +1,48 @@
 // The self-hosted Ruffle player: a prebuilt webpack bundle that registers
 // `window.RufflePlayer` and resolves its core chunk and wasm builds relative to its
-// own URL. The files are imported as URLs (served from `@ruffle-rs/ruffle` in dev,
+// own URL. The files are imported as URLs (served from `$ruffle` in dev: the
+// patched build in vendor/ruffle or `@ruffle-rs/ruffle`, see vite.config.ts;
 // emitted next to the bundle in a build) and the script is loaded on first play;
-// the wasm is ~28 MB.
+// the wasm is ~13 MB.
 //
 // Only the parts of Ruffle's JS API the player uses are typed.
 
-import ruffleScriptUrl from "@ruffle-rs/ruffle/ruffle.js?url";
+import ruffleScriptUrl from "$ruffle/ruffle.js?url";
 
 /**
  * The files the bundle asks for at runtime. It builds their URLs itself, so the
  * imports are only here to make a build emit them beside `ruffle.js`.
  */
-import.meta.glob(
-	[
-		"/node_modules/@ruffle-rs/ruffle/core.ruffle.*.js",
-		"/node_modules/@ruffle-rs/ruffle/*.wasm",
-		"/node_modules/@ruffle-rs/ruffle/LICENSE_*",
-	],
+const ruffleFiles = import.meta.glob(
+	["$ruffle/core.ruffle.*.js", "$ruffle/*.wasm", "$ruffle/LICENSE_*"],
 	{ query: "?url", import: "default", eager: true },
 );
+
+/**
+ * Names the Ruffle build: its wasm files are named by their content hash, so
+ * another build (the patched one or npm's) draws pictures cached under another key.
+ */
+export const ruffleBuild = Object.keys(ruffleFiles)
+	.filter((f) => f.endsWith(".wasm"))
+	.map((f) => f.slice(f.lastIndexOf("/") + 1))
+	.sort()
+	.join(",");
 
 /** The `<ruffle-player>` custom element Ruffle creates. */
 export type RuffleElement = HTMLElement & {
 	ruffle(): {
-		load(options: { url: string } | { data: Uint8Array; swfFileName?: string }): Promise<void>;
+		/** Per-player options (`wmode`, `scale`, …) override the global config. */
+		load(
+			options: ({ url: string } | { data: Uint8Array; swfFileName?: string }) &
+				Record<string, unknown>,
+		): Promise<void>;
 	};
 	reload(): Promise<void>;
 	play(): void;
 	pause(): void;
 	readonly isPlaying: boolean;
+	/** 0: nothing, 1: loading, 2: loaded (the `loadeddata` event fires then). */
+	readonly readyState: number;
 	volume: number;
 	/** Ruffle enlarges its own element; the promise is not awaited. */
 	requestFullscreen(): Promise<void>;
@@ -63,7 +76,9 @@ function config(publicPath: string): Record<string, unknown> {
 let pending: Promise<RuffleSource> | null = null;
 
 /** Virtual movies served to Ruffle, by the pathname it requests. */
-const routes = new Map<string, Uint8Array>();
+const routes = new Map<string, { bytes: Uint8Array; refs: number }>();
+/** When each library path was last served. */
+const fetchedAt = new Map<string, number>();
 
 /**
  * An empty movie (zero-size stage, one empty frame). A movie can import a shared library
@@ -77,6 +92,12 @@ const EMPTY_MOVIE = Uint8Array.from([
 	0x00,
 ]);
 let shimInstalled = false;
+let lastLibraryFetch = 0;
+
+/** When Ruffle last fetched a shared library (`performance.now()`, 0: never). */
+export function libraryFetchedAt(): number {
+	return lastLibraryFetch;
+}
 
 /**
  * Ruffle resolves `ImportAssets2` URLs (the Scaleform shared libraries) with
@@ -97,8 +118,12 @@ function installFetchShim(): void {
 		} catch {
 			url = null;
 		}
-		const bytes = url ? routes.get(url.pathname) : undefined;
+		const bytes = url ? routes.get(url.pathname)?.bytes : undefined;
 		if (url && bytes) {
+			if (!url.pathname.startsWith("/swf-preview/")) {
+				lastLibraryFetch = performance.now();
+				fetchedAt.set(url.pathname, lastLibraryFetch);
+			}
 			return Promise.resolve(
 				new Response(bytes as unknown as BodyInit, {
 					headers: { "content-type": "application/x-shockwave-flash" },
@@ -109,6 +134,7 @@ function installFetchShim(): void {
 		// does not have. A 404 makes Ruffle drop the whole stage, so serve the
 		// empty movie instead and let it report the missing symbols only.
 		if (url && url.origin === location.origin && /\.(swf|gfx)$/i.test(url.pathname)) {
+			lastLibraryFetch = performance.now();
 			return Promise.resolve(
 				new Response(EMPTY_MOVIE as unknown as BodyInit, {
 					headers: { "content-type": "application/x-shockwave-flash" },
@@ -127,14 +153,19 @@ function installFetchShim(): void {
 export function registerMovie(
 	movie: Uint8Array,
 	libraries: { url: string; swf: Uint8Array }[],
-): { url: string; dispose(): void } {
+): {
+	url: string;
+	dispose(): void;
+	/** When the last of the movie's libraries was fetched, once every one has been since registering (else null). */
+	librariesFetched(): number | null;
+} {
 	installFetchShim();
+	const registered = performance.now();
 	const token =
 		crypto.randomUUID?.() ??
 		`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 	const url = new URL(`/swf-preview/${token}/movie/movie.gfx`, document.baseURI);
 	const served = new Map<string, Uint8Array>();
-	served.set(url.pathname, movie);
 	for (const library of libraries) {
 		try {
 			// Ruffle resolves ImportAssets2 against the document, not the movie.
@@ -145,11 +176,31 @@ export function registerMovie(
 			// A malformed import URL is simply not served.
 		}
 	}
-	for (const [pathname, bytes] of served) routes.set(pathname, bytes);
+	const libraryPaths = [...served.keys()];
+	served.set(url.pathname, movie);
+	// Layers loading at once can serve the same library (layout cuts are
+	// named after their contents): the last one disposed takes it down.
+	for (const [pathname, bytes] of served) {
+		const route = routes.get(pathname);
+		routes.set(pathname, { bytes, refs: (route?.refs ?? 0) + 1 });
+	}
 	return {
 		url: url.pathname,
 		dispose() {
-			for (const pathname of served.keys()) routes.delete(pathname);
+			for (const pathname of served.keys()) {
+				const route = routes.get(pathname);
+				if (!route || route.refs <= 1) routes.delete(pathname);
+				else route.refs--;
+			}
+		},
+		librariesFetched() {
+			let last = registered;
+			for (const pathname of libraryPaths) {
+				const at = fetchedAt.get(pathname) ?? 0;
+				if (at < registered) return null;
+				last = Math.max(last, at);
+			}
+			return last;
 		},
 	};
 }
@@ -189,4 +240,39 @@ export function loadRuffle(): Promise<RuffleSource> {
 	});
 
 	return pending;
+}
+
+let warming: Promise<void> | null = null;
+
+/**
+ * Download, compile and instantiate Ruffle ahead of the first movie: the
+ * script alone does not fetch the ~28 MB wasm, the first player does, so an
+ * off-screen player loads an empty movie while the user is still picking an
+ * export.
+ */
+export function warmRuffle(): Promise<void> {
+	warming ??= (async () => {
+		const ruffle = await loadRuffle();
+		const route = registerMovie(EMPTY_MOVIE, []);
+		const player = ruffle.newest().createPlayer();
+		Object.assign(player.style, {
+			position: "fixed",
+			left: "-10px",
+			top: "-10px",
+			width: "1px",
+			height: "1px",
+			opacity: "0",
+			pointerEvents: "none",
+		});
+		document.body.append(player);
+		try {
+			await player.ruffle().load({ url: route.url, preferredRenderer: "canvas" });
+		} finally {
+			player.remove();
+			route.dispose();
+		}
+	})().catch(() => {
+		warming = null;
+	});
+	return warming;
 }

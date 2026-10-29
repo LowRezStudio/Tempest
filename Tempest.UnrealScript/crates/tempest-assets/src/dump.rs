@@ -11,6 +11,11 @@ use crate::object::{Native, Object, Parsed};
 use crate::texture::Mip;
 use crate::value::{Property, StructValue, Value};
 
+/// Bytes of a byte array written out (as hex rows); the rest is counted.
+const DUMP_BYTES_SHOWN: usize = 4096;
+/// Elements of any other array written out.
+const DUMP_ITEMS_SHOWN: usize = 2000;
+
 pub struct Dumper<'a> {
     pub pkg: &'a Package,
 }
@@ -293,12 +298,7 @@ impl<'a> Dumper<'a> {
                 }
                 let _ = writeln!(out, "{indent}}}");
             }
-            Value::Array(items) => {
-                let _ = writeln!(out, "{indent}{key} [{}]", items.len());
-                for (i, it) in items.iter().enumerate() {
-                    self.indexed_value(&format!("[{i}]"), it, depth + 1, out);
-                }
-            }
+            Value::Array(items) => self.array(&key, items, depth, out),
             v => {
                 let _ = writeln!(out, "{indent}{key} = {}", self.scalar(v));
             }
@@ -334,15 +334,42 @@ impl<'a> Dumper<'a> {
                 }
                 let _ = writeln!(out, "{indent}}}");
             }
-            Value::Array(items) => {
-                let _ = writeln!(out, "{indent}{key} [{}]", items.len());
-                for (i, it) in items.iter().enumerate() {
-                    self.indexed_value(&format!("[{i}]"), it, depth + 1, out);
-                }
-            }
+            Value::Array(items) => self.array(key, items, depth, out),
             v => {
                 let _ = writeln!(out, "{indent}{key} = {}", self.scalar(v));
             }
+        }
+    }
+
+    /// An array, cut short when long: a movie's or a sound's bytes are megabytes, and one
+    /// line per element made a dump of hundreds of megabytes (the Studio's Dump tab hung).
+    fn array(&self, key: &str, items: &[Value], depth: usize, out: &mut String) {
+        let indent = "  ".repeat(depth);
+        let _ = writeln!(out, "{indent}{key} [{}]", items.len());
+        if !items.is_empty() && items.iter().all(|v| matches!(v, Value::Byte(_))) {
+            // Bytes as hex rows.
+            let shown = items.len().min(DUMP_BYTES_SHOWN);
+            for (row, chunk) in items[..shown].chunks(32).enumerate() {
+                let hex: Vec<String> = chunk
+                    .iter()
+                    .map(|v| match v {
+                        Value::Byte(b) => format!("{b:02x}"),
+                        _ => unreachable!(),
+                    })
+                    .collect();
+                let _ = writeln!(out, "{indent}  {:08x}  {}", row * 32, hex.join(" "));
+            }
+            if items.len() > shown {
+                let _ = writeln!(out, "{indent}  … {} more bytes", items.len() - shown);
+            }
+            return;
+        }
+        let shown = items.len().min(DUMP_ITEMS_SHOWN);
+        for (i, it) in items[..shown].iter().enumerate() {
+            self.indexed_value(&format!("[{i}]"), it, depth + 1, out);
+        }
+        if items.len() > shown {
+            let _ = writeln!(out, "{indent}  … {} more elements", items.len() - shown);
         }
     }
 
