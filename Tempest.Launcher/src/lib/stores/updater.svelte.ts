@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 import { check, invoke, type Update } from "$lib/platform/api";
 
 export type UpdaterStatus =
@@ -94,11 +95,16 @@ class UpdaterStore {
 			setTimeout(async () => {
 				try {
 					await invoke("app:relaunch");
-				} catch (error) {
+				} catch (error: any) {
 					console.error("Relaunch command failed:", error);
 					this.status = "error";
-					this.errorMessage =
-						"Failed to restart application automatically. Please restart manually.";
+					// On Linux the install itself runs here (it can fail, or its
+					// password prompt can be cancelled); show why.
+					const reason = String(error?.message ?? "").replace(
+						/^Error invoking remote method '[^']+': (Error: )?/,
+						"",
+					);
+					this.errorMessage = reason || m.updater_relaunch_failed();
 				}
 			}, 1000);
 		} catch (error: any) {

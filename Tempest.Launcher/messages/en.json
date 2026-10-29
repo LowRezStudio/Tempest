@@ -2839,6 +2839,7 @@
 	"updater_btn_updating": "Updating...",
 	"updater_btn_retry": "Retry",
 	"updater_btn_check_again": "Check Again",
+	"updater_relaunch_failed": "Failed to restart application automatically. Please restart manually.",
 	"converter_title": "Cook Mod",
 	"converter_subtitle": "Build a V2 mod package and sign it",
 	"converter_drop_hint": "Drop {tempest}, {upk}, {pck}, {ini}, {dll} or {lua} files here",

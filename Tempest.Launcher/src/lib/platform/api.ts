@@ -420,6 +420,7 @@ class ElectronUpdate {
 		private _version: string,
 		private _currentVersion: string,
 		private _notes: string | null = null,
+		private _canInstall = false,
 	) {}
 
 	get version(): string {
@@ -436,6 +437,14 @@ class ElectronUpdate {
 	 */
 	get notes(): string | null {
 		return this._notes;
+	}
+
+	/**
+	 * Whether the launcher can download and install this update itself.
+	 * @returns False when the user updates through whatever installed it.
+	 */
+	get canInstall(): boolean {
+		return this._canInstall;
 	}
 
 	async downloadAndInstall(onEvent: (event: DownloadEvent) => void): Promise<void> {
@@ -462,7 +471,12 @@ export async function check(): Promise<ElectronUpdate | null> {
 	if (result.error) throw new Error(result.error);
 	if (!result.available || !result.version) return null;
 	const currentVersion = await eio().invoke("app:version");
-	return new ElectronUpdate(result.version, currentVersion, result.releaseNotes ?? null);
+	return new ElectronUpdate(
+		result.version,
+		currentVersion,
+		result.releaseNotes ?? null,
+		result.canInstall ?? false,
+	);
 }
 
 export type Update = ElectronUpdate;

@@ -225,6 +225,12 @@ export interface IpcContract {
 			version?: string;
 			/** Markdown body of the pending GitHub release (tag annotation). */
 			releaseNotes?: string | null;
+			/**
+			 * Whether the launcher can download and install the update itself
+			 * (Windows, AppImage, deb/rpm); otherwise the user updates through
+			 * whatever installed it.
+			 */
+			canInstall?: boolean;
 			error?: string;
 		};
 	};
