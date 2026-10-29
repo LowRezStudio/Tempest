@@ -40,6 +40,14 @@
 				paths: $state.snapshot(antivirusDialog.value.folders),
 			});
 			if (result.status === "added") {
+				if (result.unrestored?.length) {
+					addToast({
+						title: m.antivirus_unrestored(),
+						message: result.unrestored.join("\n"),
+						tone: "warning",
+						duration: 0,
+					});
+				}
 				adding = false;
 				added = true;
 				await new Promise((resolve) => setTimeout(resolve, ADDED_PAUSE_MS));

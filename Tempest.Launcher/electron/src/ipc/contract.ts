@@ -143,6 +143,8 @@ export type CliInstallResult = {
 export type DefenderExclusionResult = {
 	status: "added" | "cancelled" | "failed";
 	error?: string;
+	/** Files Defender had quarantined from the folders that could not be restored. */
+	unrestored?: string[];
 };
 
 /** OS info injected by preload/host (see `window.__os`). */

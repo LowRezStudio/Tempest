@@ -68,6 +68,9 @@ internal static class ProcessExtensions
         catch (FileNotFoundException ex)
         {
             Console.Error.WriteLine($"[inject] {ex.Message}");
+            // The installer always ships both injectors, so a missing one was quarantined on an earlier run.
+            if (OperatingSystem.IsWindows())
+                Antivirus.Report(AppContext.BaseDirectory);
             return false;
         }
 

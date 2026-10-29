@@ -21,15 +21,50 @@ function isExcludable(dir: string): boolean {
 	}
 }
 
+// An exclusion doesn't bring back what Defender already quarantined from the folders (it often
+// finishes quarantining the injector while the prompt is open), so the same elevated run restores
+// those files, after waiting for detections still being remediated. Prints what it couldn't restore.
+const RESTORE = `
+$ErrorActionPreference = 'Continue'
+function Get-Detections {
+  try { $all = @(Get-MpThreatDetection) } catch { return }
+  foreach ($d in $all) {
+    foreach ($r in @($d.Resources | Where-Object { $_ -like 'file:_*' })) {
+      $file = $r.Substring(6)
+      if ($dirs | Where-Object { $file.StartsWith($_.TrimEnd('\\') + '\\', [StringComparison]::OrdinalIgnoreCase) }) {
+        [pscustomobject]@{ File = $file; Status = $d.ThreatStatusID; Time = $d.InitialDetectionTime }
+      }
+    }
+  }
+}
+$since = (Get-Date).AddMinutes(-5)
+for ($i = 0; $i -lt 30; $i++) {
+  $found = @(Get-Detections)
+  if (-not ($found | Where-Object { $_.Status -eq 1 -and $_.Time -gt $since })) { break }
+  Start-Sleep -Seconds 1
+}
+$platform = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows Defender' -ErrorAction SilentlyContinue).InstallLocation
+$mpcmdrun = if ($platform) { Join-Path $platform 'MpCmdRun.exe' } else { "$env:ProgramFiles\\Windows Defender\\MpCmdRun.exe" }
+$found | Where-Object { $_.Status -eq 3 -and -not (Test-Path -LiteralPath $_.File) } |
+  Select-Object -ExpandProperty File -Unique | Where-Object {
+    & $mpcmdrun -Restore -FilePath $_ | Out-Null
+    -not (Test-Path -LiteralPath $_)
+  }
+`;
+
 async function addExclusions(dirs: string[]): Promise<DefenderExclusionResult> {
-	// An elevated process can't hand its output back to us, so its error goes through a file.
-	const errorLog = path.join(os.tmpdir(), `tempest-defender-${process.pid}-${Date.now()}.txt`);
+	// An elevated process can't hand its output back to us, so its error (or the files it couldn't
+	// restore) goes through a file.
+	const outputLog = path.join(os.tmpdir(), `tempest-defender-${process.pid}-${Date.now()}.txt`);
 	const elevated = [
 		"$ErrorActionPreference = 'Stop'",
-		`try { Add-MpPreference -ExclusionPath @(${dirs.map(quote).join(",")}) } catch {`,
-		`  ($_ | Out-String) | Set-Content -LiteralPath ${quote(errorLog)} -Encoding UTF8`,
+		`$dirs = @(${dirs.map(quote).join(",")})`,
+		"try { Add-MpPreference -ExclusionPath $dirs } catch {",
+		`  ($_ | Out-String) | Set-Content -LiteralPath ${quote(outputLog)} -Encoding UTF8`,
 		"  exit 2",
 		"}",
+		`& { ${RESTORE} } | Set-Content -LiteralPath ${quote(outputLog)} -Encoding UTF8`,
+		"exit 0",
 	].join("\n");
 	const encoded = Buffer.from(elevated, "utf16le").toString("base64");
 	// ProcessStartInfo rather than Start-Process: Start-Process drops the Win32 error code, and
@@ -60,12 +95,18 @@ async function addExclusions(dirs: string[]): Promise<DefenderExclusionResult> {
 			);
 		},
 	);
-	const elevatedError = await fs.promises.readFile(errorLog, "utf8").catch(() => "");
-	await fs.promises.rm(errorLog, { force: true }).catch(() => {});
+	const output = (await fs.promises.readFile(outputLog, "utf8").catch(() => ""))
+		.replace(/^﻿/, "")
+		.trim();
+	await fs.promises.rm(outputLog, { force: true }).catch(() => {});
 
-	if (code === 0) return { status: "added" };
+	if (code === 0) {
+		const unrestored = output ? output.split(/\r?\n/) : [];
+		if (unrestored.length > 0) console.error("[defender] could not restore:", unrestored);
+		return { status: "added", unrestored };
+	}
 	if (code === ERROR_CANCELLED) return { status: "cancelled" };
-	const error = (elevatedError || stderr).trim() || `exit code ${code}`;
+	const error = (output || stderr).trim() || `exit code ${code}`;
 	console.error("[defender] adding exclusions failed:", error);
 	return { status: "failed", error };
 }
