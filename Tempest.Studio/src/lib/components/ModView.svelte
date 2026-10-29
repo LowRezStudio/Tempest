@@ -16,31 +16,47 @@
 		FolderPlus,
 		Hammer,
 		ImagePlus,
-		KeyRound,
 		Plus,
 		RefreshCw,
 		Send,
 		X,
 	} from "@lucide/svelte";
+	import ModAccount from "$lib/components/ModAccount.svelte";
+	import PublishDialog from "$lib/components/PublishDialog.svelte";
 	import Menu, { type MenuItem } from "$lib/components/shell/Menu.svelte";
 	import { invoke } from "$lib/platform/api";
 	import { cooker, type Entry } from "$lib/studio/cooker.svelte";
 	import { basename, samePath } from "$lib/studio/format";
+	import { MAX_SUMMARY } from "$lib/studio/modmeta";
 	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
 	import { ui } from "$lib/studio/ui.svelte";
 	import type { CookSource } from "../../../electron/src/ipc/contract";
 
-	let keyId = $state("");
-	let apiKey = $state("");
 	let open = $state<Record<string, boolean>>({});
-	let more = $state(false);
+	let publishOpen = $state(false);
+	let iconUrl = $state<string | null>(null);
 
 	$effect(() => {
 		if (studio.workspace) void cooker.refresh();
 	});
 
 	const m = $derived(cooker.meta);
+	// Typed ids that cannot be one (an empty name is reported by Build instead).
+	const idError = $derived(!cooker.idValid && cooker.modId !== "");
+
+	// The icon's preview, from its bytes (checked on the way).
+	$effect(() => {
+		void m.icon;
+		let url: string | null = null;
+		void cooker.iconBytes().then((data) => {
+			url = data ? URL.createObjectURL(new Blob([data as Uint8Array<ArrayBuffer>])) : null;
+			iconUrl = url;
+		});
+		return () => {
+			if (url) URL.revokeObjectURL(url);
+		};
+	});
 
 	function sourceName(s: CookSource): string {
 		if (s.origin === "unsaved") return session.project ? "your edits" : "your unsaved edits";
@@ -320,8 +336,8 @@
 		<!-- Details -->
 		<section class="flex flex-col gap-3">
 			<h3 class="font-semibold">Details</h3>
-			<div class="grid grid-cols-1 gap-3 sm:grid-cols-[2fr_1fr]">
-				<label class="flex flex-col gap-1">
+			<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+				<label class="flex flex-col gap-1 sm:col-span-2">
 					<span class="text-xs opacity-70">Name</span>
 					<input
 						class="input input-sm w-full"
@@ -330,147 +346,207 @@
 					/>
 				</label>
 				<label class="flex flex-col gap-1">
-					<span class="text-xs opacity-70">Version</span>
+					<span class="text-xs opacity-70">Mod id</span>
 					<input
-						class="input input-sm w-full font-mono {m.version && !cooker.versionValid
-							? 'input-error'
-							: ''}"
-						bind:value={cooker.meta.version}
-						placeholder="1.0.0"
+						class="input input-sm w-full font-mono {idError ? 'input-error' : ''}"
+						value={cooker.modId}
+						spellcheck="false"
+						placeholder="my-champion"
+						aria-invalid={idError}
+						oninput={(ev) => {
+							cooker.meta.idCustom = ev.currentTarget.value.trim() !== "";
+							cooker.meta.id = ev.currentTarget.value.trim();
+						}}
 					/>
 				</label>
 				<label class="flex flex-col gap-1">
-					<span class="text-xs opacity-70">Author</span>
+					<span class="text-xs opacity-70">Version</span>
 					<input
-						class="input input-sm w-full"
-						bind:value={cooker.meta.authors[0]!.name}
-						placeholder="your name"
+						class="input input-sm w-full font-mono {cooker.versionValid
+							? ''
+							: 'input-error'}"
+						bind:value={cooker.meta.version}
+						spellcheck="false"
+						placeholder="1.0.0"
+						aria-invalid={!cooker.versionValid}
 					/>
 				</label>
-				<div class="flex flex-col gap-1">
-					<span class="text-xs opacity-70">Icon</span>
-					<div class="flex min-w-0 items-center gap-1">
-						<button class="btn btn-sm" onclick={() => cooker.pickIcon()}
-							><ImagePlus size={14} /> {m.icon ? "Change" : "Choose…"}</button
-						>
-						{#if m.icon}
-							<span class="truncate font-mono text-xs" title={m.icon}
-								>{basename(m.icon)}</span
-							>
+				{#if idError}
+					<p class="text-error text-xs sm:col-span-2">
+						“{cooker.modId}” cannot be a mod id: use 2 to 64 lowercase letters, digits,
+						dots, dashes or underscores, starting with a letter or digit.
+					</p>
+				{:else}
+					<p class="-mt-1 text-xs opacity-60 sm:col-span-2">
+						The id names the mod on the repository and in other mods' dependencies; it
+						follows the name unless you type one, and should never change once
+						published.
+					</p>
+				{/if}
+				{#if !cooker.versionValid}
+					<p class="text-error flex flex-wrap items-center gap-2 text-xs sm:col-span-2">
+						“{m.version.trim()}” is not a version: use major.minor.patch, like 1.0.0 or
+						1.2.0-beta.1.
+						{#if cooker.versionSuggestion}
 							<button
-								class="btn btn-ghost btn-xs btn-square"
-								onclick={() => (cooker.meta.icon = null)}
-								aria-label="Remove the icon"><X size={12} /></button
+								class="btn btn-xs"
+								onclick={() =>
+									(cooker.meta.version = cooker.versionSuggestion ?? "")}
+								>Use {cooker.versionSuggestion}</button
 							>
 						{/if}
-					</div>
+					</p>
+				{/if}
+				<div class="flex flex-col gap-1 sm:col-span-2">
+					<span class="flex items-center text-xs opacity-70">
+						Authors (with a link to their page, optional)
+						<span class="flex-1"></span>
+						<button
+							class="btn btn-ghost btn-xs"
+							onclick={() =>
+								(cooker.meta.authors = [
+									...cooker.meta.authors,
+									{ name: "", link: "" },
+								])}><Plus size={12} /> Add</button
+						>
+					</span>
+					{#each cooker.meta.authors as a, i (i)}
+						<div class="flex gap-1">
+							<input
+								class="input input-sm min-w-0 flex-1"
+								placeholder="name"
+								bind:value={a.name}
+							/>
+							<input
+								class="input input-sm min-w-0 flex-1"
+								placeholder="https://…"
+								bind:value={a.link}
+							/>
+							<button
+								class="btn btn-ghost btn-sm btn-square"
+								disabled={cooker.meta.authors.length === 1}
+								onclick={() =>
+									(cooker.meta.authors = cooker.meta.authors.filter(
+										(_, k) => k !== i,
+									))}
+								aria-label="Remove author"><X size={13} /></button
+							>
+						</div>
+					{/each}
 				</div>
+			</div>
+		</section>
+
+		<!-- Listing -->
+		<section class="flex flex-col gap-3">
+			<h3 class="font-semibold">
+				Listing <span class="text-xs font-normal opacity-50">· for the mod repository</span>
+			</h3>
+			<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
 				<label class="flex flex-col gap-1 sm:col-span-2">
-					<span class="text-xs opacity-70">Description</span>
+					<span class="flex justify-between text-xs opacity-70"
+						><span>Summary (one line, shown in the list)</span><span
+							class={m.summary.length > MAX_SUMMARY ? "text-error" : ""}
+							>{m.summary.length}/{MAX_SUMMARY}</span
+						></span
+					>
+					<input
+						class="input input-sm w-full"
+						maxlength={MAX_SUMMARY}
+						placeholder="What the mod does, in a sentence"
+						bind:value={cooker.meta.summary}
+					/>
+				</label>
+				<label class="flex flex-col gap-1">
+					<span class="text-xs opacity-70">Tags</span>
+					<input
+						class="input input-sm w-full"
+						placeholder="skin, maeve, cosmetic"
+						bind:value={cooker.meta.tags}
+					/>
+				</label>
+				<label class="flex flex-col gap-1">
+					<span class="text-xs opacity-70">Source code (optional link)</span>
+					<input
+						class="input input-sm w-full"
+						placeholder="https://github.com/…"
+						bind:value={cooker.meta.repository}
+					/>
+				</label>
+				<label class="flex flex-col gap-1 sm:col-span-2">
+					<span class="text-xs opacity-70">Needs other mods</span>
 					<textarea
-						class="textarea textarea-sm w-full"
+						class="textarea textarea-sm w-full font-mono {cooker.dependencyProblems
+							.length
+							? 'textarea-error'
+							: ''}"
 						rows="2"
-						bind:value={cooker.meta.readme}
-						placeholder="What the mod does, how to use it"></textarea>
+						placeholder={"some-mod>=1.0.0\ntempest>=1.4.3"}
+						bind:value={cooker.meta.dependencies}></textarea>
+					{#each cooker.dependencyProblems as d, i (i)}
+						<span class="text-error text-xs">{d}</span>
+					{/each}
+					<span class="text-xs opacity-60"
+						>One per line: a mod id, then optionally a version requirement (&gt;=1.0.0,
+						^2, ~1.2, &gt;=1.0 &lt;2.0). <code>tempest</code> is the launcher. The Lua
+						runtime ({cooker.hasCode
+							? "added: the mod has scripts"
+							: "added when the mod has scripts"}) needs no line.</span
+					>
 				</label>
 			</div>
-			{#if m.version && !cooker.versionValid}
-				<p class="text-error text-xs">
-					The version must look like 1.0.0 (major.minor.patch, optionally 1.2.0-beta.1).
-				</p>
-			{/if}
-			<button class="btn btn-ghost btn-xs w-fit" onclick={() => (more = !more)}>
-				{#if more}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if} More options
-			</button>
-			{#if more}
-				<div class="border-base-300 flex flex-col gap-3 rounded-lg border p-3">
-					<label class="flex flex-col gap-1">
-						<span class="text-xs opacity-70"
-							>Mod id (made from the name unless you type one)</span
+		</section>
+
+		<!-- Icon and readme -->
+		<section class="flex flex-col gap-3">
+			<h3 class="font-semibold">Icon and readme</h3>
+			<div class="grid gap-3 sm:grid-cols-[8rem_minmax(0,1fr)]">
+				<div class="flex flex-col gap-1">
+					<span class="text-xs opacity-70">Icon</span>
+					{#if iconUrl}
+						<div
+							class="bg-base-300 relative aspect-square w-32 overflow-hidden rounded-lg"
 						>
-						<input
-							class="input input-sm w-full font-mono {!cooker.idValid && m.name.trim()
-								? 'input-error'
-								: ''}"
-							value={cooker.modId}
-							oninput={(ev) => {
-								cooker.meta.idCustom = ev.currentTarget.value.trim() !== "";
-								cooker.meta.id = ev.currentTarget.value.trim();
-							}}
-						/>
-					</label>
-					<div class="flex flex-col gap-1">
-						<span class="flex items-center text-xs opacity-70">
-							Authors and links
-							<span class="flex-1"></span>
+							<img
+								src={iconUrl}
+								alt="Mod icon"
+								title={m.icon ?? undefined}
+								class="h-full w-full object-cover"
+							/>
 							<button
-								class="btn btn-ghost btn-xs"
-								onclick={() =>
-									(cooker.meta.authors = [
-										...cooker.meta.authors,
-										{ name: "", link: "" },
-									])}><Plus size={12} /> Add</button
+								class="btn btn-circle btn-xs absolute top-1 right-1"
+								aria-label="Remove the icon"
+								onclick={() => (cooker.meta.icon = null)}><X size={12} /></button
 							>
-						</span>
-						{#each cooker.meta.authors as a, i (i)}
-							<div class="flex gap-1">
-								<input
-									class="input input-xs w-32"
-									placeholder="name"
-									bind:value={a.name}
-								/>
-								<input
-									class="input input-xs min-w-0 flex-1"
-									placeholder="link (optional)"
-									bind:value={a.link}
-								/>
-								{#if i > 0}
-									<button
-										class="btn btn-ghost btn-xs btn-square"
-										onclick={() =>
-											(cooker.meta.authors = cooker.meta.authors.filter(
-												(_, k) => k !== i,
-											))}
-										aria-label="Remove author"><X size={12} /></button
-									>
-								{/if}
-							</div>
-						{/each}
-					</div>
-					<label class="flex flex-col gap-1">
-						<span class="text-xs opacity-70"
-							>Needs other mods (one per line, e.g. some-mod&gt;=1.0.0). The Lua
-							runtime is added for you when the mod has scripts.</span
+						</div>
+					{:else}
+						<button
+							class="border-base-300 hover:border-primary/60 flex aspect-square w-32 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed text-xs opacity-70"
+							onclick={() => cooker.pickIcon()}
+							><ImagePlus size={18} /> Choose a PNG</button
 						>
-						<textarea
-							class="textarea textarea-sm w-full font-mono"
-							rows="2"
-							bind:value={cooker.meta.dependencies}></textarea>
-					</label>
+					{/if}
+					{#if cooker.iconError}
+						<span class="text-error text-xs">{cooker.iconError}</span>
+					{:else}
+						<span class="text-[11px] opacity-60">Square PNG, up to 1 MB.</span>
+					{/if}
 				</div>
-			{/if}
+				<label class="flex flex-col gap-1">
+					<span class="text-xs opacity-70"
+						>Readme (Markdown: what it does, how to use it)</span
+					>
+					<textarea
+						class="textarea textarea-sm min-h-40 w-full flex-1"
+						bind:value={cooker.meta.readme}
+						placeholder={"# My mod\n\nWhat it changes, what it needs, known issues…"}
+					></textarea>
+				</label>
+			</div>
 		</section>
 
 		<!-- Build -->
 		<section class="bg-base-200 border-base-300 flex flex-col gap-3 rounded-lg border p-3">
-			{#if cooker.cli && !cooker.cli.hasKey && cooker.cli.available}
-				<div class="flex flex-wrap items-center gap-2 text-xs">
-					<KeyRound size={14} />
-					<span class="flex-1"
-						>Mods with scripts or DLLs must be signed. Create your signing key once:</span
-					>
-					<input
-						class="input input-xs w-44"
-						placeholder="your name or email"
-						bind:value={keyId}
-					/>
-					<button
-						class="btn btn-xs"
-						onclick={() => cooker.createKey(keyId)}
-						disabled={!!cooker.busy}>Create key</button
-					>
-				</div>
-			{/if}
 			{#if cooker.problems.length > 0}
 				<ul class="list-inside list-disc text-xs opacity-80">
 					{#each cooker.problems as p, i (i)}<li>{p}</li>{/each}
@@ -512,85 +588,52 @@
 						></span>{:else}<Hammer size={16} />{/if}
 					Build {cooker.versionValid ? m.version.trim() : ""}
 				</button>
-				{#if cooker.cooked}
-					<button
-						class="btn"
-						onclick={() => cooker.install()}
-						disabled={!!cooker.busy}
-						title="Install it into this game folder to try it"
-					>
-						<Download size={16} /> Install to try it
-					</button>
-					<button
-						class="btn btn-ghost btn-sm"
-						onclick={() => cooker.install(true)}
-						disabled={!!cooker.busy}>Install elsewhere…</button
-					>
-				{/if}
 			</div>
 			{#if cooker.cooked}
-				<p class="text-xs">
-					Built <button
-						class="link font-mono"
-						onclick={() =>
-							cooker.cooked &&
-							invoke("shell:show-item", { path: cooker.cooked.path })}
-						>{basename(cooker.cooked.path)}</button
-					>{cooker.cooked.signer ? `, signed by ${cooker.cooked.signer}` : ", unsigned"}.
-				</p>
-				<details class="border-base-300 rounded-lg border p-2">
-					<summary class="cursor-pointer text-xs font-semibold"
-						><Send size={12} class="inline" /> Publish to mods.lowrezstudio.com</summary
-					>
-					<div class="mt-2 grid gap-2 sm:grid-cols-2">
-						<input
-							class="input input-sm"
-							placeholder="works from patch (e.g. 8.1)"
-							bind:value={cooker.meta.patchFrom}
-						/>
-						<input
-							class="input input-sm"
-							placeholder="up to patch (empty: and later)"
-							bind:value={cooker.meta.patchTo}
-						/>
-						<input
-							class="input input-sm sm:col-span-2"
-							placeholder="one-line summary (needed for a new mod)"
-							bind:value={cooker.meta.summary}
-						/>
-						<input
-							class="input input-sm"
-							placeholder="tags, comma-separated"
-							bind:value={cooker.meta.tags}
-						/>
-						<input
-							class="input input-sm"
-							placeholder="what changed in this version"
-							bind:value={cooker.meta.changelog}
-						/>
-						<div class="flex gap-1 sm:col-span-2">
-							<input
-								class="input input-sm min-w-0 flex-1 font-mono"
-								type="password"
-								placeholder="API key (tm_live_…), once per machine"
-								bind:value={apiKey}
-							/>
-							<button
-								class="btn btn-sm"
-								disabled={!apiKey.trim()}
-								onclick={async () => {
-									if (await cooker.login(apiKey)) apiKey = "";
-								}}>Log in</button
-							>
-							<button
-								class="btn btn-primary btn-sm"
-								onclick={() => cooker.publish()}
-								disabled={!!cooker.busy || !cooker.cooked.signer}
-								><Send size={14} /> Publish</button
-							>
-						</div>
+				<div
+					class="border-success/40 bg-success/10 flex flex-col gap-2 rounded-lg border p-3"
+				>
+					<p class="text-xs">
+						Built <button
+							class="link font-mono"
+							onclick={() =>
+								cooker.cooked &&
+								invoke("shell:show-item", { path: cooker.cooked.path })}
+							>{basename(cooker.cooked.path)}</button
+						>{cooker.cooked.signer
+							? `, signed by ${cooker.cooked.signer}`
+							: ", unsigned (assets only: mods with code must be signed)"}.
+					</p>
+					<div class="flex flex-wrap gap-2">
+						<button
+							class="btn btn-primary btn-sm"
+							onclick={() => (publishOpen = true)}
+							disabled={!!cooker.busy}
+							title={cooker.cooked.signer
+								? "Upload it to the mod repository"
+								: "Only signed mods can be published"}
+							><Send size={14} /> Publish…</button
+						>
+						<button
+							class="btn btn-sm"
+							onclick={() => cooker.install()}
+							disabled={!!cooker.busy}
+							title="Install it into this game folder to try it"
+						>
+							<Download size={14} /> Install to try it
+						</button>
+						<button
+							class="btn btn-ghost btn-sm"
+							onclick={() => cooker.install(true)}
+							disabled={!!cooker.busy}>Install elsewhere…</button
+						>
+						<button
+							class="btn btn-ghost btn-sm"
+							onclick={() => cooker.saveCopy()}
+							disabled={!!cooker.busy}>Save a copy…</button
+						>
 					</div>
-				</details>
+				</div>
 			{/if}
 			{#if cooker.log.length > 0}
 				<details>
@@ -613,5 +656,13 @@
 				</details>
 			{/if}
 		</section>
+
+		<!-- Signing and publishing -->
+		<section class="flex flex-col gap-2">
+			<h3 class="font-semibold">Signing and publishing</h3>
+			<ModAccount />
+		</section>
 	</div>
 </div>
+
+<PublishDialog bind:open={publishOpen} />

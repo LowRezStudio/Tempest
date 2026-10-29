@@ -8,7 +8,7 @@
 	import { Check, FolderOpen, Hammer } from "@lucide/svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import { invoke, pickDirectory } from "$lib/platform/api";
-	import { MOD_ID_PATTERN, SEMVER_PATTERN, slugify } from "$lib/studio/cooker.svelte";
+	import { MOD_ID_PATTERN, isSemver, slugify } from "$lib/studio/modmeta";
 	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
 
@@ -44,7 +44,7 @@
 	});
 
 	const valid = $derived([
-		name.trim() !== "" && MOD_ID_PATTERN.test(id) && SEMVER_PATTERN.test(version.trim()),
+		name.trim() !== "" && MOD_ID_PATTERN.test(id) && isSemver(version.trim()),
 		gameOk === true,
 		dir !== "",
 	]);
@@ -139,7 +139,7 @@
 				<label class="flex flex-col gap-1">
 					<span class="text-xs opacity-70">Version</span>
 					<input
-						class="input input-sm w-full font-mono {SEMVER_PATTERN.test(version.trim())
+						class="input input-sm w-full font-mono {isSemver(version.trim())
 							? ''
 							: 'input-error'}"
 						bind:value={version}

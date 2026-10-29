@@ -21,6 +21,11 @@ handle("window:set-title", (event, { title }) => {
 
 handle("fs:exists", (_event, { path: p }) => fs.existsSync(p));
 handle("fs:read-text", (_event, { path: p }) => fs.promises.readFile(p, "utf8"));
+handle(
+	"fs:read-bytes",
+	async (_event, { path: p }) => new Uint8Array(await fs.promises.readFile(p)),
+);
+handle("fs:copy", (_event, { from, to }) => fs.promises.copyFile(from, to));
 handle("fs:write-text", (_event, { path: p, text }) => fs.promises.writeFile(p, text, "utf8"));
 handle("fs:write-bytes", (_event, { path: p, bytes }) => fs.promises.writeFile(p, bytes));
 handle("fs:remove", (_event, { path: p }) => fs.promises.rm(p, { force: true, recursive: true }));
@@ -49,3 +54,8 @@ handle("fs:list", async (_event, { path: p }) => {
 
 handle("shell:show-item", (_event, { path: p }) => shell.showItemInFolder(p));
 handle("shell:open-path", (_event, { path: p }) => shell.openPath(p));
+// Web pages only (the mod repository): never a file or a custom scheme.
+handle("shell:open-url", async (_event, { url }) => {
+	if (!/^https?:\/\//i.test(url)) throw new Error(`not a web address: ${url}`);
+	await shell.openExternal(url);
+});

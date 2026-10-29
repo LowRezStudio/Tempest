@@ -8,35 +8,33 @@
 import { invoke, pickDirectory, pickFile, pickFiles, pickSave } from "$lib/platform/api";
 import { assembly } from "./assembly.svelte";
 import { basename, bytes, dirname, pathKey, samePath } from "./format";
+import {
+	MAX_SUMMARY,
+	MOD_ID_PATTERN,
+	dependencyProblem,
+	iconProblem,
+	isAuthError,
+	isSemver,
+	nextPatch,
+	parsePublish,
+	slugify,
+	toSemver,
+	type PublishResult,
+} from "./modmeta";
 import { rpc } from "./rpc";
 import { studio } from "./state.svelte";
 import { toasts } from "./toast.svelte";
 import { ui } from "./ui.svelte";
-import type { CookItem, CookPreview, CookSource } from "../../../electron/src/ipc/contract";
+import type {
+	CliAccount,
+	CookItem,
+	CookPreview,
+	CookSource,
+} from "../../../electron/src/ipc/contract";
 
-export const MOD_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/;
-/** Semantic versioning: 1.2.3, optionally -beta.1 and +build. */
-export const SEMVER_PATTERN =
-	/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+export { MOD_ID_PATTERN, slugify } from "./modmeta";
+
 const SCRIPTING = "tempest-scripting>=1.0.0";
-
-/** The next patch version: 1.2.3 → 1.2.4 (a pre-release keeps its numbers: 1.2.3-beta.1 → 1.2.3). */
-function nextPatch(version: string): string {
-	const m = /^(\d+)\.(\d+)\.(\d+)(-.+)?$/.exec(version);
-	if (!m) return "1.0.1";
-	return m[4] ? `${m[1]}.${m[2]}.${m[3]}` : `${m[1]}.${m[2]}.${Number(m[3]) + 1}`;
-}
-
-/** A mod id from a name: "My Champion!" → "my-champion". */
-export function slugify(name: string): string {
-	return name
-		.toLowerCase()
-		.normalize("NFKD")
-		.replaceAll(/[\u0300-\u036f]/g, "")
-		.replaceAll(/[^a-z0-9._-]+/g, "-")
-		.replaceAll(/^[-._]+|[-._]+$/g, "")
-		.slice(0, 64);
-}
 const PROJECT_KEY = "studio.cooker";
 
 export type Extra = { src: string; dest: string };
@@ -64,9 +62,14 @@ export type Meta = {
 	readme: string;
 	dependencies: string;
 	icon: string | null;
+	/** Compatible patches for publishing, comma-separated ("8.1, 8.2"). */
+	patches: string;
+	/** Or a range of patches: from (inclusive) and to (empty: and later). */
 	patchFrom: string;
 	patchTo: string;
 	summary: string;
+	/** The mod's source code (a link on its page), optional. */
+	repository: string;
 	changelog: string;
 	tags: string;
 	/** "small": LZMA, the smallest mod; "fast": zstd, a much faster build, a bigger mod. */
@@ -95,9 +98,11 @@ const emptyMeta = (): Meta => ({
 	readme: "",
 	dependencies: "",
 	icon: null,
+	patches: "",
 	patchFrom: "",
 	patchTo: "",
 	summary: "",
+	repository: "",
 	changelog: "",
 	tags: "",
 	compression: "small",
@@ -214,7 +219,28 @@ class Cooker {
 	/** The id the mod gets: typed, or made from the name. */
 	modId = $derived(this.meta.idCustom ? this.meta.id : slugify(this.meta.name));
 	idValid = $derived(MOD_ID_PATTERN.test(this.modId));
-	versionValid = $derived(SEMVER_PATTERN.test(this.meta.version.trim()));
+	versionValid = $derived(isSemver(this.meta.version.trim()));
+	/** The nearest valid version to what was typed, offered as a fix. */
+	versionSuggestion = $derived(this.versionValid ? null : toSemver(this.meta.version));
+	/** Dependency lines the repository would refuse, with why. */
+	dependencyProblems = $derived(
+		this.meta.dependencies
+			.split(/\r?\n|,/)
+			.map((d) => d.trim())
+			.filter(Boolean)
+			.flatMap((d) => {
+				const why = dependencyProblem(d);
+				return why ? [why] : [];
+			}),
+	);
+	/** Why the chosen icon cannot be shipped (checked when it is picked or the project opens). */
+	iconError = $state<string | null>(null);
+	/** The mod ships code (Lua scripts, DLLs): it must be signed to install. */
+	hasCode = $derived(
+		[...this.extras.map((x) => x.dest || x.src), ...this.projectFiles].some(
+			(f) => (/\.lua$/i.test(f) && !/\.d\.lua$/i.test(f)) || /\.(dll|exe)$/i.test(f),
+		) || this.extras.some((x) => !/\.[a-z0-9]+$/i.test(basename(x.src))),
+	);
 	/** Dependencies as shipped: the typed ones, plus the Lua runtime when the mod has scripts. */
 	dependencies = $derived.by(() => {
 		const typed = this.meta.dependencies
@@ -241,6 +267,16 @@ class Cooker {
 		}
 		if (!this.versionValid) {
 			out.push(VERSION);
+		}
+		for (const d of this.dependencyProblems) out.push(`Dependency: ${d}.`);
+		if (this.hasCode && this.cli && !this.cli.hasKey) {
+			out.push(
+				"The mod has scripts or DLLs, which only install when signed: create your signing key under Signing and publishing.",
+			);
+		}
+		if (this.iconError) out.push(this.iconError);
+		if (this.meta.summary.length > MAX_SUMMARY) {
+			out.push(`The summary may be ${MAX_SUMMARY} characters at most.`);
 		}
 		if (
 			this.included.length === 0 &&
@@ -341,6 +377,8 @@ class Cooker {
 
 	async refresh(): Promise<void> {
 		this.cli = await invoke("cli:status", {});
+		void this.loadAccount();
+		void this.iconBytes();
 		this.projectFiles = this.projectDir
 			? (await invoke("fs:list", { path: `${this.projectDir}/mod-files` })).filter(
 					(f) => f.toLowerCase() !== "readme.txt",
@@ -543,10 +581,41 @@ class Cooker {
 	}
 
 	async pickIcon(): Promise<void> {
-		const f = await pickFile("Mod icon (PNG, square)", [
+		const f = await pickFile("Mod icon (PNG, square, up to 1 MB)", [
 			{ name: "PNG image", extensions: ["png"] },
 		]);
-		if (f) this.meta.icon = f;
+		if (!f) return;
+		const why = await this.checkIcon(f);
+		if (why) {
+			toasts.push("error", why, basename(f));
+			return;
+		}
+		this.meta.icon = f;
+	}
+
+	/** The icon's bytes (for the preview), checking it can be shipped; sets `iconError`. */
+	async iconBytes(): Promise<Uint8Array | null> {
+		const f = this.meta.icon;
+		if (!f) {
+			this.iconError = null;
+			return null;
+		}
+		try {
+			const data = await invoke("fs:read-bytes", { path: f });
+			this.iconError = iconProblem(data);
+			return this.iconError ? null : data;
+		} catch {
+			this.iconError = `The icon ${basename(f)} cannot be read any more; choose it again.`;
+			return null;
+		}
+	}
+
+	private async checkIcon(path: string): Promise<string | null> {
+		try {
+			return iconProblem(await invoke("fs:read-bytes", { path }));
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
+		}
 	}
 
 	// ----- cook, install, publish -------------------------------------------------
@@ -566,18 +635,57 @@ class Cooker {
 		return r;
 	}
 
-	/** Create a signing key (`mod gen-key`), trusted on this machine. */
-	async createKey(id: string): Promise<void> {
+	// ----- account: signing key and repository API key ---------------------------
+
+	/** The signing key and the repository API key the CLI keeps (shared with the launcher). */
+	account = $state<CliAccount | null>(null);
+
+	async loadAccount(): Promise<void> {
+		try {
+			this.account = await invoke("cli:account", {});
+		} catch {
+			this.account = null;
+		}
+	}
+
+	/** Create the signing key (`mod gen-key --id`), trusted on this machine. */
+	async createKey(id: string): Promise<boolean> {
 		this.busy = "Creating a signing key…";
 		try {
-			const r = await this.cli$(["gen-key", "--id", id || "tempest-studio"]);
-			if (r.code !== 0) throw new Error(r.stderr || r.stdout);
-			await this.refresh();
+			const r = await this.cli$(["gen-key", "--id", id.trim() || "tempest-studio"]);
+			// A key already on this machine is used as it is.
+			if (r.code !== 0 && !/already exists/i.test(r.stderr + r.stdout)) {
+				throw new Error(r.stderr || r.stdout);
+			}
+			this.cli = await invoke("cli:status", {});
+			await this.loadAccount();
+			return true;
 		} catch (error) {
 			toasts.error(error, "Could not create the key");
+			return false;
 		} finally {
 			this.busy = null;
 		}
+	}
+
+	/** Sign a text with the signing key (`mod sign-text`): the website's key-ownership check. */
+	async signText(text: string): Promise<string> {
+		const r = await invoke("cli:mod", { args: ["sign-text", text] });
+		if (r.code !== 0) throw new Error(r.stderr.trim() || r.stdout.trim() || "signing failed");
+		return r.stdout.trim();
+	}
+
+	/** Store an API key (`mod login`); the error message when the repository refuses it. */
+	async login(key: string): Promise<string | null> {
+		const r = await invoke("cli:mod", { args: ["login", key.trim()] });
+		await this.loadAccount();
+		return r.code === 0 ? null : r.stderr.trim() || r.stdout.trim() || `exit ${r.code}`;
+	}
+
+	/** Forget the stored API key (`mod login` without a key). */
+	async forgetApiKey(): Promise<void> {
+		await invoke("cli:mod", { args: ["login"] });
+		await this.loadAccount();
 	}
 
 	/** Cook into `out` (asked for when absent): mod folder, pack, sign. */
@@ -723,37 +831,57 @@ class Cooker {
 		}
 	}
 
-	async login(key: string): Promise<boolean> {
-		const r = await this.cli$(["login", key.trim()]);
-		if (r.code !== 0) {
-			toasts.push("error", r.stderr || r.stdout, "Login failed");
-			return false;
-		}
-		return true;
-	}
-
-	/** Upload the cooked (signed) package to the mod repository. */
-	async publish(): Promise<void> {
-		if (!this.cooked) return;
+	/**
+	 * Upload the built (signed) package to the mod repository with its listing.
+	 * Returns what the repository answered; throws `needs-login` when it refused
+	 * the credentials.
+	 */
+	async publish(): Promise<PublishResult> {
+		if (!this.cooked) throw new Error("build the mod first");
 		const m = this.meta;
-		if (!m.patchFrom.trim()) {
-			toasts.push("warning", "Give the first compatible patch (for example 8.1).", "Publish");
-			return;
+		const args = ["publish", this.cooked.path];
+		for (const p of m.patches
+			.split(",")
+			.map((x) => x.trim())
+			.filter(Boolean)) {
+			args.push("--patch", p);
 		}
-		const args = ["publish", this.cooked.path, "--from", m.patchFrom.trim()];
+		if (m.patchFrom.trim()) args.push("--from", m.patchFrom.trim());
 		if (m.patchTo.trim()) args.push("--to", m.patchTo.trim());
 		if (m.summary.trim()) args.push("--summary", m.summary.trim());
 		if (m.changelog.trim()) args.push("--changelog", m.changelog.trim());
 		if (m.tags.trim()) args.push("--tags", m.tags.trim());
+		if (m.repository.trim()) args.push("--repository", m.repository.trim());
+		args.push("--json");
 		this.busy = "Publishing…";
 		try {
 			const r = await this.cli$(args);
-			if (r.code !== 0) throw new Error("tempest mod publish failed (see the log)");
-			toasts.push("success", `${m.name} ${m.version} uploaded`, "Published");
-		} catch (error) {
-			toasts.error(error, "Publish failed");
+			const result = parsePublish(r.stdout);
+			if (result) return result;
+			const message = r.stderr.trim() || r.stdout.trim() || `exit ${r.code}`;
+			if (isAuthError(message)) throw new Error("needs-login");
+			if (r.code === 0) return { state: "done", errors: [], warnings: [] };
+			throw new Error(message.replace(/^Publish failed:\s*/, ""));
 		} finally {
 			this.busy = null;
+		}
+	}
+
+	/** Save a copy of the built package somewhere else. */
+	async saveCopy(): Promise<void> {
+		if (!this.cooked) return;
+		const out = await pickSave(
+			"Save a copy of the mod",
+			basename(this.cooked.path),
+			[{ name: "Tempest mod", extensions: ["tempest"] }],
+			"cooker-out",
+		);
+		if (!out) return;
+		try {
+			await invoke("fs:copy", { from: this.cooked.path, to: out });
+			toasts.push("success", out, "Saved");
+		} catch (error) {
+			toasts.error(error, "Could not save the copy");
 		}
 	}
 

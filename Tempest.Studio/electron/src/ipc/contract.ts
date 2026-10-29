@@ -810,6 +810,12 @@ export type SwfPreviewTarget =
 	| { kind: "frame"; id: number; frame: number }
 	| { kind: "character"; id: number; play?: boolean };
 
+/** `cli:account`: what publishing needs, as the CLI stores it. */
+export type CliAccount = {
+	signing: { hasKey: boolean; keyId: string | null; path: string };
+	repo: { url: string; hasApiKey: boolean; masked: string | null };
+};
+
 export interface UpkMethods {
 	ping: { params: Record<string, never>; result: { version: string; pid: number } };
 	"workspace.open": { params: { dir: string }; result: Workspace };
@@ -1590,6 +1596,8 @@ export interface IpcContract {
 	};
 	/** A fresh staging folder path for a cooked mod. */
 	"cli:staging": { args: { id: string }; result: string };
+	/** The publishing account the CLI keeps: signing key and repository API key. */
+	"cli:account": { args: Record<string, never>; result: CliAccount };
 	/** Zoom the window's content (UI scale), 0.6–2. */
 	"window:zoom": { args: { factor: number }; result: void };
 
@@ -1598,6 +1606,8 @@ export interface IpcContract {
 
 	"fs:exists": { args: { path: string }; result: boolean };
 	"fs:read-text": { args: { path: string }; result: string };
+	"fs:read-bytes": { args: { path: string }; result: Uint8Array };
+	"fs:copy": { args: { from: string; to: string }; result: void };
 	"fs:write-text": { args: { path: string; text: string }; result: void };
 	"fs:write-bytes": { args: { path: string; bytes: Uint8Array }; result: void };
 	"fs:remove": { args: { path: string }; result: void };
@@ -1608,6 +1618,8 @@ export interface IpcContract {
 
 	"shell:show-item": { args: { path: string }; result: void };
 	"shell:open-path": { args: { path: string }; result: string };
+	/** Opens an http(s) page in the browser. */
+	"shell:open-url": { args: { url: string }; result: void };
 
 	/** One `upk serve` call. Rejects with the server's error text. */
 	"upk:call": { args: { method: UpkMethod; params: unknown }; result: unknown };

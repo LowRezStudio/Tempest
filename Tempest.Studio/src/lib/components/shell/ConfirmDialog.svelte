@@ -3,11 +3,15 @@
 <script lang="ts">
 	import { TriangleAlert } from "@lucide/svelte";
 	import { tick } from "svelte";
-	import { ui } from "$lib/studio/ui.svelte";
+	import { remember, ui } from "$lib/studio/ui.svelte";
 
 	let confirmButton = $state<HTMLButtonElement | null>(null);
+	let dontAsk = $state(false);
 	$effect(() => {
-		if (ui.asking) void tick().then(() => confirmButton?.focus());
+		if (ui.asking) {
+			dontAsk = false;
+			void tick().then(() => confirmButton?.focus());
+		}
 	});
 </script>
 
@@ -47,7 +51,13 @@
 					{/if}
 				</div>
 			</div>
-			<div class="mt-4 flex justify-end gap-2">
+			{#if q.remember}
+				<label class="mt-3 flex items-center gap-2 text-xs opacity-80">
+					<input type="checkbox" class="checkbox checkbox-xs" bind:checked={dontAsk} />
+					Don't ask me again
+				</label>
+			{/if}
+			<div class="mt-4 flex flex-wrap items-center justify-end gap-2">
 				<button class="btn btn-ghost btn-sm" onclick={() => q.answer(false)}
 					>{q.cancel ?? "Cancel"}</button
 				>
@@ -57,7 +67,10 @@
 				<button
 					bind:this={confirmButton}
 					class="btn btn-sm {q.danger ? 'btn-error' : 'btn-primary'}"
-					onclick={() => q.answer(true)}>{q.confirm}</button
+					onclick={() => {
+						if (q.remember && dontAsk) remember(q.remember, true);
+						q.answer(true);
+					}}>{q.confirm}</button
 				>
 			</div>
 		</div>

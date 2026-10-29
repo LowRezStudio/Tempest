@@ -20,6 +20,7 @@ const ALLOWED = new Set([
 	"gen-key",
 	"fingerprint",
 	"search",
+	"sign-text",
 ]);
 
 function cliPath(): string | null {
@@ -42,6 +43,63 @@ function signingKey(): string {
 		path.join(app.getPath("appData"), "com.lowrezstudio.tempest", "signing", "tempest.key")
 	);
 }
+
+/** The folder the CLI keeps its signing key and `repo.json` in (.NET's ApplicationData). */
+function tempestData(): string {
+	return path.join(app.getPath("appData"), "com.lowrezstudio.tempest");
+}
+
+function runCli(cli: string, args: string[]): Promise<{ code: number; stdout: string }> {
+	return new Promise((resolve) => {
+		const child = spawn(cli, args, { windowsHide: true });
+		let stdout = "";
+		child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+		child.on("error", () => resolve({ code: -1, stdout }));
+		child.on("close", (code) => resolve({ code: code ?? -1, stdout }));
+	});
+}
+
+/**
+ * The publishing account as the CLI stores it: the signing key (its user id and
+ * fingerprint, from `mod fingerprint`) and the repository API key (masked) and URL.
+ */
+handle("cli:account", async () => {
+	const cli = cliPath();
+	const key = signingKey();
+	const pub = key.replace(/\.key$/, ".pub");
+	let keyId: string | null = null;
+	if (cli && fs.existsSync(key)) {
+		const r = await runCli(cli, ["mod", "fingerprint", fs.existsSync(pub) ? pub : key]);
+		if (r.code === 0) keyId = r.stdout.trim() || null;
+	}
+	let config: { url?: string; apiKey?: string } = {};
+	try {
+		config = JSON.parse(fs.readFileSync(path.join(tempestData(), "repo.json"), "utf8")) as {
+			url?: string;
+			apiKey?: string;
+		};
+	} catch {
+		// no account yet
+	}
+	const apiKey = config.apiKey ?? null;
+	const masked = apiKey
+		? apiKey.length <= 12
+			? `${apiKey.slice(0, 4)}…`
+			: `${apiKey.slice(0, 8)}…${apiKey.slice(-4)}`
+		: null;
+	return {
+		signing: { hasKey: fs.existsSync(key), keyId, path: key },
+		repo: {
+			url: (
+				process.env.TEMPEST_REPO_URL ||
+				config.url ||
+				"https://mods.lowrezstudio.com"
+			).replace(/\/+$/, ""),
+			hasApiKey: apiKey !== null,
+			masked,
+		},
+	};
+});
 
 handle("cli:status", () => {
 	const cli = cliPath();

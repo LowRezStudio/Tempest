@@ -652,7 +652,7 @@ function buildServer(): McpServer {
 		{
 			title: "Mod cooker",
 			description:
-				"The mod cooker of a window: what the mod holds and building it. `status`: the game files it changes (target, sources with their origin unsaved/saved/copy, the choice: included, delta or whole, source), each file's preview (objects or rows changed/added/removed) once `preview` ran, extra files, the project's mod-files, details, problems that block the build, the signing key, the last build and the build log. `refresh`: look for new changes. `preview`: compute what each delta holds. `set`: change details (`meta`: name, version (semver), id (sets a custom id), authors [{name, link}], readme (description), dependencies (one per line), patchFrom, patchTo, summary, changelog, tags), per-file `choices`, and `extras` ([{src, dest}] files to ship, dest inside the mod). `build`: write, pack and sign the .tempest (in a project to builds/<id>-<version>.tempest, else to `out`, which is required then); may ask before replacing an existing build (answer with studio_confirm). `install`: install the last build into the window's game folder (may ask first). Publishing is left to the user.",
+				"The mod cooker of a window: what the mod holds and building it. `status`: the game files it changes (target, sources with their origin unsaved/saved/copy, the choice: included, delta or whole, source), each file's preview (objects or rows changed/added/removed) once `preview` ran, extra files, the project's mod-files, details, problems that block the build, the signing key, the last build and the build log. `refresh`: look for new changes. `preview`: compute what each delta holds. `set`: change details (`meta`: name, version (semver, checked like the launcher: 1.2.3 or 1.2.3-beta.1), id (sets a custom id; 2–64 of a-z 0-9 . _ -), authors [{name, link}], readme (Markdown), dependencies (one per line, `id` + optional requirement like >=1.0.0, ^2, ~1.2; `tempest` is the launcher), summary (≤ 140), tags, repository (source link), patches (comma-separated) or patchFrom/patchTo, changelog, compression small|fast); problems lists what blocks the build (invalid id, version, dependency lines, icon), per-file `choices`, and `extras` ([{src, dest}] files to ship, dest inside the mod). `build`: write, pack and sign the .tempest (in a project to builds/<id>-<version>.tempest, else to `out`, which is required then); may ask before replacing an existing build (answer with studio_confirm). `install`: install the last build into the window's game folder (may ask first). Publishing is left to the user.",
 			inputSchema: {
 				action: z.enum(["status", "refresh", "preview", "set", "build", "install"]),
 				meta: z.record(z.string(), z.unknown()).optional(),
@@ -712,6 +712,7 @@ function buildServer(): McpServer {
 							})),
 							extras: JSON.parse(JSON.stringify(cooker.extras)),
 							problems: cooker.problems,
+							account: cooker.account ? { signingKey: cooker.account.signing.keyId, hasSigningKey: cooker.account.signing.hasKey, repository: cooker.account.repo.url, hasApiKey: cooker.account.repo.hasApiKey } : null,
 							canBuild: cooker.canCook,
 							signing: cooker.cli ? { cliFound: cooker.cli.available, hasKey: cooker.cli.hasKey } : null,
 							built: cooker.cooked,

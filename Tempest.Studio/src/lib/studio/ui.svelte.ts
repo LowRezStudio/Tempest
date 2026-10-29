@@ -48,7 +48,33 @@ export type ConfirmRequest = {
 	danger?: boolean;
 	/** A third choice (for example "Save first"); resolves to "alt". */
 	alt?: string;
+	/**
+	 * Offers "Don't ask me again": once ticked and confirmed, the question
+	 * (kept under this key) answers itself with yes from then on.
+	 */
+	remember?: string;
 };
+
+const REMEMBER_PREFIX = "studio.confirmed:";
+
+/** Whether the user ticked "Don't ask me again" for a remembered question. */
+export function remembered(key: string): boolean {
+	try {
+		return localStorage.getItem(REMEMBER_PREFIX + key) === "1";
+	} catch {
+		return false;
+	}
+}
+
+/** Remember (or forget) a "Don't ask me again". */
+export function remember(key: string, on: boolean): void {
+	try {
+		if (on) localStorage.setItem(REMEMBER_PREFIX + key, "1");
+		else localStorage.removeItem(REMEMBER_PREFIX + key);
+	} catch {
+		// storage unavailable: it asks again
+	}
+}
 
 class Ui {
 	/** Window width in CSS pixels (zoom included). */
@@ -151,6 +177,7 @@ class Ui {
 	 * @param req The question.
 	 */
 	confirm(req: ConfirmRequest): Promise<boolean | "alt"> {
+		if (req.remember && remembered(req.remember)) return Promise.resolve(true);
 		this.asking?.answer(false);
 		return new Promise((resolve) => {
 			this.asking = {

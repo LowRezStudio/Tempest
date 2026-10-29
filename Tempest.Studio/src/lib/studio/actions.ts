@@ -61,6 +61,40 @@ export async function openPackageFile(): Promise<void> {
 	if (f) await studio.openFiles([f]);
 }
 
+/**
+ * Saving in place overwrites the game's own files: warn first (until the user
+ * says not to), pointing at the ways that leave the game folder alone.
+ * @param files The files that would be overwritten.
+ * @returns Whether to go on.
+ */
+async function confirmInPlace(files: string[]): Promise<boolean> {
+	const ok = await ui.confirm({
+		title: "Overwrite the game's files?",
+		message:
+			"Saving in place changes your game install itself, which you rarely want: to keep your work, save a workspace file (or use a mod project); to share or test it, build a mod; to get the edited file, export a copy. Save in place only if you really mean to change the game folder.",
+		items: files,
+		confirm: "Save in the game folder",
+		alt: "Save a workspace file instead",
+		danger: true,
+		remember: "save-in-place",
+	});
+	if (ok === "alt") {
+		await commands.get("workspace.save")?.run();
+		return false;
+	}
+	return ok === true;
+}
+
+/** The files Save would write: the open package's, or the changed .dat files in the Assembly view. */
+const filesToSave = (all: boolean): string[] =>
+	all
+		? [...studio.dirty, ...assembly.dirtyDocs.map((d) => d.path)].map(basename)
+		: inAssembly()
+			? assembly.dirtyDocs.map((d) => basename(d.path))
+			: studio.pkg
+				? [studio.pkg.name]
+				: [];
+
 async function saveAs(): Promise<void> {
 	if (inAssembly()) {
 		const dir = await pickDirectory("Folder for the saved .dat files", studio.workspace?.dir);
@@ -215,12 +249,11 @@ export function registerActions(): () => void {
 					: inAssembly()
 						? assembly.dirtyDocs.length > 0
 						: studio.isDirty,
-			run: () =>
-				session.project
-					? session.saveProject()
-					: inAssembly()
-						? assembly.saveAll()
-						: studio.save(),
+			run: async () => {
+				if (session.project) return session.saveProject();
+				if (!(await confirmInPlace(filesToSave(false)))) return;
+				await (inAssembly() ? assembly.saveAll() : studio.save());
+			},
 		},
 		{
 			id: "file.saveToGame",
@@ -262,6 +295,7 @@ export function registerActions(): () => void {
 			icon: SaveAll,
 			enabled: () => studio.dirty.length > 0 || assembly.dirtyDocs.length > 0,
 			run: async () => {
+				if (!(await confirmInPlace(filesToSave(true)))) return;
 				await studio.saveAll();
 				if (assembly.dirtyDocs.length > 0) await assembly.saveAll();
 			},
