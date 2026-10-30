@@ -37,9 +37,10 @@
 	import SwfTree from "$lib/components/swf/SwfTree.svelte";
 	import SwfPlayer from "$lib/components/SwfPlayer.svelte";
 	import { cooker } from "$lib/studio/cooker.svelte";
+	import { nav } from "$lib/studio/nav.svelte";
 	import { studio } from "$lib/studio/state.svelte";
 	import { exportFrames, exportPng, exportSvg } from "$lib/studio/swf-export";
-	import { swfDoc } from "$lib/studio/swf.svelte";
+	import { stageViewport, swfDoc, swfEditor } from "$lib/studio/swf.svelte";
 	import { ui } from "$lib/studio/ui.svelte";
 	import type { SwfPreviewTarget, SwfRect } from "../../../electron/src/ipc/contract";
 
@@ -52,7 +53,7 @@
 	const doc = $derived(swfDoc(path, index));
 
 	const HINT =
-		"Click to select (Alt+click: the one below) · drag or arrows move it (Shift: 10 px) · Q: scale and rotate handles, V: move · double-click or Enter edits inside a clip · Backspace goes up · nothing is written until Apply";
+		"Click to select (Alt+click: the one below) · drag or arrows move it (Shift: 10 px) · Q: scale and rotate handles, V: move · double-click, Enter or Space edits inside a clip · Backspace goes up · nothing is written until Apply";
 
 	// The timeline under the stage: resizable, its height remembered like a pane's.
 	const TIMELINE = "swf.timeline";
@@ -149,9 +150,27 @@
 		return c ? `${c.kind} ${c.id}${c.names[0] ? ` · ${c.names[0]}` : ""}` : "";
 	});
 
+	$effect(() => {
+		const d = doc;
+		swfEditor.doc = d;
+		return () => {
+			if (swfEditor.doc === d) swfEditor.doc = null;
+		};
+	});
+
+	// Every view of the editor (the root, a clip, a tag view) is a place of the
+	// window's history, so Back (Alt+←) walks out of clips the way it came.
+	$effect(() => {
+		const view = { node: doc.node, label: title };
+		untrack(() => {
+			const label = studio.pkg?.path === path ? studio.pkg.exports[index]?.path : undefined;
+			nav.record({ kind: "package", path, index, label, view });
+		});
+	});
+
 	const zoomLabel = $derived(doc.zoom === 0 ? "fit" : `${Math.round(doc.zoom * 100)}%`);
 	const zoomBy = (f: number) => {
-		const z = doc.zoom || 1;
+		const z = doc.zoom || stageViewport.scale;
 		doc.zoom = Math.max(0.05, Math.min(16, z * f));
 	};
 </script>
@@ -256,7 +275,8 @@
 						<button
 							class="btn join-item btn-ghost btn-xs w-12 font-mono"
 							title="Fit (click) / 100%"
-							onclick={() => (doc.zoom = doc.zoom === 0 ? 1 : 0)}>{zoomLabel}</button
+							onclick={() => (doc.zoom === 0 ? (doc.zoom = 1) : doc.fit())}
+							>{zoomLabel}</button
 						>
 						<button
 							class="btn join-item btn-ghost btn-xs"
@@ -265,8 +285,8 @@
 						>
 						<button
 							class="btn join-item btn-ghost btn-xs"
-							title="Fit"
-							onclick={() => (doc.zoom = 0)}><Maximize size={11} /></button
+							title="Fit and centre (middle-drag or Space+drag pans)"
+							onclick={() => doc.fit()}><Maximize size={11} /></button
 						>
 					</div>
 				{/if}

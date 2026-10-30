@@ -5,7 +5,14 @@ import { basename } from "./format";
 // kind of place; `navigating` keeps a replayed visit out of the history.
 import type { McsPath } from "../../../electron/src/ipc/contract";
 
-export type PackagePlace = { kind: "package"; path: string; index: number; label?: string };
+export type PackagePlace = {
+	kind: "package";
+	path: string;
+	index: number;
+	label?: string;
+	/** A view inside the export's editor (the movie editor's node); none: as the editor left it. */
+	view?: { node: string; label: string };
+};
 export type AssemblyPlace = {
 	kind: "assembly";
 	doc: string;
@@ -18,11 +25,15 @@ export type Place = PackagePlace | AssemblyPlace;
 type Handlers = {
 	package?: (p: PackagePlace) => Promise<void>;
 	assembly?: (p: AssemblyPlace) => Promise<void>;
+	/** Opens a place's `view` once its export is shown. */
+	view?: (p: PackagePlace) => void;
 };
 
 function same(a: Place, b: Place): boolean {
 	if (a.kind === "package" && b.kind === "package") {
-		return a.path === b.path && a.index === b.index;
+		// A selection without a view is the export as its editor shows it.
+		const view = !a.view || !b.view || a.view.node === b.view.node;
+		return a.path === b.path && a.index === b.index && view;
 	}
 	if (a.kind === "assembly" && b.kind === "assembly") {
 		return (
@@ -54,10 +65,16 @@ class Nav {
 		const before = this.navigating;
 		this.navigating = true;
 		try {
-			await (p.kind === "package" ? this.handlers.package?.(p) : this.handlers.assembly?.(p));
+			await this.go(p);
 		} finally {
 			this.navigating = before;
 		}
+	}
+
+	private async go(p: Place): Promise<void> {
+		if (p.kind === "assembly") return this.handlers.assembly?.(p);
+		await this.handlers.package?.(p);
+		if (p.view) this.handlers.view?.(p);
 	}
 
 	register(handlers: Handlers): void {
@@ -70,8 +87,14 @@ class Nav {
 		if (this.navigating) return;
 		const current = this.history[this.pos];
 		if (current && same(current, place)) {
-			// Same place: keep the freshest label.
-			if (place.kind === "package" && place.label) this.history[this.pos] = place;
+			// Same place: keep the freshest label, and the view a plain selection does not name.
+			if (place.kind === "package" && current.kind === "package") {
+				this.history[this.pos] = {
+					...place,
+					label: place.label ?? current.label,
+					view: place.view ?? current.view,
+				};
+			}
 			return;
 		}
 		this.history = [...this.history.slice(0, this.pos + 1), place].slice(-200);
@@ -87,7 +110,10 @@ class Nav {
 	label(offset: -1 | 1): string | null {
 		const p = this.history[this.pos + offset];
 		if (!p) return null;
-		if (p.kind === "package") return `${basename(p.path)} › ${p.label ?? `export #${p.index}`}`;
+		if (p.kind === "package") {
+			const view = p.view ? ` › ${p.view.label}` : "";
+			return `${basename(p.path)} › ${p.label ?? `export #${p.index}`}${view}`;
+		}
 		const table = p.table.replace(/^DATA_SET_/, "");
 		return `${p.doc} › ${table}${p.index === null ? "" : ` #${p.index}`}`;
 	}
@@ -98,7 +124,7 @@ class Nav {
 		this.pos = pos;
 		this.navigating = true;
 		try {
-			await (p.kind === "package" ? this.handlers.package?.(p) : this.handlers.assembly?.(p));
+			await this.go(p);
 		} finally {
 			this.navigating = false;
 		}

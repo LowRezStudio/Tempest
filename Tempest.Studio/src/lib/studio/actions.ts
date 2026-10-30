@@ -40,6 +40,7 @@ import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
 import { session } from "./session.svelte";
 import { studio } from "./state.svelte";
+import { swfEditor } from "./swf.svelte";
 import { tabs } from "./tabs.svelte";
 import { toasts } from "./toast.svelte";
 import { ui } from "./ui.svelte";
@@ -307,8 +308,14 @@ export function registerActions(): () => void {
 			keys: "Mod+Z",
 			icon: Undo2,
 			enabled: () =>
-				inAssembly() ? assembly.undoLabels.length > 0 : studio.undoLabels.length > 0,
-			run: () => (inAssembly() ? assembly.undo() : studio.undo()),
+				inAssembly()
+					? assembly.undoLabels.length > 0
+					: !!swfEditor.doc?.canUndo || studio.undoLabels.length > 0,
+			run: () => {
+				if (inAssembly()) return assembly.undo();
+				if (swfEditor.doc?.canUndo) return swfEditor.doc.undoEdit();
+				return studio.undo();
+			},
 		},
 		{
 			id: "edit.discard",

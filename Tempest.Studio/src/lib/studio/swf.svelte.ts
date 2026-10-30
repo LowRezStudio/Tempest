@@ -7,6 +7,7 @@
 // remounts the editor, and the user's place must survive that.
 import { pickFile, pickSave } from "$lib/platform/api";
 import { bytes, safeName } from "./format";
+import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
 import { warmRuffle } from "./ruffle";
 import { studio } from "./state.svelte";
@@ -211,6 +212,8 @@ export class SwfDoc {
 	play = $state(false);
 	/** Preview zoom; 0 fits the view. */
 	zoom = $state(0);
+	/** Stage pan: the point shown at the middle of the stage, in movie pixels from the view's centre. */
+	pan = $state({ x: 0, y: 0 });
 	showBounds = $state(true);
 	/** Stage tool: move the selection, or free transform (scale and rotate handles). */
 	tool = $state<"move" | "transform">("move");
@@ -352,6 +355,12 @@ export class SwfDoc {
 		if (this.chars.get(entry.character)?.kind !== "sprite") return false;
 		this.openCharacter(entry.character);
 		return true;
+	}
+
+	/** Fit the view to the stage and centre it. */
+	fit(): void {
+		this.zoom = 0;
+		this.pan = { x: 0, y: 0 };
 	}
 
 	private selectReselect(): void {
@@ -498,21 +507,58 @@ export class SwfDoc {
 		}
 	}
 
-	setEdit(edit: SwfEdit): void {
-		this.edits = { ...this.edits, [editKey(edit)]: edit };
+	/** Earlier states of the pending edits, newest last (Ctrl+Z before Apply). */
+	private undoStack = $state.raw<{ edits: Record<string, SwfEdit>; key?: string; at: number }[]>(
+		[],
+	);
+	canUndo = $derived(this.undoStack.length > 0);
+
+	/**
+	 * Replace the pending edits, keeping the previous ones for `undoEdit`.
+	 * Quick changes of one edit (typing, a colour dragged, a held arrow) are one step.
+	 */
+	private commit(next: Record<string, SwfEdit>, key?: string): void {
+		const now = Date.now();
+		const last = this.undoStack.at(-1);
+		if (key && last?.key === key && now - last.at < 600) {
+			last.at = now;
+		} else {
+			const edits = $state.snapshot(this.edits) as Record<string, SwfEdit>;
+			this.undoStack = [...this.undoStack, { edits, key, at: now }].slice(-100);
+		}
+		this.edits = next;
 		this.changed();
+	}
+
+	/** Take back the last change of the pending edits. */
+	undoEdit(): void {
+		const last = this.undoStack.at(-1);
+		if (!last) return;
+		this.undoStack = this.undoStack.slice(0, -1);
+		this.edits = last.edits;
+		this.changed();
+	}
+
+	/** The pending edits were written into the package, whose undo takes over. */
+	private written(): void {
+		this.edits = {};
+		this.undoStack = [];
+		this.version++;
+	}
+
+	setEdit(edit: SwfEdit): void {
+		const key = editKey(edit);
+		this.commit({ ...this.edits, [key]: edit }, key);
 	}
 
 	dropEdit(key: string): void {
 		const next = { ...this.edits };
 		delete next[key];
-		this.edits = next;
-		this.changed();
+		this.commit(next);
 	}
 
 	discardEdits(): void {
-		this.edits = {};
-		this.changed();
+		this.commit({});
 	}
 
 	/** Pending value of a text/string/image edit, else the original. */
@@ -634,9 +680,8 @@ export class SwfDoc {
 			const d: SwfEdit = { kind: "deletePlace", sprite: this.sprite, tag };
 			next[editKey(d)] = d;
 		}
-		this.edits = next;
 		this.depth = null;
-		this.changed();
+		this.commit(next);
 	}
 
 	/** Pending edits touching an object of the current timeline. */
@@ -650,8 +695,7 @@ export class SwfDoc {
 		if (this.sprite === null) return;
 		const next = { ...this.edits };
 		for (const tag of this.tagsOf(entry)) delete next[`place|${this.sprite}|${tag}`];
-		this.edits = next;
-		this.changed();
+		this.commit(next);
 	}
 
 	// ----- shapes, texts, fonts ----------------------------------------------------
@@ -666,8 +710,7 @@ export class SwfDoc {
 		const next = { ...this.edits };
 		for (const k of Object.keys(next)) if (k.startsWith(`shapeColor|${tag}|`)) delete next[k];
 		next[`shapeSvg|${tag}`] = { kind: "shapeSvg", tag, svg, fit };
-		this.edits = next;
-		this.changed();
+		this.commit(next);
 	}
 
 	/** Merge edit-text properties into the pending edit of a field. */
@@ -833,8 +876,7 @@ export class SwfDoc {
 			);
 			studio.markDirty(this.path);
 			studio.undoLabels = r.undo;
-			this.edits = {};
-			this.version++;
+			this.written();
 			await studio.reloadTables();
 			await this.load();
 			if (r.placed) {
@@ -863,8 +905,7 @@ export class SwfDoc {
 			const r = await rpc("swf.apply", { path: this.path, index: this.index, edits });
 			studio.markDirty(this.path);
 			studio.undoLabels = r.undo;
-			this.edits = {};
-			this.version++;
+			this.written();
 			toasts.push(
 				"success",
 				`${r.edits} edit${r.edits === 1 ? "" : "s"}, ${r.bytes} bytes; save the package to keep them`,
@@ -883,8 +924,8 @@ export class SwfDoc {
 // What the stage asks `swf.preview` for, built in one place so a view rendered
 // ahead of time (`prerenderView`) has the key the stage will ask for.
 
-/** The stage viewport (CSS pixels), for the size of views rendered ahead. */
-export const stageViewport = { w: 0, h: 0 };
+/** The stage viewport (CSS pixels), for the size of views rendered ahead, and the scale it draws at. */
+export const stageViewport = { w: 0, h: 0, scale: 1 };
 /** Space around the stage's picture (CSS pixels). */
 export const STAGE_PAD = 24;
 
@@ -917,7 +958,11 @@ function union(a: SwfRect, b: SwfRect): SwfRect {
 }
 
 /** The scale a stage of `viewport` size draws `rect` at. */
-export function stageScale(rect: SwfRect, zoom: number, viewport = stageViewport): number {
+export function stageScale(
+	rect: SwfRect,
+	zoom: number,
+	viewport: { w: number; h: number } = stageViewport,
+): number {
 	if (zoom > 0) return zoom;
 	const fit = Math.min(
 		(viewport.w - STAGE_PAD * 2) / rect.w,
@@ -1051,6 +1096,11 @@ export function swfDoc(path: string, index: number): SwfDoc {
 	}
 	return entry.doc;
 }
+
+/** The movie editor on screen: Ctrl+Z takes back its pending edits before the package's. */
+export const swfEditor = $state<{ doc: SwfDoc | null }>({ doc: null });
+
+nav.register({ view: (p) => swfDoc(p.path, p.index).open(p.view!.node as SwfNode) });
 
 /** Forget the documents of a package (closed, discarded). */
 export function dropSwfDocs(path: string): void {

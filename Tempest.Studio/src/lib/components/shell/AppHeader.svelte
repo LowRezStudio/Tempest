@@ -24,6 +24,7 @@
 	import { basename } from "$lib/studio/format";
 	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
+	import { swfEditor } from "$lib/studio/swf.svelte";
 	import { ui } from "$lib/studio/ui.svelte";
 
 	const inAssembly = $derived(studio.mode === "assembly");
@@ -38,10 +39,15 @@
 			: "",
 	);
 	const edited = $derived(studio.dirty.length + assembly.dirtyDocs.length);
-	const canUndo = $derived(
-		inAssembly ? assembly.undoLabels.length > 0 : studio.undoLabels.length > 0,
+	const undoCommand = $derived(commands.get("edit.undo"));
+	const canUndo = $derived(!!undoCommand && commands.enabled(undoCommand));
+	const undoLabel = $derived(
+		inAssembly
+			? assembly.undoLabels[0]
+			: swfEditor.doc?.canUndo
+				? "the last movie edit"
+				: studio.undoLabels[0],
 	);
-	const undoLabel = $derived(inAssembly ? assembly.undoLabels[0] : studio.undoLabels[0]);
 	const fileEdited = $derived(inAssembly ? assembly.dirtyDocs.length > 0 : studio.isDirty);
 
 	/** The edited files, each opening its file; then the bulk actions. */

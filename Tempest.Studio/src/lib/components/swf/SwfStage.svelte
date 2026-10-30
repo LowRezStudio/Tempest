@@ -8,11 +8,16 @@
 	visible area is fixed per target, so an edit never re-fits the view.
 
 	Click selects the smallest object under the pointer (Alt+click cycles
-	through the others), press and drag moves the selection, double-click or
-	Enter edits inside a clip, Backspace goes up, arrows nudge (Shift: 10 px).
+	through the others; double-clicks with Alt held do nothing), press and drag
+	moves the selection, double-click, Enter or a Space tap edits inside a clip, Backspace
+	goes up, arrows nudge (Shift: 10 px).
 	The transform tool (Q; V goes back to move) adds handles: corners and
 	edges scale (Shift keeps proportions, Alt scales from the centre), the
 	knob rotates (Shift: 15° steps).
+
+	The viewport is an unbounded canvas: middle-drag, Ctrl+drag or Space+drag pans, the
+	wheel scrolls (Shift: sideways), Ctrl+wheel zooms at the pointer, Fit
+	recentres (`SwfDoc.fit`).
 -->
 <script lang="ts">
 	import { untrack } from "svelte";
@@ -26,7 +31,6 @@
 		prerenderView,
 		rotation,
 		scaling,
-		STAGE_PAD as PAD,
 		stageKey,
 		stageRequest,
 		stageScale,
@@ -79,13 +83,96 @@
 	});
 	const rect = $derived(view ?? baseRect);
 
-	$effect(() => {
-		stageViewport.w = vw;
-		stageViewport.h = vh;
-	});
 	const scale = $derived(rect ? stageScale(rect, doc.zoom, { w: vw, h: vh }) : 1);
 	const width = $derived(rect ? Math.max(1, Math.round(rect.w * scale)) : 0);
 	const height = $derived(rect ? Math.max(1, Math.round(rect.h * scale)) : 0);
+	$effect(() => {
+		stageViewport.w = vw;
+		stageViewport.h = vh;
+		stageViewport.scale = scale;
+	});
+
+	// ----- panning ----------------------------------------------------------------
+
+	/** The clip or character shown: another one opens centred. */
+	const place = $derived(`${target.kind}|${"id" in target ? target.id : 0}`);
+	let pannedFor = "";
+	$effect(() => {
+		if (pannedFor !== place) {
+			pannedFor = place;
+			doc.pan = { x: 0, y: 0 };
+		}
+	});
+	/** The picture's top-left in the viewport: its centre sits `doc.pan` away from the middle. */
+	const left = $derived(Math.round(vw / 2 - width / 2 - doc.pan.x * scale));
+	const top = $derived(Math.round(vh / 2 - height / 2 - doc.pan.y * scale));
+
+	let panning = $state<{ x0: number; y0: number; from: { x: number; y: number } } | null>(null);
+	/** Space or Ctrl is held: a left drag pans. */
+	let space = $state(false);
+	let ctrl = $state(false);
+	const panCursor = $derived(panning ? "grabbing" : space || ctrl ? "grab" : null);
+	const grabs = (event: PointerEvent) => space || event.ctrlKey;
+	/** When Space went down and whether it panned since: a quick tap opens the selection. */
+	let spacePress: { at: number; panned: boolean } | null = null;
+
+	function onSpaceUp() {
+		const tap = spacePress && !spacePress.panned && Date.now() - spacePress.at < 400;
+		space = false;
+		spacePress = null;
+		if (tap && selected) doc.enter(selected);
+	}
+
+	function onPanDown(event: PointerEvent) {
+		if (event.button !== 1 && !(event.button === 0 && grabs(event))) return;
+		if (spacePress) spacePress.panned = true;
+		viewport?.focus({ preventScroll: true });
+		panning = { x0: event.clientX, y0: event.clientY, from: { ...doc.pan } };
+		try {
+			viewport?.setPointerCapture(event.pointerId);
+		} catch {
+			// Not an active pointer (synthetic events).
+		}
+		event.preventDefault();
+	}
+
+	function onPanMove(event: PointerEvent) {
+		ctrl = event.ctrlKey;
+		if (!panning) return;
+		if (event.buttons === 0 && event.pointerType === "mouse" && event.isTrusted) {
+			panning = null;
+			return;
+		}
+		doc.pan = {
+			x: panning.from.x - (event.clientX - panning.x0) / scale,
+			y: panning.from.y - (event.clientY - panning.y0) / scale,
+		};
+	}
+
+	/** Zoom by `factor`, keeping the movie point under the pointer where it is. */
+	function zoomAt(event: MouseEvent, factor: number) {
+		if (!viewport) return;
+		const box = viewport.getBoundingClientRect();
+		const px = event.clientX - box.left - vw / 2;
+		const py = event.clientY - box.top - vh / 2;
+		const z = Math.max(0.05, Math.min(16, (doc.zoom || scale) * factor));
+		doc.pan = { x: doc.pan.x + px / scale - px / z, y: doc.pan.y + py / scale - py / z };
+		doc.zoom = z;
+	}
+
+	function onWheel(event: WheelEvent) {
+		event.preventDefault();
+		const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? vh : 1;
+		let dx = event.deltaX * unit;
+		let dy = event.deltaY * unit;
+		if (event.ctrlKey) {
+			// A wheel notch (100) is ×1.25; a trackpad pinch sends small deltas.
+			zoomAt(event, Math.max(0.5, Math.min(2, 1.25 ** (-dy / 100))));
+			return;
+		}
+		if (event.shiftKey && dx === 0) [dx, dy] = [dy, 0];
+		doc.pan = { x: doc.pan.x + dx / scale, y: doc.pan.y + dy / scale };
+	}
 
 	// ----- floating layers ------------------------------------------------------
 
@@ -129,12 +216,20 @@
 
 	/** A drag in progress: the matrix it would set. */
 	let live = $state<{ depth: number; m: SwfMatrix } | null>(null);
-	/** Set on release until the timeline reports it (keeps the layer from snapping back). */
-	let committed = $state<Record<number, { m: SwfMatrix; from: string }>>({});
+	/**
+	 * Set on release until the timeline reports it (keeps the layer from
+	 * snapping back), and only while the edit it made is pending: after an
+	 * undo or discard the timeline reports the old matrix again.
+	 */
+	let committed = $state<
+		Record<number, { m: SwfMatrix; from: string; key: string; edit: string }>
+	>({});
 	function matrixOf(e: SwfEntry): SwfMatrix {
 		if (live?.depth === e.depth) return live.m;
 		const c = committed[e.depth];
-		return c && c.from === JSON.stringify(e.matrix) ? c.m : e.matrix;
+		const holds =
+			c && c.from === JSON.stringify(e.matrix) && JSON.stringify(doc.edits[c.key]) === c.edit;
+		return holds ? c.m : e.matrix;
 	}
 	const matrix = $derived(selected ? matrixOf(selected) : null);
 
@@ -261,12 +356,19 @@
 	// Alt+click on Linux, the window loses focus) must not leave a drag
 	// running: the selection would keep following the pointer.
 	$effect(() => {
-		window.addEventListener("blur", cancelDrag);
-		return () => window.removeEventListener("blur", cancelDrag);
+		const onBlur = () => {
+			cancelDrag();
+			panning = null;
+			space = false;
+			spacePress = null;
+			ctrl = false;
+		};
+		window.addEventListener("blur", onBlur);
+		return () => window.removeEventListener("blur", onBlur);
 	});
 
 	function onPointerDown(event: PointerEvent) {
-		if (event.button !== 0) return;
+		if (event.button !== 0 || grabs(event)) return;
 		cancelDrag();
 		viewport?.focus({ preventScroll: true });
 		const [x, y] = toMovie(event);
@@ -303,13 +405,13 @@
 	}
 
 	function onHandleDown(event: PointerEvent, hx: number, hy: number) {
-		if (event.button !== 0 || !selected || !matrix) return;
+		if (event.button !== 0 || grabs(event) || !selected || !matrix) return;
 		doc.float(selected);
 		begin(event, { kind: "scale", entry: selected, m0: matrix, hx, hy, moved: false });
 	}
 
 	function onKnobDown(event: PointerEvent) {
-		if (event.button !== 0 || !selected || !matrix) return;
+		if (event.button !== 0 || grabs(event) || !selected || !matrix) return;
 		doc.float(selected);
 		begin(event, {
 			kind: "rotate",
@@ -384,11 +486,17 @@
 		drag = null;
 		if (!d) return;
 		if (d.moved && live) {
+			doc.setMatrix(d.entry, live.m);
+			const key = `place|${sprite}|${d.entry.matrixBy}`;
 			committed = {
 				...committed,
-				[d.entry.depth]: { m: live.m, from: JSON.stringify(d.entry.matrix) },
+				[d.entry.depth]: {
+					m: live.m,
+					from: JSON.stringify(d.entry.matrix),
+					key,
+					edit: JSON.stringify(doc.edits[key]),
+				},
 			};
-			doc.setMatrix(d.entry, live.m);
 		} else if (d.kind === "move" && d.click) {
 			doc.depth = d.click.depth;
 		}
@@ -396,7 +504,8 @@
 	}
 
 	function onDoubleClick(event: MouseEvent) {
-		if (!selected) return;
+		// Alt+clicks cycle through the objects under the pointer; two quick ones must not enter one.
+		if (!selected || event.altKey) return;
 		event.preventDefault();
 		doc.enter(selected);
 	}
@@ -404,10 +513,19 @@
 	function onKeyDown(event: KeyboardEvent) {
 		if (inField(event)) return;
 		const e = selected;
+		if (event.key === " ") {
+			event.preventDefault();
+			if (!event.repeat) spacePress = { at: Date.now(), panned: false };
+			space = true;
+			return;
+		}
+		if (event.key === "Control") ctrl = true;
 		if (event.key === "Escape") {
 			doc.depth = null;
 			return;
 		}
+		// Shortcuts of the window (Ctrl+Z, Alt+← back…), not the stage's.
+		if (event.ctrlKey || event.altKey || event.metaKey) return;
 		if (event.key === "v" || event.key === "V") {
 			doc.tool = "move";
 			return;
@@ -437,13 +555,6 @@
 		if (!m || !e) return;
 		event.preventDefault();
 		doc.moveEntry(e, m[0], m[1]);
-	}
-
-	function onWheel(event: WheelEvent) {
-		if (!event.ctrlKey) return;
-		event.preventDefault();
-		const z = doc.zoom || scale;
-		doc.zoom = Math.max(0.05, Math.min(16, z * (event.deltaY < 0 ? 1.25 : 0.8)));
 	}
 
 	const HANDLES: [number, number, string][] = [
@@ -485,165 +596,175 @@
 	bind:this={viewport}
 	bind:clientWidth={vw}
 	bind:clientHeight={vh}
-	class="swf-checker relative min-h-0 flex-1 overflow-auto outline-none"
+	class="swf-checker relative min-h-0 flex-1 overflow-hidden outline-none"
+	style:cursor={panCursor}
+	style:--ox="{left}px"
+	style:--oy="{top}px"
 	tabindex="0"
 	role="application"
 	aria-label="Movie stage"
 	onkeydown={onKeyDown}
+	onkeyup={(e) => {
+		if (e.key === " ") onSpaceUp();
+		if (e.key === "Control") ctrl = false;
+	}}
 	onwheel={onWheel}
+	onpointerdown={onPanDown}
+	onpointermove={onPanMove}
+	onpointerup={() => (panning = null)}
+	onpointercancel={() => (panning = null)}
+	onmousedown={(e) => e.button === 1 && e.preventDefault()}
 >
-	<div class="flex min-h-full min-w-full items-center justify-center" style="padding: {PAD}px">
-		<div
-			class="relative shrink-0"
-			style="width: {width}px; height: {height}px"
-			data-stage
-			data-x={rect?.x}
-			data-y={rect?.y}
-			data-scale={scale}
-		>
-			<!-- Another clip or character starts from an empty layer: keeping the
-				last one's picture until the new one is drawn showed the wrong
-				thing for a moment. Frames and edits of one target swap in place. -->
-			{#key `${target.kind}|${"id" in target ? target.id : 0}`}
+	<div
+		class="absolute top-0 left-0"
+		style="width: {width}px; height: {height}px; transform: translate({left}px, {top}px)"
+		data-stage
+		data-x={rect?.x}
+		data-y={rect?.y}
+		data-scale={scale}
+	>
+		<!-- Another clip or character starts from an empty layer: keeping the
+			last one's picture until the new one is drawn showed the wrong
+			thing for a moment. Frames and edits of one target swap in place. -->
+		{#key place}
+			<SwfLayer
+				{doc}
+				request={baseRequest}
+				key={baseKey}
+				transparent={target.kind !== "root"}
+				still={!(target.kind === "character" && target.play)}
+				onload={(r) => {
+					baseRect = r.rect;
+					missing = r.missing;
+					baseShown = JSON.stringify(JSON.parse(r.key).target);
+					error = null;
+				}}
+				onerror={(m) => (error = m)}
+				onbusy={(b) => (baseBusy = b)}
+			/>
+		{/key}
+		{#each floats as e (e.depth)}
+			<div class="pointer-events-none absolute top-0 left-0" style={layerStyle(e)}>
 				<SwfLayer
 					{doc}
-					request={baseRequest}
-					key={baseKey}
-					transparent={target.kind !== "root"}
-					still={!(target.kind === "character" && target.play)}
-					onload={(r) => {
-						baseRect = r.rect;
-						missing = r.missing;
-						baseShown = JSON.stringify(JSON.parse(r.key).target);
-						error = null;
+					request={{
+						target: { kind: "character", id: e.character },
+						edits: contentEdits,
 					}}
+					key={layerKey(e)}
+					onload={(r) =>
+						(loaded = { ...loaded, [e.depth]: { key: r.key, rect: r.rect } })}
 					onerror={(m) => (error = m)}
-					onbusy={(b) => (baseBusy = b)}
 				/>
-			{/key}
-			{#each floats as e (e.depth)}
-				<div class="pointer-events-none absolute top-0 left-0" style={layerStyle(e)}>
-					<SwfLayer
-						{doc}
-						request={{
-							target: { kind: "character", id: e.character },
-							edits: contentEdits,
-						}}
-						key={layerKey(e)}
-						onload={(r) =>
-							(loaded = { ...loaded, [e.depth]: { key: r.key, rect: r.rect } })}
-						onerror={(m) => (error = m)}
-					/>
-				</div>
-			{/each}
-			{#if rect && baseReady}
-				<div
-					class="absolute inset-0 cursor-default"
-					role="presentation"
-					onpointerdown={onPointerDown}
-					onpointermove={onPointerMove}
-					onpointerup={onPointerUp}
-					onpointercancel={cancelDrag}
-					onlostpointercapture={() => drag && onPointerUp()}
-					ondblclick={onDoubleClick}
-				>
-					{#if outline && timeline}
-						{@const [x, y] = screen(outline.x, outline.y)}
-						<div
-							class="border-warning/70 pointer-events-none absolute border border-dashed"
-							style="left: {x}px; top: {y}px; width: {outline.w *
-								scale}px; height: {outline.h * scale}px"
+			</div>
+		{/each}
+		{#if rect && baseReady}
+			<div
+				class="absolute inset-0"
+				style:cursor={panCursor ?? "default"}
+				role="presentation"
+				onpointerdown={onPointerDown}
+				onpointermove={onPointerMove}
+				onpointerup={onPointerUp}
+				onpointercancel={cancelDrag}
+				onlostpointercapture={() => drag && onPointerUp()}
+				ondblclick={onDoubleClick}
+			>
+				{#if outline && timeline}
+					{@const [x, y] = screen(outline.x, outline.y)}
+					<div
+						class="border-warning/70 pointer-events-none absolute border border-dashed"
+						style="left: {x}px; top: {y}px; width: {outline.w *
+							scale}px; height: {outline.h * scale}px"
+					>
+						<span
+							class="bg-warning/80 text-warning-content absolute -top-4 left-0 px-1 text-[9px]"
+							>stage</span
 						>
-							<span
-								class="bg-warning/80 text-warning-content absolute -top-4 left-0 px-1 text-[9px]"
-								>stage</span
-							>
-						</div>
-					{/if}
-					{#if doc.showBounds}
-						{#each pickable as e (e.depth)}
-							{#if e !== selected}
-								{@const [x, y] = screen(e.rect!.x, e.rect!.y)}
-								<div
-									class="pointer-events-none absolute border {doc.entryEdited(e)
-										? 'border-warning/80'
-										: 'border-white/25'}"
-									style="left: {x}px; top: {y}px; width: {Math.max(
-										1,
-										e.rect!.w * scale,
-									)}px; height: {Math.max(1, e.rect!.h * scale)}px"
-								></div>
-							{/if}
-						{/each}
-					{/if}
-					{#if selected}
-						{#if corners.length === 4}
-							<svg
-								class="pointer-events-none absolute inset-0 overflow-visible"
-								{width}
-								{height}
-							>
-								<polygon
-									points={corners.map((c) => c.join(",")).join(" ")}
-									class="fill-primary/10 stroke-primary"
-									stroke-width="1.5"
-								/>
-								{#if doc.tool === "transform" && knob}
-									<line
-										x1={knob.top[0]}
-										y1={knob.top[1]}
-										x2={knob.at[0]}
-										y2={knob.at[1]}
-										class="stroke-primary"
-									/>
-								{/if}
-							</svg>
-							<span
-								class="bg-primary text-primary-content pointer-events-none absolute px-1 font-mono text-[9px] whitespace-nowrap"
-								style="left: {Math.min(
-									...corners.map((c) => c[0]),
-								)}px; top: {Math.min(...corners.map((c) => c[1])) - 14}px"
-								>{selected.name ?? doc.label(selected.character)} · {selected.depth}{live
-									? ` · ${live.m.tx.toFixed(1)}, ${live.m.ty.toFixed(1)}`
-									: ""}</span
-							>
-							{#if doc.tool === "transform"}
-								{#each HANDLES as [hx, hy, cursor] (`${hx}-${hy}`)}
-									{@const [x, y] = handlePoint(hx, hy)}
-									<div
-										class="bg-base-100 border-primary absolute z-20 size-2 -translate-x-1/2 -translate-y-1/2 border"
-										style="left: {x}px; top: {y}px; cursor: {cursor}"
-										role="presentation"
-										onpointerdown={(ev) => onHandleDown(ev, hx, hy)}
-										onpointermove={onPointerMove}
-										onpointerup={onPointerUp}
-									></div>
-								{/each}
-								{#if knob}
-									<div
-										class="bg-primary absolute z-20 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
-										style="left: {knob.at[0]}px; top: {knob
-											.at[1]}px; cursor: grab"
-										title="Rotate (Shift: 15° steps)"
-										role="presentation"
-										onpointerdown={onKnobDown}
-										onpointermove={onPointerMove}
-										onpointerup={onPointerUp}
-									></div>
-								{/if}
-							{/if}
-						{:else if selected.rect}
-							{@const [x, y] = screen(selected.rect.x, selected.rect.y)}
+					</div>
+				{/if}
+				{#if doc.showBounds}
+					{#each pickable as e (e.depth)}
+						{#if e !== selected}
+							{@const [x, y] = screen(e.rect!.x, e.rect!.y)}
 							<div
-								class="border-primary bg-primary/10 pointer-events-none absolute border-2"
-								style="left: {x}px; top: {y}px; width: {selected.rect.w *
-									scale}px; height: {selected.rect.h * scale}px"
+								class="pointer-events-none absolute border {doc.entryEdited(e)
+									? 'border-warning/80'
+									: 'border-white/25'}"
+								style="left: {x}px; top: {y}px; width: {Math.max(
+									1,
+									e.rect!.w * scale,
+								)}px; height: {Math.max(1, e.rect!.h * scale)}px"
 							></div>
 						{/if}
+					{/each}
+				{/if}
+				{#if selected}
+					{#if corners.length === 4}
+						<svg
+							class="pointer-events-none absolute inset-0 overflow-visible"
+							{width}
+							{height}
+						>
+							<polygon
+								points={corners.map((c) => c.join(",")).join(" ")}
+								class="fill-primary/10 stroke-primary"
+								stroke-width="1.5"
+							/>
+							{#if doc.tool === "transform" && knob}
+								<line
+									x1={knob.top[0]}
+									y1={knob.top[1]}
+									x2={knob.at[0]}
+									y2={knob.at[1]}
+									class="stroke-primary"
+								/>
+							{/if}
+						</svg>
+						<span
+							class="bg-primary text-primary-content pointer-events-none absolute px-1 font-mono text-[9px] whitespace-nowrap"
+							style="left: {Math.min(...corners.map((c) => c[0]))}px; top: {Math.min(
+								...corners.map((c) => c[1]),
+							) - 14}px"
+							>{selected.name ?? doc.label(selected.character)} · {selected.depth}{live
+								? ` · ${live.m.tx.toFixed(1)}, ${live.m.ty.toFixed(1)}`
+								: ""}</span
+						>
+						{#if doc.tool === "transform"}
+							{#each HANDLES as [hx, hy, cursor] (`${hx}-${hy}`)}
+								{@const [x, y] = handlePoint(hx, hy)}
+								<div
+									class="bg-base-100 border-primary absolute z-20 size-2 -translate-x-1/2 -translate-y-1/2 border"
+									style="left: {x}px; top: {y}px; cursor: {cursor}"
+									role="presentation"
+									onpointerdown={(ev) => onHandleDown(ev, hx, hy)}
+									onpointermove={onPointerMove}
+									onpointerup={onPointerUp}
+								></div>
+							{/each}
+							{#if knob}
+								<div
+									class="bg-primary absolute z-20 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+									style="left: {knob.at[0]}px; top: {knob.at[1]}px; cursor: grab"
+									title="Rotate (Shift: 15° steps)"
+									role="presentation"
+									onpointerdown={onKnobDown}
+									onpointermove={onPointerMove}
+									onpointerup={onPointerUp}
+								></div>
+							{/if}
+						{/if}
+					{:else if selected.rect}
+						{@const [x, y] = screen(selected.rect.x, selected.rect.y)}
+						<div
+							class="border-primary bg-primary/10 pointer-events-none absolute border-2"
+							style="left: {x}px; top: {y}px; width: {selected.rect.w *
+								scale}px; height: {selected.rect.h * scale}px"
+						></div>
 					{/if}
-				</div>
-			{/if}
-		</div>
+				{/if}
+			</div>
+		{/if}
 	</div>
 	{#if !baseReady && !error}
 		<div
@@ -667,7 +788,7 @@
 	{/if}
 	{#if missing.length > 0}
 		<div
-			class="bg-warning/90 text-warning-content sticky bottom-0 truncate px-2 py-0.5 font-mono text-[10px]"
+			class="bg-warning/90 text-warning-content absolute inset-x-0 bottom-0 truncate px-2 py-0.5 font-mono text-[10px]"
 			title={missing.join("\n")}
 		>
 			{missing.length} image{missing.length === 1 ? "" : "s"} not found: {missing[0]}
@@ -684,10 +805,11 @@
 			linear-gradient(45deg, transparent 75%, rgb(127 127 127 / 0.12) 75%),
 			linear-gradient(-45deg, transparent 75%, rgb(127 127 127 / 0.12) 75%);
 		background-size: 16px 16px;
+		/* Follows the pan, so the canvas visibly moves under the pointer. */
 		background-position:
-			0 0,
-			0 8px,
-			8px -8px,
-			-8px 0;
+			var(--ox, 0px) var(--oy, 0px),
+			var(--ox, 0px) calc(var(--oy, 0px) + 8px),
+			calc(var(--ox, 0px) + 8px) calc(var(--oy, 0px) - 8px),
+			calc(var(--ox, 0px) - 8px) var(--oy, 0px);
 	}
 </style>

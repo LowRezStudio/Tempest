@@ -87,7 +87,8 @@
 		Math.abs(v) < 1e-9 ? "0" : v.toFixed(d).replace(/\.0+$/, "");
 
 	function onKeyDown(event: KeyboardEvent) {
-		if (inField(event)) return;
+		// Alt+← / Alt+→ are Back and Forward.
+		if (inField(event) || event.altKey) return;
 		const list = doc.entries;
 		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 			event.preventDefault();
@@ -106,7 +107,12 @@
 				0,
 				Math.min(frames - 1, doc.frame + (event.key === "ArrowRight" ? 1 : -1)),
 			);
-		} else if (event.key === "Enter" && doc.selectedEntry) {
+		} else if (
+			(event.key === "Enter" ||
+				(event.key === " " && !(event.target as HTMLElement).closest("button"))) &&
+			doc.selectedEntry
+		) {
+			event.preventDefault();
 			doc.openCharacter(doc.selectedEntry.character);
 		}
 	}
