@@ -210,6 +210,8 @@ internal class ModCommands
         // Legacy packages have no checks to run ahead; deferring them only reports so.
         if (defer && installer is not ModV2Installer)
             return new ModInstallResult { Success = false, Deferred = true, Message = $"'{Path.GetFileName(modFile)}' was not installed (--defer)." };
+        // Mods an install replaces give their files back, which the running game must accept again too.
+        var filesBefore = ModGameFiles(LoadMetadata(path)).ToList();
         var result = installer is ModV2Installer v2
             ? await v2.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock, ignoreTempestVersion, defer)
             : await installer.InstallAsync(path, modFile, replace, stack, allowUntrusted, modLock);
@@ -219,9 +221,14 @@ internal class ModCommands
             RecordInstall(path, result.Mod);
             // Delta-managed game files are rebuilt from the enabled mods, including this one.
             await DeltaResolver.ResolveAndReportAsync(path);
+            Launcher.PackageHashes.ApplyToRunning(path, filesBefore.Concat(ModGameFiles(LoadMetadata(path))));
         }
         return result;
     }
+
+    /// <summary>The game files the mods replace or rebuild from deltas, enabled or not.</summary>
+    private static IEnumerable<string> ModGameFiles(IEnumerable<ModRecord> mods) =>
+        mods.SelectMany(m => m.OwnedFiles.Concat(m.DeltaFiles));
 
     /// <summary>Records an installed mod in place of one with its name, keeping that one's install date and place in the list.</summary>
     private static void RecordInstall(string path, ModRecord mod)
@@ -623,6 +630,7 @@ internal class ModCommands
             mods.Remove(mod);
             SaveMetadata(path, mods);
             await DeltaResolver.ResolveAndReportAsync(path);
+            Launcher.PackageHashes.ApplyToRunning(path, ModGameFiles([.. mods, mod]));
 
             var note = dependants.Count == 0 ? "" : $" {string.Join(", ", dependants.Select(d => $"'{d.Name}'"))} depend{(dependants.Count == 1 ? "s" : "")} on it.";
             var ok = new ModInstallResult { Success = true, Message = $"Mod '{modName}' removed successfully.{note}" };
@@ -669,6 +677,7 @@ internal class ModCommands
             mod.Verified = false;
             SaveMetadata(path, mods);
             await DeltaResolver.ResolveAndReportAsync(path);
+            Launcher.PackageHashes.ApplyToRunning(path, ModGameFiles(mods));
 
             var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' enabled successfully." };
             PrintResult(result, json);
@@ -712,6 +721,7 @@ internal class ModCommands
             mod.Enabled = false;
             SaveMetadata(path, mods);
             await DeltaResolver.ResolveAndReportAsync(path);
+            Launcher.PackageHashes.ApplyToRunning(path, ModGameFiles(mods));
 
             var note = dependants.Count == 0 ? "" : $" {string.Join(", ", dependants.Select(d => $"'{d.Name}'"))} depend{(dependants.Count == 1 ? "s" : "")} on it.";
             var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' disabled successfully.{note}" };

@@ -46,6 +46,66 @@ internal static class PackageHashes
         return patches;
     }
 
+    /// <summary>
+    /// For a mod change made while the game runs: writes the current hash of each of
+    /// <paramref name="files"/> the running game lists into it, so the file a mod replaced (or a
+    /// removal restored) passes the check the next time the game opens it.
+    /// </summary>
+    public static void ApplyToRunning(string gamePath, IEnumerable<string> files)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var existing = files.Distinct(StringComparer.OrdinalIgnoreCase).Where(File.Exists).ToList();
+        if (existing.Count == 0) return;
+        foreach (var (process, exePath) in RunningGames(GameFolderResolver.Resolve(gamePath)))
+        {
+            using (process)
+            {
+                try
+                {
+                    var table = ReadTable(exePath);
+                    var patches = new List<Patch>();
+                    foreach (var file in existing)
+                    {
+                        var name = Path.GetFileName(file);
+                        if (!table.TryGetValue(name, out var entry)) continue;
+                        using var stream = File.OpenRead(file);
+                        patches.Add(new Patch(name, entry.Rva, SHA1.HashData(stream)));
+                    }
+                    Apply(process, patches);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[hashes] could not update the running game (pid {process.Id}): {ex.Message}");
+                }
+            }
+        }
+    }
+
+    /// <summary>Processes started from an executable under the game's <c>Binaries</c> folder, with that executable.</summary>
+    private static List<(Process Process, string ExePath)> RunningGames(string resolvedGame)
+    {
+        var binaries = Path.Combine(resolvedGame, "Binaries");
+        if (!Directory.Exists(binaries)) return [];
+        var prefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(binaries)) + Path.DirectorySeparatorChar;
+        var names = Directory.EnumerateFiles(binaries, "*.exe", SearchOption.AllDirectories)
+            .Select(Path.GetFileNameWithoutExtension)
+            .OfType<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var found = new List<(Process, string)>();
+        foreach (var process in Process.GetProcesses())
+        {
+            string? exe = null;
+            if (names.Contains(process.ProcessName))
+            {
+                try { exe = process.MainModule?.FileName; }
+                catch { }
+            }
+            if (exe != null && exe.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) found.Add((process, exe));
+            else process.Dispose();
+        }
+        return found;
+    }
+
     /// <summary>Writes the hashes into the started game, which only a native Windows launch allows.</summary>
     public static void Apply(Process process, IReadOnlyList<Patch> patches)
     {
@@ -74,7 +134,7 @@ internal static class PackageHashes
             var error = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
             if (ok) VirtualProtectEx(process.Handle, address, HashLength, previous, out _);
             Console.Error.WriteLine(ok
-                ? $"[hashes] {patch.Name}: the game now expects the mod's copy ({Convert.ToHexStringLower(patch.Hash)})"
+                ? $"[hashes] {patch.Name}: the game now expects {Convert.ToHexStringLower(patch.Hash)}"
                 : $"[hashes] {patch.Name}: could not update the game's SHA-1 (error {error})");
         }
     }

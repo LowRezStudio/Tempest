@@ -3187,6 +3187,8 @@
 	"install_queue_still_in_use_title": "Still in use",
 	"install_queue_still_in_use_message": "{name} could not be installed yet: its files are still in use.",
 	"install_queue_install_now": "Install now",
+	"install_queue_install_anyway": "Install anyway",
+	"install_queue_install_anyway_hint": "Installs while the game runs. Changed game files apply the next time the game loads them; scripts and DLLs only start with the next launch.",
 	"install_queue_remove": "Remove from queue",
 	"install_queue_queued": "Queued",
 	"install_queue_in_use": "In use: {files}",

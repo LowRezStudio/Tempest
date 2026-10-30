@@ -86,15 +86,17 @@
 					<span class="badge badge-warning badge-outline badge-sm shrink-0">
 						{m.install_queue_queued()}
 					</span>
-					{#if !isRunning}
-						<button
-							class="btn btn-ghost btn-sm shrink-0"
-							onclick={() => void installQueuedNow(item.id)}
-						>
-							<Download size={14} />
-							{m.install_queue_install_now()}
-						</button>
-					{/if}
+					<!-- Still refused (and kept queued) when the game holds a file it would replace. -->
+					<button
+						class="btn btn-ghost btn-sm shrink-0"
+						onclick={() => void installQueuedNow(item.id)}
+						title={isRunning ? m.install_queue_install_anyway_hint() : undefined}
+					>
+						<Download size={14} />
+						{isRunning
+							? m.install_queue_install_anyway()
+							: m.install_queue_install_now()}
+					</button>
 					<button
 						class="btn btn-ghost btn-sm btn-square hover:text-error shrink-0"
 						onclick={() => removeQueuedInstall(item.id)}
