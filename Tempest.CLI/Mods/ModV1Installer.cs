@@ -23,7 +23,8 @@ public class ModV1Installer : IModInstaller
             : Path.Combine(resolvedGame, "ChaosGame", "CookedPCConsole");
 
         Directory.CreateDirectory(destDir);
-        var destPath = Path.Combine(destDir, fileName);
+        // The game's own spelling of the file (a mod named in another case replaces it on Linux too).
+        var destPath = Path.Combine(resolvedGame, GamePath.Canonical(resolvedGame, Path.GetRelativePath(resolvedGame, Path.Combine(destDir, fileName))));
         var newRelative = Path.GetRelativePath(resolvedGame, destPath).Replace('\\', '/');
 
         // Component overlap detection: check if any installed mod already edits this file

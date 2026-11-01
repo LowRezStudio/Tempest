@@ -20,6 +20,8 @@ export type QueuedInstall = {
 	author?: string;
 	/** The package's manifest id, when it has one: a newer queued copy of the mod replaces it. */
 	modId?: string;
+	/** Downloaded from the mod repository (reviewed by its moderators), not a local file. */
+	fromRepository?: boolean;
 	replace: boolean;
 	stack: boolean;
 	allowUntrusted: boolean;
@@ -96,6 +98,7 @@ async function runQueued(item: QueuedInstall, manual: boolean): Promise<void> {
 			stack: item.stack,
 			allowUntrusted: item.allowUntrusted,
 			dependencies: "skip",
+			fromRepository: item.fromRepository,
 			queued: item,
 			force: manual,
 		});

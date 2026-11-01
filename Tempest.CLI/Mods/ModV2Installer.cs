@@ -34,7 +34,7 @@ public class ModV2Installer : IModInstaller
         {
             if (IsDirectoryEntry(entry)) continue;
 
-            var relativePath = NormalizeEntryPath(entry.FullName);
+            var relativePath = GamePath.CanonicalEntry(resolvedGame, NormalizeEntryPath(entry.FullName));
             if (!seen.Add(relativePath))
                 throw new Exception($"Mod contains '{relativePath}' more than once.");
 
@@ -117,7 +117,7 @@ public class ModV2Installer : IModInstaller
         foreach (var entry in archive.Entries)
         {
             if (IsDirectoryEntry(entry)) continue;
-            var relativePath = NormalizeEntryPath(entry.FullName);
+            var relativePath = GamePath.CanonicalEntry(resolvedGame, NormalizeEntryPath(entry.FullName));
             candidates.Add(relativePath.StartsWith("files/", StringComparison.OrdinalIgnoreCase)
                 ? ResolveUnder(resolvedGame, relativePath["files/".Length..])
                 : ResolveUnder(targetModDir, relativePath));
@@ -260,7 +260,7 @@ public class ModV2Installer : IModInstaller
             foreach (var entry in archive.Entries)
             {
                 if (IsDirectoryEntry(entry)) continue;
-                var relativePath = NormalizeEntryPath(entry.FullName);
+                var relativePath = GamePath.CanonicalEntry(resolvedGame, NormalizeEntryPath(entry.FullName));
                 if (!relativePath.StartsWith("files/", StringComparison.OrdinalIgnoreCase)) continue;
                 var relativeInFiles = relativePath["files/".Length..];
                 var ext = Path.GetExtension(entry.Name).ToLowerInvariant();
@@ -277,7 +277,7 @@ public class ModV2Installer : IModInstaller
             foreach (var entry in archive.Entries)
             {
                 if (IsDirectoryEntry(entry)) continue;
-                var target = DeltaResolver.TargetOf(NormalizeEntryPath(entry.FullName));
+                var target = DeltaResolver.TargetOf(GamePath.CanonicalEntry(resolvedGame, NormalizeEntryPath(entry.FullName)));
                 if (target == null) continue;
                 List<string> keys;
                 try
@@ -485,8 +485,8 @@ public class ModV2Installer : IModInstaller
             {
                 if (IsDirectoryEntry(entry)) continue;
 
-                var relativePath = NormalizeEntryPath(entry.FullName);
-                if (relativePath.StartsWith("files/"))
+                var relativePath = GamePath.CanonicalEntry(resolvedGame, NormalizeEntryPath(entry.FullName));
+                if (relativePath.StartsWith("files/", StringComparison.OrdinalIgnoreCase))
                 {
                     var relativeInFiles = relativePath["files/".Length..];
                     var ext = Path.GetExtension(entry.Name).ToLowerInvariant();

@@ -69,7 +69,7 @@ export const resolveReplaceMod = (value: ReplaceModChoice) => {
 };
 
 export const unverifiedDialogStore = $state({
-	value: { open: false, modName: "", signer: "", keyListOffline: false },
+	value: { open: false, modName: "", signer: "", keyListOffline: false, fromRepository: false },
 });
 
 let activeUnverifiedResolver: ((value: boolean) => void) | undefined = undefined;
@@ -78,6 +78,7 @@ export const confirmUnverifiedMod = (
 	modName: string,
 	signer: string,
 	keyListOffline: boolean,
+	fromRepository = false,
 ): Promise<boolean> => {
 	return nextDialog(
 		() =>
@@ -87,6 +88,7 @@ export const confirmUnverifiedMod = (
 					modName,
 					signer,
 					keyListOffline,
+					fromRepository,
 				};
 				activeUnverifiedResolver = resolve;
 			}),
@@ -96,7 +98,13 @@ export const confirmUnverifiedMod = (
 export const resolveUnverifiedMod = (value: boolean) => {
 	const resolve = activeUnverifiedResolver;
 	activeUnverifiedResolver = undefined;
-	unverifiedDialogStore.value = { open: false, modName: "", signer: "", keyListOffline: false };
+	unverifiedDialogStore.value = {
+		open: false,
+		modName: "",
+		signer: "",
+		keyListOffline: false,
+		fromRepository: false,
+	};
 	resolve?.(value);
 };
 

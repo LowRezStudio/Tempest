@@ -59,6 +59,7 @@
 	modName={unverifiedDialogStore.value.modName}
 	signer={unverifiedDialogStore.value.signer}
 	keyListOffline={unverifiedDialogStore.value.keyListOffline}
+	fromRepository={unverifiedDialogStore.value.fromRepository}
 	onconfirm={() => resolveUnverifiedMod(true)}
 	oncancel={() => resolveUnverifiedMod(false)}
 />

@@ -62,6 +62,7 @@ export async function installFromRepo(
 		replace: options.replace,
 		tracker,
 		dependencies: "skip",
+		fromRepository: true,
 	});
 	void getQueryClient()?.invalidateQueries({ queryKey: ["mod-cache", modId] });
 	if (outcome.status === "installed") {

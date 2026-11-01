@@ -73,6 +73,11 @@ type InstallOptions = Partial<InstallChoices> & {
 	queued?: QueuedInstall;
 	/** Install even though the game runs, instead of queueing it ("Install now"). */
 	force?: boolean;
+	/**
+	 * The package was downloaded from the mod repository, whose moderators reviewed it: an
+	 * unvetted signer is asked about in those terms instead of the local-file warning.
+	 */
+	fromRepository?: boolean;
 };
 
 // The one install sequence: read the manifest and ask about dependencies the instance lacks,
@@ -139,6 +144,7 @@ export async function installModFile(
 		},
 		defer,
 		tracker.setPatching,
+		options.fromRepository ?? false,
 	);
 	if (result.status === "in-use") {
 		// The manifest's fields are empty strings when missing.
@@ -155,6 +161,7 @@ export async function installModFile(
 					version: first(manifest?.version, queued?.version),
 					author: first(manifest?.authors.join(", "), queued?.author),
 					modId: first(manifest?.id, queued?.modId),
+					fromRepository: options.fromRepository ?? false,
 					...result.choices,
 					lockedFiles: result.lockedFiles,
 				},
@@ -218,6 +225,7 @@ async function runInstall(
 	choices: InstallChoices,
 	defer: boolean,
 	onProgress: PatchProgress,
+	fromRepository: boolean,
 ): Promise<RunResult> {
 	let { replace, stack, allowUntrusted } = choices;
 	try {
@@ -235,6 +243,7 @@ async function runInstall(
 				displayName,
 				res.Signer ?? "",
 				!!res.KeyListOffline,
+				fromRepository,
 			);
 			if (!confirmed) return { status: "cancelled" };
 			allowUntrusted = true;
