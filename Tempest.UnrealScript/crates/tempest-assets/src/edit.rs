@@ -77,6 +77,19 @@ impl UndoEntry {
     }
 }
 
+/// What [`Editor::copy_with`] does with references to other exports of the
+/// source package (sub-objects of the copied object are always copied).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CopyMode {
+    /// Copy every referenced export too.
+    Deep,
+    /// Clear references to objects the destination lacks.
+    Clear,
+    /// Reference them in the source package (imports): a copy that keeps
+    /// using the original's materials, textures, skeleton…
+    Import,
+}
+
 impl<'a> Editor<'a> {
     pub fn open(db: &'a ClassDb, path: impl AsRef<Path>) -> Result<Editor<'a>> {
         let path = path.as_ref();
@@ -466,6 +479,24 @@ impl<'a> Editor<'a> {
         Ok(self.add_export(export, data))
     }
 
+    /// A new group (`Package` export) named `name` under `outer` (null: top level).
+    pub fn add_group(&mut self, name: &str, outer: PackageIndex) -> Result<usize> {
+        if (0..self.pkg.exports.len()).any(|j| self.pkg.exports[j].outer == outer && self.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(name)) {
+            return Err(Error::Format(format!("{name} already exists there")));
+        }
+        let core = self.pkg.add_import("Core", "Package", PackageIndex::NONE, "Core");
+        let class = self.pkg.add_import("Core", "Class", core, "Package");
+        // What the cooker writes for a group: no net index, no properties.
+        let none = self.pkg.intern_fname("None");
+        let mut data = Vec::with_capacity(12);
+        data.extend_from_slice(&(-1i32).to_le_bytes());
+        data.extend_from_slice(&(none.index as i32).to_le_bytes());
+        data.extend_from_slice(&(none.number as i32).to_le_bytes());
+        let flags = tempest_upk::flags::rf::PUBLIC | tempest_upk::flags::rf::LOAD_CONTEXT_FLAGS;
+        let export = ObjectExport { class, outer, object_name: self.pkg.intern_fname(name), object_flags: flags, ..Default::default() };
+        Ok(self.add_export(export, data))
+    }
+
     pub fn add_export(&mut self, export: ObjectExport, data: Vec<u8>) -> usize {
         let idx = self.pkg.add_export(export, data);
         let i = idx.export_index().unwrap();
@@ -484,8 +515,9 @@ impl<'a> Editor<'a> {
         self.pkg.add_import(&class_package, &class_name, outer, &name)
     }
 
-    /// Import for a script object (class, function…) exported by `src`.
-    fn import_for_export(&mut self, src: &Editor, j: usize) -> PackageIndex {
+    /// An import here of export `j` of `src` (a script object, or any object
+    /// of another package), with its outer chain.
+    pub fn import_for_export(&mut self, src: &Editor, j: usize) -> PackageIndex {
         let sp = &src.pkg;
         let e = &sp.exports[j];
         let outer = if let Some(o) = e.outer.export_index() {
@@ -508,6 +540,12 @@ impl<'a> Editor<'a> {
     /// referenced export of `src`, otherwise references to objects the
     /// destination lacks are cleared. Returns the new export and warnings.
     pub fn copy_from(&mut self, src: &mut Editor, src_i: usize, dst_outer: Option<PackageIndex>, deep: bool) -> Result<(PackageIndex, Vec<String>)> {
+        self.copy_with(src, src_i, dst_outer, if deep { CopyMode::Deep } else { CopyMode::Clear })
+    }
+
+    /// [`Editor::copy_from`] with the choice of what happens to references
+    /// to other exports of `src` ([`CopyMode`]).
+    pub fn copy_with(&mut self, src: &mut Editor, src_i: usize, dst_outer: Option<PackageIndex>, mode: CopyMode) -> Result<(PackageIndex, Vec<String>)> {
         let mut warnings = Vec::new();
         let mut map: HashMap<usize, PackageIndex> = HashMap::new();
         let mut queue: VecDeque<usize> = VecDeque::new();
@@ -536,7 +574,7 @@ impl<'a> Editor<'a> {
             for (k, r) in [sp_class, sp_super, sp_outer, sp_arch].into_iter().enumerate() {
                 let mapped = match dst_outer {
                     Some(o) if k == 2 && j == src_i => o,
-                    _ => self.map_ref(src, r, deep, &mut map, &mut queue, &mut warnings, k == 2),
+                    _ => self.map_ref(src, r, mode, src_i, &mut map, &mut queue, &mut warnings, k == 2),
                 };
                 table.push(mapped);
             }
@@ -579,7 +617,7 @@ impl<'a> Editor<'a> {
                     let mut ref_map: HashMap<PackageIndex, PackageIndex> = HashMap::new();
                     for r in refs {
                         if let std::collections::hash_map::Entry::Vacant(e) = ref_map.entry(r) {
-                            let m = self.map_ref(src, r, deep, &mut map, &mut queue, &mut warnings, false);
+                            let m = self.map_ref(src, r, mode, src_i, &mut map, &mut queue, &mut warnings, false);
                             e.insert(m);
                         }
                     }
@@ -615,7 +653,8 @@ impl<'a> Editor<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn map_ref(&mut self, src: &Editor, r: PackageIndex, deep: bool, map: &mut HashMap<usize, PackageIndex>, queue: &mut VecDeque<usize>, warnings: &mut Vec<String>, is_outer: bool) -> PackageIndex {
+    fn map_ref(&mut self, src: &Editor, r: PackageIndex, mode: CopyMode, root: usize, map: &mut HashMap<usize, PackageIndex>, queue: &mut VecDeque<usize>, warnings: &mut Vec<String>, is_outer: bool) -> PackageIndex {
+        let deep = mode == CopyMode::Deep;
         if r.is_null() {
             return PackageIndex::NONE;
         }
@@ -639,7 +678,23 @@ impl<'a> Editor<'a> {
             map.insert(j, d);
             return d;
         }
-        if deep || is_outer || class_name.eq_ignore_ascii_case("Package") {
+        // Sub-objects of the copied object always come along.
+        let inside = {
+            let mut o = sp.exports[j].outer;
+            let mut guard = 0;
+            while let Some(k) = o.export_index() {
+                if k == root || guard > 64 {
+                    break;
+                }
+                o = sp.exports[k].outer;
+                guard += 1;
+            }
+            o.export_index() == Some(root)
+        };
+        if mode == CopyMode::Import && !inside && !is_outer && !class_name.eq_ignore_ascii_case("Package") {
+            return self.import_for_export(src, j);
+        }
+        if deep || inside || is_outer || class_name.eq_ignore_ascii_case("Package") {
             let name = sp.object_name(PackageIndex::export(j));
             let e = &sp.exports[j];
             let export = ObjectExport { object_name: self.pkg.intern_fname(&name), object_flags: e.object_flags, export_flags: e.export_flags, generation_net_object_count: e.generation_net_object_count.clone(), package_guid: e.package_guid, package_flags: e.package_flags, ..Default::default() };

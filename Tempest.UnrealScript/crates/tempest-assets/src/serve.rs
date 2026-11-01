@@ -431,6 +431,9 @@ impl Server {
             "object.rename" => self.object_rename(p),
             "object.delete" => self.object_delete(p),
             "object.copy" => self.object_copy(p),
+            "object.add" => self.object_add(p),
+            "object.addGroup" => self.object_add_group(p),
+            "package.create" => self.package_create(p),
             "object.duplicate" => {
                 let path = s(p, "path")?.to_string();
                 let i = self.export_of(&path, p)?;
@@ -451,6 +454,9 @@ impl Server {
             "mesh.preview" => self.mesh_glb(p, true),
             "mesh.export" => self.mesh_export(p),
             "mesh.import" => self.mesh_import(p),
+            "mesh.materials" => self.mesh_materials(p),
+            "mesh.setMaterial" => self.mesh_set_material(p),
+            "mesh.ownMaterial" => self.mesh_own_material(p),
             "anim.info" => self.anim_info(p),
             "anim.preview" => self.anim_preview(p),
             "anim.export" => self.anim_export(p),
@@ -567,6 +573,7 @@ impl Server {
             "package.findReplace" => self.find_replace(p),
             "material.preview" => self.material_preview(p),
             "material.setParameter" => self.material_set_parameter(p),
+            "material.setTexture" => self.material_set_texture(p),
             "batch.plan" => self.batch(p, false),
             "batch.run" => self.batch(p, true),
             _ => Err(format!("unknown method {method}").into()),
@@ -644,21 +651,31 @@ impl Server {
     }
 
     fn workspace_packages(&self) -> J {
-        J::Array(
-            self.packages
-                .iter()
-                .map(|p| {
-                    json!({
-                        "name": p.name,
-                        "path": p.path.to_string_lossy(),
-                        "size": p.size,
-                        "script": p.flags & pkgf::CONTAINS_SCRIPT != 0,
-                        "map": p.flags & pkgf::CONTAINS_MAP != 0,
-                        "open": self.editors.contains_key(&key(&p.path.to_string_lossy())),
-                    })
+        let mut out: Vec<J> = self
+            .packages
+            .iter()
+            .map(|p| {
+                json!({
+                    "name": p.name,
+                    "path": p.path.to_string_lossy(),
+                    "size": p.size,
+                    "script": p.flags & pkgf::CONTAINS_SCRIPT != 0,
+                    "map": p.flags & pkgf::CONTAINS_MAP != 0,
+                    "open": self.editors.contains_key(&key(&p.path.to_string_lossy())),
                 })
-                .collect(),
-        )
+            })
+            .collect();
+        // Packages made in the Studio and not saved yet (`package.create`).
+        if let Some(dir) = &self.dir {
+            for ed in self.editors.iter().filter_map(|(k, ed)| (!Path::new(k).exists()).then_some(ed)) {
+                let path = dir.join(format!("{}.upk", ed.name));
+                if self.editors.contains_key(&key(&path.to_string_lossy())) {
+                    out.push(json!({ "name": ed.name, "path": path.to_string_lossy(), "size": 0, "script": false, "map": false, "open": true, "new": true }));
+                }
+            }
+        }
+        out.sort_by_key(|p| p["name"].as_str().unwrap_or("").to_ascii_lowercase());
+        J::Array(out)
     }
 
     /// Cheap facts about one package without opening it (summary only).
@@ -670,8 +687,11 @@ impl Server {
     fn workspace_search(&mut self, p: &J) -> Res<J> {
         let query = s(p, "query")?.to_ascii_lowercase();
         let class = opt_s(p, "class").map(|c| c.to_ascii_lowercase()).filter(|c| !c.is_empty());
+        // `isA`: the class or any subclass (MaterialInterface: materials and instances).
+        let is_a = opt_s(p, "isA").filter(|c| !c.is_empty());
+        let db = if is_a.is_some() { Some(self.db()?) } else { None };
         let limit = opt_u(p, "limit").unwrap_or(500);
-        if query.len() < 2 && class.is_none() {
+        if query.len() < 2 && class.is_none() && is_a.is_none() {
             return Err("query too short".into());
         }
         self.index_all();
@@ -698,6 +718,11 @@ impl Server {
                 let cname = &idx.classes[*cid as usize];
                 if let Some(c) = &class {
                     if !cname.eq_ignore_ascii_case(c) {
+                        continue;
+                    }
+                }
+                if let (Some(base), Some(db)) = (&is_a, db) {
+                    if !db.class_is_a(cname, base) {
                         continue;
                     }
                 }
@@ -734,7 +759,8 @@ impl Server {
         let path = s(p, "path")?;
         let out = opt_s(p, "out").unwrap_or_else(|| path.to_string());
         let in_place = key(&out) == key(path);
-        if in_place {
+        let created = in_place && !Path::new(path).exists();
+        if in_place && !created {
             // The file as it is on disk now is the base a mod delta is made
             // against later; recorded once, before the first overwrite.
             let t = std::time::Instant::now();
@@ -754,6 +780,12 @@ impl Server {
             return Ok(json!({ "out": out, "reopened": false, "dirty": ed.is_dirty(), "undo": ed.undo_labels() }));
         }
         ed.save(&out)?;
+        if created {
+            // A package made in the Studio: no original, it always ships whole.
+            if let Err(e) = crate::basestore::record_new(Path::new(path)) {
+                eprintln!("basestore: {path}: {e}");
+            }
+        }
         // Saved in place: the package stays open with its undo journal (the
         // in-memory copy is now what the file holds); disk-based caches go.
         ed.mark_saved();
@@ -770,6 +802,11 @@ impl Server {
                     self.db = Some(Box::leak(Box::new(db)));
                     db_reloaded = true;
                 }
+            }
+        }
+        if created {
+            if let Some(dir) = self.dir.clone() {
+                self.packages = list_packages(&dir);
             }
         }
         Ok(json!({ "out": out, "reopened": false, "dirty": false, "undo": labels, "dbReloaded": db_reloaded }))
@@ -813,7 +850,11 @@ impl Server {
             let ed = self.editors.get_mut(k).unwrap();
             let is_script = ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0;
             let target = rel.clone().unwrap_or_else(|| crate::basestore::game_relative(&path));
-            let meta = json!({ "kind": "upk", "path": path.to_string_lossy(), "rel": rel });
+            let mut meta = json!({ "kind": "upk", "path": path.to_string_lossy(), "rel": rel });
+            if !path.exists() {
+                // Made in the Studio and not saved: recreated from these bytes on load.
+                meta["new"] = J::Bool(true);
+            }
             let mut delta = None;
             if !portable && !is_script && path.exists() {
                 // Compared as Save would write it: the in-memory package can
@@ -981,6 +1022,21 @@ impl Server {
                     Ok(()) => {
                         doc.dirty = true;
                         docs.push(id);
+                    }
+                    Err(e) => problems.push(format!("{label}: {e}")),
+                }
+                continue;
+            }
+            // A package made in the Studio and never saved: recreated in memory.
+            if meta["new"].as_bool().unwrap_or(false) && !target.exists() && stored == "full" {
+                let path = target.to_string_lossy().to_string();
+                match Package::parse(&bytes) {
+                    Ok(pkg) => {
+                        let name = target.file_stem().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                        let mut ed = Editor::from_package(db, name, pkg.clone());
+                        ed.replace_package(pkg);
+                        self.editors.insert(key(&path), ed);
+                        packages.push(json!({ "path": path, "stored": stored, "changes": 0, "dirty": true, "new": true }));
                     }
                     Err(e) => problems.push(format!("{label}: {e}")),
                 }
@@ -2967,6 +3023,9 @@ impl Server {
     /// Studio's record, else the launcher's pristine backup; `None` when
     /// neither exists (the user confirms the game file or picks the original).
     fn base_of(target: &Path) -> J {
+        if !target.exists() || crate::basestore::is_new(target) {
+            return json!({ "kind": "new" });
+        }
         if crate::basestore::read(target).is_some() {
             return json!({ "kind": "recorded", "recorded": crate::basestore::status(target)["recorded"] });
         }
@@ -3051,7 +3110,8 @@ impl Server {
         let source = PathBuf::from(it["source"].as_str().unwrap_or_default());
         let target = it["target"].as_str().map(PathBuf::from).unwrap_or_else(|| source.clone());
         let rel = crate::basestore::game_relative(&target);
-        let whole = it["mode"].as_str() == Some("whole");
+        // A package made in the Studio has no original: it ships whole.
+        let whole = it["mode"].as_str() == Some("whole") || (it["kind"] == "upk" && (!target.exists() || crate::basestore::is_new(&target)));
         let sk = key(&source.to_string_lossy());
         let missing = || format!("{rel}: the game file is not in the game folder, so there is nothing to compare with; ship the whole file instead");
         if it["kind"] == "pck" {
@@ -3156,7 +3216,8 @@ impl Server {
         let mut jobs: Vec<Job> = Vec::new();
         for (k, it) in items.iter().enumerate() {
             let source = PathBuf::from(it["source"].as_str().unwrap_or_default());
-            if it["kind"] == "mcts" || it["kind"] == "pck" || it["mode"].as_str() == Some("whole") {
+            let target_path = PathBuf::from(it["target"].as_str().unwrap_or_default());
+            if it["kind"] == "mcts" || it["kind"] == "pck" || it["mode"].as_str() == Some("whole") || !target_path.exists() || crate::basestore::is_new(&target_path) {
                 out[k] = Some(self.mod_item(it, sharing(k), preview));
                 continue;
             }
@@ -4894,5 +4955,355 @@ impl Server {
         }
         self.editor(&path)?.mark_dirty(i);
         self.anim_info(p)
+    }
+}
+
+// ----- new packages, new objects, mesh materials ---------------------------------
+
+impl Server {
+    /// An index in package `dst` for object `target` (`{path, index}`): the
+    /// export itself when it is in `dst`, else an import of it.
+    fn ref_into(&mut self, dst: &str, target: &J) -> Res<PackageIndex> {
+        let tpath = target["path"].as_str().ok_or("missing path of the referenced object")?.to_string();
+        let ti = target["index"].as_u64().ok_or("missing index of the referenced object")? as usize;
+        if key(&tpath) == key(dst) {
+            return Ok(PackageIndex::export(ti));
+        }
+        let dk = key(dst);
+        self.editor(dst)?;
+        let mut d = self.editors.remove(&dk).unwrap();
+        let r = match self.editor(&tpath) {
+            Ok(src) if ti < src.pkg.exports.len() => Ok(d.import_for_export(src, ti)),
+            Ok(_) => Err(format!("export {ti} out of range").into()),
+            Err(e) => Err(e),
+        };
+        self.editors.insert(dk, d);
+        r
+    }
+
+    /// `package.create {path, template?}`: a new, empty package at `path`
+    /// (not written until saved), with the header settings of `template`
+    /// (a package of the workspace; default: the first content package).
+    fn package_create(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        if !path.to_ascii_lowercase().ends_with(".upk") {
+            return Err("a package file name ends with .upk".into());
+        }
+        let k = key(&path);
+        if Path::new(&path).exists() || self.editors.contains_key(&k) {
+            return Err(format!("{} already exists", Path::new(&path).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default()).into());
+        }
+        let template = match opt_s(p, "template") {
+            Some(t) => PathBuf::from(t),
+            None => self.packages.iter().find(|w| w.flags & (pkgf::CONTAINS_SCRIPT | pkgf::CONTAINS_MAP) == 0).map(|w| w.path.clone()).ok_or("no content package to take the header settings from")?,
+        };
+        let mut pkg = PackageFile::open(&template)?.load()?;
+        // Same versions, flags and storage as the template; nothing in it.
+        pkg.clear_contents();
+        pkg.summary.additional_packages_to_cook.clear();
+        pkg.summary.texture_allocations.clear();
+        pkg.summary.generations.truncate(1);
+        pkg.summary.package_flags &= !(pkgf::CONTAINS_SCRIPT | pkgf::CONTAINS_MAP);
+        // A fresh GUID: the game tells packages apart by it.
+        let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0) ^ ((std::process::id() as u128) << 64) ^ (path.len() as u128) << 96;
+        let mix = |x: u128, k: u32| ((x >> (k * 32)) as u32).wrapping_mul(0x9E37_79B1).rotate_left(k * 7 + 3);
+        pkg.summary.guid = tempest_upk::io::Guid { a: mix(seed, 0), b: mix(seed, 1), c: mix(seed, 2), d: mix(seed, 3) };
+        pkg.intern_name("None");
+        let name = Path::new(&path).file_stem().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+        let db = self.db()?;
+        let mut ed = Editor::from_package(db, name.clone(), pkg.clone());
+        ed.replace_package(pkg);
+        self.editors.insert(k, ed);
+        Ok(json!({ "path": path, "name": name }))
+    }
+
+    /// `object.addGroup {path, name, outer?}`: a new group (a `Package`
+    /// export) at the top or inside group `outer`.
+    fn object_add_group(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let name = s(p, "name")?.trim().to_string();
+        if name.is_empty() || name.contains(['.', ' ', '/']) {
+            return Err("a group name has no dots, spaces or slashes".into());
+        }
+        let outer = opt_u(p, "outer").map(PackageIndex::export).unwrap_or(PackageIndex::NONE);
+        let ed = self.editor(&path)?;
+        ed.begin_undo(format!("add group {name}"));
+        let i = ed.add_group(&name, outer)?;
+        Ok(json!({ "index": i, "path": ed.pkg.object_path(PackageIndex::export(i)) }))
+    }
+
+    /// `object.add {path, file, template: {path, index}, name?, outer?}`: a new
+    /// object made from a file (texture, mesh, sound, movie) on the model of
+    /// `template` (an object of the same kind, here or in any package: its
+    /// settings, skeleton, materials… are kept; objects it references in its
+    /// own package are referenced there), then imported like Replace.
+    fn object_add(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let file = s(p, "file")?.to_string();
+        let template = p.get("template").ok_or("pick an object to start from (template)")?.clone();
+        let tpath = template["path"].as_str().ok_or("missing template path")?.to_string();
+        let ti = template["index"].as_u64().ok_or("missing template index")? as usize;
+        let ext = Path::new(&file).extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default();
+        let kind = crate::batch::ImportKind::from_extension(&ext).ok_or_else(|| format!("unsupported file type .{ext}"))?;
+        let db = self.db()?;
+        let class = self.editor(&tpath)?.pkg.class_name_of(PackageIndex::export(ti));
+        if !kind.accepts(db, &class) {
+            return Err(format!("a .{ext} file cannot become a {class}; pick an object of the same kind to start from").into());
+        }
+        let outer = match p.get("outer") {
+            Some(J::Number(n)) => Some(PackageIndex::export(n.as_u64().unwrap_or(0) as usize)),
+            Some(J::String(t)) if t == "top" => Some(PackageIndex::NONE),
+            _ => None,
+        };
+        let stem = Path::new(&file).file_stem().map(|f| f.to_string_lossy().to_string()).unwrap_or_else(|| "NewObject".into());
+        let wanted = opt_s(p, "name").filter(|n| !n.trim().is_empty()).unwrap_or(stem);
+        let base: String = wanted.trim().chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
+        // The copy.
+        let dk = key(&path);
+        self.editor(&path)?;
+        let label = format!("add {base}");
+        let i = if key(&tpath) == dk {
+            let ed = self.editor(&path)?;
+            ed.begin_undo(label);
+            let i = ed.duplicate(ti)?;
+            if let Some(o) = outer {
+                ed.export_mut(i)?.outer = o;
+            }
+            i
+        } else {
+            let mut d = self.editors.remove(&dk).unwrap();
+            d.begin_undo(label);
+            let r = match self.editor(&tpath) {
+                Ok(src) => d.copy_with(src, ti, Some(outer.unwrap_or(PackageIndex::NONE)), crate::edit::CopyMode::Import).map_err(|e| Box::new(e) as Box<dyn Error>),
+                Err(e) => Err(e),
+            };
+            self.editors.insert(dk.clone(), d);
+            r?.0.export_index().ok_or("the copy failed")?
+        };
+        // Its name, unique among its siblings, then the file.
+        let ed = self.editor(&path)?;
+        let out = ed.pkg.exports[i].outer;
+        let taken = |ed: &Editor, n: &str| (0..ed.pkg.exports.len()).any(|j| j != i && ed.pkg.exports[j].outer == out && ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(n));
+        let mut name = if base.is_empty() { "NewObject".to_string() } else { base.clone() };
+        let mut n = 2;
+        while taken(ed, &name) {
+            name = format!("{base}_{n}");
+            n += 1;
+        }
+        ed.rename(i, &name)?;
+        let message = match crate::batch::import_file(db, ed, i, Path::new(&file)) {
+            Ok(m) => m,
+            Err(e) => {
+                ed.undo();
+                return Err(format!("{}: {e}", Path::new(&file).display()).into());
+            }
+        };
+        let k = key(&path);
+        self.index.remove(&k);
+        let ed = self.editor(&path)?;
+        Ok(json!({ "index": i, "path": ed.pkg.object_path(PackageIndex::export(i)), "message": message }))
+    }
+
+    /// The material slots of a mesh: `(slot, material, sections using it)`.
+    fn mesh_slots(pkg: &Package, o: &Object) -> Vec<(usize, PackageIndex, usize)> {
+        match &o.native {
+            Native::SkeletalMesh(m) => m
+                .materials
+                .iter()
+                .enumerate()
+                .map(|(k, &mat)| (k, mat, m.lod_models.iter().flat_map(|l| l.sections.iter()).filter(|s| s.material_index as usize == k).count()))
+                .collect(),
+            Native::StaticMesh(m) => {
+                let mut out: Vec<(usize, PackageIndex, usize)> = Vec::new();
+                for l in &m.lod_models {
+                    for e in &l.elements {
+                        let slot = e.material_index.max(0) as usize;
+                        match out.iter_mut().find(|x| x.0 == slot) {
+                            Some(x) => x.2 += 1,
+                            None => out.push((slot, e.material, 1)),
+                        }
+                    }
+                }
+                out.sort_by_key(|x| x.0);
+                let _ = pkg;
+                out
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// `mesh.materials {path, index}`: the mesh's material slots.
+    fn mesh_materials(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let ed = self.editor(path)?;
+        let o = ed.object(i)?.clone();
+        let db = ed.db;
+        let slots: Vec<J> = Self::mesh_slots(&ed.pkg, &o)
+            .into_iter()
+            .map(|(slot, mat, sections)| {
+                let class = ed.pkg.class_name_of(mat);
+                json!({ "slot": slot, "material": json::reference(&ed.pkg, mat), "sections": sections, "instance": db.class_is_a(&class, "MaterialInstance"), "external": mat.is_import() })
+            })
+            .collect();
+        Ok(json!({ "slots": slots }))
+    }
+
+    /// `mesh.setMaterial {path, index, slot, material: {path, index}}`: the
+    /// material a slot draws with (in any package: referenced by import).
+    fn mesh_set_material(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let slot = opt_u(p, "slot").ok_or("missing slot")?;
+        let target = p.get("material").ok_or("missing material")?.clone();
+        // The class check before anything changes.
+        {
+            let tpath = target["path"].as_str().unwrap_or(&path).to_string();
+            let ti = target["index"].as_u64().unwrap_or(0) as usize;
+            let te = self.editor(&tpath)?;
+            let class = te.pkg.class_name_of(PackageIndex::export(ti));
+            if !te.db.class_is_a(&class, "MaterialInterface") {
+                return Err(format!("{class} is not a material").into());
+            }
+        }
+        let name = self.editor(&path)?.pkg.object_name(PackageIndex::export(i));
+        self.editor(&path)?.begin_undo(format!("material of {name} slot {slot}"));
+        let mat = self.ref_into(&path, &target)?;
+        let ed = self.editor(&path)?;
+        let mut o = ed.object(i)?.clone();
+        let mut changed = 0;
+        match &mut o.native {
+            Native::SkeletalMesh(m) => {
+                if slot >= m.materials.len() {
+                    return Err(format!("the mesh has {} material slots", m.materials.len()).into());
+                }
+                m.materials[slot] = mat;
+                changed = 1;
+            }
+            Native::StaticMesh(m) => {
+                for l in m.lod_models.iter_mut() {
+                    for e in l.elements.iter_mut().filter(|e| e.material_index.max(0) as usize == slot) {
+                        e.material = mat;
+                        changed += 1;
+                    }
+                }
+            }
+            _ => return Err("not a static or skeletal mesh".into()),
+        }
+        if changed == 0 {
+            return Err(format!("no section uses slot {slot}").into());
+        }
+        ed.replace_object(i, o)?;
+        ed.mark_dirty(i);
+        self.mesh_materials(&json!({ "path": path, "index": i }))
+    }
+
+    /// `mesh.ownMaterial {path, index, slot}`: give the mesh its own copy of a
+    /// slot's material instance (next to the mesh, named after both), so its
+    /// textures and parameters can change without touching other meshes.
+    fn mesh_own_material(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let slot = opt_u(p, "slot").ok_or("missing slot")?;
+        let (mat, mesh_name, mesh_outer) = {
+            let ed = self.editor(&path)?;
+            let o = ed.object(i)?.clone();
+            let mat = Self::mesh_slots(&ed.pkg, &o).into_iter().find(|x| x.0 == slot).map(|x| x.1).ok_or("no such slot")?;
+            (mat, ed.pkg.object_name(PackageIndex::export(i)), ed.pkg.exports[i].outer)
+        };
+        if mat.is_null() {
+            return Err("the slot has no material: pick one with Change".into());
+        }
+        // Where the material is: this package, or another one found by path.
+        let (src_path, src_i) = if let Some(e) = mat.export_index() {
+            (path.clone(), e)
+        } else {
+            let full = self.editor(&path)?.pkg.object_path(mat);
+            let pkg_name = self.editor(&path)?.pkg.outermost_name(mat);
+            let inner = full.split_once('.').map(|(_, r)| r.to_string()).unwrap_or(full.clone());
+            self.index_all();
+            let file = self
+                .packages
+                .iter()
+                .find(|w| w.name.eq_ignore_ascii_case(&pkg_name))
+                .map(|w| w.path.to_string_lossy().to_string())
+                .or_else(|| index_lookup(&self.index, &self.packages, &inner).and_then(|n| self.packages.iter().find(|w| w.name == n).map(|w| w.path.to_string_lossy().to_string())))
+                .ok_or_else(|| format!("{full} is in a package that is not in the game folder"))?;
+            let ed = self.editor(&file)?;
+            let j = ed.pkg.find_export(&inner, None).or_else(|| ed.pkg.find_export(&full, None)).ok_or_else(|| format!("{full} was not found in {pkg_name}"))?;
+            (file, j)
+        };
+        let class = self.editor(&src_path)?.pkg.class_name_of(PackageIndex::export(src_i));
+        if !self.db()?.class_is_a(&class, "MaterialInstance") {
+            return Err("this slot uses a base material, which is shared by design: pick an instance with Change (or make one in the material's package) to edit textures and parameters per mesh".into());
+        }
+        let mat_name = self.editor(&src_path)?.pkg.object_name(PackageIndex::export(src_i));
+        let new_name = format!("{mesh_name}_{mat_name}");
+        let dk = key(&path);
+        self.editor(&path)?.begin_undo(format!("own material for {mesh_name} slot {slot}"));
+        let copy = if key(&src_path) == dk {
+            let ed = self.editor(&path)?;
+            let c = ed.duplicate(src_i)?;
+            ed.export_mut(c)?.outer = mesh_outer;
+            c
+        } else {
+            let mut d = self.editors.remove(&dk).unwrap();
+            let r = match self.editor(&src_path) {
+                Ok(src) => d.copy_with(src, src_i, Some(mesh_outer), crate::edit::CopyMode::Import).map_err(|e| Box::new(e) as Box<dyn Error>),
+                Err(e) => Err(e),
+            };
+            self.editors.insert(dk.clone(), d);
+            r?.0.export_index().ok_or("the copy failed")?
+        };
+        let ed = self.editor(&path)?;
+        let out = ed.pkg.exports[copy].outer;
+        let mut name = new_name.clone();
+        let mut n = 2;
+        while (0..ed.pkg.exports.len()).any(|j| j != copy && ed.pkg.exports[j].outer == out && ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(&name)) {
+            name = format!("{new_name}_{n}");
+            n += 1;
+        }
+        ed.rename(copy, &name)?;
+        let mut o = ed.object(i)?.clone();
+        match &mut o.native {
+            Native::SkeletalMesh(m) => m.materials[slot] = PackageIndex::export(copy),
+            Native::StaticMesh(m) => {
+                for l in m.lod_models.iter_mut() {
+                    for e in l.elements.iter_mut().filter(|e| e.material_index.max(0) as usize == slot) {
+                        e.material = PackageIndex::export(copy);
+                    }
+                }
+            }
+            _ => {}
+        }
+        ed.replace_object(i, o)?;
+        ed.mark_dirty(i);
+        let mut r = self.mesh_materials(&json!({ "path": path, "index": i }))?;
+        r["material"] = json!({ "index": copy, "path": self.editor(&path)?.pkg.object_path(PackageIndex::export(copy)) });
+        Ok(r)
+    }
+
+    /// `material.setTexture {path, index, name, texture: {path, index}}`: a
+    /// texture parameter of a material (instance: an override; material: the
+    /// parameter's default), the texture in any package.
+    fn material_set_texture(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let name = s(p, "name")?.to_string();
+        let target = p.get("texture").ok_or("missing texture")?.clone();
+        {
+            let tpath = target["path"].as_str().unwrap_or(&path).to_string();
+            let ti = target["index"].as_u64().unwrap_or(0) as usize;
+            let te = self.editor(&tpath)?;
+            let class = te.pkg.class_name_of(PackageIndex::export(ti));
+            if !te.db.class_is_a(&class, "Texture") {
+                return Err(format!("{class} is not a texture").into());
+            }
+        }
+        self.editor(&path)?.begin_undo(format!("set texture {name}"));
+        let tex = self.ref_into(&path, &target)?;
+        let ed = self.editor(&path)?;
+        crate::material_ops::set_parameter(ed, i, &name, crate::material_ops::ParamValue::Texture(tex))?;
+        self.material_preview(&json!({ "path": path, "index": i }))
     }
 }

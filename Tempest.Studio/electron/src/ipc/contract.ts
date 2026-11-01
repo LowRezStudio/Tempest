@@ -117,6 +117,25 @@ export type WorkspacePackage = {
 	script: boolean;
 	map: boolean;
 	open: boolean;
+	/** Made in the Studio (`package.create`) and not saved yet. */
+	new?: boolean;
+};
+
+/** An object of any package of the workspace. */
+export type ObjectTarget = { path: string; index: number };
+
+/** `mesh.materials`: the material slots of a mesh. */
+export type MeshMaterials = {
+	slots: {
+		slot: number;
+		material: ObjRef;
+		/** Sections drawing with it. */
+		sections: number;
+		/** A material instance (else a base material, or none). */
+		instance: boolean;
+		/** In another package (an import). */
+		external: boolean;
+	}[];
 };
 
 export type Workspace = {
@@ -492,7 +511,7 @@ export type CookSource = {
 	/** Unix seconds: when a file saved in place was last written. */
 	modified?: number;
 	/** What it is compared with: the Studio's record, the launcher's backup, or the game folder's file. */
-	base: { kind: "recorded" | "backup" | "game"; path?: string; recorded?: number };
+	base: { kind: "recorded" | "backup" | "game" | "new"; path?: string; recorded?: number };
 };
 export type CookItem = {
 	id: string;
@@ -821,7 +840,8 @@ export interface UpkMethods {
 	"workspace.open": { params: { dir: string }; result: Workspace };
 	"workspace.packages": { params: Record<string, never>; result: WorkspacePackage[] };
 	"workspace.search": {
-		params: { query: string; class?: string; limit?: number };
+		/** `class`: exactly that class; `isA`: that class or a subclass. */
+		params: { query: string; class?: string; isA?: string; limit?: number };
 		result: { results: SearchHit[]; truncated: boolean };
 	};
 	"package.open": { params: { path: string }; result: PackageTables };
@@ -965,6 +985,46 @@ export interface UpkMethods {
 				| { op: "notifyAdd"; notify: number; time: number }
 			);
 		result: AnimInfo;
+	};
+	"mesh.materials": { params: Target; result: MeshMaterials };
+	/** The material a slot draws with (from any package: referenced by import). */
+	"mesh.setMaterial": {
+		params: Target & { slot: number; material: ObjectTarget };
+		result: MeshMaterials;
+	};
+	/** The slot's material instance copied next to the mesh and assigned (for per-mesh edits). */
+	"mesh.ownMaterial": {
+		params: Target & { slot: number };
+		result: MeshMaterials & { material: { index: number; path: string } };
+	};
+	/** A texture parameter of a material or instance (the texture from any package). */
+	"material.setTexture": {
+		params: Target & { name: string; texture: ObjectTarget };
+		result: MaterialPreview;
+	};
+	/** A new, empty package (unsaved) with the header settings of `template`. */
+	"package.create": {
+		params: { path: string; template?: string };
+		result: { path: string; name: string };
+	};
+	/** A group (`Package` export) at the top or inside group `outer`. */
+	"object.addGroup": {
+		params: { path: string; name: string; outer?: number };
+		result: { index: number; path: string };
+	};
+	/**
+	 * A new object from a file (texture, mesh, sound, movie), made from `template` (an object of
+	 * the same kind in any package), then imported like Replace. `outer`: a group index or "top".
+	 */
+	"object.add": {
+		params: {
+			path: string;
+			file: string;
+			template: ObjectTarget;
+			name?: string;
+			outer?: number | "top";
+		};
+		result: { index: number; path: string; message: string };
 	};
 	"mesh.preview": {
 		params: Target & { lod?: number; textures?: boolean; skin?: boolean; textureSize?: number };
@@ -1400,7 +1460,13 @@ export interface UpkMethods {
 	"twrk.apply": {
 		params: { path: string };
 		result: {
-			packages: { path: string; stored: "delta" | "full"; changes: number; dirty: boolean }[];
+			packages: {
+				path: string;
+				stored: "delta" | "full";
+				changes: number;
+				dirty: boolean;
+				new?: boolean;
+			}[];
 			docs: string[];
 			/** Wwise `.pck` files whose replaced media were put back (unsaved). */
 			pcks?: string[];

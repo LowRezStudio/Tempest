@@ -19,7 +19,9 @@ export type DialogId =
 	| "shortcuts"
 	| "saveWorkspace"
 	| "idRange"
-	| "newProject";
+	| "newProject"
+	| "newPackage"
+	| "addObject";
 
 export type PaletteMode = "commands" | "open" | "objects";
 
@@ -77,6 +79,8 @@ export function remember(key: string, on: boolean): void {
 }
 
 class Ui {
+	/** The group "Add to package" puts new objects in (set by a group's menu before opening). */
+	addGroup = $state<number | null>(null);
 	/** Window width in CSS pixels (zoom included). */
 	width = $state(window.innerWidth);
 	height = $state(window.innerHeight);

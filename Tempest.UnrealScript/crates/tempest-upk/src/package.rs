@@ -444,6 +444,21 @@ impl Package {
     }
 
     /// Build an `FName` for `Name` or `Name_N` text.
+    /// Empty every table and payload, keeping the summary (versions, flags,
+    /// storage): the start of a new package made like this one.
+    pub fn clear_contents(&mut self) {
+        self.names.clear();
+        self.name_lookup.clear();
+        self.imports.clear();
+        self.exports.clear();
+        self.export_data.clear();
+        self.depends.clear();
+        self.import_guids.clear();
+        self.export_guids.clear();
+        self.header_tail.clear();
+        self.trailing.clear();
+    }
+
     pub fn intern_fname(&mut self, text: &str) -> FName {
         let (base, number) = split_name_number(text);
         FName { index: self.intern_name(base), number }

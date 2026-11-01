@@ -90,7 +90,7 @@
 			label: e.choice.on ? "Leave it out of the mod" : "Put it back in the mod",
 			run: () => cooker.setChoice(e.target, { on: !e.choice.on }),
 		});
-		if (e.kind !== "pck" && !e.sources.some((s) => s.script)) {
+		if (e.kind !== "pck" && !e.sources.some((s) => s.script || s.base.kind === "new")) {
 			items.push({
 				label: e.choice.mode === "whole" ? "Ship only my changes" : "Ship the whole file",
 				detail:

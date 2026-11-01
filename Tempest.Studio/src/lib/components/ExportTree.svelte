@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { Info } from "@lucide/svelte";
+	import { Info, Plus } from "@lucide/svelte";
 	import { SvelteSet } from "svelte/reactivity";
 	import ClassIcon from "$lib/components/ClassIcon.svelte";
 	import PackageInfoDialog from "$lib/components/PackageInfoDialog.svelte";
 	import TreeNode from "$lib/components/TreeNode.svelte";
+	import { commands } from "$lib/studio/commands.svelte";
 	import { exportMenu } from "$lib/studio/contextmenus";
 	import { inField, reveal, step } from "$lib/studio/keys";
 	import { studio } from "$lib/studio/state.svelte";
@@ -171,6 +172,14 @@
 		<span class="truncate font-mono normal-case opacity-80">{studio.pkg.name}</span>
 		<button
 			class="btn btn-square btn-ghost btn-xs ml-auto"
+			onclick={() => commands.run("object.add")}
+			title="Add to the package: an object from a file, a copy from another package, a group"
+			aria-label="Add to the package"
+		>
+			<Plus size={13} />
+		</button>
+		<button
+			class="btn btn-square btn-ghost btn-xs"
 			onclick={() => (infoOpen = true)}
 			title="Package info"
 		>

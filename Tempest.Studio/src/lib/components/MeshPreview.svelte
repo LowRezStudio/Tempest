@@ -4,6 +4,7 @@
 	import * as THREE from "three";
 	import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 	import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+	import MeshMaterials from "$lib/components/MeshMaterials.svelte";
 	import { bytes } from "$lib/studio/format";
 	import { rpc } from "$lib/studio/rpc";
 	import type { MeshInfo } from "../../../electron/src/ipc/contract";
@@ -295,6 +296,9 @@
 				{/if}
 			{/each}
 			{#if stats}<div class="opacity-50">preview glb {bytes(stats.bytes)}</div>{/if}
+		</div>
+		<div class="border-base-300 max-h-64 shrink-0 overflow-auto border-t px-3 py-2">
+			<MeshMaterials {path} {index} onchanged={() => void load()} />
 		</div>
 	{/if}
 </div>

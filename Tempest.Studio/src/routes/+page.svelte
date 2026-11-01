@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { History, X } from "@lucide/svelte";
 	import { onMount } from "svelte";
+	import AddObjectDialog from "$lib/components/AddObjectDialog.svelte";
 	import AssemblyView from "$lib/components/AssemblyView.svelte";
 	import BatchImportDialog from "$lib/components/BatchImportDialog.svelte";
 	import ChampionVendorDialog from "$lib/components/ChampionVendorDialog.svelte";
@@ -10,6 +11,7 @@
 	import ModExportDialog from "$lib/components/ModExportDialog.svelte";
 	import ModView from "$lib/components/ModView.svelte";
 	import NewContentDialog from "$lib/components/NewContentDialog.svelte";
+	import NewPackageDialog from "$lib/components/NewPackageDialog.svelte";
 	import PackagesView from "$lib/components/PackagesView.svelte";
 	import RewriteDialog from "$lib/components/RewriteDialog.svelte";
 	import SearchDialog from "$lib/components/SearchDialog.svelte";
@@ -171,6 +173,8 @@
 		<SearchDialog bind:open={() => isOpen("search"), (v) => setOpen("search", v)} />
 		<FindReplaceDialog bind:open={() => isOpen("replace"), (v) => setOpen("replace", v)} />
 		<BatchImportDialog bind:open={() => isOpen("batch"), (v) => setOpen("batch", v)} />
+		<NewPackageDialog bind:open={() => isOpen("newPackage"), (v) => setOpen("newPackage", v)} />
+		<AddObjectDialog bind:open={() => isOpen("addObject"), (v) => setOpen("addObject", v)} />
 		<VerifyDialog bind:open={() => isOpen("verify"), (v) => setOpen("verify", v)} />
 		<RewriteDialog bind:open={() => isOpen("rewrite"), (v) => setOpen("rewrite", v)} />
 		<ModDialog bind:open={() => isOpen("modFolder"), (v) => setOpen("modFolder", v)} />

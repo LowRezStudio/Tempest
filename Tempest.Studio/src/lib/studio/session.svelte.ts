@@ -397,6 +397,8 @@ class Session {
 				if (!studio.dirty.includes(path)) studio.dirty.push(path);
 			}
 			for (const e of r.extras) studio.addExternal(e);
+			// Packages made in the Studio come back with the workspace file.
+			if (r.packages.some((p) => p.new)) await studio.refreshPackages();
 			if (r.docs.length > 0) await assembly.open();
 			await this.restore(r.state as SavedState | null);
 			if (!recovered) {

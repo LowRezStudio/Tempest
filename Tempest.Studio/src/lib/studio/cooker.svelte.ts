@@ -181,8 +181,10 @@ class Cooker {
 				const choice: Choice = saved ?? {
 					on: true,
 					source: fallback?.id ?? null,
-					// Script packages and Wwise .pck files have no delta.
-					mode: sources.some((s) => s.script || s.kind === "pck") ? "whole" : "delta",
+					// Script packages, Wwise .pck files and packages made in the Studio have no delta.
+					mode: sources.some((s) => s.script || s.kind === "pck" || s.base.kind === "new")
+						? "whole"
+						: "delta",
 				};
 				const chosen = sources.find((s) => s.id === choice.source) ?? fallback;
 				return {

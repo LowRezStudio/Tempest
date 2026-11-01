@@ -529,6 +529,19 @@ pub fn material_info(cache: &mut PackageCache, pkg_name: &str, material: Package
 pub enum ParamValue {
     Scalar(f32),
     Vector([f32; 4]),
+    /// A texture of the material's package (an export, or an import of another package's).
+    Texture(PackageIndex),
+}
+
+impl ParamValue {
+    /// The material expression class that declares a parameter of this kind.
+    fn expression(&self) -> &'static str {
+        match self {
+            ParamValue::Scalar(_) => "MaterialExpressionScalarParameter",
+            ParamValue::Vector(_) => "MaterialExpressionVectorParameter",
+            ParamValue::Texture(_) => "MaterialExpressionTextureSampleParameter",
+        }
+    }
 }
 
 fn fname(pkg: &mut Package, name: &str) -> tempest_upk::io::FName {
@@ -556,6 +569,7 @@ fn set_value_in(pkg: &mut Package, props: &mut Vec<Property>, name: &str, value:
     let (kind, struct_name, v) = match value {
         ParamValue::Scalar(f) => (PropertyKind::Float, None, Value::Float(f)),
         ParamValue::Vector(c) => (PropertyKind::Struct, Some("LinearColor"), linear_color_value(c)),
+        ParamValue::Texture(t) => (PropertyKind::Object, None, Value::Object(t)),
     };
     if let Some(p) = props.iter_mut().find(|p| p.array_index == 0 && pkg.fname_to_string(p.name).eq_ignore_ascii_case(name)) {
         p.value = v;
@@ -567,7 +581,7 @@ fn set_value_in(pkg: &mut Package, props: &mut Vec<Property>, name: &str, value:
 
 /// The `ExpressionGUID` of parameter `name` in the base material reached
 /// through same-package `Parent` links (zero when it is elsewhere).
-fn expression_guid(ed: &mut Editor, i: usize, name: &str, vector: bool) -> [i32; 4] {
+fn expression_guid(ed: &mut Editor, i: usize, name: &str, wanted: &str) -> [i32; 4] {
     let db = ed.db;
     let mut cur = PackageIndex::export(i);
     let mut guard = 0;
@@ -578,7 +592,6 @@ fn expression_guid(ed: &mut Editor, i: usize, name: &str, vector: bool) -> [i32;
         }
         let class = ed.pkg.class_name_of(cur);
         if db.class_is_a(&class, "Material") {
-            let wanted = if vector { "MaterialExpressionVectorParameter" } else { "MaterialExpressionScalarParameter" };
             for j in 0..ed.pkg.exports.len() {
                 if ed.pkg.exports[j].outer != cur || !db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(j)), wanted) {
                     continue;
@@ -619,10 +632,14 @@ fn expression_guid(ed: &mut Editor, i: usize, name: &str, vector: bool) -> [i32;
 pub fn set_parameter(ed: &mut Editor, i: usize, name: &str, value: ParamValue) -> Result<usize> {
     let db = ed.db;
     let class = ed.pkg.class_name_of(PackageIndex::export(i));
-    let vector = matches!(value, ParamValue::Vector(_));
+    let wanted = value.expression();
     if db.class_is_a(&class, "MaterialInstance") {
-        let guid = expression_guid(ed, i, name, vector);
-        let (array, elem_struct) = if vector { ("VectorParameterValues", "VectorParameterValue") } else { ("ScalarParameterValues", "ScalarParameterValue") };
+        let guid = expression_guid(ed, i, name, wanted);
+        let (array, elem_struct) = match value {
+            ParamValue::Vector(_) => ("VectorParameterValues", "VectorParameterValue"),
+            ParamValue::Scalar(_) => ("ScalarParameterValues", "ScalarParameterValue"),
+            ParamValue::Texture(_) => ("TextureParameterValues", "TextureParameterValue"),
+        };
         let mut obj = ed.object(i)?.clone();
         let pkg = &mut ed.pkg;
         let array_prop = match obj.properties.iter().position(|p| p.array_index == 0 && pkg.fname_to_string(p.name).eq_ignore_ascii_case(array)) {
@@ -661,7 +678,7 @@ pub fn set_parameter(ed: &mut Editor, i: usize, name: &str, value: ParamValue) -
         return Ok(i);
     }
     if db.class_is_a(&class, "Material") {
-        let wanted = if vector { "MaterialExpressionVectorParameter" } else { "MaterialExpressionScalarParameter" };
+        let field = if matches!(value, ParamValue::Texture(_)) { "Texture" } else { "DefaultValue" };
         for j in 0..ed.pkg.exports.len() {
             if ed.pkg.exports[j].outer != PackageIndex::export(i) || !db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(j)), wanted) {
                 continue;
@@ -671,12 +688,17 @@ pub fn set_parameter(ed: &mut Editor, i: usize, name: &str, value: ParamValue) -
             if !is_it {
                 continue;
             }
-            set_value_in(&mut ed.pkg, &mut eo.properties, "DefaultValue", value);
+            set_value_in(&mut ed.pkg, &mut eo.properties, field, value);
             ed.replace_object(j, eo)?;
             ed.mark_dirty(j);
             return Ok(j);
         }
-        return Err(tempest_upk::Error::Format(format!("no {} parameter named {name} in this material", if vector { "vector" } else { "scalar" })));
+        let kind = match value {
+            ParamValue::Vector(_) => "vector",
+            ParamValue::Scalar(_) => "scalar",
+            ParamValue::Texture(_) => "texture",
+        };
+        return Err(tempest_upk::Error::Format(format!("no {kind} parameter named {name} in this material")));
     }
     Err(tempest_upk::Error::Format(format!("{class} is not a material")))
 }

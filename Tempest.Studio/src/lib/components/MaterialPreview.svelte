@@ -2,6 +2,8 @@
 	import { onDestroy } from "svelte";
 	import * as THREE from "three";
 	import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+	import ObjectPicker from "$lib/components/ObjectPicker.svelte";
+	import { pickFile } from "$lib/platform/api";
 	import { blobUrl, rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
@@ -192,6 +194,58 @@
 	}
 
 	let saving = $state<string | null>(null);
+	/** The texture parameter whose picker is open. */
+	let picking = $state<string | null>(null);
+
+	/** Point a texture parameter at `texture` (any package; referenced by import). */
+	async function setTexture(name: string, texture: { path: string; index: number }) {
+		saving = name;
+		try {
+			info = await rpc("material.setTexture", { path, index, name, texture });
+			picking = null;
+			studio.markDirty(path);
+			await studio.reloadTables();
+		} catch (error) {
+			toasts.error(error, `Could not set ${name}`);
+		} finally {
+			saving = null;
+		}
+	}
+
+	/**
+	 * A new texture from an image, made like the current one (format, settings) and placed next
+	 * to the material, then used by the parameter.
+	 */
+	async function textureFromFile(t: MaterialPreview["textures"][number]) {
+		const file = await pickFile(`Image for ${t.parameter}`, [
+			{ name: "Images", extensions: ["png", "dds"] },
+		]);
+		if (!file) return;
+		const from = studio.packages.find((p) => p.name.toLowerCase() === t.package.toLowerCase());
+		if (!from) {
+			toasts.push("warning", `${t.package} is not in the game folder`, "From a file");
+			return;
+		}
+		const row = studio.pkg?.path === path ? studio.pkg.exports[index] : undefined;
+		saving = t.parameter;
+		try {
+			const added = await studio.run("Encoding the texture…", () =>
+				rpc("object.add", {
+					path,
+					file,
+					template: { path: from.path, index: t.export },
+					name: `${row?.name ?? "T"}_${t.parameter.replaceAll(/[^A-Za-z0-9_]/g, "_")}`,
+					outer: row && row.outer > 0 ? row.outer - 1 : "top",
+				}),
+			);
+			await setTexture(t.parameter, { path, index: added.index });
+			toasts.push("success", `${added.path}: ${added.message}`, "Texture added");
+		} catch (error) {
+			toasts.error(error, "Could not add the texture");
+		} finally {
+			saving = null;
+		}
+	}
 
 	async function setParameter(
 		name: string,
@@ -305,9 +359,10 @@
 	{#if info}
 		<div class="border-base-300 w-80 shrink-0 overflow-y-auto border-l text-xs">
 			<div class="px-3 py-1 text-[10px] opacity-60">
-				Scalars and vectors are editable: on an instance the value becomes an override of
-				that instance; on a material it changes the parameter's default. Save the package to
-				keep it.
+				Textures, scalars and vectors are editable: on an instance the value becomes an
+				override of that instance; on a material it changes the parameter's default. A
+				material shared by several meshes changes for all of them: give a mesh its own copy
+				from the mesh's Materials list first.
 			</div>
 			<div class="pane-title">Parent chain</div>
 			<div class="space-y-0.5 px-3 py-1 font-mono">
@@ -324,30 +379,59 @@
 			<div class="pane-title">Textures</div>
 			<div class="px-2 py-1">
 				{#each info.textures as t, i (`${i}:${t.path}`)}
-					<button
-						class="row-hover flex w-full items-center gap-2 rounded p-1 text-left"
-						onclick={() => goTo(t.package, t.export)}
-						title={t.path}
-					>
-						{#if thumbs[t.path]}
-							<img
-								src={thumbs[t.path]}
-								alt=""
-								class="checker h-10 w-10 shrink-0 rounded object-cover"
-							/>
-						{:else}
-							<div class="bg-base-300 h-10 w-10 shrink-0 rounded"></div>
-						{/if}
-						<div class="min-w-0">
-							<div class="truncate font-mono">
-								{t.parameter} <span class="opacity-50">{t.slot}</span>
+					<div class={saving === t.parameter ? "opacity-50" : ""}>
+						<button
+							class="row-hover flex w-full items-center gap-2 rounded p-1 text-left"
+							onclick={() => goTo(t.package, t.export)}
+							title={t.path}
+						>
+							{#if thumbs[t.path]}
+								<img
+									src={thumbs[t.path]}
+									alt=""
+									class="checker h-10 w-10 shrink-0 rounded object-cover"
+								/>
+							{:else}
+								<div class="bg-base-300 h-10 w-10 shrink-0 rounded"></div>
+							{/if}
+							<div class="min-w-0">
+								<div class="truncate font-mono">
+									{t.parameter} <span class="opacity-50">{t.slot}</span>
+								</div>
+								<div class="truncate font-mono text-[10px] opacity-60">
+									{t.path.split(".").at(-1)}
+								</div>
+								{#if t.error}<div class="text-error">{t.error}</div>{/if}
 							</div>
-							<div class="truncate font-mono text-[10px] opacity-60">
-								{t.path.split(".").at(-1)}
-							</div>
-							{#if t.error}<div class="text-error">{t.error}</div>{/if}
+						</button>
+						<div class="mb-1 ml-12 flex gap-1">
+							<button
+								class="btn btn-ghost btn-xs"
+								disabled={saving !== null}
+								onclick={() =>
+									(picking = picking === t.parameter ? null : t.parameter)}
+								>Change…</button
+							>
+							<button
+								class="btn btn-ghost btn-xs"
+								disabled={saving !== null}
+								onclick={() => textureFromFile(t)}
+								title="Import a PNG or DDS as a new texture next to this material, made like the current one"
+								>From a file…</button
+							>
 						</div>
-					</button>
+						{#if picking === t.parameter}
+							<div class="bg-base-200 mb-2 rounded p-2">
+								<ObjectPicker
+									isA="Texture"
+									local={["texture2d", "texturecube", "texturerendertarget2d"]}
+									placeholder="a texture, e.g. part of its name"
+									onpick={(h) =>
+										setTexture(t.parameter, { path: h.path, index: h.index })}
+								/>
+							</div>
+						{/if}
+					</div>
 				{/each}
 			</div>
 			{#if info.vectors.length}

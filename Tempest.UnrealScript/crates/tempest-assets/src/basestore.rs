@@ -151,6 +151,21 @@ pub fn record_pck(file: &Path) -> Result<bool> {
     Ok(true)
 }
 
+/// Record that a package was made in the Studio (no original in the game):
+/// it is listed among the files saved in place and ships whole.
+pub fn record_new(file: &Path) -> Result<bool> {
+    if read(file).is_some() {
+        return Ok(false);
+    }
+    write(file, json!({ "kind": "new" }))?;
+    Ok(true)
+}
+
+/// Whether the file is one the Studio made (`record_new`).
+pub fn is_new(file: &Path) -> bool {
+    read(file).is_some_and(|d| d["kind"] == "new")
+}
+
 /// What the Studio shows: whether a base is recorded, and when.
 pub fn status(file: &Path) -> Value {
     match read(file) {

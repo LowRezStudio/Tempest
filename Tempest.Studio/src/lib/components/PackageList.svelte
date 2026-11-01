@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Code2, Map as MapIcon } from "@lucide/svelte";
+	import { Code2, Map as MapIcon, Plus } from "@lucide/svelte";
+	import { commands } from "$lib/studio/commands.svelte";
 	import { packageMenu } from "$lib/studio/contextmenus";
 	import { bytes } from "$lib/studio/format";
 	import { inField, reveal, step } from "$lib/studio/keys";
@@ -51,6 +52,12 @@
 	<span class="ml-auto font-mono normal-case opacity-60"
 		>{visible.length}/{studio.packages.length}</span
 	>
+	<button
+		class="btn btn-square btn-ghost btn-xs"
+		onclick={() => commands.run("package.new")}
+		title="New package…"
+		aria-label="New package"><Plus size={13} /></button
+	>
 </div>
 <div class="border-base-300 flex gap-1 border-b p-2">
 	<input
@@ -98,6 +105,12 @@
 					>●</span
 				>
 			{/if}
+			{#if p.new}
+				<span
+					class="badge badge-primary badge-soft badge-xs shrink-0"
+					title="Made in the Studio, not saved yet: it goes into the mod whole">new</span
+				>
+			{/if}
 			{#if studio.marks.copies[p.path]}
 				<span
 					class="badge badge-ghost badge-xs shrink-0"
@@ -108,7 +121,7 @@
 				<span class="ml-auto shrink-0 font-mono text-[10px] opacity-50"
 					>{bytes(p.size)}</span
 				>
-			{:else}
+			{:else if !p.new}
 				<span
 					class="badge badge-ghost badge-xs ml-auto shrink-0"
 					title="outside the workspace folder">ext</span

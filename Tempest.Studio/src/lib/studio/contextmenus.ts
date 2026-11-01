@@ -12,6 +12,7 @@ import {
 	FolderOpen,
 	Pencil,
 	PanelTopOpen,
+	Plus,
 	RotateCcw,
 	Trash2,
 	Upload,
@@ -136,6 +137,20 @@ export function exportMenu(index: number): MenuItem[] {
 			},
 		},
 		{ label: "Copy to another package…", icon: Copy, disabled: placeholder, run: act("copy") },
+		{
+			label: row.class.toLowerCase() === "package" ? "Add to this group…" : "Add next to it…",
+			detail: "A new object from a file, a copy from another package, or a group",
+			icon: Plus,
+			run: () => {
+				ui.addGroup =
+					row.class.toLowerCase() === "package"
+						? index
+						: row.outer > 0
+							? row.outer - 1
+							: null;
+				ui.open("addObject");
+			},
+		},
 		{ label: "Delete…", icon: Trash2, danger: true, disabled: placeholder, run: act("delete") },
 		"-",
 		{

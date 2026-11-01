@@ -541,6 +541,34 @@ export function registerActions(): () => void {
 			run: () => ui.open("replace"),
 		},
 		{
+			id: "package.new",
+			title: "New package…",
+			detail: "An empty package in the game folder, to add your own objects to",
+			group: "Packages",
+			icon: PackageOpen,
+			enabled: ws,
+			run: () => ui.open("newPackage"),
+		},
+		{
+			id: "object.add",
+			title: "Add to the package…",
+			detail: "A new object from a file, a copy of an object from another package, or a group",
+			group: "Packages",
+			icon: Plus,
+			enabled: () => inPackages() && !!studio.pkg,
+			run: () => {
+				const row = studio.selectedRow;
+				ui.addGroup = row
+					? row.class.toLowerCase() === "package"
+						? row.i
+						: row.outer > 0
+							? row.outer - 1
+							: null
+					: null;
+				ui.open("addObject");
+			},
+		},
+		{
 			id: "tools.batch",
 			title: "Batch import a folder of files…",
 			group: "Tools",

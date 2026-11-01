@@ -234,6 +234,34 @@ class Studio {
 		}
 	}
 
+	/**
+	 * Open an object of another package by its full path (`Package.group.name`,
+	 * as imports are shown): found through the search index.
+	 * @param full The object's full path.
+	 * @returns Whether it was found.
+	 */
+	async openObjectPath(full: string): Promise<boolean> {
+		const [pkgName, ...rest] = full.split(".");
+		const inner = rest.join(".");
+		if (!pkgName || !inner) return false;
+		const r = await this.run("Looking for the object…", () =>
+			rpc("workspace.search", { query: inner, limit: 50 }),
+		);
+		const hit =
+			r.results.find(
+				(h) =>
+					h.package.toLowerCase() === pkgName.toLowerCase() &&
+					h.object.toLowerCase() === inner.toLowerCase(),
+			) ?? r.results.find((h) => h.object.toLowerCase() === inner.toLowerCase());
+		if (!hit) {
+			toasts.push("warning", `${full} is not in the game folder.`, "Not found");
+			return false;
+		}
+		this.mode = "packages";
+		await this.openPackage(hit.path, hit.index);
+		return true;
+	}
+
 	async refreshPackages(): Promise<void> {
 		if (!this.workspace) return;
 		this.workspace.packages = await rpc("workspace.packages", {});
@@ -442,9 +470,20 @@ class Studio {
 				toasts.error(error, `Could not discard ${basename(path)}`);
 			}
 		}
+		// Packages made in the Studio and never saved are gone once discarded.
+		const made = new Set(
+			(this.workspace?.packages ?? []).filter((w) => w.new).map((w) => w.path),
+		);
+		if (paths.some((p) => made.has(p))) await this.refreshPackages();
 		if (this.pkg && paths.includes(this.pkg.path)) {
 			this.undoLabels = [];
-			await this.openPackage(this.pkg.path, this.selected ?? undefined);
+			if (made.has(this.pkg.path)) {
+				this.pkg = null;
+				this.object = null;
+				this.selected = null;
+			} else {
+				await this.openPackage(this.pkg.path, this.selected ?? undefined);
+			}
 		}
 	}
 
