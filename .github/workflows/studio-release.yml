@@ -46,7 +46,9 @@ jobs:
           fi
 
   # Ruffle with 9-slice scaling (Tempest.Studio/ruffle/*.patch): built once, on Linux
-  # (the output is wasm + JS), cached on the patches and the script.
+  # (the output is wasm + JS). Restored from the cache ruffle-cache.yml keeps on master
+  # (a tag run only sees caches saved on master or by itself); built here only when that
+  # cache is missing (patches changed and the master run has not finished yet).
   ruffle:
     runs-on: ubuntu-22.04
     steps:
@@ -55,7 +57,7 @@ jobs:
 
       - name: Restore patched Ruffle
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: Tempest.Studio/vendor/ruffle
           key: studio-ruffle-${{ hashFiles('Tempest.Studio/ruffle/*.patch', 'Tempest.Studio/scripts/build-ruffle.sh') }}

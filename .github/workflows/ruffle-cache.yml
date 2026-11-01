@@ -1,0 +1,53 @@
+name: Ruffle cache
+run-name: Patched Ruffle cache
+
+# Builds Ruffle with the Studio's patches (Tempest.Studio/ruffle/*.patch) on
+# master and keeps it in the Actions cache. Caches saved on master are the ones
+# every tag can restore (a cache saved by a tag run is only visible to that
+# tag), so the Studio release workflow restores this one instead of building
+# Ruffle again. Runs when the patches or the build script change, by hand, and
+# weekly so the entry is not evicted (7 days without access).
+on:
+  push:
+    branches: [master]
+    paths:
+      - "Tempest.Studio/ruffle/**"
+      - "Tempest.Studio/scripts/build-ruffle.sh"
+      - ".github/workflows/ruffle-cache.yml"
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ruffle:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Same key as studio-release.yml's restore step: keep them in step.
+      - name: Restore or save patched Ruffle
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: Tempest.Studio/vendor/ruffle
+          key: studio-ruffle-${{ hashFiles('Tempest.Studio/ruffle/*.patch', 'Tempest.Studio/scripts/build-ruffle.sh') }}
+
+      - name: Setup Rust
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build patched Ruffle
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: Tempest.Studio/scripts/build-ruffle.sh
