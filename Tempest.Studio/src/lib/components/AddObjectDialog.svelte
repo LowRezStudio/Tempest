@@ -33,6 +33,7 @@
 	);
 	const ext = $derived(file.split(".").pop()?.toLowerCase() ?? "");
 	/** The kind of object the file becomes, as the class templates are searched by. */
+	const raw = $derived(["bin", "raw"].includes(ext));
 	const isA = $derived(
 		["png", "dds", "tga"].includes(ext)
 			? "Texture2D"
@@ -42,7 +43,9 @@
 					? "SoundNodeWave"
 					: ["gfx", "swf"].includes(ext)
 						? "SwfMovie"
-						: "",
+						: raw
+							? "Object"
+							: "",
 	);
 
 	$effect(() => {
@@ -63,8 +66,20 @@
 	async function browse() {
 		const f = await pickFile("File to add", [
 			{
-				name: "Textures, meshes, sounds, movies",
-				extensions: ["png", "dds", "glb", "gltf", "fbx", "obj", "ogg", "wav", "gfx", "swf"],
+				name: "Textures, meshes, sounds, movies, raw objects (.bin)",
+				extensions: [
+					"png",
+					"dds",
+					"glb",
+					"gltf",
+					"fbx",
+					"obj",
+					"ogg",
+					"wav",
+					"gfx",
+					"swf",
+					"bin",
+				],
 			},
 		]);
 		if (!f) return;
@@ -171,7 +186,7 @@
 				<input
 					class="input input-sm flex-1 font-mono text-xs"
 					bind:value={file}
-					placeholder="PNG/DDS, glTF/FBX/OBJ, Ogg/WAV, GFX/SWF"
+					placeholder="PNG/DDS, glTF/FBX/OBJ, Ogg/WAV, GFX/SWF, BIN"
 				/>
 				<button class="btn btn-sm" type="button" onclick={browse}>Browse…</button>
 			</div>
@@ -200,17 +215,26 @@
 			{/if}
 			{#if isA}
 				<div class="flex flex-col gap-1">
-					<span class="text-xs opacity-70">
-						Made like: a {isA} it copies its settings from{isA === "SkeletalMesh"
-							? " (and its skeleton: pick one with the bones your file uses)"
-							: isA === "StaticMesh"
-								? " (and its materials and collision)"
-								: ""}. Its materials, textures and skeleton stay where they are and
-						are referenced from there.
-					</span>
+					{#if raw}
+						<span class="text-xs opacity-70">
+							The file is an object's serialized data (from <b>Raw</b> / Extract raw). Pick
+							an object of the same class: the new object takes its class and the file's
+							data. References inside the data point to the tables of the package it was
+							extracted from, so extract it from this package (or one laid out the same).
+						</span>
+					{:else}
+						<span class="text-xs opacity-70">
+							Made like: a {isA} it copies its settings from{isA === "SkeletalMesh"
+								? " (and its skeleton: pick one with the bones your file uses)"
+								: isA === "StaticMesh"
+									? " (and its materials and collision)"
+									: ""}. Its materials, textures and skeleton stay where they are
+							and are referenced from there.
+						</span>
+					{/if}
 					<ObjectPicker
 						{isA}
-						local={[isA.toLowerCase()]}
+						local={raw ? ["*"] : [isA.toLowerCase()]}
 						value={template}
 						onpick={(h) => (template = h)}
 					/>

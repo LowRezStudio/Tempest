@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ChevronDown, ChevronRight, CopyPlus, Plus, RotateCcw, X } from "@lucide/svelte";
+	import AddPropertyPicker from "$lib/components/AddPropertyPicker.svelte";
 	import ScalarEditor from "$lib/components/ScalarEditor.svelte";
 	import ValueNode from "$lib/components/ValueNode.svelte";
 	import type { PropValue } from "../../../electron/src/ipc/contract";
@@ -25,6 +26,10 @@
 		) => Promise<void>;
 		/** Set on array elements: the array's path and this element's index. */
 		element?: { array: string; at: number };
+		/** A field of a tagged struct (removable, back to its default). */
+		field?: boolean;
+		/** The export (for adding properties to a tagged struct). */
+		index?: number;
 	}
 	const {
 		label,
@@ -38,7 +43,12 @@
 		editable = true,
 		onlist,
 		element,
+		field = false,
+		index,
 	}: Props = $props();
+
+	/** The "add a field" picker of this tagged struct is open. */
+	let addingField = $state(false);
 
 	const compound = $derived(value.t === "struct" || value.t === "binary" || value.t === "array");
 	const count = $derived(
@@ -78,6 +88,17 @@
 			<span
 				class="ml-1 inline-flex gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
 			>
+				{#if value.t === "struct" && index !== undefined}
+					<button
+						class="btn btn-ghost btn-xs btn-square h-4 min-h-4 w-4"
+						title="Add a field (it starts at its default)"
+						aria-label="Add a field"
+						onclick={() => {
+							open = true;
+							addingField = true;
+						}}><Plus size={10} /></button
+					>
+				{/if}
 				{#if value.t === "array"}
 					<button
 						class="btn btn-ghost btn-xs btn-square h-4 min-h-4 w-4"
@@ -104,10 +125,12 @@
 						onclick={() => onlist(element.array, "remove", element.at)}
 						><X size={10} /></button
 					>
-				{:else if depth === 0}
+				{:else if depth === 0 || field}
 					<button
 						class="btn btn-ghost btn-xs btn-square h-4 min-h-4 w-4"
-						title="Reset to the class default (remove the property from this object)"
+						title={field
+							? "Remove this field (back to its default)"
+							: "Reset to the class default (remove the property from this object)"}
 						aria-label="Reset to default"
 						onclick={() => onlist(path, "removeProperty")}
 						><RotateCcw size={10} /></button
@@ -130,6 +153,13 @@
 </tr>
 {#if compound && open}
 	{#if value.t === "struct"}
+		{#if addingField && index !== undefined}
+			<tr>
+				<td colspan="2" style="padding-left: {(depth + 1) * 14 + 4}px">
+					<AddPropertyPicker {index} at={path} onclose={() => (addingField = false)} />
+				</td>
+			</tr>
+		{/if}
 		{#each value.v as p, k (k)}
 			<ValueNode
 				label={p.index > 0 ? `${p.name}[${p.index}]` : p.name}
@@ -141,6 +171,8 @@
 				depth={depth + 1}
 				{onset}
 				{onlist}
+				{index}
+				field
 			/>
 		{/each}
 	{:else if value.t === "binary"}
@@ -177,6 +209,7 @@
 				depth={depth + 1}
 				{onset}
 				{onlist}
+				{index}
 				element={{ array: path, at: j }}
 			/>
 		{/each}

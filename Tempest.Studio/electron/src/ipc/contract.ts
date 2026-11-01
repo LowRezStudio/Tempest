@@ -1007,6 +1007,16 @@ export interface UpkMethods {
 		params: { path: string; template?: string };
 		result: { path: string; name: string };
 	};
+	/** Properties the object (or the struct at `at`) can have but does not store. */
+	"object.missing": {
+		params: Target & { at?: string };
+		result: { name: string; kind: string; type: string }[];
+	};
+	/** Add a property (or a struct's field at `at`), starting at its class default. */
+	"object.addProperty": {
+		params: Target & { name: string; at?: string };
+		result: ParsedObject;
+	};
 	/** A group (`Package` export) at the top or inside group `outer`. */
 	"object.addGroup": {
 		params: { path: string; name: string; outer?: number };

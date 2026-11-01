@@ -432,6 +432,29 @@ impl Server {
             "object.delete" => self.object_delete(p),
             "object.copy" => self.object_copy(p),
             "object.add" => self.object_add(p),
+            "object.missing" => {
+                let path = s(p, "path")?;
+                let i = self.export_of(path, p)?;
+                let at = opt_s(p, "at").unwrap_or_default();
+                let ed = self.editor(path)?;
+                let list = ed.missing_properties(i, &at)?;
+                Ok(J::Array(list.into_iter().map(|(name, kind, ty)| json!({ "name": name, "kind": format!("{kind:?}").to_ascii_lowercase(), "type": ty })).collect()))
+            }
+            "object.addProperty" => {
+                let path = s(p, "path")?;
+                let i = self.export_of(path, p)?;
+                let at = opt_s(p, "at").unwrap_or_default();
+                let name = s(p, "name")?.to_string();
+                let ed = self.editor(path)?;
+                ed.begin_undo(format!("add {}{name}", if at.is_empty() { String::new() } else { format!("{at}.") }));
+                ed.add_property(i, &at, &name)?;
+                ed.mark_dirty(i);
+                let parsed = ed.parsed(i)?.clone();
+                let mut v = json::parsed(&ed.pkg, i, &parsed);
+                v["row"] = json::export_row(&ed.pkg, i);
+                v["dirty"] = J::from(true);
+                Ok(v)
+            }
             "object.addGroup" => self.object_add_group(p),
             "package.create" => self.package_create(p),
             "object.duplicate" => {
@@ -5098,6 +5121,8 @@ impl Server {
                 return Err(format!("{}: {e}", Path::new(&file).display()).into());
             }
         };
+        // A raw payload carries the NetIndex of the object it was taken from.
+        ed.clear_net_index(i)?;
         let k = key(&path);
         self.index.remove(&k);
         let ed = self.editor(&path)?;

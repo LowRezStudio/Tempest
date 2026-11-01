@@ -283,6 +283,41 @@ impl ClassDb {
         None
     }
 
+    /// A scalar property's value on the class default object chain (what an
+    /// object that does not store the property gets): ints, floats, bools,
+    /// bytes, enum and name values, strings. `None` for other kinds or when
+    /// no default object of the chain sets it.
+    pub fn cdo_scalar(&self, class: ObjRef, name: &str) -> Option<CdoValue> {
+        let mut cur = Some(class);
+        for _ in 0..100 {
+            let c = cur?;
+            if let Some(cdo) = self.class_default_object(c) {
+                if let Some(o) = self.ctx.object(cdo) {
+                    let lp = &self.ctx.packages[cdo.pkg];
+                    for tp in &o.header.properties {
+                        if !lp.name_of(tp.name).eq_ignore_ascii_case(name) || tp.array_index != 0 {
+                            continue;
+                        }
+                        let ty = lp.name_of(tp.type_name).to_ascii_lowercase();
+                        let mut r = tempest_upk::Reader::new(&tp.raw);
+                        return match ty.as_str() {
+                            "intproperty" => r.i32().ok().map(CdoValue::Int),
+                            "floatproperty" => r.f32().ok().map(CdoValue::Float),
+                            "boolproperty" => Some(CdoValue::Bool(tp.bool_val.unwrap_or(0) != 0)),
+                            "byteproperty" if tp.raw.len() == 8 => r.fname().ok().map(|n| CdoValue::Name(lp.name_of(n))),
+                            "byteproperty" => r.u8().ok().map(CdoValue::Byte),
+                            "nameproperty" => r.fname().ok().map(|n| CdoValue::Name(lp.name_of(n))),
+                            "strproperty" => r.fstring().ok().map(CdoValue::Str),
+                            _ => None,
+                        };
+                    }
+                }
+            }
+            cur = self.ctx.super_of(c);
+        }
+        None
+    }
+
     /// `UProperty::ShouldSerializeValue` for a persistent archive of a cooked
     /// package (`FilterEditorOnly` set): native never, transient only while
     /// serialising a class default object, deprecated and non-bool
@@ -303,4 +338,16 @@ impl ClassDb {
         }
         true
     }
+}
+
+/// A class default value read by [`ClassDb::cdo_scalar`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum CdoValue {
+    Int(i32),
+    Float(f32),
+    Bool(bool),
+    Byte(u8),
+    /// A name, or an enum value's name.
+    Name(String),
+    Str(String),
 }

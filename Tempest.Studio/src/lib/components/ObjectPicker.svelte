@@ -13,7 +13,7 @@
 	interface Props {
 		/** A class whose objects (and subclasses') are listed. */
 		isA?: string;
-		/** Lower-case class names of the open package's objects to offer too. */
+		/** Lower-case class names of the open package's objects to offer too (`*`: any). */
 		local?: string[];
 		placeholder?: string;
 		/** The picked object, highlighted. */
@@ -42,7 +42,7 @@
 		return pkg.exports
 			.filter(
 				(e) =>
-					local.includes(e.class.toLowerCase()) &&
+					(local.includes("*") || local.includes(e.class.toLowerCase())) &&
 					(!q || e.path.toLowerCase().includes(q)),
 			)
 			.slice(0, 50)

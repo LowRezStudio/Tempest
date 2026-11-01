@@ -21,7 +21,7 @@ use tempest_upk::{ObjectExport, Package, PackageFile, WriteOptions};
 use crate::dump::Dumper;
 use crate::object::{none_name, package_layout, parse_export, write_parsed, Object, Parsed};
 use crate::reflect::ClassDb;
-use crate::value::{kind_from_type_name, tag_type_name, Property, StructValue, Value};
+use crate::value::{kind_from_type_name, tag_type_name, Member, Property, StructValue, Value};
 use crate::visit::{references, Visit, Visitor};
 
 pub struct Editor<'a> {
@@ -476,7 +476,22 @@ impl<'a> Editor<'a> {
         }
         let data = self.pkg.export_data.get(i).cloned().unwrap_or_default();
         let export = ObjectExport { object_name: self.pkg.intern_fname(&name), ..src };
-        Ok(self.add_export(export, data))
+        let d = self.add_export(export, data);
+        self.clear_net_index(d)?;
+        Ok(d)
+    }
+
+    /// Give a new object no NetIndex (-1): a copy must not share the
+    /// original's, which identifies it over the network.
+    pub fn clear_net_index(&mut self, i: usize) -> Result<()> {
+        if let Ok(Parsed::Object(o)) = self.parsed(i) {
+            if o.net_index != -1 {
+                let mut o = o.clone();
+                o.net_index = -1;
+                self.replace_object(i, o)?;
+            }
+        }
+        Ok(())
     }
 
     /// A new group (`Package` export) named `name` under `outer` (null: top level).
@@ -740,11 +755,105 @@ impl<'a> Editor<'a> {
         self.replace_object(i, obj)
     }
 
+    /// The properties declared for the object (`path` empty) or for the
+    /// struct at `path` that it does not store (so they have their default),
+    /// which [`Editor::add_property`] can add: `(name, kind, type)`, `type`
+    /// being the struct, enum or class it holds.
+    pub fn missing_properties(&mut self, i: usize, path: &str) -> Result<Vec<(String, PropertyKind, String)>> {
+        let db = self.db;
+        let mut obj = self.object(i)?.clone();
+        let segs = if path.trim().is_empty() { Vec::new() } else { parse_path(path)? };
+        let (props, scope, is_class) = locate(db, &self.pkg, &mut obj.properties, obj.class, &segs)?;
+        let Some(scope) = scope else { return Ok(Vec::new()) };
+        let declared = if is_class { db.class_properties(scope) } else { db.struct_members(scope) };
+        let mut out = Vec::new();
+        for p in declared {
+            if !db.should_serialize(p, false, true) {
+                continue;
+            }
+            let name = db.name(p);
+            if props.iter().any(|x| self.pkg.fname_to_string(x.name).eq_ignore_ascii_case(&name)) {
+                continue;
+            }
+            let Some(kind) = db.property_kind(p) else { continue };
+            if kind == PropertyKind::Map {
+                continue;
+            }
+            let ty = db.property_ref1(p).map(|r| db.name(r)).unwrap_or_default();
+            out.push((name, kind, ty));
+        }
+        out.sort_by_key(|x| x.0.to_ascii_lowercase());
+        Ok(out)
+    }
+
+    /// Add property `name` (not stored yet) to the object (`path` empty) or to
+    /// the struct at `path`. It starts at its class default where one is known
+    /// (scalars of the class default objects), else at zero / none / empty,
+    /// so adding it changes nothing until it is edited.
+    pub fn add_property(&mut self, i: usize, path: &str, name: &str) -> Result<()> {
+        let db = self.db;
+        let mut obj = self.object(i)?.clone();
+        let class = obj.class;
+        let segs = if path.trim().is_empty() { Vec::new() } else { parse_path(path)? };
+        let (props, scope, is_class) = locate(db, &self.pkg, &mut obj.properties, class, &segs)?;
+        if props.iter().any(|x| self.pkg.fname_to_string(x.name).eq_ignore_ascii_case(name)) {
+            return Err(Error::Format(format!("{name} is already set")));
+        }
+        let (mut prop, _) = new_property(db, &mut self.pkg, scope, name, 0)?;
+        if let (true, Some(c)) = (is_class, scope) {
+            if let Some(v) = db.cdo_scalar(c, name) {
+                use crate::reflect::CdoValue;
+                prop.value = match (v, prop.kind) {
+                    (CdoValue::Int(x), PropertyKind::Int) => Value::Int(x),
+                    (CdoValue::Float(x), PropertyKind::Float) => Value::Float(x),
+                    (CdoValue::Bool(x), PropertyKind::Bool) => Value::Bool(x),
+                    (CdoValue::Byte(x), PropertyKind::Byte) => Value::Byte(x),
+                    (CdoValue::Name(n), PropertyKind::Byte) => Value::Enum(self.pkg.intern_fname(&n)),
+                    (CdoValue::Name(n), PropertyKind::Name) => Value::Name(self.pkg.intern_fname(&n)),
+                    (CdoValue::Str(x), PropertyKind::Str) => Value::Str(x),
+                    (_, _) => prop.value,
+                };
+            }
+        }
+        props.push(prop);
+        self.replace_object(i, obj)
+    }
+
     /// Add, duplicate or remove an array element, or remove a property (back
     /// to its class default), at a property path (`Arr`, `S.Arr`, `Arr[2]`).
     pub fn edit_list(&mut self, i: usize, path: &str, op: ListOp) -> Result<()> {
         let segs = parse_path(path)?;
         let mut obj = self.object(i)?.clone();
+        // An empty array gets an element at its default (there is nothing to copy).
+        if let (ListOp::Add, Some((last, parent))) = (op, segs.split_last()) {
+            let db = self.db;
+            let (props, scope, _) = locate(db, &self.pkg, &mut obj.properties, obj.class, parent)?;
+            let pos = props.iter().position(|p| self.pkg.fname_to_string(p.name).eq_ignore_ascii_case(&last.name));
+            let empty = match pos.map(|k| &props[k].value) {
+                Some(Value::Array(items)) => items.is_empty(),
+                None => true,
+                _ => false,
+            };
+            if empty {
+                let adef = scope.and_then(|s| db.find_property(s, &last.name)).ok_or_else(|| Error::Format(format!("unknown property {}", last.name)))?;
+                let elem = db.property_ref1(adef).ok_or_else(|| Error::Format("array element type unknown".into()))?;
+                let kind = db.property_kind(elem).ok_or_else(|| Error::Format("array element type unknown".into()))?;
+                let v = default_value(db, &mut self.pkg, kind, db.property_ref1(elem), 0)?;
+                match pos {
+                    Some(k) => {
+                        if let Value::Array(items) = &mut props[k].value {
+                            items.push(v);
+                        }
+                    }
+                    None => {
+                        let (mut prop, _) = new_property(db, &mut self.pkg, scope, &last.name, 0)?;
+                        prop.value = Value::Array(vec![v]);
+                        props.push(prop);
+                    }
+                }
+                return self.replace_object(i, obj);
+            }
+        }
         edit_props(&self.pkg, &mut obj.properties, &segs, op)?;
         self.replace_object(i, obj)
     }
@@ -916,6 +1025,42 @@ fn parse_scalar(pkg: &mut Package, kind: PropertyKind, has_enum: bool, text: &st
 }
 
 /// Create a tagged property for `name` declared in `scope`.
+/// The value a property of `kind` (struct, enum or class `ref1`) has when
+/// nothing sets it: zero, false, none, empty; an enum's first value; a struct
+/// stored as binary in cooked packages (LinearColor, Vector, Guid…) as all its
+/// members at their defaults, else a tagged struct with no fields (each at
+/// its default).
+fn default_value(db: &ClassDb, pkg: &mut Package, kind: PropertyKind, ref1: Option<ObjRef>, depth: usize) -> Result<Value> {
+    Ok(match kind {
+        PropertyKind::Int => Value::Int(0),
+        PropertyKind::Float => Value::Float(0.0),
+        PropertyKind::Bool => Value::Bool(false),
+        PropertyKind::Byte => match ref1 {
+            Some(e) => Value::Enum(pkg.intern_fname(db.enum_names(e).first().map(String::as_str).unwrap_or("None"))),
+            None => Value::Byte(0),
+        },
+        PropertyKind::Name => Value::Name(pkg.intern_fname("None")),
+        PropertyKind::Str => Value::Str(String::new()),
+        PropertyKind::Array => Value::Array(Vec::new()),
+        PropertyKind::Struct => match ref1 {
+            Some(st) if db.struct_is_binary(st, true) && depth < 8 => {
+                let mut members = Vec::new();
+                for m in db.struct_members(st) {
+                    let Some(mk) = db.property_kind(m) else { continue };
+                    let v = default_value(db, pkg, mk, db.property_ref1(m), depth + 1)?;
+                    let dim = db.array_dim(m).max(1) as usize;
+                    members.push(Member { name: db.name(m), kind: mk, elems: vec![v; dim] });
+                }
+                Value::Struct(StructValue::Binary(members))
+            }
+            _ => Value::Struct(StructValue::Tagged(Vec::new())),
+        },
+        PropertyKind::Delegate => Value::Delegate { object: PackageIndex::NONE, function: pkg.intern_fname("None") },
+        PropertyKind::Map => return Err(Error::Format("map properties cannot be created".into())),
+        _ => Value::Object(PackageIndex::NONE),
+    })
+}
+
 fn new_property(db: &ClassDb, pkg: &mut Package, scope: Option<ObjRef>, name: &str, array_index: i32) -> Result<(Property, Option<ObjRef>)> {
     let pdef = scope.and_then(|s| db.find_property(s, name)).ok_or_else(|| Error::Format(format!("unknown property {name} (not declared on this class)")))?;
     let kind = db.property_kind(pdef).unwrap();
@@ -923,19 +1068,7 @@ fn new_property(db: &ClassDb, pkg: &mut Package, scope: Option<ObjRef>, name: &s
     let struct_name = if kind == PropertyKind::Struct { ref1.map(|s| pkg.intern_fname(&db.name(s))) } else { None };
     let enum_name = if kind == PropertyKind::Byte { Some(match ref1 { Some(e) => pkg.intern_fname(&db.name(e)), None => pkg.intern_fname("None") }) } else { None };
     let type_name = tag_type_name(pkg, kind);
-    let value = match kind {
-        PropertyKind::Int => Value::Int(0),
-        PropertyKind::Float => Value::Float(0.0),
-        PropertyKind::Bool => Value::Bool(false),
-        PropertyKind::Byte => if ref1.is_some() { Value::Enum(pkg.intern_fname("None")) } else { Value::Byte(0) },
-        PropertyKind::Name => Value::Name(pkg.intern_fname("None")),
-        PropertyKind::Str => Value::Str(String::new()),
-        PropertyKind::Array => Value::Array(Vec::new()),
-        PropertyKind::Struct => Value::Struct(StructValue::Tagged(Vec::new())),
-        PropertyKind::Delegate => Value::Delegate { object: PackageIndex::NONE, function: pkg.intern_fname("None") },
-        PropertyKind::Map => return Err(Error::Format("map properties cannot be created".into())),
-        _ => Value::Object(PackageIndex::NONE),
-    };
+    let value = default_value(db, pkg, kind, ref1, 0)?;
     Ok((Property { name: pkg.intern_fname(name), array_index, kind, type_name, struct_name, enum_name, value }, Some(pdef)))
 }
 
@@ -1026,6 +1159,43 @@ pub enum ListOp {
     Remove(usize),
     /// Remove the property itself: the object falls back to the class default.
     RemoveProperty,
+}
+
+/// The property list at `segs` (the object's own when empty, else the tagged
+/// struct there, an array element's included) with the scope declaring its
+/// properties and whether that scope is a class (else a struct).
+fn locate<'p>(db: &ClassDb, pkg: &Package, props: &'p mut Vec<Property>, class: Option<ObjRef>, segs: &[Segment]) -> Result<(&'p mut Vec<Property>, Option<ObjRef>, bool)> {
+    if segs.is_empty() {
+        return Ok((props, class, true));
+    }
+    let mut cur: &'p mut Vec<Property> = props;
+    let mut scope = class;
+    for seg in segs {
+        let pdef = scope.and_then(|s| db.find_property(s, &seg.name));
+        let pos = cur
+            .iter()
+            .position(|p| pkg.fname_to_string(p.name).eq_ignore_ascii_case(&seg.name) && (seg.index.is_none() || p.kind == PropertyKind::Array || p.array_index as usize == seg.index.unwrap_or(0)))
+            .ok_or_else(|| Error::Format(format!("{} is not set; add it first", seg.name)))?;
+        let prop = &mut cur[pos];
+        match (&mut prop.value, seg.index) {
+            (Value::Struct(StructValue::Tagged(ps)), _) => {
+                scope = pdef.and_then(|p| db.property_ref1(p));
+                cur = ps;
+            }
+            (Value::Array(items), Some(ix)) => {
+                let elem = pdef.and_then(|p| db.property_ref1(p));
+                scope = elem.and_then(|e| db.property_ref1(e));
+                let len = items.len();
+                match items.get_mut(ix) {
+                    Some(Value::Struct(StructValue::Tagged(ps))) => cur = ps,
+                    Some(_) => return Err(Error::Format(format!("{}[{ix}] is not a struct", seg.name))),
+                    None => return Err(Error::Format(format!("{} has {len} elements", seg.name))),
+                }
+            }
+            _ => return Err(Error::Format(format!("{} has no properties of its own", seg.name))),
+        }
+    }
+    Ok((cur, scope, false))
 }
 
 fn edit_props(pkg: &Package, props: &mut Vec<Property>, segs: &[Segment], op: ListOp) -> Result<()> {
