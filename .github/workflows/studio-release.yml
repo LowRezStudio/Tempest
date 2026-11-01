@@ -227,7 +227,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           shopt -s nullglob
-          files=(Tempest.Studio/dist/*.exe Tempest.Studio/dist/*.dmg Tempest.Studio/dist/*.AppImage Tempest.Studio/dist/*.deb Tempest.Studio/dist/*.rpm)
+          # The update files (latest.yml / latest-mac.yml / latest-linux.yml and the
+          # blockmaps) let installed Studios update themselves (electron/src/updater.ts).
+          files=(Tempest.Studio/dist/*.exe Tempest.Studio/dist/*.dmg Tempest.Studio/dist/*.AppImage Tempest.Studio/dist/*.deb Tempest.Studio/dist/*.rpm Tempest.Studio/dist/latest*.yml Tempest.Studio/dist/*.blockmap)
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Upload artifacts

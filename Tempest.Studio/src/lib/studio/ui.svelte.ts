@@ -21,7 +21,8 @@ export type DialogId =
 	| "idRange"
 	| "newProject"
 	| "newPackage"
-	| "addObject";
+	| "addObject"
+	| "settings";
 
 export type PaletteMode = "commands" | "open" | "objects";
 

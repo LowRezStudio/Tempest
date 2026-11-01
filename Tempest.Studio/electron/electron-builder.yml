@@ -38,5 +38,9 @@ linux:
         - rpm
     icon: resources/icons
     category: Development
-# Installers are attached to the GitHub release by .github/workflows/studio-release.yml.
-publish: null
+# Installers and the update files (latest*.yml, *.blockmap) are attached to the
+# GitHub release by .github/workflows/studio-release.yml (`--publish never`); the
+# app reads the update files of the newest `studio-v*` release (electron/src/updater.ts).
+publish:
+    provider: generic
+    url: https://github.com/LowRezStudio/Tempest/releases/download/studio-v${version}

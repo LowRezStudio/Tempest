@@ -14,6 +14,7 @@ import "./system.js";
 import { handle } from "./ipc/handle.js";
 import { onCreateWindow, startMcp } from "./mcp.js";
 import { installSmoke } from "./smoke.js";
+import { waitForUpdatedParent } from "./updater.js";
 import { upkFor } from "./upk.js";
 import type { WindowStartup } from "./ipc/contract.js";
 
@@ -81,6 +82,8 @@ app.on("open-file", (event, filePath) => {
 	queueOpenFiles(upkFilesFromArgs([filePath], process.cwd()));
 });
 
+// A process relaunched by an update waits for the one that installed it to exit.
+waitForUpdatedParent();
 const hasInstanceLock = app.requestSingleInstanceLock();
 if (!hasInstanceLock) {
 	app.quit();

@@ -23,6 +23,7 @@ import {
 	RotateCcw,
 	Save,
 	SaveAll,
+	Settings,
 	Search,
 	ShieldCheck,
 	Sparkles,
@@ -44,6 +45,7 @@ import { swfEditor } from "./swf.svelte";
 import { tabs } from "./tabs.svelte";
 import { toasts } from "./toast.svelte";
 import { ui } from "./ui.svelte";
+import { updater } from "./updater.svelte";
 
 const ws = () => studio.workspace !== null;
 const inAssembly = () => studio.mode === "assembly";
@@ -616,6 +618,30 @@ export function registerActions(): () => void {
 			enabled: () =>
 				!!studio.pkg && (studio.pkg.summary.packageFlags & CONTAINS_SCRIPT) !== 0,
 			run: exportSources,
+		},
+		{
+			id: "app.settings",
+			title: "Settings…",
+			detail: "Updates, appearance, warnings, signing and publishing",
+			group: "Help",
+			keys: "Mod+,",
+			icon: Settings,
+			global: true,
+			run: () => ui.open("settings"),
+		},
+		{
+			id: "app.checkUpdates",
+			title: "Check for updates",
+			group: "Help",
+			icon: RefreshCw,
+			run: async () => {
+				await updater.check();
+				if (updater.status === "up-to-date") {
+					toasts.push("success", "You have the newest Tempest Studio.", "Up to date");
+				} else if (updater.status === "available") {
+					ui.open("settings");
+				}
+			},
 		},
 		{
 			id: "tools.mcp",

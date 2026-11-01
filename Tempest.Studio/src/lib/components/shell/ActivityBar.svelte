@@ -8,6 +8,7 @@
 		Music,
 		Package,
 		Plug,
+		Settings,
 		Search,
 		Wrench,
 	} from "@lucide/svelte";
@@ -111,5 +112,13 @@
 		aria-label="Keyboard shortcuts"
 	>
 		<Keyboard size={16} />
+	</button>
+	<button
+		class="btn btn-square btn-ghost btn-sm opacity-70"
+		onclick={() => commands.run("app.settings")}
+		title={tip("Settings", "app.settings")}
+		aria-label="Settings"
+	>
+		<Settings size={16} />
 	</button>
 </nav>

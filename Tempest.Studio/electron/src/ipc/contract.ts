@@ -1662,6 +1662,12 @@ export interface IpcContract {
 	};
 	/** A fresh staging folder path for a cooked mod. */
 	"cli:staging": { args: { id: string }; result: string };
+	/** The newest published Studio release, compared with this one. */
+	"updater:check": { args: void; result: StudioUpdate };
+	/** Download the update found by the last check (progress as `updater:progress`). */
+	"updater:download": { args: void; result: void };
+	/** Install the downloaded update and restart (unsaved work must be dealt with first). */
+	"updater:install": { args: void; result: void };
 	/** The publishing account the CLI keeps: signing key and repository API key. */
 	"cli:account": { args: Record<string, never>; result: CliAccount };
 	/** Zoom the window's content (UI scale), 0.6–2. */
@@ -1697,6 +1703,19 @@ export interface IpcContract {
 
 export type IpcChannel = Extract<keyof IpcContract, string>;
 
+/** `updater:check`: whether a newer Studio release is published. */
+export type StudioUpdate = {
+	available: boolean;
+	current: string;
+	version?: string;
+	/** The release notes (Markdown), from the tag annotation. */
+	notes?: string | null;
+	/** The release page, for a manual download. */
+	page?: string;
+	/** The Studio can download and install it itself (Windows, AppImage, deb/rpm). */
+	canInstall?: boolean;
+};
+
 /** Events the host pushes to the renderer. */
 export interface IpcEvents {
 	/** A progress or notification line from `upk serve`. */
@@ -1705,6 +1724,8 @@ export interface IpcEvents {
 	"upk:exit": { code: number | null; signal: string | null };
 	/** A .upk file was opened through the OS (file association, argv). */
 	"open-files": string[];
+	/** Download progress of a Studio update (`updater:download`). */
+	"updater:progress": { percent: number; transferred: number; total: number };
 }
 
 export type IpcEventChannel = Extract<keyof IpcEvents, string>;

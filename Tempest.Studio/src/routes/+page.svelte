@@ -15,6 +15,7 @@
 	import PackagesView from "$lib/components/PackagesView.svelte";
 	import RewriteDialog from "$lib/components/RewriteDialog.svelte";
 	import SearchDialog from "$lib/components/SearchDialog.svelte";
+	import SettingsDialog from "$lib/components/SettingsDialog.svelte";
 	import ActivityBar from "$lib/components/shell/ActivityBar.svelte";
 	import AppHeader from "$lib/components/shell/AppHeader.svelte";
 	import CommandPalette from "$lib/components/shell/CommandPalette.svelte";
@@ -25,6 +26,7 @@
 	import ShortcutsDialog from "$lib/components/shell/ShortcutsDialog.svelte";
 	import TabBar from "$lib/components/shell/TabBar.svelte";
 	import StatusBar from "$lib/components/StatusBar.svelte";
+	import UpdateBanner from "$lib/components/UpdateBanner.svelte";
 	import VerifyDialog from "$lib/components/VerifyDialog.svelte";
 	import Welcome from "$lib/components/Welcome.svelte";
 	import WwiseDialog from "$lib/components/WwiseDialog.svelte";
@@ -37,8 +39,13 @@
 	import { studio } from "$lib/studio/state.svelte";
 	import { tabs } from "$lib/studio/tabs.svelte";
 	import { ui, type DialogId } from "$lib/studio/ui.svelte";
+	import { updater } from "$lib/studio/updater.svelte";
 
-	onMount(() => registerActions());
+	onMount(() => {
+		registerActions();
+		// A quiet check for a newer Studio, once the window has settled.
+		if (updater.auto && import.meta.env.PROD) setTimeout(() => void updater.check(true), 5000);
+	});
 
 	function errorText(error: unknown): string {
 		return error instanceof Error ? error.message : String(error);
@@ -122,11 +129,17 @@
 
 <svelte:window onkeydown={onKeydown} onmouseup={onMouseUp} />
 
+<SettingsDialog bind:open={() => isOpen("settings"), (v) => setOpen("settings", v)} />
+
 {#if !studio.workspace}
-	<Welcome />
+	<div class="flex h-full flex-col">
+		<UpdateBanner />
+		<div class="min-h-0 flex-1"><Welcome /></div>
+	</div>
 {:else}
 	<div class="flex h-full flex-col">
 		<AppHeader />
+		<UpdateBanner />
 		{#if session.recovery}
 			<div
 				class="bg-warning/15 border-warning/40 flex items-center gap-2 border-b px-3 py-1 text-xs"
