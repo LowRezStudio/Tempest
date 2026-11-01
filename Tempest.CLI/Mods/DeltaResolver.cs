@@ -251,8 +251,22 @@ internal static class DeltaResolver
         {
             var path = StatePath(resolvedGame);
             if (!File.Exists(path)) return new Dictionary<string, ResolvedFile>(StringComparer.OrdinalIgnoreCase);
-            var state = JsonSerializer.Deserialize(File.ReadAllText(path), DeltaJsonContext.Default.DictionaryStringResolvedFile);
-            return new Dictionary<string, ResolvedFile>(state ?? [], StringComparer.OrdinalIgnoreCase);
+            var stored = JsonSerializer.Deserialize(File.ReadAllText(path), DeltaJsonContext.Default.DictionaryStringResolvedFile) ?? [];
+            // Keys recorded before paths were canonicalised may spell the file differently than
+            // the game folder does; one entry per file, under the name on disk.
+            var state = new Dictionary<string, ResolvedFile>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (relative, file) in stored)
+            {
+                try
+                {
+                    state[GamePath.Canonical(resolvedGame, relative)] = file;
+                }
+                catch
+                {
+                    state[relative] = file;
+                }
+            }
+            return state;
         }
         catch
         {
@@ -310,7 +324,9 @@ internal static class DeltaResolver
                 foreach (var file in mod.DeltaFiles)
                 {
                     var relative = Relative(resolvedGame, file);
-                    var deltaFile = Path.Combine(modDir, "deltas", relative + Suffix);
+                    // The mod folder keeps the spelling the package shipped; an install made on a
+                    // case-insensitive disk may not match the game's (see GamePath).
+                    var deltaFile = GamePath.Resolve(modDir, $"deltas/{relative}{Suffix}");
                     if (!File.Exists(deltaFile))
                     {
                         report.Warnings.Add($"'{mod.Name}': its delta for {relative} is missing from the mod folder");
@@ -343,7 +359,7 @@ internal static class DeltaResolver
             foreach (var relative in ordered)
             {
                 var gameFile = Path.GetFullPath(Path.Combine(resolvedGame, relative));
-                var backup = TempestPathUtility.GetLocalV2BackupPath(resolvedGame, relative);
+                var backup = GamePath.Resolve(Path.Combine(resolvedGame, ".tempest", "v2", "backup"), relative);
                 contributions.TryGetValue(relative, out var stack);
                 owners.TryGetValue(relative, out var owner);
 
@@ -356,7 +372,7 @@ internal static class DeltaResolver
                         if (owner != null)
                         {
                             // The owner's own copy is the whole file again.
-                            var snapshot = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, owner.Id), "files", relative);
+                            var snapshot = GamePath.Resolve(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, owner.Id), $"files/{relative}");
                             if (File.Exists(snapshot)) File.Copy(snapshot, gameFile, overwrite: true);
                         }
                         else if (File.Exists(backup))
@@ -375,7 +391,7 @@ internal static class DeltaResolver
                 string baseId;
                 if (owner != null)
                 {
-                    basePath = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, owner.Id), "files", relative);
+                    basePath = GamePath.Resolve(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, owner.Id), $"files/{relative}");
                     baseId = $"mod:{owner.Id}@{owner.Version}:{HashFile(basePath)}";
                     if (!File.Exists(backup) && File.Exists(gameFile) && !state.ContainsKey(relative))
                     {

@@ -169,8 +169,10 @@ internal static class ModIntegrity
         {
             var relative = packagePath["files/".Length..];
 
-            // The mod folder snapshot is the install state and always exists.
-            var snapshotHash = HashFileOrNull(Path.Combine(modDir, "files", relative));
+            // The mod folder snapshot is the install state and always exists. The installer writes
+            // it under the game's casing, which a case-insensitive disk may spell differently than
+            // the package's CHECKSUMS entry.
+            var snapshotHash = HashFileOrNull(GamePath.Resolve(modDir, $"files/{relative}"));
             if (snapshotHash == null) return $"the installed file '{packagePath}' is missing; the mod was modified after install";
 
             // The copy in the game folder, when exactly one enabled mod writes this file.
@@ -179,7 +181,7 @@ internal static class ModIntegrity
                 owners == 1 &&
                 !relative.EndsWith(".ini", StringComparison.OrdinalIgnoreCase))
             {
-                var gameHash = HashFileOrNull(Path.Combine(resolvedGame, relative));
+                var gameHash = HashFileOrNull(GamePath.Resolve(resolvedGame, relative));
                 if (gameHash != null && !string.Equals(gameHash, snapshotHash, StringComparison.OrdinalIgnoreCase))
                     return $"the game file '{relative}' was modified after install";
             }
@@ -189,8 +191,8 @@ internal static class ModIntegrity
                 : $"the installed file '{packagePath}' was modified after install";
         }
 
-        // Everything else lives verbatim in the mod folder.
-        var path = Path.GetFullPath(Path.Combine(modDir, packagePath));
+        // Everything else lives verbatim in the mod folder, under the casing the install wrote it.
+        var path = Path.GetFullPath(GamePath.Resolve(modDir, packagePath));
         var fullModDir = Path.GetFullPath(modDir);
         if (!path.StartsWith(fullModDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             return $"the package file '{packagePath}' would read outside the mod folder";

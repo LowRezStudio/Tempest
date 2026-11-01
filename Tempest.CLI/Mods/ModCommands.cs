@@ -54,6 +54,12 @@ internal class ModCommands
                     mod.MetadataVersion = 2;
                 }
 
+                // Older installs recorded the package's spelling, which can differ from the game
+                // folder's (`shootingrange_collision.upk` for `ShootingRange_Collision.upk`): the
+                // same file on Windows, a different one on Linux. Read them as the disk spells them.
+                CanonicalizeGamePaths(resolvedGame, mod.OwnedFiles);
+                CanonicalizeGamePaths(resolvedGame, mod.DeltaFiles);
+
                 if (!string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase)) continue;
                 
                 var modDir = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id);
@@ -93,6 +99,31 @@ internal class ModCommands
         catch
         {
             return [];
+        }
+    }
+
+    /// <summary>
+    /// Rewrites game file paths of a record in the casing the game folder uses, so lookups work on
+    /// a case-sensitive file system. Paths that are not under the game folder (or cannot be read)
+    /// are left as recorded.
+    /// </summary>
+    private static void CanonicalizeGamePaths(string resolvedGame, List<string> files)
+    {
+        for (var i = 0; i < files.Count; i++)
+        {
+            try
+            {
+                var absolute = Path.IsPathRooted(files[i])
+                    ? Path.GetFullPath(files[i])
+                    : Path.GetFullPath(Path.Combine(resolvedGame, files[i]));
+                var relative = Path.GetRelativePath(resolvedGame, absolute);
+                if (relative == "." || relative.StartsWith("..", StringComparison.Ordinal)) continue;
+                files[i] = Path.Combine(resolvedGame, GamePath.Canonical(resolvedGame, relative));
+            }
+            catch
+            {
+                // A path that cannot be read is not one the resolver can use either; keep it.
+            }
         }
     }
 
