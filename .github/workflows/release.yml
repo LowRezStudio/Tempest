@@ -57,7 +57,7 @@ jobs:
         include:
           - platform: windows-latest
             arch: x64
-          - platform: macos-14
+          - platform: macos-15
             arch: arm64
           - platform: ubuntu-22.04
             arch: x64
