@@ -29,6 +29,8 @@ import {
 	Sparkles,
 	SunMoon,
 	Undo2,
+	Shirt,
+	Map as MapIcon,
 	Users,
 	ZoomIn,
 } from "@lucide/svelte";
@@ -37,6 +39,7 @@ import { assembly } from "./assembly.svelte";
 import { CONTAINS_SCRIPT } from "./classes";
 import { commands, type Command } from "./commands.svelte";
 import { basename } from "./format";
+import { map } from "./map.svelte";
 import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
 import { session } from "./session.svelte";
@@ -94,9 +97,11 @@ const filesToSave = (all: boolean): string[] =>
 		? [...studio.dirty, ...assembly.dirtyDocs.map((d) => d.path)].map(basename)
 		: inAssembly()
 			? assembly.dirtyDocs.map((d) => basename(d.path))
-			: studio.pkg
-				? [studio.pkg.name]
-				: [];
+			: studio.mode === "map"
+				? map.dirtyLevels.map(basename)
+				: studio.pkg
+					? [studio.pkg.name]
+					: [];
 
 async function saveAs(): Promise<void> {
 	if (inAssembly()) {
@@ -251,10 +256,13 @@ export function registerActions(): () => void {
 					? true
 					: inAssembly()
 						? assembly.dirtyDocs.length > 0
-						: studio.isDirty,
+						: studio.mode === "map"
+							? map.dirtyLevels.length > 0
+							: studio.isDirty,
 			run: async () => {
 				if (session.project) return session.saveProject();
 				if (!(await confirmInPlace(filesToSave(false)))) return;
+				if (studio.mode === "map") return studio.saveAll(map.dirtyLevels);
 				await (inAssembly() ? assembly.saveAll() : studio.save());
 			},
 		},
@@ -312,9 +320,12 @@ export function registerActions(): () => void {
 			enabled: () =>
 				inAssembly()
 					? assembly.undoLabels.length > 0
-					: !!swfEditor.doc?.canUndo || studio.undoLabels.length > 0,
+					: studio.mode === "map"
+						? map.canUndo
+						: !!swfEditor.doc?.canUndo || studio.undoLabels.length > 0,
 			run: () => {
 				if (inAssembly()) return assembly.undo();
+				if (studio.mode === "map") return map.undo();
 				if (swfEditor.doc?.canUndo) return swfEditor.doc.undoEdit();
 				return studio.undo();
 			},
@@ -436,6 +447,16 @@ export function registerActions(): () => void {
 			global: true,
 			enabled: ws,
 			run: () => (studio.mode = "assembly"),
+		},
+		{
+			id: "view.map",
+			title: "Maps (3D view, actors, Kismet)",
+			group: "View",
+			keys: "Mod+4",
+			icon: MapIcon,
+			global: true,
+			enabled: ws,
+			run: () => (studio.mode = "map"),
 		},
 		{
 			id: "view.mod",
@@ -679,7 +700,7 @@ export function registerActions(): () => void {
 		},
 		{
 			id: "asm.newContent",
-			title: "New device, card, item or champion…",
+			title: "New device, card, item, skin or champion…",
 			group: "Assembly",
 			icon: Sparkles,
 			enabled: () => !!assembly.summary,
@@ -692,6 +713,14 @@ export function registerActions(): () => void {
 			icon: Users,
 			enabled: () => !!assembly.summary,
 			run: () => ui.open("vendor"),
+		},
+		{
+			id: "asm.skins",
+			title: "Skin collections (which skins the client lists per champion)…",
+			group: "Assembly",
+			icon: Shirt,
+			enabled: () => !!assembly.summary,
+			run: () => ui.open("skins"),
 		},
 		{
 			id: "asm.exportMod",

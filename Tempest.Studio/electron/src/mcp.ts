@@ -58,12 +58,12 @@ function target(id?: number): BrowserWindow {
 
 /** Run code in a window against the stores; `code` is the body of an async function
  * with the stores (`studio`, `assembly`, `rpc`, `session`, `ui`, `tabs`, `commands`,
- * `nav`, `cooker`, `swfDoc`, `swfTool`) and `watch` in scope. The returned value comes back as JSON. */
+ * `nav`, `cooker`, `map`, `swfDoc`, `swfTool`) and `watch` in scope. The returned value comes back as JSON. */
 async function evalIn(win: BrowserWindow, code: string): Promise<unknown> {
 	const wrapped = `(async () => {
 		const api = window.__tempest;
 		if (!api) throw new Error("the renderer is not ready");
-		const { studio, assembly, rpc, session, ui, tabs, commands, nav, cooker, swfDoc, swfTool } = api;
+		const { studio, assembly, rpc, session, ui, tabs, commands, nav, cooker, map, swfDoc, swfTool } = api;
 		${WATCH_JS}
 		const __result = await (async () => { ${code} })();
 		return JSON.stringify(__result === undefined ? null : __result);
@@ -276,8 +276,9 @@ function buildServer(): McpServer {
 		"studio_set_mode",
 		{
 			title: "Switch mode",
-			description: "Show the Packages view, the Assembly view or the mod cooker (mod).",
-			inputSchema: { mode: z.enum(["packages", "assembly", "mod"]), window: win },
+			description:
+				"Show the Packages view, the Assembly view, the map view (map) or the mod cooker (mod).",
+			inputSchema: { mode: z.enum(["packages", "assembly", "map", "mod"]), window: win },
 		},
 		({ mode, window }) =>
 			guarded(async () => {
@@ -324,7 +325,7 @@ function buildServer(): McpServer {
 		{
 			title: "Evaluate in the renderer",
 			description:
-				"Run JavaScript in a window with the renderer stores in scope: `studio` (packages, state.svelte.ts), `assembly` (assembly.svelte.ts), `rpc` (typed backend calls), `session` (projects and workspace files, session.svelte.ts), `cooker` (mod cooker, cooker.svelte.ts), `commands` (command registry), `ui` (dialogs, ui.asking = pending confirmation), `tabs`, `nav`, `swfDoc(path, index)` (the movie editor's document of a SwfMovie export, swf.svelte.ts; studio_swf covers it); plus `watch(promise, ms)` which returns early with the question when the action asks for a confirmation. The code is the body of an async function and its return value comes back as JSON. Example: `return (await rpc('workspace.search', { query: 'zhin', limit: 5 })).results;`",
+				"Run JavaScript in a window with the renderer stores in scope: `studio` (packages, state.svelte.ts), `assembly` (assembly.svelte.ts), `rpc` (typed backend calls), `session` (projects and workspace files, session.svelte.ts), `cooker` (mod cooker, cooker.svelte.ts), `map` (map view and Kismet, map.svelte.ts; studio_map covers it), `commands` (command registry), `ui` (dialogs, ui.asking = pending confirmation), `tabs`, `nav`, `swfDoc(path, index)` (the movie editor's document of a SwfMovie export, swf.svelte.ts; studio_swf covers it); plus `watch(promise, ms)` which returns early with the question when the action asks for a confirmation. The code is the body of an async function and its return value comes back as JSON. Example: `return (await rpc('workspace.search', { query: 'zhin', limit: 5 })).results;`",
 			inputSchema: { code: z.string(), window: win },
 		},
 		({ code, window }) => guarded(async () => text(await evalIn(target(window), code))),
@@ -647,6 +648,157 @@ function buildServer(): McpServer {
 		mode: z.enum(["delta", "whole"]).optional(),
 		source: z.string().optional().describe("entries[].sources[].id to take the changes from"),
 	});
+	server.registerTool(
+		"studio_map",
+		{
+			title: "Map view",
+			description:
+				"The map view of a window (a persistent map and the sublevels it streams). `list`: packages holding a level (`persistent` ones stream sublevels). `open` {path}: show a map. `levels`: its levels with actor counts per category (playerstart, botfactory, spawn, mesh, trigger, blocking, volume, light, sound, emitter, gameplay, navigation, info, other) and unsaved state. `actors` {category?, filter?, level?}: actors (level, export, name, class, category, location, rotation, info such as TeamIndex), at most 500. `select` {level, export}: select an actor (the inspector shows it, the gizmo is on it). `move` {level, export, location?, rotation?}: set an actor's Location (Unreal units, X Y Z) and/or Rotation (Pitch Yaw Roll, 65536 = 360°) — for a mesh inside a StaticMeshCollectionActor (`edit: component`) the component's Translation/Rotation; an unsaved edit of that level package. `show` {categories?, levels?, shading?}: hide/show categories or levels (true = visible), shading lit|unlit|untextured|wireframe. `kismet` {level, sequence?}: the level's Kismet sequences and one sequence's nodes (connectors with their links). `link` / `unlink` {from, to, output+input | variable}: connect or break a Kismet link in the shown sequence. `palette`: the kinds of Kismet nodes the game uses. `addNode` {nodeClass, x?, y?, originator?, object?}: add a node of that class (copied from an example, links emptied) to the shown sequence; an event fires from `originator` (an actor export of the level), an object variable holds `object`. `removeNode` {node}. `heavyWalls` {on?}: actors flagged m_bCanBaseOn False (rooftops; on walls, heavy walls) and colour them in the view; `canBaseOn` {level, export, value}: set the flag. `export` {out, levels?, skip?, volumes?, textureSize?}: the map as .glb or .fbx (by `out`). `matinee` {level, export}: open a SeqAct_Interp's timeline (groups, tracks, keys, driven actors); `setKey` {track, curve, key, time?, value?}, `addKey` {track, curve, time}, `removeKey` {track, curve, key} edit it (`curve` is a curve's `path` from the timeline); `matineeTime` {time}: preview the timeline at a time. `undo`: take back the last map edit. Save with studio_run_command file.save.",
+			inputSchema: {
+				action: z.enum([
+					"list",
+					"open",
+					"levels",
+					"actors",
+					"select",
+					"move",
+					"show",
+					"kismet",
+					"link",
+					"unlink",
+					"palette",
+					"addNode",
+					"removeNode",
+					"heavyWalls",
+					"canBaseOn",
+					"export",
+					"matinee",
+					"setKey",
+					"addKey",
+					"removeKey",
+					"matineeTime",
+					"undo",
+				]),
+				nodeClass: z.string().optional(),
+				x: z.number().optional(),
+				y: z.number().optional(),
+				originator: z.number().int().optional(),
+				object: z.number().int().optional(),
+				node: z.number().int().optional(),
+				on: z.boolean().optional(),
+				value: z.union([z.boolean(), z.number(), z.array(z.number())]).optional(),
+				out: z.string().optional(),
+				skip: z.array(z.string()).optional(),
+				volumes: z.boolean().optional(),
+				textureSize: z.number().int().optional(),
+				track: z.number().int().optional(),
+				curve: z.string().optional(),
+				key: z.number().int().optional(),
+				time: z.number().optional(),
+				path: z.string().optional(),
+				level: z.string().optional(),
+				export: z.number().int().optional(),
+				category: z.string().optional(),
+				filter: z.string().optional(),
+				location: z.tuple([z.number(), z.number(), z.number()]).optional(),
+				rotation: z.tuple([z.number(), z.number(), z.number()]).optional(),
+				categories: z.record(z.string(), z.boolean()).optional(),
+				levels: z.record(z.string(), z.boolean()).optional(),
+				shading: z.enum(["lit", "unlit", "untextured", "wireframe"]).optional(),
+				sequence: z.number().int().optional(),
+				from: z.number().int().optional(),
+				to: z.number().int().optional(),
+				output: z.number().int().optional(),
+				input: z.number().int().optional(),
+				variable: z.number().int().optional(),
+				window: win,
+			},
+		},
+		(a) =>
+			guarded(async () => {
+				const w = target(a.window);
+				const out = await evalIn(
+					w,
+					`const a = ${JSON.stringify(a)};
+					const levelOf = (p) => map.levels.find((l) => l.path === p || l.name.toLowerCase() === String(p).toLowerCase());
+					const brief = (l, x) => ({ level: l.path, export: x.export, name: x.name, class: x.class, category: x.category, edit: x.edit, location: x.location, rotation: x.rotation, info: x.info });
+					switch (a.action) {
+						case "list": { await map.loadList(); return map.list; }
+						case "open": { if (!a.path) throw new Error("give path"); await map.open(a.path); break; }
+						case "select": { const l = levelOf(a.level); if (!l) throw new Error("no such level"); await map.select({ level: l.path, export: a.export }); map.focusRequest++; break; }
+						case "move": {
+							const l = levelOf(a.level); if (!l) throw new Error("no such level");
+							const x = l.actors.find((y) => y.export === a.export); if (!x) throw new Error("no such actor");
+							await rpc("map.setTransform", { path: l.path, index: a.export, location: a.location, rotation: a.rotation, parent: x.edit === "component" ? x.parent : undefined });
+							map.noteEdit(l.path);
+							await map.reloadLevel(l.path);
+							break;
+						}
+						case "show": {
+							if (a.categories) map.hiddenCategories = { ...map.hiddenCategories, ...Object.fromEntries(Object.entries(a.categories).map(([k, v]) => [k, !v])) };
+							if (a.levels) { const h = { ...map.hiddenLevels }; for (const [k, v] of Object.entries(a.levels)) { const l = levelOf(k); if (l) h[l.path] = !v; } map.hiddenLevels = h; }
+							if (a.shading) map.shading = a.shading;
+							break;
+						}
+						case "kismet": { const l = levelOf(a.level ?? map.path); if (!l) throw new Error("no such level"); await map.openKismet(l.path, a.sequence); return { level: l.path, sequences: map.sequences, graph: map.graph }; }
+						case "link": case "unlink": {
+							await map.link({ from: a.from, to: a.to, output: a.output, input: a.input, variable: a.variable, remove: a.action === "unlink" });
+							return { graph: map.graph };
+						}
+						case "palette": { await map.loadPalette(); return map.palette.map((c) => ({ class: c.class, kind: c.kind, count: c.count })); }
+						case "addNode": {
+							await map.loadPalette();
+							const c = map.palette.find((p) => p.class === String(a.nodeClass).toLowerCase());
+							if (!c) throw new Error("no example of " + a.nodeClass + " in this folder (see palette)");
+							const g = await rpc("kismet.add", { path: map.kismetLevel, sequence: map.sequence, example: { path: c.example.path, index: c.example.index }, x: a.x ?? 0, y: a.y ?? 0, originator: a.originator, object: a.object });
+							map.graph = g; map.noteEdit(map.kismetLevel);
+							return { added: g.added, node: g.nodes.find((n) => n.export === g.added) };
+						}
+						case "removeNode": await map.removeNode(a.node); return { graph: map.graph };
+						case "heavyWalls": {
+							if (a.on !== undefined) map.heavyWalls = a.on;
+							const rows = [];
+							for (const l of map.levels) for (const x of l.actors) if (x.canBaseOn === false) rows.push(brief(l, x));
+							return { on: map.heavyWalls, count: rows.length, actors: rows.slice(0, 500) };
+						}
+						case "canBaseOn": { const l = levelOf(a.level); if (!l) throw new Error("no such level"); await map.select({ level: l.path, export: a.export }); await map.setCanBaseOn(Boolean(a.value)); break; }
+						case "export": {
+							if (!a.out) throw new Error("give out (.glb or .fbx)");
+							return await rpc("map.export", { path: map.path, out: a.out, levels: a.levels ? Object.keys(a.levels).map((k) => levelOf(k)?.path).filter(Boolean) : undefined, skip: a.skip, volumes: a.volumes, textureSize: a.textureSize });
+						}
+						case "matinee": { const l = levelOf(a.level ?? map.path); if (!l) throw new Error("no such level"); await map.openMatinee(l.path, a.export); return map.matinee; }
+						case "setKey": { await map.setKey(a.track, a.curve, a.key, { time: a.time, value: a.value }); return map.matinee; }
+						case "addKey": { await map.addKey(a.track, a.curve, a.time); return { key: map.matineeKey, timeline: map.matinee }; }
+						case "removeKey": { await map.removeKey(a.track, a.curve, a.key); return map.matinee; }
+						case "matineeTime": { map.matineeTime = a.time ?? 0; return { time: map.matineeTime, poses: [...map.matineePreview.poses.keys()] }; }
+						case "undo": await map.undo(); break;
+					}
+					if (a.action === "actors") {
+						const q = (a.filter ?? "").toLowerCase();
+						const rows = [];
+						for (const l of map.levels) {
+							if (a.level && levelOf(a.level) !== l) continue;
+							for (const x of l.actors) {
+								if (a.category && x.category !== a.category) continue;
+								if (q && !x.name.toLowerCase().includes(q) && !x.class.toLowerCase().includes(q)) continue;
+								rows.push(brief(l, x));
+							}
+						}
+						return { total: rows.length, actors: rows.slice(0, 500) };
+					}
+					return {
+						map: map.path, view: map.view, error: map.error,
+						levels: map.levels.map((l) => ({ path: l.path, name: l.name, actors: l.actors.length, counts: l.counts, unsaved: studio.dirty.includes(l.path), hidden: !!map.hiddenLevels[l.path] })),
+						missing: map.missing,
+						selected: map.selected && (() => { const l = levelOf(map.selected.level); const x = map.actor(); return l && x ? brief(l, x) : map.selected; })(),
+						hiddenCategories: Object.keys(map.hiddenCategories).filter((k) => map.hiddenCategories[k]),
+						shading: map.shading,
+					};`,
+				);
+				return text(out);
+			}),
+	);
+
 	server.registerTool(
 		"studio_mod",
 		{

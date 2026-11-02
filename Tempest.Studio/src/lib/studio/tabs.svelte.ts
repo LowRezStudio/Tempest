@@ -1,5 +1,5 @@
 // Tabs over the places of the window: each tab remembers one place (a
-// package object or an assembly table/row). Moving around changes the
+// package object, an assembly table/row, or the mod cooker). Moving around changes the
 // active tab's place; Ctrl/middle-click on a package, export or reference
 // opens a new tab; clicking a tab goes back to its place.
 import { basename } from "./format";
@@ -100,6 +100,24 @@ class Tabs {
 	}
 
 	label(place: Place): { title: string; detail: string } {
+		if (place.kind === "map") {
+			const name = basename(place.path).replace(/\.upk$/i, "");
+			return {
+				title:
+					place.view === "kismet"
+						? `${name} Kismet`
+						: place.view === "matinee"
+							? `${name} Matinee`
+							: name,
+				detail: `Map ${basename(place.path)}${place.level ? ` › ${basename(place.level)}` : ""}${place.index !== undefined ? ` › export ${place.index}` : ""}`,
+			};
+		}
+		if (place.kind === "mod") {
+			return {
+				title: "Mod cooker",
+				detail: "What the mod changes, details, build and publish",
+			};
+		}
 		if (place.kind === "package") {
 			const leaf = place.label?.split(".").at(-1) ?? `#${place.index}`;
 			return {

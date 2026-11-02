@@ -2,6 +2,7 @@
 // `Lang_*.dat` (messages) marshals opened by the backend (`mcts.*`), the
 // table and page on screen, the selected row, and the reference rules that
 // turn `*_ID` columns into links.
+import { untrack } from "svelte";
 import { invoke } from "$lib/platform/api";
 import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
@@ -189,6 +190,11 @@ class Assembly {
 		if (this.summary) {
 			this.summary.docs = this.summary.docs.map((d) => (d.id === id ? doc : d));
 		}
+	}
+
+	/** After an edit made outside the grid (New content, the vendor dialogs): refresh every document. */
+	async touched(): Promise<void> {
+		for (const d of this.summary?.docs ?? []) await this.refreshDoc(d.id);
 	}
 
 	/** Show a row set: a top-level table, or a nested one under `path`. */
@@ -703,4 +709,43 @@ export const assembly = new Assembly();
 nav.register({
 	package: (p) => studio.visit(p.path, p.index),
 	assembly: (p) => assembly.visit(p),
+	mod: () => {
+		studio.mode = "mod";
+		return Promise.resolve();
+	},
+});
+
+// The view switch (activity bar, Ctrl+1/2/3) is a move like any other: the
+// mod cooker is a place of its own, and leaving it records where the other
+// view stands, so a tab keeps the view it was left on.
+$effect.root(() => {
+	$effect(() => {
+		const mode = studio.mode;
+		untrack(() => {
+			if (mode === "mod") {
+				nav.record({ kind: "mod" });
+				return;
+			}
+			if (mode === "map") return;
+			const current = nav.history[nav.pos];
+			if (current?.kind !== "mod" && current?.kind !== "map") return;
+			if (mode === "packages" && studio.pkg && studio.selected !== null) {
+				nav.record({
+					kind: "package",
+					path: studio.pkg.path,
+					index: studio.selected,
+					label: studio.pkg.exports[studio.selected]?.path,
+				});
+			} else if (mode === "assembly" && assembly.page) {
+				const p = assembly.page;
+				nav.record({
+					kind: "assembly",
+					doc: p.doc,
+					path: $state.snapshot(p.path) as McsPath,
+					table: p.table,
+					index: assembly.selected,
+				});
+			}
+		});
+	});
 });

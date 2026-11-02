@@ -480,6 +480,17 @@ impl Server {
             "mesh.materials" => self.mesh_materials(p),
             "mesh.setMaterial" => self.mesh_set_material(p),
             "mesh.ownMaterial" => self.mesh_own_material(p),
+            "map.list" => self.map_list(),
+            "map.scene" => self.map_scene(p),
+            "map.setTransform" => self.map_set_transform(p),
+            "map.export" => self.map_export(p),
+            "kismet.sequences" => self.kismet_sequences(p),
+            "kismet.graph" => self.kismet_graph(p),
+            "kismet.link" => self.kismet_link(p),
+            "kismet.palette" => self.kismet_palette(p),
+            "matinee.get" | "matinee.setKey" | "matinee.addKey" | "matinee.removeKey" => self.matinee(method, p),
+            "kismet.add" => self.kismet_add(p),
+            "kismet.remove" => self.kismet_remove(p),
             "anim.info" => self.anim_info(p),
             "anim.preview" => self.anim_preview(p),
             "anim.export" => self.anim_export(p),
@@ -584,6 +595,9 @@ impl Server {
             "mcts.serverRows" => Ok(self.mcts()?.server_rows(p)?),
             "mcts.vendor" => Ok(self.mcts()?.vendor()?),
             "mcts.vendorAdd" => Ok(self.mcts_mut()?.vendor_add(p)?),
+            "mcts.collections" => Ok(self.mcts()?.collections(p)?),
+            "mcts.collection" => Ok(self.mcts()?.collection(p)?),
+            "mcts.collectionAdd" => Ok(self.mcts_mut()?.collection_add(p)?),
             "mcts.scaffold" => Ok(self.mcts_mut()?.scaffold(p)?),
             "mcts.close" => {
                 self.mcts = None;
@@ -1498,6 +1512,421 @@ impl Server {
     }
 
     /// GLB bytes of a mesh (`preview`: base64 in the response).
+    /// `map.list`: packages holding a level, persistent maps (those that
+    /// stream sublevels) first.
+    fn map_list(&mut self) -> Res<J> {
+        self.index_all();
+        let mut maps = Vec::new();
+        for w in &self.packages {
+            let Some(idx) = self.index.get(&key(&w.path.to_string_lossy())) else { continue };
+            if !idx.classes.iter().any(|c| c.eq_ignore_ascii_case("level")) {
+                continue;
+            }
+            let streams = idx.classes.iter().any(|c| c.to_ascii_lowercase().starts_with("levelstreaming"));
+            let kismet = idx.classes.iter().any(|c| c.eq_ignore_ascii_case("sequence"));
+            maps.push(json!({ "path": w.path.to_string_lossy(), "name": w.name, "persistent": streams, "kismet": kismet, "size": w.size }));
+        }
+        Ok(json!({ "maps": maps }))
+    }
+
+    /// The workspace file of a package name (`abyss_art_props`), any case.
+    fn package_file(&self, name: &str) -> Option<String> {
+        let stem = name.rsplit(['/', '\\']).next().unwrap_or(name);
+        let stem = stem.split('.').next().unwrap_or(stem);
+        self.packages.iter().find(|w| Path::new(&w.name).file_stem().is_some_and(|s| s.to_string_lossy().eq_ignore_ascii_case(stem))).map(|w| w.path.to_string_lossy().to_string())
+    }
+
+    /// `map.scene {path, streamed?}`: the level of the package and, for a
+    /// persistent map (default `streamed: true`), of every sublevel it
+    /// streams: actors, their world matrices and what they draw
+    /// (`map::level_scene`). Meshes referenced by import get the package
+    /// that holds them (search index).
+    fn map_scene(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let streamed = opt_b(p, "streamed").unwrap_or(true);
+        let db = self.db()?;
+        let mut files = vec![path.clone()];
+        let mut missing = Vec::new();
+        if streamed {
+            let names = crate::map::streamed_levels(self.editor(&path)?);
+            for n in names {
+                match self.package_file(&n) {
+                    Some(f) if !files.iter().any(|x| key(x) == key(&f)) => files.push(f),
+                    Some(_) => {}
+                    None => missing.push(n),
+                }
+            }
+        }
+        let mut levels = Vec::new();
+        let mut lookups: Vec<String> = Vec::new();
+        for f in &files {
+            let ed = self.editor(f)?;
+            let mut scene = crate::map::level_scene(ed, db, f)?;
+            scene["name"] = J::from(Path::new(f).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default());
+            scene["dirty"] = J::from(ed.is_dirty());
+            if let Some(actors) = scene["actors"].as_array() {
+                for a in actors {
+                    for part in a["parts"].as_array().into_iter().flatten() {
+                        if let Some(o) = part["mesh"]["object"].as_str() {
+                            lookups.push(o.to_string());
+                        }
+                    }
+                }
+            }
+            levels.push(scene);
+        }
+        if !lookups.is_empty() {
+            self.index_all();
+            let mut found: HashMap<String, Option<String>> = HashMap::new();
+            for o in lookups {
+                let name = index_lookup(&self.index, &self.packages, &o);
+                let file = name.and_then(|n| self.package_file(&n));
+                found.insert(o, file);
+            }
+            for level in levels.iter_mut() {
+                for a in level["actors"].as_array_mut().into_iter().flatten() {
+                    for part in a["parts"].as_array_mut().into_iter().flatten() {
+                        let Some(o) = part["mesh"]["object"].as_str().map(|s| s.to_string()) else { continue };
+                        if let Some(Some(f)) = found.get(&o) {
+                            part["mesh"]["path"] = J::from(f.clone());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(json!({ "path": path, "levels": levels, "missing": missing }))
+    }
+
+    /// `map.setTransform {path, index, matrix | location+rotation, parent?}`:
+    /// move an actor (or, with `parent`, a component of that actor) to a
+    /// world matrix in the view's space (`map::set_transform`), or set its
+    /// location/rotation numbers; one undo step.
+    fn map_set_transform(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let nums = |k: &str| -> Option<Vec<f64>> { p.get(k).and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_f64()).collect()) };
+        let parent = opt_u(p, "parent");
+        let ed = self.editor(path)?;
+        let name = ed.pkg.object_name(PackageIndex::export(i));
+        ed.begin_undo(format!("move {name}"));
+        let mut v = match nums("matrix") {
+            Some(matrix) => crate::map::set_transform(ed, i, &matrix, parent)?,
+            // Numbers instead of a matrix: `location` (Location, or Translation
+            // for a component) and `rotation` (Pitch, Yaw, Roll).
+            None => {
+                let t = if parent.is_some() { "Translation" } else { "Location" };
+                if let Some(l) = nums("location").filter(|l| l.len() == 3) {
+                    for (k, axis) in ["X", "Y", "Z"].iter().enumerate() {
+                        ed.set(i, &format!("{t}.{axis}"), &format!("{:?}", l[k]))?;
+                    }
+                }
+                if let Some(r) = nums("rotation").filter(|r| r.len() == 3) {
+                    for (k, axis) in ["Pitch", "Yaw", "Roll"].iter().enumerate() {
+                        ed.set(i, &format!("Rotation.{axis}"), &format!("{}", r[k].round() as i64))?;
+                    }
+                }
+                json!({})
+            }
+        };
+        v["row"] = json::export_row(&ed.pkg, i);
+        v["dirty"] = J::from(true);
+        Ok(v)
+    }
+
+    /// `kismet.sequences {path}`.
+    fn kismet_sequences(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let db = self.db()?;
+        let ed = self.editor(path)?;
+        Ok(json!({ "sequences": crate::kismet::sequences(ed, db) }))
+    }
+
+    /// `kismet.graph {path, index}`: one sequence's nodes and links.
+    fn kismet_graph(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let db = self.db()?;
+        let ed = self.editor(path)?;
+        let mut g = crate::kismet::graph(ed, db, i)?;
+        g["dirty"] = J::from(ed.is_dirty());
+        Ok(g)
+    }
+
+    /// `kismet.link {path, sequence, from, to, output+input | variable, remove?}`:
+    /// connect or disconnect (one undo step), then the sequence's graph.
+    fn kismet_link(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let seq = opt_u(p, "sequence").ok_or("missing sequence")?;
+        let db = self.db()?;
+        let ed = self.editor(path)?;
+        let remove = opt_b(p, "remove").unwrap_or(false);
+        ed.begin_undo(if remove { "unlink kismet" } else { "link kismet" });
+        let changed = crate::kismet::link(ed, p)?;
+        let mut g = crate::kismet::graph(ed, db, seq)?;
+        g["changed"] = J::from(changed);
+        g["dirty"] = J::from(ed.is_dirty());
+        Ok(g)
+    }
+
+    /// `map.export {path, out, streamed?, levels?, skip?, volumes?, textures?, textureSize?}`:
+    /// the map (and its sublevels) as one GLB or FBX (by `out`'s extension):
+    /// each mesh once, placed by a node per placement under a node per level;
+    /// `levels` (package paths) limits the levels, `skip` leaves categories
+    /// out, `volumes` adds the brushes of volumes; `map.progress` events.
+    fn map_export(&mut self, p: &J) -> Res<J> {
+        use crate::map::{mul, Mat};
+        use crate::mesh_ops::{Geometry, SceneNode, Section};
+        let out = s(p, "out")?.to_string();
+        let path = s(p, "path")?.to_string();
+        let textures = opt_b(p, "textures").unwrap_or(true);
+        let texture_size = opt_u(p, "textureSize").unwrap_or(1024);
+        let volumes = opt_b(p, "volumes").unwrap_or(false);
+        let only: Option<Vec<String>> = p.get("levels").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(key)).collect());
+        let skip: Vec<String> = p.get("skip").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default();
+        let scene = self.map_scene(&json!({ "path": path, "streamed": opt_b(p, "streamed").unwrap_or(true) }))?;
+        let mat_of = |v: &J| -> Mat {
+            let mut m = crate::map::IDENTITY;
+            if let Some(a) = v.as_array() {
+                for (i, x) in a.iter().enumerate().take(16) {
+                    m[i / 4][i % 4] = x.as_f64().unwrap_or(0.0);
+                }
+            }
+            m
+        };
+        let flat = |m: &Mat| -> [f64; 16] {
+            let mut a = [0.0; 16];
+            for i in 0..16 {
+                a[i] = m[i / 4][i % 4];
+            }
+            a
+        };
+        let mut meshes: Vec<(String, Geometry)> = Vec::new();
+        let mut mesh_index: HashMap<String, Option<usize>> = HashMap::new();
+        let mut nodes: Vec<SceneNode> = Vec::new();
+        let mut warnings: Vec<String> = Vec::new();
+        let levels: Vec<J> = scene["levels"].as_array().cloned().unwrap_or_default();
+        let total: usize = levels.iter().map(|l| l["actors"].as_array().map(|a| a.len()).unwrap_or(0)).sum();
+        let mut done = 0usize;
+        for level in &levels {
+            let lpath = level["path"].as_str().unwrap_or("");
+            if only.as_ref().is_some_and(|o| !o.contains(&key(lpath))) {
+                continue;
+            }
+            let group = nodes.len();
+            nodes.push(SceneNode { name: level["name"].as_str().unwrap_or("level").to_string(), mesh: None, matrix: flat(&crate::map::IDENTITY), parent: None });
+            for a in level["actors"].as_array().into_iter().flatten() {
+                done += 1;
+                if done.is_multiple_of(25) {
+                    let mut f = Map::new();
+                    f.insert("done".into(), J::from(done));
+                    f.insert("total".into(), J::from(total));
+                    self.event("map.progress", f);
+                }
+                let cat = a["category"].as_str().unwrap_or("other");
+                if skip.iter().any(|c| c == cat) {
+                    continue;
+                }
+                let actor_m = mat_of(&a["matrix"]);
+                let name = a["name"].as_str().unwrap_or("actor").to_string();
+                let parts = a["parts"].as_array().cloned().unwrap_or_default();
+                for (k, part) in parts.iter().enumerate() {
+                    let kind = part["kind"].as_str().unwrap_or("");
+                    let mesh = if kind == "mesh" && !part["hidden"].as_bool().unwrap_or(false) {
+                        let mkey = format!("{}|{}|{}|{}", part["mesh"]["path"], part["mesh"]["index"], part["mesh"]["object"], part["materials"]);
+                        if let Some(m) = mesh_index.get(&mkey) {
+                            *m
+                        } else {
+                            let mut q = json!({ "path": part["mesh"]["path"], "textures": textures, "textureSize": texture_size, "skin": false, "materials": part["materials"] });
+                            if part["mesh"]["index"].is_number() {
+                                q["index"] = part["mesh"]["index"].clone();
+                            } else {
+                                q["object"] = part["mesh"]["object"].clone();
+                            }
+                            let got = if part["mesh"]["path"].is_string() {
+                                match self.mesh_geometry(&q, true) {
+                                    Ok((mname, g, w)) => {
+                                        warnings.extend(w);
+                                        meshes.push((mname, g));
+                                        Some(meshes.len() - 1)
+                                    }
+                                    Err(e) => {
+                                        warnings.push(format!("{}: {e}", part["meshName"].as_str().unwrap_or("mesh")));
+                                        None
+                                    }
+                                }
+                            } else {
+                                warnings.push(format!("{}: in no package of this folder", part["meshName"].as_str().unwrap_or("mesh")));
+                                None
+                            };
+                            mesh_index.insert(mkey, got);
+                            got
+                        }
+                    } else if kind == "brush" && volumes {
+                        // View-space positions back to Unreal, winding restored.
+                        let pos: Vec<f64> = part["positions"].as_array().map(|v| v.iter().filter_map(|x| x.as_f64()).collect()).unwrap_or_default();
+                        let idx: Vec<u32> = part["indices"].as_array().map(|v| v.iter().filter_map(|x| x.as_u64().map(|n| n as u32)).collect()).unwrap_or_default();
+                        let mut g = Geometry::default();
+                        for c in pos.chunks(3) {
+                            if c.len() == 3 {
+                                g.positions.push([(c[0] * 100.0) as f32, (c[2] * 100.0) as f32, (c[1] * 100.0) as f32]);
+                            }
+                        }
+                        for t in idx.chunks(3) {
+                            if t.len() == 3 {
+                                g.indices.extend([t[0], t[2], t[1]]);
+                            }
+                        }
+                        g.normals = vec![[0.0, 0.0, 1.0]; g.positions.len()];
+                        g.uvs = vec![[0.0, 0.0]; g.positions.len()];
+                        g.sections.push(Section { first_index: 0, num_triangles: (g.indices.len() / 3) as u32, material: PackageIndex::default(), material_name: format!("volume_{cat}"), slot: 0 });
+                        meshes.push((format!("{name}_brush"), g));
+                        Some(meshes.len() - 1)
+                    } else {
+                        continue;
+                    };
+                    let Some(mesh) = mesh else { continue };
+                    let world = if kind == "brush" { actor_m } else { mul(&mat_of(&part["matrix"]), &actor_m) };
+                    let label = if parts.len() > 1 { format!("{name}_{k}") } else { name.clone() };
+                    nodes.push(SceneNode { name: label, mesh: Some(mesh), matrix: flat(&world), parent: Some(group) });
+                }
+            }
+        }
+        let stem = Path::new(&out).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "map".into());
+        let bytes = if out.to_ascii_lowercase().ends_with(".fbx") {
+            crate::mesh_fbx::write_fbx_scene(&stem, &meshes, &nodes)?
+        } else {
+            crate::mesh_ops::write_scene_glb(&stem, &meshes, &nodes)?
+        };
+        std::fs::write(&out, &bytes)?;
+        warnings.sort();
+        warnings.dedup();
+        let placed = nodes.iter().filter(|n| n.mesh.is_some()).count();
+        Ok(json!({ "out": out, "bytes": bytes.len(), "meshes": meshes.len(), "placements": placed, "warnings": warnings.iter().take(100).collect::<Vec<_>>(), "warningCount": warnings.len() }))
+    }
+
+    /// `kismet.palette {path?}`: every kind of Kismet node the workspace's
+    /// packages use (from the search index), with how often and one example
+    /// to copy (in `path` when it has one).
+    fn kismet_palette(&mut self, p: &J) -> Res<J> {
+        self.index_all();
+        let db = self.db()?;
+        let prefer = opt_s(p, "path").map(|x| key(&x));
+        let mut is_seq: HashMap<String, bool> = HashMap::new();
+        let mut found: HashMap<String, (usize, String, usize, bool)> = HashMap::new();
+        for w in &self.packages {
+            let k = key(&w.path.to_string_lossy());
+            let Some(idx) = self.index.get(&k) else { continue };
+            let here = prefer.as_deref() == Some(k.as_str());
+            for (i, (cid, _)) in idx.exports.iter().enumerate() {
+                let Some(class) = idx.classes.get(*cid as usize) else { continue };
+                let ok = *is_seq.entry(class.clone()).or_insert_with(|| db.class_is_a(class, "SequenceObject") && !db.class_is_a(class, "Sequence") && !class.eq_ignore_ascii_case("InterpData"));
+                if !ok {
+                    continue;
+                }
+                let e = found.entry(class.to_ascii_lowercase()).or_insert((0, w.path.to_string_lossy().to_string(), i, here));
+                e.0 += 1;
+                if here && !e.3 {
+                    e.1 = w.path.to_string_lossy().to_string();
+                    e.2 = i;
+                    e.3 = true;
+                }
+            }
+        }
+        let mut out: Vec<J> = found
+            .into_iter()
+            .map(|(class, (count, path, index, _))| json!({ "class": class, "kind": crate::kismet::node_kind(db, &class), "count": count, "example": { "path": path, "index": index } }))
+            .collect();
+        out.sort_by(|a, b| a["class"].as_str().cmp(&b["class"].as_str()));
+        Ok(json!({ "classes": out }))
+    }
+
+    /// `kismet.add {path, sequence, example: {path, index}, x, y, originator?, object?}`:
+    /// a new node in a sequence, copied from an example node (references
+    /// to objects the level lacks cleared, links emptied, `kismet::adopt`);
+    /// one undo step, then the sequence's graph and the new node.
+    fn kismet_add(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let seq = opt_u(p, "sequence").ok_or("missing sequence")?;
+        let ex_path = p["example"]["path"].as_str().ok_or("missing example")?.to_string();
+        let ex_index = p["example"]["index"].as_u64().ok_or("missing example index")? as usize;
+        let x = p.get("x").and_then(|v| v.as_i64()).unwrap_or(0);
+        let y = p.get("y").and_then(|v| v.as_i64()).unwrap_or(0);
+        let originator = opt_u(p, "originator");
+        let object = opt_u(p, "object");
+        let db = self.db()?;
+        let new = if key(&ex_path) == key(&path) {
+            let ed = self.editor(&path)?;
+            ed.begin_undo(format!("add {}", ed.pkg.class_name_of(PackageIndex::export(ex_index))));
+            ed.duplicate(ex_index)?
+        } else {
+            let dk = key(&path);
+            self.editor(&path)?;
+            let mut dst = self.editors.remove(&dk).unwrap();
+            let r = match self.editor(&ex_path) {
+                Ok(src) => {
+                    dst.begin_undo(format!("add {}", src.pkg.class_name_of(PackageIndex::export(ex_index))));
+                    dst.copy_with(src, ex_index, Some(PackageIndex::export(seq)), crate::edit::CopyMode::Clear).map(|(idx, _)| idx.export_index())
+                }
+                Err(e) => {
+                    self.editors.insert(dk, dst);
+                    return Err(e);
+                }
+            };
+            self.editors.insert(dk, dst);
+            r?.ok_or("the copy is not an export")?
+        };
+        let ed = self.editor(&path)?;
+        crate::kismet::adopt(ed, new, seq, x, y, originator, object)?;
+        let mut g = crate::kismet::graph(ed, db, seq)?;
+        g["added"] = J::from(new);
+        g["dirty"] = J::from(true);
+        Ok(g)
+    }
+
+    /// `kismet.remove {path, sequence, node}`: delete a node and every link to it.
+    fn kismet_remove(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let seq = opt_u(p, "sequence").ok_or("missing sequence")?;
+        let node = opt_u(p, "node").ok_or("missing node")?;
+        let db = self.db()?;
+        let ed = self.editor(path)?;
+        ed.begin_undo(format!("delete {}", ed.pkg.object_name(PackageIndex::export(node))));
+        crate::kismet::remove(ed, seq, node)?;
+        let mut g = crate::kismet::graph(ed, db, seq)?;
+        g["dirty"] = J::from(true);
+        Ok(g)
+    }
+
+    /// `matinee.get {path, index}` (a SeqAct_Interp or InterpData) and the key
+    /// edits `matinee.setKey {track, curve, key, time?, value?}`,
+    /// `matinee.addKey {track, curve, time}`, `matinee.removeKey {track,
+    /// curve, key}`; edits are one undo step each and return the timeline.
+    fn matinee(&mut self, method: &str, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let index = self.export_of(path, p)?;
+        let ed = self.editor(path)?;
+        let mut extra = json!({});
+        if method != "matinee.get" {
+            let track = opt_u(p, "track").ok_or("missing track")?;
+            let curve = s(p, "curve")?.to_string();
+            ed.begin_undo(format!("{} {}", method.trim_start_matches("matinee."), ed.pkg.object_name(PackageIndex::export(track))));
+            match method {
+                "matinee.setKey" => crate::matinee::set_key(ed, track, &curve, opt_u(p, "key").ok_or("missing key")?, p.get("time").and_then(|v| v.as_f64()), p.get("value"))?,
+                "matinee.addKey" => {
+                    let k = crate::matinee::add_key(ed, track, &curve, p.get("time").and_then(|v| v.as_f64()).ok_or("missing time")?)?;
+                    extra["key"] = J::from(k);
+                }
+                _ => crate::matinee::remove_key(ed, track, &curve, opt_u(p, "key").ok_or("missing key")?)?,
+            }
+        }
+        let mut out = crate::matinee::get(ed, index)?;
+        if let Some(k) = extra.get("key") {
+            out["key"] = k.clone();
+        }
+        out["dirty"] = J::from(ed.is_dirty());
+        Ok(out)
+    }
+
     fn mesh_glb(&mut self, p: &J, preview: bool) -> Res<J> {
         let (bytes, mut v) = self.mesh_glb_bytes(p, preview)?;
         v["glb"] = self.bins.add(bytes);
@@ -1535,6 +1964,20 @@ impl Server {
         let mut g = mesh_ops::geometry(&ed.pkg, &o, lod)?;
         if !skin {
             g.bones.clear();
+        }
+        // A placed component's overrides (`Materials[slot]`, object paths in
+        // the mesh's package): the map view draws each mesh as placed.
+        if let Some(over) = p.get("materials").and_then(|v| v.as_array()) {
+            let find = |path: &str| -> Option<PackageIndex> {
+                let pkg = &ed.pkg;
+                (0..pkg.exports.len()).map(PackageIndex::export).chain((0..pkg.imports.len()).map(PackageIndex::import)).find(|&i| pkg.object_path(i).eq_ignore_ascii_case(path))
+            };
+            for sec in g.sections.iter_mut() {
+                if let Some(m) = over.get(sec.slot).and_then(|v| v.as_str()).and_then(find) {
+                    sec.material = m;
+                    sec.material_name = ed.pkg.object_path(m);
+                }
+            }
         }
         let mut warnings = Vec::new();
         if textures {

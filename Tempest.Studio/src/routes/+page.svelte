@@ -6,6 +6,7 @@
 	import BatchImportDialog from "$lib/components/BatchImportDialog.svelte";
 	import ChampionVendorDialog from "$lib/components/ChampionVendorDialog.svelte";
 	import FindReplaceDialog from "$lib/components/FindReplaceDialog.svelte";
+	import MapView from "$lib/components/map/MapView.svelte";
 	import McpDialog from "$lib/components/McpDialog.svelte";
 	import ModDialog from "$lib/components/ModDialog.svelte";
 	import ModExportDialog from "$lib/components/ModExportDialog.svelte";
@@ -25,6 +26,7 @@
 	import SaveWorkspaceDialog from "$lib/components/shell/SaveWorkspaceDialog.svelte";
 	import ShortcutsDialog from "$lib/components/shell/ShortcutsDialog.svelte";
 	import TabBar from "$lib/components/shell/TabBar.svelte";
+	import SkinCollectionsDialog from "$lib/components/SkinCollectionsDialog.svelte";
 	import StatusBar from "$lib/components/StatusBar.svelte";
 	import UpdateBanner from "$lib/components/UpdateBanner.svelte";
 	import VerifyDialog from "$lib/components/VerifyDialog.svelte";
@@ -171,6 +173,8 @@
 						<AssemblyView />
 					{:else if studio.mode === "mod"}
 						<ModView />
+					{:else if studio.mode === "map"}
+						<MapView />
 					{:else}
 						<PackagesView />
 					{/if}
@@ -194,6 +198,7 @@
 		<WwiseDialog bind:open={() => isOpen("wwise"), (v) => setOpen("wwise", v)} />
 		<ModExportDialog bind:open={() => isOpen("modExport"), (v) => setOpen("modExport", v)} />
 		<ChampionVendorDialog bind:open={() => isOpen("vendor"), (v) => setOpen("vendor", v)} />
+		<SkinCollectionsDialog bind:open={() => isOpen("skins"), (v) => setOpen("skins", v)} />
 		<SaveWorkspaceDialog
 			bind:open={() => isOpen("saveWorkspace"), (v) => setOpen("saveWorkspace", v)}
 		/>

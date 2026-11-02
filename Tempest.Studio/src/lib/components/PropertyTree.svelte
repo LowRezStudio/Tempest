@@ -9,8 +9,20 @@
 
 	interface Props {
 		obj: Extract<ParsedObject, { kind: "object" }>;
+		/** The package the object is in (default: the open package). */
+		path?: string;
+		/** Called with the object after an edit (default: shown as the open package's object). */
+		onchange?: (updated: ParsedObject) => void;
 	}
-	const { obj }: Props = $props();
+	const { obj, path: pkgPath, onchange }: Props = $props();
+
+	const target = $derived(pkgPath ?? studio.pkg?.path ?? null);
+
+	function changed(updated: ParsedObject) {
+		if (onchange) onchange(updated);
+		else studio.object = updated;
+		studio.markDirty(target ?? undefined);
+	}
 
 	let adding = $state(false);
 
@@ -18,16 +30,15 @@
 	const propPath = (name: string, index: number) => (index > 0 ? `${name}[${index}]` : name);
 
 	async function set(path: string, value: string) {
-		if (!studio.pkg) return;
+		if (!target) return;
 		try {
 			const updated = await rpc("object.set", {
-				path: studio.pkg.path,
+				path: target,
 				index: obj.index,
 				prop: path,
 				value,
 			});
-			studio.object = updated;
-			studio.markDirty();
+			changed(updated);
 		} catch (error) {
 			toasts.error(error, `Could not set ${path}`);
 		}
@@ -38,17 +49,16 @@
 		op: "add" | "duplicate" | "remove" | "removeProperty",
 		at?: number,
 	) {
-		if (!studio.pkg) return;
+		if (!target) return;
 		try {
 			const updated = await rpc("object.list", {
-				path: studio.pkg.path,
+				path: target,
 				index: obj.index,
 				prop: path,
 				op,
 				at,
 			});
-			studio.object = updated;
-			studio.markDirty();
+			changed(updated);
 		} catch (error) {
 			toasts.error(error, `Could not change ${path}`);
 		}
@@ -75,6 +85,8 @@
 					onset={set}
 					onlist={list}
 					index={obj.index}
+					pkgPath={target ?? undefined}
+					onadded={onchange}
 				/>
 			{/each}
 		</tbody>
@@ -82,7 +94,12 @@
 	{#if obj.knownClass && !obj.isClass}
 		<div class="mt-2 px-1">
 			{#if adding}
-				<AddPropertyPicker index={obj.index} onclose={() => (adding = false)} />
+				<AddPropertyPicker
+					index={obj.index}
+					path={target ?? undefined}
+					onadded={onchange}
+					onclose={() => (adding = false)}
+				/>
 			{:else}
 				<button class="btn btn-ghost btn-xs" onclick={() => (adding = true)}>
 					<Plus size={12} /> Add a property…

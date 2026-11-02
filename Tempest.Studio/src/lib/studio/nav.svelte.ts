@@ -20,16 +20,44 @@ export type AssemblyPlace = {
 	table: string;
 	index: number | null;
 };
-export type Place = PackagePlace | AssemblyPlace;
+/** The mod cooker view (one per window). */
+export type ModPlace = { kind: "mod" };
+/** A map in the map view: the selected actor (`level` package, `index` export) or Kismet sequence. */
+export type MapPlace = {
+	kind: "map";
+	path: string;
+	level?: string;
+	index?: number;
+	view?: "scene" | "kismet" | "matinee";
+	sequence?: number;
+	/** The Matinee open in the matinee view. */
+	matinee?: { level: string; index: number };
+};
+export type Place = PackagePlace | AssemblyPlace | ModPlace | MapPlace;
 
 type Handlers = {
 	package?: (p: PackagePlace) => Promise<void>;
 	assembly?: (p: AssemblyPlace) => Promise<void>;
+	mod?: () => Promise<void>;
+	map?: (p: MapPlace) => Promise<void>;
 	/** Opens a place's `view` once its export is shown. */
 	view?: (p: PackagePlace) => void;
 };
 
 function same(a: Place, b: Place): boolean {
+	if (a.kind === "mod" || b.kind === "mod") return a.kind === b.kind;
+	if (a.kind === "map" || b.kind === "map") {
+		return (
+			a.kind === "map" &&
+			b.kind === "map" &&
+			a.path === b.path &&
+			a.level === b.level &&
+			a.index === b.index &&
+			(a.view ?? "scene") === (b.view ?? "scene") &&
+			a.sequence === b.sequence &&
+			a.matinee?.index === b.matinee?.index
+		);
+	}
 	if (a.kind === "package" && b.kind === "package") {
 		// A selection without a view is the export as its editor shows it.
 		const view = !a.view || !b.view || a.view.node === b.view.node;
@@ -73,6 +101,8 @@ class Nav {
 
 	private async go(p: Place): Promise<void> {
 		if (p.kind === "assembly") return this.handlers.assembly?.(p);
+		if (p.kind === "mod") return this.handlers.mod?.();
+		if (p.kind === "map") return this.handlers.map?.(p);
 		await this.handlers.package?.(p);
 		if (p.view) this.handlers.view?.(p);
 	}
@@ -110,6 +140,12 @@ class Nav {
 	label(offset: -1 | 1): string | null {
 		const p = this.history[this.pos + offset];
 		if (!p) return null;
+		if (p.kind === "mod") return "Mod cooker";
+		if (p.kind === "map") {
+			const view =
+				p.view === "kismet" ? " › Kismet" : p.view === "matinee" ? " › Matinee" : "";
+			return `${basename(p.path)}${view}`;
+		}
 		if (p.kind === "package") {
 			const view = p.view ? ` › ${p.view.label}` : "";
 			return `${basename(p.path)} › ${p.label ?? `export #${p.index}`}${view}`;

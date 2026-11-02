@@ -173,6 +173,167 @@ fn conn_op(connections: &mut Node, child: i64, parent: i64, prop: &str) {
     connections.children.push(Node::with("C", vec![Prop::Str("OP".into()), Prop::I64(child), Prop::I64(parent), Prop::Str(prop.into())]));
 }
 
+/// The file around `objects` and `connections`: header, settings (Y up,
+/// centimetres, the first animation's frame rate), document, definitions.
+fn finish(name: &str, anims: &[crate::mesh_ops::GltfAnim], counts: &HashMap<&str, usize>, objects: Node, connections: Node, doc_id: i64) -> Vec<u8> {
+    // Header, settings, definitions.
+    let header = Node::new("FBXHeaderExtension")
+        .with_child(one("FBXHeaderVersion", Prop::I32(1003)))
+        .with_child(one("FBXVersion", Prop::I32(7400)))
+        .with_child(one("EncryptionType", Prop::I32(0)))
+        .with_child(
+            Node::new("CreationTimeStamp")
+                .with_child(one("Version", Prop::I32(1000)))
+                .with_child(one("Year", Prop::I32(2026)))
+                .with_child(one("Month", Prop::I32(1)))
+                .with_child(one("Day", Prop::I32(1)))
+                .with_child(one("Hour", Prop::I32(0)))
+                .with_child(one("Minute", Prop::I32(0)))
+                .with_child(one("Second", Prop::I32(0)))
+                .with_child(one("Millisecond", Prop::I32(0))),
+        )
+        .with_child(one("Creator", Prop::Str("tempest-assets".into())))
+        .with_child(
+            Node::with("SceneInfo", vec![Prop::Str(obj_name("GlobalInfo", "SceneInfo")), Prop::Str("UserData".into())])
+                .with_child(one("Type", Prop::Str("UserData".into())))
+                .with_child(one("Version", Prop::I32(100)))
+                .with_child(Node::new("MetaData").with_child(one("Version", Prop::I32(100))).with_child(one("Title", Prop::Str(String::new()))).with_child(one("Subject", Prop::Str(String::new()))).with_child(one("Author", Prop::Str(String::new()))).with_child(one("Keywords", Prop::Str(String::new()))).with_child(one("Revision", Prop::Str(String::new()))).with_child(one("Comment", Prop::Str(String::new()))))
+                .with_child(p70(vec![p("DocumentUrl", "KString", "Url", "", vec![Prop::Str(format!("{name}.fbx"))]), p("Original|ApplicationName", "KString", "", "", vec![Prop::Str("tempest-assets".into())]), p("LastSaved|ApplicationName", "KString", "", "", vec![Prop::Str("tempest-assets".into())])])),
+        );
+    let global_settings = Node::new("GlobalSettings").with_child(one("Version", Prop::I32(1000))).with_child(p70(vec![
+        p("UpAxis", "int", "Integer", "", vec![Prop::I32(1)]),
+        p("UpAxisSign", "int", "Integer", "", vec![Prop::I32(1)]),
+        p("FrontAxis", "int", "Integer", "", vec![Prop::I32(2)]),
+        p("FrontAxisSign", "int", "Integer", "", vec![Prop::I32(1)]),
+        p("CoordAxis", "int", "Integer", "", vec![Prop::I32(0)]),
+        p("CoordAxisSign", "int", "Integer", "", vec![Prop::I32(1)]),
+        p("OriginalUpAxis", "int", "Integer", "", vec![Prop::I32(-1)]),
+        p("OriginalUpAxisSign", "int", "Integer", "", vec![Prop::I32(1)]),
+        p("UnitScaleFactor", "double", "Number", "", vec![Prop::F64(1.0)]),
+        p("OriginalUnitScaleFactor", "double", "Number", "", vec![Prop::F64(1.0)]),
+        p("AmbientColor", "ColorRGB", "Color", "", vec![Prop::F64(0.0), Prop::F64(0.0), Prop::F64(0.0)]),
+        p("DefaultCamera", "KString", "", "", vec![Prop::Str("Producer Perspective".into())]),
+        // Custom frame rate: the animation's (30 for the game's sequences).
+        p("TimeMode", "enum", "", "", vec![Prop::I32(14)]),
+        p("TimeSpanStart", "KTime", "Time", "", vec![Prop::I64(0)]),
+        p("TimeSpanStop", "KTime", "Time", "", vec![Prop::I64(anims.first().and_then(|a| a.times.last()).map(|t| (*t as f64 * KTIME).round() as i64).unwrap_or(46186158000))]),
+        p("CustomFrameRate", "double", "Number", "", vec![Prop::F64(anims.first().filter(|a| a.times.len() > 1).map(|a| (a.times.len() - 1) as f64 / a.times.last().copied().unwrap_or(1.0).max(1e-6) as f64).unwrap_or(24.0))]),
+    ]));
+    let documents = Node::new("Documents").with_child(one("Count", Prop::I32(1))).with_child(
+        Node::with("Document", vec![Prop::I64(doc_id), Prop::Str(String::new()), Prop::Str("Scene".into())])
+            .with_child(p70(vec![p("SourceObject", "object", "", "", vec![]), p("ActiveAnimStackName", "KString", "", "", vec![Prop::Str(anims.first().map(|a| a.name.clone()).unwrap_or_default())])]))
+            .with_child(one("RootNode", Prop::I64(0))),
+    );
+    let mut definitions = Node::new("Definitions").with_child(one("Version", Prop::I32(100))).with_child(one("Count", Prop::I32(counts.values().sum::<usize>() as i32 + 1)));
+    definitions.children.push(Node::with("ObjectType", vec![Prop::Str("GlobalSettings".into())]).with_child(one("Count", Prop::I32(1))));
+    for (ty, template) in [("Model", "FbxNode"), ("Geometry", "FbxMesh"), ("Material", "FbxSurfacePhong"), ("Texture", "FbxFileTexture"), ("Video", "FbxVideo"), ("NodeAttribute", "FbxNull"), ("Deformer", ""), ("Pose", ""), ("AnimationStack", "FbxAnimStack"), ("AnimationLayer", "FbxAnimLayer"), ("AnimationCurveNode", "FbxAnimCurveNode"), ("AnimationCurve", "")] {
+        let Some(&c) = counts.get(ty) else { continue };
+        let mut ot = Node::with("ObjectType", vec![Prop::Str(ty.into())]).with_child(one("Count", Prop::I32(c as i32)));
+        if !template.is_empty() {
+            ot.children.push(Node::with("PropertyTemplate", vec![Prop::Str(template.into())]).with_child(p70(vec![])));
+        }
+        definitions.children.push(ot);
+    }
+    let takes = Node::new("Takes").with_child(one("Current", Prop::Str(String::new())));
+    let nodes = vec![
+        header,
+        one("FileId", Prop::Raw(vec![0x28, 0xb3, 0x2a, 0xeb, 0xb6, 0x24, 0xcc, 0xc2, 0xbf, 0xc8, 0xb0, 0x2a, 0xa9, 0x2b, 0xfc, 0xf1])),
+        one("CreationTime", Prop::Str("2026-01-01 00:00:00:000".into())),
+        one("Creator", Prop::Str("tempest-assets".into())),
+        global_settings,
+        documents,
+        Node::new("References"),
+        definitions,
+        objects,
+        connections,
+        takes,
+    ];
+    fbx::write(7400, &nodes)
+}
+
+/// The `Geometry` node of a mesh (`geom_id`), and its material names in the
+/// order of the polygons' material indices.
+fn geometry_node(geom_id: i64, name: &str, g: &Geometry) -> Result<(Node, Vec<String>)> {
+    let n = g.positions.len();
+    // Geometry.
+    let mut vertices = Vec::with_capacity(n * 3);
+    for v in &g.positions {
+        vertices.extend_from_slice(&to_fbx(*v));
+    }
+    let mut poly = Vec::new();
+    let mut normals = Vec::new();
+    let mut uv_index = Vec::new();
+    let mut poly_material = Vec::new();
+    let mut material_names: Vec<String> = Vec::new();
+    for (si, sec) in g.sections.iter().enumerate() {
+        let start = sec.first_index as usize;
+        let count = sec.num_triangles as usize * 3;
+        let slice = g.indices.get(start..start + count).ok_or_else(|| Error::Format("section exceeds index buffer".into()))?;
+        let mname = g.materials.get(si).map(|m| m.name.clone()).unwrap_or_else(|| sec.material_name.clone());
+        let mi = match material_names.iter().position(|m| *m == mname) {
+            Some(i) => i,
+            None => {
+                material_names.push(mname);
+                material_names.len() - 1
+            }
+        };
+        for t in slice.chunks_exact(3) {
+            // Flip winding: the axis swap mirrors the mesh.
+            for (k, &i) in [t[0], t[2], t[1]].iter().enumerate() {
+                poly.push(if k == 2 { !(i as i32) } else { i as i32 });
+                uv_index.push(i as i32);
+                let nm = g.normals.get(i as usize).copied().unwrap_or([0.0, 0.0, 1.0]);
+                normals.extend_from_slice(&to_fbx(nm));
+            }
+            poly_material.push(mi as i32);
+        }
+    }
+    let mut uvs = Vec::with_capacity(n * 2);
+    for uv in &g.uvs {
+        uvs.push(uv[0] as f64);
+        uvs.push(1.0 - uv[1] as f64);
+    }
+    let geometry = Node::with("Geometry", vec![Prop::I64(geom_id), Prop::Str(obj_name(name, "Geometry")), Prop::Str("Mesh".into())])
+        .with_child(p70(vec![]))
+        .with_child(one("GeometryVersion", Prop::I32(124)))
+        .with_child(one("Vertices", Prop::F64s(vertices)))
+        .with_child(one("PolygonVertexIndex", Prop::I32s(poly)))
+        .with_child(
+            Node::with("LayerElementNormal", vec![Prop::I32(0)])
+                .with_child(one("Version", Prop::I32(101)))
+                .with_child(one("Name", Prop::Str(String::new())))
+                .with_child(one("MappingInformationType", Prop::Str("ByPolygonVertex".into())))
+                .with_child(one("ReferenceInformationType", Prop::Str("Direct".into())))
+                .with_child(one("Normals", Prop::F64s(normals))),
+        )
+        .with_child(
+            Node::with("LayerElementUV", vec![Prop::I32(0)])
+                .with_child(one("Version", Prop::I32(101)))
+                .with_child(one("Name", Prop::Str("UVMap".into())))
+                .with_child(one("MappingInformationType", Prop::Str("ByPolygonVertex".into())))
+                .with_child(one("ReferenceInformationType", Prop::Str("IndexToDirect".into())))
+                .with_child(one("UV", Prop::F64s(uvs)))
+                .with_child(one("UVIndex", Prop::I32s(uv_index))),
+        )
+        .with_child(
+            Node::with("LayerElementMaterial", vec![Prop::I32(0)])
+                .with_child(one("Version", Prop::I32(101)))
+                .with_child(one("Name", Prop::Str(String::new())))
+                .with_child(one("MappingInformationType", Prop::Str("ByPolygon".into())))
+                .with_child(one("ReferenceInformationType", Prop::Str("IndexToDirect".into())))
+                .with_child(one("Materials", Prop::I32s(poly_material))),
+        )
+        .with_child(
+            Node::with("Layer", vec![Prop::I32(0)])
+                .with_child(one("Version", Prop::I32(100)))
+                .with_child(Node::new("LayerElement").with_child(one("Type", Prop::Str("LayerElementNormal".into()))).with_child(one("TypedIndex", Prop::I32(0))))
+                .with_child(Node::new("LayerElement").with_child(one("Type", Prop::Str("LayerElementMaterial".into()))).with_child(one("TypedIndex", Prop::I32(0))))
+                .with_child(Node::new("LayerElement").with_child(one("Type", Prop::Str("LayerElementUV".into()))).with_child(one("TypedIndex", Prop::I32(0)))),
+        );
+
+    Ok((geometry, material_names))
+}
+
 /// Binary FBX of a mesh: one `Mesh` model (materials, embedded textures)
 /// and, when `g.bones` is filled, its skeleton and skin.
 pub fn write_fbx(name: &str, g: &Geometry) -> Result<Vec<u8>> {
@@ -181,6 +342,133 @@ pub fn write_fbx(name: &str, g: &Geometry) -> Result<Vec<u8>> {
 
 /// FBX time units per second.
 const KTIME: f64 = 46_186_158_000.0;
+
+/// A map as FBX: every mesh once as a `Geometry` shared by the `Model`s that
+/// place it (instances), group nodes as `Null`s, transforms from the nodes'
+/// matrices (glTF space, column-major) in centimetres with Y up, materials
+/// and embedded textures shared across meshes by name.
+pub fn write_fbx_scene(name: &str, meshes: &[(String, Geometry)], nodes: &[crate::mesh_ops::SceneNode]) -> Result<Vec<u8>> {
+    let mut next = 100_000i64;
+    let mut id = move || {
+        next += 1;
+        next
+    };
+    let mut objects = Node::new("Objects");
+    let mut connections = Node::new("Connections");
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    // Geometries and their materials.
+    let mut geom_ids: Vec<Option<(i64, Vec<i64>)>> = Vec::with_capacity(meshes.len());
+    let mut material_ids: HashMap<String, i64> = HashMap::new();
+    let mut texture_ids: HashMap<String, i64> = HashMap::new();
+    for (mname, g) in meshes {
+        if g.positions.is_empty() || g.sections.is_empty() {
+            geom_ids.push(None);
+            continue;
+        }
+        let gid = id();
+        let (geometry, names) = geometry_node(gid, mname, g)?;
+        objects.children.push(geometry);
+        *counts.entry("Geometry").or_default() += 1;
+        let mut mats = Vec::new();
+        for mat in &names {
+            let mat_id = match material_ids.get(mat) {
+                Some(&m) => m,
+                None => {
+                    let mat_id = id();
+                    objects.children.push(material_node(mat_id, mat));
+                    *counts.entry("Material").or_default() += 1;
+                    material_ids.insert(mat.clone(), mat_id);
+                    if let Some(m) = g.materials.iter().find(|m| m.name == *mat) {
+                        for (slot, image) in [("DiffuseColor", m.base_color), ("NormalMap", m.normal), ("EmissiveColor", m.emissive)] {
+                            let Some(image) = image.and_then(|i| g.images.get(i)) else { continue };
+                            let tex_id = match texture_ids.get(&image.name) {
+                                Some(&t) => t,
+                                None => {
+                                    let file = format!("{}.png", image.name.replace(['/', '\\', ':'], "_"));
+                                    let (video_id, tex_id) = (id(), id());
+                                    objects.children.push(video_node(video_id, &image.name, &file, &image.png));
+                                    objects.children.push(texture_node(tex_id, &image.name, &file));
+                                    conn_oo(&mut connections, video_id, tex_id);
+                                    *counts.entry("Video").or_default() += 1;
+                                    *counts.entry("Texture").or_default() += 1;
+                                    texture_ids.insert(image.name.clone(), tex_id);
+                                    tex_id
+                                }
+                            };
+                            conn_op(&mut connections, tex_id, mat_id, slot);
+                        }
+                    }
+                    mat_id
+                }
+            };
+            mats.push(mat_id);
+        }
+        geom_ids.push(Some((gid, mats)));
+    }
+    // Models.
+    let mut model_ids = Vec::with_capacity(nodes.len());
+    for n in nodes {
+        let mid = id();
+        model_ids.push(mid);
+        // glTF metres → FBX centimetres (same axes), as Lcl transforms.
+        let mut m: Mat = [[0.0; 4]; 4];
+        for (c, col) in m.iter_mut().enumerate() {
+            for (r, cell) in col.iter_mut().enumerate() {
+                *cell = n.matrix[c * 4 + r] as f32;
+            }
+        }
+        let len = |c: usize| (m[c][0] * m[c][0] + m[c][1] * m[c][1] + m[c][2] * m[c][2]).sqrt().max(1e-9);
+        let mut scale = [len(0), len(1), len(2)];
+        let det = m[0][0] * (m[1][1] * m[2][2] - m[2][1] * m[1][2]) - m[1][0] * (m[0][1] * m[2][2] - m[2][1] * m[0][2]) + m[2][0] * (m[0][1] * m[1][2] - m[1][1] * m[0][2]);
+        if det < 0.0 {
+            scale[0] = -scale[0];
+        }
+        let mut rot = m;
+        for (col, s) in rot.iter_mut().zip(scale) {
+            for cell in col.iter_mut().take(3) {
+                *cell /= s;
+            }
+        }
+        let t = [m[3][0] as f64 * 100.0, m[3][1] as f64 * 100.0, m[3][2] as f64 * 100.0];
+        let r = euler_xyz_deg(&rot);
+        let geom = n.mesh.and_then(|i| geom_ids.get(i).cloned().flatten());
+        let kind = if geom.is_some() { "Mesh" } else { "Null" };
+        objects.children.push(
+            Node::with("Model", vec![Prop::I64(mid), Prop::Str(obj_name(&n.name, "Model")), Prop::Str(kind.into())])
+                .with_child(one("Version", Prop::I32(232)))
+                .with_child(p70(vec![
+                    p_vec("Lcl Translation", "Lcl Translation", t),
+                    p_vec("Lcl Rotation", "Lcl Rotation", r),
+                    p_vec("Lcl Scaling", "Lcl Scaling", [scale[0] as f64, scale[1] as f64, scale[2] as f64]),
+                    p("DefaultAttributeIndex", "int", "Integer", "", vec![Prop::I32(0)]),
+                    p("InheritType", "enum", "", "", vec![Prop::I32(1)]),
+                ]))
+                .with_child(one("Shading", Prop::Bool(true)))
+                .with_child(one("Culling", Prop::Str("CullingOff".into()))),
+        );
+        *counts.entry("Model").or_default() += 1;
+        match geom {
+            Some((gid, mats)) => {
+                conn_oo(&mut connections, gid, mid);
+                for mat in mats {
+                    conn_oo(&mut connections, mat, mid);
+                }
+            }
+            None => {
+                let attr = id();
+                objects.children.push(Node::with("NodeAttribute", vec![Prop::I64(attr), Prop::Str(obj_name(&n.name, "NodeAttribute")), Prop::Str("Null".into())]).with_child(one("TypeFlags", Prop::Str("Null".into()))));
+                conn_oo(&mut connections, attr, mid);
+                *counts.entry("NodeAttribute").or_default() += 1;
+            }
+        }
+    }
+    for (i, n) in nodes.iter().enumerate() {
+        let parent = n.parent.and_then(|p| model_ids.get(p).copied()).unwrap_or(0);
+        conn_oo(&mut connections, model_ids[i], parent);
+    }
+    let doc_id = id();
+    Ok(finish(name, &[], &counts, objects, connections, doc_id))
+}
 
 /// Euler XYZ degrees of every frame, each frame the solution (of the two,
 /// with whole turns added) closest to the previous one, so curves do not jump.
@@ -226,82 +514,8 @@ pub fn write_fbx_anims(name: &str, g: &Geometry, anims: &[crate::mesh_ops::GltfA
     let n = g.positions.len();
     let skinned = !g.bones.is_empty() && g.influences.len() == n;
 
-    // Geometry.
-    let mut vertices = Vec::with_capacity(n * 3);
-    for v in &g.positions {
-        vertices.extend_from_slice(&to_fbx(*v));
-    }
-    let mut poly = Vec::new();
-    let mut normals = Vec::new();
-    let mut uv_index = Vec::new();
-    let mut poly_material = Vec::new();
-    let mut material_names: Vec<String> = Vec::new();
-    for (si, sec) in g.sections.iter().enumerate() {
-        let start = sec.first_index as usize;
-        let count = sec.num_triangles as usize * 3;
-        let slice = g.indices.get(start..start + count).ok_or_else(|| Error::Format("section exceeds index buffer".into()))?;
-        let mname = g.materials.get(si).map(|m| m.name.clone()).unwrap_or_else(|| sec.material_name.clone());
-        let mi = match material_names.iter().position(|m| *m == mname) {
-            Some(i) => i,
-            None => {
-                material_names.push(mname);
-                material_names.len() - 1
-            }
-        };
-        for t in slice.chunks_exact(3) {
-            // Flip winding: the axis swap mirrors the mesh.
-            for (k, &i) in [t[0], t[2], t[1]].iter().enumerate() {
-                poly.push(if k == 2 { !(i as i32) } else { i as i32 });
-                uv_index.push(i as i32);
-                let nm = g.normals.get(i as usize).copied().unwrap_or([0.0, 0.0, 1.0]);
-                normals.extend_from_slice(&to_fbx(nm));
-            }
-            poly_material.push(mi as i32);
-        }
-    }
-    let mut uvs = Vec::with_capacity(n * 2);
-    for uv in &g.uvs {
-        uvs.push(uv[0] as f64);
-        uvs.push(1.0 - uv[1] as f64);
-    }
     let geom_id = id();
-    let geometry = Node::with("Geometry", vec![Prop::I64(geom_id), Prop::Str(obj_name(name, "Geometry")), Prop::Str("Mesh".into())])
-        .with_child(p70(vec![]))
-        .with_child(one("GeometryVersion", Prop::I32(124)))
-        .with_child(one("Vertices", Prop::F64s(vertices)))
-        .with_child(one("PolygonVertexIndex", Prop::I32s(poly)))
-        .with_child(
-            Node::with("LayerElementNormal", vec![Prop::I32(0)])
-                .with_child(one("Version", Prop::I32(101)))
-                .with_child(one("Name", Prop::Str(String::new())))
-                .with_child(one("MappingInformationType", Prop::Str("ByPolygonVertex".into())))
-                .with_child(one("ReferenceInformationType", Prop::Str("Direct".into())))
-                .with_child(one("Normals", Prop::F64s(normals))),
-        )
-        .with_child(
-            Node::with("LayerElementUV", vec![Prop::I32(0)])
-                .with_child(one("Version", Prop::I32(101)))
-                .with_child(one("Name", Prop::Str("UVMap".into())))
-                .with_child(one("MappingInformationType", Prop::Str("ByPolygonVertex".into())))
-                .with_child(one("ReferenceInformationType", Prop::Str("IndexToDirect".into())))
-                .with_child(one("UV", Prop::F64s(uvs)))
-                .with_child(one("UVIndex", Prop::I32s(uv_index))),
-        )
-        .with_child(
-            Node::with("LayerElementMaterial", vec![Prop::I32(0)])
-                .with_child(one("Version", Prop::I32(101)))
-                .with_child(one("Name", Prop::Str(String::new())))
-                .with_child(one("MappingInformationType", Prop::Str("ByPolygon".into())))
-                .with_child(one("ReferenceInformationType", Prop::Str("IndexToDirect".into())))
-                .with_child(one("Materials", Prop::I32s(poly_material))),
-        )
-        .with_child(
-            Node::with("Layer", vec![Prop::I32(0)])
-                .with_child(one("Version", Prop::I32(100)))
-                .with_child(Node::new("LayerElement").with_child(one("Type", Prop::Str("LayerElementNormal".into()))).with_child(one("TypedIndex", Prop::I32(0))))
-                .with_child(Node::new("LayerElement").with_child(one("Type", Prop::Str("LayerElementMaterial".into()))).with_child(one("TypedIndex", Prop::I32(0))))
-                .with_child(Node::new("LayerElement").with_child(one("Type", Prop::Str("LayerElementUV".into()))).with_child(one("TypedIndex", Prop::I32(0)))),
-        );
+    let (geometry, material_names) = geometry_node(geom_id, name, g)?;
 
     let model_id = id();
     let model = Node::with("Model", vec![Prop::I64(model_id), Prop::Str(obj_name(name, "Model")), Prop::Str("Mesh".into())])
@@ -491,79 +705,8 @@ pub fn write_fbx_anims(name: &str, g: &Geometry, anims: &[crate::mesh_ops::GltfA
     *counts.entry("Model").or_default() += 1;
     *counts.entry("Geometry").or_default() += 1;
 
-    // Header, settings, definitions.
-    let header = Node::new("FBXHeaderExtension")
-        .with_child(one("FBXHeaderVersion", Prop::I32(1003)))
-        .with_child(one("FBXVersion", Prop::I32(7400)))
-        .with_child(one("EncryptionType", Prop::I32(0)))
-        .with_child(
-            Node::new("CreationTimeStamp")
-                .with_child(one("Version", Prop::I32(1000)))
-                .with_child(one("Year", Prop::I32(2026)))
-                .with_child(one("Month", Prop::I32(1)))
-                .with_child(one("Day", Prop::I32(1)))
-                .with_child(one("Hour", Prop::I32(0)))
-                .with_child(one("Minute", Prop::I32(0)))
-                .with_child(one("Second", Prop::I32(0)))
-                .with_child(one("Millisecond", Prop::I32(0))),
-        )
-        .with_child(one("Creator", Prop::Str("tempest-assets".into())))
-        .with_child(
-            Node::with("SceneInfo", vec![Prop::Str(obj_name("GlobalInfo", "SceneInfo")), Prop::Str("UserData".into())])
-                .with_child(one("Type", Prop::Str("UserData".into())))
-                .with_child(one("Version", Prop::I32(100)))
-                .with_child(Node::new("MetaData").with_child(one("Version", Prop::I32(100))).with_child(one("Title", Prop::Str(String::new()))).with_child(one("Subject", Prop::Str(String::new()))).with_child(one("Author", Prop::Str(String::new()))).with_child(one("Keywords", Prop::Str(String::new()))).with_child(one("Revision", Prop::Str(String::new()))).with_child(one("Comment", Prop::Str(String::new()))))
-                .with_child(p70(vec![p("DocumentUrl", "KString", "Url", "", vec![Prop::Str(format!("{name}.fbx"))]), p("Original|ApplicationName", "KString", "", "", vec![Prop::Str("tempest-assets".into())]), p("LastSaved|ApplicationName", "KString", "", "", vec![Prop::Str("tempest-assets".into())])])),
-        );
-    let global_settings = Node::new("GlobalSettings").with_child(one("Version", Prop::I32(1000))).with_child(p70(vec![
-        p("UpAxis", "int", "Integer", "", vec![Prop::I32(1)]),
-        p("UpAxisSign", "int", "Integer", "", vec![Prop::I32(1)]),
-        p("FrontAxis", "int", "Integer", "", vec![Prop::I32(2)]),
-        p("FrontAxisSign", "int", "Integer", "", vec![Prop::I32(1)]),
-        p("CoordAxis", "int", "Integer", "", vec![Prop::I32(0)]),
-        p("CoordAxisSign", "int", "Integer", "", vec![Prop::I32(1)]),
-        p("OriginalUpAxis", "int", "Integer", "", vec![Prop::I32(-1)]),
-        p("OriginalUpAxisSign", "int", "Integer", "", vec![Prop::I32(1)]),
-        p("UnitScaleFactor", "double", "Number", "", vec![Prop::F64(1.0)]),
-        p("OriginalUnitScaleFactor", "double", "Number", "", vec![Prop::F64(1.0)]),
-        p("AmbientColor", "ColorRGB", "Color", "", vec![Prop::F64(0.0), Prop::F64(0.0), Prop::F64(0.0)]),
-        p("DefaultCamera", "KString", "", "", vec![Prop::Str("Producer Perspective".into())]),
-        // Custom frame rate: the animation's (30 for the game's sequences).
-        p("TimeMode", "enum", "", "", vec![Prop::I32(14)]),
-        p("TimeSpanStart", "KTime", "Time", "", vec![Prop::I64(0)]),
-        p("TimeSpanStop", "KTime", "Time", "", vec![Prop::I64(anims.first().and_then(|a| a.times.last()).map(|t| (*t as f64 * KTIME).round() as i64).unwrap_or(46186158000))]),
-        p("CustomFrameRate", "double", "Number", "", vec![Prop::F64(anims.first().filter(|a| a.times.len() > 1).map(|a| (a.times.len() - 1) as f64 / a.times.last().copied().unwrap_or(1.0).max(1e-6) as f64).unwrap_or(24.0))]),
-    ]));
-    let documents = Node::new("Documents").with_child(one("Count", Prop::I32(1))).with_child(
-        Node::with("Document", vec![Prop::I64(id()), Prop::Str(String::new()), Prop::Str("Scene".into())])
-            .with_child(p70(vec![p("SourceObject", "object", "", "", vec![]), p("ActiveAnimStackName", "KString", "", "", vec![Prop::Str(anims.first().map(|a| a.name.clone()).unwrap_or_default())])]))
-            .with_child(one("RootNode", Prop::I64(0))),
-    );
-    let mut definitions = Node::new("Definitions").with_child(one("Version", Prop::I32(100))).with_child(one("Count", Prop::I32(counts.values().sum::<usize>() as i32 + 1)));
-    definitions.children.push(Node::with("ObjectType", vec![Prop::Str("GlobalSettings".into())]).with_child(one("Count", Prop::I32(1))));
-    for (ty, template) in [("Model", "FbxNode"), ("Geometry", "FbxMesh"), ("Material", "FbxSurfacePhong"), ("Texture", "FbxFileTexture"), ("Video", "FbxVideo"), ("NodeAttribute", "FbxNull"), ("Deformer", ""), ("Pose", ""), ("AnimationStack", "FbxAnimStack"), ("AnimationLayer", "FbxAnimLayer"), ("AnimationCurveNode", "FbxAnimCurveNode"), ("AnimationCurve", "")] {
-        let Some(&c) = counts.get(ty) else { continue };
-        let mut ot = Node::with("ObjectType", vec![Prop::Str(ty.into())]).with_child(one("Count", Prop::I32(c as i32)));
-        if !template.is_empty() {
-            ot.children.push(Node::with("PropertyTemplate", vec![Prop::Str(template.into())]).with_child(p70(vec![])));
-        }
-        definitions.children.push(ot);
-    }
-    let takes = Node::new("Takes").with_child(one("Current", Prop::Str(String::new())));
-    let nodes = vec![
-        header,
-        one("FileId", Prop::Raw(vec![0x28, 0xb3, 0x2a, 0xeb, 0xb6, 0x24, 0xcc, 0xc2, 0xbf, 0xc8, 0xb0, 0x2a, 0xa9, 0x2b, 0xfc, 0xf1])),
-        one("CreationTime", Prop::Str("2026-01-01 00:00:00:000".into())),
-        one("Creator", Prop::Str("tempest-assets".into())),
-        global_settings,
-        documents,
-        Node::new("References"),
-        definitions,
-        objects,
-        connections,
-        takes,
-    ];
-    Ok(fbx::write(7400, &nodes))
+    let doc_id = id();
+    Ok(finish(name, anims, &counts, objects, connections, doc_id))
 }
 
 // ----------------------------------------------------------------------------

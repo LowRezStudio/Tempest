@@ -13,6 +13,7 @@
 		Plus,
 		Sparkles,
 		Trash2,
+		Shirt,
 		Users,
 		X,
 	} from "@lucide/svelte";
@@ -588,7 +589,7 @@
 			<button
 				class="btn btn-ghost btn-xs"
 				onclick={() => ui.open("newContent")}
-				title="Create a device, card, item or champion from a template row, with new ids and messages"
+				title="Create a device, card, item, skin or champion from a template row, with new ids and messages"
 			>
 				<Sparkles size={12} /><span class="@max-3xl:hidden">New content…</span>
 			</button>
@@ -598,6 +599,13 @@
 				title="The Champion Vendor loot table decides which champions the client lists; add an existing champion to it"
 			>
 				<Users size={12} /><span class="@max-4xl:hidden">Champion Vendor…</span>
+			</button>
+			<button
+				class="btn btn-ghost btn-xs"
+				onclick={() => ui.open("skins")}
+				title="Skin collections: the loot table the client lists each champion's skins from; copy a collection or list a skin"
+			>
+				<Shirt size={12} /><span class="@max-4xl:hidden">Skins…</span>
 			</button>
 		{/if}
 		<button
