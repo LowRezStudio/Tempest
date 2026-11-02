@@ -2227,6 +2227,17 @@ pub fn subscription_owner(id: u64) -> Option<String> {
     SUBS.lock().unwrap().iter().find(|(i, _)| *i == id).map(|(_, s)| s.owner.clone())
 }
 
+/// `[before ]Pkg.Class.Func` of a subscription, if it still exists.
+pub fn subscription_spec(id: u64) -> Option<String> {
+    let subs = SUBS.lock().unwrap();
+    let (_, s) = subs.iter().find(|(i, _)| *i == id)?;
+    let tag = if s.phase == Phase::Before { "before " } else { "" };
+    Some(match &s.class_path {
+        Some(c) => format!("{tag}{c}.{}", s.func_name),
+        None => format!("{tag}{}", s.func_name),
+    })
+}
+
 pub fn subscriptions() -> Vec<(u64, String)> {
     SUBS.lock()
         .unwrap()
@@ -2765,24 +2776,30 @@ mod hook {
     }
 
     fn hooked_impl(this: *mut c_void, func: *mut c_void, parms: *mut c_void, result: *mut c_void) {
+        use crate::profile::{runtime, Runtime::EventHook};
         let Some(original) = trampoline() else { return };
         let (o, f, p) = (this as usize, func as usize, parms as usize);
-        let _ = catch_unwind(super::drain_queue);
         // Script functions dispatch from the ProcessInternal detour and
         // hooked natives from their thunk; dispatching here too would double up.
-        if !super::might_have_sub(f) || super::function_is_script(f) || super::native::is_hooked(f) {
-            original(this, func, parms, result);
-            return;
-        }
         // A script error is already a Lua error; a Rust panic must not take
         // the game thread down with it (and never cancels the call).
-        let proceed = catch_unwind(AssertUnwindSafe(|| super::on_process_event_before(o, f, p, false)))
-            .unwrap_or(true);
-        if !proceed {
-            return;
+        let deliver = runtime(EventHook, || {
+            let _ = catch_unwind(super::drain_queue);
+            if !super::might_have_sub(f) || super::function_is_script(f) || super::native::is_hooked(f) {
+                return None;
+            }
+            Some(catch_unwind(AssertUnwindSafe(|| super::on_process_event_before(o, f, p, false))).unwrap_or(true))
+        });
+        match deliver {
+            None => original(this, func, parms, result),
+            Some(false) => {}
+            Some(true) => {
+                original(this, func, parms, result);
+                crate::profile::runtime_more(EventHook, || {
+                    let _ = catch_unwind(AssertUnwindSafe(|| super::on_process_event_after(o, f, p, false)));
+                });
+            }
         }
-        original(this, func, parms, result);
-        let _ = catch_unwind(AssertUnwindSafe(|| super::on_process_event_after(o, f, p, false)));
     }
 
     /// Call the original (un-hooked) `ProcessEvent`; falls back to the raw
@@ -2852,44 +2869,58 @@ mod script_hook {
     }
 
     fn hooked_impl(this: *mut c_void, stack: *mut c_void, result: *mut c_void) {
+        use crate::profile::{runtime, runtime_more, Runtime::ScriptHook};
         let Some(h) = trampoline() else { return };
         let (o, s, r) = (this as usize, stack as usize, result as usize);
-        super::construct::capture_frame_header(s);
-        let func = unsafe { memory::read::<usize>(s + FRAME_NODE) }.unwrap_or(0);
-        let locals = unsafe { memory::read::<usize>(s + FRAME_LOCALS) }.unwrap_or(0);
-        if func == 0 || locals == 0 || !super::any_sub_for(func) {
+        let (func, locals) = runtime(ScriptHook, || {
+            super::construct::capture_frame_header(s);
+            let func = unsafe { memory::read::<usize>(s + FRAME_NODE) }.unwrap_or(0);
+            let locals = unsafe { memory::read::<usize>(s + FRAME_LOCALS) }.unwrap_or(0);
+            if func == 0 || locals == 0 || !super::any_sub_for(func) {
+                (0, 0)
+            } else {
+                (func, locals)
+            }
+        });
+        if func == 0 {
             h(this, stack, result);
             return;
         }
-        // `Super.Func()` runs as a nested frame whose caller is a same-named
-        // function on the same object.
-        let inner = unsafe { memory::read::<usize>(s + FRAME_PREVIOUS) }
-            .filter(|&prev| prev != 0)
-            .is_some_and(|prev| {
-                let prev_object = unsafe { memory::read::<usize>(prev + FRAME_OBJECT) };
-                let prev_name = unsafe { memory::read::<usize>(prev + FRAME_NODE) }
-                    .and_then(super::object_fname)
-                    .map(|(i, _)| i);
-                prev_object == Some(o) && prev_name == super::object_fname(func).map(|(i, _)| i)
-            });
-        // `out` arguments live behind the frame's OutParms chain, not in
-        // Locals: show handlers their incoming values, and copy a cancelling
-        // handler's assignments back to the caller's variables.
-        let params = super::function_params(func);
-        super::native::for_each_out_parm(s, func, &params, |p, addr| super::native::assign_logged(addr, locals + p.prop.offset, &p.prop));
-        let proceed = catch_unwind(AssertUnwindSafe(|| super::on_process_event_before(o, func, locals, inner)))
-            .unwrap_or(true);
+        let (proceed, inner) = runtime_more(ScriptHook, || {
+            // `Super.Func()` runs as a nested frame whose caller is a same-named
+            // function on the same object.
+            let inner = unsafe { memory::read::<usize>(s + FRAME_PREVIOUS) }
+                .filter(|&prev| prev != 0)
+                .is_some_and(|prev| {
+                    let prev_object = unsafe { memory::read::<usize>(prev + FRAME_OBJECT) };
+                    let prev_name = unsafe { memory::read::<usize>(prev + FRAME_NODE) }
+                        .and_then(super::object_fname)
+                        .map(|(i, _)| i);
+                    prev_object == Some(o) && prev_name == super::object_fname(func).map(|(i, _)| i)
+                });
+            // `out` arguments live behind the frame's OutParms chain, not in
+            // Locals: show handlers their incoming values, and copy a cancelling
+            // handler's assignments back to the caller's variables.
+            let params = super::function_params(func);
+            super::native::for_each_out_parm(s, func, &params, |p, addr| super::native::assign_logged(addr, locals + p.prop.offset, &p.prop));
+            let proceed = catch_unwind(AssertUnwindSafe(|| super::on_process_event_before(o, func, locals, inner)))
+                .unwrap_or(true);
+            if !proceed {
+                super::native::for_each_out_parm(s, func, &params, |p, addr| super::native::assign_logged(locals + p.prop.offset, addr, &p.prop));
+                // The caller still expects its return slot filled.
+                super::copy_return(func, locals, true, r);
+            } else if super::native::is_lua_native(func) {
+                super::native::warn_unimplemented(func);
+            }
+            (proceed, inner)
+        });
         if !proceed {
-            super::native::for_each_out_parm(s, func, &params, |p, addr| super::native::assign_logged(locals + p.prop.offset, addr, &p.prop));
-            // The caller still expects its return slot filled.
-            super::copy_return(func, locals, true, r);
             return;
         }
-        if super::native::is_lua_native(func) {
-            super::native::warn_unimplemented(func);
-        }
         h(this, stack, result);
-        let _ = catch_unwind(AssertUnwindSafe(|| super::on_process_event_after(o, func, locals, inner)));
+        runtime_more(ScriptHook, || {
+            let _ = catch_unwind(AssertUnwindSafe(|| super::on_process_event_after(o, func, locals, inner)));
+        });
     }
 
     pub fn install(target: usize) -> Result<(), String> {

@@ -201,8 +201,14 @@ pub fn current_mod() -> String {
 
 /// Run `f` with the current mod set to `id`, restoring the previous value.
 pub fn with_mod<R>(id: &str, f: impl FnOnce() -> R) -> R {
+    with_mod_at(id, crate::profile::Site::Other, String::new, f)
+}
+
+/// `with_mod` for an entry point the profiler reports as `site` (`label`
+/// is only built the first time the site is seen).
+pub fn with_mod_at<R>(id: &str, site: crate::profile::Site, label: impl FnOnce() -> String, f: impl FnOnce() -> R) -> R {
     let prev = std::mem::replace(&mut *CURRENT.lock().unwrap(), id.to_string());
-    let r = f();
+    let r = crate::profile::lua(id, site, label, f);
     *CURRENT.lock().unwrap() = prev;
     r
 }
@@ -661,7 +667,8 @@ pub fn run_mod(lua: &Lua, m: &Mod) {
                 continue;
             }
         };
-        let r = with_mod(&m.id, || {
+        let file = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let r = with_mod_at(&m.id, crate::profile::Site::Named("load", file.clone()), || file.clone(), || {
             lua.load(&src)
                 .set_name(format!("@{name}"))
                 .set_environment(env.clone())

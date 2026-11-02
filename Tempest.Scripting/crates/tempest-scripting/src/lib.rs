@@ -44,6 +44,7 @@ pub mod log;
 pub mod lua_api;
 pub mod memory;
 pub mod overlay;
+pub mod profile;
 pub mod stubs;
 pub mod tls;
 pub mod unreal;
@@ -193,12 +194,14 @@ extern "system" {
     fn GetLastError() -> u32;
 }
 
-/// Console REPL: every line typed into the console window runs as a Lua
-/// chunk (`=expr` prints the result). This is the iteration loop while the
-/// game is running: `tempest.reload()`, `=tempest.status().notes`, etc.
-/// Chunks run on the game thread (queued until the next event) so calling
-/// into the engine from the console is safe; if no event fires within 3 s
-/// the chunk runs inline instead. Returns when stdin closes.
+/// Console REPL: a line typed into the console window that starts with a
+/// console command's name runs that command (`tempest_perf log`), any other
+/// line runs as a Lua chunk (`=expr` prints the result). This is the
+/// iteration loop while the game is running: `tempest.reload()`,
+/// `=tempest.status().notes`, etc. Lines run on the game thread (queued until
+/// the next event) so calling into the engine from the console is safe; if
+/// no event fires within 3 s the line runs inline instead. Returns when stdin
+/// closes.
 fn repl() {
     use std::io::BufRead;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -206,8 +209,16 @@ fn repl() {
     if !log::console_wanted() {
         return;
     }
-    let run = |chunk: String| {
-        if let Err(e) = lua().load(&chunk).set_name("=console").exec() {
+    let run = |line: String| {
+        let lua = lua();
+        let r = match line.strip_prefix('=') {
+            Some(expr) => lua.load(format!("print({expr})")).set_name("=console").exec(),
+            None => match lua_api::console_command(lua, &line) {
+                Ok(false) => lua.load(&line).set_name("=console").exec(),
+                other => other.map(|_| ()),
+            },
+        };
+        if let Err(e) = r {
             log::line("console", &e.to_string());
         }
     };
@@ -217,10 +228,7 @@ fn repl() {
         if line.is_empty() {
             continue;
         }
-        let chunk = match line.strip_prefix('=') {
-            Some(expr) => format!("print({expr})"),
-            None => line.to_string(),
-        };
+        let chunk = line.to_string();
         let claimed = Arc::new(AtomicBool::new(false));
         let done = Arc::new((Mutex::new(false), Condvar::new()));
         {

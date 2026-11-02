@@ -77,7 +77,9 @@ Win32` launches the 32-bit client.
 On inject the DLL opens a console and logs to `%TEMP%\tempest-scripting.log`
 (fresh every run; the previous run is kept as `tempest-scripting.prev.log`).
 The console is also a Lua REPL: type `tempest.reload()` after editing a
-script, or `=tempest.status().gnames_ok` to print an expression. (A loaded
+script, or `=tempest.status().gnames_ok` to print an expression. A line that
+starts with a console command's name runs that command (`tempest_perf log`,
+`tempest_help`), with its replies shown in the window. (A loaded
 DLL stays loaded, so `tempest mod reload-dll` cannot swap the binary; a new
 DLL needs a game restart.)
 
@@ -147,6 +149,23 @@ folder, replaces mod discovery), `TEMPEST_SCRIPT_LOG` (log path),
 `TEMPEST_SCRIPT_CONSOLE=0` (no console window), `TEMPEST_GAME_DIR` (game
 folder when the DLL is not injected from `<game>/Binaries/Win64` or `Win32`).
 
+## Performance
+
+Lua runs on the game thread (hooks must finish before the game goes on, and
+engine objects are not thread-safe), so what a mod costs is frame time.
+Ctrl+Shift+P (`perf_key` in the Tempest Scripting config, empty for none) or
+`tempest_perf` opens the performance window: per mod its self time per frame,
+its share of the frame, its worst frame and its calls per second, and per
+entry point (hook spec, draw handler, key, command, queued job, address hook,
+script load) the same with the longest single call; then the runtime's own
+work (the ProcessEvent and ProcessInternal detours around the handlers, the UI
+frame, the UI drawing on the render thread). Self time means a handler's game
+call that fires another mod's hook does not carry that hook; the game's own
+work inside the call stays with the handler. Measuring only runs while the
+window is open (`profile.rs`: off, every entry point costs one atomic load;
+on, two clock reads and a short lock per Lua call). `tempest_perf log` writes
+the table to the log; `tempest.profile(true | false | "reset")` is the API.
+
 ## Lua API
 
 ```lua
@@ -204,6 +223,7 @@ tempest.new("Engine.Console", outer, name?) -- construct an object (engine `new`
 tempest.command(name, fn, help)      -- in-game console command: fn(pc, rest, argv); "tempest_help" lists them
 tempest.commands()                   -- { {name, help}, ... }
 tempest.trace(spec, n)               -- log the first n firings (object + params), then stop
+tempest.profile(true|false|"reset")  -- measure what every mod costs; returns the report (see Performance)
 tempest.on_key("Ctrl+F5", fn, opts?) / tempest.off_key(id) -- fn() on key down; return true to swallow
                                      -- opts {up=true} = on release, {repeat=true} = also auto-repeat;
                                      -- MouseLeft/Right/Middle, Mouse4/5, WheelUp/Down work as keys

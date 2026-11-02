@@ -82,6 +82,8 @@ end
 -- Frame handlers
 -- ---------------------------------------------------------------------------
 local handlers, next_id = {}, 0
+-- Handler ids in run order, rebuilt only when the set changes.
+local order
 
 -- ui.on_draw(fn) -> id: fn() runs every frame between NewFrame and Render.
 -- Errors are logged once per distinct message; ImGui recovers the window
@@ -90,22 +92,27 @@ function ui.on_draw(fn)
 	assert(type(fn) == "function", "ui.on_draw(fn)")
 	next_id = next_id + 1
 	handlers[next_id] = { fn = fn, mod = tempest.mod() }
+	order = nil
 	return next_id
 end
 
 function ui.off_draw(id)
 	handlers[id] = nil
+	order = nil
 end
 
 function ui._frame()
-	local ids = {}
-	for id in pairs(handlers) do ids[#ids + 1] = id end
-	table.sort(ids)
+	if not order then
+		order = {}
+		for id in pairs(handlers) do order[#order + 1] = id end
+		table.sort(order)
+	end
+	local ids = order
 	in_frame = true
 	for _, id in ipairs(ids) do
 		local h = handlers[id]
 		if h then
-			local err = tempest._ui_protect(h.fn, h.mod)
+			local err = tempest._ui_protect(h.fn, h.mod, id)
 			if err then
 				if err ~= h.err then
 					h.err = err
@@ -123,6 +130,7 @@ function ui._forget(mod)
 	for id, h in pairs(handlers) do
 		if h.mod == mod then handlers[id] = nil end
 	end
+	order = nil
 end
 
 -- ---------------------------------------------------------------------------

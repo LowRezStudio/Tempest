@@ -105,7 +105,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
             unreal::queue(Box::new(move || {
                 let lua = crate::lua();
                 if let Ok(f) = lua.registry_value::<Function>(&key) {
-                    if let Err(e) = crate::loader::with_mod(&owner, || f.call::<()>(())) {
+                    if let Err(e) = crate::loader::with_mod_at(&owner, crate::profile::Site::Queue, || "tempest.queue".into(), || f.call::<()>(())) {
                         crate::log::line("lua", &format!("[{owner}] queued job failed: {e}"));
                     }
                 }
@@ -120,6 +120,34 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         "_with_mod",
         lua.create_function(|_, (id, f, args): (String, Function, mlua::MultiValue)| {
             crate::loader::with_mod(&id, || f.call::<mlua::MultiValue>(args))
+        })?,
+    )?;
+    // tempest._run_as(id, kind, name, fn, ...): `_with_mod` that the profiler
+    // reports as a key binding or console command.
+    t.set(
+        "_run_as",
+        lua.create_function(|_, (id, kind, name, f, args): (String, String, String, Function, mlua::MultiValue)| {
+            let kind: &'static str = match kind.as_str() {
+                "key" => "key",
+                "command" => "command",
+                _ => "other",
+            };
+            let site = crate::profile::Site::Named(kind, name.clone());
+            crate::loader::with_mod_at(&id, site, || name, || f.call::<mlua::MultiValue>(args))
+        })?,
+    )?;
+    // tempest.profile() -> report; tempest.profile(true|false) starts (from
+    // zero) or stops; tempest.profile("reset") clears what was measured.
+    t.set(
+        "profile",
+        lua.create_function(|lua, arg: Value| {
+            match arg {
+                Value::Boolean(on) => crate::profile::set(on),
+                Value::String(s) if &*s.to_string_lossy() == "reset" => crate::profile::reset(),
+                Value::Nil => {}
+                other => return Err(mlua::Error::external(format!("tempest.profile(true | false | \"reset\"), not {}", other.type_name()))),
+            }
+            profile_report(lua)
         })?,
     )?;
     t.set(
@@ -506,8 +534,8 @@ fn register_ui(lua: &Lua, t: &Table) -> mlua::Result<()> {
     // Run one draw handler under ImGui's error recovery; returns the error text.
     t.set(
         "_ui_protect",
-        lua.create_function(|_, (f, owner): (Function, Option<String>)| {
-            Ok(crate::overlay::run_handler(&f, owner.as_deref().unwrap_or("")))
+        lua.create_function(|_, (f, owner, id): (Function, Option<String>, Option<u64>)| {
+            Ok(crate::overlay::run_handler(&f, owner.as_deref().unwrap_or(""), id.unwrap_or(0)))
         })?,
     )?;
     // Tests / diagnostics: a backend-less context, and an immediate frame.
@@ -553,6 +581,51 @@ fn status(lua: &Lua) -> mlua::Result<Table> {
     Ok(t)
 }
 
+/// `tempest.profile()`: times in milliseconds.
+fn profile_report(lua: &Lua) -> mlua::Result<Table> {
+    let r = crate::profile::report();
+    let ms = |ns: u64| ns as f64 / 1e6;
+    let t = lua.create_table()?;
+    t.set("on", r.on)?;
+    t.set("seconds", r.seconds)?;
+    t.set("frames", r.frames)?;
+    t.set("frame_ms", if r.frames > 0 { r.seconds * 1000.0 / r.frames as f64 } else { 0.0 })?;
+    t.set("worst_frame_ms", ms(r.worst_frame))?;
+    t.set("runtime_worst_frame_ms", ms(r.runtime_worst_frame))?;
+    let runtime = lua.create_table()?;
+    for (i, (name, calls, ns, max)) in r.runtime.into_iter().enumerate() {
+        let e = lua.create_table()?;
+        e.set("name", name)?;
+        e.set("calls", calls)?;
+        e.set("ms", ms(ns))?;
+        e.set("max_ms", ms(max))?;
+        runtime.set(i + 1, e)?;
+    }
+    t.set("runtime", runtime)?;
+    let mods = lua.create_table()?;
+    for (i, m) in r.mods.into_iter().enumerate() {
+        let e = lua.create_table()?;
+        e.set("id", m.id)?;
+        e.set("ms", ms(m.ns))?;
+        e.set("calls", m.calls)?;
+        e.set("worst_frame_ms", ms(m.worst_frame))?;
+        let sites = lua.create_table()?;
+        for (j, s) in m.sites.into_iter().enumerate() {
+            let se = lua.create_table()?;
+            se.set("kind", s.kind)?;
+            se.set("label", s.stat.label)?;
+            se.set("calls", s.stat.calls)?;
+            se.set("ms", ms(s.stat.ns))?;
+            se.set("max_ms", ms(s.stat.max))?;
+            sites.set(j + 1, se)?;
+        }
+        e.set("sites", sites)?;
+        mods.set(i + 1, e)?;
+    }
+    t.set("mods", mods)?;
+    Ok(t)
+}
+
 /// `Engine.GamePlayers[0].Actor`, via reflection.
 fn local_player_controller() -> Option<usize> {
     let engine = unreal::engine()?;
@@ -588,7 +661,8 @@ fn deliver(ev: Event) -> bool {
         Err(_) => return true,
     };
     let owner = unreal::subscription_owner(ev.sub_id).unwrap_or_default();
-    let result = crate::loader::with_mod(&owner, || cb.call::<Value>((this, params)));
+    let site = crate::profile::Site::Hook(ev.sub_id);
+    let result = crate::loader::with_mod_at(&owner, site, || unreal::subscription_spec(ev.sub_id).unwrap_or_default(), || cb.call::<Value>((this, params)));
     match result {
         // Only an explicit `false` from a before-handler cancels.
         Ok(Value::Boolean(false)) => ev.phase == Phase::After,
@@ -771,7 +845,8 @@ fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, regs: hooks::
             k => Value::Number(regs.get(*loc, *k)),
         });
     }
-    let result = crate::loader::with_mod(&h.owner, || cb.call::<Value>(mlua::MultiValue::from_vec(lua_args)));
+    let site = crate::profile::Site::Address(h.id);
+    let result = crate::loader::with_mod_at(&h.owner, site, || format!("memory.hook 0x{:x}", h.addr), || cb.call::<Value>(mlua::MultiValue::from_vec(lua_args)));
     alive.store(false, Ordering::Release);
     let forwarded = *forwarded.lock().unwrap();
     let pass_through = |lua: &Lua| forwarded.unwrap_or_else(|| run_hook_level(lua, call.clone(), level + 1, regs));
@@ -1208,9 +1283,30 @@ fn function(obj: usize, key: &str) -> Option<usize> {
     unreal::find_function(unreal::object_class(obj)?, key)
 }
 
+static ECHO_REPLIES: AtomicBool = AtomicBool::new(false);
+
+/// Run a line typed into the console window as a console command, when it
+/// names one (`tempest._console_command`). The command's `ClientMessage`
+/// replies go to the in-game console, which the window does not show, so
+/// they are logged as well.
+pub fn console_command(lua: &Lua, line: &str) -> mlua::Result<bool> {
+    let Ok(f) = lua.globals().get::<Table>("tempest").and_then(|t| t.get::<Function>("_console_command")) else {
+        return Ok(false);
+    };
+    ECHO_REPLIES.store(true, Ordering::Relaxed);
+    let r = f.call::<bool>(line);
+    ECHO_REPLIES.store(false, Ordering::Relaxed);
+    r
+}
+
 /// `obj:Func(args...)`: convert args by the function's param kinds, call,
 /// and spread `ReturnValue` + out params as results.
 fn call_function(lua: &Lua, obj: usize, func: usize, args: &[Value]) -> mlua::Result<mlua::MultiValue> {
+    if ECHO_REPLIES.load(Ordering::Relaxed) && unreal::object_name(func).is_some_and(|n| n.eq_ignore_ascii_case("ClientMessage")) {
+        if let Some(Value::String(s)) = args.first() {
+            crate::log::line("console", &s.to_string_lossy());
+        }
+    }
     let params = unreal::function_params(func);
     let inputs: Vec<_> = params.iter().filter(|p| !p.is_return()).collect();
     let mut converted = Vec::with_capacity(args.len());

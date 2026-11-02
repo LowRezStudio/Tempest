@@ -193,7 +193,9 @@ pub fn maybe_build_frame() {
 /// Build a frame right now on the calling thread (the game thread, or a
 /// test). `false` when the backend is not ready or a frame is in progress.
 pub fn build_frame() -> bool {
-    unsafe { tempest_overlay_build_frame(draw_trampoline, std::ptr::null_mut()) != 0 }
+    let built = crate::profile::runtime(crate::profile::Runtime::UiFrame, || unsafe { tempest_overlay_build_frame(draw_trampoline, std::ptr::null_mut()) != 0 });
+    crate::profile::frame();
+    built
 }
 
 /// Inside NewFrame/Render: run `ui._frame()`, which runs every draw handler.
@@ -211,6 +213,7 @@ extern "C" fn draw_trampoline(_: *mut c_void) {
 struct HandlerCall<'a> {
     f: &'a Function,
     owner: &'a str,
+    id: u64,
     err: Option<String>,
 }
 
@@ -218,7 +221,9 @@ extern "C" fn handler_trampoline(ud: *mut c_void) -> i32 {
     // SAFETY: `ud` is the `HandlerCall` that `run_handler` built on its stack
     // and only lives for the duration of this call.
     let call = unsafe { &mut *(ud as *mut HandlerCall) };
-    let r = catch_unwind(AssertUnwindSafe(|| crate::loader::with_mod(call.owner, || call.f.call::<()>(()))));
+    let site = crate::profile::Site::Draw(call.id);
+    let id = call.id;
+    let r = catch_unwind(AssertUnwindSafe(|| crate::loader::with_mod_at(call.owner, site, || format!("ui.on_draw #{id}"), || call.f.call::<()>(()))));
     match r {
         Ok(Ok(())) => 1,
         Ok(Err(e)) => {
@@ -235,8 +240,8 @@ extern "C" fn handler_trampoline(ud: *mut c_void) -> i32 {
 /// Run one Lua draw handler under ImGui's error recovery (so a handler that
 /// raised mid-window does not leave Begin/End unbalanced). The error text,
 /// if any, goes back to Lua for per-handler reporting.
-pub fn run_handler(f: &Function, owner: &str) -> Option<String> {
-    let mut call = HandlerCall { f, owner, err: None };
+pub fn run_handler(f: &Function, owner: &str, id: u64) -> Option<String> {
+    let mut call = HandlerCall { f, owner, id, err: None };
     unsafe { tempest_overlay_run_handler(handler_trampoline, &mut call as *mut HandlerCall as *mut c_void) };
     call.err
 }
@@ -297,7 +302,7 @@ mod hooks {
 
     extern "system" fn present11(sc: *mut c_void, sync: u32, flags: u32) -> i32 {
         let Some(h) = PRESENT11.get() else { return 0 };
-        let _ = catch_unwind(|| unsafe { tempest_overlay_present11(sc, flags) });
+        let _ = catch_unwind(|| crate::profile::runtime(crate::profile::Runtime::UiRender, || unsafe { tempest_overlay_present11(sc, flags) }));
         FRAME_WANTED.store(true, Ordering::Release);
         h.call(sc, sync, flags)
     }
@@ -312,7 +317,7 @@ mod hooks {
         let Some(h) = PRESENT9.get() else { return 0 };
         // Only the first call (backend init) needs a window to fall back on.
         let fallback = if ready() { std::ptr::null_mut() } else { crate::input::game_window().unwrap_or(0) as *mut c_void };
-        let _ = catch_unwind(|| unsafe { tempest_overlay_present9(dev, fallback) });
+        let _ = catch_unwind(|| crate::profile::runtime(crate::profile::Runtime::UiRender, || unsafe { tempest_overlay_present9(dev, fallback) }));
         FRAME_WANTED.store(true, Ordering::Release);
         h.call(dev, src, dst, hwnd, dirty)
     }

@@ -247,6 +247,37 @@ function tempest.default_object(class) end
 ---@param id integer
 function tempest.off_key(id) end
 
+---@class ProfileSite
+---@field kind "hook"|"address"|"draw"|"key"|"command"|"queue"|"load"|"other"
+---@field label string  # the hook spec, draw handler id, key, command or script file
+---@field calls integer
+---@field ms number     # self time: without other mods' hooks this one set off
+---@field max_ms number # the longest single call
+
+---@class ProfileMod
+---@field id string
+---@field ms number
+---@field calls integer
+---@field worst_frame_ms number # the most this mod took in one frame
+---@field sites ProfileSite[]   # most expensive first
+
+---@class ProfileReport
+---@field on boolean
+---@field seconds number
+---@field frames integer        # UI frames built (one per Present)
+---@field frame_ms number       # average frame time
+---@field worst_frame_ms number
+---@field runtime_worst_frame_ms number
+---@field runtime { name: string, calls: integer, ms: number, max_ms: number }[] # the runtime's own work (event and script hooks, UI)
+---@field mods ProfileMod[]     # most expensive first
+
+--- What scripting costs: `tempest.profile(true)` starts measuring from zero, `false` stops,
+--- `"reset"` clears; any call returns the report (times in milliseconds). Off by default; the
+--- `tempest_perf` command (or Ctrl+Shift+P) shows it as a window.
+---@param arg? boolean|"reset"
+---@return ProfileReport
+function tempest.profile(arg) end
+
 --- Log the first `n` firings of an event (object + params), then stop.
 ---@param spec string
 ---@param n? integer

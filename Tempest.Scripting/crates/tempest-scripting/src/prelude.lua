@@ -9,22 +9,38 @@
 local commands = {}
 local hooked = false
 
+local function find_command(line)
+	local name, rest = line:match("^%s*(%S+)%s*(.-)%s*$")
+	return name and commands[name:lower()], rest
+end
+
+local function run_command(cmd, pc, rest)
+	local argv = {}
+	for a in rest:gmatch("%S+") do argv[#argv + 1] = a end
+	local ok, err = pcall(tempest._run_as, cmd.mod, "command", cmd.name, cmd.fn, pc, rest, argv)
+	if not ok then tempest.log(string.format("[%s] command %s failed: %s", cmd.mod, cmd.name, tostring(err))) end
+end
+
 local function ensure_hook()
 	if hooked then return end
 	hooked = true
 	tempest.before("Engine.PlayerController.ConsoleCommand", function(pc, params)
 		local line = params.Command
 		if type(line) ~= "string" then return end
-		local name, rest = line:match("^%s*(%S+)%s*(.-)%s*$")
-		if not name then return end
-		local cmd = commands[name:lower()]
+		local cmd, rest = find_command(line)
 		if not cmd then return end
-		local argv = {}
-		for a in rest:gmatch("%S+") do argv[#argv + 1] = a end
-		local ok, err = pcall(tempest._with_mod, cmd.mod, cmd.fn, pc, rest, argv)
-		if not ok then tempest.log(string.format("[%s] command %s failed: %s", cmd.mod, cmd.name, tostring(err))) end
+		run_command(cmd, pc, rest)
 		return false
 	end)
+end
+
+-- The console window: a line starting with a command's name runs that command
+-- (anything else is Lua). Its pc:ClientMessage replies are echoed to the window.
+function tempest._console_command(line)
+	local cmd, rest = find_command(line)
+	if not cmd then return false end
+	run_command(cmd, tempest.local_player() or { ClientMessage = function(_, s) print(s) end }, rest)
+	return true
 end
 
 function tempest.command(name, fn, help)
@@ -102,7 +118,7 @@ function tempest._key(vk, ctrl, shift, alt, is_down, is_repeat)
 	for _, b in pairs(keys) do
 		if b.vk == vk and b.ctrl == ctrl and b.shift == shift and b.alt == alt
 			and b.up == (not is_down) and (b.rep or not is_repeat) then
-			local ok, r = pcall(tempest._with_mod, b.mod, b.fn)
+			local ok, r = pcall(tempest._run_as, b.mod, "key", b.spec, b.fn)
 			if not ok then tempest.log(string.format("[%s] key %s failed: %s", b.mod, b.spec, tostring(r)))
 			elseif r == true then swallow = true end
 		end
