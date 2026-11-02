@@ -78,6 +78,8 @@ fn usage() -> ExitCode {
            upk delta batch <plan.json>                    several applies in one process, progress as JSON lines (the launcher's)\n  \
            upk mcts tokens [<game dir>]                   where the field/function tables come from\n  \
            (mcts: --tokens <MctsInterface.dll> uses that binary's tables; default: the game's next to the file, else built-in)\n  \
+           upk live baseline <cooked-dir> <state-dir> [<result.json>]   record what every movie package holds (hot reload)\n  \
+           upk live changes <request.json> [<result.json>]   what changed packages changed against their record\n  \
            upk serve                                  JSON-lines RPC over stdin/stdout (the Studio backend)\n\n\
          -I dir: directory holding the script packages (default: the package's own directory)\n\
          -j N: worker threads (default: all cores, or USCRIPT_JOBS)"
@@ -117,6 +119,7 @@ fn main() -> ExitCode {
         "batch-import" if args.len() >= 3 => cmd_batch_import(&args[1..]),
         "wwise" if args.len() >= 3 => cmd_wwise(&args[1..]),
         "mcts" if args.len() >= 2 => cmd_mcts(&args[1..]),
+        "live" if args.len() >= 3 => cmd_live(&args[1..]),
         "serve" => {
             tempest_assets::serve::main();
             return ExitCode::SUCCESS;
@@ -1939,6 +1942,34 @@ fn cmd_swf(args: &[String]) -> Res {
     let m = Movie::parse(&media::swf_export(&pkg, &o)?)?;
     println!("{}", serde_json::to_string_pretty(&info(&m))?);
     Ok(())
+}
+
+/// `upk live baseline|changes` for the hot reload mod. The result (or
+/// `{"error"}`) goes to the result file when one is given: the mod starts
+/// this without a console and only reads that file.
+fn cmd_live(args: &[String]) -> Res {
+    use tempest_assets::live;
+    let (result, out) = match args[0].as_str() {
+        "baseline" if args.len() >= 3 => (live::baseline(Path::new(&args[1]), Path::new(&args[2])), args.get(3)),
+        "changes" => {
+            let req = std::fs::read(&args[1]).map_err(|e| format!("{}: {e}", args[1])).and_then(|b| serde_json::from_slice(&b).map_err(|e| e.to_string()));
+            (req.map_err(Into::into).and_then(|r| live::changes(&r)), args.get(2))
+        }
+        _ => return Err("usage: upk live baseline <cooked-dir> <state-dir> [<result.json>] | changes <request.json> [<result.json>]".into()),
+    };
+    let (value, failed) = match result {
+        Ok(v) => (v, None),
+        Err(e) => (serde_json::json!({ "error": e.to_string() }), Some(e.to_string())),
+    };
+    let text = serde_json::to_string(&value)?;
+    match out {
+        Some(path) => std::fs::write(path, text)?,
+        None => println!("{text}"),
+    }
+    match failed {
+        Some(e) => Err(e.into()),
+        None => Ok(()),
+    }
 }
 
 /// `upk as2 list|pcode|source|verify` over extracted movies.

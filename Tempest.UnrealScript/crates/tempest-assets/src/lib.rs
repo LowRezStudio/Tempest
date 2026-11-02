@@ -23,6 +23,7 @@ pub mod dump;
 pub mod edit;
 pub mod json;
 pub mod level;
+pub mod live;
 pub mod material;
 pub mod material_ops;
 pub mod media;
