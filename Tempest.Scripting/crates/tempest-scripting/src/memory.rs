@@ -231,6 +231,17 @@ pub fn is_readable(addr: usize, len: usize) -> bool {
     }
 }
 
+/// `is_readable` for hot paths: reads one byte per page through `try_read`.
+/// `VirtualQuery` sizes the whole run of like pages after `addr`, which inside
+/// the game's large heap blocks costs tens of µs per call. Like any read, it
+/// trips a guard page, so keep `is_readable` for stack addresses.
+pub fn probe(addr: usize, len: usize) -> bool {
+    const PAGE: usize = 0x1000;
+    let Some(last) = addr.checked_add(len.max(1) - 1) else { return false };
+    try_read::<u8>(addr).is_some()
+        && ((addr & !(PAGE - 1)) + PAGE..=last).step_by(PAGE).all(|page| try_read::<u8>(page).is_some())
+}
+
 /// First match of `pattern` inside `[start, start+len)` (must be readable;
 /// used to look inside an already-resolved function body).
 pub fn scan_range(start: usize, len: usize, pattern: &[Option<u8>]) -> Option<usize> {
@@ -399,6 +410,17 @@ mod tests {
         let text = b"hi\0";
         assert_eq!(try_read_cstr(text.as_ptr() as usize, 16).as_deref(), Some("hi"));
         assert_eq!(try_read_cstr(0x10, 16), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn probe_checks_every_page_of_the_range() {
+        let block = vec![0u8; 0x3000];
+        let start = block.as_ptr() as usize;
+        assert!(probe(start, block.len()));
+        assert!(probe(start + 0x10, 1));
+        assert!(!probe(0x10, 4));
+        assert!(!probe(usize::MAX - 1, 4));
     }
 
     #[test]

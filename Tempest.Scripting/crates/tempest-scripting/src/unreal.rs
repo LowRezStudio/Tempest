@@ -1492,7 +1492,7 @@ pub fn map_entries(addr: usize, key: &Prop, value: &Prop, elem_size: usize) -> V
 
 /// Read `prop` from the instance at `base`.
 pub fn read_prop(base: usize, prop: &Prop) -> Option<Value> {
-    if base == 0 || !memory::is_readable(base + prop.offset, prop.elem_size.max(1)) {
+    if base == 0 || !memory::probe(base + prop.offset, prop.elem_size.max(1)) {
         return None;
     }
     let addr = base + prop.offset;
