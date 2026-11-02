@@ -38,6 +38,16 @@ public static class GamePath
     }
 
     /// <summary>
+    /// The full path of <paramref name="relativePath"/> under <paramref name="root"/>, with every
+    /// part that exists taking its on-disk casing. Used for files a mod folder stores under the
+    /// spelling it shipped (an older install, or a package made on a case-insensitive disk).
+    /// </summary>
+    public static string Resolve(string root, string relativePath) =>
+        Path.IsPathRooted(relativePath)
+            ? Path.GetFullPath(relativePath)
+            : Path.Combine(root, Canonical(root, relativePath));
+
+    /// <summary>
     /// A package entry with its game path in the game folder's casing: <c>files/&lt;game path&gt;</c>
     /// and <c>deltas/&lt;game path&gt;.tdelta</c>; other entries are returned unchanged.
     /// </summary>

@@ -359,7 +359,7 @@ public class ModV2Installer : IModInstaller
                     try { relativeExisting = Path.GetRelativePath(resolvedGame, deltaFile).Replace('\\', '/'); }
                     catch { continue; }
                     if (!newDeltas.TryGetValue(relativeExisting, out var newKeys)) continue;
-                    var existingDelta = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, existingMod.Id), "deltas", relativeExisting + ".tdelta");
+                    var existingDelta = GamePath.Resolve(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, existingMod.Id), $"deltas/{relativeExisting}.tdelta");
                     if (!File.Exists(existingDelta)) continue;
                     List<string> existingKeys;
                     try
