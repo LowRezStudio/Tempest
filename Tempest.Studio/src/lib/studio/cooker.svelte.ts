@@ -117,7 +117,7 @@ export function defaultDest(src: string): string {
 	return `files/${name}`;
 }
 
-const isGameFile = (p: string) => /\.(upk|dat)$/i.test(p);
+const isGameFile = (p: string) => /\.(upk|dat|pck)$/i.test(p);
 
 /** The default source of a game file: unsaved edits, else the newest copy, else the in-place save. */
 function preferred(sources: CookSource[]): CookSource | null {
@@ -181,8 +181,8 @@ class Cooker {
 				const choice: Choice = saved ?? {
 					on: true,
 					source: fallback?.id ?? null,
-					// Script packages, Wwise .pck files and packages made in the Studio have no delta.
-					mode: sources.some((s) => s.script || s.kind === "pck" || s.base.kind === "new")
+					// Script packages and packages made in the Studio have no delta.
+					mode: sources.some((s) => s.script || s.base.kind === "new")
 						? "whole"
 						: "delta",
 				};
@@ -471,8 +471,8 @@ class Cooker {
 		const picked =
 			files ??
 			(await pickFiles(
-				"Modified packages or .dat files",
-				[{ name: "Packages and .dat files", extensions: ["upk", "dat"] }],
+				"Modified packages, .dat or Wwise .pck files",
+				[{ name: "Packages, .dat and .pck files", extensions: ["upk", "dat", "pck"] }],
 				"cooker",
 			));
 		for (const file of picked) {
