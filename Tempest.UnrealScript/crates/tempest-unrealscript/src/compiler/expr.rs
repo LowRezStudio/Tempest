@@ -439,7 +439,7 @@ impl<'a> Compiler<'a> {
                 let _ = self.ctx.package_by_name(parts[0]);
                 if let Some(slot) = self.ctx.slot_of(parts[0]) {
                     if let Some(r) = self.ctx.find_export(slot, parts[1]) {
-                        if self.ctx.class_name(r) == "Class" {
+                        if self.ctx.class_is(r, "Class") {
                             return Some(FieldRef::External(r));
                         }
                     }
@@ -521,7 +521,7 @@ impl<'a> Compiler<'a> {
     fn find_local_field_path(&self, parts: &[&str]) -> Option<FieldRef> {
         let mut cur = FieldRef::Local(self.model.find_class(parts[0])?);
         for p in &parts[1..] {
-            cur = self.res().children(cur).into_iter().find(|&c| self.res().name_of(c).eq_ignore_ascii_case(p))?;
+            cur = self.res().children_iter(cur).find(|&c| self.res().name_is(c, p))?;
         }
         Some(cur)
     }
@@ -670,6 +670,21 @@ impl<'a> Compiler<'a> {
             self.emit_name_text(&n);
         }
         Ok(())
+    }
+
+    /// The operator functions among a loaded struct's children, in order.
+    fn operator_functions(&self, o: crate::context::ObjRef) -> std::rc::Rc<Vec<FieldRef>> {
+        if let Some(list) = self.operator_cache.borrow().get(&o) {
+            return list.clone();
+        }
+        let r = self.res();
+        let list: Vec<FieldRef> = r
+            .children_iter(FieldRef::External(o))
+            .filter(|&ch| r.func_flags(ch) & (func::PRE_OPERATOR | func::OPERATOR) != 0 && r.is_function(ch))
+            .collect();
+        let list = std::rc::Rc::new(list);
+        self.operator_cache.borrow_mut().insert(o, list.clone());
+        list
     }
 
     pub fn uobject_outer_property(&self) -> Option<FieldRef> {
@@ -1470,10 +1485,20 @@ impl<'a> Compiler<'a> {
                 let mut cur = Some(FieldRef::Local(node));
                 let mut guard = 0;
                 while let Some(st) = cur {
-                    for ch in r.children(st) {
-                        if r.is_function(ch)
-                            && r.func_friendly_name(ch).eq_ignore_ascii_case(&oper_name)
-                            && (r.func_flags(ch) & (func::PRE_OPERATOR | func::OPERATOR)) == required_fn_flags
+                    // Loaded structs never change: their operator functions are listed once.
+                    let cached = match st {
+                        FieldRef::External(o) => Some(self.operator_functions(o)),
+                        FieldRef::Local(_) => None,
+                    };
+                    let children: Box<dyn Iterator<Item = FieldRef>> = match &cached {
+                        Some(list) => Box::new(list.iter().copied()),
+                        None => Box::new(r.children_iter(st)),
+                    };
+                    for ch in children {
+                        // Cheapest test first: only functions carry operator flags.
+                        if (r.func_flags(ch) & (func::PRE_OPERATOR | func::OPERATOR)) == required_fn_flags
+                            && r.is_function(ch)
+                            && r.func_friendly_is(ch, &oper_name)
                         {
                             oper_links.push(ch);
                             precedence = r.func_precedence(ch) as i32;

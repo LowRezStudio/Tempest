@@ -17,9 +17,8 @@
 		Users,
 		X,
 	} from "@lucide/svelte";
-	import { assembly, isMessageColumn, refOf } from "$lib/studio/assembly.svelte";
+	import { assembly, isMessageColumn, refOf, type Ref } from "$lib/studio/assembly.svelte";
 	import { keyLabel } from "$lib/studio/commands.svelte";
-	import { reveal } from "$lib/studio/keys";
 	import { tabs } from "$lib/studio/tabs.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
 	import { ui } from "$lib/studio/ui.svelte";
@@ -101,6 +100,202 @@
 		return left;
 	}
 
+	/** What every cell of a column needs, worked out once per table instead of per cell. */
+	type Col = McsColumn & {
+		ref: Ref | null;
+		msg: boolean;
+		flag: boolean;
+		valueId: boolean;
+		editable: boolean;
+		left: number | null;
+		width: number | null;
+	};
+	const cols = $derived<Col[]>(
+		columns.map((c, ci) => {
+			const left = stickyLeft(ci);
+			return {
+				...c,
+				ref: refOf(c.name),
+				msg: isMessageColumn(c.name),
+				flag: isFlag(c.name),
+				valueId: c.name.endsWith("_VALUE_ID"),
+				editable: editable(c),
+				left,
+				width: left !== null ? (PIN_WIDTH[ci] ?? 8) : null,
+			};
+		}),
+	);
+	const colByName = $derived(new Map(cols.map((c) => [c.name, c])));
+
+	/**
+	 * Width (in characters) each column needs for the widest cell of the whole page: only
+	 * the rows in view are rendered, and auto-sized columns would jump while scrolling.
+	 */
+	const colChars = $derived.by(() => {
+		const out = new Map<string, number>();
+		if (!page) return out;
+		for (const c of cols) {
+			let w = 0;
+			for (const [, cells] of page.rows) {
+				const cell = cells[c.name];
+				if (cell === undefined || cell === null) continue;
+				let n: number;
+				if (typeof cell === "object") n = String(cell.rows).length + 5;
+				else if (c.flag && (cell === "y" || cell === "n")) n = 4;
+				else {
+					n = String(cell).length;
+					const h = hint(c, cell);
+					if (h) n += h.length + 1;
+					if (c.ref) n += 3;
+				}
+				if (n > w) w = n;
+			}
+			out.set(c.name, w);
+		}
+		return out;
+	});
+
+	// ----- virtual rows: only the rows in view (plus a margin) are in the DOM
+
+	/** Height of a body row in px, measured from the first rendered row. */
+	let rowH = $state(25);
+	const OVERSCAN = 10;
+	let scrollTop = $state(0);
+	let viewH = $state(600);
+	let headEl = $state<HTMLTableSectionElement | null>(null);
+	const allRows = $derived(page?.rows ?? []);
+	/** Position of a row (by index) in the page. */
+	const posOf = $derived(new Map(allRows.map(([i], k) => [i, k])));
+	const firstRow = $derived(Math.max(0, Math.floor(scrollTop / rowH) - OVERSCAN));
+	const lastRow = $derived(
+		Math.min(allRows.length, Math.ceil((scrollTop + viewH) / rowH) + OVERSCAN),
+	);
+	const visibleRows = $derived(allRows.slice(firstRow, lastRow));
+
+	// ----- virtual columns: the unpinned columns outside the view are spacers
+	// (tables have up to a hundred columns, and a dozen fit on screen)
+
+	let scrollLeft = $state(0);
+	let viewW = $state(1200);
+	/** Pixels of a `ch` of the grid font and of a `rem` (zoom and fonts decide them). */
+	let chPx = $state(6.6);
+	/** The same for header text (its own font size and weight). */
+	let headChPx = $state(7.5);
+	let remPx = $state(16);
+	/** The exact width of every column in px (set on its header, so the table follows). */
+	const colPx = $derived(
+		new Map(
+			cols.map((c) => [
+				c.name,
+				c.width !== null
+					? c.width * remPx
+					: Math.min(
+							Math.max(
+								(colChars.get(c.name) ?? 0) * chPx,
+								(c.name.length + (assembly.sort === c.name ? 2 : 0)) * headChPx,
+							) + remPx,
+							28 * remPx,
+						),
+			]),
+		),
+	);
+	const pinnedCols = $derived(cols.filter((c) => c.left !== null));
+	/** Unpinned columns with their left edge in table coordinates. */
+	const flowCols = $derived.by(() => {
+		let x = 3 * remPx + pinnedCols.reduce((w, c) => w + (colPx.get(c.name) ?? 0), 0);
+		return cols
+			.filter((c) => c.left === null)
+			.map((c) => {
+				const w = colPx.get(c.name) ?? 0;
+				const at = { col: c, x, w };
+				x += w;
+				return at;
+			});
+	});
+	const COL_OVERSCAN = 2;
+	const colWindow = $derived.by(() => {
+		const lo = scrollLeft;
+		const hi = scrollLeft + viewW;
+		let first = flowCols.findIndex((f) => f.x + f.w >= lo);
+		if (first < 0) first = flowCols.length;
+		let last = first;
+		while (last < flowCols.length && flowCols[last].x <= hi) last++;
+		first = Math.max(0, first - COL_OVERSCAN);
+		last = Math.min(flowCols.length, last + COL_OVERSCAN);
+		const start = flowCols[first]?.x ?? 0;
+		const tail = flowCols.at(-1);
+		const end = tail ? tail.x + tail.w : 0;
+		const lastEnd = last > first ? flowCols[last - 1].x + flowCols[last - 1].w : start;
+		return {
+			before: first > 0 ? start - flowCols[0].x : 0,
+			after: Math.max(0, end - lastEnd),
+			cols: flowCols.slice(first, last).map((f) => f.col),
+		};
+	});
+	const shownCols = $derived([...pinnedCols, ...colWindow.cols]);
+
+	$effect(() => {
+		// Measure the font once the grid is on screen (and again when the zoom changes).
+		void viewW;
+		if (!gridEl) return;
+		const probe = document.createElement("span");
+		probe.className = "font-mono text-[11px]";
+		probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
+		probe.textContent = "0".repeat(100);
+		gridEl.append(probe);
+		const w = probe.getBoundingClientRect().width / 100;
+		probe.remove();
+		const th = headEl?.querySelector("th");
+		if (th) {
+			const hp = document.createElement("span");
+			hp.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
+			hp.textContent = "M".repeat(100);
+			th.append(hp);
+			const hw = hp.getBoundingClientRect().width / 100;
+			hp.remove();
+			if (hw > 0 && Math.abs(hw - headChPx) > 0.01) headChPx = hw;
+		}
+		const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+		if (w > 0 && Math.abs(w - chPx) > 0.01) chPx = w;
+		if (Math.abs(rem - remPx) > 0.01) remPx = rem;
+	});
+
+	let scrollFrame = 0;
+	function onScroll() {
+		if (scrollFrame) return;
+		scrollFrame = requestAnimationFrame(() => {
+			scrollFrame = 0;
+			if (!gridEl) return;
+			scrollTop = gridEl.scrollTop;
+			scrollLeft = gridEl.scrollLeft;
+		});
+	}
+
+	// Another table, filter, sort or page starts at the top.
+	const pageKey = $derived(
+		page
+			? `${page.doc}|${page.table}|${JSON.stringify(page.path)}|${page.offset}|${assembly.filter}|${assembly.sort}|${assembly.desc}`
+			: "",
+	);
+	let lastPageKey = "";
+	$effect(() => {
+		const key = pageKey;
+		if (key === lastPageKey) return;
+		lastPageKey = key;
+		if (gridEl) gridEl.scrollTop = 0;
+		scrollTop = 0;
+	});
+
+	$effect(() => {
+		// Measure the row height once rows are on screen (fonts and zoom decide it).
+		void visibleRows.length;
+		requestAnimationFrame(() => {
+			const tr = gridEl?.querySelector<HTMLElement>("tbody tr[data-row]");
+			const h = tr?.getBoundingClientRect().height;
+			if (h && Math.abs(h - rowH) > 0.5) rowH = h;
+		});
+	});
+
 	$effect(() => {
 		// The filter box follows the store (cleared when another table opens).
 		filterText = assembly.filter;
@@ -125,10 +320,10 @@
 		return String(cell);
 	}
 
-	function hint(column: McsColumn, cell: McsCell | undefined): string | null {
+	function hint(column: Col, cell: McsCell | undefined): string | null {
 		if (cell === undefined || cell === null || typeof cell === "object") return null;
-		if (isMessageColumn(column.name)) return assembly.message(cell);
-		if (column.name.endsWith("_VALUE_ID") && assembly.validValues) {
+		if (column.msg) return assembly.message(cell);
+		if (column.valueId && assembly.validValues) {
 			return assembly.validValues[String(cell)]?.text ?? null;
 		}
 		return null;
@@ -141,12 +336,14 @@
 	const isFlag = (name: string) => name.endsWith("_FLAG");
 
 	function cellOf(index: number, name: string): McsCell | undefined {
-		return page?.rows.find(([i]) => i === index)?.[1][name];
+		const pos = posOf.get(index);
+		return pos === undefined ? undefined : page?.rows[pos]?.[1][name];
 	}
 
-	/** Valid values for a `*_VALUE_ID` editor: id → text. */
+	/** Valid values for a `*_VALUE_ID` editor: id → text (only built while one is edited). */
+	const editingValueId = $derived(editing?.endsWith("_VALUE_ID") ?? false);
 	const validList = $derived(
-		assembly.validValues
+		editingValueId && assembly.validValues
 			? Object.entries(assembly.validValues).map(([id, v]) => ({ id, text: v.text }))
 			: [],
 	);
@@ -229,24 +426,35 @@
 	}
 
 	function rowPos(index: number): number {
-		return page ? page.rows.findIndex(([i]) => i === index) : -1;
+		return posOf.get(index) ?? -1;
 	}
+
+	/** A page change is under way (held keys must not skip pages). */
+	let flipping = false;
 
 	async function selectAt(pos: number) {
 		if (!page) return;
 		let target = pos;
-		if (target < 0) {
-			if (page.offset === 0) return;
-			await assembly.prevPage();
-			target = (assembly.page?.rows.length ?? 1) - 1;
-		} else if (target >= page.rows.length) {
-			if (page.offset + assembly.limit >= page.total) return;
-			await assembly.nextPage();
-			target = 0;
+		if (target < 0 || target >= page.rows.length) {
+			if (flipping) return;
+			flipping = true;
+			try {
+				if (target < 0) {
+					if (page.offset === 0) return;
+					await assembly.prevPage();
+					target = (assembly.page?.rows.length ?? 1) - 1;
+				} else {
+					if (page.offset + assembly.limit >= page.total) return;
+					await assembly.nextPage();
+					target = 0;
+				}
+			} finally {
+				flipping = false;
+			}
 		}
 		const row = assembly.page?.rows[target];
 		if (!row) return;
-		await assembly.select(row[0]);
+		void assembly.select(row[0]);
 		revealCell();
 	}
 
@@ -257,14 +465,30 @@
 		revealCell();
 	}
 
+	/** Scroll the cell cursor into view: rows by arithmetic (they may not be rendered yet). */
 	function revealCell() {
-		requestAnimationFrame(() => {
-			const sel = assembly.selected;
-			if (sel === null) return;
-			const el = gridEl?.querySelector(`[data-row="${sel}"] [data-col="${col}"]`);
-			if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
-			else reveal(`[data-row="${sel}"]`, false);
-		});
+		const sel = assembly.selected;
+		const el0 = gridEl;
+		if (sel === null || !el0) return;
+		const pos = posOf.get(sel);
+		if (pos !== undefined) {
+			const head = headEl?.offsetHeight ?? 0;
+			const top = pos * rowH;
+			const h = el0.clientHeight - head;
+			if (top < el0.scrollTop) el0.scrollTop = top;
+			else if (top + rowH > el0.scrollTop + h) el0.scrollTop = top + rowH - h;
+			scrollTop = el0.scrollTop;
+		}
+		// Columns by arithmetic too; pinned columns cover the left edge.
+		const f = flowCols.find((x) => x.col.name === col);
+		if (f) {
+			const pinnedW = flowCols[0]?.x ?? 0;
+			if (f.x < el0.scrollLeft + pinnedW) el0.scrollLeft = f.x - pinnedW;
+			else if (f.x + f.w > el0.scrollLeft + el0.clientWidth) {
+				el0.scrollLeft = f.x + f.w - el0.clientWidth;
+			}
+			scrollLeft = el0.scrollLeft;
+		}
 	}
 
 	function onRowClick(event: MouseEvent, index: number, name: string | null) {
@@ -468,11 +692,13 @@
 
 	async function onKey(event: KeyboardEvent) {
 		if (!page || editing || event.target !== gridEl) return;
-		if (event.ctrlKey || event.metaKey) {
+		// AltGr arrives as Ctrl+Alt on Windows: it types characters (@, {, €…).
+		const altGr = event.getModifierState?.("AltGraph") ?? false;
+		if ((event.ctrlKey || event.metaKey) && !altGr) {
 			await onModKey(event, page.rows);
 			return;
 		}
-		if (event.altKey) return;
+		if (event.altKey && !altGr) return;
 		const at = assembly.selected === null ? -1 : rowPos(assembly.selected);
 		const key = event.key;
 		switch (key) {
@@ -497,9 +723,24 @@
 			}
 			case "PageDown":
 			case "PageUp": {
+				// A screenful of rows; past the ends, the next or previous page.
 				event.preventDefault();
-				await (key === "PageDown" ? assembly.nextPage() : assembly.prevPage());
-				await selectAt(0);
+				const n = Math.max(
+					1,
+					Math.floor(
+						((gridEl?.clientHeight ?? 600) - (headEl?.offsetHeight ?? 0)) / rowH,
+					) - 1,
+				);
+				const down = key === "PageDown";
+				const target = down
+					? at >= page.rows.length - 1
+						? at + 1
+						: Math.min(page.rows.length - 1, at + n)
+					: at <= 0
+						? -1
+						: Math.max(0, at - n);
+				assembly.marked = [];
+				await selectAt(target);
 				break;
 			}
 			case "Home":
@@ -555,6 +796,72 @@
 
 	const markedSet = $derived(new Set(assembly.marked));
 
+	// ----- one set of handlers for the whole body (no closures per cell)
+
+	type Hit = { index: number; col: string | null; action: string | null };
+	function hitOf(event: Event): Hit | null {
+		const t = event.target as Element | null;
+		const tr = t?.closest<HTMLElement>("tr[data-row]");
+		if (!t || !tr) return null;
+		const td = t.closest<HTMLElement>("td[data-col]");
+		return {
+			index: Number(tr.dataset.row),
+			col: td?.dataset.col ?? null,
+			action: t.closest("[data-action]")?.getAttribute("data-action") ?? null,
+		};
+	}
+
+	/** Clicks inside the cell editor stay there (moving the caret must not commit it). */
+	function inEditor(event: Event): boolean {
+		return !!(event.target as Element | null)?.closest(".cell-editor");
+	}
+
+	function onBodyClick(event: MouseEvent) {
+		if (inEditor(event)) return;
+		const hit = hitOf(event);
+		if (!hit) return;
+		const column = hit.col ? colByName.get(hit.col) : undefined;
+		if (hit.action && column) {
+			event.stopPropagation();
+			if (hit.action === "flag") {
+				event.preventDefault();
+				void toggleFlag(hit.index, column.name);
+				return;
+			}
+			if (hit.action === "nested") {
+				void openNested(hit.index, column);
+				return;
+			}
+			if (hit.action === "follow") {
+				const cell = cellOf(hit.index, column.name);
+				if (event.ctrlKey || event.metaKey) tabs.openInNewTab();
+				void assembly.follow(column.name, cell ?? null);
+				return;
+			}
+		}
+		onRowClick(event, hit.index, hit.col);
+	}
+
+	function onBodyDblClick(event: MouseEvent) {
+		if (inEditor(event)) return;
+		const hit = hitOf(event);
+		if (hit?.col && !hit.action) startEdit(hit.index, hit.col);
+	}
+
+	function onBodyAuxClick(event: MouseEvent) {
+		if (event.button !== 1) return;
+		const hit = hitOf(event);
+		if (!hit) return;
+		tabs.openInNewTab();
+		void assembly.select(hit.index);
+	}
+
+	function onBodyMenu(event: MouseEvent) {
+		if (inEditor(event)) return;
+		const hit = hitOf(event);
+		if (hit) onRowMenu(event, hit.index);
+	}
+
 	/** Opaque background of a pinned cell, matching its row's highlight. */
 	function pinBg(isSel: boolean, isMarked: boolean): string {
 		if (isSel) return "pin-selected";
@@ -562,6 +869,93 @@
 		return "pin-plain";
 	}
 </script>
+
+{#snippet head(c: Col)}
+	{@const w = `${colPx.get(c.name) ?? 0}px`}
+	<th
+		class="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap select-none {c.left !==
+		null
+			? 'pin bg-base-200 sticky top-0 z-30'
+			: ''}"
+		style:left={c.left !== null ? `${c.left}rem` : undefined}
+		style:width={w}
+		style:min-width={w}
+		style:max-width={w}
+		title="{c.kind}{page && c.count < page.total
+			? ` · in ${c.count} rows`
+			: ''} (click to sort)"
+		onclick={() => assembly.setSort(c.name)}
+	>
+		<span class="inline-flex items-center gap-1">
+			{c.name}
+			{#if assembly.sort === c.name}
+				{#if assembly.desc}<ArrowDown size={10} />{:else}<ArrowUp size={10} />{/if}
+			{/if}
+		</span>
+	</th>
+{/snippet}
+
+{#snippet cellOfRow(
+	c: Col,
+	index: number,
+	cells: Record<string, McsCell>,
+	isSel: boolean,
+	pin: string,
+)}
+	{@const cell = cells[c.name]}
+	{@const h = hint(c, cell)}
+	<td
+		data-col={c.name}
+		class="max-w-[28rem] truncate {cell === undefined ? 'opacity-30' : ''} {c.left !== null
+			? `${pin} sticky z-10`
+			: ''} {isSel && col === c.name ? 'outline-primary outline-2 -outline-offset-2' : ''}"
+		style:left={c.left !== null ? `${c.left}rem` : undefined}
+		style:min-width={c.width !== null ? `${c.width}rem` : undefined}
+		style:max-width={c.width !== null ? `${c.width}rem` : undefined}
+		title={h ?? (cell === undefined ? `no ${c.name} in this row` : undefined)}
+	>
+		{#if editing === `${index}|${c.name}`}
+			<!-- svelte-ignore a11y_autofocus -->
+			<input
+				class="cell-editor input input-xs w-56"
+				autofocus
+				list={c.valueId ? "valid-values" : undefined}
+				value={editStart ?? text(cell)}
+				onfocus={(e) => {
+					if (editStart === null) e.currentTarget.select();
+				}}
+				onblur={(e) => {
+					if (editing === `${index}|${c.name}`) {
+						void commit(index, c.name, e.currentTarget.value, null);
+					}
+				}}
+				onkeydown={(e) => onEditKey(e, index, c.name)}
+			/>
+		{:else if cell !== null && typeof cell === "object"}
+			<button class="link link-hover" data-action="nested">{cell.rows} rows</button>
+		{:else if c.flag && (cell === "y" || cell === "n")}
+			<input
+				type="checkbox"
+				class="toggle toggle-xs"
+				checked={cell === "y"}
+				data-action="flag"
+				aria-label={c.name}
+			/>
+		{:else if cell !== undefined && cell !== null && c.ref}
+			<span class="inline-flex items-center gap-1">
+				{text(cell)}
+				<button
+					class="opacity-40 hover:opacity-100"
+					title="Go to {c.ref.table} (Ctrl+click: new tab)"
+					data-action="follow"><ExternalLink size={10} /></button
+				>
+				{#if h}<span class="opacity-50">{h}</span>{/if}
+			</span>
+		{:else}
+			{text(cell)}{#if h}<span class="ml-1 opacity-50">{h}</span>{/if}
+		{/if}
+	</td>
+{/snippet}
 
 {#if page}
 	<div class="pane-title @container gap-2">
@@ -716,57 +1110,61 @@
 			>
 		</div>
 	{/if}
-	<datalist id="valid-values">
-		{#each validList as v (v.id)}
-			<option value={v.id}>{v.text}</option>
-		{/each}
-	</datalist>
+	{#if editingValueId}
+		<datalist id="valid-values">
+			{#each validList as v (v.id)}
+				<option value={v.id}>{v.text}</option>
+			{/each}
+		</datalist>
+	{/if}
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
 		class="min-h-0 flex-1 overflow-auto outline-none"
 		role="grid"
 		tabindex="0"
 		aria-label="{page.table} rows"
+		aria-rowcount={allRows.length}
 		bind:this={gridEl}
+		bind:clientHeight={viewH}
+		bind:clientWidth={viewW}
+		onscroll={onScroll}
 		onkeydown={onKey}
 	>
-		<table class="table-xs table-pin-rows table w-max font-mono text-[11px]">
-			<thead class="z-40">
+		<table class="asm-grid table-xs table-pin-rows table w-max font-mono text-[11px]">
+			<thead class="z-40" bind:this={headEl}>
 				<tr>
 					<th
-						class="bg-base-200 sticky top-0 left-0 z-30 w-12 max-w-12 min-w-12 text-right"
+						class="pin bg-base-200 sticky top-0 left-0 z-30 w-12 max-w-12 min-w-12 text-right"
 						><span class="opacity-50">#</span></th
 					>
-					{#each columns as c, ci (c.name)}
-						{@const left = stickyLeft(ci)}
-						<th
-							class="cursor-pointer whitespace-nowrap select-none {left !== null
-								? 'bg-base-200 sticky top-0 z-30'
-								: ''}"
-							style:left={left !== null ? `${left}rem` : undefined}
-							style:min-width={left !== null ? `${PIN_WIDTH[ci] ?? 8}rem` : undefined}
-							style:max-width={left !== null ? `${PIN_WIDTH[ci] ?? 8}rem` : undefined}
-							title="{c.kind}{c.count < page.total
-								? ` · in ${c.count} rows`
-								: ''} (click to sort)"
-							onclick={() => assembly.setSort(c.name)}
-						>
-							<span class="inline-flex items-center gap-1">
-								{c.name}
-								{#if assembly.sort === c.name}
-									{#if assembly.desc}<ArrowDown size={10} />{:else}<ArrowUp
-											size={10}
-										/>{/if}
-								{/if}
-							</span>
-						</th>
+					{#each pinnedCols as c (c.name)}
+						{@render head(c)}
 					{/each}
+					{#if colWindow.before > 0}
+						<th class="asm-gap" style:width="{colWindow.before}px"></th>
+					{/if}
+					{#each colWindow.cols as c (c.name)}
+						{@render head(c)}
+					{/each}
+					{#if colWindow.after > 0}
+						<th class="asm-gap" style:width="{colWindow.after}px"></th>
+					{/if}
 				</tr>
 			</thead>
-			<tbody>
-				{#each page.rows as [index, cells] (index)}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<tbody
+				onclick={onBodyClick}
+				ondblclick={onBodyDblClick}
+				onauxclick={onBodyAuxClick}
+				oncontextmenu={onBodyMenu}
+			>
+				{#if firstRow > 0}
+					<tr class="asm-spacer" style:height="{firstRow * rowH}px"><td></td></tr>
+				{/if}
+				{#each visibleRows as [index, cells] (index)}
 					{@const isSel = assembly.selected === index}
 					{@const isMarked = markedSet.has(index)}
+					{@const pin = pinBg(isSel, isMarked)}
 					<tr
 						class="cursor-default {isSel
 							? 'row-selected'
@@ -774,117 +1172,26 @@
 								? 'bg-primary/10'
 								: 'row-hover'}"
 						data-row={index}
-						onclick={(e) => onRowClick(e, index, null)}
-						onauxclick={(e) => {
-							if (e.button !== 1) return;
-							tabs.openInNewTab();
-							void assembly.select(index);
-						}}
-						oncontextmenu={(e) => onRowMenu(e, index)}
 					>
-						<td
-							class="{pinBg(
-								isSel,
-								isMarked,
-							)} sticky left-0 z-10 w-12 max-w-12 min-w-12 text-right"
+						<td class="{pin} sticky left-0 z-10 w-12 max-w-12 min-w-12 text-right"
 							><span class={isMarked ? "text-primary" : "opacity-50"}>{index}</span
 							></td
 						>
-						{#each columns as c, ci (c.name)}
-							{@const cell = cells[c.name]}
-							{@const h = hint(c, cell)}
-							{@const left = stickyLeft(ci)}
-							{@const active = isSel && col === c.name}
-							<td
-								data-col={c.name}
-								class="max-w-[28rem] truncate {cell === undefined
-									? 'opacity-30'
-									: ''} {left !== null
-									? `${pinBg(isSel, isMarked)} sticky z-10`
-									: ''} {active
-									? 'outline-primary outline-2 -outline-offset-2'
-									: ''}"
-								style:left={left !== null ? `${left}rem` : undefined}
-								style:min-width={left !== null
-									? `${PIN_WIDTH[ci] ?? 8}rem`
-									: undefined}
-								style:max-width={left !== null
-									? `${PIN_WIDTH[ci] ?? 8}rem`
-									: undefined}
-								title={h ??
-									(cell === undefined ? `no ${c.name} in this row` : undefined)}
-								onclick={(e) => {
-									e.stopPropagation();
-									onRowClick(e, index, c.name);
-								}}
-								ondblclick={() => startEdit(index, c.name)}
-							>
-								{#if editing === `${index}|${c.name}`}
-									<!-- svelte-ignore a11y_autofocus -->
-									<input
-										class="input input-xs w-56"
-										autofocus
-										list={c.name.endsWith("_VALUE_ID")
-											? "valid-values"
-											: undefined}
-										value={editStart ?? text(cell)}
-										onfocus={(e) => {
-											if (editStart === null) e.currentTarget.select();
-										}}
-										onblur={(e) => {
-											if (editing === `${index}|${c.name}`) {
-												void commit(
-													index,
-													c.name,
-													e.currentTarget.value,
-													null,
-												);
-											}
-										}}
-										onkeydown={(e) => onEditKey(e, index, c.name)}
-									/>
-								{:else if cell !== null && typeof cell === "object"}
-									<button
-										class="link link-hover"
-										onclick={(e) => {
-											e.stopPropagation();
-											void openNested(index, c);
-										}}>{cell.rows} rows</button
-									>
-								{:else if isFlag(c.name) && (cell === "y" || cell === "n")}
-									<input
-										type="checkbox"
-										class="toggle toggle-xs"
-										checked={cell === "y"}
-										onclick={(e) => {
-											e.stopPropagation();
-											e.preventDefault();
-											void toggleFlag(index, c.name);
-										}}
-										aria-label={c.name}
-									/>
-								{:else if cell !== undefined && cell !== null && refOf(c.name)}
-									<span class="inline-flex items-center gap-1">
-										{text(cell)}
-										<button
-											class="opacity-40 hover:opacity-100"
-											title="Go to {refOf(c.name)
-												?.table} (Ctrl+click: new tab)"
-											onclick={(e) => {
-												e.stopPropagation();
-												if (e.ctrlKey || e.metaKey) tabs.openInNewTab();
-												void assembly.follow(c.name, cell);
-											}}><ExternalLink size={10} /></button
-										>
-										{#if h}<span class="opacity-50">{h}</span>{/if}
-									</span>
-								{:else}
-									{text(cell)}{#if h}<span class="ml-1 opacity-50">{h}</span>{/if}
-								{/if}
-							</td>
+						{#each pinnedCols as c (c.name)}
+							{@render cellOfRow(c, index, cells, isSel, pin)}
 						{/each}
+						{#if colWindow.before > 0}<td class="asm-gap"></td>{/if}
+						{#each colWindow.cols as c (c.name)}
+							{@render cellOfRow(c, index, cells, isSel, pin)}
+						{/each}
+						{#if colWindow.after > 0}<td class="asm-gap"></td>{/if}
 					</tr>
 				{/each}
+				{#if lastRow < allRows.length}
+					<tr class="asm-spacer" style:height="{(allRows.length - lastRow) * rowH}px"
+						><td></td></tr
+					>
+				{/if}
 			</tbody>
 		</table>
 	</div>

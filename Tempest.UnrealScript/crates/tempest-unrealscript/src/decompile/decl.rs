@@ -66,7 +66,7 @@ impl<'a> Decompiler<'a> {
                 None => u1().unwrap_or_else(|| "Interface".into()),
             },
             PropertyKind::Class => match r2 {
-                Some(m) if !self.ctx.name(m).eq_ignore_ascii_case("Object") => format!("class<{}>", self.ctx.name(m)),
+                Some(m) if !self.ctx.name_is(m, "Object") => format!("class<{}>", self.ctx.name(m)),
                 Some(_) => "class".into(),
                 None => match u2() {
                     Some(m) if !m.eq_ignore_ascii_case("Object") => format!("class<{m}>"),
@@ -376,7 +376,7 @@ impl<'a> Decompiler<'a> {
             // `CompileInterfaceDeclaration`: only extends/native/nativeonly/dependson apply.
             let mut head = format!("interface {name}");
             // The root `Interface` class itself extends Object implicitly.
-            if let Some(s) = sup.filter(|s| !self.ctx.name(*s).eq_ignore_ascii_case("Interface") && !name.eq_ignore_ascii_case("Interface")) {
+            if let Some(s) = sup.filter(|s| !self.ctx.name_is(*s, "Interface") && !name.eq_ignore_ascii_case("Interface")) {
                 head.push_str(&format!(" extends {}", self.ctx.name(s)));
             }
             lines.push(head);
@@ -580,7 +580,7 @@ impl<'a> Decompiler<'a> {
                 let names = |v: &Vec<tempest_upk::io::FName>| v.iter().map(|n| lp.name_of(*n)).collect::<Vec<_>>();
                 Some(ParsedClass {
                     flags: class.class_flags,
-                    within: self.ctx.resolve(c.pkg, class.class_within).filter(|w| !self.ctx.name(*w).eq_ignore_ascii_case("Object")),
+                    within: self.ctx.resolve(c.pkg, class.class_within).filter(|w| !self.ctx.name_is(*w, "Object")),
                     config: Some(lp.name_of(class.class_config_name)).filter(|n| !n.eq_ignore_ascii_case("None")),
                     interfaces: class.interfaces.iter().filter_map(|(i, _)| self.ctx.resolve(c.pkg, *i)).collect(),
                     editor: class.editor.as_ref().map(|e| ParsedEditor {
@@ -925,7 +925,7 @@ impl<'a> Decompiler<'a> {
         if !state_vars.is_empty() {
             s.push('\n');
         }
-        let mut children: Vec<ObjRef> = self.ctx.children(st).into_iter().filter(|c| self.ctx.class_name(*c) == "Function").collect();
+        let mut children: Vec<ObjRef> = self.ctx.children(st).into_iter().filter(|c| self.ctx.class_is(*c, "Function")).collect();
         children.reverse();
         let mut pending_ignores: Vec<String> = Vec::new();
         for ch in &children {
@@ -939,7 +939,7 @@ impl<'a> Decompiler<'a> {
                         .ctx
                         .resolve(ch.pkg, fs.super_struct)
                         .and_then(|sup| self.ctx.outer_of(sup))
-                        .map(|o| self.ctx.class_name(o) == "Class")
+                        .map(|o| self.ctx.class_is(o, "Class"))
                         .unwrap_or(false);
                     function.function_flags & (func::DEFINED | func::NATIVE) == 0
                         && class_level_super

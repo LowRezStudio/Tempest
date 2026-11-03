@@ -295,8 +295,17 @@ impl Package {
     pub fn read_summary(path: impl AsRef<Path>) -> Result<Summary> {
         use std::io::Read;
         let mut f = std::fs::File::open(path)?;
+        // The summary is a few KiB (its chunk table grows with the file): read
+        // 64 KiB first, and up to 4 MiB only when that was not enough.
         let mut buf = Vec::with_capacity(64 * 1024);
-        f.by_ref().take(4 * 1024 * 1024).read_to_end(&mut buf)?;
+        f.by_ref().take(64 * 1024).read_to_end(&mut buf)?;
+        if buf.len() < 64 * 1024 {
+            return Summary::read(&mut Reader::new(&buf));
+        }
+        if let Ok(s) = Summary::read(&mut Reader::new(&buf)) {
+            return Ok(s);
+        }
+        f.by_ref().take(4 * 1024 * 1024 - 64 * 1024).read_to_end(&mut buf)?;
         Summary::read(&mut Reader::new(&buf))
     }
 
@@ -427,6 +436,82 @@ impl Package {
         }
     }
 
+    /// Whether an `FName` renders as `text` (ASCII case-insensitive), without allocating.
+    pub fn fname_eq(&self, n: FName, text: &str) -> bool {
+        self.fname_matches(n, text, true)
+    }
+
+    /// `fname_eq`, case-sensitive when `ignore_case` is false.
+    pub fn fname_matches(&self, n: FName, text: &str, ignore_case: bool) -> bool {
+        let base = self.name_str(n.index).as_bytes();
+        let t = text.as_bytes();
+        let same = |a: &[u8], b: &[u8]| if ignore_case { a.eq_ignore_ascii_case(b) } else { a == b };
+        if n.number == 0 {
+            return same(base, t);
+        }
+        if t.len() < base.len() + 2 || !same(&t[..base.len()], base) || t[base.len()] != b'_' {
+            return false;
+        }
+        let digits = &t[base.len() + 1..];
+        if !digits.iter().all(u8::is_ascii_digit) || (digits.len() > 1 && digits[0] == b'0') {
+            return false;
+        }
+        std::str::from_utf8(digits).ok().and_then(|d| d.parse::<u64>().ok()) == Some(n.number as u64 - 1)
+    }
+
+    /// Whether an object's name is `text` (ASCII case-insensitive), without allocating.
+    pub fn object_name_eq(&self, idx: PackageIndex, text: &str) -> bool {
+        if let Some(e) = idx.export_index() {
+            self.exports.get(e).is_some_and(|e| self.fname_eq(e.object_name, text))
+        } else if let Some(i) = idx.import_index() {
+            self.imports.get(i).is_some_and(|i| self.fname_eq(i.object_name, text))
+        } else {
+            text == "None"
+        }
+    }
+
+    /// Whether an object's class is named `text` (ASCII case-insensitive), without allocating.
+    pub fn class_name_is(&self, idx: PackageIndex, text: &str) -> bool {
+        if let Some(e) = idx.export_index() {
+            match self.exports.get(e) {
+                Some(e) if e.class.is_null() => text.eq_ignore_ascii_case("Class"),
+                Some(e) => self.object_name_eq(e.class, text),
+                None => false,
+            }
+        } else if let Some(i) = idx.import_index() {
+            self.imports.get(i).is_some_and(|i| self.fname_eq(i.class_name, text))
+        } else {
+            text == "None"
+        }
+    }
+
+    /// Whether an object's dotted path is `path` (ASCII case-insensitive), without allocating.
+    pub fn object_path_eq(&self, idx: PackageIndex, path: &str) -> bool {
+        if idx.is_null() {
+            return path == "None";
+        }
+        let mut rest = path;
+        let mut cur = idx;
+        let mut guard = 0;
+        loop {
+            let (head, last) = match rest.rfind('.') {
+                Some(d) => (Some(&rest[..d]), &rest[d + 1..]),
+                None => (None, rest),
+            };
+            if !self.object_name_eq(cur, last) {
+                return false;
+            }
+            cur = self.object_outer(cur);
+            guard += 1;
+            match head {
+                // Names never hold dots, so the path must end with the outer chain.
+                None => return cur.is_null() || guard >= 65,
+                Some(_) if cur.is_null() || guard >= 65 => return false,
+                Some(h) => rest = h,
+            }
+        }
+    }
+
     pub fn find_name(&self, name: &str) -> Option<u32> {
         self.name_lookup.get(&name.to_ascii_lowercase()).copied()
     }
@@ -525,6 +610,21 @@ impl Package {
         }
     }
 
+    fn push_object_name(&self, idx: PackageIndex, out: &mut String) {
+        let n = if let Some(e) = idx.export_index() {
+            self.exports.get(e).map(|e| e.object_name)
+        } else {
+            idx.import_index().and_then(|i| self.imports.get(i)).map(|i| i.object_name)
+        };
+        if let Some(n) = n {
+            out.push_str(self.name_str(n.index));
+            if n.number != 0 {
+                use std::fmt::Write;
+                let _ = write!(out, "_{}", n.number - 1);
+            }
+        }
+    }
+
     pub fn object_outer(&self, idx: PackageIndex) -> PackageIndex {
         if let Some(e) = idx.export_index() {
             self.exports.get(e).map(|e| e.outer).unwrap_or_default()
@@ -540,16 +640,22 @@ impl Package {
         if idx.is_null() {
             return "None".to_string();
         }
-        let mut parts = vec![self.object_name(idx)];
-        let mut cur = self.object_outer(idx);
-        let mut guard = 0;
-        while !cur.is_null() && guard < 64 {
-            parts.push(self.object_name(cur));
+        let mut chain = [PackageIndex::NONE; 65];
+        let mut n = 0;
+        let mut cur = idx;
+        while !cur.is_null() && n < 65 {
+            chain[n] = cur;
+            n += 1;
             cur = self.object_outer(cur);
-            guard += 1;
         }
-        parts.reverse();
-        parts.join(".")
+        let mut out = String::new();
+        for (k, &i) in chain[..n].iter().rev().enumerate() {
+            if k > 0 {
+                out.push('.');
+            }
+            self.push_object_name(i, &mut out);
+        }
+        out
     }
 
     /// Class name of an export or import.
@@ -587,8 +693,7 @@ impl Package {
     pub fn find_export(&self, path: &str, class: Option<&str>) -> Option<usize> {
         (0..self.exports.len()).find(|&i| {
             let idx = PackageIndex::export(i);
-            self.object_path(idx).eq_ignore_ascii_case(path)
-                && class.is_none_or(|c| self.class_name_of(idx).eq_ignore_ascii_case(c))
+            self.object_path_eq(idx, path) && class.is_none_or(|c| self.class_name_is(idx, c))
         })
     }
 
@@ -867,10 +972,13 @@ fn decompress_image(bytes: &[u8], summary: &Summary, limit: usize) -> Result<Vec
     let head = first.min(bytes.len());
     image[..head].copy_from_slice(&bytes[..head]);
 
-    for chunk in chunks {
+    let decoded = par_map(chunks.len(), |i| {
         let mut r = Reader::new(bytes);
-        r.seek(chunk.compressed_offset as usize);
-        let dec = read_compressed_chunk(&mut r, obscured)?;
+        r.seek(chunks[i].compressed_offset as usize);
+        read_compressed_chunk(&mut r, obscured)
+    });
+    for (chunk, dec) in chunks.into_iter().zip(decoded) {
+        let dec = dec?;
         if dec.len() != chunk.uncompressed_size as usize {
             return Err(Error::Compression(format!(
                 "chunk size mismatch: summary {} vs header {}",
@@ -887,30 +995,34 @@ fn decompress_image(bytes: &[u8], summary: &Summary, limit: usize) -> Result<Vec
 /// LZO every chunk; the chunks are independent, so they are spread over the
 /// cores (compression is three quarters of a package rewrite otherwise).
 fn compress_chunks(image: &[u8], ranges: &[(usize, usize)], obscure: bool) -> Vec<Vec<u8>> {
-    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(ranges.len()).max(1);
+    par_map(ranges.len(), |i| {
+        let (o, s) = ranges[i];
+        write_compressed_chunk(&image[o..o + s], obscure)
+    })
+}
+
+/// `f(0..n)` spread over the cores, results in order. Chunks are independent,
+/// so (de)compression scales with them.
+pub(crate) fn par_map<R: Send>(n: usize, f: impl Fn(usize) -> R + Sync) -> Vec<R> {
+    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(n).max(1);
     if workers == 1 {
-        return ranges.iter().map(|&(o, s)| write_compressed_chunk(&image[o..o + s], obscure)).collect();
+        return (0..n).map(f).collect();
     }
     let next = std::sync::atomic::AtomicUsize::new(0);
-    let mut out: Vec<Option<Vec<u8>>> = vec![None; ranges.len()];
-    let slots: Vec<std::sync::Mutex<Option<Vec<u8>>>> = (0..ranges.len()).map(|_| std::sync::Mutex::new(None)).collect();
+    let slots: Vec<std::sync::Mutex<Option<R>>> = (0..n).map(|_| std::sync::Mutex::new(None)).collect();
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| loop {
                 let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if i >= ranges.len() {
+                if i >= n {
                     break;
                 }
-                let (o, s) = ranges[i];
-                let c = write_compressed_chunk(&image[o..o + s], obscure);
-                *slots[i].lock().unwrap() = Some(c);
+                let r = f(i);
+                *slots[i].lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
             });
         }
     });
-    for (dst, slot) in out.iter_mut().zip(slots) {
-        *dst = slot.into_inner().unwrap();
-    }
-    out.into_iter().map(|c| c.unwrap()).collect()
+    slots.into_iter().map(|s| s.into_inner().unwrap_or_else(|e| e.into_inner()).expect("every slot is filled")).collect()
 }
 
 /// Compress the file image the way the cooker does: the header tables form one chunk,

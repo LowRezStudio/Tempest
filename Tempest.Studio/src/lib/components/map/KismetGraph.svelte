@@ -117,6 +117,23 @@
 		}
 	});
 
+	/**
+	 * `f` at most once per frame with the latest pointer event: gaming mice report at
+	 * 1000 Hz, and every move re-lays out the whole graph.
+	 */
+	function perFrame(f: (ev: PointerEvent) => void): (ev: PointerEvent) => void {
+		let last: PointerEvent | null = null;
+		let frame = 0;
+		return (ev) => {
+			last = ev;
+			if (frame) return;
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				if (last) f(last);
+			});
+		};
+	}
+
 	function toCanvas(e: { clientX: number; clientY: number }) {
 		const r = host!.getBoundingClientRect();
 		return { x: (e.clientX - r.left - pan.x) / zoom, y: (e.clientY - r.top - pan.y) / zoom };
@@ -141,9 +158,9 @@
 		const start = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
 		const el = e.currentTarget as HTMLElement;
 		el.setPointerCapture(e.pointerId);
-		const move = (ev: PointerEvent) => {
+		const move = perFrame((ev: PointerEvent) => {
 			pan = { x: start.px + ev.clientX - start.x, y: start.py + ev.clientY - start.y };
-		};
+		});
 		const up = () => {
 			el.removeEventListener("pointermove", move);
 			el.removeEventListener("pointerup", up);
@@ -161,7 +178,7 @@
 		const el = e.currentTarget as HTMLElement;
 		el.setPointerCapture(e.pointerId);
 		let moved = false;
-		const move = (ev: PointerEvent) => {
+		const move = perFrame((ev: PointerEvent) => {
 			const p = toCanvas(ev);
 			if (!moved && Math.hypot(p.x - start.x, p.y - start.y) < 3) return;
 			moved = true;
@@ -170,7 +187,7 @@
 				Math.round(b.x + p.x - start.x),
 				Math.round(b.y + p.y - start.y),
 			);
-		};
+		});
 		const up = () => {
 			el.removeEventListener("pointermove", move);
 			el.removeEventListener("pointerup", up);
@@ -190,10 +207,10 @@
 		const el = host!;
 		const p = toCanvas(e);
 		pending = { from: n.export, kind, index, x: at.x, y: at.y, px: p.x, py: p.y };
-		const move = (ev: PointerEvent) => {
+		const move = perFrame((ev: PointerEvent) => {
 			const q = toCanvas(ev);
 			if (pending) pending = { ...pending, px: q.x, py: q.y };
-		};
+		});
 		const up = (ev: PointerEvent) => {
 			window.removeEventListener("pointermove", move);
 			window.removeEventListener("pointerup", up);

@@ -1298,6 +1298,11 @@ export interface UpkMethods {
 		params: { doc: string; path: McsPath; field: string; text?: string; value?: unknown };
 		result: McsStatus & { row: Record<string, McsCell> };
 	};
+	/** `mcts.set` on several rows of one row set in one call (one undo step per row). */
+	"mcts.setMany": {
+		params: { doc: string; paths: McsPath[]; field: string; text?: string; value?: unknown };
+		result: McsStatus & { rows: Record<string, McsCell>[] };
+	};
 	"mcts.setHeader": {
 		params: { doc: string; field: string; text?: string; value?: unknown };
 		result: McsStatus;
@@ -1334,6 +1339,11 @@ export interface UpkMethods {
 		result: { usages: { path: McsPath; field: string; label: string }[]; truncated: boolean };
 	};
 	"mcts.delete": { params: { doc: string; path: McsPath }; result: McsStatus };
+	/** Delete several rows of one row set (highest index first; one undo step per row). */
+	"mcts.deleteMany": {
+		params: { doc: string; paths: McsPath[] };
+		result: McsStatus & { deleted: number };
+	};
 	"mcts.undo": { params: { doc: string }; result: McsStatus & { undone: string | null } };
 	"mcts.save": { params: { doc: string; out?: string }; result: McsStatus & { out: string } };
 	"mcts.discard": { params: { doc: string }; result: McsStatus };

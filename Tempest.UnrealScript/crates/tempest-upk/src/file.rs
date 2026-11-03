@@ -157,6 +157,12 @@ impl PackageFile {
 
     /// Materialise the whole package (every payload decompressed).
     pub fn load(&self) -> Result<Package> {
+        // Every chunk is needed: expand them all at once, over the cores.
+        if self.chunks.len() > 1 {
+            crate::package::par_map(self.chunks.len(), |i| {
+                let _ = self.chunk_data(i);
+            });
+        }
         let mut pkg = self.tables.clone();
         let mut max_end = pkg.summary.total_header_size.max(0) as usize;
         for e in &pkg.exports {

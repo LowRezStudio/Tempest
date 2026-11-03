@@ -78,7 +78,7 @@ class Studio {
 	/** Edited class sources not yet compiled, keyed `path|class`. */
 	drafts = $state<Record<string, string>>({});
 	/** Object currently shown by the inspector (cache by export index). */
-	object = $state<ParsedObject | null>(null);
+	object = $state.raw<ParsedObject | null>(null);
 	objectLoading = $state(false);
 
 	/** Exported copies by game file (package list badges). */

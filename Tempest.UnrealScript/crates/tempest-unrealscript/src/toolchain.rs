@@ -74,7 +74,7 @@ pub fn decompile_package(path: &Path, search_paths: &[PathBuf]) -> Result<Decomp
         if ctx.class_name(r) != "Class" {
             continue;
         }
-        if ctx.packages[slot].pkg.exports[e].serial_size == 0 && ctx.name(r).eq_ignore_ascii_case("None") {
+        if ctx.packages[slot].pkg.exports[e].serial_size == 0 && ctx.name_is(r, "None") {
             continue;
         }
         all.push(r);

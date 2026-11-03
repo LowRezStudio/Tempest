@@ -84,15 +84,29 @@ pub struct Server {
     dir: Option<PathBuf>,
     /// Leaked on purpose: editors borrow it for the server's whole life.
     db: Option<&'static ClassDb>,
+    /// The script packages `db` was loaded from (path, size, time), to reuse
+    /// it when the same folder is opened again (a renderer reload, a
+    /// workspace file) instead of loading (and leaking) another one.
+    db_stamp: Option<Vec<(PathBuf, u64, Option<std::time::SystemTime>)>>,
     src: Option<TextureSource>,
     packages: Vec<WorkspacePackage>,
     editors: HashMap<String, Editor<'static>>,
     index: HashMap<String, SearchIndex>,
+    /// Object path hash → the first workspace package (in `packages` order)
+    /// whose index holds the path: `index_lookup` without scanning every
+    /// export of every package. Dropped whenever `index` changes.
+    owners: Option<std::sync::Arc<HashMap<u64, u32>>>,
     /// Search index of every workspace package, built in the background
     /// from `workspace.open` on; joined by `index_all`.
-    index_job: Option<std::thread::JoinHandle<HashMap<String, SearchIndex>>>,
+    index_job: Option<std::thread::JoinHandle<IndexJob>>,
     /// Decompiled sources per package (keyed like `editors`).
     scripts: HashMap<String, DecompiledPackage>,
+    /// Decompilations started in the background when a script package is
+    /// opened (its Source tab is then ready), with the file's size and time.
+    script_jobs: HashMap<String, (FileStamp, std::thread::JoinHandle<Result<DecompiledPackage, String>>)>,
+    /// `assembly.dat` and the language files, parsed in the background from
+    /// `workspace.open` on (the Assembly view opens at once).
+    mcts_job: Option<(PathBuf, std::thread::JoinHandle<tempest_upk::io::Result<mcts::workspace::Workspace>>)>,
     /// Script packages of the workspace in build order (lazily computed).
     order: Option<Vec<OrderedPackage>>,
     /// Preview PNGs of material textures (`mesh.preview`), by path and size.
@@ -135,6 +149,19 @@ pub struct Server {
     /// every subset it brings (`swf_subsets`); dropped with `swf_embeds` and
     /// whenever a movie changes.
     swf_subset_cache: HashMap<String, LibrarySubset>,
+}
+
+/// What the background indexing returns: the search index of every package
+/// and its `owners` map.
+type IndexJob = (HashMap<String, SearchIndex>, HashMap<u64, u32>);
+
+/// A file's size and modification time: whether a background result made from
+/// it still applies.
+type FileStamp = Option<(u64, std::time::SystemTime)>;
+
+fn file_stamp(path: &Path) -> FileStamp {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.len(), m.modified().ok()?))
 }
 
 /// A library subset's URL, and every subset it brings as `(url, movie)`.
@@ -204,10 +231,25 @@ impl Default for Server {
     }
 }
 
+/// The canonical form of a path, the key of everything held per file.
+/// Resolving it is a system call per lookup (a file open on Windows) and the
+/// package list asks for a thousand at once, so resolved paths are remembered;
+/// paths that do not exist yet (unsaved new packages) are not.
 fn key(path: &str) -> String {
+    static KEYS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> = std::sync::OnceLock::new();
+    let keys = KEYS.get_or_init(Default::default);
+    if let Some(k) = keys.lock().unwrap_or_else(|e| e.into_inner()).get(path) {
+        return k.clone();
+    }
     let p = Path::new(path);
-    let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    canon.to_string_lossy().to_string()
+    match std::fs::canonicalize(p) {
+        Ok(canon) => {
+            let k = canon.to_string_lossy().to_string();
+            keys.lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_string(), k.clone());
+            k
+        }
+        Err(_) => path.to_string(),
+    }
 }
 
 fn s<'a>(p: &'a J, name: &str) -> Res<&'a str> {
@@ -228,7 +270,7 @@ fn opt_b(p: &J, name: &str) -> Option<bool> {
 
 impl Server {
     pub fn new() -> Server {
-        Server { dir: None, db: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), index_job: None, scripts: HashMap::new(), order: None, png_cache: HashMap::new(),
+        Server { dir: None, db: None, db_stamp: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), owners: None, index_job: None, scripts: HashMap::new(), script_jobs: HashMap::new(), mcts_job: None, order: None, png_cache: HashMap::new(),
             preview_cache: HashMap::new(),
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
@@ -272,7 +314,15 @@ impl Server {
                 continue;
             }
             let t = std::time::Instant::now();
-            match self.call(&method, &params) {
+            // A panic in one request (a malformed object, a bug) must not take
+            // the server down with every unsaved edit of the window: it becomes
+            // that request's error.
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call(&method, &params)));
+            let outcome = outcome.unwrap_or_else(|panic| {
+                let what = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panic".into());
+                Err(format!("internal error in {method}: {what}").into())
+            });
+            match outcome {
                 Ok(r) => {
                     let ms = t.elapsed().as_millis() as u64;
                     if self.bins.frames {
@@ -519,6 +569,8 @@ impl Server {
             "mcts.row" => Ok(self.mcts()?.row(p)?),
             "mcts.rowFull" => Ok(self.mcts()?.row_full(p)?),
             "mcts.set" => Ok(self.mcts_mut()?.set(p)?),
+            "mcts.setMany" => Ok(self.mcts_mut()?.set_many(p)?),
+            "mcts.deleteMany" => Ok(self.mcts_mut()?.delete_many(p)?),
             "mcts.setHeader" => Ok(self.mcts_mut()?.set_header(p)?),
             "mcts.insert" => Ok(self.mcts_mut()?.insert(p)?),
             "mcts.addRow" => Ok(self.mcts_mut()?.append_row(p)?),
@@ -639,7 +691,19 @@ impl Server {
         let reload = opt_b(p, "reload").unwrap_or(false);
         let same = self.mcts.as_ref().map(|w| w.dir == dir).unwrap_or(false);
         if !same || reload {
-            self.mcts = Some(mcts::workspace::Workspace::open(&dir)?);
+            // The background parse from `workspace.open`, unless a reload asks for the files again.
+            let job = match self.mcts_job.take() {
+                Some((d, job)) if d == dir && !reload => job.join().ok().and_then(|r| r.ok()),
+                _ => None,
+            };
+            let fresh = match job {
+                Some(w) => w,
+                None => mcts::workspace::Workspace::open(&dir)?,
+            };
+            // Freeing the old marshals (millions of rows) takes a while: off this thread.
+            if let Some(old) = self.mcts.replace(fresh) {
+                std::thread::spawn(move || drop(old));
+            }
         }
         Ok(self.mcts()?.summary()?)
     }
@@ -652,31 +716,59 @@ impl Server {
             return Err(format!("{} is not a directory", dir.display()).into());
         }
         let t = std::time::Instant::now();
-        let scripts = ClassDb::script_packages_in(&dir)?;
+        // One pass over the package summaries (in parallel) gives both the
+        // package list and the script packages.
+        let packages = list_packages(&dir);
+        let list_ms = t.elapsed().as_millis() as u64;
+        let mut scripts: Vec<PathBuf> = packages.iter().filter(|p| p.flags & pkgf::CONTAINS_SCRIPT != 0).map(|p| p.path.clone()).collect();
+        scripts.sort();
         if scripts.is_empty() {
             return Err(format!("{} holds no script packages (Core.upk, Engine.upk, …); open the CookedPCConsole folder", dir.display()).into());
         }
-        let db: &'static ClassDb = Box::leak(Box::new(ClassDb::load_dir(&dir)?));
-        let class_db_ms = t.elapsed().as_millis() as u64;
-        self.editors.clear();
-        self.index.clear();
+        let stamp: Vec<(PathBuf, u64, Option<std::time::SystemTime>)> = scripts
+            .iter()
+            .map(|p| {
+                let m = std::fs::metadata(p).ok();
+                (p.clone(), m.as_ref().map(|m| m.len()).unwrap_or(0), m.and_then(|m| m.modified().ok()))
+            })
+            .collect();
+        let db: &'static ClassDb = match self.db {
+            Some(db) if self.db_stamp.as_ref() == Some(&stamp) => db,
+            _ => {
+                let mut db = ClassDb::load_files(&scripts)?;
+                db.ctx.add_search_path(&dir);
+                Box::leak(Box::new(db))
+            }
+        };
+        self.db_stamp = Some(stamp);
+        let class_db_ms = t.elapsed().as_millis() as u64 - list_ms;
+        // The previous folder's packages and marshals are freed off this thread.
+        let old = (std::mem::take(&mut self.editors), std::mem::take(&mut self.index), self.mcts.take(), std::mem::take(&mut self.scripts));
+        self.owners = None;
+        std::thread::spawn(move || drop(old));
         self.swf_libs.clear();
         self.wwise = None;
         self.ak_names = None;
-        self.mcts = None;
-        self.scripts.clear();
         self.order = None;
         self.db = Some(db);
         self.src = Some(TextureSource::open(&dir)?);
-        let tex_ms = t.elapsed().as_millis() as u64 - class_db_ms;
+        let tex_ms = t.elapsed().as_millis() as u64 - class_db_ms - list_ms;
         self.dir = Some(dir.clone());
-        self.packages = list_packages(&dir);
-        let list_ms = t.elapsed().as_millis() as u64 - class_db_ms - tex_ms;
+        self.packages = packages;
         // Index every package now (≈2 s for a full cooked folder) so the
         // first search, batch plan or cross-package texture lookup is instant.
         let paths: Vec<PathBuf> = self.packages.iter().map(|p| p.path.clone()).collect();
         let cache_file = index_cache_file(&dir);
-        self.index_job = Some(std::thread::spawn(move || build_indexes(&paths, cache_file.as_deref())));
+        self.index_job = Some(std::thread::spawn(move || {
+            let index = build_indexes(&paths, cache_file.as_deref());
+            let owners = build_owners(&index, paths.iter().map(|p| p.as_path()));
+            (index, owners)
+        }));
+        self.script_jobs.clear();
+        self.mcts_job = dir.join("assembly.dat").is_file().then(|| {
+            let d = dir.clone();
+            (dir.clone(), std::thread::spawn(move || mcts::workspace::Workspace::open(&d)))
+        });
         Ok(json!({
             "dir": dir.to_string_lossy(),
             "scriptPackages": db.package_names(),
@@ -742,6 +834,7 @@ impl Server {
             if !self.index.contains_key(&k) {
                 let idx = build_index(path);
                 self.index.insert(k.clone(), idx);
+                self.owners = None;
                 scanned += 1;
                 if scanned.is_multiple_of(20) {
                     let mut f = Map::new();
@@ -789,7 +882,25 @@ impl Server {
         v["path"] = J::from(path);
         v["dirty"] = J::from(ed.is_dirty());
         v["loadMs"] = J::from(t.elapsed().as_millis() as u64);
+        let is_script = ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0;
+        if is_script {
+            self.prefetch_decompile(path);
+        }
         Ok(v)
+    }
+
+    /// Start decompiling a script package in the background, so its Source
+    /// tab opens at once (`decompiled` takes the result).
+    fn prefetch_decompile(&mut self, path: &str) {
+        let k = key(path);
+        let stamp = file_stamp(Path::new(path));
+        if stamp.is_none() || self.scripts.contains_key(&k) || self.script_jobs.get(&k).is_some_and(|(s, _)| *s == stamp) {
+            return;
+        }
+        let file = PathBuf::from(path);
+        let search: Vec<PathBuf> = self.dir.iter().cloned().collect();
+        let job = std::thread::spawn(move || decompile_package(&file, &search));
+        self.script_jobs.insert(k, (stamp, job));
     }
 
     fn package_save(&mut self, p: &J) -> Res<J> {
@@ -817,6 +928,7 @@ impl Server {
             return Ok(json!({ "out": out, "reopened": false, "dirty": ed.is_dirty(), "undo": ed.undo_labels() }));
         }
         ed.save(&out)?;
+        crate::material_ops::forget_shared(Path::new(&out));
         if created {
             // A package made in the Studio: no original, it always ships whole.
             if let Err(e) = crate::basestore::record_new(Path::new(path)) {
@@ -830,6 +942,7 @@ impl Server {
         let is_script = ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0;
         let k = key(path);
         self.index.remove(&k);
+        self.owners = None;
         self.scripts.remove(&k);
         // A changed script package changes reflection for every other package.
         let mut db_reloaded = false;
@@ -837,13 +950,18 @@ impl Server {
             if let Some(dir) = self.dir.clone() {
                 if let Ok(db) = ClassDb::load_dir(&dir) {
                     self.db = Some(Box::leak(Box::new(db)));
+                    self.db_stamp = None;
                     db_reloaded = true;
                 }
             }
         }
         if created {
             if let Some(dir) = self.dir.clone() {
+                // Owners are positions in the package list: join the
+                // background index (made for the old list) before replacing it.
+                self.index_all();
                 self.packages = list_packages(&dir);
+                self.owners = None;
             }
         }
         Ok(json!({ "out": out, "reopened": false, "dirty": false, "undo": labels, "dbReloaded": db_reloaded }))
@@ -1577,9 +1695,10 @@ impl Server {
         }
         if !lookups.is_empty() {
             self.index_all();
+            let owners = self.path_owners();
             let mut found: HashMap<String, Option<String>> = HashMap::new();
             for o in lookups {
-                let name = index_lookup(&self.index, &self.packages, &o);
+                let name = index_lookup(&owners, &self.packages, &o);
                 let file = name.and_then(|n| self.package_file(&n));
                 found.insert(o, file);
             }
@@ -1952,14 +2071,17 @@ impl Server {
         let o = self.mesh_object(path, i)?;
         let db = self.db()?;
         let dir = self.dir()?.to_path_buf();
-        if textures {
+        let owners = if textures {
             self.index_all();
-        }
+            self.path_owners()
+        } else {
+            Default::default()
+        };
         // Field borrows (not accessor methods): the PNG cache is taken mutably below.
         self.editors.get_mut(&key(path)).ok_or("package not open")?.flush();
         let src = self.src.as_ref().ok_or("no workspace open")?;
         let ed = self.editors.get(&key(path)).ok_or("package not open")?;
-        let (index, pkgs) = (&self.index, &self.packages);
+        let (index, pkgs) = (&*owners, &self.packages);
         let name = ed.pkg.object_name(PackageIndex::export(i));
         let mut g = mesh_ops::geometry(&ed.pkg, &o, lod)?;
         if !skin {
@@ -1985,7 +2107,9 @@ impl Server {
             let max_size = if preview { Some(opt_u(p, "textureSize").unwrap_or(1024) as u32) } else { None };
             let mut cache = PackageCache::new(db, &dir);
             cache.set_lookup(|p| index_lookup(index, pkgs, p));
-            cache.insert(&ed.name, ed.pkg.clone());
+            if ed.is_dirty() || !cache.insert_file(&ed.name, Path::new(path)) {
+                cache.insert(&ed.name, ed.pkg.clone());
+            }
             let mut png_cache = std::mem::take(&mut self.png_cache);
             warnings = mesh_ops::attach_materials(&mut g, &mut cache, src, &ed.name, PackageIndex::export(i), max_size, &mut png_cache);
             if png_cache.len() > 256 {
@@ -3008,6 +3132,7 @@ impl Server {
         let db = self.db()?;
         let dir = self.dir()?.to_path_buf();
         self.index_all();
+        let owners = self.path_owners();
         let max_size = opt_u(p, "textureSize").unwrap_or(256) as u32;
         let (root, tree, material_refs, mesh_refs, pkg_name, pkg_clone) = {
             let ed = self.editor(&path)?;
@@ -3066,14 +3191,17 @@ impl Server {
                 }
                 emitters.push(json!({ "index": e, "path": ed.pkg.object_path(PackageIndex::export(e)), "class": ed.pkg.class_name_of(PackageIndex::export(e)), "props": parsed_of(ed, e)?, "lods": lods }));
             }
-            (root, json!({ "system": system, "emitters": emitters }), material_refs, mesh_refs, ed.name.clone(), ed.pkg.clone())
+            // An unedited package is read from the shared cache rather than cloned.
+            let shared = if ed.is_dirty() { None } else { crate::material_ops::file_package(Path::new(&path)) };
+            let pkg = shared.unwrap_or_else(|| std::sync::Arc::new(ed.pkg.clone()));
+            (root, json!({ "system": system, "emitters": emitters }), material_refs, mesh_refs, ed.name.clone(), pkg)
         };
         // Materials: blend mode and the base texture, through the material chain.
         let src = self.src.as_ref().ok_or("no workspace open")?;
-        let (index, pkgs) = (&self.index, &self.packages);
+        let (index, pkgs) = (&*owners, &self.packages);
         let mut cache = PackageCache::new(db, &dir);
         cache.set_lookup(|p| index_lookup(index, pkgs, p));
-        cache.insert(&pkg_name, pkg_clone.clone());
+        cache.insert_arc(&pkg_name, pkg_clone.clone());
         let mut png_cache = std::mem::take(&mut self.png_cache);
         let mut sink = std::mem::take(&mut self.bins);
         let mut materials = Map::new();
@@ -4039,11 +4167,21 @@ impl Server {
     fn decompiled(&mut self, path: &str) -> Res<&mut DecompiledPackage> {
         let k = key(path);
         if !self.scripts.contains_key(&k) {
-            let mut search = Vec::new();
-            if let Some(d) = &self.dir {
-                search.push(d.clone());
-            }
-            let dp = decompile_package(Path::new(path), &search)?;
+            // A background decompilation of the file as it still is on disk.
+            let ready = match self.script_jobs.remove(&k) {
+                Some((stamp, job)) if stamp.is_some() && stamp == file_stamp(Path::new(path)) => job.join().ok().and_then(|r| r.ok()),
+                _ => None,
+            };
+            let dp = match ready {
+                Some(dp) => dp,
+                None => {
+                    let mut search = Vec::new();
+                    if let Some(d) = &self.dir {
+                        search.push(d.clone());
+                    }
+                    decompile_package(Path::new(path), &search)?
+                }
+            };
             self.scripts.insert(k.clone(), dp);
         }
         Ok(self.scripts.get_mut(&k).unwrap())
@@ -4155,7 +4293,7 @@ impl Server {
                 let ed = self.editor(path)?;
                 ed.begin_undo(format!("recompile {class}"));
                 ed.replace_package(r.package);
-                let mut v = json::tables(&ed.pkg);
+                let mut v = json::tables_compact(&ed.pkg);
                 v["name"] = J::from(ed.name.clone());
                 v["path"] = J::from(path);
                 v["dirty"] = J::from(true);
@@ -4215,13 +4353,16 @@ impl Server {
         // Unsaved edits live in the parsed objects: flush them so the cache's
         // copy of the package (parsed from export data) sees them.
         self.index_all();
+        let owners = self.path_owners();
         self.editors.get_mut(&key(path)).ok_or("package not open")?.flush();
         let src = self.src.as_ref().ok_or("no workspace open")?;
         let ed = self.editors.get(&key(path)).ok_or("package not open")?;
-        let (index, pkgs) = (&self.index, &self.packages);
+        let (index, pkgs) = (&*owners, &self.packages);
         let mut cache = PackageCache::new(db, &dir);
         cache.set_lookup(|p| index_lookup(index, pkgs, p));
-        cache.insert(&ed.name, ed.pkg.clone());
+        if ed.is_dirty() || !cache.insert_file(&ed.name, Path::new(path)) {
+            cache.insert(&ed.name, ed.pkg.clone());
+        }
         let info = crate::material_ops::material_info(&mut cache, &ed.name, PackageIndex::export(i));
         let mut png_cache = std::mem::take(&mut self.png_cache);
         let mut sink = std::mem::take(&mut self.bins);
@@ -4302,12 +4443,24 @@ impl Server {
 
     /// Build the search index of every workspace package that has none yet
     /// (`search.progress` events while it runs).
+    /// `owners`, built from the current index when needed.
+    fn path_owners(&mut self) -> std::sync::Arc<HashMap<u64, u32>> {
+        if self.owners.is_none() {
+            self.owners = Some(std::sync::Arc::new(build_owners(&self.index, self.packages.iter().map(|p| p.path.as_path()))));
+        }
+        self.owners.clone().unwrap()
+    }
+
     fn index_all(&mut self) {
         if let Some(job) = self.index_job.take() {
-            if let Ok(built) = job.join() {
+            if let Ok((built, owners)) = job.join() {
+                // The job indexed every package in `packages` order: its owners
+                // map holds unless entries were indexed here meanwhile.
+                let fresh = self.index.is_empty();
                 for (k, idx) in built {
                     self.index.entry(k).or_insert(idx);
                 }
+                self.owners = fresh.then(|| std::sync::Arc::new(owners));
             }
         }
         let total = self.packages.len();
@@ -4319,6 +4472,7 @@ impl Server {
                 continue;
             }
             self.index.insert(k, build_index(path));
+            self.owners = None;
             scanned += 1;
             if scanned.is_multiple_of(20) {
                 let mut f = Map::new();
@@ -4396,6 +4550,8 @@ impl Server {
                 ed.end_undo();
                 let k = key(&path);
                 self.index.remove(&k);
+                self.owners = None;
+        self.owners = None;
             }
             entries
         } else {
@@ -4540,8 +4696,31 @@ fn resample_rgba(rgba: &[u8], w: u32, h: u32, tw: u32, th: u32) -> Vec<u8> {
     out
 }
 
-fn index_lookup(index: &HashMap<String, SearchIndex>, packages: &[WorkspacePackage], path: &str) -> Option<String> {
-    packages.iter().find(|w| index.get(&key(&w.path.to_string_lossy())).is_some_and(|idx| idx.exports.iter().any(|(_, op)| op.eq_ignore_ascii_case(path)))).map(|w| w.name.clone())
+/// FNV-1a of an object path, ASCII case folded (the key of `Server::owners`).
+fn path_hash(path: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in path.bytes() {
+        h = (h ^ b.to_ascii_lowercase() as u64).wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Object path hash → index in `packages` of the first package holding it.
+fn build_owners<'a>(index: &HashMap<String, SearchIndex>, packages: impl Iterator<Item = &'a Path>) -> HashMap<u64, u32> {
+    let mut out: HashMap<u64, u32> = HashMap::with_capacity(index.values().map(|i| i.exports.len()).sum());
+    for (i, w) in packages.enumerate() {
+        if let Some(idx) = index.get(&key(&w.to_string_lossy())) {
+            for (_, op) in &idx.exports {
+                out.entry(path_hash(op)).or_insert(i as u32);
+            }
+        }
+    }
+    out
+}
+
+/// The workspace package holding an object path (the first in package order).
+fn index_lookup(owners: &HashMap<u64, u32>, packages: &[WorkspacePackage], path: &str) -> Option<String> {
+    owners.get(&path_hash(path)).and_then(|&i| packages.get(i as usize)).map(|w| w.name.clone())
 }
 
 /// The on-disk search index of a cooked folder: `<cache dir>/tempest-studio/index/<hash>.idx`.
@@ -4602,8 +4781,7 @@ fn build_indexes(paths: &[PathBuf], cache: Option<&Path>) -> HashMap<String, Sea
     }
     if changed {
         if let Some(c) = cache {
-            let keep: Vec<&String> = out.keys().collect();
-            cached.retain(|k, _| keep.contains(&k));
+            cached.retain(|k, _| out.contains_key(k));
             if let Some(parent) = c.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
@@ -4986,7 +5164,8 @@ impl Server {
         if let Some(pv) = ctx.preview.clone() {
             if !out.iter().any(|m| m["preview"] == true) {
                 self.index_all();
-                let found = index_lookup(&self.index, &self.packages, &pv).and_then(|name| self.packages.iter().find(|w| w.name == name).map(|w| w.path.to_string_lossy().to_string()));
+                let owners = self.path_owners();
+                let found = index_lookup(&owners, &self.packages, &pv).and_then(|name| self.packages.iter().find(|w| w.name == name).map(|w| w.path.to_string_lossy().to_string()));
                 if let Some(pkg_path) = found {
                     let ed = self.editor(&pkg_path)?;
                     if let Ok(i) = ed.find(&pv) {
@@ -5568,6 +5747,7 @@ impl Server {
         ed.clear_net_index(i)?;
         let k = key(&path);
         self.index.remove(&k);
+        self.owners = None;
         let ed = self.editor(&path)?;
         Ok(json!({ "index": i, "path": ed.pkg.object_path(PackageIndex::export(i)), "message": message }))
     }
@@ -5690,12 +5870,13 @@ impl Server {
             let pkg_name = self.editor(&path)?.pkg.outermost_name(mat);
             let inner = full.split_once('.').map(|(_, r)| r.to_string()).unwrap_or(full.clone());
             self.index_all();
+            let owners = self.path_owners();
             let file = self
                 .packages
                 .iter()
                 .find(|w| w.name.eq_ignore_ascii_case(&pkg_name))
                 .map(|w| w.path.to_string_lossy().to_string())
-                .or_else(|| index_lookup(&self.index, &self.packages, &inner).and_then(|n| self.packages.iter().find(|w| w.name == n).map(|w| w.path.to_string_lossy().to_string())))
+                .or_else(|| index_lookup(&owners, &self.packages, &inner).and_then(|n| self.packages.iter().find(|w| w.name == n).map(|w| w.path.to_string_lossy().to_string())))
                 .ok_or_else(|| format!("{full} is in a package that is not in the game folder"))?;
             let ed = self.editor(&file)?;
             let j = ed.pkg.find_export(&inner, None).or_else(|| ed.pkg.find_export(&full, None)).ok_or_else(|| format!("{full} was not found in {pkg_name}"))?;

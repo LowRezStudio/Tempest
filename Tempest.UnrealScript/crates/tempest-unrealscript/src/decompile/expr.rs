@@ -284,7 +284,7 @@ impl<'a> Decompiler<'a> {
         let mut guard = 0;
         while let Some(c) = cur {
             for ch in self.ctx.children(c) {
-                if self.ctx.class_name(ch) == "Enum" {
+                if self.ctx.class_is(ch, "Enum") {
                     let names = self.ctx.enum_names(ch);
                     if names.len() == v as usize + 1 && names.last().map(|l| l.to_ascii_uppercase().ends_with("_MAX")).unwrap_or(false) {
                         // Qualified: a bare tag would resolve to an int constant.
@@ -424,7 +424,7 @@ impl<'a> Decompiler<'a> {
                 if c == owner {
                     break;
                 }
-                if self.ctx.children(c).into_iter().any(|ch| self.ctx.class_name(ch) == "Function" && self.ctx.name(ch).eq_ignore_ascii_case(&fname)) {
+                if self.ctx.children(c).into_iter().any(|ch| self.ctx.class_is(ch, "Function") && self.ctx.name_is(ch, &fname)) {
                     overridden = true;
                     break;
                 }
@@ -448,7 +448,7 @@ impl<'a> Decompiler<'a> {
         if owner == scope.class && scope.state.is_none() {
             return String::new();
         }
-        let is_class = self.ctx.class_name(owner) == "Class";
+        let is_class = self.ctx.class_is(owner, "Class");
         if is_class {
             let direct_super = self.ctx.super_of(scope.class);
             if Some(owner) == direct_super {
@@ -827,7 +827,7 @@ impl<'a> Decompiler<'a> {
     fn is_implicit_outer_chain(&self, t: &Token) -> bool {
         let is_outer_prop = |p: PackageIndex| {
             self.ref_name(p).eq_ignore_ascii_case("Outer")
-                && self.res(p).map(|r| self.ctx.owner_class(r).map(|c| self.ctx.name(c).eq_ignore_ascii_case("Object")).unwrap_or(false)).unwrap_or(false)
+                && self.res(p).map(|r| self.ctx.owner_class(r).map(|c| self.ctx.name_is(c, "Object")).unwrap_or(false)).unwrap_or(false)
         };
         match t {
             Token::InstanceVariable(p) => is_outer_prop(*p),
@@ -892,7 +892,7 @@ impl<'a> Decompiler<'a> {
         let mut guard = 0;
         while let Some(c) = cur {
             for ch in self.ctx.children(c) {
-                if self.ctx.class_name(ch) == "Const" {
+                if self.ctx.class_is(ch, "Const") {
                     if let Some(ObjectBody::Const(d)) = self.ctx.object(ch).map(|o| &o.body) {
                         if same(&d.value) {
                             return Some(self.ctx.name(ch));

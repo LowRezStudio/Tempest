@@ -341,6 +341,11 @@ pub struct Compiler<'a> {
     pub bin_defaults_ctx: bool,
     /// Lower-cased object path → (class name, native payload) of every loaded export with native data.
     pub native_rest_index: Option<std::collections::HashMap<String, (String, Vec<u8>)>>,
+    /// `native_rest_of`'s zero-filled instance samples by lower-cased class
+    /// name, with the number of loaded packages they were looked up in.
+    pub native_samples: std::cell::RefCell<HashMap<String, (usize, Vec<u8>)>>,
+    /// Operator functions of loaded structs (`operator_functions`).
+    pub operator_cache: std::cell::RefCell<HashMap<crate::context::ObjRef, std::rc::Rc<Vec<FieldRef>>>>,
 }
 
 impl<'a> Compiler<'a> {
@@ -364,6 +369,8 @@ impl<'a> Compiler<'a> {
             supress_debug_info: 0,
             warnings: Vec::new(),
             ref_table: Vec::new(),
+            native_samples: Default::default(),
+            operator_cache: Default::default(),
             ref_lookup: HashMap::new(),
             names: Vec::new(),
             name_lookup: HashMap::new(),

@@ -26,8 +26,152 @@ use crate::value::{Property, StructValue, Value};
 /// A package opened for cross-references, by file stem.
 pub struct LoadedPackage {
     pub name: String,
-    pub pkg: Package,
+    pub pkg: std::sync::Arc<Package>,
     pub layout: Layout,
+    /// Object path hash → first export with that path, built on first use
+    /// (shared with the cached copy of the file).
+    paths: std::sync::Arc<std::sync::OnceLock<HashMap<u64, usize>>>,
+}
+
+impl LoadedPackage {
+    fn new(name: String, pkg: std::sync::Arc<Package>, layout: Layout, paths: std::sync::Arc<std::sync::OnceLock<HashMap<u64, usize>>>) -> LoadedPackage {
+        LoadedPackage { name, pkg, layout, paths }
+    }
+
+    /// `pkg.find_export(path, None)` through the path index.
+    pub fn find_export(&self, path: &str) -> Option<usize> {
+        let map = self.paths.get_or_init(|| {
+            let mut m = HashMap::with_capacity(self.pkg.exports.len());
+            for i in 0..self.pkg.exports.len() {
+                m.entry(path_hash(&self.pkg.object_path(PackageIndex::export(i)))).or_insert(i);
+            }
+            m
+        });
+        match map.get(&path_hash(path)) {
+            Some(&i) if self.pkg.object_path_eq(PackageIndex::export(i), path) => Some(i),
+            // Another path with the same hash came first: look it up the long way.
+            Some(_) => self.pkg.find_export(path, None),
+            None => None,
+        }
+    }
+}
+
+/// FNV-1a of an object path, ASCII case folded.
+fn path_hash(path: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in path.bytes() {
+        h = (h ^ b.to_ascii_lowercase() as u64).wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Packages read from disk for cross-references, kept between requests (a
+/// mesh preview reads its materials' packages, often tens of MiB each, and
+/// the next preview usually needs the same ones), by path with the file's
+/// size and time; least recently used first out past `SHARED_BUDGET` bytes.
+struct Shared {
+    entries: HashMap<PathBuf, SharedEntry>,
+    bytes: usize,
+    clock: u64,
+}
+
+struct SharedEntry {
+    stamp: Option<(u64, std::time::SystemTime)>,
+    pkg: std::sync::Arc<Package>,
+    layout: Layout,
+    paths: std::sync::Arc<std::sync::OnceLock<HashMap<u64, usize>>>,
+    bytes: usize,
+    used: u64,
+}
+
+type SharedPackage = (std::sync::Arc<Package>, Layout, std::sync::Arc<std::sync::OnceLock<HashMap<u64, usize>>>);
+
+const SHARED_BUDGET: usize = 768 << 20;
+
+fn shared() -> &'static std::sync::Mutex<Shared> {
+    static SHARED: std::sync::OnceLock<std::sync::Mutex<Shared>> = std::sync::OnceLock::new();
+    SHARED.get_or_init(|| std::sync::Mutex::new(Shared { entries: HashMap::new(), bytes: 0, clock: 0 }))
+}
+
+/// A package file's contents, from the shared cache when the file is unchanged.
+fn load_shared(path: &Path) -> Option<SharedPackage> {
+    let stamp = std::fs::metadata(path).ok().and_then(|m| Some((m.len(), m.modified().ok()?)));
+    {
+        let mut sh = shared().lock().unwrap_or_else(|e| e.into_inner());
+        sh.clock += 1;
+        let now = sh.clock;
+        if let Some(e) = sh.entries.get_mut(path) {
+            if stamp.is_some() && e.stamp == stamp {
+                e.used = now;
+                return Some((e.pkg.clone(), e.layout, e.paths.clone()));
+            }
+        }
+    }
+    let pkg = std::sync::Arc::new(PackageFile::open(path).ok()?.load().ok()?);
+    let layout = package_layout(&pkg);
+    let paths: std::sync::Arc<std::sync::OnceLock<HashMap<u64, usize>>> = Default::default();
+    let bytes: usize = pkg.export_data.iter().map(|d| d.len()).sum::<usize>() + pkg.trailing.len();
+    let mut sh = shared().lock().unwrap_or_else(|e| e.into_inner());
+    sh.clock += 1;
+    let now = sh.clock;
+    if let Some(old) = sh.entries.insert(path.to_path_buf(), SharedEntry { stamp, pkg: pkg.clone(), layout, paths: paths.clone(), bytes, used: now }) {
+        sh.bytes -= old.bytes;
+    }
+    sh.bytes += bytes;
+    while sh.bytes > SHARED_BUDGET && sh.entries.len() > 1 {
+        let Some(victim) = sh.entries.iter().filter(|(p, _)| p.as_path() != path).min_by_key(|(_, e)| e.used).map(|(p, _)| p.clone()) else { break };
+        if let Some(e) = sh.entries.remove(&victim) {
+            sh.bytes -= e.bytes;
+        }
+    }
+    Some((pkg, layout, paths))
+}
+
+/// The package files of a folder by lower-case stem (the first of each stem in
+/// directory order), listed again only when the folder changes.
+fn package_files(dir: &Path) -> std::sync::Arc<HashMap<String, PathBuf>> {
+    type Listing = (Option<std::time::SystemTime>, std::sync::Arc<HashMap<String, PathBuf>>);
+    static LISTINGS: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, Listing>>> = std::sync::OnceLock::new();
+    let listings = LISTINGS.get_or_init(Default::default);
+    let mtime = std::fs::metadata(dir).ok().and_then(|m| m.modified().ok());
+    if let Some((t, files)) = listings.lock().unwrap_or_else(|e| e.into_inner()).get(dir) {
+        if mtime.is_some() && *t == mtime {
+            return files.clone();
+        }
+    }
+    let mut map = HashMap::new();
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let ext = p.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+            if ext == "upk" || ext == "u" {
+                let stem = p.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+                map.entry(stem).or_insert(p);
+            }
+        }
+    }
+    let files = std::sync::Arc::new(map);
+    listings.lock().unwrap_or_else(|e| e.into_inner()).insert(dir.to_path_buf(), (mtime, files.clone()));
+    files
+}
+
+/// A package file's contents from the shared cache (read on first use).
+pub fn file_package(path: &Path) -> Option<std::sync::Arc<Package>> {
+    load_shared(path).map(|(pkg, _, _)| pkg)
+}
+
+/// Drop a file from the shared cache (it was written).
+pub fn forget_shared(path: &Path) {
+    // Matched by file name: the cache holds paths as listed from the folder,
+    // which may be spelled differently from the one saved to.
+    let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()) else { return };
+    let mut sh = shared().lock().unwrap_or_else(|e| e.into_inner());
+    let gone: Vec<PathBuf> = sh.entries.keys().filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().to_ascii_lowercase() == name)).cloned().collect();
+    for p in gone {
+        if let Some(e) = sh.entries.remove(&p) {
+            sh.bytes -= e.bytes;
+        }
+    }
 }
 
 /// Packages of a cooked directory, opened on demand for import resolution.
@@ -37,6 +181,8 @@ pub struct PackageCache<'a> {
     /// Boxed so a package's address is stable across map growth (callers
     /// hold references across further lookups).
     loaded: HashMap<String, Option<Box<LoadedPackage>>>,
+    /// Package files of `dir` by lower-case stem (listed on first use).
+    files: Option<std::sync::Arc<HashMap<String, PathBuf>>>,
     /// Which package file holds an object path (lower-case, with its
     /// top-level group), for imports whose root is a group rather than a
     /// package file: `None` when nothing is known.
@@ -81,7 +227,7 @@ impl<'a> PackageCache<'a> {
     pub fn new(db: &'a ClassDb, dir: impl AsRef<Path>) -> PackageCache<'a> {
         let dir = dir.as_ref().to_path_buf();
         let lookup: Lookup<'a> = Box::new(dir_lookup(&dir));
-        PackageCache { db, dir, loaded: HashMap::new(), lookup: Some(lookup) }
+        PackageCache { db, dir, loaded: HashMap::new(), files: None, lookup: Some(lookup) }
     }
 
     /// Replace the path lookup (the Studio answers from its search index).
@@ -92,29 +238,36 @@ impl<'a> PackageCache<'a> {
     /// Insert an already loaded package (the one being exported).
     pub fn insert(&mut self, name: &str, pkg: Package) {
         let layout = package_layout(&pkg);
-        self.loaded.insert(name.to_ascii_lowercase(), Some(Box::new(LoadedPackage { name: name.to_string(), pkg, layout })));
+        self.loaded.insert(name.to_ascii_lowercase(), Some(Box::new(LoadedPackage::new(name.to_string(), std::sync::Arc::new(pkg), layout, Default::default()))));
+    }
+
+    /// Insert a package already shared with the caller.
+    pub fn insert_arc(&mut self, name: &str, pkg: std::sync::Arc<Package>) {
+        let layout = package_layout(&pkg);
+        self.loaded.insert(name.to_ascii_lowercase(), Some(Box::new(LoadedPackage::new(name.to_string(), pkg, layout, Default::default()))));
+    }
+
+    /// Insert a package as its file holds it (an open, unedited package): the
+    /// shared copy, instead of a clone of the editor's.
+    pub fn insert_file(&mut self, name: &str, path: &Path) -> bool {
+        match load_shared(path) {
+            Some((pkg, layout, paths)) => {
+                self.loaded.insert(name.to_ascii_lowercase(), Some(Box::new(LoadedPackage::new(name.to_string(), pkg, layout, paths))));
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn get(&mut self, name: &str) -> Option<&LoadedPackage> {
         let key = name.to_ascii_lowercase();
         if !self.loaded.contains_key(&key) {
-            let mut found = None;
-            if let Ok(rd) = std::fs::read_dir(&self.dir) {
-                for e in rd.flatten() {
-                    let p = e.path();
-                    let stem = p.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-                    let ext = p.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-                    if stem == key && (ext == "upk" || ext == "u") {
-                        if let Ok(pf) = PackageFile::open(&p) {
-                            if let Ok(pkg) = pf.load() {
-                                let layout = package_layout(&pkg);
-                                found = Some(Box::new(LoadedPackage { name: p.file_stem().unwrap().to_string_lossy().to_string(), pkg, layout }));
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
+            let dir = &self.dir;
+            let files = self.files.get_or_insert_with(|| package_files(dir));
+            let found = files.get(&key).and_then(|p| {
+                let (pkg, layout, paths) = load_shared(p)?;
+                Some(Box::new(LoadedPackage::new(p.file_stem().unwrap().to_string_lossy().to_string(), pkg, layout, paths)))
+            });
             self.loaded.insert(key.clone(), found);
         }
         self.loaded.get(&key).and_then(|o| o.as_deref())
@@ -139,7 +292,7 @@ impl<'a> PackageCache<'a> {
             return None;
         }
         if let Some(target) = self.get(&root) {
-            if let Some(e) = target.pkg.find_export(&path, None) {
+            if let Some(e) = target.find_export(&path) {
                 return Some((target.name.clone(), e));
             }
         }
@@ -149,7 +302,7 @@ impl<'a> PackageCache<'a> {
         let full = format!("{root}.{path}");
         let holder = self.lookup.as_ref().and_then(|l| l(&full))?;
         let target = self.get(&holder)?;
-        let e = target.pkg.find_export(&full, None)?;
+        let e = target.find_export(&full)?;
         Some((target.name.clone(), e))
     }
 
@@ -250,7 +403,7 @@ pub fn material_textures_ext(cache: &mut PackageCache, pkg_name: &str, material:
         let Some(obj) = cache.object(&pname, idx) else { break };
         let (pkg_ptr, class_name) = {
             let lp = cache.get(&pname).unwrap();
-            (&lp.pkg as *const Package, obj.class_name.clone())
+            (&*lp.pkg as *const Package, obj.class_name.clone())
         };
         // SAFETY: packages are boxed and never removed from the cache, so the
         // allocation outlives this function even when the map grows.
@@ -408,7 +561,7 @@ pub fn material_info(cache: &mut PackageCache, pkg_name: &str, material: Package
         let Some(obj) = cache.object(&pname, idx) else { break };
         let (pkg_ptr, class_name) = {
             let lp = cache.get(&pname).unwrap();
-            (&lp.pkg as *const Package, obj.class_name.clone())
+            (&*lp.pkg as *const Package, obj.class_name.clone())
         };
         // SAFETY: see `material_textures`.
         let pkg: &Package = unsafe { &*pkg_ptr };

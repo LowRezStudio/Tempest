@@ -59,7 +59,7 @@ function loadHidden(): Record<string, boolean> {
 }
 
 class MapStore {
-	list = $state<MapEntry[] | null>(null);
+	list = $state.raw<MapEntry[] | null>(null);
 	listLoading = $state(false);
 	/** Show only persistent maps (those that stream sublevels) in the picker. */
 	persistentOnly = $state(true);
@@ -70,7 +70,7 @@ class MapStore {
 	error = $state<string | null>(null);
 	selected = $state<Selection | null>(null);
 	/** The selected actor's object (inspector). */
-	object = $state<ParsedObject | null>(null);
+	object = $state.raw<ParsedObject | null>(null);
 	view = $state<"scene" | "kismet" | "matinee">("scene");
 	shading = $state<Shading>("lit");
 	hiddenCategories = $state<Record<string, boolean>>(loadHidden());
@@ -97,7 +97,7 @@ class MapStore {
 
 	// Kismet
 	kismetLevel = $state<string | null>(null);
-	sequences = $state<UpkMethods["kismet.sequences"]["result"]["sequences"]>([]);
+	sequences = $state.raw<UpkMethods["kismet.sequences"]["result"]["sequences"]>([]);
 	sequence = $state<number | null>(null);
 	graph = $state.raw<KismetGraph | null>(null);
 	/** Node positions the user moved, by `path#sequence` then export (kept in the Studio, not the package). */
@@ -506,7 +506,7 @@ class MapStore {
 		return { poses, paths };
 	});
 
-	palette = $state<UpkMethods["kismet.palette"]["result"]["classes"] | null>(null);
+	palette = $state.raw<UpkMethods["kismet.palette"]["result"]["classes"] | null>(null);
 
 	async loadPalette(): Promise<void> {
 		if (this.palette) return;

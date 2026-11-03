@@ -202,6 +202,24 @@ pub struct Model {
     pub classes: Vec<NodeId>,
     /// Stand-ins for intrinsic classes (`Class`, `Package`, property classes...).
     pub intrinsics: Vec<NodeId>,
+    /// Name lookups, extended as nodes and classes are added (both only grow,
+    /// and a node's name and kind never change).
+    pub(super) lookup: std::cell::RefCell<NameIndex>,
+}
+
+#[derive(Default)]
+pub(super) struct NameIndex {
+    nodes: usize,
+    classes: usize,
+    intrinsics: usize,
+    /// Lower-cased name → the newest enum / struct node of that name.
+    enums: std::collections::HashMap<String, NodeId>,
+    structs: std::collections::HashMap<String, NodeId>,
+    /// Lower-cased enum tag → its index in the first enum node holding it.
+    enum_tags: std::collections::HashMap<String, i32>,
+    /// Lower-cased name → the first entry of `classes` / `intrinsics`.
+    class_of: std::collections::HashMap<String, NodeId>,
+    intrinsic_of: std::collections::HashMap<String, NodeId>,
 }
 
 impl Model {
@@ -237,7 +255,58 @@ impl Model {
         None
     }
     pub fn find_class(&self, name: &str) -> Option<NodeId> {
-        self.classes.iter().chain(self.intrinsics.iter()).copied().find(|&c| self.nodes[c].name.eq_ignore_ascii_case(name))
+        self.refresh_lookup();
+        let key = name.to_ascii_lowercase();
+        let l = self.lookup.borrow();
+        l.class_of.get(&key).or_else(|| l.intrinsic_of.get(&key)).copied()
+    }
+
+    /// The newest enum node named `name` (case-insensitive).
+    pub fn find_enum(&self, name: &str) -> Option<NodeId> {
+        self.refresh_lookup();
+        self.lookup.borrow().enums.get(&name.to_ascii_lowercase()).copied()
+    }
+
+    /// The index of `tag` in the first enum node that has it (case-insensitive).
+    pub fn find_enum_tag(&self, tag: &str) -> Option<i32> {
+        self.refresh_lookup();
+        self.lookup.borrow().enum_tags.get(&tag.to_ascii_lowercase()).copied()
+    }
+
+    /// The newest script struct node named `name` (case-insensitive).
+    pub fn find_struct(&self, name: &str) -> Option<NodeId> {
+        self.refresh_lookup();
+        self.lookup.borrow().structs.get(&name.to_ascii_lowercase()).copied()
+    }
+
+    fn refresh_lookup(&self) {
+        let mut l = self.lookup.borrow_mut();
+        for id in l.nodes..self.nodes.len() {
+            let n = &self.nodes[id];
+            match n.kind {
+                NodeKind::Enum => {
+                    l.enums.insert(n.name.to_ascii_lowercase(), id);
+                    for (i, t) in n.enum_names.iter().enumerate() {
+                        l.enum_tags.entry(t.to_ascii_lowercase()).or_insert(i as i32);
+                    }
+                }
+                NodeKind::ScriptStruct => {
+                    l.structs.insert(n.name.to_ascii_lowercase(), id);
+                }
+                _ => {}
+            }
+        }
+        l.nodes = self.nodes.len();
+        for i in l.classes..self.classes.len() {
+            let c = self.classes[i];
+            l.class_of.entry(self.nodes[c].name.to_ascii_lowercase()).or_insert(c);
+        }
+        l.classes = self.classes.len();
+        for i in l.intrinsics..self.intrinsics.len() {
+            let c = self.intrinsics[i];
+            l.intrinsic_of.entry(self.nodes[c].name.to_ascii_lowercase()).or_insert(c);
+        }
+        l.intrinsics = self.intrinsics.len();
     }
 }
 

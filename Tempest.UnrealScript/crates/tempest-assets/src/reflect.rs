@@ -61,19 +61,17 @@ impl ClassDb {
 
     /// Packages of `dir` flagged `PKG_ContainsScript`, sorted by name.
     pub fn script_packages_in(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
-        let mut out = Vec::new();
+        let mut files = Vec::new();
         for e in std::fs::read_dir(dir.as_ref())? {
             let p = e?.path();
             let ext = p.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-            if ext != "upk" && ext != "u" {
-                continue;
-            }
-            if let Ok(s) = Package::read_summary(&p) {
-                if s.package_flags & pkgf::CONTAINS_SCRIPT != 0 {
-                    out.push(p);
-                }
+            if ext == "upk" || ext == "u" {
+                files.push(p);
             }
         }
+        // A thousand summaries: spread the file opens over the cores.
+        let script = tempest_unrealscript::par::map(&files, |p| Package::read_summary(p).map(|s| s.package_flags & pkgf::CONTAINS_SCRIPT != 0).unwrap_or(false));
+        let mut out: Vec<PathBuf> = files.into_iter().zip(script).filter_map(|(p, s)| s.then_some(p)).collect();
         out.sort();
         Ok(out)
     }

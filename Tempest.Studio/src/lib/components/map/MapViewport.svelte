@@ -43,6 +43,17 @@
 	let lastTime = performance.now();
 	let draggingGizmo = false;
 
+	// Render on demand: an idle map (thousands of meshes) redrawn at the
+	// display's refresh rate kept a GPU busy for nothing.
+	let needsRender = true;
+	let activeUntil = 0;
+	let lastRender = 0;
+	/** Draw the next frame, and keep drawing for `ms` (damping, animations). */
+	function invalidate(ms = 0) {
+		needsRender = true;
+		activeUntil = Math.max(activeUntil, performance.now() + ms);
+	}
+
 	const nodeKey = (level: string, exp: number) => `${level}#${exp}`;
 
 	function setup() {
@@ -82,14 +93,31 @@
 			if (!dragging) commitGizmo();
 		});
 		gizmo.addEventListener("objectChange", syncProxy);
+		gizmo.addEventListener("change", () => invalidate());
+		controls.addEventListener("change", () => invalidate(100));
 		scene.add(gizmo.getHelper());
 		resizeObserver = new ResizeObserver(resize);
 		resizeObserver.observe(host);
 		resize();
 		const loop = () => {
 			frame = requestAnimationFrame(loop);
+			const flying = keysDown.size > 0;
 			fly();
-			controls?.update();
+			const moved = controls?.update() ?? false;
+			const now = performance.now();
+			// A slow refresh still runs, in case a change was not announced.
+			if (
+				!needsRender &&
+				!moved &&
+				!flying &&
+				!draggingGizmo &&
+				now >= activeUntil &&
+				now - lastRender < 1000
+			) {
+				return;
+			}
+			needsRender = false;
+			lastRender = now;
 			if (renderer && scene && camera) renderer.render(scene, camera);
 		};
 		loop();
@@ -103,6 +131,7 @@
 		renderer.setSize(w, h, false);
 		camera.aspect = w / h;
 		camera.updateProjectionMatrix();
+		invalidate();
 	}
 
 	/**
@@ -449,11 +478,13 @@
 						);
 						box.userData.marker = true;
 						holder.add(box);
+						invalidate();
 						return;
 					}
 					const copy = model.clone();
 					holder.add(copy);
 					applyShading(copy);
+					invalidate();
 				});
 			} else if (part.kind === "brush") {
 				drawsSomething = true;
@@ -769,18 +800,25 @@
 				frameAll();
 			}
 			showSelection();
+			invalidate();
 		});
 	});
 	$effect(() => {
 		void [map.hiddenCategories, map.hiddenLevels];
 		for (const v of Object.values(map.hiddenCategories)) void v;
 		for (const v of Object.values(map.hiddenLevels)) void v;
-		untrack(applyVisibility);
+		untrack(() => {
+			applyVisibility();
+			invalidate();
+		});
 	});
 	$effect(() => {
 		void map.selected;
 		void map.tool;
-		untrack(showSelection);
+		untrack(() => {
+			showSelection();
+			invalidate();
+		});
 	});
 	$effect(() => {
 		void map.shading;
@@ -789,10 +827,16 @@
 		untrack(() => {
 			if (root) applyShading(root);
 			applyVisibility();
+			invalidate();
 		});
 	});
 	$effect(() => {
-		if (map.focusRequest > 0) untrack(frameSelection);
+		if (map.focusRequest > 0) {
+			untrack(() => {
+				frameSelection();
+				invalidate(300);
+			});
+		}
 	});
 
 	// Matinee preview: driven actors follow the timeline, movements draw their paths.
@@ -842,6 +886,7 @@
 				scene.add(matineeLines);
 			}
 			selectionBox?.update();
+			invalidate();
 		});
 	});
 
@@ -871,12 +916,18 @@
 		onpointerdown={(e) => {
 			startLook(e);
 			onPointerDown(e);
+			invalidate();
 		}}
-		onpointermove={look}
+		onpointermove={(e) => {
+			look(e);
+			invalidate();
+		}}
 		onpointerup={(e) => {
 			if (e.button === 2) stopLook();
 			onPointerUp(e);
+			invalidate(300);
 		}}
+		onwheel={() => invalidate(300)}
 		oncontextmenu={(e) => e.preventDefault()}
 	></canvas>
 	{#if progress.total > 0 && progress.done < progress.total}
