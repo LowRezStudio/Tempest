@@ -6,6 +6,7 @@
 	import { assembly } from "$lib/studio/assembly.svelte";
 	import { commands } from "$lib/studio/commands.svelte";
 	import { cooker } from "$lib/studio/cooker.svelte";
+	import { map } from "$lib/studio/map.svelte";
 	import { nav } from "$lib/studio/nav.svelte";
 	import { rpc } from "$lib/studio/rpc";
 	import { session } from "$lib/studio/session.svelte";
@@ -30,6 +31,7 @@
 		commands,
 		nav,
 		cooker,
+		map,
 		swfDoc,
 		swfTool,
 	};

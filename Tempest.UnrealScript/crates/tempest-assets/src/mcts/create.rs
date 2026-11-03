@@ -39,7 +39,7 @@ pub struct NextIds {
 }
 
 impl Workspace {
-    fn t(&self, name: &str) -> Result<u16> {
+    pub(super) fn t(&self, name: &str) -> Result<u16> {
         self.tokens.token(name).ok_or_else(|| Error::Format(format!("unknown field {name}")))
     }
 
@@ -55,7 +55,7 @@ impl Workspace {
 
     /// The id after `max`: `max + 1`, or the start of the id range when nothing
     /// in the range is used yet; an error when the range is exhausted.
-    fn after(&self, max: u64) -> Result<u64> {
+    pub(super) fn after(&self, max: u64) -> Result<u64> {
         let next = match self.id_range {
             Some((start, _)) => (max + 1).max(start),
             None => max + 1,
@@ -69,7 +69,7 @@ impl Workspace {
     }
 
     /// Largest value of `key` in a top-level table of the assembly.
-    fn max_of(&self, table: &str, key: &str) -> Result<u64> {
+    pub(super) fn max_of(&self, table: &str, key: &str) -> Result<u64> {
         let doc = self.doc("assembly")?;
         let rows = doc.marshal.root.rows(self.t(table)?).ok_or_else(|| Error::Format(format!("no {table}")))?;
         let k = self.t(key)?;
@@ -77,7 +77,7 @@ impl Workspace {
     }
 
     /// Largest value of a field anywhere inside a table (nested row sets included).
-    fn max_nested(&self, table: &str, key: &str) -> Result<u64> {
+    pub(super) fn max_nested(&self, table: &str, key: &str) -> Result<u64> {
         fn walk(row: &Row, k: u16, best: &mut u64, counts: &dyn Fn(u64) -> bool) {
             for (t, v) in &row.entries {
                 match v {
@@ -146,7 +146,7 @@ impl Workspace {
 
     /// Create a message in every language (`texts` by language, INT text for
     /// the rest); the id used.
-    fn new_message(&mut self, id: u64, name: &str, texts: &HashMap<String, String>) -> Result<u64> {
+    pub(super) fn new_message(&mut self, id: u64, name: &str, texts: &HashMap<String, String>) -> Result<u64> {
         let langs: Vec<String> = self.docs.iter().map(|(k, _)| k.clone()).filter(|k| k != "assembly").collect();
         let default = texts.get("INT").cloned().or_else(|| texts.values().next().cloned()).unwrap_or_default();
         for lang in langs {
@@ -158,7 +158,7 @@ impl Workspace {
 
     /// Clone a row set entry (nested rows included) replacing every value of
     /// `rewrite` fields and allocating fresh `*_MODE_ID`-style keys.
-    fn clone_row(&self, row: &Row, rewrite: &HashMap<u16, u64>, fresh: &mut HashMap<u16, u64>) -> Row {
+    pub(super) fn clone_row(&self, row: &Row, rewrite: &HashMap<u16, u64>, fresh: &mut HashMap<u16, u64>) -> Row {
         let mut out = Row::default();
         for (t, v) in &row.entries {
             let nv = match v {
@@ -182,24 +182,24 @@ impl Workspace {
         out
     }
 
-    fn find_row(&self, table: &str, key: &str, value: u64) -> Result<Option<usize>> {
+    pub(super) fn find_row(&self, table: &str, key: &str, value: u64) -> Result<Option<usize>> {
         let t = self.t(table)?;
         let k = self.t(key)?;
         Ok(self.doc("assembly")?.find(&[], t, k, value)?.first().copied())
     }
 
-    fn row_of(&self, table: &str, index: usize) -> Result<Row> {
+    pub(super) fn row_of(&self, table: &str, index: usize) -> Result<Row> {
         let t = self.t(table)?;
         Ok(self.doc("assembly")?.row_at(&[(t, index)])?.clone())
     }
 
-    fn add_row(&mut self, table: &str, row: Row) -> Result<usize> {
+    pub(super) fn add_row(&mut self, table: &str, row: Row) -> Result<usize> {
         let t = self.t(table)?;
         let tokens = self.tokens.clone();
         self.doc_mut("assembly")?.insert_row(&tokens, &[], t, row)
     }
 
-    fn set_num(row: &mut Row, t: u16, v: u64) {
+    pub(super) fn set_num(row: &mut Row, t: u16, v: u64) {
         row.set(t, Value::Num(v));
     }
 
@@ -267,7 +267,7 @@ impl Workspace {
 
     /// Clone an item (and its skin row when it has one) from `template` (an ITEM_ID).
     #[allow(clippy::too_many_arguments)]
-    fn create_item(&mut self, template: u64, name: &str, desc: &str, short: &str, bot: Option<u64>, item_type: Option<u64>, ids: &mut NextIds) -> Result<J> {
+    pub(super) fn create_item(&mut self, template: u64, name: &str, desc: &str, short: &str, bot: Option<u64>, item_type: Option<u64>, ids: &mut NextIds) -> Result<J> {
         let ii = self.find_row("DATA_SET_ITEMS", "ITEM_ID", template)?.ok_or_else(|| Error::Format(format!("no item {template}")))?;
         let new_id = ids.item;
         ids.item += 1;
@@ -405,7 +405,7 @@ impl Workspace {
     /// A fresh value for the id column `key` of `doc`: one past the largest
     /// value of that field anywhere in the file (items, devices and skins
     /// share one id space), within the id range when one is set.
-    fn fresh_id(&self, doc: &str, key: u16) -> Result<u64> {
+    pub(super) fn fresh_id(&self, doc: &str, key: u16) -> Result<u64> {
         fn walk(row: &Row, keys: &[u16], best: &mut u64, counts: &dyn Fn(u64) -> bool) {
             for (t, v) in &row.entries {
                 match v {
@@ -631,7 +631,7 @@ impl Workspace {
     /// last entry), active, with a fresh LOOT_TABLE_ITEM_ID and the next
     /// SORT_ORDER. The path of the new entry, or None when the table does
     /// not exist.
-    fn add_vendor_entry(&mut self, table: u64, like: Option<u64>, item: u64) -> Result<Option<J>> {
+    pub(super) fn add_vendor_entry(&mut self, table: u64, like: Option<u64>, item: u64) -> Result<Option<J>> {
         let Some(ti) = self.find_row("DATA_SET_LOOT_TABLES", "LOOT_TABLE_ID", table)? else { return Ok(None) };
         let tables_t = self.t("DATA_SET_LOOT_TABLES")?;
         let entries_t = self.t("DATA_SET_LOOT_TABLE_ITEMS")?;
@@ -765,7 +765,7 @@ impl Workspace {
         Ok(self.row_of("DATA_SET_DEVICES", i)?.num(self.t(field)?))
     }
 
-    fn message_text(&self, id: Option<u64>) -> Option<String> {
+    pub(super) fn message_text(&self, id: Option<u64>) -> Option<String> {
         let id = id?;
         let doc = self.doc("INT").ok()?;
         let set = self.tokens.token("DATA_SET")?;
@@ -774,8 +774,10 @@ impl Workspace {
         doc.marshal.root.rows(set)?.iter().find(|r| r.num(msg_id) == Some(id)).and_then(|r| r.str(message)).map(|s| s.to_string())
     }
 
-    /// `mcts.create`: `{kind: device|card|item|champion, template: <id>,
-    /// name, description, shortDescription?, bot?, slot?, itemType?}`.
+    /// `mcts.create`: `{kind: device|card|item|champion|skin, template: <id>,
+    /// name, description, shortDescription?, bot?, slot?, itemType?, names?}`
+    /// (`skin`: the template is a collection item of loot table 1076, see
+    /// `skins.rs`).
     pub fn create(&mut self, p: &J) -> Result<J> {
         let kind = p.get("kind").and_then(|v| v.as_str()).unwrap_or("device");
         let template = p.get("template").and_then(|v| v.as_u64()).ok_or_else(|| Error::Format("missing template id".into()))?;
@@ -790,6 +792,14 @@ impl Workspace {
             "device" | "card" => self.create_device(template, &name, &desc, &short, bot, slot, &mut ids)?,
             "item" => self.create_item(template, &name, &desc, &short, bot, item_type, &mut ids)?,
             "champion" => self.create_champion(template, &name, &desc, &mut ids)?,
+            "skin" => {
+                let names: HashMap<u64, String> = p
+                    .get("names")
+                    .and_then(|v| v.as_object())
+                    .map(|m| m.iter().filter_map(|(k, v)| Some((k.parse().ok()?, v.as_str()?.to_string()))).collect())
+                    .unwrap_or_default();
+                self.create_skin(template, &name, bot, &names, &mut ids)?
+            }
             other => return Err(Error::Format(format!("unknown kind {other}"))),
         };
         out["kind"] = json!(kind);

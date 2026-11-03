@@ -84,15 +84,29 @@ pub struct Server {
     dir: Option<PathBuf>,
     /// Leaked on purpose: editors borrow it for the server's whole life.
     db: Option<&'static ClassDb>,
+    /// The script packages `db` was loaded from (path, size, time), to reuse
+    /// it when the same folder is opened again (a renderer reload, a
+    /// workspace file) instead of loading (and leaking) another one.
+    db_stamp: Option<Vec<(PathBuf, u64, Option<std::time::SystemTime>)>>,
     src: Option<TextureSource>,
     packages: Vec<WorkspacePackage>,
     editors: HashMap<String, Editor<'static>>,
     index: HashMap<String, SearchIndex>,
+    /// Object path hash → the first workspace package (in `packages` order)
+    /// whose index holds the path: `index_lookup` without scanning every
+    /// export of every package. Dropped whenever `index` changes.
+    owners: Option<std::sync::Arc<HashMap<u64, u32>>>,
     /// Search index of every workspace package, built in the background
     /// from `workspace.open` on; joined by `index_all`.
-    index_job: Option<std::thread::JoinHandle<HashMap<String, SearchIndex>>>,
+    index_job: Option<std::thread::JoinHandle<IndexJob>>,
     /// Decompiled sources per package (keyed like `editors`).
     scripts: HashMap<String, DecompiledPackage>,
+    /// Decompilations started in the background when a script package is
+    /// opened (its Source tab is then ready), with the file's size and time.
+    script_jobs: HashMap<String, (FileStamp, std::thread::JoinHandle<Result<DecompiledPackage, String>>)>,
+    /// `assembly.dat` and the language files, parsed in the background from
+    /// `workspace.open` on (the Assembly view opens at once).
+    mcts_job: Option<(PathBuf, std::thread::JoinHandle<tempest_upk::io::Result<mcts::workspace::Workspace>>)>,
     /// Script packages of the workspace in build order (lazily computed).
     order: Option<Vec<OrderedPackage>>,
     /// Preview PNGs of material textures (`mesh.preview`), by path and size.
@@ -135,6 +149,19 @@ pub struct Server {
     /// every subset it brings (`swf_subsets`); dropped with `swf_embeds` and
     /// whenever a movie changes.
     swf_subset_cache: HashMap<String, LibrarySubset>,
+}
+
+/// What the background indexing returns: the search index of every package
+/// and its `owners` map.
+type IndexJob = (HashMap<String, SearchIndex>, HashMap<u64, u32>);
+
+/// A file's size and modification time: whether a background result made from
+/// it still applies.
+type FileStamp = Option<(u64, std::time::SystemTime)>;
+
+fn file_stamp(path: &Path) -> FileStamp {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.len(), m.modified().ok()?))
 }
 
 /// A library subset's URL, and every subset it brings as `(url, movie)`.
@@ -204,10 +231,25 @@ impl Default for Server {
     }
 }
 
+/// The canonical form of a path, the key of everything held per file.
+/// Resolving it is a system call per lookup (a file open on Windows) and the
+/// package list asks for a thousand at once, so resolved paths are remembered;
+/// paths that do not exist yet (unsaved new packages) are not.
 fn key(path: &str) -> String {
+    static KEYS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> = std::sync::OnceLock::new();
+    let keys = KEYS.get_or_init(Default::default);
+    if let Some(k) = keys.lock().unwrap_or_else(|e| e.into_inner()).get(path) {
+        return k.clone();
+    }
     let p = Path::new(path);
-    let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    canon.to_string_lossy().to_string()
+    match std::fs::canonicalize(p) {
+        Ok(canon) => {
+            let k = canon.to_string_lossy().to_string();
+            keys.lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_string(), k.clone());
+            k
+        }
+        Err(_) => path.to_string(),
+    }
 }
 
 fn s<'a>(p: &'a J, name: &str) -> Res<&'a str> {
@@ -228,7 +270,7 @@ fn opt_b(p: &J, name: &str) -> Option<bool> {
 
 impl Server {
     pub fn new() -> Server {
-        Server { dir: None, db: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), index_job: None, scripts: HashMap::new(), order: None, png_cache: HashMap::new(),
+        Server { dir: None, db: None, db_stamp: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), owners: None, index_job: None, scripts: HashMap::new(), script_jobs: HashMap::new(), mcts_job: None, order: None, png_cache: HashMap::new(),
             preview_cache: HashMap::new(),
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
@@ -272,7 +314,15 @@ impl Server {
                 continue;
             }
             let t = std::time::Instant::now();
-            match self.call(&method, &params) {
+            // A panic in one request (a malformed object, a bug) must not take
+            // the server down with every unsaved edit of the window: it becomes
+            // that request's error.
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call(&method, &params)));
+            let outcome = outcome.unwrap_or_else(|panic| {
+                let what = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panic".into());
+                Err(format!("internal error in {method}: {what}").into())
+            });
+            match outcome {
                 Ok(r) => {
                     let ms = t.elapsed().as_millis() as u64;
                     if self.bins.frames {
@@ -480,6 +530,17 @@ impl Server {
             "mesh.materials" => self.mesh_materials(p),
             "mesh.setMaterial" => self.mesh_set_material(p),
             "mesh.ownMaterial" => self.mesh_own_material(p),
+            "map.list" => self.map_list(),
+            "map.scene" => self.map_scene(p),
+            "map.setTransform" => self.map_set_transform(p),
+            "map.export" => self.map_export(p),
+            "kismet.sequences" => self.kismet_sequences(p),
+            "kismet.graph" => self.kismet_graph(p),
+            "kismet.link" => self.kismet_link(p),
+            "kismet.palette" => self.kismet_palette(p),
+            "matinee.get" | "matinee.setKey" | "matinee.addKey" | "matinee.removeKey" => self.matinee(method, p),
+            "kismet.add" => self.kismet_add(p),
+            "kismet.remove" => self.kismet_remove(p),
             "anim.info" => self.anim_info(p),
             "anim.preview" => self.anim_preview(p),
             "anim.export" => self.anim_export(p),
@@ -508,6 +569,8 @@ impl Server {
             "mcts.row" => Ok(self.mcts()?.row(p)?),
             "mcts.rowFull" => Ok(self.mcts()?.row_full(p)?),
             "mcts.set" => Ok(self.mcts_mut()?.set(p)?),
+            "mcts.setMany" => Ok(self.mcts_mut()?.set_many(p)?),
+            "mcts.deleteMany" => Ok(self.mcts_mut()?.delete_many(p)?),
             "mcts.setHeader" => Ok(self.mcts_mut()?.set_header(p)?),
             "mcts.insert" => Ok(self.mcts_mut()?.insert(p)?),
             "mcts.addRow" => Ok(self.mcts_mut()?.append_row(p)?),
@@ -584,6 +647,9 @@ impl Server {
             "mcts.serverRows" => Ok(self.mcts()?.server_rows(p)?),
             "mcts.vendor" => Ok(self.mcts()?.vendor()?),
             "mcts.vendorAdd" => Ok(self.mcts_mut()?.vendor_add(p)?),
+            "mcts.collections" => Ok(self.mcts()?.collections(p)?),
+            "mcts.collection" => Ok(self.mcts()?.collection(p)?),
+            "mcts.collectionAdd" => Ok(self.mcts_mut()?.collection_add(p)?),
             "mcts.scaffold" => Ok(self.mcts_mut()?.scaffold(p)?),
             "mcts.close" => {
                 self.mcts = None;
@@ -625,7 +691,19 @@ impl Server {
         let reload = opt_b(p, "reload").unwrap_or(false);
         let same = self.mcts.as_ref().map(|w| w.dir == dir).unwrap_or(false);
         if !same || reload {
-            self.mcts = Some(mcts::workspace::Workspace::open(&dir)?);
+            // The background parse from `workspace.open`, unless a reload asks for the files again.
+            let job = match self.mcts_job.take() {
+                Some((d, job)) if d == dir && !reload => job.join().ok().and_then(|r| r.ok()),
+                _ => None,
+            };
+            let fresh = match job {
+                Some(w) => w,
+                None => mcts::workspace::Workspace::open(&dir)?,
+            };
+            // Freeing the old marshals (millions of rows) takes a while: off this thread.
+            if let Some(old) = self.mcts.replace(fresh) {
+                std::thread::spawn(move || drop(old));
+            }
         }
         Ok(self.mcts()?.summary()?)
     }
@@ -638,31 +716,59 @@ impl Server {
             return Err(format!("{} is not a directory", dir.display()).into());
         }
         let t = std::time::Instant::now();
-        let scripts = ClassDb::script_packages_in(&dir)?;
+        // One pass over the package summaries (in parallel) gives both the
+        // package list and the script packages.
+        let packages = list_packages(&dir);
+        let list_ms = t.elapsed().as_millis() as u64;
+        let mut scripts: Vec<PathBuf> = packages.iter().filter(|p| p.flags & pkgf::CONTAINS_SCRIPT != 0).map(|p| p.path.clone()).collect();
+        scripts.sort();
         if scripts.is_empty() {
             return Err(format!("{} holds no script packages (Core.upk, Engine.upk, …); open the CookedPCConsole folder", dir.display()).into());
         }
-        let db: &'static ClassDb = Box::leak(Box::new(ClassDb::load_dir(&dir)?));
-        let class_db_ms = t.elapsed().as_millis() as u64;
-        self.editors.clear();
-        self.index.clear();
+        let stamp: Vec<(PathBuf, u64, Option<std::time::SystemTime>)> = scripts
+            .iter()
+            .map(|p| {
+                let m = std::fs::metadata(p).ok();
+                (p.clone(), m.as_ref().map(|m| m.len()).unwrap_or(0), m.and_then(|m| m.modified().ok()))
+            })
+            .collect();
+        let db: &'static ClassDb = match self.db {
+            Some(db) if self.db_stamp.as_ref() == Some(&stamp) => db,
+            _ => {
+                let mut db = ClassDb::load_files(&scripts)?;
+                db.ctx.add_search_path(&dir);
+                Box::leak(Box::new(db))
+            }
+        };
+        self.db_stamp = Some(stamp);
+        let class_db_ms = t.elapsed().as_millis() as u64 - list_ms;
+        // The previous folder's packages and marshals are freed off this thread.
+        let old = (std::mem::take(&mut self.editors), std::mem::take(&mut self.index), self.mcts.take(), std::mem::take(&mut self.scripts));
+        self.owners = None;
+        std::thread::spawn(move || drop(old));
         self.swf_libs.clear();
         self.wwise = None;
         self.ak_names = None;
-        self.mcts = None;
-        self.scripts.clear();
         self.order = None;
         self.db = Some(db);
         self.src = Some(TextureSource::open(&dir)?);
-        let tex_ms = t.elapsed().as_millis() as u64 - class_db_ms;
+        let tex_ms = t.elapsed().as_millis() as u64 - class_db_ms - list_ms;
         self.dir = Some(dir.clone());
-        self.packages = list_packages(&dir);
-        let list_ms = t.elapsed().as_millis() as u64 - class_db_ms - tex_ms;
+        self.packages = packages;
         // Index every package now (≈2 s for a full cooked folder) so the
         // first search, batch plan or cross-package texture lookup is instant.
         let paths: Vec<PathBuf> = self.packages.iter().map(|p| p.path.clone()).collect();
         let cache_file = index_cache_file(&dir);
-        self.index_job = Some(std::thread::spawn(move || build_indexes(&paths, cache_file.as_deref())));
+        self.index_job = Some(std::thread::spawn(move || {
+            let index = build_indexes(&paths, cache_file.as_deref());
+            let owners = build_owners(&index, paths.iter().map(|p| p.as_path()));
+            (index, owners)
+        }));
+        self.script_jobs.clear();
+        self.mcts_job = dir.join("assembly.dat").is_file().then(|| {
+            let d = dir.clone();
+            (dir.clone(), std::thread::spawn(move || mcts::workspace::Workspace::open(&d)))
+        });
         Ok(json!({
             "dir": dir.to_string_lossy(),
             "scriptPackages": db.package_names(),
@@ -728,6 +834,7 @@ impl Server {
             if !self.index.contains_key(&k) {
                 let idx = build_index(path);
                 self.index.insert(k.clone(), idx);
+                self.owners = None;
                 scanned += 1;
                 if scanned.is_multiple_of(20) {
                     let mut f = Map::new();
@@ -775,7 +882,25 @@ impl Server {
         v["path"] = J::from(path);
         v["dirty"] = J::from(ed.is_dirty());
         v["loadMs"] = J::from(t.elapsed().as_millis() as u64);
+        let is_script = ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0;
+        if is_script {
+            self.prefetch_decompile(path);
+        }
         Ok(v)
+    }
+
+    /// Start decompiling a script package in the background, so its Source
+    /// tab opens at once (`decompiled` takes the result).
+    fn prefetch_decompile(&mut self, path: &str) {
+        let k = key(path);
+        let stamp = file_stamp(Path::new(path));
+        if stamp.is_none() || self.scripts.contains_key(&k) || self.script_jobs.get(&k).is_some_and(|(s, _)| *s == stamp) {
+            return;
+        }
+        let file = PathBuf::from(path);
+        let search: Vec<PathBuf> = self.dir.iter().cloned().collect();
+        let job = std::thread::spawn(move || decompile_package(&file, &search));
+        self.script_jobs.insert(k, (stamp, job));
     }
 
     fn package_save(&mut self, p: &J) -> Res<J> {
@@ -803,6 +928,7 @@ impl Server {
             return Ok(json!({ "out": out, "reopened": false, "dirty": ed.is_dirty(), "undo": ed.undo_labels() }));
         }
         ed.save(&out)?;
+        crate::material_ops::forget_shared(Path::new(&out));
         if created {
             // A package made in the Studio: no original, it always ships whole.
             if let Err(e) = crate::basestore::record_new(Path::new(path)) {
@@ -816,6 +942,7 @@ impl Server {
         let is_script = ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0;
         let k = key(path);
         self.index.remove(&k);
+        self.owners = None;
         self.scripts.remove(&k);
         // A changed script package changes reflection for every other package.
         let mut db_reloaded = false;
@@ -823,13 +950,18 @@ impl Server {
             if let Some(dir) = self.dir.clone() {
                 if let Ok(db) = ClassDb::load_dir(&dir) {
                     self.db = Some(Box::leak(Box::new(db)));
+                    self.db_stamp = None;
                     db_reloaded = true;
                 }
             }
         }
         if created {
             if let Some(dir) = self.dir.clone() {
+                // Owners are positions in the package list: join the
+                // background index (made for the old list) before replacing it.
+                self.index_all();
                 self.packages = list_packages(&dir);
+                self.owners = None;
             }
         }
         Ok(json!({ "out": out, "reopened": false, "dirty": false, "undo": labels, "dbReloaded": db_reloaded }))
@@ -1498,6 +1630,422 @@ impl Server {
     }
 
     /// GLB bytes of a mesh (`preview`: base64 in the response).
+    /// `map.list`: packages holding a level, persistent maps (those that
+    /// stream sublevels) first.
+    fn map_list(&mut self) -> Res<J> {
+        self.index_all();
+        let mut maps = Vec::new();
+        for w in &self.packages {
+            let Some(idx) = self.index.get(&key(&w.path.to_string_lossy())) else { continue };
+            if !idx.classes.iter().any(|c| c.eq_ignore_ascii_case("level")) {
+                continue;
+            }
+            let streams = idx.classes.iter().any(|c| c.to_ascii_lowercase().starts_with("levelstreaming"));
+            let kismet = idx.classes.iter().any(|c| c.eq_ignore_ascii_case("sequence"));
+            maps.push(json!({ "path": w.path.to_string_lossy(), "name": w.name, "persistent": streams, "kismet": kismet, "size": w.size }));
+        }
+        Ok(json!({ "maps": maps }))
+    }
+
+    /// The workspace file of a package name (`abyss_art_props`), any case.
+    fn package_file(&self, name: &str) -> Option<String> {
+        let stem = name.rsplit(['/', '\\']).next().unwrap_or(name);
+        let stem = stem.split('.').next().unwrap_or(stem);
+        self.packages.iter().find(|w| Path::new(&w.name).file_stem().is_some_and(|s| s.to_string_lossy().eq_ignore_ascii_case(stem))).map(|w| w.path.to_string_lossy().to_string())
+    }
+
+    /// `map.scene {path, streamed?}`: the level of the package and, for a
+    /// persistent map (default `streamed: true`), of every sublevel it
+    /// streams: actors, their world matrices and what they draw
+    /// (`map::level_scene`). Meshes referenced by import get the package
+    /// that holds them (search index).
+    fn map_scene(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let streamed = opt_b(p, "streamed").unwrap_or(true);
+        let db = self.db()?;
+        let mut files = vec![path.clone()];
+        let mut missing = Vec::new();
+        if streamed {
+            let names = crate::map::streamed_levels(self.editor(&path)?);
+            for n in names {
+                match self.package_file(&n) {
+                    Some(f) if !files.iter().any(|x| key(x) == key(&f)) => files.push(f),
+                    Some(_) => {}
+                    None => missing.push(n),
+                }
+            }
+        }
+        let mut levels = Vec::new();
+        let mut lookups: Vec<String> = Vec::new();
+        for f in &files {
+            let ed = self.editor(f)?;
+            let mut scene = crate::map::level_scene(ed, db, f)?;
+            scene["name"] = J::from(Path::new(f).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default());
+            scene["dirty"] = J::from(ed.is_dirty());
+            if let Some(actors) = scene["actors"].as_array() {
+                for a in actors {
+                    for part in a["parts"].as_array().into_iter().flatten() {
+                        if let Some(o) = part["mesh"]["object"].as_str() {
+                            lookups.push(o.to_string());
+                        }
+                    }
+                }
+            }
+            levels.push(scene);
+        }
+        if !lookups.is_empty() {
+            self.index_all();
+            let owners = self.path_owners();
+            let mut found: HashMap<String, Option<String>> = HashMap::new();
+            for o in lookups {
+                let name = index_lookup(&owners, &self.packages, &o);
+                let file = name.and_then(|n| self.package_file(&n));
+                found.insert(o, file);
+            }
+            for level in levels.iter_mut() {
+                for a in level["actors"].as_array_mut().into_iter().flatten() {
+                    for part in a["parts"].as_array_mut().into_iter().flatten() {
+                        let Some(o) = part["mesh"]["object"].as_str().map(|s| s.to_string()) else { continue };
+                        if let Some(Some(f)) = found.get(&o) {
+                            part["mesh"]["path"] = J::from(f.clone());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(json!({ "path": path, "levels": levels, "missing": missing }))
+    }
+
+    /// `map.setTransform {path, index, matrix | location+rotation, parent?}`:
+    /// move an actor (or, with `parent`, a component of that actor) to a
+    /// world matrix in the view's space (`map::set_transform`), or set its
+    /// location/rotation numbers; one undo step.
+    fn map_set_transform(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let nums = |k: &str| -> Option<Vec<f64>> { p.get(k).and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_f64()).collect()) };
+        let parent = opt_u(p, "parent");
+        let ed = self.editor(path)?;
+        let name = ed.pkg.object_name(PackageIndex::export(i));
+        ed.begin_undo(format!("move {name}"));
+        let mut v = match nums("matrix") {
+            Some(matrix) => crate::map::set_transform(ed, i, &matrix, parent)?,
+            // Numbers instead of a matrix: `location` (Location, or Translation
+            // for a component) and `rotation` (Pitch, Yaw, Roll).
+            None => {
+                let t = if parent.is_some() { "Translation" } else { "Location" };
+                if let Some(l) = nums("location").filter(|l| l.len() == 3) {
+                    for (k, axis) in ["X", "Y", "Z"].iter().enumerate() {
+                        ed.set(i, &format!("{t}.{axis}"), &format!("{:?}", l[k]))?;
+                    }
+                }
+                if let Some(r) = nums("rotation").filter(|r| r.len() == 3) {
+                    for (k, axis) in ["Pitch", "Yaw", "Roll"].iter().enumerate() {
+                        ed.set(i, &format!("Rotation.{axis}"), &format!("{}", r[k].round() as i64))?;
+                    }
+                }
+                json!({})
+            }
+        };
+        v["row"] = json::export_row(&ed.pkg, i);
+        v["dirty"] = J::from(true);
+        Ok(v)
+    }
+
+    /// `kismet.sequences {path}`.
+    fn kismet_sequences(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let db = self.db()?;
+        let ed = self.editor(path)?;
+        Ok(json!({ "sequences": crate::kismet::sequences(ed, db) }))
+    }
+
+    /// `kismet.graph {path, index}`: one sequence's nodes and links.
+    fn kismet_graph(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let db = self.db()?;
+        let ed = self.editor(path)?;
+        let mut g = crate::kismet::graph(ed, db, i)?;
+        g["dirty"] = J::from(ed.is_dirty());
+        Ok(g)
+    }
+
+    /// `kismet.link {path, sequence, from, to, output+input | variable, remove?}`:
+    /// connect or disconnect (one undo step), then the sequence's graph.
+    fn kismet_link(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let seq = opt_u(p, "sequence").ok_or("missing sequence")?;
+        let db = self.db()?;
+        let ed = self.editor(path)?;
+        let remove = opt_b(p, "remove").unwrap_or(false);
+        ed.begin_undo(if remove { "unlink kismet" } else { "link kismet" });
+        let changed = crate::kismet::link(ed, p)?;
+        let mut g = crate::kismet::graph(ed, db, seq)?;
+        g["changed"] = J::from(changed);
+        g["dirty"] = J::from(ed.is_dirty());
+        Ok(g)
+    }
+
+    /// `map.export {path, out, streamed?, levels?, skip?, volumes?, textures?, textureSize?}`:
+    /// the map (and its sublevels) as one GLB or FBX (by `out`'s extension):
+    /// each mesh once, placed by a node per placement under a node per level;
+    /// `levels` (package paths) limits the levels, `skip` leaves categories
+    /// out, `volumes` adds the brushes of volumes; `map.progress` events.
+    fn map_export(&mut self, p: &J) -> Res<J> {
+        use crate::map::{mul, Mat};
+        use crate::mesh_ops::{Geometry, SceneNode, Section};
+        let out = s(p, "out")?.to_string();
+        let path = s(p, "path")?.to_string();
+        let textures = opt_b(p, "textures").unwrap_or(true);
+        let texture_size = opt_u(p, "textureSize").unwrap_or(1024);
+        let volumes = opt_b(p, "volumes").unwrap_or(false);
+        let only: Option<Vec<String>> = p.get("levels").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(key)).collect());
+        let skip: Vec<String> = p.get("skip").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default();
+        let scene = self.map_scene(&json!({ "path": path, "streamed": opt_b(p, "streamed").unwrap_or(true) }))?;
+        let mat_of = |v: &J| -> Mat {
+            let mut m = crate::map::IDENTITY;
+            if let Some(a) = v.as_array() {
+                for (i, x) in a.iter().enumerate().take(16) {
+                    m[i / 4][i % 4] = x.as_f64().unwrap_or(0.0);
+                }
+            }
+            m
+        };
+        let flat = |m: &Mat| -> [f64; 16] {
+            let mut a = [0.0; 16];
+            for i in 0..16 {
+                a[i] = m[i / 4][i % 4];
+            }
+            a
+        };
+        let mut meshes: Vec<(String, Geometry)> = Vec::new();
+        let mut mesh_index: HashMap<String, Option<usize>> = HashMap::new();
+        let mut nodes: Vec<SceneNode> = Vec::new();
+        let mut warnings: Vec<String> = Vec::new();
+        let levels: Vec<J> = scene["levels"].as_array().cloned().unwrap_or_default();
+        let total: usize = levels.iter().map(|l| l["actors"].as_array().map(|a| a.len()).unwrap_or(0)).sum();
+        let mut done = 0usize;
+        for level in &levels {
+            let lpath = level["path"].as_str().unwrap_or("");
+            if only.as_ref().is_some_and(|o| !o.contains(&key(lpath))) {
+                continue;
+            }
+            let group = nodes.len();
+            nodes.push(SceneNode { name: level["name"].as_str().unwrap_or("level").to_string(), mesh: None, matrix: flat(&crate::map::IDENTITY), parent: None });
+            for a in level["actors"].as_array().into_iter().flatten() {
+                done += 1;
+                if done.is_multiple_of(25) {
+                    let mut f = Map::new();
+                    f.insert("done".into(), J::from(done));
+                    f.insert("total".into(), J::from(total));
+                    self.event("map.progress", f);
+                }
+                let cat = a["category"].as_str().unwrap_or("other");
+                if skip.iter().any(|c| c == cat) {
+                    continue;
+                }
+                let actor_m = mat_of(&a["matrix"]);
+                let name = a["name"].as_str().unwrap_or("actor").to_string();
+                let parts = a["parts"].as_array().cloned().unwrap_or_default();
+                for (k, part) in parts.iter().enumerate() {
+                    let kind = part["kind"].as_str().unwrap_or("");
+                    let mesh = if kind == "mesh" && !part["hidden"].as_bool().unwrap_or(false) {
+                        let mkey = format!("{}|{}|{}|{}", part["mesh"]["path"], part["mesh"]["index"], part["mesh"]["object"], part["materials"]);
+                        if let Some(m) = mesh_index.get(&mkey) {
+                            *m
+                        } else {
+                            let mut q = json!({ "path": part["mesh"]["path"], "textures": textures, "textureSize": texture_size, "skin": false, "materials": part["materials"] });
+                            if part["mesh"]["index"].is_number() {
+                                q["index"] = part["mesh"]["index"].clone();
+                            } else {
+                                q["object"] = part["mesh"]["object"].clone();
+                            }
+                            let got = if part["mesh"]["path"].is_string() {
+                                match self.mesh_geometry(&q, true) {
+                                    Ok((mname, g, w)) => {
+                                        warnings.extend(w);
+                                        meshes.push((mname, g));
+                                        Some(meshes.len() - 1)
+                                    }
+                                    Err(e) => {
+                                        warnings.push(format!("{}: {e}", part["meshName"].as_str().unwrap_or("mesh")));
+                                        None
+                                    }
+                                }
+                            } else {
+                                warnings.push(format!("{}: in no package of this folder", part["meshName"].as_str().unwrap_or("mesh")));
+                                None
+                            };
+                            mesh_index.insert(mkey, got);
+                            got
+                        }
+                    } else if kind == "brush" && volumes {
+                        // View-space positions back to Unreal, winding restored.
+                        let pos: Vec<f64> = part["positions"].as_array().map(|v| v.iter().filter_map(|x| x.as_f64()).collect()).unwrap_or_default();
+                        let idx: Vec<u32> = part["indices"].as_array().map(|v| v.iter().filter_map(|x| x.as_u64().map(|n| n as u32)).collect()).unwrap_or_default();
+                        let mut g = Geometry::default();
+                        for c in pos.chunks(3) {
+                            if c.len() == 3 {
+                                g.positions.push([(c[0] * 100.0) as f32, (c[2] * 100.0) as f32, (c[1] * 100.0) as f32]);
+                            }
+                        }
+                        for t in idx.chunks(3) {
+                            if t.len() == 3 {
+                                g.indices.extend([t[0], t[2], t[1]]);
+                            }
+                        }
+                        g.normals = vec![[0.0, 0.0, 1.0]; g.positions.len()];
+                        g.uvs = vec![[0.0, 0.0]; g.positions.len()];
+                        g.sections.push(Section { first_index: 0, num_triangles: (g.indices.len() / 3) as u32, material: PackageIndex::default(), material_name: format!("volume_{cat}"), slot: 0 });
+                        meshes.push((format!("{name}_brush"), g));
+                        Some(meshes.len() - 1)
+                    } else {
+                        continue;
+                    };
+                    let Some(mesh) = mesh else { continue };
+                    let world = if kind == "brush" { actor_m } else { mul(&mat_of(&part["matrix"]), &actor_m) };
+                    let label = if parts.len() > 1 { format!("{name}_{k}") } else { name.clone() };
+                    nodes.push(SceneNode { name: label, mesh: Some(mesh), matrix: flat(&world), parent: Some(group) });
+                }
+            }
+        }
+        let stem = Path::new(&out).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "map".into());
+        let bytes = if out.to_ascii_lowercase().ends_with(".fbx") {
+            crate::mesh_fbx::write_fbx_scene(&stem, &meshes, &nodes)?
+        } else {
+            crate::mesh_ops::write_scene_glb(&stem, &meshes, &nodes)?
+        };
+        std::fs::write(&out, &bytes)?;
+        warnings.sort();
+        warnings.dedup();
+        let placed = nodes.iter().filter(|n| n.mesh.is_some()).count();
+        Ok(json!({ "out": out, "bytes": bytes.len(), "meshes": meshes.len(), "placements": placed, "warnings": warnings.iter().take(100).collect::<Vec<_>>(), "warningCount": warnings.len() }))
+    }
+
+    /// `kismet.palette {path?}`: every kind of Kismet node the workspace's
+    /// packages use (from the search index), with how often and one example
+    /// to copy (in `path` when it has one).
+    fn kismet_palette(&mut self, p: &J) -> Res<J> {
+        self.index_all();
+        let db = self.db()?;
+        let prefer = opt_s(p, "path").map(|x| key(&x));
+        let mut is_seq: HashMap<String, bool> = HashMap::new();
+        let mut found: HashMap<String, (usize, String, usize, bool)> = HashMap::new();
+        for w in &self.packages {
+            let k = key(&w.path.to_string_lossy());
+            let Some(idx) = self.index.get(&k) else { continue };
+            let here = prefer.as_deref() == Some(k.as_str());
+            for (i, (cid, _)) in idx.exports.iter().enumerate() {
+                let Some(class) = idx.classes.get(*cid as usize) else { continue };
+                let ok = *is_seq.entry(class.clone()).or_insert_with(|| db.class_is_a(class, "SequenceObject") && !db.class_is_a(class, "Sequence") && !class.eq_ignore_ascii_case("InterpData"));
+                if !ok {
+                    continue;
+                }
+                let e = found.entry(class.to_ascii_lowercase()).or_insert((0, w.path.to_string_lossy().to_string(), i, here));
+                e.0 += 1;
+                if here && !e.3 {
+                    e.1 = w.path.to_string_lossy().to_string();
+                    e.2 = i;
+                    e.3 = true;
+                }
+            }
+        }
+        let mut out: Vec<J> = found
+            .into_iter()
+            .map(|(class, (count, path, index, _))| json!({ "class": class, "kind": crate::kismet::node_kind(db, &class), "count": count, "example": { "path": path, "index": index } }))
+            .collect();
+        out.sort_by(|a, b| a["class"].as_str().cmp(&b["class"].as_str()));
+        Ok(json!({ "classes": out }))
+    }
+
+    /// `kismet.add {path, sequence, example: {path, index}, x, y, originator?, object?}`:
+    /// a new node in a sequence, copied from an example node (references
+    /// to objects the level lacks cleared, links emptied, `kismet::adopt`);
+    /// one undo step, then the sequence's graph and the new node.
+    fn kismet_add(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let seq = opt_u(p, "sequence").ok_or("missing sequence")?;
+        let ex_path = p["example"]["path"].as_str().ok_or("missing example")?.to_string();
+        let ex_index = p["example"]["index"].as_u64().ok_or("missing example index")? as usize;
+        let x = p.get("x").and_then(|v| v.as_i64()).unwrap_or(0);
+        let y = p.get("y").and_then(|v| v.as_i64()).unwrap_or(0);
+        let originator = opt_u(p, "originator");
+        let object = opt_u(p, "object");
+        let db = self.db()?;
+        let new = if key(&ex_path) == key(&path) {
+            let ed = self.editor(&path)?;
+            ed.begin_undo(format!("add {}", ed.pkg.class_name_of(PackageIndex::export(ex_index))));
+            ed.duplicate(ex_index)?
+        } else {
+            let dk = key(&path);
+            self.editor(&path)?;
+            let mut dst = self.editors.remove(&dk).unwrap();
+            let r = match self.editor(&ex_path) {
+                Ok(src) => {
+                    dst.begin_undo(format!("add {}", src.pkg.class_name_of(PackageIndex::export(ex_index))));
+                    dst.copy_with(src, ex_index, Some(PackageIndex::export(seq)), crate::edit::CopyMode::Clear).map(|(idx, _)| idx.export_index())
+                }
+                Err(e) => {
+                    self.editors.insert(dk, dst);
+                    return Err(e);
+                }
+            };
+            self.editors.insert(dk, dst);
+            r?.ok_or("the copy is not an export")?
+        };
+        let ed = self.editor(&path)?;
+        crate::kismet::adopt(ed, new, seq, x, y, originator, object)?;
+        let mut g = crate::kismet::graph(ed, db, seq)?;
+        g["added"] = J::from(new);
+        g["dirty"] = J::from(true);
+        Ok(g)
+    }
+
+    /// `kismet.remove {path, sequence, node}`: delete a node and every link to it.
+    fn kismet_remove(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let seq = opt_u(p, "sequence").ok_or("missing sequence")?;
+        let node = opt_u(p, "node").ok_or("missing node")?;
+        let db = self.db()?;
+        let ed = self.editor(path)?;
+        ed.begin_undo(format!("delete {}", ed.pkg.object_name(PackageIndex::export(node))));
+        crate::kismet::remove(ed, seq, node)?;
+        let mut g = crate::kismet::graph(ed, db, seq)?;
+        g["dirty"] = J::from(true);
+        Ok(g)
+    }
+
+    /// `matinee.get {path, index}` (a SeqAct_Interp or InterpData) and the key
+    /// edits `matinee.setKey {track, curve, key, time?, value?}`,
+    /// `matinee.addKey {track, curve, time}`, `matinee.removeKey {track,
+    /// curve, key}`; edits are one undo step each and return the timeline.
+    fn matinee(&mut self, method: &str, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let index = self.export_of(path, p)?;
+        let ed = self.editor(path)?;
+        let mut extra = json!({});
+        if method != "matinee.get" {
+            let track = opt_u(p, "track").ok_or("missing track")?;
+            let curve = s(p, "curve")?.to_string();
+            ed.begin_undo(format!("{} {}", method.trim_start_matches("matinee."), ed.pkg.object_name(PackageIndex::export(track))));
+            match method {
+                "matinee.setKey" => crate::matinee::set_key(ed, track, &curve, opt_u(p, "key").ok_or("missing key")?, p.get("time").and_then(|v| v.as_f64()), p.get("value"))?,
+                "matinee.addKey" => {
+                    let k = crate::matinee::add_key(ed, track, &curve, p.get("time").and_then(|v| v.as_f64()).ok_or("missing time")?)?;
+                    extra["key"] = J::from(k);
+                }
+                _ => crate::matinee::remove_key(ed, track, &curve, opt_u(p, "key").ok_or("missing key")?)?,
+            }
+        }
+        let mut out = crate::matinee::get(ed, index)?;
+        if let Some(k) = extra.get("key") {
+            out["key"] = k.clone();
+        }
+        out["dirty"] = J::from(ed.is_dirty());
+        Ok(out)
+    }
+
     fn mesh_glb(&mut self, p: &J, preview: bool) -> Res<J> {
         let (bytes, mut v) = self.mesh_glb_bytes(p, preview)?;
         v["glb"] = self.bins.add(bytes);
@@ -1523,18 +2071,35 @@ impl Server {
         let o = self.mesh_object(path, i)?;
         let db = self.db()?;
         let dir = self.dir()?.to_path_buf();
-        if textures {
+        let owners = if textures {
             self.index_all();
-        }
+            self.path_owners()
+        } else {
+            Default::default()
+        };
         // Field borrows (not accessor methods): the PNG cache is taken mutably below.
         self.editors.get_mut(&key(path)).ok_or("package not open")?.flush();
         let src = self.src.as_ref().ok_or("no workspace open")?;
         let ed = self.editors.get(&key(path)).ok_or("package not open")?;
-        let (index, pkgs) = (&self.index, &self.packages);
+        let (index, pkgs) = (&*owners, &self.packages);
         let name = ed.pkg.object_name(PackageIndex::export(i));
         let mut g = mesh_ops::geometry(&ed.pkg, &o, lod)?;
         if !skin {
             g.bones.clear();
+        }
+        // A placed component's overrides (`Materials[slot]`, object paths in
+        // the mesh's package): the map view draws each mesh as placed.
+        if let Some(over) = p.get("materials").and_then(|v| v.as_array()) {
+            let find = |path: &str| -> Option<PackageIndex> {
+                let pkg = &ed.pkg;
+                (0..pkg.exports.len()).map(PackageIndex::export).chain((0..pkg.imports.len()).map(PackageIndex::import)).find(|&i| pkg.object_path(i).eq_ignore_ascii_case(path))
+            };
+            for sec in g.sections.iter_mut() {
+                if let Some(m) = over.get(sec.slot).and_then(|v| v.as_str()).and_then(find) {
+                    sec.material = m;
+                    sec.material_name = ed.pkg.object_path(m);
+                }
+            }
         }
         let mut warnings = Vec::new();
         if textures {
@@ -1542,7 +2107,9 @@ impl Server {
             let max_size = if preview { Some(opt_u(p, "textureSize").unwrap_or(1024) as u32) } else { None };
             let mut cache = PackageCache::new(db, &dir);
             cache.set_lookup(|p| index_lookup(index, pkgs, p));
-            cache.insert(&ed.name, ed.pkg.clone());
+            if ed.is_dirty() || !cache.insert_file(&ed.name, Path::new(path)) {
+                cache.insert(&ed.name, ed.pkg.clone());
+            }
             let mut png_cache = std::mem::take(&mut self.png_cache);
             warnings = mesh_ops::attach_materials(&mut g, &mut cache, src, &ed.name, PackageIndex::export(i), max_size, &mut png_cache);
             if png_cache.len() > 256 {
@@ -2565,6 +3132,7 @@ impl Server {
         let db = self.db()?;
         let dir = self.dir()?.to_path_buf();
         self.index_all();
+        let owners = self.path_owners();
         let max_size = opt_u(p, "textureSize").unwrap_or(256) as u32;
         let (root, tree, material_refs, mesh_refs, pkg_name, pkg_clone) = {
             let ed = self.editor(&path)?;
@@ -2623,14 +3191,17 @@ impl Server {
                 }
                 emitters.push(json!({ "index": e, "path": ed.pkg.object_path(PackageIndex::export(e)), "class": ed.pkg.class_name_of(PackageIndex::export(e)), "props": parsed_of(ed, e)?, "lods": lods }));
             }
-            (root, json!({ "system": system, "emitters": emitters }), material_refs, mesh_refs, ed.name.clone(), ed.pkg.clone())
+            // An unedited package is read from the shared cache rather than cloned.
+            let shared = if ed.is_dirty() { None } else { crate::material_ops::file_package(Path::new(&path)) };
+            let pkg = shared.unwrap_or_else(|| std::sync::Arc::new(ed.pkg.clone()));
+            (root, json!({ "system": system, "emitters": emitters }), material_refs, mesh_refs, ed.name.clone(), pkg)
         };
         // Materials: blend mode and the base texture, through the material chain.
         let src = self.src.as_ref().ok_or("no workspace open")?;
-        let (index, pkgs) = (&self.index, &self.packages);
+        let (index, pkgs) = (&*owners, &self.packages);
         let mut cache = PackageCache::new(db, &dir);
         cache.set_lookup(|p| index_lookup(index, pkgs, p));
-        cache.insert(&pkg_name, pkg_clone.clone());
+        cache.insert_arc(&pkg_name, pkg_clone.clone());
         let mut png_cache = std::mem::take(&mut self.png_cache);
         let mut sink = std::mem::take(&mut self.bins);
         let mut materials = Map::new();
@@ -3138,12 +3709,56 @@ impl Server {
         let sk = key(&source.to_string_lossy());
         let missing = || format!("{rel}: the game file is not in the game folder, so there is nothing to compare with; ship the whole file instead");
         if it["kind"] == "pck" {
-            // Wwise packages have no delta format: always the whole file.
-            let bytes = match self.pck_edits.get(&sk) {
-                Some(edit) => edit.pkg.to_bytes(),
-                None => std::fs::read(&source)?,
+            use crate::wwise::{akpk, delta as wdelta};
+            let unsaved = self.pck_edits.get(&sk).map(|edit| edit.pkg.clone());
+            let whole_file = |bytes: Vec<u8>, why: Option<&str>| -> Item {
+                let mut summary = json!({ "rel": rel, "mode": "whole", "bytes": bytes.len() });
+                if let Some(w) = why {
+                    summary["warning"] = J::from(w);
+                }
+                (summary, Some(("files", rel.clone(), Payload::Bytes(bytes))), Shared::new())
             };
-            return Ok((json!({ "rel": rel, "mode": "whole", "bytes": bytes.len() }), Some(("files", rel, Payload::Bytes(bytes))), Shared::new()));
+            if whole {
+                let bytes = match &unsaved {
+                    Some(p) => p.to_bytes(),
+                    None => std::fs::read(&source)?,
+                };
+                return Ok(whole_file(bytes, None));
+            }
+            // The original: the Studio's record, the launcher's pristine backup,
+            // else the game folder's file when it is not the edited one (an edited
+            // copy elsewhere, or edits still in memory).
+            let recorded = crate::basestore::read(&target);
+            let is_copy = key(&source.to_string_lossy()) != key(&target.to_string_lossy());
+            let base_pkg = |path: &Path| -> Res<akpk::Package> { Ok(akpk::Package::parse(&std::fs::read(path)?)?) };
+            let base: Option<Result<J, akpk::Package>> = if let Some(d) = recorded.as_ref().filter(|d| wdelta::is_digest(d)) {
+                Some(Ok(d.clone()))
+            } else if let Some(b) = crate::basestore::launcher_backup(&target) {
+                Some(Err(base_pkg(&b)?))
+            } else if recorded.is_none() && (is_copy || unsaved.is_some()) && target.exists() {
+                Some(Err(base_pkg(&target)?))
+            } else {
+                None
+            };
+            let edited = match unsaved {
+                Some(p) => p,
+                None => akpk::Package::parse(&std::fs::read(&source)?)?,
+            };
+            let Some(base) = base else {
+                return Ok(whole_file(edited.to_bytes(), Some("the original of this file is not known (it was saved in place by an older Studio): shipped whole")));
+            };
+            let d = match &base {
+                Ok(digest) => wdelta::create(wdelta::Base::Digest(digest), &edited, &rel)?,
+                Err(pkg) => wdelta::create(wdelta::Base::Package(pkg), &edited, &rel)?,
+            };
+            let (added, changed, deleted) = wdelta::counts(&d);
+            let summary = json!({ "rel": rel, "mode": "delta", "added": added, "changed": changed, "deleted": deleted, "changes": wdelta::describe(&d, 300) });
+            if added + changed + deleted == 0 {
+                return Ok((summary, None, Shared::new()));
+            }
+            // A preview only shows what changed: the payloads are not compressed.
+            let bytes = if preview { Vec::new() } else { d.to_bytes() };
+            return Ok((summary, Some(("deltas", format!("{rel}.tdelta"), Payload::Bytes(bytes))), Shared::new()));
         }
         if it["kind"] == "mcts" {
             let (tokens, edited) = match self.mcts.as_ref().and_then(|ws| ws.docs.iter().find(|(_, d)| key(&d.path.to_string_lossy()) == sk).map(|(_, d)| (ws.tokens.clone(), d.marshal.clone()))) {
@@ -3544,6 +4159,11 @@ impl Server {
             let d = mcts::delta::create(&tokens, mcts::delta::Base::Digest(digest), &m, target)?;
             return Ok((d, Vec::new()));
         }
+        if lower.ends_with(".pck") {
+            let pkg = crate::wwise::akpk::Package::parse(&std::fs::read(path)?)?;
+            let d = crate::wwise::delta::create(crate::wwise::delta::Base::Digest(digest), &pkg, target)?;
+            return Ok((d, Vec::new()));
+        }
         let db = self.db()?;
         let pkg = PackageFile::open(path)?.load()?;
         let opts = crate::delta::CreateOptions { share_min: share.then_some(crate::delta::SHARE_MIN), ..Default::default() };
@@ -3565,9 +4185,12 @@ impl Server {
             return Ok(st);
         }
         crate::basestore::remove(&path);
-        if path.to_string_lossy().to_ascii_lowercase().ends_with(".dat") {
+        let lower = path.to_string_lossy().to_ascii_lowercase();
+        if lower.ends_with(".dat") {
             let tokens = mcts::Tokens::for_dir(path.parent().unwrap_or(Path::new(".")));
             crate::basestore::record_mcts(&tokens, &path)?;
+        } else if lower.ends_with(".pck") {
+            crate::basestore::record_pck(&path)?;
         } else {
             crate::basestore::record_upk(self.db()?, &path)?;
         }
@@ -3596,11 +4219,21 @@ impl Server {
     fn decompiled(&mut self, path: &str) -> Res<&mut DecompiledPackage> {
         let k = key(path);
         if !self.scripts.contains_key(&k) {
-            let mut search = Vec::new();
-            if let Some(d) = &self.dir {
-                search.push(d.clone());
-            }
-            let dp = decompile_package(Path::new(path), &search)?;
+            // A background decompilation of the file as it still is on disk.
+            let ready = match self.script_jobs.remove(&k) {
+                Some((stamp, job)) if stamp.is_some() && stamp == file_stamp(Path::new(path)) => job.join().ok().and_then(|r| r.ok()),
+                _ => None,
+            };
+            let dp = match ready {
+                Some(dp) => dp,
+                None => {
+                    let mut search = Vec::new();
+                    if let Some(d) = &self.dir {
+                        search.push(d.clone());
+                    }
+                    decompile_package(Path::new(path), &search)?
+                }
+            };
             self.scripts.insert(k.clone(), dp);
         }
         Ok(self.scripts.get_mut(&k).unwrap())
@@ -3712,7 +4345,7 @@ impl Server {
                 let ed = self.editor(path)?;
                 ed.begin_undo(format!("recompile {class}"));
                 ed.replace_package(r.package);
-                let mut v = json::tables(&ed.pkg);
+                let mut v = json::tables_compact(&ed.pkg);
                 v["name"] = J::from(ed.name.clone());
                 v["path"] = J::from(path);
                 v["dirty"] = J::from(true);
@@ -3772,13 +4405,16 @@ impl Server {
         // Unsaved edits live in the parsed objects: flush them so the cache's
         // copy of the package (parsed from export data) sees them.
         self.index_all();
+        let owners = self.path_owners();
         self.editors.get_mut(&key(path)).ok_or("package not open")?.flush();
         let src = self.src.as_ref().ok_or("no workspace open")?;
         let ed = self.editors.get(&key(path)).ok_or("package not open")?;
-        let (index, pkgs) = (&self.index, &self.packages);
+        let (index, pkgs) = (&*owners, &self.packages);
         let mut cache = PackageCache::new(db, &dir);
         cache.set_lookup(|p| index_lookup(index, pkgs, p));
-        cache.insert(&ed.name, ed.pkg.clone());
+        if ed.is_dirty() || !cache.insert_file(&ed.name, Path::new(path)) {
+            cache.insert(&ed.name, ed.pkg.clone());
+        }
         let info = crate::material_ops::material_info(&mut cache, &ed.name, PackageIndex::export(i));
         let mut png_cache = std::mem::take(&mut self.png_cache);
         let mut sink = std::mem::take(&mut self.bins);
@@ -3859,12 +4495,24 @@ impl Server {
 
     /// Build the search index of every workspace package that has none yet
     /// (`search.progress` events while it runs).
+    /// `owners`, built from the current index when needed.
+    fn path_owners(&mut self) -> std::sync::Arc<HashMap<u64, u32>> {
+        if self.owners.is_none() {
+            self.owners = Some(std::sync::Arc::new(build_owners(&self.index, self.packages.iter().map(|p| p.path.as_path()))));
+        }
+        self.owners.clone().unwrap()
+    }
+
     fn index_all(&mut self) {
         if let Some(job) = self.index_job.take() {
-            if let Ok(built) = job.join() {
+            if let Ok((built, owners)) = job.join() {
+                // The job indexed every package in `packages` order: its owners
+                // map holds unless entries were indexed here meanwhile.
+                let fresh = self.index.is_empty();
                 for (k, idx) in built {
                     self.index.entry(k).or_insert(idx);
                 }
+                self.owners = fresh.then(|| std::sync::Arc::new(owners));
             }
         }
         let total = self.packages.len();
@@ -3876,6 +4524,7 @@ impl Server {
                 continue;
             }
             self.index.insert(k, build_index(path));
+            self.owners = None;
             scanned += 1;
             if scanned.is_multiple_of(20) {
                 let mut f = Map::new();
@@ -3953,6 +4602,8 @@ impl Server {
                 ed.end_undo();
                 let k = key(&path);
                 self.index.remove(&k);
+                self.owners = None;
+        self.owners = None;
             }
             entries
         } else {
@@ -4097,8 +4748,31 @@ fn resample_rgba(rgba: &[u8], w: u32, h: u32, tw: u32, th: u32) -> Vec<u8> {
     out
 }
 
-fn index_lookup(index: &HashMap<String, SearchIndex>, packages: &[WorkspacePackage], path: &str) -> Option<String> {
-    packages.iter().find(|w| index.get(&key(&w.path.to_string_lossy())).is_some_and(|idx| idx.exports.iter().any(|(_, op)| op.eq_ignore_ascii_case(path)))).map(|w| w.name.clone())
+/// FNV-1a of an object path, ASCII case folded (the key of `Server::owners`).
+fn path_hash(path: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in path.bytes() {
+        h = (h ^ b.to_ascii_lowercase() as u64).wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Object path hash → index in `packages` of the first package holding it.
+fn build_owners<'a>(index: &HashMap<String, SearchIndex>, packages: impl Iterator<Item = &'a Path>) -> HashMap<u64, u32> {
+    let mut out: HashMap<u64, u32> = HashMap::with_capacity(index.values().map(|i| i.exports.len()).sum());
+    for (i, w) in packages.enumerate() {
+        if let Some(idx) = index.get(&key(&w.to_string_lossy())) {
+            for (_, op) in &idx.exports {
+                out.entry(path_hash(op)).or_insert(i as u32);
+            }
+        }
+    }
+    out
+}
+
+/// The workspace package holding an object path (the first in package order).
+fn index_lookup(owners: &HashMap<u64, u32>, packages: &[WorkspacePackage], path: &str) -> Option<String> {
+    owners.get(&path_hash(path)).and_then(|&i| packages.get(i as usize)).map(|w| w.name.clone())
 }
 
 /// The on-disk search index of a cooked folder: `<cache dir>/tempest-studio/index/<hash>.idx`.
@@ -4159,8 +4833,7 @@ fn build_indexes(paths: &[PathBuf], cache: Option<&Path>) -> HashMap<String, Sea
     }
     if changed {
         if let Some(c) = cache {
-            let keep: Vec<&String> = out.keys().collect();
-            cached.retain(|k, _| keep.contains(&k));
+            cached.retain(|k, _| out.contains_key(k));
             if let Some(parent) = c.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
@@ -4543,7 +5216,8 @@ impl Server {
         if let Some(pv) = ctx.preview.clone() {
             if !out.iter().any(|m| m["preview"] == true) {
                 self.index_all();
-                let found = index_lookup(&self.index, &self.packages, &pv).and_then(|name| self.packages.iter().find(|w| w.name == name).map(|w| w.path.to_string_lossy().to_string()));
+                let owners = self.path_owners();
+                let found = index_lookup(&owners, &self.packages, &pv).and_then(|name| self.packages.iter().find(|w| w.name == name).map(|w| w.path.to_string_lossy().to_string()));
                 if let Some(pkg_path) = found {
                     let ed = self.editor(&pkg_path)?;
                     if let Ok(i) = ed.find(&pv) {
@@ -5125,6 +5799,7 @@ impl Server {
         ed.clear_net_index(i)?;
         let k = key(&path);
         self.index.remove(&k);
+        self.owners = None;
         let ed = self.editor(&path)?;
         Ok(json!({ "index": i, "path": ed.pkg.object_path(PackageIndex::export(i)), "message": message }))
     }
@@ -5247,12 +5922,13 @@ impl Server {
             let pkg_name = self.editor(&path)?.pkg.outermost_name(mat);
             let inner = full.split_once('.').map(|(_, r)| r.to_string()).unwrap_or(full.clone());
             self.index_all();
+            let owners = self.path_owners();
             let file = self
                 .packages
                 .iter()
                 .find(|w| w.name.eq_ignore_ascii_case(&pkg_name))
                 .map(|w| w.path.to_string_lossy().to_string())
-                .or_else(|| index_lookup(&self.index, &self.packages, &inner).and_then(|n| self.packages.iter().find(|w| w.name == n).map(|w| w.path.to_string_lossy().to_string())))
+                .or_else(|| index_lookup(&owners, &self.packages, &inner).and_then(|n| self.packages.iter().find(|w| w.name == n).map(|w| w.path.to_string_lossy().to_string())))
                 .ok_or_else(|| format!("{full} is in a package that is not in the game folder"))?;
             let ed = self.editor(&file)?;
             let j = ed.pkg.find_export(&inner, None).or_else(|| ed.pkg.find_export(&full, None)).ok_or_else(|| format!("{full} was not found in {pkg_name}"))?;

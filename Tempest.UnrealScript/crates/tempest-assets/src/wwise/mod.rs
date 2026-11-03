@@ -5,10 +5,13 @@
 //! * [`akpk`]: the package container (tables of banks, streams, externals).
 //! * [`bnk`]: soundbank chunks, embedded media (`DIDX`/`DATA`), the object
 //!   hierarchy (`HIRC`: events → actions → sounds → media ids).
+//! * [`delta`]: mod deltas of a package (`kind: "pck"`): changed entries,
+//!   bank objects and embedded media only.
 //! * [`vorbis`]: Wwise Vorbis `.wem` ⇄ standard Ogg Vorbis.
 //! * [`fnv`]: the FNV-1 hash Wwise names everything by.
 
 pub mod akpk;
 pub mod bnk;
+pub mod delta;
 pub mod fnv;
 pub mod vorbis;

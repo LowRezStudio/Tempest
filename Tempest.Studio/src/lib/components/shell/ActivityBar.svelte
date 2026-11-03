@@ -5,6 +5,7 @@
 		Database,
 		Hammer,
 		Keyboard,
+		Map as MapIcon,
 		Music,
 		Package,
 		Plug,
@@ -20,10 +21,11 @@
 	const views = [
 		{ id: "packages" as const, icon: Package, command: "view.packages", label: "Packages" },
 		{ id: "assembly" as const, icon: Database, command: "view.assembly", label: "Assembly" },
+		{ id: "map" as const, icon: MapIcon, command: "view.map", label: "Maps" },
 		{ id: "mod" as const, icon: Hammer, command: "view.mod", label: "Mod cooker" },
 	];
 
-	function show(id: "packages" | "assembly" | "mod") {
+	function show(id: "packages" | "assembly" | "mod" | "map") {
 		if (studio.mode === id) ui.toggle("side");
 		else {
 			studio.mode = id;

@@ -142,23 +142,7 @@ impl Bank {
         if !entries.iter().any(|(i, _)| *i == id) {
             return Err(Error::Format(format!("media {id} is not embedded in bank {:08x}", self.id)));
         }
-        let mut didx = Vec::with_capacity(entries.len() * 12);
-        let mut data = Vec::new();
-        for (i, d) in &entries {
-            let off = data.len().div_ceil(16) * 16;
-            data.resize(off, 0);
-            didx.extend_from_slice(&i.to_le_bytes());
-            didx.extend_from_slice(&(off as u32).to_le_bytes());
-            didx.extend_from_slice(&(d.len() as u32).to_le_bytes());
-            data.extend_from_slice(d);
-        }
-        for (cid, body) in self.chunks.iter_mut() {
-            if cid == b"DIDX" {
-                *body = didx.clone();
-            } else if cid == b"DATA" {
-                *body = data.clone();
-            }
-        }
+        self.set_media(&entries);
         // In-memory size on the sources.
         let objects = self.objects();
         let mut patches: Vec<(usize, u32)> = Vec::new();
@@ -189,6 +173,57 @@ impl Bank {
             }
         }
         Ok(())
+    }
+
+    /// Rebuild the embedded media (`DIDX` index + `DATA`) from `entries` in
+    /// order, each at a 16-byte boundary as the cooker lays them out. The two
+    /// chunks are created after `BKHD` when the bank had none, and removed
+    /// when `entries` is empty. Sources' in-memory sizes are not touched.
+    pub fn set_media(&mut self, entries: &[(u32, Vec<u8>)]) {
+        if entries.is_empty() {
+            self.chunks.retain(|(id, _)| id != b"DIDX" && id != b"DATA");
+            return;
+        }
+        let mut didx = Vec::with_capacity(entries.len() * 12);
+        let mut data = Vec::new();
+        for (i, d) in entries {
+            let off = data.len().div_ceil(16) * 16;
+            data.resize(off, 0);
+            didx.extend_from_slice(&i.to_le_bytes());
+            didx.extend_from_slice(&(off as u32).to_le_bytes());
+            didx.extend_from_slice(&(d.len() as u32).to_le_bytes());
+            data.extend_from_slice(d);
+        }
+        if self.chunk(b"DIDX").is_none() || self.chunk(b"DATA").is_none() {
+            self.chunks.retain(|(id, _)| id != b"DIDX" && id != b"DATA");
+            let at = self.chunks.iter().position(|(id, _)| id == b"BKHD").map(|p| p + 1).unwrap_or(0);
+            self.chunks.insert(at, (*b"DATA", Vec::new()));
+            self.chunks.insert(at, (*b"DIDX", Vec::new()));
+        }
+        for (cid, body) in self.chunks.iter_mut() {
+            if cid == b"DIDX" {
+                *body = std::mem::take(&mut didx);
+            } else if cid == b"DATA" {
+                *body = std::mem::take(&mut data);
+            }
+        }
+    }
+
+    /// Rebuild `HIRC` from `objects` in order (created at the end when the
+    /// bank had none).
+    pub fn set_objects(&mut self, objects: &[Object]) {
+        let mut hirc = Vec::with_capacity(4 + objects.iter().map(|o| 9 + o.body.len()).sum::<usize>());
+        hirc.extend_from_slice(&(objects.len() as u32).to_le_bytes());
+        for o in objects {
+            hirc.push(o.kind);
+            hirc.extend_from_slice(&((4 + o.body.len()) as u32).to_le_bytes());
+            hirc.extend_from_slice(&o.id.to_le_bytes());
+            hirc.extend_from_slice(&o.body);
+        }
+        match self.chunks.iter_mut().find(|(id, _)| id == b"HIRC") {
+            Some((_, body)) => *body = hirc,
+            None => self.chunks.push((*b"HIRC", hirc)),
+        }
     }
 
     /// The hierarchy objects.

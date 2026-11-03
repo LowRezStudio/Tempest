@@ -492,6 +492,178 @@ export type McsDoc = {
 };
 export type McsSummary = { tokens: string; fields: number; docs: McsDoc[] };
 /** A row set address: field names and row indices from the document root. */
+/** One thing a map actor draws (`map::level_scene`); matrices are three.js column-major, in the mesh previews' space (metres, Y up). */
+export type MapPart =
+	| {
+			kind: "mesh";
+			export: number;
+			class: string;
+			/** `mesh.preview` target: the package file and export, or an object path no workspace package holds. */
+			mesh: { path?: string; index?: number; object?: string };
+			meshName: string;
+			/** The component's material overrides by slot (object paths in the mesh's package). */
+			materials: (string | null)[];
+			matrix: number[];
+			hidden: boolean;
+	  }
+	| {
+			kind: "light";
+			light: "point" | "spot" | "directional" | "sky";
+			export: number;
+			class: string;
+			radius: number;
+			brightness: number;
+			color: [number, number, number];
+			matrix: number[];
+			/** The matrix is the light's world matrix (light collections). */
+			world?: boolean;
+			outerCone: number;
+	  }
+	| { kind: "cylinder"; export: number; radius: number; height: number; matrix: number[] }
+	| { kind: "particles"; export: number; template: string | null; matrix: number[] }
+	| { kind: "brush"; export: number | null; positions: number[]; indices: number[] };
+
+export type MapActor = {
+	export: number;
+	name: string;
+	class: string;
+	/** playerstart, botfactory, spawn, mesh, trigger, blocking, volume, light, sound, emitter, gameplay, navigation, info, other. */
+	category: string;
+	matrix: number[];
+	location?: [number, number, number];
+	rotation?: [number, number, number];
+	drawScale?: number;
+	drawScale3D?: [number, number, number];
+	/** What moving it writes: the actor's Location/Rotation/DrawScale3D, or a collection mesh's component Translation/Rotation/Scale3D (`parent` is the collection actor). */
+	edit: "actor" | "component";
+	parent?: number;
+	hidden?: boolean;
+	parts: MapPart[];
+	info: Record<string, string | number | boolean>;
+	/** `m_bCanBaseOn` (class default when absent): false = a "rooftop" pawns slide off; on a wall, a heavy wall. For a collection mesh, its collection actor's. */
+	canBaseOn: boolean;
+};
+
+export type MapLevel = {
+	path: string;
+	name: string;
+	level: number;
+	dirty: boolean;
+	actors: MapActor[];
+	counts: Record<string, number>;
+};
+
+export type KismetNode = {
+	export: number;
+	name: string;
+	class: string;
+	kind: "event" | "action" | "condition" | "variable" | "sequence" | "frame" | "other";
+	title: string | null;
+	comment: string | null;
+	width: number | null;
+	height: number | null;
+	posX: number | null;
+	posY: number | null;
+	sizeX: number | null;
+	sizeY: number | null;
+	inputs: { desc: string; drawY: number | null; hidden: boolean; disabled: boolean }[];
+	outputs: {
+		desc: string;
+		drawY: number | null;
+		hidden: boolean;
+		delay: number | null;
+		links: { op: number | null; input: number }[];
+	}[];
+	variables: {
+		desc: string;
+		drawX: number | null;
+		hidden: boolean;
+		writeable: boolean;
+		type: string | null;
+		property: string | null;
+		linked: (number | null)[];
+	}[];
+	events: { desc: string; drawX: number | null; linked: (number | null)[] }[];
+	value: string | null;
+	originator: { export: number | null; path: string; class: string } | null;
+	enabled: boolean | null;
+	maxTrigger: number | null;
+	subObjects: number;
+};
+
+export type KismetGraph = {
+	sequence: number;
+	name: string;
+	nodes: KismetNode[];
+	dirty: boolean;
+	changed?: boolean;
+};
+
+export type MatineeKey = {
+	time: number;
+	/** A number, [x, y, z] / [r, g, b, a], or a label (event name, cut target…). */
+	value: number | number[] | string | null;
+	mode?: string | null;
+};
+
+export type MatineeTrack = {
+	export: number;
+	class: string;
+	title: string;
+	/** The move track a split axis belongs to. */
+	parent: number | null;
+	subTracks: number[];
+	moveFrame: string | null;
+	moveAxis: string | null;
+	property: string | null;
+	disabled: boolean;
+	/** Key lists: `curve` (`<Prop>.Points`, InVal/OutVal) or `keys` (an array with Time). `path` is what the key edits take. */
+	curves: { name: string; kind: "curve" | "keys"; path: string; keys: MatineeKey[] }[];
+};
+
+export type MatineeTimeline = {
+	action: number | null;
+	data: number;
+	name: string;
+	length: number;
+	groups: {
+		export: number;
+		class: string;
+		name: string;
+		color: number[] | null;
+		tracks: MatineeTrack[];
+		/** What the group drives: the objects linked to the action's connector of the group's name. */
+		actors: { export: number | null; name: string; class: string }[];
+	}[];
+	dirty: boolean;
+	key?: number;
+};
+
+export type McsCollectionPart = {
+	item: number;
+	type: number;
+	/** skin, head, weapon, voice, entitlement, collection or item. */
+	kind: string;
+	name: string;
+	exists: boolean;
+};
+
+export type McsCollection = {
+	/** The entry in loot table 1076. */
+	path: McsPath;
+	entry: number | null;
+	/** The container item (type 1634). */
+	item: number;
+	itemPath: McsPath | null;
+	bot: number | null;
+	name: string;
+	active: boolean;
+	subTable: number | null;
+	subPath: McsPath | null;
+	parts: McsCollectionPart[];
+	required: number | null;
+};
+
 export type McsPath = [string, number][];
 
 /** A source of edited content for the mod cooker (`mod.changes`). */
@@ -1037,7 +1209,14 @@ export interface UpkMethods {
 		result: { index: number; path: string; message: string };
 	};
 	"mesh.preview": {
-		params: Target & { lod?: number; textures?: boolean; skin?: boolean; textureSize?: number };
+		params: Target & {
+			lod?: number;
+			textures?: boolean;
+			skin?: boolean;
+			textureSize?: number;
+			/** Material overrides by slot (object paths in the mesh's package), as a placed component has them. */
+			materials?: (string | null)[];
+		};
 		result: MeshGlb;
 	};
 	"mesh.export": {
@@ -1119,6 +1298,11 @@ export interface UpkMethods {
 		params: { doc: string; path: McsPath; field: string; text?: string; value?: unknown };
 		result: McsStatus & { row: Record<string, McsCell> };
 	};
+	/** `mcts.set` on several rows of one row set in one call (one undo step per row). */
+	"mcts.setMany": {
+		params: { doc: string; paths: McsPath[]; field: string; text?: string; value?: unknown };
+		result: McsStatus & { rows: Record<string, McsCell>[] };
+	};
 	"mcts.setHeader": {
 		params: { doc: string; field: string; text?: string; value?: unknown };
 		result: McsStatus;
@@ -1155,6 +1339,11 @@ export interface UpkMethods {
 		result: { usages: { path: McsPath; field: string; label: string }[]; truncated: boolean };
 	};
 	"mcts.delete": { params: { doc: string; path: McsPath }; result: McsStatus };
+	/** Delete several rows of one row set (highest index first; one undo step per row). */
+	"mcts.deleteMany": {
+		params: { doc: string; paths: McsPath[] };
+		result: McsStatus & { deleted: number };
+	};
 	"mcts.undo": { params: { doc: string }; result: McsStatus & { undone: string | null } };
 	"mcts.save": { params: { doc: string; out?: string }; result: McsStatus & { out: string } };
 	"mcts.discard": { params: { doc: string }; result: McsStatus };
@@ -1191,7 +1380,7 @@ export interface UpkMethods {
 	/** Clone a device/card (DEVICE_ID), item (ITEM_ID) or champion (BOT_ID) with fresh ids and new messages. */
 	"mcts.create": {
 		params: {
-			kind: "device" | "card" | "item" | "champion";
+			kind: "device" | "card" | "item" | "champion" | "skin";
 			template: number;
 			name: string;
 			description?: string;
@@ -1199,9 +1388,16 @@ export interface UpkMethods {
 			bot?: number;
 			slot?: number;
 			itemType?: number;
+			/** `skin`: names of the new parts by the template part's item id. */
+			names?: Record<string, string>;
 		};
 		result: {
 			kind: string;
+			/** `skin`: the copies made (container first) and the new loot table rows. */
+			parts?: { from: number; item: number; kind: string; name: string; path: McsPath }[];
+			subTable?: number;
+			subPath?: McsPath;
+			vendor?: McsPath | null;
 			deviceId?: number;
 			itemId?: number;
 			botId?: number;
@@ -1231,6 +1427,193 @@ export interface UpkMethods {
 	"mcts.vendorAdd": {
 		params: { bot: number };
 		result: { bot: number; item: number; vendor: McsPath | null; existed: boolean };
+	};
+	/** Skin collections: the entries of loot table 1076 "Inventory Vendor - Collections" (what the client lists per champion), and skins no collection holds. */
+	"mcts.collections": {
+		params: { bot?: number };
+		result: {
+			table: number;
+			index: number;
+			total: number;
+			active: number;
+			collections: McsCollection[];
+			loose: {
+				item: number;
+				bot: number | null;
+				name: string;
+				obtainability: number | null;
+				path: McsPath;
+			}[];
+			/** Champion names by bot id. */
+			bots: Record<string, string>;
+		};
+	};
+	/** One collection with the champion name and theme a copy's part names are derived from. */
+	"mcts.collection": {
+		params: { item: number };
+		result: {
+			item: number;
+			bot: number | null;
+			name: string;
+			champion: string;
+			theme: string;
+			subTable: number | null;
+			subName: string;
+			parts: McsCollectionPart[];
+		};
+	};
+	/** A new collection around existing items (a container, a sub loot table, a 1076 entry). */
+	"mcts.collectionAdd": {
+		params: { items: number[]; name?: string; like?: number };
+		result: {
+			itemId: number;
+			item: McsPath;
+			subTable: number;
+			subPath: McsPath;
+			vendor: McsPath;
+		};
+	};
+	/** Packages holding a level; `persistent`: streams sublevels (a playable map). */
+	"map.list": {
+		params: Record<string, never>;
+		result: {
+			maps: {
+				path: string;
+				name: string;
+				persistent: boolean;
+				kismet: boolean;
+				size: number;
+			}[];
+		};
+	};
+	/** A map's levels (the package and, with `streamed`, every sublevel it streams) as actors. */
+	"map.scene": {
+		params: { path: string; streamed?: boolean };
+		result: { path: string; levels: MapLevel[]; missing: string[] };
+	};
+	/** Move an actor (or a collection mesh's component, `parent`) to a world matrix (view space), or set its location/rotation numbers (Unreal units). */
+	"map.setTransform": {
+		params: {
+			path: string;
+			index: number;
+			matrix?: number[];
+			location?: [number, number, number];
+			rotation?: [number, number, number];
+			parent?: number;
+		};
+		result: {
+			/** With a matrix: what was written. */
+			translation?: [number, number, number];
+			rotation?: [number, number, number];
+			scale?: [number, number, number];
+			row: ExportRow;
+			dirty: boolean;
+		};
+	};
+	/** The map (and its sublevels) as one GLB or FBX, by `out`'s extension: each mesh once, a node per placement under a node per level (`map.progress` events while it runs). */
+	"map.export": {
+		params: {
+			path: string;
+			out: string;
+			streamed?: boolean;
+			/** Level packages to include (default: all). */
+			levels?: string[];
+			/** Categories left out. */
+			skip?: string[];
+			/** Add the brushes of volumes. */
+			volumes?: boolean;
+			textures?: boolean;
+			textureSize?: number;
+		};
+		result: {
+			out: string;
+			bytes: number;
+			meshes: number;
+			placements: number;
+			warnings: string[];
+			warningCount: number;
+		};
+	};
+	/** A Matinee timeline (a SeqAct_Interp or InterpData export). */
+	"matinee.get": { params: { path: string; index: number }; result: MatineeTimeline };
+	"matinee.setKey": {
+		params: {
+			path: string;
+			index: number;
+			track: number;
+			curve: string;
+			key: number;
+			time?: number;
+			value?: number | number[];
+		};
+		result: MatineeTimeline;
+	};
+	"matinee.addKey": {
+		params: { path: string; index: number; track: number; curve: string; time: number };
+		result: MatineeTimeline;
+	};
+	"matinee.removeKey": {
+		params: { path: string; index: number; track: number; curve: string; key: number };
+		result: MatineeTimeline;
+	};
+	"kismet.sequences": {
+		params: { path: string };
+		result: {
+			sequences: {
+				export: number;
+				name: string;
+				path: string;
+				class: string;
+				objects: number;
+				parent: number | null;
+				title: string | null;
+			}[];
+		};
+	};
+	"kismet.graph": { params: { path: string; index: number }; result: KismetGraph };
+	/** Every kind of Kismet node the workspace uses, with one example to copy (in `path` when it has one). */
+	"kismet.palette": {
+		params: { path?: string };
+		result: {
+			classes: {
+				class: string;
+				kind: KismetNode["kind"];
+				count: number;
+				example: { path: string; index: number };
+			}[];
+		};
+	};
+	/** A new node in a sequence, copied from an example (links emptied, references the level lacks cleared), placed at (x, y); an event can get an originator actor, an object variable a value. */
+	"kismet.add": {
+		params: {
+			path: string;
+			sequence: number;
+			example: { path: string; index: number };
+			x: number;
+			y: number;
+			originator?: number;
+			object?: number;
+		};
+		result: KismetGraph & { added: number };
+	};
+	/** Delete a node and every link to it. */
+	"kismet.remove": {
+		params: { path: string; sequence: number; node: number };
+		result: KismetGraph;
+	};
+	/** Connect (or with `remove` disconnect) an output to an input, or a variable connector to a variable. */
+	"kismet.link": {
+		params: {
+			path: string;
+			sequence: number;
+			from: number;
+			to: number;
+			output?: number;
+			input?: number;
+			variable?: number;
+			remove?: boolean;
+		};
+		result: KismetGraph;
 	};
 	/** The GET_PROFILE_CLASSES row and inventory items of a champion, for the private server. */
 	"mcts.serverRows": {

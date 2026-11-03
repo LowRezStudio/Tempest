@@ -12,18 +12,23 @@
 		index: number;
 		/** The struct the property goes into; empty for the object itself. */
 		at?: string;
+		/** The package (default: the open package). */
+		path?: string;
+		/** Called with the object once a property was added (default: shown as the open package's object). */
+		onadded?: (updated: import("../../../electron/src/ipc/contract").ParsedObject) => void;
 		onclose: () => void;
 	}
-	const { index, at = "", onclose }: Props = $props();
+	const { index, at = "", path, onadded, onclose }: Props = $props();
+	const target = $derived(path ?? studio.pkg?.path ?? null);
 
 	let list = $state<{ name: string; kind: string; type: string }[] | null>(null);
 	let filter = $state("");
 	let error = $state<string | null>(null);
 
 	$effect(() => {
-		const pkg = studio.pkg;
+		const pkg = target;
 		if (!pkg) return;
-		void rpc("object.missing", { path: pkg.path, index, at: at || undefined })
+		void rpc("object.missing", { path: pkg, index, at: at || undefined })
 			.then((r) => (list = r))
 			.catch(
 				(error_: unknown) =>
@@ -36,16 +41,18 @@
 	);
 
 	async function add(name: string) {
-		const pkg = studio.pkg;
+		const pkg = target;
 		if (!pkg) return;
 		try {
-			studio.object = await rpc("object.addProperty", {
-				path: pkg.path,
+			const updated = await rpc("object.addProperty", {
+				path: pkg,
 				index,
 				name,
 				at: at || undefined,
 			});
-			studio.markDirty();
+			if (onadded) onadded(updated);
+			else studio.object = updated;
+			studio.markDirty(pkg);
 			onclose();
 		} catch (error_) {
 			toasts.error(error_, `Could not add ${name}`);

@@ -30,6 +30,9 @@
 		field?: boolean;
 		/** The export (for adding properties to a tagged struct). */
 		index?: number;
+		/** Its package and what to do with the object after adding a field (default: the open package). */
+		pkgPath?: string;
+		onadded?: (updated: import("../../../electron/src/ipc/contract").ParsedObject) => void;
 	}
 	const {
 		label,
@@ -45,6 +48,8 @@
 		element,
 		field = false,
 		index,
+		pkgPath,
+		onadded,
 	}: Props = $props();
 
 	/** The "add a field" picker of this tagged struct is open. */
@@ -156,7 +161,13 @@
 		{#if addingField && index !== undefined}
 			<tr>
 				<td colspan="2" style="padding-left: {(depth + 1) * 14 + 4}px">
-					<AddPropertyPicker {index} at={path} onclose={() => (addingField = false)} />
+					<AddPropertyPicker
+						{index}
+						at={path}
+						path={pkgPath}
+						{onadded}
+						onclose={() => (addingField = false)}
+					/>
 				</td>
 			</tr>
 		{/if}
@@ -172,6 +183,8 @@
 				{onset}
 				{onlist}
 				{index}
+				{pkgPath}
+				{onadded}
 				field
 			/>
 		{/each}
@@ -210,6 +223,8 @@
 				{onset}
 				{onlist}
 				{index}
+				{pkgPath}
+				{onadded}
 				element={{ array: path, at: j }}
 			/>
 		{/each}

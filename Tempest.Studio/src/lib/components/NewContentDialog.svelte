@@ -4,9 +4,10 @@
 	import { rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
-	import type { McsCell } from "../../../electron/src/ipc/contract";
+	import { ui } from "$lib/studio/ui.svelte";
+	import type { McsCell, McsCollection, UpkMethods } from "../../../electron/src/ipc/contract";
 
-	type Kind = "device" | "card" | "item" | "champion";
+	type Kind = "device" | "card" | "item" | "champion" | "skin";
 	let {
 		open = $bindable(false),
 		kind = $bindable<Kind>("device"),
@@ -77,6 +78,13 @@
 			hint: "A copy of the template item (and its skin row when it is a skin) with new ids and messages.",
 		},
 		{
+			id: "skin",
+			label: "Skin (collection)",
+			table: "DATA_SET_ITEMS",
+			key: "ITEM_ID",
+			hint: "Skins are sold and listed per champion as collections (loot table 1076, Inventory Vendor - Collections): a container item, a loot table with the body skin, head, weapon and entitlement, and the vendor entry. This copies a collection with all of its parts (their skin rows too), names the parts after yours and adds the vendor entry. The copies show the template's meshes until you point their skin rows at yours.",
+		},
+		{
 			id: "champion",
 			label: "Champion",
 			table: "DATA_SET_BOTS",
@@ -125,10 +133,93 @@
 
 	$effect(() => {
 		if (open) {
-			fromSelection();
+			const preset = ui.newContent;
+			if (preset) {
+				kind = preset.kind;
+				template = String(preset.template);
+				ui.newContent = null;
+			} else fromSelection();
 			if (champions.length === 0) void loadLists();
 			void loadNextIds();
 		}
+	});
+
+	// ----- skins ----------------------------------------------------------------
+	/** Champion whose collections the template list shows. */
+	let skinBot = $state("");
+	let collections = $state<McsCollection[]>([]);
+	let collectionsLoading = $state(false);
+	let source = $state<UpkMethods["mcts.collection"]["result"] | null>(null);
+	/** Part names typed by the user, by the template part's item id. */
+	let partNames = $state<Record<number, string>>({});
+
+	/** Same rule as `rename` in mcts/skins.rs. */
+	function themeOf(text: string, champion: string): string {
+		if (!champion) return text;
+		return text.split(champion).join(" ").split(/\s+/).filter(Boolean).join(" ");
+	}
+	function swapText(text: string, from: string, to: string): string | null {
+		if (!from || !text.includes(from)) return null;
+		return text.split(from).join(to).split(/\s+/).filter(Boolean).join(" ");
+	}
+	function renamePart(text: string): string {
+		if (!source) return text;
+		const oldChamp = source.champion;
+		const newChamp = bot
+			? (champions.find((c) => String(c.id) === bot)?.name ?? oldChamp)
+			: oldChamp;
+		const oldTheme = source.theme;
+		const newTheme = themeOf(name.trim(), newChamp);
+		let out = text;
+		let changed = oldTheme === newTheme;
+		const a = oldTheme !== newTheme ? swapText(out, oldTheme, newTheme) : null;
+		if (a !== null) {
+			out = a;
+			changed = true;
+		}
+		const b = oldChamp && oldChamp !== newChamp ? swapText(out, oldChamp, newChamp) : null;
+		if (b !== null) {
+			out = b;
+			changed = true;
+		}
+		return changed ? out : `${newTheme} ${text}`.trim();
+	}
+	const partRows = $derived(
+		(source?.parts ?? []).map((p) => ({
+			...p,
+			suggested: renamePart(p.name),
+			value: partNames[p.item] ?? renamePart(p.name),
+		})),
+	);
+
+	async function loadCollections() {
+		collectionsLoading = true;
+		try {
+			const r = await rpc("mcts.collections", skinBot ? { bot: Number(skinBot) } : {});
+			collections = r.collections;
+		} catch (error) {
+			toasts.error(error, "Could not read the collections");
+		} finally {
+			collectionsLoading = false;
+		}
+	}
+
+	async function loadSource(item: number) {
+		try {
+			source = await rpc("mcts.collection", { item });
+			partNames = {};
+		} catch {
+			source = null;
+		}
+	}
+
+	$effect(() => {
+		if (open && kind === "skin" && skinBot !== undefined) void loadCollections();
+	});
+	$effect(() => {
+		const t = Number(template);
+		if (open && kind === "skin" && template && Number.isFinite(t)) void loadSource(t);
+		else source = null;
 	});
 
 	async function create() {
@@ -144,16 +235,23 @@
 				shortDescription,
 				bot: bot ? Number(bot) : undefined,
 				slot: slot ? Number(slot) : undefined,
+				names:
+					kind === "skin"
+						? Object.fromEntries(partRows.map((p) => [String(p.item), p.value]))
+						: undefined,
 			});
 			const made = (r as Record<string, McsCell | unknown>)[
-				kind === "champion" ? "bot" : kind === "item" ? "item" : "device"
+				kind === "champion" ? "bot" : kind === "item" || kind === "skin" ? "item" : "device"
 			] as [string, number][] | undefined;
 			toasts.push(
 				"success",
-				`${name} created (${kind === "champion" ? `bot ${r.botId}` : `id ${r.itemId ?? r.deviceId}`}); save the assembly and the languages to keep it`,
+				kind === "skin"
+					? `${name} created: ${r.parts?.length ?? 0} items, loot table ${r.subTable} and a Collections vendor entry; save the assembly and the languages to keep it`
+					: `${name} created (${kind === "champion" ? `bot ${r.botId}` : `id ${r.itemId ?? r.deviceId}`}); save the assembly and the languages to keep it`,
 				"Created",
 			);
 			open = false;
+			await assembly.touched();
 			await (made?.[0]
 				? assembly.openTable("assembly", made[0][0], [], made[0][1])
 				: assembly.reload());
@@ -165,7 +263,7 @@
 	}
 </script>
 
-<Modal bind:open title="New content" width="max-w-xl">
+<Modal bind:open title="New content" width="max-w-2xl">
 	<div class="space-y-3 text-sm">
 		<div class="join w-full">
 			{#each KINDS as k (k.id)}
@@ -179,7 +277,33 @@
 			{/each}
 		</div>
 		<p class="text-xs opacity-70">{current.hint}</p>
-		<label class="flex flex-col gap-1">
+		{#if kind === "skin"}
+			<div class="grid grid-cols-[auto_1fr] items-center gap-2">
+				<span class="text-xs opacity-70">Collections of</span>
+				<select class="select select-sm" bind:value={skinBot}>
+					<option value="">every champion</option>
+					{#each champions as c (c.id)}
+						<option value={String(c.id)}>{c.name} ({c.id})</option>
+					{/each}
+				</select>
+				<span class="text-xs opacity-70">Template</span>
+				<select
+					class="select select-sm"
+					bind:value={template}
+					disabled={collectionsLoading}
+				>
+					<option value="">pick a collection…</option>
+					{#each collections as c, k (k)}
+						<option value={String(c.item)}
+							>{c.name || `item ${c.item}`} ({c.item}){c.active
+								? ""
+								: " — inactive"}</option
+						>
+					{/each}
+				</select>
+			</div>
+		{/if}
+		<label class="flex flex-col gap-1" class:hidden={kind === "skin"}>
 			<span class="text-xs opacity-70"
 				>Template ({current.key} of an existing row; select a row in the {current.table.replace(
 					/^DATA_SET_/,
@@ -196,18 +320,42 @@
 			<span class="text-xs opacity-70"
 				>Name (INT; the other languages start with the same text)</span
 			>
-			<input class="input input-sm" bind:value={name} placeholder="Flame Dash" />
+			<input
+				class="input input-sm"
+				bind:value={name}
+				placeholder={kind === "skin" ? "Frost Evie" : "Flame Dash"}
+			/>
 		</label>
-		{#if kind !== "champion"}
+		{#if kind === "skin" && partRows.length > 0}
+			<div class="flex flex-col gap-1">
+				<span class="text-xs opacity-70"
+					>Parts (copied from {source?.name}; names follow yours, edit any)</span
+				>
+				{#each partRows as p, k (k)}
+					<div class="flex items-center gap-2">
+						<span class="badge badge-ghost badge-sm w-20 shrink-0">{p.kind}</span>
+						<input
+							class="input input-xs flex-1"
+							value={p.value}
+							title="Template: {p.name} ({p.item})"
+							oninput={(e) => (partNames[p.item] = e.currentTarget.value)}
+						/>
+					</div>
+				{/each}
+			</div>
+		{/if}
+		{#if kind !== "champion" && kind !== "skin"}
 			<label class="flex flex-col gap-1">
 				<span class="text-xs opacity-70">Short description</span>
 				<input class="input input-sm" bind:value={shortDescription} />
 			</label>
 		{/if}
-		<label class="flex flex-col gap-1">
-			<span class="text-xs opacity-70">Description</span>
-			<textarea class="textarea textarea-sm" rows="3" bind:value={description}></textarea>
-		</label>
+		{#if kind !== "skin"}
+			<label class="flex flex-col gap-1">
+				<span class="text-xs opacity-70">Description</span>
+				<textarea class="textarea textarea-sm" rows="3" bind:value={description}></textarea>
+			</label>
+		{/if}
 		{#if kind !== "champion"}
 			<div class="grid grid-cols-2 gap-2">
 				<label class="flex flex-col gap-1">
@@ -219,7 +367,7 @@
 						{/each}
 					</select>
 				</label>
-				{#if kind !== "item"}
+				{#if kind !== "item" && kind !== "skin"}
 					<label class="flex flex-col gap-1">
 						<span class="text-xs opacity-70">Slot</span>
 						<select class="select select-sm" bind:value={slot}>

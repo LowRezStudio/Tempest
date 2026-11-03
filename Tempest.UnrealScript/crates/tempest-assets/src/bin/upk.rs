@@ -76,6 +76,8 @@ fn usage() -> ExitCode {
            upk delta digest <pkg> -o <digest.json>        canonical hashes of every object (a base for `create`)\n  \
            upk delta verify <base.upk> <edited.upk> [--share]   create + apply, compare with the edited package\n  \
            upk delta batch <plan.json>                    several applies in one process, progress as JSON lines (the launcher's)\n  \
+           upk delta create|apply|digest|verify with .dat or Wwise .pck files: rows of a marshal, or a package's\n  \
+                                                      entries, bank objects and media (`kind: \"pck\"`)\n  \
            upk mcts tokens [<game dir>]                   where the field/function tables come from\n  \
            (mcts: --tokens <MctsInterface.dll> uses that binary's tables; default: the game's next to the file, else built-in)\n  \
            upk live baseline <cooked-dir> <state-dir> [<result.json>]   record what every movie package holds (hot reload)\n  \
@@ -1140,6 +1142,10 @@ fn cmd_delta(args: &[String]) -> Res {
     if subject.is_some_and(is_dat) {
         return cmd_delta_mcts(args, &positional, &get, &game_path);
     }
+    // Wwise file packages: changed entries, bank objects and media.
+    if subject.is_some_and(|p| p.to_ascii_lowercase().ends_with(".pck")) {
+        return cmd_delta_pck(args, &positional, &get, &game_path);
+    }
     match args[0].as_str() {
         "info" => {
             let d = Delta::read(positional.first().ok_or("missing delta file")?)?;
@@ -1258,6 +1264,92 @@ fn cmd_delta(args: &[String]) -> Res {
         }
         "batch" => cmd_delta_batch(positional.first().ok_or("missing plan")?),
         _ => Err("usage: upk delta create|apply|info|digest|verify|batch".into()),
+    }
+}
+
+/// `upk delta …` for Wwise `.pck` files: entries, bank objects and media.
+fn cmd_delta_pck(args: &[String], positional: &[&String], get: &dyn Fn(&str) -> Option<String>, game_path: &dyn Fn(&str) -> String) -> Res {
+    use tempest_assets::delta::Delta;
+    use tempest_assets::wwise::akpk::Package;
+    use tempest_assets::wwise::delta::{self as wdelta, Base};
+    let load = |file: &str| -> Res2<Package> { Ok(Package::parse(&std::fs::read(file)?)?) };
+    let report = |d: &Delta, bytes: usize| {
+        let (a, c, del) = wdelta::counts(d);
+        eprintln!("{a} added, {c} changed, {del} deleted; {bytes} bytes");
+        for line in wdelta::describe(d, 40) {
+            eprintln!("  {} {}", line["op"].as_str().unwrap_or(""), line["what"].as_str().unwrap_or(""));
+        }
+    };
+    match args[0].as_str() {
+        "digest" => {
+            let file = positional.first().ok_or("missing file")?;
+            let out = get("-o").ok_or("missing -o <digest.json>")?;
+            std::fs::write(&out, serde_json::to_vec(&wdelta::digest(&load(file)?))?)?;
+            eprintln!("digest -> {out}");
+            Ok(())
+        }
+        "create" => {
+            let base_path = positional.first().ok_or("missing base")?;
+            let edited_path = positional.get(1).ok_or("missing edited file")?;
+            let out = get("-o").ok_or("missing -o <out.tdelta>")?;
+            let edited = load(edited_path)?;
+            let d = if base_path.to_ascii_lowercase().ends_with(".json") {
+                let digest: serde_json::Value = serde_json::from_slice(&std::fs::read(base_path)?)?;
+                wdelta::create(Base::Digest(&digest), &edited, &game_path(edited_path))?
+            } else {
+                wdelta::create(Base::Package(&load(base_path)?), &edited, &game_path(edited_path))?
+            };
+            let bytes = d.to_bytes();
+            std::fs::write(&out, &bytes)?;
+            report(&d, bytes.len());
+            eprintln!("-> {out}");
+            Ok(())
+        }
+        "apply" => {
+            let target = positional.first().ok_or("missing target file")?;
+            let out = get("-o").ok_or("missing -o <out.pck>")?;
+            let mut p = load(target)?;
+            for path in &positional[1..] {
+                let d = Delta::read(path)?;
+                let r = wdelta::apply(&mut p, &d)?;
+                for w in &r.warnings {
+                    eprintln!("warning: {w}");
+                }
+                for x in &r.drift {
+                    eprintln!("drift: {x} was changed since the delta was made; the delta's version won");
+                }
+                eprintln!("{path}: {} added, {} replaced, {} deleted", r.added, r.replaced, r.deleted);
+            }
+            std::fs::write(&out, p.to_bytes())?;
+            eprintln!("-> {out}");
+            Ok(())
+        }
+        "verify" => {
+            let base_path = positional.first().ok_or("missing base")?;
+            let edited_path = positional.get(1).ok_or("missing edited file")?;
+            let mut base = load(base_path)?;
+            let edited = load(edited_path)?;
+            let t = std::time::Instant::now();
+            let d = wdelta::create(Base::Package(&base), &edited, &game_path(edited_path))?;
+            let bytes = d.to_bytes();
+            let d = Delta::from_bytes(&bytes)?;
+            report(&d, bytes.len());
+            eprintln!("made in {:.2}s", t.elapsed().as_secs_f32());
+            let r = wdelta::apply(&mut base, &d)?;
+            eprintln!("applied: {} added, {} replaced, {} deleted", r.added, r.replaced, r.deleted);
+            let diffs = wdelta::compare(&edited, &base);
+            if diffs.is_empty() {
+                let same = base.to_bytes() == std::fs::read(edited_path)?;
+                eprintln!("OK: the result matches the edited package{}", if same { " byte for byte" } else { " (entries equal, layout differs)" });
+                Ok(())
+            } else {
+                for x in diffs.iter().take(50) {
+                    eprintln!("  {x}");
+                }
+                Err(format!("{} entries differ", diffs.len()).into())
+            }
+        }
+        _ => Err("usage: upk delta create|apply|digest|verify <file.pck> …".into()),
     }
 }
 
@@ -1443,8 +1535,9 @@ fn cmd_delta_batch(plan_path: &str) -> Res {
     let jobs = plan["jobs"].as_array().cloned().unwrap_or_default();
     let field = |j: &serde_json::Value, k: &str| j[k].as_str().unwrap_or("").to_string();
     let is_dat = |p: &str| p.to_ascii_lowercase().ends_with(".dat");
+    let is_pck = |p: &str| p.to_ascii_lowercase().ends_with(".pck");
     let sizes: Vec<f64> = jobs.iter().map(|j| std::fs::metadata(field(j, "base")).map(|m| m.len() as f64).unwrap_or(0.0).max(1024.0 * 1024.0)).collect();
-    let db_dirs: HashSet<String> = jobs.iter().filter(|j| !is_dat(&field(j, "base"))).map(|j| field(j, "dir")).collect();
+    let db_dirs: HashSet<String> = jobs.iter().filter(|j| !is_dat(&field(j, "base")) && !is_pck(&field(j, "base"))).map(|j| field(j, "dir")).collect();
     let total = sizes.iter().sum::<f64>() + DB_WEIGHT * db_dirs.len() as f64;
     let emit = |v: serde_json::Value| println!("{v}");
     let progress = |done: f64, job: usize, stage: &str| emit(serde_json::json!({"event": "progress", "fraction": (done / total).min(1.0), "job": job, "stage": stage}));
@@ -1471,6 +1564,24 @@ fn cmd_delta_batch(plan_path: &str) -> Res {
                 }
                 progress(done + stage_at("save") * sizes[i], i, "save");
                 std::fs::write(&out, write_obscured(&m, &tokens))?;
+                return Ok(total);
+            }
+            if is_pck(&base) {
+                use tempest_assets::wwise::{akpk::Package, delta as wdelta};
+                progress(done, i, "open");
+                let mut p = Package::parse(&std::fs::read(&base)?)?;
+                progress(done + stage_at("apply") * sizes[i], i, "apply");
+                let mut total = Applied::default();
+                for d in &deltas {
+                    let r = wdelta::apply(&mut p, d)?;
+                    total.added += r.added;
+                    total.replaced += r.replaced;
+                    total.deleted += r.deleted;
+                    total.drift.extend(r.drift);
+                    total.warnings.extend(r.warnings);
+                }
+                progress(done + stage_at("save") * sizes[i], i, "save");
+                std::fs::write(&out, p.to_bytes())?;
                 return Ok(total);
             }
             let db = match dbs.get(&dir) {

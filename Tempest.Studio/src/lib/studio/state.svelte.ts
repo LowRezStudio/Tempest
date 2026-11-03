@@ -21,7 +21,7 @@ const THEME_KEY = "studio.theme";
 const ID_RANGE_KEY = "studio.idRange";
 
 /** The editor the window shows. */
-export type StudioMode = "packages" | "assembly" | "mod";
+export type StudioMode = "packages" | "assembly" | "mod" | "map";
 
 /** The id range new content takes its ids from, `null` for "past the largest in use". */
 export type IdRange = { start: number; end: number } | null;
@@ -78,7 +78,7 @@ class Studio {
 	/** Edited class sources not yet compiled, keyed `path|class`. */
 	drafts = $state<Record<string, string>>({});
 	/** Object currently shown by the inspector (cache by export index). */
-	object = $state<ParsedObject | null>(null);
+	object = $state.raw<ParsedObject | null>(null);
 	objectLoading = $state(false);
 
 	/** Exported copies by game file (package list badges). */
@@ -487,9 +487,9 @@ class Studio {
 		}
 	}
 
-	/** Save every package with unsaved changes in place. */
-	async saveAll(): Promise<void> {
-		const paths = [...this.dirty];
+	/** Save every package with unsaved changes in place (or those of `only`). */
+	async saveAll(only?: string[]): Promise<void> {
+		const paths = only ? this.dirty.filter((d) => only.includes(d)) : [...this.dirty];
 		let saved = 0;
 		for (const path of paths) {
 			try {

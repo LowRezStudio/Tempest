@@ -1,7 +1,7 @@
 <!-- One tab per place the user keeps open; the active tab follows the
 	window's moves. Middle-click closes, Ctrl+W / Ctrl+Tab from the keyboard. -->
 <script lang="ts">
-	import { Database, FileBox, Plus, X } from "@lucide/svelte";
+	import { Database, FileBox, Hammer, Map as MapIcon, Plus, X } from "@lucide/svelte";
 	import { assembly } from "$lib/studio/assembly.svelte";
 	import { keyLabel } from "$lib/studio/commands.svelte";
 	import { tabMenu } from "$lib/studio/contextmenus";
@@ -13,6 +13,8 @@
 	function unsaved(t: Tab): boolean {
 		const p = t.place;
 		if (p.kind === "package") return studio.dirty.includes(p.path);
+		if (p.kind === "mod") return false;
+		if (p.kind === "map") return studio.dirty.includes(p.level ?? p.path);
 		return assembly.docs.some((d) => d.id === p.doc && d.dirty);
 	}
 </script>
@@ -40,6 +42,12 @@
 				oncontextmenu={(e) => ui.openContextMenu(e, tabMenu(t.id))}
 			>
 				{#if t.place.kind === "assembly"}<Database
+						size={12}
+						class="shrink-0 opacity-70"
+					/>{:else if t.place.kind === "map"}<MapIcon
+						size={12}
+						class="shrink-0 opacity-70"
+					/>{:else if t.place.kind === "mod"}<Hammer
 						size={12}
 						class="shrink-0 opacity-70"
 					/>{:else}<FileBox size={12} class="shrink-0 opacity-70" />{/if}

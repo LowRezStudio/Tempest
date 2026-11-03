@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use tempest_upk::flags::{cpf, func};
 use tempest_upk::io::{FName, PackageIndex, Result};
@@ -31,6 +32,9 @@ pub struct LoadedPackage {
     /// Loaded only for object-literal and native-data lookups (a package being
     /// recompiled): its classes, enums, structs and natives stay out of the global index.
     pub shadow: bool,
+    /// Import index → resolved export, filled on first use. Depends on the
+    /// packages loaded, so the context resets it whenever it loads one.
+    import_cache: OnceLock<Vec<Option<ObjRef>>>,
 }
 
 impl LoadedPackage {
@@ -38,7 +42,7 @@ impl LoadedPackage {
     pub fn new(name: String, path: PathBuf, pkg: Package) -> LoadedPackage {
         let layout = objects::probe_layout(&pkg);
         let none_name = pkg.find_name("None").unwrap_or(0);
-        let mut lp = LoadedPackage { name, path, pkg, layout, objects: Vec::new(), none_name, path_index: HashMap::new(), shadow: false };
+        let mut lp = LoadedPackage { name, path, pkg, layout, objects: Vec::new(), none_name, path_index: HashMap::new(), shadow: false, import_cache: OnceLock::new() };
         for i in 0..lp.pkg.exports.len() {
             let p = lp.pkg.object_path(PackageIndex::export(i)).to_ascii_lowercase();
             lp.path_index.entry(p).or_insert(i);
@@ -67,6 +71,31 @@ pub struct Context {
     missing: HashSet<String>,
 }
 
+/// The children of a struct, in `Next` order (`Context::children_iter`).
+pub struct Children<'a> {
+    ctx: &'a Context,
+    pkg: usize,
+    next: PackageIndex,
+    guard: usize,
+}
+
+impl Iterator for Children<'_> {
+    type Item = ObjRef;
+
+    fn next(&mut self) -> Option<ObjRef> {
+        if self.next.is_null() || self.guard >= 100_000 {
+            return None;
+        }
+        let cr = self.ctx.resolve(self.pkg, self.next)?;
+        self.next = match self.ctx.object(cr) {
+            Some(o) => o.next.unwrap_or_default(),
+            None => PackageIndex::NONE,
+        };
+        self.guard += 1;
+        Some(cr)
+    }
+}
+
 impl Context {
     pub fn new() -> Context {
         Context::default()
@@ -89,6 +118,7 @@ impl Context {
         let lp = LoadedPackage::new(name.clone(), path, pkg);
         self.by_name.insert(name.to_ascii_lowercase(), slot);
         self.packages.push(lp);
+        self.forget_resolved();
         self.parse_all(slot);
         slot
     }
@@ -194,6 +224,7 @@ impl Context {
             self.register_natives(slot);
             slots.push(slot);
         }
+        self.forget_resolved();
         Ok(slots)
     }
 
@@ -247,6 +278,23 @@ impl Context {
         }
         let i = idx.import_index()?;
         let lp = &self.packages[pkg];
+        let cache = lp.import_cache.get_or_init(|| (0..lp.pkg.imports.len()).map(|i| self.resolve_import(pkg, i)).collect());
+        match cache.get(i) {
+            Some(r) => *r,
+            None => self.resolve_import(pkg, i),
+        }
+    }
+
+    /// Imports resolve against the packages loaded: a new one can change them.
+    fn forget_resolved(&mut self) {
+        for lp in &mut self.packages {
+            lp.import_cache = OnceLock::new();
+        }
+    }
+
+    fn resolve_import(&self, pkg: usize, i: usize) -> Option<ObjRef> {
+        let idx = PackageIndex::import(i);
+        let lp = &self.packages[pkg];
         lp.pkg.imports.get(i)?;
         let root = lp.pkg.outermost_name(idx);
         let full = lp.pkg.object_path(idx);
@@ -270,6 +318,47 @@ impl Context {
 
     pub fn name(&self, r: ObjRef) -> String {
         self.packages[r.pkg].export_name(r.export)
+    }
+
+    /// `class_name(r)`, borrowed when the name has no instance number.
+    pub fn class_name_ref(&self, r: ObjRef) -> std::borrow::Cow<'_, str> {
+        let pkg = &self.packages[r.pkg].pkg;
+        let Some(e) = pkg.exports.get(r.export) else { return "".into() };
+        if e.class.is_null() {
+            return "Class".into();
+        }
+        let n = if let Some(c) = e.class.export_index() {
+            pkg.exports.get(c).map(|c| c.object_name)
+        } else {
+            e.class.import_index().and_then(|i| pkg.imports.get(i)).map(|i| i.object_name)
+        };
+        match n {
+            Some(n) if n.number == 0 => pkg.name_str(n.index).into(),
+            Some(n) => pkg.fname_to_string(n).into(),
+            None => "".into(),
+        }
+    }
+
+    /// `name(r).eq_ignore_ascii_case(text)` without allocating.
+    pub fn name_is(&self, r: ObjRef, text: &str) -> bool {
+        let pkg = &self.packages[r.pkg].pkg;
+        pkg.exports.get(r.export).is_some_and(|e| pkg.fname_eq(e.object_name, text))
+    }
+
+    /// `class_name(r) == text` (case-sensitive) without allocating.
+    pub fn class_is(&self, r: ObjRef, text: &str) -> bool {
+        let pkg = &self.packages[r.pkg].pkg;
+        let Some(e) = pkg.exports.get(r.export) else { return false };
+        if e.class.is_null() {
+            return text == "Class";
+        }
+        if let Some(c) = e.class.export_index() {
+            pkg.exports.get(c).is_some_and(|c| pkg.fname_matches(c.object_name, text, false))
+        } else if let Some(i) = e.class.import_index() {
+            pkg.imports.get(i).is_some_and(|i| pkg.fname_matches(i.object_name, text, false))
+        } else {
+            false
+        }
     }
 
     pub fn path(&self, r: ObjRef) -> String {
@@ -296,7 +385,7 @@ impl Context {
                 return false;
             }
         }
-        self.class_name(cur) == "Package"
+        self.class_is(cur, "Package")
     }
 
     pub fn class_name(&self, r: ObjRef) -> String {
@@ -325,7 +414,7 @@ impl Context {
         let mut cur = Some(r);
         let mut guard = 0;
         while let Some(c) = cur {
-            if self.class_name(c) == "Class" {
+            if self.class_is(c, "Class") {
                 return Some(c);
             }
             cur = self.outer_of(c);
@@ -361,7 +450,7 @@ impl Context {
         let mut cur = Some(class);
         let mut guard = 0;
         while let Some(c) = cur {
-            if self.name(c).eq_ignore_ascii_case(name) {
+            if self.name_is(c, name) {
                 return true;
             }
             cur = self.super_of(c);
@@ -396,20 +485,13 @@ impl Context {
 
     /// Children (linked through `UField::Next`) of a struct-like export.
     pub fn children(&self, r: ObjRef) -> Vec<ObjRef> {
-        let mut out = Vec::new();
-        let Some(s) = self.struct_data(r) else { return out };
-        let mut cur = s.children;
-        let mut guard = 0;
-        while !cur.is_null() && guard < 100_000 {
-            let Some(cr) = self.resolve(r.pkg, cur) else { break };
-            out.push(cr);
-            cur = match self.object(cr) {
-                Some(o) => o.next.unwrap_or_default(),
-                None => break,
-            };
-            guard += 1;
-        }
-        out
+        self.children_iter(r).collect()
+    }
+
+    /// `children` without collecting them.
+    pub fn children_iter(&self, r: ObjRef) -> Children<'_> {
+        let next = self.struct_data(r).map(|s| s.children).unwrap_or_default();
+        Children { ctx: self, pkg: r.pkg, next, guard: 0 }
     }
 
     pub fn property(&self, r: ObjRef) -> Option<(PropertyKind, &PropertyData)> {
@@ -454,8 +536,8 @@ impl Context {
         let mut st = state;
         let mut guard = 0;
         while let Some(s) = st {
-            for c in self.children(s) {
-                if self.class_name(c) == "Function" && self.name(c).eq_ignore_ascii_case(name) {
+            for c in self.children_iter(s) {
+                if self.class_is(c, "Function") && self.name_is(c, name) {
                     return Some(c);
                 }
             }
@@ -468,8 +550,8 @@ impl Context {
         let mut cur = Some(class);
         guard = 0;
         while let Some(c) = cur {
-            for ch in self.children(c) {
-                if self.class_name(ch) == "Function" && self.name(ch).eq_ignore_ascii_case(name) {
+            for ch in self.children_iter(c) {
+                if self.class_is(ch, "Function") && self.name_is(ch, name) {
                     return Some(ch);
                 }
             }
@@ -487,8 +569,8 @@ impl Context {
         let mut cur = Some(scope);
         let mut guard = 0;
         while let Some(c) = cur {
-            for ch in self.children(c) {
-                if self.name(ch).eq_ignore_ascii_case(name) {
+            for ch in self.children_iter(c) {
+                if self.name_is(ch, name) {
                     return Some(ch);
                 }
             }
@@ -509,7 +591,7 @@ impl Context {
         let mut cur = Some(s);
         let mut guard = 0;
         while let Some(c) = cur {
-            for ch in self.children(c) {
+            for ch in self.children_iter(c) {
                 if self.property_kind(ch).is_some() {
                     out.push(ch);
                 }
@@ -537,7 +619,7 @@ impl Context {
         }
         let mut out = Vec::new();
         for c in chain.into_iter().rev() {
-            for ch in self.children(c) {
+            for ch in self.children_iter(c) {
                 if self.property_kind(ch).is_some() {
                     out.push(ch);
                 }

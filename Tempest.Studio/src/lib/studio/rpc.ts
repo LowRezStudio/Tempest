@@ -39,7 +39,7 @@ export async function rpc<M extends UpkMethod>(
 ): Promise<UpkMethods[M]["result"]> {
 	const frame = (await invoke("upk:call", { method, params })) as UpkFrame;
 	const value = decodeFrame(frame);
-	if (method === "package.open" || method === "package.tables") {
+	if (method === "package.open" || method === "package.tables" || method === "script.compile") {
 		return expandTables(value as PackageTablesWire) as UpkMethods[M]["result"];
 	}
 	return value as UpkMethods[M]["result"];

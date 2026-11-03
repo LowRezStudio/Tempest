@@ -55,6 +55,7 @@
 				);
 			}
 			await load();
+			await assembly.touched();
 			if (r.vendor) {
 				const [table, index] = r.vendor.at(-1)!;
 				await assembly.openTable("assembly", table, r.vendor.slice(0, -1), index);

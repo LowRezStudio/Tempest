@@ -54,11 +54,19 @@ impl Workspace {
         let tokens = Tokens::for_dir(cooked);
         let mut docs = Vec::new();
         let asm = cooked.join("assembly.dat");
-        if asm.is_file() {
-            docs.push(("assembly".to_string(), Doc::open(&asm, &tokens)?));
+        let langs = language_files(cooked);
+        // The files are independent: parse them all at once.
+        let (assembly, parsed) = std::thread::scope(|s| {
+            let assembly = asm.is_file().then(|| s.spawn(|| Doc::open(&asm, &tokens)));
+            let langs: Vec<_> = langs.iter().map(|(_, path)| s.spawn(|| Doc::open(path, &tokens))).collect();
+            let join = |h: std::thread::ScopedJoinHandle<'_, Result<Doc>>| h.join().unwrap_or_else(|_| Err(Error::Format("parser panicked".into())));
+            (assembly.map(join), langs.into_iter().map(join).collect::<Vec<_>>())
+        });
+        if let Some(a) = assembly {
+            docs.push(("assembly".to_string(), a?));
         }
-        for (ext, path) in language_files(cooked) {
-            match Doc::open(&path, &tokens) {
+        for ((ext, path), d) in langs.into_iter().zip(parsed) {
+            match d {
                 Ok(d) => docs.push((ext, d)),
                 Err(e) => eprintln!("mcts: {}: {e}", path.display()),
             }
@@ -215,6 +223,30 @@ impl Workspace {
         Ok(out)
     }
 
+    /// Set one field on several rows (`paths`), in one call: one undo step per row.
+    pub fn set_many(&mut self, p: &J) -> Result<J> {
+        let id = p.get("doc").and_then(|v| v.as_str()).unwrap_or("assembly").to_string();
+        let field = self.token(p.get("field").and_then(|v| v.as_str()).ok_or_else(|| Error::Format("missing field".into()))?)?;
+        let paths: Vec<RowPath> = match p.get("paths").and_then(|v| v.as_array()) {
+            Some(a) => a.iter().map(|v| self.path(Some(v))).collect::<Result<_>>()?,
+            None => return Err(Error::Format("missing paths".into())),
+        };
+        let text = p.get("text").and_then(|v| v.as_str());
+        let tokens = self.tokens.clone();
+        let doc = self.doc_mut(&id)?;
+        let mut rows = Vec::with_capacity(paths.len());
+        for path in &paths {
+            match text {
+                Some(text) => doc.set_text(&tokens, path, field, text)?,
+                None => doc.set(&tokens, path, field, p.get("value").unwrap_or(&J::Null))?,
+            }
+            rows.push(super::doc::grid_row(&tokens, doc.row_at(path)?));
+        }
+        let mut out = self.status(&id)?;
+        out["rows"] = J::Array(rows);
+        Ok(out)
+    }
+
     pub fn set_header(&mut self, p: &J) -> Result<J> {
         let id = p.get("doc").and_then(|v| v.as_str()).unwrap_or("assembly").to_string();
         let field = self.token(p.get("field").and_then(|v| v.as_str()).ok_or_else(|| Error::Format("missing field".into()))?)?;
@@ -247,6 +279,28 @@ impl Workspace {
         let tokens = self.tokens.clone();
         self.doc_mut(&id)?.delete(&tokens, &path)?;
         self.status(&id)
+    }
+
+    /// Delete several rows of one row set (`paths`; the highest index first, so
+    /// the others keep theirs): one undo step per row.
+    pub fn delete_many(&mut self, p: &J) -> Result<J> {
+        let id = p.get("doc").and_then(|v| v.as_str()).unwrap_or("assembly").to_string();
+        let mut paths: Vec<RowPath> = match p.get("paths").and_then(|v| v.as_array()) {
+            Some(a) => a.iter().map(|v| self.path(Some(v))).collect::<Result<_>>()?,
+            None => return Err(Error::Format("missing paths".into())),
+        };
+        paths.sort_by(|a, b| b.last().map(|x| x.1).cmp(&a.last().map(|x| x.1)));
+        paths.dedup();
+        let tokens = self.tokens.clone();
+        let doc = self.doc_mut(&id)?;
+        let mut deleted = 0;
+        for path in &paths {
+            doc.delete(&tokens, path)?;
+            deleted += 1;
+        }
+        let mut out = self.status(&id)?;
+        out["deleted"] = json!(deleted);
+        Ok(out)
     }
 
     pub fn undo(&mut self, p: &J) -> Result<J> {
@@ -338,7 +392,8 @@ impl Workspace {
         let mut out = serde_json::Map::new();
         for lang in langs {
             let set = self.message_set(&lang)?;
-            let index = self.message_index(&lang)?.clone();
+            self.message_index(&lang)?;
+            let index = &self.msg_index[&lang].1;
             let doc = self.doc(&lang)?;
             let rows = doc.marshal.root.rows(set).unwrap();
             for id in &ids {

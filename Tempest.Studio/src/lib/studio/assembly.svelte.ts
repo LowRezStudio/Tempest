@@ -2,6 +2,7 @@
 // `Lang_*.dat` (messages) marshals opened by the backend (`mcts.*`), the
 // table and page on screen, the selected row, and the reference rules that
 // turn `*_ID` columns into links.
+import { untrack } from "svelte";
 import { invoke } from "$lib/platform/api";
 import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
@@ -14,6 +15,7 @@ import type {
 	McsField,
 	McsMessage,
 	McsPath,
+	McsStatus,
 	McsSummary,
 	McsValidValue,
 } from "../../../electron/src/ipc/contract";
@@ -86,22 +88,27 @@ export type Page = {
 	rows: [number, Record<string, McsCell>][];
 };
 
-const LIMIT = 200;
+/** Rows per page: the grid renders only the rows in view, so a page can be long. */
+const LIMIT = 500;
 
+// Large server replies (pages, summaries, messages) are kept as raw state and
+// replaced whole: deep proxies over thousands of cells made every edit slow.
 class Assembly {
-	summary = $state<McsSummary | null>(null);
+	summary = $state.raw<McsSummary | null>(null);
 	loading = $state(false);
 	/** The row set on screen. */
-	page = $state<Page | null>(null);
+	page = $state.raw<Page | null>(null);
 	filter = $state("");
 	sort = $state<string>("");
 	desc = $state(false);
 	/** Index (within the row set) of the selected row, and its fields. */
 	selected = $state<number | null>(null);
-	fields = $state<McsField[] | null>(null);
-	/** Message texts by id and language, filled on demand. */
-	messages = $state<Record<string, Record<string, McsMessage>>>({});
-	validValues = $state<Record<string, McsValidValue> | null>(null);
+	fields = $state.raw<McsField[] | null>(null);
+	/** Message texts by id and language, filled on demand (the selected row's). */
+	messages = $state.raw<Record<string, Record<string, McsMessage>>>({});
+	/** INT texts of the messages the open page shows, by id (grid hints). */
+	labels = $state.raw<Record<string, string>>({});
+	validValues = $state.raw<Record<string, McsValidValue> | null>(null);
 	private requestId = 0;
 
 	docs = $derived<McsDoc[]>(this.summary?.docs ?? []);
@@ -137,6 +144,7 @@ class Assembly {
 		this.selected = null;
 		this.fields = null;
 		this.messages = {};
+		this.labels = {};
 		this.validValues = null;
 	}
 
@@ -160,6 +168,7 @@ class Assembly {
 			this.selected = null;
 			this.fields = null;
 			this.messages = {};
+			this.labels = {};
 			this.validValues = null;
 			const first = this.summary.docs[0];
 			if (first?.tables[0]) await this.openTable(first.id, first.tables[0].name, []);
@@ -187,8 +196,32 @@ class Assembly {
 		this.edits++;
 		const doc = await rpc("mcts.doc", { doc: id });
 		if (this.summary) {
-			this.summary.docs = this.summary.docs.map((d) => (d.id === id ? doc : d));
+			this.summary = {
+				...this.summary,
+				docs: this.summary.docs.map((d) => (d.id === id ? doc : d)),
+			};
 		}
+	}
+
+	/**
+	 * After an edit that leaves the row counts as they were: take the dirty flag and undo
+	 * list the edit returned instead of asking for the whole document again.
+	 */
+	private applyStatus(status: McsStatus): void {
+		this.edits++;
+		const s = this.summary;
+		if (!s) return;
+		this.summary = {
+			...s,
+			docs: s.docs.map((d) =>
+				d.id === status.doc ? { ...d, dirty: status.dirty, undo: status.undo } : d,
+			),
+		};
+	}
+
+	/** After an edit made outside the grid (New content, the vendor dialogs): refresh every document. */
+	async touched(): Promise<void> {
+		for (const d of this.summary?.docs ?? []) await this.refreshDoc(d.id);
 	}
 
 	/** Show a row set: a top-level table, or a nested one under `path`. */
@@ -237,6 +270,7 @@ class Assembly {
 			this.selected = null;
 			this.fields = null;
 			this.record({ doc, path, table, index: select });
+			void this.loadLabels();
 			if (select !== null) await this.select(select);
 		} catch (error) {
 			toasts.error(error, "Could not load the table");
@@ -261,6 +295,7 @@ class Assembly {
 			});
 			if (id !== this.requestId) return;
 			this.page = { ...p, total: rows.total, offset: rows.offset, rows: rows.rows };
+			void this.loadLabels();
 		} catch (error) {
 			toasts.error(error, "Could not load the rows");
 		}
@@ -327,6 +362,30 @@ class Assembly {
 		}
 	}
 
+	/** Fetch the INT texts of the page's `*_MSG_ID` cells not seen yet (grid hints). */
+	async loadLabels(): Promise<void> {
+		const p = this.page;
+		if (!p || !this.languages.includes("INT")) return;
+		const columns = p.columns.filter((c) => isMessageColumn(c.name)).map((c) => c.name);
+		if (columns.length === 0) return;
+		const ids = new Set<number>();
+		for (const [, cells] of p.rows) {
+			for (const c of columns) {
+				const v = cells[c];
+				if (typeof v === "number" && v !== 0 && !(String(v) in this.labels)) ids.add(v);
+			}
+		}
+		if (ids.size === 0) return;
+		try {
+			const got = await rpc("mcts.messages", { ids: [...ids], langs: ["INT"] });
+			const next = { ...this.labels };
+			for (const id of ids) next[String(id)] = got[String(id)]?.INT?.text ?? "";
+			this.labels = next;
+		} catch {
+			// Hints only.
+		}
+	}
+
 	/** Fetch the texts of message ids not seen yet. */
 	async loadMessages(ids: number[]): Promise<void> {
 		const missing = [...new Set(ids)].filter(
@@ -351,7 +410,9 @@ class Assembly {
 	/** Text of a message in a language, when loaded. */
 	message(id: McsCell, lang = "INT"): string | null {
 		if (typeof id !== "number") return null;
-		return this.messages[String(id)]?.[lang]?.text ?? null;
+		const m = this.messages[String(id)]?.[lang]?.text;
+		if (m !== undefined) return m;
+		return lang === "INT" ? (this.labels[String(id)] ?? null) || null : null;
 	}
 
 	// ----- edits -------------------------------------------------------------
@@ -373,10 +434,11 @@ class Assembly {
 				...p,
 				rows: p.rows.map(([i, cells]) => (i === index ? [i, r.row] : [i, cells])),
 			};
-			await this.refreshDoc(p.doc);
+			this.applyStatus(r);
+			if (isMessageColumn(field)) void this.loadLabels();
 			if (this.selected === index) {
 				const row = await rpc("mcts.row", { doc: p.doc, path: this.rowPath(index) });
-				this.fields = row.fields;
+				if (this.selected === index) this.fields = row.fields;
 			}
 		} catch (error) {
 			toasts.error(error, `Could not set ${field}`);
@@ -391,6 +453,7 @@ class Assembly {
 			entry[lang] = { ...(entry[lang] ?? { name: "", path: [] }), text };
 			next[String(id)] = entry;
 			this.messages = next;
+			if (lang === "INT") this.labels = { ...this.labels, [String(id)]: text };
 			await this.refreshDoc(lang);
 		} catch (error) {
 			toasts.error(error, "Could not set the message");
@@ -399,8 +462,14 @@ class Assembly {
 
 	async setHeader(doc: string, field: string, text: string): Promise<void> {
 		try {
-			await rpc("mcts.setHeader", { doc, field, text });
-			await this.refreshDoc(doc);
+			this.applyStatus(await rpc("mcts.setHeader", { doc, field, text }));
+			const d = await rpc("mcts.doc", { doc });
+			if (this.summary) {
+				this.summary = {
+					...this.summary,
+					docs: this.summary.docs.map((x) => (x.id === doc ? d : x)),
+				};
+			}
 		} catch (error) {
 			toasts.error(error, `Could not set ${field}`);
 		}
@@ -445,24 +514,39 @@ class Assembly {
 		return this.selected === null ? [] : [this.selected];
 	}
 
-	/** Set one field on several rows (one request each, one refresh). */
+	/** Set one field on several rows (one request). */
 	async setMany(indices: number[], field: string, text: string): Promise<void> {
 		const p = this.page;
 		if (!p || indices.length === 0) return;
-		let done = 0;
-		for (const index of indices) {
-			try {
-				await rpc("mcts.set", { doc: p.doc, path: this.rowPath(index), field, text });
-				done++;
-			} catch (error) {
-				toasts.error(error, `Could not set ${field} on row ${index}`);
-				break;
+		try {
+			const r = await rpc("mcts.setMany", {
+				doc: p.doc,
+				paths: indices.map((i) => this.rowPath(i)),
+				field,
+				text,
+			});
+			const byIndex = new Map(indices.map((i, k) => [i, r.rows[k]]));
+			const current = this.page;
+			if (current && current.doc === p.doc && current.table === p.table) {
+				this.page = {
+					...current,
+					rows: current.rows.map(([i, cells]) => [i, byIndex.get(i) ?? cells]),
+				};
 			}
+			this.applyStatus(r);
+			if (isMessageColumn(field)) void this.loadLabels();
+			if (this.selected !== null && byIndex.has(this.selected)) {
+				await this.select(this.selected);
+			}
+			if (indices.length > 1) {
+				toasts.push("success", `${field} set on ${indices.length} rows`, "Rows updated");
+			}
+		} catch (error) {
+			toasts.error(error, `Could not set ${field}`);
+			// Some rows may have changed before the error.
+			await this.refreshDoc(p.doc);
+			await this.reload();
 		}
-		await this.refreshDoc(p.doc);
-		await this.reload();
-		if (this.selected !== null) await this.select(this.selected);
-		if (done > 1) toasts.push("success", `${field} set on ${done} rows`, "Rows updated");
 	}
 
 	/** The full JSON of rows, for the clipboard (pasted back with `pasteRows`). */
@@ -545,13 +629,13 @@ class Assembly {
 	async deleteRows(indices: number[]): Promise<void> {
 		const p = this.page;
 		if (!p || indices.length === 0) return;
-		for (const index of [...indices].sort((a, b) => b - a)) {
-			try {
-				await rpc("mcts.delete", { doc: p.doc, path: this.rowPath(index) });
-			} catch (error) {
-				toasts.error(error, `Could not delete row ${index}`);
-				break;
-			}
+		try {
+			await rpc("mcts.deleteMany", {
+				doc: p.doc,
+				paths: indices.map((i) => this.rowPath(i)),
+			});
+		} catch (error) {
+			toasts.error(error, "Could not delete the rows");
 		}
 		this.marked = [];
 		this.selected = null;
@@ -627,6 +711,7 @@ class Assembly {
 			await rpc("mcts.discard", { doc: id });
 			await this.refreshDoc(id);
 			this.messages = {};
+			this.labels = {};
 			await this.reload();
 			if (this.selected !== null) await this.select(this.selected);
 		} catch (error) {
@@ -703,4 +788,43 @@ export const assembly = new Assembly();
 nav.register({
 	package: (p) => studio.visit(p.path, p.index),
 	assembly: (p) => assembly.visit(p),
+	mod: () => {
+		studio.mode = "mod";
+		return Promise.resolve();
+	},
+});
+
+// The view switch (activity bar, Ctrl+1/2/3) is a move like any other: the
+// mod cooker is a place of its own, and leaving it records where the other
+// view stands, so a tab keeps the view it was left on.
+$effect.root(() => {
+	$effect(() => {
+		const mode = studio.mode;
+		untrack(() => {
+			if (mode === "mod") {
+				nav.record({ kind: "mod" });
+				return;
+			}
+			if (mode === "map") return;
+			const current = nav.history[nav.pos];
+			if (current?.kind !== "mod" && current?.kind !== "map") return;
+			if (mode === "packages" && studio.pkg && studio.selected !== null) {
+				nav.record({
+					kind: "package",
+					path: studio.pkg.path,
+					index: studio.selected,
+					label: studio.pkg.exports[studio.selected]?.path,
+				});
+			} else if (mode === "assembly" && assembly.page) {
+				const p = assembly.page;
+				nav.record({
+					kind: "assembly",
+					doc: p.doc,
+					path: $state.snapshot(p.path) as McsPath,
+					table: p.table,
+					index: assembly.selected,
+				});
+			}
+		});
+	});
 });

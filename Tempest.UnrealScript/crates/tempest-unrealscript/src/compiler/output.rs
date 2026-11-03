@@ -95,6 +95,10 @@ pub struct Emitter<'c, 'a> {
     current_export: usize,
     /// Next fresh `NetIndex` for objects missing from `net_index_map`.
     next_net_index: i32,
+    /// `index_of` of every entry of the compiler's reference table, computed
+    /// once exports are assigned (the first call creates the imports in table
+    /// order; later calls would only find them again).
+    ref_indices: Option<std::rc::Rc<Vec<PackageIndex>>>,
 }
 
 impl<'c, 'a> Emitter<'c, 'a> {
@@ -107,6 +111,7 @@ impl<'c, 'a> Emitter<'c, 'a> {
             next_net_index: opts.net_index_map.as_ref().map(|m| m.values().copied().max().unwrap_or(-1) + 1).unwrap_or(0),
             opts,
             items: Vec::new(),
+            ref_indices: None,
             export_of: HashMap::new(),
             cdo_of: HashMap::new(),
             script_text_of: HashMap::new(),
@@ -501,6 +506,18 @@ impl<'c, 'a> Emitter<'c, 'a> {
     }
 
     /// Finalize memory-form bytecode into disk form.
+    /// The reference table as package indices (see `ref_indices`); only valid
+    /// once `assign_exports` has run.
+    fn ref_indices(&mut self) -> std::rc::Rc<Vec<PackageIndex>> {
+        if let Some(t) = &self.ref_indices {
+            return t.clone();
+        }
+        let table: Vec<PackageIndex> = (0..self.c.ref_table.len()).map(|i| self.index_of(Some(self.c.ref_table[i]))).collect();
+        let t = std::rc::Rc::new(table);
+        self.ref_indices = Some(t.clone());
+        t
+    }
+
     fn finalize_script(&mut self, n: NodeId) -> (Vec<u8>, i32) {
         let node = self.c.model.node(n);
         if node.strct.script_mem.is_empty() {
@@ -511,7 +528,7 @@ impl<'c, 'a> Emitter<'c, 'a> {
             Ok(s) => s,
             Err(e) => panic!("bytecode finalize failed for {}: {e}", self.c.model.path(n)),
         };
-        let table: Vec<PackageIndex> = (0..self.c.ref_table.len()).map(|i| self.index_of(Some(self.c.ref_table[i]))).collect();
+        let table = self.ref_indices();
         let mut map_ref = |p: PackageIndex| -> PackageIndex {
             let h = p.0 as usize;
             if h == 0 {
@@ -533,7 +550,7 @@ impl<'c, 'a> Emitter<'c, 'a> {
     /// Rewrite pending object references (`PackageIndex(handle)`) inside
     /// tagged property data into package indices.
     fn remap_tagged(&mut self, tags: &[crate::objects::TaggedProperty], owner: FieldRef) -> Vec<crate::objects::TaggedProperty> {
-        let table: Vec<PackageIndex> = (0..self.c.ref_table.len()).map(|i| self.index_of(Some(self.c.ref_table[i]))).collect();
+        let table = self.ref_indices();
         let mut map = |i: PackageIndex| -> PackageIndex {
             let h = i.0 as usize;
             if h == 0 { PackageIndex(0) } else { table.get(h - 1).copied().unwrap_or_default() }

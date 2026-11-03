@@ -23,6 +23,9 @@ pub enum FieldKind {
     Other,
 }
 
+/// Lower-cased child name → first child of that name, of one struct.
+type ChildNames = std::rc::Rc<HashMap<String, ObjRef>>;
+
 /// Name-indexed views of the loaded packages.
 #[derive(Default)]
 pub struct GlobalIndex {
@@ -31,9 +34,29 @@ pub struct GlobalIndex {
     pub structs: HashMap<String, ObjRef>,
     /// Every enum tag name → index (`GUCCMakeEnumNameToIndexMap`).
     pub enum_tags: HashMap<String, i32>,
+    /// Lower-cased child name → first child of that name, per loaded struct,
+    /// with the number of packages loaded when it was built.
+    child_names: std::cell::RefCell<HashMap<ObjRef, (usize, ChildNames)>>,
 }
 
 impl GlobalIndex {
+    /// The children of a loaded struct by lower-cased name (the first of each name).
+    fn children_by_name(&self, ctx: &Context, o: ObjRef) -> ChildNames {
+        let loaded = ctx.packages.len();
+        if let Some((n, map)) = self.child_names.borrow().get(&o) {
+            if *n == loaded {
+                return map.clone();
+            }
+        }
+        let mut map = HashMap::new();
+        for ch in ctx.children_iter(o) {
+            map.entry(ctx.name(ch).to_ascii_lowercase()).or_insert(ch);
+        }
+        let map = std::rc::Rc::new(map);
+        self.child_names.borrow_mut().insert(o, (loaded, map.clone()));
+        map
+    }
+
     pub fn build(ctx: &Context) -> GlobalIndex {
         let mut g = GlobalIndex::default();
         for (p, lp) in ctx.packages.iter().enumerate() {
@@ -62,6 +85,23 @@ impl GlobalIndex {
             }
         }
         g
+    }
+}
+
+/// The children of a struct of either side (`Resolver::children_iter`).
+pub enum FieldChildren<'a> {
+    Local(std::slice::Iter<'a, NodeId>),
+    External(crate::context::Children<'a>),
+}
+
+impl Iterator for FieldChildren<'_> {
+    type Item = FieldRef;
+
+    fn next(&mut self) -> Option<FieldRef> {
+        match self {
+            FieldChildren::Local(it) => it.next().map(|&n| FieldRef::Local(n)),
+            FieldChildren::External(it) => it.next().map(FieldRef::External),
+        }
     }
 }
 
@@ -101,6 +141,22 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// `name_of(r).eq_ignore_ascii_case(name)` without allocating.
+    pub fn name_is(&self, r: FieldRef, name: &str) -> bool {
+        match r {
+            FieldRef::Local(n) => self.model.node(n).name.eq_ignore_ascii_case(name),
+            FieldRef::External(o) => self.ctx.name_is(o, name),
+        }
+    }
+
+    /// The first child of a struct named `name` (`children(st)` + `name_is`, without allocating).
+    fn child_named(&self, st: FieldRef, name: &str) -> Option<FieldRef> {
+        match st {
+            FieldRef::Local(n) => self.model.node(n).strct.children.iter().copied().find(|&c| self.model.node(c).name.eq_ignore_ascii_case(name)).map(FieldRef::Local),
+            FieldRef::External(o) => self.global.children_by_name(self.ctx, o).get(&name.to_ascii_lowercase()).copied().map(FieldRef::External),
+        }
+    }
+
     pub fn kind_of(&self, r: FieldRef) -> FieldKind {
         match r {
             FieldRef::Local(n) => match self.model.node(n).kind {
@@ -113,7 +169,7 @@ impl<'a> Resolver<'a> {
                 NodeKind::Property(k) => FieldKind::Property(k),
                 NodeKind::Object => FieldKind::Other,
             },
-            FieldRef::External(o) => match self.ctx.class_name(o).as_str() {
+            FieldRef::External(o) => match &*self.ctx.class_name_ref(o) {
                 "Class" => FieldKind::Class,
                 "State" => FieldKind::State,
                 "Function" => FieldKind::Function,
@@ -147,7 +203,7 @@ impl<'a> Resolver<'a> {
             FieldRef::External(o) => {
                 let out = self.ctx.outer_of(o)?;
                 // Package objects are not fields.
-                if self.ctx.class_name(out) == "Package" {
+                if self.ctx.class_is(out, "Package") {
                     None
                 } else {
                     Some(FieldRef::External(out))
@@ -187,10 +243,18 @@ impl<'a> Resolver<'a> {
         self.super_of(r)
     }
 
+    /// `children` without collecting them.
+    pub fn children_iter(&self, r: FieldRef) -> FieldChildren<'_> {
+        match r {
+            FieldRef::Local(n) => FieldChildren::Local(self.model.node(n).strct.children.iter()),
+            FieldRef::External(o) => FieldChildren::External(self.ctx.children_iter(o)),
+        }
+    }
+
     pub fn children(&self, r: FieldRef) -> Vec<FieldRef> {
         match r {
             FieldRef::Local(n) => self.model.node(n).strct.children.iter().map(|&c| FieldRef::Local(c)).collect(),
-            FieldRef::External(o) => self.ctx.children(o).into_iter().map(FieldRef::External).collect(),
+            FieldRef::External(o) => self.ctx.children_iter(o).map(FieldRef::External).collect(),
         }
     }
 
@@ -269,7 +333,7 @@ impl<'a> Resolver<'a> {
 
     /// `UClass::ImplementsInterface`: never true for the `Interface` base class itself.
     pub fn implements_interface(&self, class: FieldRef, iface: FieldRef) -> bool {
-        if self.class_flags(iface) & cf::INTERFACE == 0 || self.name_of(iface).eq_ignore_ascii_case("Interface") {
+        if self.class_flags(iface) & cf::INTERFACE == 0 || self.name_is(iface, "Interface") {
             return false;
         }
         let mut cur = Some(class);
@@ -469,6 +533,17 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// `func_friendly_name(f).eq_ignore_ascii_case(name)` without allocating.
+    pub fn func_friendly_is(&self, f: FieldRef, name: &str) -> bool {
+        match f {
+            FieldRef::Local(n) => self.model.node(n).func.friendly_name.eq_ignore_ascii_case(name),
+            FieldRef::External(o) => match self.ctx.object(o).map(|x| &x.body) {
+                Some(ObjectBody::Function { function, .. }) => self.ctx.packages[o.pkg].pkg.fname_eq(function.friendly_name, name),
+                _ => self.ctx.name_is(o, name),
+            },
+        }
+    }
+
     /// Parameters including the return value, in order (`TFieldIterator<UProperty>` over `CPF_Parm`).
     pub fn func_parms(&self, f: FieldRef) -> Vec<FieldRef> {
         self.children(f)
@@ -505,19 +580,15 @@ impl<'a> Resolver<'a> {
     /// `FindObject<UEnum>(ANY_PACKAGE, name)`: the most recently created object
     /// wins in the engine's hash, so local nodes are searched newest first.
     pub fn find_enum_any(&self, name: &str) -> Option<FieldRef> {
-        for (i, n) in self.model.nodes.iter().enumerate().rev() {
-            if n.kind == NodeKind::Enum && n.name.eq_ignore_ascii_case(name) {
-                return Some(FieldRef::Local(i));
-            }
+        if let Some(i) = self.model.find_enum(name) {
+            return Some(FieldRef::Local(i));
         }
         self.global.enums.get(&name.to_ascii_lowercase()).map(|&o| FieldRef::External(o))
     }
 
     pub fn find_struct_any(&self, name: &str) -> Option<FieldRef> {
-        for (i, n) in self.model.nodes.iter().enumerate().rev() {
-            if n.kind == NodeKind::ScriptStruct && n.name.eq_ignore_ascii_case(name) {
-                return Some(FieldRef::Local(i));
-            }
+        if let Some(i) = self.model.find_struct(name) {
+            return Some(FieldRef::Local(i));
         }
         self.global.structs.get(&name.to_ascii_lowercase()).map(|&o| FieldRef::External(o))
     }
@@ -543,15 +614,10 @@ impl<'a> Resolver<'a> {
     }
 
     pub fn global_enum_tag(&self, tag: &str) -> Option<i32> {
-        let key = tag.to_ascii_lowercase();
-        for n in &self.model.nodes {
-            if n.kind == NodeKind::Enum {
-                if let Some(i) = n.enum_names.iter().position(|t| t.eq_ignore_ascii_case(tag)) {
-                    return Some(i as i32);
-                }
-            }
+        if let Some(i) = self.model.find_enum_tag(tag) {
+            return Some(i);
         }
-        self.global.enum_tags.get(&key).copied()
+        self.global.enum_tags.get(&tag.to_ascii_lowercase()).copied()
     }
 
     /// `FScriptCompiler::FindField`.
@@ -597,8 +663,8 @@ impl<'a> Resolver<'a> {
                 let mut candidates: Vec<ObjRef> = self.global.classes.values().copied().collect();
                 candidates.sort_by_key(|c| (!self.ctx.packages[c.pkg].name.eq_ignore_ascii_case(&pkg), self.ctx.name(*c).to_ascii_lowercase()));
                 for c in candidates {
-                    for ch in self.ctx.children(c) {
-                        if self.ctx.name(ch).eq_ignore_ascii_case(name) {
+                    for ch in self.ctx.children_iter(c) {
+                        if self.ctx.name_is(ch, name) {
                             return Some(FieldRef::External(ch));
                         }
                     }
@@ -628,10 +694,8 @@ impl<'a> Resolver<'a> {
                 let mut guard = 0;
                 while let Some(st) = cur {
                     if include_parents || Some(st) == original_scope {
-                        for ch in self.children(st) {
-                            if self.name_of(ch).eq_ignore_ascii_case(name) {
-                                return Some(ch);
-                            }
+                        if let Some(ch) = self.child_named(st, name) {
+                            return Some(ch);
                         }
                     }
                     cur = self.inheritance_super(st);
@@ -648,7 +712,7 @@ impl<'a> Resolver<'a> {
                     let owner = self.owner_class(orig)?;
                     let within = self.class_within(owner);
                     match within {
-                        Some(w) if !self.name_of(w).eq_ignore_ascii_case("Object") => {
+                        Some(w) if !self.name_is(w, "Object") => {
                             *c += 1;
                             scope = Some(w);
                         }
@@ -680,7 +744,7 @@ impl<'a> Resolver<'a> {
         let mut cur = Some(c);
         let mut guard = 0;
         while let Some(k) = cur {
-            if self.name_of(k).eq_ignore_ascii_case("Component") {
+            if self.name_is(k, "Component") {
                 return true;
             }
             cur = self.super_of(k);
@@ -695,7 +759,7 @@ impl<'a> Resolver<'a> {
         let mut cur = Some(c);
         let mut guard = 0;
         while let Some(k) = cur {
-            if self.name_of(k).eq_ignore_ascii_case("Actor") {
+            if self.name_is(k, "Actor") {
                 return true;
             }
             cur = self.super_of(k);

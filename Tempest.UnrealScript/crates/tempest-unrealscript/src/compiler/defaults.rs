@@ -656,10 +656,25 @@ impl<'a> Compiler<'a> {
         };
         let Some(class) = class else { return Vec::new() };
         let class_name = self.res().name_of(class);
+        let key = class_name.to_ascii_lowercase();
+        let loaded = self.ctx.packages.len();
+        if let Some((n, sample)) = self.native_samples.borrow().get(&key) {
+            if *n == loaded {
+                return sample.clone();
+            }
+        }
+        let sample = self.native_sample(&class_name);
+        self.native_samples.borrow_mut().insert(key, (loaded, sample.clone()));
+        sample
+    }
+
+    /// The first zero-filled native payload of an instance of the class named
+    /// `class_name` in the loaded packages.
+    fn native_sample(&self, class_name: &str) -> Vec<u8> {
         for (pi, lp) in self.ctx.packages.iter().enumerate() {
             for e in 0..lp.pkg.exports.len() {
                 let x = crate::context::ObjRef { pkg: pi, export: e };
-                if self.ctx.object_flags(x) & rf::CLASS_DEFAULT_OBJECT != 0 || !self.ctx.class_name(x).eq_ignore_ascii_case(&class_name) {
+                if self.ctx.object_flags(x) & rf::CLASS_DEFAULT_OBJECT != 0 || !self.ctx.class_name_ref(x).eq_ignore_ascii_case(class_name) {
                     continue;
                 }
                 if let Some(crate::objects::ObjectBody::Other { rest }) = self.ctx.object(x).map(|b| &b.body) {
@@ -689,7 +704,7 @@ impl<'a> Compiler<'a> {
         for (p, lp) in self.ctx.packages.iter().enumerate() {
             for i in 0..lp.pkg.exports.len() {
                 let r = crate::context::ObjRef { pkg: p, export: i };
-                if self.ctx.class_name(r) == "Const" && self.ctx.name(r).eq_ignore_ascii_case(name) {
+                if self.ctx.class_is(r, "Const") && self.ctx.name_is(r, name) {
                     return Some(self.res().const_value(FieldRef::External(r)));
                 }
             }

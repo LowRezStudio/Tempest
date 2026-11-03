@@ -11,6 +11,7 @@
 //! Unreal is Z-up, left-handed, centimetres; glTF is Y-up, right-handed,
 //! metres: `(x, y, z) → (x, z, y) / 100`.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use tempest_upk::io::{Error, PackageIndex, Result};
@@ -893,4 +894,189 @@ pub fn attach_materials(
         g.materials.push(m);
     }
     warnings
+}
+
+/// One placement of a scene export: a node with a matrix (glTF space,
+/// column-major), drawing `mesh` (an index into the scene's meshes) or
+/// nothing (a group), under `parent`.
+#[derive(Clone, Debug)]
+pub struct SceneNode {
+    pub name: String,
+    pub mesh: Option<usize>,
+    pub matrix: [f64; 16],
+    pub parent: Option<usize>,
+}
+
+/// A GLB of many meshes placed by nodes (a map): every mesh is written once
+/// and instanced by the nodes that use it; images are shared across meshes
+/// by name. Skeletons are left out.
+pub fn write_scene_glb(name: &str, meshes: &[(String, Geometry)], nodes: &[SceneNode]) -> Result<Vec<u8>> {
+    let mut bin: Vec<u8> = Vec::new();
+    let mut views: Vec<String> = Vec::new();
+    let mut accessors: Vec<String> = Vec::new();
+    fn push_view(bin: &mut Vec<u8>, views: &mut Vec<String>, bytes: &[u8], target: Option<u32>) -> usize {
+        while !bin.len().is_multiple_of(4) {
+            bin.push(0);
+        }
+        let off = bin.len();
+        bin.extend_from_slice(bytes);
+        let t = target.map(|t| format!(",\"target\":{t}")).unwrap_or_default();
+        views.push(format!("{{\"buffer\":0,\"byteOffset\":{off},\"byteLength\":{}{t}}}", bytes.len()));
+        views.len() - 1
+    }
+    let esc = |s: &str| s.replace('"', "'").replace('\\', "/");
+    let mut images: Vec<String> = Vec::new();
+    let mut textures: Vec<String> = Vec::new();
+    let mut image_by_name: HashMap<String, usize> = HashMap::new();
+    let mut materials: Vec<String> = Vec::new();
+    let mut material_by_name: HashMap<String, usize> = HashMap::new();
+    let mut mesh_json: Vec<String> = Vec::new();
+    for (mname, g) in meshes {
+        let n = g.positions.len();
+        if n == 0 || g.sections.is_empty() {
+            mesh_json.push(format!("{{\"name\":\"{}\",\"primitives\":[]}}", esc(mname)));
+            continue;
+        }
+        let mut pos = Vec::with_capacity(n * 12);
+        let (mut min, mut max) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for p in &g.positions {
+            let q = to_gltf(*p);
+            for k in 0..3 {
+                min[k] = min[k].min(q[k]);
+                max[k] = max[k].max(q[k]);
+                pos.extend_from_slice(&q[k].to_le_bytes());
+            }
+        }
+        let v = push_view(&mut bin, &mut views, &pos, Some(34962));
+        accessors.push(format!("{{\"bufferView\":{v},\"componentType\":5126,\"count\":{n},\"type\":\"VEC3\",\"min\":[{},{},{}],\"max\":[{},{},{}]}}", min[0], min[1], min[2], max[0], max[1], max[2]));
+        let pos_acc = accessors.len() - 1;
+        let mut nrm = Vec::with_capacity(n * 12);
+        for i in 0..n {
+            for c in to_gltf_dir(g.normals.get(i).copied().unwrap_or([0.0, 0.0, 1.0])) {
+                nrm.extend_from_slice(&c.to_le_bytes());
+            }
+        }
+        let v = push_view(&mut bin, &mut views, &nrm, Some(34962));
+        accessors.push(format!("{{\"bufferView\":{v},\"componentType\":5126,\"count\":{n},\"type\":\"VEC3\"}}"));
+        let nrm_acc = accessors.len() - 1;
+        let mut uv = Vec::with_capacity(n * 8);
+        for i in 0..n {
+            let t = g.uvs.get(i).copied().unwrap_or([0.0, 0.0]);
+            uv.extend_from_slice(&t[0].to_le_bytes());
+            uv.extend_from_slice(&t[1].to_le_bytes());
+        }
+        let v = push_view(&mut bin, &mut views, &uv, Some(34962));
+        accessors.push(format!("{{\"bufferView\":{v},\"componentType\":5126,\"count\":{n},\"type\":\"VEC2\"}}"));
+        let uv_acc = accessors.len() - 1;
+        // This mesh's images in the shared list.
+        let mut local_image: Vec<usize> = Vec::with_capacity(g.images.len());
+        for img in &g.images {
+            let i = match image_by_name.get(&img.name) {
+                Some(&i) => i,
+                None => {
+                    let iv = push_view(&mut bin, &mut views, &img.png, None);
+                    images.push(format!("{{\"name\":\"{}\",\"mimeType\":\"image/png\",\"bufferView\":{iv}}}", esc(&img.name)));
+                    textures.push(format!("{{\"sampler\":0,\"source\":{}}}", images.len() - 1));
+                    image_by_name.insert(img.name.clone(), textures.len() - 1);
+                    textures.len() - 1
+                }
+            };
+            local_image.push(i);
+        }
+        let mut prims = Vec::new();
+        for (si, sec) in g.sections.iter().enumerate() {
+            let m = g.materials.get(si);
+            let key = m.map(|m| m.name.clone()).unwrap_or_else(|| sec.material_name.clone());
+            let mi = match material_by_name.get(&key) {
+                Some(&i) => i,
+                None => {
+                    let tex = |i: Option<usize>| i.and_then(|i| local_image.get(i)).map(|t| format!("{{\"index\":{t},\"texCoord\":0}}"));
+                    let mut pbr = String::from("\"metallicFactor\":0.0,\"roughnessFactor\":0.8");
+                    let mut rest = String::new();
+                    if let Some(m) = m {
+                        if let Some(t) = tex(m.base_color) {
+                            pbr.push_str(&format!(",\"baseColorTexture\":{t}"));
+                        }
+                        if let Some(t) = tex(m.normal) {
+                            rest.push_str(&format!(",\"normalTexture\":{t}"));
+                        }
+                        if let Some(t) = tex(m.emissive) {
+                            rest.push_str(&format!(",\"emissiveTexture\":{t},\"emissiveFactor\":[1,1,1]"));
+                        }
+                    }
+                    materials.push(format!("{{\"name\":\"{}\",\"pbrMetallicRoughness\":{{{pbr}}}{rest},\"doubleSided\":true}}", esc(&key)));
+                    material_by_name.insert(key, materials.len() - 1);
+                    materials.len() - 1
+                }
+            };
+            let start = sec.first_index as usize;
+            let count = sec.num_triangles as usize * 3;
+            let Some(slice) = g.indices.get(start..start + count) else { continue };
+            let mut idx = Vec::with_capacity(count * 4);
+            for t in slice.chunks(3) {
+                for k in [t[0], t[2], t[1]] {
+                    idx.extend_from_slice(&k.to_le_bytes());
+                }
+            }
+            let iv = push_view(&mut bin, &mut views, &idx, Some(34963));
+            accessors.push(format!("{{\"bufferView\":{iv},\"componentType\":5125,\"count\":{count},\"type\":\"SCALAR\"}}"));
+            prims.push(format!("{{\"attributes\":{{\"POSITION\":{pos_acc},\"NORMAL\":{nrm_acc},\"TEXCOORD_0\":{uv_acc}}},\"indices\":{},\"material\":{mi}}}", accessors.len() - 1));
+        }
+        mesh_json.push(format!("{{\"name\":\"{}\",\"primitives\":[{}]}}", esc(mname), prims.join(",")));
+    }
+    // Nodes, children lists from the parents.
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+    let mut roots = Vec::new();
+    for (i, n) in nodes.iter().enumerate() {
+        match n.parent {
+            Some(p) if p < nodes.len() => children[p].push(i),
+            _ => roots.push(i),
+        }
+    }
+    let node_json: Vec<String> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let identity = n.matrix == [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+            let matrix = if identity { String::new() } else { format!(",\"matrix\":[{}]", n.matrix.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(",")) };
+            let mesh = n.mesh.filter(|m| *m < meshes.len() && !meshes[*m].1.sections.is_empty()).map(|m| format!(",\"mesh\":{m}")).unwrap_or_default();
+            let kids = if children[i].is_empty() { String::new() } else { format!(",\"children\":[{}]", children[i].iter().map(|c| c.to_string()).collect::<Vec<_>>().join(",")) };
+            format!("{{\"name\":\"{}\"{matrix}{mesh}{kids}}}", esc(&n.name))
+        })
+        .collect();
+    while !bin.len().is_multiple_of(4) {
+        bin.push(0);
+    }
+    let samplers = if images.is_empty() { String::new() } else { ",\"samplers\":[{\"magFilter\":9729,\"minFilter\":9987,\"wrapS\":10497,\"wrapT\":10497}]".to_string() };
+    let img_json = if images.is_empty() { String::new() } else { format!(",\"images\":[{}],\"textures\":[{}]", images.join(","), textures.join(",")) };
+    let mats = if materials.is_empty() { String::new() } else { format!(",\"materials\":[{}]", materials.join(",")) };
+    let json = format!(
+        "{{\"asset\":{{\"version\":\"2.0\",\"generator\":\"tempest-assets\"}},\"scene\":0,\"scenes\":[{{\"name\":\"{}\",\"nodes\":[{}]}}],\"nodes\":[{}],\"meshes\":[{}]{mats}{img_json}{samplers},\"accessors\":[{}],\"bufferViews\":[{}],\"buffers\":[{{\"byteLength\":{}}}]}}",
+        esc(name),
+        roots.iter().map(|r| r.to_string()).collect::<Vec<_>>().join(","),
+        node_json.join(","),
+        mesh_json.join(","),
+        accessors.join(","),
+        views.join(","),
+        bin.len()
+    );
+    let mut json_bytes = json.into_bytes();
+    while !json_bytes.len().is_multiple_of(4) {
+        json_bytes.push(b' ');
+    }
+    let total = 12 + 8 + json_bytes.len() + 8 + bin.len();
+    if total > u32::MAX as usize {
+        return Err(Error::Format("the scene is over 4 GB, too big for one GLB; leave some levels out".into()));
+    }
+    let mut out = Vec::with_capacity(total);
+    out.extend_from_slice(b"glTF");
+    out.extend_from_slice(&2u32.to_le_bytes());
+    out.extend_from_slice(&(total as u32).to_le_bytes());
+    out.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"JSON");
+    out.extend_from_slice(&json_bytes);
+    out.extend_from_slice(&(bin.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"BIN\0");
+    out.extend_from_slice(&bin);
+    Ok(out)
 }

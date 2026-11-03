@@ -141,3 +141,21 @@ tr:hover > .pin-plain {
 .kbd-hint {
 	@apply bg-base-300 rounded px-1 font-mono text-[10px] opacity-70;
 }
+
+/* Assembly grid: fixed-height rows (the grid renders only the rows in view and
+   places them by arithmetic) and spacer rows without borders. */
+.asm-grid tbody td {
+	height: 24px;
+	padding-top: 0;
+	padding-bottom: 0;
+	white-space: nowrap;
+}
+.asm-grid tr.asm-spacer,
+.asm-grid tr.asm-spacer > td {
+	border: 0;
+	padding: 0;
+	height: auto;
+}
+.asm-grid .asm-gap {
+	padding: 0;
+}
