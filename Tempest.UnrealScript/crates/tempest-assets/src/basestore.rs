@@ -93,7 +93,10 @@ pub fn restore(file: &Path, digest: Value) -> Result<bool> {
 /// a clean install): replaces any earlier record.
 pub fn record_from(db: &ClassDb, tokens: Option<&Tokens>, target: &Path, original: &Path) -> Result<()> {
     remove(target);
-    let digest = if original.to_string_lossy().to_ascii_lowercase().ends_with(".dat") {
+    let lower = original.to_string_lossy().to_ascii_lowercase();
+    let digest = if lower.ends_with(".pck") {
+        crate::wwise::delta::digest(&crate::wwise::akpk::Package::parse(&std::fs::read(original)?)?)
+    } else if lower.ends_with(".dat") {
         let tokens = tokens.ok_or_else(|| tempest_upk::io::Error::Format("no field tokens for a .dat file".into()))?;
         crate::mcts::delta::digest(tokens, &crate::mcts::parse_obscured(&std::fs::read(original)?, tokens)?)
     } else {
@@ -140,14 +143,20 @@ pub fn record_mcts(tokens: &Tokens, file: &Path) -> Result<bool> {
     Ok(true)
 }
 
-/// Record that a Wwise `.pck` is about to be overwritten in place, unless a
-/// record exists: no digest (a `.pck` ships whole), only the mark that lists
-/// it among the files saved in place.
+/// Record a Wwise `.pck` as it is on disk before it is overwritten in place,
+/// unless a record with hashes exists: the hashes of its entries, bank
+/// objects and media (`wwise::delta::digest`), so the mod gets a delta. A
+/// file that does not parse is only marked (it then ships whole). A bare
+/// mark from an older build stays: the file was already overwritten then.
 pub fn record_pck(file: &Path) -> Result<bool> {
     if read(file).is_some() {
         return Ok(false);
     }
-    write(file, json!({ "kind": "pck" }))?;
+    let digest = match crate::wwise::akpk::Package::parse(&std::fs::read(file)?) {
+        Ok(p) => crate::wwise::delta::digest(&p),
+        Err(_) => json!({ "kind": "pck" }),
+    };
+    write(file, digest)?;
     Ok(true)
 }
 

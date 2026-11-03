@@ -3709,12 +3709,56 @@ impl Server {
         let sk = key(&source.to_string_lossy());
         let missing = || format!("{rel}: the game file is not in the game folder, so there is nothing to compare with; ship the whole file instead");
         if it["kind"] == "pck" {
-            // Wwise packages have no delta format: always the whole file.
-            let bytes = match self.pck_edits.get(&sk) {
-                Some(edit) => edit.pkg.to_bytes(),
-                None => std::fs::read(&source)?,
+            use crate::wwise::{akpk, delta as wdelta};
+            let unsaved = self.pck_edits.get(&sk).map(|edit| edit.pkg.clone());
+            let whole_file = |bytes: Vec<u8>, why: Option<&str>| -> Item {
+                let mut summary = json!({ "rel": rel, "mode": "whole", "bytes": bytes.len() });
+                if let Some(w) = why {
+                    summary["warning"] = J::from(w);
+                }
+                (summary, Some(("files", rel.clone(), Payload::Bytes(bytes))), Shared::new())
             };
-            return Ok((json!({ "rel": rel, "mode": "whole", "bytes": bytes.len() }), Some(("files", rel, Payload::Bytes(bytes))), Shared::new()));
+            if whole {
+                let bytes = match &unsaved {
+                    Some(p) => p.to_bytes(),
+                    None => std::fs::read(&source)?,
+                };
+                return Ok(whole_file(bytes, None));
+            }
+            // The original: the Studio's record, the launcher's pristine backup,
+            // else the game folder's file when it is not the edited one (an edited
+            // copy elsewhere, or edits still in memory).
+            let recorded = crate::basestore::read(&target);
+            let is_copy = key(&source.to_string_lossy()) != key(&target.to_string_lossy());
+            let base_pkg = |path: &Path| -> Res<akpk::Package> { Ok(akpk::Package::parse(&std::fs::read(path)?)?) };
+            let base: Option<Result<J, akpk::Package>> = if let Some(d) = recorded.as_ref().filter(|d| wdelta::is_digest(d)) {
+                Some(Ok(d.clone()))
+            } else if let Some(b) = crate::basestore::launcher_backup(&target) {
+                Some(Err(base_pkg(&b)?))
+            } else if recorded.is_none() && (is_copy || unsaved.is_some()) && target.exists() {
+                Some(Err(base_pkg(&target)?))
+            } else {
+                None
+            };
+            let edited = match unsaved {
+                Some(p) => p,
+                None => akpk::Package::parse(&std::fs::read(&source)?)?,
+            };
+            let Some(base) = base else {
+                return Ok(whole_file(edited.to_bytes(), Some("the original of this file is not known (it was saved in place by an older Studio): shipped whole")));
+            };
+            let d = match &base {
+                Ok(digest) => wdelta::create(wdelta::Base::Digest(digest), &edited, &rel)?,
+                Err(pkg) => wdelta::create(wdelta::Base::Package(pkg), &edited, &rel)?,
+            };
+            let (added, changed, deleted) = wdelta::counts(&d);
+            let summary = json!({ "rel": rel, "mode": "delta", "added": added, "changed": changed, "deleted": deleted, "changes": wdelta::describe(&d, 300) });
+            if added + changed + deleted == 0 {
+                return Ok((summary, None, Shared::new()));
+            }
+            // A preview only shows what changed: the payloads are not compressed.
+            let bytes = if preview { Vec::new() } else { d.to_bytes() };
+            return Ok((summary, Some(("deltas", format!("{rel}.tdelta"), Payload::Bytes(bytes))), Shared::new()));
         }
         if it["kind"] == "mcts" {
             let (tokens, edited) = match self.mcts.as_ref().and_then(|ws| ws.docs.iter().find(|(_, d)| key(&d.path.to_string_lossy()) == sk).map(|(_, d)| (ws.tokens.clone(), d.marshal.clone()))) {
@@ -4115,6 +4159,11 @@ impl Server {
             let d = mcts::delta::create(&tokens, mcts::delta::Base::Digest(digest), &m, target)?;
             return Ok((d, Vec::new()));
         }
+        if lower.ends_with(".pck") {
+            let pkg = crate::wwise::akpk::Package::parse(&std::fs::read(path)?)?;
+            let d = crate::wwise::delta::create(crate::wwise::delta::Base::Digest(digest), &pkg, target)?;
+            return Ok((d, Vec::new()));
+        }
         let db = self.db()?;
         let pkg = PackageFile::open(path)?.load()?;
         let opts = crate::delta::CreateOptions { share_min: share.then_some(crate::delta::SHARE_MIN), ..Default::default() };
@@ -4136,9 +4185,12 @@ impl Server {
             return Ok(st);
         }
         crate::basestore::remove(&path);
-        if path.to_string_lossy().to_ascii_lowercase().ends_with(".dat") {
+        let lower = path.to_string_lossy().to_ascii_lowercase();
+        if lower.ends_with(".dat") {
             let tokens = mcts::Tokens::for_dir(path.parent().unwrap_or(Path::new(".")));
             crate::basestore::record_mcts(&tokens, &path)?;
+        } else if lower.ends_with(".pck") {
+            crate::basestore::record_pck(&path)?;
         } else {
             crate::basestore::record_upk(self.db()?, &path)?;
         }
