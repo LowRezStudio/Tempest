@@ -7,16 +7,18 @@
 //!
 //! 1. [`log::init`] — `%TEMP%\tempest-scripting.log`, debugger output, and
 //!    a console window when the `console` option is on (launcher config).
-//! 2. [`unreal::resolve`] — the client's signatures give GObjects, GNames,
+//! 2. [`sha::disable`] — turns off the package SHA-1 check so mods can
+//!    replace the script packages the exe lists.
+//! 3. [`unreal::resolve`] — the client's signatures give GObjects, GNames,
 //!    the engine slot, `ProcessEvent` and the anti-cheat XOR mask.
 //!    Then it waits for the game to populate the arrays (`GNames[0] == "None"`).
-//! 3. [`unreal::install_hook`] — detours `ProcessEvent`.
-//! 4. [`unreal::wait_for_engine`] — waits for `*GEngine`, i.e. the Engine
+//! 4. [`unreal::install_hook`] — detours `ProcessEvent`.
+//! 5. [`unreal::wait_for_engine`] — waits for `*GEngine`, i.e. the Engine
 //!    package is loaded (injection happens while only `Core` exists), then
 //!    resolves `ProcessInternal` and detours it (script→script hooks).
-//! 5. [`overlay::install_async`] — hooks Present on the game's D3D9/D3D11
+//! 6. [`overlay::install_async`] — hooks Present on the game's D3D9/D3D11
 //!    device (polling until the renderer exists) for the Lua `ui` module.
-//! 6. [`loader::run_all`] — runs every `scripts/*.lua`.
+//! 7. [`loader::run_all`] — runs every `scripts/*.lua`.
 //!
 //! Everything degrades to "unresolved + a note in `tempest.status()`" rather
 //! than crashing; the host (macOS/Linux) build has no game image and is only
@@ -32,8 +34,10 @@ compile_error!("Tempest.Scripting targets the Win64 and Win32 clients only");
 // abort-on-panic nothing ever unwinds, so a stub satisfies the linker and is
 // never reached (`ud2` ends the process if it ever were). Defined in
 // assembly rather than as a `#[no_mangle]` fn so it does not become a DLL export.
+// Weak, because a DWARF-2 MinGW (Arch, MSYS2, Debian) has the real one in
+// libgcc_eh, and two strong definitions fail to link.
 #[cfg(all(windows, target_arch = "x86"))]
-std::arch::global_asm!(".text", ".globl __Unwind_Resume", "__Unwind_Resume:", "    ud2");
+std::arch::global_asm!(".text", ".weak __Unwind_Resume", "__Unwind_Resume:", "    ud2");
 
 pub mod config;
 pub mod hooks;
@@ -45,6 +49,7 @@ pub mod lua_api;
 pub mod memory;
 pub mod overlay;
 pub mod profile;
+pub mod sha;
 pub mod stubs;
 pub mod tls;
 pub mod unreal;
@@ -107,6 +112,8 @@ pub fn boot() {
             log::module_offset(boot as *const () as usize)
         ),
     );
+    // Before anything that waits: the check fires seconds into the launch.
+    sha::disable();
     let g = unreal::resolve();
     if g.process_event != 0 {
         unreal::install_hook();
