@@ -1,13 +1,14 @@
 <script lang="ts">
-	import { Files, Gauge, HardDrive, Pause, Play, Timer, X } from "@lucide/svelte";
+	import { Box, Files, Gauge, HardDrive, Pause, Play, Timer, X } from "@lucide/svelte";
 	import { Progress } from "bits-ui";
 	import { Spring, prefersReducedMotion } from "svelte/motion";
 	import PatchBanner from "$lib/components/library/PatchBanner.svelte";
 	import { relativeDate } from "$lib/mods/listing";
+	import { modSpeedSamples } from "$lib/mods/modDownloads.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { folderName, formatBytes, formatDuration, formatSpeed } from "$lib/rigby/format";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
-	import { speedSamples } from "$lib/rigby/stores.svelte";
+	import { SPEED_WINDOW_MS, speedSamples } from "$lib/rigby/stores.svelte";
 	import { getInstanceColor } from "$lib/utils/color";
 	import { SMOOTH_SPRING } from "$lib/utils/motion";
 	import { patchBannerOf, patchSummary } from "$lib/utils/versions";
@@ -16,36 +17,54 @@
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
-		/** The running download, the one the stopped queue takes next, or the last one finished */
+		/** The running download, the one the stopped queue takes next, or the last patch finished */
 		item: QueueItem;
 		/** The instance it downloads into, unless it was removed from the library */
 		instance?: Instance;
+		/** A mod's icon, shown instead of the patch's art */
+		icon?: string | null;
 		oncancel: (item: QueueItem) => void;
 		/** Puts a finished download away */
 		onclose: (item: QueueItem) => void;
 	}
 
-	let { item, instance, oncancel, onclose }: Props = $props();
+	let { item, instance, icon, oncancel, onclose }: Props = $props();
 
 	const running = $derived(item.status === "running");
 	const complete = $derived(item.status === "complete");
+	const install = $derived(item.mod?.install);
+	const downloading = $derived(running && !install);
 	// A finished download still sets the instance up before it can be played.
 	const settingUp = $derived(complete && instance?.state.type === "setup");
 	const progress = $derived(item.progress);
-	const percent = $derived(complete ? 100 : (progress?.percent ?? 0));
+	// An install without a percentage shows a full, shimmering bar and no number.
+	const percent = $derived(
+		complete ? 100 : install ? (install.percent ?? 100) : (progress?.percent ?? 0),
+	);
 	// Updates land ten times a second; the number and the bar glide between them.
 	const percentSpring = Spring.of(() => percent, SMOOTH_SPRING);
 	const shown = $derived(prefersReducedMotion.current ? percent : percentSpring.current);
-	const banner = $derived(patchBannerOf(instance?.version));
+	const banner = $derived(icon ?? patchBannerOf(instance?.version));
 	const color = $derived(getInstanceColor(instance));
+	const samples = $derived(item.mod ? modSpeedSamples(item.id) : speedSamples.value);
+	// A package takes seconds, which two minutes of graph would squeeze into its edge.
+	const graphWindow = $derived(
+		item.mod
+			? Math.max(15_000, (samples.at(-1)?.at ?? 0) - (samples[0]?.at ?? 0))
+			: SPEED_WINDOW_MS,
+	);
 
-	const status = $derived.by(() => {
+	const queueStatus = $derived.by(() => {
 		if (settingUp) return m.library_badge_setup();
+		if (install) {
+			return install.percent === null ? m.mod_row_installing() : m.downloads_now_patching();
+		}
 		if (complete) return m.downloads_finished();
 		if (item.status === "paused") return m.common_paused();
 		if (!running) return m.downloads_queue_paused();
 		return item.repair ? m.downloads_now_verifying() : m.downloads_now_downloading();
 	});
+	const status = $derived(item.mod ? `${m.downloads_kind_mod()} · ${queueStatus}` : queueStatus);
 	const tone = $derived(
 		running || settingUp ? "text-primary" : complete ? "text-success" : "text-warning",
 	);
@@ -53,7 +72,7 @@
 		if (complete) {
 			return item.finishedAt ? relativeDate(new Date(item.finishedAt).toISOString()) : "";
 		}
-		if (!running) return "";
+		if (!downloading) return "";
 		if (progress && progress.etaSeconds > 0) {
 			return m.downloads_eta({ time: formatDuration(progress.etaSeconds) });
 		}
@@ -84,16 +103,27 @@
 	const count = (n: number) => n.toLocaleString();
 
 	const liveChips = $derived([
-		{ icon: Gauge, value: running && progress ? formatSpeed(progress.bytesPerSecond) : "–" },
-		{
-			icon: Files,
-			value: progress
-				? m.downloads_of({
-						done: count(progress.completedFiles),
-						total: count(progress.totalFiles),
-					})
-				: "–",
-		},
+		...(install
+			? []
+			: [
+					{
+						icon: Gauge,
+						value: running && progress ? formatSpeed(progress.bytesPerSecond) : "–",
+					},
+				]),
+		...(item.mod
+			? []
+			: [
+					{
+						icon: Files,
+						value: progress
+							? m.downloads_of({
+									done: count(progress.completedFiles),
+									total: count(progress.totalFiles),
+								})
+							: "–",
+					},
+				]),
 		// Only a check writes less than it reads, so only there is it news.
 		...(item.repair && progress
 			? [{ icon: HardDrive, value: formatBytes(progress.diskWriteBytes) }]
@@ -148,11 +178,23 @@
 	{/if}
 
 	<div class="flex items-center gap-6 p-6">
-		<PatchBanner
-			version={instance?.version}
-			{color}
-			class="rounded-field hidden w-56 shrink-0 shadow-lg @lg:block"
-		/>
+		{#if item.mod}
+			<div
+				class="bg-base-300 rounded-field hidden size-24 shrink-0 items-center justify-center overflow-hidden shadow-lg @lg:flex"
+			>
+				{#if icon}
+					<img src={icon} alt="" draggable="false" class="size-full object-cover" />
+				{:else}
+					<Box size={32} class="opacity-60" />
+				{/if}
+			</div>
+		{:else}
+			<PatchBanner
+				version={instance?.version}
+				{color}
+				class="rounded-field hidden w-56 shrink-0 shadow-lg @lg:block"
+			/>
+		{/if}
 		<div class="min-w-0 flex-1">
 			<p
 				class={["text-xs font-semibold tracking-wider uppercase transition-colors", tone]}
@@ -161,10 +203,17 @@
 				{status}
 			</p>
 			<h2 class="mt-1 truncate text-2xl leading-tight font-bold tracking-tight">
-				{instance?.label ?? folderName(item.outDir)}
+				{item.mod?.name ?? instance?.label ?? folderName(item.outDir)}
 			</h2>
 			<p class="text-base-content/80 truncate text-sm" title={item.outDir}>
-				{instance ? patchSummary(instance) : item.outDir}
+				{#if item.mod}
+					{m.downloads_mod_for({
+						version: item.mod.version,
+						patch: item.mod.patchLabel ?? folderName(item.outDir),
+					})}
+				{:else}
+					{instance ? patchSummary(instance) : item.outDir}
+				{/if}
 			</p>
 			<ul class="mt-4 flex flex-wrap gap-2 text-xs font-medium">
 				{#each chips as chip, i (i)}
@@ -187,7 +236,7 @@
 					<X size={14} />
 					{m.common_close()}
 				</button>
-			{:else}
+			{:else if !item.mod}
 				<button
 					class={["btn btn-sm min-w-28", running ? tint : "btn-primary"]}
 					disabled={pausing}
@@ -216,7 +265,12 @@
 
 	<div class="px-6">
 		<div class="mb-2 flex items-baseline gap-3">
-			<span class="text-3xl leading-none font-bold tracking-tight tabular-nums">
+			<span
+				class={[
+					"text-3xl leading-none font-bold tracking-tight tabular-nums",
+					install?.percent === null && "invisible",
+				]}
+			>
 				{shown.toFixed(shown > 0 && shown < 99.95 ? 1 : 0)}%
 			</span>
 			<span class="text-base-content/70 min-w-0 flex-1 truncate text-sm">{timeLeft}</span>
@@ -231,6 +285,8 @@
 							})}
 						</span>
 					{/if}
+				{:else if install}
+					{formatBytes(progress?.totalBytes ?? 0)}
 				{:else if progress}
 					{m.downloads_of({
 						done: formatBytes(progress.completedBytes),
@@ -271,11 +327,12 @@
 
 	<!-- Kept through a pause, dimmed so it reads as history rather than live. Without a history
 	     (a download finished before the app last started) it would only be empty space. -->
-	{#if speedSamples.value.length > 1}
+	{#if samples.length > 1}
 		<SpeedGraph
-			samples={speedSamples.value}
-			live={running}
-			class={["mt-4 h-20 transition-opacity duration-300", !running && "opacity-50"]}
+			{samples}
+			live={downloading}
+			windowMs={graphWindow}
+			class={["mt-4 h-20 transition-opacity duration-300", !downloading && "opacity-50"]}
 		/>
 	{:else}
 		<div class="h-6"></div>

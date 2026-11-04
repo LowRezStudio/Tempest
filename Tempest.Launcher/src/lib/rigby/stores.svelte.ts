@@ -48,6 +48,15 @@ export interface QueueItem {
 	/** Time spent running, not counting pauses; `runningSince` marks the current run */
 	activeMs?: number;
 	runningSince?: number;
+	/** A mod package rather than a patch (see mods/modDownloads.svelte.ts) */
+	mod?: {
+		modId: string;
+		name: string;
+		version: string;
+		patchLabel?: string;
+		/** Downloaded and now installing; `percent` is null until the CLI patches game files */
+		install?: { percent: number | null };
+	};
 }
 
 export interface SpeedSample {

@@ -135,6 +135,7 @@
 	"downloads_summary_finished": "{count} finished",
 	"downloads_now_downloading": "Downloading",
 	"downloads_now_verifying": "Verifying files",
+	"downloads_now_patching": "Patching game files",
 	"downloads_starting": "Starting...",
 	"downloads_of": "{done} of {total}",
 	"downloads_speed": "Speed",
@@ -158,6 +159,8 @@
 	"downloads_finished": "Finished",
 	"downloads_kind_download": "Download",
 	"downloads_kind_verify": "Verify files",
+	"downloads_kind_mod": "Mod",
+	"downloads_mod_for": "Version {version} for {patch}",
 	"downloads_badge_failed": "Failed",
 	"downloads_files": [
 		{
