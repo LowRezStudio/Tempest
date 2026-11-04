@@ -3,14 +3,15 @@ import { m } from "$lib/paraglide/messages";
 import { invoke } from "$lib/platform/api";
 import { getQueryClient } from "$lib/queries/client";
 
-// Mods being downloaded or installed, shown as placeholder rows in the instance's mod list
-// until the real entry shows up.
+// Mods being downloaded or installed, listed above the instance's mod list until the real
+// entry shows up.
 export type PendingInstall = {
 	id: string;
 	gamePath: string;
-	/** Set when the mod may already be installed (repository installs): its row shows the
-	 * install in place instead of a placeholder row. */
+	/** Set when the mod may already be installed: its row is locked meanwhile. */
 	modId?: string;
+	/** Enabling or disabling an installed mod: the work shows in the mod's own row. */
+	inPlace?: boolean;
 	name: string;
 	version?: string;
 	author?: string;
@@ -60,7 +61,7 @@ function refreshModList(gamePath: string): Promise<unknown> {
 // `downloading` starts the row at 0% instead of in the installing state.
 export function trackInstall(
 	gamePath: string,
-	info: { name: string; version?: string; modId?: string },
+	info: { name: string; version?: string; modId?: string; inPlace?: boolean },
 	downloading = false,
 ) {
 	const id = crypto.randomUUID();
@@ -72,7 +73,7 @@ export function trackInstall(
 		);
 	};
 	// Empty values never overwrite what the row already shows.
-	const setInfo = (info: { name?: string; version?: string; author?: string }) =>
+	const setInfo = (info: { name?: string; version?: string; author?: string; modId?: string }) =>
 		patch(Object.fromEntries(Object.entries(info).filter(([, v]) => v)));
 	return {
 		setProgress: (progress: number | null) => patch({ progress }),
@@ -93,6 +94,7 @@ export function trackInstall(
 				name: manifest.name,
 				version: manifest.version,
 				author: manifest.authors.join(", "),
+				modId: manifest.id,
 			});
 			return manifest;
 		},

@@ -17,11 +17,7 @@
 		offerMissingDependencies,
 		turnedOff,
 	} from "$lib/mods/dependencies";
-	import {
-		justInstalled,
-		pendingInstalls,
-		pendingStatus,
-	} from "$lib/mods/pendingInstalls.svelte";
+	import { justInstalled, pendingInstalls } from "$lib/mods/pendingInstalls.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { invoke } from "$lib/platform/api";
 	import {
@@ -35,6 +31,7 @@
 	import InstalledModRow from "./InstalledModRow.svelte";
 	import InstallQueuePanel from "./InstallQueuePanel.svelte";
 	import type { ModRecord } from "$lib/core/mods";
+	import type { PendingInstall } from "$lib/mods/pendingInstalls.svelte";
 	import type { RepoUpdate } from "$lib/queries/repo";
 
 	interface Props {
@@ -111,14 +108,9 @@
 		false;
 
 	const pending = $derived(pendingInstalls.value.filter((p) => p.gamePath === gamePath));
-	// Installs of a mod that is already listed (updates, version switches) play out in its own
-	// row; the rest get a placeholder row.
-	const pendingByMod = $derived(
-		new Map(pending.flatMap((p) => (p.modId ? [[p.modId, p] as const] : []))),
-	);
-	const placeholders = $derived(
-		pending.filter((p) => !p.modId || !mods.some((mod) => mod.Id === p.modId)),
-	);
+	const inRow = (p: PendingInstall) => p.inPlace && mods.some((mod) => mod.Id === p.modId);
+	const editing = $derived(new Map(pending.filter(inRow).map((p) => [p.modId, p] as const)));
+	const active = $derived(pending.filter((p) => !inRow(p)));
 
 	const enableMutation = createEnableModMutation();
 	const disableMutation = createDisableModMutation();
@@ -183,7 +175,7 @@
 		else onOpenFiles(mod);
 	}
 
-	const empty = $derived(mods.length === 0 && placeholders.length === 0);
+	const empty = $derived(mods.length === 0 && active.length === 0);
 	// One tile per kind of mod, fanned out above the empty state
 	const emptyTiles = [
 		{ Icon: FileBox, at: "left-0 top-2 -rotate-12" },
@@ -193,7 +185,7 @@
 </script>
 
 <div class="@container">
-	<InstallQueuePanel {gamePath} {isRunning} />
+	<InstallQueuePanel {gamePath} {isRunning} {active} />
 	{#if empty}
 		<div class="flex flex-col items-center px-6 py-14 text-center">
 			<div class="relative mb-6 h-16 w-36" aria-hidden="true">
@@ -218,7 +210,7 @@
 				</button>
 			</div>
 		</div>
-	{:else}
+	{:else if mods.length > 0}
 		<!-- Fixed layout: the name column takes what is left and truncates instead of pushing the others -->
 		<div data-panel class="bg-base-200 border-base-300 rounded-box overflow-hidden border">
 			<table class="table table-fixed">
@@ -262,7 +254,8 @@
 								? undefined
 								: (repo?.icon ?? installedIcons.data?.get(mod.Id) ?? null)}
 							update={updates.get(mod.Id)}
-							busy={pendingByMod.get(mod.Id)}
+							busy={editing.get(mod.Id)}
+							locked={active.some((p) => p.modId === mod.Id)}
 							missing={missingByMod.get(mod.Id)}
 							missingTurnedOff={onlyTurnedOff(mod)}
 							versionCount={versionCounts.data?.get(mod.Id) ?? 0}
@@ -276,43 +269,7 @@
 							onFetchMissing={fetchMissing}
 						/>
 					{/each}
-					{#each placeholders as install (install.id)}
-						<tr
-							class="pending-row"
-							class:installing={install.progress === null}
-							aria-busy="true"
-							style:--progress="{install.progress === null
-								? 100
-								: install.progress * 100}%"
-						>
-							<td>
-								<div class="flex items-center gap-3">
-									<div
-										class="bg-base-300 flex size-10 shrink-0 items-center justify-center rounded-lg"
-									>
-										<span class="loading loading-spinner loading-sm opacity-60"
-										></span>
-									</div>
-									<div class="min-w-0 flex-1">
-										<p class="truncate text-sm font-bold">{install.name}</p>
-										<p class="truncate text-xs tabular-nums opacity-70">
-											{install.author
-												? `by ${install.author} · ${pendingStatus(install)}`
-												: pendingStatus(install)}
-										</p>
-									</div>
-								</div>
-							</td>
-							<td>
-								<p class="truncate text-sm font-semibold">
-									{install.version ?? ""}
-								</p>
-							</td>
-							<td></td>
-							<td></td>
-						</tr>
-					{/each}
-					{#if shown.length === 0 && placeholders.length === 0}
+					{#if shown.length === 0}
 						<tr>
 							<td colspan="4">
 								<div

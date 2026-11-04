@@ -27,6 +27,8 @@
 		icon: string | null | undefined;
 		update?: RepoUpdate;
 		busy?: PendingInstall;
+		/** A new copy is being installed; its progress shows above the list. */
+		locked: boolean;
 		missing?: Dependency[];
 		/** All of `missing` is installed, only turned off */
 		missingTurnedOff: boolean;
@@ -51,6 +53,7 @@
 		icon,
 		update,
 		busy,
+		locked,
 		missing,
 		missingTurnedOff,
 		versionCount,
@@ -182,7 +185,7 @@
 					title={missingTurnedOff
 						? m.mod_dependencies_off_hint()
 						: m.mod_missing_dependencies_hint()}
-					disabled={isRunning || !!busy}
+					disabled={isRunning || !!busy || locked}
 					onclick={() => onFetchMissing(mod)}
 				>
 					{#if missingTurnedOff}
@@ -204,7 +207,7 @@
 			type="checkbox"
 			class="toggle toggle-primary"
 			checked={mod.Enabled}
-			disabled={!!busy}
+			disabled={!!busy || locked}
 			onchange={() => onToggle(mod)}
 			title={toggleLabel}
 			aria-label={toggleLabel}
@@ -224,7 +227,7 @@
 			{/if}
 			<button
 				class="btn btn-sm btn-square btn-ghost hover:text-error"
-				disabled={!!busy}
+				disabled={!!busy || locked}
 				onclick={() => onRemove(mod)}
 				title={m.common_remove()}
 				aria-label="{m.common_remove()} {mod.Name}"
