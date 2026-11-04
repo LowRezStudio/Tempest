@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { ScrollText, Trash2, Copy, Check } from "@lucide/svelte";
+	import { ScrollText, Search, Trash2, Copy, Check } from "@lucide/svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import TerminalView from "$lib/components/ui/TerminalView.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { clearProcessLogs, processLogs } from "$lib/stores/processes.svelte";
+	import { ansiRuns, normalizeLine } from "$lib/utils/ansi";
 
 	let activeSource = $state("all");
+	let query = $state("");
 	let copyStatus = $state<"idle" | "copied" | "failed">("idle");
 
 	async function handleCopy() {
@@ -43,10 +45,23 @@
 		...uniqueSources.map((source) => ({ name: sourceName(source), value: source })),
 	]);
 
-	const filteredLogs = $derived(
+	const sourceLogs = $derived(
 		activeSource === "all"
 			? processLogs.value
 			: processLogs.value.filter((log) => log.source === activeSource),
+	);
+	const needle = $derived(query.trim().toLowerCase());
+	// Against the text as shown: escape codes can split a word in the raw line.
+	const filteredLogs = $derived(
+		needle
+			? sourceLogs.filter((log) =>
+					ansiRuns(normalizeLine(log.line))
+						.map((run) => run.text)
+						.join("")
+						.toLowerCase()
+						.includes(needle),
+				)
+			: sourceLogs,
 	);
 
 	$effect(() => {
@@ -115,14 +130,30 @@
 		{/snippet}
 	</Header>
 
-	<div class="min-h-0 flex-1 overflow-hidden p-4">
+	<div class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-4">
 		<div
 			data-panel
-			class="bg-base-200 border-base-300 rounded-box h-full overflow-hidden border p-1"
+			class="bg-base-200 border-base-300 rounded-box min-h-0 flex-1 overflow-hidden border p-1"
 		>
-			{#key activeSource}
+			<!-- The terminal only appends, so another set of lines needs a fresh one -->
+			{#key `${activeSource}:${needle}`}
 				<TerminalView logs={filteredLogs} showPrefix={activeSource === "all"} />
 			{/key}
 		</div>
+		<label class="input input-sm w-full shrink-0">
+			<Search size={14} class="opacity-50" />
+			<input
+				type="search"
+				class="grow"
+				placeholder={m.common_search()}
+				aria-label={m.common_search()}
+				bind:value={query}
+			/>
+			{#if needle}
+				<span class="text-base-content/60 shrink-0 text-xs tabular-nums">
+					{filteredLogs.length} / {sourceLogs.length}
+				</span>
+			{/if}
+		</label>
 	</div>
 </div>
