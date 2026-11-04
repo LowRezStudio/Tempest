@@ -38,8 +38,8 @@ trace_calls = false
 # and the folder name is the id when it is absent. A dev mod with the same id
 # as an installed mod replaces it.
 mods = "mods"
-# Reload a dev mod when one of its files is saved, and any mod when its config
-# file changes.
+# Reload a dev mod when one of its files is saved, any mod when its config file
+# changes, and a Lua-only mod when the launcher installs, updates or removes it.
 hot_reload = true
 # Also reload a mod when its config file is edited by hand. Files written by
 # the mod itself (tempest.save_config) never trigger a reload either way.

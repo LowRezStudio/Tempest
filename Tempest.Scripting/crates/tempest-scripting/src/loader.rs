@@ -288,7 +288,7 @@ pub fn mod_dir() -> Option<PathBuf> {
 
 /// The CLI's mod registry (`.tempest/mods/mods.json`; older layouts kept it
 /// one level up).
-fn mods_json_path() -> Option<PathBuf> {
+pub fn mods_json_path() -> Option<PathBuf> {
     let t = tempest_dir()?;
     let new = t.join("mods").join("mods.json");
     if new.is_file() {
@@ -523,6 +523,55 @@ pub fn installed() -> Vec<Installed> {
     out
 }
 
+/// What the registry says about one installed mod's scripts; a change means
+/// the launcher installed, updated or removed it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledScripts {
+    version: String,
+    manifest_hash: String,
+    /// Ships nothing but scripts, so it can change while the game runs. Packages,
+    /// deltas and DLLs of any other mod only take effect at the next launch.
+    pub lua_only: bool,
+}
+
+fn is_lua_only(root: &Path, record: &ModRecord) -> bool {
+    record.InstalledFiles.is_empty() && !["files", "deltas", "shared", "dlls"].iter().any(|dir| root.join(dir).exists())
+}
+
+/// The installed mods whose scripts should be running, by id; `None` when the
+/// registry cannot be read (the launcher may be writing it).
+pub fn installed_scripts() -> Option<HashMap<String, InstalledScripts>> {
+    let records = read_records()?;
+    let root = tempest_dir()?.join("v2").join("mods");
+    Some(
+        records
+            .into_iter()
+            .filter(|r| r.Enabled && r.Kind.eq_ignore_ascii_case("v2") && (r.Signer.is_empty() || r.Verified))
+            .filter_map(|r| {
+                let dir = root.join(&r.Id);
+                dir.join("scripts").is_dir().then(|| {
+                    let scripts = InstalledScripts { lua_only: is_lua_only(&dir, &r), version: r.Version, manifest_hash: r.ManifestHash };
+                    (r.Id, scripts)
+                })
+            })
+            .collect(),
+    )
+}
+
+/// `ids` plus every loaded mod depending on one of them, directly or not: those hold
+/// what the old version put in `shared`.
+pub fn with_dependants(ids: Vec<String>) -> Vec<String> {
+    let mut seen: HashSet<String> = ids.iter().map(|id| id.to_ascii_lowercase()).collect();
+    let mut out = ids;
+    // `mods()` is in load order, so one pass also finds dependants of dependants.
+    for m in mods() {
+        if m.after.iter().any(|dep| seen.contains(dep)) && seen.insert(m.id.to_ascii_lowercase()) {
+            out.push(m.id);
+        }
+    }
+    out
+}
+
 pub fn mods() -> Vec<Mod> {
     if let Ok(dir) = std::env::var("TEMPEST_SCRIPT_DIR") {
         return vec![Mod::new("local", PathBuf::from(dir))];
@@ -750,26 +799,30 @@ fn warn_missing_dependencies(mods: &[Mod], installed: &[Installed]) {
     }
 }
 
-/// Reload one mod (its subscriptions, address hooks and commands go first)
-/// or, with `None`, everything (prelude included, `shared` reset).
+/// Reload one mod (its subscriptions, address hooks and commands go first; a mod
+/// that is no longer installed or enabled stops there) or, with `None`, everything
+/// (prelude included, `shared` reset).
 pub fn reload(lua: &Lua, only: Option<&str>) {
     match only {
         Some(id) => {
-            let Some(m) = mods().into_iter().find(|m| m.id.eq_ignore_ascii_case(id)) else {
-                crate::log::line("loader", &format!("reload: no mod `{id}`"));
-                return;
-            };
-            for sub in crate::unreal::clear_subscriptions_of(&m.id) {
+            let m = mods().into_iter().find(|m| m.id.eq_ignore_ascii_case(id));
+            let id = m.as_ref().map_or(id, |m| m.id.as_str());
+            for sub in crate::unreal::clear_subscriptions_of(id) {
                 let _ = lua.unset_named_registry_value(&format!("tempest.sub.{sub}"));
             }
-            for hook in crate::hooks::clear_of(&m.id) {
+            for hook in crate::hooks::clear_of(id) {
                 let _ = lua.unset_named_registry_value(&format!("tempest.hook.{hook}"));
             }
             if let Ok(forget) = lua.globals().get::<Table>("tempest").and_then(|t| t.get::<mlua::Function>("_forget")) {
-                let _ = forget.call::<()>(m.id.as_str());
+                let _ = forget.call::<()>(id);
             }
-            crate::log::line("loader", &format!("reload mod {}", m.id));
-            run_mod(lua, &m);
+            match &m {
+                Some(m) => {
+                    crate::log::line("loader", &format!("reload mod {id}"));
+                    run_mod(lua, m);
+                }
+                None => crate::log::line("loader", &format!("reload: no mod `{id}` to run; anything it left running was stopped")),
+            }
         }
         None => {
             for id in crate::unreal::clear_subscriptions() {
