@@ -144,6 +144,8 @@ export type ModInstallResult = {
 	LockedFiles?: string[];
 	/** `defer`: every check passed but nothing was written (queued while the game runs). */
 	Deferred?: boolean;
+	/** A `Deferred` mod that is only Lua scripts: it can install now and reload in the game. */
+	HotReloadable?: boolean;
 };
 
 export type ModListResult = {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import {
+		CircleArrowUp,
 		Compass,
 		Cpu,
 		ExternalLink,
@@ -45,6 +46,7 @@
 	import { resetKeybinds } from "$lib/stores/keybinds.svelte";
 	import { localeLabels, localeState } from "$lib/stores/locale.svelte";
 	import {
+		autoInstallModUpdates,
 		customThemeCSS,
 		defaultInstancePath,
 		modDeveloper,
@@ -225,7 +227,13 @@
 							</div>
 						</div>
 					</div>
-					<div class="mt-3">
+					<div class="mt-3 flex flex-col gap-3">
+						<SwitchRow
+							bind:checked={autoInstallModUpdates.value}
+							icon={CircleArrowUp}
+							title={m.settings_auto_install_mod_updates()}
+							hint={m.settings_auto_install_mod_updates_hint()}
+						/>
 						<ActionRow
 							icon={Compass}
 							title={m.settings_onboarding_title()}

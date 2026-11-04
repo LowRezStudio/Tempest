@@ -74,6 +74,11 @@ type InstallOptions = Partial<InstallChoices> & {
 	/** Install even though the game runs, instead of queueing it ("Install now"). */
 	force?: boolean;
 	/**
+	 * Queue a mod that is only Lua scripts while the game runs too, instead of installing and
+	 * hot reloading it: updates nobody asked for right now must not restart a mod mid-match.
+	 */
+	waitForGame?: boolean;
+	/**
 	 * The package was downloaded from the mod repository, whose moderators reviewed it: an
 	 * unvetted signer is asked about in those terms instead of the local-file warning.
 	 */
@@ -131,7 +136,8 @@ export async function installModFile(
 		}
 	}
 	// While the game runs, the CLI checks the package (so every question is asked now) and stops
-	// before writing anything; the install then waits in the queue for the game to close.
+	// before writing anything; the install then waits in the queue for the game to close, unless
+	// the mod is only Lua scripts, which the game reloads.
 	const defer = !options.force && isGameRunning(gamePath);
 	const result = await runInstall(
 		gamePath,
@@ -145,6 +151,7 @@ export async function installModFile(
 		defer,
 		tracker.setPatching,
 		options.fromRepository ?? false,
+		options.waitForGame ?? false,
 	);
 	if (result.status === "in-use") {
 		// The manifest's fields are empty strings when missing.
@@ -164,6 +171,7 @@ export async function installModFile(
 					fromRepository: options.fromRepository ?? false,
 					...result.choices,
 					lockedFiles: result.lockedFiles,
+					hotReloadable: result.hotReloadable,
 				},
 				queued?.id,
 			);
@@ -213,7 +221,13 @@ export async function installModFile(
 
 type RunResult =
 	| Exclude<InstallOutcome, { status: "queued" }>
-	| { status: "in-use"; message: string; lockedFiles: string[]; choices: InstallChoices };
+	| {
+			status: "in-use";
+			message: string;
+			lockedFiles: string[];
+			choices: InstallChoices;
+			hotReloadable: boolean;
+	  };
 
 // Install, then the questions the CLI's answer raises (untrusted signer, conflicts) and the
 // install again with the answers. `choices` are answers given before (a queued install);
@@ -226,6 +240,7 @@ async function runInstall(
 	defer: boolean,
 	onProgress: PatchProgress,
 	fromRepository: boolean,
+	waitForGame: boolean,
 ): Promise<RunResult> {
 	let { replace, stack, allowUntrusted } = choices;
 	try {
@@ -281,6 +296,17 @@ async function runInstall(
 				onProgress,
 			);
 		}
+		if (res.Deferred && res.HotReloadable && !waitForGame) {
+			res = await limitedInstallMod(
+				gamePath,
+				filePath,
+				replace,
+				allowUntrusted,
+				stack,
+				false,
+				onProgress,
+			);
+		}
 		if (res.Success) return { status: "installed", result: res };
 		const message = res.Message || m.toast_installation_failed_unknown();
 		if (res.Deferred || filesInUse(res)) {
@@ -289,6 +315,7 @@ async function runInstall(
 				message,
 				lockedFiles: res.LockedFiles ?? [],
 				choices: { replace, stack, allowUntrusted },
+				hotReloadable: !!res.HotReloadable,
 			};
 		}
 		addToast({

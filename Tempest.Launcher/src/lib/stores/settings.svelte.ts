@@ -22,6 +22,7 @@ export const useSteamRuntime = persistedState<boolean>("useSteamRuntime", true);
 export const useGamescope = persistedState<boolean>("useGamescope", false);
 export const gamescopeArgs = persistedState<string>("gamescopeArgs", "-f --force-grab-cursor");
 export const modDeveloper = persistedState<boolean>("modDeveloper", false);
+export const autoInstallModUpdates = persistedState<boolean>("autoInstallModUpdates", true);
 export const dismissExperimentalWarning = persistedState<boolean>(
 	"dismissExperimentalWarning",
 	false,

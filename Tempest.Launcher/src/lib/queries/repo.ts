@@ -2,6 +2,7 @@ import { createQuery, useQueryClient } from "@tanstack/svelte-query";
 import { getAppVersion } from "$lib/core/appVersion";
 import { fetch, invoke } from "$lib/platform/api";
 import { modRepositoryURL } from "$lib/stores/settings.svelte";
+import type { Query, QueryKey } from "@tanstack/svelte-query";
 
 // Shapes from mods.lowrezstudio.com/contract/openapi.yaml (camelCase).
 export type RepoSigner = {
@@ -262,16 +263,32 @@ export const createRepoVersionCountsQuery = (ids: () => string[]) => {
 	});
 };
 
+// The installed mods the repository can have updates for: it keys on manifest ids (V2 mods).
+export const updatableMods = (mods: { Kind: string; Id: string; Version: string }[]) =>
+	mods.filter((mod) => mod.Kind === "V2").map((mod) => ({ id: mod.Id, version: mod.Version }));
+
+export const repoUpdatesKey = (patch: string, mods: { id: string; version: string }[]) => [
+	"repo",
+	"updates",
+	patch,
+	mods.map((m) => `${m.id}@${m.version}`).sort(),
+];
+
 export const createRepoUpdatesQuery = (
 	input: () => { patch: string; mods: { id: string; version: string }[] },
 ) =>
 	createQuery(() => {
 		const { patch, mods } = input();
 		return {
-			queryKey: ["repo", "updates", patch, mods.map((m) => `${m.id}@${m.version}`).sort()],
+			queryKey: repoUpdatesKey(patch, mods),
 			queryFn: () => checkRepoUpdates(patch, mods),
 			enabled: !!patch && mods.length > 0,
 			staleTime: 10 * 60_000,
 			retry: 1,
+			// An install changes the key; the list must not empty out until the new answer is in.
+			placeholderData: (
+				previous: RepoUpdate[] | undefined,
+				previousQuery: Query<RepoUpdate[], Error, RepoUpdate[], QueryKey> | undefined,
+			) => (previousQuery?.queryKey[2] === patch ? previous : undefined),
 		};
 	});

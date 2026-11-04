@@ -157,6 +157,37 @@ public class ModV2Installer : IModInstaller
         }
     }
 
+    /// <summary>The first Tempest Scripting that reloads installed mods when they change.</summary>
+    private const string HotReloadRuntime = ">=1.0.6";
+    private static readonly string[] GameContentFolders = ["files", "deltas", "shared", "dlls"];
+
+    /// <summary>
+    /// Whether installing this package while the game runs takes full effect: it and what it
+    /// replaces are nothing but Lua scripts, everything it needs is in place, and the runtime
+    /// reloads installed mods.
+    /// </summary>
+    private static bool CanHotReload(ZipArchive archive, List<string> code, ModManifest manifest, string resolvedGame, IEnumerable<ModRecord> removedMods, List<ModRecord> installed)
+    {
+        bool InGameContent(string path) => GameContentFolders.Any(dir => path.StartsWith(dir + "/", StringComparison.OrdinalIgnoreCase));
+
+        // FindCodeAsync lists Lua scripts and PE images, so anything else in it is a binary.
+        if (!code.Any(path => path.StartsWith("scripts/", StringComparison.OrdinalIgnoreCase))) return false;
+        if (code.Any(path => !path.EndsWith(".lua", StringComparison.OrdinalIgnoreCase))) return false;
+        if (archive.Entries.Any(entry => InGameContent(NormalizeEntryPath(entry.FullName)))) return false;
+
+        foreach (var mod in removedMods)
+        {
+            var folder = TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id);
+            if (!string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase) || mod.OwnedFiles.Count > 0 || mod.DeltaFiles.Count > 0) return false;
+            if (GameContentFolders.Any(dir => Directory.Exists(Path.Combine(folder, dir)))) return false;
+        }
+
+        if (ModDependencies.Missing(manifest.Dependencies, installed).Count > 0) return false;
+        return installed.Any(mod => mod.Enabled
+            && string.Equals(mod.Id, "tempest-scripting", StringComparison.OrdinalIgnoreCase)
+            && SemverRange.Satisfies(mod.Version, HotReloadRuntime));
+    }
+
     private static async Task<string> ReadEntryAsync(ZipArchiveEntry entry)
     {
         using var reader = new StreamReader(await entry.OpenAsync(), Encoding.UTF8);
@@ -422,6 +453,7 @@ public class ModV2Installer : IModInstaller
                 {
                     Success = false,
                     Deferred = true,
+                    HotReloadable = CanHotReload(archive, code, manifest, resolvedGame, removedMods, metadataMods),
                     Message = $"'{manifest.Name}' can be installed; nothing was written (--defer).",
                 };
             }

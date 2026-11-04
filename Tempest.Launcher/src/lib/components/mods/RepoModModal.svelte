@@ -6,6 +6,7 @@
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { kindLabel } from "$lib/mods/listing";
 	import { installFromRepo } from "$lib/mods/repoInstall";
+	import { holdModVersion } from "$lib/mods/updates.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { openUrl } from "$lib/platform/api";
 	import { createAboutInfoQuery } from "$lib/queries/about";
@@ -98,9 +99,17 @@
 		if (installing || !modId) return;
 		installing = v.version;
 		try {
-			await installFromRepo(gamePath, modId, v.version, modQuery.data?.name ?? modId, {
-				replace: !!installedVersion,
-			});
+			const going = action(v) === "downgrade";
+			const outcome = await installFromRepo(
+				gamePath,
+				modId,
+				v.version,
+				modQuery.data?.name ?? modId,
+				{ replace: !!installedVersion },
+			);
+			if (going && (outcome.status === "installed" || outcome.status === "queued")) {
+				holdModVersion(gamePath, modId, v.version);
+			}
 		} finally {
 			installing = null;
 		}

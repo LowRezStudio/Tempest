@@ -34,6 +34,14 @@ class UpdaterStore {
 	}
 
 	async checkForUpdates(silent = false) {
+		// A background check must not replace what the dialog shows or a running update.
+		if (
+			silent &&
+			(this.isOpen ||
+				["checking", "downloading", "installing", "relaunching"].includes(this.status))
+		) {
+			return;
+		}
 		this.errorMessage = null;
 		this.status = "checking";
 		if (!silent) {

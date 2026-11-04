@@ -3114,6 +3114,10 @@
 	"repo_updates_description": "New versions of installed mods are published on the mod repository. Update now or later from the Mods tab.",
 	"repo_updates_later": "Later",
 	"repo_update_all": "Update all",
+	"repo_update_hot_reload": "Install and reload",
+	"repo_update_hot_reload_hint": "Installs it now and reloads the mod in the running game. Otherwise it installs when the game closes.",
+	"settings_auto_install_mod_updates": "Automatically install updates",
+	"settings_auto_install_mod_updates_hint": "Mod updates install on their own. While the game is open they only download, and install when it closes.",
 	"repo_update_badge": "Update available",
 	"repo_bug_get_help": "Get help",
 	"repo_bug_title": "Get help with this mod",
@@ -3197,5 +3201,5 @@
 	"install_queue_remove": "Remove from queue",
 	"install_queue_queued": "Queued",
 	"install_queue_in_use": "In use: {files}",
-	"repo_install_queued_hint": "The game is running: this installs once it is closed"
+	"repo_install_queued_hint": "The game is running: this installs once it is closed. A mod that is only Lua scripts installs now and reloads in the game."
 }

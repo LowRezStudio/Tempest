@@ -5,6 +5,9 @@ import { instanceMap } from "$lib/stores/instance.svelte";
 import { persistedJSON } from "$lib/stores/persisted.svelte";
 import { processesList } from "$lib/stores/processes.svelte";
 import { addToast } from "$lib/stores/ui.svelte";
+import type { InstallOutcome } from "$lib/mods/installFile";
+
+type InstallStatus = InstallOutcome["status"];
 
 // Installs the CLI refused because the game holds files they would replace (its DLLs, open
 // packages). Instead of failing they wait here, with the choices already made (replace or
@@ -27,6 +30,8 @@ export type QueuedInstall = {
 	allowUntrusted: boolean;
 	/** What was in use at the last attempt, relative to the game folder. */
 	lockedFiles: string[];
+	/** Only Lua scripts: installing it while the game runs reloads it in the game. */
+	hotReloadable?: boolean;
 	queuedAt: number;
 };
 
@@ -64,7 +69,11 @@ export async function enqueueInstall(
 ): Promise<QueuedInstall> {
 	const existing = fromQueue ? stored.value.find((q) => q.id === fromQueue) : undefined;
 	if (existing) {
-		const updated = { ...existing, lockedFiles: info.lockedFiles };
+		const updated = {
+			...existing,
+			lockedFiles: info.lockedFiles,
+			hotReloadable: info.hotReloadable,
+		};
 		stored.value = stored.value.map((q) => (q.id === existing.id ? updated : q));
 		return updated;
 	}
@@ -89,8 +98,8 @@ export function removeQueuedInstall(id: string) {
 
 // Runs one entry through the regular install sequence, starting from the stored choices.
 // Leaves it queued when its files are still in use; any other outcome takes it off the queue.
-async function runQueued(item: QueuedInstall, manual: boolean): Promise<void> {
-	if (runningQueued.ids.includes(item.id)) return;
+async function runQueued(item: QueuedInstall, manual: boolean): Promise<InstallStatus | undefined> {
+	if (runningQueued.ids.includes(item.id)) return undefined;
 	runningQueued.ids = [...runningQueued.ids, item.id];
 	try {
 		const outcome = await installModFile(item.gamePath, item.file, item.name, {
@@ -101,6 +110,7 @@ async function runQueued(item: QueuedInstall, manual: boolean): Promise<void> {
 			fromRepository: item.fromRepository,
 			queued: item,
 			force: manual,
+			waitForGame: !manual,
 		});
 		if (outcome.status === "queued") {
 			if (manual) {
@@ -110,7 +120,7 @@ async function runQueued(item: QueuedInstall, manual: boolean): Promise<void> {
 					tone: "warning",
 				});
 			}
-			return;
+			return outcome.status;
 		}
 		remove(item.id);
 		if (outcome.status === "installed") {
@@ -122,15 +132,16 @@ async function runQueued(item: QueuedInstall, manual: boolean): Promise<void> {
 				tone: "success",
 			});
 		}
+		return outcome.status;
 	} finally {
 		runningQueued.ids = runningQueued.ids.filter((id) => id !== item.id);
 	}
 }
 
 // "Install now": tries one entry right away, game running or not.
-export function installQueuedNow(id: string): Promise<void> {
+export function installQueuedNow(id: string): Promise<InstallStatus | undefined> {
 	const item = stored.value.find((q) => q.id === id);
-	return item ? runQueued(item, true) : Promise.resolve();
+	return item ? runQueued(item, true) : Promise.resolve(undefined);
 }
 
 const draining = new Set<string>();

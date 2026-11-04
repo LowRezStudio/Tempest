@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Clock, Download, Hourglass, X } from "@lucide/svelte";
+	import { Clock, Download, Hourglass, RefreshCw, X } from "@lucide/svelte";
 	import { slide } from "svelte/transition";
 	import {
 		installQueue,
@@ -90,12 +90,21 @@
 					<button
 						class="btn btn-ghost btn-sm shrink-0"
 						onclick={() => void installQueuedNow(item.id)}
-						title={isRunning ? m.install_queue_install_anyway_hint() : undefined}
+						title={isRunning
+							? item.hotReloadable
+								? m.repo_update_hot_reload_hint()
+								: m.install_queue_install_anyway_hint()
+							: undefined}
 					>
-						<Download size={14} />
-						{isRunning
-							? m.install_queue_install_anyway()
-							: m.install_queue_install_now()}
+						{#if isRunning && item.hotReloadable}
+							<RefreshCw size={14} />
+							{m.repo_update_hot_reload()}
+						{:else}
+							<Download size={14} />
+							{isRunning
+								? m.install_queue_install_anyway()
+								: m.install_queue_install_now()}
+						{/if}
 					</button>
 					<button
 						class="btn btn-ghost btn-sm btn-square hover:text-error shrink-0"

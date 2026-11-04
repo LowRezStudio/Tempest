@@ -3,6 +3,7 @@
 	import { TriangleAlert } from "@lucide/svelte";
 	import { useQueryClient } from "@tanstack/svelte-query";
 	import { fade } from "svelte/transition";
+	import ModUpdatesPrompt from "$lib/components/mods/ModUpdatesPrompt.svelte";
 	import Sidebar from "$lib/components/sidebar/Sidebar.svelte";
 	import ErrorDetails from "$lib/components/ui/ErrorDetails.svelte";
 	import LayoutDialogs from "$lib/components/ui/LayoutDialogs.svelte";
@@ -100,6 +101,7 @@
 	onselect={handleInstanceSelected}
 	oncancel={() => {}}
 />
+<ModUpdatesPrompt />
 <ToastStack />
 
 <style>

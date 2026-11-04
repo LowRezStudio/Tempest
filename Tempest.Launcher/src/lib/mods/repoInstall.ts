@@ -25,6 +25,7 @@ export async function installFromRepo(
 		tracker?: InstallTracker;
 		sha256?: string;
 		dependencies?: DependencyMode;
+		waitForGame?: boolean;
 	} = {},
 ): Promise<InstallOutcome> {
 	const tracker =
@@ -37,6 +38,7 @@ export async function installFromRepo(
 			version,
 			displayName,
 			options.dependencies ?? "ask",
+			options.waitForGame ?? false,
 		);
 		if (!go) {
 			void tracker.finish(false);
@@ -63,6 +65,7 @@ export async function installFromRepo(
 		tracker,
 		dependencies: "skip",
 		fromRepository: true,
+		waitForGame: options.waitForGame,
 	});
 	void getQueryClient()?.invalidateQueries({ queryKey: ["mod-cache", modId] });
 	if (outcome.status === "installed") {

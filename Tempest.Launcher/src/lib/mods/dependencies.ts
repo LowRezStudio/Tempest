@@ -1,5 +1,6 @@
 import { getAppVersion } from "$lib/core/appVersion";
 import { enableMod, listMods } from "$lib/core/mods";
+import { isGameRunning } from "$lib/mods/installQueue.svelte";
 import { installFromRepo } from "$lib/mods/repoInstall";
 import { confirmDependencies } from "$lib/mods/ui.svelte";
 import { m } from "$lib/paraglide/messages";
@@ -99,8 +100,11 @@ async function provide(
 	gamePath: string,
 	dep: DependencyToInstall,
 	dependencies: DependencyMode,
+	waitForGame = false,
 ): Promise<boolean> {
 	if (dep.enableName) {
+		// Enabling rewrites game files at once, and there is no queue for it.
+		if (waitForGame && isGameRunning(gamePath)) return false;
 		const res = await enableMod(gamePath, dep.enableName);
 		void getQueryClient()?.invalidateQueries({ queryKey: ["mods", gamePath] });
 		if (!res.Success) {
@@ -113,6 +117,7 @@ async function provide(
 		replace: true,
 		sha256: dep.sha256,
 		dependencies,
+		waitForGame,
 	});
 	// Queued behind the running game: it installs before anything queued after it.
 	return outcome.status === "installed" || outcome.status === "queued";
@@ -128,6 +133,7 @@ export async function installDependenciesFor(
 	version: string,
 	displayName: string,
 	mode: DependencyMode,
+	waitForGame = false,
 ): Promise<boolean> {
 	if (mode === "skip") return true;
 	const appVersion = await getAppVersion();
@@ -187,7 +193,7 @@ export async function installDependenciesFor(
 		if (choice === "skip") return true;
 	}
 	for (const dep of needed) {
-		if (!(await provide(gamePath, dep, "skip"))) return false;
+		if (!(await provide(gamePath, dep, "skip", waitForGame))) return false;
 	}
 	return true;
 }

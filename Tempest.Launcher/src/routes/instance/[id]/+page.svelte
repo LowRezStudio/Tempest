@@ -11,12 +11,12 @@
 	import ModDetailsModal from "$lib/components/mods/ModDetailsModal.svelte";
 	import RepoBrowser from "$lib/components/mods/RepoBrowser.svelte";
 	import RepoModModal from "$lib/components/mods/RepoModModal.svelte";
-	import RepoUpdatesModal from "$lib/components/mods/RepoUpdatesModal.svelte";
 	import { isDraggingFiles } from "$lib/mods/drop.svelte";
+	import { openModUpdates } from "$lib/mods/updates.svelte";
 	import { useInstallMods } from "$lib/mods/useInstallMods";
 	import { m } from "$lib/paraglide/messages";
 	import { createModsQuery, createRemoveModMutation } from "$lib/queries/mods";
-	import { createRepoUpdatesQuery } from "$lib/queries/repo";
+	import { createRepoUpdatesQuery, updatableMods } from "$lib/queries/repo";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { processesList } from "$lib/stores/processes.svelte";
 	import { modDeveloper } from "$lib/stores/settings.svelte";
@@ -49,12 +49,9 @@
 
 	const removeModMutation = createRemoveModMutation();
 
-	// Repository update checks for the installed V2 mods (the repository keys on manifest ids).
 	const updatesQuery = createRepoUpdatesQuery(() => ({
 		patch: instance?.version ?? "",
-		mods: modsList
-			.filter((mod) => mod.Kind === "V2")
-			.map((mod) => ({ id: mod.Id, version: mod.Version })),
+		mods: updatableMods(modsList),
 	}));
 	const updates = $derived(new Map((updatesQuery.data ?? []).map((u) => [u.id, u])));
 	const updateCount = $derived([...updates.values()].filter((u) => u.updateAvailable).length);
@@ -68,28 +65,6 @@
 		repoModTab = tab;
 		repoModOpen = true;
 	}
-
-	// One popup per instance per session when updates are found, from the first check after
-	// opening the instance only: rechecks after installs or downgrades made here stay silent.
-	let updatesOpen = $state(false);
-	let updatesCheckedFor: string | undefined;
-	$effect(() => {
-		if (!instance || !updatesQuery.isSuccess || updatesCheckedFor === instance.id) return;
-		updatesCheckedFor = instance.id;
-		const available = [...updates.values()].filter((u) => u.updateAvailable);
-		if (available.length === 0) return;
-		const key = `repo-updates-shown:${instance.id}:${available
-			.map((u) => `${u.id}@${u.latest?.version}`)
-			.sort()
-			.join(",")}`;
-		try {
-			if (sessionStorage.getItem(key)) return;
-			sessionStorage.setItem(key, "1");
-		} catch {
-			return;
-		}
-		updatesOpen = true;
-	});
 
 	function handleRemoveMod(modName: string) {
 		if (!instance) return;
@@ -163,7 +138,7 @@
 			]}
 			bind:activeTab
 			{updateCount}
-			onShowUpdates={() => (updatesOpen = true)}
+			onShowUpdates={() => openModUpdates(instance.path)}
 			onManagePresets={() => (activeTab = "presets")}
 			actions={activeTab === "content" && modsList.length > 0 ? modActions : undefined}
 		/>
@@ -249,13 +224,6 @@
 		patch={instance.version}
 		installedVersion={modsList.find((mod) => mod.Id === repoModId)?.Version}
 		installedMod={modsList.find((mod) => mod.Id === repoModId)}
-		{isRunning}
-	/>
-	<RepoUpdatesModal
-		bind:open={updatesOpen}
-		gamePath={instance.path}
-		mods={modsList}
-		{updates}
 		{isRunning}
 	/>
 {/if}
