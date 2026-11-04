@@ -1041,7 +1041,15 @@ fn compress_image(image: &[u8], summary: &mut Summary, obscure: bool, exports: &
     let mut cur: (usize, usize) = (start, header_end - start);
     for &(_, size) in exports {
         let size = size.max(0) as usize;
-        if cur.1 + size > MAX_MERGED_COMPRESSION_CHUNKSIZE {
+        // Data-less exports (stripped `Class none` placeholders) add nothing.
+        // Letting one flush the chunk after an oversized export left an empty
+        // chunk (size 0, same offset as the next): the cooker never writes
+        // one, and on Windows packages with it crashed with heap corruption
+        // (Facet's GameUI_SF, see mods/notes/facet-crash.md).
+        if size == 0 {
+            continue;
+        }
+        if cur.1 > 0 && cur.1 + size > MAX_MERGED_COMPRESSION_CHUNKSIZE {
             ranges.push(cur);
             cur = (cur.0 + cur.1, size);
         } else {

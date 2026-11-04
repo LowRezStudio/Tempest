@@ -451,9 +451,16 @@ internal static class DeltaResolver
         foreach (var w in report.Warnings) await Console.Error.WriteLineAsync($"Warning: {w}");
     }
 
+    /// <summary>
+    /// Bump when upk's output changes for the same inputs, so files built by an older
+    /// upk are rebuilt once. 2: upk no longer writes an empty compressed chunk (it
+    /// corrupted the heap on Windows with GameUI_SF deltas, e.g. Facet).
+    /// </summary>
+    private const int BuilderVersion = 2;
+
     private static string StackHash(string baseId, List<Contribution> stack)
     {
-        var sb = new StringBuilder(baseId);
+        var sb = new StringBuilder($"builder:{BuilderVersion}\n").Append(baseId);
         foreach (var c in stack) sb.Append('\n').Append(c.Mod.Id).Append('@').Append(c.Mod.Version).Append(':').Append(HashFile(c.DeltaFile));
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())));
     }
