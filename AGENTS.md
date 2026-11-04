@@ -134,7 +134,7 @@ Notes:
 - `pnpm install` runs `prepare`, which installs Husky hooks from the repo root.
 - The Electron host is TypeScript in `electron/src/`, compiled by `tsc` into `electron/dist/` (the dev and build scripts do this automatically; `pnpm check:electron` / `pnpm -C electron typecheck` verifies it). Restart `electron:dev` to pick up host changes. The IPC surface is typed end-to-end by `electron/src/ipc/contract.ts`, which the renderer imports as types — adding a channel means adding it to the contract, then the handler and the renderer call site all get checked.
 - The tray, close-guard (hide-to-tray), dialogs, filesystem operations (platform detection, instance paths, mod downloads/previews, settings snapshots) all live in the Electron host; the renderer only orchestrates.
-- `pnpm electron:build` bundles external `tempest-cli`, `asmloader` and `upk-parser` binaries built by `scripts/build-cli.js` into `electron/resources/binaries`; the dev server does not need them (the cooker resolves `upk-parser` from the zig build output).
+- `pnpm electron:build` bundles external `tempest-cli`, `upk` and `asmloader` binaries built by `scripts/build-cli.js` into `electron/resources/binaries`; the dev server does not need them (the cooker uses the Rust release build of `upk` from `Tempest.UnrealScript/target/release`, overridable with `TEMPEST_UPK`).
 - The renderer talks to the Electron main process through `src/lib/platform/api.ts` (over `window.electronAPI`); IPC handlers live in `Tempest.Launcher/electron/src/`. Bundled default mods live in `electron/resources/mods/`.
 - `tempest://install?mod=<id>&version=<v>` deep links (from mods.lowrezstudio.com) are handled by the Electron host (`setAsDefaultProtocolClient("tempest")` + `open-url`/`second-instance` in `electron/src/`, registered in `ipc/contract.ts`) and `src/lib/mods/deeplink.svelte.ts`; the `protocols:` entry in `electron/electron-builder.yml` registers the scheme for installed builds. The mod repository client is `src/lib/queries/repo.ts` (URL from the `modRepositoryURL` setting).
 
@@ -214,6 +214,7 @@ If you change `.proto` files, rebuild the solution and run `pnpm proto-generate`
 - Uses `pnpm install --frozen-lockfile` and `electron-builder` (`--publish always` on tags, `--publish never` on dispatch)
 - Uploads artifacts and creates a draft GitHub release
 - Release notes are pulled from the annotated tag's message (set by `pnpm bump`)
+- The bundled CLI sidecar (`scripts/build-cli.js`: AOT `tempest-cli`, `upk`, the asmloader DLLs) is built by three independent jobs in parallel, with the zig build cache restored from `sidecar-cache.yml` (a tag run can only see caches saved on master or by itself, so that workflow warms them on master pushes that touch `Tempest.Utils/**`, weekly, and by hand).
 
 `.github/workflows/studio-release.yml` does the same for **Tempest Studio** on `studio-v*` tags (or manual dispatch): draft release titled "Tempest Studio <version>", then Windows NSIS, macOS DMG and Linux AppImage/deb/rpm builds (Rust stable builds the `upk` sidecar, `pnpm check`/`lint` and `cargo test -p tempest-assets` run first) attached with `gh release upload`. Release a Studio version with: bump `Tempest.Studio/package.json` + `electron/package.json`, commit, `git tag -a studio-vX.Y.Z -m "<notes>"`, push the tag, then publish the draft.
 

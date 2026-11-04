@@ -322,7 +322,7 @@ export interface IpcContract {
 	"zip:build": { args: { entries: { path: string; data: Uint8Array }[] }; result: Uint8Array };
 	"zip:read": { args: { data: Uint8Array }; result: ZipEntry[] };
 
-	// ---- upk-parser (bundled zig tool; UPK compression for the mod cooker) ----
+	// ---- upk (bundled Rust tool; UPK compression for the mod cooker) ----
 	"upk:optimize": {
 		args: { path: string };
 		result: { optimized: boolean; data: ArrayBuffer | null };

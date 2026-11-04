@@ -20,6 +20,7 @@ fn usage() -> ExitCode {
            upk extract <pkg> <idx|path> <out>          write one export's raw payload\n  \
            upk decompress <pkg> <out>                  rewrite uncompressed\n  \
            upk compress <pkg> <out> [--obscure]        rewrite LZO-compressed like the cooker\n  \
+           upk is-compressed <pkg>                     prints true when stored LZO-compressed (the launcher's check)\n  \
            upk verify <dir|pkg>... [-I dir] [-j N] [--compressed] [--classes] [-v]\n                                              \
                                                round-trip every export and report coverage\n  \
            upk texture info <pkg> <idx|path> [-I dir]     format, size, where every mip lives\n  \
@@ -102,6 +103,7 @@ fn main() -> ExitCode {
         "inject" if args.len() >= 4 => cmd_inject(&args[1..]),
         "decompress" if args.len() >= 3 => cmd_rewrite(&args[1], &args[2], false, false),
         "compress" if args.len() >= 3 => cmd_rewrite(&args[1], &args[2], true, args.iter().any(|a| a == "--obscure")),
+        "is-compressed" if args.len() >= 2 => cmd_is_compressed(&args[1]),
         "verify" if args.len() >= 2 => cmd_verify(&args[1..]),
         "texture" if args.len() >= 3 => cmd_texture(&args[1..]),
         "mesh" if args.len() >= 3 => cmd_mesh(&args[1..]),
@@ -169,6 +171,12 @@ fn cmd_info(path: &str) -> Res {
     for (i, t) in pkg.summary.texture_allocations.iter().enumerate() {
         println!("texture alloc {i}:    {}x{} mips={} format={} flags={:#x} exports={:?}", t.size_x, t.size_y, t.num_mips, t.format, t.tex_create_flags, t.export_indices);
     }
+    Ok(())
+}
+
+fn cmd_is_compressed(path: &str) -> Res {
+    let pf = PackageFile::open(path)?;
+    println!("{}", pf.tables().was_compressed);
     Ok(())
 }
 
