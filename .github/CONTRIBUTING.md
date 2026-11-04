@@ -62,7 +62,7 @@ dotnet publish -c Release
 cd Tempest.Utils/
 
 zig build -Doptimize=ReleaseSafe
-# The build artifacts will be located in `Tempest.Utils/zig-out/bin/`
+# asmloader, in `Tempest.Utils/zig-out/bin/`
 ```
 
 # Code Editor setup
