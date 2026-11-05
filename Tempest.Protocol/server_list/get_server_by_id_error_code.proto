@@ -1,8 +1,0 @@
-syntax = "proto3";
-package tempest.server_list;
-option csharp_namespace = "Tempest.Protocol.ServerList";
-
-enum GetServerByIdErrorCode {
-  GET_SERVER_BY_ID_ERROR_CODE_UNSPECIFIED = 0;
-  ID_NOT_FOUND = 1;
-}

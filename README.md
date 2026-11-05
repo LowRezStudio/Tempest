@@ -9,7 +9,6 @@ Capable of:
 
 - Downloading and playing any patch of paladins released from 2016 to 2026
 - Playing with mods
-- Hosting and Joining private servers
 
 Learn more about Tempest and Paladins on our [wiki](https://docs.lowrezstudio.com/).
 

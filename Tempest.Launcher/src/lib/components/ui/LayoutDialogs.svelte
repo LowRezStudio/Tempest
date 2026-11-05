@@ -5,8 +5,6 @@
 	import InstanceSelectModal from "$lib/components/mods/InstanceSelectModal.svelte";
 	import ReplaceModDialog from "$lib/components/mods/ReplaceModDialog.svelte";
 	import UnverifiedModDialog from "$lib/components/mods/UnverifiedModDialog.svelte";
-	import HostServerWizard from "$lib/components/server-list/HostServerWizard.svelte";
-	import JoinServerWizard from "$lib/components/server-list/JoinServerWizard.svelte";
 	import AntivirusBlockedDialog from "$lib/components/ui/AntivirusBlockedDialog.svelte";
 	import UpdateDialog from "$lib/components/updater/UpdateDialog.svelte";
 	import {
@@ -19,11 +17,7 @@
 		resolveUnverifiedMod,
 		unverifiedDialogStore,
 	} from "$lib/mods/ui.svelte";
-	import {
-		hostServerWizardOpen,
-		instanceWizardOpen,
-		joinServerWizardOpen,
-	} from "$lib/stores/ui.svelte";
+	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
 	import type { Instance } from "$lib/types/instance";
 
 	interface Props {
@@ -36,8 +30,6 @@
 </script>
 
 <InstanceWizard bind:open={instanceWizardOpen.value} />
-<HostServerWizard bind:open={hostServerWizardOpen.value} />
-<JoinServerWizard bind:open={joinServerWizardOpen.value} />
 <InstanceSelectModal bind:open={showInstanceSelect} {onselect} {oncancel} />
 <InstanceSelectModal
 	bind:open={instancePickerStore.value.open}

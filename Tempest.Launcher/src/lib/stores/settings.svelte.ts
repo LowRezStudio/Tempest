@@ -3,7 +3,6 @@ import { persistedState } from "./persisted.svelte";
 
 export const username = persistedState<string>("username", "Player");
 export const onboardingCompleted = persistedState<boolean>("onboardingCompleted", false);
-export const servicesURL = persistedState<string>("servicesURL", "https://api.lowrezstudio.com");
 /** The mod repository the Browse tab, update checks and tempest:// links use. */
 export const modRepositoryURL = persistedState<string>(
 	"modRepositoryURL",
@@ -23,10 +22,6 @@ export const useGamescope = persistedState<boolean>("useGamescope", false);
 export const gamescopeArgs = persistedState<string>("gamescopeArgs", "-f --force-grab-cursor");
 export const modDeveloper = persistedState<boolean>("modDeveloper", false);
 export const autoInstallModUpdates = persistedState<boolean>("autoInstallModUpdates", true);
-export const dismissExperimentalWarning = persistedState<boolean>(
-	"dismissExperimentalWarning",
-	false,
-);
 export const openSslCapFix = persistedState<boolean>("openSslCapFix", true);
 /** Whether the mod cooker's first-run setup wizard (key + API key) was completed or dismissed. */
 export const cookerOnboarded = persistedState<boolean>("cookerOnboarded", false);

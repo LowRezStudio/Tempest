@@ -1,4 +1,3 @@
-import { currentInstance, setCurrentInstance } from "$lib/lobby/stores.svelte";
 import { m } from "$lib/paraglide/messages";
 import { Command, invoke } from "$lib/platform/api";
 import { openEpicLogin } from "$lib/stores/epic.svelte";
@@ -127,14 +126,6 @@ export const restoreRunningGames = async () => {
 		...restored.filter((p) => !processesList.value.some((q) => q.child.pid === p.child.pid)),
 	];
 	saveRunning();
-
-	// The lobby pointer is only good while the game it launched still runs.
-	if (
-		currentInstance.value &&
-		!restored.some((p) => p.instance.id === currentInstance.value?.id)
-	) {
-		setCurrentInstance(null);
-	}
 };
 
 export const launchGame = async (instance: Instance, { noDlls = false } = {}) => {
