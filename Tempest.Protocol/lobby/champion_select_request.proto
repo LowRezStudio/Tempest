@@ -1,8 +1,0 @@
-syntax = "proto3";
-package tempest.lobby;
-option csharp_namespace = "Tempest.Protocol.Lobby";
-
-message ChampionSelectRequest {
-  string name = 1;
-  // to-do: add cosmetics
-}

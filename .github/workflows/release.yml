@@ -69,10 +69,6 @@ jobs:
       # actions/cache can persist them without relying on per-OS user paths.
       ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
       ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.electron-builder-cache
-      # One global zig cache for every zig build (the sidecar's two packages and
-      # the CLI's inject DLLs), at a path the cache action can persist (see
-      # "Restore zig build caches").
-      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-global-cache
 
     steps:
       - name: Checkout repository
@@ -112,19 +108,6 @@ jobs:
         run: |
           sudo apt update
           sudo apt-get install -y rpm fakeroot
-
-      # Zig's build cache is content-addressed, so a restored one skips the
-      # compile steps of everything unchanged (see sidecar-cache.yml, which keeps
-      # this cache on master: a tag run only sees caches saved on master or by
-      # itself). Same key as that workflow: keep them in step.
-      - name: Restore zig build caches
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            .zig-global-cache
-            Tempest.Utils/.zig-cache
-          key: cli-sidecar-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Tempest.Utils/**') }}
-          restore-keys: cli-sidecar-${{ runner.os }}-${{ runner.arch }}-
 
       # The two apps share the root pnpm workspace: filter the install to this
       # app and its host so the Studio's dependency graph is not downloaded.

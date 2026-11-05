@@ -1,7 +1,0 @@
-syntax = "proto3";
-package tempest.lobby;
-option csharp_namespace = "Tempest.Protocol.Lobby";
-
-message LobbyStateChampionSelect {
-  string map_id = 1;
-}

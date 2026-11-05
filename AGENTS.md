@@ -15,18 +15,14 @@ and the [task runner](justfile).
 | Native Studio | [Tempest.StudioNative](Tempest.StudioNative/AGENTS.md) | Rust + GPUI editor; separate from Electron Studio |
 | Scripting | [Tempest.Scripting](Tempest.Scripting/AGENTS.md) | Rust + LuaJIT modding DLLs and shipped Lua mods |
 | UnrealScript / assets | [Tempest.UnrealScript](Tempest.UnrealScript/AGENTS.md) | Rust compiler/decompiler, `upk`, Studio backend |
-| CLI / mod installation | [Tempest.CLI](Tempest.CLI/AGENTS.md) | .NET launcher backend, server and mod tooling |
-| Native injection utilities | [Tempest.Utils](Tempest.Utils/AGENTS.md) | Zig `asmloader` DLLs |
-| Protocol | [Tempest.Protocol](Tempest.Protocol/AGENTS.md) | gRPC/protobuf contract |
+| CLI / mod installation | [Tempest.CLI](Tempest.CLI/AGENTS.md) | .NET launcher backend and mod tooling |
 | Marshaling | [MarshalLib](MarshalLib/AGENTS.md) | .NET marshaling library |
 | Database | [MarshalLib.Database](MarshalLib.Database/AGENTS.md) | .NET database library |
 
 ## Shared conventions
 
 - Follow the root [.editorconfig](.editorconfig): tabs for most files, spaces for Rust.
-- Do not hand-edit generated outputs; edit their sources and regenerate. A `.proto`
-  change requires `dotnet build Tempest.slnx` and
-  `pnpm -C Tempest.Launcher proto-generate`.
+- Do not hand-edit generated outputs; edit their sources and regenerate.
 - Do not add/update French, Spanish, Polish or Russian message catalogs unless
   explicitly requested. English source strings may change.
 - Never commit private signing keys, credentials or tokens.
@@ -38,7 +34,7 @@ and the [task runner](justfile).
 ## Shared references
 
 - [Tooling, .NET commands and generation](docs/development.md):
-  .NET 10, Zig 0.15.2, separate Rust workspaces, Node >= 22.
+  .NET 10, separate Rust workspaces, Node >= 22.
 - [JavaScript workspace conventions](docs/javascript.md):
   pnpm only, one root workspace/lockfile, shared oxlint/oxfmt configuration.
 - [Mod format, deltas, signing and trust](Tempest.CLI/docs/mods.md):

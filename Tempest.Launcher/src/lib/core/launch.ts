@@ -1,4 +1,3 @@
-import { currentInstance, setCurrentInstance } from "$lib/lobby/stores.svelte";
 import { launchAfterModOperations } from "$lib/mods/launch.svelte";
 import { m } from "$lib/paraglide/messages";
 import { Command, invoke, type Child } from "$lib/platform/api";
@@ -173,14 +172,6 @@ export const restoreRunningGames = async () => {
 		...restored.filter((p) => !processesList.value.some((q) => q.child.pid === p.child.pid)),
 	];
 	saveRunning();
-
-	// The lobby pointer is only good while the game it launched still runs.
-	if (
-		currentInstance.value &&
-		!restored.some((p) => p.instance.id === currentInstance.value?.id)
-	) {
-		setCurrentInstance(null);
-	}
 };
 
 export const launchGame = (instance: Instance, { noDlls = false } = {}) =>

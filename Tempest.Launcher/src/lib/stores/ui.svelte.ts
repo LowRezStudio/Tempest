@@ -6,8 +6,6 @@ export const openInstanceWizard = (tab: "download" | "folder" = "download") => {
 	instanceWizardTab.value = tab;
 	instanceWizardOpen.value = true;
 };
-export const hostServerWizardOpen = $state({ value: false });
-export const joinServerWizardOpen = $state({ value: false });
 
 export type ToastTone = "info" | "success" | "warning" | "error" | "neutral";
 
