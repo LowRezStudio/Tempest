@@ -12,7 +12,9 @@
  * lookalikes elsewhere: [data-page-header] (Header), [data-panel] (Panel and
  * anything dressed as one), [data-popover-menu] (PopoverMenu and the
  * bits-ui menus), [data-sidebar] (the app's nav strip), plus daisyUI's own
- * .card, [role="dialog"]/.modal-box and .alert. */
+ * .card, [role="dialog"]/.modal-box and .alert. The one plaque drawn larger
+ * than the chrome is the title bar's emblem, marked [data-plaque]; every other
+ * icon chip (panel headings, settings rows) keeps its plain, flat look. */
 
 @plugin "daisyui/theme" {
 	name: "legacy";
@@ -141,8 +143,8 @@ html[data-theme="legacy"] {
 			inset 0 -2px 0 rgb(0 0 0 / 0.1);
 	}
 
-	/* The icon plate keeps the old gradient plaque look. */
-	[data-page-header] .bg-base-300 {
+	/* The title bar's emblem keeps the old gradient plaque look. */
+	[data-page-header] [data-plaque] {
 		background-image: var(--legacy-plate);
 		border: 2px solid #37e8e2;
 		box-shadow: 0 0 8px rgb(55 232 226 / 0.3);
@@ -226,14 +228,6 @@ html[data-theme="legacy"] {
 		box-shadow:
 			0 2px 6px rgb(0 0 0 / 0.45),
 			inset 0 1px 0 #ffffff;
-	}
-
-	/* The icon plate on a plaque is the old gradient plaque too. */
-	:is(.card, [data-panel]) .bg-base-300 {
-		background-image: var(--legacy-plate);
-		border: 2px solid #37e8e2;
-		box-shadow: 0 0 6px rgb(55 232 226 / 0.2);
-		color: #ffffff;
 	}
 
 	/* White dialog, like the old settings panel. */
