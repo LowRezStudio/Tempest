@@ -9,10 +9,10 @@ import { folderName } from "$lib/rigby/format";
 import { addInstance, instanceMap, updateInstance } from "$lib/stores/instance.svelte";
 import { defaultInstancePath } from "$lib/stores/settings.svelte";
 import type { InstallationSource } from "$lib/platforms/discovery";
-import type { Instance } from "$lib/types/instance";
+import type { Instance, InstanceAuth, AuthProvider } from "$lib/types/instance";
 import type { Patch } from "$lib/utils/versions";
 
-export type LoginMethod = "steam" | "epic" | "hirez";
+export type LoginMethod = AuthProvider;
 
 type Detection = {
 	versionId: string;
@@ -57,19 +57,28 @@ export function loginOf(source: InstallationSource | undefined): LoginMethod | u
 	return source === "steam" || source === "epic" ? source : undefined;
 }
 
-export function argsFor(version: string | undefined, method: LoginMethod | undefined) {
-	if (version !== "8.1") return [];
-	return method === "steam" ? ["-steam"] : method === "epic" ? ["-epic"] : [];
+/**
+ * The sign-in a new instance remembers: 8.1 needs a portal, older builds prompt themselves.
+ * @param version - The instance's game version.
+ * @param method - The picked sign-in, if any.
+ * @returns The auth to store, or undefined for the client's own Hi-Rez login.
+ */
+export function authFor(
+	version: string | undefined,
+	method: LoginMethod | undefined,
+): InstanceAuth | undefined {
+	if (version !== "8.1" || !method) return undefined;
+	return { provider: method };
 }
 
 export function newInstance(
 	fields: Pick<Instance, "label" | "version" | "manifestId" | "appId" | "path" | "state">,
-	args: string[],
+	auth?: InstanceAuth,
 ): Instance {
 	return {
 		id: crypto.randomUUID(),
 		...fields,
-		launchOptions: { dllList: [], args, noDefaultArgs: false, log: false },
+		launchOptions: { dllList: [], args: [], noDefaultArgs: false, log: false, auth },
 	};
 }
 
@@ -209,7 +218,7 @@ export class FolderImport {
 					path: folder.path,
 					state: { type: "setup" },
 				},
-				argsFor(found?.version, method),
+				authFor(found?.version, method),
 			);
 			addInstance(instance);
 			void this.#runSetup(instance);

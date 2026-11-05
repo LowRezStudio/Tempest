@@ -8,6 +8,7 @@
 	import { Tooltip } from "bits-ui";
 	import { untrack } from "svelte";
 	import favicon from "$lib/assets/favicon.ico?url";
+	import EpicAccountDialog from "$lib/components/epic/EpicAccountDialog.svelte";
 	import AppShell from "$lib/components/layout/AppShell.svelte";
 	import SigningKeyModal from "$lib/components/mods/SigningKeyModal.svelte";
 	import OnboardingPage from "$lib/components/onboarding/OnboardingPage.svelte";
@@ -18,6 +19,7 @@
 	import { invoke } from "$lib/platform/api";
 	import { setQueryClient } from "$lib/queries/client";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
+	import { epicLogin } from "$lib/stores/epic.svelte";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { snapshotPaused } from "$lib/stores/snapshot.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
@@ -128,6 +130,9 @@
 			<AppShell {children} />
 		{/if}
 	</Tooltip.Provider>
+
+	<!-- Global singleton: Settings, an instance's settings and a launch that needs an account. -->
+	<EpicAccountDialog bind:open={epicLogin.open} note={epicLogin.note} />
 </QueryClientProvider>
 
 <!-- Global singleton: any surface can ask for a signing key name. -->

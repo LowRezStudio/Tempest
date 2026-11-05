@@ -37,6 +37,17 @@ export type InstanceLaunchOptions = {
 	log: boolean;
 	platform?: InstancePlatform;
 	presetId?: string;
+	/** How the game signs in; absent means Hi-Rez, the client's own login prompt. */
+	auth?: InstanceAuth;
+};
+
+/** The client's sign-in method; Hi-Rez (the default) is the login it prompts for. */
+export type AuthProvider = "steam" | "epic" | "hirez";
+
+export type InstanceAuth = {
+	provider: AuthProvider;
+	/** An Epic account from Settings; absent uses the selected account there. */
+	accountId?: string;
 };
 
 export type Instance = {

@@ -18,6 +18,7 @@
 	} from "@lucide/svelte";
 	import { onMount, untrack } from "svelte";
 	import DeleteInstanceDialog from "$lib/components/library/DeleteInstanceDialog.svelte";
+	import LoginMethodPicker from "$lib/components/library/LoginMethodPicker.svelte";
 	import ActionRow from "$lib/components/ui/ActionRow.svelte";
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
 	import Panel from "$lib/components/ui/Panel.svelte";
@@ -30,11 +31,19 @@
 	import { m } from "$lib/paraglide/messages";
 	import { getLocale } from "$lib/paraglide/runtime";
 	import { open as openDialog, openUrl } from "$lib/platform/api";
+	import { createEpicAccountsQuery } from "$lib/queries/epic";
 	import { createInstancePlatformsQuery } from "$lib/queries/instance";
 	import { createModsQuery } from "$lib/queries/mods";
 	import { WIKI_BASE_URL } from "$lib/rigby/constants";
+	import { openEpicLogin } from "$lib/stores/epic.svelte";
 	import { updateInstance } from "$lib/stores/instance.svelte";
-	import { instancePlatforms, type Instance, type InstancePlatform } from "$lib/types/instance";
+	import {
+		instancePlatforms,
+		type AuthProvider,
+		type Instance,
+		type InstanceAuth,
+		type InstancePlatform,
+	} from "$lib/types/instance";
 	import { parseArgs } from "$lib/utils/args";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import { patchOf } from "$lib/utils/versions";
@@ -80,6 +89,29 @@
 	let editPlatform = $state<InstancePlatform>("Win64");
 	let editArgsText = $state("");
 	let editColor = $state("");
+	// Hi-Rez (the default) and Steam leave the login to the client; Epic gets an exchange code.
+	let editAuth = $state<AuthProvider>("hirez");
+	let editEpicAccount = $state("");
+
+	const authHints: Record<AuthProvider, () => string> = {
+		steam: m.instance_sign_in_steam_hint,
+		epic: m.instance_sign_in_epic_hint,
+		hirez: m.instance_sign_in_hirez_hint,
+	};
+
+	/**
+	 * Absent on instances made before the switch, and on those an older launcher made
+	 * with `-steam`/`-epic` in the arguments.
+	 * @param i - The instance whose sign-in is read.
+	 * @returns The provider its cards show selected.
+	 */
+	const defaultAuthProvider = (i: Instance): AuthProvider => {
+		const args = i.launchOptions?.args ?? [];
+		return (
+			i.launchOptions?.auth?.provider ??
+			(args.includes("-epic") ? "epic" : args.includes("-steam") ? "steam" : "hirez")
+		);
+	};
 
 	const fieldsOf = (i: Instance) =>
 		JSON.stringify({
@@ -89,6 +121,7 @@
 			color: getInstanceColor(i),
 			platform: i.launchOptions?.platform ?? "Win64",
 			args: i.launchOptions?.args ?? [],
+			auth: i.launchOptions?.auth ?? null,
 		});
 	const stored = $derived(fieldsOf(instance));
 	// What the form last loaded or saved; a stored value that is neither was changed elsewhere.
@@ -100,6 +133,8 @@
 		editPath = instance.path;
 		editPlatform = instance.launchOptions?.platform ?? "Win64";
 		editArgsText = (instance.launchOptions?.args ?? []).join(" ");
+		editAuth = defaultAuthProvider(instance);
+		editEpicAccount = instance.launchOptions?.auth?.accountId ?? "";
 		editColor = getInstanceColor(instance);
 		known = stored;
 	}
@@ -110,7 +145,20 @@
 		if (stored !== known) untrack(syncFromInstance);
 	});
 
+	/**
+	 * The picker's choice as it is stored; older builds sign in themselves, so they get none.
+	 * @returns The auth to store, or undefined to leave it to the client.
+	 */
+	function instanceAuth(): InstanceAuth | undefined {
+		if (instance.version !== "8.1") return undefined;
+		return editAuth === "epic"
+			? { provider: "epic", accountId: editEpicAccount || undefined }
+			: { provider: editAuth };
+	}
+
 	function buildUpdates() {
+		const auth = instanceAuth();
+		const args = parseArgs(editArgsText);
 		return {
 			label: editName.trim() || instance.label,
 			version: editVersion.trim(),
@@ -119,7 +167,9 @@
 			launchOptions: {
 				...instance.launchOptions,
 				platform: editPlatform,
-				args: parseArgs(editArgsText),
+				// The picker owns these two switches now; a leftover copy would be passed twice.
+				args: auth ? args.filter((arg) => arg !== "-steam" && arg !== "-epic") : args,
+				auth,
 			},
 		};
 	}
@@ -198,6 +248,28 @@
 	const modsQuery = createModsQuery(() => editPath);
 	const mods = $derived(modsQuery.data ?? []);
 	const enabledMods = $derived(mods.filter((mod) => mod.Enabled).length);
+
+	// The Epic account picker needs the accounts the launcher holds.
+	const epicAccountsQuery = createEpicAccountsQuery();
+	const epicAccounts = $derived(epicAccountsQuery.data);
+	// An account removed in Settings since this instance picked it falls back to the default.
+	$effect(() => {
+		const list = epicAccountsQuery.data;
+		if (editAuth !== "epic" || !list) return;
+		if (editEpicAccount && !list.accounts.some((a) => a.accountId === editEpicAccount)) {
+			editEpicAccount = "";
+		}
+	});
+
+	/**
+	 * The display name of an account the launcher holds.
+	 * @param accountId - The account id, or null/undefined for none.
+	 * @returns The name, or null when it is not a signed-in account.
+	 */
+	const epicName = (accountId: string | null | undefined) =>
+		accountId
+			? (epicAccounts?.accounts.find((a) => a.accountId === accountId)?.displayName ?? null)
+			: null;
 
 	const phase = $derived(instance.state.type);
 	// Both write into the game folder, so neither while it is in use.
@@ -432,13 +504,67 @@
 												: m.instance_platform_missing()}
 										</span>
 									</span>
-									{#if active}<Check
-											size={14}
-											class="text-primary shrink-0"
-										/>{/if}
+									<Check
+										size={14}
+										class={["shrink-0", active ? "text-primary" : "invisible"]}
+									/>
 								</button>
 							{/each}
 						</div>
+					</div>
+					<div class="flex flex-col gap-1">
+						{#if instance.version === "8.1"}
+							<LoginMethodPicker
+								bind:value={editAuth}
+								label={m.instance_sign_in()}
+								note=""
+								hints={authHints}
+							/>
+							{#if editAuth === "epic"}
+								<div class="flex flex-col gap-1">
+									{#if (epicAccounts?.accounts.length ?? 0) > 1}
+										<select
+											class="select select-sm w-full"
+											aria-label={m.instance_sign_in_epic_account()}
+											bind:value={editEpicAccount}
+										>
+											<option value=""
+												>{m.instance_sign_in_default_account()}</option
+											>
+											{#each epicAccounts?.accounts ?? [] as account (account.accountId)}
+												<option value={account.accountId}
+													>{account.displayName}</option
+												>
+											{/each}
+										</select>
+									{/if}
+									{#if epicAccounts}
+										<p
+											class="text-base-content/60 flex flex-wrap items-center gap-1 text-xs"
+										>
+											{#if epicAccounts.accounts.length === 0}
+												<span>{m.instance_sign_in_no_accounts()}</span>
+												<button
+													type="button"
+													class="link"
+													onclick={() => openEpicLogin()}
+												>
+													{m.settings_epic_add()}
+												</button>
+											{:else if editEpicAccount}
+												{m.instance_sign_in_as({
+													name: epicName(editEpicAccount) ?? "",
+												})}
+											{:else}
+												{m.instance_sign_in_default_as({
+													name: epicName(epicAccounts.selectedId) ?? "",
+												})}
+											{/if}
+										</p>
+									{/if}
+								</div>
+							{/if}
+						{/if}
 					</div>
 					<div class="flex flex-col gap-1">
 						<label for="instance-args" class="text-base-content/60 text-xs"

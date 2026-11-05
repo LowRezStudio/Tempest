@@ -14,6 +14,7 @@ import { ensureCli } from "./cli.js";
 import "./converter.js";
 import "./defender.js";
 import "./dialog.js";
+import "./epic.js";
 import { handle } from "./ipc/handle.js";
 import "./instances.js";
 import "./keybinds.js";
