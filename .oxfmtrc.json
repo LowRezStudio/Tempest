@@ -22,5 +22,16 @@
 	"singleQuote": false,
 	"sortPackageJson": true,
 	"svelte": true,
-	"ignorePatterns": []
+	// Generated, vendored and build output: never rewrite these (the patterns
+	// work from the root and from inside each app, where `oxfmt --write .` runs).
+	"ignorePatterns": [
+		"**/.svelte-kit/**",
+		"**/build/**",
+		"**/dist/**",
+		"**/node_modules/**",
+		"**/electron/resources/binaries/**",
+		"**/src/lib/paraglide/**",
+		"**/vendor/**",
+		"**/.ruffle/**"
+	]
 }

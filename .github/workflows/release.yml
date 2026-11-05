@@ -98,14 +98,14 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          package_json_file: Tempest.Launcher/package.json
+          package_json_file: package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "pnpm"
-          cache-dependency-path: Tempest.Launcher/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install Linux packaging deps
         if: startsWith(matrix.platform, 'ubuntu-')
@@ -126,9 +126,10 @@ jobs:
           key: cli-sidecar-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Tempest.Utils/**') }}
           restore-keys: cli-sidecar-${{ runner.os }}-${{ runner.arch }}-
 
+      # The two apps share the root pnpm workspace: filter the install to this
+      # app and its host so the Studio's dependency graph is not downloaded.
       - name: Install frontend dependencies
-        working-directory: Tempest.Launcher
-        run: pnpm install --frozen-lockfile
+        run: pnpm --filter tempest.launcher --filter tempest-launcher-electron install --frozen-lockfile
 
       - name: Build CLI sidecar
         working-directory: Tempest.Launcher
@@ -148,7 +149,7 @@ jobs:
           path: |
             .electron-cache
             .electron-builder-cache
-          key: electron-tooling-${{ runner.os }}-${{ hashFiles('Tempest.Launcher/pnpm-lock.yaml') }}
+          key: electron-tooling-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Build frontend
         working-directory: Tempest.Launcher

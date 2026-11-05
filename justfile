@@ -170,14 +170,28 @@ publish-cli:
     dotnet publish -c Release Tempest.CLI
 
 # ---------------------------------------------------------------------------
-# Tempest.Launcher (Tauri / Electron + SvelteKit)
+# JS workspace: root pnpm workspace (Tempest.Launcher, Tempest.Studio)
 # ---------------------------------------------------------------------------
 
-# pnpm install (enables corepack first)
-[group("launcher")]
-launcher-install:
+# pnpm install for every JS package in the repo (enables corepack first)
+[group("js")]
+js-install:
     corepack enable
-    cd {{launcher}} && pnpm install
+    pnpm install
+
+# oxfmt over both Electron apps (root .oxfmtrc.json)
+[group("js")]
+js-fmt:
+    pnpm fmt
+
+# oxlint, type-aware, over both Electron apps (root .oxlintrc.json)
+[group("js")]
+js-lint:
+    pnpm lint
+
+# ---------------------------------------------------------------------------
+# Tempest.Launcher (Tauri / Electron + SvelteKit)
+# ---------------------------------------------------------------------------
 
 # Electron dev app (needs the CLI built first)
 [group("launcher")]
@@ -189,17 +203,11 @@ launcher-dev: build
 launcher-build:
     cd {{launcher}} && pnpm electron:build
 
-# svelte-check (renderer), electron typecheck (host), oxlint
+# svelte-check (renderer) and electron typecheck (host); lint: just js-lint
 [group("launcher")]
-launcher-check:
+launcher-check: js-lint
     cd {{launcher}} && pnpm check
     cd {{launcher}} && pnpm check:electron
-    cd {{launcher}} && pnpm lint
-
-# oxfmt
-[group("launcher")]
-launcher-fmt:
-    cd {{launcher}} && pnpm fmt
 
 # Regenerate TS protobuf clients from Tempest.Protocol
 [group("launcher")]
@@ -219,12 +227,6 @@ bump:
 # Tempest.Studio (Electron): package/asset editor over `upk serve`
 # ---------------------------------------------------------------------------
 
-# pnpm install (enables corepack first)
-[group("studio")]
-studio-install:
-    corepack enable
-    cd {{studio}} && pnpm install
-
 # Electron dev app; builds the `upk` backend (cargo release) first
 [group("studio")]
 studio-dev:
@@ -240,18 +242,12 @@ studio-build:
 studio-ruffle:
     {{studio}}/scripts/build-ruffle.sh
 
-# svelte-check (renderer), electron typecheck (host), oxlint
+# svelte-check (renderer) and electron typecheck (host); lint: just js-lint
 [group("studio")]
-studio-check:
+studio-check: js-lint
     cd {{studio}} && pnpm check
     cd {{studio}} && pnpm check:electron
-    cd {{studio}} && pnpm lint
 
-# oxfmt
-[group("studio")]
-studio-fmt:
-    cd {{studio}} && pnpm fmt
-
-# All verification that runs without a game: .NET build, scripting tests + clippy, launcher check
+# All verification that runs without a game: .NET build, scripting tests + clippy, unrealscript tests + clippy, JS checks
 [group("all")]
 check: build scripting-test scripting-check unrealscript-check launcher-check studio-check

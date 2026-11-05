@@ -43,6 +43,7 @@
 		"import/no-duplicates": "error",
 		"import/first": "error",
 		"import/no-mutable-exports": "error",
+		"import/no-relative-parent-imports": "error",
 
 		// Unicorn rules for modern JavaScript
 		"unicorn/catch-error-name": "error",
@@ -100,7 +101,7 @@
 	},
 	"overrides": [
 		{
-			"files": ["*.svelte"],
+			"files": ["**/*.svelte"],
 			"rules": {
 				// Svelte-specific adjustments
 				"no-undef": "off", // Svelte compiler handles this
@@ -109,20 +110,31 @@
 			}
 		},
 		{
-			"files": ["src/routes/**/*.js", "src/routes/**/*.ts"],
+			"files": ["**/src/routes/**/*.js", "**/src/routes/**/*.ts"],
 			"rules": {
 				// SvelteKit route files
 				"no-unused-vars": "off" // Route exports are used by SvelteKit
 			}
+		},
+		{
+			// The Studio imports the typed IPC contract from electron/src with
+			// relative paths; the launcher aliases it as `$ipc`.
+			"files": ["Tempest.Studio/**"],
+			"rules": {
+				"import/no-relative-parent-imports": "off"
+			}
 		}
 	],
 	"ignorePatterns": [
-		".svelte-kit/**",
-		"src/lib/rpc/**/*",
-		"build/**",
-		"dist/**",
-		"node_modules/**",
-		"*.d.ts",
-		".env*"
+		"**/.svelte-kit/**",
+		"**/build/**",
+		"**/dist/**",
+		"**/node_modules/**",
+		"**/electron/resources/binaries/**",
+		"**/src/lib/rpc/**",
+		"**/src/lib/paraglide/**",
+		"**/vendor/**",
+		"**/*.d.ts",
+		"**/.env*"
 	]
 }

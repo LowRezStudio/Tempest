@@ -58,18 +58,19 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          package_json_file: Tempest.Launcher/package.json
+          package_json_file: package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "pnpm"
-          cache-dependency-path: Tempest.Launcher/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
+      # scripts/build-cli.js only imports dax (a launcher dependency), so the
+      # launcher's graph is enough; the Studio's is not downloaded.
       - name: Install frontend dependencies
-        working-directory: Tempest.Launcher
-        run: pnpm install --frozen-lockfile
+        run: pnpm --filter tempest.launcher install --frozen-lockfile
 
       - name: Build the zig sidecar
         working-directory: Tempest.Launcher

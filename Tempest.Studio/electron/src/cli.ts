@@ -91,8 +91,8 @@ handle("cli:account", async () => {
 		signing: { hasKey: fs.existsSync(key), keyId, path: key },
 		repo: {
 			url: (
-				process.env.TEMPEST_REPO_URL ||
-				config.url ||
+				process.env.TEMPEST_REPO_URL ??
+				config.url ??
 				"https://mods.lowrezstudio.com"
 			).replace(/\/+$/, ""),
 			hasApiKey: apiKey !== null,

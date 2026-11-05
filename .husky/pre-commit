@@ -1,0 +1,21 @@
+#!/bin/sh
+# Formats the staged JS/TS/JSON/CSS/Svelte files with the repo-wide oxfmt (root
+# package.json) and re-stages only those. Skips itself when the workspace has not
+# been installed yet, so a fresh clone can commit. NUL-separated throughout:
+# names may contain spaces.
+
+bin=node_modules/.bin/oxfmt
+if [ ! -x "$bin" ]; then
+	echo "pre-commit: oxfmt is not installed, run 'pnpm install'" >&2
+	exit 0
+fi
+
+list=$(mktemp)
+trap 'rm -f "$list"' EXIT
+
+git diff --cached --name-only --diff-filter=ACMR -z -- \
+	'*.svelte' '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' '*.cjs' '*.json' '*.jsonc' '*.css' >"$list"
+[ -s "$list" ] || exit 0
+
+xargs -0 "$bin" --write <"$list"
+xargs -0 git add -- <"$list"

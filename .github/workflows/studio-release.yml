@@ -126,14 +126,14 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          package_json_file: Tempest.Studio/package.json
+          package_json_file: package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "pnpm"
-          cache-dependency-path: Tempest.Studio/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install Linux packaging deps
         if: startsWith(matrix.platform, 'ubuntu-')
@@ -141,16 +141,15 @@ jobs:
           sudo apt update
           sudo apt-get install -y rpm fakeroot
 
+      # Same workspace as the launcher: only the Studio's dependency graph (the
+      # launcher's is not downloaded).
       - name: Install frontend dependencies
-        working-directory: Tempest.Studio
-        run: pnpm install --frozen-lockfile
+        run: pnpm --filter tempest.studio --filter tempest-studio-electron install --frozen-lockfile
 
       - name: Check frontend and host
-        working-directory: Tempest.Studio
         run: |
-          pnpm check
-          pnpm check:electron
-          pnpm lint
+          pnpm check:studio
+          pnpm -C Tempest.Studio lint
 
       - name: Test the asset library
         working-directory: Tempest.UnrealScript
@@ -199,7 +198,7 @@ jobs:
           path: |
             .electron-cache
             .electron-builder-cache
-          key: studio-electron-tooling-${{ runner.os }}-${{ hashFiles('Tempest.Studio/pnpm-lock.yaml') }}
+          key: studio-electron-tooling-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Build frontend
         working-directory: Tempest.Studio

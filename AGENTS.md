@@ -21,7 +21,7 @@ Mixed stack, split by directory:
 - .NET SDK `10.0.100` (see `global.json`, `rollForward: latestFeature`)
 - Zig `0.15.2`
 - Rust stable (`Tempest.Scripting` Lua modding DLL, `Tempest.UnrealScript`)
-- Node.js `>= 22` with Corepack enabled (only for the launcher)
+- Node.js `>= 22` with Corepack enabled (for the root JS workspace: the launcher and the Studio)
 
 ## .NET commands
 
@@ -45,7 +45,7 @@ Notes:
 
 ## Task runner
 
-The root `justfile` wraps every project's commands, grouped `utils` / `scripting` / `dotnet` / `launcher`; `just` lists them. `just check` runs all verification that needs no game (.NET build, scripting tests + clippy, unrealscript tests + clippy, launcher check + lint). The raw commands below are what the recipes run.
+The root `justfile` wraps every project's commands, grouped `utils` / `scripting` / `dotnet` / `js` / `launcher` / `studio`; `just` lists them. `just check` runs all verification that needs no game (.NET build, scripting tests + clippy, unrealscript tests + clippy, JS type checks + lint). The raw commands below are what the recipes run.
 
 ## Zig / native utils commands
 
@@ -101,37 +101,41 @@ Correctness is defined as byte-identical output versus the game's own packages; 
 
 ## Launcher commands
 
-All run from `Tempest.Launcher/` (or via `just launcher-*` from the root):
+Run from the repository root (the root `package.json` is the workspace for both Electron apps; `just js-*` wraps these):
 
 ```bash
 corepack enable        # one-time
-pnpm install
+pnpm install           # installs both apps (root pnpm-workspace.yaml)
 
 # Dev desktop app (Electron + Vite)
 # Build Tempest.CLI first; dev commands run it directly via `dotnet exec`
 dotnet build Tempest.slnx
-pnpm electron:dev
+pnpm -C Tempest.Launcher electron:dev
 # Vite dev server is fixed to http://localhost:1420
 
-# Production build (bundles appear in dist/)
-pnpm electron:build
+# Production build (bundles appear in Tempest.Launcher/dist/)
+pnpm -C Tempest.Launcher electron:build
 
-# Type-check / Svelte-check
-pnpm check
+# Type-check / Svelte-check (the launcher's scripts, or `pnpm check:launcher` from the root)
+pnpm -C Tempest.Launcher check
+pnpm -C Tempest.Launcher check:electron
 
-# Format (oxfmt)
+# Format every JS package (each app's own `fmt`: oxfmt, root .oxfmtrc.json)
 pnpm fmt
 
-# Lint (oxlint)
+# Lint every JS package (each app's own `lint`: oxlint --type-aware, root .oxlintrc.json)
 pnpm lint
 
-# Regenerate TS protobuf clients from ../Tempest.Protocol
-pnpm proto-generate
+# Regenerate TS protobuf clients from Tempest.Protocol
+pnpm -C Tempest.Launcher proto-generate
 ```
 
 Notes:
-- Package manager is `pnpm` only; `packageManager` is pinned in `package.json`.
-- `pnpm install` runs `prepare`, which installs Husky hooks from the repo root.
+- Package manager is `pnpm` only; `packageManager` is pinned in the root `package.json`.
+- One pnpm workspace at the root (`pnpm-workspace.yaml`: `Tempest.Launcher`, `Tempest.Launcher/electron`, `Tempest.Studio`, `Tempest.Studio/electron`), one `pnpm-lock.yaml`. Scripts can still be run inside a package directory (`cd Tempest.Launcher && pnpm electron:dev`); pnpm finds the workspace root.
+- `pnpm install` runs the root `prepare`, which installs the repo-root Husky hook (`.husky/pre-commit`: formats the staged JS/TS/JSON/CSS/Svelte files with the root oxfmt).
+- Shared tool versions live in the `catalog:` of the root `pnpm-workspace.yaml` (`husky`, `oxfmt`, `oxlint`, `oxlint-tsgolint`, `vite`); each package that runs one declares it as `"catalog:"`, which puts its bin on that package's `PATH`: `vite` in both Electron hosts (their dev/build scripts run the renderer), `oxfmt` + `oxlint` in both apps, and `oxfmt` in the launcher too (`proto-generate` formats its output with it). `workspace:*` links workspace packages only, so it does not apply to external tools.
+- `pnpm fmt` / `pnpm lint` at the root run `pnpm -r run fmt|lint`, i.e. each app formats and lints its own tree (its config is found in the parent directory). An app's `lint` runs `svelte-kit sync` first, because type-aware linting reads its generated `.svelte-kit/tsconfig.json` — so `pnpm -C Tempest.Studio lint` works on a fresh clone too.
 - The Electron host is TypeScript in `electron/src/`, compiled by `tsc` into `electron/dist/` (the dev and build scripts do this automatically; `pnpm check:electron` / `pnpm -C electron typecheck` verifies it). Restart `electron:dev` to pick up host changes. The IPC surface is typed end-to-end by `electron/src/ipc/contract.ts`, which the renderer imports as types — adding a channel means adding it to the contract, then the handler and the renderer call site all get checked.
 - The tray, close-guard (hide-to-tray), dialogs, filesystem operations (platform detection, instance paths, mod downloads/previews, settings snapshots) all live in the Electron host; the renderer only orchestrates.
 - `pnpm electron:build` bundles external `tempest-cli`, `upk` and `asmloader` binaries built by `scripts/build-cli.js` into `electron/resources/binaries`; the dev server does not need them (the cooker uses the Rust release build of `upk` from `Tempest.UnrealScript/target/release`, overridable with `TEMPEST_UPK`).
@@ -141,17 +145,17 @@ Notes:
 
 ## Tempest.Studio commands
 
-All run from `Tempest.Studio/` (or via `just studio-*` from the root):
+Run from the repository root (same root workspace as the launcher; `just studio-*` wraps these):
 
 ```bash
-pnpm install           # corepack must be enabled
-pnpm electron:dev      # builds `upk` (cargo release) + host (tsc), starts vite (port 1421) + Electron
-pnpm electron:build    # release build: upk sidecar + renderer + host -> dist/
-pnpm check             # svelte-check
-pnpm check:electron    # host typecheck
-pnpm lint              # oxlint
-pnpm fmt               # oxfmt
+pnpm install                       # once, at the root
+pnpm -C Tempest.Studio electron:dev     # builds `upk` (cargo release) + host (tsc), starts vite (port 1421) + Electron
+pnpm -C Tempest.Studio electron:build   # release build: upk sidecar + renderer + host -> dist/
+pnpm -C Tempest.Studio check            # svelte-check
+pnpm -C Tempest.Studio check:electron   # host typecheck (or `pnpm check:studio` from the root for both)
 ```
+
+Lint and format run per app (`pnpm -C Tempest.Studio lint` / `fmt`), or for the whole repo with `pnpm lint` / `pnpm fmt` at the root (see above).
 
 Notes:
 - The host finds the backend at `$TEMPEST_UPK`, else `<resources>/binaries/upk` (packaged), else `../Tempest.UnrealScript/target/release/upk` (dev). `electron/src/upk.ts` spawns one `upk serve` per window (a server holds one workspace, so every window can work on its own game folder; `upkFor(webContents)`), numbers requests, resolves promises by id and forwards event lines (`search.progress`) as `upk:event` to the owning window. Responses are framed (`protocol {frames: true}` handshake): a header line with `len` and the payload lengths `bin`, the result JSON bytes, then the raw binary payloads (previews, meshes, animations, audio) where the JSON holds `{"$bin": n}` markers; the host forwards the bytes and the renderer parses the JSON once (`src/lib/studio/rpc.ts`). Package tables travel as columns (`ExportColumns`, expanded into `ExportRow`s by `src/lib/studio/tables.ts`; names via `package.names`, flag names via `package.export`) and the open package is `$state.raw`, so a 65k-export script package opens in under a second. **New window** (toolbar, Ctrl+Shift+N, the welcome screen's recent list) calls `window:new`, optionally with a `dir`; a new window pulls what it should open with `window:startup` once its renderer is up (kept by the host until applied, so a dev reload replays it). Files opened from the OS go to the focused window (`open-files` event once it is ready, else its startup).
@@ -189,17 +193,17 @@ Notes:
 Do not hand-edit generated files:
 
 - `Tempest.Launcher/src/lib/paraglide/` — generated by `@inlang/paraglide-js` from `messages/*.json` via the Vite plugin. Source language is `en`; supported: `en`, `fr`, `es`, `pl`, `ru`.
-- `Tempest.Launcher/src/lib/rpc/` — generated from `Tempest.Protocol/**/*.proto` by `pnpm proto-generate` (uses `protoc --ts_out` + `@protobuf-ts/plugin`).
+- `Tempest.Launcher/src/lib/rpc/` — generated from `Tempest.Protocol/**/*.proto` by `pnpm -C Tempest.Launcher proto-generate` (uses `protoc --ts_out` + `@protobuf-ts/plugin`).
 - `Tempest.Protocol` C# outputs — generated automatically by `Grpc.Tools` on `dotnet build`.
 - `Tempest.CLI/inject/zig-out/bin/inject{32,64}.exe` — generated by the `BuildZigInject` MSBuild target.
 
-If you change `.proto` files, rebuild the solution and run `pnpm proto-generate`.
+If you change `.proto` files, rebuild the solution and run `pnpm -C Tempest.Launcher proto-generate`.
 
 ## Style / verification conventions
 
 - Do not add or update translations (`messages/*.json` files for `fr`, `es`, `pl`, `ru`) unless explicitly told to. English source strings are fine to touch.
-- `Tempest.Launcher/.editorconfig`: tabs for most files, spaces for `.rs`.
-- Launcher and Studio lint: `oxlint` with config in `.oxlintrc.json` (the Studio copies the launcher's config). Generated `src/lib/rpc/**` and `.svelte-kit/**` are ignored.
+- The root `.editorconfig`: tabs for most files, spaces for `.rs`.
+- Lint and format are repo-wide in *config*, per package in *execution*: the root `.oxlintrc.json` and `.oxfmtrc.json` are found by walking up from each app, and the tools are `"catalog:"` dev dependencies of those apps. Per-project differences are oxlint `overrides` (the Studio imports the typed IPC contract with relative paths; `*.svelte` and route files relax a few rules). Ignored everywhere: generated `src/lib/rpc/**` and paraglide output, `vendor/**` (patched Ruffle), `build/`, `dist/`, `.svelte-kit/` and `electron/resources/binaries/`.
 - Launcher is an SPA: `+layout.ts` disables SSR/prerender and enables CSR. Static adapter with `fallback: "index.html"`.
 - TypeScript is strict; `tsconfig.json` extends `.svelte-kit/tsconfig.json`.
 - No test projects currently exist; verification is build + `pnpm check` + `pnpm lint`.
@@ -213,11 +217,12 @@ If you change `.proto` files, rebuild the solution and run `pnpm proto-generate`
 - Linux → Electron AppImage + deb + rpm
 - Installs .NET 10, Zig 0.15.2, Node 22, pnpm
 - Uses `pnpm install --frozen-lockfile` and `electron-builder` (`--publish always` on tags, `--publish never` on dispatch)
+- Each app's workflow installs only its own dependency graph, not the other app's: `pnpm --filter tempest.launcher --filter tempest-launcher-electron install --frozen-lockfile` (the Studio's is the mirror image, `sidecar-cache.yml` filters to `tempest.launcher` because `scripts/build-cli.js` only imports `dax`). The root project is installed either way, so `prepare` (husky) runs.
 - Uploads artifacts and creates a draft GitHub release
 - Release notes are pulled from the annotated tag's message (set by `pnpm bump`)
 - The bundled CLI sidecar (`scripts/build-cli.js`: AOT `tempest-cli`, `upk`, the asmloader DLLs) is built by three independent jobs in parallel, with the zig build cache restored from `sidecar-cache.yml` (a tag run can only see caches saved on master or by itself, so that workflow warms them on master pushes that touch `Tempest.Utils/**`, weekly, and by hand).
 
-`.github/workflows/studio-release.yml` does the same for **Tempest Studio** on `studio-v*` tags (or manual dispatch): draft release titled "Tempest Studio <version>", then Windows NSIS, macOS DMG and Linux AppImage/deb/rpm builds (Rust stable builds the `upk` sidecar, `pnpm check`/`lint` and `cargo test -p tempest-assets` run first) attached with `gh release upload`. Release a Studio version with: bump `Tempest.Studio/package.json` + `electron/package.json`, commit, `git tag -a studio-vX.Y.Z -m "<notes>"`, push the tag, then publish the draft.
+`.github/workflows/studio-release.yml` does the same for **Tempest Studio** on `studio-v*` tags (or manual dispatch): draft release titled "Tempest Studio <version>", then Windows NSIS, macOS DMG and Linux AppImage/deb/rpm builds (Rust stable builds the `upk` sidecar, `pnpm check:studio`/`pnpm lint` and `cargo test -p tempest-assets` run first) attached with `gh release upload`. Release a Studio version with: bump `Tempest.Studio/package.json` + `electron/package.json`, commit, `git tag -a studio-vX.Y.Z -m "<notes>"`, push the tag, then publish the draft.
 
 ## Releasing
 
