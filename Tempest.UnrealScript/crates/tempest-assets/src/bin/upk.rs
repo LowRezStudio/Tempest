@@ -48,6 +48,7 @@ fn usage() -> ExitCode {
            upk obj rename <pkg> <idx|path> <NewName> -o <out.upk>\n  \
            upk obj delete <pkg> <idx|path>... -o <out.upk>        (sub-objects too; references cleared)\n  \
            upk obj copy <src.upk> <idx|path> <dst.upk> -o <out.upk> [--outer <path>|--top] [--shallow]\n  \
+           upk obj replace-with <pkg> <idx|path> <src.upk> <idx|path> -o <out.upk> [--shallow]   an export becomes a copy of another package's object (refs remapped; --shallow references what it uses)\n  \
            upk deps <pkg> <idx|path>                           what it references, what references it\n  \
            upk mod-dir <dir> --id <id> --name <name> [--version 1.0.0] [--author <name>] <file.upk>...\n                                              \
                                                mod folder for `tempest mod pack` (files/, manifest.toml)\n  \
@@ -990,6 +991,26 @@ fn cmd_obj(args: &[String]) -> Res {
                 eprintln!("warning: {w}");
             }
             eprintln!("copied as export {} {}", idx.export_index().unwrap(), dst.pkg.full_name(idx));
+            dst.save(&out)?;
+        }
+        "replace-with" => {
+            // upk obj replace-with <dst.upk> <idx|path> <src.upk> <idx|path> -o <out.upk> [--shallow]
+            let src_path = args.get(3).ok_or("missing source package")?;
+            let mut dst = Editor::open(&db, path)?;
+            let mut src = Editor::open(&db, src_path)?;
+            let i = dst.find(args.get(2).ok_or("missing export")?)?;
+            let j = src.find(args.get(4).ok_or("missing source export")?)?;
+            let mode = if args.iter().any(|a| a == "--shallow") { tempest_assets::edit::CopyMode::Import } else { tempest_assets::edit::CopyMode::Deep };
+            let mut warnings = dst.replace_with(&mut src, j, i, mode)?;
+            if let Ok(o) = dst.object(i) {
+                let mut o = o.clone();
+                warnings.extend(tempest_assets::mesh_import::conform_skeletal(&dst.pkg, &mut o));
+                dst.replace_object(i, o)?;
+            }
+            for w in warnings {
+                eprintln!("warning: {w}");
+            }
+            eprintln!("replaced {} with {}", dst.pkg.full_name(PackageIndex::export(i)), src.pkg.full_name(PackageIndex::export(j)));
             dst.save(&out)?;
         }
         _ => return Err(format!("unknown obj subcommand {sub}").into()),

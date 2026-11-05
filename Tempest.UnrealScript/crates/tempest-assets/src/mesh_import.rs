@@ -25,6 +25,7 @@ use tempest_upk::Package;
 use crate::bulk::BulkData;
 use crate::mesh::{BoxSphereBounds, BulkArray, KDopTree, MultiSizeIndexContainer, SkelMeshChunk, SkelMeshSection, SkeletalMesh, StaticMesh, StaticMeshElement};
 use crate::object::{Native, Object};
+use crate::value::{Property, StructValue, Value};
 
 const MAX_GPUSKIN_BONES: usize = 75;
 const MAX_TRIS_PER_LEAF_COMPACT: usize = 5;
@@ -1035,14 +1036,46 @@ fn import_skeletal(pkg: &Package, m: &mut SkeletalMesh, lod: usize, src: &Import
     if m.ref_skeleton.len() > 256 {
         return Err(Error::Format("skeletons with more than 256 bones are not supported".into()));
     }
-    let Some(l) = m.lod_models.get_mut(lod) else { return Err(Error::Format(format!("no LOD {lod}"))) };
+    if lod >= m.lod_models.len() {
+        return Err(Error::Format(format!("no LOD {lod}")));
+    }
     let mut report = ImportReport::default();
+    // Slots: by material name, else the file's distinct materials in order;
+    // past the mesh's last slot a new slot is added (with the last slot's
+    // material), so the mesh ends up with as many slots as the file uses.
+    let existing: Vec<String> = m.materials.iter().map(|i| pkg.object_path(*i)).collect();
+    let mut distinct: Vec<String> = Vec::new();
+    let mut slots: Vec<u16> = Vec::with_capacity(src.sections.len());
+    for (si, sec) in src.sections.iter().enumerate() {
+        let n = sec.material.trim();
+        let named = (!n.is_empty()).then(|| existing.iter().position(|e| e.eq_ignore_ascii_case(n) || e.rsplit('.').next().map(|leaf| leaf.eq_ignore_ascii_case(n)).unwrap_or(false))).flatten();
+        let slot = match named {
+            Some(i) => i,
+            None => {
+                let key = if n.is_empty() { format!("#{si}") } else { n.to_ascii_lowercase() };
+                let k = distinct.iter().position(|d| *d == key).unwrap_or_else(|| {
+                    distinct.push(key);
+                    distinct.len() - 1
+                });
+                while k >= m.materials.len() {
+                    let last = m.materials.last().copied().unwrap_or(tempest_upk::PackageIndex::NONE);
+                    m.materials.push(last);
+                    report.warnings.push(format!("material slot {} added for section {si} ({}), drawn with {} until you change it", m.materials.len() - 1, if n.is_empty() { "unnamed" } else { n }, if last.is_null() { "no material".to_string() } else { pkg.object_path(last) }));
+                }
+                if k < existing.len() {
+                    report.warnings.push(format!("section {si} ({}) uses material slot {k}: {}", if n.is_empty() { "unnamed" } else { n }, existing[k]));
+                }
+                k
+            }
+        };
+        slots.push(slot as u16);
+    }
+    let l = &mut m.lod_models[lod];
     if !missing.is_empty() {
         report.warnings.push(format!("{} joints are not bones of this skeleton and were dropped from the weights: {}", missing.len(), missing.iter().take(8).cloned().collect::<Vec<_>>().join(", ")));
     }
     let num_uv = l.vertex_buffer.num_tex_coords.max(1) as usize;
     let full_uvs = l.vertex_buffer.use_full_precision_uvs != 0;
-    let existing: Vec<String> = m.materials.iter().map(|i| pkg.object_path(*i)).collect();
     let stride = 16 + 12 + num_uv * if full_uvs { 8 } else { 4 };
     let mut vb: Vec<u8> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
@@ -1052,7 +1085,7 @@ fn import_skeletal(pkg: &Package, m: &mut SkeletalMesh, lod: usize, src: &Import
     let mut all_positions: Vec<[f32; 3]> = Vec::new();
     let mut vertex_count = 0u32;
     for (si, sec) in src.sections.iter().enumerate() {
-        let slot = match_material(&sec.material, &existing, si) as u16;
+        let slot = slots[si];
         let frames = tangents(&sec.vertices, &sec.indices);
         // Resolve influences to skeleton bones, normalised to 255.
         let mut infl: Vec<[(u16, u8); 4]> = Vec::with_capacity(sec.vertices.len());
@@ -1165,9 +1198,6 @@ fn import_skeletal(pkg: &Package, m: &mut SkeletalMesh, lod: usize, src: &Import
             chunks.push(SkelMeshChunk { base_vertex_index: base_vertex, rigid_vertices: Vec::new(), soft_vertices: Vec::new(), bone_map, num_rigid_vertices: 0, num_soft_vertices: chunk_verts.len() as i32, max_bone_influences: max_infl as i32 });
             report.triangles += ntris as usize;
         }
-        if sec.material.trim().is_empty() || !existing.iter().any(|e| e.eq_ignore_ascii_case(sec.material.trim()) || e.rsplit('.').next().map(|leaf| leaf.eq_ignore_ascii_case(sec.material.trim())).unwrap_or(false)) {
-            report.warnings.push(format!("section {si} ({}) uses material slot {slot}: {}", if sec.material.is_empty() { "unnamed" } else { sec.material.as_str() }, existing.get(slot as usize).cloned().unwrap_or_default()));
-        }
     }
     report.vertices = vertex_count as usize;
     report.sections = sections.len();
@@ -1229,9 +1259,154 @@ pub fn import(pkg: &Package, obj: &mut Object, file: &Path, bytes: &[u8], lod: u
     let src = parse_file(file, bytes)?;
     match &mut obj.native {
         Native::StaticMesh(m) => import_static(pkg, m, lod, &src),
-        Native::SkeletalMesh(m) => import_skeletal(pkg, m, lod, &src),
+        Native::SkeletalMesh(m) => {
+            let mut report = import_skeletal(pkg, m, lod, &src)?;
+            // The sections name their slots directly now.
+            if lod > 0 {
+                if let Some(Value::Struct(StructValue::Tagged(info))) = lod_info_mut(pkg, obj, lod) {
+                    if let Some(Value::Array(map)) = field_mut(pkg, info, "LODMaterialMap") {
+                        map.clear();
+                    }
+                }
+            }
+            report.warnings.extend(conform_skeletal(pkg, obj));
+            Ok(report)
+        }
         _ => Err(Error::Format("not a decoded static or skeletal mesh".into())),
     }
+}
+
+fn field_mut<'a>(pkg: &Package, props: &'a mut [Property], name: &str) -> Option<&'a mut Value> {
+    props.iter_mut().find(|p| pkg.fname_to_string(p.name).eq_ignore_ascii_case(name)).map(|p| &mut p.value)
+}
+
+fn lod_info_mut<'a>(pkg: &Package, obj: &'a mut Object, lod: usize) -> Option<&'a mut Value> {
+    match field_mut(pkg, &mut obj.properties, "LODInfo")? {
+        Value::Array(items) => items.get_mut(lod),
+        _ => None,
+    }
+}
+
+/// Resize `items` to `n`, new entries copies of the last one (else `fill`).
+fn resize_like(items: &mut Vec<Value>, n: usize, fill: Option<Value>) -> bool {
+    if items.len() == n {
+        return true;
+    }
+    if items.len() > n {
+        items.truncate(n);
+        return true;
+    }
+    let Some(v) = items.last().cloned().or(fill) else { return false };
+    items.resize(n, v);
+    true
+}
+
+/// Keep the tagged tables a skeletal mesh sizes by its sections and slots in
+/// step with its native data, as the editor would have saved them:
+/// `LODInfo[l].bEnableShadowCasting` and `TriangleSortSettings` hold one
+/// entry per section of LOD `l` (the engine indexes them by section index, a
+/// short array crashes the game), `LODMaterialMap` values must be slots, and
+/// `ClothingAssets` holds one entry per slot. Returns warnings.
+pub fn conform_skeletal(pkg: &Package, obj: &mut Object) -> Vec<String> {
+    let Native::SkeletalMesh(m) = &obj.native else { return Vec::new() };
+    let sections: Vec<usize> = m.lod_models.iter().map(|l| l.sections.len()).collect();
+    let slots = m.materials.len();
+    let mut warnings = Vec::new();
+    // A TriangleSortSettings entry to copy when a LOD has none.
+    let sort_template = match obj.property("LODInfo", pkg).map(|p| &p.value) {
+        Some(Value::Array(infos)) => infos.iter().find_map(|i| match i {
+            Value::Struct(StructValue::Tagged(f)) => f.iter().find(|p| pkg.fname_to_string(p.name).eq_ignore_ascii_case("TriangleSortSettings")).and_then(|p| match &p.value {
+                Value::Array(a) => a.first().cloned(),
+                _ => None,
+            }),
+            _ => None,
+        }),
+        _ => None,
+    };
+    for (l, &n) in sections.iter().enumerate() {
+        let Some(Value::Struct(StructValue::Tagged(info))) = lod_info_mut(pkg, obj, l) else { continue };
+        if let Some(Value::Array(a)) = field_mut(pkg, info, "bEnableShadowCasting") {
+            resize_like(a, n, Some(Value::Bool(true)));
+        }
+        if let Some(Value::Array(a)) = field_mut(pkg, info, "TriangleSortSettings") {
+            if !resize_like(a, n, sort_template.clone()) {
+                warnings.push(format!("LOD {l}: TriangleSortSettings has no entry to copy for its {n} sections"));
+            }
+        }
+        if let Some(Value::Array(map)) = field_mut(pkg, info, "LODMaterialMap") {
+            for v in map.iter_mut() {
+                if let Value::Int(k) = v {
+                    if *k < 0 || *k as usize >= slots {
+                        *k = 0;
+                    }
+                }
+            }
+        }
+    }
+    if let Some(Value::Array(a)) = field_mut(pkg, &mut obj.properties, "ClothingAssets") {
+        resize_like(a, slots, Some(Value::Object(tempest_upk::PackageIndex::NONE)));
+    }
+    warnings
+}
+
+/// Append a material slot drawn with `material` (no section uses it until
+/// a mesh is imported or a LOD's `LODMaterialMap` points at it).
+pub fn add_slot(pkg: &Package, obj: &mut Object, material: tempest_upk::PackageIndex) -> Result<usize> {
+    let Native::SkeletalMesh(m) = &mut obj.native else { return Err(Error::Format("material slots can only be added to skeletal meshes (a static mesh's slots are its sections)".into())) };
+    m.materials.push(material);
+    let k = m.materials.len() - 1;
+    conform_skeletal(pkg, obj);
+    Ok(k)
+}
+
+/// Remove material slot `slot`: refused while a section draws with it;
+/// sections and `LODMaterialMap` entries after it move down one.
+pub fn remove_slot(pkg: &Package, obj: &mut Object, slot: usize) -> Result<()> {
+    let Native::SkeletalMesh(m) = &mut obj.native else { return Err(Error::Format("material slots can only be removed from skeletal meshes".into())) };
+    if slot >= m.materials.len() {
+        return Err(Error::Format(format!("the mesh has {} material slots", m.materials.len())));
+    }
+    if m.materials.len() == 1 {
+        return Err(Error::Format("a mesh needs at least one material slot".into()));
+    }
+    let users: Vec<String> = m.lod_models.iter().enumerate().flat_map(|(l, lm)| lm.sections.iter().enumerate().filter(|(_, s)| s.material_index as usize == slot).map(move |(s, _)| format!("LOD {l} section {s}"))).collect();
+    if !users.is_empty() {
+        return Err(Error::Format(format!("slot {slot} is drawn by {}: replace the mesh with one that does not use it first", users.join(", "))));
+    }
+    m.materials.remove(slot);
+    for lm in m.lod_models.iter_mut().chain(m.source_data.as_deref_mut()) {
+        for s in lm.sections.iter_mut() {
+            if s.material_index as usize > slot {
+                s.material_index -= 1;
+            }
+        }
+    }
+    let lods = m.lod_models.len();
+    for l in 0..lods {
+        let Some(Value::Struct(StructValue::Tagged(info))) = lod_info_mut(pkg, obj, l) else { continue };
+        if let Some(Value::Array(map)) = field_mut(pkg, info, "LODMaterialMap") {
+            // Indexed by slot, valued by slot.
+            if slot < map.len() {
+                map.remove(slot);
+            }
+            for v in map.iter_mut() {
+                if let Value::Int(k) = v {
+                    if *k as usize > slot {
+                        *k -= 1;
+                    } else if *k as usize == slot {
+                        *k = 0;
+                    }
+                }
+            }
+        }
+    }
+    if let Some(Value::Array(a)) = field_mut(pkg, &mut obj.properties, "ClothingAssets") {
+        if slot < a.len() {
+            a.remove(slot);
+        }
+    }
+    conform_skeletal(pkg, obj);
+    Ok(())
 }
 
 #[cfg(test)]

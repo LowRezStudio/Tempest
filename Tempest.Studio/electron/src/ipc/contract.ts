@@ -136,6 +136,8 @@ export type MeshMaterials = {
 		/** In another package (an import). */
 		external: boolean;
 	}[];
+	/** Slots can be added and removed (skeletal meshes; a static mesh's slots are its sections). */
+	skeletal: boolean;
 };
 
 export type Workspace = {
@@ -1066,6 +1068,15 @@ export interface UpkMethods {
 		params: { src: string; index: number; dst: string; outer?: number | "top"; deep?: boolean };
 		result: { index: number; path: string; warnings: string[] };
 	};
+	/**
+	 * The export becomes a copy of an object of another package (same class),
+	 * references remapped; `deep` (default) copies what it uses along, else
+	 * references it there. Name, outer and NetIndex stay.
+	 */
+	"object.replaceWith": {
+		params: Target & { src: ObjectTarget; deep?: boolean };
+		result: { index: number; path: string; class: string; warnings: string[] };
+	};
 	/** A copy of an export next to it (`…_copy`), same payload, no sub-objects. */
 	"object.duplicate": { params: Target; result: { index: number; path: string } };
 	"object.deps": { params: Target; result: Deps };
@@ -1169,6 +1180,10 @@ export interface UpkMethods {
 		params: Target & { slot: number };
 		result: MeshMaterials & { material: { index: number; path: string } };
 	};
+	/** A new slot of a skeletal mesh (the last slot's material unless one is given). */
+	"mesh.addSlot": { params: Target & { material?: ObjectTarget }; result: MeshMaterials };
+	/** Remove a skeletal mesh's slot no section draws with (later slots move down). */
+	"mesh.removeSlot": { params: Target & { slot: number }; result: MeshMaterials };
 	/** A texture parameter of a material or instance (the texture from any package). */
 	"material.setTexture": {
 		params: Target & { name: string; texture: ObjectTarget };

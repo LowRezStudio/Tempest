@@ -481,6 +481,7 @@ impl Server {
             "object.rename" => self.object_rename(p),
             "object.delete" => self.object_delete(p),
             "object.copy" => self.object_copy(p),
+            "object.replaceWith" => self.object_replace_with(p),
             "object.add" => self.object_add(p),
             "object.missing" => {
                 let path = s(p, "path")?;
@@ -530,6 +531,8 @@ impl Server {
             "mesh.materials" => self.mesh_materials(p),
             "mesh.setMaterial" => self.mesh_set_material(p),
             "mesh.ownMaterial" => self.mesh_own_material(p),
+            "mesh.addSlot" => self.mesh_add_slot(p),
+            "mesh.removeSlot" => self.mesh_remove_slot(p),
             "map.list" => self.map_list(),
             "map.scene" => self.map_scene(p),
             "map.setTransform" => self.map_set_transform(p),
@@ -1416,6 +1419,48 @@ impl Server {
         };
         self.editors.insert(dk, dst);
         result
+    }
+
+    /// `object.replaceWith {path, index, src: {path, index}, deep}`: export
+    /// `index` becomes a copy of an object of another package (same class),
+    /// references remapped: with `deep` (default) what it uses in its own
+    /// package is copied along (unless an object of the same path is here
+    /// already), else referenced there by import. Name, outer and NetIndex
+    /// stay, so everything that used the export now gets the new content.
+    fn object_replace_with(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let src = p.get("src").ok_or("missing src")?;
+        let src_path = src["path"].as_str().ok_or("missing src.path")?.to_string();
+        let j = src["index"].as_u64().ok_or("missing src.index")? as usize;
+        let mode = if opt_b(p, "deep").unwrap_or(true) { crate::edit::CopyMode::Deep } else { crate::edit::CopyMode::Import };
+        if key(&src_path) == key(&path) {
+            return Err("pick an object of another package (or use Duplicate)".into());
+        }
+        let dk = key(&path);
+        let name = self.editor(&path)?.pkg.object_name(PackageIndex::export(i));
+        let mut dst = self.editors.remove(&dk).unwrap();
+        let r = match self.editor(&src_path) {
+            Ok(src) => {
+                dst.begin_undo(format!("replace {name} with {}", src.pkg.object_path(PackageIndex::export(j))));
+                dst.replace_with(src, j, i, mode).map_err(|e| Box::new(e) as Box<dyn Error>)
+            }
+            Err(e) => Err(e),
+        };
+        self.editors.insert(dk, dst);
+        let mut warnings = r?;
+        // A skeletal mesh's per-section tables come from the source too; make
+        // sure they match its sections anyway.
+        let ed = self.editor(&path)?;
+        if let Ok(o) = ed.object(i) {
+            if matches!(o.native, Native::SkeletalMesh(_)) {
+                let mut o = o.clone();
+                warnings.extend(crate::mesh_import::conform_skeletal(&ed.pkg, &mut o));
+                ed.replace_object(i, o)?;
+            }
+        }
+        let class = ed.pkg.class_name_of(PackageIndex::export(i));
+        Ok(json!({ "index": i, "path": ed.pkg.object_path(PackageIndex::export(i)), "class": class, "warnings": warnings }))
     }
 
     fn object_deps(&mut self, p: &J) -> Res<J> {
@@ -5846,7 +5891,7 @@ impl Server {
                 json!({ "slot": slot, "material": json::reference(&ed.pkg, mat), "sections": sections, "instance": db.class_is_a(&class, "MaterialInstance"), "external": mat.is_import() })
             })
             .collect();
-        Ok(json!({ "slots": slots }))
+        Ok(json!({ "slots": slots, "skeletal": matches!(o.native, Native::SkeletalMesh(_)) }))
     }
 
     /// `mesh.setMaterial {path, index, slot, material: {path, index}}`: the
@@ -5895,6 +5940,52 @@ impl Server {
         }
         ed.replace_object(i, o)?;
         ed.mark_dirty(i);
+        self.mesh_materials(&json!({ "path": path, "index": i }))
+    }
+
+    /// `mesh.addSlot {path, index, material?: {path, index}}`: a new material
+    /// slot of a skeletal mesh (the last slot's material when none is given).
+    fn mesh_add_slot(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let name = self.editor(&path)?.pkg.object_name(PackageIndex::export(i));
+        self.editor(&path)?.begin_undo(format!("add a material slot to {name}"));
+        let mat = match p.get("material") {
+            Some(m) if !m.is_null() => {
+                let tpath = m["path"].as_str().unwrap_or(&path).to_string();
+                let ti = m["index"].as_u64().unwrap_or(0) as usize;
+                let te = self.editor(&tpath)?;
+                let class = te.pkg.class_name_of(PackageIndex::export(ti));
+                if !te.db.class_is_a(&class, "MaterialInterface") {
+                    return Err(format!("{class} is not a material").into());
+                }
+                Some(self.ref_into(&path, m)?)
+            }
+            _ => None,
+        };
+        let ed = self.editor(&path)?;
+        let mut o = ed.object(i)?.clone();
+        let mat = mat.or(match &o.native {
+            Native::SkeletalMesh(m) => m.materials.last().copied(),
+            _ => None,
+        });
+        crate::mesh_import::add_slot(&ed.pkg, &mut o, mat.unwrap_or(PackageIndex::NONE))?;
+        ed.replace_object(i, o)?;
+        self.mesh_materials(&json!({ "path": path, "index": i }))
+    }
+
+    /// `mesh.removeSlot {path, index, slot}`: remove a skeletal mesh's slot
+    /// that no section draws with.
+    fn mesh_remove_slot(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let slot = opt_u(p, "slot").ok_or("missing slot")?;
+        let ed = self.editor(&path)?;
+        let mut o = ed.object(i)?.clone();
+        crate::mesh_import::remove_slot(&ed.pkg, &mut o, slot)?;
+        let name = ed.pkg.object_name(PackageIndex::export(i));
+        ed.begin_undo(format!("remove material slot {slot} of {name}"));
+        ed.replace_object(i, o)?;
         self.mesh_materials(&json!({ "path": path, "index": i }))
     }
 

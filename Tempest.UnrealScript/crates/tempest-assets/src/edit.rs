@@ -561,6 +561,38 @@ impl<'a> Editor<'a> {
     /// [`Editor::copy_from`] with the choice of what happens to references
     /// to other exports of `src` ([`CopyMode`]).
     pub fn copy_with(&mut self, src: &mut Editor, src_i: usize, dst_outer: Option<PackageIndex>, mode: CopyMode) -> Result<(PackageIndex, Vec<String>)> {
+        self.copy_into(src, src_i, dst_outer, mode, None)
+    }
+
+    /// Make export `into` a copy of export `src_i` of `src` (same class):
+    /// its payload is replaced by the source's with every reference remapped
+    /// like [`Editor::copy_with`] does, while its name, outer, archetype,
+    /// flags and NetIndex stay, so whatever refers to it now gets the
+    /// source's content. Returns warnings.
+    pub fn replace_with(&mut self, src: &mut Editor, src_i: usize, into: usize, mode: CopyMode) -> Result<Vec<String>> {
+        if into >= self.pkg.exports.len() {
+            return Err(Error::Format(format!("no export {into}")));
+        }
+        let (a, b) = (src.pkg.class_name_of(PackageIndex::export(src_i)), self.pkg.class_name_of(PackageIndex::export(into)));
+        if !a.eq_ignore_ascii_case(&b) {
+            return Err(Error::Format(format!("{} is a {a}, {} a {b}: replace with an object of the same class", src.pkg.object_path(PackageIndex::export(src_i)), self.pkg.object_path(PackageIndex::export(into)))));
+        }
+        let net_index = match self.parsed(into)? {
+            Parsed::Object(o) => Some(o.net_index),
+            _ => None,
+        };
+        self.snapshot(into);
+        let (_, warnings) = self.copy_into(src, src_i, None, mode, Some(into))?;
+        if let (Some(n), Some(Parsed::Object(o))) = (net_index, self.objects.get(&into)) {
+            let mut o = o.clone();
+            o.net_index = n;
+            self.objects.insert(into, Parsed::Object(o));
+        }
+        self.dirty.insert(into);
+        Ok(warnings)
+    }
+
+    fn copy_into(&mut self, src: &mut Editor, src_i: usize, dst_outer: Option<PackageIndex>, mode: CopyMode, into: Option<usize>) -> Result<(PackageIndex, Vec<String>)> {
         let mut warnings = Vec::new();
         let mut map: HashMap<usize, PackageIndex> = HashMap::new();
         let mut queue: VecDeque<usize> = VecDeque::new();
@@ -577,9 +609,26 @@ impl<'a> Editor<'a> {
             queue.push_back(j);
             d
         };
-        let root = reserve(self, src, src_i, &mut map, &mut queue);
+        let root = match into {
+            Some(d) => {
+                map.insert(src_i, PackageIndex::export(d));
+                queue.push_back(src_i);
+                PackageIndex::export(d)
+            }
+            None => reserve(self, src, src_i, &mut map, &mut queue),
+        };
         while let Some(j) = queue.pop_front() {
             let d = map[&j].export_index().unwrap();
+            if into == Some(d) {
+                // The replaced export keeps its own table entry.
+                let parsed = src.parsed(j)?.clone();
+                let out = self.remap_payload(src, j, parsed, mode, src_i, &mut map, &mut queue, &mut warnings)?;
+                let none = none_name(&self.pkg);
+                let data = write_parsed(&out, self.layout, none);
+                self.pkg.set_export_data(d, data);
+                self.objects.insert(d, out);
+                continue;
+            }
             let sp_class = src.pkg.exports[j].class;
             let sp_super = src.pkg.exports[j].super_;
             let sp_outer = src.pkg.exports[j].outer;
@@ -602,69 +651,76 @@ impl<'a> Editor<'a> {
             }
             // Payload.
             let parsed = src.parsed(j)?.clone();
-            let out = match parsed {
-                Parsed::Object(mut o) => {
-                    o.net_index = -1;
-                    let mut names: Vec<(FName, String)> = Vec::new();
-                    {
-                        struct Collect<'s>(&'s Package, &'s mut Vec<(FName, String)>);
-                        impl Visitor for Collect<'_> {
-                            fn name(&mut self, n: &mut FName) {
-                                self.1.push((*n, self.0.fname_to_string(*n)));
-                            }
-                            fn index(&mut self, _: &mut PackageIndex) {}
-                        }
-                        let mut c = Collect(&src.pkg, &mut names);
-                        o.visit(&mut c);
-                    }
-                    let name_map: HashMap<FName, FName> = names.into_iter().map(|(n, text)| (n, self.pkg.intern_fname(&text))).collect();
-                    let mut refs: Vec<PackageIndex> = Vec::new();
-                    {
-                        struct CollectRefs<'s>(&'s mut Vec<PackageIndex>);
-                        impl Visitor for CollectRefs<'_> {
-                            fn name(&mut self, _: &mut FName) {}
-                            fn index(&mut self, i: &mut PackageIndex) {
-                                self.0.push(*i);
-                            }
-                        }
-                        o.visit(&mut CollectRefs(&mut refs));
-                    }
-                    let mut ref_map: HashMap<PackageIndex, PackageIndex> = HashMap::new();
-                    for r in refs {
-                        if let std::collections::hash_map::Entry::Vacant(e) = ref_map.entry(r) {
-                            let m = self.map_ref(src, r, mode, src_i, &mut map, &mut queue, &mut warnings, false);
-                            e.insert(m);
-                        }
-                    }
-                    struct Remap<'s>(&'s HashMap<FName, FName>, &'s HashMap<PackageIndex, PackageIndex>);
-                    impl Visitor for Remap<'_> {
-                        fn name(&mut self, n: &mut FName) {
-                            if let Some(m) = self.0.get(n) {
-                                *n = *m;
-                            }
-                        }
-                        fn index(&mut self, i: &mut PackageIndex) {
-                            if let Some(m) = self.1.get(i) {
-                                *i = *m;
-                            }
-                        }
-                    }
-                    o.visit(&mut Remap(&name_map, &ref_map));
-                    Parsed::Object(o)
-                }
-                Parsed::Empty => Parsed::Empty,
-                Parsed::Raw { data, error } => {
-                    warnings.push(format!("{}: copied verbatim (references inside not remapped: {error})", src.pkg.full_name(PackageIndex::export(j))));
-                    Parsed::Raw { data, error }
-                }
-                Parsed::Script(_) => return Err(Error::Format(format!("{} is a script object and cannot be copied", src.pkg.full_name(PackageIndex::export(j))))),
-            };
+            let out = self.remap_payload(src, j, parsed, mode, src_i, &mut map, &mut queue, &mut warnings)?;
             let none = none_name(&self.pkg);
             let data = write_parsed(&out, self.layout, none);
             self.pkg.set_export_data(d, data);
             self.objects.insert(d, out);
         }
         Ok((root, warnings))
+    }
+
+    /// Export `j` of `src`'s payload with its names and references made
+    /// valid here (see [`Editor::map_ref`]).
+    #[allow(clippy::too_many_arguments)]
+    fn remap_payload(&mut self, src: &Editor, j: usize, parsed: Parsed, mode: CopyMode, src_i: usize, map: &mut HashMap<usize, PackageIndex>, queue: &mut VecDeque<usize>, warnings: &mut Vec<String>) -> Result<Parsed> {
+        Ok(match parsed {
+            Parsed::Object(mut o) => {
+                o.net_index = -1;
+                let mut names: Vec<(FName, String)> = Vec::new();
+                {
+                    struct Collect<'s>(&'s Package, &'s mut Vec<(FName, String)>);
+                    impl Visitor for Collect<'_> {
+                        fn name(&mut self, n: &mut FName) {
+                            self.1.push((*n, self.0.fname_to_string(*n)));
+                        }
+                        fn index(&mut self, _: &mut PackageIndex) {}
+                    }
+                    let mut c = Collect(&src.pkg, &mut names);
+                    o.visit(&mut c);
+                }
+                let name_map: HashMap<FName, FName> = names.into_iter().map(|(n, text)| (n, self.pkg.intern_fname(&text))).collect();
+                let mut refs: Vec<PackageIndex> = Vec::new();
+                {
+                    struct CollectRefs<'s>(&'s mut Vec<PackageIndex>);
+                    impl Visitor for CollectRefs<'_> {
+                        fn name(&mut self, _: &mut FName) {}
+                        fn index(&mut self, i: &mut PackageIndex) {
+                            self.0.push(*i);
+                        }
+                    }
+                    o.visit(&mut CollectRefs(&mut refs));
+                }
+                let mut ref_map: HashMap<PackageIndex, PackageIndex> = HashMap::new();
+                for r in refs {
+                    if let std::collections::hash_map::Entry::Vacant(e) = ref_map.entry(r) {
+                        let m = self.map_ref(src, r, mode, src_i, map, queue, warnings, false);
+                        e.insert(m);
+                    }
+                }
+                struct Remap<'s>(&'s HashMap<FName, FName>, &'s HashMap<PackageIndex, PackageIndex>);
+                impl Visitor for Remap<'_> {
+                    fn name(&mut self, n: &mut FName) {
+                        if let Some(m) = self.0.get(n) {
+                            *n = *m;
+                        }
+                    }
+                    fn index(&mut self, i: &mut PackageIndex) {
+                        if let Some(m) = self.1.get(i) {
+                            *i = *m;
+                        }
+                    }
+                }
+                o.visit(&mut Remap(&name_map, &ref_map));
+                Parsed::Object(o)
+            }
+            Parsed::Empty => Parsed::Empty,
+            Parsed::Raw { data, error } => {
+                warnings.push(format!("{}: copied verbatim (references inside not remapped: {error})", src.pkg.full_name(PackageIndex::export(j))));
+                Parsed::Raw { data, error }
+            }
+            Parsed::Script(_) => return Err(Error::Format(format!("{} is a script object and cannot be copied", src.pkg.full_name(PackageIndex::export(j))))),
+        })
     }
 
     #[allow(clippy::too_many_arguments)]

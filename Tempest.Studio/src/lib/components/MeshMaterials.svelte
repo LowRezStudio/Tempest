@@ -3,10 +3,11 @@
 	with, opened with a click to edit its textures and parameters. Change…
 	points a slot at any material or instance of the game folder; "Make it
 	this mesh's own" copies a shared instance next to the mesh, so editing
-	it changes this mesh only.
+	it changes this mesh only. Skeletal meshes can get a slot more, or lose
+	one no section draws with (the per-section and per-slot tables follow).
 -->
 <script lang="ts">
-	import { Copy, Replace } from "@lucide/svelte";
+	import { Copy, Plus, Replace, Trash2 } from "@lucide/svelte";
 	import ObjectPicker from "$lib/components/ObjectPicker.svelte";
 	import { rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
@@ -81,6 +82,33 @@
 		}
 	}
 
+	async function addSlot() {
+		busy = true;
+		try {
+			const r = await rpc("mesh.addSlot", { path, index });
+			await changed(
+				r,
+				`Slot ${r.slots.length - 1} added: no section draws with it until a mesh using it is imported`,
+			);
+		} catch (error) {
+			toasts.error(error, "Could not add a slot");
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function removeSlot(slot: number) {
+		busy = true;
+		try {
+			const r = await rpc("mesh.removeSlot", { path, index, slot });
+			await changed(r, `Slot ${slot} removed`);
+		} catch (error) {
+			toasts.error(error, "Could not remove the slot");
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function open(m: ObjRef) {
 		if (m.ref > 0) await studio.select(m.ref - 1);
 		else if (m.ref < 0) await studio.openObjectPath(m.path);
@@ -89,7 +117,19 @@
 
 {#if info && info.slots.length > 0}
 	<div class="flex flex-col gap-1 text-[11px]">
-		<span class="font-sans font-semibold opacity-70">Materials</span>
+		<div class="flex items-center gap-2">
+			<span class="font-sans font-semibold opacity-70">Materials</span>
+			<span class="flex-1"></span>
+			{#if info.skeletal}
+				<button
+					class="btn btn-ghost btn-xs"
+					disabled={busy}
+					onclick={addSlot}
+					title="A new slot drawn with the last slot's material; sections use it once a mesh with that many materials is imported"
+					><Plus size={11} /> Add slot</button
+				>
+			{/if}
+		</div>
 		{#each info.slots as s (s.slot)}
 			<div class="flex flex-wrap items-center gap-2">
 				<span class="w-10 shrink-0 opacity-50">slot {s.slot}</span>
@@ -129,6 +169,17 @@
 						onclick={() => own(s.slot)}
 						title="Copy this instance next to the mesh and use the copy: editing it changes this mesh only"
 						><Copy size={11} /> Make it this mesh's own</button
+					>
+				{/if}
+				{#if info.skeletal && info.slots.length > 1}
+					<button
+						class="btn btn-ghost btn-xs"
+						disabled={busy || s.sections > 0}
+						onclick={() => removeSlot(s.slot)}
+						title={s.sections > 0
+							? `${s.sections} section${s.sections === 1 ? "" : "s"} draw with it: import a mesh that does not use it first`
+							: "Remove this slot (later slots move down)"}
+						><Trash2 size={11} /></button
 					>
 				{/if}
 			</div>

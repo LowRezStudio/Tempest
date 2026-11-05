@@ -1,12 +1,13 @@
 <script lang="ts">
 	import Modal from "$lib/components/Modal.svelte";
+	import ObjectPicker from "$lib/components/ObjectPicker.svelte";
 	import { pickFile } from "$lib/platform/api";
 	import { bytes } from "$lib/studio/format";
 	import { rpc } from "$lib/studio/rpc";
 	import { studio } from "$lib/studio/state.svelte";
 	import { toasts } from "$lib/studio/toast.svelte";
 	import type { Preview } from "$lib/studio/classes";
-	import type { ExportRow } from "../../../electron/src/ipc/contract";
+	import type { ExportRow, SearchHit } from "../../../electron/src/ipc/contract";
 
 	let {
 		open = $bindable(false),
@@ -14,13 +15,17 @@
 		kind,
 	}: { open?: boolean; row: ExportRow; kind: Preview } = $props();
 
-	type Mode = "texture" | "mesh" | "sound" | "swf" | "anim" | "raw";
+	type Mode = "texture" | "mesh" | "sound" | "swf" | "anim" | "raw" | "object";
 	let mode = $state<Mode>("raw");
 	let file = $state("");
 	let mips = $state<"auto" | "yes" | "no">("auto");
 	let format = $state("");
 	let lod = $state(0);
 	let working = $state(false);
+	/** "From another package": the object this export becomes a copy of. */
+	let source = $state<SearchHit | null>(null);
+	/** Copy what it uses (materials, textures…) into this package too. */
+	let deep = $state(true);
 	/** Animations in the chosen file (anim mode), and which one to import. */
 	let animations = $state<string[]>([]);
 	let animation = $state(0);
@@ -46,6 +51,7 @@
 	$effect(() => {
 		if (open) {
 			file = "";
+			source = null;
 			allSequences = row.class.toLowerCase() === "animset";
 			sequences = [];
 			if (kind === "anim" && studio.pkg) {
@@ -108,7 +114,7 @@
 
 	async function submit(event: Event) {
 		event.preventDefault();
-		if (!studio.pkg || !file) return;
+		if (!studio.pkg || (mode === "object" ? !source : !file)) return;
 		working = true;
 		const path = studio.pkg.path;
 		try {
@@ -168,6 +174,23 @@
 			} else if (mode === "sound" || mode === "swf") {
 				const r = await rpc("media.import", { path, index: row.i, file });
 				toasts.push("success", `${bytes(r.bytes)} of ${r.kind} data`, "Replaced");
+			} else if (mode === "object" && source) {
+				const src = source;
+				const r = await studio.run("Copying…", () =>
+					rpc("object.replaceWith", {
+						path,
+						index: row.i,
+						src: { path: src.path, index: src.index },
+						deep,
+					}),
+				);
+				for (const w of r.warnings) toasts.push("warning", w, "Replace");
+				toasts.push(
+					"success",
+					`${row.name} is now a copy of ${src.object} (${src.package})`,
+					"Replaced",
+				);
+				await studio.reloadTables();
 			} else {
 				const r = await rpc("object.replaceRaw", { path, index: row.i, file });
 				if (r.error) {
@@ -218,6 +241,33 @@
 				<button
 					role="tab"
 					type="button"
+					class="tab {mode === 'object' ? 'tab-active' : ''}"
+					onclick={() => (mode = "object")}
+				>
+					From another package
+				</button>
+				<button
+					role="tab"
+					type="button"
+					class="tab {mode === 'raw' ? 'tab-active' : ''}"
+					onclick={() => (mode = "raw")}
+				>
+					Raw payload
+				</button>
+			</div>
+		{:else}
+			<div role="tablist" class="tabs-box tabs tabs-xs">
+				<button
+					role="tab"
+					type="button"
+					class="tab {mode === 'object' ? 'tab-active' : ''}"
+					onclick={() => (mode = "object")}
+				>
+					From another package
+				</button>
+				<button
+					role="tab"
+					type="button"
 					class="tab {mode === 'raw' ? 'tab-active' : ''}"
 					onclick={() => (mode = "raw")}
 				>
@@ -225,14 +275,43 @@
 				</button>
 			</div>
 		{/if}
-		<div class="flex gap-1">
-			<input
-				class="input input-sm flex-1 font-mono text-xs"
-				bind:value={file}
-				placeholder="file to import"
+		{#if mode === "object"}
+			<ObjectPicker
+				isA={row.class}
+				placeholder="a {row.class} of another package, e.g. its name"
+				value={source}
+				onpick={(h) => (source = h)}
 			/>
-			<button class="btn btn-sm" type="button" onclick={browse}>Browse…</button>
-		</div>
+			{#if source}
+				<p class="font-mono text-xs break-all">{source.package}: {source.object}</p>
+			{/if}
+			<label class="flex items-start gap-2">
+				<input type="checkbox" class="checkbox checkbox-sm mt-0.5" bind:checked={deep} />
+				<span>
+					Copy what it uses into this package
+					<span class="block text-xs opacity-60"
+						>Its materials, textures and other objects of its own package come along
+						(objects already here at the same path are reused). Off: they are referenced
+						in their package, which the game must have loaded where this one is used.</span
+					>
+				</span>
+			</label>
+			<p class="text-xs opacity-60">
+				{row.name} becomes a copy of the picked object, with every reference remapped to this
+				package; its name, place and network index stay, so everything that used it gets the new
+				content. For a mesh this brings its own material slots, LODs and per-section settings,
+				e.g. a lobby model's three slots where the match model had two.
+			</p>
+		{:else}
+			<div class="flex gap-1">
+				<input
+					class="input input-sm flex-1 font-mono text-xs"
+					bind:value={file}
+					placeholder="file to import"
+				/>
+				<button class="btn btn-sm" type="button" onclick={browse}>Browse…</button>
+			</div>
+		{/if}
 		{#if mode === "anim"}
 			<label class="flex items-start gap-2">
 				<input
@@ -307,10 +386,11 @@
 			<p class="text-xs opacity-60">
 				glTF (.glb/.gltf), FBX (binary) or OBJ, in the layout the exporter writes: Y up,
 				metres for glTF/OBJ and centimetres for FBX, materials named after the mesh's
-				material slots (otherwise sections map to slots in order). Static meshes get new
-				vertex/index buffers, bounds and per-triangle collision; the simple collision
-				(RB_BodySetup) stays. Skeletal meshes need a skin whose joints are named like the
-				existing bones; the skeleton itself is kept.
+				material slots (otherwise the file's materials map to slots in order; a skeletal
+				mesh gets a new slot for each one past its last). Static meshes get new vertex/index
+				buffers, bounds and per-triangle collision; the simple collision (RB_BodySetup)
+				stays. Skeletal meshes need a skin whose joints are named like the existing bones;
+				the skeleton itself is kept.
 			</p>
 		{:else if mode === "sound"}
 			<p class="text-xs opacity-60">
@@ -327,7 +407,9 @@
 				of
 				<b>Extract raw</b>): use it to put back a payload you extracted and edited, or to
 				copy one from another package of the same class. Nothing is validated beyond trying
-				to parse it afterwards.
+				to parse it afterwards. A payload from another package refers to that package's
+				objects and names by number, so it breaks here: use <b>From another package</b>
+				for that.
 			</p>
 		{/if}
 		<div class="flex justify-end gap-2">
@@ -337,7 +419,7 @@
 			<button
 				class="btn btn-sm btn-primary"
 				type="submit"
-				disabled={!file ||
+				disabled={(mode === "object" ? !source : !file) ||
 					working ||
 					(mode === "anim" &&
 						(isSet || allSequences) &&
