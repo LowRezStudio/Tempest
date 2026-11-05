@@ -1,0 +1,77 @@
+name: CLI sidecar cache
+run-name: CLI sidecar cache
+
+# Warms the zig build cache the launcher's sidecar (the asmloader DLLs) is
+# compiled with. Its build in release.yml is by far the slowest CI step (two
+# windows targets of Zydis and the CLI's inject DLLs, from nothing, on every
+# tag). Caches saved on master are the ones every tag can restore (a cache saved
+# by a tag run is only visible to that tag), so this workflow keeps the entries
+# that release.yml restores, using the same key and the same command
+# (scripts/build-cli.js --zig-only). Runs when the zig sources change, by hand,
+# and weekly so the entries are not evicted (7 days without access).
+on:
+  push:
+    branches: [master]
+    paths:
+      - "Tempest.Utils/**"
+      - ".github/workflows/sidecar-cache.yml"
+  schedule:
+    - cron: "37 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zig:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+          - platform: macos-15
+          - platform: ubuntu-22.04
+
+    runs-on: ${{ matrix.platform }}
+
+    env:
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-global-cache
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Zig 0.16.0
+        uses: marler8997/setup-anyzig@master
+
+      # Same key as release.yml's restore step: keep them in step. The larger
+      # it gets, the less of the sidecar build the release has to compile.
+      - name: Restore or save zig build caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-global-cache
+            Tempest.Utils/.zig-cache
+          key: cli-sidecar-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Tempest.Utils/**') }}
+          restore-keys: cli-sidecar-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+
+      # scripts/build-cli.js only imports dax (a launcher dependency), so the
+      # launcher's graph is enough; the Studio's is not downloaded.
+      - name: Install frontend dependencies
+        run: pnpm --filter tempest.launcher install --frozen-lockfile
+
+      - name: Build the zig sidecar
+        working-directory: Tempest.Launcher
+        run: node scripts/build-cli.js --zig-only

@@ -114,6 +114,23 @@ export type ModPackageInfo = {
 	dependencies: string[];
 };
 
+/**
+ * A signed-in Epic Games account (see `epic:accounts`). Tokens stay host-side and
+ * never cross the bridge.
+ */
+export type EpicAccount = {
+	accountId: string;
+	displayName: string;
+	/** Unix ms when the account was added. */
+	addedAt: number;
+	/** Unix ms of the last exchange code made for it; null before the first launch. */
+	lastUsedAt: number | null;
+	/** Unix ms when its refresh token stops working; null when Epic did not say. */
+	refreshExpiresAt: number | null;
+};
+
+export type EpicAccountList = { accounts: EpicAccount[]; selectedId: string | null };
+
 /** A file the V1→V2 converter imports, read host-side in one round trip. */
 export type ConverterImport = { path: string; name: string; data: ArrayBuffer };
 
@@ -260,6 +277,20 @@ export interface IpcContract {
 	"instance:delete-data": { args: { instancePath: string }; result: void };
 	"instance:game-layout": { args: { instancePath: string }; result: GameLayout };
 
+	// ---- Epic Games accounts (OAuth via the launcher client) ----
+	"epic:accounts": { args: void; result: EpicAccountList };
+	/** Exchanges a pasted authorization code from the Epic sign-in page for an account. */
+	"epic:login": { args: { code: string }; result: EpicAccount };
+	"epic:remove": { args: { accountId: string }; result: EpicAccountList };
+	/** The account instances use when they do not name one. */
+	"epic:select": { args: { accountId: string }; result: void };
+	/**
+	 * The Epic launcher's game arguments: a one-time exchange code plus the EGS
+	 * context the client needs (see legendary's `get_launch_parameters`).
+	 * `null` when the launch needs a sign-in first: that is not a failure.
+	 */
+	"epic:launch-args": { args: { accountId?: string }; result: string[] | null };
+
 	// ---- Mods ----
 	/**
 	 * With `progressId`, reports progress as `mods:download-progress` events tagged with it.
@@ -322,7 +353,7 @@ export interface IpcContract {
 	"zip:build": { args: { entries: { path: string; data: Uint8Array }[] }; result: Uint8Array };
 	"zip:read": { args: { data: Uint8Array }; result: ZipEntry[] };
 
-	// ---- upk-parser (bundled zig tool; UPK compression for the mod cooker) ----
+	// ---- upk (bundled Rust tool; UPK compression for the mod cooker) ----
 	"upk:optimize": {
 		args: { path: string };
 		result: { optimized: boolean; data: ArrayBuffer | null };

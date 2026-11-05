@@ -69,6 +69,10 @@ jobs:
       # actions/cache can persist them without relying on per-OS user paths.
       ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
       ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.electron-builder-cache
+      # One global zig cache for every zig build (the sidecar's two packages and
+      # the CLI's inject DLLs), at a path the cache action can persist (see
+      # "Restore zig build caches").
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-global-cache
 
     steps:
       - name: Checkout repository
@@ -94,14 +98,14 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          package_json_file: Tempest.Launcher/package.json
+          package_json_file: package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "pnpm"
-          cache-dependency-path: Tempest.Launcher/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install Linux packaging deps
         if: startsWith(matrix.platform, 'ubuntu-')
@@ -109,76 +113,35 @@ jobs:
           sudo apt update
           sudo apt-get install -y rpm fakeroot
 
-      - name: Compute CLI inputs hash
-        id: cli-hash
-        shell: bash
-        # The AOT publish takes 4-7 minutes. Releases that don't touch these
-        # inputs reuse the binaries built by a previous run (see below).
-        # Includes the embedded key lists, protocol contract, zig utils and
-        # the build script itself.
-        run: |
-          hash="${{ hashFiles('Tempest.CLI/**', 'MarshalLib/**', 'MarshalLib.Database/**', 'Tempest.Utils/**', 'Tempest.Protocol/**', 'Tempest.UnrealScript/crates/**', 'Tempest.UnrealScript/Cargo.*', 'Tempest.Launcher/scripts/build-cli.js', 'keys/*.keys') }}"
-          echo "hash=$hash" >> "$GITHUB_OUTPUT"
-          echo "$hash" > cli-inputs.sha256
+      # Zig's build cache is content-addressed, so a restored one skips the
+      # compile steps of everything unchanged (see sidecar-cache.yml, which keeps
+      # this cache on master: a tag run only sees caches saved on master or by
+      # itself). Same key as that workflow: keep them in step.
+      - name: Restore zig build caches
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .zig-global-cache
+            Tempest.Utils/.zig-cache
+          key: cli-sidecar-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Tempest.Utils/**') }}
+          restore-keys: cli-sidecar-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Restore CLI sidecar from a previous run
-        id: cli-artifact
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        # Actions caches are ref-scoped: a tag run cannot restore caches saved
-        # by another tag (or by master), so they never hit across releases.
-        # Artifacts have no such scoping, so the CLI sidecar rides in an
-        # artifact of the previous successful run, tagged with its inputs hash.
-        run: |
-          want="${{ steps.cli-hash.outputs.hash }}"
-          # Walk the newest successful runs of this workflow, newest first.
-          for run_id in $(gh api "repos/${{ github.repository }}/actions/workflows/release.yml/runs?status=success&per_page=20" --jq '.workflow_runs[].id'); do
-            artifact_id=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts" --jq ".artifacts[] | select(.name == \"cli-${{ matrix.platform }}\") | .id" | head -n1)
-            [ -z "$artifact_id" ] && continue
-            gh api "repos/${{ github.repository }}/actions/artifacts/$artifact_id/zip" > cli-artifact.zip
-            # GNU tar (Windows git-bash) and unzip (not installed on Windows)
-            # both fail cross-platform; use the platform's native extractor.
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              powershell.exe -NoProfile -Command "Expand-Archive -Path cli-artifact.zip -DestinationPath . -Force"
-            else
-              unzip -o -q cli-artifact.zip
-            fi
-            rm cli-artifact.zip
-            if [ "$(cat cli-inputs.sha256)" = "$want" ]; then
-              echo "hit=true" >> "$GITHUB_OUTPUT"
-              echo "Reused CLI binaries from run $run_id (hash $want)"
-              exit 0
-            fi
-            echo "Run $run_id's CLI binaries are stale (built for different inputs); continuing search"
-          done
-          echo "hit=false" >> "$GITHUB_OUTPUT"
-
+      # The two apps share the root pnpm workspace: filter the install to this
+      # app and its host so the Studio's dependency graph is not downloaded.
       - name: Install frontend dependencies
-        working-directory: Tempest.Launcher
-        run: pnpm install --frozen-lockfile
+        run: pnpm --filter tempest.launcher --filter tempest-launcher-electron install --frozen-lockfile
 
       - name: Build CLI sidecar
-        if: steps.cli-artifact.outputs.hit != 'true'
         working-directory: Tempest.Launcher
         run: node scripts/build-cli.js
 
-      # The bundled upk-parser rides in every launcher install; run its zig test
-      # suite once per build (Linux is the fastest runner).
-      - name: Test upk-parser
-        if: steps.cli-artifact.outputs.hit != 'true' && startsWith(matrix.platform, 'ubuntu-')
-        working-directory: Tempest.Utils/utils
-        run: zig build test
-
-      - name: Upload CLI sidecar artifact
-        if: steps.cli-artifact.outputs.hit != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: cli-${{ matrix.platform }}
-          path: |
-            Tempest.Launcher/electron/resources/binaries/**
-            cli-inputs.sha256
-          retention-days: 30
+      # The bundled upk tool is Rust (mod deltas for the CLI, LZO package
+      # compression for the cooker): run its round-trip tests once per build
+      # (Linux is the fastest runner).
+      - name: Test upk
+        if: startsWith(matrix.platform, 'ubuntu-')
+        working-directory: Tempest.UnrealScript
+        run: cargo test --release -p tempest-upk
 
       - name: Restore Electron / electron-builder downloads
         uses: actions/cache/restore@v4
@@ -186,7 +149,7 @@ jobs:
           path: |
             .electron-cache
             .electron-builder-cache
-          key: electron-tooling-${{ runner.os }}-${{ hashFiles('Tempest.Launcher/pnpm-lock.yaml') }}
+          key: electron-tooling-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Build frontend
         working-directory: Tempest.Launcher

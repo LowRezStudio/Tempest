@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Runtime.ExceptionServices;
 using System.Text;
 
 namespace MarshalLib;
@@ -8,22 +10,95 @@ public static class MarshalSerializer
     /// <remarks>
     /// Wire format (verified against CMarshal::Load / CMarshalRow::Load in the game binary):
     /// <code>
-    /// u8   flags          (0 for ordinary marshals)
-    /// u32  function hash  (FNV-1 of the function name, little-endian)
-    /// u16  entry count    (0xFFFF means a u32 count follows)
-    /// ... entries (see <see cref="Deserialize"/>)
+    /// modern: u8   flags (0 for ordinary marshals)
+    ///         u32  function hash  (FNV-1 of the function name, little-endian)
+    /// legacy: u16  function index
+    /// then:   u16  entry count    (0xFFFF means a u32 count follows)
+    ///         ... entries (see <see cref="Deserialize"/>)
     /// </code>
     /// </remarks>
     public static MarshalFunction DeserializeFunction(Stream stream, MarshalSerializerOptions options)
+    {
+        if (options.Version != MarshalSerializerVersion.Auto)
+            return DeserializeFunction(stream, options, options.Version);
+
+        var start = stream.CanSeek ? stream.Position : 0;
+        var version = DetectVersion(stream, options.FunctionMappings);
+
+        try
+        {
+            return DeserializeFunction(stream, options, version);
+        }
+        catch (Exception error) when (stream.CanSeek)
+        {
+            // Retry the other layout.
+            stream.Position = start;
+
+            try
+            {
+                return DeserializeFunction(stream, options,
+                    version == MarshalSerializerVersion.Modern
+                        ? MarshalSerializerVersion.Legacy
+                        : MarshalSerializerVersion.Modern);
+            }
+            catch
+            {
+                ExceptionDispatchInfo.Capture(error).Throw();
+                throw;
+            }
+        }
+    }
+
+    /// <summary>Detects whether a marshal stream is modern or legacy.</summary>
+    /// <remarks>
+    /// A modern marshal starts with the flags byte (0), but a legacy function index
+    /// whose low byte is 0 looks the same, so the function hash behind the flags byte
+    /// must be known. An unknown hash or an ambiguous zero hash retries the other layout.
+    /// </remarks>
+    public static MarshalSerializerVersion DetectVersion(Stream stream, FunctionMappings? functions = null)
+    {
+        if (!stream.CanSeek)
+            return MarshalSerializerVersion.Modern;
+
+        var position = stream.Position;
+        var header = new byte[5];
+        var read = 0;
+
+        while (read < header.Length)
+        {
+            var count = stream.Read(header, read, header.Length - read);
+            if (count == 0)
+                break;
+
+            read += count;
+        }
+
+        stream.Position = position;
+
+        if (read > 0 && header[0] != 0)
+            return MarshalSerializerVersion.Legacy;
+
+        if (read < header.Length)
+            return MarshalSerializerVersion.Modern;
+
+        var hash = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(1));
+
+        return hash == 0 || functions == null || functions.Get(hash) != null
+            ? MarshalSerializerVersion.Modern
+            : MarshalSerializerVersion.Legacy;
+    }
+
+    private static MarshalFunction DeserializeFunction(Stream stream, MarshalSerializerOptions options,
+        MarshalSerializerVersion version)
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         var packet = new MarshalFunction();
 
         FunctionDescriptor? function;
 
-        packet.Version = options.Version;
+        packet.Version = version;
 
-        if (options.Version == MarshalSerializerVersion.Modern)
+        if (version == MarshalSerializerVersion.Modern)
         {
             var zeroByte = reader.ReadByte();
             if (zeroByte != 0x0)

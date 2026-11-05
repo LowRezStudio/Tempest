@@ -6,7 +6,9 @@
 	import NewInstanceOption from "$lib/components/library/NewInstanceOption.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import { deleteInstance, type DeleteMode } from "$lib/core/instance-delete";
+	import { clearModDownloads, modDownloadItems } from "$lib/mods/modDownloads.svelte";
 	import { m } from "$lib/paraglide/messages";
+	import { createRepoModsQuery } from "$lib/queries/repo";
 	import { formatBytes } from "$lib/rigby/format";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { queueItems, queueRunning } from "$lib/rigby/stores.svelte";
@@ -15,7 +17,7 @@
 	import type { QueueItem } from "$lib/rigby/stores.svelte";
 	import type { Instance } from "$lib/types/instance";
 
-	const items = $derived(queueItems.value);
+	const items = $derived([...queueItems.value, ...modDownloadItems.value]);
 	// Queue order is array order: the queue takes the first pending or paused item next.
 	const current = $derived(items.find((item) => item.status === "running"));
 	const waiting = $derived(
@@ -34,20 +36,32 @@
 	// The last finished download stays in the hero until it's closed. Closing puts away everything
 	// finished so far, so an older download never takes its place.
 	const heroClosedAt = persistedState<number>("downloads:heroClosedAt", 0);
+	const lastPatch = $derived(finished.find((item) => !item.mod));
+	// Mods go straight to the list: they finish in seconds and often on their own.
 	const lastFinished = $derived(
-		(finished[0]?.finishedAt ?? 0) > heroClosedAt.value ? finished[0] : undefined,
+		(lastPatch?.finishedAt ?? 0) > heroClosedAt.value ? lastPatch : undefined,
 	);
 	// With the queue stopped, the item it takes next stays in the hero instead of the list.
 	const featured = $derived(
 		current ??
 			(waiting.length > 0 ? (queueRunning.value ? undefined : waiting[0]) : lastFinished),
 	);
-	const upNext = $derived(waiting.filter((item) => item !== featured));
+	// Mods download side by side, so more than one can be running.
+	const upNext = $derived(
+		[...items.filter((item) => item.status === "running"), ...waiting].filter(
+			(item) => item !== featured,
+		),
+	);
 	const finishedList = $derived(finished.filter((item) => item !== featured));
 	const currentPercent = $derived(Math.round(current?.progress?.percent ?? 0));
 
 	const instanceAt = (path: string) =>
 		Object.values(instanceMap.value).find((instance) => instance?.path === path);
+
+	const repoMods = createRepoModsQuery(() => [
+		...new Set(items.flatMap((item) => item.mod?.modId ?? [])),
+	]);
+	const iconOf = (item: QueueItem) => item.mod && repoMods.data?.get(item.mod.modId)?.icon;
 
 	let cancelling = $state<{ item: QueueItem; instance: Instance }>();
 	let confirmOpen = $state(false);
@@ -86,7 +100,10 @@
 			{#if clearable}
 				<button
 					class="btn btn-ghost btn-xs text-base-content/70 ml-auto"
-					onclick={() => restoreQueue.clearCompleted()}
+					onclick={() => {
+						restoreQueue.clearCompleted();
+						clearModDownloads();
+					}}
 				>
 					{m.common_clear()}
 				</button>
@@ -94,7 +111,12 @@
 		</div>
 		<ul class="bg-base-200 border-base-300 rounded-box divide-base-300 divide-y border">
 			{#each entries as item (item.id)}
-				<DownloadRow {item} instance={instanceAt(item.outDir)} oncancel={cancel} />
+				<DownloadRow
+					{item}
+					instance={instanceAt(item.outDir)}
+					icon={iconOf(item)}
+					oncancel={cancel}
+				/>
 			{/each}
 		</ul>
 	</section>
@@ -112,9 +134,11 @@
 				{:else}
 					{@const parts = [
 						current && {
-							text: current.repair
-								? m.downloads_summary_verifying({ percent: currentPercent })
-								: m.library_badge_downloading({ percent: currentPercent }),
+							text: current.mod?.install
+								? m.mod_row_installing()
+								: current.repair
+									? m.downloads_summary_verifying({ percent: currentPercent })
+									: m.library_badge_downloading({ percent: currentPercent }),
 							tone: "text-primary",
 						},
 						waiting.length > 0 && {
@@ -156,6 +180,7 @@
 					<DownloadHero
 						item={featured}
 						instance={instanceAt(featured.outDir)}
+						icon={iconOf(featured)}
 						oncancel={cancel}
 						onclose={() => (heroClosedAt.value = Date.now())}
 					/>

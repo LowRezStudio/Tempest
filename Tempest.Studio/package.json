@@ -11,7 +11,7 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"check:electron": "pnpm -C electron typecheck",
 		"fmt": "oxfmt --write .",
-		"lint": "oxlint",
+		"lint": "svelte-kit sync && oxlint --type-aware",
 		"electron:dev": "pnpm -C electron dev",
 		"electron:build": "pnpm -C electron build"
 	},
@@ -35,14 +35,14 @@
 		"codemirror": "^6.0.2",
 		"daisyui": "^5.5.23",
 		"dax": "^0.48.3",
-		"oxfmt": "^0.56.0",
-		"oxlint": "^1.71.0",
+		"oxfmt": "catalog:",
+		"oxlint": "catalog:",
+		"oxlint-tsgolint": "catalog:",
 		"svelte": "^5.56.3",
 		"svelte-check": "^4.6.0",
 		"tailwindcss": "^4.3.1",
 		"three": "^0.186.1",
 		"typescript": "^6.0.3",
-		"vite": "^8.1.0"
-	},
-	"packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b"
+		"vite": "catalog:"
+	}
 }

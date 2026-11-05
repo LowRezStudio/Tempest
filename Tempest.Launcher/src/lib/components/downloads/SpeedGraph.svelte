@@ -12,10 +12,16 @@
 		samples: SpeedSample[];
 		/** Scrolls with the clock between samples; off, the graph rests on its last sample */
 		live?: boolean;
+		windowMs?: number;
 		class?: ClassValue;
 	}
 
-	let { samples, live = false, class: className = "" }: Props = $props();
+	let {
+		samples,
+		live = false,
+		windowMs = SPEED_WINDOW_MS,
+		class: className = "",
+	}: Props = $props();
 
 	const id = $props.id();
 	let width = $state(0);
@@ -56,7 +62,7 @@
 		const yOf = (bytesPerSecond: number) =>
 			height - 1 - (bytesPerSecond / ceiling) * plotHeight;
 		const placed = samples.map((sample) => ({
-			x: plotWidth - ((head - sample.at) / SPEED_WINDOW_MS) * plotWidth,
+			x: plotWidth - ((head - sample.at) / windowMs) * plotWidth,
 			y: yOf(sample.bytesPerSecond),
 			sample,
 		}));

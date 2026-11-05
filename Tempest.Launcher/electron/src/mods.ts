@@ -66,6 +66,14 @@ handle("mods:download-to-temp", async (event, { url, filename, progressId, cache
 			if (!cache.sha256 || (await sha256Of(dest)) === cache.sha256) {
 				const now = new Date();
 				await fs.promises.utimes(dest, now, now);
+				if (progressId && !event.sender.isDestroyed()) {
+					const { size } = await fs.promises.stat(dest);
+					event.sender.send("mods:download-progress", {
+						id: progressId,
+						received: size,
+						total: size,
+					});
+				}
 				return dest;
 			}
 			await fs.promises.rm(dest, { force: true });

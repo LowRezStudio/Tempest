@@ -1,0 +1,28 @@
+# One pnpm workspace for the whole repo: the launcher and the Studio (each an
+# Electron host + a SvelteKit renderer) share a single install and lockfile.
+packages:
+    - "Tempest.Launcher"
+    - "Tempest.Launcher/electron"
+    - "Tempest.Studio"
+    - "Tempest.Studio/electron"
+
+# One version of each shared tool: the packages that run it declare
+# `"<name>": "catalog:"` (workspace:* only links workspace packages, these come
+# from the registry). The lint/format *configs* live at the root.
+catalog:
+    husky: ^9.1.7
+    oxfmt: ^0.74.0
+    oxlint: ^1.89.0
+    oxlint-tsgolint: ^7.0.2004
+    vite: ^8.3.5
+
+allowBuilds:
+    electron: true
+    electron-winstaller: true
+minimumReleaseAge: 2440
+minimumReleaseAgeExclude:
+    - vite
+
+onlyBuiltDependencies:
+    - "@tailwindcss/oxide"
+    - esbuild

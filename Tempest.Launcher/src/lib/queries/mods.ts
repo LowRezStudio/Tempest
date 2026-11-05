@@ -127,7 +127,7 @@ const createOptimisticModMutation = <V extends ModNameVariables>(
 			let tracker: InstallTracker | undefined;
 			try {
 				const res = await run(variables, (fraction) => {
-					tracker ??= trackInstall(gamePath, { name: modName, modId });
+					tracker ??= trackInstall(gamePath, { name: modName, modId, inPlace: true });
 					tracker.setPatching(fraction);
 				});
 				if (!res.Success) throw new Error(res.Message || "Unknown error");

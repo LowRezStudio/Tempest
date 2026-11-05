@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Clock, Download, Hourglass, X } from "@lucide/svelte";
+	import { Clock, Download, Hourglass, RefreshCw, X } from "@lucide/svelte";
 	import { slide } from "svelte/transition";
 	import {
 		installQueue,
@@ -7,17 +7,21 @@
 		removeQueuedInstall,
 		runningQueued,
 	} from "$lib/mods/installQueue.svelte";
+	import { pendingStatus } from "$lib/mods/pendingInstalls.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import type { QueuedInstall } from "$lib/mods/installQueue.svelte";
+	import type { PendingInstall } from "$lib/mods/pendingInstalls.svelte";
 
 	interface Props {
 		gamePath: string;
 		isRunning: boolean;
+		/** What is downloading or installing right now */
+		active: PendingInstall[];
 	}
 
-	let { gamePath, isRunning }: Props = $props();
+	let { gamePath, isRunning, active }: Props = $props();
 
-	// An entry being installed leaves the panel and shows as an installing row in the list.
+	// An entry being installed moves from the waiting list to `active`.
 	const waiting = $derived(
 		installQueue.value.filter(
 			(q) => q.gamePath === gamePath && !runningQueued.ids.includes(q.id),
@@ -33,6 +37,44 @@
 			.filter(Boolean)
 			.join(" · ");
 </script>
+
+{#if active.length > 0}
+	<ul
+		data-panel
+		class="bg-base-200 border-base-300 rounded-box divide-base-300 mb-3 divide-y overflow-hidden border"
+		transition:slide={{ duration: 150 }}
+	>
+		{#each active as install (install.id)}
+			<li
+				class="pending-row flex items-center gap-3 px-4 py-2.5"
+				class:installing={install.progress === null}
+				aria-busy="true"
+				style:--progress="{install.progress === null ? 100 : install.progress * 100}%"
+			>
+				<div
+					class="bg-base-300 flex size-10 shrink-0 items-center justify-center rounded-lg"
+				>
+					<span class="loading loading-spinner loading-sm opacity-60"></span>
+				</div>
+				<div class="min-w-0 flex-1">
+					<p class="flex min-w-0 items-baseline gap-2">
+						<span class="truncate text-sm font-bold">{install.name}</span>
+						{#if install.version}
+							<span class="shrink-0 font-mono text-xs opacity-60">
+								{install.version}
+							</span>
+						{/if}
+					</p>
+					<p class="truncate text-xs tabular-nums opacity-70">
+						{install.author
+							? `by ${install.author} · ${pendingStatus(install)}`
+							: pendingStatus(install)}
+					</p>
+				</div>
+			</li>
+		{/each}
+	</ul>
+{/if}
 
 <!-- Set apart from the mod list on purpose: nothing here is installed yet. -->
 {#if waiting.length > 0}
@@ -90,12 +132,21 @@
 					<button
 						class="btn btn-ghost btn-sm shrink-0"
 						onclick={() => void installQueuedNow(item.id)}
-						title={isRunning ? m.install_queue_install_anyway_hint() : undefined}
+						title={isRunning
+							? item.hotReloadable
+								? m.repo_update_hot_reload_hint()
+								: m.install_queue_install_anyway_hint()
+							: undefined}
 					>
-						<Download size={14} />
-						{isRunning
-							? m.install_queue_install_anyway()
-							: m.install_queue_install_now()}
+						{#if isRunning && item.hotReloadable}
+							<RefreshCw size={14} />
+							{m.repo_update_hot_reload()}
+						{:else}
+							<Download size={14} />
+							{isRunning
+								? m.install_queue_install_anyway()
+								: m.install_queue_install_now()}
+						{/if}
 					</button>
 					<button
 						class="btn btn-ghost btn-sm btn-square hover:text-error shrink-0"

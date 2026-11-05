@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import {
+		CircleArrowUp,
 		Compass,
 		Cpu,
 		ExternalLink,
 		Flag,
 		FlaskConical,
 		FolderOpen,
+		Gamepad2,
 		Info,
 		Keyboard,
 		KeyRound,
@@ -38,6 +40,7 @@
 	import { createAboutInfoQuery } from "$lib/queries/about";
 	import ApiKeySettings from "$lib/settings/ApiKeySettings.svelte";
 	import CliInstall from "$lib/settings/CliInstall.svelte";
+	import EpicAccounts from "$lib/settings/EpicAccounts.svelte";
 	import KeybindsSettings from "$lib/settings/KeybindsSettings.svelte";
 	import SigningKeySettings from "$lib/settings/SigningKeySettings.svelte";
 	import ThemePicker from "$lib/settings/ThemePicker.svelte";
@@ -45,6 +48,7 @@
 	import { resetKeybinds } from "$lib/stores/keybinds.svelte";
 	import { localeLabels, localeState } from "$lib/stores/locale.svelte";
 	import {
+		autoInstallModUpdates,
 		customThemeCSS,
 		defaultInstancePath,
 		modDeveloper,
@@ -72,6 +76,7 @@
 		{ id: "general", title: m.settings_general(), icon: SlidersHorizontal },
 		{ id: "appearance", title: m.settings_appearance(), icon: Palette },
 		{ id: "launching", title: m.settings_launching(), icon: Rocket },
+		{ id: "epic-games", title: m.settings_epic_title(), icon: Gamepad2 },
 		...(isWindows ? [] : [{ id: "wine", title: m.settings_wine(), icon: Wine }]),
 		{ id: "keybinds", title: m.settings_keybinds(), icon: Keyboard },
 		{ id: "mod-development", title: m.settings_mod_development(), icon: FlaskConical },
@@ -225,7 +230,13 @@
 							</div>
 						</div>
 					</div>
-					<div class="mt-3">
+					<div class="mt-3 flex flex-col gap-3">
+						<SwitchRow
+							bind:checked={autoInstallModUpdates.value}
+							icon={CircleArrowUp}
+							title={m.settings_auto_install_mod_updates()}
+							hint={m.settings_auto_install_mod_updates_hint()}
+						/>
 						<ActionRow
 							icon={Compass}
 							title={m.settings_onboarding_title()}
@@ -307,6 +318,10 @@
 						title={m.settings_open_ssl_fix()}
 						hint={m.settings_open_ssl_fix_description()}
 					/>
+				</Panel>
+
+				<Panel {...tracker.panel("epic-games")}>
+					<EpicAccounts />
 				</Panel>
 
 				{#if !isWindows}

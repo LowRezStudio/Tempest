@@ -252,7 +252,9 @@ internal class ModCommands
             RecordInstall(path, result.Mod);
             // Delta-managed game files are rebuilt from the enabled mods, including this one.
             await DeltaResolver.ResolveAndReportAsync(path);
-            Launcher.PackageHashes.ApplyToRunning(path, filesBefore.Concat(ModGameFiles(LoadMetadata(path))));
+            var filesAfter = ModGameFiles(LoadMetadata(path));
+            var changed = filesBefore.Except(filesAfter, StringComparer.OrdinalIgnoreCase).Concat(ModGameFiles([result.Mod]));
+            Launcher.PackageHashes.ApplyToRunning(path, changed);
         }
         return result;
     }

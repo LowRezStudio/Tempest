@@ -2,7 +2,7 @@
 	import { goto } from "$app/navigation";
 	import { Check, CloudDownload, Compass, FolderOpen, Loader2 } from "@lucide/svelte";
 	import {
-		argsFor,
+		authFor,
 		findExistingInstance,
 		FolderImport,
 		type LoginMethod,
@@ -10,6 +10,7 @@
 	import FolderImportPanel from "$lib/components/library/FolderImportPanel.svelte";
 	import LoginMethodPicker from "$lib/components/library/LoginMethodPicker.svelte";
 	import PatchPicker from "$lib/components/library/PatchPicker.svelte";
+	import AuthLogo from "$lib/components/ui/AuthLogo.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import versions from "$lib/data/versions.json";
 	import { m } from "$lib/paraglide/messages";
@@ -20,8 +21,10 @@
 		platform as getPlatform,
 		join as sysPathJoin,
 	} from "$lib/platform/api";
+	import { createEpicAccountsQuery } from "$lib/queries/epic";
 	import { RIGBY_BASE_URL, RIGBY_MANIFEST_URL_TEMPLATE } from "$lib/rigby/constants";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
+	import { openEpicLogin } from "$lib/stores/epic.svelte";
 	import { addInstance, updateInstance } from "$lib/stores/instance.svelte";
 	import { localeLabels, localeState } from "$lib/stores/locale.svelte";
 	import {
@@ -33,7 +36,7 @@
 	import WineSettings from "$lib/wine/WineSettings.svelte";
 	import type { Instance } from "$lib/types/instance";
 
-	type StepId = "language" | "username" | "steam" | "download" | "proton" | "done";
+	type StepId = "language" | "username" | "steam" | "download" | "epic" | "proton" | "done";
 
 	const multiplayerVersion = versions.find((version) => version.version === "0.57");
 
@@ -46,6 +49,7 @@
 			{ id: "username", label: m.onboarding_step_username() },
 			{ id: "steam", label: m.onboarding_step_steam() },
 			{ id: "download", label: m.onboarding_step_download() },
+			...(needsEpicSignIn ? [{ id: "epic" as StepId, label: m.onboarding_step_epic() }] : []),
 			...(isLinux ? [{ id: "proton" as StepId, label: m.onboarding_step_proton() }] : []),
 			{ id: "done", label: m.onboarding_step_done() },
 		];
@@ -65,6 +69,17 @@
 
 	// Scans from the start, so what it finds is listed by the time the import step comes up.
 	const folderImport = new FolderImport(() => true);
+	// A picked Epic sign-in asks for the account right after the game is added; every other
+	// provider leaves it to the client, so the step is left out entirely.
+	const needsEpicSignIn = $derived(
+		folderImport.loginMethod === "epic" || downloadLogin === "epic",
+	);
+	const epicAccountsQuery = createEpicAccountsQuery();
+	const epicAccount = $derived(
+		epicAccountsQuery.data?.accounts.find(
+			(account) => account.accountId === epicAccountsQuery.data?.selectedId,
+		)?.displayName,
+	);
 	const currentStep = $derived(steps[stepIndex]);
 	const downloadQueued = $derived(queuedVersions.length > 0);
 	const downloadPatch = $derived(versions.find((entry) => entry.id === downloadId));
@@ -99,7 +114,8 @@
 	// Optional steps read "Skip" instead of "Next" until their action is used.
 	const showSkipLabel = $derived(
 		(currentStep.id === "steam" && importedPaths.length === 0) ||
-			(currentStep.id === "download" && !downloadBusy && !downloadQueued),
+			(currentStep.id === "download" && !downloadBusy && !downloadQueued) ||
+			(currentStep.id === "epic" && !epicAccount),
 	);
 
 	let stepContent: HTMLDivElement | undefined = $state();
@@ -231,7 +247,8 @@
 					path: targetPath,
 					launchOptions: {
 						dllList: [],
-						args: argsFor(entry.version, downloadLogin),
+						args: [],
+						auth: authFor(entry.version, downloadLogin),
 						noDefaultArgs: false,
 						log: false,
 					},
@@ -282,7 +299,7 @@
 			<!-- my-auto rather than items-center: a card taller than the window scrolls from its top -->
 			<div class="flex min-h-0 flex-1 justify-center overflow-y-auto p-6">
 				<form
-					class="card bg-base-200/90 my-auto w-full max-w-xl shadow-2xl backdrop-blur-md"
+					class="card bg-base-200/90 my-auto w-full max-w-2xl shadow-2xl backdrop-blur-md"
 					onsubmit={(event) => {
 						event.preventDefault();
 						goNext();
@@ -460,6 +477,26 @@
 											{installError}
 										</div>
 									{/if}
+								</div>
+							{:else if currentStep.id === "epic"}
+								<div class="flex flex-col gap-3">
+									<p class="text-sm opacity-70">
+										{m.onboarding_epic_description()}
+									</p>
+									{#if epicAccount}
+										<p class="flex items-center gap-1.5 text-sm">
+											<Check size={14} class="text-success" />
+											{m.instance_sign_in_as({ name: epicAccount })}
+										</p>
+									{/if}
+									<button
+										class="btn w-full"
+										type="button"
+										onclick={() => openEpicLogin()}
+									>
+										<AuthLogo provider="epic" size={16} />
+										{m.onboarding_epic_signin()}
+									</button>
 								</div>
 							{:else if currentStep.id === "proton"}
 								<WineSettings />

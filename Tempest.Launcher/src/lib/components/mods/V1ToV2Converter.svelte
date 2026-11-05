@@ -293,10 +293,10 @@
 	}
 
 	/**
-	 * Compresses an uncompressed .upk/.pck with the bundled upk-parser so it
+	 * Compresses an uncompressed .upk/.pck with the bundled upk tool so it
 	 * installs like a game-cooked asset. Returns null when the file is already
-	 * compressed or the parser cannot handle it — the original is used as-is.
-	 * @param filePath Original path of the imported file (the parser reads it).
+	 * compressed or the tool cannot handle it — the original is used as-is.
+	 * @param filePath Original path of the imported file (the tool reads it).
 	 * @returns Compressed bytes, or null to keep the original.
 	 */
 	async function optimizeUpk(filePath: string): Promise<Uint8Array | null> {

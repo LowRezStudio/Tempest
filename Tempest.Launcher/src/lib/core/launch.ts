@@ -1,5 +1,7 @@
 import { currentInstance, setCurrentInstance } from "$lib/lobby/stores.svelte";
+import { m } from "$lib/paraglide/messages";
 import { Command, invoke } from "$lib/platform/api";
+import { openEpicLogin } from "$lib/stores/epic.svelte";
 import { hostState } from "$lib/stores/host-state.svelte";
 import { instanceMap, lastLaunchedInstanceId, updateInstance } from "$lib/stores/instance.svelte";
 import { appendProcessLog, logCommandOutput, processesList } from "$lib/stores/processes.svelte";
@@ -18,6 +20,22 @@ import type { Instance } from "$lib/types/instance";
 import type { Process } from "$lib/types/process";
 
 const sessionNumbers = new Map<string, number>();
+
+/**
+ * The Epic launcher's arguments for an instance set to Epic Games.
+ * @param accountId - The instance's account; the default one in Settings when absent.
+ * @returns The game's arguments for the sign-in, or null when one is needed first.
+ */
+const epicAuthArgs = (accountId?: string): Promise<string[] | null> =>
+	invoke("epic:launch-args", { accountId });
+
+/**
+ * The exchange code is single-use and short-lived, but it has no place in a log or a report.
+ * @param args - The game's arguments, as they are handed to the CLI.
+ * @returns The same arguments with the exchange code masked.
+ */
+const redactArgs = (args: string[]): string[] =>
+	args.map((arg) => (/^-auth_password=/i.test(arg) ? "-auth_password=***" : arg));
 
 const nextSessionNumber = (instanceId: string) => {
 	const next = (sessionNumbers.get(instanceId) ?? 0) + 1;
@@ -122,7 +140,21 @@ export const restoreRunningGames = async () => {
 export const launchGame = async (instance: Instance, { noDlls = false } = {}) => {
 	const { path, launchOptions: options } = instance;
 	const platform = options.platform ?? "Win64";
-	const args = launchArgs(instance);
+	// A Steam launch just tells the client to use its Steam session; Epic gets a
+	// one-time exchange code, made fresh for this launch and never stored.
+	let authArgs: string[] = [];
+	if (options.auth?.provider === "steam") {
+		authArgs = ["-steam"];
+	} else if (options.auth?.provider === "epic") {
+		const epicArgs = await epicAuthArgs(options.auth.accountId);
+		if (!epicArgs) {
+			// The launch cannot sign in: ask for the account rather than failing it.
+			openEpicLogin(m.epic_login_required());
+			return;
+		}
+		authArgs = epicArgs;
+	}
+	const args = [...launchArgs(instance), ...authArgs];
 
 	lastLaunchedInstanceId.value = instance.id;
 	updateInstance(instance.id, { lastPlayedAt: Date.now() });
@@ -131,7 +163,7 @@ export const launchGame = async (instance: Instance, { noDlls = false } = {}) =>
 	console.log(instance);
 
 	appendProcessLog(
-		`Launching game client with args: ${processArgs(args).join(" ")}`,
+		`Launching game client with args: ${redactArgs(processArgs(args)).join(" ")}`,
 		false,
 		"launch",
 	);

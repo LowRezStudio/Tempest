@@ -65,6 +65,8 @@ public class ModInstallResult
     public List<string>? LockedFiles { get; set; }
     /// <summary>`mod install --defer`: every check passed (trust, conflicts, checksums, files in use), but nothing was written. The launcher queues it while the game runs.</summary>
     public bool Deferred { get; set; }
+    /// <summary>A <see cref="Deferred"/> mod that only needs the game's scripting runtime to reload it, so it can install while the game runs.</summary>
+    public bool HotReloadable { get; set; }
 }
 
 public class ModListResult

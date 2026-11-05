@@ -1,0 +1,37 @@
+{
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	"sortTailwindcss": {},
+	"sortImports": {
+		"newlinesBetween": false,
+		"customGroups": [
+			{
+				"groupName": "types",
+				"selector": "type"
+			},
+			{
+				"groupName": "lib",
+				"elementNamePattern": ["$lib", "$lib/**"]
+			}
+		],
+		"groups": ["builtin", "external", "lib", ["parent", "sibling", "index"], "types", "unknown"]
+	},
+	"useTabs": true,
+	"tabWidth": 4,
+	"printWidth": 100,
+	"semi": true,
+	"singleQuote": false,
+	"sortPackageJson": true,
+	"svelte": true,
+	// Generated, vendored and build output: never rewrite these (the patterns
+	// work from the root and from inside each app, where `oxfmt --write .` runs).
+	"ignorePatterns": [
+		"**/.svelte-kit/**",
+		"**/build/**",
+		"**/dist/**",
+		"**/node_modules/**",
+		"**/electron/resources/binaries/**",
+		"**/src/lib/paraglide/**",
+		"**/vendor/**",
+		"**/.ruffle/**"
+	]
+}

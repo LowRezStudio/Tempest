@@ -1,6 +1,6 @@
 {
 	"name": "tempest-launcher-electron",
-	"version": "1.4.8",
+	"version": "1.5.0",
 	"private": true,
 	"homepage": "https://github.com/LowRezStudio/Tempest",
 	"author": {
@@ -25,6 +25,7 @@
 		"dax": "^0.50.1",
 		"electron": "^45.0.0",
 		"electron-builder": "^26.15.3",
-		"typescript": "^7.0.2"
+		"typescript": "^7.0.2",
+		"vite": "catalog:"
 	}
 }

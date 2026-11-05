@@ -21,7 +21,7 @@
 	import { instanceWizardTab } from "$lib/stores/ui.svelte";
 	import { downloadablePatches } from "$lib/utils/versions";
 	import {
-		argsFor,
+		authFor,
 		findExistingInstance,
 		FolderImport,
 		freeLabel,
@@ -141,7 +141,7 @@
 						path,
 						state: { type: "downloading" },
 					},
-					argsFor(target.version, loginMethod),
+					authFor(target.version, loginMethod),
 				),
 			);
 			restoreQueue.add({
@@ -192,7 +192,7 @@
 	title={m.wizard_title()}
 	icon={Plus}
 	description={m.wizard_description()}
-	class="max-w-xl"
+	class="max-w-2xl"
 	onsubmit={handleCreate}
 >
 	<div class="flex flex-col gap-5">

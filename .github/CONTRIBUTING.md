@@ -29,17 +29,18 @@ If you build one part of the project, the other parts will automatically be buil
 
 ### Building the launcher
 
+The launcher and the Studio are one pnpm workspace at the repository root (`pnpm-workspace.yaml`), so `pnpm install` runs there once and serves both.
+
 ```bash
-cd Tempest.Launcher/
 # Enable corepack, if it's missing run 'npm i -g corepack' and then run 'corepack enable', additionally follow https://github.com/nodejs/corepack?tab=readme-ov-file#-corepack if required
 corepack enable
 pnpm install
 
 # If you want to work on the launcher in development mode
-pnpm electron:dev
+pnpm -C Tempest.Launcher electron:dev
 
 # If you want to build the production version
-pnpm electron:build
+pnpm -C Tempest.Launcher electron:build
 # The build artifacts will be located in `Tempest.Launcher/dist/`
 ```
 
@@ -62,7 +63,7 @@ dotnet publish -c Release
 cd Tempest.Utils/
 
 zig build -Doptimize=ReleaseSafe
-# The build artifacts will be located in `Tempest.Utils/zig-out/bin/`
+# asmloader, in `Tempest.Utils/zig-out/bin/`
 ```
 
 # Code Editor setup

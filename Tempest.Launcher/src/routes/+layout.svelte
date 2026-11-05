@@ -6,16 +6,20 @@
 	import { page } from "$app/state";
 	import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
 	import { Tooltip } from "bits-ui";
+	import { untrack } from "svelte";
 	import favicon from "$lib/assets/favicon.ico?url";
+	import EpicAccountDialog from "$lib/components/epic/EpicAccountDialog.svelte";
 	import AppShell from "$lib/components/layout/AppShell.svelte";
 	import SigningKeyModal from "$lib/components/mods/SigningKeyModal.svelte";
 	import OnboardingPage from "$lib/components/onboarding/OnboardingPage.svelte";
 	import { restoreRunningGames } from "$lib/core/launch";
 	import { checkForCoreUpdatesAndInstall } from "$lib/core/mods";
 	import { startInstallQueue } from "$lib/mods/installQueue.svelte";
+	import { checkModUpdates } from "$lib/mods/updates.svelte";
 	import { invoke } from "$lib/platform/api";
 	import { setQueryClient } from "$lib/queries/client";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
+	import { epicLogin } from "$lib/stores/epic.svelte";
 	import { instanceMap } from "$lib/stores/instance.svelte";
 	import { snapshotPaused } from "$lib/stores/snapshot.svelte";
 	import { updaterStore } from "$lib/stores/updater.svelte";
@@ -57,20 +61,27 @@
 	// restore queue while the host keeps their children running: pick them back
 	// up from the host instead of starting over.
 	let restored = false;
+	let gamesRestored: Promise<unknown> = Promise.resolve();
 	$effect(() => {
 		if (restored) return;
 		restored = true;
 		// Queued mod installs wait for their game to close, so they start once the running
 		// games are known.
-		void restoreRunningGames().finally(startInstallQueue);
+		gamesRestored = restoreRunningGames().finally(startInstallQueue);
 		void restoreQueue.adoptRunning();
 	});
 
 	const inOnboarding = $derived(page.url.pathname === "/onboarding");
 
 	$effect(() => {
-		updaterStore.checkForUpdates(true);
+		untrack(() => updaterStore.checkForUpdates(true));
 	});
+
+	// Mod updates need to know which games run, so they wait for those to be restored.
+	let modUpdatesReady = false;
+	const checkMods = () => {
+		if (modUpdatesReady && !inOnboarding) void checkModUpdates();
+	};
 
 	let coreUpdateChecked = false;
 	$effect(() => {
@@ -78,8 +89,22 @@
 		const instances = Object.values(instanceMap.value).filter(Boolean) as Instance[];
 		if (instances.length === 0 && Object.keys(instanceMap.value).length === 0) return;
 		coreUpdateChecked = true;
-		void checkForCoreUpdatesAndInstall(instances);
+		void Promise.allSettled([gamesRestored, checkForCoreUpdatesAndInstall(instances)]).then(
+			() => {
+				modUpdatesReady = true;
+				checkMods();
+			},
+		);
 	});
+
+	// People leave updates waiting, so every return to the launcher looks again and asks again.
+	let away = false;
+	function returned() {
+		if (!away) return;
+		away = false;
+		void updaterStore.checkForUpdates(true);
+		checkMods();
+	}
 
 	// Once per launch: route through onboarding when no game instances exist yet.
 	$effect(() => {
@@ -88,6 +113,8 @@
 		if (Object.keys(instanceMap.value).length === 0) void goto("/onboarding");
 	});
 </script>
+
+<svelte:window onblur={() => (away = true)} onfocus={returned} />
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
@@ -103,6 +130,9 @@
 			<AppShell {children} />
 		{/if}
 	</Tooltip.Provider>
+
+	<!-- Global singleton: Settings, an instance's settings and a launch that needs an account. -->
+	<EpicAccountDialog bind:open={epicLogin.open} note={epicLogin.note} />
 </QueryClientProvider>
 
 <!-- Global singleton: any surface can ask for a signing key name. -->

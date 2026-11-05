@@ -275,9 +275,9 @@ export function buildManifest(meta: PackageMeta): string {
 	return lines.join("\n");
 }
 
-// Compresses uncompressed .upk/.pck entries with the bundled upk-parser
+// Compresses uncompressed .upk/.pck entries with the bundled upk tool
 // (host-side: bytes staged to a temp file), replacing them in the array.
-// Entries the parser cannot handle are kept untouched.
+// Entries the tool cannot handle are kept untouched.
 export async function optimizeUpkEntries(
 	files: FileEntry[],
 	onProgress?: (name: string) => void,

@@ -214,6 +214,8 @@ Engine rules that matter for identical output:
 upk info|ls <pkg> [filter]                    tables (lazy: only the header chunk is expanded)
 upk dump <pkg> [<idx|path>] [-I cooked-dir]   typed properties of one export (or all)
 upk extract <pkg> <idx|path> <out>            raw payload of one export
+upk compress|decompress <pkg> <out> [--obscure]   rewrite LZO-compressed (cooker chunks) / uncompressed
+upk is-compressed <pkg>                       `true`/`false`: whether it is stored LZO-compressed (the launcher's check)
 upk verify <dir|pkg>... [-I dir] [-j N] [--classes] [--compressed] [-v]   (just upk-verify <dir>)
 upk imagediff <pkg>                           where a rebuilt image / recompressed file first differs
 upk texture|swf|sound|mesh ...                asset commands (see the sections below)

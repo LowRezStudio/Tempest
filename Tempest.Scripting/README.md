@@ -138,6 +138,13 @@ saving `<configs>/<id>.toml` reloads mod `<id>`. The runtime drops its
 `types/*.d.lua` and a `.luarc.json` into `<game>/mods/` so the folder has
 completion out of the box, and `tempest.dump_sdk()` writes there too.
 
+Installed mods hot-reload too: the watcher follows the launcher's registry
+(`.tempest/mods/mods.json`), and a mod that ships only scripts (no `files/`,
+`deltas/`, `shared/` or `dlls/`) is reloaded when it is installed or updated and
+stopped when it is removed or disabled, along with reloading the mods that depend
+on it. Its scripts go through the same integrity checks as at startup. Any other
+mod applies at the next launch. `hot_reload = false` turns this off as well.
+
 Mod configs: `tempest.config({ speed = 1, keys = { toggle = "Insert" } })`
 returns the defaults merged with the mod's shipped `config.toml` and, for
 installed mods, the user's `<configs>/<id>.toml`. The editable file (a dev

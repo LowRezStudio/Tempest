@@ -35,6 +35,7 @@
 			<div class="flex items-center gap-3">
 				<div
 					class="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl"
+					data-plaque={iconBg ? undefined : ""}
 					style={iconBg ? `background-color: ${iconBg};` : ""}
 					class:bg-base-300={!iconBg}
 				>

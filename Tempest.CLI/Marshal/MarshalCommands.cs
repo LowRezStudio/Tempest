@@ -12,7 +12,7 @@ internal partial class MarshalCommands
     /// <param name="path">Export file path</param>
     /// <param name="output">Output file path, if not specified it's outputted to stdout (required for Sqlite)</param>
     /// <param name="obscure">Required to parse the assembly, applies a 0x2A XOR</param>
-    /// <param name="version">Marshal format version (Modern or Legacy)</param>
+    /// <param name="version">Marshal format version (Auto, Modern or Legacy)</param>
     /// <param name="format">Output format (Json or Sqlite)</param>
     public void Deserialize(
         string fields,
@@ -20,7 +20,7 @@ internal partial class MarshalCommands
         string path,
         string? output = null,
         bool obscure = false,
-        MarshalSerializerVersion version = MarshalSerializerVersion.Modern,
+        MarshalSerializerVersion version = MarshalSerializerVersion.Auto,
         MarshalFormat format = MarshalFormat.Json)
     {
         using var fieldsFile = File.OpenRead(fields);

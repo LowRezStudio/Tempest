@@ -1,8 +1,10 @@
 <script lang="ts">
 	import {
+		Box,
 		Clock,
 		Files,
 		FolderOpen,
+		Gauge,
 		HardDrive,
 		Play,
 		RotateCcw,
@@ -12,8 +14,9 @@
 	import PatchBanner from "$lib/components/library/PatchBanner.svelte";
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
 	import { relativeDate } from "$lib/mods/listing";
+	import { removeModDownload } from "$lib/mods/modDownloads.svelte";
 	import { m } from "$lib/paraglide/messages";
-	import { folderName, formatBytes } from "$lib/rigby/format";
+	import { folderName, formatBytes, formatSpeed } from "$lib/rigby/format";
 	import { restoreQueue } from "$lib/rigby/restore-queue";
 	import { getContrastColor, getInstanceColor } from "$lib/utils/color";
 	import { patchSummary } from "$lib/utils/versions";
@@ -24,10 +27,12 @@
 		item: QueueItem;
 		/** The instance it downloads into, unless it was removed from the library */
 		instance?: Instance;
+		/** A mod's icon, shown instead of the patch's art */
+		icon?: string | null;
 		oncancel: (item: QueueItem) => void;
 	}
 
-	let { item, instance, oncancel }: Props = $props();
+	let { item, instance, icon, oncancel }: Props = $props();
 
 	const color = $derived(getInstanceColor(instance));
 	const contrast = $derived(getContrastColor(color));
@@ -39,6 +44,7 @@
 	);
 
 	const badge = $derived.by(() => {
+		if (item.mod) return { label: m.downloads_kind_mod(), tone: "badge-ghost" };
 		if (item.status === "pending") {
 			return { label: m.library_badge_queued(), tone: "badge-ghost" };
 		}
@@ -73,17 +79,32 @@
 	class:installing={settingUp}
 	aria-busy={settingUp ? "true" : undefined}
 >
-	<PatchBanner version={instance?.version} {color} class="hidden w-28 shrink-0 @xl:block" />
-	<div
-		class="rounded-field flex size-10 shrink-0 items-center justify-center text-[11px] font-bold tabular-nums @xl:hidden"
-		style="background-color: {color}; color: {contrast};"
-	>
-		{#if instance?.version}
-			{instance.version}
-		{:else}
-			<PaladinsIcon size={28} color={contrast} />
-		{/if}
-	</div>
+	{#if item.mod}
+		<!-- As wide as the patches' banners, so the rows' text lines up -->
+		<div class="flex w-10 shrink-0 justify-center @xl:w-28">
+			<div
+				class="bg-base-300 flex size-10 items-center justify-center overflow-hidden rounded-lg @xl:size-14"
+			>
+				{#if icon}
+					<img src={icon} alt="" draggable="false" class="size-full object-cover" />
+				{:else}
+					<Box size={20} class="opacity-60" />
+				{/if}
+			</div>
+		</div>
+	{:else}
+		<PatchBanner version={instance?.version} {color} class="hidden w-28 shrink-0 @xl:block" />
+		<div
+			class="rounded-field flex size-10 shrink-0 items-center justify-center text-[11px] font-bold tabular-nums @xl:hidden"
+			style="background-color: {color}; color: {contrast};"
+		>
+			{#if instance?.version}
+				{instance.version}
+			{:else}
+				<PaladinsIcon size={28} color={contrast} />
+			{/if}
+		</div>
+	{/if}
 
 	<!-- One grid, so each line of stats sits on the subtitle line beside it. Every slot renders
 	     (empty when there is nothing to say) to keep the cells in their columns. -->
@@ -97,11 +118,11 @@
 					{href}
 					class="truncate font-semibold after:absolute after:inset-0 hover:underline"
 				>
-					{instance?.label}
+					{item.mod?.name ?? instance?.label}
 				</a>
 			{:else}
 				<span class="truncate font-semibold">
-					{instance?.label ?? folderName(item.outDir)}
+					{item.mod?.name ?? instance?.label ?? folderName(item.outDir)}
 				</span>
 			{/if}
 			{#if badge}
@@ -112,15 +133,38 @@
 		</div>
 
 		<p class="text-base-content/70 col-span-full line-clamp-1 text-sm @2xl:col-span-1">
-			{instance ? patchSummary(instance) : item.outDir}
+			{#if item.mod}
+				{m.downloads_mod_for({
+					version: item.mod.version,
+					patch: item.mod.patchLabel ?? folderName(item.outDir),
+				})}
+			{:else}
+				{instance ? patchSummary(instance) : item.outDir}
+			{/if}
 		</p>
 		{#if item.status === "pending"}
 			{@render info(m.common_waiting_in_queue())}
 			<span></span>
 		{:else if item.status === "error"}
 			{@render info(item.error ?? "", null, "col-span-2 text-error")}
+		{:else if item.mod?.install}
+			{@const percent = item.mod.install.percent}
+			{@render info(
+				percent === null
+					? m.mod_row_installing()
+					: m.mod_row_patching({ percent: Math.round(percent) }),
+				null,
+				"col-span-2 text-primary",
+			)}
+		{:else if item.status === "running"}
+			{@render info(`${Math.round(item.progress?.percent ?? 0)}%`)}
+			{@render info(formatSpeed(item.progress?.bytesPerSecond ?? 0), Gauge)}
 		{:else if item.status === "complete" && item.result}
-			{@render info(m.downloads_file_count({ count: item.result.files }), Files)}
+			{#if item.mod}
+				<span></span>
+			{:else}
+				{@render info(m.downloads_file_count({ count: item.result.files }), Files)}
+			{/if}
 			{@render info(
 				m.downloads_written_size({ size: formatBytes(item.result.diskWriteBytes) }),
 				HardDrive,
@@ -174,11 +218,12 @@
 				class="btn btn-ghost btn-sm btn-square"
 				title={m.common_dismiss()}
 				aria-label={m.common_dismiss()}
-				onclick={() => restoreQueue.remove(item.id)}
+				onclick={() =>
+					item.mod ? removeModDownload(item.id) : restoreQueue.remove(item.id)}
 			>
 				<X size={16} />
 			</button>
-		{:else}
+		{:else if !item.mod}
 			<button
 				class="btn btn-ghost btn-sm btn-square hover:text-error"
 				title={m.downloads_cancel()}
