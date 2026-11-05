@@ -127,39 +127,18 @@ const exportAssembly = async (
 
 	log(`Exporting assembly database to ${assemblyDbPath}`);
 
-	const legacyArgs: ArgumentType[] = [
-		"marshal",
-		"deserialize",
-		{ ...baseArgs, "--version": "Legacy" },
-	];
-	logCommand(legacyArgs);
-	const legacyResult = await createCommand(legacyArgs).execute();
-	logResult(legacyResult);
-	if (legacyResult.code === 0) return;
+	// Auto-detected from the header byte.
+	const args: ArgumentType[] = ["marshal", "deserialize", { ...baseArgs, "--version": "Auto" }];
+	logCommand(args);
+	const result = await createCommand(args).execute();
+	logResult(result);
+	if (result.code === 0) return;
 
-	const modernArgs: ArgumentType[] = [
-		"marshal",
-		"deserialize",
-		{ ...baseArgs, "--version": "Modern" },
-	];
-	logCommand(modernArgs);
-	const modernResult = await createCommand(modernArgs).execute();
-	logResult(modernResult);
-	if (modernResult.code !== 0) {
-		const legacyStdout = legacyResult.stdout?.trim();
-		const legacyStderr = legacyResult.stderr?.trim();
-		const modernStdout = modernResult.stdout?.trim();
-		const modernStderr = modernResult.stderr?.trim();
-		const message = [
-			"Failed to deserialize assembly tokens.",
-			legacyStderr && `Legacy stderr: ${legacyStderr}`,
-			legacyStdout && `Legacy stdout: ${legacyStdout}`,
-			modernStderr && `Modern stderr: ${modernStderr}`,
-			modernStdout && `Modern stdout: ${modernStdout}`,
-		]
-			.filter(Boolean)
-			.join(" ");
-		log(message, true);
-		throw new Error(message);
-	}
+	const stderr = result.stderr?.trim();
+	const stdout = result.stdout?.trim();
+	const message = ["Failed to deserialize the assembly database.", stderr, stdout]
+		.filter(Boolean)
+		.join(" ");
+	log(message, true);
+	throw new Error(message);
 };

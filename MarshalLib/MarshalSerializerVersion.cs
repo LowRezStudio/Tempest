@@ -6,5 +6,6 @@ namespace MarshalLib;
 public enum MarshalSerializerVersion
 {
     Modern,
-    Legacy
+    Legacy,
+    Auto
 }
