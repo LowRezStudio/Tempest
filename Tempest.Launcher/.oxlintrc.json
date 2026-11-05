@@ -119,7 +119,6 @@
 	],
 	"ignorePatterns": [
 		".svelte-kit/**",
-		"src/lib/rpc/**/*",
 		"build/**",
 		"dist/**",
 		"node_modules/**",

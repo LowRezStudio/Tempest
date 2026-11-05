@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
@@ -33,20 +33,14 @@
         <PrivateAssets>all</PrivateAssets>
         <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       </PackageReference>
-      <PackageReference Include="Grpc.AspNetCore.Web" Version="2.84.0" />
-      <PackageReference Include="Grpc.Net.Client" Version="2.84.0" />
-      <PackageReference Include="Grpc.Net.Client.Web" Version="2.84.0" />
-      <PackageReference Include="Grpc.AspNetCore" Version="2.84.0" />
       <PackageReference Include="BLAKE3" Version="3.0.2" />
       <PackageReference Include="Tomlyn" Version="2.10.1" />
       <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
-      <PackageReference Include="ZLogger" Version="2.5.10" />
     </ItemGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\MarshalLib\MarshalLib.csproj" />
       <ProjectReference Include="..\MarshalLib.Database\MarshalLib.Database.csproj" />
-      <ProjectReference Include="..\Tempest.Protocol\Tempest.Protocol.csproj" />
     </ItemGroup>
 
     <ItemGroup>

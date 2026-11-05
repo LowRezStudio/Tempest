@@ -8,16 +8,11 @@
 		Library,
 		Plus,
 		ScrollText,
-		Server,
 		Settings,
-		SquareTerminal,
-		Users,
 	} from "@lucide/svelte";
 	import { flip } from "svelte/animate";
-	import { lobbyHost } from "$lib/lobby/stores.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { instanceMap, preparedInstances, setInstanceOrder } from "$lib/stores/instance.svelte";
-	import { lobbyServerProcessesList } from "$lib/stores/processes.svelte";
 	import { modDeveloper } from "$lib/stores/settings.svelte";
 	import { moveSidebarTab, sidebarLayout, sidebarZones } from "$lib/stores/sidebar.svelte";
 	import { instanceWizardOpen } from "$lib/stores/ui.svelte";
@@ -41,18 +36,11 @@
 		home: { href: "/", label: () => m.sidebar_home(), Icon: House },
 		library: { href: "/library", label: () => m.sidebar_library(), Icon: Library },
 		downloads: { href: "/downloads", label: () => m.sidebar_downloads(), Icon: Download },
-		servers: { href: "/servers", label: () => m.sidebar_servers(), Icon: Server },
 		converter: {
 			href: "/converter",
 			label: () => m.converter_title(),
 			Icon: FlaskConical,
 			shown: () => modDeveloper.value,
-		},
-		lobby: {
-			href: "/lobby",
-			label: () => m.sidebar_lobby(),
-			Icon: Users,
-			shown: () => !!lobbyHost.value,
 		},
 		logs: { href: "/logs", label: () => m.sidebar_logs(), Icon: ScrollText },
 		settings: { href: "/settings", label: () => m.sidebar_settings(), Icon: Settings },
@@ -158,16 +146,6 @@
 	<div class="divider mx-4 my-4 opacity-50"></div>
 
 	<div class="mt-auto flex flex-col gap-2">
-		{#each lobbyServerProcessesList.value as lobbyServer}
-			<SidebarItem
-				label={lobbyServer.createOptions.name}
-				active={page.route.id == "/lobby-admin/[pid]" &&
-					page.params.pid == String(lobbyServer.child.pid)}
-				href={`/lobby-admin/${lobbyServer.child.pid}`}
-			>
-				<SquareTerminal size={20} />
-			</SidebarItem>
-		{/each}
 		{@render zone("bottom")}
 	</div>
 

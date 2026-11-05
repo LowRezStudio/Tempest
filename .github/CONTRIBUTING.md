@@ -13,7 +13,7 @@ git clone https://github.com/LowRezStudio/Tempest.git
 
 ## Prerequisites
 - [Node.js](https://nodejs.org/en/download/) (ideally version 24 or higher)
-- [Zig](https://ziglang.org/download/) (version 0.15.2)
+- [Zig](https://ziglang.org/download/) (version 0.16.0)
 - [Rust](https://www.rust-lang.org/tools/install)
 - [.NET SDK](https://dotnet.microsoft.com/download) (version 10.0)
 
@@ -56,20 +56,10 @@ dotnet publish -c Release
 # The build artifacts will be located in `Tempest.CLI/bin/Release/net10.0/publish/`
 ```
 
-### Building the utils
-
-```bash
-cd Tempest.Utils/
-
-zig build -Doptimize=ReleaseSafe
-# asmloader, in `Tempest.Utils/zig-out/bin/`
-```
-
 # Code Editor setup
 
 We recommend using [Visual Studio Code](https://code.visualstudio.com/) with the following extensions:
 - [C#](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.csharp) for the CLI
-- [Zig](https://marketplace.visualstudio.com/items?itemName=ziglang.vscode-zig) if you plan on working on the utils
 - [Svelte for VS Code](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) if you plan on working on the launcher
 - [Tailwind CSS IntelliSense](https://marketplace.visualstudio.com/items?itemName=bradlc.vscode-tailwindcss) if you plan on working on the launcher
 
@@ -80,4 +70,3 @@ We recommend using [Visual Studio Code](https://code.visualstudio.com/) with the
     - Styling: [DaisyUI](https://daisyui.com/) with [TailwindCSS](https://tailwindcss.com/)
     - A lot of the core logic is implemented in .NET through the CLI
 - CLI: [.NET](https://dotnet.microsoft.com/)
-- Utils: [Zig](https://ziglang.org/)
