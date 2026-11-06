@@ -164,6 +164,36 @@ export type DefenderExclusionResult = {
 	unrestored?: string[];
 };
 
+/** Where a launched game writes, from the CLI's `[game-logs]` line. */
+export type GameLogFolders = { logs: string; temp: string };
+
+/** A crashed session whose redacted logs the host holds until the next crash. */
+export type CrashSummary = {
+	id: string;
+	exitCode: number | null;
+	/** The engine's error message, when it got to log one. */
+	message: string[];
+	stack: string[];
+	files: { name: string; size: number }[];
+	/** The session's minidump, null without one. It cannot be redacted, so it is optional. */
+	dumpSize: number | null;
+};
+
+/** What the renderer knows about the crashed session. */
+export type CrashDetails = {
+	game: string;
+	launcher: string;
+	os: string;
+	mods: string[];
+	note: string;
+	launcherLog: string;
+};
+
+export type CrashSendResult = {
+	status: "sent" | "rate-limited" | "too-large" | "failed";
+	error?: string;
+};
+
 /** OS info injected by preload/host (see `window.__os`). */
 export type OsInfo = {
 	platform: "windows" | "macos" | "linux";
@@ -381,6 +411,22 @@ export interface IpcContract {
 
 	// ---- Windows Defender (folders the CLI reported as blocked; prompts for UAC) ----
 	"defender:add-exclusions": { args: { paths: string[] }; result: DefenderExclusionResult };
+
+	// ---- Game crash reports ----
+	/** Null when the session did not crash. */
+	"crash:inspect": {
+		args: { folders: GameLogFolders; startedAt: number; exitCode: number | null };
+		result: CrashSummary | null;
+	};
+	"crash:send": {
+		args: { id: string; details: CrashDetails; includeDump: boolean };
+		result: CrashSendResult;
+	};
+	/** Saves the same report as a zip; returns where, or null when cancelled. */
+	"crash:save": {
+		args: { id: string; details: CrashDetails; includeDump: boolean };
+		result: string | null;
+	};
 }
 
 /** Channels the host pushes to the renderer. */

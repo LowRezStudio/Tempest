@@ -1,6 +1,6 @@
 import { currentInstance, setCurrentInstance } from "$lib/lobby/stores.svelte";
 import { m } from "$lib/paraglide/messages";
-import { Command, invoke } from "$lib/platform/api";
+import { Command, invoke, type Child } from "$lib/platform/api";
 import { openEpicLogin } from "$lib/stores/epic.svelte";
 import { hostState } from "$lib/stores/host-state.svelte";
 import { instanceMap, lastLaunchedInstanceId, updateInstance } from "$lib/stores/instance.svelte";
@@ -15,11 +15,18 @@ import {
 } from "$lib/stores/settings.svelte";
 import { watchAntivirusBlocks } from "./antivirus.svelte";
 import { createCommand, processArgs } from "./command";
+import { checkForCrash, watchGameLogFolders } from "./crash.svelte";
 import { launchArgs } from "./presets";
+import type { GameLogFolders } from "$ipc/contract";
 import type { Instance } from "$lib/types/instance";
 import type { Process } from "$lib/types/process";
 
 const sessionNumbers = new Map<string, number>();
+
+// Keyed by the class instances: entries of `processesList` are $state proxies, so a field set on
+// a process would not be seen through the object the launch holds.
+const logFolders = new WeakMap<Command<string>, GameLogFolders>();
+const stopRequested = new WeakSet<Child>();
 
 /**
  * The Epic launcher's arguments for an instance set to Epic Games.
@@ -51,19 +58,34 @@ const RUNNING_KEY = "launch:running";
 type RunningSnapshot = Pick<Process, "sessionNumber" | "startedAt"> & {
 	pid: number;
 	instanceId: string;
+	logFolders?: GameLogFolders;
 };
 
 export const runningGames = hostState<RunningSnapshot[]>(RUNNING_KEY, []);
 
 const saveRunning = () => {
 	runningGames.value = processesList.value.map(
-		({ child, instance, sessionNumber, startedAt }) => ({
+		({ child, command, instance, sessionNumber, startedAt }) => ({
 			pid: child.pid,
 			instanceId: instance.id,
 			sessionNumber,
 			startedAt,
+			logFolders: logFolders.get(command),
 		}),
 	);
+};
+
+// A launch that never printed its log folders failed before the game started: not a crash.
+const watchForCrash = (
+	command: Command<string>,
+	instance: Instance,
+	startedAt: number,
+	wasStopped: () => boolean,
+) => {
+	command.on("close", ({ code }) => {
+		const folders = logFolders.get(command);
+		if (folders && !wasStopped()) void checkForCrash(instance, folders, startedAt, code);
+	});
 };
 
 /**
@@ -106,6 +128,8 @@ export const restoreRunningGames = async () => {
 		const { command, child } = Command.attach(item.pid);
 		command.on("close", () => forgetProcess(item.pid));
 		logCommandOutput(command, "launch");
+		if (item.logFolders) logFolders.set(command, item.logFolders);
+		watchForCrash(command, instance, item.startedAt, () => stopRequested.has(child));
 		restored.push({
 			status: "on",
 			sessionNumber: item.sessionNumber,
@@ -223,6 +247,18 @@ export const launchGame = async (instance: Instance, { noDlls = false } = {}) =>
 		launchState.closed = true;
 		if (launchState.childPid !== undefined) forgetProcess(launchState.childPid);
 	});
+	watchGameLogFolders(command, (folders) => {
+		logFolders.set(command, folders);
+		saveRunning();
+	});
+	watchForCrash(
+		command,
+		instance,
+		Date.now(),
+		() =>
+			launchState.blocked ||
+			(!!launchState.process && stopRequested.has(launchState.process.child)),
+	);
 
 	const child = await command.spawn();
 	launchState.childPid = child.pid;
@@ -253,6 +289,7 @@ export const killGame = async (instance: Instance) => {
 export const stopGameWindow = async (process: Process) => {
 	if (process.status === "stopping") return;
 	process.status = "stopping";
+	stopRequested.add(process.child);
 
 	await process.child.sendLine("kill").catch(() => {});
 

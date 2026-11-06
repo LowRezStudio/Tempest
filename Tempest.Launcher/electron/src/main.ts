@@ -12,6 +12,7 @@ import { getMainWindow, setMainWindow, showMainWindow } from "./app-state.js";
 import { queueDeepLinks, queueOpenFiles } from "./app.js";
 import { ensureCli } from "./cli.js";
 import "./converter.js";
+import "./crash.js";
 import "./defender.js";
 import "./dialog.js";
 import "./epic.js";

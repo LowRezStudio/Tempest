@@ -8,6 +8,7 @@
 	import HostServerWizard from "$lib/components/server-list/HostServerWizard.svelte";
 	import JoinServerWizard from "$lib/components/server-list/JoinServerWizard.svelte";
 	import AntivirusBlockedDialog from "$lib/components/ui/AntivirusBlockedDialog.svelte";
+	import CrashReportDialog from "$lib/components/ui/CrashReportDialog.svelte";
 	import UpdateDialog from "$lib/components/updater/UpdateDialog.svelte";
 	import {
 		dependenciesDialogStore,
@@ -73,3 +74,4 @@
 <UpdateDialog />
 <LegacyTauriDialog />
 <AntivirusBlockedDialog />
+<CrashReportDialog />

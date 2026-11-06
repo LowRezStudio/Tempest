@@ -55,6 +55,8 @@ internal class LauncherCommands
         }
 
         await process.WaitForExitAsync();
+        // The launcher tells a crash from a normal exit with this.
+        Environment.ExitCode = process.ExitCode;
 
         // The game is gone. A Wine prefix can host other windows of the same instance, so only
         // stop this launch's process tree instead of sweeping the whole prefix.
@@ -160,6 +162,7 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
             process.UseWine(isServer, !isServer && steamRuntime).Start();
         }
         PackageHashes.Apply(process, hashPatches);
+        if (!isServer) GameLogs.Announce(process, args, defaultArgs ? homedir : null);
 
         _ = Task.Run(async () =>
         {
