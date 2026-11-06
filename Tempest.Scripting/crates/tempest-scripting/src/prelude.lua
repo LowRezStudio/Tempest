@@ -173,23 +173,46 @@ local function report_unreadable(call, addr)
 	end
 	memory._report_unreadable(call, addr)
 end
+local ffi = require("ffi")
+-- The fixed-size readers go straight to the fault-safe copy through the FFI, which
+-- the JIT compiles (a Rust function would end the trace). Anything unusual, a bad
+-- address included, falls back to the Rust reader for its result and its report.
+local guarded_copy = memory._guarded_copy()
+guarded_copy = guarded_copy and ffi.cast("int (*)(uintptr_t, void *, size_t)", guarded_copy)
+local scratch = ffi.new("union { int8_t i8; uint8_t u8; int16_t i16; uint16_t u16; int32_t i32; uint32_t u32; int64_t i64; float f32; double f64; }")
+local ptr_field = ffi.sizeof("void *") == 8 and "i64" or "u32"
+local FIXED = { read_u8 = "u8", read_u16 = "u16", read_u32 = "u32", read_u64 = "i64", read_i8 = "i8", read_i16 = "i16", read_i32 = "i32",
+	read_i64 = "i64", read_f32 = "f32", read_f64 = "f64", read_ptr = ptr_field }
+local FIELD_SIZE = { i8 = 1, u8 = 1, i16 = 2, u16 = 2, i32 = 4, u32 = 4, f32 = 4, i64 = 8, f64 = 8 }
 -- The unwrapped readers stay in memory._raw: a full reload runs this file again.
 memory._raw = memory._raw or {}
 for _, name in ipairs({ "read_u8", "read_u16", "read_u32", "read_u64", "read_i8", "read_i16", "read_i32",
 	"read_i64", "read_f32", "read_f64", "read_ptr", "read_str", "read_wstr" }) do
 	local read = memory._raw[name] or memory[name]
 	memory._raw[name] = read
-	memory[name] = function(addr, ...)
-		local v = read(addr, ...)
-		if v == nil and addr ~= 0 then report_unreadable(name, addr) end
-		return v
+	local field = FIXED[name]
+	if field and guarded_copy then
+		local size = FIELD_SIZE[field]
+		memory[name] = function(addr)
+			if type(addr) == "number" and addr > 0 and guarded_copy(addr, scratch, size) ~= 0 then
+				return tonumber(scratch[field])
+			end
+			local v = read(addr)
+			if v == nil and addr ~= 0 then report_unreadable(name, addr) end
+			return v
+		end
+	else
+		memory[name] = function(addr, ...)
+			local v = read(addr, ...)
+			if v == nil and addr ~= 0 then report_unreadable(name, addr) end
+			return v
+		end
 	end
 end
 
 -- memory.read_c(addr, "uint64_t") / memory.write_c(addr, "float", v): typed
 -- access through the FFI for anything the fixed readers do not cover (exact
 -- 64-bit integers come back as cdata). nil / false when the bytes are not readable.
-local ffi = require("ffi")
 function memory.read_c(addr, ctype)
 	local n = ffi.sizeof(ctype)
 	if not n then return nil end

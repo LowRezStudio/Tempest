@@ -158,8 +158,12 @@ local function draw_perf()
 	local still = ui.window("Tempest performance", { open = true }, function()
 		local secs = math.max(r.seconds, 0.001)
 		local total = 0
+		-- This window's own drawing is gone when it closes: it is no cost of playing.
+		local me = tempest.mod()
 		for _, m in ipairs(r.mods) do
-			total = total + m.ms
+			if m.id ~= me then
+				total = total + m.ms
+			end
 		end
 		for _, rt in ipairs(r.runtime) do
 			if rt.name ~= "UI drawing (render thread)" then
@@ -253,7 +257,7 @@ local function draw_perf()
 				ui.tree_pop()
 			end
 		end)
-		ui.text_disabled("Measuring adds a little time of its own; closing this window stops it. tempest_perf log writes the table to the log.")
+		ui.text_disabled("The total leaves out this window's own drawing, and a share of the frame grows with the frame rate: compare ms. tempest_perf log writes the table to the log.")
 	end)
 	if still == false then
 		set_perf(false)

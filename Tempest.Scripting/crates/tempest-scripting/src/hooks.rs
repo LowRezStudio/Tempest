@@ -30,7 +30,7 @@
 //! first instructions, and refuses prologues it cannot move.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Integer argument positions on x64, stack dword slots on x86.
 pub const MAX_ARGS: usize = 8;
@@ -329,11 +329,11 @@ pub struct Hook {
     pub id: u64,
     pub addr: usize,
     /// Mod that installed it (`""` outside any mod).
-    pub owner: String,
+    pub owner: Arc<str>,
     /// What the Lua handler receives, position by position.
-    pub kinds: Vec<ArgKind>,
+    pub kinds: Arc<[ArgKind]>,
     /// Where each position lives.
-    pub locs: Vec<Loc>,
+    pub locs: Arc<[Loc]>,
     /// How the handler's return value is delivered.
     pub ret: ArgKind,
     pub conv: Conv,
@@ -379,9 +379,9 @@ pub fn add(addr: usize, owner: &str, kinds: Vec<ArgKind>, ret: ArgKind, conv: Co
         Hook {
             id,
             addr,
-            owner: owner.to_string(),
-            kinds,
-            locs,
+            owner: owner.into(),
+            kinds: kinds.into(),
+            locs: locs.into(),
             ret,
             conv,
         },

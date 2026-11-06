@@ -58,8 +58,7 @@ pub unsafe fn read<T: Copy>(addr: usize) -> Option<T> {
 }
 
 /// `read` for addresses nothing vouches for (script input): `None` when any
-/// byte is unreadable, instead of faulting. One `ReadProcessMemory` on this
-/// process per call.
+/// byte is unreadable, instead of faulting. A plain load when it works.
 pub fn try_read<T: Copy>(addr: usize) -> Option<T> {
     if addr == 0 {
         return None;
@@ -68,12 +67,228 @@ pub fn try_read<T: Copy>(addr: usize) -> Option<T> {
     unsafe {
         let size = std::mem::size_of::<T>();
         let mut value = std::mem::MaybeUninit::<T>::uninit();
-        let mut copied = 0usize;
-        let ok = ReadProcessMemory(GetCurrentProcess(), addr as *const _, value.as_mut_ptr().cast(), size, &mut copied);
-        (ok != 0 && copied == size).then(|| value.assume_init())
+        let ok = if guarded::ready() {
+            guarded::tempest_guarded_copy(addr as *const _, value.as_mut_ptr().cast(), size) != 0
+        } else {
+            let mut copied = 0usize;
+            ReadProcessMemory(GetCurrentProcess(), addr as *const _, value.as_mut_ptr().cast(), size, &mut copied) != 0 && copied == size
+        };
+        ok.then(|| value.assume_init())
     }
     #[cfg(not(windows))]
     None
+}
+
+/// `write` for addresses nothing vouches for: `false` when the bytes cannot be
+/// written, instead of faulting (a multi-word value may stop partway).
+pub fn try_write<T: Copy>(addr: usize, value: T) -> bool {
+    if addr == 0 {
+        return false;
+    }
+    #[cfg(windows)]
+    unsafe {
+        if guarded::ready() {
+            return guarded::tempest_guarded_copy((&value as *const T).cast(), addr as *mut _, std::mem::size_of::<T>()) != 0;
+        }
+    }
+    unsafe { write(addr, value) }
+}
+
+/// Did the fault at `ip` happen in a guarded copy? Then it is no crash: the copy
+/// just reports failure. For the crash log, whichever handler runs first.
+#[cfg(windows)]
+pub fn is_handled_fault(ip: usize) -> bool {
+    guarded::contains(ip)
+}
+
+/// Address of `int copy(const void* src, void* dst, size_t len)` for the Lua
+/// readers to call through the FFI; `None` when faults are not being caught.
+pub fn guarded_copy_addr() -> Option<usize> {
+    #[cfg(windows)]
+    {
+        guarded::ready().then_some(guarded::tempest_guarded_copy as *const () as usize)
+    }
+    #[cfg(not(windows))]
+    None
+}
+
+/// Faults in one small copy routine resume at its "failed" exit, the way a
+/// kernel's `copy_from_user` does: a working read is a plain load, and only a
+/// bad address pays for an exception. Nothing else can reach the handler's
+/// resume path, so every other exception goes on to the game's own handlers.
+#[cfg(windows)]
+mod guarded {
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::sync::Once;
+
+    // Leaf and frameless, so no unwind data: a fault never unwinds through it.
+    #[cfg(target_arch = "x86_64")]
+    std::arch::global_asm!(
+        ".text",
+        ".p2align 4",
+        ".globl tempest_guarded_copy",
+        "tempest_guarded_copy:",
+        "2:  cmp r8, 8",
+        "    jb 3f",
+        "    mov rax, [rcx]",
+        "    mov [rdx], rax",
+        "    add rcx, 8",
+        "    add rdx, 8",
+        "    sub r8, 8",
+        "    jmp 2b",
+        "3:  cmp r8, 4",
+        "    jb 4f",
+        "    mov eax, [rcx]",
+        "    mov [rdx], eax",
+        "    add rcx, 4",
+        "    add rdx, 4",
+        "    sub r8, 4",
+        "4:  cmp r8, 2",
+        "    jb 5f",
+        "    movzx eax, word ptr [rcx]",
+        "    mov [rdx], ax",
+        "    add rcx, 2",
+        "    add rdx, 2",
+        "    sub r8, 2",
+        "5:  test r8, r8",
+        "    jz 6f",
+        "    movzx eax, byte ptr [rcx]",
+        "    mov [rdx], al",
+        "6:  mov eax, 1",
+        "    ret",
+        ".globl tempest_guarded_failed",
+        "tempest_guarded_failed:",
+        "    xor eax, eax",
+        "    ret",
+    );
+
+    // cdecl: only EAX, ECX and EDX are free, so the length stays in its stack slot.
+    #[cfg(target_arch = "x86")]
+    std::arch::global_asm!(
+        ".text",
+        ".p2align 4",
+        ".globl _tempest_guarded_copy",
+        "_tempest_guarded_copy:",
+        "    mov ecx, [esp + 4]",
+        "    mov edx, [esp + 8]",
+        "2:  cmp dword ptr [esp + 12], 4",
+        "    jb 3f",
+        "    mov eax, [ecx]",
+        "    mov [edx], eax",
+        "    add ecx, 4",
+        "    add edx, 4",
+        "    sub dword ptr [esp + 12], 4",
+        "    jmp 2b",
+        "3:  cmp dword ptr [esp + 12], 2",
+        "    jb 4f",
+        "    movzx eax, word ptr [ecx]",
+        "    mov [edx], ax",
+        "    add ecx, 2",
+        "    add edx, 2",
+        "    sub dword ptr [esp + 12], 2",
+        "4:  cmp dword ptr [esp + 12], 0",
+        "    je 5f",
+        "    movzx eax, byte ptr [ecx]",
+        "    mov [edx], al",
+        "5:  mov eax, 1",
+        "    ret",
+        ".globl _tempest_guarded_failed",
+        "_tempest_guarded_failed:",
+        "    xor eax, eax",
+        "    ret",
+    );
+
+    extern "C" {
+        pub fn tempest_guarded_copy(src: *const c_void, dst: *mut c_void, len: usize) -> i32;
+        fn tempest_guarded_failed();
+    }
+
+    const STATUS_GUARD_PAGE_VIOLATION: u32 = 0x8000_0001;
+    const STATUS_ACCESS_VIOLATION: u32 = 0xC000_0005;
+    const STATUS_IN_PAGE_ERROR: u32 = 0xC000_0006;
+    const EXCEPTION_CONTINUE_EXECUTION: i32 = -1;
+    const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
+    const PAGE_GUARD: u32 = 0x100;
+
+    #[repr(C)]
+    struct ExceptionPointers {
+        record: *const ExceptionRecord,
+        context: *mut u8,
+    }
+
+    #[repr(C)]
+    struct ExceptionRecord {
+        code: u32,
+        flags: u32,
+        record: *const ExceptionRecord,
+        address: *const c_void,
+        parameters: u32,
+        information: [usize; 15],
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    const CONTEXT_IP: usize = 0xF8;
+    #[cfg(target_arch = "x86")]
+    const CONTEXT_IP: usize = 0xB8;
+
+    /// Is `ip` an instruction of the copy, whose faults are handled?
+    pub fn contains(ip: usize) -> bool {
+        (tempest_guarded_copy as *const () as usize..tempest_guarded_failed as *const () as usize).contains(&ip)
+    }
+
+    unsafe extern "system" fn on_exception(info: *mut c_void) -> i32 {
+        let info = &*(info as *const ExceptionPointers);
+        let ip_slot = info.context.add(CONTEXT_IP) as *mut usize;
+        if !contains(*ip_slot) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+        let record = &*info.record;
+        match record.code {
+            STATUS_ACCESS_VIOLATION | STATUS_IN_PAGE_ERROR => {}
+            STATUS_GUARD_PAGE_VIOLATION => rearm_guard(record.information[1]),
+            _ => return EXCEPTION_CONTINUE_SEARCH,
+        }
+        *ip_slot = tempest_guarded_failed as *const () as usize;
+        EXCEPTION_CONTINUE_EXECUTION
+    }
+
+    /// Touching a guard page clears its guard; another thread's stack needs it back to grow.
+    unsafe fn rearm_guard(addr: usize) {
+        let mut info: super::MemoryBasicInformation = std::mem::zeroed();
+        if super::VirtualQuery(addr as *const _, &mut info, std::mem::size_of::<super::MemoryBasicInformation>()) != 0 {
+            let mut old = 0u32;
+            super::VirtualProtect(addr as *mut _, 1, info.protect | PAGE_GUARD, &mut old);
+        }
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn AddVectoredExceptionHandler(first: u32, handler: Option<unsafe extern "system" fn(*mut c_void) -> i32>) -> *mut c_void;
+    }
+
+    const UNKNOWN: u8 = 0;
+    const READY: u8 = 1;
+    const UNAVAILABLE: u8 = 2;
+    static STATE: AtomicU8 = AtomicU8::new(UNKNOWN);
+
+    pub fn ready() -> bool {
+        match STATE.load(Ordering::Acquire) {
+            READY => true,
+            UNAVAILABLE => false,
+            _ => install(),
+        }
+    }
+
+    #[cold]
+    fn install() -> bool {
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            let handler = unsafe { AddVectoredExceptionHandler(1, Some(on_exception)) };
+            STATE.store(if handler.is_null() { UNAVAILABLE } else { READY }, Ordering::Release);
+        });
+        STATE.load(Ordering::Acquire) == READY
+    }
 }
 
 /// Volatile write. `false` for a null address or on the host build.
@@ -231,10 +446,9 @@ pub fn is_readable(addr: usize, len: usize) -> bool {
     }
 }
 
-/// `is_readable` for hot paths: reads one byte per page through `try_read`.
-/// `VirtualQuery` sizes the whole run of like pages after `addr`, which inside
-/// the game's large heap blocks costs tens of µs per call. Like any read, it
-/// trips a guard page, so keep `is_readable` for stack addresses.
+/// `is_readable` for anything a game can call often: reads one byte per page
+/// through `try_read`. `VirtualQuery` sizes the whole run of like pages after
+/// `addr`, hundreds of µs per call inside a large heap block.
 pub fn probe(addr: usize, len: usize) -> bool {
     const PAGE: usize = 0x1000;
     let Some(last) = addr.checked_add(len.max(1) - 1) else { return false };
@@ -376,6 +590,7 @@ extern "system" {
         info: *mut MemoryBasicInformation,
         len: usize,
     ) -> usize;
+    fn VirtualProtect(addr: *mut std::ffi::c_void, size: usize, protect: u32, old: *mut u32) -> i32;
 }
 
 #[cfg(test)]
@@ -421,6 +636,70 @@ mod tests {
         assert!(probe(start + 0x10, 1));
         assert!(!probe(0x10, 4));
         assert!(!probe(usize::MAX - 1, 4));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn try_read_every_width_and_a_range_ending_at_a_bad_page() {
+        let bytes: [u8; 16] = std::array::from_fn(|i| i as u8 + 1);
+        let at = bytes.as_ptr() as usize;
+        assert_eq!(try_read::<u8>(at + 1), Some(2));
+        assert_eq!(try_read::<u16>(at + 1), Some(u16::from_le_bytes([2, 3])));
+        assert_eq!(try_read::<u32>(at + 1), Some(u32::from_le_bytes([2, 3, 4, 5])));
+        assert_eq!(try_read::<u64>(at + 1), Some(u64::from_le_bytes([2, 3, 4, 5, 6, 7, 8, 9])));
+        assert_eq!(try_read::<[u8; 15]>(at + 1).map(|v| v[14]), Some(16));
+
+        // A readable page followed by a reserved one: a read across the edge fails.
+        unsafe {
+            const MEM_COMMIT: u32 = 0x1000;
+            const MEM_RESERVE: u32 = 0x2000;
+            let page = VirtualAlloc(std::ptr::null_mut(), 0x2000, MEM_RESERVE, 0x04) as usize;
+            assert_ne!(page, 0);
+            assert_ne!(VirtualAlloc(page as *mut _, 0x1000, MEM_COMMIT, 0x04) as usize, 0);
+            std::ptr::write((page + 0xFFC) as *mut u32, 7);
+            assert_eq!(try_read::<u32>(page + 0xFFC), Some(7));
+            assert_eq!(try_read::<u64>(page + 0xFFC), None);
+            assert_eq!(try_read::<u32>(page + 0x1000), None);
+            assert!(probe(page + 0xF00, 0x100));
+            assert!(!probe(page + 0xF00, 0x101));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn try_write_refuses_what_cannot_be_written() {
+        let mut slot = 0u32;
+        assert!(try_write(&mut slot as *mut u32 as usize, 5u32));
+        assert_eq!(slot, 5);
+        assert!(!try_write(0x10, 5u32));
+        unsafe {
+            const COMMIT_RESERVE: u32 = 0x3000;
+            const PAGE_READONLY: u32 = 0x02;
+            let page = VirtualAlloc(std::ptr::null_mut(), 0x1000, COMMIT_RESERVE, PAGE_READONLY) as usize;
+            assert_ne!(page, 0);
+            assert!(!try_write(page, 5u32));
+            assert_eq!(try_read::<u32>(page), Some(0));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_guard_page_fails_the_read_and_stays_guarded() {
+        unsafe {
+            const COMMIT_RESERVE: u32 = 0x3000;
+            const PAGE_READWRITE_GUARD: u32 = 0x04 | 0x100;
+            let page = VirtualAlloc(std::ptr::null_mut(), 0x1000, COMMIT_RESERVE, PAGE_READWRITE_GUARD) as usize;
+            assert_ne!(page, 0);
+            assert_eq!(try_read::<u32>(page), None);
+            assert_eq!(try_read::<u32>(page), None);
+            assert!(!is_readable(page, 4));
+        }
+    }
+
+    #[cfg(windows)]
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn VirtualAlloc(addr: *mut std::ffi::c_void, size: usize, kind: u32, protect: u32) -> *mut std::ffi::c_void;
     }
 
     #[test]
