@@ -369,8 +369,8 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|_, ptr: i64| {
             let ptr = ptr as usize;
             let ok = ptr != 0
-                && memory::is_readable(ptr, unreal::layout::UOBJECT_CLASS + unreal::layout::PTR)
-                && unreal::object_class(ptr).is_some_and(|c| memory::is_readable(c, unreal::layout::UOBJECT_CLASS + unreal::layout::PTR));
+                && memory::probe(ptr, unreal::layout::UOBJECT_CLASS + unreal::layout::PTR)
+                && unreal::object_class(ptr).is_some_and(|c| memory::probe(c, unreal::layout::UOBJECT_CLASS + unreal::layout::PTR));
             Ok(ok.then_some(Object(ptr)))
         })?,
     )?;
@@ -572,7 +572,7 @@ fn status(lua: &Lua) -> mlua::Result<Table> {
     t.set("game_thread", unreal::game_thread_id())?;
     t.set("object_count", unreal::object_count())?;
     t.set("name_count", unreal::name_count())?;
-    t.set("notes", g.notes)?;
+    t.set("notes", g.notes.clone())?;
     let subs = lua.create_table()?;
     for (id, spec) in unreal::subscriptions() {
         subs.set(id, spec)?;
@@ -687,7 +687,7 @@ fn address_hooks(lua: &Lua) -> mlua::Result<Table> {
         let e = lua.create_table()?;
         e.set("id", h.id)?;
         e.set("addr", h.addr as i64)?;
-        e.set("mod", h.owner.as_str())?;
+        e.set("mod", &*h.owner)?;
         e.set("args", h.kinds.iter().map(|k| format!("{k:?}").to_ascii_lowercase()).collect::<Vec<_>>())?;
         e.set("conv", h.conv.name())?;
         out.set(i + 1, e)?;
@@ -839,7 +839,7 @@ fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, regs: hooks::
     };
     let mut lua_args: Vec<Value> = Vec::with_capacity(1 + h.kinds.len());
     lua_args.push(Value::Function(original));
-    for (kind, loc) in h.kinds.iter().zip(&h.locs) {
+    for (kind, loc) in h.kinds.iter().zip(h.locs.iter()) {
         lua_args.push(match kind {
             hooks::ArgKind::Int => int(regs.word(*loc) as i64),
             k => Value::Number(regs.get(*loc, *k)),
@@ -1052,7 +1052,7 @@ impl UserData for Struct {
         });
         m.add_meta_method(MetaMethod::Index, |lua, this, key: Value| {
             let Value::String(key) = key else { return Ok(Value::Nil) };
-            let key = key.to_string_lossy();
+            let Ok(key) = key.to_str() else { return Ok(Value::Nil) };
             Ok(match unreal::find_property(this.kind, &key) {
                 Some(p) => unreal::read_prop(this.addr, &p).map(|v| to_lua(lua, &v)).unwrap_or(Value::Nil),
                 None => Value::Nil,
@@ -1358,7 +1358,7 @@ impl UserData for Method {
             let t = lua.create_table()?;
             for (i, p) in unreal::function_params(this.func).iter().enumerate() {
                 let e = lua.create_table()?;
-                e.set("name", p.name.as_str())?;
+                e.set("name", &*p.name)?;
                 e.set("kind", format!("{:?}", p.prop.kind))?;
                 e.set("out", p.is_out())?;
                 e.set("ret", p.is_return())?;
@@ -1391,10 +1391,10 @@ impl Params {
         match key {
             Value::String(s) => {
                 // FName semantics: `p.PlayerId` finds the `PlayerID` parameter.
-                let s = s.to_string_lossy();
-                params.into_iter().find(|p| p.name.eq_ignore_ascii_case(&s))
+                let s = s.to_str().ok()?;
+                params.iter().find(|p| p.name.eq_ignore_ascii_case(&s)).cloned()
             }
-            Value::Integer(i) if *i >= 1 => params.into_iter().nth(*i as usize - 1),
+            Value::Integer(i) if *i >= 1 => params.get(*i as usize - 1).cloned(),
             _ => None,
         }
     }
@@ -1404,8 +1404,8 @@ impl UserData for Params {
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
         m.add_meta_method(MetaMethod::Index, |lua, this, key: Value| {
             if let Value::String(s) = &key {
-                if &*s.to_string_lossy() == "names" {
-                    let names: Vec<String> = unreal::function_params(this.func).into_iter().map(|p| p.name).collect();
+                if s.as_bytes() == b"names" {
+                    let names: Vec<String> = unreal::function_params(this.func).iter().map(|p| p.name.to_string()).collect();
                     return names.into_lua(lua);
                 }
             }
@@ -1512,7 +1512,7 @@ impl UserData for Object {
         });
         m.add_meta_method(MetaMethod::Index, |lua, this, key: Value| {
             let Value::String(key) = key else { return Ok(Value::Nil) };
-            let key = key.to_string_lossy();
+            let Ok(key) = key.to_str() else { return Ok(Value::Nil) };
             if let Some(p) = property(this.0, &key) {
                 return Ok(unreal::read_prop(this.0, &p).map(|v| to_lua(lua, &v)).unwrap_or(Value::Nil));
             }
@@ -1629,7 +1629,7 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
                     if addr <= 0 {
                         return Ok(false);
                     }
-                    Ok(unsafe { memory::write(addr as usize, v as $ty) })
+                    Ok(memory::try_write(addr as usize, v as $ty))
                 })?,
             )?;
         };
@@ -1648,9 +1648,11 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
         "readable",
         lua.create_function(|_, (addr, len): (i64, Option<usize>)| {
             let (addr, len) = (addr as usize, len.unwrap_or(1).max(1));
-            Ok(addr != 0 && (buffers::owns(addr, len) || memory::is_readable(addr, len)))
+            Ok(addr != 0 && (memory::probe(addr, len) || buffers::owns(addr, len)))
         })?,
     )?;
+    // memory._guarded_copy() -> address of the fault-safe copy, for the prelude's readers.
+    m.set("_guarded_copy", lua.create_function(|_, ()| Ok(memory::guarded_copy_addr().map(|a| a as i64)))?)?;
     m.set(
         "read_str",
         lua.create_function(|_, (addr, max): (i64, Option<usize>)| {
@@ -1789,7 +1791,7 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
 /// instead of faulting).
 fn write_bytes(addr: usize, bytes: &[u8], nul: usize) -> bool {
     let len = bytes.len() + nul;
-    if addr == 0 || !(buffers::owns(addr, len) || memory::is_readable(addr, len)) {
+    if addr == 0 || !(memory::probe(addr, len) || buffers::owns(addr, len)) {
         return false;
     }
     // SAFETY: `len` bytes at `addr` are ours or committed, checked just above.

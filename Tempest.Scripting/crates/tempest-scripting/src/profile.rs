@@ -146,7 +146,10 @@ pub fn lua<R>(owner: &str, site: Site, label: impl FnOnce() -> String, f: impl F
     let r = f();
     let own = end(start);
     if let Some(s) = STATE.lock().unwrap().as_mut() {
-        let m = s.mods.entry(owner.to_string()).or_default();
+        if !s.mods.contains_key(owner) {
+            s.mods.insert(owner.to_string(), ModStat::default());
+        }
+        let Some(m) = s.mods.get_mut(owner) else { return r };
         m.frame += own;
         let st = m.sites.entry(site).or_insert_with(|| Stat { label: label(), ..Stat::default() });
         st.calls += 1;
@@ -156,31 +159,63 @@ pub fn lua<R>(owner: &str, site: Site, label: impl FnOnce() -> String, f: impl F
     r
 }
 
+/// The per-call hooks run tens of thousands of times a frame, and timing each
+/// call would cost more than the hooks themselves and show up as their cost:
+/// one call in this many is timed and counts for all of them.
+const SAMPLE_EVERY: u64 = 64;
+/// A sampled call slower than this is a one-off (housekeeping, the thread being
+/// preempted), not what the other calls cost, so it only counts for itself.
+const SAMPLE_TYPICAL_NS: u64 = 5_000;
+
+/// What an empty timed scope measures, taken when measuring starts.
+static CLOCK_NS: AtomicU64 = AtomicU64::new(0);
+
+fn calibrate_clock() {
+    let empty = (0..256).map(|_| end(begin())).min().unwrap_or(0);
+    CLOCK_NS.store(empty, Ordering::Relaxed);
+}
+
 /// Run the runtime's own work `f`, timed when profiling.
 pub fn runtime<R>(which: Runtime, f: impl FnOnce() -> R) -> R {
-    timed(which, true, f)
+    if !enabled() {
+        return f();
+    }
+    let calls = RUNTIME[which as usize].calls.fetch_add(1, Ordering::Relaxed);
+    if !matches!(which, Runtime::EventHook | Runtime::ScriptHook) {
+        return timed(which, 1, f);
+    }
+    if calls.is_multiple_of(SAMPLE_EVERY) {
+        timed(which, SAMPLE_EVERY, f)
+    } else {
+        f()
+    }
 }
 
 /// More of the same call's work (after the original ran): time, no new call.
 pub fn runtime_more<R>(which: Runtime, f: impl FnOnce() -> R) -> R {
-    timed(which, false, f)
-}
-
-fn timed<R>(which: Runtime, call: bool, f: impl FnOnce() -> R) -> R {
     if !enabled() {
         return f();
     }
+    timed(which, 1, f)
+}
+
+fn timed<R>(which: Runtime, weight: u64, f: impl FnOnce() -> R) -> R {
     let start = begin();
     let r = f();
     let own = end(start);
     let c = &RUNTIME[which as usize];
-    if call {
-        c.calls.fetch_add(1, Ordering::Relaxed);
-    }
-    c.ns.fetch_add(own, Ordering::Relaxed);
+    let counted = if own >= SAMPLE_TYPICAL_NS {
+        own
+    } else if weight > 1 {
+        // The clock costs more than these calls: it must not count many times over.
+        own.saturating_sub(CLOCK_NS.load(Ordering::Relaxed)) * weight
+    } else {
+        own
+    };
+    c.ns.fetch_add(counted, Ordering::Relaxed);
     c.max.fetch_max(own, Ordering::Relaxed);
     if which != Runtime::UiRender {
-        RUNTIME_FRAME.fetch_add(own, Ordering::Relaxed);
+        RUNTIME_FRAME.fetch_add(counted, Ordering::Relaxed);
     }
     r
 }
@@ -219,6 +254,7 @@ pub fn reset() {
         c.reset();
     }
     RUNTIME_FRAME.store(0, Ordering::Relaxed);
+    calibrate_clock();
     *STATE.lock().unwrap() = Some(State {
         started: Instant::now(),
         frames: 0,
@@ -306,7 +342,7 @@ mod tests {
         lua("outer", Site::Other, || "outer".into(), || {
             spin(2000);
             lua("inner", Site::Hook(7), || "Engine.HUD.PostRender".into(), || spin(3000));
-            runtime(Runtime::EventHook, || spin(1000));
+            runtime(Runtime::UiFrame, || spin(1000));
         });
         frame();
         let r = report();
@@ -315,10 +351,21 @@ mod tests {
         let ms = |ns: u64| ns as f64 / 1e6;
         assert!((1.9..2.6).contains(&ms(get("outer"))), "outer {}", ms(get("outer")));
         assert!((2.9..3.6).contains(&ms(get("inner"))), "inner {}", ms(get("inner")));
-        assert!((0.9..1.6).contains(&ms(r.runtime[0].2)), "runtime {}", ms(r.runtime[0].2));
+        assert!((0.9..1.6).contains(&ms(r.runtime[2].2)), "runtime {}", ms(r.runtime[2].2));
         let inner = r.mods.iter().find(|m| m.id == "inner").unwrap();
         assert_eq!(inner.sites[0].stat.label, "Engine.HUD.PostRender");
         assert_eq!(inner.sites[0].kind, "hook");
         assert_eq!(inner.calls, 1);
+
+        // The per-call hooks are sampled, and the report still adds up to all of them.
+        set(true);
+        for _ in 0..SAMPLE_EVERY * 4 {
+            runtime(Runtime::ScriptHook, || spin(2));
+        }
+        let r = report();
+        set(false);
+        assert_eq!(r.runtime[1].1, SAMPLE_EVERY * 4);
+        let per_call_us = r.runtime[1].2 as f64 / 1e3 / r.runtime[1].1 as f64;
+        assert!((0.4..8.0).contains(&per_call_us), "per call {per_call_us} us");
     }
 }

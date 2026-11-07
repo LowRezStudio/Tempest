@@ -42,7 +42,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::memory;
@@ -323,24 +323,73 @@ pub struct Globals {
     pub notes: Vec<String>,
 }
 
-static GLOBALS: Mutex<Option<Globals>> = Mutex::new(None);
+static GLOBALS: Mutex<Option<Arc<Globals>>> = Mutex::new(None);
 
 // Copies of the fields the per-call paths (every ProcessEvent, every script
-// function, every name lookup) read, so they never lock and clone `Globals`.
+// function, every name lookup) read, so they never lock `Globals`.
 static GOBJECTS: AtomicUsize = AtomicUsize::new(0);
 static GNAMES: AtomicUsize = AtomicUsize::new(0);
+static ENGINE_SLOT: AtomicUsize = AtomicUsize::new(0);
 static PROCESS_INTERNAL: AtomicUsize = AtomicUsize::new(0);
 
 /// Last resolved state (never scans).
-pub fn globals() -> Globals {
+pub fn globals() -> Arc<Globals> {
     GLOBALS.lock().unwrap().clone().unwrap_or_default()
 }
 
 fn store(g: &Globals) {
     GOBJECTS.store(g.gobjects, Ordering::Release);
     GNAMES.store(g.gnames, Ordering::Release);
+    ENGINE_SLOT.store(g.engine_slot, Ordering::Release);
     PROCESS_INTERNAL.store(g.process_internal, Ordering::Release);
-    *GLOBALS.lock().unwrap() = Some(g.clone());
+    *GLOBALS.lock().unwrap() = Some(Arc::new(g.clone()));
+}
+
+fn update_globals(change: impl FnOnce(&mut Globals)) {
+    if let Some(g) = GLOBALS.lock().unwrap().as_mut() {
+        change(Arc::make_mut(g));
+    }
+}
+
+/// FxHash: lookups of pointers and short names on paths a game reaches every
+/// frame, where SipHash's resistance to crafted keys buys nothing.
+#[derive(Default, Clone, Copy)]
+struct Fx(u64);
+
+impl Fx {
+    fn add(&mut self, word: u64) {
+        self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
+impl std::hash::Hasher for Fx {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.add(u64::from_le_bytes(word));
+        }
+    }
+
+    fn write_usize(&mut self, v: usize) {
+        self.add(v as u64);
+    }
+}
+
+type FxBuild = std::hash::BuildHasherDefault<Fx>;
+/// Class → what a name means there, keyed as scripts spell the name, so a hit allocates nothing.
+type ByName<V> = HashMap<usize, HashMap<Box<str>, V, FxBuild>, FxBuild>;
+
+fn by_name_get<V: Copy>(cache: &Mutex<Option<ByName<V>>>, class: usize, name: &str) -> Option<V> {
+    cache.lock().unwrap().get_or_insert_default().get(&class)?.get(name).copied()
+}
+
+fn by_name_put<V>(cache: &Mutex<Option<ByName<V>>>, class: usize, name: &str, value: V) {
+    cache.lock().unwrap().get_or_insert_default().entry(class).or_default().insert(name.into(), value);
 }
 
 /// Scan the signatures, then wait until the name/object arrays are live.
@@ -582,9 +631,7 @@ pub fn resolve_process_internal() -> Option<usize> {
         return None;
     }
     crate::log::line("resolve", &format!("ProcessInternal at 0x{addr:x} ({n} script functions bind to it)"));
-    if let Some(g) = GLOBALS.lock().unwrap().as_mut() {
-        g.process_internal = addr;
-    }
+    update_globals(|g| g.process_internal = addr);
     PROCESS_INTERNAL.store(addr, Ordering::Release);
     Some(addr)
 }
@@ -669,9 +716,7 @@ pub fn wait_for_engine(timeout: Duration) -> bool {
         ),
     );
     if resolve_process_internal().is_none() {
-        if let Some(g) = GLOBALS.lock().unwrap().as_mut() {
-            g.notes.push("ProcessInternal unresolved (script-function hooks disabled)".into());
-        }
+        update_globals(|g| g.notes.push("ProcessInternal unresolved (script-function hooks disabled)".into()));
     }
     true
 }
@@ -908,9 +953,17 @@ pub fn is_a(obj: usize, class_ptr: usize) -> bool {
     super_chain(object_class(obj)).any(|c| c == class_ptr)
 }
 
-/// Same, by `"Package.Class"` path — no object scan needed.
+/// Same, by `"Package.Class"` path, cached per class (no object scan, and the
+/// paths of the class chain are only built once).
 pub fn is_a_path(obj: usize, path: &str) -> bool {
-    super_chain(object_class(obj)).any(|c| object_path(c).as_deref() == Some(path))
+    static CACHE: Mutex<Option<ByName<bool>>> = Mutex::new(None);
+    let Some(class) = object_class(obj) else { return false };
+    if let Some(hit) = by_name_get(&CACHE, class, path) {
+        return hit;
+    }
+    let found = super_chain(Some(class)).any(|c| object_path(c).as_deref() == Some(path));
+    by_name_put(&CACHE, class, path, found);
+    found
 }
 
 fn super_chain(class: Option<usize>) -> impl Iterator<Item = usize> {
@@ -981,7 +1034,7 @@ pub fn default_object(class: usize) -> Option<usize> {
 
 /// `*GEngine`, when the engine exists.
 pub fn engine() -> Option<usize> {
-    unsafe { memory::read::<usize>(globals().engine_slot) }.filter(|&p| p != 0)
+    unsafe { memory::read::<usize>(ENGINE_SLOT.load(Ordering::Acquire)) }.filter(|&p| p != 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,6 +1067,23 @@ pub struct Prop {
     /// `UStructProperty.Struct` / `UObjectProperty.PropertyClass` / `UArrayProperty.Inner`.
     pub ext: usize,
     pub elem_size: usize,
+    /// Which struct a `Struct` property holds, as far as values care.
+    pub shape: StructShape,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StructShape {
+    Plain,
+    Vector,
+    Rotator,
+}
+
+fn struct_shape(ustruct: usize) -> StructShape {
+    match object_name(ustruct).as_deref() {
+        Some("Vector") => StructShape::Vector,
+        Some("Rotator") => StructShape::Rotator,
+        _ => StructShape::Plain,
+    }
 }
 
 /// Script-facing value. Struct properties other than Vector/Rotator come
@@ -1095,7 +1165,20 @@ fn prop_at(field: usize) -> Option<Prop> {
         bitmask,
         ext,
         elem_size: elem_size.max(0) as usize,
+        shape: if kind == PropKind::Struct { struct_shape(ext) } else { StructShape::Plain },
     })
+}
+
+/// `prop_at` for the element property of an array or map, which every read of
+/// that property needs: telling a property's kind means decoding names.
+fn prop_at_cached(field: usize) -> Option<Prop> {
+    static CACHE: Mutex<Option<HashMap<usize, Option<Prop>, FxBuild>>> = Mutex::new(None);
+    if let Some(hit) = CACHE.lock().unwrap().get_or_insert_default().get(&field) {
+        return *hit;
+    }
+    let found = prop_at(field);
+    CACHE.lock().unwrap().get_or_insert_default().insert(field, found);
+    found
 }
 
 /// `Children` linked list of a `UStruct`.
@@ -1135,17 +1218,15 @@ pub fn find_property(class: usize, name: &str) -> Option<Prop> {
     if class == 0 {
         return None;
     }
-    type Cache = HashMap<(usize, String), Option<Prop>>;
-    static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
-    let key = (class, name.to_ascii_lowercase());
-    if let Some(hit) = CACHE.lock().unwrap().get_or_insert_default().get(&key) {
-        return *hit;
+    static CACHE: Mutex<Option<ByName<Option<Prop>>>> = Mutex::new(None);
+    if let Some(hit) = by_name_get(&CACHE, class, name) {
+        return hit;
     }
     let found = super_chain(Some(class))
         .flat_map(children)
         .find(|&f| object_name(f).as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name)))
         .and_then(prop_at);
-    CACHE.lock().unwrap().get_or_insert_default().insert(key, found);
+    by_name_put(&CACHE, class, name, found);
     found
 }
 
@@ -1187,7 +1268,7 @@ fn prop_align(p: &Prop) -> usize {
 /// A synthetic property of a given kind (for native maps, whose pair types
 /// reflection does not record). `struct:Pkg.Name` resolves the ScriptStruct.
 pub fn synthetic_prop(kind: &str) -> Option<Prop> {
-    let (k, size, ext) = match kind.to_ascii_lowercase().as_str() {
+    let (kind_of_prop, size, ext) = match kind.to_ascii_lowercase().as_str() {
         "int" => (PropKind::Int, 4, 0),
         "float" => (PropKind::Float, 4, 0),
         "byte" => (PropKind::Byte, 1, 0),
@@ -1200,7 +1281,8 @@ pub fn synthetic_prop(kind: &str) -> Option<Prop> {
         }
         _ => return None,
     };
-    Some(Prop { offset: 0, kind: k, dim: 1, bitmask: 0, ext, elem_size: size })
+    let shape = if kind_of_prop == PropKind::Struct { struct_shape(ext) } else { StructShape::Plain };
+    Some(Prop { offset: 0, kind: kind_of_prop, dim: 1, bitmask: 0, ext, elem_size: size, shape })
 }
 
 /// A `Map` value over the `TMap` at `addr` with explicit pair types.
@@ -1226,7 +1308,7 @@ fn map_layout(key: &Prop, value: &Prop) -> (usize, usize) {
 fn map_value(prop: &Prop) -> Option<Value> {
     let key_field: usize = unsafe { memory::read(prop.ext + UMAP_KEY) }.unwrap_or(0);
     let value_field: usize = unsafe { memory::read(prop.ext + UMAP_VALUE) }.unwrap_or(0);
-    let (key, value) = match (prop_at(key_field), prop_at(value_field)) {
+    let (key, value) = match (prop_at_cached(key_field), prop_at_cached(value_field)) {
         (Some(k), Some(v)) => (k, v),
         _ => {
             static ONCE: Mutex<Option<std::collections::HashSet<usize>>> = Mutex::new(None);
@@ -1345,7 +1427,7 @@ fn struct_fields(ustruct: usize) -> Vec<Prop> {
 
 /// The element property of an array property (offset 0 within an element).
 fn array_inner(prop: &Prop) -> Option<Prop> {
-    prop_at(prop.ext).map(|p| Prop { offset: 0, ..p })
+    prop_at_cached(prop.ext).map(|p| Prop { offset: 0, ..p })
 }
 
 /// Assign the value at `src` to `dst` (absolute addresses, `prop` for the
@@ -1514,21 +1596,21 @@ pub fn read_prop(base: usize, prop: &Prop) -> Option<Value> {
                 0 => Value::Nil,
                 p => Value::Object(p),
             },
-            PropKind::Struct => match struct_name(prop).as_deref() {
-                Some("Vector") => Value::Vector(
+            PropKind::Struct => match prop.shape {
+                StructShape::Vector => Value::Vector(
                     memory::read(addr)?,
                     memory::read(addr + 4)?,
                     memory::read(addr + 8)?,
                 ),
-                Some("Rotator") => Value::Rotator(
+                StructShape::Rotator => Value::Rotator(
                     memory::read(addr)?,
                     memory::read(addr + 4)?,
                     memory::read(addr + 8)?,
                 ),
-                _ => Value::Struct { addr, kind: prop.ext },
+                StructShape::Plain => Value::Struct { addr, kind: prop.ext },
             },
-            PropKind::Array => match prop_at(prop.ext) {
-                Some(inner) => Value::Array { addr, inner: Prop { offset: 0, ..inner } },
+            PropKind::Array => match array_inner(prop) {
+                Some(inner) => Value::Array { addr, inner },
                 None => Value::Addr(addr),
             },
             PropKind::Map => match map_value(prop) {
@@ -1655,7 +1737,7 @@ pub fn write_fstring(addr: usize, s: &str) -> Result<(), String> {
 /// One `CPF_Parm` of a `UFunction`.
 #[derive(Debug, Clone)]
 pub struct Param {
-    pub name: String,
+    pub name: Arc<str>,
     pub prop: Prop,
     pub flags: u64,
 }
@@ -1674,23 +1756,23 @@ impl Param {
 
 /// All params of a `UFunction` in declaration order (return value included,
 /// flagged), cached per function.
-pub fn function_params(func: usize) -> Vec<Param> {
+pub fn function_params(func: usize) -> Arc<[Param]> {
     if func == 0 {
-        return Vec::new();
+        return Arc::from([]);
     }
-    type Cache = HashMap<usize, Vec<Param>>;
+    type Cache = HashMap<usize, Arc<[Param]>, FxBuild>;
     static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
     if let Some(hit) = CACHE.lock().unwrap().get_or_insert_default().get(&func) {
         return hit.clone();
     }
-    let params: Vec<Param> = children(func)
+    let params: Arc<[Param]> = children(func)
         .filter_map(|f| {
             let flags: u64 = unsafe { memory::read(f + UPROP_FLAGS)? };
             if flags & CPF_PARM == 0 {
                 return None;
             }
             Some(Param {
-                name: object_name(f)?,
+                name: object_name(f)?.into(),
                 prop: prop_at(f)?,
                 flags,
             })
@@ -1710,17 +1792,15 @@ pub fn find_function(class: usize, name: &str) -> Option<usize> {
     if class == 0 {
         return None;
     }
-    type Cache = HashMap<(usize, String), Option<usize>>;
-    static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
-    let key = (class, name.to_ascii_lowercase());
-    if let Some(hit) = CACHE.lock().unwrap().get_or_insert_default().get(&key) {
-        return *hit;
+    static CACHE: Mutex<Option<ByName<Option<usize>>>> = Mutex::new(None);
+    if let Some(hit) = by_name_get(&CACHE, class, name) {
+        return hit;
     }
     let found = super_chain(Some(class)).flat_map(children).find(|&f| {
         object_name(f).as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name))
             && object_class(f).and_then(object_name).as_deref() == Some("Function")
     });
-    CACHE.lock().unwrap().get_or_insert_default().insert(key, found);
+    by_name_put(&CACHE, class, name, found);
     found
 }
 
@@ -1759,7 +1839,8 @@ fn copy_bytes(src: usize, dst: usize, n: usize) {
 /// structs are assigned element by element.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn copy_return(func: usize, from: usize, from_is_frame: bool, to: usize) {
-    let Some(p) = function_params(func).into_iter().find(|p| p.is_return()) else { return };
+    let params = function_params(func);
+    let Some(p) = params.iter().find(|p| p.is_return()) else { return };
     if matches!(p.prop.kind, PropKind::Map | PropKind::Other) {
         return;
     }
@@ -1875,18 +1956,18 @@ pub fn call_function(obj: usize, func: usize, args: &[Value]) -> Result<Vec<(Str
     let mut out: Vec<(String, Value)> = params
         .iter()
         .filter(|p| p.is_return())
-        .map(|p| (p.name.clone(), snapshot_prop(base, &p.prop)))
+        .map(|p| (p.name.to_string(), snapshot_prop(base, &p.prop)))
         .collect();
     out.extend(
         params
             .iter()
             .filter(|p| p.is_out() && !p.is_return())
-            .map(|p| (p.name.clone(), snapshot_prop(base, &p.prop))),
+            .map(|p| (p.name.to_string(), snapshot_prop(base, &p.prop))),
     );
     // Everything in the frame is engine-owned now (args we allocated,
     // returns/outs the engine allocated): give it back. The script-owned
     // fallback string buffers are the exception.
-    for p in &params {
+    for p in params.iter() {
         let addr = base + p.prop.offset;
         if p.prop.kind == PropKind::Str && unsafe { memory::read::<usize>(addr) }.is_some_and(|d| buffers.iter().any(|b| b.as_ptr() as usize == d)) {
             continue;
@@ -1924,7 +2005,7 @@ pub enum Phase {
 #[derive(Debug, Clone)]
 struct Sub {
     /// Mod that subscribed (`""` for the prelude).
-    owner: String,
+    owner: Arc<str>,
     phase: Phase,
     /// `"TgGame.TgGame"` from a qualified spec.
     class_path: Option<String>,
@@ -2024,7 +2105,7 @@ pub fn subscribe(spec: &str, phase: Phase, owner: &str) -> u64 {
         subs.push((
             id,
             Sub {
-                owner: owner.to_string(),
+                owner: owner.into(),
                 phase,
                 class_path: class_path.clone(),
                 func_name: func_name.clone(),
@@ -2223,7 +2304,7 @@ fn resolve_lazy_names() {
 }
 
 /// Owner of a subscription, if it still exists.
-pub fn subscription_owner(id: u64) -> Option<String> {
+pub fn subscription_owner(id: u64) -> Option<Arc<str>> {
     SUBS.lock().unwrap().iter().find(|(i, _)| *i == id).map(|(_, s)| s.owner.clone())
 }
 
@@ -2502,9 +2583,7 @@ fn resolve_gpropaddr() -> Option<usize> {
     match found {
         Some(addr) => {
             crate::log::line("resolve", &format!("GPropAddr at 0x{addr:x} (probe over {} candidates)", candidates.len()));
-            if let Some(g) = GLOBALS.lock().unwrap().as_mut() {
-                g.gpropaddr = addr;
-            }
+            update_globals(|g| g.gpropaddr = addr);
             Some(addr)
         }
         None => {
@@ -2553,7 +2632,10 @@ pub(crate) fn drain_queue() {
     if game != tid {
         return;
     }
-    if EVENTS.fetch_add(1, Ordering::Relaxed).is_multiple_of(HOUSEKEEPING_EVERY) {
+    // Only the game thread gets here, so this needs no atomic increment.
+    let event = EVENTS.load(Ordering::Relaxed);
+    EVENTS.store(event.wrapping_add(1), Ordering::Relaxed);
+    if event.is_multiple_of(HOUSEKEEPING_EVERY) {
         crate::input::maintain(false);
         #[cfg(windows)]
         service_pending_hooks();
@@ -2712,9 +2794,7 @@ pub fn install_script_hook() {
         }
         match script_hook::install(target) {
             Ok(()) => {
-                if let Some(g) = GLOBALS.lock().unwrap().as_mut() {
-                    g.script_hook_installed = true;
-                }
+                update_globals(|g| g.script_hook_installed = true);
                 crate::log::line("hook", &format!("ProcessInternal detour live at 0x{target:x}"));
             }
             Err(e) => crate::log::line("hook", &format!("ProcessInternal detour failed: {e}")),
@@ -2733,9 +2813,7 @@ pub fn install_hook() {
         }
         match hook::install(target) {
             Ok(()) => {
-                if let Some(g) = GLOBALS.lock().unwrap().as_mut() {
-                    g.hook_installed = true;
-                }
+                update_globals(|g| g.hook_installed = true);
                 crate::log::line("hook", &format!("ProcessEvent detour live at 0x{target:x}"));
             }
             Err(e) => crate::log::line("hook", &format!("detour failed: {e}")),
@@ -2776,30 +2854,29 @@ mod hook {
     }
 
     fn hooked_impl(this: *mut c_void, func: *mut c_void, parms: *mut c_void, result: *mut c_void) {
-        use crate::profile::{runtime, Runtime::EventHook};
+        use crate::profile::{runtime, runtime_more, Runtime::EventHook};
         let Some(original) = trampoline() else { return };
         let (o, f, p) = (this as usize, func as usize, parms as usize);
         // Script functions dispatch from the ProcessInternal detour and
         // hooked natives from their thunk; dispatching here too would double up.
-        // A script error is already a Lua error; a Rust panic must not take
-        // the game thread down with it (and never cancels the call).
         let deliver = runtime(EventHook, || {
             let _ = catch_unwind(super::drain_queue);
-            if !super::might_have_sub(f) || super::function_is_script(f) || super::native::is_hooked(f) {
-                return None;
-            }
-            Some(catch_unwind(AssertUnwindSafe(|| super::on_process_event_before(o, f, p, false))).unwrap_or(true))
+            super::might_have_sub(f) && !super::function_is_script(f) && !super::native::is_hooked(f)
         });
-        match deliver {
-            None => original(this, func, parms, result),
-            Some(false) => {}
-            Some(true) => {
-                original(this, func, parms, result);
-                crate::profile::runtime_more(EventHook, || {
-                    let _ = catch_unwind(AssertUnwindSafe(|| super::on_process_event_after(o, f, p, false)));
-                });
-            }
+        if !deliver {
+            original(this, func, parms, result);
+            return;
         }
+        // A script error is already a Lua error; a Rust panic must not take
+        // the game thread down with it (and never cancels the call).
+        let proceed = runtime_more(EventHook, || catch_unwind(AssertUnwindSafe(|| super::on_process_event_before(o, f, p, false))).unwrap_or(true));
+        if !proceed {
+            return;
+        }
+        original(this, func, parms, result);
+        runtime_more(EventHook, || {
+            let _ = catch_unwind(AssertUnwindSafe(|| super::on_process_event_after(o, f, p, false)));
+        });
     }
 
     /// Call the original (un-hooked) `ProcessEvent`; falls back to the raw
@@ -3212,7 +3289,7 @@ mod native {
         if stack == 0 || n_out == 0 {
             return;
         }
-        let valid = |p: usize, len: usize| p != 0 && p.is_multiple_of(PTR) && memory::is_readable(p, len);
+        let valid = |p: usize, len: usize| p != 0 && p.is_multiple_of(PTR) && memory::probe(p, len);
         let mut rec = unsafe { memory::read::<usize>(stack + FRAME_OUT_PARMS) }.unwrap_or(0);
         let mut seen = 0;
         while seen < n_out && valid(rec, OUTPARM_SIZE) {
@@ -3221,7 +3298,7 @@ mod native {
             let addr = unsafe { memory::read::<usize>(rec + OUTPARM_ADDR) }.unwrap_or(0);
             if valid(prop, PTR) && addr != 0 {
                 if let Some(p) = params.iter().find(|p| p.is_out() && !p.is_return() && super::find_property_object_in(func, &p.name) == Some(prop)) {
-                    if is_copyable(p) && memory::is_readable(addr, p.prop.elem_size.max(1)) {
+                    if is_copyable(p) && memory::probe(addr, p.prop.elem_size.max(1)) {
                         f(p, addr);
                     }
                 }
@@ -3692,7 +3769,7 @@ mod tests {
 
     fn sub(fname_index: Option<i32>, names_checked: usize) -> (u64, Sub) {
         let s = Sub {
-            owner: String::new(),
+            owner: "".into(),
             phase: Phase::After,
             class_path: None,
             func_name: "Probe".into(),

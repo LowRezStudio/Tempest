@@ -110,10 +110,31 @@ static void free_frame(FrameCopy* c) {
     IM_DELETE(c);
 }
 
-static void park_frame(FrameCopy* c) {
+// The parked frame's draw commands hold the font texture they were built with.
+// After the atlas texture is recreated (a font was added, or the D3D9 device
+// was reset) that texture is freed, and drawing the frame binds a dangling
+// texture: DXVK then faults later inside the game's own draw calls
+// (d3d9.dll called from Paladins.exe, no overlay frames on the stack).
+// Drop it; the next built frame uses the new texture. Call with g_frame_lock held.
+// The game thread builds frames without the lock, so one started before the
+// drop can still be parked after it: g_tex_gen tells park_frame to discard it.
+static volatile long g_tex_gen = 0;
+
+static void drop_parked_frame_locked() {
+    FrameCopy* old = g_frame;
+    g_frame = nullptr;
+    ++g_tex_gen;
+    free_frame(old);
+}
+
+static void park_frame(FrameCopy* c, long gen) {
     g_frame_lock.lock();
     FrameCopy* old = g_frame;
-    g_frame = c;
+    if (gen == g_tex_gen) {
+        g_frame = c;
+    } else {
+        old = c;  // built against a texture that is gone
+    }
     g_frame_lock.unlock();
     free_frame(old);
 }
@@ -397,6 +418,9 @@ int tempest_overlay_build_frame(void (*draw)(void*), void* ud) {
         g_fonts_dirty = 0;
     }
     g_building = 1;
+    g_frame_lock.lock();
+    long gen = g_tex_gen;
+    g_frame_lock.unlock();
 #ifdef _WIN32
     if (g_hwnd) {
         ImGui_ImplWin32_NewFrame();
@@ -409,7 +433,7 @@ int tempest_overlay_build_frame(void (*draw)(void*), void* ud) {
     ImGui::NewFrame();
     draw(ud);
     ImGui::Render();
-    park_frame(clone_frame(ImGui::GetDrawData()));
+    park_frame(clone_frame(ImGui::GetDrawData()), gen);
     ++g_frames_built;
     g_building = 0;
     if (g_font_requests.Size > 0) {
@@ -592,6 +616,7 @@ void tempest_overlay_present11(void* swapchain_ptr, unsigned flags) {
         ImGui_ImplDX11_InvalidateDeviceObjects();
         ImGui_ImplDX11_CreateDeviceObjects();
         g_fonts_dirty = 0;
+        drop_parked_frame_locked();
     }
     for (int i = 0; i < g_textures.Size; ++i) {
         Texture* t = g_textures[i];
@@ -726,6 +751,7 @@ void tempest_overlay_present9(void* device_ptr, void* hwnd_fallback) {
         ImGui_ImplDX9_InvalidateDeviceObjects();
         ImGui_ImplDX9_CreateDeviceObjects();
         g_fonts_dirty = 0;
+        drop_parked_frame_locked();
     }
     for (int i = 0; i < g_textures.Size; ++i) {
         Texture* t = g_textures[i];
@@ -784,7 +810,11 @@ void tempest_overlay_present9(void* device_ptr, void* hwnd_fallback) {
 }
 
 void tempest_overlay_reset9_before(void) {
-    if (g_device9) ImGui_ImplDX9_InvalidateDeviceObjects();
+    if (!g_device9) return;
+    g_frame_lock.lock();
+    ImGui_ImplDX9_InvalidateDeviceObjects();
+    drop_parked_frame_locked();
+    g_frame_lock.unlock();
 }
 
 #else  // !_WIN32: host build stubs so the Rust side links

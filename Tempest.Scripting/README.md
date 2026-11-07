@@ -170,8 +170,13 @@ frame, the UI drawing on the render thread). Self time means a handler's game
 call that fires another mod's hook does not carry that hook; the game's own
 work inside the call stays with the handler. Measuring only runs while the
 window is open (`profile.rs`: off, every entry point costs one atomic load;
-on, two clock reads and a short lock per Lua call). `tempest_perf log` writes
-the table to the log; `tempest.profile(true | false | "reset")` is the API.
+on, two clock reads and a short lock per Lua call, while the two detours time
+one call in 64 and scale it up, without the clock's own cost). The window's
+total leaves out its own drawing. A share of the frame grows with the frame
+rate, so compare the milliseconds. `tempest_perf log` writes the table to the
+log; `tempest.profile(true | false | "reset")` is the API. What the entry points
+cost in isolation: `cargo test --release --target x86_64-pc-windows-msvc --test
+hot_paths -- --ignored --nocapture`.
 
 ## Lua API
 
@@ -260,8 +265,10 @@ ui.C.igXxx(...)                      -- the whole cimgui API through LuaJIT's FF
 
 memory.base() memory.size()
 memory.read_u8/u16/u32/u64/i8/i16/i32/i64/f32/f64/ptr(addr) -- nil for 0 or an unreadable address
-memory.write_u8/u16/u32/u64/i32/i64/f32/f64(addr, v)
+memory.write_u8/u16/u32/u64/i32/i64/f32/f64(addr, v)      -- false for 0 or an address that cannot be written
 memory.read_str(addr, max) memory.read_wstr(addr, max)    -- nil when a character is unreadable
+-- A good read is a plain load (about 2 ns, JIT-compiled); only a bad address pays for an exception
+-- (`memory.rs`: faults in one small copy routine resume at its failure exit). memory.readable likewise.
 -- An unreadable non-null address (read_c too) logs "[mod] memory.read_u32(0x10) at scripts/main.lua:42:
 -- address not readable, returned nil", at most every 10 s per call site with a count of the ones left out.
 memory.scan("48 8B 05 ? ? ? ?", limit) -- absolute addresses

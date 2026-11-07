@@ -193,10 +193,22 @@ fn order_mods(mut mods: Vec<Mod>) -> Vec<Mod> {
 }
 
 /// Mod whose script (or handler) is currently executing; `""` outside.
-static CURRENT: Mutex<String> = Mutex::new(String::new());
+static CURRENT: Mutex<&'static str> = Mutex::new("");
 
 pub fn current_mod() -> String {
-    CURRENT.lock().unwrap().clone()
+    CURRENT.lock().unwrap().to_string()
+}
+
+/// `id` as a string that lives forever, one per mod id, so entering Lua allocates nothing.
+fn interned(id: &str) -> &'static str {
+    static IDS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    let mut ids = IDS.lock().unwrap();
+    if let Some(known) = ids.iter().find(|known| **known == id) {
+        return known;
+    }
+    let leaked: &'static str = Box::leak(id.to_string().into_boxed_str());
+    ids.push(leaked);
+    leaked
 }
 
 /// Run `f` with the current mod set to `id`, restoring the previous value.
@@ -207,7 +219,7 @@ pub fn with_mod<R>(id: &str, f: impl FnOnce() -> R) -> R {
 /// `with_mod` for an entry point the profiler reports as `site` (`label`
 /// is only built the first time the site is seen).
 pub fn with_mod_at<R>(id: &str, site: crate::profile::Site, label: impl FnOnce() -> String, f: impl FnOnce() -> R) -> R {
-    let prev = std::mem::replace(&mut *CURRENT.lock().unwrap(), id.to_string());
+    let prev = std::mem::replace(&mut *CURRENT.lock().unwrap(), interned(id));
     let r = crate::profile::lua(id, site, label, f);
     *CURRENT.lock().unwrap() = prev;
     r

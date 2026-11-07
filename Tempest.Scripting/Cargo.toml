@@ -9,7 +9,7 @@ resolver = "2"
 retour = { path = "crates/retour" }
 
 [profile.release]
-opt-level = "s"
+opt-level = 3
 lto = true
 strip = true
 # panic = "unwind" (default) on purpose: the ProcessEvent hook wraps script

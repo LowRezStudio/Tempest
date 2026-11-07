@@ -213,6 +213,9 @@ unsafe extern "system" fn veh_handler(ptrs: *mut std::ffi::c_void) -> i32 {
     if rec.is_null() {
         return CONTINUE_SEARCH;
     }
+    if crate::memory::is_handled_fault((*rec).address as usize) {
+        return CONTINUE_SEARCH;
+    }
     let code = (*rec).code;
     let name = match code {
         0xC000_0005 => "ACCESS_VIOLATION",
