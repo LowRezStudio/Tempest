@@ -536,12 +536,23 @@ impl Server {
             "map.list" => self.map_list(),
             "map.scene" => self.map_scene(p),
             "map.setTransform" => self.map_set_transform(p),
+            "map.palette" => self.map_palette(p),
+            "map.addActor" => self.map_add_actor(p),
+            "map.removeActor" => self.map_remove_actor(p),
+            "map.navmesh" | "map.navmeshEdit" => self.map_navmesh(method, p),
+            "map.collision" => self.map_collision(p),
+            "map.brush" => self.map_brush(p),
+            "map.setBrush" => self.map_set_brush(p),
             "map.export" => self.map_export(p),
+            "light.info" => self.light_info(p),
+            "light.bake" => self.light_bake(p),
             "kismet.sequences" => self.kismet_sequences(p),
             "kismet.graph" => self.kismet_graph(p),
             "kismet.link" => self.kismet_link(p),
             "kismet.palette" => self.kismet_palette(p),
-            "matinee.get" | "matinee.setKey" | "matinee.addKey" | "matinee.removeKey" => self.matinee(method, p),
+            "matinee.get" | "matinee.setKey" | "matinee.addKey" | "matinee.removeKey" | "matinee.addGroup" | "matinee.removeGroup" | "matinee.setGroup" | "matinee.addTrack" | "matinee.removeTrack" | "matinee.set" | "matinee.connect" => self.matinee(method, p),
+            "matinee.create" => self.matinee_create(p),
+            "matinee.list" => self.matinee_list(p),
             "kismet.add" => self.kismet_add(p),
             "kismet.remove" => self.kismet_remove(p),
             "anim.info" => self.anim_info(p),
@@ -1797,6 +1808,412 @@ impl Server {
         Ok(v)
     }
 
+    /// `map.palette {path?, levels?}`: every kind of actor the workspace's
+    /// levels place (from the search index; collections, WorldInfo and
+    /// builder brushes left out), with how often and one example to copy:
+    /// from `path` when it has one, else from one of `levels`, else anywhere;
+    /// and `placeable`: every actor class the script packages declare
+    /// placeable (volumes included, `volume: true`: they get a box unless
+    /// `brush` says otherwise), which `map.addActor {class}` builds from its
+    /// defaults.
+    fn map_palette(&mut self, p: &J) -> Res<J> {
+        self.index_all();
+        let db = self.db()?;
+        let here = opt_s(p, "path").map(|x| key(&x));
+        let near: Vec<String> = p.get("levels").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str()).map(key).collect()).unwrap_or_default();
+        let mut is_actor: HashMap<String, bool> = HashMap::new();
+        // class → (count, example path, index, rank: 2 here, 1 in the map, 0 elsewhere)
+        let mut found: HashMap<String, (usize, String, usize, u8)> = HashMap::new();
+        for w in &self.packages {
+            let k = key(&w.path.to_string_lossy());
+            let Some(idx) = self.index.get(&k) else { continue };
+            let rank = if here.as_deref() == Some(k.as_str()) { 2 } else { u8::from(near.contains(&k)) };
+            for (i, (cid, path)) in idx.exports.iter().enumerate() {
+                let Some(class) = idx.classes.get(*cid as usize) else { continue };
+                // Placed actors only: `theworld.persistentlevel.<name>`.
+                let mut parts = path.split('.');
+                if !(parts.next().is_some() && parts.next().is_some_and(|l| l.eq_ignore_ascii_case("persistentlevel")) && parts.next().is_some() && parts.next().is_none()) {
+                    continue;
+                }
+                let ok = *is_actor.entry(class.clone()).or_insert_with(|| {
+                    db.class_is_a(class, "Actor") && !["WorldInfo", "StaticMeshCollectionActor", "StaticLightCollectionActor"].iter().any(|c| db.class_is_a(class, c)) && !class.eq_ignore_ascii_case("Brush")
+                });
+                if !ok {
+                    continue;
+                }
+                let e = found.entry(class.to_ascii_lowercase()).or_insert((0, w.path.to_string_lossy().to_string(), i, rank));
+                e.0 += 1;
+                if rank > e.3 {
+                    e.1 = w.path.to_string_lossy().to_string();
+                    e.2 = i;
+                    e.3 = rank;
+                }
+            }
+        }
+        let mut out: Vec<J> = found
+            .into_iter()
+            .map(|(class, (count, path, index, rank))| json!({ "class": class, "category": crate::map::category(db, &class), "count": count, "example": { "path": path, "index": index }, "inMap": rank > 0 }))
+            .collect();
+        out.sort_by(|a, b| a["class"].as_str().cmp(&b["class"].as_str()));
+        // Volumes are built with a shape (`brush`, `collision::set_brush`);
+        // other brushes (BSP) are not.
+        let placeable: Vec<J> = db
+            .placeable_actors()
+            .into_iter()
+            .filter(|(class, _)| !db.class_is_a(class, "Brush") || db.class_is_a(class, "Volume"))
+            .map(|(class, package)| json!({ "class": class, "package": package, "category": crate::map::category(db, &class), "volume": db.class_is_a(&class, "Volume") }))
+            .collect();
+        Ok(json!({ "classes": out, "placeable": placeable }))
+    }
+
+    /// `map.addActor {path, source: {path, index}, parent?, matrix? | at?}`: a copy
+    /// of an actor placed in the level of `path` (`map::adopt_actor`). From
+    /// the same package the actor and its components are cloned; from
+    /// another one its content comes along and its references to that
+    /// level's objects are cleared (`CopyMode::Placed`). With `parent` (a
+    /// collection actor of the same package) the source is one of its
+    /// meshes and the copy becomes another. `matrix` (view space) places
+    /// it, or `at` (a view-space point) moves it there as it is turned and
+    /// scaled. One undo step.
+    fn map_add_actor(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        if let Some(class) = opt_s(p, "class") {
+            let mut r = self.map_new_actor(&path, &class, p)?;
+            // A volume gets a shape: `brush`, else the editor's default cube.
+            let db = self.db()?;
+            let shape = match p.get("brush") {
+                Some(b) => Some(b.clone()),
+                None if db.class_is_a(&class, "Volume") => Some(json!({ "kind": "box" })),
+                None => None,
+            };
+            if let (Some(b), Some(a)) = (shape, r["added"].as_u64()) {
+                r["brush"] = self.apply_brush(&path, a as usize, &b)?;
+            }
+            return Ok(r);
+        }
+        let src_path = p["source"]["path"].as_str().ok_or("missing source")?.to_string();
+        let src_i = p["source"]["index"].as_u64().ok_or("missing source index")? as usize;
+        let parent = opt_u(p, "parent");
+        let matrix: Option<Vec<f64>> = p.get("matrix").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_f64()).collect());
+        let mut warnings = Vec::new();
+        let new = if key(&src_path) == key(&path) {
+            let ed = self.editor(&path)?;
+            let level = crate::map::level_export(&ed.pkg).ok_or("this package has no level")?;
+            ed.begin_undo(format!("add {}", ed.pkg.object_name(PackageIndex::export(src_i))));
+            let new = ed.clone_tree(src_i, None)?;
+            match parent {
+                Some(c) => crate::map::adopt_component(ed, c, new)?,
+                None => crate::map::adopt_actor(ed, level, new)?,
+            }
+            new
+        } else {
+            if parent.is_some() {
+                return Err("a collection's mesh can only be copied within its own level".into());
+            }
+            let dk = key(&path);
+            self.editor(&path)?;
+            let mut dst = self.editors.remove(&dk).unwrap();
+            let Some(level) = crate::map::level_export(&dst.pkg) else {
+                self.editors.insert(dk, dst);
+                return Err("this package has no level".into());
+            };
+            let r = match self.editor(&src_path) {
+                Ok(src) => {
+                    dst.begin_undo(format!("add {}", src.pkg.object_name(PackageIndex::export(src_i))));
+                    dst.copy_with(src, src_i, Some(PackageIndex::export(level)), crate::edit::CopyMode::Placed)
+                }
+                Err(e) => {
+                    self.editors.insert(dk, dst);
+                    return Err(e);
+                }
+            };
+            self.editors.insert(dk, dst);
+            let (idx, w) = r?;
+            warnings = w;
+            let new = idx.export_index().ok_or("the copy is not an export")?;
+            crate::map::adopt_actor(self.editor(&path)?, level, new)?;
+            new
+        };
+        let ed = self.editor(&path)?;
+        let at: Option<Vec<f64>> = p.get("at").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_f64()).collect()).filter(|a: &Vec<f64>| a.len() == 3);
+        if let Some(m) = matrix {
+            crate::map::set_transform(ed, new, &m, parent)?;
+        } else if let Some(at) = at {
+            crate::map::move_to(ed, new, parent, [at[0], at[1], at[2]])?;
+        }
+        let mut r = json!({ "added": new, "name": ed.pkg.object_name(PackageIndex::export(new)), "warnings": warnings, "dirty": true });
+        if let Some(b) = p.get("brush") {
+            r["brush"] = self.apply_brush(&path, new, b)?;
+        }
+        Ok(r)
+    }
+
+    /// `map.addActor {path, class, mesh?, at?}`: a new actor of a placeable
+    /// class built from the class defaults (`map::new_actor`), listed in the
+    /// level (`map::adopt_actor`); `mesh` ({path, index}: a StaticMesh or
+    /// SkeletalMesh of any package, copied in with what it uses when it is
+    /// elsewhere) is set on its first mesh component. One undo step.
+    fn map_new_actor(&mut self, path: &str, class: &str, p: &J) -> Res<J> {
+        let db = self.db()?;
+        let cref = db.class(class).ok_or_else(|| format!("no class {class}"))?;
+        let script = db.ctx.packages[cref.pkg].name.clone();
+        let script_file = self.package_file(&script).ok_or_else(|| format!("{script} is not in the workspace folder"))?;
+        let class_name = db.ctx.packages[cref.pkg].export_name(cref.export).to_string();
+        let cdo = self.editor(&script_file)?.find(&format!("Default__{class_name}"))?;
+        let dk = key(path);
+        self.editor(path)?;
+        let mut dst = self.editors.remove(&dk).unwrap();
+        let Some(level) = crate::map::level_export(&dst.pkg) else {
+            self.editors.insert(dk, dst);
+            return Err("this package has no level".into());
+        };
+        let r = match self.editor(&script_file) {
+            Ok(src) => {
+                dst.begin_undo(format!("add {}", class_name.to_ascii_lowercase()));
+                crate::map::new_actor(&mut dst, src, cdo, level)
+            }
+            Err(e) => {
+                self.editors.insert(dk, dst);
+                return Err(e);
+            }
+        };
+        self.editors.insert(dk.clone(), dst);
+        let actor = r?;
+        let mut warnings = Vec::new();
+        if let (Some(mpath), Some(mindex)) = (p["mesh"]["path"].as_str().map(str::to_string), p["mesh"]["index"].as_u64().map(|v| v as usize)) {
+            let mesh = if key(&mpath) == dk {
+                mindex
+            } else {
+                let mut dst = self.editors.remove(&dk).unwrap();
+                let r = self.editor(&mpath).and_then(|src| dst.copy_with(src, mindex, None, crate::edit::CopyMode::Deep).map_err(|e| Box::new(e) as Box<dyn Error>));
+                self.editors.insert(dk.clone(), dst);
+                let (idx, w) = r?;
+                warnings = w;
+                idx.export_index().ok_or("the mesh copy is not an export")?
+            };
+            let ed = self.editor(path)?;
+            let mclass = ed.pkg.class_name_of(PackageIndex::export(mesh));
+            let (comp_class, prop) = if db.class_is_a(&mclass, "SkeletalMesh") { ("SkeletalMeshComponent", "SkeletalMesh") } else { ("StaticMeshComponent", "StaticMesh") };
+            let comp = ed.children(actor).into_iter().find(|&c| db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(c)), comp_class)).ok_or_else(|| format!("a {class_name} has no {comp_class} to show a {mclass}"))?;
+            ed.set(comp, prop, &crate::kismet::object_text(&ed.pkg, mesh))?;
+        }
+        let ed = self.editor(path)?;
+        crate::map::adopt_actor(ed, level, actor)?;
+        let at: Option<Vec<f64>> = p.get("at").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_f64()).collect()).filter(|a: &Vec<f64>| a.len() == 3);
+        if let Some(at) = at {
+            crate::map::move_to(ed, actor, None, [at[0], at[1], at[2]])?;
+        }
+        Ok(json!({ "added": actor, "name": ed.pkg.object_name(PackageIndex::export(actor)), "warnings": warnings, "dirty": true }))
+    }
+
+    /// `map.removeActor {path, index, parent?}`: delete an actor of the level
+    /// (`map::remove_actor`), or with `parent` a mesh of that collection
+    /// actor; one undo step.
+    fn map_remove_actor(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let parent = opt_u(p, "parent");
+        let ed = self.editor(path)?;
+        let level = crate::map::level_export(&ed.pkg).ok_or("this package has no level")?;
+        ed.begin_undo(format!("delete {}", ed.pkg.object_name(PackageIndex::export(i))));
+        match parent {
+            Some(c) => crate::map::remove_component(ed, c, i)?,
+            None => crate::map::remove_actor(ed, level, i)?,
+        }
+        Ok(json!({ "dirty": true }))
+    }
+
+    // ----- collision and volume shapes (`collision.rs`, `brush.rs`) -----------
+
+    /// The levels of a map: the package and, with `streamed`, every sublevel
+    /// it streams that the workspace has (as `map.scene`).
+    fn map_files(&mut self, path: &str, streamed: bool) -> Res<(Vec<String>, Vec<String>)> {
+        let mut files = vec![path.to_string()];
+        let mut missing = Vec::new();
+        if streamed {
+            for n in crate::map::streamed_levels(self.editor(path)?) {
+                match self.package_file(&n) {
+                    Some(f) if !files.iter().any(|x| key(x) == key(&f)) => files.push(f),
+                    Some(_) => {}
+                    None => missing.push(n),
+                }
+            }
+        }
+        Ok((files, missing))
+    }
+
+    /// A static mesh (`{path, index}`, or `{path?, object}` found through the
+    /// search index) as (package file, export).
+    fn collision_mesh(&mut self, m: &J) -> Res<(String, usize)> {
+        let file = match m["path"].as_str() {
+            Some(f) => f.to_string(),
+            None => {
+                let o = m["object"].as_str().ok_or("missing mesh")?;
+                self.index_all();
+                let owners = self.path_owners();
+                index_lookup(&owners, &self.packages, o).and_then(|n| self.package_file(&n)).ok_or_else(|| format!("{o} is in no package of the workspace"))?
+            }
+        };
+        let ed = self.editor(&file)?;
+        let i = match (m["index"].as_u64(), m["object"].as_str()) {
+            (Some(i), _) => i as usize,
+            (None, Some(o)) => ed.find(o).or_else(|_| ed.find(o.split_once('.').map(|x| x.1).unwrap_or(o)))?,
+            _ => return Err("missing mesh index".into()),
+        };
+        Ok((file, i))
+    }
+
+    /// A shape from `brush` (`map.setBrush`, `map.addActor`): a builder
+    /// (`collision::shape_from_json`), or `{kind: "mesh", mesh, fit: "hull" |
+    /// "bounds"}`: the convex hull, or the bounding box, of a mesh's LOD 0.
+    fn brush_shape(&mut self, b: &J) -> Res<crate::brush::Shape> {
+        if b["kind"].as_str() != Some("mesh") {
+            return Ok(crate::collision::shape_from_json(b)?);
+        }
+        let (file, i) = self.collision_mesh(&b["mesh"])?;
+        let g = self.editor(&file)?.with_object(i, |pkg, o| crate::mesh_ops::geometry(pkg, o, 0))??;
+        if b["fit"].as_str() == Some("bounds") {
+            let mut lo = [f32::MAX; 3];
+            let mut hi = [f32::MIN; 3];
+            for p in &g.positions {
+                for k in 0..3 {
+                    lo[k] = lo[k].min(p[k]);
+                    hi[k] = hi[k].max(p[k]);
+                }
+            }
+            let corners = (0..8).map(|c| [if c & 1 == 0 { lo[0] } else { hi[0] }, if c & 2 == 0 { lo[1] } else { hi[1] }, if c & 4 == 0 { lo[2] } else { hi[2] }]).collect();
+            return Ok(crate::brush::Shape::Hull { points: corners });
+        }
+        Ok(crate::brush::Shape::Hull { points: g.positions })
+    }
+
+    /// Give actor `i` of `path` the shape `b` (`collision::set_brush`).
+    fn apply_brush(&mut self, path: &str, i: usize, b: &J) -> Res<J> {
+        let shape = self.brush_shape(b)?;
+        let ed = self.editor(path)?;
+        Ok(crate::collision::set_brush(ed, i, &shape)?)
+    }
+
+    /// `map.brush {path, index}`: a volume's shape (its brush polys, or its
+    /// hulls' faces when the cooker stripped the brush) and convex elements.
+    fn map_brush(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        Ok(crate::collision::brush_json(self.editor(path)?, i)?)
+    }
+
+    /// `map.setBrush {path, index, brush}`: rebuild a volume's shape (see
+    /// `brush_shape`); one undo step.
+    fn map_set_brush(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let b = p.get("brush").ok_or("missing brush")?.clone();
+        let shape = self.brush_shape(&b)?;
+        let ed = self.editor(&path)?;
+        ed.begin_undo(format!("reshape {}", ed.pkg.object_name(PackageIndex::export(i))));
+        let mut r = crate::collision::set_brush(ed, i, &shape)?;
+        r["dirty"] = J::from(true);
+        Ok(r)
+    }
+
+    /// `map.collision {path, streamed?}`: per level, what pawns and shots
+    /// collide with: every volume's convex hulls (view space, in the actor's
+    /// frame) and every static mesh component's placement, with the
+    /// collision switches of both (`collision::flags_json`); `meshes` holds
+    /// each mesh's `UseSimple*` switches and simple collision once
+    /// (`collision::mesh_collision`), keyed by the items' `meshKey`.
+    fn map_collision(&mut self, p: &J) -> Res<J> {
+        use crate::map::{actor_matrix, component_matrix, mul, to_view};
+        let path = s(p, "path")?.to_string();
+        let (files, missing) = self.map_files(&path, opt_b(p, "streamed").unwrap_or(true))?;
+        let db = self.db()?;
+        let mut levels = Vec::new();
+        let mut wanted: Vec<(String, J)> = Vec::new();
+        for f in &files {
+            let ed = self.editor(f)?;
+            let Some(level) = crate::map::level_export(&ed.pkg) else { continue };
+            let actors: Vec<usize> = ed.with_object(level, |_, o| match &o.native {
+                Native::Level(l) => l.actors.iter().filter_map(|a| a.export_index()).collect(),
+                _ => Vec::new(),
+            })?;
+            let mut items = Vec::new();
+            for a in actors {
+                let class = ed.pkg.class_name_of(PackageIndex::export(a));
+                let am = ed.with_object(a, |pkg, o| actor_matrix(o, pkg))?;
+                let comps = ed.children(a);
+                if db.class_is_a(&class, "Brush") {
+                    let Some(c) = comps.iter().copied().find(|&c| db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(c)), "BrushComponent")) else { continue };
+                    let geom = ed.with_object(c, |pkg, o| crate::collision::agg_json(o.property("BrushAggGeom", pkg).map(|p| &p.value), pkg))?;
+                    let flags = crate::collision::flags_json(ed, a, Some(c));
+                    items.push(json!({ "kind": "volume", "export": a, "component": c, "name": ed.pkg.object_name(PackageIndex::export(a)), "class": class, "category": crate::map::category(db, &class), "matrix": to_view(&am), "flags": flags, "geometry": geom }));
+                    continue;
+                }
+                for c in comps {
+                    let cclass = ed.pkg.class_name_of(PackageIndex::export(c));
+                    if !db.class_is_a(&cclass, "StaticMeshComponent") {
+                        continue;
+                    }
+                    let (cm, mesh) = ed.with_object(c, |pkg, o| {
+                        let m = match o.property("StaticMesh", pkg).map(|p| &p.value) {
+                            Some(Value::Object(i)) if !i.is_null() => Some(match i.export_index() {
+                                Some(e) => json!({ "path": f, "index": e }),
+                                None => json!({ "object": pkg.object_path(*i) }),
+                            }),
+                            _ => None,
+                        };
+                        (component_matrix(o, pkg), m)
+                    })?;
+                    let Some(mesh) = mesh else { continue };
+                    let mkey = match mesh["object"].as_str() {
+                        Some(o) => o.to_string(),
+                        None => format!("{f}#{}", mesh["index"]),
+                    };
+                    let flags = crate::collision::flags_json(ed, a, Some(c));
+                    wanted.push((mkey.clone(), mesh.clone()));
+                    items.push(json!({ "kind": "mesh", "export": c, "parent": a, "name": ed.pkg.object_name(PackageIndex::export(c)), "class": cclass, "matrix": to_view(&mul(&cm, &am)), "flags": flags, "mesh": mesh, "meshKey": mkey }));
+                }
+            }
+            levels.push(json!({ "path": f, "name": Path::new(f).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), "items": items }));
+        }
+        // Each mesh once.
+        let mut meshes = serde_json::Map::new();
+        for (k, m) in wanted {
+            if meshes.contains_key(&k) {
+                continue;
+            }
+            let v = match self.collision_mesh(&m) {
+                Ok((file, i)) => {
+                    let mut mj = crate::collision::mesh_collision(self.editor(&file)?, i);
+                    mj["path"] = J::from(file);
+                    mj["index"] = J::from(i);
+                    mj
+                }
+                Err(_) => J::Null,
+            };
+            meshes.insert(k, v);
+        }
+        Ok(json!({ "path": path, "levels": levels, "meshes": meshes, "missing": missing }))
+    }
+
+    /// `map.navmesh {path, index?}` / `map.navmeshEdit {path, index, op, …}`:
+    /// the level's Havok nav meshes as buffers, and edits of one
+    /// (`crate::havok::studio`).
+    fn map_navmesh(&mut self, method: &str, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let mut bins = std::mem::take(&mut self.bins);
+        let r = (|| -> Res<J> {
+            if method == "map.navmesh" {
+                let ed = self.editor(&path)?;
+                return Ok(crate::havok::studio::navmesh(ed, opt_u(p, "index"), &mut bins)?);
+            }
+            let i = self.export_of(&path, p)?;
+            let ed = self.editor(&path)?;
+            Ok(crate::havok::studio::navmesh_edit(ed, i, p, &mut bins)?)
+        })();
+        self.bins = bins;
+        r
+    }
+
     /// `kismet.sequences {path}`.
     fn kismet_sequences(&mut self, p: &J) -> Res<J> {
         let path = s(p, "path")?;
@@ -1968,6 +2385,205 @@ impl Server {
         Ok(json!({ "out": out, "bytes": bytes.len(), "meshes": meshes.len(), "placements": placed, "warnings": warnings.iter().take(100).collect::<Vec<_>>(), "warningCount": warnings.len() }))
     }
 
+    // ----- static lighting (lightbake/) ---------------------------------------
+
+    /// `light.info {path, index, preview?, exposure?}`: a static mesh
+    /// component's light map as stored (lights, textures, scales, coordinate
+    /// scale/bias) and decoded (size, mean irradiance; with `preview`, a PNG
+    /// of the irradiance).
+    fn light_info(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let preview = opt_b(p, "preview").unwrap_or(false);
+        let exposure = p.get("exposure").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+        let ed = self.editors.get_mut(&key(&path)).ok_or("package not open")?;
+        let mut info = crate::lightbake::info_json(ed, i)?;
+        let src = self.src.as_ref().ok_or("no workspace open")?;
+        let mut png = None;
+        match crate::lightbake::decode(ed, src, i, 0) {
+            Ok(m) => {
+                let n = m.texels.len().max(1) as f32;
+                let sum = m.texels.iter().map(|t| t.irradiance()).fold([0f32; 3], |a, b| [a[0] + b[0], a[1] + b[1], a[2] + b[2]]);
+                info["decoded"] = json!({ "width": m.width, "height": m.height, "origin": [m.origin.0, m.origin.1], "atlas": [m.atlas.0, m.atlas.1], "meanIrradiance": [sum[0] / n, sum[1] / n, sum[2] / n] });
+                if preview {
+                    png = Some(crate::dds::write_png(m.width as u32, m.height as u32, &crate::lightbake::irradiance_rgba(&m, exposure))?);
+                }
+            }
+            Err(e) => info["decodeError"] = J::from(e.to_string()),
+        }
+        if let Some(png) = png {
+            info["png"] = self.bins.add(png);
+        }
+        Ok(info)
+    }
+
+    /// `light.bake {path, scope, targets?, levels?, shadowSamples?, skySamples?,
+    /// indirectRays?, albedo?, compare?}`: bake static light maps against
+    /// every level of the map `path` (its streamed levels included), one undo
+    /// step per level written. `scope`: `"selected"` (`targets`: `[{path,
+    /// index}]` static mesh components, or actors whose components are
+    /// baked), `"edited"` (components added or moved this session: the
+    /// component or its owner is an unsaved change), `"level"` (every
+    /// component of `levels`, level package paths). `light.progress` events
+    /// carry `{done, total}`.
+    fn light_bake(&mut self, p: &J) -> Res<J> {
+        use crate::lightbake::{self, scene, write};
+        use std::sync::Arc;
+        let path = s(p, "path")?.to_string();
+        let scope = opt_s(p, "scope").unwrap_or_else(|| "selected".into());
+        let db = self.db()?;
+        let t0 = std::time::Instant::now();
+        let mut files = vec![path.clone()];
+        for n in crate::map::streamed_levels(self.editor(&path)?) {
+            if let Some(f) = self.package_file(&n) {
+                if !files.iter().any(|x| key(x) == key(&f)) {
+                    files.push(f);
+                }
+            }
+        }
+        let mut levels: Vec<scene::LevelData> = Vec::new();
+        for (k, f) in files.iter().enumerate() {
+            let ed = self.editor(f)?;
+            ed.flush();
+            levels.push(scene::gather(ed, db, k, f));
+        }
+        // Meshes the levels import: found through the search index.
+        let mut meshes: HashMap<scene::MeshKey, Arc<scene::MeshData>> = HashMap::new();
+        let mut missing: Vec<String> = Vec::new();
+        for l in &mut levels {
+            meshes.extend(l.meshes.drain());
+            missing.append(&mut l.missing);
+        }
+        missing.sort();
+        missing.dedup();
+        let mut not_found = Vec::new();
+        if !missing.is_empty() {
+            self.index_all();
+            let owners = self.path_owners();
+            for m in missing {
+                let file = index_lookup(&owners, &self.packages, &m).and_then(|n| self.package_file(&n));
+                let got = match file {
+                    Some(f) => match self.export_of(&f, &json!({ "object": m })) {
+                        Ok(i) => scene::mesh_from(self.editor(&f)?, db, i),
+                        Err(_) => None,
+                    },
+                    None => None,
+                };
+                match got {
+                    Some(md) => {
+                        meshes.insert(scene::MeshKey::Path(m), Arc::new(md));
+                    }
+                    None => not_found.push(m),
+                }
+            }
+        }
+        // What to bake.
+        let mut wanted: Vec<(usize, usize)> = Vec::new();
+        let level_of = |f: &str| files.iter().position(|x| key(x) == key(f));
+        match scope.as_str() {
+            "selected" => {
+                for t in p.get("targets").and_then(|v| v.as_array()).into_iter().flatten() {
+                    let (Some(tp), Some(ti)) = (t["path"].as_str(), t["index"].as_u64()) else { continue };
+                    if let Some(l) = level_of(tp) {
+                        wanted.push((l, ti as usize));
+                    }
+                }
+            }
+            "edited" => {
+                for (k, f) in files.iter().enumerate() {
+                    let ed = self.editors.get(&key(f)).ok_or("package not open")?;
+                    for inst in &levels[k].instances {
+                        // A collection is dirty as soon as one of its meshes is added
+                        // or removed: there only the component itself counts.
+                        let collection = db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(inst.owner)), "StaticMeshCollectionActor");
+                        if ed.is_export_dirty(inst.export) || (!collection && ed.is_export_dirty(inst.owner)) {
+                            wanted.push((k, inst.export));
+                        }
+                    }
+                }
+            }
+            "level" => {
+                for f in p.get("levels").and_then(|v| v.as_array()).into_iter().flatten().filter_map(|v| v.as_str()) {
+                    if let Some(l) = level_of(f) {
+                        for inst in &levels[l].instances {
+                            wanted.push((l, inst.export));
+                        }
+                    }
+                }
+            }
+            other => return Err(format!("unknown scope {other}").into()),
+        }
+        let opts = lightbake::bake::Options {
+            shadow_samples: opt_u(p, "shadowSamples").unwrap_or(8) as u32,
+            sky_samples: opt_u(p, "skySamples").unwrap_or(64) as u32,
+            indirect_rays: opt_u(p, "indirectRays").unwrap_or(0) as u32,
+            albedo: p.get("albedo").and_then(|v| v.as_f64()).unwrap_or(0.15) as f32,
+        };
+        // An actor target bakes its components.
+        let select = |i: &scene::Instance| wanted.contains(&(i.level, i.export)) || wanted.contains(&(i.level, i.owner));
+        let out = {
+            let mut last = std::time::Instant::now();
+            let me = &mut *self;
+            lightbake::run(&levels, &meshes, &select, &opts, &mut |d, n| {
+                if d == 0 || d == n || last.elapsed().as_millis() > 200 {
+                    last = std::time::Instant::now();
+                    let mut f = Map::new();
+                    f.insert("done".into(), J::from(d));
+                    f.insert("total".into(), J::from(n));
+                    me.event("light.progress", f);
+                }
+            })
+        };
+        let compare = opt_b(p, "compare").unwrap_or(false);
+        let mut comparisons = Vec::new();
+        let mut written = Vec::new();
+        for (k, f) in files.iter().enumerate() {
+            let allocs = &out.per_level[k];
+            if allocs.is_empty() {
+                continue;
+            }
+            if compare {
+                let src = self.src.as_ref().ok_or("no workspace open")?;
+                let ed = self.editors.get_mut(&key(f)).ok_or("package not open")?;
+                for a in allocs {
+                    if let Ok(m) = lightbake::decode(ed, src, a.component, 0) {
+                        if let Some(c) = lightbake::compare(&m, &a.samples, a.size) {
+                            comparisons.push(json!({ "path": f, "index": a.component, "stats": c }));
+                        }
+                    }
+                }
+            }
+            // A level without light map textures borrows one to copy from.
+            if write::template(self.editors.get(&key(f)).ok_or("package not open")?).is_none() {
+                let from = files.iter().find(|g| key(g) != key(f) && self.editors.get(&key(g)).is_some_and(|e| write::template(e).is_some())).cloned().ok_or("no level of this map has a light map texture to model new ones on")?;
+                let mut src_ed = self.editors.remove(&key(&from)).ok_or("package not open")?;
+                let r = {
+                    let ed = self.editors.get_mut(&key(f)).ok_or("package not open")?;
+                    ed.begin_undo("bake lighting");
+                    write::ensure_template(ed, &mut src_ed)
+                };
+                self.editors.insert(key(&from), src_ed);
+                r?;
+            } else {
+                self.editors.get_mut(&key(f)).ok_or("package not open")?.begin_undo("bake lighting");
+            }
+            let ed = self.editors.get_mut(&key(f)).ok_or("package not open")?;
+            let w = write::write(ed, db, allocs, opt_u(p, "atlasSize").unwrap_or(1024))?;
+            ed.end_undo();
+            written.push(json!({ "path": f, "components": w.components, "atlases": w.atlases, "textures": w.textures.len(), "clearedLods": w.cleared_lods, "dirty": true }));
+        }
+        Ok(json!({
+            "baked": out.report,
+            "skipped": out.skipped,
+            "written": written,
+            "comparisons": comparisons,
+            "missingMeshes": not_found,
+            "triangles": out.triangles,
+            "lights": out.lights,
+            "seconds": t0.elapsed().as_secs_f64(),
+        }))
+    }
+
     /// `kismet.palette {path?}`: every kind of Kismet node the workspace's
     /// packages use (from the search index), with how often and one example
     /// to copy (in `path` when it has one).
@@ -2061,33 +2677,184 @@ impl Server {
         Ok(g)
     }
 
-    /// `matinee.get {path, index}` (a SeqAct_Interp or InterpData) and the key
-    /// edits `matinee.setKey {track, curve, key, time?, value?}`,
-    /// `matinee.addKey {track, curve, time}`, `matinee.removeKey {track,
-    /// curve, key}`; edits are one undo step each and return the timeline.
+    /// `matinee.get {path, index}` (a SeqAct_Interp or InterpData) and its
+    /// edits, each one undo step returning the timeline (`matinee.rs`):
+    /// `setKey {track, curve, key, time?, value?, mode?, arrive?, leave?,
+    /// fields?}` (a field given as `{path, index}` is an object of any
+    /// package, referenced by import when elsewhere), `addKey {track, curve,
+    /// time, value?, mode?}`, `removeKey {track, curve, key}`, `addGroup
+    /// {name, director?}`, `removeGroup {group}`, `setGroup {group, name?,
+    /// color?}`, `addTrack {group, class, property?}`, `removeTrack {track}`,
+    /// `set {object, values}`, `connect {group, actor, remove?}`; `setKey` and
+    /// `addKey` take `values {curve: value}` for the key's other curves.
     fn matinee(&mut self, method: &str, p: &J) -> Res<J> {
-        let path = s(p, "path")?;
-        let index = self.export_of(path, p)?;
-        let ed = self.editor(path)?;
-        let mut extra = json!({});
-        if method != "matinee.get" {
-            let track = opt_u(p, "track").ok_or("missing track")?;
-            let curve = s(p, "curve")?.to_string();
-            ed.begin_undo(format!("{} {}", method.trim_start_matches("matinee."), ed.pkg.object_name(PackageIndex::export(track))));
-            match method {
-                "matinee.setKey" => crate::matinee::set_key(ed, track, &curve, opt_u(p, "key").ok_or("missing key")?, p.get("time").and_then(|v| v.as_f64()), p.get("value"))?,
-                "matinee.addKey" => {
-                    let k = crate::matinee::add_key(ed, track, &curve, p.get("time").and_then(|v| v.as_f64()).ok_or("missing time")?)?;
-                    extra["key"] = J::from(k);
-                }
-                _ => crate::matinee::remove_key(ed, track, &curve, opt_u(p, "key").ok_or("missing key")?)?,
+        use crate::matinee as m;
+        // `values {curve path: value}`: the same key of the track's other curves (a move key's rotation).
+        fn set_values(ed: &mut Editor, t: usize, k: usize, p: &J) -> Res<()> {
+            for (c, v) in p.get("values").and_then(|v| v.as_object()).into_iter().flatten() {
+                crate::matinee::set_key(ed, t, c, k, &crate::matinee::KeyEdit { value: Some(v), ..Default::default() })?;
+            }
+            Ok(())
+        }
+        let path = s(p, "path")?.to_string();
+        let index = self.export_of(&path, p)?;
+        // Objects of other packages named by key fields become imports first.
+        let mut fields = p.get("fields").and_then(|f| f.as_object()).cloned();
+        if let Some(f) = fields.as_mut() {
+            for v in f.values_mut() {
+                let (Some(opath), Some(oindex)) = (v.get("path").and_then(|x| x.as_str()).map(str::to_string), v.get("index").and_then(|x| x.as_u64()).map(|x| x as usize)) else { continue };
+                let text = if key(&opath) == key(&path) {
+                    let ed = self.editor(&path)?;
+                    m::ref_text(&ed.pkg, PackageIndex::export(oindex))
+                } else {
+                    let dk = key(&path);
+                    self.editor(&path)?;
+                    let mut dst = self.editors.remove(&dk).unwrap();
+                    let r = self.editor(&opath).map(|src| dst.import_for_export(src, oindex));
+                    self.editors.insert(dk, dst);
+                    let ed = self.editor(&path)?;
+                    m::ref_text(&ed.pkg, r?)
+                };
+                *v = J::String(text);
             }
         }
+        let ed = self.editor(&path)?;
+        let (action, data) = m::resolve(ed, index)?;
+        let mut extra = Map::new();
+        if method != "matinee.get" {
+            let track = opt_u(p, "track");
+            let group = opt_u(p, "group");
+            let label = match (track, group) {
+                (Some(t), _) => ed.pkg.object_name(PackageIndex::export(t)),
+                (_, Some(g)) => ed.pkg.object_name(PackageIndex::export(g)),
+                _ => ed.pkg.object_name(PackageIndex::export(data)),
+            };
+            ed.begin_undo(format!("matinee {} {label}", method.trim_start_matches("matinee.")));
+            let need_track = || track.ok_or("missing track");
+            let need_group = || group.ok_or("missing group");
+            match method {
+                "matinee.setKey" | "matinee.addKey" | "matinee.removeKey" => {
+                    let t = need_track()?;
+                    let curve = s(p, "curve")?.to_string();
+                    match method {
+                        "matinee.setKey" => {
+                            let mode = opt_s(p, "mode");
+                            let e = m::KeyEdit {
+                                time: p.get("time").and_then(|v| v.as_f64()),
+                                value: p.get("value").filter(|v| !v.is_null()),
+                                mode: mode.as_deref(),
+                                arrive: p.get("arrive").filter(|v| !v.is_null()),
+                                leave: p.get("leave").filter(|v| !v.is_null()),
+                                fields: fields.as_ref(),
+                            };
+                            let k = m::set_key(ed, t, &curve, opt_u(p, "key").ok_or("missing key")?, &e)?;
+                            set_values(ed, t, k, p)?;
+                            extra.insert("key".into(), J::from(k));
+                        }
+                        "matinee.addKey" => {
+                            let mode = opt_s(p, "mode");
+                            let k = m::add_key(ed, t, &curve, p.get("time").and_then(|v| v.as_f64()).ok_or("missing time")?, p.get("value").filter(|v| !v.is_null()), mode.as_deref())?;
+                            if let Some(f) = fields.as_ref() {
+                                m::set_key(ed, t, &curve, k, &m::KeyEdit { fields: Some(f), ..Default::default() })?;
+                            }
+                            set_values(ed, t, k, p)?;
+                            extra.insert("key".into(), J::from(k));
+                        }
+                        _ => m::remove_key(ed, t, &curve, opt_u(p, "key").ok_or("missing key")?)?,
+                    }
+                    m::after_key_edit(ed, action, data, t)?;
+                }
+                "matinee.addGroup" => {
+                    let g = m::add_group(ed, action, data, &opt_s(p, "name").unwrap_or_else(|| "NewGroup".into()), opt_b(p, "director").unwrap_or(false))?;
+                    extra.insert("group".into(), J::from(g));
+                }
+                "matinee.removeGroup" => m::remove_group(ed, action, data, need_group()?)?,
+                "matinee.setGroup" => {
+                    let color: Option<Vec<f64>> = p.get("color").and_then(|c| c.as_array()).map(|a| a.iter().filter_map(|x| x.as_f64()).collect());
+                    m::set_group(ed, action, data, need_group()?, opt_s(p, "name").as_deref(), color.as_deref())?;
+                }
+                "matinee.addTrack" => {
+                    let t = m::add_track(ed, action, need_group()?, s(p, "class")?, opt_s(p, "property").as_deref())?;
+                    extra.insert("track".into(), J::from(t));
+                }
+                "matinee.removeTrack" => m::remove_track(ed, action, data, need_track()?)?,
+                "matinee.set" => {
+                    let values = p.get("values").and_then(|v| v.as_object()).ok_or("missing values")?;
+                    m::set_props(ed, action, data, opt_u(p, "object").ok_or("missing object")?, values)?;
+                }
+                "matinee.connect" => {
+                    let a = action.ok_or("an InterpData alone drives nothing: open its Matinee action")?;
+                    m::connect(ed, a, data, need_group()?, opt_u(p, "actor").ok_or("missing actor")?, opt_b(p, "remove").unwrap_or(false))?;
+                }
+                _ => return Err(format!("unknown method {method}").into()),
+            }
+        }
+        let ed = self.editor(&path)?;
         let mut out = crate::matinee::get(ed, index)?;
-        if let Some(k) = extra.get("key") {
-            out["key"] = k.clone();
+        for (k, v) in extra {
+            out[k.as_str()] = v;
         }
         out["dirty"] = J::from(ed.is_dirty());
+        Ok(out)
+    }
+
+    /// `matinee.list {path}`: the Matinee actions of a level package.
+    fn matinee_list(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?;
+        let ed = self.editor(path)?;
+        let mut out = Vec::new();
+        for i in 0..ed.pkg.exports.len() {
+            let idx = PackageIndex::export(i);
+            if !ed.pkg.class_name_of(idx).eq_ignore_ascii_case("SeqAct_Interp") {
+                continue;
+            }
+            let comment = ed.with_object(i, |pkg, o| match crate::map::prop(o, pkg, "ObjComment") {
+                Some(crate::value::Value::Str(c)) => Some(c.clone()),
+                _ => None,
+            })?;
+            let tl = crate::matinee::get(ed, i).ok();
+            out.push(json!({
+                "export": i,
+                "path": ed.pkg.object_path(idx),
+                "comment": comment,
+                "length": tl.as_ref().map(|t| t["length"].clone()),
+                "groups": tl.as_ref().map(|t| t["groups"].as_array().map(|g| g.iter().map(|g| g["name"].clone()).collect::<Vec<_>>())),
+            }));
+        }
+        Ok(json!({ "matinees": out }))
+    }
+
+    /// `matinee.create {path, sequence?, x?, y?, length?, actor?, group?}`: a
+    /// new Matinee in a level's sequence (default: its top-level one): a
+    /// `SeqAct_Interp` copied from the workspace's example (as `kismet.add`
+    /// does, then emptied: `matinee::init_new`) with a new `InterpData`;
+    /// with `actor` (an export of the level) a group (`group`, default the
+    /// actor's name) with a relative move track driving it. One undo step;
+    /// returns the timeline and `action`.
+    fn matinee_create(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let db = self.db()?;
+        let seq = match opt_u(p, "sequence") {
+            Some(q) => q,
+            None => {
+                let ed = self.editor(&path)?;
+                crate::kismet::sequences(ed, db).first().and_then(|q| q["export"].as_u64()).ok_or("this level has no Kismet sequence")? as usize
+            }
+        };
+        let palette = self.kismet_palette(&json!({ "path": path }))?;
+        let example = palette["classes"].as_array().and_then(|c| c.iter().find(|x| x["class"].as_str() == Some("seqact_interp"))).map(|x| x["example"].clone()).ok_or("no Matinee in the workspace to copy")?;
+        let added = self.kismet_add(&json!({ "path": path, "sequence": seq, "example": example, "x": p.get("x").cloned().unwrap_or(J::from(0)), "y": p.get("y").cloned().unwrap_or(J::from(0)) }))?;
+        let action = added["added"].as_u64().ok_or("the copy failed")? as usize;
+        let ed = self.editor(&path)?;
+        let data = crate::matinee::init_new(ed, action, seq, p.get("length").and_then(|v| v.as_f64()).unwrap_or(5.0))?;
+        if let Some(actor) = opt_u(p, "actor") {
+            let name = opt_s(p, "group").unwrap_or_else(|| ed.pkg.object_name(PackageIndex::export(actor)));
+            let g = crate::matinee::add_group(ed, Some(action), data, &name, false)?;
+            crate::matinee::add_track(ed, Some(action), g, "InterpTrackMove", None)?;
+            crate::matinee::connect(ed, action, data, g, actor, false)?;
+        }
+        let mut out = crate::matinee::get(ed, action)?;
+        out["dirty"] = J::from(true);
         Ok(out)
     }
 

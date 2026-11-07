@@ -424,7 +424,10 @@
 						role="button"
 						tabindex="-1"
 						ondblclick={() =>
-							n.kind === "sequence" && map.openKismet(map.kismetLevel!, n.export)}
+							n.kind === "sequence"
+								? map.openKismet(map.kismetLevel!, n.export)
+								: n.class.toLowerCase() === "seqact_interp" &&
+									map.openMatinee(map.kismetLevel!, n.export)}
 					>
 						<div
 							class="bg-base-content/10 flex h-[22px] cursor-move items-center gap-1 truncate px-1.5 font-semibold"

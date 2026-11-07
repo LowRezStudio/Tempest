@@ -12,7 +12,15 @@
 	import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 	import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 	import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+	import { collision } from "$lib/studio/collision.svelte";
 	import { categoryColor, map, TEAM_COLORS, type Shading } from "$lib/studio/map.svelte";
+	import {
+		buildNavMesh,
+		disposeNavMesh,
+		nearestVertex,
+		type NavObjects,
+	} from "$lib/studio/navmesh-three";
+	import { navmesh } from "$lib/studio/navmesh.svelte";
 	import { rpc } from "$lib/studio/rpc";
 	import type { MapActor, MapPart } from "../../../../electron/src/ipc/contract";
 
@@ -70,6 +78,10 @@
 		camera = new THREE.PerspectiveCamera(60, 1, 0.05, 20000);
 		camera.position.set(40, 40, 40);
 		controls = new OrbitControls(camera, canvas);
+		map.viewTarget = () => {
+			const t = controls!.target;
+			return [t.x, t.y, t.z];
+		};
 		controls.enableDamping = true;
 		controls.screenSpacePanning = true;
 		// Right button looks around (and flies with the movement keys), middle pans.
@@ -699,6 +711,10 @@
 		const ray = new THREE.Raycaster();
 		ray.params.Line = { threshold: 0.1 };
 		ray.setFromCamera(pointer, camera);
+		if (navObjects && navmesh.show && navmesh.pick !== "off") {
+			pickNavMesh(ray, e.shiftKey);
+			return;
+		}
 		const hits = ray.intersectObjects(root.children, true).filter((h) => {
 			let o: THREE.Object3D | null = h.object;
 			while (o) {
@@ -830,6 +846,25 @@
 			invalidate();
 		});
 	});
+	// Collision (`collision.svelte.ts`): its group over the render geometry, or instead of it.
+	let collisionGroup: THREE.Group | null = null;
+	$effect(() => {
+		void [collision.version, collision.enabled, collision.only];
+		untrack(() => {
+			if (!scene) return;
+			if (collisionGroup) scene.remove(collisionGroup);
+			collisionGroup = collision.enabled ? collision.group : null;
+			if (collisionGroup) scene.add(collisionGroup);
+			if (root) root.visible = !(collision.enabled && collision.only);
+			invalidate();
+		});
+	});
+	$effect(() => {
+		void [map.path, map.version];
+		untrack(() => {
+			if (collision.enabled) void collision.load();
+		});
+	});
 	$effect(() => {
 		if (map.focusRequest > 0) {
 			untrack(() => {
@@ -841,6 +876,60 @@
 
 	// Matinee preview: driven actors follow the timeline, movements draw their paths.
 	let posed = new Set<string>();
+	/** Actors a toggle/visibility track hides, and lights a colour/brightness track tints. */
+	let matineeHidden = new Set<string>();
+	let matineeTinted = new Set<string>();
+	function applyMatineeLooks(
+		hidden: Set<string>,
+		tints: Map<string, { color?: number[]; brightness?: number }>,
+	) {
+		for (const k of matineeHidden) {
+			const n = nodes.get(k);
+			if (n && !hidden.has(k)) n.visible = n.userData.matineeVisible ?? true;
+		}
+		for (const k of hidden) {
+			const n = nodes.get(k);
+			if (!n) continue;
+			if (!matineeHidden.has(k)) n.userData.matineeVisible = n.visible;
+			n.visible = false;
+		}
+		matineeHidden = new Set(hidden);
+		const restore = (n: THREE.Object3D) =>
+			n.traverse((o) => {
+				if (o instanceof THREE.Mesh && o.userData.matineeMaterial) {
+					(o.material as THREE.Material).dispose();
+					o.material = o.userData.matineeMaterial;
+					delete o.userData.matineeMaterial;
+				}
+			});
+		for (const k of matineeTinted) {
+			const n = nodes.get(k);
+			if (n && !tints.has(k)) restore(n);
+		}
+		for (const [k, t] of tints) {
+			const n = nodes.get(k);
+			if (!n) continue;
+			const c = t.color ?? [1, 1, 1];
+			// Colours are 0..255 (Color) or 0..1 (LinearColor); brightness 1 is as placed.
+			const scale =
+				(c.some((v) => v > 1) ? 1 / 255 : 1) *
+				Math.min(2, Math.max(0.15, t.brightness ?? 1));
+			n.traverse((o) => {
+				if (!(o instanceof THREE.Mesh)) return;
+				if (!o.userData.matineeMaterial) {
+					o.userData.matineeMaterial = o.material;
+					o.material = (o.material as THREE.Material).clone();
+				}
+				const m = o.material as THREE.MeshBasicMaterial;
+				m.color?.setRGB(
+					Math.min(1, c[0] * scale),
+					Math.min(1, c[1] * scale),
+					Math.min(1, c[2] * scale),
+				);
+			});
+		}
+		matineeTinted = new Set(tints.keys());
+	}
 	let matineeLines: THREE.Group | null = null;
 	$effect(() => {
 		const preview = map.matineePreview;
@@ -859,6 +948,7 @@
 			}
 			for (const [k, m] of preview.poses) nodes.get(k)?.matrix.fromArray(m);
 			posed = new Set(preview.poses.keys());
+			applyMatineeLooks(preview.hidden, preview.tints);
 			if (matineeLines) {
 				scene.remove(matineeLines);
 				matineeLines.traverse((o) => {
@@ -890,11 +980,55 @@
 		});
 	});
 
+	// The Havok nav mesh overlay (navmesh.svelte.ts): rebuilt when its data,
+	// colouring or picked faces change.
+	let navObjects: NavObjects | null = null;
+	$effect(() => {
+		const show = navmesh.show;
+		void navmesh.version;
+		void navmesh.colour;
+		void navmesh.xray;
+		const data = navmesh.data;
+		untrack(() => {
+			if (!scene) return;
+			if (navObjects) {
+				scene.remove(navObjects.group);
+				disposeNavMesh(navObjects);
+				navObjects = null;
+			}
+			if (show && data) {
+				navObjects = buildNavMesh(data, navmesh.colour, navmesh.selected, navmesh.xray);
+				scene.add(navObjects.group);
+			}
+			invalidate();
+		});
+	});
+
+	function pickNavMesh(ray: THREE.Raycaster, add: boolean) {
+		const d = navmesh.data;
+		if (!navObjects || !d) return;
+		const hit = ray.intersectObject(navObjects.faces, false)[0];
+		if (!hit || hit.faceIndex == null) {
+			if (!add) navmesh.clearSelection();
+			return;
+		}
+		const face = d.triFace[hit.faceIndex];
+		if (navmesh.pick === "vertex") {
+			navmesh.vertex = nearestVertex(d, face, hit.point);
+			navmesh.selected = new Set([face]);
+			navmesh.version++;
+		} else {
+			navmesh.toggleFace(face, add);
+		}
+	}
+
 	onDestroy(() => {
 		cancelAnimationFrame(frame);
 		resizeObserver?.disconnect();
 		gizmo?.dispose();
 		controls?.dispose();
+		map.viewTarget = null;
+		disposeNavMesh(navObjects);
 		renderer?.dispose();
 	});
 </script>
@@ -976,6 +1110,7 @@
 	>
 		left drag orbit · right drag look, + WASD/ZQSD fly (Q E down/up) · middle drag pan · arrows
 		fly · wheel zoom<br />
-		click select · W move · E rotate · R scale · Q select only · F frame
+		click select · W move · E rotate · R scale · Q select only · F frame<br />
+		Shift+A add an actor · Ctrl+D duplicate · Delete delete
 	</div>
 </div>

@@ -206,7 +206,7 @@ pub fn graph(ed: &mut Editor, db: &ClassDb, seq: usize) -> Result<J> {
 }
 
 /// The text `Editor::set` takes for an object value.
-fn object_text(pkg: &Package, i: usize) -> String {
+pub(crate) fn object_text(pkg: &Package, i: usize) -> String {
     let idx = PackageIndex::export(i);
     format!("{}'{}'", pkg.class_name_of(idx), pkg.object_path(idx))
 }
@@ -323,7 +323,7 @@ fn fresh_name(ed: &Editor, outer: PackageIndex, class: &str) -> String {
 
 /// Append `value` (an export) to the object array `prop` of `i`, creating
 /// the property when the object does not store it.
-fn push_ref(ed: &mut Editor, i: usize, prop: &str, value: usize) -> Result<()> {
+pub(crate) fn push_ref(ed: &mut Editor, i: usize, prop: &str, value: usize) -> Result<()> {
     let count = ed.with_object(i, |pkg, o| match prop_of(o, pkg, prop) {
         Some(Value::Array(a)) => Some(a.len()),
         _ => None,

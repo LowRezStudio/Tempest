@@ -252,6 +252,24 @@ impl ClassDb {
         self.ctx.enum_names(e)
     }
 
+    /// Actor classes a level can hold (`CLASS_Placeable`, not abstract), as
+    /// (class name, script package name).
+    pub fn placeable_actors(&self) -> Vec<(String, String)> {
+        use tempest_upk::flags::class as cf;
+        let mut out: Vec<(String, String)> = self
+            .classes
+            .values()
+            .filter_map(|r| {
+                let lp = &self.ctx.packages[r.pkg];
+                let Some(ObjectBody::Class { class, .. }) = lp.object(r.export).map(|o| &o.body) else { return None };
+                let name = lp.export_name(r.export).to_string();
+                (class.class_flags & cf::PLACEABLE != 0 && class.class_flags & cf::ABSTRACT == 0 && self.class_is_a(&name, "Actor")).then(|| (name, lp.name.clone()))
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
     pub fn class_default_object(&self, class: ObjRef) -> Option<ObjRef> {
         self.ctx.class_default_object(class)
     }

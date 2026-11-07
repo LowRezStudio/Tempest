@@ -1,4 +1,7 @@
 use std::path::{Path, PathBuf};
+
+#[path = "upk/havok.rs"]
+mod upk_havok;
 use std::process::ExitCode;
 
 use tempest_assets::dump::Dumper;
@@ -57,6 +60,12 @@ fn usage() -> ExitCode {
                                                find & replace in property values (strings, names, object refs) and object names\n  \
            upk batch-import <cooked-dir> <files-dir> [-o <outdir>] [--dry-run] [-r]\n                                              \
                                                import <package>.<object>.<ext> files into their packages\n  \
+           upk havok verify <dir|pkg>... [-v]               nav mesh tagfiles: rewrite byte-identical, values, mesh validity
+  \
+           upk havok dump|types <pkg> [<idx>] [--full]       nav mesh, cluster graph, AABB tree, annotations / tagfile types and items
+  \
+           upk havok extract <pkg> <idx> <out.hkt>           the tagfile of a HavokNavMeshActor
+  \
            upk wwise ls <pck>                          banks, embedded and streamed media, events of a Wwise package\n  \
            upk wwise export <pck> <id|name> <out.ogg|out.wav|out.wem>   one media file (by id, or every media of a named event)\n  \
            upk wwise import <pck> <id> <in.ogg|in.wav|in.wem> -o <out.pck> [--quality 0.4]   replace a media file\n  \
@@ -84,6 +93,11 @@ fn usage() -> ExitCode {
            (mcts: --tokens <MctsInterface.dll> uses that binary's tables; default: the game's next to the file, else built-in)\n  \
            upk live baseline <cooked-dir> <state-dir> [<result.json>]   record what every movie package holds (hot reload)\n  \
            upk live changes <request.json> [<result.json>]   what changed packages changed against their record\n  \
+           upk light info <pkg> <idx|path> [-I dir]      a static mesh component's light map (lights, textures, scales)\n  \
+           upk light export <pkg> <idx|path> <out.png> [--exposure E]   its decoded irradiance\n  \
+           upk light stats <pkg>... [-I dir]              encoding checks over every light map of the packages\n  \
+           upk light bake <map_P.upk> -o <outdir> [--level <name>]... [--component <level>:<idx>]... [--shadow-samples N]\n  \
+                          [--sky-samples N] [--indirect N] [--compare] [--no-write]   bake static light maps (lightbake/)\n  \
            upk serve                                  JSON-lines RPC over stdin/stdout (the Studio backend)\n\n\
          -I dir: directory holding the script packages (default: the package's own directory)\n\
          -j N: worker threads (default: all cores, or USCRIPT_JOBS)"
@@ -125,6 +139,8 @@ fn main() -> ExitCode {
         "wwise" if args.len() >= 3 => cmd_wwise(&args[1..]),
         "mcts" if args.len() >= 2 => cmd_mcts(&args[1..]),
         "live" if args.len() >= 3 => cmd_live(&args[1..]),
+        "light" if args.len() >= 3 => cmd_light(&args[1..]),
+        "havok" if args.len() >= 3 => upk_havok::cmd(&args[1..]),
         "serve" => {
             tempest_assets::serve::main();
             return ExitCode::SUCCESS;
@@ -2181,5 +2197,270 @@ fn cmd_as2(args: &[String]) -> Res {
             Ok(())
         }
         _ => Err(format!("unknown as2 subcommand {}", args[0]).into()),
+    }
+}
+
+/// `upk light info|export|stats|bake` (`lightbake/`).
+fn cmd_light(args: &[String]) -> Res {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tempest_assets::edit::Editor;
+    use tempest_assets::level::LightMap;
+    use tempest_assets::lightbake::{self, scene, write};
+    use tempest_assets::object::Native;
+    use tempest_assets::texcache::TextureSource;
+    let sub = args[0].as_str();
+    let path = args[1].as_str();
+    let dir = script_dir(args, path);
+    let opt = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
+    let all = |name: &str| -> Vec<String> { args.iter().enumerate().filter(|(_, a)| *a == name).filter_map(|(i, _)| args.get(i + 1).cloned()).collect() };
+    let db = load_db(&dir)?;
+    let src = TextureSource::open(&dir)?;
+    match sub {
+        "info" => {
+            let mut ed = Editor::open(&db, path)?;
+            let i = ed.find(args.get(2).ok_or("missing component")?)?;
+            println!("{}", serde_json::to_string_pretty(&lightbake::info_json(&mut ed, i)?)?);
+            match lightbake::decode(&mut ed, &src, i, 0) {
+                Ok(m) => {
+                    let mean = m.texels.iter().map(|t| t.irradiance()).fold([0f32; 3], |a, b| [a[0] + b[0], a[1] + b[1], a[2] + b[2]]);
+                    let n = m.texels.len().max(1) as f32;
+                    println!("decoded {}x{} at {:?} of a {:?} atlas; mean irradiance {:.4} {:.4} {:.4}", m.width, m.height, m.origin, m.atlas, mean[0] / n, mean[1] / n, mean[2] / n);
+                }
+                Err(e) => println!("not decoded: {e}"),
+            }
+            Ok(())
+        }
+        "export" => {
+            let mut ed = Editor::open(&db, path)?;
+            let i = ed.find(args.get(2).ok_or("missing component")?)?;
+            let out = args.get(3).ok_or("missing output")?;
+            let exposure: f32 = opt("--exposure").map(|s| s.parse()).transpose()?.unwrap_or(1.0);
+            let m = lightbake::decode(&mut ed, &src, i, 0)?;
+            std::fs::write(out, tempest_assets::dds::write_png(m.width as u32, m.height as u32, &lightbake::irradiance_rgba(&m, exposure))?)?;
+            Ok(())
+        }
+        "stats" => {
+            // Encoding evidence over every texture light map of the packages.
+            let mut n = 0usize;
+            let mut scale0 = [f32::INFINITY, f32::NEG_INFINITY];
+            let mut scale1 = [f32::INFINITY, f32::NEG_INFINITY];
+            let mut scale2 = [f32::INFINITY, f32::NEG_INFINITY];
+            let mut below_one = 0usize;
+            let mut simple_textures = 0usize;
+            let mut whole_res = 0usize;
+            let mut decoded = 0usize;
+            let (mut bright, mut bright_max255) = (0usize, 0usize);
+            let mut hist = [0usize; 8];
+            let mut flags: HashMap<u32, usize> = HashMap::new();
+            for p in args[1..].iter().filter(|a| a.ends_with(".upk")) {
+                let mut ed = Editor::open(&db, p)?;
+                for i in 0..ed.pkg.exports.len() {
+                    let class = ed.pkg.class_name_of(PackageIndex::export(i));
+                    if class.eq_ignore_ascii_case("LightMapTexture2D") {
+                        if let Ok(f) = ed.with_object(i, |_, o| match &o.native {
+                            Native::Texture2D(t) => t.lightmap_flags.unwrap_or(0),
+                            _ => 0,
+                        }) {
+                            *flags.entry(f).or_default() += 1;
+                        }
+                        continue;
+                    }
+                    if !db.class_is_a(&class, "StaticMeshComponent") {
+                        continue;
+                    }
+                    let Ok(LightMap::TwoD { textures, coordinate_scale, .. }) = lightbake::component_light_map(&mut ed, i, 0) else { continue };
+                    n += 1;
+                    let upd = |r: &mut [f32; 2], v: &[f32; 3]| {
+                        for x in v {
+                            r[0] = r[0].min(*x);
+                            r[1] = r[1].max(*x);
+                        }
+                    };
+                    upd(&mut scale0, &textures[0].1);
+                    upd(&mut scale1, &textures[1].1);
+                    upd(&mut scale2, &textures[2].1);
+                    if textures[..2].iter().any(|t| t.1.iter().any(|x| *x < 1.0)) {
+                        below_one += 1;
+                    }
+                    if !textures[2].0.is_null() {
+                        simple_textures += 1;
+                    }
+                    let Ok(m) = lightbake::decode(&mut ed, &src, i, 0) else { continue };
+                    decoded += 1;
+                    let inner = (coordinate_scale[0] * m.atlas.0 as f32).round();
+                    if (coordinate_scale[0] * m.atlas.0 as f32 - inner).abs() < 1e-3 && m.width as f32 == inner + 2.0 {
+                        whole_res += 1;
+                    }
+                    for (nac, dmc) in &m.bytes {
+                        let mx = *nac.iter().max().unwrap();
+                        hist[(mx / 32) as usize] += 1;
+                        // NormalizedAverageColor is divided by its largest
+                        // channel: away from black it should be ~255.
+                        if dmc.iter().map(|&b| b as u32).sum::<u32>() / 3 > 64 {
+                            bright += 1;
+                            if mx >= 247 {
+                                bright_max255 += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            println!("components with texture light maps: {n} (decoded {decoded})");
+            println!("ScaleVectors: NormalizedAverageColor {scale0:?}, DirectionalMaxComponent {scale1:?}, simple {scale2:?}; components with a scale below 1: {below_one}");
+            println!("simple light map textures present: {simple_textures}");
+            println!("decoded components whose rectangle is CoordinateScale·atlas + 2 padding texels (whole texels): {whole_res}");
+            println!("NormalizedAverageColor max channel histogram (/32): {hist:?}");
+            println!("bright texels (DirectionalMaxComponent avg > 64): {bright}, of which NAC max channel >= 247: {bright_max255}");
+            println!("LightmapFlags of LightMapTexture2D: {flags:?}");
+            Ok(())
+        }
+        "bake" => {
+            let outdir = opt("-o").ok_or("missing -o <outdir>")?;
+            std::fs::create_dir_all(&outdir)?;
+            let mut eds: Vec<Editor> = vec![Editor::open(&db, path)?];
+            let mut files = vec![path.to_string()];
+            // Levels next to the map; meshes and the class database from -I.
+            let map_dir = Path::new(path).parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+            let listing: Vec<PathBuf> = std::fs::read_dir(&map_dir)?.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+            for name in tempest_assets::map::streamed_levels(&mut eds[0]) {
+                let want = format!("{name}.upk");
+                match listing.iter().find(|p| p.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case(&want)).unwrap_or(false)) {
+                    Some(found) => {
+                        eds.push(Editor::open(&db, found)?);
+                        files.push(found.to_string_lossy().to_string());
+                    }
+                    None => eprintln!("note: streamed level {name} not found"),
+                }
+            }
+            let t = std::time::Instant::now();
+            let mut levels: Vec<scene::LevelData> = eds.iter_mut().enumerate().map(|(k, ed)| scene::gather(ed, &db, k, &files[k])).collect();
+            let mut meshes: HashMap<scene::MeshKey, Arc<scene::MeshData>> = HashMap::new();
+            let mut missing: Vec<String> = Vec::new();
+            for l in &mut levels {
+                meshes.extend(l.meshes.drain());
+                missing.append(&mut l.missing);
+            }
+            missing.sort();
+            missing.dedup();
+            let mut unresolved = 0;
+            for m in missing {
+                let mut got = None;
+                for ed in eds.iter_mut() {
+                    if let Some(j) = (0..ed.pkg.exports.len()).find(|&j| ed.pkg.object_path(PackageIndex::export(j)).eq_ignore_ascii_case(&m)) {
+                        got = scene::mesh_from(ed, &db, j);
+                        break;
+                    }
+                }
+                if got.is_none() {
+                    let root = m.split('.').next().unwrap_or("");
+                    let f = dir.join(format!("{root}.upk"));
+                    if f.exists() {
+                        let mut ed = Editor::open(&db, &f)?;
+                        if let Ok(j) = ed.find(m.split_once('.').map(|x| x.1).unwrap_or(&m)) {
+                            got = scene::mesh_from(&mut ed, &db, j);
+                        }
+                    }
+                }
+                match got {
+                    Some(md) => {
+                        meshes.insert(scene::MeshKey::Path(m), Arc::new(md));
+                    }
+                    None => unresolved += 1,
+                }
+            }
+            let instances: usize = levels.iter().map(|l| l.instances.len()).sum();
+            let lights: usize = levels.iter().map(|l| l.lights.len()).sum();
+            eprintln!("gathered {} levels, {instances} mesh components, {lights} static lights, {} meshes ({unresolved} not found) in {:.1}s", levels.len(), meshes.len(), t.elapsed().as_secs_f32());
+            let level_names: Vec<String> = files.iter().map(|f| Path::new(f).file_stem().unwrap().to_string_lossy().to_ascii_lowercase()).collect();
+            let want_levels: Vec<usize> = all("--level").iter().filter_map(|n| level_names.iter().position(|l| l.eq_ignore_ascii_case(n))).collect();
+            let mut want_comps: Vec<(usize, usize)> = Vec::new();
+            for c in all("--component") {
+                let (l, i) = c.split_once(':').ok_or("--component <level>:<idx|path>")?;
+                let li = level_names.iter().position(|x| x.eq_ignore_ascii_case(l)).ok_or_else(|| format!("no level {l}"))?;
+                want_comps.push((li, eds[li].find(i)?));
+            }
+            if want_levels.is_empty() && want_comps.is_empty() {
+                return Err("say what to bake: --level <name> or --component <level>:<idx|path>".into());
+            }
+            let opts = lightbake::bake::Options {
+                shadow_samples: opt("--shadow-samples").map(|s| s.parse()).transpose()?.unwrap_or(8),
+                sky_samples: opt("--sky-samples").map(|s| s.parse()).transpose()?.unwrap_or(64),
+                indirect_rays: opt("--indirect").map(|s| s.parse()).transpose()?.unwrap_or(0),
+                albedo: opt("--albedo").map(|s| s.parse()).transpose()?.unwrap_or(0.15),
+            };
+            let select = |i: &scene::Instance| want_levels.contains(&i.level) || want_comps.contains(&(i.level, i.export));
+            let t = std::time::Instant::now();
+            let out = lightbake::run(&levels, &meshes, &select, &opts, &mut |d, n| {
+                if d % 20 == 0 || d == n {
+                    eprint!("\rbaking {d}/{n}");
+                }
+            });
+            eprintln!("\nbaked {} components ({} triangles in the shadow BVH, {} lights) in {:.1}s; skipped {}", out.report.len(), out.triangles, out.lights, t.elapsed().as_secs_f32(), out.skipped.len());
+            for s in out.skipped.iter().take(10) {
+                eprintln!("  skipped {s}");
+            }
+            if args.iter().any(|a| a == "--compare") {
+                let (mut agg, mut cnt) = ([0f64; 4], 0usize);
+                let (mut same, mut lists) = (0usize, 0usize);
+                for (li, allocs) in out.per_level.iter().enumerate() {
+                    for a in allocs {
+                        let shipped_guids = match lightbake::component_light_map(&mut eds[li], a.component, 0) {
+                            Ok(LightMap::TwoD { light_guids, .. }) => light_guids,
+                            _ => continue,
+                        };
+                        lists += 1;
+                        let same_lights = shipped_guids.len() == a.light_guids.len() && shipped_guids.iter().all(|g| a.light_guids.contains(g));
+                        same += same_lights as usize;
+                        let Ok(m) = lightbake::decode(&mut eds[li], &src, a.component, 0) else { continue };
+                        if let Some(c) = lightbake::compare(&m, &a.samples, a.size) {
+                            if args.iter().any(|a| a == "-v") {
+                                println!("{}:{} {} lights shipped {} ours {} same={same_lights} {c}", level_names[li], a.component, eds[li].pkg.object_name(PackageIndex::export(a.component)), shipped_guids.len(), a.light_guids.len());
+                                let name_of = |g: &tempest_upk::io::Guid| -> String {
+                                    levels.iter().flat_map(|l| l.lights.iter()).find(|l| l.lightmap_guid == *g || l.light_guid == *g).map(|l| format!("{}{}:{:?}", l.name, if l.lightmap_guid == *g { "" } else { "(LightGuid)" }, l.kind)).unwrap_or_else(|| lightbake::guid_text(g))
+                                };
+                                println!("  shipped: {:?}", shipped_guids.iter().map(name_of).collect::<Vec<_>>());
+                                println!("  ours:    {:?}", a.light_guids.iter().map(name_of).collect::<Vec<_>>());
+                            }
+                            agg[0] += c["meanBaked"].as_f64().unwrap_or(0.0);
+                            agg[1] += c["meanShipped"].as_f64().unwrap_or(0.0);
+                            agg[2] += c["meanAbsDiff"].as_f64().unwrap_or(0.0);
+                            agg[3] += c["medianRatio"].as_f64().unwrap_or(0.0);
+                            cnt += 1;
+                        }
+                    }
+                }
+                println!("light lists identical to the shipped ones: {same}/{lists}");
+                if cnt > 0 {
+                    let k = cnt as f64;
+                    println!("compared {cnt}: mean irradiance baked {:.4} shipped {:.4}, mean |diff| {:.4}, mean of median ratios baked/shipped {:.3}", agg[0] / k, agg[1] / k, agg[2] / k, agg[3] / k);
+                }
+            }
+            if args.iter().any(|a| a == "--no-write") {
+                return Ok(());
+            }
+            for li in 0..eds.len() {
+                if out.per_level[li].is_empty() {
+                    continue;
+                }
+                if write::template(&eds[li]).is_none() {
+                    let from = (0..eds.len()).find(|&k| k != li && write::template(&eds[k]).is_some()).ok_or("no level has a light map texture")?;
+                    let (a, b) = if li < from {
+                        let (x, y) = eds.split_at_mut(from);
+                        (&mut x[li], &mut y[0])
+                    } else {
+                        let (x, y) = eds.split_at_mut(li);
+                        (&mut y[0], &mut x[from])
+                    };
+                    write::ensure_template(a, b)?;
+                }
+                let w = write::write(&mut eds[li], &db, &out.per_level[li], 1024)?;
+                let dest = Path::new(&outdir).join(Path::new(&files[li]).file_name().unwrap());
+                eds[li].save(&dest)?;
+                println!("{}: {} components, atlases {:?}, {} textures, {} lower LOD light maps cleared -> {}", level_names[li], w.components, w.atlases, w.textures.len(), w.cleared_lods, dest.display());
+            }
+            Ok(())
+        }
+        _ => Err(format!("unknown light subcommand {sub}").into()),
     }
 }

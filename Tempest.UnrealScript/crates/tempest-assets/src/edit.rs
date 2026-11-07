@@ -88,7 +88,17 @@ pub enum CopyMode {
     /// Reference them in the source package (imports): a copy that keeps
     /// using the original's materials, textures, skeleton…
     Import,
+    /// An actor placed into a level: content it uses (meshes, materials,
+    /// textures, brush models) is copied like `Deep`, references to other
+    /// level objects (actors, levels, Kismet, reach specs) are cleared, and
+    /// its sub-objects are always copied, even where the destination has
+    /// objects at the same paths.
+    Placed,
 }
+
+/// Classes whose objects belong to a level rather than to its content: a
+/// placed copy never brings them along.
+const LEVEL_CLASSES: [&str; 5] = ["Actor", "Level", "World", "SequenceObject", "ReachSpec"];
 
 impl<'a> Editor<'a> {
     pub fn open(db: &'a ClassDb, path: impl AsRef<Path>) -> Result<Editor<'a>> {
@@ -319,6 +329,11 @@ impl<'a> Editor<'a> {
         self.rebuilt || !self.dirty.is_empty()
     }
 
+    /// Export `i` was changed (or added) since the package was opened or saved.
+    pub fn is_export_dirty(&self, i: usize) -> bool {
+        self.dirty.contains(&i)
+    }
+
     /// Unsaved edits to individual objects (as opposed to a whole-package rebuild).
     pub fn has_object_edits(&self) -> bool {
         !self.dirty.is_empty()
@@ -479,6 +494,63 @@ impl<'a> Editor<'a> {
         let d = self.add_export(export, data);
         self.clear_net_index(d)?;
         Ok(d)
+    }
+
+    /// A copy of export `i` and its sub-objects in this package, under
+    /// `outer` (default: `i`'s own) and with `i`'s name (the caller renames
+    /// it): references among them point at the copies, every other
+    /// reference stays where the original's points. NetIndex -1 on every
+    /// copy. Returns the copy of `i`.
+    pub fn clone_tree(&mut self, i: usize, outer: Option<PackageIndex>) -> Result<usize> {
+        if i >= self.pkg.exports.len() {
+            return Err(Error::Format(format!("no export {i}")));
+        }
+        self.flush();
+        let mut originals = vec![i];
+        originals.extend(self.children(i));
+        let mut map: HashMap<PackageIndex, PackageIndex> = HashMap::new();
+        for &o in &originals {
+            let export = self.pkg.exports[o].clone();
+            let d = self.pkg.add_export(export, Vec::new());
+            map.insert(PackageIndex::export(o), d);
+        }
+        struct Remap<'s>(&'s HashMap<PackageIndex, PackageIndex>);
+        impl Visitor for Remap<'_> {
+            fn name(&mut self, _: &mut FName) {}
+            fn index(&mut self, i: &mut PackageIndex) {
+                if let Some(m) = self.0.get(i) {
+                    *i = *m;
+                }
+            }
+        }
+        for &o in &originals {
+            let d = map[&PackageIndex::export(o)].export_index().unwrap();
+            {
+                let e = &mut self.pkg.exports[d];
+                for r in [&mut e.class, &mut e.super_, &mut e.outer, &mut e.archetype] {
+                    if let Some(m) = map.get(r) {
+                        *r = *m;
+                    }
+                }
+                if let (true, Some(out)) = (o == i, outer) {
+                    e.outer = out;
+                }
+            }
+            let out = match self.parsed(o)?.clone() {
+                Parsed::Object(mut obj) => {
+                    obj.net_index = -1;
+                    obj.visit(&mut Remap(&map));
+                    Parsed::Object(obj)
+                }
+                Parsed::Script(_) => return Err(Error::Format(format!("{} is a script object and cannot be copied", self.pkg.full_name(PackageIndex::export(o))))),
+                other => other,
+            };
+            let data = write_parsed(&out, self.layout, none_name(&self.pkg));
+            self.pkg.set_export_data(d, data);
+            self.objects.insert(d, out);
+            self.dirty.insert(d);
+        }
+        Ok(map[&PackageIndex::export(i)].export_index().unwrap())
     }
 
     /// Give a new object no NetIndex (-1): a copy must not share the
@@ -725,7 +797,7 @@ impl<'a> Editor<'a> {
 
     #[allow(clippy::too_many_arguments)]
     fn map_ref(&mut self, src: &Editor, r: PackageIndex, mode: CopyMode, root: usize, map: &mut HashMap<usize, PackageIndex>, queue: &mut VecDeque<usize>, warnings: &mut Vec<String>, is_outer: bool) -> PackageIndex {
-        let deep = mode == CopyMode::Deep;
+        let deep = matches!(mode, CopyMode::Deep | CopyMode::Placed);
         if r.is_null() {
             return PackageIndex::NONE;
         }
@@ -742,13 +814,6 @@ impl<'a> Editor<'a> {
         if script {
             return self.import_for_export(src, j);
         }
-        // Already present here at the same path?
-        let path = sp.object_path(PackageIndex::export(j));
-        if let Some(existing) = self.pkg.find_export(&path, Some(&class_name)) {
-            let d = PackageIndex::export(existing);
-            map.insert(j, d);
-            return d;
-        }
         // Sub-objects of the copied object always come along.
         let inside = {
             let mut o = sp.exports[j].outer;
@@ -762,6 +827,29 @@ impl<'a> Editor<'a> {
             }
             o.export_index() == Some(root)
         };
+        let placed = mode == CopyMode::Placed;
+        if placed && !inside && !is_outer {
+            // Whatever else lives in the copied actor's level is that level's.
+            let level = sp.exports[root].outer;
+            let mut o = PackageIndex::export(j);
+            let mut guard = 0;
+            while !o.is_null() && o != level && guard < 64 {
+                o = o.export_index().map(|k| sp.exports[k].outer).unwrap_or_default();
+                guard += 1;
+            }
+            if (!level.is_null() && o == level) || LEVEL_CLASSES.iter().any(|c| self.db.class_is_a(&class_name, c)) {
+                return PackageIndex::NONE;
+            }
+        }
+        // Already present here at the same path?
+        if !(placed && inside) {
+            let path = sp.object_path(PackageIndex::export(j));
+            if let Some(existing) = self.pkg.find_export(&path, Some(&class_name)) {
+                let d = PackageIndex::export(existing);
+                map.insert(j, d);
+                return d;
+            }
+        }
         if mode == CopyMode::Import && !inside && !is_outer && !class_name.eq_ignore_ascii_case("Package") {
             return self.import_for_export(src, j);
         }
@@ -1086,7 +1174,7 @@ fn parse_scalar(pkg: &mut Package, kind: PropertyKind, has_enum: bool, text: &st
 /// stored as binary in cooked packages (LinearColor, Vector, Guid…) as all its
 /// members at their defaults, else a tagged struct with no fields (each at
 /// its default).
-fn default_value(db: &ClassDb, pkg: &mut Package, kind: PropertyKind, ref1: Option<ObjRef>, depth: usize) -> Result<Value> {
+pub(crate) fn default_value(db: &ClassDb, pkg: &mut Package, kind: PropertyKind, ref1: Option<ObjRef>, depth: usize) -> Result<Value> {
     Ok(match kind {
         PropertyKind::Int => Value::Int(0),
         PropertyKind::Float => Value::Float(0.0),
@@ -1117,7 +1205,7 @@ fn default_value(db: &ClassDb, pkg: &mut Package, kind: PropertyKind, ref1: Opti
     })
 }
 
-fn new_property(db: &ClassDb, pkg: &mut Package, scope: Option<ObjRef>, name: &str, array_index: i32) -> Result<(Property, Option<ObjRef>)> {
+pub(crate) fn new_property(db: &ClassDb, pkg: &mut Package, scope: Option<ObjRef>, name: &str, array_index: i32) -> Result<(Property, Option<ObjRef>)> {
     let pdef = scope.and_then(|s| db.find_property(s, name)).ok_or_else(|| Error::Format(format!("unknown property {name} (not declared on this class)")))?;
     let kind = db.property_kind(pdef).unwrap();
     let ref1 = db.property_ref1(pdef);

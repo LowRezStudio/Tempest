@@ -271,6 +271,9 @@ impl<'a> Dumper<'a> {
             }
             Native::Level(l) => {
                 let _ = writeln!(out, "  level: {} actors, map \"{}\", model {}, {} model components, {} streamed textures, {} light volume samples, {} visibility buckets", l.actors.len(), l.url.map, self.object_ref(l.model), l.model_components.len(), l.texture_to_instances.len(), l.precomputed_light_volume.samples.len(), l.precomputed_visibility.buckets.len());
+                for (name, (start, end)) in [("navigation", l.nav_list), ("cover", l.cover_list), ("pylon", l.pylon_list)] {
+                    let _ = writeln!(out, "  {name} list: {} … {}", self.object_ref(start), self.object_ref(end));
+                }
             }
         }
     }

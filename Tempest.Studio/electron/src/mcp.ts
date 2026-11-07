@@ -58,12 +58,12 @@ function target(id?: number): BrowserWindow {
 
 /** Run code in a window against the stores; `code` is the body of an async function
  * with the stores (`studio`, `assembly`, `rpc`, `session`, `ui`, `tabs`, `commands`,
- * `nav`, `cooker`, `map`, `swfDoc`, `swfTool`) and `watch` in scope. The returned value comes back as JSON. */
+ * `nav`, `cooker`, `map`, `matineeEd`, `swfDoc`, `swfTool`) and `watch` in scope. The returned value comes back as JSON. */
 async function evalIn(win: BrowserWindow, code: string): Promise<unknown> {
 	const wrapped = `(async () => {
 		const api = window.__tempest;
 		if (!api) throw new Error("the renderer is not ready");
-		const { studio, assembly, rpc, session, ui, tabs, commands, nav, cooker, map, swfDoc, swfTool } = api;
+		const { studio, assembly, rpc, session, ui, tabs, commands, nav, cooker, map, matineeEd, collision, swfDoc, swfTool } = api;
 		${WATCH_JS}
 		const __result = await (async () => { ${code} })();
 		return JSON.stringify(__result === undefined ? null : __result);
@@ -325,7 +325,7 @@ function buildServer(): McpServer {
 		{
 			title: "Evaluate in the renderer",
 			description:
-				"Run JavaScript in a window with the renderer stores in scope: `studio` (packages, state.svelte.ts), `assembly` (assembly.svelte.ts), `rpc` (typed backend calls), `session` (projects and workspace files, session.svelte.ts), `cooker` (mod cooker, cooker.svelte.ts), `map` (map view and Kismet, map.svelte.ts; studio_map covers it), `commands` (command registry), `ui` (dialogs, ui.asking = pending confirmation), `tabs`, `nav`, `swfDoc(path, index)` (the movie editor's document of a SwfMovie export, swf.svelte.ts; studio_swf covers it); plus `watch(promise, ms)` which returns early with the question when the action asks for a confirmation. The code is the body of an async function and its return value comes back as JSON. Example: `return (await rpc('workspace.search', { query: 'zhin', limit: 5 })).results;`",
+				"Run JavaScript in a window with the renderer stores in scope: `studio` (packages, state.svelte.ts), `assembly` (assembly.svelte.ts), `rpc` (typed backend calls), `session` (projects and workspace files, session.svelte.ts), `cooker` (mod cooker, cooker.svelte.ts), `map` (map view and Kismet, map.svelte.ts; studio_map covers it), `collision` (collision view and volume shapes, collision.svelte.ts), `commands` (command registry), `ui` (dialogs, ui.asking = pending confirmation), `tabs`, `nav`, `swfDoc(path, index)` (the movie editor's document of a SwfMovie export, swf.svelte.ts; studio_swf covers it); plus `watch(promise, ms)` which returns early with the question when the action asks for a confirmation. The code is the body of an async function and its return value comes back as JSON. Example: `return (await rpc('workspace.search', { query: 'zhin', limit: 5 })).results;`",
 			inputSchema: { code: z.string(), window: win },
 		},
 		({ code, window }) => guarded(async () => text(await evalIn(target(window), code))),
@@ -653,7 +653,7 @@ function buildServer(): McpServer {
 		{
 			title: "Map view",
 			description:
-				"The map view of a window (a persistent map and the sublevels it streams). `list`: packages holding a level (`persistent` ones stream sublevels). `open` {path}: show a map. `levels`: its levels with actor counts per category (playerstart, botfactory, spawn, mesh, trigger, blocking, volume, light, sound, emitter, gameplay, navigation, info, other) and unsaved state. `actors` {category?, filter?, level?}: actors (level, export, name, class, category, location, rotation, info such as TeamIndex), at most 500. `select` {level, export}: select an actor (the inspector shows it, the gizmo is on it). `move` {level, export, location?, rotation?}: set an actor's Location (Unreal units, X Y Z) and/or Rotation (Pitch Yaw Roll, 65536 = 360°) — for a mesh inside a StaticMeshCollectionActor (`edit: component`) the component's Translation/Rotation; an unsaved edit of that level package. `show` {categories?, levels?, shading?}: hide/show categories or levels (true = visible), shading lit|unlit|untextured|wireframe. `kismet` {level, sequence?}: the level's Kismet sequences and one sequence's nodes (connectors with their links). `link` / `unlink` {from, to, output+input | variable}: connect or break a Kismet link in the shown sequence. `palette`: the kinds of Kismet nodes the game uses. `addNode` {nodeClass, x?, y?, originator?, object?}: add a node of that class (copied from an example, links emptied) to the shown sequence; an event fires from `originator` (an actor export of the level), an object variable holds `object`. `removeNode` {node}. `heavyWalls` {on?}: actors flagged m_bCanBaseOn False (rooftops; on walls, heavy walls) and colour them in the view; `canBaseOn` {level, export, value}: set the flag. `export` {out, levels?, skip?, volumes?, textureSize?}: the map as .glb or .fbx (by `out`). `matinee` {level, export}: open a SeqAct_Interp's timeline (groups, tracks, keys, driven actors); `setKey` {track, curve, key, time?, value?}, `addKey` {track, curve, time}, `removeKey` {track, curve, key} edit it (`curve` is a curve's `path` from the timeline); `matineeTime` {time}: preview the timeline at a time. `undo`: take back the last map edit. Save with studio_run_command file.save.",
+				"The map view of a window (a persistent map and the sublevels it streams). `list`: packages holding a level (`persistent` ones stream sublevels). `open` {path}: show a map. `levels`: its levels with actor counts per category (playerstart, botfactory, spawn, mesh, trigger, blocking, volume, light, sound, emitter, gameplay, navigation, info, other) and unsaved state. `actors` {category?, filter?, level?}: actors (level, export, name, class, category, location, rotation, info such as TeamIndex), at most 500. `select` {level, export}: select an actor (the inspector shows it, the gizmo is on it). `move` {level, export, location?, rotation?}: set an actor's Location (Unreal units, X Y Z) and/or Rotation (Pitch Yaw Roll, 65536 = 360°) — for a mesh inside a StaticMeshCollectionActor (`edit: component`) the component's Translation/Rotation; an unsaved edit of that level package. `show` {categories?, levels?, shading?}: hide/show categories or levels (true = visible), shading lit|unlit|untextured|wireframe. `kismet` {level, sequence?}: the level's Kismet sequences and one sequence's nodes (connectors with their links). `link` / `unlink` {from, to, output+input | variable}: connect or break a Kismet link in the shown sequence. `palette`: the kinds of Kismet nodes the game uses. `addNode` {nodeClass, x?, y?, originator?, object?}: add a node of that class (copied from an example, links emptied) to the shown sequence; an event fires from `originator` (an actor export of the level), an object variable holds `object`. `removeNode` {node}. `actorPalette` {level?, classes?}: the kinds of actors the workspace's levels place (`inMap`: an example in this map). `addActor` {level?, actorClass | export | newClass (+ mesh?), location?}: add an actor to a level (default: the persistent one): a copy of `export` (an actor of that level, or a mesh of a collection: duplicated in place) or of the example of `actorClass` (from another map its meshes, materials and textures come along), or a new actor of `newClass` (any placeable class, `actorPalette` with `classes: true` lists them, volumes marked `volume`) built from its class defaults, with `mesh` {path, index} (a StaticMesh/SkeletalMesh of any package) on its mesh component, and for a volume class `brush` (its shape, see setBrush; default a 256 cube); at `location` (Unreal units), else where the view looks; returns the new export, selected. `removeActor` {level, export}: delete an actor (or a collection's mesh) from its level, references to it cleared. `heavyWalls` {on?}: actors flagged m_bCanBaseOn False (rooftops; on walls, heavy walls) and colour them in the view; `canBaseOn` {level, export, value}: set the flag. `export` {out, levels?, skip?, volumes?, textureSize?}: the map as .glb or .fbx (by `out`). `matinee` {level, export}: open a SeqAct_Interp's timeline (groups, tracks, keys, driven actors); `setKey` {track, curve, key, time?, value?}, `addKey` {track, curve, time}, `removeKey` {track, curve, key} edit it (`curve` is a curve's `path` from the timeline; `setKey` also takes `mode` CIM_Linear|CIM_CurveAuto|CIM_CurveAutoClamped|CIM_CurveUser|CIM_CurveBreak|CIM_Constant, `arrive`/`leave` tangents (an auto key becomes CIM_CurveUser), `fields` {member: text} for timed keys such as EventName `'Name'`, `values` {other curve path: value} for the same key of the track's other curves; `addKey` takes `value`, `mode`, `values`, `fields`; tangents of auto keys are recomputed like the engine's AutoSetTangents, a move key's position/rotation/lookup lists change together); `setInterpMode` {track, curve, key, mode} and `setTangents` {track, curve, key, arrive?, leave?} are shorthands; `keyAtPlayhead` {track}: a key at the preview time (a move key from where its actor is drawn). `matinees` {level}: the level's Matinee actions. `newMatinee` {level?, actor?, length?, sequence?}: a new Matinee (SeqAct_Interp + InterpData) in the level's top sequence, with a group and relative move track driving `actor` when given. `addGroup` {name, director?}, `removeGroup` {group}, `setGroup` {group, name?, color?}: groups (a rename keeps the connector and its links). `addTrack` {group, trackClass, property?}: InterpTrackMove, Event, AkEvent, Sound, AnimControl, Toggle, Visibility, Fade, Director (director group only), FloatProp/VectorProp/ColorProp (`property` e.g. Brightness, DrawScale3D, LightColor), FloatMaterialParam/VectorMaterialParam (`property` = the parameter); `removeTrack` {track}. `setProps` {object, props: {Prop: text|number|bool}}: properties of the action (bLooping, PlayRate, bRewindOnPlay, bForceStartPos, ForceStartPosition, bClientSideOnly…), the data (InterpLength, EdSectionStart/End), a group or a track (bDisableTrack, MoveFrame imf_world|imf_relativetoinitial, RotMode imr_keyframed|imr_lookatgroup|imr_ignore, LookAtGroupName, TrackTitle). `connect` {group, export, remove?}: make an actor of the timeline's level driven by a group (a SeqVar_Object linked to the group's connector). `matineeTime` {time}: preview the timeline at a time (poses, hidden, tinted actors). `collision` {on?, only?}: draw collision (volumes' convex hulls, meshes' simple collision or triangles, coloured by what they block) over the view, or instead of it with `only`; returns counts by kind:blocks, the volumes (level, export, class, blocks, hull count) and the meshes whose simple collision has no body setup (they collide with nothing). `brush` {level, export}: a volume's shape (brush polys in actor space, Unreal units; its convex hulls). `setBrush` {level, export, brush}: rebuild a volume's shape: `brush` is {kind: box (x, y, z, hollow, wallThickness) | cylinder (z, outerRadius, innerRadius, sides, alignToSide, hollow) | cone (z, capZ, outerRadius, innerRadius, sides, alignToSide, hollow) | sphere (radius, sphereExtrapolation 1-5) | mesh (mesh {path, index} or {object}, fit hull|bounds) | hull (points) | polys (polys: vertex lists, outward)}; the brush model, BSP and BrushAggGeom are rebuilt like UnrealEd does; an unsaved edit. `bake` {scope: edited (default: meshes added or moved this session) | selected (level+export, else the selection) | level (levels), shadowSamples?, skySamples?, indirectRays?, compare?}: bake static light maps (direct light of the map's static lights, shadows against every level; indirectRays > 0 adds a one-bounce approximation) into new light map textures of the levels, one undo step per level; `compare` reports each mesh's mean irradiance against its previous light map. `lightInfo` {level, export}: a mesh's light map (lights, textures, scales, decoded mean irradiance). `navmesh` {navOp?, faces?, vertex?, location?, colour?}: the persistent level's Havok nav mesh (faces, edges, regions, clusters, jump links): `navOp` status (default) | show | hide | pick (pick `faces` in the view) | deleteFaces (`faces`) | cutRegion (every face connected to `faces`) | moveVertex (`vertex` to `location`, Unreal units); edits are unsaved, undoable edits of the level (the face AABB tree rebuilt). `undo`: take back the last map edit. Save with studio_run_command file.save.",
 			inputSchema: {
 				action: z.enum([
 					"list",
@@ -669,6 +669,9 @@ function buildServer(): McpServer {
 					"palette",
 					"addNode",
 					"removeNode",
+					"actorPalette",
+					"addActor",
+					"removeActor",
 					"heavyWalls",
 					"canBaseOn",
 					"export",
@@ -677,9 +680,71 @@ function buildServer(): McpServer {
 					"addKey",
 					"removeKey",
 					"matineeTime",
+					"setInterpMode",
+					"setTangents",
+					"keyAtPlayhead",
+					"matinees",
+					"newMatinee",
+					"addGroup",
+					"removeGroup",
+					"setGroup",
+					"addTrack",
+					"removeTrack",
+					"setProps",
+					"connect",
+					"navmesh",
 					"undo",
+					"collision",
+					"brush",
+					"setBrush",
+					"bake",
+					"lightInfo",
 				]),
+				mode: z.string().optional(),
+				arrive: z.union([z.number(), z.array(z.number())]).optional(),
+				leave: z.union([z.number(), z.array(z.number())]).optional(),
+				fields: z
+					.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+					.optional(),
+				values: z.record(z.string(), z.union([z.number(), z.array(z.number())])).optional(),
+				group: z.number().int().optional(),
+				name: z.string().optional(),
+				color: z.array(z.number()).optional(),
+				director: z.boolean().optional(),
+				trackClass: z.string().optional(),
+				property: z.string().optional(),
+				props: z
+					.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+					.optional(),
+				actor: z.number().int().optional(),
+				remove: z.boolean().optional(),
+				length: z.number().optional(),
+				brush: z.record(z.string(), z.unknown()).optional(),
+				only: z.boolean().optional(),
+				scope: z.enum(["selected", "edited", "level"]).optional(),
+				shadowSamples: z.number().int().optional(),
+				skySamples: z.number().int().optional(),
+				indirectRays: z.number().int().optional(),
+				compare: z.boolean().optional(),
+				navOp: z
+					.enum([
+						"status",
+						"show",
+						"hide",
+						"pick",
+						"deleteFaces",
+						"cutRegion",
+						"moveVertex",
+					])
+					.optional(),
+				faces: z.array(z.number().int()).optional(),
+				vertex: z.number().int().optional(),
+				colour: z.enum(["region", "cluster"]).optional(),
 				nodeClass: z.string().optional(),
+				actorClass: z.string().optional(),
+				newClass: z.string().optional(),
+				mesh: z.object({ path: z.string(), index: z.number().int() }).optional(),
+				classes: z.boolean().optional(),
 				x: z.number().optional(),
 				y: z.number().optional(),
 				originator: z.number().int().optional(),
@@ -755,11 +820,68 @@ function buildServer(): McpServer {
 							return { added: g.added, node: g.nodes.find((n) => n.export === g.added) };
 						}
 						case "removeNode": await map.removeNode(a.node); return { graph: map.graph };
+						case "actorPalette": {
+							const l = levelOf(a.level ?? map.path); if (!l) throw new Error("no such level");
+							await map.loadActorPalette(l.path);
+							if (a.classes) return map.actorClasses;
+							return map.actorPalette.map((c) => ({ class: c.class, category: c.category, count: c.count, inMap: c.inMap }));
+						}
+						case "addActor": {
+							const l = levelOf(a.level ?? map.path); if (!l) throw new Error("no such level");
+							let source, parent;
+							if (a.newClass) {
+								// Built from the class defaults below.
+							} else if (a.export !== undefined) {
+								const x = l.actors.find((y) => y.export === a.export); if (!x) throw new Error("no such actor in that level");
+								source = { path: l.path, index: x.export };
+								parent = x.edit === "component" ? x.parent : undefined;
+							} else {
+								await map.loadActorPalette(l.path);
+								const c = map.actorPalette.find((p) => p.class === String(a.actorClass).toLowerCase());
+								if (!c) throw new Error("no example of " + a.actorClass + " in this folder (see actorPalette)");
+								source = { path: c.example.path, index: c.example.index };
+							}
+							const r = await rpc("map.addActor", { path: l.path, source, parent, class: a.newClass, mesh: a.mesh, brush: a.brush, at: a.location ? undefined : (map.viewTarget?.() ?? undefined) });
+							if (a.location) await rpc("map.setTransform", { path: l.path, index: r.added, location: a.location, parent });
+							map.noteEdit(l.path);
+							await map.reloadLevel(l.path);
+							await map.select({ level: l.path, export: r.added });
+							const x = map.actor();
+							return { added: r.added, warnings: r.warnings, actor: x && brief(l, x) };
+						}
+						case "removeActor": {
+							const l = levelOf(a.level); if (!l) throw new Error("no such level");
+							const x = l.actors.find((y) => y.export === a.export); if (!x) throw new Error("no such actor");
+							await rpc("map.removeActor", { path: l.path, index: x.export, parent: x.edit === "component" ? x.parent : undefined });
+							map.noteEdit(l.path);
+							if (map.selected?.level === l.path && map.selected.export === x.export) await map.select(null);
+							await map.reloadLevel(l.path);
+							break;
+						}
 						case "heavyWalls": {
 							if (a.on !== undefined) map.heavyWalls = a.on;
 							const rows = [];
 							for (const l of map.levels) for (const x of l.actors) if (x.canBaseOn === false) rows.push(brief(l, x));
 							return { on: map.heavyWalls, count: rows.length, actors: rows.slice(0, 500) };
+						}
+						case "collision": {
+							if (a.only !== undefined) collision.only = a.only;
+							await collision.toggle(a.on ?? true);
+							const d = collision.data;
+							const volumes = [], none = [];
+							for (const l of d?.levels ?? []) for (const it of l.items) {
+								if (it.kind === "volume") volumes.push({ level: l.path, export: it.export, name: it.name, class: it.class, blocks: it.flags.blocks, hulls: it.geometry.convexCount ?? 0 });
+								else { const m = d.meshes[it.meshKey]; if (m && it.flags.blocks !== "none" && m.pawns === "none") none.push({ level: l.path, export: it.export, name: it.name }); }
+							}
+							return { on: collision.enabled, only: collision.only, counts: collision.summary(), volumes: volumes.slice(0, 500), noBodySetup: none.slice(0, 200) };
+						}
+						case "brush": { const l = levelOf(a.level); if (!l) throw new Error("no such level"); return await rpc("map.brush", { path: l.path, index: a.export }); }
+						case "setBrush": {
+							const l = levelOf(a.level); if (!l) throw new Error("no such level");
+							if (!a.brush) throw new Error("give brush");
+							const ok = await collision.setBrush(l.path, a.export, a.brush);
+							if (!ok) throw new Error("the shape could not be built (see the toast)");
+							return await rpc("map.brush", { path: l.path, index: a.export });
 						}
 						case "canBaseOn": { const l = levelOf(a.level); if (!l) throw new Error("no such level"); await map.select({ level: l.path, export: a.export }); await map.setCanBaseOn(Boolean(a.value)); break; }
 						case "export": {
@@ -767,11 +889,60 @@ function buildServer(): McpServer {
 							return await rpc("map.export", { path: map.path, out: a.out, levels: a.levels ? Object.keys(a.levels).map((k) => levelOf(k)?.path).filter(Boolean) : undefined, skip: a.skip, volumes: a.volumes, textureSize: a.textureSize });
 						}
 						case "matinee": { const l = levelOf(a.level ?? map.path); if (!l) throw new Error("no such level"); await map.openMatinee(l.path, a.export); return map.matinee; }
-						case "setKey": { await map.setKey(a.track, a.curve, a.key, { time: a.time, value: a.value }); return map.matinee; }
-						case "addKey": { await map.addKey(a.track, a.curve, a.time); return { key: map.matineeKey, timeline: map.matinee }; }
+						case "setKey": { await matineeEd.setKey({ track: a.track, curve: a.curve, key: a.key }, { time: a.time, value: a.value, mode: a.mode, arrive: a.arrive, leave: a.leave, fields: a.fields, values: a.values }); return { key: map.matineeKey, timeline: map.matinee }; }
+						case "addKey": { await matineeEd.addKey(a.track, a.curve, a.time, { value: a.value, mode: a.mode, values: a.values, fields: a.fields }); return { key: map.matineeKey, timeline: map.matinee }; }
+						case "setInterpMode": { await matineeEd.setKey({ track: a.track, curve: a.curve, key: a.key }, { mode: a.mode }); return map.matinee; }
+						case "setTangents": { await matineeEd.setKey({ track: a.track, curve: a.curve, key: a.key }, { arrive: a.arrive, leave: a.leave }); return map.matinee; }
+						case "keyAtPlayhead": { matineeEd.track = a.track; await matineeEd.keyAtPlayhead(a.track); return { key: map.matineeKey, timeline: map.matinee }; }
+						case "matinees": { const l = levelOf(a.level ?? map.path); if (!l) throw new Error("no such level"); await matineeEd.loadList(l.path); return matineeEd.list; }
+						case "newMatinee": { const l = levelOf(a.level ?? map.path); if (!l) throw new Error("no such level"); const r = await matineeEd.create(l.path, { actor: a.actor, length: a.length, sequence: a.sequence }); if (!r) throw new Error("could not create the Matinee"); return map.matinee; }
+						case "addGroup": { const r = await matineeEd.addGroup(a.name ?? "NewGroup", a.director); return { group: r?.group, timeline: map.matinee }; }
+						case "removeGroup": { await matineeEd.removeGroup(a.group); return map.matinee; }
+						case "setGroup": { await matineeEd.setGroup(a.group, { name: a.name, color: a.color }); return map.matinee; }
+						case "addTrack": { if (!a.trackClass) throw new Error("give trackClass"); const r = await matineeEd.addTrack(a.group, a.trackClass, a.property); return { track: r?.track, timeline: map.matinee }; }
+						case "removeTrack": { await matineeEd.removeTrack(a.track); return map.matinee; }
+						case "setProps": { if (!a.props) throw new Error("give props"); await matineeEd.set(a.object, a.props); return map.matinee; }
+						case "connect": { await matineeEd.connect(a.group, a.export, a.remove); return map.matinee; }
 						case "removeKey": { await map.removeKey(a.track, a.curve, a.key); return map.matinee; }
-						case "matineeTime": { map.matineeTime = a.time ?? 0; return { time: map.matineeTime, poses: [...map.matineePreview.poses.keys()] }; }
+						case "matineeTime": { map.matineeTime = a.time ?? 0; const pv = map.matineePreview; return { time: map.matineeTime, poses: Object.fromEntries(pv.poses), hidden: [...pv.hidden], tints: Object.fromEntries(pv.tints) }; }
+						case "navmesh": {
+							const nm = window.__tempest.navmesh;
+							const op = a.navOp ?? "status";
+							if (op === "show") nm.show = true;
+							if (op === "hide") nm.show = false;
+							if (a.colour) nm.colour = a.colour;
+							await nm.load();
+							if (op === "pick") { nm.pick = "faces"; nm.selected = new Set(a.faces ?? []); nm.version++; }
+							if (op === "deleteFaces" || op === "cutRegion") {
+								if (!a.faces?.length) throw new Error("give faces");
+								if (!(await nm.edit(op === "cutRegion" ? "deleteRegion" : "deleteFaces", { faces: a.faces }))) throw new Error("the edit failed (see the toast)");
+							}
+							if (op === "moveVertex") {
+								if (a.vertex == null || !a.location) throw new Error("give vertex and location");
+								const [x, y, z] = a.location;
+								if (!(await nm.moveVertex(a.vertex, [x / 100, z / 100, y / 100]))) throw new Error("the edit failed (see the toast)");
+							}
+							return { show: nm.show, level: nm.level, error: nm.error, colour: nm.colour, selected: [...nm.selected].slice(0, 500), actors: nm.actors.map((x) => x.info) };
+						}
 						case "undo": await map.undo(); break;
+						case "bake": {
+							const scope = a.scope ?? "edited";
+							let targets;
+							if (scope === "selected") { const l = levelOf(a.level ?? map.selected?.level); const e = a.export ?? map.selected?.export; if (!l || e === undefined) throw new Error("give level and export (or select an actor)"); targets = [{ path: l.path, index: e }]; }
+							const levels = a.levels ? Object.keys(a.levels).filter((k) => a.levels[k]).map((k) => levelOf(k)?.path).filter(Boolean) : undefined;
+							const r = await rpc("light.bake", { path: map.path, scope, targets, levels, shadowSamples: a.shadowSamples, skySamples: a.skySamples, indirectRays: a.indirectRays, compare: a.compare });
+							for (const w of r.written) { map.noteEdit(w.path); await map.reloadLevel(w.path); }
+							return { ...r, baked: r.baked.slice(0, 200), comparisons: r.comparisons.slice(0, 200) };
+						}
+						case "lightInfo": {
+							const l = levelOf(a.level ?? map.selected?.level); if (!l) throw new Error("no such level");
+							let e = a.export ?? map.selected?.export;
+							const x = l.actors.find((y) => y.export === e);
+							const part = x?.parts.find((p) => p.kind === "mesh");
+							if (part) e = part.export;
+							const r = await rpc("light.info", { path: l.path, index: e });
+							return r;
+						}
 					}
 					if (a.action === "actors") {
 						const q = (a.filter ?? "").toLowerCase();

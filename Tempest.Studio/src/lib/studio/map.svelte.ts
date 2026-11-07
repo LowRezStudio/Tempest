@@ -2,13 +2,16 @@
 // three.js (`MapViewport`), with an outliner, an inspector and a Kismet
 // graph per level. Moving an actor writes its Location/Rotation/DrawScale3D
 // (or a collection mesh's component transform) through `map.setTransform`,
-// an unsaved edit of that level's package like any other.
+// an unsaved edit of that level's package like any other; actors are added
+// (copies of an actor of any level, `map.addActor`) and deleted
+// (`map.removeActor`) the same way.
 import { untrack } from "svelte";
-import { movePose, sample } from "./matinee-math";
+import { timelinePreview } from "./matinee-preview";
 import { nav, type MapPlace } from "./nav.svelte";
 import { rpc } from "./rpc";
 import { studio } from "./state.svelte";
 import { toasts } from "./toast.svelte";
+import { ui } from "./ui.svelte";
 import type {
 	KismetGraph,
 	MatineeTimeline,
@@ -225,6 +228,7 @@ class MapStore {
 
 	/** An actor moved in the viewport: write it. */
 	async move(level: string, actor: MapActor, matrix: number[]): Promise<void> {
+		if (this.view === "matinee" && (await this.captureMove?.(level, actor, matrix))) return;
 		try {
 			const r = await rpc("map.setTransform", {
 				path: level,
@@ -293,6 +297,130 @@ class MapStore {
 		}
 	}
 
+	// ----- adding and removing actors -------------------------------------------
+
+	/** Where the viewport looks (its orbit target, view space): new actors go there. Set by `MapViewport`. */
+	viewTarget: (() => [number, number, number]) | null = null;
+	/** The actor palette is open (`ActorPalette`). */
+	addingActor = $state(false);
+	actorPalette = $state.raw<UpkMethods["map.palette"]["result"]["classes"] | null>(null);
+	actorClasses = $state.raw<UpkMethods["map.palette"]["result"]["placeable"] | null>(null);
+	private actorPaletteFor: string | null = null;
+
+	async loadActorPalette(level: string): Promise<void> {
+		if (this.actorPalette && this.actorPaletteFor === level) return;
+		try {
+			const r = await rpc("map.palette", {
+				path: level,
+				levels: this.levels.map((l) => l.path),
+			});
+			this.actorPalette = r.classes;
+			this.actorClasses = r.placeable;
+			this.actorPaletteFor = level;
+		} catch (error) {
+			toasts.error(error, "Could not list the actors");
+		}
+	}
+
+	/** The level new actors go into: the selected actor's, else the persistent level. */
+	get targetLevel(): string | null {
+		return this.selected?.level ?? this.path;
+	}
+
+	private async added(level: string, r: { added: number; name: string; warnings: string[] }) {
+		this.noteEdit(level);
+		this.palette = null; // Kismet's palette may now prefer this level's nodes
+		await this.reloadLevel(level);
+		await this.select({ level, export: r.added });
+		if (r.warnings.length > 0) {
+			toasts.push("warning", r.warnings.slice(0, 5).join("\n"), `Added ${r.name}`);
+		} else toasts.push("success", r.name, "Added");
+	}
+
+	/** Add a copy of `example` (an actor of any level package) to `level`, where the view looks. */
+	async addActor(example: { path: string; index: number }, level: string): Promise<void> {
+		try {
+			const r = await rpc("map.addActor", {
+				path: level,
+				// A plain object: IPC cannot clone state proxies.
+				source: { path: example.path, index: example.index },
+				at: this.viewTarget?.() ?? undefined,
+			});
+			await this.added(level, r);
+		} catch (error) {
+			toasts.error(error, "Could not add the actor");
+		}
+	}
+
+	/** Add a new actor of `cls` built from its class defaults (with `mesh` on its mesh component) to `level`, where the view looks. */
+	async newActor(
+		cls: string,
+		level: string,
+		mesh?: { path: string; index: number },
+	): Promise<void> {
+		try {
+			const r = await rpc("map.addActor", {
+				path: level,
+				class: cls,
+				mesh: mesh ? { path: mesh.path, index: mesh.index } : undefined,
+				at: this.viewTarget?.() ?? undefined,
+			});
+			await this.added(level, r);
+		} catch (error) {
+			toasts.error(error, `Could not add a ${cls}`);
+		}
+	}
+
+	/** Copy the selected actor (or collection mesh) next to it, in its level. */
+	async duplicate(): Promise<void> {
+		const sel = this.selected;
+		const actor = this.actor();
+		if (!sel || !actor) return;
+		const matrix = [...actor.matrix];
+		matrix[12] += 1;
+		try {
+			const r = await rpc("map.addActor", {
+				path: sel.level,
+				source: { path: sel.level, index: actor.export },
+				parent: actor.edit === "component" ? actor.parent : undefined,
+				matrix,
+			});
+			await this.added(sel.level, r);
+		} catch (error) {
+			toasts.error(error, `Could not duplicate ${actor.name}`);
+		}
+	}
+
+	/** Delete the selected actor (or collection mesh), after asking. */
+	async removeSelected(): Promise<void> {
+		const sel = this.selected;
+		const actor = this.actor();
+		if (!sel || !actor) return;
+		const ok = await ui.confirm({
+			title: `Delete ${actor.name}?`,
+			message:
+				actor.edit === "component"
+					? "This mesh is taken out of its collection and deleted (Ctrl+Z brings it back)."
+					: "The actor and its components are deleted from the level, and every reference to it (Kismet included) is cleared (Ctrl+Z brings it back).",
+			confirm: "Delete",
+			danger: true,
+		});
+		if (ok !== true) return;
+		try {
+			await rpc("map.removeActor", {
+				path: sel.level,
+				index: actor.export,
+				parent: actor.edit === "component" ? actor.parent : undefined,
+			});
+			this.noteEdit(sel.level);
+			await this.select(null);
+			await this.reloadLevel(sel.level);
+			if (this.view === "kismet" && this.kismetLevel === sel.level) await this.loadGraph();
+		} catch (error) {
+			toasts.error(error, `Could not delete ${actor.name}`);
+		}
+	}
+
 	/** An edit of a level made elsewhere (the MCP's property writes): undo takes it back. */
 	noteEdit(level: string): void {
 		this.edits.push(level);
@@ -321,6 +449,7 @@ class MapStore {
 			if (!r.dirty) studio.dirty = studio.dirty.filter((d) => d !== level);
 			await this.reloadLevel(level);
 			if (this.view === "kismet" && this.kismetLevel === level) await this.loadGraph();
+			if (this.matineeAt?.level === level) await this.refreshMatinee();
 		} catch (error) {
 			toasts.error(error, "Undo failed");
 		}
@@ -407,8 +536,25 @@ class MapStore {
 		}
 	}
 
-	private async matineeEdit(
-		method: "matinee.setKey" | "matinee.addKey" | "matinee.removeKey",
+	/** Re-read the open timeline (after an undo); closed when its action is gone. */
+	async refreshMatinee(): Promise<void> {
+		const at = this.matineeAt;
+		if (!at) return;
+		try {
+			this.matinee = await rpc("matinee.get", { path: at.level, index: at.index });
+		} catch {
+			this.matinee = null;
+			this.matineeAt = null;
+			if (this.view === "matinee") this.view = "scene";
+		}
+	}
+
+	/** One Matinee edit (`matinee.*` of `UpkMethods` but `get`, `create`, `list`) on the open timeline. */
+	async matineeEdit(
+		method: Exclude<
+			Extract<keyof UpkMethods, `matinee.${string}`>,
+			"matinee.get" | "matinee.create" | "matinee.list"
+		>,
 		params: Record<string, unknown>,
 	): Promise<MatineeTimeline | null> {
 		const at = this.matineeAt;
@@ -423,7 +569,7 @@ class MapStore {
 			this.noteEdit(at.level);
 			return r;
 		} catch (error) {
-			toasts.error(error, "Could not change the key");
+			toasts.error(error, "Could not change the Matinee");
 			return null;
 		}
 	}
@@ -448,63 +594,21 @@ class MapStore {
 	}
 
 	/**
-	 * Where the timeline puts things at the current time: the view matrix of
-	 * each driven actor (`level#export`), and the path of each movement.
+	 * What the timeline does to the view at the current time
+	 * (`matinee-preview.ts`): driven actors' poses, movement paths,
+	 * toggled-off actors, light tints.
 	 */
-	matineePreview = $derived.by(() => {
-		const tl = this.matinee;
-		const at = this.matineeAt;
-		const poses = new Map<string, number[]>();
-		const paths: { color: string; points: number[][] }[] = [];
-		if (!tl || !at || this.view !== "matinee") return { poses, paths };
-		const t = this.matineeTime;
-		for (const g of tl.groups) {
-			const move = g.tracks.find((x) => x.class === "interptrackmove" && !x.disabled);
-			if (!move) continue;
-			const actor = g.actors.find((a) => a.export !== null);
-			const placed =
-				actor && actor.export !== null
-					? this.actor({ level: at.level, export: actor.export })
-					: null;
-			const relative = /relative/i.test(move.moveFrame ?? "");
-			const initial = relative && placed ? placed.matrix : null;
-			const curve = (name: string) =>
-				move.curves.find((c) => c.name.toLowerCase() === name)?.keys ?? [];
-			// Split axes: one float curve per axis.
-			const posKeys = curve("postrack");
-			const eulerKeys = curve("eulertrack");
-			const axes = g.tracks.filter((x) => x.parent === move.export);
-			const axisValue = (name: string, time: number) => {
-				const tr = axes.find((x) => (x.moveAxis ?? "").toLowerCase() === name);
-				const keys = tr?.curves.find((c) => c.kind === "curve")?.keys ?? [];
-				return keys.length ? (sample(keys, time)?.[0] ?? 0) : 0;
-			};
-			const poseAt = (time: number) => {
-				let pos: number[];
-				let euler: number[] | null;
-				if (axes.length > 0) {
-					pos = ["x", "y", "z"].map((a) => axisValue(`axis_translation${a}`, time));
-					euler = ["x", "y", "z"].map((a) => axisValue(`axis_rotation${a}`, time));
-				} else {
-					pos = sample(posKeys, time) ?? [0, 0, 0];
-					euler = sample(eulerKeys, time);
-				}
-				return movePose(pos, euler, initial);
-			};
-			if (axes.length === 0 && posKeys.length === 0) continue;
-			if (placed && actor?.export != null) {
-				poses.set(`${at.level}#${actor.export}`, poseAt(t));
-			}
-			const color = g.color ? `rgb(${g.color[0]},${g.color[1]},${g.color[2]})` : "#f9e2af";
-			const steps = 48;
-			const points = Array.from({ length: steps + 1 }, (_, i) => {
-				const m = poseAt((tl.length * i) / steps);
-				return [m[12], m[13], m[14]];
-			});
-			paths.push({ color, points });
-		}
-		return { poses, paths };
-	});
+	matineePreview = $derived(
+		this.view === "matinee"
+			? timelinePreview(this.matinee, this.matineeAt?.level ?? null, this.matineeTime, (e) =>
+					this.actor({ level: this.matineeAt!.level, export: e }),
+				)
+			: timelinePreview(null, null, 0, () => null),
+	);
+
+	/** Set by the Matinee editor: a gizmo move of a driven actor while the playhead sits on a key edits that key instead (true when it did). */
+	captureMove: ((level: string, actor: MapActor, matrix: number[]) => Promise<boolean>) | null =
+		null;
 
 	palette = $state.raw<UpkMethods["kismet.palette"]["result"]["classes"] | null>(null);
 

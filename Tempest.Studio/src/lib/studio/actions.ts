@@ -2,6 +2,8 @@
 // shell mounts. Dialogs open through `ui.open`, views through `studio.mode`.
 import {
 	AppWindow,
+	Clapperboard,
+	Box,
 	Archive,
 	Code2,
 	Copy,
@@ -27,7 +29,9 @@ import {
 	Search,
 	ShieldCheck,
 	Sparkles,
+	Sun,
 	SunMoon,
+	Trash2,
 	Undo2,
 	Shirt,
 	Map as MapIcon,
@@ -37,9 +41,12 @@ import {
 import { invoke, pickDirectory, pickFile, pickSave, PACKAGE_FILTERS } from "$lib/platform/api";
 import { assembly } from "./assembly.svelte";
 import { CONTAINS_SCRIPT } from "./classes";
+import { collision } from "./collision.svelte";
 import { commands, type Command } from "./commands.svelte";
 import { basename } from "./format";
+import { lightBake } from "./lightbake.svelte";
 import { map } from "./map.svelte";
+import { matineeEd } from "./matinee.svelte";
 import { nav } from "./nav.svelte";
 import { rpc } from "./rpc";
 import { session } from "./session.svelte";
@@ -52,6 +59,7 @@ import { updater } from "./updater.svelte";
 
 const ws = () => studio.workspace !== null;
 const inAssembly = () => studio.mode === "assembly";
+const inMapScene = () => studio.mode === "map" && map.view !== "kismet";
 const inPackages = () => studio.mode === "packages";
 
 export async function openFolder(): Promise<void> {
@@ -697,6 +705,96 @@ export function registerActions(): () => void {
 			icon: Copy,
 			enabled: () => inAssembly() && assembly.selected !== null,
 			run: () => assembly.selected !== null && assembly.addRow(assembly.selected),
+		},
+		{
+			id: "map.addActor",
+			title: "Add an actor to the map…",
+			detail: "A copy of an actor of any level, where the view looks",
+			group: "Map",
+			keys: "Shift+A",
+			icon: Plus,
+			enabled: () => inMapScene() && map.levels.length > 0,
+			run: () => {
+				map.addingActor = true;
+			},
+		},
+		{
+			id: "map.collision",
+			title: "Show collision in the map",
+			detail: "Volumes' convex hulls and meshes' simple or complex collision, by what they block",
+			group: "Map",
+			icon: Box,
+			enabled: () => inMapScene() && map.levels.length > 0,
+			run: () => collision.toggle(),
+		},
+		{
+			id: "map.duplicateActor",
+			title: "Duplicate the selected actor",
+			group: "Map",
+			keys: "Mod+D",
+			icon: Copy,
+			enabled: () => inMapScene() && map.actor() !== null,
+			run: () => map.duplicate(),
+		},
+		{
+			id: "map.bakeLighting",
+			title: "Bake lighting…",
+			detail: "Static light maps for the meshes added or moved, the selection or whole levels",
+			group: "Map",
+			icon: Sun,
+			enabled: () => inMapScene() && map.levels.length > 0,
+			run: () => {
+				lightBake.open = true;
+			},
+		},
+		{
+			id: "map.deleteActor",
+			title: "Delete the selected actor",
+			group: "Map",
+			keys: "Delete",
+			icon: Trash2,
+			// In the Matinee view Delete removes the selected key instead.
+			enabled: () =>
+				inMapScene() && map.actor() !== null && !(map.view === "matinee" && map.matineeKey),
+			run: () => map.removeSelected(),
+		},
+		{
+			id: "map.newMatinee",
+			title: "New Matinee",
+			detail: "In the selected actor's level, moving it (or empty when nothing is selected)",
+			group: "Map",
+			icon: Clapperboard,
+			enabled: () => studio.mode === "map" && !!map.path,
+			run: () => {
+				const actor = map.actor();
+				const level = map.selected?.level ?? map.path!;
+				const target = actor
+					? actor.edit === "component"
+						? actor.parent
+						: actor.export
+					: undefined;
+				return matineeEd.create(level, { actor: target });
+			},
+		},
+		{
+			id: "map.openMatinee",
+			title: "Open the level's Matinees",
+			detail: "The first Matinee of the selected actor's level (the timeline lists the others)",
+			group: "Map",
+			icon: Clapperboard,
+			enabled: () => studio.mode === "map" && !!map.path,
+			run: () => matineeEd.openFirst(map.selected?.level ?? map.path!),
+		},
+		{
+			id: "map.matineeKey",
+			title: "Add a Matinee key at the playhead",
+			detail: "On the selected track; a move key takes where its actor is",
+			group: "Map",
+			keys: "K",
+			icon: Clapperboard,
+			enabled: () =>
+				studio.mode === "map" && map.view === "matinee" && matineeEd.track !== null,
+			run: () => matineeEd.keyAtPlayhead(matineeEd.track!),
 		},
 		{
 			id: "asm.newContent",

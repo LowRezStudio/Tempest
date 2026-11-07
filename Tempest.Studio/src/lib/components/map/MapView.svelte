@@ -4,6 +4,7 @@
 		Box,
 		Clapperboard,
 		Download,
+		Sun,
 		Plus,
 		Trash2,
 		Map as MapIcon,
@@ -14,16 +15,22 @@
 		MousePointer2,
 		Workflow,
 	} from "@lucide/svelte";
+	import ActorPalette from "$lib/components/map/ActorPalette.svelte";
+	import CollisionToolbar from "$lib/components/map/CollisionToolbar.svelte";
 	import KismetGraph from "$lib/components/map/KismetGraph.svelte";
+	import LightBakeDialog from "$lib/components/map/LightBakeDialog.svelte";
 	import MapExportDialog from "$lib/components/map/MapExportDialog.svelte";
 	import MapInspector from "$lib/components/map/MapInspector.svelte";
 	import MapSide from "$lib/components/map/MapSide.svelte";
 	import MapViewport from "$lib/components/map/MapViewport.svelte";
 	import MatineePanel from "$lib/components/map/MatineePanel.svelte";
+	import NavMeshPanel from "$lib/components/map/NavMeshPanel.svelte";
 	import PropertyTree from "$lib/components/PropertyTree.svelte";
 	import Pane from "$lib/components/shell/Pane.svelte";
 	import { basename } from "$lib/studio/format";
+	import { lightBake } from "$lib/studio/lightbake.svelte";
 	import { map, type Shading } from "$lib/studio/map.svelte";
+	import { navmesh } from "$lib/studio/navmesh.svelte";
 	import { rpc } from "$lib/studio/rpc";
 	import { ui } from "$lib/studio/ui.svelte";
 	import type { ParsedObject } from "../../../../electron/src/ipc/contract";
@@ -81,7 +88,7 @@
 	<div class="flex min-w-0 flex-1 flex-col">
 		{#if map.path}
 			<div
-				class="border-base-300 bg-base-200 flex h-9 shrink-0 items-center gap-1 border-b px-2 text-xs"
+				class="border-base-300 bg-base-200 flex min-h-9 shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1 text-xs"
 			>
 				<div class="join">
 					<button
@@ -145,6 +152,13 @@
 							X-ray
 						</label>
 					{/if}
+					<CollisionToolbar />
+					<button
+						class="btn btn-xs ml-2 {navmesh.show ? 'btn-active btn-info' : ''}"
+						onclick={() => (navmesh.show = !navmesh.show)}
+						title="Draw the Havok nav mesh the bots walk on: faces by region or cluster, boundaries, jump links; pick and edit faces"
+						>Nav mesh</button
+					>
 					<select
 						class="select select-xs ml-2 w-32"
 						bind:value={map.shading}
@@ -156,10 +170,29 @@
 					</select>
 					<div class="flex-1"></div>
 					<button
+						class="btn btn-ghost btn-xs {map.addingActor ? 'btn-active' : ''}"
+						onclick={() => (map.addingActor = !map.addingActor)}
+						title="Add an actor: a copy of one any level places, where the view looks (Shift+A)"
+						><Plus size={12} /> Actor</button
+					>
+					<button
+						class="btn btn-ghost btn-xs btn-square"
+						disabled={!map.actor()}
+						onclick={() => map.removeSelected()}
+						title="Delete the selected actor (Delete)"
+						aria-label="Delete the selected actor"><Trash2 size={12} /></button
+					>
+					<button
 						class="btn btn-ghost btn-xs"
 						onclick={() => (exporting = true)}
 						title="Export the map (the levels and kinds shown) as GLB or FBX"
 						><Download size={12} /> Export</button
+					>
+					<button
+						class="btn btn-ghost btn-xs"
+						onclick={() => (lightBake.open = true)}
+						title="Bake static light maps for edited, selected or whole levels' meshes"
+						><Sun size={12} /> Light</button
 					>
 				{:else}
 					<select
@@ -218,7 +251,11 @@
 		{:else if map.view === "kismet"}
 			<KismetGraph bind:this={graph} />
 		{:else}
-			<MapViewport />
+			<div class="relative flex min-h-0 flex-1 flex-col">
+				<MapViewport />
+				{#if map.addingActor}<ActorPalette />{/if}
+				{#if navmesh.show}<NavMeshPanel />{/if}
+			</div>
 			{#if map.view === "matinee"}<MatineePanel />{/if}
 		{/if}
 	</div>
@@ -289,3 +326,4 @@
 </div>
 
 <MapExportDialog bind:open={exporting} />
+<LightBakeDialog />

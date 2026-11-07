@@ -4,10 +4,13 @@
 	import "@fontsource-variable/ubuntu-sans-mono";
 	import ToastStack from "$lib/components/ToastStack.svelte";
 	import { assembly } from "$lib/studio/assembly.svelte";
+	import { collision } from "$lib/studio/collision.svelte";
 	import { commands } from "$lib/studio/commands.svelte";
 	import { cooker } from "$lib/studio/cooker.svelte";
 	import { map } from "$lib/studio/map.svelte";
+	import { matineeEd } from "$lib/studio/matinee.svelte";
 	import { nav } from "$lib/studio/nav.svelte";
+	import { navmesh } from "$lib/studio/navmesh.svelte";
 	import { rpc } from "$lib/studio/rpc";
 	import { session } from "$lib/studio/session.svelte";
 	import { studio } from "$lib/studio/state.svelte";
@@ -32,6 +35,9 @@
 		nav,
 		cooker,
 		map,
+		matineeEd,
+		collision,
+		navmesh,
 		swfDoc,
 		swfTool,
 	};

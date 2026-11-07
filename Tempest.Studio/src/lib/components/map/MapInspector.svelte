@@ -1,7 +1,8 @@
 <!-- The selected actor: where it is, what it draws, and its properties
 	(edited in its own level package; a change that moves it redraws it). -->
 <script lang="ts">
-	import { ExternalLink, Focus } from "@lucide/svelte";
+	import { Copy, ExternalLink, Focus, Trash2 } from "@lucide/svelte";
+	import CollisionPanel from "$lib/components/map/CollisionPanel.svelte";
 	import PropertyTree from "$lib/components/PropertyTree.svelte";
 	import { basename } from "$lib/studio/format";
 	import { categoryColor, map } from "$lib/studio/map.svelte";
@@ -17,7 +18,8 @@
 	{#if !actor || !level}
 		<p class="p-4 opacity-60">
 			Click an actor in the view or the list. Drag the gizmo to move it (W), rotate it (E) or
-			scale it (R); the change is written to its level package like any other edit.
+			scale it (R); the change is written to its level package like any other edit. Shift+A
+			adds an actor, Ctrl+D duplicates the selected one, Delete deletes it.
 		</p>
 	{:else}
 		<div class="border-base-300 space-y-1 border-b p-2">
@@ -31,6 +33,16 @@
 					class="btn btn-ghost btn-xs btn-square"
 					onclick={() => map.focusRequest++}
 					title="Frame it (F)"><Focus size={12} /></button
+				>
+				<button
+					class="btn btn-ghost btn-xs btn-square"
+					onclick={() => map.duplicate()}
+					title="Duplicate it next to itself (Ctrl+D)"><Copy size={12} /></button
+				>
+				<button
+					class="btn btn-ghost btn-xs btn-square hover:text-error"
+					onclick={() => map.removeSelected()}
+					title="Delete it (Delete)"><Trash2 size={12} /></button
 				>
 				<button
 					class="btn btn-ghost btn-xs btn-square"
@@ -102,6 +114,7 @@
 				</div>
 			{/if}
 		</div>
+		<CollisionPanel {actor} {level} />
 		<div class="min-h-0 flex-1 overflow-auto">
 			{#if map.object?.kind === "object"}
 				<PropertyTree obj={map.object} path={level} onchange={(u) => map.changed(u)} />

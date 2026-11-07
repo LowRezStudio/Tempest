@@ -21,13 +21,14 @@
 use std::collections::HashMap;
 
 use serde_json::{json, Value as J};
-use tempest_upk::io::{Error, PackageIndex, Result};
+use tempest_upk::io::{Error, FName, PackageIndex, Result};
 use tempest_upk::Package;
 
 use crate::edit::Editor;
-use crate::object::{Native, Object};
+use crate::object::{none_name, write_parsed, Native, Object, Parsed};
 use crate::reflect::ClassDb;
 use crate::value::{StructValue, Value};
+use crate::visit::{Visit, Visitor};
 
 pub type Mat = [[f64; 4]; 4];
 
@@ -621,6 +622,276 @@ pub fn set_transform(ed: &mut Editor, i: usize, view: &[f64], parent: Option<usi
         }
     }
     Ok(json!({ "translation": trans, "rotation": rot.map(|r| r.round()), "scale": new_scale }))
+}
+
+/// Move an actor (or with `parent` a collection's mesh) to a point of the
+/// view's space, keeping its rotation and scale.
+pub fn move_to(ed: &mut Editor, i: usize, parent: Option<usize>, at: [f64; 3]) -> Result<J> {
+    let mut world = match parent {
+        Some(p) => {
+            let pm = ed.with_object(p, |pkg, o| actor_matrix(o, pkg))?;
+            mul(&ed.with_object(i, |pkg, o| component_matrix(o, pkg))?, &pm)
+        }
+        None => ed.with_object(i, |pkg, o| actor_matrix(o, pkg))?,
+    };
+    let to = [at[0] * 100.0, at[2] * 100.0, at[1] * 100.0];
+    world[3] = [to[0], to[1], to[2], 1.0];
+    set_transform(ed, i, &to_view(&world), parent)
+}
+
+// ----- adding and removing actors ----------------------------------------------
+
+/// The linked lists `ULevel` keeps of some actors (`NavListStart/End`,
+/// `CoverListStart/End`, `PylonListStart/End`): the class and its next pointer.
+const LISTS: [(&str, &str); 3] = [("NavigationPoint", "nextNavigationPoint"), ("CoverLink", "NextCoverLink"), ("Pylon", "NextPylon")];
+
+fn lists(l: &mut crate::level::Level) -> [&mut (PackageIndex, PackageIndex); 3] {
+    [&mut l.nav_list, &mut l.cover_list, &mut l.pylon_list]
+}
+
+fn level_native(obj: &mut Object) -> Result<&mut crate::level::Level> {
+    match &mut obj.native {
+        Native::Level(l) => Ok(l),
+        _ => Err(Error::Format("not a level".into())),
+    }
+}
+
+/// A name for a copy of `like` under `outer`: its name without the number,
+/// then the first `_<n>` unused there (`tgteamplayerstart_0` → `tgteamplayerstart_27`).
+fn fresh_name(ed: &Editor, outer: PackageIndex, like: &str) -> String {
+    let base = match like.rsplit_once('_') {
+        Some((b, n)) if !b.is_empty() && !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) => b,
+        _ => like,
+    };
+    let taken = |n: &str| (0..ed.pkg.exports.len()).any(|j| ed.pkg.exports[j].outer == outer && ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(n));
+    (0..).map(|k| format!("{base}_{k}")).find(|n| !taken(n)).unwrap()
+}
+
+/// Precomputed visibility was built for the original's place: the copy's
+/// primitives are drawn regardless (`VisibilityId` INDEX_NONE).
+fn unculled(ed: &mut Editor, i: usize) {
+    let mut prims = ed.children(i);
+    prims.push(i);
+    for c in prims {
+        if ed.db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(c)), "PrimitiveComponent") {
+            let _ = ed.set(c, "VisibilityId", "-1");
+        }
+    }
+}
+
+/// Make export `i` (a fresh copy of an actor) an actor of `level`: outer
+/// the level, a name of its own, listed in `Actors` and appended to the
+/// level's navigation/cover/pylon lists when its class is one of theirs,
+/// without the original's navigation links (`PathList`, the lists' next
+/// pointers: paths are built for the original's place).
+pub fn adopt_actor(ed: &mut Editor, level: usize, i: usize) -> Result<()> {
+    let level_idx = PackageIndex::export(level);
+    let idx = PackageIndex::export(i);
+    let name = fresh_name(ed, level_idx, &ed.pkg.object_name(idx));
+    ed.export_mut(i)?.outer = level_idx;
+    ed.rename(i, &name)?;
+    let class = ed.pkg.class_name_of(idx);
+    let mut obj = ed.object(i)?.clone();
+    let stale = ["pathlist", "nextnavigationpoint", "nextcoverlink", "nextpylon"];
+    obj.properties.retain(|p| !stale.contains(&ed.pkg.fname_to_string(p.name).to_ascii_lowercase().as_str()));
+    ed.replace_object(i, obj)?;
+    unculled(ed, i);
+    let mut lvl = ed.object(level)?.clone();
+    let l = level_native(&mut lvl)?;
+    l.actors.push(idx);
+    let mut links = Vec::new();
+    for (list, (base, next)) in lists(l).into_iter().zip(LISTS) {
+        if !ed.db.class_is_a(&class, base) {
+            continue;
+        }
+        match list.1.export_index() {
+            Some(end) => links.push((end, next)),
+            None => list.0 = idx,
+        }
+        list.1 = idx;
+    }
+    ed.replace_object(level, lvl)?;
+    for (end, next) in links {
+        ed.set(end, next, &crate::kismet::object_text(&ed.pkg, i))?;
+    }
+    Ok(())
+}
+
+/// Export `j` of `src` (a class default object or a component template)
+/// with nothing of its own: no properties, so every value comes from it as
+/// the archetype. Refused when its native part holds names or references,
+/// which would point into the script package.
+fn blank(src: &mut Editor, j: usize) -> Result<Object> {
+    let mut o = src.object(j)?.clone();
+    o.properties.clear();
+    o.state_frame = None;
+    o.component = None;
+    o.net_index = -1;
+    struct Any(bool);
+    impl Visitor for Any {
+        fn name(&mut self, _: &mut FName) {
+            self.0 = true;
+        }
+        fn index(&mut self, i: &mut PackageIndex) {
+            self.0 |= !i.is_null();
+        }
+    }
+    let mut any = Any(false);
+    o.visit(&mut any);
+    if any.0 {
+        return Err(Error::Format(format!("{} has native data that cannot be created from its class yet", src.pkg.object_path(PackageIndex::export(j)))));
+    }
+    Ok(o)
+}
+
+/// A new actor of the class whose default object is export `cdo` of `src`
+/// (a script package), laid out like the cooker writes placed actors:
+/// archetype the class default object, an empty state frame, and one
+/// instance per component template of that object (archetype the
+/// template, no properties of its own), the default object's references
+/// to its templates pointed at the instances (`CollisionComponent`…; the
+/// `Components` array is left to the engine, as cooked levels do). Every
+/// other value is the class default. Returns the actor (named after its
+/// class, outer `level`; `adopt_actor` then lists it).
+pub fn new_actor(dst: &mut Editor, src: &mut Editor, cdo: usize, level: usize) -> Result<usize> {
+    use tempest_upk::flags::rf;
+    use tempest_upk::ObjectExport;
+    let class_idx = src.pkg.exports[cdo].class;
+    let class_name = src.pkg.class_name_of(PackageIndex::export(cdo));
+    let class = match class_idx.export_index() {
+        Some(c) => dst.import_for_export(src, c),
+        None => dst.ensure_import(&src.pkg, class_idx),
+    };
+    let archetype = dst.import_for_export(src, cdo);
+    let mut obj = blank(src, cdo)?;
+    obj.state_frame = Some(tempest_unrealscript::objects::StateFrame { node: class, state_node: class, probe_mask: u32::MAX, latent_action: 0, state_stack: Vec::new(), code_offset: Some(-1) });
+    let level_idx = PackageIndex::export(level);
+    let flags = rf::TRANSACTIONAL | rf::LOAD_FOR_CLIENT | rf::LOAD_FOR_SERVER | rf::LOAD_FOR_EDIT;
+    // Named by `adopt_actor`.
+    let export = ObjectExport { class, outer: level_idx, archetype, object_name: dst.pkg.intern_fname(&class_name.to_ascii_lowercase()), object_flags: flags | rf::HAS_STACK, ..Default::default() };
+    let data = write_parsed(&Parsed::Object(obj), dst.layout(), none_name(&dst.pkg));
+    let actor = dst.add_export(export, data);
+    // Component templates of the default object, and their instances.
+    let cdo_idx = PackageIndex::export(cdo);
+    let templates: Vec<usize> = (0..src.pkg.exports.len()).filter(|&j| src.pkg.exports[j].outer == cdo_idx && src.db.class_is_a(&src.pkg.class_name_of(PackageIndex::export(j)), "ActorComponent")).collect();
+    let mut instances: HashMap<usize, usize> = HashMap::new();
+    for t in templates {
+        let mut comp = blank(src, t)?;
+        comp.component = Some(tempest_unrealscript::objects::ComponentHeader::default());
+        let tc = src.pkg.exports[t].class;
+        let cclass = match tc.export_index() {
+            Some(c) => dst.import_for_export(src, c),
+            None => dst.ensure_import(&src.pkg, tc),
+        };
+        let carch = dst.import_for_export(src, t);
+        let load = src.pkg.exports[t].object_flags & (rf::LOAD_FOR_CLIENT | rf::LOAD_FOR_SERVER | rf::LOAD_FOR_EDIT);
+        let cname = fresh_name(dst, PackageIndex::export(actor), &src.pkg.class_name_of(PackageIndex::export(t)).to_ascii_lowercase());
+        let export = ObjectExport { class: cclass, outer: PackageIndex::export(actor), archetype: carch, object_name: dst.pkg.intern_fname(&cname), object_flags: rf::TRANSACTIONAL | load, ..Default::default() };
+        let data = write_parsed(&Parsed::Object(comp), dst.layout(), none_name(&dst.pkg));
+        instances.insert(t, dst.add_export(export, data));
+    }
+    let refs: Vec<(String, usize)> = src.with_object(cdo, |pkg, o| {
+        o.properties
+            .iter()
+            .filter(|p| p.array_index == 0)
+            .filter_map(|p| match &p.value {
+                Value::Object(r) => r.export_index().and_then(|j| instances.get(&j)).map(|&inst| (pkg.fname_to_string(p.name), inst)),
+                _ => None,
+            })
+            .collect()
+    })?;
+    for (prop, inst) in refs {
+        dst.set(actor, &prop, &crate::kismet::object_text(&dst.pkg, inst))?;
+    }
+    // What spawning sets (`Actor.Tag` = the class name).
+    dst.set(actor, "Tag", &format!("'{}'", class_name.to_ascii_lowercase()))?;
+    Ok(actor)
+}
+
+/// Make export `c` (a fresh copy of a mesh of a `StaticMeshCollectionActor`)
+/// another mesh of collection `parent`.
+pub fn adopt_component(ed: &mut Editor, parent: usize, c: usize) -> Result<()> {
+    let parent_idx = PackageIndex::export(parent);
+    let name = fresh_name(ed, parent_idx, &ed.pkg.object_name(PackageIndex::export(c)));
+    ed.export_mut(c)?.outer = parent_idx;
+    ed.rename(c, &name)?;
+    unculled(ed, c);
+    crate::kismet::push_ref(ed, parent, "StaticMeshComponents", c)
+}
+
+/// Take actor `i` out of `level` (its `Actors` entry, the lists it is
+/// linked into), then delete it with its components (every reference to
+/// it, Kismet's included, is cleared). The level's WorldInfo and builder
+/// brush stay.
+pub fn remove_actor(ed: &mut Editor, level: usize, i: usize) -> Result<()> {
+    let idx = PackageIndex::export(i);
+    let class = ed.pkg.class_name_of(idx);
+    if ed.db.class_is_a(&class, "WorldInfo") {
+        return Err(Error::Format("a level cannot lose its WorldInfo".into()));
+    }
+    let mut lvl = ed.object(level)?.clone();
+    let l = level_native(&mut lvl)?;
+    let at = l.actors.iter().position(|a| *a == idx).ok_or_else(|| Error::Format("not an actor of this level".into()))?;
+    if at == 1 && ed.db.class_is_a(&class, "Brush") && !ed.db.class_is_a(&class, "Volume") {
+        return Err(Error::Format("the level's builder brush cannot be removed".into()));
+    }
+    l.actors.remove(at);
+    let mut relinks = Vec::new();
+    for (list, (base, next)) in lists(l).into_iter().zip(LISTS) {
+        if !ed.db.class_is_a(&class, base) {
+            continue;
+        }
+        let after = ed.with_object(i, |pkg, o| object_ref(o, pkg, next))?;
+        // The actor before it in the chain.
+        let mut prev = None;
+        let mut cur = list.0;
+        let mut guard = 0;
+        while let Some(k) = cur.export_index() {
+            if cur == idx || guard > 100_000 {
+                break;
+            }
+            let n = ed.with_object(k, |pkg, o| object_ref(o, pkg, next))?;
+            if n == idx {
+                prev = Some(k);
+                break;
+            }
+            cur = n;
+            guard += 1;
+        }
+        if list.0 == idx {
+            list.0 = after;
+        }
+        if list.1 == idx {
+            list.1 = prev.map(PackageIndex::export).unwrap_or_default();
+        }
+        if let Some(p) = prev {
+            relinks.push((p, next, after));
+        }
+    }
+    ed.replace_object(level, lvl)?;
+    for (p, next, after) in relinks {
+        let text = match after.export_index() {
+            Some(a) => crate::kismet::object_text(&ed.pkg, a),
+            None => "None".into(),
+        };
+        ed.set(p, next, &text)?;
+    }
+    ed.delete(i)?;
+    Ok(())
+}
+
+/// Take mesh `c` out of its collection actor `parent`, then delete it.
+pub fn remove_component(ed: &mut Editor, parent: usize, c: usize) -> Result<()> {
+    let target = Value::Object(PackageIndex::export(c));
+    let mut obj = ed.object(parent)?.clone();
+    for p in obj.properties.iter_mut() {
+        if let Value::Array(items) = &mut p.value {
+            items.retain(|v| *v != target);
+        }
+    }
+    ed.replace_object(parent, obj)?;
+    ed.delete(c)?;
+    Ok(())
 }
 
 #[cfg(test)]

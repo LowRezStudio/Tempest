@@ -525,6 +525,95 @@ export type MapPart =
 	| { kind: "particles"; export: number; template: string | null; matrix: number[] }
 	| { kind: "brush"; export: number | null; positions: number[]; indices: number[] };
 
+/** A volume shape for `map.setBrush` / `map.addActor`: a UnrealEd brush builder (Unreal units, the builder's defaults when left out), a mesh's hull or bounds, or explicit points/polygons (actor space). */
+export type BrushSpec =
+	| {
+			kind: "box";
+			x?: number;
+			y?: number;
+			z?: number;
+			hollow?: boolean;
+			wallThickness?: number;
+			tessellated?: boolean;
+	  }
+	| {
+			kind: "cylinder";
+			z?: number;
+			outerRadius?: number;
+			innerRadius?: number;
+			sides?: number;
+			alignToSide?: boolean;
+			hollow?: boolean;
+	  }
+	| {
+			kind: "cone";
+			z?: number;
+			capZ?: number;
+			outerRadius?: number;
+			innerRadius?: number;
+			sides?: number;
+			alignToSide?: boolean;
+			hollow?: boolean;
+	  }
+	| { kind: "sphere"; radius?: number; sphereExtrapolation?: number }
+	| {
+			kind: "mesh";
+			mesh: { path?: string; index?: number; object?: string };
+			fit?: "hull" | "bounds";
+	  }
+	| { kind: "hull"; points: [number, number, number][] }
+	| { kind: "polys"; polys: [number, number, number][][] };
+export type BrushResult = { model: number; polys: number; hulls: number; nodes: number };
+/** Collision switches of an actor and its component; `blocks`: "all" (pawns and shots), "pawns" (sweeps), "shots" (traces) or "none". */
+export type CollisionFlags = Record<string, boolean | string> & {
+	blocks: "all" | "pawns" | "shots" | "none";
+};
+/** Aggregate geometry in view space: convex hulls as one mesh, boxes (full lengths, Unreal units), spheres and sphyls (capsules along Z) with their matrices. */
+export type AggGeometry = {
+	convexCount?: number;
+	positions?: number[];
+	indices?: number[];
+	boxes?: { matrix: number[]; x: number; y: number; z: number }[];
+	spheres?: { matrix: number[]; radius: number }[];
+	sphyls?: { matrix: number[]; radius: number; length: number }[];
+};
+export type CollisionItem =
+	| {
+			kind: "volume";
+			export: number;
+			component: number;
+			name: string;
+			class: string;
+			category: string;
+			matrix: number[];
+			flags: CollisionFlags;
+			geometry: AggGeometry;
+	  }
+	| {
+			kind: "mesh";
+			export: number;
+			parent: number;
+			name: string;
+			class: string;
+			matrix: number[];
+			flags: CollisionFlags;
+			mesh: { path?: string; index?: number; object?: string };
+			meshKey: string;
+	  };
+export type CollisionLevel = { path: string; name: string; items: CollisionItem[] };
+/** A mesh's collision: what pawn sweeps and shot traces test ("simple": the body setup, "complex": the render triangles, "none": simple asked for but no body setup). */
+export type MeshCollision = {
+	path: string;
+	index: number;
+	UseSimpleBoxCollision: boolean;
+	UseSimpleLineCollision: boolean;
+	UseSimpleRigidBodyCollision: boolean;
+	bodySetup: boolean;
+	pawns: "simple" | "complex" | "none";
+	shots: "simple" | "complex" | "none";
+	simple: AggGeometry | null;
+};
+
 export type MapActor = {
 	export: number;
 	name: string;
@@ -544,6 +633,47 @@ export type MapActor = {
 	info: Record<string, string | number | boolean>;
 	/** `m_bCanBaseOn` (class default when absent): false = a "rooftop" pawns slide off; on a wall, a heavy wall. For a collection mesh, its collection actor's. */
 	canBaseOn: boolean;
+};
+
+/** A level's Havok nav mesh (`map.navmesh`), as view-space buffers (little-endian binary payloads). */
+export type NavMeshActor = {
+	/** The HavokNavMeshActor export. */
+	index: number;
+	path: string;
+	faces: number;
+	edges: number;
+	vertices: number;
+	clusters: number;
+	/** Faces connected through opposite edges (jump links do not join regions). */
+	regions: number;
+	boundary: number;
+	erosionRadius: number;
+	/** Structural problems found (0 on every shipped mesh). */
+	problems: number;
+	/** Per user edge pair (jump link): the faces it joins, costs, direction, traversal type. */
+	linkInfo: {
+		faceA: number;
+		faceB: number;
+		costAtoB: number;
+		costBtoA: number;
+		direction: number;
+		type: string | null;
+	}[];
+	/** f32 xyz per vertex. */
+	positions: Uint8Array;
+	/** u32 × 3 per triangle (faces fanned). */
+	triangles: Uint8Array;
+	/** u32 face per triangle. */
+	triFace: Uint8Array;
+	/** i32 per face. */
+	faceCluster: Uint8Array;
+	faceRegion: Uint8Array;
+	/** u32 vertex pairs, every edge once. */
+	lines: Uint8Array;
+	/** u8 per line: 0 inner, 1 boundary, 2 user/blocked. */
+	lineKind: Uint8Array;
+	/** f32: four points per jump link (its A segment's ends, then B's). */
+	links: Uint8Array;
 };
 
 export type MapLevel = {
@@ -605,7 +735,25 @@ export type MatineeKey = {
 	time: number;
 	/** A number, [x, y, z] / [r, g, b, a], or a label (event name, cut target…). */
 	value: number | number[] | string | null;
+	/** Curve keys: `CIM_*`, tangents per component. */
 	mode?: string | null;
+	arrive?: number | number[] | null;
+	leave?: number | number[] | null;
+	/** Timed keys: every member but the time (objects as {path, class, name}). */
+	fields?: Record<string, unknown>;
+};
+
+export type MatineeCurve = {
+	name: string;
+	kind: "curve" | "keys";
+	/** What the key edits take (`PosTrack.Points`, `EventTrack`). */
+	path: string;
+	/** Curves: 1 (float), 3 (vector), 4 (linear colour). */
+	width?: number;
+	components?: string[];
+	/** Timed keys: the member holding the time (`Time`, `StartTime`). */
+	timeField?: string;
+	keys: MatineeKey[];
 };
 
 export type MatineeTrack = {
@@ -617,28 +765,119 @@ export type MatineeTrack = {
 	subTracks: number[];
 	moveFrame: string | null;
 	moveAxis: string | null;
+	rotMode: string | null;
+	lookAtGroup: string | null;
+	/** `bUseRawActorTMforRelativeToInitial`. */
+	rawInitial: boolean;
 	property: string | null;
 	disabled: boolean;
-	/** Key lists: `curve` (`<Prop>.Points`, InVal/OutVal) or `keys` (an array with Time). `path` is what the key edits take. */
-	curves: { name: string; kind: "curve" | "keys"; path: string; keys: MatineeKey[] }[];
+	activeCondition: string;
+	/** Key lists: `curve` (`<Prop>.Points`, InVal/OutVal) or `keys` (an array with Time). */
+	curves: MatineeCurve[];
+};
+
+export type MatineeGroup = {
+	export: number;
+	class: string;
+	name: string;
+	color: number[] | null;
+	director: boolean;
+	folder: boolean;
+	parented: boolean;
+	animSets: string[];
+	tracks: MatineeTrack[];
+	/** What the group drives: the objects linked to the action's connector of the group's name (`variable`: the SeqVar holding it). */
+	actors: { export: number | null; name: string; class: string; variable?: number }[];
+};
+
+/** `light.info`: a static mesh component's light maps. */
+export type LightMapInfo = {
+	export: number;
+	name: string;
+	lods: {
+		lod: number;
+		kind: "none" | "vertex" | "texture";
+		/** `LightmapGuid`s of the lights baked in. */
+		lights?: string[];
+		textures?: { texture: string | null; index: number | null; scale: number[] }[];
+		coordinateScale?: number[];
+		coordinateBias?: number[];
+	}[];
+	decoded?: {
+		width: number;
+		height: number;
+		origin: number[];
+		atlas: number[];
+		meanIrradiance: number[];
+	};
+	decodeError?: string;
+	png?: Uint8Array;
+};
+
+/** `light.bake`'s answer. */
+export type LightBakeResult = {
+	baked: {
+		level: number;
+		export: number;
+		name: string;
+		size: number;
+		mapped: number;
+		lights: number;
+		lit: string[];
+	}[];
+	skipped: { level: number; export: number; name: string; reason: string }[];
+	written: {
+		path: string;
+		components: number;
+		atlases: number[][];
+		textures: number;
+		clearedLods: number;
+		dirty: boolean;
+	}[];
+	comparisons: {
+		path: string;
+		index: number;
+		stats: {
+			texels: number;
+			meanBaked: number;
+			meanShipped: number;
+			meanAbsDiff: number;
+			maxAbsDiff: number;
+			medianRatio: number | null;
+		};
+	}[];
+	missingMeshes: string[];
+	triangles: number;
+	lights: number;
+	seconds: number;
 };
 
 export type MatineeTimeline = {
 	action: number | null;
 	data: number;
+	/** The action's sequence. */
+	sequence: number | null;
 	name: string;
 	length: number;
-	groups: {
-		export: number;
-		class: string;
-		name: string;
-		color: number[] | null;
-		tracks: MatineeTrack[];
-		/** What the group drives: the objects linked to the action's connector of the group's name. */
-		actors: { export: number | null; name: string; class: string }[];
-	}[];
+	/** `EdSectionStart`, `EdSectionEnd`. */
+	section: [number, number];
+	settings: {
+		playRate: number;
+		looping: boolean;
+		rewindOnPlay: boolean;
+		noResetOnRewind: boolean;
+		rewindIfAlreadyPlaying: boolean;
+		reversePlayback: boolean;
+		forceStartPos: boolean;
+		forceStartPosition: number;
+		clientSideOnly: boolean;
+	};
+	groups: MatineeGroup[];
 	dirty: boolean;
+	/** Edits: the key's index afterwards, a new group or track. */
 	key?: number;
+	group?: number;
+	track?: number;
 };
 
 export type McsCollectionPart = {
@@ -1525,6 +1764,77 @@ export interface UpkMethods {
 			dirty: boolean;
 		};
 	};
+	/** Every kind of actor the workspace's levels place, with one example to copy (from `path` when it has one, else from one of `levels`: `inMap`). */
+	"map.palette": {
+		params: { path?: string; levels?: string[] };
+		result: {
+			classes: {
+				class: string;
+				category: string;
+				count: number;
+				example: { path: string; index: number };
+				inMap: boolean;
+			}[];
+			/** Every placeable actor class (volumes included: `volume`, built with a `brush`, a box by default), which `map.addActor {class}` builds from its defaults. */
+			placeable: { class: string; package: string; category: string; volume?: boolean }[];
+		};
+	};
+	/** A copy of an actor placed in the level of `path` (from another package its content comes along, its references to that level's objects are cleared); with `parent` (a collection actor of `path`) a copy of one of its meshes. Or, with `class`, a new actor of that class built from its defaults, `mesh` (a StaticMesh/SkeletalMesh of any package) set on its mesh component. `matrix` (view space) places it, `at` (a view-space point) moves it there. One undo step. */
+	"map.addActor": {
+		params: {
+			path: string;
+			source?: { path: string; index: number };
+			class?: string;
+			mesh?: { path: string; index: number };
+			parent?: number;
+			matrix?: number[];
+			at?: [number, number, number];
+			/** The volume's shape (a new volume class without one gets a 256 cube). */
+			brush?: BrushSpec;
+		};
+		result: {
+			added: number;
+			name: string;
+			warnings: string[];
+			dirty: boolean;
+			brush?: BrushResult;
+		};
+	};
+	/** What pawns and shots collide with in a map's levels (`collision.rs`): volumes with their convex hulls, static mesh components with their placement, and the collision switches of both; `meshes` (by `meshKey`) holds each mesh's simple collision once. */
+	"map.collision": {
+		params: { path: string; streamed?: boolean };
+		result: {
+			path: string;
+			levels: CollisionLevel[];
+			meshes: Record<string, MeshCollision | null>;
+			missing: string[];
+		};
+	};
+	/** A volume's shape: its brush polys (Unreal units, actor space), else its hulls' faces when the cooker stripped the brush (`fromBrush` false), and its convex elements. */
+	"map.brush": {
+		params: { path: string; index: number };
+		result: {
+			component: number;
+			model: number | null;
+			polys: [number, number, number][][];
+			fromBrush: boolean;
+			hulls: {
+				vertices: [number, number, number][];
+				planes: number;
+				box: [[number, number, number], [number, number, number]];
+			}[];
+		};
+	};
+	/** Rebuild a volume's shape: brush polys (`UBrushBuilder`), the brush BSP and `BrushAggGeom` (`KModelToHulls`), PhysX cache emptied. One undo step. */
+	"map.setBrush": {
+		params: { path: string; index: number; brush: BrushSpec };
+		result: BrushResult & { dirty: boolean };
+	};
+	/** Delete an actor of the level (out of `Actors` and the navigation lists, references cleared), or with `parent` a mesh of that collection actor. One undo step. */
+	"map.removeActor": {
+		params: { path: string; index: number; parent?: number };
+		result: { dirty: boolean };
+	};
 	/** The map (and its sublevels) as one GLB or FBX, by `out`'s extension: each mesh once, a node per placement under a node per level (`map.progress` events while it runs). */
 	"map.export": {
 		params: {
@@ -1549,6 +1859,47 @@ export interface UpkMethods {
 			warningCount: number;
 		};
 	};
+	/** A static mesh component's light map as stored (per LOD: the lights it holds by `LightmapGuid`, the NormalizedAverageColor/DirectionalMaxComponent textures with their scales, coordinate scale/bias) and decoded (LOD 0; with `preview`, a PNG of the irradiance, `exposure` scaling it). */
+	"light.info": {
+		params: { path: string; index: number; preview?: boolean; exposure?: number };
+		result: LightMapInfo;
+	};
+	/** Bake static light maps (direct light from the map's static lights with ray-traced shadows against every level, optional one-bounce indirect approximation) and write them into the levels as new LightMapTexture2D atlases; one undo step per level written (`light.progress` events while it runs). */
+	"light.bake": {
+		params: {
+			/** The persistent map: its levels give the lights and shadow casters. */
+			path: string;
+			scope: "selected" | "edited" | "level";
+			/** `selected`: components or actors (their components are baked). */
+			targets?: { path: string; index: number }[];
+			/** `level`: level package paths. */
+			levels?: string[];
+			shadowSamples?: number;
+			skySamples?: number;
+			indirectRays?: number;
+			albedo?: number;
+			atlasSize?: number;
+			/** Compare with each component's light map before the bake. */
+			compare?: boolean;
+		};
+		result: LightBakeResult;
+	};
+	/** The Havok nav meshes of a level package (its HavokNavMeshActors with data), or one (`index`). */
+	"map.navmesh": {
+		params: { path: string; index?: number };
+		result: { actors: NavMeshActor[]; dirty: boolean };
+	};
+	/** Edit a nav mesh, written back into the actor's bulk data (the AABB tree rebuilt, the clearance seeding dropped); one undo step. `deleteFaces` / `deleteRegion` take `faces`; `moveVertices` takes `moves` ([vertex, x, y, z] in view space). */
+	"map.navmeshEdit": {
+		params: {
+			path: string;
+			index: number;
+			op: "deleteFaces" | "deleteRegion" | "moveVertices";
+			faces?: number[];
+			moves?: [number, number, number, number][];
+		};
+		result: NavMeshActor & { dirty: boolean };
+	};
 	/** A Matinee timeline (a SeqAct_Interp or InterpData export). */
 	"matinee.get": { params: { path: string; index: number }; result: MatineeTimeline };
 	"matinee.setKey": {
@@ -1560,16 +1911,91 @@ export interface UpkMethods {
 			key: number;
 			time?: number;
 			value?: number | number[];
+			mode?: string;
+			arrive?: number | number[];
+			leave?: number | number[];
+			/** Timed-key members as text (`'Name'`, `"text"`, numbers), or an object of any package. */
+			fields?: Record<string, string | number | boolean | { path: string; index: number }>;
 		};
 		result: MatineeTimeline;
 	};
 	"matinee.addKey": {
-		params: { path: string; index: number; track: number; curve: string; time: number };
+		params: {
+			path: string;
+			index: number;
+			track: number;
+			curve: string;
+			time: number;
+			value?: number | number[];
+			mode?: string;
+			fields?: Record<string, string | number | boolean | { path: string; index: number }>;
+		};
 		result: MatineeTimeline;
 	};
 	"matinee.removeKey": {
 		params: { path: string; index: number; track: number; curve: string; key: number };
 		result: MatineeTimeline;
+	};
+	"matinee.addGroup": {
+		params: { path: string; index: number; name?: string; director?: boolean };
+		result: MatineeTimeline;
+	};
+	"matinee.removeGroup": {
+		params: { path: string; index: number; group: number };
+		result: MatineeTimeline;
+	};
+	"matinee.setGroup": {
+		params: { path: string; index: number; group: number; name?: string; color?: number[] };
+		result: MatineeTimeline;
+	};
+	"matinee.addTrack": {
+		params: { path: string; index: number; group: number; class: string; property?: string };
+		result: MatineeTimeline;
+	};
+	"matinee.removeTrack": {
+		params: { path: string; index: number; track: number };
+		result: MatineeTimeline;
+	};
+	/** Properties of the action, the data, a group or a track, as text (`bLooping`, `InterpLength`, `MoveFrame`…). */
+	"matinee.set": {
+		params: {
+			path: string;
+			index: number;
+			object: number;
+			values: Record<string, string | number | boolean>;
+		};
+		result: MatineeTimeline;
+	};
+	/** Make a level actor one of what a group drives (or not, `remove`). */
+	"matinee.connect": {
+		params: { path: string; index: number; group: number; actor: number; remove?: boolean };
+		result: MatineeTimeline;
+	};
+	/** A new Matinee in a level's sequence (default: the top-level one), optionally driving `actor`. */
+	"matinee.create": {
+		params: {
+			path: string;
+			sequence?: number;
+			x?: number;
+			y?: number;
+			length?: number;
+			actor?: number;
+			group?: string;
+		};
+		result: MatineeTimeline;
+	};
+	/** The Matinee actions of a level package. */
+	"matinee.list": {
+		params: { path: string };
+		result: {
+			matinees: {
+				export: number;
+				path: string;
+				comment: string | null;
+				length: number | null;
+				groups: string[] | null;
+			}[];
+		};
 	};
 	"kismet.sequences": {
 		params: { path: string };
