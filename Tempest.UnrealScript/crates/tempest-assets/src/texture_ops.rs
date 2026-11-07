@@ -196,6 +196,33 @@ pub struct ImportOptions {
 
 use crate::media::{remove_property, set_property};
 
+/// Store inline every mip of texture `obj` that lives in a texture file
+/// cache, read from where `path` (the engine path the texture had where
+/// the caches index it) addresses it, and mark the texture `NeverStream`.
+/// For a copy whose engine path changed: the caches are looked up by that
+/// path, so the copy would find nothing. Returns how many mips moved.
+pub fn inline_cached_mips(pkg: &mut Package, obj: &mut Object, src: &TextureSource, path: &str, obscured: bool) -> Result<usize> {
+    let Native::Texture2D(t) = &mut obj.native else { return Ok(0) };
+    let mut moved = 0;
+    for (mi, m) in t.mips.iter_mut().enumerate() {
+        if m.data.is_unused() || m.data.inline.is_some() {
+            continue;
+        }
+        let Some(data) = src.mip_data(path, mi, m, obscured)? else { continue };
+        m.data.set_inline(&data, false, false);
+        moved += 1;
+    }
+    if moved > 0 {
+        // LMF_Streamed: a streamed light map is read from the caches too.
+        if let Some(f) = &mut t.lightmap_flags {
+            *f &= !1;
+        }
+        remove_property(pkg, obj, "FirstResourceMemMip");
+        set_property(pkg, obj, "NeverStream", PropertyKind::Bool, Value::Bool(true));
+    }
+    Ok(moved)
+}
+
 /// Replace the pixels of texture export `i` (`obj` must be its parsed
 /// object) and store every mip inline, so the package needs no texture
 /// file cache. Updates `SizeX`/`SizeY`/`OriginalSizeX`/`OriginalSizeY`,

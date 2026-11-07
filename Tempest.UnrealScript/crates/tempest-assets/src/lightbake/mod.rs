@@ -256,9 +256,17 @@ pub fn run(levels: &[LevelData], meshes: &HashMap<MeshKey, Arc<MeshData>>, selec
             .filter(|l| scene::overlaps(&l.channels, &inst.channels))
             .filter(|l| scene::affects_bounds(l, c, r))
             .collect();
+        let guids: Vec<_> = held.iter().map(|l| l.lightmap_guid).collect();
         let lit: Vec<String> = baked.lights.iter().map(|&i| sc.lights[i].name.clone()).collect();
-        out.report.push(json!({ "level": inst.level, "export": inst.export, "name": inst.name, "size": size, "mapped": baked.mapped, "lights": held.len(), "lit": lit }));
-        out.per_level[inst.level].push(write::Allocation { component: inst.export, size, samples: baked.samples, light_guids: held.iter().map(|l| l.lightmap_guid).collect() });
+        let lower: Vec<(usize, &Arc<MeshData>)> = mesh.lower.iter().enumerate().filter(|(_, m)| m.has_lightmap_uvs).map(|(l, m)| (l + 1, m)).collect();
+        out.report.push(json!({ "level": inst.level, "export": inst.export, "name": inst.name, "size": size, "lods": 1 + lower.len(), "mapped": baked.mapped, "lights": held.len(), "lit": lit }));
+        out.per_level[inst.level].push(write::Allocation { component: inst.export, lod: 0, size, samples: baked.samples, light_guids: guids.clone() });
+        // Lower LODs: light maps of their own, of the same size (shipped
+        // components hold one allocation per LOD, in the same atlas).
+        for (lod, m) in lower {
+            let baked = bake::bake(&sc, &bake::Target { instance: inst, mesh: m.clone(), size }, opts, &rows);
+            out.per_level[inst.level].push(write::Allocation { component: inst.export, lod, size, samples: baked.samples, light_guids: guids.clone() });
+        }
     }
     progress(total, total);
     out

@@ -741,8 +741,10 @@ fn tables_compatible(base: &Package, edited: &Package) -> bool {
 pub fn digest(db: &ClassDb, pkg: &Package) -> Value {
     let layout = package_layout(pkg);
     let mut exports = serde_json::Map::new();
-    for i in 0..pkg.exports.len() {
-        if let Some(h) = canonical(db, pkg, layout, i) {
+    let indices: Vec<usize> = (0..pkg.exports.len()).collect();
+    let hashes = tempest_unrealscript::par::map(&indices, |&i| canonical(db, pkg, layout, i));
+    for (i, h) in hashes.into_iter().enumerate() {
+        if let Some(h) = h {
             let idx = PackageIndex::export(i);
             exports.insert(pkg.object_path(idx).to_ascii_lowercase(), json!([pkg.class_name_of(idx), hex(&h)]));
         }
@@ -911,23 +913,22 @@ pub fn create_with(db: &ClassDb, base: Base, edited: &Package, target: &str, opt
             // placeholder) changes what an untouched reference to it means.
             let deleted_any = base_paths.keys().any(|p| !edited_paths.contains_key(p));
             let fast = !deleted_any && tables_compatible(base, edited);
-            for (path, &i) in &edited_paths {
-                match base_paths.get(path) {
-                    None => changes.push((path.clone(), Change::Add(i))),
-                    Some(&j) => {
-                        let (a, b) = (&base.exports[j], &edited.exports[i]);
-                        let same_entry = a.class == b.class && a.super_ == b.super_ && a.archetype == b.archetype && a.object_flags == b.object_flags && a.export_flags == b.export_flags;
-                        if fast && same_entry && base.export_data.get(j) == edited.export_data.get(i) {
-                            continue;
-                        }
-                        let hb = canonical(db, base, base_layout, j);
-                        let he = canonical(db, edited, layout, i);
-                        if hb != he {
-                            changes.push((path.clone(), Change::Set(i, hb.map(|h| hex(&h)).unwrap_or_default(), Some(j))));
-                        }
+            // Hashing both sides of every object is most of the work: over the cores.
+            let paths: Vec<(&String, usize)> = edited_paths.iter().map(|(p, &i)| (p, i)).collect();
+            let found = tempest_unrealscript::par::map(&paths, |&(path, i)| match base_paths.get(path) {
+                None => Some(Change::Add(i)),
+                Some(&j) => {
+                    let (a, b) = (&base.exports[j], &edited.exports[i]);
+                    let same_entry = a.class == b.class && a.super_ == b.super_ && a.archetype == b.archetype && a.object_flags == b.object_flags && a.export_flags == b.export_flags;
+                    if fast && same_entry && base.export_data.get(j) == edited.export_data.get(i) {
+                        return None;
                     }
+                    let hb = canonical(db, base, base_layout, j);
+                    let he = canonical(db, edited, layout, i);
+                    (hb != he).then(|| Change::Set(i, hb.map(|h| hex(&h)).unwrap_or_default(), Some(j)))
                 }
-            }
+            });
+            changes.extend(paths.iter().zip(found).filter_map(|((path, _), c)| c.map(|c| ((*path).clone(), c))));
             for (path, &j) in &base_paths {
                 if !edited_paths.contains_key(path) {
                     deletes.push((path.clone(), base.class_name_of(PackageIndex::export(j))));
@@ -937,18 +938,16 @@ pub fn create_with(db: &ClassDb, base: Base, edited: &Package, target: &str, opt
         Base::Digest(d) => {
             let empty = serde_json::Map::new();
             let exports = d["exports"].as_object().unwrap_or(&empty);
-            for (path, &i) in &edited_paths {
-                match exports.get(path) {
-                    None => changes.push((path.clone(), Change::Add(i))),
-                    Some(entry) => {
-                        let hb = entry[1].as_str().unwrap_or("");
-                        let he = canonical(db, edited, layout, i).map(|h| hex(&h)).unwrap_or_default();
-                        if hb != he {
-                            changes.push((path.clone(), Change::Set(i, hb.to_string(), None)));
-                        }
-                    }
+            let paths: Vec<(&String, usize)> = edited_paths.iter().map(|(p, &i)| (p, i)).collect();
+            let found = tempest_unrealscript::par::map(&paths, |&(path, i)| match exports.get(path) {
+                None => Some(Change::Add(i)),
+                Some(entry) => {
+                    let hb = entry[1].as_str().unwrap_or("");
+                    let he = canonical(db, edited, layout, i).map(|h| hex(&h)).unwrap_or_default();
+                    (hb != he).then(|| Change::Set(i, hb.to_string(), None))
                 }
-            }
+            });
+            changes.extend(paths.iter().zip(found).filter_map(|((path, _), c)| c.map(|c| ((*path).clone(), c))));
             for (path, entry) in exports {
                 if !edited_paths.contains_key(path) {
                     deletes.push((path.clone(), entry[0].as_str().unwrap_or("").to_string()));

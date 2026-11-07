@@ -46,13 +46,18 @@ pub struct Options {
     /// Hemisphere rays for the one-bounce indirect approximation (0: none).
     pub indirect_rays: u32,
     /// Diffuse reflectance assumed for every surface the bounce hits, before
-    /// the world's `DiffuseBoost` (WorldInfo.uc: textures are authored around 0.1).
+    /// the world's `DiffuseBoost`. 0.08 is fitted to Lightmass: on two
+    /// Shootingrange levels (Courtyard_ABC, Room_D, 48 rays) it puts the
+    /// mean of shaded meshes at 0.96-1.03 of the shipped light maps (0.15:
+    /// 1.15); sunlit meshes land at 0.87-1.26, per mesh within about ×1.6.
     pub albedo: f32,
+    /// Scale of the world's `EnvironmentColor` that escaped rays pick up.
+    pub environment_scale: f32,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { shadow_samples: 8, sky_samples: 64, indirect_rays: 0, albedo: 0.15 }
+        Options { shadow_samples: 8, sky_samples: 64, indirect_rays: 0, albedo: 0.08, environment_scale: 1.0 }
     }
 }
 
@@ -433,7 +438,7 @@ fn light_texel(scene: &Scene, t: &Texel, inst: &Instance, opts: &Options, rng: &
                     // L = ρ E / π; 2π L / N = 2 ρ E / N.
                     [e[0] * rho * 2.0, e[1] * rho * 2.0, e[2] * rho * 2.0]
                 }
-                None => scale(scene.world.environment, 2.0),
+                None => scale(scene.world.environment, 2.0 * opts.environment_scale),
             };
             indirect.add_weighted(&Gathered::point_light(color, td, [0.0, 0.0, 1.0]), 1.0 / count as f32);
         }

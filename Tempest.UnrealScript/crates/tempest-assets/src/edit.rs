@@ -39,6 +39,9 @@ pub struct Editor<'a> {
     undo: Vec<UndoEntry>,
     /// The entry capturing the operation in progress.
     current: Option<UndoEntry>,
+    /// The texture caches of the game folder: copies of textures whose
+    /// engine path changes get their cached mips inline (see `copy_into`).
+    pub textures: Option<std::sync::Arc<crate::texcache::TextureSource>>,
 }
 
 const MAX_UNDO: usize = 50;
@@ -112,7 +115,7 @@ impl<'a> Editor<'a> {
     pub fn from_package(db: &'a ClassDb, name: String, pkg: Package) -> Editor<'a> {
         let layout = package_layout(&pkg);
         let obscured = pkg.summary.compression_flags & compression::OBSCURED != 0;
-        Editor { db, name, was_compressed: pkg.was_compressed, obscured, pkg, layout, objects: HashMap::new(), dirty: HashSet::new(), rebuilt: false, undo: Vec::new(), current: None }
+        Editor { db, name, was_compressed: pkg.was_compressed, obscured, pkg, layout, objects: HashMap::new(), dirty: HashSet::new(), rebuilt: false, undo: Vec::new(), current: None, textures: None }
     }
 
     // ----- undo -------------------------------------------------------------
@@ -595,10 +598,40 @@ impl<'a> Editor<'a> {
     pub fn ensure_import(&mut self, src: &Package, idx: PackageIndex) -> PackageIndex {
         let Some(ii) = idx.import_index() else { return PackageIndex::NONE };
         let imp = src.imports[ii].clone();
-        let outer = if imp.outer.is_import() { self.ensure_import(src, imp.outer) } else { PackageIndex::NONE };
+        let outer = if imp.outer.is_import() {
+            self.ensure_import(src, imp.outer)
+        } else if let Some(o) = imp.outer.export_index() {
+            // Inside a group the source exports: the same group here, else
+            // an import of it (never no outer, which would name a package).
+            let path = src.object_path(imp.outer);
+            match self.pkg.find_export(&path, Some(&src.class_name_of(imp.outer))) {
+                Some(e) => PackageIndex::export(e),
+                None => self.import_chain(src, o),
+            }
+        } else {
+            PackageIndex::NONE
+        };
         let class_package = src.fname_to_string(imp.class_package);
         let class_name = src.fname_to_string(imp.class_name);
         let name = src.fname_to_string(imp.object_name);
+        self.pkg.add_import(&class_package, &class_name, outer, &name)
+    }
+
+    /// An import here of export `j` of the package `src`, its outer chain
+    /// as imports too (for objects whose top-level outer is a group the
+    /// package exports, as cooked content keeps its original package).
+    fn import_chain(&mut self, src: &Package, j: usize) -> PackageIndex {
+        let e = &src.exports[j];
+        let outer = if e.outer.is_import() {
+            self.ensure_import(src, e.outer)
+        } else if let Some(o) = e.outer.export_index() {
+            self.import_chain(src, o)
+        } else {
+            PackageIndex::NONE
+        };
+        let class_name = src.class_name_of(PackageIndex::export(j));
+        let class_package = if e.class.is_import() { src.outermost_name(e.class) } else { "Core".to_string() };
+        let name = src.object_name(PackageIndex::export(j));
         self.pkg.add_import(&class_package, &class_name, outer, &name)
     }
 
@@ -616,7 +649,16 @@ impl<'a> Editor<'a> {
             self.pkg.add_import("Core", "Package", PackageIndex::NONE, &src.name)
         };
         let class_name = sp.class_name_of(PackageIndex::export(j));
-        let class_package = if e.class.is_null() { "Core".to_string() } else { sp.outermost_name(e.class) };
+        // A class of `src` itself (a script package's default objects and
+        // component templates) lives in `src`; the outermost name of an
+        // export is only the export's own top-level object.
+        let class_package = if e.class.is_null() {
+            "Core".to_string()
+        } else if e.class.is_import() {
+            sp.outermost_name(e.class)
+        } else {
+            src.name.clone()
+        };
         let name = sp.object_name(PackageIndex::export(j));
         self.pkg.add_import(&class_package, &class_name, outer, &name)
     }
@@ -729,7 +771,39 @@ impl<'a> Editor<'a> {
             self.pkg.set_export_data(d, data);
             self.objects.insert(d, out);
         }
+        self.inline_moved_textures(src, &map, &mut warnings);
         Ok((root, warnings))
+    }
+
+    /// Copied textures whose engine path changed (top-level objects, light
+    /// maps above all, take this package's name) are no longer found in the
+    /// texture file caches, which are addressed by that path: the game fails
+    /// to load them ("Could not get entry for texture"). Their cached mips
+    /// are stored inline instead.
+    fn inline_moved_textures(&mut self, src: &Editor, map: &HashMap<usize, PackageIndex>, warnings: &mut Vec<String>) {
+        let Some(ts) = self.textures.clone() else { return };
+        let mut pairs: Vec<(usize, usize)> = map.iter().filter_map(|(&j, d)| Some((j, d.export_index()?))).collect();
+        pairs.sort_unstable();
+        for (j, d) in pairs {
+            let Some(Parsed::Object(o)) = self.objects.get(&d) else { continue };
+            if !matches!(o.native, crate::object::Native::Texture2D(_)) {
+                continue;
+            }
+            let from = crate::texture_ops::engine_path(&src.pkg, &src.name, j);
+            if from.eq_ignore_ascii_case(&crate::texture_ops::engine_path(&self.pkg, &self.name, d)) {
+                continue;
+            }
+            let mut o = o.clone();
+            match crate::texture_ops::inline_cached_mips(&mut self.pkg, &mut o, &ts, &from, src.obscured) {
+                Ok(0) => {}
+                Ok(_) => {
+                    if let Err(e) = self.replace_object(d, o) {
+                        warnings.push(format!("{from}: {e}"));
+                    }
+                }
+                Err(e) => warnings.push(format!("{from}: {e}; the copy's mips stay in the texture cache under a name the game does not find")),
+            }
+        }
     }
 
     /// Export `j` of `src`'s payload with its names and references made
@@ -802,7 +876,7 @@ impl<'a> Editor<'a> {
             return PackageIndex::NONE;
         }
         if r.is_import() {
-            return self.ensure_import(&src.pkg, r);
+            return self.map_import(src, r, mode, root, map, queue, warnings);
         }
         let j = r.export_index().unwrap();
         if let Some(&d) = map.get(&j) {
@@ -841,8 +915,11 @@ impl<'a> Editor<'a> {
                 return PackageIndex::NONE;
             }
         }
+        // Light and shadow maps belong to one placement: a copy's are its
+        // own, even where this package has maps of the same name.
+        let baked = ["LightMapTexture2D", "ShadowMapTexture2D", "ShadowMap2D", "ShadowMap1D"].iter().any(|c| self.db.class_is_a(&class_name, c));
         // Already present here at the same path?
-        if !(placed && inside) {
+        if !(placed && inside) && !baked {
             let path = sp.object_path(PackageIndex::export(j));
             if let Some(existing) = self.pkg.find_export(&path, Some(&class_name)) {
                 let d = PackageIndex::export(existing);
@@ -854,7 +931,15 @@ impl<'a> Editor<'a> {
             return self.import_for_export(src, j);
         }
         if deep || inside || is_outer || class_name.eq_ignore_ascii_case("Package") {
-            let name = sp.object_name(PackageIndex::export(j));
+            let mut name = sp.object_name(PackageIndex::export(j));
+            if baked && sp.exports[j].outer.is_null() {
+                let base = name.clone();
+                let mut n = 0;
+                while self.pkg.find_export(&name, None).is_some() {
+                    n += 1;
+                    name = format!("{base}_copy{n}");
+                }
+            }
             let e = &sp.exports[j];
             let export = ObjectExport { object_name: self.pkg.intern_fname(&name), object_flags: e.object_flags, export_flags: e.export_flags, generation_net_object_count: e.generation_net_object_count.clone(), package_guid: e.package_guid, package_flags: e.package_flags, ..Default::default() };
             let d = self.pkg.add_export(export, Vec::new());
@@ -865,6 +950,33 @@ impl<'a> Editor<'a> {
             warnings.push(format!("reference to {} cleared (not in destination; use deep copy)", sp.full_name(PackageIndex::export(j))));
             PackageIndex::NONE
         }
+    }
+
+    /// Import `r` of `src` made valid here. Content cooked into both
+    /// packages is used as the export it is here; an import inside a group
+    /// `src` exports (`ab_materials.mat.mat_x`, the group a forced export of
+    /// the original package) keeps that outer chain, the groups coming
+    /// along like any outer: an import without its outer would name a
+    /// package, and the engine would load a `UPackage` where a material is
+    /// expected.
+    #[allow(clippy::too_many_arguments)]
+    fn map_import(&mut self, src: &Editor, r: PackageIndex, mode: CopyMode, root: usize, map: &mut HashMap<usize, PackageIndex>, queue: &mut VecDeque<usize>, warnings: &mut Vec<String>) -> PackageIndex {
+        let Some(ii) = r.import_index() else { return PackageIndex::NONE };
+        let imp = src.pkg.imports[ii].clone();
+        let class_name = src.pkg.fname_to_string(imp.class_name);
+        if let Some(e) = self.pkg.find_export(&src.pkg.object_path(r), Some(&class_name)) {
+            return PackageIndex::export(e);
+        }
+        let outer = if imp.outer.is_import() {
+            self.map_import(src, imp.outer, mode, root, map, queue, warnings)
+        } else if imp.outer.is_export() {
+            self.map_ref(src, imp.outer, mode, root, map, queue, warnings, true)
+        } else {
+            PackageIndex::NONE
+        };
+        let class_package = src.pkg.fname_to_string(imp.class_package);
+        let name = src.pkg.fname_to_string(imp.object_name);
+        self.pkg.add_import(&class_package, &class_name, outer, &name)
     }
 
     // ----- properties -------------------------------------------------------
@@ -1208,6 +1320,10 @@ pub(crate) fn default_value(db: &ClassDb, pkg: &mut Package, kind: PropertyKind,
 pub(crate) fn new_property(db: &ClassDb, pkg: &mut Package, scope: Option<ObjRef>, name: &str, array_index: i32) -> Result<(Property, Option<ObjRef>)> {
     let pdef = scope.and_then(|s| db.find_property(s, name)).ok_or_else(|| Error::Format(format!("unknown property {name} (not declared on this class)")))?;
     let kind = db.property_kind(pdef).unwrap();
+    // Cooked packages tag component references as plain object properties
+    // (no content package has a `ComponentProperty` name); the game warns
+    // of a type mismatch otherwise.
+    let kind = if kind == PropertyKind::Component { PropertyKind::Object } else { kind };
     let ref1 = db.property_ref1(pdef);
     let struct_name = if kind == PropertyKind::Struct { ref1.map(|s| pkg.intern_fname(&db.name(s))) } else { None };
     let enum_name = if kind == PropertyKind::Byte { Some(match ref1 { Some(e) => pkg.intern_fname(&db.name(e)), None => pkg.intern_fname("None") }) } else { None };

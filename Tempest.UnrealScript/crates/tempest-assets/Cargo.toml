@@ -16,6 +16,7 @@ path = "src/bin/upk.rs"
 tempest-upk = { path = "../tempest-upk" }
 tempest-unrealscript = { path = "../tempest-unrealscript" }
 md-5 = "0.10"
+memchr = "2"
 sha2 = "0.10"
 xz2 = { version = "0.1", features = ["static"] }
 zstd = "0.13"

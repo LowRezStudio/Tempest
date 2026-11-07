@@ -840,40 +840,75 @@ pub fn attach_materials(
     max_size: Option<u32>,
     png_cache: &mut std::collections::HashMap<String, Vec<u8>>,
 ) -> Vec<String> {
-    use crate::material_ops::{material_textures_ext, texture_png, TextureSlot};
+    use crate::material_ops::{material_textures_ext, TextureSlot};
     component_materials(g, cache, pkg_name, mesh);
     let mut warnings: Vec<String> = Vec::new();
-    let mut image_index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let warn = |warnings: &mut Vec<String>, w: String| {
+        if !warnings.contains(&w) {
+            warnings.push(w);
+        }
+    };
+    // Resolve every section's textures first (the cache is not shared), then
+    // decode and encode the textures not cached yet over the cores, then
+    // assemble in section order, as one pass would.
+    let mut sections = Vec::new();
+    let mut jobs: Vec<(String, std::sync::Arc<Package>, String, usize, Object)> = Vec::new();
+    let mut failed: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for sec in &g.sections.clone() {
-        let mut m = GltfMaterial { name: sec.material_name.clone(), ..Default::default() };
         let (textures, unresolved) = material_textures_ext(cache, pkg_name, sec.material);
         for u in unresolved {
-            let w = format!("{}: {u}: not found in the folder", sec.material_name);
-            if !warnings.contains(&w) {
-                warnings.push(w);
-            }
+            warn(&mut warnings, format!("{}: {u}: not found in the folder", sec.material_name));
         }
-        for t in textures {
-            // Only 2D textures have a place in a model file: cube maps
-            // (reflections), render targets and the like are left out.
-            if !cache.class_name(&t.package, t.export).is_some_and(|c| cache.db.class_is_a(&c, "Texture2D")) {
+        // Only 2D textures have a place in a model file: cube maps
+        // (reflections), render targets and the like are left out.
+        let textures: Vec<_> = textures.into_iter().filter(|t| cache.class_name(&t.package, t.export).is_some_and(|c| cache.db.class_is_a(&c, "Texture2D"))).collect();
+        for t in &textures {
+            let key = format!("{}@{}", t.path, max_size.unwrap_or(0));
+            if png_cache.contains_key(&key) || failed.contains_key(&key) || jobs.iter().any(|j| j.0 == key) {
                 continue;
             }
+            match (cache.object(&t.package, t.export), cache.get(&t.package)) {
+                (Some(obj), Some(lp)) => jobs.push((key, lp.pkg.clone(), lp.name.clone(), t.export, obj)),
+                _ => {
+                    failed.insert(key, "texture could not be parsed".into());
+                }
+            }
+        }
+        sections.push((sec.material_name.clone(), textures));
+    }
+    let db = cache.db;
+    let encoded = tempest_unrealscript::par::map(&jobs, |(key, pkg, name, export, obj)| {
+        let png = match max_size {
+            Some(m) => crate::texture_ops::export_png_preview(db, pkg, name, src, *export, obj, m),
+            None => crate::texture_ops::export_png(db, pkg, name, src, *export, obj, 0),
+        };
+        (key.clone(), png.map_err(|e| e.to_string()))
+    });
+    for (key, png) in encoded {
+        match png {
+            Ok(png) => {
+                png_cache.insert(key, png);
+            }
+            Err(e) => {
+                failed.insert(key, e);
+            }
+        }
+    }
+    let mut image_index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (material_name, textures) in sections {
+        let mut m = GltfMaterial { name: material_name, ..Default::default() };
+        for t in textures {
             let key = format!("{}@{}", t.path, max_size.unwrap_or(0));
             let idx = match image_index.get(&t.path) {
                 Some(&i) => Some(i),
-                None => match png_cache.get(&key).cloned().map(Ok).unwrap_or_else(|| texture_png(cache, src, &t.package, t.export, max_size)) {
-                    Ok(png) => {
-                        png_cache.insert(key, png.clone());
-                        g.images.push(GltfImage { name: t.path.clone(), png });
+                None => match png_cache.get(&key) {
+                    Some(png) => {
+                        g.images.push(GltfImage { name: t.path.clone(), png: png.clone() });
                         image_index.insert(t.path.clone(), g.images.len() - 1);
                         Some(g.images.len() - 1)
                     }
-                    Err(e) => {
-                        let w = format!("{}: {e}", t.path);
-                        if !warnings.contains(&w) {
-                            warnings.push(w);
-                        }
+                    None => {
+                        warn(&mut warnings, format!("{}: {}", t.path, failed.get(&key).map(String::as_str).unwrap_or("not encoded")));
                         None
                     }
                 },

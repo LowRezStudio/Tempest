@@ -142,31 +142,33 @@
 					type="number"
 					min="0"
 					max="1"
-					step="0.05"
+					step="0.01"
 					class="input input-xs w-20"
 					bind:value={lightBake.albedo}
 				/></label
 			>
 		</div>
+		{#if lightBake.indirectRays === 0}
+			<p class="text-xs opacity-70">
+				Without indirect rays, areas out of direct light come out at about 0.6 of the game's
+				own lighting; 32 to 64 rays bring them close.
+			</p>
+		{/if}
 		<label class="flex items-center gap-2 text-xs">
 			<input type="checkbox" class="checkbox checkbox-xs" bind:checked={lightBake.compare} />
 			Compare with the light maps the meshes had
 		</label>
 		{#if lightBake.last}
 			{@const r = lightBake.last}
+			{@const lod0 = r.comparisons.filter((c) => c.lod === 0)}
 			<div class="bg-base-200 rounded p-2 text-xs">
 				{r.baked.length} baked, {r.skipped.length} skipped, {r.lights} lights, {r.triangles.toLocaleString()}
 				shadow triangles, {r.seconds.toFixed(1)} s
-				{#if r.comparisons.length}
-					{@const m =
-						r.comparisons.reduce((a, c) => a + c.stats.meanBaked, 0) /
-						r.comparisons.length}
-					{@const s =
-						r.comparisons.reduce((a, c) => a + c.stats.meanShipped, 0) /
-						r.comparisons.length}
+				{#if lod0.length}
+					{@const m = lod0.reduce((a, c) => a + c.stats.meanBaked, 0) / lod0.length}
+					{@const s = lod0.reduce((a, c) => a + c.stats.meanShipped, 0) / lod0.length}
 					<div>
-						Mean irradiance {m.toFixed(3)} baked vs {s.toFixed(3)} before ({r
-							.comparisons.length} meshes)
+						Mean irradiance {m.toFixed(3)} baked vs {s.toFixed(3)} before ({lod0.length} meshes)
 					</div>
 				{/if}
 				{#each r.skipped.slice(0, 5) as s (s.level + ":" + s.export)}

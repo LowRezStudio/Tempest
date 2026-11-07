@@ -24,6 +24,8 @@ use tempest_upk::io::{Error, Guid, PackageIndex, Result};
 use super::encode::{encode_dxt1, mip_chain, quantize, Quantized, Sample, Texel};
 use crate::dds::PixelFormat;
 use crate::edit::Editor;
+use crate::object::Parsed;
+use crate::visit::references;
 use crate::level::{LightMap, StaticMeshComponentLod};
 use crate::object::Native;
 use crate::reflect::ClassDb;
@@ -32,6 +34,8 @@ use crate::texture_ops::{import, ImportOptions, ImportSource};
 /// One component's result to store.
 pub struct Allocation {
     pub component: usize,
+    /// The component's LOD (`LODData` entry) it lights.
+    pub lod: usize,
     pub size: usize,
     pub samples: Vec<Sample>,
     pub light_guids: Vec<Guid>,
@@ -44,6 +48,10 @@ pub struct Written {
     pub atlases: Vec<(usize, usize)>,
     pub components: usize,
     pub cleared_lods: usize,
+    /// Light map / shadow map objects of the package that nothing uses any
+    /// more (the rebaked components' old ones above all), deleted: the game
+    /// loads every object of a map package, the unused ones too.
+    pub removed: Vec<String>,
 }
 
 /// Shelf packing of square allocations into atlases of at most `max`.
@@ -116,6 +124,10 @@ pub fn write(ed: &mut Editor, db: &ClassDb, allocs: &[Allocation], max_size: usi
     // Quantize every allocation on its own.
     let quantized: Vec<([[f32; 3]; 3], Vec<Quantized>)> = allocs.iter().map(|a| quantize(&a.samples)).collect();
     let stamp = (0..ed.pkg.exports.len()).count();
+    // Light and shadow maps nothing uses once the components point at the
+    // new ones are deleted at the end: their old ones, and those copies made
+    // by an older Studio left behind (which the game cannot load).
+    let old: Vec<usize> = (0..ed.pkg.exports.len()).filter(|&i| ["LightMapTexture2D", "ShadowMapTexture2D", "ShadowMap2D", "ShadowMap1D"].iter().any(|c| db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(i)), c))).collect();
     for atlas in 0..count {
         let members: Vec<usize> = (0..allocs.len()).filter(|&i| places[i].0 == atlas).collect();
         let used_w = members.iter().map(|&i| places[i].1 + allocs[i].size).max().unwrap_or(4);
@@ -165,24 +177,75 @@ pub fn write(ed: &mut Editor, db: &ClassDb, allocs: &[Allocation], max_size: usi
             let Native::StaticMeshComponent(smc) = &mut obj.native else {
                 return Err(Error::Format(format!("export {} is not a static mesh component", a.component)));
             };
-            if smc.lod_data.is_empty() {
+            while smc.lod_data.len() <= a.lod {
                 smc.lod_data.push(StaticMeshComponentLod::default());
             }
-            smc.lod_data[0].light_map = lm;
-            smc.lod_data[0].shadow_maps.clear();
-            smc.lod_data[0].shadow_vertex_buffers.clear();
-            // Lower LODs would keep light maps of the original's place.
-            for l in smc.lod_data.iter_mut().skip(1) {
-                if l.light_map != LightMap::None {
-                    l.light_map = LightMap::None;
-                    written.cleared_lods += 1;
-                }
-            }
+            let l = &mut smc.lod_data[a.lod];
+            l.light_map = lm;
+            l.shadow_maps.clear();
+            l.shadow_vertex_buffers.clear();
             ed.replace_object(a.component, obj)?;
-            written.components += 1;
+            if a.lod == 0 {
+                written.components += 1;
+            }
         }
     }
+    // LODs not baked (no light map UVs) would keep light maps of the
+    // original's place.
+    let mut components: Vec<usize> = allocs.iter().map(|a| a.component).collect();
+    components.sort_unstable();
+    components.dedup();
+    for c in components {
+        let mut obj = ed.object(c)?.clone();
+        let Native::StaticMeshComponent(smc) = &mut obj.native else { continue };
+        let mut cleared = 0;
+        for (lod, l) in smc.lod_data.iter_mut().enumerate() {
+            if l.light_map != LightMap::None && !allocs.iter().any(|a| a.component == c && a.lod == lod) {
+                l.light_map = LightMap::None;
+                cleared += 1;
+            }
+        }
+        if cleared > 0 {
+            written.cleared_lods += cleared;
+            ed.replace_object(c, obj)?;
+        }
+    }
+    written.removed = remove_unused(ed, old)?;
     Ok(written)
+}
+
+/// Delete the exports of `candidates` that no export outside the ones
+/// being deleted refers to (repeated until stable: a shadow map texture
+/// goes with the last shadow map using it). Returns their paths.
+fn remove_unused(ed: &mut Editor, mut candidates: Vec<usize>) -> Result<Vec<String>> {
+    loop {
+        let set: std::collections::HashSet<PackageIndex> = candidates.iter().map(|&i| PackageIndex::export(i)).collect();
+        let mut used = std::collections::HashSet::new();
+        for j in 0..ed.pkg.exports.len() {
+            if set.contains(&PackageIndex::export(j)) {
+                continue;
+            }
+            let e = &ed.pkg.exports[j];
+            used.extend([e.class, e.super_, e.outer, e.archetype].into_iter().filter(|r| set.contains(r)));
+            if let Ok(Parsed::Object(o)) = ed.parsed(j) {
+                used.extend(references(o).into_iter().filter(|r| set.contains(r)));
+            }
+        }
+        let before = candidates.len();
+        candidates.retain(|&i| !used.contains(&PackageIndex::export(i)));
+        if candidates.len() == before {
+            break;
+        }
+    }
+    let paths = candidates.iter().map(|&i| ed.pkg.object_path(PackageIndex::export(i))).collect();
+    // From the end, so the indices of the others hold.
+    for &i in candidates.iter().rev() {
+        // Gone already with its outer.
+        if !matches!(ed.parsed(i), Ok(Parsed::Empty)) {
+            ed.delete(i)?;
+        }
+    }
+    Ok(paths)
 }
 
 #[cfg(test)]

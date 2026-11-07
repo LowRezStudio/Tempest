@@ -204,15 +204,17 @@ pub fn dir_lookup(dir: &Path) -> impl Fn(&str) -> Option<String> {
             let Ok(rd) = std::fs::read_dir(&dir) else { return map };
             let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| matches!(p.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).as_deref(), Some("upk" | "u"))).collect();
             files.sort();
-            for p in files {
-                let Ok(pf) = PackageFile::open(&p) else { continue };
+            // A thousand headers to read (each behind a compressed chunk): over the cores.
+            let tables: Vec<(String, Vec<String>)> = tempest_unrealscript::par::map(&files, |p| {
                 let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                let Ok(pf) = PackageFile::open(p) else { return (stem, Vec::new()) };
                 let pkg = pf.tables();
-                for i in 0..pkg.exports.len() {
-                    if pkg.exports[i].serial_size == 0 {
-                        continue;
-                    }
-                    map.entry(pkg.object_path(PackageIndex::export(i)).to_ascii_lowercase()).or_insert_with(|| stem.clone());
+                let paths = (0..pkg.exports.len()).filter(|&i| pkg.exports[i].serial_size != 0).map(|i| pkg.object_path(PackageIndex::export(i)).to_ascii_lowercase()).collect();
+                (stem, paths)
+            });
+            for (stem, paths) in tables {
+                for path in paths {
+                    map.entry(path).or_insert_with(|| stem.clone());
                 }
             }
             map

@@ -821,6 +821,8 @@ export type LightBakeResult = {
 		export: number;
 		name: string;
 		size: number;
+		/** LODs baked (each its own light map). */
+		lods: number;
 		mapped: number;
 		lights: number;
 		lit: string[];
@@ -832,11 +834,14 @@ export type LightBakeResult = {
 		atlases: number[][];
 		textures: number;
 		clearedLods: number;
+		/** Old light/shadow map objects nothing used any more, deleted. */
+		removed: string[];
 		dirty: boolean;
 	}[];
 	comparisons: {
 		path: string;
 		index: number;
+		lod: number;
 		stats: {
 			texels: number;
 			meanBaked: number;
@@ -1878,6 +1883,8 @@ export interface UpkMethods {
 			skySamples?: number;
 			indirectRays?: number;
 			albedo?: number;
+			/** Scale of the world's EnvironmentColor for escaped indirect rays (1). */
+			environmentScale?: number;
 			atlasSize?: number;
 			/** Compare with each component's light map before the bake. */
 			compare?: boolean;

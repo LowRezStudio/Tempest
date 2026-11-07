@@ -2387,7 +2387,8 @@ fn cmd_light(args: &[String]) -> Res {
                 shadow_samples: opt("--shadow-samples").map(|s| s.parse()).transpose()?.unwrap_or(8),
                 sky_samples: opt("--sky-samples").map(|s| s.parse()).transpose()?.unwrap_or(64),
                 indirect_rays: opt("--indirect").map(|s| s.parse()).transpose()?.unwrap_or(0),
-                albedo: opt("--albedo").map(|s| s.parse()).transpose()?.unwrap_or(0.15),
+                albedo: opt("--albedo").map(|s| s.parse()).transpose()?.unwrap_or(0.08),
+                environment_scale: opt("--environment-scale").map(|s| s.parse()).transpose()?.unwrap_or(1.0),
             };
             let select = |i: &scene::Instance| want_levels.contains(&i.level) || want_comps.contains(&(i.level, i.export));
             let t = std::time::Instant::now();

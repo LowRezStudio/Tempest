@@ -746,7 +746,7 @@ fn blank(src: &mut Editor, j: usize) -> Result<Object> {
 
 /// A new actor of the class whose default object is export `cdo` of `src`
 /// (a script package), laid out like the cooker writes placed actors:
-/// archetype the class default object, an empty state frame, and one
+/// no archetype (the class default object is implied), an empty state frame, and one
 /// instance per component template of that object (archetype the
 /// template, no properties of its own), the default object's references
 /// to its templates pointed at the instances (`CollisionComponent`…; the
@@ -762,13 +762,13 @@ pub fn new_actor(dst: &mut Editor, src: &mut Editor, cdo: usize, level: usize) -
         Some(c) => dst.import_for_export(src, c),
         None => dst.ensure_import(&src.pkg, class_idx),
     };
-    let archetype = dst.import_for_export(src, cdo);
     let mut obj = blank(src, cdo)?;
     obj.state_frame = Some(tempest_unrealscript::objects::StateFrame { node: class, state_node: class, probe_mask: u32::MAX, latent_action: 0, state_stack: Vec::new(), code_offset: Some(-1) });
     let level_idx = PackageIndex::export(level);
     let flags = rf::TRANSACTIONAL | rf::LOAD_FOR_CLIENT | rf::LOAD_FOR_SERVER | rf::LOAD_FOR_EDIT;
-    // Named by `adopt_actor`.
-    let export = ObjectExport { class, outer: level_idx, archetype, object_name: dst.pkg.intern_fname(&class_name.to_ascii_lowercase()), object_flags: flags | rf::HAS_STACK, ..Default::default() };
+    // Named by `adopt_actor`. No archetype, like every cooked actor: the
+    // class default object is implied (only the components name theirs).
+    let export = ObjectExport { class, outer: level_idx, archetype: PackageIndex::NONE, object_name: dst.pkg.intern_fname(&class_name.to_ascii_lowercase()), object_flags: flags | rf::HAS_STACK, ..Default::default() };
     let data = write_parsed(&Parsed::Object(obj), dst.layout(), none_name(&dst.pkg));
     let actor = dst.add_export(export, data);
     // Component templates of the default object, and their instances.

@@ -18,7 +18,7 @@ class LightBakeStore {
 	shadowSamples = $state(8);
 	skySamples = $state(64);
 	indirectRays = $state(0);
-	albedo = $state(0.15);
+	albedo = $state(0.08);
 	compare = $state(true);
 	busy = $state(false);
 	progress = $state<{ done: number; total: number } | null>(null);
@@ -65,10 +65,11 @@ class LightBakeStore {
 				await map.reloadLevel(w.path);
 			}
 			const n = r.baked.length;
+			const removed = r.written.reduce((k, w) => k + w.removed.length, 0);
 			toasts.push(
 				n > 0 ? "success" : "info",
 				n > 0
-					? `${n} mesh${n === 1 ? "" : "es"} in ${r.written.length} level${r.written.length === 1 ? "" : "s"}, ${r.seconds.toFixed(1)} s${r.skipped.length ? `; ${r.skipped.length} skipped` : ""}`
+					? `${n} mesh${n === 1 ? "" : "es"} in ${r.written.length} level${r.written.length === 1 ? "" : "s"}, ${r.seconds.toFixed(1)} s${r.skipped.length ? `; ${r.skipped.length} skipped` : ""}${removed ? `; ${removed} old light map texture${removed === 1 ? "" : "s"} removed` : ""}`
 					: r.skipped.length
 						? `Nothing baked: ${r.skipped[0].reason}`
 						: "Nothing to bake in this scope",

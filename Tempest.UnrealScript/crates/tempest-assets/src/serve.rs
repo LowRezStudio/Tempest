@@ -78,6 +78,16 @@ struct SearchIndex {
     classes: Vec<String>,
     /// (class id, object path) per export.
     exports: Vec<(u16, String)>,
+    /// Some path has upper-case letters (script packages keep case, content
+    /// packages are lower-case): searching must fold them.
+    mixed_case: bool,
+}
+
+impl SearchIndex {
+    fn new(classes: Vec<String>, exports: Vec<(u16, String)>) -> SearchIndex {
+        let mixed_case = exports.iter().any(|(_, p)| p.bytes().any(|b| b.is_ascii_uppercase()));
+        SearchIndex { classes, exports, mixed_case }
+    }
 }
 
 pub struct Server {
@@ -88,7 +98,7 @@ pub struct Server {
     /// it when the same folder is opened again (a renderer reload, a
     /// workspace file) instead of loading (and leaking) another one.
     db_stamp: Option<Vec<(PathBuf, u64, Option<std::time::SystemTime>)>>,
-    src: Option<TextureSource>,
+    src: Option<std::sync::Arc<TextureSource>>,
     packages: Vec<WorkspacePackage>,
     editors: HashMap<String, Editor<'static>>,
     index: HashMap<String, SearchIndex>,
@@ -375,7 +385,7 @@ impl Server {
     }
 
     fn src(&self) -> Res<&TextureSource> {
-        self.src.as_ref().ok_or_else(|| "no workspace open".into())
+        self.src.as_deref().ok_or_else(|| "no workspace open".into())
     }
 
     fn dir(&self) -> Res<&Path> {
@@ -386,7 +396,8 @@ impl Server {
         let k = key(path);
         if !self.editors.contains_key(&k) {
             let db = self.db()?;
-            let ed = Editor::open(db, path)?;
+            let mut ed = Editor::open(db, path)?;
+            ed.textures = self.src.clone();
             self.editors.insert(k.clone(), ed);
         }
         Ok(self.editors.get_mut(&k).unwrap())
@@ -765,7 +776,7 @@ impl Server {
         self.ak_names = None;
         self.order = None;
         self.db = Some(db);
-        self.src = Some(TextureSource::open(&dir)?);
+        self.src = Some(std::sync::Arc::new(TextureSource::open(&dir)?));
         let tex_ms = t.elapsed().as_millis() as u64 - class_db_ms - list_ms;
         self.dir = Some(dir.clone());
         self.packages = packages;
@@ -843,6 +854,10 @@ impl Server {
         let mut results = Vec::new();
         let mut scanned = 0usize;
         let mut truncated = false;
+        // Every object path of the workspace is tested on each keystroke: one
+        // reused lowercase buffer and a SIMD substring search, no allocation.
+        let finder = memchr::memmem::Finder::new(query.as_bytes());
+        let mut lower = Vec::new();
         for (n, (name, path)) in paths.iter().enumerate() {
             let k = key(&path.to_string_lossy());
             if !self.index.contains_key(&k) {
@@ -858,20 +873,31 @@ impl Server {
                 }
             }
             let idx = &self.index[&k];
+            // The class filters, once per class of the package.
+            let wanted: Vec<bool> = idx
+                .classes
+                .iter()
+                .map(|cname| class.as_ref().is_none_or(|c| cname.eq_ignore_ascii_case(c)) && match (&is_a, db) {
+                    (Some(base), Some(db)) => db.class_is_a(cname, base),
+                    _ => true,
+                })
+                .collect();
             for (i, (cid, path_text)) in idx.exports.iter().enumerate() {
-                let cname = &idx.classes[*cid as usize];
-                if let Some(c) = &class {
-                    if !cname.eq_ignore_ascii_case(c) {
-                        continue;
-                    }
-                }
-                if let (Some(base), Some(db)) = (&is_a, db) {
-                    if !db.class_is_a(cname, base) {
-                        continue;
-                    }
-                }
-                if !query.is_empty() && !path_text.to_ascii_lowercase().contains(&query) {
+                if !wanted[*cid as usize] {
                     continue;
+                }
+                let cname = &idx.classes[*cid as usize];
+                if !query.is_empty() {
+                    let hay = if idx.mixed_case {
+                        lower.clear();
+                        lower.extend(path_text.bytes().map(|b| b.to_ascii_lowercase()));
+                        &lower[..]
+                    } else {
+                        path_text.as_bytes()
+                    };
+                    if finder.find(hay).is_none() {
+                        continue;
+                    }
                 }
                 results.push(json!({ "package": name, "path": path.to_string_lossy(), "index": i, "object": path_text, "class": cname }));
                 if results.len() >= limit {
@@ -1204,6 +1230,7 @@ impl Server {
                         let name = target.file_stem().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
                         let mut ed = Editor::from_package(db, name, pkg.clone());
                         ed.replace_package(pkg);
+                        ed.textures = self.src.clone();
                         self.editors.insert(key(&path), ed);
                         packages.push(json!({ "path": path, "stored": stored, "changes": 0, "dirty": true, "new": true }));
                     }
@@ -2517,7 +2544,8 @@ impl Server {
             shadow_samples: opt_u(p, "shadowSamples").unwrap_or(8) as u32,
             sky_samples: opt_u(p, "skySamples").unwrap_or(64) as u32,
             indirect_rays: opt_u(p, "indirectRays").unwrap_or(0) as u32,
-            albedo: p.get("albedo").and_then(|v| v.as_f64()).unwrap_or(0.15) as f32,
+            albedo: p.get("albedo").and_then(|v| v.as_f64()).unwrap_or(0.08) as f32,
+            environment_scale: p.get("environmentScale").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
         };
         // An actor target bakes its components.
         let select = |i: &scene::Instance| wanted.contains(&(i.level, i.export)) || wanted.contains(&(i.level, i.owner));
@@ -2546,9 +2574,9 @@ impl Server {
                 let src = self.src.as_ref().ok_or("no workspace open")?;
                 let ed = self.editors.get_mut(&key(f)).ok_or("package not open")?;
                 for a in allocs {
-                    if let Ok(m) = lightbake::decode(ed, src, a.component, 0) {
+                    if let Ok(m) = lightbake::decode(ed, src, a.component, a.lod) {
                         if let Some(c) = lightbake::compare(&m, &a.samples, a.size) {
-                            comparisons.push(json!({ "path": f, "index": a.component, "stats": c }));
+                            comparisons.push(json!({ "path": f, "index": a.component, "lod": a.lod, "stats": c }));
                         }
                     }
                 }
@@ -2570,7 +2598,7 @@ impl Server {
             let ed = self.editors.get_mut(&key(f)).ok_or("package not open")?;
             let w = write::write(ed, db, allocs, opt_u(p, "atlasSize").unwrap_or(1024))?;
             ed.end_undo();
-            written.push(json!({ "path": f, "components": w.components, "atlases": w.atlases, "textures": w.textures.len(), "clearedLods": w.cleared_lods, "dirty": true }));
+            written.push(json!({ "path": f, "components": w.components, "atlases": w.atlases, "textures": w.textures.len(), "clearedLods": w.cleared_lods, "removed": w.removed, "dirty": true }));
         }
         Ok(json!({
             "baked": out.report,
@@ -5726,14 +5754,14 @@ fn read_index_cache(b: &[u8]) -> HashMap<String, ((u64, u64), SearchIndex)> {
             let Some(p) = get_str(&mut pos) else { return out };
             exports.push((c, p));
         }
-        out.insert(k, ((mtime, size), SearchIndex { classes, exports }));
+        out.insert(k, ((mtime, size), SearchIndex::new(classes, exports)));
     }
     out
 }
 
 fn build_index(path: &Path) -> SearchIndex {
-    let mut idx = SearchIndex { classes: Vec::new(), exports: Vec::new() };
-    let Ok(pf) = PackageFile::open(path) else { return idx };
+    let (mut classes, mut exports) = (Vec::new(), Vec::new());
+    let Ok(pf) = PackageFile::open(path) else { return SearchIndex::new(classes, exports) };
     let pkg = pf.tables();
     let mut class_ids: HashMap<String, u16> = HashMap::new();
     for i in 0..pkg.exports.len() {
@@ -5742,15 +5770,15 @@ fn build_index(path: &Path) -> SearchIndex {
         let id = match class_ids.get(&class) {
             Some(id) => *id,
             None => {
-                let id = idx.classes.len() as u16;
-                idx.classes.push(class.clone());
+                let id = classes.len() as u16;
+                classes.push(class.clone());
                 class_ids.insert(class, id);
                 id
             }
         };
-        idx.exports.push((id, pkg.object_path(r)));
+        exports.push((id, pkg.object_path(r)));
     }
-    idx
+    SearchIndex::new(classes, exports)
 }
 
 pub fn base64_decode(text: &str) -> Vec<u8> {
@@ -6522,6 +6550,7 @@ impl Server {
         let db = self.db()?;
         let mut ed = Editor::from_package(db, name.clone(), pkg.clone());
         ed.replace_package(pkg);
+        ed.textures = self.src.clone();
         self.editors.insert(k, ed);
         Ok(json!({ "path": path, "name": name }))
     }

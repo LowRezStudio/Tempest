@@ -343,6 +343,9 @@ pub struct MeshData {
     pub resolution: i32,
     pub coordinate_index: i32,
     pub has_lightmap_uvs: bool,
+    /// LODs 1 and up, each baked into its own light map like Lightmass
+    /// does (shadows are cast by LOD 0 only).
+    pub lower: Vec<Arc<MeshData>>,
 }
 
 fn packed_normal(b: &[u8]) -> (V3, f32) {
@@ -355,9 +358,16 @@ fn half(h: u16) -> f32 {
     crate::dds::half_to_f32(h)
 }
 
-/// `FStaticMeshRenderData` LOD 0 with the light map channel.
+/// `FStaticMeshRenderData` of every LOD with the light map channel (LOD 0,
+/// the others in `lower`).
 pub fn mesh_data(m: &StaticMesh, c: &Chain) -> Option<MeshData> {
-    let l = m.lod_models.first()?;
+    let mut md = lod_data(m, c, 0)?;
+    md.lower = (1..m.lod_models.len()).map_while(|l| lod_data(m, c, l)).map(Arc::new).collect();
+    Some(md)
+}
+
+fn lod_data(m: &StaticMesh, c: &Chain, lod: usize) -> Option<MeshData> {
+    let l = m.lod_models.get(lod)?;
     let n = l.num_vertices as usize;
     let pvb = &l.position_vb;
     if pvb.data.elem_size != 12 || pvb.data.count as usize != n {
