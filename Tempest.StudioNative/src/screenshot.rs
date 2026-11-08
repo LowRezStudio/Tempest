@@ -84,7 +84,7 @@ fn grab(id: i64) -> Result<image::RgbaImage, String> {
         if ok == 0 || rows == 0 {
             return Err("PrintWindow failed".into());
         }
-        for p in px.chunks_exact_mut(4) {
+        for p in px.as_chunks_mut::<4>().0 {
             p.swap(0, 2);
             p[3] = 255;
         }
