@@ -18,7 +18,7 @@ if [[ -f $out/core/Cargo.toml && "$(cat "$out/.tempest-stamp" 2>/dev/null)" == "
 fi
 if [[ ! -d $out/.git ]]; then
 	rm -rf "$out"
-	git -c advice.detachedHead=false clone -q --depth 1 --branch "$RUFFLE_TAG" https://github.com/ruffle-rs/ruffle.git "$out"
+	git -c advice.detachedHead=false -c core.autocrlf=false clone -q --depth 1 --branch "$RUFFLE_TAG" https://github.com/ruffle-rs/ruffle.git "$out"
 else
 	git -C "$out" fetch -q --depth 1 origin tag "$RUFFLE_TAG"
 	git -c advice.detachedHead=false -C "$out" checkout -q -f "$RUFFLE_TAG"
