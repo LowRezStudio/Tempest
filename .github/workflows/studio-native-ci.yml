@@ -1,0 +1,67 @@
+name: Studio Native CI
+
+# Builds, lints and tests the native (GPUI) Studio on every platform it ships
+# for, whenever it or the asset layer it links changes. Releases are
+# studio-native-release.yml.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "Tempest.StudioNative/**"
+      - "Tempest.UnrealScript/**"
+      - "Tempest.Studio/ruffle/**"
+      - ".github/workflows/studio-native-ci.yml"
+  pull_request:
+    paths:
+      - "Tempest.StudioNative/**"
+      - "Tempest.UnrealScript/**"
+      - "Tempest.Studio/ruffle/**"
+      - ".github/workflows/studio-native-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: studio-native-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-15, windows-latest, ubuntu-22.04]
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The crate's rust-toolchain.toml pins its own toolchain (with clippy),
+      # which rustup installs on first use.
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Tempest.StudioNative
+
+      - name: Install Linux build deps
+        if: startsWith(matrix.platform, 'ubuntu-')
+        run: |
+          sudo apt update
+          sudo apt-get install -y clang cmake pkg-config libasound2-dev libfontconfig-dev libfreetype-dev \
+            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb1-dev libvulkan-dev libssl-dev
+
+      # Ruffle's sources for the movie player (vendor/ruffle, patched).
+      - name: Fetch Ruffle
+        shell: bash
+        run: Tempest.StudioNative/scripts/fetch-ruffle.sh
+
+      - name: Clippy
+        working-directory: Tempest.StudioNative
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        working-directory: Tempest.StudioNative
+        run: cargo test

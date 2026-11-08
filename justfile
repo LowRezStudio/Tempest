@@ -248,6 +248,27 @@ studio-check: js-lint
     cd {{studio}} && pnpm check
     cd {{studio}} && pnpm check:electron
 
+# ---------------------------------------------------------------------------
+# Tempest.StudioNative (GPUI): the Studio as a native app, tempest-assets in-process
+# ---------------------------------------------------------------------------
+
+# Run the native Studio (debug; optional game folder, else the last one)
+[group("studio-native")]
+studio-native *args:
+    Tempest.StudioNative/scripts/fetch-ruffle.sh
+    cd Tempest.StudioNative && cargo run -- {{args}}
+
+# Release build -> Tempest.StudioNative/target/release/tempest-studio
+[group("studio-native")]
+studio-native-build:
+    Tempest.StudioNative/scripts/fetch-ruffle.sh
+    cd Tempest.StudioNative && cargo build --release
+
+# Release bundle for this platform (app + tempest-cli + upk; .app, zip and DMG on macOS) -> Tempest.StudioNative/dist
+[group("studio-native")]
+studio-native-bundle out="":
+    Tempest.StudioNative/scripts/bundle.sh {{out}}
+
 # All verification that runs without a game: .NET build, scripting tests + clippy, unrealscript tests + clippy, JS checks
 [group("all")]
 check: build scripting-test scripting-check unrealscript-check launcher-check studio-check

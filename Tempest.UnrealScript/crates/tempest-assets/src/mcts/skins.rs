@@ -92,11 +92,11 @@ pub fn rename(text: &str, old_theme: &str, new_theme: &str, old_champ: &str, new
     }
 }
 
-struct Lookup<'a> {
-    items: HashMap<u64, (usize, &'a Row)>,
-    tables: HashMap<u64, (usize, &'a Row)>,
-    bots: HashMap<u64, (usize, &'a Row)>,
-    messages: HashMap<u64, &'a str>,
+pub(super) struct Lookup<'a> {
+    pub items: HashMap<u64, (usize, &'a Row)>,
+    pub tables: HashMap<u64, (usize, &'a Row)>,
+    pub bots: HashMap<u64, (usize, &'a Row)>,
+    pub messages: HashMap<u64, &'a str>,
 }
 
 struct Entry {
@@ -144,7 +144,7 @@ impl Workspace {
     }
 
     /// The entries of a loot table by id, with its row index.
-    fn loot_entries(&self, table: u64) -> Result<Option<(usize, Row)>> {
+    pub(super) fn loot_entries(&self, table: u64) -> Result<Option<(usize, Row)>> {
         Ok(match self.find_row("DATA_SET_LOOT_TABLES", "LOOT_TABLE_ID", table)? {
             Some(i) => Some((i, self.row_of("DATA_SET_LOOT_TABLES", i)?)),
             None => None,
@@ -170,7 +170,7 @@ impl Workspace {
     }
 
     /// Lookups the listing needs, built once (the per-row finders scan).
-    fn lookup(&self) -> Result<Lookup<'_>> {
+    pub(super) fn lookup(&self) -> Result<Lookup<'_>> {
         let doc = self.doc("assembly")?;
         let index = |table: &str, key: &str| -> Result<HashMap<u64, (usize, &Row)>> {
             let k = self.t(key)?;

@@ -134,6 +134,8 @@ pub struct Server {
     /// How the mod being cooked is compressed (`mod.cook {compression}`).
     compression: crate::delta::Compression,
     out: std::io::Stdout,
+    /// Events go here instead of stdout (an in-process host, see [`Server::with_events`]).
+    on_event: Option<Box<dyn FnMut(J) + Send>>,
     /// The last Wwise package opened (`(canonical path, package)`).
     wwise: Option<(String, akpk::Package)>,
     /// Wwise `.pck` files with replaced media, by key: unsaved like a
@@ -285,8 +287,34 @@ impl Server {
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
             packed_cache: HashMap::new(),
-            compression: crate::delta::Compression::Small, out: std::io::stdout(), wwise: None, pck_edits: HashMap::new(), ak_names: None, mcts: None, bins: BinSink::default(),
+            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), ak_names: None, mcts: None, bins: BinSink::default(),
             swf_cache: None, swf_embeds: HashMap::new(), swf_libs: HashMap::new(), swf_subset_cache: HashMap::new() }
+    }
+
+    /// A server hosted in-process (the native Studio): events are handed to
+    /// `on_event` instead of being written to stdout.
+    pub fn with_events(on_event: impl FnMut(J) + Send + 'static) -> Server {
+        let mut s = Server::new();
+        s.on_event = Some(Box::new(on_event));
+        s.bins.frames = true;
+        s
+    }
+
+    /// One request in-process: the result and its binary payloads (the
+    /// result's `{"$bin": n}` markers index them). A panic becomes an error,
+    /// as in [`Server::run`].
+    pub fn call_bin(&mut self, method: &str, params: &J) -> Result<(J, Vec<Vec<u8>>), String> {
+        self.bins.frames = true;
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call(method, params)));
+        let bins = self.bins.take();
+        match outcome {
+            Ok(Ok(r)) => Ok((r, bins)),
+            Ok(Err(e)) => Err(e.to_string()),
+            Err(panic) => {
+                let what = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panic".into());
+                Err(format!("internal error in {method}: {what}"))
+            }
+        }
     }
 
     /// Serve stdin until EOF.
@@ -377,7 +405,10 @@ impl Server {
 
     fn event(&mut self, name: &str, mut fields: Map<String, J>) {
         fields.insert("event".into(), J::from(name));
-        self.emit(&J::Object(fields));
+        match &mut self.on_event {
+            Some(f) => f(J::Object(fields)),
+            None => self.emit(&J::Object(fields)),
+        }
     }
 
     fn db(&self) -> Res<&'static ClassDb> {
@@ -542,6 +573,7 @@ impl Server {
             "mesh.materials" => self.mesh_materials(p),
             "mesh.setMaterial" => self.mesh_set_material(p),
             "mesh.ownMaterial" => self.mesh_own_material(p),
+            "mesh.ownMaterials" => self.mesh_own_materials(p),
             "mesh.addSlot" => self.mesh_add_slot(p),
             "mesh.removeSlot" => self.mesh_remove_slot(p),
             "map.list" => self.map_list(),
@@ -673,6 +705,7 @@ impl Server {
             "mcts.vendor" => Ok(self.mcts()?.vendor()?),
             "mcts.vendorAdd" => Ok(self.mcts_mut()?.vendor_add(p)?),
             "mcts.collections" => Ok(self.mcts()?.collections(p)?),
+            "mcts.choices" => Ok(self.mcts_mut()?.choices(p)?),
             "mcts.collection" => Ok(self.mcts()?.collection(p)?),
             "mcts.collectionAdd" => Ok(self.mcts_mut()?.collection_add(p)?),
             "mcts.scaffold" => Ok(self.mcts_mut()?.scaffold(p)?),
@@ -688,6 +721,7 @@ impl Server {
             "material.preview" => self.material_preview(p),
             "material.setParameter" => self.material_set_parameter(p),
             "material.setTexture" => self.material_set_texture(p),
+            "material.newInstance" => self.material_new_instance(p),
             "batch.plan" => self.batch(p, false),
             "batch.run" => self.batch(p, true),
             _ => Err(format!("unknown method {method}").into()),
@@ -5142,6 +5176,11 @@ impl Server {
         let path = s(p, "path")?;
         let class = s(p, "class")?.to_string();
         let source = s(p, "source")?.to_string();
+        // `create`: a class the package does not have yet, compiled in with the others.
+        let create = p.get("create").and_then(|v| v.as_bool()).unwrap_or(false);
+        if create && !(class.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && class.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
+            return Err(format!("{class} is not a class name (letters, digits and _)").into());
+        }
         let (name, cooked, dirty) = {
             let ed = self.editor(path)?;
             // A previous recompile is fine (it came from these sources); other
@@ -5160,15 +5199,27 @@ impl Server {
         };
         // Sources: the decompiled package with the edited class replaced.
         let dp = self.decompiled(path)?;
-        let Some(slot) = dp.classes.iter_mut().find(|c| c.name.eq_ignore_ascii_case(&class)) else {
+        let exists = dp.classes.iter().any(|c| c.name.eq_ignore_ascii_case(&class));
+        if create && exists {
+            return Err(format!("{name} already has a class {class}").into());
+        }
+        if !create && !exists {
             return Err(format!("no class {class} in {name}").into());
-        };
+        }
+        if create {
+            dp.classes.push(tempest_unrealscript::toolchain::ClassSourceText { name: class.clone(), export: usize::MAX, source: String::new() });
+        }
+        let slot = dp.classes.iter_mut().find(|c| c.name.eq_ignore_ascii_case(&class)).expect("the class is there");
         let previous = std::mem::replace(&mut slot.source, source);
         let root = std::env::temp_dir().join("tempest-studio").join(format!("src-{}", std::process::id()));
         let src_dir = match dp.write_to(&root) {
             Ok(d) => d,
             Err(e) => {
-                dp.classes.iter_mut().find(|c| c.name.eq_ignore_ascii_case(&class)).unwrap().source = previous;
+                if create {
+                    dp.classes.retain(|c| !c.name.eq_ignore_ascii_case(&class));
+                } else {
+                    dp.classes.iter_mut().find(|c| c.name.eq_ignore_ascii_case(&class)).unwrap().source = previous;
+                }
                 return Err(e.into());
             }
         };
@@ -5185,18 +5236,30 @@ impl Server {
                 let ed = self.editor(path)?;
                 ed.begin_undo(format!("recompile {class}"));
                 ed.replace_package(r.package);
+                // A new class: its export in the rebuilt package, for its Source tab.
+                let added = create.then(|| (0..ed.pkg.exports.len()).find(|&i| ed.pkg.class_name_of(PackageIndex::export(i)).eq_ignore_ascii_case("class") && ed.pkg.object_name(PackageIndex::export(i)).eq_ignore_ascii_case(&class))).flatten();
                 let mut v = json::tables_compact(&ed.pkg);
+                v["added"] = J::from(added);
                 v["name"] = J::from(ed.name.clone());
                 v["path"] = J::from(path);
                 v["dirty"] = J::from(true);
                 v["warnings"] = J::from(r.warnings);
                 v["compileMs"] = J::from(t.elapsed().as_millis() as u64);
+                if let Some(i) = added {
+                    if let Ok(dp) = self.decompiled(path) {
+                        if let Some(c) = dp.classes.iter_mut().find(|c| c.name.eq_ignore_ascii_case(&class)) {
+                            c.export = i;
+                        }
+                    }
+                }
                 Ok(v)
             }
             Err(e) => {
-                // Keep the previous (compiling) text in the cache.
+                // Keep the previous (compiling) text in the cache; a new class is dropped again.
                 if let Ok(dp) = self.decompiled(path) {
-                    if let Some(c) = dp.classes.iter_mut().find(|c| c.name.eq_ignore_ascii_case(&class)) {
+                    if create {
+                        dp.classes.retain(|c| !c.name.eq_ignore_ascii_case(&class));
+                    } else if let Some(c) = dp.classes.iter_mut().find(|c| c.name.eq_ignore_ascii_case(&class)) {
                         c.source = previous;
                     }
                 }
@@ -6785,13 +6848,74 @@ impl Server {
         self.mesh_materials(&json!({ "path": path, "index": i }))
     }
 
-    /// `mesh.ownMaterial {path, index, slot}`: give the mesh its own copy of a
-    /// slot's material instance (next to the mesh, named after both), so its
-    /// textures and parameters can change without touching other meshes.
+    /// `mesh.ownMaterial {path, index, slot}`: give the mesh its own material
+    /// for a slot (next to the mesh, named after both), so its textures and
+    /// parameters can change without touching other meshes: a copy of the
+    /// slot's instance, or a new instance of a base material.
     fn mesh_own_material(&mut self, p: &J) -> Res<J> {
         let path = s(p, "path")?.to_string();
         let i = self.export_of(&path, p)?;
         let slot = opt_u(p, "slot").ok_or("missing slot")?;
+        let (mesh_name, mesh_outer) = {
+            let ed = self.editor(&path)?;
+            (ed.pkg.object_name(PackageIndex::export(i)), ed.pkg.exports[i].outer)
+        };
+        self.editor(&path)?.begin_undo(format!("own material for {mesh_name} slot {slot}"));
+        let copy = self.own_slot(&path, i, slot, mesh_outer, None)?;
+        let mut r = self.mesh_materials(&json!({ "path": path, "index": i }))?;
+        r["material"] = json!({ "index": copy, "path": self.editor(&path)?.pkg.object_path(PackageIndex::export(copy)) });
+        Ok(r)
+    }
+
+    /// `mesh.ownMaterials {path, index, slots?, group?}`: every slot (or the
+    /// listed ones) gets the mesh's own material, gathered in one group
+    /// (`<mesh>_materials` next to the mesh unless named), as one undo step.
+    /// Slots whose material is already in that group are left alone.
+    fn mesh_own_materials(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let i = self.export_of(&path, p)?;
+        let (mesh_name, mesh_outer, slots) = {
+            let ed = self.editor(&path)?;
+            let o = ed.object(i)?.clone();
+            (ed.pkg.object_name(PackageIndex::export(i)), ed.pkg.exports[i].outer, Self::mesh_slots(&ed.pkg, &o))
+        };
+        let wanted: Option<Vec<usize>> = p.get("slots").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_u64()).map(|x| x as usize).collect());
+        let group_name = opt_s(p, "group").unwrap_or_else(|| format!("{mesh_name}_materials"));
+        self.editor(&path)?.begin_undo(format!("own materials for {mesh_name}"));
+        let ed = self.editor(&path)?;
+        let group = match (0..ed.pkg.exports.len()).find(|&j| ed.pkg.exports[j].outer == mesh_outer && ed.pkg.class_name_of(PackageIndex::export(j)).eq_ignore_ascii_case("package") && ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(&group_name)) {
+            Some(g) => g,
+            None => ed.add_group(&group_name, mesh_outer)?,
+        };
+        let gi = PackageIndex::export(group);
+        let mut made = Vec::new();
+        let mut skipped = Vec::new();
+        for (slot, mat, _) in slots {
+            if wanted.as_ref().is_some_and(|w| !w.contains(&slot)) {
+                continue;
+            }
+            let ed = self.editor(&path)?;
+            if mat.export_index().is_some_and(|e| ed.pkg.exports[e].outer == gi) {
+                skipped.push(json!({ "slot": slot, "reason": "already the mesh's own" }));
+                continue;
+            }
+            match self.own_slot(&path, i, slot, gi, None) {
+                Ok(c) => made.push(json!({ "slot": slot, "index": c, "path": self.editor(&path)?.pkg.object_path(PackageIndex::export(c)) })),
+                Err(e) => skipped.push(json!({ "slot": slot, "reason": e.to_string() })),
+            }
+        }
+        let mut r = self.mesh_materials(&json!({ "path": path, "index": i }))?;
+        r["made"] = J::from(made);
+        r["skipped"] = J::from(skipped);
+        r["group"] = json!({ "index": group, "path": self.editor(&path)?.pkg.object_path(gi) });
+        Ok(r)
+    }
+
+    /// Give slot `slot` of mesh `i` its own material under `outer` (named
+    /// `name`, else `<mesh>_<material>` beside the mesh or `<material>` in a
+    /// group) and assign it; the caller opened the undo step.
+    fn own_slot(&mut self, path: &str, i: usize, slot: usize, outer: PackageIndex, name: Option<String>) -> Res<usize> {
+        let path = path.to_string();
         let (mat, mesh_name, mesh_outer) = {
             let ed = self.editor(&path)?;
             let o = ed.object(i)?.clone();
@@ -6822,43 +6946,45 @@ impl Server {
             (file, j)
         };
         let class = self.editor(&src_path)?.pkg.class_name_of(PackageIndex::export(src_i));
-        if !self.db()?.class_is_a(&class, "MaterialInstance") {
-            return Err("this slot uses a base material, which is shared by design: pick an instance with Change (or make one in the material's package) to edit textures and parameters per mesh".into());
-        }
+        let instance = self.db()?.class_is_a(&class, "MaterialInstance");
         let mat_name = self.editor(&src_path)?.pkg.object_name(PackageIndex::export(src_i));
-        let new_name = format!("{mesh_name}_{mat_name}");
+        let base_name = name.unwrap_or_else(|| if outer == mesh_outer { format!("{mesh_name}_{mat_name}") } else { mat_name.clone() });
         let dk = key(&path);
-        self.editor(&path)?.begin_undo(format!("own material for {mesh_name} slot {slot}"));
-        let copy = if key(&src_path) == dk {
-            let ed = self.editor(&path)?;
+        let ed = self.editor(&path)?;
+        let free = |ed: &Editor, n: &str| !(0..ed.pkg.exports.len()).any(|j| ed.pkg.exports[j].outer == outer && ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(n));
+        let mut new_name = base_name.clone();
+        let mut n = 2;
+        while !free(ed, &new_name) {
+            new_name = format!("{base_name}_{n}");
+            n += 1;
+        }
+        let made = if !instance {
+            // A base material is shared by design: a new instance of it.
+            crate::material_ops::new_instance(ed, mat, outer, &new_name)?
+        } else if key(&src_path) == dk {
             let c = ed.duplicate(src_i)?;
-            ed.export_mut(c)?.outer = mesh_outer;
+            ed.export_mut(c)?.outer = outer;
+            ed.rename(c, &new_name)?;
             c
         } else {
             let mut d = self.editors.remove(&dk).unwrap();
             let r = match self.editor(&src_path) {
-                Ok(src) => d.copy_with(src, src_i, Some(mesh_outer), crate::edit::CopyMode::Import).map_err(|e| Box::new(e) as Box<dyn Error>),
+                Ok(src) => d.copy_with(src, src_i, Some(outer), crate::edit::CopyMode::Import).map_err(|e| Box::new(e) as Box<dyn Error>),
                 Err(e) => Err(e),
             };
             self.editors.insert(dk.clone(), d);
-            r?.0.export_index().ok_or("the copy failed")?
+            let c = r?.0.export_index().ok_or("the copy failed")?;
+            self.editor(&path)?.rename(c, &new_name)?;
+            c
         };
         let ed = self.editor(&path)?;
-        let out = ed.pkg.exports[copy].outer;
-        let mut name = new_name.clone();
-        let mut n = 2;
-        while (0..ed.pkg.exports.len()).any(|j| j != copy && ed.pkg.exports[j].outer == out && ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(&name)) {
-            name = format!("{new_name}_{n}");
-            n += 1;
-        }
-        ed.rename(copy, &name)?;
         let mut o = ed.object(i)?.clone();
         match &mut o.native {
-            Native::SkeletalMesh(m) => m.materials[slot] = PackageIndex::export(copy),
+            Native::SkeletalMesh(m) => m.materials[slot] = PackageIndex::export(made),
             Native::StaticMesh(m) => {
                 for l in m.lod_models.iter_mut() {
                     for e in l.elements.iter_mut().filter(|e| e.material_index.max(0) as usize == slot) {
-                        e.material = PackageIndex::export(copy);
+                        e.material = PackageIndex::export(made);
                     }
                 }
             }
@@ -6866,9 +6992,48 @@ impl Server {
         }
         ed.replace_object(i, o)?;
         ed.mark_dirty(i);
-        let mut r = self.mesh_materials(&json!({ "path": path, "index": i }))?;
-        r["material"] = json!({ "index": copy, "path": self.editor(&path)?.pkg.object_path(PackageIndex::export(copy)) });
-        Ok(r)
+        Ok(made)
+    }
+
+    /// `material.newInstance {path, parent: {path, index}, name, outer?, unique?}`: a
+    /// new MaterialInstanceConstant in package `path` (under export `outer`,
+    /// default the top level) with `parent` as its parent and no overrides;
+    /// with `unique` a taken name gets a number.
+    fn material_new_instance(&mut self, p: &J) -> Res<J> {
+        let path = s(p, "path")?.to_string();
+        let name = s(p, "name")?.trim().to_string();
+        if name.is_empty() || name.contains(['.', ' ']) {
+            return Err("an object name has no dots or spaces".into());
+        }
+        let target = p.get("parent").ok_or("missing parent")?.clone();
+        {
+            let tpath = target["path"].as_str().unwrap_or(&path).to_string();
+            let ti = target["index"].as_u64().unwrap_or(0) as usize;
+            let te = self.editor(&tpath)?;
+            let class = te.pkg.class_name_of(PackageIndex::export(ti));
+            if !te.db.class_is_a(&class, "MaterialInterface") {
+                return Err(format!("{class} is not a material").into());
+            }
+        }
+        let outer = match opt_u(p, "outer") {
+            Some(o) => PackageIndex::export(o),
+            None => PackageIndex::NONE,
+        };
+        let mut name = name;
+        if opt_b(p, "unique").unwrap_or(false) {
+            let ed = self.editor(&path)?;
+            let base = name.clone();
+            let mut n = 2;
+            while (0..ed.pkg.exports.len()).any(|j| ed.pkg.exports[j].outer == outer && ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(&name)) {
+                name = format!("{base}_{n}");
+                n += 1;
+            }
+        }
+        self.editor(&path)?.begin_undo(format!("new material instance {name}"));
+        let parent = self.ref_into(&path, &target)?;
+        let ed = self.editor(&path)?;
+        let i = crate::material_ops::new_instance(ed, parent, outer, &name)?;
+        Ok(json!({ "index": i, "path": ed.pkg.object_path(PackageIndex::export(i)) }))
     }
 
     /// `material.setTexture {path, index, name, texture: {path, index}}`: a

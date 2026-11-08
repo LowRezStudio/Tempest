@@ -247,6 +247,34 @@
 		}
 	}
 
+	/**
+	 * A new instance of this material next to it: it draws the same until its textures and
+	 * parameters are changed, without copying the overrides of this one.
+	 */
+	async function newInstance() {
+		const row = studio.pkg?.path === path ? studio.pkg.exports[index] : undefined;
+		if (!row) return;
+		try {
+			const r = await rpc("material.newInstance", {
+				path,
+				parent: { path, index },
+				name: `${row.name}_inst`,
+				outer: row.outer > 0 ? row.outer - 1 : undefined,
+				unique: true,
+			});
+			studio.markDirty(path);
+			await studio.reloadTables();
+			await studio.select(r.index);
+			toasts.push(
+				"success",
+				`${r.path} draws like ${row.name} until you change its textures or parameters; point a mesh slot at it with Change…`,
+				"New instance",
+			);
+		} catch (error) {
+			toasts.error(error, "Could not make the instance");
+		}
+	}
+
 	async function setParameter(
 		name: string,
 		value: { scalar?: number; vector?: [number, number, number, number] },
@@ -361,8 +389,16 @@
 			<div class="px-3 py-1 text-[10px] opacity-60">
 				Textures, scalars and vectors are editable: on an instance the value becomes an
 				override of that instance; on a material it changes the parameter's default. A
-				material shared by several meshes changes for all of them: give a mesh its own copy
-				from the mesh's Materials list first.
+				material shared by several meshes changes for all of them: give a mesh its own
+				materials from the mesh's Materials list first, or make a new instance here.
+			</div>
+			<div class="px-3 pb-1">
+				<button
+					class="btn btn-ghost btn-xs"
+					onclick={newInstance}
+					title="A new MaterialInstanceConstant whose parent is this material: it starts with no overrides of its own"
+					>New instance of this material</button
+				>
 			</div>
 			<div class="pane-title">Parent chain</div>
 			<div class="space-y-0.5 px-3 py-1 font-mono">

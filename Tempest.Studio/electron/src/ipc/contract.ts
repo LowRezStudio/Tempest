@@ -1419,10 +1419,30 @@ export interface UpkMethods {
 		params: Target & { slot: number; material: ObjectTarget };
 		result: MeshMaterials;
 	};
-	/** The slot's material instance copied next to the mesh and assigned (for per-mesh edits). */
+	/** The mesh's own material for a slot, next to the mesh and assigned (an instance is copied, a base material gets a new instance). */
 	"mesh.ownMaterial": {
 		params: Target & { slot: number };
 		result: MeshMaterials & { material: { index: number; path: string } };
+	};
+	/** Every slot (or `slots`) gets the mesh's own material, gathered in one group (`<mesh>_materials`): instances are copied, base materials get a new instance. */
+	"mesh.ownMaterials": {
+		params: Target & { slots?: number[]; group?: string };
+		result: MeshMaterials & {
+			made: { slot: number; index: number; path: string }[];
+			skipped: { slot: number; reason: string }[];
+			group: { index: number; path: string };
+		};
+	};
+	/** A new MaterialInstanceConstant with `parent` as its parent and no overrides (under export `outer`, default the top level; `unique` numbers a taken name). */
+	"material.newInstance": {
+		params: {
+			path: string;
+			parent: ObjectTarget;
+			name: string;
+			outer?: number;
+			unique?: boolean;
+		};
+		result: { index: number; path: string };
 	};
 	/** A new slot of a skeletal mesh (the last slot's material unless one is given). */
 	"mesh.addSlot": { params: Target & { material?: ObjectTarget }; result: MeshMaterials };

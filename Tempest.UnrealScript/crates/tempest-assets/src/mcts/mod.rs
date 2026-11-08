@@ -28,6 +28,7 @@
 //! field in the `MFIELD_TOKEN` enum, and the loader rejects an entry whose
 //! kind does not match the field's type class.
 
+pub mod choices;
 pub mod create;
 pub mod skins;
 pub mod delta;

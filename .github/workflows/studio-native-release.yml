@@ -1,0 +1,150 @@
+name: Studio Native Release Build
+run-name: Studio Native release ${{ github.ref_name }}
+
+# The native (GPUI) Studio ships on its own tags, `studio-native-v*`, so the
+# launcher (`v*`) and the Electron Studio's updater (`studio-v*`) never pick
+# its releases up. One draft release per tag; each platform job attaches its
+# bundle zip with the `.sha256` the in-app updater checks
+# (Tempest.StudioNative/src/update.rs), and the DMG on macOS.
+#
+# macOS signing is optional: with the secrets APPLE_CERTIFICATE (base64 .p12),
+# APPLE_CERTIFICATE_PASSWORD and APPLE_SIGNING_IDENTITY the app is signed with
+# that Developer ID, and with APPLE_ID, APPLE_TEAM_ID and APPLE_APP_PASSWORD
+# notarized too; without them it is signed ad-hoc.
+on:
+  push:
+    tags:
+      - "studio-native-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create or update the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --force --depth=1 origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" 2>/dev/null || true
+          notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME" 2>/dev/null || echo "")
+          version="${GITHUB_REF_NAME#studio-native-v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --draft --notes "$notes"
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --latest=false --title "Tempest Studio Native $version" --notes "$notes"
+          fi
+
+  build:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-15
+          - platform: windows-latest
+          - platform: ubuntu-22.04
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Tempest.UnrealScript builds with stable; Tempest.StudioNative's
+      # rust-toolchain.toml pins its own, which rustup installs on first use.
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            Tempest.UnrealScript
+            Tempest.StudioNative
+
+      - name: Install Linux build deps
+        if: startsWith(matrix.platform, 'ubuntu-')
+        run: |
+          sudo apt update
+          sudo apt-get install -y zip clang cmake pkg-config libasound2-dev libfontconfig-dev libfreetype-dev \
+            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb1-dev libvulkan-dev libssl-dev
+
+      # tempest-cli (AOT) for the mod cooker; its build compiles the Zig injector.
+      - name: Setup .NET 10.0
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Zig
+        uses: marler8997/setup-anyzig@master
+
+      - name: Import the signing certificate
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [[ -z "$APPLE_CERTIFICATE" ]]; then
+            echo "No certificate: the app is signed ad-hoc."
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 16)
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          if [[ -n "$APPLE_ID" ]]; then
+            xcrun notarytool store-credentials tempest --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --keychain "$keychain"
+            echo "APPLE_NOTARY_PROFILE=tempest" >> "$GITHUB_ENV"
+          fi
+
+      # Ruffle's sources for the movie player (vendor/ruffle, patched).
+      - name: Fetch Ruffle
+        shell: bash
+        run: Tempest.StudioNative/scripts/fetch-ruffle.sh
+
+      - name: Test the updater and the particles
+        working-directory: Tempest.StudioNative
+        run: cargo test --release
+
+      - name: Bundle
+        shell: bash
+        run: Tempest.StudioNative/scripts/bundle.sh dist
+
+      - name: Attach to the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(dist/*.zip dist/*.zip.sha256 dist/*.dmg)
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tempest-studio-native-${{ matrix.platform }}
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+            dist/*.dmg
+          if-no-files-found: error

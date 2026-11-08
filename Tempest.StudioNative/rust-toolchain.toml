@@ -1,0 +1,4 @@
+[toolchain]
+# gpui-pre needs Option::map_or_default (stable after 1.97).
+channel = "1.99.1"
+components = ["clippy"]

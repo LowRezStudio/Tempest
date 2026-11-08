@@ -2,8 +2,10 @@
 	The material slots of a mesh (`mesh.materials`): what each slot draws
 	with, opened with a click to edit its textures and parameters. Change…
 	points a slot at any material or instance of the game folder; "Make it
-	this mesh's own" copies a shared instance next to the mesh, so editing
-	it changes this mesh only. Skeletal meshes can get a slot more, or lose
+	this mesh's own" gives the slot a material of its own next to the mesh
+	(a copy of a shared instance, or a new instance of a base material), so
+	editing it changes this mesh only; "Own materials for every slot" does
+	that for all slots at once, in one group named after the mesh. Skeletal meshes can get a slot more, or lose
 	one no section draws with (the per-section and per-slot tables follow).
 -->
 <script lang="ts">
@@ -76,7 +78,27 @@
 				`${r.material.path} is this mesh's own: open it to change its textures and colours`,
 			);
 		} catch (error) {
-			toasts.error(error, "Could not copy the material");
+			toasts.error(error, "Could not make the material");
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function ownAll() {
+		busy = true;
+		try {
+			const r = await rpc("mesh.ownMaterials", { path, index });
+			const skipped = r.skipped.filter((x) => x.reason !== "already the mesh's own");
+			await changed(
+				r,
+				r.made.length > 0
+					? `${r.made.length} material${r.made.length === 1 ? "" : "s"} of this mesh's own in ${r.group.path}: open one to change its textures`
+					: "Every slot already has the mesh's own material",
+			);
+			for (const x of skipped)
+				toasts.push("warning", `Slot ${x.slot}: ${x.reason}`, "Material");
+		} catch (error) {
+			toasts.error(error, "Could not make the materials");
 		} finally {
 			busy = false;
 		}
@@ -120,6 +142,13 @@
 		<div class="flex items-center gap-2">
 			<span class="font-sans font-semibold opacity-70">Materials</span>
 			<span class="flex-1"></span>
+			<button
+				class="btn btn-ghost btn-xs"
+				disabled={busy}
+				onclick={ownAll}
+				title="Give every slot a material of this mesh's own, gathered in one group named after the mesh: then change their textures without touching other meshes"
+				><Copy size={11} /> Own materials for every slot</button
+			>
 			{#if info.skeletal}
 				<button
 					class="btn btn-ghost btn-xs"
@@ -162,12 +191,14 @@
 					onclick={() => (picking = picking === s.slot ? null : s.slot)}
 					><Replace size={11} /> Change…</button
 				>
-				{#if s.instance}
+				{#if s.material.ref !== 0}
 					<button
 						class="btn btn-ghost btn-xs"
 						disabled={busy}
 						onclick={() => own(s.slot)}
-						title="Copy this instance next to the mesh and use the copy: editing it changes this mesh only"
+						title={s.instance
+							? "Copy this instance next to the mesh and use the copy: editing it changes this mesh only"
+							: "Make a new instance of this base material next to the mesh and use it: set its textures and colours for this mesh only"}
 						><Copy size={11} /> Make it this mesh's own</button
 					>
 				{/if}

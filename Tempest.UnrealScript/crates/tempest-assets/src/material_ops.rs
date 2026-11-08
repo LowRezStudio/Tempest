@@ -857,3 +857,38 @@ pub fn set_parameter(ed: &mut Editor, i: usize, name: &str, value: ParamValue) -
     }
     Err(tempest_upk::Error::Format(format!("{class} is not a material")))
 }
+
+/// A new `MaterialInstanceConstant` named `name` under `outer` whose
+/// `Parent` is `parent` (a material or instance this package exports or
+/// imports), with no overrides: it draws like its parent until parameters
+/// are set on it. It has no static permutation of its own, so the engine
+/// draws it with its parent's compiled shaders (cooked packages cannot
+/// compile new ones; static switches stay the parent's). Returns its index.
+pub fn new_instance(ed: &mut Editor, parent: PackageIndex, outer: PackageIndex, name: &str) -> Result<usize> {
+    use tempest_upk::flags::rf;
+    use tempest_upk::ObjectExport;
+    if parent.is_null() {
+        return Err(tempest_upk::Error::Format("a material instance needs a parent material".into()));
+    }
+    if (0..ed.pkg.exports.len()).any(|j| ed.pkg.exports[j].outer == outer && ed.pkg.object_name(PackageIndex::export(j)).eq_ignore_ascii_case(name)) {
+        return Err(tempest_upk::Error::Format(format!("{name} already exists there")));
+    }
+    let engine = ed.pkg.add_import("Core", "Package", PackageIndex::NONE, "Engine");
+    let class = ed.pkg.add_import("Core", "Class", engine, "MaterialInstanceConstant");
+    // Net index -1 and no properties, the payload of an instance without a
+    // static permutation; `Parent` is added once it parses.
+    let none = ed.pkg.intern_fname("None");
+    let mut data = Vec::with_capacity(12);
+    data.extend_from_slice(&(-1i32).to_le_bytes());
+    data.extend_from_slice(&(none.index as i32).to_le_bytes());
+    data.extend_from_slice(&(none.number as i32).to_le_bytes());
+    let flags = rf::TRANSACTIONAL | rf::PUBLIC | rf::STANDALONE | rf::LOAD_FOR_CLIENT | rf::LOAD_FOR_SERVER | rf::LOAD_FOR_EDIT;
+    let export = ObjectExport { class, outer, object_name: ed.pkg.intern_fname(name), object_flags: flags, ..Default::default() };
+    let i = ed.add_export(export, data);
+    let mut obj = ed.object(i)?.clone();
+    let p = prop(&mut ed.pkg, "Parent", PropertyKind::Object, None, Value::Object(parent));
+    obj.properties.push(p);
+    ed.replace_object(i, obj)?;
+    ed.mark_dirty(i);
+    Ok(i)
+}
