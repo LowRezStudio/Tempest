@@ -32,6 +32,7 @@ Enable/disable reconciles only the affected targets and commits the enabled stat
 after the files are ready. Failed changes restore the previous files and metadata;
 locked files, missing snapshots, and failed delta builds are errors, not successful
 toggles. Signed mods are reverified when enabled so Lua can reload without another
-game launch. The launcher keeps rows busy until their confirmed state is refreshed.
+game launch. The launcher keeps rows busy until their confirmed state is refreshed,
+with Installing, Enabling, Disabling or Removing labels matching the operation.
 DLLs and game assets already loaded by a running game still require a restart for
 their enabled/disabled state to take effect.

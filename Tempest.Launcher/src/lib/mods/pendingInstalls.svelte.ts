@@ -12,6 +12,7 @@ export type PendingInstall = {
 	modId?: string;
 	/** Enabling or disabling an installed mod: the work shows in the mod's own row. */
 	inPlace?: boolean;
+	operation?: "enable" | "disable" | "remove";
 	name: string;
 	version?: string;
 	author?: string;
@@ -22,9 +23,24 @@ export type PendingInstall = {
 	patching?: boolean;
 };
 
-/** What a busy row says: download or patching percentage, else installing. */
+/** What a busy row says: download or patching percentage, else its current operation. */
 export function pendingStatus(install: PendingInstall): string {
-	if (install.progress === null) return m.mod_row_installing();
+	if (install.progress === null) {
+		switch (install.operation) {
+			case "enable": {
+				return m.mod_row_enabling();
+			}
+			case "disable": {
+				return m.mod_row_disabling();
+			}
+			case "remove": {
+				return m.mod_row_removing();
+			}
+			default: {
+				return m.mod_row_installing();
+			}
+		}
+	}
 	const percent = Math.round(install.progress * 100);
 	return install.patching ? m.mod_row_patching({ percent }) : `${percent}%`;
 }
@@ -61,7 +77,7 @@ function refreshModList(gamePath: string): Promise<unknown> {
 // `downloading` starts the row at 0% instead of in the installing state.
 export function trackInstall(
 	gamePath: string,
-	info: { name: string; version?: string; modId?: string; inPlace?: boolean },
+	info: Pick<PendingInstall, "name" | "version" | "modId" | "inPlace" | "operation">,
 	downloading = false,
 ) {
 	const id = crypto.randomUUID();

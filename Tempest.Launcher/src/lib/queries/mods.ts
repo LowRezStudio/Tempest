@@ -3,6 +3,7 @@ import { disableMod, enableMod, installMod, listMods, removeMod } from "$lib/cor
 import { trackInstall } from "$lib/mods/pendingInstalls.svelte";
 import { invoke } from "$lib/platform/api";
 import type { ModInstallResult, ModRecord, PatchProgress } from "$lib/core/mods";
+import type { PendingInstall } from "$lib/mods/pendingInstalls.svelte";
 
 export const createModsQuery = (instancePath: () => string) =>
 	createQuery(() => {
@@ -110,6 +111,7 @@ export const createInstallModMutation = () => {
 // Keep the last confirmed state while the row is busy. Refresh on failure too: restoring
 // an optimistic snapshot of the entire list can undo another mod's successful change.
 const createModMutation = <V extends ModNameVariables>(
+	operation: NonNullable<PendingInstall["operation"]>,
 	run: (variables: V, onProgress: PatchProgress) => Promise<ModInstallResult>,
 ) => {
 	const queryClient = useQueryClient();
@@ -124,6 +126,7 @@ const createModMutation = <V extends ModNameVariables>(
 				name: modName,
 				modId,
 				inPlace: true,
+				operation,
 			});
 			try {
 				const res = await run(variables, tracker.setPatching);
@@ -139,16 +142,16 @@ const createModMutation = <V extends ModNameVariables>(
 type ModNameVariables = { gamePath: string; modName: string };
 
 export const createEnableModMutation = () =>
-	createModMutation<ModNameVariables>(({ gamePath, modName }, onProgress) =>
+	createModMutation<ModNameVariables>("enable", ({ gamePath, modName }, onProgress) =>
 		enableMod(gamePath, modName, onProgress),
 	);
 
 export const createDisableModMutation = () =>
-	createModMutation<ModNameVariables>(({ gamePath, modName }, onProgress) =>
+	createModMutation<ModNameVariables>("disable", ({ gamePath, modName }, onProgress) =>
 		disableMod(gamePath, modName, onProgress),
 	);
 
 export const createRemoveModMutation = () =>
-	createModMutation<ModNameVariables>(({ gamePath, modName }, onProgress) =>
+	createModMutation<ModNameVariables>("remove", ({ gamePath, modName }, onProgress) =>
 		removeMod(gamePath, modName, onProgress),
 	);
