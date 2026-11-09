@@ -14,6 +14,7 @@
 	const LAUNCHER_LOG_LINES = 500;
 
 	let note = $state("");
+	let discord = $state("");
 	let includeDump = $state(false);
 	let busy = $state<"send" | "save" | null>(null);
 	let sendError = $state<string | null>(null);
@@ -29,6 +30,7 @@
 	const close = () => {
 		closeCrashDialog();
 		note = "";
+		discord = "";
 		includeDump = false;
 		sendError = null;
 	};
@@ -48,6 +50,7 @@
 				.filter((mod) => mod.Enabled)
 				.map((mod) => `${mod.Name} ${mod.Version}`.trim()),
 			note: note.trim(),
+			discord: discord.trim(),
 			launcherLog: processLogs.value
 				.filter((log) => log.source === "launch")
 				.slice(-LAUNCHER_LOG_LINES)
@@ -126,6 +129,21 @@
 					maxlength="900"
 					placeholder={m.crash_note_placeholder()}
 					bind:value={note}></textarea>
+			</label>
+
+			<label class="block space-y-1">
+				<span class="block font-medium">{m.crash_discord_label()}</span>
+				<input
+					type="text"
+					class="input w-full"
+					maxlength="100"
+					placeholder={m.crash_discord_placeholder()}
+					aria-describedby="crash-discord-hint"
+					bind:value={discord}
+				/>
+				<span id="crash-discord-hint" class="block opacity-60">
+					{m.crash_discord_hint()}
+				</span>
 			</label>
 
 			<div class="space-y-1">

@@ -99,6 +99,7 @@ function reportText(crash: StagedCrash, details: CrashDetails): string {
 		`Exit code: ${exitCodeText(crash.exitCode)}`,
 		`Launcher: ${details.launcher}`,
 		`OS: ${details.os}`,
+		`Discord: ${details.discord || "(not provided)"}`,
 		`Note: ${details.note || "(none)"}`,
 		"",
 		"Enabled mods:",
@@ -151,6 +152,9 @@ function discordPayload(crash: StagedCrash, details: CrashDetails) {
 					{ name: "Exit code", value: exitCodeText(crash.exitCode), inline: true },
 					{ name: "Launcher", value: clip(details.launcher, 100), inline: true },
 					{ name: "OS", value: clip(details.os, 100), inline: true },
+					...(details.discord
+						? [{ name: "Player's Discord", value: clip(details.discord, 100) }]
+						: []),
 					{
 						name: "Enabled mods",
 						value: clip(details.mods.join(", ") || "none", 1000),

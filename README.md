@@ -17,6 +17,13 @@ Learn more about Tempest and Paladins on our [wiki](https://docs.lowrezstudio.co
 
 ![Launcher Prewview](./.github/assets/launcher.png)
 
+### Crash reports
+
+After a crash, the launcher offers to send logs or save a copy. You can optionally
+enter your Discord username so the Tempest team can follow up. It is included in
+the Discord post and the saved report; leaving it blank does not prevent reporting.
+Nothing is sent until you click **Report logs**.
+
 ## Contributing
 
 If you want to contribute to the project, start by reading the [contributing guide](.github/CONTRIBUTING.md). If you have any questions, feel free to ask in our [Discord server](https://discord.gg/2FyZDuxAk4d9).

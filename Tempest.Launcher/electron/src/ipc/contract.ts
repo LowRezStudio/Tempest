@@ -186,6 +186,7 @@ export type CrashDetails = {
 	os: string;
 	mods: string[];
 	note: string;
+	discord: string;
 	launcherLog: string;
 };
 
