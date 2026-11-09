@@ -40,6 +40,7 @@ public class ModConflictInfo
 
 public class ModInstallResult
 {
+    internal HashSet<string> DeltaTargetsToResolve { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
     public ModRecord? Mod { get; set; }

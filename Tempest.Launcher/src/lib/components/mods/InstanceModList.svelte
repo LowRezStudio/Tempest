@@ -119,8 +119,7 @@
 	const errorMessage = (error: unknown) =>
 		error instanceof Error ? error.message : String(error);
 
-	// The list updates optimistically; a second click while the CLI still works on
-	// the same mod is ignored so two enable/disable runs never race.
+	// Ignore a second click until the CLI and the list refresh both finish.
 	async function toggle(mod: ModRecord) {
 		if (togglingModIds.has(mod.Id)) return;
 		togglingModIds.add(mod.Id);

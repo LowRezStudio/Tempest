@@ -20,3 +20,18 @@ Learn more about Tempest and Paladins on our [wiki](https://docs.lowrezstudio.co
 ## Contributing
 
 If you want to contribute to the project, start by reading the [contributing guide](.github/CONTRIBUTING.md). If you have any questions, feel free to ask in our [Discord server](https://discord.gg/2FyZDuxAk4d9).
+
+### Mod installation and toggles
+
+Installing a mod without deltas does not scan unrelated delta-managed game files.
+Replacing a delta mod, or replacing a whole file used as a delta's base, still
+reconciles the affected targets. Shared `.tobj` files are payloads referenced by
+`.tdelta` files, not independent changes to game files.
+
+Enable/disable reconciles only the affected targets and commits the enabled state
+after the files are ready. Failed changes restore the previous files and metadata;
+locked files, missing snapshots, and failed delta builds are errors, not successful
+toggles. Signed mods are reverified when enabled so Lua can reload without another
+game launch. The launcher keeps rows busy until their confirmed state is refreshed.
+DLLs and game assets already loaded by a running game still require a restart for
+their enabled/disabled state to take effect.

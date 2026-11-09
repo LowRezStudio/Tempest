@@ -22,6 +22,16 @@ internal static class DeltaResolver
     private const string Prefix = "deltas/";
     private const string Suffix = ".tdelta";
 
+    internal static HashSet<string> AffectedFiles(IEnumerable<ModRecord> mods, IEnumerable<ModRecord> changedMods)
+    {
+        var changed = changedMods.ToList();
+        var targets = changed.SelectMany(m => m.DeltaFiles).Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var deltaManaged = mods.Where(m => m.Enabled).SelectMany(m => m.DeltaFiles).Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // A whole-file mod can replace the base of another mod's deltas.
+        targets.UnionWith(changed.SelectMany(m => m.OwnedFiles).Select(Path.GetFullPath).Where(deltaManaged.Contains));
+        return targets;
+    }
+
     /// <summary>The game-relative path a <c>deltas/…</c> package entry applies to, or null when the entry is not one.</summary>
     public static string? TargetOf(string entryPath)
     {
@@ -215,7 +225,7 @@ internal static class DeltaResolver
             catch (Exception ex)
             {
                 try { if (File.Exists(job.Tmp)) File.Delete(job.Tmp); } catch { }
-                report.Warnings.Add($"{job.Relative}: could not apply the deltas of {string.Join(", ", job.Stack.Select(c => $"'{c.Mod.Name}'"))}: {ex.Message}");
+                report.Errors.Add($"{job.Relative}: could not apply the deltas of {string.Join(", ", job.Stack.Select(c => $"'{c.Mod.Name}'"))}: {ex.Message}");
             }
         }
     }
@@ -243,7 +253,7 @@ internal static class DeltaResolver
         public string Output { get; set; } = "";
     }
 
-    private static string StatePath(string resolvedGame) => Path.Combine(resolvedGame, ".tempest", "v2", "deltas.json");
+    internal static string StatePath(string resolvedGame) => Path.Combine(resolvedGame, ".tempest", "v2", "deltas.json");
 
     private static Dictionary<string, ResolvedFile> LoadState(string resolvedGame)
     {
@@ -268,9 +278,9 @@ internal static class DeltaResolver
             }
             return state;
         }
-        catch
+        catch (Exception ex)
         {
-            return new Dictionary<string, ResolvedFile>(StringComparer.OrdinalIgnoreCase);
+            throw new IOException($"Could not read delta state: {ex.Message}", ex);
         }
     }
 
@@ -278,7 +288,7 @@ internal static class DeltaResolver
     {
         var path = StatePath(resolvedGame);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(state, DeltaJsonContext.Default.DictionaryStringResolvedFile));
+        ModCommands.WriteAtomic(path, JsonSerializer.Serialize(state, DeltaJsonContext.Default.DictionaryStringResolvedFile));
     }
 
     public sealed class Report
@@ -288,9 +298,15 @@ internal static class DeltaResolver
         /// <summary>Objects or rows a delta replaced that another mod (or a game update) had changed first; the later mod won.</summary>
         public List<string> Drift { get; } = [];
         public List<string> Warnings { get; } = [];
+        public List<string> Errors { get; } = [];
     }
 
     private sealed record Contribution(ModRecord Mod, string DeltaFile);
+
+    private static string OwnerSnapshot(string resolvedGame, ModRecord owner, string relative) =>
+        string.Equals(owner.Kind, "V2", StringComparison.OrdinalIgnoreCase)
+            ? GamePath.Resolve(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, owner.Id), $"files/{relative}")
+            : Path.Combine(TempestPathUtility.GetLocalV1ModDirectory(resolvedGame, owner.Id), "files", Path.GetFileName(relative));
 
     /// <summary>A file whose stack changed since it was last built.</summary>
     private sealed record Job(string Relative, string GameFile, string BasePath, List<Contribution> Stack, string StackHash)
@@ -306,14 +322,16 @@ internal static class DeltaResolver
     /// <paramref name="progress"/> hears the fraction done and what is being worked on while
     /// files are rebuilt (nothing when every file is up to date).
     /// </summary>
-    public static async Task<Report> ResolveAsync(string gamePath, Action<double, string>? progress = null)
+    public static async Task<Report> ResolveAsync(string gamePath, Action<double, string>? progress = null, IReadOnlyCollection<string>? targets = null, IReadOnlyList<ModRecord>? installedMods = null)
     {
         var report = new Report();
+        if (targets is { Count: 0 }) return report;
         try
         {
             var resolvedGame = GameFolderResolver.Resolve(gamePath);
+            var selected = targets?.Select(f => Relative(resolvedGame, f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var state = LoadState(resolvedGame);
-            var mods = File.Exists(ModCommands.GetMetadataPath(gamePath)) ? ModCommands.LoadMetadata(gamePath) : [];
+            var mods = installedMods ?? (File.Exists(ModCommands.GetMetadataPath(gamePath)) ? ModCommands.LoadMetadata(gamePath) : []);
             var v2 = mods.Where(m => string.Equals(m.Kind, "V2", StringComparison.OrdinalIgnoreCase)).ToList();
 
             // Who contributes what, in install order.
@@ -324,12 +342,13 @@ internal static class DeltaResolver
                 foreach (var file in mod.DeltaFiles)
                 {
                     var relative = Relative(resolvedGame, file);
+                    if (selected != null && !selected.Contains(relative)) continue;
                     // The mod folder keeps the spelling the package shipped; an install made on a
                     // case-insensitive disk may not match the game's (see GamePath).
                     var deltaFile = GamePath.Resolve(modDir, $"deltas/{relative}{Suffix}");
                     if (!File.Exists(deltaFile))
                     {
-                        report.Warnings.Add($"'{mod.Name}': its delta for {relative} is missing from the mod folder");
+                        report.Errors.Add($"'{mod.Name}': its delta for {relative} is missing from the mod folder");
                         continue;
                     }
                     if (!contributions.TryGetValue(relative, out var list)) contributions[relative] = list = [];
@@ -338,13 +357,15 @@ internal static class DeltaResolver
             }
             // Whole-file owners: their copy is the base the deltas go on.
             var owners = new Dictionary<string, ModRecord>(StringComparer.OrdinalIgnoreCase);
-            foreach (var mod in v2.Where(m => m.Enabled))
+            foreach (var mod in mods.Where(m => m.Enabled))
             {
                 foreach (var file in mod.OwnedFiles) owners[Relative(resolvedGame, file)] = mod;
             }
 
             var files = new HashSet<string>(contributions.Keys, StringComparer.OrdinalIgnoreCase);
             files.UnionWith(state.Keys);
+            if (selected != null) files.IntersectWith(selected);
+            if (report.Errors.Count > 0) return report;
             if (files.Count == 0) return report;
 
             // Script packages gaining classes first: the class database the other
@@ -366,20 +387,28 @@ internal static class DeltaResolver
                 if (stack == null || stack.Count == 0)
                 {
                     // No delta touches it any more: back to the base.
-                    if (state.Remove(relative))
+                    if (state.ContainsKey(relative))
                     {
-                        changed = true;
+                        var original = owner != null
+                            ? OwnerSnapshot(resolvedGame, owner, relative)
+                            : backup;
+                        if (!File.Exists(original))
+                        {
+                            report.Errors.Add($"{relative}: the base file is missing; cannot remove the last delta");
+                            continue;
+                        }
                         if (owner != null)
                         {
                             // The owner's own copy is the whole file again.
-                            var snapshot = GamePath.Resolve(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, owner.Id), $"files/{relative}");
-                            if (File.Exists(snapshot)) File.Copy(snapshot, gameFile, overwrite: true);
+                            File.Copy(original, gameFile, overwrite: true);
                         }
-                        else if (File.Exists(backup))
+                        else
                         {
                             File.Copy(backup, gameFile, overwrite: true);
                             File.Delete(backup);
                         }
+                        state.Remove(relative);
+                        changed = true;
                         report.Restored.Add(relative);
                     }
                     continue;
@@ -391,11 +420,17 @@ internal static class DeltaResolver
                 string baseId;
                 if (owner != null)
                 {
-                    basePath = GamePath.Resolve(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, owner.Id), $"files/{relative}");
+                    basePath = OwnerSnapshot(resolvedGame, owner, relative);
                     baseId = $"mod:{owner.Id}@{owner.Version}:{HashFile(basePath)}";
-                    if (!File.Exists(backup) && File.Exists(gameFile) && !state.ContainsKey(relative))
+                    if (!File.Exists(backup) && !state.ContainsKey(relative) &&
+                        !string.Equals(owner.Kind, "V2", StringComparison.OrdinalIgnoreCase))
                     {
-                        // Never resolved and owned: the owner's install already backed the original up.
+                        var legacyBackup = TempestPathUtility.GetLocalV1BackupPath(resolvedGame, Path.GetFileName(relative));
+                        if (File.Exists(legacyBackup))
+                        {
+                            Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+                            File.Copy(legacyBackup, backup);
+                        }
                     }
                 }
                 else
@@ -404,13 +439,13 @@ internal static class DeltaResolver
                     {
                         if (!File.Exists(gameFile))
                         {
-                            report.Warnings.Add($"{relative}: the game has no such file, the deltas of {string.Join(", ", stack.Select(c => $"'{c.Mod.Name}'"))} cannot be applied");
+                            report.Errors.Add($"{relative}: the game has no such file, the deltas of {string.Join(", ", stack.Select(c => $"'{c.Mod.Name}'"))} cannot be applied");
                             continue;
                         }
                         if (state.ContainsKey(relative))
                         {
-                            // Built before, but the backup went missing: the file on disk is modded; nothing better to start from.
-                            report.Warnings.Add($"{relative}: the original backup is missing; the current file is taken as the original");
+                            report.Errors.Add($"{relative}: the original backup is missing; refusing to use the patched game file as its own base");
+                            continue;
                         }
                         Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
                         File.Copy(gameFile, backup);
@@ -433,7 +468,7 @@ internal static class DeltaResolver
         }
         catch (Exception ex)
         {
-            report.Warnings.Add($"could not resolve mod deltas: {ex.Message}");
+            report.Errors.Add($"could not resolve mod deltas: {ex.Message}");
         }
         return report;
     }
@@ -442,13 +477,16 @@ internal static class DeltaResolver
     /// Runs the resolver and prints what it did on stderr (JSON outputs on stdout stay clean),
     /// with <c>[progress] 42% what</c> lines while it rebuilds files (the launcher's progress bar).
     /// </summary>
-    public static async Task ResolveAndReportAsync(string gamePath)
+    public static async Task ResolveAndReportAsync(string gamePath, IReadOnlyCollection<string>? targets = null, bool requireSuccess = false, IReadOnlyList<ModRecord>? installedMods = null)
     {
-        var report = await ResolveAsync(gamePath, (fraction, what) => Console.Error.WriteLine(string.Create(CultureInfo.InvariantCulture, $"[progress] {Math.Floor(fraction * 100)}% {what}")));
+        var report = await ResolveAsync(gamePath, (fraction, what) => Console.Error.WriteLine(string.Create(CultureInfo.InvariantCulture, $"[progress] {Math.Floor(fraction * 100)}% {what}")), targets, installedMods);
         foreach (var f in report.Rebuilt) await Console.Error.WriteLineAsync($"[deltas] rebuilt {f}");
         foreach (var f in report.Restored) await Console.Error.WriteLineAsync($"[deltas] restored {f}");
         foreach (var d in report.Drift) await Console.Error.WriteLineAsync($"[deltas] note: {d}");
         foreach (var w in report.Warnings) await Console.Error.WriteLineAsync($"Warning: {w}");
+        foreach (var e in report.Errors) await Console.Error.WriteLineAsync($"Error: {e}");
+        if (requireSuccess && report.Errors.Count > 0)
+            throw new IOException(string.Join(Environment.NewLine, report.Errors));
     }
 
     /// <summary>

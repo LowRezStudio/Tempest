@@ -223,13 +223,13 @@ export const listMods = async (gamePath: string): Promise<ModRecord[]> => {
 		appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
 	}
 
-	if (res.code !== 0) return [];
+	if (res.code !== 0) throw new Error(res.stderr.trim() || "Could not read installed mods");
 	try {
 		const parsed = JSON.parse(res.stdout) as ModListResult;
 		return parsed.Mods || [];
 	} catch (error) {
 		console.error("Failed to parse mods list:", error);
-		return [];
+		throw error;
 	}
 };
 

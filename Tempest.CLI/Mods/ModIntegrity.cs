@@ -41,15 +41,7 @@ internal static class ModIntegrity
             // in the game folder; overlapping installs overwrite each other by design.
             // A delta-managed file is derived (the owner's copy plus every delta), so a
             // delta contributor counts as another owner and the game copy is not compared.
-            var gameFileOwners = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var mod in v2Enabled)
-            {
-                foreach (var file in mod.OwnedFiles.Concat(mod.DeltaFiles))
-                {
-                    var relative = TryGameRelative(resolvedGame, file);
-                    if (relative != null) gameFileOwners[relative] = gameFileOwners.TryGetValue(relative, out var n) ? n + 1 : 1;
-                }
-            }
+            var gameFileOwners = GameFileOwners(resolvedGame, v2Enabled);
 
             foreach (var mod in v2Enabled)
             {
@@ -77,6 +69,17 @@ internal static class ModIntegrity
         {
             await Console.Error.WriteLineAsync($"Warning: could not verify installed mods before launch: {ex.Message}");
         }
+    }
+
+    internal static Dictionary<string, int> GameFileOwners(string resolvedGame, IEnumerable<ModRecord> mods)
+    {
+        var owners = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in mods.Where(m => m.Enabled).SelectMany(m => m.OwnedFiles.Concat(m.DeltaFiles)))
+        {
+            var relative = TryGameRelative(resolvedGame, file);
+            if (relative != null) owners[relative] = owners.TryGetValue(relative, out var count) ? count + 1 : 1;
+        }
+        return owners;
     }
 
     /// <summary>Null when the installed files still match the signed CHECKSUMS, else why they do not.</summary>

@@ -208,7 +208,10 @@
 			class="toggle toggle-primary"
 			checked={mod.Enabled}
 			disabled={!!busy || locked}
-			onchange={() => onToggle(mod)}
+			onchange={(event) => {
+				event.currentTarget.checked = mod.Enabled;
+				onToggle(mod);
+			}}
 			title={toggleLabel}
 			aria-label={toggleLabel}
 		/>

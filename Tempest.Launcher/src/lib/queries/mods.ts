@@ -3,7 +3,6 @@ import { disableMod, enableMod, installMod, listMods, removeMod } from "$lib/cor
 import { trackInstall } from "$lib/mods/pendingInstalls.svelte";
 import { invoke } from "$lib/platform/api";
 import type { ModInstallResult, ModRecord, PatchProgress } from "$lib/core/mods";
-import type { InstallTracker } from "$lib/mods/pendingInstalls.svelte";
 
 export const createModsQuery = (instancePath: () => string) =>
 	createQuery(() => {
@@ -108,13 +107,10 @@ export const createInstallModMutation = () => {
 	}));
 };
 
-// Applies the change to the cached list immediately instead of waiting for the CLI,
-// rolls it back on failure, and resyncs once no other mod edit is in flight. While the CLI
-// rebuilds game files from mod deltas, the mod's row (a placeholder once it is removed) shows
-// how far it got.
-const createOptimisticModMutation = <V extends ModNameVariables>(
+// Keep the last confirmed state while the row is busy. Refresh on failure too: restoring
+// an optimistic snapshot of the entire list can undo another mod's successful change.
+const createModMutation = <V extends ModNameVariables>(
 	run: (variables: V, onProgress: PatchProgress) => Promise<ModInstallResult>,
-	update: (mods: ModRecord[], variables: V) => ModRecord[],
 ) => {
 	const queryClient = useQueryClient();
 	return createMutation(() => ({
@@ -124,57 +120,35 @@ const createOptimisticModMutation = <V extends ModNameVariables>(
 			const modId = queryClient
 				.getQueryData<ModRecord[]>(["mods", gamePath])
 				?.find((mod) => mod.Name === modName)?.Id;
-			let tracker: InstallTracker | undefined;
+			const tracker = trackInstall(gamePath, {
+				name: modName,
+				modId,
+				inPlace: true,
+			});
 			try {
-				const res = await run(variables, (fraction) => {
-					tracker ??= trackInstall(gamePath, { name: modName, modId, inPlace: true });
-					tracker.setPatching(fraction);
-				});
+				const res = await run(variables, tracker.setPatching);
 				if (!res.Success) throw new Error(res.Message || "Unknown error");
 				return res;
 			} finally {
-				void tracker?.finish(false);
+				await tracker.finish(true);
 			}
-		},
-		onMutate: async (variables: V) => {
-			const queryKey = ["mods", variables.gamePath];
-			await queryClient.cancelQueries({ queryKey });
-			const previous = queryClient.getQueryData<ModRecord[]>(queryKey);
-			queryClient.setQueryData<ModRecord[]>(
-				queryKey,
-				(mods) => mods && update(mods, variables),
-			);
-			return { previous };
-		},
-		onError: (_error, variables, result) => {
-			queryClient.setQueryData(["mods", variables.gamePath], result?.previous);
-		},
-		onSettled: (_data, _error, variables) => {
-			if (queryClient.isMutating({ mutationKey: ["mods-edit"] }) > 1) return;
-			void queryClient.invalidateQueries({ queryKey: ["mods", variables.gamePath] });
 		},
 	}));
 };
 
 type ModNameVariables = { gamePath: string; modName: string };
 
-const setEnabled = (mods: ModRecord[], modName: string, Enabled: boolean) =>
-	mods.map((mod) => (mod.Name === modName ? { ...mod, Enabled } : mod));
-
 export const createEnableModMutation = () =>
-	createOptimisticModMutation<ModNameVariables>(
-		({ gamePath, modName }, onProgress) => enableMod(gamePath, modName, onProgress),
-		(mods, { modName }) => setEnabled(mods, modName, true),
+	createModMutation<ModNameVariables>(({ gamePath, modName }, onProgress) =>
+		enableMod(gamePath, modName, onProgress),
 	);
 
 export const createDisableModMutation = () =>
-	createOptimisticModMutation<ModNameVariables>(
-		({ gamePath, modName }, onProgress) => disableMod(gamePath, modName, onProgress),
-		(mods, { modName }) => setEnabled(mods, modName, false),
+	createModMutation<ModNameVariables>(({ gamePath, modName }, onProgress) =>
+		disableMod(gamePath, modName, onProgress),
 	);
 
 export const createRemoveModMutation = () =>
-	createOptimisticModMutation<ModNameVariables>(
-		({ gamePath, modName }, onProgress) => removeMod(gamePath, modName, onProgress),
-		(mods, { modName }) => mods.filter((mod) => mod.Name !== modName),
+	createModMutation<ModNameVariables>(({ gamePath, modName }, onProgress) =>
+		removeMod(gamePath, modName, onProgress),
 	);

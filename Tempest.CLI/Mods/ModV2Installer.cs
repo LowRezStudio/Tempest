@@ -434,7 +434,8 @@ public class ModV2Installer : IModInstaller
             // make it fail halfway, with the replaced mod already gone; refuse it whole instead.
             var removedMods = metadataMods.Where(m =>
                 string.Equals(m.Id, modId, StringComparison.OrdinalIgnoreCase) ||
-                replace && conflicts.Any(c => string.Equals(c.ModId, m.Id, StringComparison.OrdinalIgnoreCase)));
+                replace && conflicts.Any(c => string.Equals(c.ModId, m.Id, StringComparison.OrdinalIgnoreCase))).ToList();
+            var deltaTargetsToResolve = DeltaResolver.AffectedFiles(metadataMods, removedMods);
             var inUse = FindFilesInUse(archive, resolvedGame, targetModDir, removedMods);
             if (inUse.Count > 0)
             {
@@ -654,8 +655,10 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
             // Installed either way; what it still needs is reported so the launcher (or
             // `mod install <id>`, which resolves them from the repository first) can act on it.
             var missing = ModDependencies.Missing(manifest.Dependencies, ModCommands.LoadMetadata(gamePath));
+            deltaTargetsToResolve.UnionWith(DeltaResolver.AffectedFiles(metadataMods, [modRecord]));
             return new ModInstallResult
             {
+                DeltaTargetsToResolve = deltaTargetsToResolve,
                 Success = true,
                 Message = missing.Count == 0
                     ? "Mod installed successfully"
@@ -791,20 +794,13 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
             var relativePathFromGame = Path.GetRelativePath(resolvedGame, file);
             var backupPath = TempestPathUtility.GetLocalV2BackupPath(resolvedGame, relativePathFromGame);
 
-            if (!File.Exists(backupPath)) continue;
-
-            try
+            if (File.Exists(backupPath))
             {
                 var destDir = Path.GetDirectoryName(file);
                 if (destDir != null) Directory.CreateDirectory(destDir);
-
-                if (File.Exists(file)) File.Delete(file);
-                File.Copy(backupPath, file);
+                File.Copy(backupPath, file, overwrite: true);
             }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Warning: Failed to restore backup {backupPath} to {file}: {ex.Message}");
-            }
+            else File.Delete(file);
         }
 
         // Keep mod dir, backup dirs, and ini-backup dirs intact for re-enable
@@ -822,8 +818,7 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
 
         if (!Directory.Exists(targetModDir))
         {
-            Console.Error.WriteLine($"Warning: Mod directory not found for '{modId}'. Cannot enable.");
-            return Task.CompletedTask;
+            throw new DirectoryNotFoundException($"Mod directory not found for '{modId}'. Reinstall the mod.");
         }
 
         // Re-apply non-INI files this mod owns from the mod snapshot directory
@@ -834,22 +829,12 @@ var authorString = string.Join(", ", manifest.Authors.Select(a => a.Name));
 
             if (!File.Exists(snapshotPath))
             {
-                Console.Error.WriteLine($"Warning: Snapshot file not found for '{relativePathFromGame}'. Mod may have been installed before snapshot support was added.");
-                continue;
+                throw new FileNotFoundException($"Snapshot file not found for '{relativePathFromGame}'. Reinstall the mod.", snapshotPath);
             }
 
-            try
-            {
-                var destDir = Path.GetDirectoryName(file);
-                if (destDir != null) Directory.CreateDirectory(destDir);
-
-                if (File.Exists(file)) File.Delete(file);
-                File.Copy(snapshotPath, file);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Warning: Failed to enable file {file}: {ex.Message}");
-            }
+            var destDir = Path.GetDirectoryName(file);
+            if (destDir != null) Directory.CreateDirectory(destDir);
+            File.Copy(snapshotPath, file, overwrite: true);
         }
 
         // Re-apply INI patches

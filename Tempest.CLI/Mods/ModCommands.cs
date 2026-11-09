@@ -96,9 +96,9 @@ internal class ModCommands
             }
             return mods;
         }
-        catch
+        catch (Exception ex)
         {
-            return [];
+            throw new IOException($"Could not read mod metadata '{path}': {ex.Message}", ex);
         }
     }
 
@@ -130,9 +130,9 @@ internal class ModCommands
     internal static void SaveMetadata(string gamePath, List<ModRecord> mods)
     {
         var path = GetMetadataPath(gamePath);
+        var resolvedGame = GameFolderResolver.Resolve(gamePath);
         try
         {
-            var resolvedGame = GameFolderResolver.Resolve(gamePath);
             foreach (var mod in mods)
             {
                 for (var i = 0; i < mod.InstalledFiles.Count; i++)
@@ -145,9 +145,10 @@ internal class ModCommands
                 }
             }
             var json = JsonSerializer.Serialize(mods, ModSourceGenerationContext.Default.ListModRecord);
-            File.WriteAllText(path, json);
-
-            // ponytail: restore absolute paths in memory to avoid breaking subsequent operations/printing
+            WriteAtomic(path, json);
+        }
+        finally
+        {
             foreach (var mod in mods)
             {
                 for (var i = 0; i < mod.InstalledFiles.Count; i++)
@@ -160,9 +161,19 @@ internal class ModCommands
                 }
             }
         }
-        catch (Exception ex)
+    }
+
+    internal static void WriteAtomic(string path, string text)
+    {
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
         {
-            Console.Error.WriteLine($"Failed to save mod metadata: {ex.Message}");
+            File.WriteAllText(temporary, text);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(temporary);
         }
     }
 
@@ -249,9 +260,12 @@ internal class ModCommands
 
         if (result.Success && result.Mod != null)
         {
+            var beforeRecording = LoadMetadata(path);
+            result.DeltaTargetsToResolve.UnionWith(DeltaResolver.AffectedFiles(beforeRecording,
+                beforeRecording.Where(m => string.Equals(m.Name, result.Mod.Name, StringComparison.OrdinalIgnoreCase))));
             RecordInstall(path, result.Mod);
             // Delta-managed game files are rebuilt from the enabled mods, including this one.
-            await DeltaResolver.ResolveAndReportAsync(path);
+            await DeltaResolver.ResolveAndReportAsync(path, result.DeltaTargetsToResolve, requireSuccess: true);
             var filesAfter = ModGameFiles(LoadMetadata(path));
             var changed = filesBefore.Except(filesAfter, StringComparer.OrdinalIgnoreCase).Concat(ModGameFiles([result.Mod]));
             Launcher.PackageHashes.ApplyToRunning(path, changed);
@@ -558,6 +572,7 @@ internal class ModCommands
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
+            Environment.ExitCode = 1;
         }
     }
 
@@ -703,14 +718,23 @@ internal class ModCommands
             }
 
             var installer = CreateInstaller(mod);
-            await installer.EnableAsync(path, mod);
-            mod.Enabled = true;
-            // Files were just re-applied from an unverified snapshot; the next launch
-            // re-checks them against the mod's signed CHECKSUMS first.
-            mod.Verified = false;
-            SaveMetadata(path, mods);
-            await DeltaResolver.ResolveAndReportAsync(path);
-            Launcher.PackageHashes.ApplyToRunning(path, ModGameFiles(mods));
+            var targets = DeltaResolver.AffectedFiles(mods, [mod]);
+            await ModFileTransaction.RunAsync(ToggleFiles(path, mod, targets), async () =>
+            {
+                await installer.EnableAsync(path, mod);
+                mod.Enabled = true;
+                if (string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
+                {
+                    var resolvedGame = GameFolderResolver.Resolve(path);
+                    var trust = mod.Signer.Length > 0 ? await TrustStore.LoadAsync(resolvedGame) : null;
+                    var problem = await ModIntegrity.VerifyInstalledAsync(resolvedGame, mod, trust, ModIntegrity.GameFileOwners(resolvedGame, mods));
+                    if (problem != null) throw new IOException($"Cannot enable '{mod.Name}': {problem}. Reinstall the mod.");
+                    mod.Verified = true;
+                }
+                await DeltaResolver.ResolveAndReportAsync(path, targets, requireSuccess: true, installedMods: mods);
+                SaveMetadata(path, mods);
+            });
+            Launcher.PackageHashes.ApplyToRunning(path, ModGameFiles([mod]));
 
             var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' enabled successfully." };
             PrintResult(result, json);
@@ -750,11 +774,15 @@ internal class ModCommands
 
             var dependants = ModDependencies.Dependants(mod.Id, mods);
             var installer = CreateInstaller(mod);
-            await installer.DisableAsync(path, mod);
-            mod.Enabled = false;
-            SaveMetadata(path, mods);
-            await DeltaResolver.ResolveAndReportAsync(path);
-            Launcher.PackageHashes.ApplyToRunning(path, ModGameFiles(mods));
+            var targets = DeltaResolver.AffectedFiles(mods, [mod]);
+            await ModFileTransaction.RunAsync(ToggleFiles(path, mod, targets), async () =>
+            {
+                await installer.DisableAsync(path, mod);
+                mod.Enabled = false;
+                await DeltaResolver.ResolveAndReportAsync(path, targets, requireSuccess: true, installedMods: mods);
+                SaveMetadata(path, mods);
+            });
+            Launcher.PackageHashes.ApplyToRunning(path, ModGameFiles([mod]));
 
             var note = dependants.Count == 0 ? "" : $" {string.Join(", ", dependants.Select(d => $"'{d.Name}'"))} depend{(dependants.Count == 1 ? "s" : "")} on it.";
             var result = new ModInstallResult { Success = true, Message = $"Mod '{modName}' disabled successfully.{note}" };
@@ -764,6 +792,39 @@ internal class ModCommands
         {
             var fail = new ModInstallResult { Success = false, Message = ex.Message };
             PrintResult(fail, json);
+        }
+    }
+
+    private static IEnumerable<string> ToggleFiles(string path, ModRecord mod, IReadOnlyCollection<string> targets)
+    {
+        var resolvedGame = GameFolderResolver.Resolve(path);
+        // Restore metadata last, after the files it describes.
+        yield return GetMetadataPath(path);
+        foreach (var file in mod.OwnedFiles) yield return file;
+        if (string.Equals(mod.Kind, "V2", StringComparison.OrdinalIgnoreCase))
+        {
+            var snapshotDir = Path.Combine(TempestPathUtility.GetLocalV2ModDirectory(resolvedGame, mod.Id), "files");
+            if (Directory.Exists(snapshotDir))
+            {
+                foreach (var file in Directory.EnumerateFiles(snapshotDir, "*.ini", SearchOption.AllDirectories))
+                {
+                    var relative = Path.GetRelativePath(snapshotDir, file);
+                    yield return Path.Combine(resolvedGame, relative);
+                    yield return TempestPathUtility.GetLocalV2IniBackupPath(resolvedGame, mod.Id, relative);
+                }
+            }
+        }
+        else
+        {
+            yield return Path.Combine(resolvedGame, "ChaosGame", "Config", "DefaultEngine.ini");
+        }
+        if (targets.Count == 0) yield break;
+        yield return DeltaResolver.StatePath(resolvedGame);
+        foreach (var file in targets)
+        {
+            yield return file;
+            yield return file + ".tempest-resolving";
+            yield return TempestPathUtility.GetLocalV2BackupPath(resolvedGame, Path.GetRelativePath(resolvedGame, file));
         }
     }
 

@@ -76,6 +76,12 @@ public class ModV1Installer : IModInstaller
             }
         }
 
+        var replacedMods = replace
+            ? metadataMods.Where(m => conflicts.Any(c => string.Equals(c.ModId, m.Id, StringComparison.OrdinalIgnoreCase))).ToList()
+            : [];
+        var deltaTargetsToResolve = DeltaResolver.AffectedFiles(metadataMods, replacedMods);
+        deltaTargetsToResolve.UnionWith(DeltaResolver.AffectedFiles(metadataMods, [new ModRecord { OwnedFiles = [destPath] }]));
+
         if (conflicts.Count > 0)
         {
             if (!replace && !stack)
@@ -217,6 +223,7 @@ public class ModV1Installer : IModInstaller
 
         return new ModInstallResult
         {
+            DeltaTargetsToResolve = deltaTargetsToResolve,
             Success = true,
             Message = "Mod installed successfully",
             Mod = modRecord
@@ -295,21 +302,13 @@ public class ModV1Installer : IModInstaller
 
             if (sourcePath == null)
             {
-                await Console.Error.WriteLineAsync($"Warning: Cannot enable mod '{mod.Name}': no snapshot or original file found. Try re-installing the mod.");
-                continue;
+                throw new FileNotFoundException($"Cannot enable mod '{mod.Name}': no snapshot or original file found. Reinstall the mod.");
             }
 
-            try
-            {
-                var destDir = Path.GetDirectoryName(file);
-                if (destDir != null) Directory.CreateDirectory(destDir);
+            var destDir = Path.GetDirectoryName(file);
+            if (destDir != null) Directory.CreateDirectory(destDir);
 
-                File.Copy(sourcePath, file, overwrite: true);
-            }
-            catch (Exception ex)
-            {
-                await Console.Error.WriteLineAsync($"Warning: Failed to enable file {file}: {ex.Message}");
-            }
+            File.Copy(sourcePath, file, overwrite: true);
         }
 
         // Re-register in INI
@@ -351,7 +350,7 @@ public class ModV1Installer : IModInstaller
         }
     }
 
-    private static async Task DisableModFiles(string resolvedGame, string backupDir, ModRecord mod)
+    private static Task DisableModFiles(string resolvedGame, string backupDir, ModRecord mod)
     {
         foreach (var file in mod.OwnedFiles)
         {
@@ -360,80 +359,51 @@ public class ModV1Installer : IModInstaller
 
             if (File.Exists(backupPath))
             {
-                try
-                {
-                    var destDir = Path.GetDirectoryName(file);
-                    if (destDir != null) Directory.CreateDirectory(destDir);
-
-                    if (File.Exists(file)) File.Delete(file);
-                    File.Copy(backupPath, file);
-                }
-                catch (Exception ex)
-                {
-                    await Console.Error.WriteLineAsync($"Warning: Failed to restore backup file {backupPath} to {file}: {ex.Message}");
-                }
+                var destDir = Path.GetDirectoryName(file);
+                if (destDir != null) Directory.CreateDirectory(destDir);
+                File.Copy(backupPath, file, overwrite: true);
             }
             else
             {
-                if (!File.Exists(file)) continue;
-
-                try
-                {
-                    File.Delete(file);
-                }
-                catch (Exception ex)
-                {
-                    await Console.Error.WriteLineAsync($"Warning: Failed to delete installed file {file}: {ex.Message}");
-                }
+                File.Delete(file);
             }
         }
+        return Task.CompletedTask;
     }
 
-    private static async Task UnregisterIni(string resolvedGame, ModRecord mod)
+    private static Task UnregisterIni(string resolvedGame, ModRecord mod)
     {
         var shouldUnregisterIni = !mod.Name.Contains("_SF", StringComparison.OrdinalIgnoreCase) &&
                                   !mod.Name.Contains("WWB", StringComparison.OrdinalIgnoreCase);
 
-        if (!shouldUnregisterIni) return;
+        if (!shouldUnregisterIni) return Task.CompletedTask;
 
         var iniPath = Path.Combine(resolvedGame, "ChaosGame", "Config", "DefaultEngine.ini");
 
-        if (!File.Exists(iniPath)) return;
+        if (!File.Exists(iniPath)) return Task.CompletedTask;
 
-        try
-        {
-            var lines = IniPatcher.Parse(iniPath);
-            var packageName = Path.GetFileNameWithoutExtension(mod.Name);
-            IniPatcher.RemoveNativePackage(lines, packageName);
-            IniPatcher.Save(iniPath, lines);
-        }
-        catch (Exception ex)
-        {
-            await Console.Error.WriteLineAsync($"Warning: Failed to unpatch DefaultEngine.ini: {ex.Message}");
-        }
+        var lines = IniPatcher.Parse(iniPath);
+        var packageName = Path.GetFileNameWithoutExtension(mod.Name);
+        IniPatcher.RemoveNativePackage(lines, packageName);
+        IniPatcher.Save(iniPath, lines);
+        return Task.CompletedTask;
     }
 
-    private static async Task RegisterIni(string resolvedGame, ModRecord mod)
+    private static Task RegisterIni(string resolvedGame, ModRecord mod)
     {
         var shouldRegisterIni = !mod.Name.Contains("_SF", StringComparison.OrdinalIgnoreCase) &&
                                 !mod.Name.Contains("WWB", StringComparison.OrdinalIgnoreCase);
 
-        if (!shouldRegisterIni) return;
+        if (!shouldRegisterIni) return Task.CompletedTask;
 
         var iniPath = Path.Combine(resolvedGame, "ChaosGame", "Config", "DefaultEngine.ini");
 
-        if (!File.Exists(iniPath)) return;
+        if (!File.Exists(iniPath)) return Task.CompletedTask;
 
-        try
-        {
-            var lines = IniPatcher.Parse(iniPath);
-            var packageName = Path.GetFileNameWithoutExtension(mod.Name);
-            IniPatcher.AddNativePackage(lines, packageName);
-            IniPatcher.Save(iniPath, lines);
-        }
-        catch (Exception ex)
-        {
-            await Console.Error.WriteLineAsync($"Warning: Failed to patch DefaultEngine.ini: {ex.Message}");
-        }
+        var lines = IniPatcher.Parse(iniPath);
+        var packageName = Path.GetFileNameWithoutExtension(mod.Name);
+        IniPatcher.AddNativePackage(lines, packageName);
+        IniPatcher.Save(iniPath, lines);
+        return Task.CompletedTask;
     }
 }
