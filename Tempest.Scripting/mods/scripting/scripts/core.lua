@@ -77,6 +77,21 @@ local function per_frame(r, ms)
 	return r.frames > 0 and ms / r.frames or 0
 end
 
+-- The window's own draw handler (set where it is registered, at the end): what the window costs
+-- is shown on its own line and left out of the totals, since closing it takes it away.
+local window_draw, window_label
+local function is_window(m, s)
+	return s.kind == "draw" and s.label == window_label and m.id == tempest.mod()
+end
+local function window_ms(r)
+	for _, m in ipairs(r.mods) do
+		for _, s in ipairs(m.sites) do
+			if is_window(m, s) then return s.ms end
+		end
+	end
+	return 0
+end
+
 local function lines(r)
 	local out = {}
 	local function add(fmt, ...)
@@ -87,11 +102,15 @@ local function lines(r)
 	for _, m in ipairs(r.mods) do
 		add("%-24s %7.3f ms/frame  worst %7.3f ms  %8.0f calls/s", m.id, per_frame(r, m.ms), m.worst_frame_ms, m.calls / secs)
 		for _, s in ipairs(m.sites) do
-			add("    %-8s %-40s %7.3f ms/frame  max %7.3f ms  %8.0f calls/s", s.kind, s.label, per_frame(r, s.ms), s.max_ms, s.calls / secs)
+			local label = is_window(m, s) and "performance window (not in the totals)" or s.label
+			add("    %-8s %-40s %7.3f ms/frame  max %7.3f ms  %8.0f calls/s", s.kind, label, per_frame(r, s.ms), s.max_ms, s.calls / secs)
 		end
 	end
 	for _, rt in ipairs(r.runtime) do
 		add("runtime  %-32s %7.3f ms/frame  max %7.3f ms  %8.0f calls/s", rt.name, per_frame(r, rt.ms), rt.max_ms, rt.calls / secs)
+	end
+	for _, p in ipairs(r.ui_parts or {}) do
+		add("  ui frame: %-40s %7.3f ms/frame", p.name, per_frame(r, p.ms))
 	end
 	return out
 end
@@ -160,6 +179,7 @@ local function draw_perf()
 		local total = 0
 		-- This window's own drawing is gone when it closes: it is no cost of playing.
 		local me = tempest.mod()
+		local own = window_ms(r)
 		for _, m in ipairs(r.mods) do
 			if m.id ~= me then
 				total = total + m.ms
@@ -177,6 +197,7 @@ local function draw_perf()
 			r.frame_ms > 0 and 1000 / r.frame_ms or 0, r.frame_ms, r.worst_frame_ms)
 		ui.text_colored(c[1], c[2], c[3], 1, "Scripting and Tempest take %.3f ms of each frame (%.1f %%)", f, pct)
 		ui.text_disabled("Self time per frame: a mod's handlers, without other mods' hooks they set off.")
+		ui.text_disabled("This window takes %.3f ms a frame itself, left out of the totals (closing it removes it).", per_frame(r, own))
 		if ui.button(r.on and "Pause" or "Resume") then
 			tempest.profile(not r.on)
 			perf.next = 0
@@ -205,7 +226,7 @@ local function draw_perf()
 				ui.table_next_row()
 				ui.table_next_column()
 				local open = ui.tree_node(m.id .. "##mod", ui.TreeNodeFlags.SpanAllColumns)
-				cell_ms(r, m.ms)
+				cell_ms(r, m.id == tempest.mod() and m.ms - own or m.ms)
 				ui.table_next_column()
 				ui.text("%.2f", m.worst_frame_ms)
 				ui.table_next_column()
@@ -217,8 +238,15 @@ local function draw_perf()
 						ui.table_next_column()
 						ui.text_disabled("%s", s.kind)
 						ui.same_line()
-						ui.text("%s", s.label ~= "" and s.label or "-")
-						cell_ms(r, s.ms)
+						if is_window(m, s) then
+							ui.text_disabled("this window (not in the totals)")
+							ui.table_next_column()
+							ui.text_disabled("%.3f", per_frame(r, s.ms))
+							ui.table_next_column()
+						else
+							ui.text("%s", s.label ~= "" and s.label or "-")
+							cell_ms(r, s.ms)
+						end
 						ui.table_next_column()
 						ui.text("%.2f", s.max_ms)
 						ui.table_next_column()
@@ -253,6 +281,21 @@ local function draw_perf()
 					ui.table_next_column()
 					ui.text("%.0f", rt.calls / secs)
 					ui.pop_id()
+					-- The UI frame's steps, under it (the handlers' step includes the mods' own drawing).
+					if rt.name == "UI frame (game thread)" then
+						for j, p in ipairs(r.ui_parts or {}) do
+							ui.push_id(200 + j)
+							ui.table_next_row()
+							ui.table_next_column()
+							ui.text_disabled("    %s", p.name)
+							ui.table_next_column()
+							ui.text_disabled("%.3f", per_frame(r, p.ms))
+							ui.table_next_column()
+							ui.table_next_column()
+							ui.table_next_column()
+							ui.pop_id()
+						end
+					end
 				end
 				ui.tree_pop()
 			end
@@ -264,8 +307,9 @@ local function draw_perf()
 	end
 end
 
-ui.on_draw(function()
+window_draw = ui.on_draw(function()
 	if perf.open then
 		draw_perf()
 	end
 end)
+window_label = "ui.on_draw #" .. window_draw

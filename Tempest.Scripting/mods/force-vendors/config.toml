@@ -1,0 +1,6 @@
+# Loot table ids to read from assembly.dat (475 = Champion Vendor,
+# 1076 = Inventory Vendor - Collections). Empty: every vendor.
+vendors = []
+
+# true: show the entries assembly.dat marks inactive too.
+show_inactive = false

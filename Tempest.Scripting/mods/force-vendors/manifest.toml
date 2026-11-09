@@ -1,0 +1,10 @@
+[mod]
+id = "force-vendors"
+name = "Force Vendors"
+version = "0.1.0"
+authors = ["Tom"]
+readme = "Shows vendor loot tables (champion list, skin collections, shops) as assembly.dat defines them instead of the vendor data the live server sends at login. Display only: ownership and purchases stay server-side. Paladins 8.1 Win64 client."
+dependencies = ["tempest-scripting>=1.0.0"]
+
+[scripting]
+after = ["tempest-scripting"]

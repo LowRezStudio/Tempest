@@ -16,6 +16,9 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#ifndef _WIN32
+#include <chrono>
+#endif
 
 #include "cimgui/imgui/imgui.h"
 #include "cimgui/imgui/imgui_internal.h"
@@ -408,6 +411,70 @@ int tempest_overlay_run_handler(int (*cb)(void*), void* ud) {
     return ok;
 }
 
+// ---------------------------------------------------------------------------
+// Draw-list shapes for Lua (ui.fg / ui.bg / ui.dl): positions as plain
+// floats. LuaJIT's JIT gives up on a call that passes an ImVec2 by value,
+// which made each cimgui ImDrawList_Add* call about 30 times slower than
+// these, and HUD mods make hundreds of them a frame.
+// ---------------------------------------------------------------------------
+
+void tempest_dl_line(ImDrawList* dl, float x1, float y1, float x2, float y2, ImU32 col, float thickness) {
+    dl->AddLine(ImVec2(x1, y1), ImVec2(x2, y2), col, thickness);
+}
+void tempest_dl_rect(ImDrawList* dl, float x1, float y1, float x2, float y2, ImU32 col, float rounding, int flags, float thickness) {
+    dl->AddRect(ImVec2(x1, y1), ImVec2(x2, y2), col, rounding, flags, thickness);
+}
+void tempest_dl_rect_filled(ImDrawList* dl, float x1, float y1, float x2, float y2, ImU32 col, float rounding, int flags) {
+    dl->AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), col, rounding, flags);
+}
+void tempest_dl_circle(ImDrawList* dl, float x, float y, float radius, ImU32 col, int segments, float thickness) {
+    dl->AddCircle(ImVec2(x, y), radius, col, segments, thickness);
+}
+void tempest_dl_circle_filled(ImDrawList* dl, float x, float y, float radius, ImU32 col, int segments) {
+    dl->AddCircleFilled(ImVec2(x, y), radius, col, segments);
+}
+void tempest_dl_triangle(ImDrawList* dl, float x1, float y1, float x2, float y2, float x3, float y3, ImU32 col, float thickness) {
+    dl->AddTriangle(ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(x3, y3), col, thickness);
+}
+void tempest_dl_triangle_filled(ImDrawList* dl, float x1, float y1, float x2, float y2, float x3, float y3, ImU32 col) {
+    dl->AddTriangleFilled(ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(x3, y3), col);
+}
+// size <= 0: the current font size.
+void tempest_dl_text(ImDrawList* dl, float size, float x, float y, ImU32 col, const char* text) {
+    if (size > 0) dl->AddText(nullptr, size, ImVec2(x, y), col, text);
+    else dl->AddText(ImVec2(x, y), col, text);
+}
+
+// Where a frame's time goes (game thread, nanoseconds, summed until read):
+// [0] platform + ImGui new frame, [1] the draw callback (handlers and their
+// trampolines), [2] ImGui::Render, [3] copying the draw data, [4] handing it
+// to the render thread (waits while the render thread holds the lock).
+static unsigned long long g_parts[5] = {0, 0, 0, 0, 0};
+
+// QueryPerformanceCounter on Windows: the DLL links libstdc++ statically
+// ahead of this library, so std::chrono would not resolve there.
+static unsigned long long now_ns(void) {
+#ifdef _WIN32
+    static LARGE_INTEGER freq = {};
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    unsigned long long ticks = (unsigned long long)t.QuadPart, f = (unsigned long long)freq.QuadPart;
+    return ticks / f * 1000000000ull + ticks % f * 1000000000ull / f;
+#else
+    return (unsigned long long)std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+#endif
+}
+
+// Read the sums (and start them again when `reset`).
+void tempest_overlay_frame_parts(unsigned long long* out, int reset) {
+    for (int i = 0; i < 5; ++i) {
+        out[i] = g_parts[i];
+        if (reset) g_parts[i] = 0;
+    }
+}
+
 int tempest_overlay_build_frame(void (*draw)(void*), void* ud) {
     if (!g_ready || g_building) return 0;
     if (g_fonts_dirty) {
@@ -421,6 +488,7 @@ int tempest_overlay_build_frame(void (*draw)(void*), void* ud) {
     g_frame_lock.lock();
     long gen = g_tex_gen;
     g_frame_lock.unlock();
+    unsigned long long t0 = now_ns();
 #ifdef _WIN32
     if (g_hwnd) {
         ImGui_ImplWin32_NewFrame();
@@ -431,9 +499,20 @@ int tempest_overlay_build_frame(void (*draw)(void*), void* ud) {
         if (io.DeltaTime <= 0.0f) io.DeltaTime = 1.0f / 60.0f;
     }
     ImGui::NewFrame();
+    unsigned long long t1 = now_ns();
     draw(ud);
+    unsigned long long t2 = now_ns();
     ImGui::Render();
-    park_frame(clone_frame(ImGui::GetDrawData()), gen);
+    unsigned long long t3 = now_ns();
+    FrameCopy* copy = clone_frame(ImGui::GetDrawData());
+    unsigned long long t4 = now_ns();
+    park_frame(copy, gen);
+    unsigned long long t5 = now_ns();
+    g_parts[0] += t1 - t0;
+    g_parts[1] += t2 - t1;
+    g_parts[2] += t3 - t2;
+    g_parts[3] += t4 - t3;
+    g_parts[4] += t5 - t4;
     ++g_frames_built;
     g_building = 0;
     if (g_font_requests.Size > 0) {

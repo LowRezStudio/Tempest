@@ -820,10 +820,10 @@ pub fn reload(lua: &Lua, only: Option<&str>) {
             let m = mods().into_iter().find(|m| m.id.eq_ignore_ascii_case(id));
             let id = m.as_ref().map_or(id, |m| m.id.as_str());
             for sub in crate::unreal::clear_subscriptions_of(id) {
-                let _ = lua.unset_named_registry_value(&format!("tempest.sub.{sub}"));
+                crate::lua_api::drop_handler(lua, crate::lua_api::Handler::Sub(sub));
             }
             for hook in crate::hooks::clear_of(id) {
-                let _ = lua.unset_named_registry_value(&format!("tempest.hook.{hook}"));
+                crate::lua_api::drop_handler(lua, crate::lua_api::Handler::Hook(hook));
             }
             if let Ok(forget) = lua.globals().get::<Table>("tempest").and_then(|t| t.get::<mlua::Function>("_forget")) {
                 let _ = forget.call::<()>(id);
@@ -838,10 +838,10 @@ pub fn reload(lua: &Lua, only: Option<&str>) {
         }
         None => {
             for id in crate::unreal::clear_subscriptions() {
-                let _ = lua.unset_named_registry_value(&format!("tempest.sub.{id}"));
+                crate::lua_api::drop_handler(lua, crate::lua_api::Handler::Sub(id));
             }
             for id in crate::hooks::clear_all() {
-                let _ = lua.unset_named_registry_value(&format!("tempest.hook.{id}"));
+                crate::lua_api::drop_handler(lua, crate::lua_api::Handler::Hook(id));
             }
             crate::log::line("loader", "reload all");
             if let Err(e) = crate::lua_api::run_prelude(lua) {

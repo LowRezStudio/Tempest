@@ -18,12 +18,41 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use mlua::Function;
 
+// Draw-list shapes taking floats (overlay.cpp); only their addresses are
+// used, by `ui.lua` through the FFI.
+#[allow(improper_ctypes)]
+extern "C" {
+    fn tempest_dl_line();
+    fn tempest_dl_rect();
+    fn tempest_dl_rect_filled();
+    fn tempest_dl_circle();
+    fn tempest_dl_circle_filled();
+    fn tempest_dl_triangle();
+    fn tempest_dl_triangle_filled();
+    fn tempest_dl_text();
+}
+
+/// `(name, address)` of the draw-list helpers, next to cimgui's in `tempest._ui_syms()`.
+pub fn draw_syms() -> [(&'static str, usize); 8] {
+    [
+        ("tempest_dl_line", tempest_dl_line as *const () as usize),
+        ("tempest_dl_rect", tempest_dl_rect as *const () as usize),
+        ("tempest_dl_rect_filled", tempest_dl_rect_filled as *const () as usize),
+        ("tempest_dl_circle", tempest_dl_circle as *const () as usize),
+        ("tempest_dl_circle_filled", tempest_dl_circle_filled as *const () as usize),
+        ("tempest_dl_triangle", tempest_dl_triangle as *const () as usize),
+        ("tempest_dl_triangle_filled", tempest_dl_triangle_filled as *const () as usize),
+        ("tempest_dl_text", tempest_dl_text as *const () as usize),
+    ]
+}
+
 extern "C" {
     fn tempest_overlay_set_log(f: extern "C" fn(*const c_char));
     fn tempest_overlay_backend() -> *const c_char;
     fn tempest_overlay_ready() -> i32;
     fn tempest_overlay_hwnd() -> *mut c_void;
     fn tempest_overlay_stats(built: *mut u32, rendered: *mut u32, vertices: *mut i32, lists: *mut i32);
+    fn tempest_overlay_frame_parts(out: *mut u64, reset: i32);
     fn tempest_overlay_set_capture(on: i32);
     fn tempest_overlay_get_capture() -> i32;
     fn tempest_overlay_want(mouse: *mut i32, keyboard: *mut i32, text: *mut i32);
@@ -91,6 +120,15 @@ pub fn stats() -> (u32, u32, i32, i32) {
     let (mut b, mut r, mut v, mut l) = (0u32, 0u32, 0i32, 0i32);
     unsafe { tempest_overlay_stats(&mut b, &mut r, &mut v, &mut l) };
     (b, r, v, l)
+}
+
+/// Where UI frames spent their time since the last reset, as (step, ns).
+pub const FRAME_PARTS: [&str; 5] = ["new frame (platform + ImGui)", "draw handlers (with the mods' own time)", "ImGui render", "copying the frame", "handing it to the render thread"];
+
+pub fn frame_parts(reset: bool) -> [u64; 5] {
+    let mut out = [0u64; 5];
+    unsafe { tempest_overlay_frame_parts(out.as_mut_ptr(), reset as i32) };
+    out
 }
 
 pub fn set_capture(on: bool) {

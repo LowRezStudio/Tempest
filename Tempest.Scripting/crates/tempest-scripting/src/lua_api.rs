@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use mlua::{AnyUserData, Function, IntoLua, Lua, MetaMethod, Table, UserData, UserDataMethods, Value};
@@ -42,12 +42,39 @@ pub(crate) fn to_i64(i: mlua::Integer) -> i64 {
     i as i64
 }
 
-fn registry_key(id: u64) -> String {
-    format!("tempest.sub.{id}")
+/// Whose handler: a `tempest.on` / `tempest.before` subscription or a
+/// `memory.hook`, by id (two id spaces).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Handler {
+    Sub(u64),
+    Hook(u64),
 }
 
-fn hook_key(id: u64) -> String {
-    format!("tempest.hook.{id}")
+/// Handler functions by id, as registry keys: a delivery fetches its
+/// function with one map lookup and a raw registry index, no key string.
+/// The lock is never held while Lua runs: address hooks fire on any thread,
+/// and one holding this lock while waiting for the Lua VM would deadlock
+/// against the game thread waiting here from inside Lua.
+static HANDLERS: Mutex<Option<HashMap<Handler, Arc<mlua::RegistryKey>>>> = Mutex::new(None);
+
+fn set_handler(lua: &Lua, h: Handler, f: Function) -> mlua::Result<()> {
+    let key = Arc::new(lua.create_registry_value(f)?);
+    let old = HANDLERS.lock().unwrap().get_or_insert_default().insert(h, key);
+    drop(old);
+    Ok(())
+}
+
+fn handler(lua: &Lua, h: Handler) -> Option<Function> {
+    let key = HANDLERS.lock().unwrap().as_ref()?.get(&h)?.clone();
+    lua.registry_value::<Function>(&key).ok()
+}
+
+pub(crate) fn drop_handler(lua: &Lua, h: Handler) {
+    let key = HANDLERS.lock().unwrap().as_mut().and_then(|m| m.remove(&h));
+    // A delivery may still hold a reference; the last one frees the slot.
+    if let Some(key) = key.and_then(|k| Arc::try_unwrap(k).ok()) {
+        let _ = lua.remove_registry_value(key);
+    }
 }
 
 pub fn register(lua: &Lua) -> mlua::Result<()> {
@@ -85,7 +112,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         "on",
         lua.create_function(|lua, (spec, cb): (String, Function)| {
             let id = unreal::subscribe(&spec, Phase::After, &crate::loader::current_mod());
-            lua.set_named_registry_value(&registry_key(id), cb)?;
+            set_handler(lua, Handler::Sub(id), cb)?;
             Ok(id)
         })?,
     )?;
@@ -93,7 +120,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         "before",
         lua.create_function(|lua, (spec, cb): (String, Function)| {
             let id = unreal::subscribe(&spec, Phase::Before, &crate::loader::current_mod());
-            lua.set_named_registry_value(&registry_key(id), cb)?;
+            set_handler(lua, Handler::Sub(id), cb)?;
             Ok(id)
         })?,
     )?;
@@ -158,7 +185,8 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
         "off",
         lua.create_function(|lua, id: u64| {
             unreal::unsubscribe(id);
-            lua.unset_named_registry_value(&registry_key(id))
+            drop_handler(lua, Handler::Sub(id));
+            Ok(())
         })?,
     )?;
     t.set(
@@ -460,7 +488,7 @@ fn register_ui(lua: &Lua, t: &Table) -> mlua::Result<()> {
         "_ui_syms",
         lua.create_function(|lua, ()| {
             let out = lua.create_table()?;
-            for (name, addr) in crate::imgui_syms::table() {
+            for (name, addr) in crate::imgui_syms::table().into_iter().chain(crate::overlay::draw_syms()) {
                 out.set(name, addr as i64)?;
             }
             Ok(out)
@@ -534,8 +562,14 @@ fn register_ui(lua: &Lua, t: &Table) -> mlua::Result<()> {
     // Run one draw handler under ImGui's error recovery; returns the error text.
     t.set(
         "_ui_protect",
-        lua.create_function(|_, (f, owner, id): (Function, Option<String>, Option<u64>)| {
-            Ok(crate::overlay::run_handler(&f, owner.as_deref().unwrap_or(""), id.unwrap_or(0)))
+        lua.create_function(|_, (f, owner, id): (Function, Option<mlua::String>, Option<u64>)| {
+            // The owner borrowed from Lua: this runs for every draw handler every frame.
+            let owner = owner.as_ref().map(|s| s.to_str());
+            let owner = match &owner {
+                Some(Ok(s)) => s,
+                _ => "",
+            };
+            Ok(crate::overlay::run_handler(&f, owner, id.unwrap_or(0)))
         })?,
     )?;
     // Tests / diagnostics: a backend-less context, and an immediate frame.
@@ -602,6 +636,15 @@ fn profile_report(lua: &Lua) -> mlua::Result<Table> {
         runtime.set(i + 1, e)?;
     }
     t.set("runtime", runtime)?;
+    // The UI frame's steps (summed since the measurement started).
+    let parts = lua.create_table()?;
+    for (i, (name, ns)) in crate::overlay::FRAME_PARTS.iter().zip(crate::overlay::frame_parts(false)).enumerate() {
+        let e = lua.create_table()?;
+        e.set("name", *name)?;
+        e.set("ms", ms(ns))?;
+        parts.set(i + 1, e)?;
+    }
+    t.set("ui_parts", parts)?;
     let mods = lua.create_table()?;
     for (i, m) in r.mods.into_iter().enumerate() {
         let e = lua.create_table()?;
@@ -644,25 +687,96 @@ fn local_player_controller() -> Option<usize> {
 // Event delivery (game thread, after the original ProcessEvent)
 // ---------------------------------------------------------------------------
 
+/// Deliver one event to subscription `sub_id` as the hooks do (benchmarks:
+/// the per-delivery cost without a game).
+#[doc(hidden)]
+pub fn bench_deliver(sub_id: u64, owner: &str, object: usize) -> bool {
+    deliver(Event { sub_id, owner: Arc::from(owner), phase: Phase::After, object, function: 0, parms: 0 })
+}
+
+/// Object proxies by pointer (and `obj.Func` methods by object and
+/// function), direct mapped. A proxy is only those pointers, so an object
+/// can always be handed the same one; creating a userdata (about 0.25 µs,
+/// plus a finalizer when it is collected) was most of what an event
+/// delivery, a field read returning an object or an `obj:Func()` call cost
+/// the runtime. Kept in Lua tables, so a lookup takes the Lua lock only (a
+/// Rust lock held while waiting for the Lua one deadlocks against hooks on
+/// other threads).
+const PROXY_SLOTS: usize = 2048;
+static OBJECT_CACHE: OnceLock<Table> = OnceLock::new();
+static METHOD_CACHE: OnceLock<Table> = OnceLock::new();
+
+fn cached_proxy<T: UserData + Copy + PartialEq + Send + 'static>(lua: &Lua, cache: &'static OnceLock<Table>, hash: usize, value: T) -> Value {
+    let table = match cache.get() {
+        Some(c) => Some(c),
+        None => lua.create_table().ok().map(|t| cache.get_or_init(|| t)),
+    };
+    let slot = hash % PROXY_SLOTS + 1;
+    if let Some(Ok(Value::UserData(ud))) = table.map(|c| c.raw_get::<Value>(slot)) {
+        if ud.borrow::<T>().is_ok_and(|v| *v == value) {
+            return Value::UserData(ud);
+        }
+    }
+    match lua.create_userdata(value) {
+        Ok(ud) => {
+            if let Some(c) = table {
+                let _ = c.raw_set(slot, &ud);
+            }
+            Value::UserData(ud)
+        }
+        Err(_) => Value::Nil,
+    }
+}
+
+pub(crate) fn object_value(lua: &Lua, ptr: usize) -> Value {
+    cached_proxy(lua, &OBJECT_CACHE, (ptr >> 4) ^ (ptr >> 15), Object(ptr))
+}
+
+fn method_value(lua: &Lua, obj: usize, func: usize) -> Value {
+    cached_proxy(lua, &METHOD_CACHE, (obj >> 4) ^ (obj >> 15) ^ (func >> 4).wrapping_mul(31), Method { obj, func })
+}
+
+/// `params` userdata between deliveries: one is filled in per delivery and
+/// emptied (reads give nil) when the handler returns. Only moved in and out
+/// under the lock, never touched through Lua while it is held.
+static PARAMS_POOL: Mutex<Vec<AnyUserData>> = Mutex::new(Vec::new());
+
+fn take_params(lua: &Lua, parms: usize, func: usize) -> Option<AnyUserData> {
+    let pooled = PARAMS_POOL.lock().unwrap().pop();
+    if let Some(ud) = pooled {
+        if let Ok(mut p) = ud.borrow_mut::<Params>() {
+            *p = Params { parms, func };
+            drop(p);
+            return Some(ud);
+        }
+    }
+    lua.create_userdata(Params { parms, func }).ok()
+}
+
+fn give_back_params(ud: AnyUserData) {
+    match ud.borrow_mut::<Params>() {
+        Ok(mut p) => *p = Params { parms: 0, func: 0 },
+        Err(_) => return,
+    }
+    let mut pool = PARAMS_POOL.lock().unwrap();
+    if pool.len() < 64 {
+        pool.push(ud);
+        return;
+    }
+    drop(pool);
+}
+
 fn deliver(ev: Event) -> bool {
     let lua = crate::lua();
-    let Ok(cb) = lua.named_registry_value::<Function>(&registry_key(ev.sub_id)) else {
+    let Some(cb) = handler(lua, Handler::Sub(ev.sub_id)) else {
         return true; // unsubscribed between match and delivery
     };
-    let this = match lua.create_userdata(Object(ev.object)) {
-        Ok(ud) => Value::UserData(ud),
-        Err(_) => return true,
-    };
-    let params = match lua.create_userdata(Params {
-        parms: ev.parms,
-        func: ev.function,
-    }) {
-        Ok(ud) => Value::UserData(ud),
-        Err(_) => return true,
-    };
-    let owner = unreal::subscription_owner(ev.sub_id).unwrap_or_default();
+    let this = object_value(lua, ev.object);
+    let Some(params) = take_params(lua, ev.parms, ev.function) else { return true };
+    let owner = ev.owner;
     let site = crate::profile::Site::Hook(ev.sub_id);
-    let result = crate::loader::with_mod_at(&owner, site, || unreal::subscription_spec(ev.sub_id).unwrap_or_default(), || cb.call::<Value>((this, params)));
+    let result = crate::loader::with_mod_at(&owner, site, || unreal::subscription_spec(ev.sub_id).unwrap_or_default(), || cb.call::<Value>((this, &params)));
+    give_back_params(params);
     match result {
         // Only an explicit `false` from a before-handler cancels.
         Ok(Value::Boolean(false)) => ev.phase == Phase::After,
@@ -807,7 +921,7 @@ fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, regs: hooks::
     let Some(h) = call.handlers.get(level).cloned() else {
         return hooks::call_original(call.slot, &regs);
     };
-    let Ok(cb) = lua.named_registry_value::<Function>(&hook_key(h.id)) else {
+    let Some(cb) = handler(lua, Handler::Hook(h.id)) else {
         return run_hook_level(lua, call, level + 1, regs); // unhooked since the snapshot
     };
     let alive = Arc::new(AtomicBool::new(true));
@@ -850,7 +964,7 @@ fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, regs: hooks::
     alive.store(false, Ordering::Release);
     let forwarded = *forwarded.lock().unwrap();
     let pass_through = |lua: &Lua| forwarded.unwrap_or_else(|| run_hook_level(lua, call.clone(), level + 1, regs));
-    let tag = if h.owner.is_empty() { String::new() } else { format!("[{}] ", h.owner) };
+    let tag = || if h.owner.is_empty() { String::new() } else { format!("[{}] ", h.owner) };
     match result {
         Ok(Value::Nil) => pass_through(lua),
         Ok(v) => {
@@ -866,13 +980,13 @@ fn run_hook_level(lua: &Lua, call: Arc<hooks::Call>, level: usize, regs: hooks::
                     hooks::Ret { int: bits as usize, fbits: bits }
                 }
                 _ => {
-                    crate::log::line("lua", &format!("{tag}hook #{} on 0x{:x} returned a {}; expected a number or nil", h.id, h.addr, v.type_name()));
+                    crate::log::line("lua", &format!("{}hook #{} on 0x{:x} returned a {}; expected a number or nil", tag(), h.id, h.addr, v.type_name()));
                     pass_through(lua)
                 }
             }
         }
         Err(e) => {
-            crate::log::line("lua", &format!("{tag}hook #{} on 0x{:x} failed: {e}", h.id, h.addr));
+            crate::log::line("lua", &format!("{}hook #{} on 0x{:x} failed: {e}", tag(), h.id, h.addr));
             pass_through(lua)
         }
     }
@@ -886,7 +1000,7 @@ fn to_lua(lua: &Lua, v: &unreal::Value) -> Value {
         V::Float(f) => Value::Number(*f),
         V::Bool(b) => Value::Boolean(*b),
         V::Str(s) => lua.create_string(s).map(Value::String).unwrap_or(Value::Nil),
-        V::Object(p) => lua.create_userdata(Object(*p)).map(Value::UserData).unwrap_or(Value::Nil),
+        V::Object(p) => object_value(lua, *p),
         V::Vector(x, y, z) => triple(lua, ["x", "y", "z"], [*x as f64, *y as f64, *z as f64]),
         V::Rotator(p, y, r) => triple(lua, ["pitch", "yaw", "roll"], [*p as f64, *y as f64, *r as f64]),
         V::Struct { addr, kind } => lua
@@ -1272,7 +1386,7 @@ impl Map {
 
 /// A live `UObject*`. Methods are lowercase so they never collide with
 /// UnrealScript property names (which are capitalised by convention).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Object(pub usize);
 
 fn property(obj: usize, key: &str) -> Option<Prop> {
@@ -1333,7 +1447,7 @@ fn call_function(lua: &Lua, obj: usize, func: usize, args: &[Value]) -> mlua::Re
 }
 
 /// A bound UFunction, produced by `obj.Func`; call it as `obj:Func(...)`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Method {
     obj: usize,
     func: usize,
@@ -1517,7 +1631,7 @@ impl UserData for Object {
                 return Ok(unreal::read_prop(this.0, &p).map(|v| to_lua(lua, &v)).unwrap_or(Value::Nil));
             }
             match function(this.0, &key) {
-                Some(func) => Ok(Value::UserData(lua.create_userdata(Method { obj: this.0, func })?)),
+                Some(func) => Ok(method_value(lua, this.0, func)),
                 None => {
                     crate::log::line(
                         "lua",
@@ -1699,7 +1813,7 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
             };
             let id = hooks::add(addr as usize, &crate::loader::current_mod(), kinds, ret, conv)
                 .map_err(|e| mlua::Error::external(format!("memory.hook: {e}")))?;
-            lua.set_named_registry_value(&hook_key(id), cb)?;
+            set_handler(lua, Handler::Hook(id), cb)?;
             Ok(id)
         })?,
     )?;
@@ -1707,7 +1821,7 @@ fn memory_table(lua: &Lua) -> mlua::Result<Table> {
         "unhook",
         lua.create_function(|lua, id: u64| {
             let found = hooks::remove(id);
-            lua.unset_named_registry_value(&hook_key(id))?;
+            drop_handler(lua, Handler::Hook(id));
             Ok(found)
         })?,
     )?;

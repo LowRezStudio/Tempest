@@ -56,6 +56,8 @@ fn profile_reports_mods_and_the_window_draws() {
     assert!(tempest_scripting::lua_api::console_command(lua, "tempest_perf log").unwrap());
     assert!(!tempest_scripting::lua_api::console_command(lua, "x_from_console = 1").unwrap());
     assert!(eval("for _, s in ipairs(_G.logged) do if s:find('^%[perf%] measured') then return true end end return false").as_boolean().unwrap());
+    // The window's own cost is named, not counted with the mods.
+    assert!(eval("for _, s in ipairs(_G.logged) do if s:find('performance window (not in the totals)', 1, true) then return true end end return false").as_boolean().unwrap());
 
     let logged = eval("return table.concat(_G.logged, '\\n')");
     let logged = logged.as_string().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();

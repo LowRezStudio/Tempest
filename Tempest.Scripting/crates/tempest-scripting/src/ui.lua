@@ -4,6 +4,7 @@
 -- pointers. Everything that draws is only valid inside a ui.on_draw handler,
 -- which runs once per rendered frame on the game thread.
 local ffi = require("ffi")
+local bor, lshift, floor = bit.bor, bit.lshift, math.floor
 local spec = tempest._imgui
 
 if not spec.defined then
@@ -19,6 +20,29 @@ if not spec.C then
 	spec.C = C
 end
 local C = spec.C
+
+-- Draw-list shapes with float positions (overlay.cpp): see draw_api below.
+if not spec.dl then
+	if not spec.dl_defined then
+		ffi.cdef([[
+			typedef void (*tempest_dl_line_fn)(void*, float, float, float, float, uint32_t, float);
+			typedef void (*tempest_dl_rect_fn)(void*, float, float, float, float, uint32_t, float, int, float);
+			typedef void (*tempest_dl_rect_filled_fn)(void*, float, float, float, float, uint32_t, float, int);
+			typedef void (*tempest_dl_circle_fn)(void*, float, float, float, uint32_t, int, float);
+			typedef void (*tempest_dl_circle_filled_fn)(void*, float, float, float, uint32_t, int);
+			typedef void (*tempest_dl_triangle_fn)(void*, float, float, float, float, float, float, uint32_t, float);
+			typedef void (*tempest_dl_triangle_filled_fn)(void*, float, float, float, float, float, float, uint32_t);
+			typedef void (*tempest_dl_text_fn)(void*, float, float, float, uint32_t, const char*);
+		]])
+		spec.dl_defined = true
+	end
+	local addrs, D = tempest._ui_syms(), {}
+	for _, name in ipairs({ "line", "rect", "rect_filled", "circle", "circle_filled", "triangle", "triangle_filled", "text" }) do
+		D[name] = ffi.cast("tempest_dl_" .. name .. "_fn", addrs["tempest_dl_" .. name])
+	end
+	spec.dl = D
+end
+local D = spec.dl
 
 local ui = { C = C }
 for group, values in pairs(spec.enums) do ui[group] = values end
@@ -69,9 +93,14 @@ function ui.vec2(x, y) return ffi.new("ImVec2", x or 0, y or 0) end
 function ui.vec4(x, y, z, w) return ffi.new("ImVec4", x or 0, y or 0, z or 0, w or 0) end
 
 -- ui.color(r, g, b, a): 0..1 floats -> packed ImU32 for the draw functions.
+-- No closure inside: a function created per call stops the JIT, and HUDs
+-- call this for every shape they draw.
+local function u8(v) return v <= 0 and 0 or v >= 1 and 255 or floor(v * 255 + 0.5) end
+local function pack(r, g, b, a)
+	return bor(lshift(u8(a), 24), lshift(u8(b), 16), lshift(u8(g), 8), u8(r))
+end
 function ui.color(r, g, b, a)
-	local function u8(v) return math.floor(math.max(0, math.min(1, v)) * 255 + 0.5) end
-	return bit.bor(bit.lshift(u8(a == nil and 1 or a), 24), bit.lshift(u8(b), 16), bit.lshift(u8(g), 8), u8(r))
+	return pack(r, g, b, a == nil and 1 or a)
 end
 -- ui.rgb(0xRRGGBB, alpha?) -> packed ImU32
 function ui.rgb(hex, a)
@@ -297,7 +326,15 @@ local function fmt(s, ...)
 	return tostring(s)
 end
 function ui.text(s, ...) check() C.igTextUnformatted(fmt(s, ...), nil) end
-function ui.text_colored(r, g, b, a, s, ...) check() C.igTextColored(vec4(r, g, b, a), "%s", fmt(s, ...)) end
+-- The colour as a packed integer: passing an ImVec4 by value through the
+-- FFI (igTextColored, igPushStyleColor_Vec4) costs several plain text calls.
+function ui.text_colored(r, g, b, a, s, ...)
+	check()
+	local text = fmt(s, ...)
+	C.igPushStyleColor_U32(0, pack(r, g, b, a == nil and 1 or a))
+	C.igTextUnformatted(text, nil)
+	C.igPopStyleColor(1)
+end
 function ui.text_disabled(s, ...) check() C.igTextDisabled("%s", fmt(s, ...)) end
 function ui.text_wrapped(s, ...) check() C.igTextWrapped("%s", fmt(s, ...)) end
 function ui.label_text(label, s, ...) check() C.igLabelText(label, "%s", fmt(s, ...)) end
@@ -649,32 +686,33 @@ end
 -- ---------------------------------------------------------------------------
 local function draw_api(get_list)
 	local d = {}
+	-- Through the float helpers (D), not cimgui's ImVec2-by-value calls.
 	function d.line(x1, y1, x2, y2, color, thickness)
-		check() C.ImDrawList_AddLine(get_list(), vec2(x1, y1), vec2b(x2, y2), color, thickness or 1)
+		check() D.line(get_list(), x1 or 0, y1 or 0, x2 or 0, y2 or 0, color, thickness or 1)
 	end
 	function d.rect(x1, y1, x2, y2, color, rounding, thickness, flags)
-		check() C.ImDrawList_AddRect(get_list(), vec2(x1, y1), vec2b(x2, y2), color, rounding or 0, flags or 0, thickness or 1)
+		check() D.rect(get_list(), x1 or 0, y1 or 0, x2 or 0, y2 or 0, color, rounding or 0, flags or 0, thickness or 1)
 	end
 	function d.rect_filled(x1, y1, x2, y2, color, rounding, flags)
-		check() C.ImDrawList_AddRectFilled(get_list(), vec2(x1, y1), vec2b(x2, y2), color, rounding or 0, flags or 0)
+		check() D.rect_filled(get_list(), x1 or 0, y1 or 0, x2 or 0, y2 or 0, color, rounding or 0, flags or 0)
 	end
 	function d.circle(x, y, radius, color, segments, thickness)
-		check() C.ImDrawList_AddCircle(get_list(), vec2(x, y), radius, color, segments or 0, thickness or 1)
+		check() D.circle(get_list(), x or 0, y or 0, radius or 0, color, segments or 0, thickness or 1)
 	end
 	function d.circle_filled(x, y, radius, color, segments)
-		check() C.ImDrawList_AddCircleFilled(get_list(), vec2(x, y), radius, color, segments or 0)
+		check() D.circle_filled(get_list(), x or 0, y or 0, radius or 0, color, segments or 0)
 	end
 	function d.triangle(x1, y1, x2, y2, x3, y3, color, thickness)
-		check() C.ImDrawList_AddTriangle(get_list(), vec2(x1, y1), vec2b(x2, y2), ffi.new("ImVec2", x3, y3), color, thickness or 1)
+		check() D.triangle(get_list(), x1 or 0, y1 or 0, x2 or 0, y2 or 0, x3 or 0, y3 or 0, color, thickness or 1)
 	end
 	function d.triangle_filled(x1, y1, x2, y2, x3, y3, color)
-		check() C.ImDrawList_AddTriangleFilled(get_list(), vec2(x1, y1), vec2b(x2, y2), ffi.new("ImVec2", x3, y3), color)
+		check() D.triangle_filled(get_list(), x1 or 0, y1 or 0, x2 or 0, y2 or 0, x3 or 0, y3 or 0, color)
 	end
 	function d.text(x, y, color, s, ...)
-		check() C.ImDrawList_AddText_Vec2(get_list(), vec2(x, y), color, fmt(s, ...), nil)
+		check() D.text(get_list(), 0, x or 0, y or 0, color, fmt(s, ...))
 	end
 	function d.text_sized(size, x, y, color, s, ...)
-		check() C.ImDrawList_AddText_FontPtr(get_list(), nil, size, vec2(x, y), color, fmt(s, ...), nil, 0, nil)
+		check() D.text(get_list(), size or 0, x or 0, y or 0, color, fmt(s, ...))
 	end
 	-- d.polyline({x1, y1, x2, y2, ...}, color, closed?, thickness?)
 	function d.polyline(points, color, closed, thickness)

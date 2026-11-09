@@ -253,6 +253,7 @@ pub fn reset() {
     for c in &RUNTIME {
         c.reset();
     }
+    crate::overlay::frame_parts(true);
     RUNTIME_FRAME.store(0, Ordering::Relaxed);
     calibrate_clock();
     *STATE.lock().unwrap() = Some(State {

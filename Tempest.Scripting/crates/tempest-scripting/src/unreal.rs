@@ -2035,28 +2035,60 @@ const CLASS_RETRY: Duration = Duration::from_secs(2);
 // ProcessEvent and every script function: bit `fname index % FILTER_BITS` is
 // set for each subscribed name, so a clear bit means no subscription can
 // match without touching `SUBS`. Rebuilt under the `SUBS` lock on every change.
-const FILTER_BITS: usize = 4096;
+// Large enough that a few hundred subscribed names (many mods) leave nearly
+// every other function a clear bit: 8 KiB.
+const FILTER_BITS: usize = 1 << 16;
 static SUB_FILTER: [AtomicU64; FILTER_BITS / 64] = [const { AtomicU64::new(0) }; FILTER_BITS / 64];
 /// Lowest `names_checked` of the subscriptions whose name is not resolved
 /// yet; functions named at or above it take the slow path. `usize::MAX` = none.
 static LAZY_FROM: AtomicUsize = AtomicUsize::new(usize::MAX);
 
+/// Positions in `SUBS` by the fname index of what they match, and those
+/// whose name is not known yet: a call checks only the subscriptions of its
+/// function's name, not every mod's. Rebuilt with the filter, under the
+/// `SUBS` lock (always taken first).
+struct SubIndex {
+    by_name: HashMap<i32, Vec<usize>>,
+    lazy: Vec<usize>,
+}
+static SUB_INDEX: Mutex<Option<SubIndex>> = Mutex::new(None);
+
 fn rebuild_filter(subs: &[(u64, Sub)]) {
-    let mut bits = [0u64; FILTER_BITS / 64];
+    let mut bits = vec![0u64; FILTER_BITS / 64];
     let mut lazy_from = usize::MAX;
-    for (_, s) in subs {
+    let mut index = SubIndex { by_name: HashMap::new(), lazy: Vec::new() };
+    for (pos, (_, s)) in subs.iter().enumerate() {
         match s.fname_index.or_else(|| s.func_ptr.and_then(object_fname).map(|(i, _)| i)) {
             Some(i) if i >= 0 => {
                 let b = i as usize % FILTER_BITS;
                 bits[b / 64] |= 1 << (b % 64);
+                index.by_name.entry(i).or_default().push(pos);
             }
-            _ => lazy_from = lazy_from.min(s.names_checked),
+            _ => {
+                lazy_from = lazy_from.min(s.names_checked);
+                index.lazy.push(pos);
+            }
         }
     }
     for (slot, b) in SUB_FILTER.iter().zip(bits) {
         slot.store(b, Ordering::Relaxed);
     }
     LAZY_FROM.store(lazy_from, Ordering::Relaxed);
+    *SUB_INDEX.lock().unwrap() = Some(index);
+}
+
+/// Positions in `SUBS` that may match a function named by fname `index`, in
+/// subscription order. Call with the `SUBS` lock held.
+fn sub_candidates(index: i32) -> Vec<usize> {
+    let guard = SUB_INDEX.lock().unwrap();
+    let Some(ix) = guard.as_ref() else { return Vec::new() };
+    let named = ix.by_name.get(&index).map(Vec::as_slice).unwrap_or(&[]);
+    if ix.lazy.is_empty() {
+        return named.to_vec();
+    }
+    let mut all: Vec<usize> = named.iter().chain(&ix.lazy).copied().collect();
+    all.sort_unstable();
+    all
 }
 
 /// Could any subscription match `function`? `false` is definite.
@@ -2132,15 +2164,30 @@ pub fn subscribe(spec: &str, phase: Phase, owner: &str) -> u64 {
         },
         (None, _) if ready => {
             hook_natives_named(&func_name);
-            RESCAN.lock().unwrap().1 = object_count().unwrap_or(0);
+            RESCAN.lock().unwrap().count = object_count().unwrap_or(0);
         }
         _ => {}
     }
     id
 }
 
-/// `(last scan, object count at that scan)` for `rescan_native_names`.
-static RESCAN: Mutex<(Option<Instant>, usize)> = Mutex::new((None, 0));
+/// `rescan_native_names` state: a sweep of the object table, a chunk per
+/// housekeeping round, for natives named like unqualified subscriptions on
+/// classes loaded since the last one. (A whole-table walk per name, as
+/// before, stalled the game thread for tens of milliseconds every 10 s.)
+struct Rescan {
+    /// Object count when the last sweep started (or a subscription searched).
+    count: usize,
+    /// Next object index of the sweep under way.
+    next: Option<usize>,
+    /// Fname indices of the names searched.
+    names: Vec<i32>,
+}
+static RESCAN: Mutex<Rescan> = Mutex::new(Rescan { count: 0, next: None, names: Vec::new() });
+/// Objects swept per housekeeping round (~60 a second during play).
+const RESCAN_CHUNK: usize = 4096;
+/// Change in the object count that starts a sweep.
+const RESCAN_AFTER: usize = 2000;
 
 /// Every native `UFunction` named `name` on any loaded class. Walks the
 /// object table (cheap: name index and class pointer compares), so game
@@ -2168,61 +2215,84 @@ fn native_is_hooked(_func: usize) -> bool {
 /// Hook every native named `name` that is not hooked yet; returns how many
 /// were added. Failures are logged once per function.
 fn hook_natives_named(name: &str) -> usize {
-    static FAILED: Mutex<Vec<usize>> = Mutex::new(Vec::new());
-    let mut added = 0;
-    for func in natives_named(name) {
-        if native_is_hooked(func) {
-            continue;
-        }
-        let full = object_full_name(func).unwrap_or_default();
-        match hook_native(func) {
-            Ok(()) => {
-                added += 1;
-                crate::log::line("events", &format!("native hook on {full} (by name)"));
-            }
-            Err(e) if e.contains("GPropAddr") => {
-                let mut pending = PENDING_NATIVE_HOOKS.lock().unwrap();
-                if !pending.contains(&func) {
-                    crate::log::line("events", &format!("native hook on {full} deferred: {e}"));
-                    pending.push(func);
-                }
-            }
-            Err(e) => {
-                let mut failed = FAILED.lock().unwrap();
-                if !failed.contains(&func) {
-                    failed.push(func);
-                    crate::log::line("events", &format!("cannot hook native {full}: {e}"));
-                }
-            }
-        }
-    }
-    added
+    natives_named(name).into_iter().filter(|&f| hook_found_native(f)).count()
 }
 
-/// Game thread, throttled: when unqualified subscriptions exist and the
-/// object table changed, look for natives of their names on classes that
-/// loaded since the last scan.
+/// Hook a native a by-name subscription found (unless it is hooked already);
+/// `true` when it was added. Failures are logged once per function.
+fn hook_found_native(func: usize) -> bool {
+    static FAILED: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+    if native_is_hooked(func) {
+        return false;
+    }
+    let full = object_full_name(func).unwrap_or_default();
+    match hook_native(func) {
+        Ok(()) => {
+            crate::log::line("events", &format!("native hook on {full} (by name)"));
+            true
+        }
+        Err(e) if e.contains("GPropAddr") => {
+            let mut pending = PENDING_NATIVE_HOOKS.lock().unwrap();
+            if !pending.contains(&func) {
+                crate::log::line("events", &format!("native hook on {full} deferred: {e}"));
+                pending.push(func);
+            }
+            false
+        }
+        Err(e) => {
+            let mut failed = FAILED.lock().unwrap();
+            if !failed.contains(&func) {
+                failed.push(func);
+                crate::log::line("events", &format!("cannot hook native {full}: {e}"));
+            }
+            false
+        }
+    }
+}
+
+/// Game thread, housekeeping: once a package load has moved the object count
+/// by `RESCAN_AFTER`, sweep the object table, `RESCAN_CHUNK` objects a round,
+/// for natives named like the unqualified subscriptions (all names in one pass).
 fn rescan_native_names() {
-    let names: Vec<String> = {
-        let subs = SUBS.lock().unwrap();
-        let mut names: Vec<String> = subs.iter().filter(|(_, s)| s.class_path.is_none()).map(|(_, s)| s.func_name.to_ascii_lowercase()).collect();
-        names.sort();
-        names.dedup();
-        names
-    };
-    if names.is_empty() || !globals().gnames_ok {
+    if !globals().gnames_ok {
         return;
     }
-    let count = object_count().unwrap_or(0);
-    {
-        let mut last = RESCAN.lock().unwrap();
-        if last.1 == count || last.0.is_some_and(|t| t.elapsed() < Duration::from_secs(10)) {
+    let gobjects = GOBJECTS.load(Ordering::Acquire);
+    let count = cheat_array(gobjects).map(|(_, n)| n).unwrap_or(0);
+    let mut sweep = RESCAN.lock().unwrap();
+    if sweep.next.is_none() {
+        // Actors come and go all match long; a package load moves the count
+        // by thousands. Only then can new classes (and natives) be there.
+        if count.abs_diff(sweep.count) < RESCAN_AFTER {
             return;
         }
-        *last = (Some(Instant::now()), count);
+        let names: Vec<i32> = {
+            let subs = SUBS.lock().unwrap();
+            subs.iter().filter(|(_, s)| s.class_path.is_none()).filter_map(|(_, s)| s.fname_index).collect()
+        };
+        sweep.count = count;
+        if names.is_empty() {
+            return;
+        }
+        sweep.names = names;
+        sweep.next = Some(0);
     }
-    for name in names {
-        hook_natives_named(&name);
+    let Some(from) = sweep.next else { return };
+    let Some(function_class) = find_class("Core.Function") else {
+        sweep.next = None;
+        return;
+    };
+    let to = (from + RESCAN_CHUNK).min(count);
+    let found: Vec<usize> = (from..to)
+        .filter_map(|i| decrypt_entry(gobjects, i))
+        .filter(|&o| object_class(o) == Some(function_class))
+        .filter(|&f| object_fname(f).is_some_and(|(i, _)| sweep.names.contains(&i)))
+        .filter(|&f| function_is_native(f))
+        .collect();
+    sweep.next = (to < count).then_some(to);
+    drop(sweep);
+    for func in found {
+        hook_found_native(func);
     }
 }
 
@@ -2235,7 +2305,7 @@ fn any_sub_for(function: usize) -> bool {
     let subs = SUBS.lock().unwrap();
     let Some((index, _)) = object_fname(function) else { return false };
     let mut fired_name: Option<Option<String>> = None;
-    subs.iter().any(|(_, s)| match (s.func_ptr, s.fname_index) {
+    sub_candidates(index).into_iter().filter_map(|pos| subs.get(pos)).any(|(_, s)| match (s.func_ptr, s.fname_index) {
         (Some(f), _) => f == function,
         (None, Some(i)) => i == index,
         (None, None) => {
@@ -2343,6 +2413,8 @@ pub fn subscriptions() -> Vec<(u64, String)> {
 #[derive(Debug, Clone)]
 pub struct Event {
     pub sub_id: u64,
+    /// The subscribing mod.
+    pub owner: Arc<str>,
     pub phase: Phase,
     pub object: usize,
     pub function: usize,
@@ -2360,7 +2432,7 @@ pub fn set_dispatcher(f: fn(Event) -> bool) {
 /// same name on the same object; name-matched subscriptions fire once per
 /// logical call (at the outermost frame), exact-function ones wherever that
 /// function body runs.
-fn matching_subs(object: usize, function: usize, phase: Phase, inner: bool) -> Vec<u64> {
+fn matching_subs(object: usize, function: usize, phase: Phase, inner: bool) -> Vec<(u64, Arc<str>)> {
     if !might_have_sub(function) {
         return Vec::new();
     }
@@ -2369,13 +2441,14 @@ fn matching_subs(object: usize, function: usize, phase: Phase, inner: bool) -> V
     let mut fired_name: Option<Option<String>> = None;
     let mut due = Vec::new();
     let mut resolved = false;
-    for (id, s) in subs.iter_mut() {
+    for pos in sub_candidates(index) {
+        let Some((id, s)) = subs.get_mut(pos) else { continue };
         if s.phase != phase {
             continue;
         }
         if let Some(f) = s.func_ptr {
             if f == function {
-                due.push(*id);
+                due.push((*id, s.owner.clone()));
             }
             continue;
         }
@@ -2412,7 +2485,7 @@ fn matching_subs(object: usize, function: usize, phase: Phase, inner: bool) -> V
             }
         };
         if hit {
-            due.push(*id);
+            due.push((*id, s.owner.clone()));
         }
     }
     if resolved {
@@ -2425,9 +2498,10 @@ fn matching_subs(object: usize, function: usize, phase: Phase, inner: bool) -> V
 pub fn on_process_event_before(object: usize, function: usize, parms: usize, inner: bool) -> bool {
     let Some(dispatch) = DISPATCHER.get() else { return true };
     let mut proceed = true;
-    for sub_id in matching_subs(object, function, Phase::Before, inner) {
+    for (sub_id, owner) in matching_subs(object, function, Phase::Before, inner) {
         if !dispatch(Event {
             sub_id,
+            owner,
             phase: Phase::Before,
             object,
             function,
@@ -2442,9 +2516,10 @@ pub fn on_process_event_before(object: usize, function: usize, parms: usize, inn
 /// Hook entry, after the original returned.
 pub fn on_process_event_after(object: usize, function: usize, parms: usize, inner: bool) {
     let Some(dispatch) = DISPATCHER.get() else { return };
-    for sub_id in matching_subs(object, function, Phase::After, inner) {
+    for (sub_id, owner) in matching_subs(object, function, Phase::After, inner) {
         dispatch(Event {
             sub_id,
+            owner,
             phase: Phase::After,
             object,
             function,
@@ -3051,6 +3126,22 @@ mod native {
     }
     static TABLE: Mutex<Vec<&'static Slot>> = Mutex::new(Vec::new());
     static INSTALL: Mutex<()> = Mutex::new(());
+    /// Hooked and Lua-bound functions → their slot. Every game call made from
+    /// Lua and every hooked script call asks; with every `dllimport` bound
+    /// the table holds hundreds of slots, too many to scan each time.
+    static BY_FUNC: Mutex<Option<std::collections::HashMap<usize, &'static Slot>>> = Mutex::new(None);
+
+    fn slot_of(func: usize) -> Option<&'static Slot> {
+        if func == 0 {
+            return None;
+        }
+        BY_FUNC.lock().unwrap().as_ref()?.get(&func).copied()
+    }
+
+    /// `slot` now serves `func` (its stub is in `UFunction.Func`).
+    fn register(func: usize, slot: &'static Slot) {
+        BY_FUNC.lock().unwrap().get_or_insert_default().insert(func, slot);
+    }
 
     fn slots() -> Vec<&'static Slot> {
         TABLE.lock().unwrap().clone()
@@ -3255,12 +3346,7 @@ mod native {
 
     /// Is `func` bound to Lua (a dllimport function with no native behind it)?
     pub fn is_lua_native(func: usize) -> bool {
-        func != 0
-            && TABLE
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|s| s.func.load(Ordering::Acquire) == func && s.original.load(Ordering::Acquire) == 0)
+        slot_of(func).is_some_and(|s| s.original.load(Ordering::Acquire) == 0)
     }
 
     /// Log once per function that it ran without a `tempest.native` handler.
@@ -3336,6 +3422,7 @@ mod native {
             slot.func.store(0, Ordering::Release);
             return Err("cannot write UFunction.Func".into());
         }
+        register(func, slot);
         // UDK leaves `dllimport` functions without FUNC_Defined, and
         // `CallFunction` skips a bodiless non-native function outright. With
         // the flag, bytecode calls take the script path into ProcessInternal
@@ -3467,7 +3554,7 @@ mod native {
     /// native through its own path and skip the thunk, so run handlers and
     /// the native here against the caller-built frame instead.
     pub fn call_with_frame(func: usize, this: usize, buf: usize, omitted_inputs: &[bool]) -> bool {
-        let Some(slot) = slots().into_iter().find(|s| s.func.load(Ordering::Acquire) == func) else { return false };
+        let Some(slot) = slot_of(func) else { return false };
         let raw = slot.original.load(Ordering::Acquire);
         let params = function_params(func);
         if raw == 0 {
@@ -3492,7 +3579,7 @@ mod native {
     }
 
     pub fn is_hooked(func: usize) -> bool {
-        func != 0 && TABLE.lock().unwrap().iter().any(|s| s.func.load(Ordering::Acquire) == func)
+        slot_of(func).is_some()
     }
 
     pub fn hooked() -> Vec<usize> {
@@ -3530,6 +3617,7 @@ mod native {
             slot.func.store(0, Ordering::Release);
             return Err("cannot write UFunction.Func".into());
         }
+        register(func, slot);
         Ok(())
     }
 }
