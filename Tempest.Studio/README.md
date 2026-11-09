@@ -11,4 +11,6 @@ pnpm -C Tempest.Studio electron:dev      # builds the Rust backend in release mo
 pnpm -C Tempest.Studio electron:build    # installers in dist/
 ```
 
-See the root `AGENTS.md` for conventions and `Tempest.UnrealScript/AGENTS.md` for the backend protocol.
+See the [Studio agent guide](AGENTS.md) for conventions and topic references,
+the [root guide](../AGENTS.md) for shared rules, and the
+[backend reference](../Tempest.UnrealScript/docs/backend.md) for the backend protocol.
