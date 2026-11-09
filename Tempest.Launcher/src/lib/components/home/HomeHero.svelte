@@ -17,6 +17,7 @@
 	import { fade } from "svelte/transition";
 	import InstanceSessionControls from "$lib/components/library/InstanceSessionControls.svelte";
 	import maps from "$lib/data/maps.json";
+	import { cancelScheduledLaunch, isLaunchScheduled } from "$lib/mods/launch.svelte";
 	import { relativeDate } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
@@ -84,8 +85,10 @@
 	const launch = createLaunchGameMutation();
 	const kill = createKillGameMutation();
 	const busy = $derived(launch.isPending || kill.isPending);
+	const scheduled = $derived(!!instance && isLaunchScheduled(instance.id));
 
 	const playLabel = $derived.by(() => {
+		if (scheduled) return m.common_waiting_for_mods();
 		if (settingUp) return m.common_setting_up();
 		if (launch.isPending) return m.common_launching();
 		if (kill.isPending) return m.common_stopping_label();
@@ -95,6 +98,7 @@
 
 	function toggle() {
 		if (!instance) return;
+		if (cancelScheduledLaunch(instance.id)) return;
 		const target = instance;
 		const stopping = running;
 		(stopping ? kill : launch).mutate(target, {
@@ -234,11 +238,14 @@
 						class="btn min-w-32"
 						class:btn-success={!running}
 						class:btn-error={running}
-						disabled={busy || settingUp}
+						disabled={!scheduled && (busy || settingUp)}
 						aria-busy={busy || settingUp}
+						title={scheduled ? m.common_cancel_scheduled_launch() : undefined}
 						onclick={toggle}
 					>
-						{#if busy || settingUp}
+						{#if scheduled}
+							<Square size={16} />
+						{:else if busy || settingUp}
 							<span class="loading loading-spinner loading-xs"></span>
 						{:else if running}
 							<Square size={16} />

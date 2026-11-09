@@ -1,4 +1,5 @@
 import { installModFile } from "$lib/mods/installFile";
+import { recordModOperationFailure } from "$lib/mods/pendingInstalls.svelte";
 import { m } from "$lib/paraglide/messages";
 import { invoke } from "$lib/platform/api";
 import { instanceMap } from "$lib/stores/instance.svelte";
@@ -93,6 +94,8 @@ export async function enqueueInstall(
 // Drops a waiting entry without installing it.
 export function removeQueuedInstall(id: string) {
 	if (runningQueued.ids.includes(id)) return;
+	const item = stored.value.find((q) => q.id === id);
+	if (item) recordModOperationFailure(item.gamePath);
 	remove(id);
 }
 
@@ -133,6 +136,15 @@ async function runQueued(item: QueuedInstall, manual: boolean): Promise<InstallS
 			});
 		}
 		return outcome.status;
+	} catch (error) {
+		recordModOperationFailure(item.gamePath);
+		addToast({
+			title: m.toast_installation_failed_title(),
+			message: `${item.name}: ${String(error)}`,
+			tone: "error",
+		});
+		remove(item.id);
+		return "failed";
 	} finally {
 		runningQueued.ids = runningQueued.ids.filter((id) => id !== item.id);
 	}
@@ -153,8 +165,13 @@ async function drain(gamePath: string): Promise<void> {
 	draining.add(gamePath);
 	try {
 		const instanceExists = Object.values(instanceMap.value).some((i) => i?.path === gamePath);
-		for (const item of stored.value.filter((q) => q.gamePath === gamePath)) {
+		const attempted = new Set<string>();
+		for (;;) {
+			const item = stored.value.find((q) => q.gamePath === gamePath && !attempted.has(q.id));
+			if (!item) break;
+			attempted.add(item.id);
 			if (!instanceExists) {
+				recordModOperationFailure(gamePath);
 				remove(item.id);
 				continue;
 			}

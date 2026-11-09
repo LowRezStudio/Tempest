@@ -10,6 +10,7 @@
 		Square,
 	} from "@lucide/svelte";
 	import PaladinsIcon from "$lib/components/ui/PaladinsIcon.svelte";
+	import { cancelScheduledLaunch, isLaunchScheduled } from "$lib/mods/launch.svelte";
 	import { relativeDate } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
 	import { createKillGameMutation, createLaunchGameMutation } from "$lib/queries/core";
@@ -52,6 +53,7 @@
 	const launch = createLaunchGameMutation();
 	const kill = createKillGameMutation();
 	const busy = $derived(launch.isPending || kill.isPending);
+	const scheduled = $derived(isLaunchScheduled(instance.id));
 
 	const badge = $derived.by(() => {
 		if (running) return { label: m.library_badge_running(), tone: "badge-success" };
@@ -71,6 +73,7 @@
 	const startedAt = $derived(Math.min(...windows.map((w) => w.startedAt)));
 
 	function toggle() {
+		if (cancelScheduledLaunch(instance.id)) return;
 		const stopping = running;
 		(stopping ? kill : launch).mutate(instance, {
 			onError: (error) =>
@@ -194,22 +197,27 @@
 				class="btn btn-sm min-w-24"
 				class:btn-success={!running}
 				class:btn-error={running}
-				disabled={busy || phase === "setup"}
+				disabled={!scheduled && (busy || phase === "setup")}
 				aria-busy={busy}
+				title={scheduled ? m.common_cancel_scheduled_launch() : undefined}
 				onclick={toggle}
 			>
-				{#if busy || phase === "setup"}
+				{#if scheduled}
+					<Square size={14} />
+				{:else if busy || phase === "setup"}
 					<span class="loading loading-spinner loading-xs"></span>
 				{:else if running}
 					<Square size={14} />
 				{:else}
 					<Play size={14} />
 				{/if}
-				{running
-					? windows.length > 1
-						? m.sessions_stop_all()
-						: m.common_stop()
-					: m.common_play()}
+				{scheduled
+					? m.common_waiting_for_mods()
+					: running
+						? windows.length > 1
+							? m.sessions_stop_all()
+							: m.common_stop()
+						: m.common_play()}
 			</button>
 		{:else if phase === "paused" && download}
 			<button class="btn btn-sm min-w-24" onclick={() => restoreQueue.resume(download.id)}>

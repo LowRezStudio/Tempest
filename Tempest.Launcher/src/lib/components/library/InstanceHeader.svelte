@@ -16,6 +16,7 @@
 	import PopoverMenu from "$lib/components/ui/PopoverMenu.svelte";
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { activePreset, applyLaunchPreset, launchArgs, launchPresets } from "$lib/core/presets";
+	import { cancelScheduledLaunch, isLaunchScheduled } from "$lib/mods/launch.svelte";
 	import { relativeDate } from "$lib/mods/listing";
 	import { m } from "$lib/paraglide/messages";
 	import { openPath } from "$lib/platform/api";
@@ -68,9 +69,11 @@
 	const launch = createLaunchGameMutation();
 	const kill = createKillGameMutation();
 	const busy = $derived(launch.isPending || kill.isPending);
+	const scheduled = $derived(isLaunchScheduled(instance.id));
 	const selectedPreset = $derived(activePreset(instance));
 
 	const playLabel = $derived.by(() => {
+		if (scheduled) return m.common_waiting_for_mods();
 		if (phase === "setup") return m.common_setting_up();
 		if (launch.isPending) return m.common_launching();
 		if (kill.isPending) return m.common_stopping_label();
@@ -80,6 +83,7 @@
 	});
 
 	function toggle() {
+		if (cancelScheduledLaunch(instance.id)) return;
 		const target = instance;
 		const stopping = running;
 		(stopping ? kill : launch).mutate(target, {
@@ -189,11 +193,14 @@
 					class="btn join-item min-w-32"
 					class:btn-success={!running}
 					class:btn-error={running}
-					disabled={busy || (!running && phase !== "prepared")}
+					disabled={!scheduled && (busy || (!running && phase !== "prepared"))}
 					aria-busy={busy || phase === "setup"}
+					title={scheduled ? m.common_cancel_scheduled_launch() : undefined}
 					onclick={toggle}
 				>
-					{#if busy || phase === "setup"}
+					{#if scheduled}
+						<Square size={16} />
+					{:else if busy || phase === "setup"}
 						<span class="loading loading-spinner loading-xs"></span>
 					{:else if running}
 						<Square size={16} />

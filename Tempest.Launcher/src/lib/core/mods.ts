@@ -1,3 +1,4 @@
+import { beginModCommand } from "$lib/mods/pendingInstalls.svelte";
 import { fetch as httpFetch, invoke, listen } from "$lib/platform/api";
 import { getQueryClient } from "$lib/queries/client";
 import { appendProcessLogs } from "$lib/stores/processes.svelte";
@@ -239,8 +240,39 @@ export type PatchProgress = (fraction: number) => void;
 // `[progress] 42% Applying changes to X.upk (2/5)` on stderr while game files are rebuilt.
 const PROGRESS_LINE = /^\[progress\] (\d+(?:\.\d+)?)%/;
 
+// V2 reports locked files explicitly; legacy installers report the OS sharing error.
+const IN_USE_PATTERN = /being used by another process|sharing violation|\bEBUSY\b|busy or locked/i;
+export const modFilesInUse = (res: ModInstallResult) =>
+	!!res.FilesInUse || IN_USE_PATTERN.test(res.Message);
+
 // Runs a mod command that answers a ModInstallResult and logs its output, progress lines left out.
 async function runModCommand(
+	args: string[],
+	what: string,
+	onProgress?: PatchProgress,
+): Promise<ModInstallResult> {
+	const finish = beginModCommand(args[2]);
+	let successful = false;
+	try {
+		if (args[1] === "install") {
+			// Check the package's launcher requirement while keeping the install marked busy.
+			const appVersion = await getAppVersion().catch(() => undefined);
+			if (appVersion) args.push("--tempest-version", appVersion);
+		}
+		const result = await executeModCommand(args, what, onProgress);
+		successful =
+			result.Success ||
+			result.Unverified === true ||
+			result.Conflict === true ||
+			result.Deferred === true ||
+			modFilesInUse(result);
+		return result;
+	} finally {
+		finish(successful);
+	}
+}
+
+async function executeModCommand(
 	args: string[],
 	what: string,
 	onProgress?: PatchProgress,
@@ -277,7 +309,7 @@ async function runModCommand(
 	}
 }
 
-export const installMod = async (
+export const installMod = (
 	gamePath: string,
 	modFile: string,
 	replace = false,
@@ -292,9 +324,6 @@ export const installMod = async (
 	if (stack) args.push("--stack");
 	if (defer) args.push("--defer");
 	if (allowUntrusted) args.push("--allow-untrusted");
-	// The CLI checks the package's "tempest" requirement against the launcher's version.
-	const appVersion = await getAppVersion().catch(() => undefined);
-	if (appVersion) args.push("--tempest-version", appVersion);
 	args.push("--json");
 	return runModCommand(args, "install mod", onProgress);
 };

@@ -33,8 +33,11 @@
 		teamLeft,
 		teamRight,
 	} from "$lib/lobby/stores.svelte";
+	import { cancelScheduledLaunch } from "$lib/mods/launch.svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes.svelte";
+	import { addToast } from "$lib/stores/ui.svelte";
 	import { getMapsForVersion } from "$lib/utils/versions";
 
 	const currentMap = $derived(
@@ -76,6 +79,7 @@
 			handleJoinGame();
 		}
 		if (!isGameServerOpen.value) {
+			if (currentInstance.value) cancelScheduledLaunch(currentInstance.value.id);
 			setCurrentInstance(null);
 			//TODO maybe ask user before closing instances
 			const openInstances = processesList.value.filter(
@@ -91,6 +95,7 @@
 	});
 
 	onDestroy(() => {
+		if (currentInstance.value) cancelScheduledLaunch(currentInstance.value.id);
 		if (!lobbyManager.isConnected()) {
 			lobbyManager.cleanup();
 		}
@@ -113,6 +118,7 @@
 	}
 
 	async function handleLeave() {
+		if (currentInstance.value) cancelScheduledLaunch(currentInstance.value.id);
 		await lobbyManager.leaveLobby();
 		goto("/servers");
 	}
@@ -124,7 +130,14 @@
 		if (instance) {
 			console.log("Found instance. Launching game!");
 			setCurrentInstance(instance);
-			launchGameMutation.mutate(instance);
+			launchGameMutation.mutate(instance, {
+				onError: (error) =>
+					addToast({
+						title: m.library_launch_failed({ name: instance.label }),
+						message: error.message,
+						tone: "error",
+					}),
+			});
 		} else {
 			console.error("Unable to create instance");
 			console.error(

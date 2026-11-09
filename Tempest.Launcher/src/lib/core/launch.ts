@@ -1,4 +1,5 @@
 import { currentInstance, setCurrentInstance } from "$lib/lobby/stores.svelte";
+import { launchAfterModOperations } from "$lib/mods/launch.svelte";
 import { m } from "$lib/paraglide/messages";
 import { Command, invoke, type Child } from "$lib/platform/api";
 import { openEpicLogin } from "$lib/stores/epic.svelte";
@@ -161,23 +162,30 @@ export const restoreRunningGames = async () => {
 	}
 };
 
-export const launchGame = async (instance: Instance, { noDlls = false } = {}) => {
+export const launchGame = (instance: Instance, { noDlls = false } = {}) =>
+	launchAfterModOperations(instance, (wait) => startGame(instance, noDlls, wait));
+
+const startGame = async (instance: Instance, noDlls: boolean, wait: () => Promise<boolean>) => {
 	const { path, launchOptions: options } = instance;
 	const platform = options.platform ?? "Win64";
 	// A Steam launch just tells the client to use its Steam session; Epic gets a
 	// one-time exchange code, made fresh for this launch and never stored.
 	let authArgs: string[] = [];
-	if (options.auth?.provider === "steam") {
-		authArgs = ["-steam"];
-	} else if (options.auth?.provider === "epic") {
-		const epicArgs = await epicAuthArgs(options.auth.accountId);
-		if (!epicArgs) {
-			// The launch cannot sign in: ask for the account rather than failing it.
-			openEpicLogin(m.epic_login_required());
-			return;
+	do {
+		await wait();
+		if (options.auth?.provider === "steam") {
+			authArgs = ["-steam"];
+		} else if (options.auth?.provider === "epic") {
+			const epicArgs = await epicAuthArgs(options.auth.accountId);
+			if (!epicArgs) {
+				// The launch cannot sign in: ask for the account rather than failing it.
+				openEpicLogin(m.epic_login_required());
+				return;
+			}
+			authArgs = epicArgs;
 		}
-		authArgs = epicArgs;
-	}
+		// Mod work may start while Epic issues its short-lived exchange code.
+	} while (await wait());
 	const args = [...launchArgs(instance), ...authArgs];
 
 	lastLaunchedInstanceId.value = instance.id;

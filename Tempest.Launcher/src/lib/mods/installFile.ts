@@ -1,4 +1,4 @@
-import { installMod } from "$lib/core/mods";
+import { installMod, modFilesInUse } from "$lib/core/mods";
 import { installDependenciesForPackage, offerMissingDependencies } from "$lib/mods/dependencies";
 import { enqueueInstall, isGameRunning } from "$lib/mods/installQueue.svelte";
 import { trackInstall } from "$lib/mods/pendingInstalls.svelte";
@@ -16,11 +16,6 @@ export type InstallOutcome =
 	| { status: "queued" }
 	| { status: "cancelled" }
 	| { status: "failed"; message: string };
-
-// Refusals that mean "the game (or something) holds these files": the CLI says so for V2
-// packages before touching anything; older installers only fail with the OS error.
-const IN_USE_PATTERN = /being used by another process|sharing violation|\bEBUSY\b|busy or locked/i;
-const filesInUse = (res: ModInstallResult) => !!res.FilesInUse || IN_USE_PATTERN.test(res.Message);
 
 // Each install is a CLI process that verifies its package before taking the instance's mod lock,
 // so several run at once; this caps how many.
@@ -107,116 +102,129 @@ export async function installModFile(
 				? { name: queued.name, version: queued.version, modId: queued.modId }
 				: { name: displayName.replace(/\.(tempest|zip|upk|pck)$/i, "") },
 		);
-	const manifest = await tracker.readPackage(filePath);
-	// What the package says it needs goes in first (after a yes), so the mod works right away.
-	// A repository install resolved and installed them before downloading; `skip` says so.
-	const askedBefore = !!manifest && options.dependencies !== "skip";
-	if (askedBefore) {
-		let go: boolean;
-		try {
-			go = await installDependenciesForPackage(
-				gamePath,
-				manifest.name || displayName,
-				manifest.dependencies,
-				options.dependencies ?? "ask",
-			);
-		} catch (error: unknown) {
-			await tracker.finish(false);
-			const message = (error as Error).message;
-			addToast({
-				title: m.toast_installation_failed_title(),
-				message: `${displayName}: ${message}`,
-				tone: "error",
-			});
-			return { status: "failed", message };
-		}
-		if (!go) {
-			await tracker.finish(false);
-			return { status: "cancelled" };
-		}
-	}
-	// While the game runs, the CLI checks the package (so every question is asked now) and stops
-	// before writing anything; the install then waits in the queue for the game to close, unless
-	// the mod is only Lua scripts, which the game reloads.
-	const defer = !options.force && isGameRunning(gamePath);
-	const result = await runInstall(
-		gamePath,
-		filePath,
-		displayName,
-		{
-			replace: options.replace ?? false,
-			stack: options.stack ?? false,
-			allowUntrusted: options.allowUntrusted ?? false,
-		},
-		defer,
-		tracker.setPatching,
-		options.fromRepository ?? false,
-		options.waitForGame ?? false,
-	);
-	if (result.status === "in-use") {
-		// The manifest's fields are empty strings when missing.
-		const first = (...values: (string | undefined)[]) => values.find((v) => !!v);
-		const name =
-			first(manifest?.name, queued?.name) ??
-			displayName.replace(/\.(tempest|zip|upk|pck)$/i, "");
-		try {
-			await enqueueInstall(
-				{
+	try {
+		const manifest = await tracker.readPackage(filePath);
+		// What the package says it needs goes in first (after a yes), so the mod works right away.
+		// A repository install resolved and installed them before downloading; `skip` says so.
+		const askedBefore = !!manifest && options.dependencies !== "skip";
+		if (askedBefore) {
+			let go: boolean;
+			try {
+				go = await installDependenciesForPackage(
 					gamePath,
-					file: filePath,
-					name,
-					version: first(manifest?.version, queued?.version),
-					author: first(manifest?.authors.join(", "), queued?.author),
-					modId: first(manifest?.id, queued?.modId),
-					fromRepository: options.fromRepository ?? false,
-					...result.choices,
-					lockedFiles: result.lockedFiles,
-					hotReloadable: result.hotReloadable,
-				},
-				queued?.id,
-			);
-		} catch (error: unknown) {
-			await tracker.finish(false);
-			const message = `${result.message} (${(error as Error).message})`;
-			addToast({
-				title: m.toast_installation_failed_title(),
-				message: `${displayName}: ${message}`,
-				tone: "error",
-			});
-			return { status: "failed", message };
+					manifest.name || displayName,
+					manifest.dependencies,
+					options.dependencies ?? "ask",
+				);
+			} catch (error: unknown) {
+				await tracker.finish(false);
+				const message = (error as Error).message;
+				addToast({
+					title: m.toast_installation_failed_title(),
+					message: `${displayName}: ${message}`,
+					tone: "error",
+				});
+				return { status: "failed", message };
+			}
+			if (!go) {
+				await tracker.finish(false);
+				return { status: "cancelled" };
+			}
 		}
-		await tracker.finish(false);
-		if (!queued) {
-			addToast({
-				title: m.install_queue_added_title(),
-				message: m.install_queue_added_message({ name }),
-				tone: "info",
-			});
-		}
-		return { status: "queued" };
-	}
-	const outcome = result;
-	await tracker.finish(
-		outcome.status === "installed",
-		outcome.status === "installed" ? outcome.result.Mod?.Id : undefined,
-	);
-	// The manifest could not be read beforehand, yet the CLI found dependencies missing: offer
-	// them now.
-	if (
-		!askedBefore &&
-		outcome.status === "installed" &&
-		outcome.result.MissingDependencies?.length
-	) {
-		await offerMissingDependencies(
+		// While the game runs, the CLI checks the package (so every question is asked now) and stops
+		// before writing anything; the install then waits in the queue for the game to close, unless
+		// the mod is only Lua scripts, which the game reloads.
+		const defer = !options.force && isGameRunning(gamePath);
+		const result = await runInstall(
 			gamePath,
-			outcome.result.Mod?.Name ?? displayName,
-			outcome.result.MissingDependencies.map((d) => ({
-				id: d.Id,
-				requirement: d.Requirement,
-			})),
+			filePath,
+			displayName,
+			{
+				replace: options.replace ?? false,
+				stack: options.stack ?? false,
+				allowUntrusted: options.allowUntrusted ?? false,
+			},
+			defer,
+			tracker.setPatching,
+			options.fromRepository ?? false,
+			options.waitForGame ?? false,
 		);
+		if (result.status === "in-use") {
+			// The manifest's fields are empty strings when missing.
+			const first = (...values: (string | undefined)[]) => values.find((v) => !!v);
+			const name =
+				first(manifest?.name, queued?.name) ??
+				displayName.replace(/\.(tempest|zip|upk|pck)$/i, "");
+			try {
+				await enqueueInstall(
+					{
+						gamePath,
+						file: filePath,
+						name,
+						version: first(manifest?.version, queued?.version),
+						author: first(manifest?.authors.join(", "), queued?.author),
+						modId: first(manifest?.id, queued?.modId),
+						fromRepository: options.fromRepository ?? false,
+						...result.choices,
+						lockedFiles: result.lockedFiles,
+						hotReloadable: result.hotReloadable,
+					},
+					queued?.id,
+				);
+			} catch (error: unknown) {
+				await tracker.finish(false);
+				const message = `${result.message} (${(error as Error).message})`;
+				addToast({
+					title: m.toast_installation_failed_title(),
+					message: `${displayName}: ${message}`,
+					tone: "error",
+				});
+				return { status: "failed", message };
+			}
+			await tracker.finish(false, undefined, true);
+			if (!queued) {
+				addToast({
+					title: m.install_queue_added_title(),
+					message: m.install_queue_added_message({ name }),
+					tone: "info",
+				});
+			}
+			return { status: "queued" };
+		}
+		const outcome = result;
+		// The manifest could not be read beforehand, yet the CLI found dependencies missing: offer
+		// them now.
+		let successful = outcome.status === "installed";
+		try {
+			if (
+				!askedBefore &&
+				outcome.status === "installed" &&
+				outcome.result.MissingDependencies?.length
+			) {
+				await offerMissingDependencies(
+					gamePath,
+					outcome.result.Mod?.Name ?? displayName,
+					outcome.result.MissingDependencies.map((d) => ({
+						id: d.Id,
+						requirement: d.Requirement,
+					})),
+				);
+			}
+		} catch (error) {
+			successful = false;
+			throw error;
+		} finally {
+			await tracker.finish(
+				outcome.status === "installed",
+				outcome.status === "installed" ? outcome.result.Mod?.Id : undefined,
+				successful,
+			);
+		}
+		return outcome;
+	} catch (error) {
+		await tracker.finish(false);
+		throw error;
 	}
-	return outcome;
 }
 
 type RunResult =
@@ -309,7 +317,7 @@ async function runInstall(
 		}
 		if (res.Success) return { status: "installed", result: res };
 		const message = res.Message || m.toast_installation_failed_unknown();
-		if (res.Deferred || filesInUse(res)) {
+		if (res.Deferred || modFilesInUse(res)) {
 			return {
 				status: "in-use",
 				message,

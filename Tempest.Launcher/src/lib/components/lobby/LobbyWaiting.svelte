@@ -1,16 +1,18 @@
 <script lang="ts">
-	import { Users } from "@lucide/svelte";
+	import { Square, Users } from "@lucide/svelte";
 	import ChampionSelect from "$lib/components/champions/ChampionSelect.svelte";
 	import Header from "$lib/components/ui/Header.svelte";
 	import champions from "$lib/data/champions.json";
 	import { lobbyManager } from "$lib/lobby/lobby-manager";
 	import {
 		lobbyWaitingState,
+		currentInstance,
 		isSpectator,
 		playerId,
 		teamLeft,
 		teamRight,
 	} from "$lib/lobby/stores.svelte";
+	import { cancelScheduledLaunch, isLaunchScheduled } from "$lib/mods/launch.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import LobbyChampionSelect from "./LobbyChampionSelect.svelte";
 	import LobbyPlayerCard from "./LobbyPlayerCard.svelte";
@@ -28,6 +30,9 @@
 		handleJoinInProgress,
 		handleLeave,
 	}: Props = $props();
+	const scheduled = $derived(
+		!!currentInstance.value && isLaunchScheduled(currentInstance.value.id),
+	);
 	function getChampionDisplayName(champion: string | undefined): string {
 		return champions.find((c) => c.name === champion)?.displayName || "";
 	}
@@ -49,7 +54,17 @@
 		<Users size={32} class="opacity-60" />
 	{/snippet}
 	{#snippet actions()}
-		{#if lobbyWaitingState.value.canRejoinGame}
+		{#if scheduled && currentInstance.value}
+			<button
+				class="btn btn-primary"
+				onclick={() =>
+					currentInstance.value && cancelScheduledLaunch(currentInstance.value.id)}
+				title={m.common_cancel_scheduled_launch()}
+			>
+				<Square size={16} />
+				{m.common_waiting_for_mods()}
+			</button>
+		{:else if lobbyWaitingState.value.canRejoinGame}
 			<button class="btn btn-primary" onclick={handleRejoinGame}
 				>{m.lobby_rejoin_game()}</button
 			>

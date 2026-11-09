@@ -1,4 +1,4 @@
-import { SvelteSet } from "svelte/reactivity";
+import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { m } from "$lib/paraglide/messages";
 import { invoke } from "$lib/platform/api";
 import { getQueryClient } from "$lib/queries/client";
@@ -46,6 +46,25 @@ export function pendingStatus(install: PendingInstall): string {
 }
 
 export const pendingInstalls = $state<{ value: PendingInstall[] }>({ value: [] });
+export const activeModCommands = new SvelteMap<string, number>();
+export const modOperationFailures = new SvelteMap<string, number>();
+
+export function recordModOperationFailure(gamePath: string) {
+	modOperationFailures.set(gamePath, (modOperationFailures.get(gamePath) ?? 0) + 1);
+}
+
+export function beginModCommand(gamePath: string) {
+	activeModCommands.set(gamePath, (activeModCommands.get(gamePath) ?? 0) + 1);
+	let finished = false;
+	return (successful: boolean) => {
+		if (finished) return;
+		finished = true;
+		if (!successful) recordModOperationFailure(gamePath);
+		const remaining = (activeModCommands.get(gamePath) ?? 1) - 1;
+		if (remaining) activeModCommands.set(gamePath, remaining);
+		else activeModCommands.delete(gamePath);
+	};
+}
 
 /** Ids of mods whose install just finished, so their row fades in. */
 export const justInstalled = new SvelteSet<string>();
@@ -60,13 +79,16 @@ function refreshModList(gamePath: string): Promise<unknown> {
 	const start = () => {
 		const entry = {
 			running:
-				getQueryClient()?.invalidateQueries({ queryKey: ["mods", gamePath] }) ??
-				Promise.resolve(),
+				getQueryClient()?.invalidateQueries(
+					{ queryKey: ["mods", gamePath] },
+					{ throwOnError: true },
+				) ?? Promise.resolve(),
 		};
 		refreshes.set(gamePath, entry);
-		void entry.running.then(() => {
+		const cleanup = () => {
 			if (refreshes.get(gamePath) === entry) refreshes.delete(gamePath);
-		});
+		};
+		void entry.running.then(cleanup, cleanup);
 		return entry.running;
 	};
 	if (!current) return start();
@@ -82,6 +104,7 @@ export function trackInstall(
 ) {
 	const id = crypto.randomUUID();
 	const progress = downloading ? 0 : null;
+	let finished = false;
 	pendingInstalls.value = [...pendingInstalls.value, { id, gamePath, ...info, progress }];
 	const patch = (changes: Partial<PendingInstall>) => {
 		pendingInstalls.value = pendingInstalls.value.map((p) =>
@@ -116,15 +139,24 @@ export function trackInstall(
 		},
 		// After a successful install, waits for the refreshed list so the real row replaces the
 		// placeholder without a gap, and marks that row (`modId`) to fade in.
-		async finish(installed: boolean, modId?: string) {
-			if (installed) {
-				await refreshModList(gamePath);
-				if (modId) {
-					justInstalled.add(modId);
-					setTimeout(() => justInstalled.delete(modId), 1000);
+		async finish(installed: boolean, modId?: string, successful = installed) {
+			if (finished) return;
+			finished = true;
+			if (!successful) recordModOperationFailure(gamePath);
+			try {
+				if (installed) {
+					await refreshModList(gamePath);
+					if (modId) {
+						justInstalled.add(modId);
+						setTimeout(() => justInstalled.delete(modId), 1000);
+					}
 				}
+			} catch (error) {
+				if (successful) recordModOperationFailure(gamePath);
+				throw error;
+			} finally {
+				pendingInstalls.value = pendingInstalls.value.filter((p) => p.id !== id);
 			}
-			pendingInstalls.value = pendingInstalls.value.filter((p) => p.id !== id);
 		},
 	};
 }

@@ -36,3 +36,10 @@ game launch. The launcher keeps rows busy until their confirmed state is refresh
 with Installing, Enabling, Disabling or Removing labels matching the operation.
 DLLs and game assets already loaded by a running game still require a restart for
 their enabled/disabled state to take effect.
+
+Pressing Play while mods are downloading, queued, installing, enabling, disabling
+or being removed schedules one launch for that instance. It shows **Waiting for
+mods...**; click again to cancel the launch without stopping the mod work. The game
+starts only when all pending mod work for its game folder has succeeded, including
+work added while waiting. A failed or cancelled operation cancels the scheduled
+launch; press Play again after resolving it. Unrelated game folders do not block it.

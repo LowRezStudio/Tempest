@@ -128,12 +128,14 @@ const createModMutation = <V extends ModNameVariables>(
 				inPlace: true,
 				operation,
 			});
+			let successful = false;
 			try {
 				const res = await run(variables, tracker.setPatching);
 				if (!res.Success) throw new Error(res.Message || "Unknown error");
+				successful = true;
 				return res;
 			} finally {
-				await tracker.finish(true);
+				await tracker.finish(true, undefined, successful);
 			}
 		},
 	}));

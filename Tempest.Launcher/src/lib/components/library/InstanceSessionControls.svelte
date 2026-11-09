@@ -4,6 +4,7 @@
 	import PopoverMenuItem from "$lib/components/ui/PopoverMenuItem.svelte";
 	import { stopGameWindow } from "$lib/core/launch";
 	import { activePreset } from "$lib/core/presets";
+	import { cancelScheduledLaunch, isLaunchScheduled } from "$lib/mods/launch.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { createLaunchGameMutation } from "$lib/queries/core";
 	import { processesList } from "$lib/stores/processes.svelte";
@@ -34,7 +35,8 @@
 	const launchMutation = createLaunchGameMutation();
 
 	let windows = $derived(processesList.value.filter((p) => p.instance.id === instance.id));
-	let disabled = $derived(busy || launchMutation.isPending);
+	const scheduled = $derived(isLaunchScheduled(instance.id));
+	let disabled = $derived(!scheduled && (busy || launchMutation.isPending));
 
 	const formatTime = (timestamp: number) =>
 		new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -48,6 +50,7 @@
 	};
 
 	async function openAnother() {
+		if (cancelScheduledLaunch(instance.id)) return;
 		try {
 			await launchMutation.mutateAsync(instance);
 		} catch (error) {
@@ -59,7 +62,7 @@
 {#if windows.length}
 	<PopoverMenu triggerClass={style.trigger} triggerLabel={m.sessions_manage()} menuClass="w-80">
 		{#snippet trigger()}
-			{#if launchMutation.isPending}
+			{#if launchMutation.isPending || scheduled}
 				<span class="loading loading-spinner loading-xs"></span>
 			{:else}
 				<Layers size={style.icon} />
@@ -91,8 +94,13 @@
 			{/each}
 			<li role="separator" class="border-base-content/10 my-1 border-t"></li>
 			<PopoverMenuItem onclick={openAnother} {disabled}>
-				<Plus size={16} />
-				{m.sessions_open_another()}
+				{#if scheduled}
+					<Square size={16} />
+					{m.common_cancel_scheduled_launch()}
+				{:else}
+					<Plus size={16} />
+					{m.sessions_open_another()}
+				{/if}
 			</PopoverMenuItem>
 		{/snippet}
 	</PopoverMenu>
