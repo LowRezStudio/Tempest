@@ -3,7 +3,7 @@ import type { CrashSummary, GameLogFolders } from "$ipc/contract";
 import type { Instance } from "$lib/types/instance";
 
 // `[game-logs] <log folder>\t<temp folder>` from the CLI, once per launch.
-const MARKER = /^\[game-logs\] (.+?)\t(.+?)\r?\n/m;
+const MARKER = /^\[game-logs\] ([^\r\n]+)\r?\n/m;
 
 export const crashDialog = $state({
 	value: { open: false, crash: null as CrashSummary | null, instance: null as Instance | null },
@@ -23,7 +23,14 @@ export function watchGameLogFolders(
 		const match = MARKER.exec(buffer);
 		if (match) {
 			command.stderr.removeListener("data", onData);
-			onFolders({ logs: match[1], temp: match[2] });
+			const [logs, temp, modules, devMods] = match[1].split("\t");
+			if (logs && temp)
+				onFolders({
+					logs,
+					temp,
+					modules: modules || undefined,
+					devMods: devMods || undefined,
+				});
 		} else {
 			buffer = buffer.slice(buffer.lastIndexOf("\n") + 1);
 		}
@@ -46,7 +53,7 @@ export async function checkForCrash(
 ): Promise<void> {
 	try {
 		const crash = await invoke("crash:inspect", {
-			folders: { logs: folders.logs, temp: folders.temp },
+			folders,
 			startedAt,
 			exitCode,
 		});

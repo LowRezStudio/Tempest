@@ -37,7 +37,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { locales } from "$lib/paraglide/runtime";
 	import { invoke, open, openUrl, platform } from "$lib/platform/api";
-	import { createAboutInfoQuery } from "$lib/queries/about";
+	import { createAboutInfoQuery, createClientIdQuery } from "$lib/queries/about";
 	import ApiKeySettings from "$lib/settings/ApiKeySettings.svelte";
 	import CliInstall from "$lib/settings/CliInstall.svelte";
 	import EpicAccounts from "$lib/settings/EpicAccounts.svelte";
@@ -142,6 +142,7 @@
 	}
 
 	const aboutQuery = createAboutInfoQuery();
+	const clientIdQuery = createClientIdQuery();
 	const about = $derived(aboutQuery.data);
 	const builtOn = $derived(about ? new Date(about.buildDate).toLocaleDateString() : "...");
 	const checkingUpdates = $derived(updaterStore.status === "checking");
@@ -453,6 +454,29 @@
 							<dt class="text-base-content/60 text-xs">{m.settings_os_arch()}</dt>
 							<dd class="truncate font-mono">
 								{about ? `${about.architecture}-${about.osName}` : "..."}
+							</dd>
+						</div>
+						<div class="col-span-2 min-w-0">
+							<dt class="text-base-content/60 text-xs">{m.settings_client_id()}</dt>
+							<dd class="mt-1 space-y-1">
+								{#if clientIdQuery.error}
+									<p class="text-error text-xs" role="alert">
+										{m.settings_client_id_failed({
+											error: clientIdQuery.error.message,
+										})}
+									</p>
+									<button
+										type="button"
+										class="btn btn-ghost btn-xs"
+										disabled={clientIdQuery.isFetching}
+										onclick={() => void clientIdQuery.refetch()}
+										>{m.common_retry()}</button
+									>
+								{:else}
+									<code class="font-mono text-xs break-all select-all"
+										>{clientIdQuery.data ?? m.common_loading()}</code
+									>
+								{/if}
 							</dd>
 						</div>
 					</dl>

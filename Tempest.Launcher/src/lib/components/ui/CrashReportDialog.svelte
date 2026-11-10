@@ -16,6 +16,7 @@
 	let note = $state("");
 	let discord = $state("");
 	let includeDump = $state(false);
+	let includeSystemInfo = $state(true);
 	let busy = $state<"send" | "save" | null>(null);
 	let sendError = $state<string | null>(null);
 
@@ -32,6 +33,7 @@
 		note = "";
 		discord = "";
 		includeDump = false;
+		includeSystemInfo = true;
 		sendError = null;
 	};
 
@@ -68,6 +70,7 @@
 				id: crash.id,
 				details: await details(),
 				includeDump,
+				includeSystemInfo,
 			});
 			if (result.status === "sent") {
 				addToast({ message: m.crash_sent(), tone: "success" });
@@ -94,6 +97,7 @@
 				id: crash.id,
 				details: await details(),
 				includeDump,
+				includeSystemInfo,
 			});
 			if (saved) addToast({ title: m.crash_saved(), message: saved, tone: "success" });
 		} catch (error) {
@@ -138,39 +142,41 @@
 					class="input w-full"
 					maxlength="100"
 					placeholder={m.crash_discord_placeholder()}
-					aria-describedby="crash-discord-hint"
 					bind:value={discord}
 				/>
-				<span id="crash-discord-hint" class="block opacity-60">
-					{m.crash_discord_hint()}
-				</span>
 			</label>
 
 			<div class="space-y-1">
-				<p class="font-medium">{m.crash_included()}</p>
-				<ul class="space-y-0.5 opacity-80">
-					<li>{m.crash_file_report()}</li>
-					{#each crash.files as file (file.name)}
-						<li class="font-mono text-xs">{file.name} ({formatSize(file.size)})</li>
-					{/each}
-					<li>{m.crash_file_launcher()}</li>
-				</ul>
+				<label class="flex items-center justify-between gap-3 pt-2">
+					<span class="min-w-0 flex-1">{m.crash_include_system_info()}</span>
+					<input
+						type="checkbox"
+						class="toggle toggle-primary shrink-0"
+						bind:checked={includeSystemInfo}
+					/>
+				</label>
 				{#if crash.dumpSize !== null}
-					<label class="flex items-start gap-2 pt-2">
+					<label class="flex items-center justify-between gap-3 pt-2">
+						<span class="min-w-0 flex-1">
+							{m.crash_include_dump({ size: formatSize(crash.dumpSize) })}
+						</span>
 						<input
 							type="checkbox"
-							class="checkbox checkbox-sm"
+							class="toggle toggle-primary shrink-0"
 							bind:checked={includeDump}
 						/>
-						<span>
-							{m.crash_include_dump({ size: formatSize(crash.dumpSize) })}
-							<span class="block opacity-60">{m.crash_dump_hint()}</span>
-						</span>
 					</label>
 				{/if}
 			</div>
 
-			<p class="opacity-60">{m.crash_privacy()}</p>
+			<p class="opacity-60">{m.crash_diagnostics_privacy()}</p>
+			{#if crash.diagnosticWarnings.length}
+				<ul class="text-warning space-y-1" role="status">
+					{#each crash.diagnosticWarnings as warning}
+						<li>{warning}</li>
+					{/each}
+				</ul>
+			{/if}
 
 			{#if sendError}
 				<p class="text-error" role="alert">

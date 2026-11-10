@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { app, ipcMain } from "electron";
+import { crashInstallationId } from "./crash-identity.js";
 import { handle } from "./ipc/handle.js";
 import { isUpdateDownloaded, quitAndInstallUpdate } from "./updater.js";
 
@@ -19,6 +20,7 @@ export function queueDeepLinks(urls: string[]): void {
 }
 
 handle("app:version", () => app.getVersion());
+handle("app:client-id", () => crashInstallationId());
 
 handle("app:take-pending-open-files", () => {
 	const files = pendingOpenFiles;

@@ -165,7 +165,7 @@ export type DefenderExclusionResult = {
 };
 
 /** Where a launched game writes, from the CLI's `[game-logs]` line. */
-export type GameLogFolders = { logs: string; temp: string };
+export type GameLogFolders = { logs: string; temp: string; modules?: string; devMods?: string };
 
 /** A crashed session whose redacted logs the host holds until the next crash. */
 export type CrashSummary = {
@@ -177,6 +177,7 @@ export type CrashSummary = {
 	files: { name: string; size: number }[];
 	/** The session's minidump, null without one. It cannot be redacted, so it is optional. */
 	dumpSize: number | null;
+	diagnosticWarnings: string[];
 };
 
 /** What the renderer knows about the crashed session. */
@@ -210,6 +211,7 @@ export type OsInfo = {
 export interface IpcContract {
 	// ---- App / settings ----
 	"app:version": { args: void; result: string };
+	"app:client-id": { args: void; result: string };
 	"app:relaunch": { args: void; result: void };
 	"app:take-pending-open-files": { args: void; result: string[] };
 	"app:take-pending-deep-links": { args: void; result: string[] };
@@ -420,12 +422,22 @@ export interface IpcContract {
 		result: CrashSummary | null;
 	};
 	"crash:send": {
-		args: { id: string; details: CrashDetails; includeDump: boolean };
+		args: {
+			id: string;
+			details: CrashDetails;
+			includeDump: boolean;
+			includeSystemInfo: boolean;
+		};
 		result: CrashSendResult;
 	};
 	/** Saves the same report as a zip; returns where, or null when cancelled. */
 	"crash:save": {
-		args: { id: string; details: CrashDetails; includeDump: boolean };
+		args: {
+			id: string;
+			details: CrashDetails;
+			includeDump: boolean;
+			includeSystemInfo: boolean;
+		};
 		result: string | null;
 	};
 }

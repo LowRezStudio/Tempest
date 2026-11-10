@@ -204,10 +204,11 @@ const startGame = async (instance: Instance, noDlls: boolean, wait: () => Promis
 	const runtime = wineRuntime.get();
 	const proton =
 		runtime === "proton" ? protonPath.get() : runtime === "wine" ? "wine" : undefined;
-	const env: Record<string, string> | undefined =
-		wine || proton
-			? { ...(wine ? { WINE: wine } : {}), ...(proton ? { PROTON: proton } : {}) }
-			: undefined;
+	const env: Record<string, string> = {
+		TEMPEST_CRASH_DIAGNOSTICS: "1",
+		...(wine ? { WINE: wine } : {}),
+		...(proton ? { PROTON: proton } : {}),
+	};
 
 	const command = createCommand(
 		[

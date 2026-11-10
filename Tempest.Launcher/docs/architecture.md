@@ -31,9 +31,30 @@ current sources.
   the next launch rotates `Launch.log`. Nothing is sent without the button; the minidump (not
   redactable) is opt-in. The report is a Discord webhook call (`payload_json` + `files[0]`, a zip)
   to the relay, a Cloudflare Worker in the separate `tempest-crash-reports` repository that holds
-  the webhook (`REPORT_URL` in `crash.ts`; `TEMPEST_CRASH_REPORT_URL` overrides it). What must not
-  leave the machine is `redactLog` in `crash-logs.ts`: Vivox lines hold sign-in tokens, `Init:`
-  lines the OS user and computer names.
+  the webhook (`REPORT_URL` in `crash.ts`; `TEMPEST_CRASH_REPORT_URL` overrides it). `redactLog`
+  in `crash-logs.ts` removes recognizable credentials, account IDs, emails and IP addresses, but
+  keeps account, player and computer names and file paths.
+  Submissions carry a random `installation_id`; the relay groups them in one private Discord
+  forum thread per ID (older clients share a legacy thread). Settings > About displays/copies it.
+  Windows stores it in `HKCU\Software\LowRezStudio\TempestCrashReports\InstallationId`; macOS/Linux
+  use `LowRezStudio/TempestCrashReports/installation-id` under `~/Library/Application Support`
+  or `~/.local/share`. It survives launcher reinstalls and is per OS user, not a hardware ID.
+  The launcher's `TEMPEST_CRASH_DIAGNOSTICS=1` adds a module snapshot path and dev-mod directory
+  to `[game-logs]`; older CLIs still launch without diagnostics. Rebuild the CLI to enable them.
+  A native .NET task samples Windows loader-visible modules every second before injection,
+  retaining paths and on-disk SHA-256 only. It writes the snapshot when observation finishes;
+  shutdown allows ten seconds before cancelling collection. Snapshots in temp `TempestCrashDiagnostics`
+  are consumed at inspection; leftovers older than two days are pruned. No DLL binaries or
+  certificate metadata are collected. Short-lived/manual-mapped modules may be missed; reports
+  are client-supplied, not trusted evidence or an automatic denylist.
+  Dev-mod logs/source/config come from `mods` or runtime `[dev] mods` (`TEMPEST_SCRIPT_CONFIG`
+  supported). Collection skips symlinks, unrelated folders, binaries and obvious secret files,
+  with limits of 2 MiB/file, 8 MiB total and 500 entries. Collection errors/omissions are shown
+  and archived; recognizable credentials, IP addresses, machine IDs and serial numbers are
+  redacted, but names and file paths may remain. Save a copy to review.
+  Optional, default-on `system-information.txt` uses fast Node OS APIs for OS/architecture,
+  CPU and RAM only, without DxDiag or device/driver scans. Both send/save use the same attachments.
+  Focused tests: `node --test Tempest.Launcher/electron/tests/*.test.mjs` (Node 22.18+).
 
 - **Mod updates** (`src/lib/mods/updates.svelte.ts`, `ModUpdatesPrompt.svelte`): at start and each
   time the window regains focus (`+layout.svelte`; repository answers are reused for 60 s) every

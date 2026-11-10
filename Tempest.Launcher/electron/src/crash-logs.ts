@@ -57,41 +57,25 @@ export function crashSummary(text: string): { message: string[]; stack: string[]
 	};
 }
 
-const literal = (value: string) =>
-	new RegExp(
-		`(?<![\\p{L}\\p{N}_])${value.replaceAll(/[.*+?^${}()|[\]\\/]/g, "\\$&")}(?![\\p{L}\\p{N}_])`,
-		"giu",
-	);
+const SECRET_ASSIGNMENT =
+	/((?:["']?)\b[\w.-]{0,64}(?:token|auth|key|password|secret|ticket|credential)[\w.-]{0,64}(?:["']?\s*[:=]\s*))(?:"(?:\\.|[^"\\\r\n])*"|'[^'\r\n]*'|[^&\s,;#}\]]+)/gi;
 
 /**
- * Removes what identifies the player or could sign in as them. Player names the game logs in
- * passing can stay, which the report dialog says.
+ * Removes credentials and identifiers while keeping player, account, and machine names.
  * @param text - A log.
- * @param identity - The OS user and computer names.
- * @returns The log, safe to send.
+ * @returns The log with recognizable credentials and identifiers redacted.
  */
-export function redactLog(text: string, identity: { user: string; host: string }): string {
-	let out = text
-		// Vivox logs its requests whole, sign-in tokens and account names included.
-		.replaceAll(/^.*\] VoiceChat:.*(?:\r?\n|$)/gm, "")
-		.replaceAll(/\[json = .*$/gm, "[json = <removed>]")
-		.replaceAll(/^(.*Init: (?:Computer|User): ).*$/gm, "$1<removed>")
-		.replaceAll(/-(auth_\w+|epicusername|epicuserid)=("[^"]*"|\S+)/gi, "-$1=<removed>")
-		.replaceAll(
-			/([?&](?:name|[\w-]*(?:token|auth|key|password|secret|ticket)[\w-]*)=)[^&\s]+/gi,
-			"$1<removed>",
-		)
+export function redactLog(text: string): string {
+	return text
+		.replaceAll(SECRET_ASSIGNMENT, '$1"<removed>"')
+		.replaceAll(/-epicuserid=("[^"]*"|\S+)/gi, "-epicuserid=<removed>")
 		.replaceAll(/\b(token|bearer)([ :=]+)[^\s,;"'<]+/gi, "$1$2<removed>")
 		.replaceAll(/\beyJ[\w-]{8,}\.[\w-]+\.[\w-]*/g, "<removed>")
 		.replaceAll(/\b7656119\d{10}\b/g, "<removed>")
-		.replaceAll(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "<removed>")
-		.replaceAll(/(^|[\\/])(users|home)([\\/])[^\\/\s"'<>]+/gim, "$1$2$3<user>")
+		// Avoid retrying every suffix of a long source line that contains no email address.
+		.replaceAll(/(?<![\w.+-])[\w.+-]+@[\w-]+\.[\w.-]+/g, "<removed>")
 		.replaceAll(
 			/\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/g,
 			(ip) => (ip === "127.0.0.1" || ip === "0.0.0.0" ? ip : "<ip>"),
 		);
-	for (const value of [identity.user, identity.host]) {
-		if (value.length >= 3) out = out.replace(literal(value), "<removed>");
-	}
-	return out;
 }

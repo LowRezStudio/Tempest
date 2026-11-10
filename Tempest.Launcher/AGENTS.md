@@ -15,8 +15,8 @@ Electron + SvelteKit 5 + Vite + strict TypeScript desktop launcher. Apply the
 - Edit English messages in [messages/en.json](messages/en.json), not generated
   [paraglide](src/lib/paraglide/) or translated catalogs without explicit approval.
 - [RPC clients](src/lib/rpc/) are generated from the shared protobuf contract.
-- Crash reporting must remain user-initiated; minidumps are opt-in. Preserve
-  [log redaction](electron/src/crash-logs.ts) for tokens, user and computer names.
+- Crash reporting must remain user-initiated; minidumps are opt-in. Preserve credential and
+  identifier redaction in [logs](electron/src/crash-logs.ts), and warn that names and paths may remain.
 - Preserve mod trust warnings, deferred installs/hot reload and held downgraded
   versions when modifying mod installation or updates.
 

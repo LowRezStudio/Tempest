@@ -1,9 +1,10 @@
 // Game crash reports: finds out whether a session crashed, stages its redacted logs and sends
 // them to the crash channel when the player asks. Nothing leaves the machine without that.
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { BrowserWindow, dialog, net } from "electron";
+import { collectDevMods, collectModuleSnapshot, collectSystemInfo } from "./crash-diagnostics.js";
+import { crashInstallationId } from "./crash-identity.js";
 import { crashSummary, findCrash, redactLog, type SessionLog } from "./crash-logs.js";
 import { handle } from "./ipc/handle.js";
 import { buildZip } from "./zip.js";
@@ -24,11 +25,10 @@ const CLOCK_SLACK_MS = 2000;
 type StagedCrash = CrashSummary & {
 	logs: { name: string; text: string }[];
 	dumpPath: string | null;
+	devMods: string[];
 };
 
 let staged: StagedCrash | null = null;
-
-const identity = () => ({ user: os.userInfo().username, host: os.hostname() });
 
 async function filesSince(folder: string, pattern: RegExp, since: number) {
 	const names = await fs.readdir(folder).catch(() => [] as string[]);
@@ -64,20 +64,32 @@ handle("crash:inspect", async (_event, { folders, startedAt, exitCode }) => {
 		logFiles.map(async ({ name, file, size }) => ({ name, text: await readTail(file, size) })),
 	);
 	const crash = findCrash(logs, exitCode);
+	const modules = await collectModuleSnapshot(folders.modules);
 	if (!crash) return null;
-
-	const me = identity();
 	const included: { name: string; text: string }[] = [];
-	if (crash.log) included.push({ name: "Launch.log", text: redactLog(crash.log.text, me) });
+	if (crash.log) included.push({ name: "Launch.log", text: redactLog(crash.log.text) });
 	const [scripting] = await filesSince(folders.temp, /^tempest-scripting\.log$/i, startedAt);
 	if (scripting) {
 		included.push({
 			name: "tempest-scripting.log",
-			text: redactLog(await readTail(scripting.file, scripting.size), me),
+			text: redactLog(await readTail(scripting.file, scripting.size)),
 		});
 	}
 	const [dump] = await filesSince(folders.logs, /^unreal-.*\.dmp$/i, startedAt);
 	const dumpPath = dump && dump.size <= MAX_DUMP_BYTES ? dump.file : null;
+	const dev = folders.devMods
+		? await collectDevMods(folders.devMods)
+		: {
+				files: [],
+				mods: [],
+				warnings: [
+					"Dev-mod source/config collection is unavailable for this launch. Rebuild the CLI and relaunch the game.",
+				],
+			};
+	included.push(...dev.files, ...modules.files);
+	const diagnosticWarnings = [...dev.warnings, ...modules.warnings];
+	if (diagnosticWarnings.length)
+		included.push({ name: "diagnostics-warnings.txt", text: diagnosticWarnings.join("\n") });
 
 	const summary: CrashSummary = {
 		id: crypto.randomUUID(),
@@ -85,8 +97,9 @@ handle("crash:inspect", async (_event, { folders, startedAt, exitCode }) => {
 		...crashSummary(crash.log ? included[0].text : ""),
 		files: included.map(({ name, text }) => ({ name, size: Buffer.byteLength(text) })),
 		dumpSize: dumpPath ? dump.size : null,
+		diagnosticWarnings,
 	};
-	staged = { ...summary, logs: included, dumpPath };
+	staged = { ...summary, logs: included, dumpPath, devMods: dev.mods };
 	return summary;
 });
 
@@ -105,6 +118,12 @@ function reportText(crash: StagedCrash, details: CrashDetails): string {
 		"Enabled mods:",
 		...(details.mods.length > 0 ? details.mods : ["(none)"]),
 		"",
+		"Dev mods (local source/config attached):",
+		...(crash.devMods.length > 0 ? crash.devMods : ["(none found)"]),
+		"",
+		"Diagnostic warnings:",
+		...(crash.diagnosticWarnings.length > 0 ? crash.diagnosticWarnings : ["(none)"]),
+		"",
 		"Crash:",
 		...crash.message,
 		...crash.stack,
@@ -116,17 +135,20 @@ async function buildReport(
 	id: string,
 	details: CrashDetails,
 	includeDump: boolean,
+	includeSystemInfo: boolean,
 ): Promise<{ crash: StagedCrash; zip: Uint8Array }> {
 	if (staged?.id !== id) throw new Error("This crash's logs are no longer available.");
 	const crash = staged;
 	const entries: { path: string; data: Uint8Array | string }[] = [
 		{ path: "report.txt", data: reportText(crash, details) },
 		...crash.logs.map(({ name, text }) => ({ path: name, data: text })),
-		{ path: "launcher.log", data: redactLog(details.launcherLog, identity()) },
+		{ path: "launcher.log", data: redactLog(details.launcherLog) },
 	];
 	if (includeDump && crash.dumpPath) {
 		entries.push({ path: "crash.dmp", data: await fs.readFile(crash.dumpPath) });
 	}
+	if (includeSystemInfo)
+		entries.push({ path: "system-information.txt", data: collectSystemInfo() });
 	return { crash, zip: buildZip(entries) };
 }
 
@@ -159,6 +181,9 @@ function discordPayload(crash: StagedCrash, details: CrashDetails) {
 						name: "Enabled mods",
 						value: clip(details.mods.join(", ") || "none", 1000),
 					},
+					...(crash.devMods.length
+						? [{ name: "Dev mods", value: clip(crash.devMods.join(", "), 1000) }]
+						: []),
 					...(details.note
 						? [{ name: "Player's note", value: clip(details.note, 1000) }]
 						: []),
@@ -168,11 +193,12 @@ function discordPayload(crash: StagedCrash, details: CrashDetails) {
 	};
 }
 
-handle("crash:send", async (_event, { id, details, includeDump }) => {
-	const { crash, zip } = await buildReport(id, details, includeDump);
+handle("crash:send", async (_event, { id, details, includeDump, includeSystemInfo }) => {
+	const { crash, zip } = await buildReport(id, details, includeDump, includeSystemInfo);
 	if (zip.length > MAX_REPORT_BYTES) return { status: "too-large" };
 
 	const form = new FormData();
+	form.set("installation_id", await crashInstallationId());
 	form.set("payload_json", JSON.stringify(discordPayload(crash, details)));
 	form.set(
 		"files[0]",
@@ -190,8 +216,8 @@ handle("crash:send", async (_event, { id, details, includeDump }) => {
 	}
 });
 
-handle("crash:save", async (event, { id, details, includeDump }) => {
-	const { zip } = await buildReport(id, details, includeDump);
+handle("crash:save", async (event, { id, details, includeDump, includeSystemInfo }) => {
+	const { zip } = await buildReport(id, details, includeDump, includeSystemInfo);
 	const window = BrowserWindow.fromWebContents(event.sender);
 	const options = {
 		defaultPath: reportFileName(),

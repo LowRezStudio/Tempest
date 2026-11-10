@@ -10,7 +10,8 @@ internal class LauncherCommands
     public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true, bool noDlls = false)
     {
         var args = context.EscapedArguments.ToArray();
-        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs, steamRuntime, enableOpenSslFix, noDlls);
+        await using var diagnostics = Environment.GetEnvironmentVariable("TEMPEST_CRASH_DIAGNOSTICS") == "1" ? new GameDiagnostics() : null;
+        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs, steamRuntime, enableOpenSslFix, noDlls, diagnostics);
 
         // Proton (and gamescope) wrappers can outlive the game itself. The launcher only marks
         // the game as stopped when this process exits, so on Linux watch the real game process and
@@ -65,7 +66,7 @@ internal class LauncherCommands
     }
 public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
                                                  string? platform = null, string? game = null, string[]? dll = null,
-                                                 bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true, bool noDlls = false)
+                                                 bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true, bool noDlls = false, GameDiagnostics? diagnostics = null)
     {
         if (isServer) gamescope = false;
 
@@ -162,7 +163,11 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
             process.UseWine(isServer, !isServer && steamRuntime).Start();
         }
         PackageHashes.Apply(process, hashPatches);
-        if (!isServer) GameLogs.Announce(process, args, defaultArgs ? homedir : null);
+        if (!isServer)
+        {
+            diagnostics?.Start(process, path);
+            GameLogs.Announce(process, args, defaultArgs ? homedir : null, diagnostics);
+        }
 
         _ = Task.Run(async () =>
         {

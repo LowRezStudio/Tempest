@@ -8,8 +8,10 @@ internal static class GameLogs
     /// <summary>
     /// Prints <c>[game-logs] &lt;log folder&gt;\t&lt;temp folder&gt;</c> on stderr. The launcher reads the
     /// logs from there when the game ends; under Wine only this process knows the prefix.
+    /// With crash diagnostics enabled, appends the snapshot file and dev-mod directory as two
+    /// additional tab-separated fields. The original launch behavior and marker stay unchanged otherwise.
     /// </summary>
-    public static void Announce(Process process, string[] args, string? homedir)
+    public static void Announce(Process process, string[] args, string? homedir, GameDiagnostics? diagnostics = null)
     {
         var home = homedir
             ?? args.LastOrDefault(a => a.StartsWith("-homedir=", StringComparison.OrdinalIgnoreCase))?["-homedir=".Length..]
@@ -19,7 +21,8 @@ internal static class GameLogs
             ? (Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), Path.GetTempPath())
             : WinePrefixFolders(process);
 
-        Console.Error.WriteLine($"[game-logs] {Path.Combine(documents, "My Games", home, "ChaosGame", "Logs")}\t{temp}");
+        var extra = diagnostics == null ? "" : $"\t{diagnostics.SnapshotPath}\t{diagnostics.DevModsPath}";
+        Console.Error.WriteLine($"[game-logs] {Path.Combine(documents, "My Games", home, "ChaosGame", "Logs")}\t{temp}{extra}");
     }
 
     private static (string Documents, string Temp) WinePrefixFolders(Process process)

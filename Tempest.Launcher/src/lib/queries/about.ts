@@ -1,5 +1,5 @@
 import { createQuery } from "@tanstack/svelte-query";
-import { arch, getVersion, type as osType } from "$lib/platform/api";
+import { arch, getVersion, invoke, type as osType } from "$lib/platform/api";
 
 export type AboutInfo = {
 	appVersion: string;
@@ -17,4 +17,12 @@ export const createAboutInfoQuery = () =>
 			architecture: arch(),
 			buildDate: new Date(__BUILD_DATE__).toUTCString(),
 		}),
+	}));
+
+export const createClientIdQuery = () =>
+	createQuery(() => ({
+		queryKey: ["client-id"],
+		queryFn: () => invoke("app:client-id"),
+		staleTime: Infinity,
+		retry: false,
 	}));
