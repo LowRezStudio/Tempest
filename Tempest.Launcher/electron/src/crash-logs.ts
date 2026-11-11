@@ -58,11 +58,38 @@ export function findCrash(
 const MAX_MESSAGE_LINES = 6;
 const MAX_STACK_LINES = 8;
 
+// Tempest Scripting's vectored exception handler writes these before the process dies, so they
+// survive hard faults the engine never got to report.
+const VEH_CRASH = /^\[VEH\]\[crash\] (\w+) code=0x[0-9a-f]+ at=(\S+) info=\([^)]*\)/i;
+const VEH_STACK = /^\[VEH\]\[stack\] (.+)$/;
+
+/**
+ * @param text - A redacted Tempest Scripting log.
+ * @returns The hard fault its vectored exception handler recorded, if any.
+ */
+export function vehSummary(text: string): { message: string[]; stack: string[] } {
+	const message: string[] = [];
+	const stack: string[] = [];
+	for (const line of text.split(/\r?\n/)) {
+		const crash = VEH_CRASH.exec(line);
+		if (crash) {
+			message.push(`${crash[1]} at ${crash[2]}`);
+			continue;
+		}
+		const frames = VEH_STACK.exec(line);
+		if (!frames) continue;
+		const room = MAX_STACK_LINES - stack.length;
+		stack.push(...frames[1].split(/\s+(?=#\d+\s)/).slice(0, room));
+	}
+	return { message: [...new Set(message)].slice(0, MAX_MESSAGE_LINES), stack };
+}
+
 /**
  * @param text - A redacted log.
+ * @param scripting - The session's redacted Tempest Scripting log, when it wrote one.
  * @returns The crash's message and the top of its stack, for showing without opening the log.
  */
-export function crashSummary(text: string): { message: string[]; stack: string[] } {
+export function crashSummary(text: string, scripting = ""): { message: string[]; stack: string[] } {
 	const lines = text.split(/\r?\n/);
 	const message: string[] = [];
 	const stack: string[] = [];
@@ -85,9 +112,12 @@ export function crashSummary(text: string): { message: string[]; stack: string[]
 		else if (inCritical && /^\[[\d.]+\]/.test(line)) inCritical = false;
 		else if (inCritical && line.trim()) message.push(line.trim());
 	}
+	const veh = vehSummary(scripting);
 	return {
-		message: [...new Set(message)].slice(0, MAX_MESSAGE_LINES).map((l) => l.slice(0, 300)),
-		stack,
+		message: [...new Set([...message, ...veh.message])]
+			.slice(0, MAX_MESSAGE_LINES)
+			.map((l) => l.slice(0, 300)),
+		stack: [...stack, ...veh.stack],
 	};
 }
 

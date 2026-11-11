@@ -67,14 +67,15 @@ handle("crash:inspect", async (_event, { folders, startedAt, exitCode }) => {
 	const modules = await collectModuleSnapshot(folders.modules);
 	if (!crash) return null;
 	const included: { name: string; text: string }[] = [];
-	if (crash.log) included.push({ name: "Launch.log", text: redactLog(crash.log.text) });
+	const launch = crash.log ? redactLog(crash.log.text) : "";
+	if (crash.log) included.push({ name: "Launch.log", text: launch });
+	// The scripting runtime's vectored exception handler is the only source of a stack for hard
+	// faults the engine never got to log, so its log feeds the summary, not just the archive.
 	const [scripting] = await filesSince(folders.temp, /^tempest-scripting\.log$/i, startedAt);
-	if (scripting) {
-		included.push({
-			name: "tempest-scripting.log",
-			text: redactLog(await readTail(scripting.file, scripting.size)),
-		});
-	}
+	const scriptingText = scripting
+		? redactLog(await readTail(scripting.file, scripting.size))
+		: "";
+	if (scripting) included.push({ name: "tempest-scripting.log", text: scriptingText });
 	const [dump] = await filesSince(folders.logs, /^unreal-.*\.dmp$/i, startedAt);
 	const dumpPath = dump && dump.size <= MAX_DUMP_BYTES ? dump.file : null;
 	const dev = folders.devMods
@@ -94,7 +95,7 @@ handle("crash:inspect", async (_event, { folders, startedAt, exitCode }) => {
 	const summary: CrashSummary = {
 		id: crypto.randomUUID(),
 		exitCode,
-		...crashSummary(crash.log ? included[0].text : ""),
+		...crashSummary(launch, scriptingText),
 		files: included.map(({ name, text }) => ({ name, size: Buffer.byteLength(text) })),
 		dumpSize: dumpPath ? dump.size : null,
 		diagnosticWarnings,

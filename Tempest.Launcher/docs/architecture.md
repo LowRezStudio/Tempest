@@ -33,7 +33,13 @@ current sources.
   floating-point faults/traps are included in the fatal exit codes.
   `appRequestExit(1)` only means a forced exit; ordinary non-zero codes, wrapper termination and
   missing/truncated logs alone do not trigger the dialog. Fatal exceptions during teardown still
-  count, even after `Exit: Exiting.`. The dialog offers
+  count, even after `Exit: Exiting.`. The session's `tempest-scripting.log` is read too: its
+  `[VEH][crash]` / `[VEH][stack]` lines (Tempest Scripting's vectored exception handler, see
+  `Tempest.Scripting/crates/tempest-scripting/src/log.rs`) are the only stack available for hard
+  faults the engine never got to log, so `vehSummary` in `crash-logs.ts` appends the faulting
+  `module+offset` and its frames to the preview and the Discord embed. They enrich the summary but
+  never decide that a session crashed, because a first-chance fault the game handles is not one.
+  The dialog offers
   **Report logs** and **Save a copy**; the redacted logs are staged host-side at inspection, because
   the next launch rotates `Launch.log`. Nothing is sent without the button; the minidump (not
   redactable) is opt-in. The report is a Discord webhook call (`payload_json` + `files[0]`, a zip)
