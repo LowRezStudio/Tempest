@@ -25,8 +25,15 @@ current sources.
   when the game starts (`Launcher/GameLogs.cs`, resolves the Wine prefix) and exits with the game's
   exit code. When a launch ends without the player stopping it, `crash:inspect` reads the session's
   `Launch*.log`: the engine's error path in the log (`StaticShutdownAfterError`, `=== Critical
-  error: ===`, `appRequestExit(1)`), or a non-zero exit code without `Exit: Exiting.`, is a crash
-  (an access violation never reaches the engine's handler, the log just stops). The dialog offers
+  error: ===`), timestamped `Critical:` fatal messages (`appError called:`, `Assertion failed:`,
+  `Rendering thread exception:`, `Fatal error!`, `Error reentered:`), or a known fatal exception
+  exit code (such as an access violation), is a crash. The early fatal messages also detect UE3
+  crash-popup paths when the log ends before the final banner; their multiline details and stack
+  are retained in the report preview. Invalid C-runtime parameters, assertion failures and multiple
+  floating-point faults/traps are included in the fatal exit codes.
+  `appRequestExit(1)` only means a forced exit; ordinary non-zero codes, wrapper termination and
+  missing/truncated logs alone do not trigger the dialog. Fatal exceptions during teardown still
+  count, even after `Exit: Exiting.`. The dialog offers
   **Report logs** and **Save a copy**; the redacted logs are staged host-side at inspection, because
   the next launch rotates `Launch.log`. Nothing is sent without the button; the minidump (not
   redactable) is opt-in. The report is a Discord webhook call (`payload_json` + `files[0]`, a zip)

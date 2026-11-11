@@ -2,9 +2,40 @@
 
 export type SessionLog = { name: string; text: string };
 
-// The engine's error path. Every one of these logs also has a minidump next to it.
-const FATAL = /StaticShutdownAfterError|=== Critical error: ===|appRequestExit\(1\)/;
-const CLEAN_EXIT = /\] Exit: Exiting\./;
+// appRequestExit(1) means a forced exit, not necessarily an error.
+const FATAL = /StaticShutdownAfterError|=== Critical error: ===/;
+const FATAL_CRITICAL =
+	/^\[[\d.]+\] Critical: (?:appError called:|Assertion failed:|Rendering thread exception:|Fatal error!|Error reentered:)/m;
+const FATAL_EXIT_CODES = new Set([
+	0x80000002, // Datatype misalignment
+	0x80000003, // Breakpoint
+	0x80000004, // Single step
+	0xc0000005, // Access violation
+	0xc0000006, // In-page error
+	0xc000001d, // Illegal instruction
+	0xc000008c, // Array bounds exceeded
+	0xc000008d, // Floating-point denormal operand
+	0xc000008e, // Floating-point division by zero
+	0xc000008f, // Floating-point inexact result
+	0xc0000090, // Floating-point invalid operation
+	0xc0000091, // Floating-point overflow
+	0xc0000092, // Floating-point stack check
+	0xc0000093, // Floating-point underflow
+	0xc0000094, // Integer division by zero
+	0xc0000095, // Integer overflow
+	0xc0000096, // Privileged instruction
+	0xc00000fd, // Stack overflow
+	0xc00002b4, // Multiple floating-point faults
+	0xc00002b5, // Multiple floating-point traps
+	0xc0000374, // Heap corruption
+	0xc0000409, // Fail-fast / stack buffer overrun
+	0xc0000417, // Invalid C-runtime parameter
+	0xc0000420, // Assertion failure
+	0xc0000602, // Fail-fast exception
+	0x40000015, // Fatal application exit
+	0xe06d7363, // Unhandled C++ exception
+	0xe0434352, // Unhandled CLR exception
+]);
 
 /**
  * @param logs - The logs written since the game started, newest first. Several windows of an
@@ -16,12 +47,12 @@ export function findCrash(
 	logs: SessionLog[],
 	exitCode: number | null,
 ): { log: SessionLog | undefined } | null {
-	const fatal = logs.find((log) => FATAL.test(log.text));
+	const fatal = logs.find((log) => FATAL.test(log.text) || FATAL_CRITICAL.test(log.text));
 	if (fatal) return { log: fatal };
-	// A hard crash (access violation) never reaches the engine's handler: the log just stops.
-	if (!exitCode) return null;
-	const newest = logs[0];
-	return newest && CLEAN_EXIT.test(newest.text) ? null : { log: newest };
+	// Wrapper errors and normal forced shutdowns can also return non-zero codes.
+	// A known fatal exception is evidence even if it happens during engine teardown.
+	if (exitCode === null || !FATAL_EXIT_CODES.has(exitCode >>> 0)) return null;
+	return { log: logs[0] };
 }
 
 const MAX_MESSAGE_LINES = 6;
@@ -47,7 +78,10 @@ export function crashSummary(text: string): { message: string[]; stack: string[]
 			continue;
 		}
 		const critical = /^\[[\d.]+\] Critical: (.*\S)/.exec(line);
-		if (critical) message.push(critical[1]);
+		if (critical) {
+			message.push(critical[1]);
+			if (FATAL_CRITICAL.test(line)) inCritical = true;
+		}
 		else if (inCritical && /^\[[\d.]+\]/.test(line)) inCritical = false;
 		else if (inCritical && line.trim()) message.push(line.trim());
 	}
