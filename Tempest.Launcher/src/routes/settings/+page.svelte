@@ -21,6 +21,7 @@
 		Settings,
 		SlidersHorizontal,
 		Snowflake,
+		Server,
 		Terminal,
 		Trash2,
 		TriangleAlert,
@@ -42,6 +43,7 @@
 	import CliInstall from "$lib/settings/CliInstall.svelte";
 	import EpicAccounts from "$lib/settings/EpicAccounts.svelte";
 	import KeybindsSettings from "$lib/settings/KeybindsSettings.svelte";
+	import LoginServers from "$lib/settings/LoginServers.svelte";
 	import SigningKeySettings from "$lib/settings/SigningKeySettings.svelte";
 	import ThemePicker from "$lib/settings/ThemePicker.svelte";
 	import { isFlagEnabled } from "$lib/stores/flags.svelte";
@@ -76,6 +78,7 @@
 		{ id: "general", title: m.settings_general(), icon: SlidersHorizontal },
 		{ id: "appearance", title: m.settings_appearance(), icon: Palette },
 		{ id: "launching", title: m.settings_launching(), icon: Rocket },
+		{ id: "login-servers", title: m.settings_login_servers_title(), icon: Server },
 		{ id: "epic-games", title: m.settings_epic_title(), icon: Gamepad2 },
 		...(isWindows ? [] : [{ id: "wine", title: m.settings_wine(), icon: Wine }]),
 		{ id: "keybinds", title: m.settings_keybinds(), icon: Keyboard },
@@ -319,6 +322,10 @@
 						title={m.settings_open_ssl_fix()}
 						hint={m.settings_open_ssl_fix_description()}
 					/>
+				</Panel>
+
+				<Panel {...tracker.panel("login-servers")}>
+					<LoginServers />
 				</Panel>
 
 				<Panel {...tracker.panel("epic-games")}>

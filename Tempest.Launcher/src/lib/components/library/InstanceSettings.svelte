@@ -37,6 +37,7 @@
 	import { WIKI_BASE_URL } from "$lib/rigby/constants";
 	import { openEpicLogin } from "$lib/stores/epic.svelte";
 	import { updateInstance } from "$lib/stores/instance.svelte";
+	import { loginServers } from "$lib/stores/login-servers.svelte";
 	import {
 		instancePlatforms,
 		type AuthProvider,
@@ -88,6 +89,7 @@
 	let editPath = $state("");
 	let editPlatform = $state<InstancePlatform>("Win64");
 	let editArgsText = $state("");
+	let editLoginServerId = $state("");
 	let editColor = $state("");
 	// Hi-Rez (the default) and Steam leave the login to the client; Epic gets an exchange code.
 	let editAuth = $state<AuthProvider>("hirez");
@@ -121,6 +123,7 @@
 			color: getInstanceColor(i),
 			platform: i.launchOptions?.platform ?? "Win64",
 			args: i.launchOptions?.args ?? [],
+			loginServerId: i.launchOptions?.loginServerId ?? "",
 			auth: i.launchOptions?.auth ?? null,
 		});
 	const stored = $derived(fieldsOf(instance));
@@ -133,6 +136,7 @@
 		editPath = instance.path;
 		editPlatform = instance.launchOptions?.platform ?? "Win64";
 		editArgsText = (instance.launchOptions?.args ?? []).join(" ");
+		editLoginServerId = instance.launchOptions?.loginServerId ?? "";
 		editAuth = defaultAuthProvider(instance);
 		editEpicAccount = instance.launchOptions?.auth?.accountId ?? "";
 		editColor = getInstanceColor(instance);
@@ -167,6 +171,7 @@
 			launchOptions: {
 				...instance.launchOptions,
 				platform: editPlatform,
+				loginServerId: editLoginServerId || undefined,
 				// The picker owns these two switches now; a leftover copy would be passed twice.
 				args: auth ? args.filter((arg) => arg !== "-steam" && arg !== "-epic") : args,
 				auth,
@@ -252,6 +257,16 @@
 	// The Epic account picker needs the accounts the launcher holds.
 	const epicAccountsQuery = createEpicAccountsQuery();
 	const epicAccounts = $derived(epicAccountsQuery.data);
+	const availableLoginServers = $derived(loginServers.value);
+	// Removing a saved login server falls back to Hi-Rez for instances that selected it.
+	$effect(() => {
+		if (
+			editLoginServerId &&
+			!loginServers.value.some((server) => server.id === editLoginServerId)
+		) {
+			editLoginServerId = "";
+		}
+	});
 	// An account removed in Settings since this instance picked it falls back to the default.
 	$effect(() => {
 		const list = epicAccountsQuery.data;
@@ -458,6 +473,89 @@
 			<Panel {...tracker.panel("launching")}>
 				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-1">
+						<span id="instance-login-server-label" class="text-base-content/60 text-xs"
+							>{m.instance_login_server_title()}</span
+						>
+						<div
+							class="flex flex-col gap-2"
+							role="radiogroup"
+							aria-labelledby="instance-login-server-label"
+						>
+							<div
+								class={[
+									"bg-base-100 rounded-field flex items-center gap-3 border px-3 py-2",
+									!editLoginServerId
+										? "border-primary ring-primary/20 ring-2"
+										: "border-base-300",
+								]}
+							>
+								<input
+									id={`instance-login-server-hirez-${instance.id}`}
+									type="radio"
+									class="radio radio-sm shrink-0"
+									name={`instance-login-server-${instance.id}`}
+									checked={!editLoginServerId}
+									aria-label={m.instance_login_server_use_hirez()}
+									onchange={() => (editLoginServerId = "")}
+								/>
+								<label
+									for={`instance-login-server-hirez-${instance.id}`}
+									class="min-w-0 flex-1 cursor-pointer"
+								>
+									<p class="text-sm font-medium">
+										{m.instance_login_server_hirez()}
+									</p>
+								</label>
+							</div>
+							{#each availableLoginServers as loginServer (loginServer.id)}
+								{@const selected = editLoginServerId === loginServer.id}
+								<div
+									class={[
+										"bg-base-100 rounded-field flex items-center gap-3 border px-3 py-2",
+										selected
+											? "border-primary ring-primary/20 ring-2"
+											: "border-base-300",
+									]}
+								>
+									<input
+										id={`instance-login-server-${loginServer.id}-${instance.id}`}
+										type="radio"
+										class="radio radio-sm shrink-0"
+										name={`instance-login-server-${instance.id}`}
+										checked={selected}
+										aria-label={m.instance_login_server_use_saved({
+											name: loginServer.name,
+										})}
+										onchange={() => (editLoginServerId = loginServer.id)}
+									/>
+									<label
+										for={`instance-login-server-${loginServer.id}-${instance.id}`}
+										class="min-w-0 flex-1 cursor-pointer"
+									>
+										<p class="truncate text-sm font-medium">
+											{loginServer.name}
+										</p>
+										<p class="text-base-content/60 truncate font-mono text-xs">
+											{loginServer.baseUrl} · {loginServer.addresses[0]}
+										</p>
+									</label>
+								</div>
+							{/each}
+						</div>
+						{#if availableLoginServers.length === 0}
+							<p class="text-base-content/60 text-xs">
+								{m.instance_login_server_no_saved()}
+								<button
+									type="button"
+									class="link"
+									onclick={() => void goto("/settings")}
+									>{m.settings_title()}</button
+								>
+							</p>
+						{/if}
+					</div>
+
+					<div class="flex flex-col gap-1">
 						<span id="instance-platform-label" class="text-base-content/60 text-xs"
 							>{m.instance_platform()}</span
 						>
@@ -518,9 +616,10 @@
 								bind:value={editAuth}
 								label={m.instance_sign_in()}
 								note=""
+								disabled={!!editLoginServerId}
 								hints={authHints}
 							/>
-							{#if editAuth === "epic"}
+							{#if editAuth === "epic" && !editLoginServerId}
 								<div class="flex flex-col gap-1">
 									{#if (epicAccounts?.accounts.length ?? 0) > 1}
 										<select

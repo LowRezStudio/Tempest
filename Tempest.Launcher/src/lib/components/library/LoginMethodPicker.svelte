@@ -12,6 +12,8 @@
 		note?: string;
 		/** One line per sign-in; absent cards show only their name. */
 		hints?: Partial<Record<LoginMethod, () => string>>;
+		/** Disable provider choices while the selected server cannot use them. */
+		disabled?: boolean;
 	}
 
 	let {
@@ -19,6 +21,7 @@
 		label = m.wizard_login_prompt_title(),
 		note = m.wizard_login_prompt_desc(),
 		hints = {},
+		disabled = false,
 	}: Props = $props();
 
 	const logins = [
@@ -37,7 +40,7 @@
 	] as const satisfies readonly { method: LoginMethod; title: () => string }[];
 </script>
 
-<fieldset>
+<fieldset {disabled} class={disabled ? "opacity-60" : undefined}>
 	<legend class="mb-2 flex w-full items-baseline justify-between gap-2">
 		<span class="text-base-content/60 text-xs">{label}</span>
 		{#if note}
@@ -52,10 +55,11 @@
 				type="button"
 				role="radio"
 				aria-checked={picked}
+				{disabled}
 				class={[
 					"bg-base-100 rounded-field flex items-center gap-3 border p-3 text-left transition-colors",
 					picked ? "border-primary ring-primary/20 ring-2" : "border-base-300",
-					!picked && "hover:border-primary/50 cursor-pointer",
+					!disabled && !picked && "hover:border-primary/50 cursor-pointer",
 				]}
 				onclick={() => (value = login.method)}
 			>

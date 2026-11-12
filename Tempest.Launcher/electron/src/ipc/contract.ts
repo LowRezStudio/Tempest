@@ -131,6 +131,18 @@ export type EpicAccount = {
 
 export type EpicAccountList = { accounts: EpicAccount[]; selectedId: string | null };
 
+/** Connection details fetched from a login server before the renderer saves it. */
+export type LoginServerDiscovery = {
+	baseUrl: string;
+	discoveryUrl: string;
+	addresses: string[];
+	publicKey: string;
+};
+
+export type LoginServerDiscoveryResult =
+	| { ok: true; loginServer: LoginServerDiscovery }
+	| { ok: false; message: string };
+
 /** A file the V1→V2 converter imports, read host-side in one round trip. */
 export type ConverterImport = { path: string; name: string; data: ArrayBuffer };
 
@@ -323,6 +335,9 @@ export interface IpcContract {
 	 * `null` when the launch needs a sign-in first: that is not a failure.
 	 */
 	"epic:launch-args": { args: { accountId?: string }; result: string[] | null };
+
+	// ---- Login servers ----
+	"login-server:discover": { args: { url: string }; result: LoginServerDiscoveryResult };
 
 	// ---- Mods ----
 	/**

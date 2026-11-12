@@ -5,6 +5,7 @@ import { Command, invoke, type Child } from "$lib/platform/api";
 import { openEpicLogin } from "$lib/stores/epic.svelte";
 import { hostState } from "$lib/stores/host-state.svelte";
 import { instanceMap, lastLaunchedInstanceId, updateInstance } from "$lib/stores/instance.svelte";
+import { loginServers } from "$lib/stores/login-servers.svelte";
 import { appendProcessLog, logCommandOutput, processesList } from "$lib/stores/processes.svelte";
 import {
 	gamescopeArgs,
@@ -36,6 +37,26 @@ const stopRequested = new WeakSet<Child>();
  */
 const epicAuthArgs = (accountId?: string): Promise<string[] | null> =>
 	invoke("epic:launch-args", { accountId });
+
+/** Arguments for the selected login server; no match keeps the official service defaults.
+ * @param instance - Instance being launched.
+ * @returns The login-server arguments, or an empty list for the official service.
+ */
+const loginServerArgs = (instance: Instance): string[] => {
+	const id = instance.launchOptions?.loginServerId;
+	const server = id ? loginServers.value.find((item) => item.id === id) : undefined;
+	const address = server?.addresses[0];
+	if (!server || !address) return [];
+	const host = address.includes(":") ? `[${address}]` : address;
+	return [
+		"-nosplash",
+		"-windowed",
+		`-hostx=${host}:9000`,
+		`-msa=${host}:9001`,
+		`-pubkey=${server.publicKey}`,
+		`-servicediscoveryurl=${server.discoveryUrl}`,
+	];
+};
 
 /**
  * The exchange code is single-use and short-lived, but it has no place in a log or a report.
@@ -168,14 +189,16 @@ export const launchGame = (instance: Instance, { noDlls = false } = {}) =>
 const startGame = async (instance: Instance, noDlls: boolean, wait: () => Promise<boolean>) => {
 	const { path, launchOptions: options } = instance;
 	const platform = options.platform ?? "Win64";
+	const loginServerArgsList = loginServerArgs(instance);
+	const loginServerSelected = loginServerArgsList.length > 0;
 	// A Steam launch just tells the client to use its Steam session; Epic gets a
 	// one-time exchange code, made fresh for this launch and never stored.
 	let authArgs: string[] = [];
 	do {
 		await wait();
-		if (options.auth?.provider === "steam") {
+		if (!loginServerSelected && options.auth?.provider === "steam") {
 			authArgs = ["-steam"];
-		} else if (options.auth?.provider === "epic") {
+		} else if (!loginServerSelected && options.auth?.provider === "epic") {
 			const epicArgs = await epicAuthArgs(options.auth.accountId);
 			if (!epicArgs) {
 				// The launch cannot sign in: ask for the account rather than failing it.
@@ -186,7 +209,7 @@ const startGame = async (instance: Instance, noDlls: boolean, wait: () => Promis
 		}
 		// Mod work may start while Epic issues its short-lived exchange code.
 	} while (await wait());
-	const args = [...launchArgs(instance), ...authArgs];
+	const args = [...launchArgs(instance), ...loginServerArgsList, ...authArgs];
 
 	lastLaunchedInstanceId.value = instance.id;
 	updateInstance(instance.id, { lastPlayedAt: Date.now() });

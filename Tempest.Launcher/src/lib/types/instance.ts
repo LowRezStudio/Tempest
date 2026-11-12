@@ -37,6 +37,8 @@ export type InstanceLaunchOptions = {
 	log: boolean;
 	platform?: InstancePlatform;
 	presetId?: string;
+	/** A saved login server; absent means the official Paladins service. */
+	loginServerId?: string;
 	/** How the game signs in; absent means Hi-Rez, the client's own login prompt. */
 	auth?: InstanceAuth;
 };

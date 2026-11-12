@@ -8,6 +8,18 @@ export const lastLaunchedInstanceId = persistedState<string | undefined>(
 );
 export const instanceMap = persistedMapState<Record<string, Instance>>("instances:", {});
 
+// Migrate server selections stored by an earlier development build.
+for (const instance of Object.values(instanceMap.value)) {
+	const options = instance.launchOptions as Instance["launchOptions"] & { serverId?: string };
+	if (!("serverId" in options)) continue;
+	const nextOptions = {
+		...options,
+		loginServerId: options.loginServerId ?? options.serverId,
+	} as typeof options;
+	delete nextOptions.serverId;
+	instanceMap.setKey(instance.id, { ...instance, launchOptions: nextOptions });
+}
+
 export const instanceOrder = persistedJSON<string[]>("instanceOrder", []);
 
 export const lastLaunchedInstance = {
