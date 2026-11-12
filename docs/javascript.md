@@ -18,9 +18,8 @@ current sources.
 - Shared tool versions live in the `catalog:` of the root `pnpm-workspace.yaml` (`husky`, `oxfmt`,
   `oxlint`, `oxlint-tsgolint`, `vite`); each package that runs one declares it as `"catalog:"`,
   which puts its bin on that package's `PATH`: `vite` in both Electron hosts (their dev/build
-  scripts run the renderer), `oxfmt` + `oxlint` in both apps, and `oxfmt` in the launcher too
-  (`proto-generate` formats its output with it). `workspace:*` links workspace packages only, so it
-  does not apply to external tools.
+  scripts run the renderer), and `oxfmt` + `oxlint` in both apps. `workspace:*` links workspace
+  packages only, so it does not apply to external tools.
 
 - `pnpm fmt` / `pnpm lint` at the root run `pnpm -r run fmt|lint`, i.e. each app formats and lints
   its own tree (its config is found in the parent directory). An app's `lint` runs `svelte-kit sync`
@@ -37,7 +36,7 @@ current sources.
   paths, mod downloads/previews, settings snapshots) all live in the Electron host; the renderer
   only orchestrates.
 
-- `pnpm electron:build` bundles external `tempest-cli`, `upk` and `asmloader` binaries built by
+- `pnpm electron:build` bundles external `tempest-cli` and `upk` binaries built by
   `scripts/build-cli.js` into `electron/resources/binaries`; the dev server does not need them (the
   cooker uses the Rust release build of `upk` from `Tempest.UnrealScript/target/release`,
   overridable with `TEMPEST_UPK`).

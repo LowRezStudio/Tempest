@@ -1,19 +1,19 @@
 # Tempest.CLI
 
-.NET 10 console app/launcher backend, referencing the marshaling/database
-libraries and protobuf contract. Apply the [root guide](../AGENTS.md).
+.NET 10 console app/launcher backend, referencing the marshaling and database
+libraries. Apply the [root guide](../AGENTS.md).
 
 ## Build and checks (repository root)
 
 ```sh
 dotnet build Tempest.slnx
 dotnet run --project Tempest.CLI -- --help
-dotnet run --project Tempest.CLI -- server --help
+dotnet run --project Tempest.CLI -- mod --help
 dotnet publish -c Release Tempest.CLI
 ```
 
 The [project](Tempest.CLI.csproj) enables AOT publishing. Building the CLI also
-builds the Zig injection executables; Zig 0.15.2 must be on `PATH`.
+builds the Zig injection executables; Zig 0.16.0 must be on `PATH`.
 Do not hand-edit generated injection output. See
 [shared development commands](../docs/development.md).
 

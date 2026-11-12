@@ -9,16 +9,14 @@ export type SidebarTab =
 	| "home"
 	| "library"
 	| "downloads"
-	| "servers"
 	| "converter"
-	| "lobby"
 	| "logs"
 	| "settings";
 
 export type SidebarLayout = Record<SidebarZone, SidebarTab[]>;
 
 const defaultLayout: SidebarLayout = {
-	top: ["onboarding", "home", "library", "downloads", "servers", "converter", "lobby"],
+	top: ["onboarding", "home", "library", "downloads", "converter"],
 	middleTop: [],
 	middleBottom: [],
 	bottom: ["logs", "settings"],

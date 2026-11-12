@@ -246,15 +246,6 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
         {
             await Task.WhenAll(matchingDlls.Select(d => process.InjectLibraryAsync(d, is64Bit)));
         }
-        if (isServer)
-        {
-#if DEBUG
-            var asmLoaderPath = Path.Combine(AppContext.BaseDirectory, $"../../../../Tempest.Utils/zig-out/bin/asmloader-windows_x86{(is64Bit ? "_64" : "")}.dll");
-#else
-            var asmLoaderPath = Path.Combine(AppContext.BaseDirectory, $"asmloader-windows_x86{(is64Bit ? "_64" : "")}.dll");
-#endif
-            await process.InjectLibraryAsync(asmLoaderPath, is64Bit);
-        }
 
         return process;
     }

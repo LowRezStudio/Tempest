@@ -14,7 +14,6 @@ Electron + SvelteKit 5 + Vite + strict TypeScript desktop launcher. Apply the
 - Follow existing Svelte 5 patterns and Tailwind + daisyUI components.
 - Edit English messages in [messages/en.json](messages/en.json), not generated
   [paraglide](src/lib/paraglide/) or translated catalogs without explicit approval.
-- [RPC clients](src/lib/rpc/) are generated from the shared protobuf contract.
 - Crash reporting must remain user-initiated; minidumps are opt-in. Preserve credential and
   identifier redaction in [logs](electron/src/crash-logs.ts), and warn that names and paths may remain.
 - Preserve mod trust warnings, deferred installs/hot reload and held downgraded
@@ -28,7 +27,6 @@ pnpm -C Tempest.Launcher electron:dev
 pnpm -C Tempest.Launcher check
 pnpm -C Tempest.Launcher check:electron
 pnpm -C Tempest.Launcher lint
-pnpm -C Tempest.Launcher proto-generate
 ```
 
 Dev uses port 1420 and runs the built CLI via `dotnet exec`.

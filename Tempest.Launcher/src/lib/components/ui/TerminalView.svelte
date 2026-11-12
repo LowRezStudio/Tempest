@@ -19,7 +19,6 @@
 	const PIN_SLACK = 32;
 	const PREFIX_COLORS: Record<string, string> = {
 		launch: "text-primary",
-		lobby: "text-secondary",
 		rigby: "text-accent",
 		"rigby-queue": "text-info",
 		mods: "text-success",
