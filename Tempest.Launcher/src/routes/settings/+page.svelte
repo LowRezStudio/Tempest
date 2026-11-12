@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from "$app/navigation";
+	import { afterNavigate, goto } from "$app/navigation";
+	import { page } from "$app/state";
 	import {
 		CircleArrowUp,
 		Compass,
@@ -96,6 +97,14 @@
 		{ id: "danger-zone", title: m.settings_danger_zone(), icon: TriangleAlert, tone: "danger" },
 	]);
 	const tracker = new SectionTracker(() => sections);
+
+	// /settings#epic-games (linked from an instance's sign-in) lands on that panel.
+	afterNavigate(() => {
+		const id = page.url.hash.slice(1);
+		if (!id || !sections.some((section) => section.id === id)) return;
+		// The panels exist once the page has rendered.
+		requestAnimationFrame(() => tracker.jump(id));
+	});
 
 	async function browsePath() {
 		const selected = await open({

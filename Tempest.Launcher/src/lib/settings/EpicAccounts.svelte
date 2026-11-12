@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CircleUserRound, Trash2, UserRoundPlus } from "@lucide/svelte";
+	import { Trash2, UserRoundPlus } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages";
 	import {
 		createEpicAccountsQuery,
@@ -27,8 +27,6 @@
 </script>
 
 <div class="flex flex-col gap-3">
-	<p class="text-base-content/60 text-sm">{m.settings_epic_hint()}</p>
-
 	{#if accounts.length > 0}
 		<div class="flex flex-col gap-2">
 			{#each accounts as account (account.accountId)}
@@ -86,6 +84,8 @@
 				</div>
 			{/each}
 		</div>
+	{:else if list}
+		<p class="text-base-content/60 text-xs">{m.settings_epic_empty()}</p>
 	{/if}
 
 	<div class="flex items-center gap-2">
@@ -93,12 +93,6 @@
 			<UserRoundPlus size={14} />
 			{m.settings_epic_add()}
 		</button>
-		{#if accounts.length > 0}
-			<span class="text-base-content/60 flex items-center gap-1 text-xs">
-				<CircleUserRound size={12} />
-				{m.settings_epic_selected_hint()}
-			</span>
-		{/if}
 	</div>
 
 	{#if error}<p class="text-error text-xs">{error}</p>{/if}

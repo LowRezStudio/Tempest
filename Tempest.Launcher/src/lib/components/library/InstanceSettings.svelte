@@ -659,6 +659,9 @@
 													name: epicName(epicAccounts.selectedId) ?? "",
 												})}
 											{/if}
+											<a class="link" href="/settings#epic-games">
+												{m.instance_sign_in_manage()}
+											</a>
 										</p>
 									{/if}
 								</div>
