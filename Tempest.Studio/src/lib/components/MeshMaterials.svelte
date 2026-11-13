@@ -95,8 +95,9 @@
 					? `${r.made.length} material${r.made.length === 1 ? "" : "s"} of this mesh's own in ${r.group.path}: open one to change its textures`
 					: "Every slot already has the mesh's own material",
 			);
-			for (const x of skipped)
+			for (const x of skipped) {
 				toasts.push("warning", `Slot ${x.slot}: ${x.reason}`, "Material");
+			}
 		} catch (error) {
 			toasts.error(error, "Could not make the materials");
 		} finally {
