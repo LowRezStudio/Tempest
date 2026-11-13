@@ -138,7 +138,7 @@ impl Workspace {
         Ok(json!({
             "id": id,
             "path": doc.path.to_string_lossy(),
-            "function": self.tokens.function_name(doc.marshal.function).map(|s| s.to_string()).unwrap_or_else(|| format!("{:#x}", doc.marshal.function)),
+            "function": self.tokens.marshal_function_name(&doc.marshal).map(|s| s.to_string()).unwrap_or_else(|| format!("{:#x}", doc.marshal.function)),
             "flags": doc.marshal.flags,
             "dirty": doc.dirty,
             "undo": doc.undo_labels(),

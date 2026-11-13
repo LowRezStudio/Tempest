@@ -1891,7 +1891,7 @@ fn cmd_mcts(args: &[String]) -> Res {
             let path = Path::new(args.get(1).ok_or("missing file")?);
             let t = tokens_for(path);
             let doc = Doc::open(path, &t)?;
-            println!("function {} ({:#x}), flags {}, tokens: {}", t.function_name(doc.marshal.function).unwrap_or("?"), doc.marshal.function, doc.marshal.flags, t.source);
+            println!("function {} ({:#x}), flags {}, tokens: {}", t.marshal_function_name(&doc.marshal).unwrap_or("?"), doc.marshal.function, doc.marshal.flags, t.source);
             let (tables, header) = doc.tables();
             for h in header {
                 let v = doc.marshal.root.get(h).unwrap();
@@ -1938,7 +1938,7 @@ fn cmd_mcts(args: &[String]) -> Res {
             let out = args.get(2).ok_or("missing output")?;
             let t = tokens_for(path);
             let doc = Doc::open(path, &t)?;
-            let j = json!({ "function": t.function_name(doc.marshal.function).map(|s| s.to_string()).unwrap_or_else(|| format!("{:#x}", doc.marshal.function)), "flags": doc.marshal.flags, "encoding": doc.marshal.encoding, "root": mcts::row_json(&t, &doc.marshal.root) });
+            let j = json!({ "function": t.marshal_function_name(&doc.marshal).map(|s| s.to_string()).unwrap_or_else(|| format!("{:#x}", doc.marshal.function)), "flags": doc.marshal.flags, "legacy": doc.marshal.legacy, "encoding": doc.marshal.encoding, "root": mcts::row_json(&t, &doc.marshal.root) });
             std::fs::write(out, serde_json::to_vec_pretty(&j)?)?;
             eprintln!("wrote {out}");
             Ok(())
@@ -1948,13 +1948,15 @@ fn cmd_mcts(args: &[String]) -> Res {
             let out = Path::new(args.get(2).ok_or("missing output")?);
             let t = tokens_for(out);
             let j: serde_json::Value = serde_json::from_slice(&std::fs::read(input)?)?;
+            let legacy = j.get("legacy").and_then(|v| v.as_bool()).unwrap_or(false);
             let function = match j.get("function") {
                 Some(serde_json::Value::String(s)) if s.starts_with("0x") => u32::from_str_radix(&s[2..], 16)?,
+                Some(serde_json::Value::String(s)) if legacy => t.function_index(s).ok_or_else(|| format!("unknown function {s}"))?,
                 Some(serde_json::Value::String(s)) => t.function(s),
                 Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0) as u32,
                 _ => 0,
             };
-            let m = mcts::Marshal { flags: j.get("flags").and_then(|v| v.as_u64()).unwrap_or(0) as u8, function, encoding: j.get("encoding").and_then(|v| v.as_u64()).unwrap_or(4) as u8, root: mcts::row_from_json(&t, j.get("root").ok_or("no root")?)? };
+            let m = mcts::Marshal { flags: j.get("flags").and_then(|v| v.as_u64()).unwrap_or(0) as u8, function, legacy, encoding: j.get("encoding").and_then(|v| v.as_u64()).unwrap_or(4) as u8, root: mcts::row_from_json(&t, j.get("root").ok_or("no root")?)? };
             std::fs::write(out, mcts::write_obscured(&m, &t))?;
             eprintln!("wrote {}", out.display());
             Ok(())
@@ -2003,7 +2005,7 @@ fn cmd_mcts(args: &[String]) -> Res {
                         let (tables, _) = { let d = &m.root; (d.entries.iter().filter(|(_, v)| matches!(v, Value::Rows(_))).count(), 0) };
                         let strings = m.root.entries.iter().filter(|(k, _)| t.kind(*k) == Kind::String).count();
                         let _ = strings;
-                        println!("{} {}: {} bytes, {tables} tables, function {} ({:.2}s)", if same { "ok  " } else { "DIFF" }, f.display(), bytes.len(), t.function_name(m.function).unwrap_or("?"), t0.elapsed().as_secs_f32());
+                        println!("{} {}: {} bytes, {tables} tables, function {} ({:.2}s)", if same { "ok  " } else { "DIFF" }, f.display(), bytes.len(), t.marshal_function_name(&m).unwrap_or("?"), t0.elapsed().as_secs_f32());
                         if !same {
                             failed += 1;
                             if let Some(i) = back.iter().zip(bytes.iter()).position(|(a, b)| a != b) {

@@ -126,6 +126,8 @@ pub struct Tokens {
     fields: Vec<Option<Field>>,
     by_name: HashMap<String, u16>,
     functions: HashMap<u32, String>,
+    /// Function names in table order: the wire index of legacy marshals.
+    function_order: Vec<String>,
     /// Where the tables came from, for display.
     pub source: String,
 }
@@ -208,7 +210,8 @@ impl Tokens {
             while pos + skip < blob.len() {
                 let Some(end) = blob[pos + skip..].iter().position(|&b| b == 0) else { break };
                 let name = String::from_utf8_lossy(&blob[pos + skip..pos + skip + end]).to_string();
-                t.functions.insert(fnv1_32(name.as_bytes()), name);
+                t.functions.insert(fnv1_32(name.as_bytes()), name.clone());
+                t.function_order.push(name);
                 pos += skip + end + 1;
             }
         }
@@ -267,6 +270,20 @@ impl Tokens {
 
     pub fn token(&self, name: &str) -> Option<u16> {
         self.by_name.get(name).copied().or_else(|| name.strip_prefix('#').and_then(|n| n.parse().ok()))
+    }
+
+    /// Name of a marshal's function: by hash, or by table position for legacy marshals.
+    pub fn marshal_function_name(&self, m: &Marshal) -> Option<&str> {
+        if m.legacy {
+            self.function_order.get(m.function as usize).map(|s| s.as_str())
+        } else {
+            self.function_name(m.function)
+        }
+    }
+
+    /// Wire index of a function in the legacy layout.
+    pub fn function_index(&self, name: &str) -> Option<u32> {
+        self.function_order.iter().position(|n| n == name).map(|i| i as u32)
     }
 
     pub fn function_name(&self, hash: u32) -> Option<&str> {
@@ -362,7 +379,10 @@ impl Row {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Marshal {
     pub flags: u8,
+    /// FNV-1 hash of the function name; the table index when `legacy`.
     pub function: u32,
+    /// Pre-hash layout (Paladins 0.x): `u16` function index, no flags byte.
+    pub legacy: bool,
     pub root: Row,
     /// String encoding written in kind-10 headers (the package's
     /// `m_byEncoding`; the game's files use 4, UTF-16).
@@ -539,15 +559,25 @@ fn utf16(b: &[u8]) -> String {
 
 /// Parse a marshal (not obscured).
 pub fn parse(bytes: &[u8], tokens: &Tokens) -> Result<Marshal> {
-    let mut r = Reader { d: bytes, pos: 0, tokens, encoding: None };
-    let _ = r.tokens;
-    let flags = r.u8()?;
-    let function = r.u32()?;
-    let root = r.row()?;
-    if r.pos != bytes.len() {
-        return Err(Error::Format(format!("{} trailing bytes after the marshal", bytes.len() - r.pos)));
+    // A modern header starts with the flags byte (0); a legacy function index
+    // whose low byte is 0 looks the same, so an unknown hash retries as legacy.
+    let modern_first = bytes.first() == Some(&0) && bytes.len() >= 5 && {
+        let hash = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
+        hash == 0 || tokens.function_name(hash).is_some() || tokens.functions.is_empty()
+    };
+    let attempt = |legacy: bool| -> Result<Marshal> {
+        let mut r = Reader { d: bytes, pos: 0, tokens, encoding: None };
+        let (flags, function) = if legacy { (0, r.u16()? as u32) } else { (r.u8()?, r.u32()?) };
+        let root = r.row()?;
+        if r.pos != bytes.len() {
+            return Err(Error::Format(format!("{} trailing bytes after the marshal", bytes.len() - r.pos)));
+        }
+        Ok(Marshal { flags, function, legacy, root, encoding: r.encoding.unwrap_or(4) })
+    };
+    match attempt(!modern_first) {
+        Ok(m) => Ok(m),
+        Err(e) => attempt(modern_first).map_err(|_| e),
     }
-    Ok(Marshal { flags, function, root, encoding: r.encoding.unwrap_or(4) })
 }
 
 /// Parse an obscured `.dat` file.
@@ -564,6 +594,8 @@ struct Writer<'a> {
     out: Vec<u8>,
     tokens: &'a Tokens,
     encoding: u8,
+    /// Pre-hash layout: strings use the type 5 / inline type 9 headers.
+    legacy: bool,
 }
 
 /// The integer caches of one row (`CMedsCache`).
@@ -605,6 +637,32 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// `CMarshalRow::StoreEntries` of the legacy writer: up to three units are
+    /// stored inline; longer strings use type 5, UTF-16 when the package encoding
+    /// is UTF-16 (or the text does not fit one byte per character).
+    fn legacy_str(&mut self, token: u16, s: &str) {
+        let units: Vec<u16> = s.encode_utf16().collect();
+        if units.len() <= 3 {
+            self.u16(0x9000 | units.len() as u16);
+            self.u16(token);
+            for u in units {
+                self.u16(u);
+            }
+            return;
+        }
+        self.u16(0x5001);
+        self.u16(token);
+        if self.encoding == 4 || units.iter().any(|&u| u > 0xFF) {
+            self.u16(0x8000 | units.len() as u16);
+            for u in units {
+                self.u16(u);
+            }
+        } else {
+            self.u16(units.len() as u16);
+            self.out.extend(units.iter().map(|&u| u as u8));
+        }
+    }
+
     fn push_num(&mut self, caches: &mut Caches, token: u16, v: u64, width: usize) {
         caches.w[width].push((token, v));
         if caches.w[width].len() == 32 {
@@ -637,6 +695,7 @@ impl<'a> Writer<'a> {
                     };
                     self.push_num(&mut caches, *token, *v, width);
                 }
+                Value::Str(s) if self.legacy => self.legacy_str(*token, s),
                 Value::Str(s) => {
                     self.u16(0xA000 | self.encoding as u16);
                     self.u16(*token);
@@ -695,9 +754,13 @@ impl<'a> Writer<'a> {
 
 /// Serialize a marshal (not obscured).
 pub fn write(m: &Marshal, tokens: &Tokens) -> Vec<u8> {
-    let mut w = Writer { out: Vec::new(), tokens, encoding: m.encoding };
-    w.out.push(m.flags);
-    w.out.extend_from_slice(&m.function.to_le_bytes());
+    let mut w = Writer { out: Vec::new(), tokens, encoding: m.encoding, legacy: m.legacy };
+    if m.legacy {
+        w.out.extend_from_slice(&(m.function as u16).to_le_bytes());
+    } else {
+        w.out.push(m.flags);
+        w.out.extend_from_slice(&m.function.to_le_bytes());
+    }
     w.row(&m.root);
     w.out
 }
@@ -849,7 +912,7 @@ mod tests {
         row.set(id, Value::Num(70000));
         row.set(name, Value::Str("Épée".into()));
         row.set(price, Value::Num(5));
-        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), root: Row { entries: vec![(items, Value::Rows(vec![row.clone(), row]))] }, encoding: 4 };
+        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(vec![row.clone(), row]))] }, encoding: 4 };
         let bytes = write_obscured(&m, &t);
         let back = parse_obscured(&bytes, &t).unwrap();
         // The writer batches numbers after the strings: same fields, and a

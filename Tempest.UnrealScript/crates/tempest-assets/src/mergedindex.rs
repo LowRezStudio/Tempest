@@ -8,6 +8,10 @@
 //!
 //! On disk: `TMap<FGuid, TMap<INT, FMergedFileIndexData>>` then
 //! `TMap<FGuid, FString>`, both as count + pairs.
+//!
+//! Older builds (0.5x) store the file as an `FString` after each mip, empty
+//! when the texture's default file applies, and the second table maps each
+//! texture GUID to that default file name instead (`legacy`).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -31,6 +35,10 @@ pub struct MergedFileIndex {
     /// Texture path GUID → mip index → entry (insertion order kept).
     pub textures: Vec<(Guid, Vec<(i32, MergedEntry)>)>,
     pub files: Vec<(Guid, String)>,
+    /// Pre-GUID layout: files are named per texture, not by file GUID.
+    pub legacy: bool,
+    /// Legacy only: texture GUID → GUID of its default file.
+    defaults: HashMap<Guid, Guid>,
     by_texture: HashMap<Guid, usize>,
     by_file: HashMap<Guid, usize>,
 }
@@ -49,6 +57,13 @@ impl MergedFileIndex {
     }
 
     pub fn parse(bytes: &[u8]) -> Result<MergedFileIndex> {
+        match MergedFileIndex::parse_modern(bytes) {
+            Ok(idx) => Ok(idx),
+            Err(e) => MergedFileIndex::parse_legacy(bytes).map_err(|_| e),
+        }
+    }
+
+    fn parse_modern(bytes: &[u8]) -> Result<MergedFileIndex> {
         let mut r = Reader::new(bytes);
         let mut idx = MergedFileIndex::default();
         let n = r.i32()?.max(0);
@@ -68,11 +83,81 @@ impl MergedFileIndex {
             let s = r.fstring()?;
             idx.files.push((g, s));
         }
+        if r.remaining() != 0 {
+            return Err(tempest_upk::io::Error::Format(format!("{} trailing bytes", r.remaining())));
+        }
         idx.reindex();
         Ok(idx)
     }
 
+    fn parse_legacy(bytes: &[u8]) -> Result<MergedFileIndex> {
+        let mut r = Reader::new(bytes);
+        let mut idx = MergedFileIndex { legacy: true, ..Default::default() };
+        let n = r.i32()?.max(0);
+        // Per mip: (mip, entry, explicit file name).
+        let mut raw = Vec::new();
+        for _ in 0..n {
+            let g = r.guid()?;
+            let mips = r.array(|r| {
+                let mip = r.i32()?;
+                let e = MergedEntry { size: r.i32()?, offset: r.i32()?, size_on_disk: r.i32()?, file: Guid::default() };
+                Ok((mip, e, r.fstring()?))
+            })?;
+            raw.push((g, mips));
+        }
+        let m = r.i32()?.max(0);
+        let mut names = HashMap::new();
+        for _ in 0..m {
+            let g = r.guid()?;
+            names.insert(g, r.fstring()?);
+        }
+        if r.remaining() != 0 {
+            return Err(tempest_upk::io::Error::Format(format!("{} trailing bytes", r.remaining())));
+        }
+        for (g, mips) in raw {
+            let default = names.get(&g).map(|name| idx.add_file(name));
+            if let Some(d) = default {
+                idx.defaults.insert(g, d);
+            }
+            let mut out = Vec::with_capacity(mips.len());
+            for (mip, mut e, name) in mips {
+                e.file = if name.is_empty() { default.unwrap_or_default() } else { idx.add_file(&name) };
+                out.push((mip, e));
+            }
+            idx.textures.push((g, out));
+        }
+        idx.reindex();
+        Ok(idx)
+    }
+
+    fn legacy_bytes(&self) -> Vec<u8> {
+        let mut w = Writer::new();
+        let name = |g: Guid| self.file_name(g).unwrap_or_default();
+        w.i32(self.textures.len() as i32);
+        for (g, mips) in &self.textures {
+            w.guid(g);
+            let default = self.defaults.get(g).copied();
+            w.array(mips, |w, (mip, e)| {
+                w.i32(*mip);
+                w.i32(e.size);
+                w.i32(e.offset);
+                w.i32(e.size_on_disk);
+                w.fstring(if Some(e.file) == default { "" } else { name(e.file) });
+            });
+        }
+        let defaults: Vec<_> = self.textures.iter().filter_map(|(g, _)| self.defaults.get(g).map(|d| (*g, *d))).collect();
+        w.i32(defaults.len() as i32);
+        for (g, d) in defaults {
+            w.guid(&g);
+            w.fstring(name(d));
+        }
+        w.into_inner()
+    }
+
     pub fn to_bytes(&self) -> Vec<u8> {
+        if self.legacy {
+            return self.legacy_bytes();
+        }
         let mut w = Writer::new();
         w.i32(self.textures.len() as i32);
         for (g, mips) in &self.textures {
@@ -148,6 +233,9 @@ impl MergedFileIndex {
                 self.textures.len() - 1
             }
         };
+        if self.legacy {
+            self.defaults.entry(g).or_insert(entry.file);
+        }
         let mips = &mut self.textures[i].1;
         match mips.iter_mut().find(|(m, _)| *m == mip) {
             Some((_, e)) => *e = entry,
@@ -177,6 +265,21 @@ mod tests {
         let back = MergedFileIndex::parse(&bytes).unwrap();
         assert_eq!(back.entry("FX_ATLAS.TEXTURES.T_ATLASSHIELD_A", 1).unwrap().offset, 47913624);
         assert_eq!(back.file_name(f), Some("Textures4"));
+        assert_eq!(back.to_bytes(), bytes);
+    }
+
+    #[test]
+    fn legacy_round_trip() {
+        let mut idx = MergedFileIndex { legacy: true, ..Default::default() };
+        let a = idx.add_file("Textures_PostLaunch");
+        let b = idx.add_file("Textures");
+        idx.set_entry("fx.a", 0, MergedEntry { size: 8, offset: 1, size_on_disk: 2, file: a });
+        idx.set_entry("fx.a", 1, MergedEntry { size: 4, offset: 3, size_on_disk: 2, file: b });
+        let bytes = idx.to_bytes();
+        let back = MergedFileIndex::parse(&bytes).unwrap();
+        assert!(back.legacy);
+        assert_eq!(back.entry("FX.A", 0).unwrap().file, a);
+        assert_eq!(back.entry("FX.A", 1).unwrap().file, b);
         assert_eq!(back.to_bytes(), bytes);
     }
 }
