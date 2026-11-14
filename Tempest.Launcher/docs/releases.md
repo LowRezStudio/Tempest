@@ -21,7 +21,7 @@ current sources.
   only imports `dax`). The root project is installed either way, so `prepare` (husky) runs.
 - Uploads artifacts and creates a draft GitHub release
 - Release notes are pulled from the annotated tag's message (set by `pnpm bump`)
-- The bundled CLI sidecar (`scripts/build-cli.js`: AOT `tempest-cli`, `upk`, the asmloader DLLs) is
+- The bundled CLI sidecar (`scripts/build-cli.js`: AOT `tempest-cli`, `upk`, the asmloader and faststart DLLs) is
   built by three independent jobs in parallel, with the zig build cache restored from
   `sidecar-cache.yml` (a tag run can only see caches saved on master or by itself, so that workflow
   warms them on master pushes that touch `Tempest.Utils/**`, weekly, and by hand).

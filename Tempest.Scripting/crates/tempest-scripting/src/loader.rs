@@ -27,6 +27,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Mutex;
 
 use mlua::{Lua, Table, Value};
@@ -192,23 +193,39 @@ fn order_mods(mut mods: Vec<Mod>) -> Vec<Mod> {
     out
 }
 
-/// Mod whose script (or handler) is currently executing; `""` outside.
-static CURRENT: Mutex<&'static str> = Mutex::new("");
+/// Mod whose script (or handler) is currently executing: an id `interned`
+/// leaked, null outside. An atomic, so entering and leaving Lua takes no lock.
+static CURRENT: AtomicPtr<&'static str> = AtomicPtr::new(std::ptr::null_mut());
 
 pub fn current_mod() -> String {
-    CURRENT.lock().unwrap().to_string()
+    let id = CURRENT.load(Ordering::Acquire);
+    // SAFETY: only ever null or an entry `interned` leaked.
+    if id.is_null() { String::new() } else { unsafe { *id }.to_string() }
 }
 
 /// `id` as a string that lives forever, one per mod id, so entering Lua allocates nothing.
-fn interned(id: &str) -> &'static str {
-    static IDS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
-    let mut ids = IDS.lock().unwrap();
-    if let Some(known) = ids.iter().find(|known| **known == id) {
-        return known;
+fn interned(id: &str) -> *mut &'static str {
+    // Handlers of one mod tend to run in a row: the last answer needs no lock.
+    static LAST: AtomicPtr<&'static str> = AtomicPtr::new(std::ptr::null_mut());
+    static IDS: Mutex<Vec<&'static &'static str>> = Mutex::new(Vec::new());
+    let last = LAST.load(Ordering::Acquire);
+    // SAFETY: as in `current_mod`.
+    if !last.is_null() && unsafe { *last } == id {
+        return last;
     }
-    let leaked: &'static str = Box::leak(id.to_string().into_boxed_str());
-    ids.push(leaked);
-    leaked
+    let mut ids = IDS.lock().unwrap();
+    let known = match ids.iter().find(|known| ***known == id) {
+        Some(known) => *known,
+        None => {
+            let name: &'static str = Box::leak(id.to_string().into_boxed_str());
+            let leaked: &'static &'static str = Box::leak(Box::new(name));
+            ids.push(leaked);
+            leaked
+        }
+    };
+    let known = known as *const &'static str as *mut &'static str;
+    LAST.store(known, Ordering::Release);
+    known
 }
 
 /// Run `f` with the current mod set to `id`, restoring the previous value.
@@ -219,9 +236,9 @@ pub fn with_mod<R>(id: &str, f: impl FnOnce() -> R) -> R {
 /// `with_mod` for an entry point the profiler reports as `site` (`label`
 /// is only built the first time the site is seen).
 pub fn with_mod_at<R>(id: &str, site: crate::profile::Site, label: impl FnOnce() -> String, f: impl FnOnce() -> R) -> R {
-    let prev = std::mem::replace(&mut *CURRENT.lock().unwrap(), interned(id));
+    let prev = CURRENT.swap(interned(id), Ordering::AcqRel);
     let r = crate::profile::lua(id, site, label, f);
-    *CURRENT.lock().unwrap() = prev;
+    CURRENT.store(prev, Ordering::Release);
     r
 }
 

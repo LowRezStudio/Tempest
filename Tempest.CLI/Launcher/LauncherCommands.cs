@@ -7,11 +7,11 @@ namespace Tempest.CLI.Launcher;
 
 internal class LauncherCommands
 {
-    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true, bool noDlls = false)
+    public async Task Launch([Argument] string path, ConsoleAppContext context, bool noDefaultArgs = false, string? platform = null, string? game = null, string[]? dll = null, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true, bool noDlls = false, bool noFastStartup = false)
     {
         var args = context.EscapedArguments.ToArray();
         await using var diagnostics = Environment.GetEnvironmentVariable("TEMPEST_CRASH_DIAGNOSTICS") == "1" ? new GameDiagnostics() : null;
-        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs, steamRuntime, enableOpenSslFix, noDlls, diagnostics);
+        var process = await LaunchGame(path, args, noDefaultArgs, platform, game, dll, false, homedir, gamescope, gamescopeArgs, steamRuntime, enableOpenSslFix, noDlls, diagnostics, noFastStartup);
 
         // Proton (and gamescope) wrappers can outlive the game itself. The launcher only marks
         // the game as stopped when this process exits, so on Linux watch the real game process and
@@ -64,9 +64,16 @@ internal class LauncherCommands
         await WineExtensions.KillProcessTree(process, sweepPrefix: false);
         if (OperatingSystem.IsLinux()) WineExtensions.ClearIdleProtonPrefix(process);
     }
-public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
+    // Where the Tempest.Utils DLLs are: next to the CLI once published, in the zig output before.
+#if DEBUG
+    private static readonly string SidecarDirectory = Path.Combine(AppContext.BaseDirectory, "../../../../Tempest.Utils/zig-out/bin");
+#else
+    private static readonly string SidecarDirectory = AppContext.BaseDirectory;
+#endif
+
+    public static async Task<Process> LaunchGame(string path, string[] args, bool noDefaultArgs = false,
                                                  string? platform = null, string? game = null, string[]? dll = null,
-                                                 bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true, bool noDlls = false, GameDiagnostics? diagnostics = null)
+                                                 bool isServer = false, string? homedir = null, bool gamescope = false, string? gamescopeArgs = "-f --force-grab-cursor", bool steamRuntime = false, bool enableOpenSslFix = true, bool noDlls = false, GameDiagnostics? diagnostics = null, bool noFastStartup = false)
     {
         if (isServer) gamescope = false;
 
@@ -191,6 +198,16 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
             }
         });
 
+        // The startup fixes only pay off when they are in before the game loads its packages,
+        // so they do not wait with the mod DLLs. The DLL patches nothing on a build it does not know.
+        var fastStartup = Task.FromResult(false);
+        if (!isServer && !noDlls && !noFastStartup && FastStartup.Supports(exePath))
+        {
+            var fastStartupPath = Path.Combine(SidecarDirectory, FastStartup.DllName);
+            if (File.Exists(fastStartupPath))
+                fastStartup = process.InjectLibraryAsync(fastStartupPath, is64Bit);
+        }
+
         await Task.Delay(TimeSpan.FromSeconds(1));
 
         var allDlls = new List<string>();
@@ -248,13 +265,10 @@ public static async Task<Process> LaunchGame(string path, string[] args, bool no
         }
         if (isServer)
         {
-#if DEBUG
-            var asmLoaderPath = Path.Combine(AppContext.BaseDirectory, $"../../../../Tempest.Utils/zig-out/bin/asmloader-windows_x86{(is64Bit ? "_64" : "")}.dll");
-#else
-            var asmLoaderPath = Path.Combine(AppContext.BaseDirectory, $"asmloader-windows_x86{(is64Bit ? "_64" : "")}.dll");
-#endif
+            var asmLoaderPath = Path.Combine(SidecarDirectory, $"asmloader-windows_x86{(is64Bit ? "_64" : "")}.dll");
             await process.InjectLibraryAsync(asmLoaderPath, is64Bit);
         }
+        await fastStartup;
 
         return process;
     }
