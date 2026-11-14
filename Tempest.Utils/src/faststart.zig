@@ -37,6 +37,18 @@ const WIN32_FILE_ATTRIBUTE_DATA = extern struct {
     size_low: u32,
 };
 
+const WIN32_FIND_DATAW = extern struct {
+    attributes: u32,
+    creation_time: FILETIME,
+    last_access_time: FILETIME,
+    last_write_time: FILETIME,
+    size_high: u32,
+    size_low: u32,
+    reserved: [2]u32,
+    name: [260]u16,
+    short_name: [14]u16,
+};
+
 extern "kernel32" fn GetModuleHandleW(name: ?[*:0]const u16) callconv(.winapi) ?*anyopaque;
 extern "kernel32" fn GetCurrentProcess() callconv(.winapi) HANDLE;
 extern "kernel32" fn GetCurrentProcessId() callconv(.winapi) u32;
@@ -67,6 +79,15 @@ extern "kernel32" fn GetTempPathW(len: u32, buffer: [*]u16) callconv(.winapi) u3
 extern "kernel32" fn GetEnvironmentVariableA(name: [*:0]const u8, buffer: [*]u8, size: u32) callconv(.winapi) u32;
 extern "kernel32" fn GetFileInformationByHandle(file: HANDLE, info: *BY_HANDLE_FILE_INFORMATION) callconv(.winapi) BOOL;
 extern "kernel32" fn GetFileAttributesExW(name: [*:0]const u16, level: u32, info: *WIN32_FILE_ATTRIBUTE_DATA) callconv(.winapi) BOOL;
+extern "kernel32" fn GetModuleFileNameW(module: ?*anyopaque, buffer: [*]u16, size: u32) callconv(.winapi) u32;
+extern "kernel32" fn GetFullPathNameW(name: [*:0]const u16, size: u32, buffer: [*]u16, file_part: ?*?[*]u16) callconv(.winapi) u32;
+extern "kernel32" fn FindFirstFileW(pattern: [*:0]const u16, data: *WIN32_FIND_DATAW) callconv(.winapi) HANDLE;
+extern "kernel32" fn FindNextFileW(find: HANDLE, data: *WIN32_FIND_DATAW) callconv(.winapi) BOOL;
+extern "kernel32" fn FindClose(find: HANDLE) callconv(.winapi) BOOL;
+extern "kernel32" fn FindFirstChangeNotificationW(path: [*:0]const u16, subtree: BOOL, filter: u32) callconv(.winapi) HANDLE;
+extern "kernel32" fn FindCloseChangeNotification(change: HANDLE) callconv(.winapi) BOOL;
+extern "kernel32" fn WaitForSingleObject(handle: HANDLE, ms: u32) callconv(.winapi) u32;
+extern "kernel32" fn GetFileAttributesW(name: [*:0]const u16) callconv(.winapi) u32;
 // RtlGenRandom
 extern "advapi32" fn SystemFunction036(buffer: [*]u8, len: u32) callconv(.winapi) u8;
 
@@ -80,6 +101,7 @@ const rva = struct {
     const rand_poll = 0x1f6dc80;
     const rand_add = 0x1f22b90;
     const file_size = 0x12d7c0;
+    const file_size_by_name = 0x127150;
     const find_package = 0x1aae80;
     const read_compressed = 0x148ac0;
     const uncompress = 0x1c23c0;
@@ -90,6 +112,9 @@ const rva = struct {
     const voice_init_sleep = 0xfc891;
     const thread_name_sleep = 0x1fbf6f;
     const pool_worker_sleep = 0x1f8982;
+    const loader_open_in_profile = 0x18033c;
+    const loader_open_in_game = 0x180426;
+    const display_query_create = 0xd4e320;
 };
 
 var base: usize = 0;
@@ -162,6 +187,60 @@ fn patchBytes(comptime name: []const u8, offset: usize, expected: []const u8, pa
     _ = VirtualProtect(code, patch.len, old, &old);
     _ = FlushInstructionCache(GetCurrentProcess(), code, patch.len);
     log("{s}: patched", .{name});
+}
+
+/// A page within reach of a 32-bit call displacement from the image, for jumps to this DLL.
+var stub_page: ?[*]u8 = null;
+var stub_used: usize = 0;
+
+fn nearStub(target: usize) ?usize {
+    if (stub_page == null) {
+        var address = std.mem.alignForward(usize, base + build_image_size, 0x10000);
+        const limit = base + 0x7000_0000;
+        while (address < limit and stub_page == null) : (address += 0x10000) {
+            // MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE
+            stub_page = VirtualAlloc(@ptrFromInt(address), 0x1000, 0x3000, 0x40);
+        }
+    }
+    const page = stub_page orelse return null;
+    if (stub_used + 16 > 0x1000) return null;
+    const stub = page + stub_used;
+    stub_used += 16;
+    // jmp [rip+0]; target
+    stub[0..6].* = .{ 0xff, 0x25, 0, 0, 0, 0 };
+    std.mem.writeInt(u64, stub[6..14], target, .little);
+    return @intFromPtr(stub);
+}
+
+/// Points one call instruction of the game at `hook`: a `call rel32` (5 bytes) or a
+/// `call [rip+disp32]` (6 bytes). `previous` gets what the call reached before, ahead of
+/// the change: the function for the first form, the address of the pointer it read for
+/// the second.
+fn redirectCall(comptime name: []const u8, offset: usize, expected: []const u8, hook: usize, previous: *usize) bool {
+    if (!matches(offset, expected)) {
+        log("{s}: unexpected bytes, left alone", .{name});
+        return false;
+    }
+    const site = base + offset;
+    const displacement: i64 = std.mem.readInt(i32, expected[expected.len - 4 ..][0..4], .little);
+    const stub = nearStub(hook) orelse {
+        log("{s}: no memory near the image", .{name});
+        return false;
+    };
+    previous.* = @intCast(@as(i64, @intCast(site + expected.len)) + displacement);
+    var patch: [6]u8 = .{ 0xe8, 0, 0, 0, 0, 0x90 };
+    std.mem.writeInt(i32, patch[1..5], @intCast(@as(i64, @intCast(stub)) - @as(i64, @intCast(site + 5))), .little);
+    const code: [*]u8 = @ptrFromInt(site);
+    var old: u32 = 0;
+    if (VirtualProtect(code, expected.len, 0x40, &old) == 0) {
+        log("{s}: cannot unprotect the code page", .{name});
+        return false;
+    }
+    @memcpy(code[0..expected.len], patch[0..expected.len]);
+    _ = VirtualProtect(code, expected.len, old, &old);
+    _ = FlushInstructionCache(GetCurrentProcess(), code, expected.len);
+    log("{s}: patched", .{name});
+    return true;
 }
 
 var disabled_buffer: [256]u8 = undefined;
@@ -261,11 +340,9 @@ fn queryFileSize(this: ?*anyopaque, path: [*:0]const u16) i64 {
     return info.size_low;
 }
 
-fn hookFileSize(this: ?*anyopaque, name: ?[*:0]const u16) callconv(.c) i64 {
-    const path = name orelse return original_file_size(this, name);
-    if (!isFastPath(path)) return original_file_size(this, name);
-
-    var hash: u64 = 0xcbf29ce484222325;
+/// The size of `path` as `query` reports it, or the answer it gave a moment ago.
+fn memoizedSize(comptime query: fn (?*anyopaque, [*:0]const u16) i64, seed: u64, this: ?*anyopaque, path: [*:0]const u16) i64 {
+    var hash: u64 = seed;
     var i: usize = 0;
     while (path[i] != 0) : (i += 1) hash = (hash ^ path[i]) *% 0x100000001b3;
     hash ^= hash >> 31;
@@ -282,12 +359,34 @@ fn hookFileSize(this: ?*anyopaque, name: ?[*:0]const u16) callconv(.c) i64 {
     }
     size_memo_mutex.unlock();
 
-    const size = queryFileSize(this, path);
+    const size = query(this, path);
     _ = size_memo_misses.fetchAdd(1, .monotonic);
     size_memo_mutex.lock();
     slot.* = .{ .hash = hash, .tick = now, .size = size };
     size_memo_mutex.unlock();
     return size;
+}
+
+fn hookFileSize(this: ?*anyopaque, name: ?[*:0]const u16) callconv(.c) i64 {
+    const path = name orelse return original_file_size(this, name);
+    if (!isFastPath(path)) return original_file_size(this, name);
+    return memoizedSize(queryFileSize, 0xcbf29ce484222325, this, path);
+}
+
+// The file manager's public size query turns the name into a full path twice (two string
+// allocations and a path lookup each) before it gets to the function above. The same
+// memo in front of it answers a repeated question without that either.
+
+var original_file_size_by_name: FileSize = undefined;
+
+fn queryFileSizeByName(this: ?*anyopaque, path: [*:0]const u16) i64 {
+    return original_file_size_by_name(this, path);
+}
+
+fn hookFileSizeByName(this: ?*anyopaque, name: ?[*:0]const u16) callconv(.c) i64 {
+    const path = name orelse return original_file_size_by_name(this, name);
+    if (!isFastPath(path)) return original_file_size_by_name(this, name);
+    return memoizedSize(queryFileSizeByName, 0x9ae16a3b2f90404f, this, path);
 }
 
 // ---------------------------------------------------------------------------
@@ -714,6 +813,7 @@ fn hookReadCompressed(this: *const usize, request: usize, handle: *const [2]usiz
 fn chunkJanitor(_: ?*anyopaque) callconv(.winapi) u32 {
     while (true) {
         Sleep(5000);
+        opensReport();
         chunk_mutex.lock();
         defer chunk_mutex.unlock();
         if (chunk_stats.hits != chunk_stats.reported_hits) {
@@ -743,19 +843,471 @@ fn chunkJanitor(_: ?*anyopaque) callconv(.winapi) u32 {
 }
 
 // ---------------------------------------------------------------------------
+// opens: every file the async loader reads is opened twice. First under the profile
+// folder (Documents\My Games\...), where cooked content never is, then in the game
+// folder. When the audio engine starts that happens for each of its sound packages, over
+// twelve hundred of them, one after the other, while the main thread waits.
+//
+// Two things here, both at the loader's two CreateFileW calls and nowhere else:
+//
+// - The profile folder attempt is answered from a listing of that folder when the name
+//   is not in it. The listing is dropped as soon as Windows reports a name added,
+//   removed or renamed anywhere under the folder it came from, so a file that appears
+//   is found. A name that is in the listing always goes to the file system.
+// - A few threads open the sound packages ahead, the same way the loader does, while the
+//   game is still loading its script packages. The loader is then handed the handle that
+//   is already open: only for the very same full path, once, and whatever it never asks
+//   for is closed again.
+
+const OpenSite = enum(u1) { profile, game };
+
+const CreateFile = *const fn (name: [*:0]const u16, access: u32, share: u32, security: ?*anyopaque, disposition: u32, flags: u32, template: ?HANDLE) callconv(.winapi) HANDLE;
+
+/// Where each of the two call sites reads the address of CreateFileW from.
+var open_slots: [2]usize = .{ 0, 0 };
+var open_counts: [2]std.atomic.Value(u32) = .{ .init(0), .init(0) };
+var open_ticks: [2]std.atomic.Value(i64) = .{ .init(0), .init(0) };
+var open_reported: u32 = 0;
+
+fn lower(c: u16) u16 {
+    return if (c >= 'A' and c <= 'Z') c + ('a' - 'A') else c;
+}
+
+fn pathHash(path: []const u16) u64 {
+    var hash: u64 = 0xcbf29ce484222325;
+    for (path) |c| hash = (hash ^ lower(c)) *% 0x100000001b3;
+    return hash;
+}
+
+fn pathEql(a: []const u16, b: []const u16) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |x, y| {
+        if (lower(x) != lower(y)) return false;
+    }
+    return true;
+}
+
+/// How the loader opens a file: GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING,
+/// FILE_ATTRIBUTE_NORMAL. Anything else is not one of the opens this is about.
+fn isLoaderOpen(access: u32, share: u32, security: ?*anyopaque, disposition: u32, flags: u32, template: ?HANDLE) bool {
+    return access == 0x80000000 and share == 1 and security == null and disposition == 3 and flags == 0x80 and template == null;
+}
+
+// The listings of the profile folder.
+
+const listing_max_names = 8192;
+const listing_max_drops = 24;
+
+const Listing = struct {
+    folder: [300]u16 = undefined,
+    folder_len: usize = 0,
+    /// Signalled by Windows when a name changes under the watched folder.
+    watch: ?HANDLE = null,
+    exists: bool = false,
+    names: []u64 = &.{},
+    count: usize = 0,
+};
+
+/// Off where change notifications cannot be relied on (see `watchesWork`).
+var listing_enabled = false;
+var listings: [8]Listing = @splat(.{});
+var listing_mutex: std.Thread.Mutex = .{};
+var listing_drops: u32 = 0;
+var listing_answers = std.atomic.Value(u32).init(0);
+
+fn listingDrop(listing: *Listing) void {
+    if (listing.watch) |watch| _ = FindCloseChangeNotification(watch);
+    if (listing.names.len != 0) std.heap.page_allocator.free(listing.names);
+    listing.* = .{};
+    listing_drops += 1;
+}
+
+/// The listings stand on Windows telling when a name changes. Wine only does that on
+/// Linux, so under Wine anywhere else every open keeps going to the file system.
+fn watchesWork() bool {
+    const ntdll = GetModuleHandleW(std.unicode.utf8ToUtf16LeStringLiteral("ntdll.dll")) orelse return false;
+    const proc = GetProcAddress(ntdll, "wine_get_host_version") orelse return true;
+    const host_version: *const fn (?*?[*:0]const u8, ?*?[*:0]const u8) callconv(.c) void = @ptrCast(proc);
+    var system: ?[*:0]const u8 = null;
+    host_version(&system, null);
+    return std.mem.eql(u8, std.mem.span(system orelse return false), "Linux");
+}
+
+/// Lists `folder` (a full path ending in a backslash), watching it first so that nothing
+/// that changes while it is read goes unnoticed. False when it cannot be watched or is
+/// too large: its files then keep going to the file system.
+fn listingFill(listing: *Listing, folder: []const u16) bool {
+    if (folder.len + 2 > listing.folder.len) return false;
+
+    // The folder itself often does not exist: watch the closest one above it that does.
+    var root: [300]u16 = undefined;
+    var root_len = folder.len;
+    @memcpy(root[0..folder.len], folder);
+    while (true) {
+        root[root_len] = 0;
+        const attributes = GetFileAttributesW(@ptrCast(&root));
+        // not INVALID_FILE_ATTRIBUTES, FILE_ATTRIBUTE_DIRECTORY
+        if (attributes != std.math.maxInt(u32) and attributes & 0x10 != 0) break;
+        if (root_len < 4) return false;
+        root_len -= 1;
+        while (root_len > 3 and root[root_len - 1] != '\\') root_len -= 1;
+    }
+    // The whole subtree, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME
+    const watch = FindFirstChangeNotificationW(@ptrCast(&root), 1, 3);
+    if (watch == invalid_handle) return false;
+
+    const names = std.heap.page_allocator.alloc(u64, listing_max_names) catch {
+        _ = FindCloseChangeNotification(watch);
+        return false;
+    };
+    var count: usize = 0;
+    var exists = false;
+    var complete = true;
+
+    var pattern: [304]u16 = undefined;
+    @memcpy(pattern[0..folder.len], folder);
+    pattern[folder.len] = '*';
+    pattern[folder.len + 1] = 0;
+    var data: WIN32_FIND_DATAW = undefined;
+    const find = FindFirstFileW(@ptrCast(&pattern), &data);
+    if (find != invalid_handle) {
+        exists = true;
+        while (true) {
+            if (count == names.len) {
+                complete = false;
+                break;
+            }
+            names[count] = pathHash(std.mem.sliceTo(&data.name, 0));
+            count += 1;
+            if (FindNextFileW(find, &data) == 0) break;
+        }
+        _ = FindClose(find);
+    } else {
+        const err = GetLastError();
+        // ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND
+        if (err != 2 and err != 3) complete = false;
+    }
+    if (!complete) {
+        _ = FindCloseChangeNotification(watch);
+        std.heap.page_allocator.free(names);
+        return false;
+    }
+
+    @memcpy(listing.folder[0..folder.len], folder);
+    listing.folder_len = folder.len;
+    listing.watch = watch;
+    listing.exists = exists;
+    listing.names = names;
+    listing.count = count;
+    return true;
+}
+
+/// The error CreateFileW would give for `path` (2: no such file, 3: no such folder) when
+/// the listing of its folder shows it is not there. Null when the file system has to say.
+fn listingMissing(path: []const u16) ?u32 {
+    const cut = (std.mem.lastIndexOfScalar(u16, path, '\\') orelse return null) + 1;
+    const folder = path[0..cut];
+    const name = path[cut..];
+    if (name.len == 0 or folder.len < 4) return null;
+
+    if (!listing_enabled) return null;
+    listing_mutex.lock();
+    defer listing_mutex.unlock();
+    // A folder whose names keep changing is not worth listing again and again.
+    if (listing_drops > listing_max_drops) return null;
+
+    var found: ?*Listing = null;
+    var free: ?*Listing = null;
+    for (&listings) |*listing| {
+        if (listing.watch == null) {
+            if (free == null) free = listing;
+        } else if (pathEql(listing.folder[0..listing.folder_len], folder)) {
+            found = listing;
+        }
+    }
+    if (found) |listing| {
+        // WAIT_OBJECT_0: a name changed since the listing was made
+        if (WaitForSingleObject(listing.watch.?, 0) != 258) {
+            listingDrop(listing);
+            free = listing;
+            found = null;
+        }
+    }
+    const listing = found orelse fill: {
+        const slot = free orelse return null;
+        if (!listingFill(slot, folder)) {
+            listing_drops += 1;
+            return null;
+        }
+        break :fill slot;
+    };
+
+    if (!listing.exists) return 3;
+    const hash = pathHash(name);
+    for (listing.names[0..listing.count]) |known| {
+        if (known == hash) return null;
+    }
+    return 2;
+}
+
+// The sound packages opened ahead.
+
+const sound_max = 4096;
+const sound_hold_ms = 60_000;
+const sound_openers = 8;
+
+const SoundFile = struct {
+    hash: u64,
+    path: []const u16,
+    handle: std.atomic.Value(usize) = .init(0),
+};
+
+var sound_files: []SoundFile = &.{};
+var sound_count: usize = 0;
+/// Set once the list is complete; lookups before that go to the file system.
+var sound_listed = std.atomic.Value(bool).init(false);
+var sound_next = std.atomic.Value(usize).init(0);
+var sound_opened = std.atomic.Value(u32).init(0);
+var sound_open_ticks = std.atomic.Value(i64).init(0);
+var sound_handed = std.atomic.Value(u32).init(0);
+var sound_openers_left = std.atomic.Value(u32).init(0);
+
+/// Adds the `.pck` files of `folder` (a full path ending in a backslash) to the list, and
+/// its sub-folders one level down when `nested`: those hold the voice lines per language.
+fn soundList(arena: std.mem.Allocator, folder: []const u16, nested: bool) void {
+    var pattern: [600]u16 = undefined;
+    if (folder.len + 2 > pattern.len) return;
+    @memcpy(pattern[0..folder.len], folder);
+    pattern[folder.len] = '*';
+    pattern[folder.len + 1] = 0;
+    var data: WIN32_FIND_DATAW = undefined;
+    const find = FindFirstFileW(@ptrCast(&pattern), &data);
+    if (find == invalid_handle) return;
+    defer _ = FindClose(find);
+    while (true) {
+        const name = std.mem.sliceTo(&data.name, 0);
+        // FILE_ATTRIBUTE_DIRECTORY
+        if (data.attributes & 0x10 != 0) {
+            if (nested and name[0] != '.' and folder.len + name.len + 1 < 500) {
+                var sub: [520]u16 = undefined;
+                @memcpy(sub[0..folder.len], folder);
+                @memcpy(sub[folder.len..][0..name.len], name);
+                sub[folder.len + name.len] = '\\';
+                soundList(arena, sub[0 .. folder.len + name.len + 1], false);
+            }
+        } else if (name.len > 4 and sound_count < sound_files.len and
+            pathEql(name[name.len - 4 ..], std.unicode.utf8ToUtf16LeStringLiteral(".pck")))
+        {
+            if (arena.allocSentinel(u16, folder.len + name.len, 0)) |path| {
+                @memcpy(path[0..folder.len], folder);
+                @memcpy(path[folder.len..], name);
+                sound_files[sound_count] = .{ .hash = pathHash(path), .path = path };
+                sound_count += 1;
+            } else |_| {}
+        }
+        if (FindNextFileW(find, &data) == 0) break;
+    }
+}
+
+fn soundOpener(_: ?*anyopaque) callconv(.winapi) u32 {
+    const index = std.heap.page_allocator.alloc(u8, 1 << 16) catch null;
+    while (true) {
+        const i = sound_next.fetchAdd(1, .monotonic);
+        if (i >= sound_count) break;
+        const entry = &sound_files[i];
+        var started: i64 = 0;
+        var ended: i64 = 0;
+        _ = QueryPerformanceCounter(&started);
+        const file = CreateFileW(@ptrCast(entry.path.ptr), 0x80000000, 1, null, 3, 0x80, null);
+        if (file == invalid_handle) continue;
+        if (index) |buffer| {
+            // What the audio engine reads first: "AKPK", the size of the index, the index.
+            var read: u32 = 0;
+            if (ReadFile(file, buffer.ptr, 8, &read, null) != 0 and read == 8 and
+                std.mem.eql(u8, buffer[0..4], "AKPK"))
+            {
+                const size = std.mem.readInt(u32, buffer[4..8], .little);
+                if (size <= buffer.len) _ = ReadFile(file, buffer.ptr, size, &read, null);
+            }
+            _ = SetFilePointerEx(file, 0, null, 0);
+        }
+        _ = QueryPerformanceCounter(&ended);
+        _ = sound_open_ticks.fetchAdd(ended - started, .monotonic);
+        entry.handle.store(@intFromPtr(file), .release);
+        _ = sound_opened.fetchAdd(1, .monotonic);
+    }
+    if (index) |buffer| std.heap.page_allocator.free(buffer);
+    _ = sound_openers_left.fetchSub(1, .release);
+    return 0;
+}
+
+fn ticksToMs(ticks: i64) i64 {
+    var frequency: i64 = 1000;
+    _ = QueryPerformanceFrequency(&frequency);
+    return @divTrunc(ticks * 1000, @max(frequency, 1));
+}
+
+fn soundWarmer(_: ?*anyopaque) callconv(.winapi) u32 {
+    const started = GetTickCount();
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const arena = arena_state.allocator();
+    sound_files = arena.alloc(SoundFile, sound_max) catch return 0;
+
+    // <game>\Binaries\Win64\<exe> -> <game>\ChaosGame\CookedPCConsole\
+    var folder: [520]u16 = undefined;
+    var len: usize = GetModuleFileNameW(null, &folder, 400);
+    if (len == 0 or len >= 400) return 0;
+    var cut: u32 = 0;
+    while (len > 0 and cut < 3) {
+        len -= 1;
+        if (folder[len] == '\\') cut += 1;
+    }
+    if (cut != 3) return 0;
+    const tail = std.unicode.utf8ToUtf16LeStringLiteral("\\ChaosGame\\CookedPCConsole\\");
+    @memcpy(folder[len..][0..tail.len], tail);
+    soundList(arena, folder[0 .. len + tail.len], true);
+    sound_listed.store(true, .release);
+
+    const cpus = std.Thread.getCpuCount() catch 2;
+    const openers: u32 = @intCast(std.math.clamp(cpus, 2, sound_openers));
+    sound_openers_left.store(openers, .release);
+    for (0..openers) |_| {
+        if (CreateThread(null, 0, &soundOpener, null, 0, null)) |thread| {
+            _ = CloseHandle(thread);
+        } else {
+            _ = sound_openers_left.fetchSub(1, .release);
+        }
+    }
+    while (sound_openers_left.load(.acquire) != 0) Sleep(5);
+    log("opens: {d} of {d} sound packages opened ahead in {d} ms ({d} ms of opening over {d} threads)", .{
+        sound_opened.load(.monotonic), sound_count, GetTickCount() -% started, ticksToMs(sound_open_ticks.load(.monotonic)), openers,
+    });
+
+    Sleep(sound_hold_ms);
+    sound_listed.store(false, .release);
+    var closed: u32 = 0;
+    for (sound_files[0..sound_count]) |*entry| {
+        const handle = entry.handle.swap(0, .acq_rel);
+        if (handle == 0) continue;
+        _ = CloseHandle(@ptrFromInt(handle));
+        closed += 1;
+    }
+    log("opens: {d} sound packages handed to the game, {d} never asked for and closed", .{ sound_handed.load(.monotonic), closed });
+    return 0;
+}
+
+/// The handle opened ahead for this path, if there is one that nobody took yet.
+fn soundTake(path: []const u16) ?HANDLE {
+    if (!sound_listed.load(.acquire)) return null;
+    const hash = pathHash(path);
+    for (sound_files[0..sound_count]) |*entry| {
+        if (entry.hash != hash or !pathEql(entry.path, path)) continue;
+        const handle = entry.handle.swap(0, .acq_rel);
+        return if (handle == 0) null else @ptrFromInt(handle);
+    }
+    return null;
+}
+
+fn loaderOpen(site: OpenSite, name: [*:0]const u16, access: u32, share: u32, security: ?*anyopaque, disposition: u32, flags: u32, template: ?HANDLE) HANDLE {
+    if (isLoaderOpen(access, share, security, disposition, flags, template)) {
+        var full: [600]u16 = undefined;
+        const len = GetFullPathNameW(name, full.len, &full, null);
+        if (len != 0 and len < full.len) {
+            const path = full[0..len];
+            switch (site) {
+                .profile => if (listingMissing(path)) |err| {
+                    _ = listing_answers.fetchAdd(1, .monotonic);
+                    SetLastError(err);
+                    return invalid_handle;
+                },
+                .game => if (soundTake(path)) |handle| {
+                    _ = sound_handed.fetchAdd(1, .monotonic);
+                    SetLastError(0);
+                    return handle;
+                },
+            }
+        }
+    }
+    const original = @as(*const CreateFile, @ptrFromInt(open_slots[@intFromEnum(site)])).*;
+    var started: i64 = 0;
+    var ended: i64 = 0;
+    _ = QueryPerformanceCounter(&started);
+    const file = original(name, access, share, security, disposition, flags, template);
+    const result_error = GetLastError();
+    _ = QueryPerformanceCounter(&ended);
+    _ = open_counts[@intFromEnum(site)].fetchAdd(1, .monotonic);
+    _ = open_ticks[@intFromEnum(site)].fetchAdd(ended - started, .monotonic);
+    SetLastError(result_error);
+    return file;
+}
+
+fn hookOpenInProfile(name: [*:0]const u16, access: u32, share: u32, security: ?*anyopaque, disposition: u32, flags: u32, template: ?HANDLE) callconv(.winapi) HANDLE {
+    return loaderOpen(.profile, name, access, share, security, disposition, flags, template);
+}
+
+fn hookOpenInGame(name: [*:0]const u16, access: u32, share: u32, security: ?*anyopaque, disposition: u32, flags: u32, template: ?HANDLE) callconv(.winapi) HANDLE {
+    return loaderOpen(.game, name, access, share, security, disposition, flags, template);
+}
+
+fn opensReport() void {
+    const total = open_counts[0].load(.monotonic) + open_counts[1].load(.monotonic) + listing_answers.load(.monotonic);
+    if (total == open_reported) return;
+    open_reported = total;
+    log("opens: profile folder {d} answered from its listing, {d} asked of the file system ({d} ms); game folder {d} opened ({d} ms), {d} handed over", .{
+        listing_answers.load(.monotonic),
+        open_counts[0].load(.monotonic),
+        ticksToMs(open_ticks[0].load(.monotonic)),
+        open_counts[1].load(.monotonic),
+        ticksToMs(open_ticks[1].load(.monotonic)),
+        sound_handed.load(.monotonic),
+    });
+}
+
+// ---------------------------------------------------------------------------
 // graphics: before it opens a window the game creates a DXGI factory to see whether
 // Direct3D 11 is there, and a Direct3D 9 object to list the display modes. Both load
 // their libraries and the display driver on the main thread. A thread does the same
 // while the game is still reading its configuration and keeps the two objects for a
 // while, so the game's own calls find everything loaded.
+//
+// The display mode query gets more than a warm library: it is handed the Direct3D 9
+// object this thread already made (with a reference of its own, which it releases as it
+// always did), so it does not create a second one. Its answers still come from Direct3D.
 
 const graphics_hold_ms = 30_000;
 const iid_dxgi_factory = [16]u8{ 0xec, 0x66, 0x71, 0x7b, 0xc7, 0x21, 0xae, 0x44, 0xb2, 0x1a, 0xc9, 0xae, 0x32, 0x1a, 0xe3, 0x69 };
+// D3DFMT_X8R8G8B8, the format the game lists modes for
+const display_format = 0x16;
+
+const CreateD3D9 = *const fn (sdk: u32) callconv(.winapi) ?*anyopaque;
+
+var graphics_mutex: std.Thread.Mutex = .{};
+var shared_d3d9: ?*anyopaque = null;
+var original_create_d3d9: CreateD3D9 = undefined;
+var display_shares = std.atomic.Value(u32).init(0);
+
+fn method(object: *anyopaque, comptime index: usize, comptime T: type) T {
+    const vtable = @as(*const [*]const usize, @ptrCast(@alignCast(object))).*;
+    return @ptrFromInt(vtable[index]);
+}
 
 /// IUnknown::Release
 fn release(object: *anyopaque) void {
-    const vtable = @as(*const *const [3]*const fn (*anyopaque) callconv(.winapi) u32, @ptrCast(@alignCast(object))).*;
-    _ = vtable[2](object);
+    _ = method(object, 2, *const fn (*anyopaque) callconv(.winapi) u32)(object);
+}
+
+fn hookCreateD3D9(sdk: u32) callconv(.winapi) ?*anyopaque {
+    {
+        graphics_mutex.lock();
+        defer graphics_mutex.unlock();
+        if (shared_d3d9) |object| {
+            // IUnknown::AddRef
+            _ = method(object, 1, *const fn (*anyopaque) callconv(.winapi) u32)(object);
+            if (display_shares.fetchAdd(1, .monotonic) == 0) log("graphics: display mode query uses the Direct3D 9 object made ahead", .{});
+            return object;
+        }
+    }
+    return original_create_d3d9(sdk);
 }
 
 fn graphicsWarmer(_: ?*anyopaque) callconv(.winapi) u32 {
@@ -769,17 +1321,38 @@ fn graphicsWarmer(_: ?*anyopaque) callconv(.winapi) u32 {
             if (create(&iid_dxgi_factory, &factory) < 0) factory = null;
         }
     }
+    // Only the library: a device made here while the game makes its own can make the
+    // game's attempt fail, and it then falls back to Direct3D 9.
     _ = LoadLibraryA("d3d11.dll");
     if (LoadLibraryA("d3d9.dll")) |library| {
         if (GetProcAddress(library, "Direct3DCreate9")) |proc| {
-            const create: *const fn (u32) callconv(.winapi) ?*anyopaque = @ptrCast(proc);
+            const create: CreateD3D9 = @ptrCast(proc);
             // D3D_SDK_VERSION
             d3d9 = create(32);
         }
     }
-    log("graphics: ready after {d} ms (dxgi={} d3d9={})", .{ GetTickCount() -% started, factory != null, d3d9 != null });
+    var modes: u32 = 0;
+    if (d3d9) |object| {
+        // The game's questions, asked once here so the answers are at hand:
+        // GetAdapterIdentifier, GetAdapterModeCount, EnumAdapterModes, GetAdapterDisplayMode.
+        var identifier: [2048]u8 align(8) = undefined;
+        var mode: [4]u32 = undefined;
+        _ = method(object, 5, *const fn (*anyopaque, u32, u32, *anyopaque) callconv(.winapi) i32)(object, 0, 0, &identifier);
+        modes = method(object, 6, *const fn (*anyopaque, u32, u32) callconv(.winapi) u32)(object, 0, display_format);
+        for (0..modes) |i| {
+            _ = method(object, 7, *const fn (*anyopaque, u32, u32, u32, *[4]u32) callconv(.winapi) i32)(object, 0, display_format, @intCast(i), &mode);
+        }
+        _ = method(object, 8, *const fn (*anyopaque, u32, *[4]u32) callconv(.winapi) i32)(object, 0, &mode);
+        graphics_mutex.lock();
+        shared_d3d9 = object;
+        graphics_mutex.unlock();
+    }
+    log("graphics: ready after {d} ms (dxgi={} d3d9={} modes={d})", .{ GetTickCount() -% started, factory != null, d3d9 != null, modes });
 
     Sleep(graphics_hold_ms);
+    graphics_mutex.lock();
+    shared_d3d9 = null;
+    graphics_mutex.unlock();
     if (d3d9) |object| release(object);
     if (factory) |object| release(object);
     return 0;
@@ -1033,6 +1606,8 @@ fn install() void {
         matches(rva.rand_add, &.{ 0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0xb8, 0x30, 0x00, 0x00, 0x00, 0xe8 });
     const want_file_size = enabled("file_size") and
         matches(rva.file_size, &.{ 0x40, 0x57, 0x48, 0x83, 0xec, 0x40, 0x45, 0x33, 0xc9, 0x48, 0x8b, 0xca, 0x48, 0xc7, 0x44, 0x24 });
+    const want_file_size_by_name = want_file_size and
+        matches(rva.file_size_by_name, &.{ 0x41, 0x56, 0x48, 0x83, 0xec, 0x50, 0x48, 0xc7, 0x44, 0x24, 0x20, 0xfe, 0xff, 0xff, 0xff, 0x48, 0x89, 0x5c, 0x24, 0x60 });
     const want_packages = enabled("packages") and
         matches(rva.find_package, &.{ 0x4c, 0x89, 0x4c, 0x24, 0x20, 0x4c, 0x89, 0x44, 0x24, 0x18, 0x48, 0x89, 0x54, 0x24, 0x10, 0x48, 0x89, 0x4c, 0x24, 0x08 });
     const want_chunks = enabled("chunks") and
@@ -1046,6 +1621,7 @@ fn install() void {
     original_rand_poll = at(RandPoll, rva.rand_poll);
     rand_add = at(RandAdd, rva.rand_add);
     original_file_size = at(FileSize, rva.file_size);
+    original_file_size_by_name = at(FileSize, rva.file_size_by_name);
     original_find_package = at(FindPackage, rva.find_package);
     original_read_compressed = at(ReadCompressed, rva.read_compressed);
     original_crc32 = at(Crc32, rva.crc32);
@@ -1056,6 +1632,7 @@ fn install() void {
     detourz.updateThread(GetCurrentThread()) catch {};
     const has_rand = want_rand and attach("rand", &original_rand_poll, &hookRandPoll);
     const has_file_size = want_file_size and attach("file_size", &original_file_size, &hookFileSize);
+    if (has_file_size and want_file_size_by_name) _ = attach("file_size: by name", &original_file_size_by_name, &hookFileSizeByName);
     const has_packages = want_packages and attach("packages", &original_find_package, &hookFindPackage);
     const has_chunks = want_chunks and attach("chunks", &original_read_compressed, &hookReadCompressed);
     const has_crc = want_crc and attach("crc", &original_crc32, &hookCrc32);
@@ -1075,10 +1652,27 @@ fn install() void {
     }
 
     if (enabled("graphics")) {
+        // lea ecx, [rdi+0x20]; call Direct3DCreate9 (the import thunk)
+        if (matches(rva.display_query_create - 3, &.{ 0x8d, 0x4f, 0x20 })) {
+            _ = redirectCall("graphics: display mode query", rva.display_query_create, &.{ 0xe8, 0x45, 0x61, 0xde, 0x00 }, @intFromPtr(&hookCreateD3D9), @ptrCast(&original_create_d3d9));
+        }
         if (CreateThread(null, 0, &graphicsWarmer, null, 0, null)) |thread| _ = CloseHandle(thread);
     }
 
-    if (has_chunks) {
+    var has_opens = false;
+    if (enabled("opens")) {
+        // call [CreateFileW], twice in the async loader's "open this file"
+        const in_profile = redirectCall("opens: profile folder", rva.loader_open_in_profile, &.{ 0xff, 0x15, 0xd6, 0x33, 0x2e, 0x02 }, @intFromPtr(&hookOpenInProfile), &open_slots[0]);
+        const in_game = redirectCall("opens: game folder", rva.loader_open_in_game, &.{ 0xff, 0x15, 0xec, 0x32, 0x2e, 0x02 }, @intFromPtr(&hookOpenInGame), &open_slots[1]);
+        has_opens = in_profile or in_game;
+        listing_enabled = in_profile and enabled("listing") and watchesWork();
+        log("opens: profile folder listing {s}", .{if (listing_enabled) "on" else "off"});
+        if (in_game and enabled("sounds")) {
+            if (CreateThread(null, 0, &soundWarmer, null, 0, null)) |thread| _ = CloseHandle(thread);
+        }
+    }
+
+    if (has_chunks or has_opens) {
         if (CreateThread(null, 0, &chunkJanitor, null, 0, null)) |thread| _ = CloseHandle(thread);
     }
 }
