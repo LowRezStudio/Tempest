@@ -28,11 +28,14 @@ Each has a name that `TEMPEST_FASTSTART_DISABLE` accepts (comma-separated, or `a
 | --- | --- |
 | `sleeps` | Shortens three fixed waits on the startup path (voice init, thread naming, pool worker). |
 | `rand` | Seeds OpenSSL from the system generator instead of the slow heap/process walk of `RAND_poll`. |
-| `file_size` | Answers the file manager's size query with one attributes call for cooked-folder paths and bare names, and remembers each answer for 250 ms. |
+| `file_size` | Answers the file manager's size query with one attributes call for cooked-folder paths and bare names, and remembers each answer for 250 ms, in front of the public query too (which otherwise builds two full paths per call). |
 | `packages` | Remembers package names that were just looked up and not found (2 s), so the same miss is not searched thousands of times in a row. Hits are never remembered. |
 | `chunks` | Keeps decompressed package chunks that are read a second time (128 MiB, least recently used out first, released after 20 s idle). Keyed by file identity, size and write time. |
 | `inflate` | On a chunk the cache does not have: reads all its blocks in one read, undoes the byte mask 32 bytes at a time, and decompresses the blocks on several threads with the game's own routine. Needs `chunks`. Falls back to the game's code on anything unexpected. |
-| `graphics` | Loads DXGI, D3D11 and D3D9 on a second thread while packages load, so the renderer's first calls find them ready. |
+| `graphics` | Loads DXGI, D3D11 and D3D9 on a second thread while packages load, so the renderer's first calls find them ready. The display mode query is handed the Direct3D 9 object that thread made instead of creating its own. No Direct3D 11 device is made ahead: that can make the game's own attempt fail. |
+| `opens` | At the async loader's two `CreateFileW` calls (profile folder first, then game folder). Logs how many opens each side took and how long. |
+| `listing` | Part of `opens`: a profile-folder open is answered from a listing of that folder when the name is not in it. The listing is dropped when Windows reports a name change under the watched folder. Off under Wine outside Linux, where those reports do not exist. |
+| `sounds` | Part of `opens`: a few threads open the sound packages (`.pck`) ahead and read their index; the loader is handed the open handle, for the same full path only. Unused handles are closed after 60 s. |
 | `crc` | Slicing-by-8 version of the engine's memory CRC, compared against the original before it is used. |
 
 ## Environment
