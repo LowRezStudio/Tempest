@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "tempest-scripting"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "cc",
  "mlua",
