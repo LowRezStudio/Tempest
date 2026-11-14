@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import $ from "dax";
 
-// --zig-only builds just the asmloader DLLs (the one zig package): that is what
+// --zig-only builds just the injected DLLs (the one zig package): that is what
 // sidecar-cache.yml warms the zig build cache with on master, using the same
 // command as here.
 const zigOnly = process.argv.includes("--zig-only");
@@ -41,7 +41,7 @@ const zig =
 	process.env.ZIG ??
 	(spawnSync("command", ["-v", "zign"], { shell: true }).status === 0 ? "zign" : "zig");
 
-// The zig package (asmloader): the DLLs the client injects, cross-compiled for
+// The zig package (asmloader, faststart): the DLLs the CLI injects, cross-compiled for
 // both Windows clients whatever the host is. The cooker's own package
 // compression uses the Rust `upk` built below, as does the CLI's delta work.
 const buildAsmloader = async () => {
@@ -49,7 +49,9 @@ const buildAsmloader = async () => {
 	await $`${zig} build -Doptimize=ReleaseSafe`.cwd(pkg);
 	installFrom(
 		path.join(pkg, "zig-out", "bin"),
-		(f) => f.startsWith("asmloader") && !f.toLowerCase().endsWith(".pdb"),
+		(f) =>
+			(f.startsWith("asmloader") || f.startsWith("faststart")) &&
+			!f.toLowerCase().endsWith(".pdb"),
 	);
 };
 

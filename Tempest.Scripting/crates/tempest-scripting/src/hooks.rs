@@ -30,7 +30,8 @@
 //! first instructions, and refuses prologues it cannot move.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 /// Integer argument positions on x64, stack dword slots on x86.
 pub const MAX_ARGS: usize = 8;
@@ -346,7 +347,7 @@ pub struct Call {
     pub slot: usize,
     pub addr: usize,
     pub regs: Regs,
-    pub handlers: Vec<Hook>,
+    pub handlers: Arc<[Hook]>,
 }
 
 /// What a call returns: the integer register, and the float result bits
@@ -358,7 +359,21 @@ pub struct Ret {
 }
 
 static HOOKS: Mutex<Vec<Hook>> = Mutex::new(Vec::new());
+/// The chain of each hooked address, newest first: what `HOOKS` says, laid
+/// out for the stub entry, which may run on any thread for every call of a
+/// hooked function. Reading takes a shared lock and copies one pointer.
+/// Rebuilt under the `HOOKS` lock (always taken first) on every change.
+static CHAINS: RwLock<Option<HashMap<usize, Arc<[Hook]>>>> = RwLock::new(None);
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+fn rebuild_chains(hooks: &[Hook]) {
+    let mut by_addr: HashMap<usize, Vec<Hook>> = HashMap::new();
+    for h in hooks {
+        by_addr.entry(h.addr).or_default().push(h.clone());
+    }
+    *CHAINS.write().unwrap() = Some(by_addr.into_iter().map(|(addr, chain)| (addr, chain.into())).collect());
+}
+
 /// Runs the Lua chain; returns the value the caller gets back.
 static DISPATCHER: OnceLock<fn(Call) -> Ret> = OnceLock::new();
 
@@ -374,18 +389,22 @@ pub fn add(addr: usize, owner: &str, kinds: Vec<ArgKind>, ret: ArgKind, conv: Co
     let locs = locate(&kinds, conv)?;
     let slot = detour::ensure(addr, Shape::new(&kinds, conv, ret))?;
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    HOOKS.lock().unwrap().insert(
-        0,
-        Hook {
-            id,
-            addr,
-            owner: owner.into(),
-            kinds: kinds.into(),
-            locs: locs.into(),
-            ret,
-            conv,
-        },
-    );
+    {
+        let mut hooks = HOOKS.lock().unwrap();
+        hooks.insert(
+            0,
+            Hook {
+                id,
+                addr,
+                owner: owner.into(),
+                kinds: kinds.into(),
+                locs: locs.into(),
+                ret,
+                conv,
+            },
+        );
+        rebuild_chains(&hooks);
+    }
     let tag = if owner.is_empty() { String::new() } else { format!("[{owner}] ") };
     let conv_tag = if cfg!(target_pointer_width = "32") { format!(", {}", conv.name()) } else { String::new() };
     crate::log::line("hook", &format!("{tag}address hook #{id} on 0x{addr:x} (slot {slot}{conv_tag})"));
@@ -397,7 +416,9 @@ pub fn remove(id: u64) -> bool {
     let addr = {
         let mut hooks = HOOKS.lock().unwrap();
         let Some(pos) = hooks.iter().position(|h| h.id == id) else { return false };
-        hooks.remove(pos).addr
+        let addr = hooks.remove(pos).addr;
+        rebuild_chains(&hooks);
+        addr
     };
     release(addr);
     true
@@ -409,6 +430,7 @@ pub fn clear_of(owner: &str) -> Vec<u64> {
         let mut hooks = HOOKS.lock().unwrap();
         let (gone, keep): (Vec<Hook>, Vec<Hook>) = hooks.drain(..).partition(|h| h.owner.eq_ignore_ascii_case(owner));
         *hooks = keep;
+        rebuild_chains(&hooks);
         gone
     };
     for h in &gone {
@@ -418,7 +440,12 @@ pub fn clear_of(owner: &str) -> Vec<u64> {
 }
 
 pub fn clear_all() -> Vec<u64> {
-    let gone: Vec<Hook> = std::mem::take(&mut *HOOKS.lock().unwrap());
+    let gone: Vec<Hook> = {
+        let mut hooks = HOOKS.lock().unwrap();
+        let gone = std::mem::take(&mut *hooks);
+        rebuild_chains(&hooks);
+        gone
+    };
     for h in &gone {
         release(h.addr);
     }
@@ -454,10 +481,10 @@ pub fn call_raw(addr: usize, regs: &Regs, shape: &Shape) -> Option<Ret> {
 #[cfg_attr(not(windows), allow(dead_code))]
 fn dispatch(slot: usize, regs: Regs) -> Ret {
     let addr = detour::addr_of(slot);
-    let handlers: Vec<Hook> = HOOKS.lock().unwrap().iter().filter(|h| h.addr == addr).cloned().collect();
-    if handlers.is_empty() {
+    let chain = CHAINS.read().unwrap().as_ref().and_then(|chains| chains.get(&addr).cloned());
+    let Some(handlers) = chain else {
         return detour::call_original(slot, &regs);
-    }
+    };
     match DISPATCHER.get() {
         Some(run) => run(Call { slot, addr, regs, handlers }),
         None => detour::call_original(slot, &regs),
@@ -468,7 +495,7 @@ fn dispatch(slot: usize, regs: Regs) -> Ret {
 mod detour {
     use super::{Regs, Ret, Shape, MAX_ARGS};
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::sync::Mutex;
+    use std::sync::{Mutex, RwLock};
 
     struct Slot {
         addr: usize,
@@ -478,8 +505,9 @@ mod detour {
 
     /// Slot id → slot. Boxes are leaked on purpose: a trampoline may be
     /// executing on another thread at any moment, so nothing here is ever
-    /// freed or moved.
-    static SLOTS: Mutex<Vec<&'static Slot>> = Mutex::new(Vec::new());
+    /// freed or moved. Read on every call of a hooked function, written
+    /// only when an address is hooked for the first time.
+    static SLOTS: RwLock<Vec<&'static Slot>> = RwLock::new(Vec::new());
     static INSTALL: Mutex<()> = Mutex::new(());
 
     // Shared entry for every stub. On entry R10 holds the slot id (set by
@@ -747,7 +775,7 @@ mod detour {
     }
 
     fn slot(i: usize) -> Option<&'static Slot> {
-        SLOTS.lock().unwrap().get(i).copied()
+        SLOTS.read().unwrap().get(i).copied()
     }
 
     pub fn addr_of(i: usize) -> usize {
@@ -758,7 +786,7 @@ mod detour {
     /// shape agrees), created otherwise.
     pub fn ensure(addr: usize, shape: Shape) -> Result<usize, String> {
         let _guard = INSTALL.lock().unwrap();
-        let existing = SLOTS.lock().unwrap().iter().position(|s| s.addr == addr);
+        let existing = SLOTS.read().unwrap().iter().position(|s| s.addr == addr);
         if let Some(i) = existing {
             let s = slot(i).unwrap();
             if cfg!(target_pointer_width = "32") && s.shape != shape {
@@ -777,7 +805,7 @@ mod detour {
         if !crate::memory::is_readable(addr, 16) {
             return Err(format!("0x{addr:x} is not readable code"));
         }
-        let i = SLOTS.lock().unwrap().len();
+        let i = SLOTS.read().unwrap().len();
         let stub = crate::stubs::make(i, tempest_hook_common as *const () as usize)?;
         // SAFETY: the caller asserts `addr` is a function entry; the stub
         // preserves every register the real function expects and forwards
@@ -785,14 +813,14 @@ mod detour {
         let detour = unsafe { retour::RawDetour::new(addr as *const (), stub as *const ()) }
             .map_err(|e| format!("cannot detour 0x{addr:x}: {e}"))?;
         unsafe { detour.enable() }.map_err(|e| format!("enable detour at 0x{addr:x}: {e}"))?;
-        SLOTS.lock().unwrap().push(Box::leak(Box::new(Slot { addr, detour, shape })));
+        SLOTS.write().unwrap().push(Box::leak(Box::new(Slot { addr, detour, shape })));
         Ok(i)
     }
 
     /// Keep the slot (its trampoline may still be executing) but stop intercepting.
     pub fn disable(addr: usize) {
         let _guard = INSTALL.lock().unwrap();
-        let found = SLOTS.lock().unwrap().iter().find(|s| s.addr == addr).copied();
+        let found = SLOTS.read().unwrap().iter().find(|s| s.addr == addr).copied();
         if let Some(s) = found {
             if s.detour.is_enabled() {
                 if let Err(e) = unsafe { s.detour.disable() } {
