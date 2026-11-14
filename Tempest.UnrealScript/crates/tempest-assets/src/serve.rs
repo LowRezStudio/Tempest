@@ -101,6 +101,9 @@ pub struct Server {
     src: Option<std::sync::Arc<TextureSource>>,
     packages: Vec<WorkspacePackage>,
     editors: HashMap<String, Editor<'static>>,
+    /// Packages closed unedited (key, file stamp, package), oldest first:
+    /// opened again from here while the file is unchanged.
+    closed: Vec<(String, FileStamp, Editor<'static>)>,
     index: HashMap<String, SearchIndex>,
     /// Object path hash → the first workspace package (in `packages` order)
     /// whose index holds the path: `index_lookup` without scanning every
@@ -282,7 +285,7 @@ fn opt_b(p: &J, name: &str) -> Option<bool> {
 
 impl Server {
     pub fn new() -> Server {
-        Server { dir: None, db: None, db_stamp: None, src: None, packages: Vec::new(), editors: HashMap::new(), index: HashMap::new(), owners: None, index_job: None, scripts: HashMap::new(), script_jobs: HashMap::new(), mcts_job: None, order: None, png_cache: HashMap::new(),
+        Server { dir: None, db: None, db_stamp: None, src: None, packages: Vec::new(), editors: HashMap::new(), closed: Vec::new(), index: HashMap::new(), owners: None, index_job: None, scripts: HashMap::new(), script_jobs: HashMap::new(), mcts_job: None, order: None, png_cache: HashMap::new(),
             preview_cache: HashMap::new(),
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
@@ -423,9 +426,34 @@ impl Server {
         self.dir.as_deref().ok_or_else(|| "no workspace open".into())
     }
 
+    /// Keeps an unedited package after `package.close`, newest last, within a
+    /// budget of file bytes: readers that close a package after each read come
+    /// back to it, and reading it again costs tens of milliseconds.
+    fn keep_closed(&mut self, k: String, ed: Editor<'static>) {
+        const BUDGET: u64 = 768 << 20;
+        let stamp = file_stamp(Path::new(&k));
+        if stamp.is_none() {
+            return;
+        }
+        self.closed.retain(|(c, _, _)| *c != k);
+        self.closed.push((k, stamp, ed));
+        let mut total: u64 = self.closed.iter().map(|(_, s, _)| s.map_or(0, |(len, _)| len)).sum();
+        while total > BUDGET && self.closed.len() > 1 {
+            let (_, s, _) = self.closed.remove(0);
+            total -= s.map_or(0, |(len, _)| len);
+        }
+    }
+
     fn editor(&mut self, path: &str) -> Res<&mut Editor<'static>> {
         let k = key(path);
         if !self.editors.contains_key(&k) {
+            if let Some(at) = self.closed.iter().position(|(c, _, _)| *c == k) {
+                let (_, stamp, ed) = self.closed.remove(at);
+                if stamp.is_some() && stamp == file_stamp(Path::new(&k)) {
+                    self.editors.insert(k.clone(), ed);
+                    return Ok(self.editors.get_mut(&k).unwrap());
+                }
+            }
             let db = self.db()?;
             let mut ed = Editor::open(db, path)?;
             ed.textures = self.src.clone();
@@ -492,7 +520,11 @@ impl Server {
             "package.close" => {
                 let k = key(s(p, "path")?);
                 self.scripts.remove(&k);
-                Ok(J::from(self.editors.remove(&k).is_some()))
+                let Some(ed) = self.editors.remove(&k) else { return Ok(J::from(false)) };
+                if !ed.is_dirty() {
+                    self.keep_closed(k, ed);
+                }
+                Ok(J::from(true))
             }
             "package.dirty" => {
                 let ed = self.editor(s(p, "path")?)?;
@@ -512,6 +544,7 @@ impl Server {
                 // Drop the in-memory package: the next open reads the file again.
                 let k = key(s(p, "path")?);
                 self.scripts.remove(&k);
+                self.closed.retain(|(c, _, _)| *c != k);
                 Ok(J::from(self.editors.remove(&k).is_some()))
             }
             "package.rewrite" => self.package_rewrite(p),
@@ -775,6 +808,8 @@ impl Server {
             return Err(format!("{} is not a directory", dir.display()).into());
         }
         let t = std::time::Instant::now();
+        // They were read against the old folder's classes.
+        self.closed.clear();
         // One pass over the package summaries (in parallel) gives both the
         // package list and the script packages.
         let packages = list_packages(&dir);
@@ -883,6 +918,20 @@ impl Server {
             return Err("query too short".into());
         }
         self.index_all();
+        // `exact`: the whole object path, answered from the path hashes with the
+        // first package holding it instead of scanning every package's paths.
+        if opt_b(p, "exact") == Some(true) && is_a.is_none() {
+            let owners = self.path_owners();
+            if let Some(w) = owners.get(&path_hash(&query)).and_then(|&i| self.packages.get(i as usize)) {
+                if let Some(idx) = self.index.get(&key(&w.path.to_string_lossy())) {
+                    let found = idx.exports.iter().enumerate().find(|(_, (cid, text))| text.eq_ignore_ascii_case(&query) && class.as_ref().is_none_or(|c| idx.classes[*cid as usize].eq_ignore_ascii_case(c)));
+                    if let Some((i, (cid, text))) = found {
+                        let hit = json!({ "package": w.name, "path": w.path.to_string_lossy(), "index": i, "object": text, "class": idx.classes[*cid as usize] });
+                        return Ok(json!({ "results": [hit], "truncated": false }));
+                    }
+                }
+            }
+        }
         let total = self.packages.len();
         let paths: Vec<(String, PathBuf)> = self.packages.iter().map(|p| (p.name.clone(), p.path.clone())).collect();
         let mut results = Vec::new();
