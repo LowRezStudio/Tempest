@@ -8,7 +8,7 @@
 // Games launcher uses to start a game (`-AUTH_TYPE=exchangecode -AUTH_PASSWORD=<code>`).
 import fs from "node:fs";
 import path from "node:path";
-import { app, net } from "electron";
+import { app, net, safeStorage } from "electron";
 import { handle } from "./ipc/handle.js";
 import type { EpicAccount } from "./ipc/contract.js";
 
@@ -81,10 +81,46 @@ const isAccount = (value: unknown): value is StoredAccount => {
 	);
 };
 
+// Refresh tokens are long-lived Epic credentials: keep them encrypted with the OS
+// keystore (DPAPI on Windows, Keychain on macOS, libsecret on Linux) so another
+// program reading accounts.json gets nothing usable. Plaintext entries written by
+// older builds are still read and are encrypted on the next write. Without a
+// keystore (some Linux setups) the token stays in plaintext, as before.
+const ENCRYPTED_PREFIX = "enc:v1:";
+
+function protectToken(token: string): string {
+	if (!safeStorage.isEncryptionAvailable()) return token;
+	return ENCRYPTED_PREFIX + safeStorage.encryptString(token).toString("base64");
+}
+
+function unprotectToken(stored: unknown): unknown {
+	if (typeof stored !== "string" || !stored.startsWith(ENCRYPTED_PREFIX)) return stored;
+	try {
+		return safeStorage.decryptString(
+			Buffer.from(stored.slice(ENCRYPTED_PREFIX.length), "base64"),
+		);
+	} catch {
+		return null; // Another user/machine or a reset keystore: the account signs in again.
+	}
+}
+
 function readAccounts(): AccountFile {
 	try {
 		const parsed = JSON.parse(fs.readFileSync(accountsPath(), "utf8")) as Partial<AccountFile>;
-		const accounts = Array.isArray(parsed.accounts) ? parsed.accounts.filter(isAccount) : [];
+		const accounts = Array.isArray(parsed.accounts)
+			? parsed.accounts
+					.map((account: unknown) =>
+						account && typeof account === "object"
+							? {
+									...account,
+									refreshToken: unprotectToken(
+										(account as { refreshToken?: unknown }).refreshToken,
+									),
+								}
+							: account,
+					)
+					.filter(isAccount)
+			: [];
 		// A removed or renamed account must not leave a dangling selection behind.
 		const selectedId =
 			accounts.find((account) => account.accountId === parsed.selectedId)?.accountId ??
@@ -101,7 +137,14 @@ function writeAccounts(file: AccountFile): void {
 	fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
 	// Write-then-rename so a crash never leaves a half-written account list.
 	const temporary = `${target}.tmp`;
-	fs.writeFileSync(temporary, JSON.stringify(file, null, "\t"), { mode: 0o600 });
+	const stored: AccountFile = {
+		...file,
+		accounts: file.accounts.map((account) => ({
+			...account,
+			refreshToken: protectToken(account.refreshToken),
+		})),
+	};
+	fs.writeFileSync(temporary, JSON.stringify(stored, null, "\t"), { mode: 0o600 });
 	fs.renameSync(temporary, target);
 }
 

@@ -16,6 +16,10 @@ const FIND_SCRIPT =
 	"Where-Object { $_.DisplayName -like 'Tempest Launcher*' -and $_.PSChildName -like '{*}' } | " +
 	"Select-Object PSChildName, DisplayName, InstallLocation | ConvertTo-Json -Compress";
 
+// Product codes are interpolated into an elevated PowerShell command line: accept
+// only a real MSI GUID, not whatever a (user-writable HKCU) registry key is named.
+const MSI_PRODUCT_CODE = /^\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}$/i;
+
 function runPowerShell(
 	script: string,
 	timeout: number,
@@ -38,10 +42,12 @@ function findLegacyInstalls(): Promise<LegacyInstall[]> {
 			// ConvertTo-Json emits a bare object for a single match, an array otherwise.
 			const parsed: unknown = JSON.parse(stdout);
 			const list = Array.isArray(parsed) ? parsed : [parsed];
-			return list.map((install) => {
-				const record = install as { PSChildName?: string; DisplayName?: string };
-				return { id: record.PSChildName ?? "", name: record.DisplayName ?? null };
-			});
+			return list
+				.map((install) => {
+					const record = install as { PSChildName?: string; DisplayName?: string };
+					return { id: record.PSChildName ?? "", name: record.DisplayName ?? null };
+				})
+				.filter((install) => MSI_PRODUCT_CODE.test(install.id));
 		} catch {
 			return [];
 		}
@@ -52,6 +58,7 @@ function findLegacyInstalls(): Promise<LegacyInstall[]> {
 // Launched unelevated first; if that fails (e.g. a per-machine install that
 // doesn't auto-elevate), retry through PowerShell's RunAs so UAC shows up.
 function uninstallOne(guid: string): Promise<number> {
+	if (!MSI_PRODUCT_CODE.test(guid)) return Promise.resolve(1603);
 	return new Promise((resolve) => {
 		spawn("msiexec.exe", ["/x", guid, "/qn", "/norestart"], { windowsHide: true })
 			.on("error", () => resolve(1603))

@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { app } from "electron";
 import { handle } from "./ipc/handle.js";
 
 const activeChildren = new Map<number, ReturnType<typeof spawn>>();
@@ -26,6 +27,22 @@ function killChild(child: ReturnType<typeof spawn>) {
 	child.kill();
 }
 
+// The renderer only runs the bundled CLI (and `dotnet exec` of the debug build in
+// dev). The bridge forwards whatever program and args it is given, so anything
+// else is refused here: script injected into the page must not reach
+// powershell.exe, cmd.exe or a path outside resources/.
+const RENDERER_SIDECARS = new Set(["binaries/tempest-cli"]);
+const DEV_PROGRAMS = new Set(["dotnet"]);
+
+function resolveRendererProgram(program: string, sidecar: boolean | undefined): string {
+	if (sidecar) {
+		if (!RENDERER_SIDECARS.has(program)) throw new Error(`Sidecar not allowed: ${program}`);
+		return resolveSidecar(program);
+	}
+	if (!app.isPackaged && DEV_PROGRAMS.has(program)) return program;
+	throw new Error(`Program not allowed: ${program}`);
+}
+
 function resolveSidecar(program: string): string {
 	const ext = process.platform === "win32" ? ".exe" : "";
 	const direct = path.join(process.resourcesPath, program + ext);
@@ -34,7 +51,7 @@ function resolveSidecar(program: string): string {
 }
 
 handle("shell:spawn", (event, { program, args, options, sidecar }) => {
-	const resolvedProgram = sidecar ? resolveSidecar(program) : program;
+	const resolvedProgram = resolveRendererProgram(program, sidecar);
 
 	const child = spawn(resolvedProgram, args, {
 		...options,
@@ -80,7 +97,7 @@ handle("shell:spawn", (event, { program, args, options, sidecar }) => {
 });
 
 handle("shell:execute", (event, { program, args, options, sidecar, streamId }) => {
-	const resolvedProgram = sidecar ? resolveSidecar(program) : program;
+	const resolvedProgram = resolveRendererProgram(program, sidecar);
 	return new Promise((resolve) => {
 		const child = execFile(
 			resolvedProgram,
