@@ -21,7 +21,8 @@ and at launch, printing `[progress] 42% <what>` lines on stderr while it works (
 rows show them as "Patching game files 42%", streamed through `shell:execute`'s `streamId`); the
 base is the pristine file kept as the `.tempest/v2/backup/` copy (made when a delta first touches
 the file), or the copy of the one mod that replaces the file whole. `.tempest/v2/deltas.json`
-records the stack and output hash per file so an unchanged stack costs one hash; when no delta is
+records the stack and output hash per file, with each input's and the output's size and write time,
+so an unchanged stack costs no hashing (a file whose size or write time changed is hashed again); when no delta is
 left the backup is restored. `ModRecord.DeltaFiles` lists the targets (counted as owners by
 `ModIntegrity`, so the game copy is not compared to a snapshot, and hashed by `PackageHashes` like
 owned files). A `set` whose base object no longer matches (another mod changed it first) is applied
