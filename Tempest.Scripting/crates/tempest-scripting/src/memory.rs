@@ -394,29 +394,46 @@ fn find_all(hay: &[u8], pattern: &[Option<u8>], limit: usize) -> Vec<usize> {
     if pattern.is_empty() || pattern.len() > hay.len() || limit == 0 {
         return out;
     }
-    let first = pattern[0];
     let last = hay.len() - pattern.len();
-    let mut i = 0;
-    while i <= last {
-        if let Some(b) = first {
-            match hay[i..=last].iter().position(|&x| x == b) {
-                Some(p) => i += p,
-                None => break,
-            }
-        }
-        let ok = pattern
-            .iter()
-            .enumerate()
-            .all(|(j, p)| p.is_none_or(|b| hay[i + j] == b));
-        if ok {
+    let matches = |i: usize| pattern.iter().enumerate().all(|(j, p)| p.is_none_or(|b| hay[i + j] == b));
+    let (anchor_at, anchor) = longest_fixed_run(pattern);
+    if anchor.is_empty() {
+        out.extend((0..=last).take(limit));
+        return out;
+    }
+    // Signatures mostly open with bytes as common as 48 or 40, so searching for the
+    // first byte stops everywhere; the longest fixed run is rare and memmem is SIMD.
+    // Mods scan the whole image several times while the game waits on its first frame.
+    let finder = memchr::memmem::Finder::new(&anchor);
+    let window = &hay[anchor_at..=last + anchor_at + anchor.len() - 1];
+    let mut from = 0;
+    while let Some(hit) = finder.find(&window[from..]) {
+        let i = from + hit;
+        if matches(i) {
             out.push(i);
             if out.len() >= limit {
                 break;
             }
         }
-        i += 1;
+        from = i + 1;
+        if from + anchor.len() > window.len() {
+            break;
+        }
     }
     out
+}
+
+/// Offset and bytes of the longest run of non-wildcard bytes (the first on a tie).
+fn longest_fixed_run(pattern: &[Option<u8>]) -> (usize, Vec<u8>) {
+    let (mut best_at, mut best_len, mut run_at) = (0, 0, 0);
+    for (j, p) in pattern.iter().enumerate() {
+        if p.is_none() {
+            run_at = j + 1;
+        } else if j + 1 - run_at > best_len {
+            (best_at, best_len) = (run_at, j + 1 - run_at);
+        }
+    }
+    (best_at, pattern[best_at..best_at + best_len].iter().map(|p| p.unwrap()).collect())
 }
 
 /// Is `[addr, addr+len)` inside one committed, readable, non-guard region?
@@ -614,6 +631,86 @@ mod tests {
         assert_eq!(find_all(hay, &p, 1), vec![1]);
         assert!(find_all(hay, &parse_pattern("FF").unwrap(), 10).is_empty());
         assert!(find_all(b"\x01", &parse_pattern("01 02").unwrap(), 10).is_empty());
+    }
+
+    fn find_all_naive(hay: &[u8], pattern: &[Option<u8>], limit: usize) -> Vec<usize> {
+        if pattern.len() > hay.len() {
+            return vec![];
+        }
+        (0..=hay.len() - pattern.len())
+            .filter(|&i| pattern.iter().enumerate().all(|(j, p)| p.is_none_or(|b| hay[i + j] == b)))
+            .take(limit)
+            .collect()
+    }
+
+    #[test]
+    fn find_all_agrees_with_a_naive_scan() {
+        // Few distinct bytes, so anchors overlap and repeat.
+        let mut state = 0x2545_F491_u32;
+        let hay: Vec<u8> = (0..20_000)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                (state % 4) as u8
+            })
+            .collect();
+        for pattern in ["00 00", "00 00 00", "? 01 ? 02 03 ?", "? ? 03", "02 ? ? 01 01 ? 00 00 00", "? ?", "03", "00 01 02 03 00 01 02 03"] {
+            let p = parse_pattern(pattern).unwrap();
+            for limit in [1, 2, 7, usize::MAX] {
+                assert_eq!(find_all(&hay, &p, limit), find_all_naive(&hay, &p, limit), "{pattern} limit {limit}");
+            }
+        }
+        assert_eq!(find_all(b"ab", &parse_pattern("? ? ?").unwrap(), 5), Vec::<usize>::new());
+    }
+
+    /// The scan before the anchor search, for comparison.
+    fn find_all_first_byte(hay: &[u8], pattern: &[Option<u8>], limit: usize) -> Vec<usize> {
+        let mut out = Vec::new();
+        let last = hay.len() - pattern.len();
+        let mut i = 0;
+        while i <= last {
+            if let Some(b) = pattern[0] {
+                match hay[i..=last].iter().position(|&x| x == b) {
+                    Some(p) => i += p,
+                    None => break,
+                }
+            }
+            if pattern.iter().enumerate().all(|(j, p)| p.is_none_or(|b| hay[i + j] == b)) {
+                out.push(i);
+                if out.len() >= limit {
+                    break;
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// `TEMPEST_SCAN_IMAGE=<Paladins.exe> cargo test -p tempest-scripting --release scan_speed -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn scan_speed() {
+        let Ok(path) = std::env::var("TEMPEST_SCAN_IMAGE") else { return };
+        let hay = std::fs::read(path).unwrap();
+        let sigs = [
+            "40 53 48 83 EC 20 48 8B 01 FF 90 C0 02 00 00 48 8B D8 48 85 C0 74 ? 48 8B 0D ? ? ? ? 48 8B 11 FF 92 A0 00 00 00",
+            "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 8B F9",
+            "48 83 EC 28 80 B9 90 00 00 00 00 48 8B 01 75 ?",
+            "48 8B CE E8 ? ? ? ? E9 ? ? ? ? 81 F9 00 00 07 00",
+            "F3 0F 10 0D ? ? ? ? 8D 8A 18 FC FF FF B8 D3 4D 62 10 F7 E9 C1 FA 06",
+        ];
+        for sig in sigs {
+            let p = parse_pattern(sig).unwrap();
+            let t = std::time::Instant::now();
+            let naive = find_all_first_byte(&hay, &p, 2);
+            let naive_ms = t.elapsed().as_secs_f64() * 1e3;
+            let t = std::time::Instant::now();
+            let fast = find_all(&hay, &p, 2);
+            let fast_ms = t.elapsed().as_secs_f64() * 1e3;
+            assert_eq!(fast, naive);
+            println!("{naive_ms:7.1} ms -> {fast_ms:5.2} ms  {} hit(s)  {}", fast.len(), &sig[..sig.len().min(40)]);
+        }
     }
 
     #[cfg(windows)]

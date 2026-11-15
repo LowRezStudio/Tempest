@@ -26,7 +26,10 @@ Each has a name that `TEMPEST_FASTSTART_DISABLE` accepts (comma-separated, or `a
 
 | Name | What it does |
 | --- | --- |
-| `sleeps` | Shortens three fixed waits on the startup path (voice init, thread naming, pool worker). |
+| `sleeps` | Shortens four fixed waits on the startup path (voice init, thread naming, pool worker, and a 0.1 s sleep between two compiled-out calls when the audio settings are applied). |
+| `login_frames` | The engine tells the login screen it is ready on frame 60. Until then the frame limiter is told there is no maximum tick rate: the same frames, without the sleeps between them. |
+| `discovery` | The engine's first request, to `discovery.hirez.net` (where the login servers are), is answered from the answer saved by the previous start (`%TEMP%\tempest-discovery.cache`, keyed by the full URL); a background WinHTTP request saves the current answer for the next start. Without a saved answer the game asks the server itself and its answer is saved. Later requests are untouched. |
+| `browser_trust` | Coherent UI checks its host program's Authenticode signature at startup; for calls from Coherent's DLLs, `WinVerifyTrust` gets `WTD_CACHE_ONLY_URL_RETRIEVAL`, so the revocation check uses what Windows has cached instead of fetching lists over the network. The signature check itself is unchanged. |
 | `rand` | Seeds OpenSSL from the system generator instead of the slow heap/process walk of `RAND_poll`. |
 | `file_size` | Answers the file manager's size query with one attributes call for cooked-folder paths and bare names, and remembers each answer for 250 ms, in front of the public query too (which otherwise builds two full paths per call). |
 | `packages` | Remembers package names that were just looked up and not found (2 s), so the same miss is not searched thousands of times in a row. Hits are never remembered. |
@@ -42,7 +45,14 @@ Each has a name that `TEMPEST_FASTSTART_DISABLE` accepts (comma-separated, or `a
 
 - `TEMPEST_FASTSTART_DISABLE=<names>`: skip those patches (for bisecting a problem).
 - `TEMPEST_FASTSTART_PROFILE=<seconds>`: sample the main thread every millisecond for that
-  long and log inclusive/self counts per game function (RVA) in 2 s windows.
+  long and log counts per window (2 s, or `TEMPEST_FASTSTART_PROFILE_WINDOW=<ms>`):
+  `incl`/`self` per game function (RVA); for samples outside the game, `in <module>`, `out <rva>`
+  (the return address of the game's call out, or of appSleep's caller) and `by <module>+<offset>`
+  (the innermost non-Windows code on the way, e.g. an injected DLL's detour; `via` for the next
+  three such frames). `TEMPEST_FASTSTART_PROFILE_THREAD=busiest` samples, per window, the other
+  thread that used the most CPU in the window before (the render thread while the game waits on it).
+- `TEMPEST_FASTSTART_TRACE=<rva hex>`: logs the game frames that called that function, for its
+  first 8 calls (functions with up to four integer arguments).
 
 ## Log
 
@@ -66,6 +76,7 @@ A debug CLI loads the DLL from `Tempest.Utils/zig-out/bin`, a published one from
 
 - Tie it to expected bytes at the site, give it a disable name, and log whether it went in.
 - Keep the game's results identical; when a shortcut cannot be sure, call the original.
-- Leave network behaviour alone (the startup HTTP request is slow but is not ours to reorder).
+- Leave network behaviour alone beyond `discovery` (answered from the previous start's copy
+  and refreshed in the background); other requests are not ours to reorder or cache.
 - Profile first (`TEMPEST_FASTSTART_PROFILE`), and keep a patch only if the alternating
   runs show it.

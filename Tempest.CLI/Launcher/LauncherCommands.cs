@@ -83,7 +83,7 @@ internal class LauncherCommands
         await ModIntegrity.VerifyAtLaunchAsync(path);
         ModDependencies.WarnAtLaunch(path);
         // Files mods change through deltas are rebuilt from the enabled set when it changed
-        // (a mod disabled just now, a game file replaced since); one hash per file otherwise.
+        // (a mod disabled just now, a game file replaced since); a size and write-time check otherwise.
         if (File.Exists(ModCommands.GetMetadataPath(path)))
         {
             using var modLock = await ModLock.AcquireAsync(path);
