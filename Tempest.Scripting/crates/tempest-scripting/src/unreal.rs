@@ -875,7 +875,14 @@ fn lookup_name(name: &str) -> Result<i32, usize> {
     };
     let gnames = GNAMES.load(Ordering::Acquire);
     let Some((_, count)) = cheat_array(gnames) else { return Err(from) };
-    let r = match (from..count).find(|&i| name_at_in(gnames, i as i32, 0).is_some_and(|n| n.eq_ignore_ascii_case(name))) {
+    let matches = |i: usize| {
+        if name.is_ascii() {
+            name_entry_is(gnames, i, name.as_bytes())
+        } else {
+            name_at_in(gnames, i as i32, 0).is_some_and(|n| n.eq_ignore_ascii_case(name))
+        }
+    };
+    let r = match (from..count).find(|&i| matches(i)) {
         Some(i) => Ok(i as i32),
         None => Err(count.max(from)),
     };
@@ -884,6 +891,25 @@ fn lookup_name(name: &str) -> Result<i32, usize> {
         CACHE.lock().unwrap().get_or_insert_default().insert(key, r);
     }
     r
+}
+
+/// Does GNames entry `index` hold the ASCII `name` (case-insensitively)? Reads in place:
+/// a miss scans every name, and building each one as a string cost a few hundred ms.
+fn name_entry_is(gnames: usize, index: usize, name: &[u8]) -> bool {
+    let Some(entry) = decrypt_entry(gnames, index) else { return false };
+    let Some(flags) = (unsafe { memory::read::<u32>(entry + FNAME_ENTRY_INDEX) }) else { return false };
+    let text = entry + FNAME_ENTRY_NAME;
+    let wide = flags & 1 != 0;
+    let unit = |i: usize| -> Option<u16> {
+        unsafe {
+            if wide {
+                memory::read::<u16>(text + i * 2)
+            } else {
+                memory::read::<u8>(text + i).map(u16::from)
+            }
+        }
+    };
+    name.iter().enumerate().all(|(i, &b)| unit(i).is_some_and(|u| u < 0x80 && (u as u8).eq_ignore_ascii_case(&b))) && unit(name.len()) == Some(0)
 }
 
 /// Can an object be called `name`? UE3 stores `Foo_12` as `Foo` plus a
@@ -990,11 +1016,41 @@ pub fn objects() -> impl Iterator<Item = usize> {
 /// First object whose `GetFullName()` is `full` (e.g. `"Class TgGame.TgGame"`).
 pub fn find_object(full: &str) -> Option<usize> {
     let (class_name, path) = full.split_once(' ')?;
-    // FName semantics: names compare case-insensitively.
-    objects().find(|&o| {
+    let leaf = path.rsplit('.').next().unwrap_or(path);
+    let full_match = |o: usize| {
+        // FName semantics: names compare case-insensitively.
         object_class(o).and_then(object_name).is_some_and(|n| n.eq_ignore_ascii_case(class_name))
             && object_path(o).is_some_and(|p| p.eq_ignore_ascii_case(path))
+    };
+    let (class_keys, leaf_keys) = (fname_keys(class_name), fname_keys(leaf));
+    if class_keys.is_empty() || leaf_keys.is_empty() {
+        // An unregistered name cannot be on any object, once the name table is proven.
+        return if TRUSTED.load(Ordering::Relaxed) { None } else { objects().find(|&o| full_match(o)) };
+    }
+    // Comparing name indices first spares building two strings for each of the ~300k
+    // objects; mods call this while the game waits on them at startup.
+    objects().find(|&o| {
+        object_fname(o).is_some_and(|k| leaf_keys.contains(&k))
+            && object_class(o).and_then(object_fname).is_some_and(|k| class_keys.contains(&k))
+            && full_match(o)
     })
+}
+
+/// The `(index, number)` pairs an object called `name` can carry: `Foo_12` is either a
+/// name of its own or `Foo` with the number 13 (stored +1).
+fn fname_keys(name: &str) -> Vec<(i32, i32)> {
+    let mut keys = Vec::with_capacity(2);
+    if let Ok(index) = lookup_name(name) {
+        keys.push((index, 0));
+    }
+    let Some((base, digits)) = name.rsplit_once('_') else { return keys };
+    if base.is_empty() || digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return keys;
+    }
+    if let (Ok(index), Ok(number)) = (lookup_name(base), digits.parse::<i32>()) {
+        keys.push((index, number + 1));
+    }
+    keys
 }
 
 /// `UClass*` for `"TgGame.TgGame"`, cached (class objects live forever).

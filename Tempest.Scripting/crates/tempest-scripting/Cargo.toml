@@ -20,6 +20,8 @@ serde_json = "1"
 toml = { version = "0.8", default-features = false, features = ["parse", "display"] }
 # installed mods' scripts are checked against the package CHECKSUMS before they run
 sha2 = "0.10"
+# memory.scan
+memchr = "2"
 
 [build-dependencies]
 # native/: Dear ImGui + cimgui (+ the Win32/DX9/DX11 backends on Windows)
