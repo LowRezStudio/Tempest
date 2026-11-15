@@ -674,10 +674,12 @@ internal class ModCommands
 
             var dependants = ModDependencies.Dependants(mod.Id, mods);
             var installer = CreateInstaller(mod);
+            // Only the files this mod's deltas touch: a full resolve hashes every patched package.
+            var targets = DeltaResolver.AffectedFiles(mods, [mod]);
             await installer.RemoveAsync(path, mod);
             mods.Remove(mod);
             SaveMetadata(path, mods);
-            await DeltaResolver.ResolveAndReportAsync(path);
+            await DeltaResolver.ResolveAndReportAsync(path, targets, installedMods: mods);
             Launcher.PackageHashes.ApplyToRunning(path, ModGameFiles([.. mods, mod]));
 
             var note = dependants.Count == 0 ? "" : $" {string.Join(", ", dependants.Select(d => $"'{d.Name}'"))} depend{(dependants.Count == 1 ? "s" : "")} on it.";
