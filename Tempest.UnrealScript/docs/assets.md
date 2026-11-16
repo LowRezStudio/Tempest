@@ -18,6 +18,7 @@ upk imagediff <pkg>                           where a rebuilt image / recompress
 upk texture|swf|sound|mesh ...                asset commands (see topic references in ../AGENTS.md)
 upk prop get|set, obj rename|delete|copy, deps, mod-dir   editing (see editing.md)
 upk live baseline|changes                     state of the movie packages for the hot reload mod (see hot-reload.md)
+upk shaders <pkg> [material] [--check [--constants]] [--wgsl <vf> <vs type> <ps type>]   shader caches (below)
 ```
 
 How an export is read (`object.rs`): class resolved by name in the `ClassDb` (content packages store
@@ -110,6 +111,70 @@ All ported from the 10897 source and checked against the 8.2 binary (`level.rs`,
 - `ULevel::Serialize` includes the APEX cached-data block (`DWORD` size + bytes), cached PhysX
   stores, the precomputed light volume, visibility buckets and the volume distance field, all as in
   the source.
+
+### Shader caches and game shaders (`shadercache.rs`, `d3d9.rs`, `material_shader.rs`)
+
+Cooked materials keep only their parameter expressions, not the graph: a preview that looks like the
+game must run the game's compiled shaders. Every seek-free package has `ShaderCache` exports (one per
+platform: 0 is PC Direct3D 9 SM3, 4 is SM5) listing its shaders by id and its material shader maps;
+Hi-Rez moved the bytecode out to `ShaderCodeStorage-PC-D3D-SM3[-PATCH].bin` (version 2: an index of
+(guid, chunk, offset, size), LZO chunks; the patch file wins; each blob has 4 bytes before the
+version token). A cache's shader records keep a relative skip offset after the 20-byte hash; a
+material shader map's skip offset is checked against what was read.
+
+- Shader maps are found by **key** (`FMaterialShaderMap::FindId`): base material id plus the static
+  switch / mask / normal settings, compared by name. Instances with the same static parameters share
+  one map, which keeps the `MaterialId` of whichever was compiled first, so the id is not a lookup
+  key. A base material's own map has its resource id. Search the object's package, then each
+  package of its parent chain (`Startup.upk` holds shared masters).
+- `FUniformExpressionSet` (pixel vectors, scalars, 2D textures; cube textures; vertex, hull, domain)
+  is in the map, not in `FMaterialResource`. Constants are bound by `CTAB` name:
+  `UniformPixelVector_N` (vector expression N), `UniformPixelScalars_N` (scalars 4N..4N+3),
+  `PixelTexture2D_N` (texture expression N: a parameter the instance chain may override, else
+  `UniformExpressionTextures[index]` of the resource).
+- `d3d9.rs` parses `vs_3_0`/`ps_3_0` (CTAB, `dcl`, `def*`) and translates a pair to one WGSL
+  module. Every pair of the 8.1 caches tried (6,785 over three packages) passes naga validation.
+  Matrices: register `k` holds row `k` of the engine's row-vector matrix (glam column `k`).
+  `FLocalVertexFactory` feeds `TANGENT0`/`NORMAL0` as raw `UBYTE4` (0..255; the shader unpacks),
+  `NORMAL0.w` is the basis sign; binormal = `cross(N, T) * w`.
+- Neutral renderer constants: `SharedFogParameter1` (layered fog start distance) far away, or the
+  translucent base pass's fog transmittance is 0 (black); `LightPositionAndInvRadius` = (direction
+  to the light, 0) for a directional light; `DiffuseOverrideParameter` /
+  `SpecularOverrideParameter` = (0, 0, 0, 1); `WorldIncidentLighting[0].xyz` is the SH constant
+  term of R, G, B (scaled by sqrt(π)/2 in the shader). Driven at run time, not by the material:
+  `SelectionGlow_Fade` (`TgSkeletalMeshActor_Lobby` fades the lobby's cyan `LobbyGlow` in for 0.6
+  s when a champion is picked; 0 at rest, while the material default 1 is full glow).
+- SM5 (platform 4, `ShaderCodeStorage-PC-D3D-SM5[-PATCH].bin`, `material.gameShader {platform:
+  "sm5"}`, `dxbc.rs`): DXBC with `ISGN`, `OSGN`, `SHEX` only, no `RDEF`, so constants are named
+  through the SM3 twin: each record keeps, after `FShader::Serialize`, the type's parameters
+  (`FShaderParameter` BaseIndex, NumBytes, BufferIndex; `FShaderResourceParameter` BaseIndex,
+  NumResources, SamplerIndex: 3 `u16`s each, 8.2 server DWARF) in the type's order, the same for
+  both platforms (tails of equal length). An SM3 triple (register × 16, count × 16, 0) or (s, 1,
+  s) names the SM5 triple at the same place, which must fit the SM5 declarations (records also
+  hold small array indices). Not in any record, the renderer's own: vertex `cb1` mirrors SM3's
+  fixed registers (view projection 0–3, `CameraPositionVS` 4); pixel `cb2` holds
+  `DiffuseOverrideParameter` 3, `SpecularOverrideParameter` 4, `GTimeVariablesPS` 9 (found by
+  intersecting what thousands of shaders read there with what their SM3 twins declare);
+  `LocalToWorldRotDeterminantFlip`, often optimised out of SM3, sits one register before
+  `WorldToLocal`. Each stage's buffers are flattened into one array (`dxbc::Layout`), constants
+  carry byte `offset` and `bytes` (SM5 packs scalars into components). Registers are `vec4<u32>`,
+  bit-cast per instruction; textures and samplers are separate slots (the module pairs each
+  texture with a renderer sampler); shadow comparisons return 1. D3D11 binds the packed tangent
+  basis as UNORM (0..1, the shader does `× 2 − 1`), D3D9 as `UBYTE4` (0..255). 22,512 of 22,513
+  SM5 pairs of four packages pass naga; a material without an SM5 map falls back to SM3
+  (`fallback`). Every pair (both platforms) reads the placement constants (`d3d9::PER_DRAW`) from
+  `draws`, group 0 binding 2, a read-only storage array of `drawFloats` rows per placement indexed
+  by `instance_index` (copied into `vsd` first), so a renderer draws every placement of a part in one
+  instanced call.
+- `material.gameShader {path, index, textureSize?, section?, lod?, materials?, resolveOnly?}` returns
+  the base pass pair of `FLocalVertexFactory` (directional light + sky light policy, else SH light,
+  which level materials compiled for light maps have, else no light map); `materials` are a placed
+  component's slot overrides (as `mesh.preview` takes them), `resolveOnly` answers only
+  `materialPath` as WGSL with its
+  constants, uniform expressions (JSON, `UniformExpr::to_json`), samplers with PNGs and sRGB flags
+  (a `TextureCube` as `faces`: six PNGs, FacePosX…FaceNegZ; each sampler's `expression` names the
+  material's texture parameter), blend mode and parameters. For a mesh, `section` names the material. Skeletal meshes are drawn
+  with the local vertex factory's shaders over CPU-skinned vertices (every material tried has them).
 
 ### Particle systems (`particle.rs`)
 

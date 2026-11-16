@@ -1233,6 +1233,7 @@ mod tests {
         let g = Geometry {
             positions: vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [100.0, 100.0, 0.0], [0.0, 100.0, 50.0]],
             normals: vec![[0.0, 0.0, 1.0]; 4],
+            tangents: Vec::new(),
             uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
             indices: vec![0, 1, 2, 0, 2, 3],
             sections: vec![Section { first_index: 0, num_triangles: 1, material_name: "mat_a".into(), ..Default::default() }, Section { first_index: 3, num_triangles: 1, material_name: "mat_b".into(), ..Default::default() }],

@@ -126,6 +126,7 @@ fn main() -> ExitCode {
         "prop" if args.len() >= 4 => cmd_prop(&args[1..]),
         "obj" if args.len() >= 4 => cmd_obj(&args[1..]),
         "deps" if args.len() >= 3 => cmd_deps(&args[1], &args[2], &args[1..]),
+        "shaders" if args.len() >= 2 => cmd_shaders(&args[1..]),
         "mod-dir" if args.len() >= 2 => cmd_mod_dir(&args[1..]),
         "delta" if args.len() >= 3 => cmd_delta(&args[1..]),
         "swf" if args.len() >= 3 && (args[1] == "verify" || args[1] == "info" || args[1] == "dump") => cmd_swf(&args[1..]),
@@ -214,6 +215,112 @@ fn cmd_ls(path: &str, filter: Option<&str>) -> Res {
 }
 
 /// Resolve `<idx|path>` to an export index.
+/// `upk shaders <pkg> [material]`: the package's shader caches; with a name, that material's shader maps,
+/// uniform expressions and whether each shader's code is in the folder's code storage.
+fn cmd_shaders(args: &[String]) -> Res {
+    use tempest_assets::shadercache::{open_storages, package_caches};
+    let path = Path::new(&args[0]);
+    let pkg = PackageFile::open(path)?.load()?;
+    let filter = args.get(1).filter(|f| !f.starts_with("--")).map(|f| f.to_ascii_lowercase());
+    let storages = open_storages(path.parent().unwrap_or(Path::new(".")), "PC-D3D-SM3");
+    let code_of = |id: &tempest_upk::io::Guid| storages.iter().find_map(|st| st.code(id).ok().flatten()).filter(|c| c.len() > 4).map(|c| c[4..].to_vec());
+    // `--check`: parse and translate every shader of the package's SM3 cache; what cannot be, by reason.
+    if args.iter().any(|a| a == "--check") {
+        let mut reasons: std::collections::BTreeMap<String, usize> = Default::default();
+        let (mut ok, mut constants) = (0, std::collections::BTreeMap::<String, usize>::new());
+        for cache in package_caches(&pkg) {
+            let cache = cache?;
+            for s in cache.shaders.iter().filter(|s| s.platform == 0) {
+                let Some(code) = code_of(&s.id) else { continue };
+                match tempest_assets::d3d9::Shader::parse(&code).and_then(|sh| sh.check().map(|_| sh)) {
+                    Ok(sh) => {
+                        ok += 1;
+                        for c in &sh.constants {
+                            *constants.entry(format!("{:?} {}", sh.stage, c.name)).or_default() += 1;
+                        }
+                    }
+                    Err(e) => *reasons.entry(e).or_default() += 1,
+                }
+            }
+        }
+        println!("{ok} shaders translate");
+        for (r, n) in reasons {
+            println!("  {n} fail: {r}");
+        }
+        if args.iter().any(|a| a == "--constants") {
+            for (c, n) in constants {
+                println!("  {n:6} {c}");
+            }
+        }
+        return Ok(());
+    }
+    // `--wgsl <vertex factory> <vertex shader type> <pixel shader type>`: the pair of the named material as WGSL.
+    let wgsl = args.iter().position(|a| a == "--wgsl").map(|k| (args.get(k + 1).cloned().unwrap_or_default(), args.get(k + 2).cloned().unwrap_or_default(), args.get(k + 3).cloned().unwrap_or_default()));
+    for cache in package_caches(&pkg) {
+        let cache = cache?;
+        let found = cache.shaders.iter().filter(|s| storages.iter().any(|st| st.contains(&s.id))).count();
+        println!("shader cache: platform {}, priority {}, {} shaders ({found} with code in the storage), {} material shader maps", cache.platform, cache.priority, cache.shaders.len(), cache.material_maps.len());
+        for m in &cache.material_maps {
+            let Some(f) = &filter else {
+                println!("  {} [{}] {} mesh maps, {}+{} pixel uniforms, {} textures", m.friendly_name, m.material_id, m.mesh_maps.len(), m.uniforms.pixel.vectors.len(), m.uniforms.pixel.scalars.len(), m.uniforms.pixel.textures_2d.len());
+                continue;
+            };
+            if !m.friendly_name.to_ascii_lowercase().contains(f) {
+                continue;
+            }
+            if let Some((vf, vs, ps)) = &wgsl {
+                if m.platform != 0 {
+                    continue;
+                }
+                let (Some(vs_id), Some(ps_id)) = (m.mesh_shader(vf, vs), m.mesh_shader(vf, ps)) else { return Err("no such vertex factory or shader type in this material's map".into()) };
+                let (vs_code, ps_code) = (code_of(&vs_id).ok_or("no vertex shader code")?, code_of(&ps_id).ok_or("no pixel shader code")?);
+                let (vs, ps) = (tempest_assets::d3d9::Shader::parse(&vs_code)?, tempest_assets::d3d9::Shader::parse(&ps_code)?);
+                for (stage, sh) in [("vertex", &vs), ("pixel", &ps)] {
+                    for c in &sh.constants {
+                        println!("// {stage} {:?} {} x{} {}: {}x{}", c.set, c.register, c.count, c.name, c.rows, c.columns);
+                    }
+                }
+                let module = tempest_assets::d3d9::translate(&vs, &ps, &|_| false, &|_| false)?;
+                println!("// vertex inputs: {}", module.vertex_inputs.iter().map(|s| s.name()).collect::<Vec<_>>().join(", "));
+                println!("{}", module.wgsl);
+                return Ok(());
+            }
+            println!("  {} [{}] key {} ({} switches) platform {}", m.friendly_name, m.material_id, m.key.base_material_id, m.key.static_switch_parameters.len(), m.platform);
+            for (k, e) in m.uniforms.pixel.vectors.iter().enumerate() {
+                println!("    pixel vector {k}: {e:?}");
+            }
+            for (k, e) in m.uniforms.pixel.scalars.iter().enumerate() {
+                println!("    pixel scalar {k}: {e:?}");
+            }
+            for (k, e) in m.uniforms.pixel.textures_2d.iter().enumerate() {
+                println!("    pixel texture {k}: {e:?}");
+            }
+            for (k, e) in m.uniforms.cube_textures.iter().enumerate() {
+                println!("    cube texture {k}: {e:?}");
+            }
+            println!("    vertex: {} vectors, {} scalars, {} textures", m.uniforms.vertex.vectors.len(), m.uniforms.vertex.scalars.len(), m.uniforms.vertex.textures_2d.len());
+            for (t, id) in &m.shaders {
+                println!("    material shader {t} {id}");
+            }
+            for mm in &m.mesh_maps {
+                println!("    {}:", mm.vertex_factory);
+                for (t, id) in &mm.shaders {
+                    let size = storages.iter().find_map(|st| st.code(id).ok().flatten()).map(|c| c.len());
+                    println!("      {t} {id} {}", size.map(|s| format!("{s} bytes")).unwrap_or_else(|| "no code".into()));
+                }
+            }
+        }
+        if let (Some(out), Some(id)) = (args.get(3), args.get(2)) {
+            // `upk shaders <pkg> <material> <shader id> <out>`: one shader's bytecode.
+            let shader = cache.shaders.iter().find(|s| s.id.to_string().eq_ignore_ascii_case(id)).ok_or("no such shader id in the cache")?;
+            let code = storages.iter().find_map(|st| st.code(&shader.id).ok().flatten()).ok_or("the storage has no code for it")?;
+            std::fs::write(out, &code)?;
+            println!("wrote {} bytes of {} to {out}", code.len(), shader.type_name);
+        }
+    }
+    Ok(())
+}
+
 fn find_export(pkg: &Package, what: &str) -> Result<usize, Box<dyn std::error::Error>> {
     if let Ok(i) = what.parse::<usize>() {
         if i < pkg.exports.len() {

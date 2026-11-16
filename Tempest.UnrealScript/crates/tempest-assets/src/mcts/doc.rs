@@ -28,6 +28,9 @@ pub struct Doc {
     pub marshal: Marshal,
     pub dirty: bool,
     undo: Vec<(String, Undo)>,
+    /// The undo depth at which the document is what the file holds (read or
+    /// saved there); `None` once undo went below it, as there is no redo.
+    clean_at: Option<usize>,
 }
 
 /// Summary of one row set: its columns in first-seen order with how many
@@ -42,7 +45,13 @@ impl Doc {
     pub fn open(path: &Path, tokens: &Tokens) -> Result<Doc> {
         let bytes = std::fs::read(path)?;
         let marshal = parse_obscured(&bytes, tokens)?;
-        Ok(Doc { path: path.to_path_buf(), marshal, dirty: false, undo: Vec::new() })
+        Ok(Doc { path: path.to_path_buf(), marshal, dirty: false, undo: Vec::new(), clean_at: Some(0) })
+    }
+
+    /// The rows were changed without an undo step (a workspace file's edits put back): unsaved, whatever is undone later.
+    pub fn mark_changed(&mut self) {
+        self.dirty = true;
+        self.clean_at = None;
     }
 
     pub fn undo_labels(&self) -> Vec<String> {
@@ -59,6 +68,7 @@ impl Doc {
         std::fs::write(&target, bytes)?;
         if out.is_none() {
             self.dirty = false;
+            self.clean_at = Some(self.undo.len());
         }
         Ok(target)
     }
@@ -252,7 +262,11 @@ impl Doc {
             }
             Undo::Header { old } => self.marshal.root = old,
         }
-        self.dirty = true;
+        // Back to what the file holds: nothing is left to save.
+        if self.clean_at.is_some_and(|c| self.undo.len() < c) {
+            self.clean_at = None;
+        }
+        self.dirty = self.clean_at != Some(self.undo.len());
         Ok(Some(label))
     }
 

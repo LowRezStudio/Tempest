@@ -902,6 +902,47 @@ mod tests {
     }
 
     #[test]
+    fn undo_back_to_the_file_is_clean() {
+        let t = Tokens::builtin();
+        let items = t.token("DATA_SET_ITEMS").unwrap();
+        let price = t.token("PRICE").unwrap();
+        let mut row = Row::default();
+        row.set(t.token("ITEM_ID").unwrap(), Value::Num(70000));
+        row.set(price, Value::Num(5));
+        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(vec![row]))] }, encoding: 4 };
+        let dir = std::env::temp_dir().join(format!("tempest-mcts-undo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("assembly.dat");
+        std::fs::write(&file, write_obscured(&m, &t)).unwrap();
+        let mut doc = doc::Doc::open(&file, &t).unwrap();
+        let path = [(items, 0usize)];
+        // Every edit undone: the document is the file again.
+        doc.set_text(&t, &path, price, "6").unwrap();
+        assert!(doc.dirty);
+        doc.undo().unwrap();
+        assert!(!doc.dirty);
+        // Saved with an edit, then undone below the save: unsaved, whatever comes after (there is no redo).
+        doc.set_text(&t, &path, price, "7").unwrap();
+        doc.save(&t, None).unwrap();
+        assert!(!doc.dirty);
+        doc.set_text(&t, &path, price, "8").unwrap();
+        doc.undo().unwrap();
+        assert!(!doc.dirty);
+        doc.undo().unwrap();
+        assert!(doc.dirty);
+        doc.set_text(&t, &path, price, "9").unwrap();
+        doc.undo().unwrap();
+        assert!(doc.dirty);
+        // Edits put back without undo steps stay unsaved.
+        let mut doc = doc::Doc::open(&file, &t).unwrap();
+        doc.mark_changed();
+        doc.set_text(&t, &path, price, "1").unwrap();
+        doc.undo().unwrap();
+        assert!(doc.dirty);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn round_trip_small() {
         let t = Tokens::builtin();
         let items = t.token("DATA_SET_ITEMS").unwrap();

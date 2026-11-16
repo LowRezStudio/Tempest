@@ -39,6 +39,9 @@ use crate::mcts;
 
 type Res<T> = Result<T, Box<dyn Error>>;
 
+/// A folder's shader code storages (SM3, SM5), shared with the calls that read them.
+type Storages = std::sync::Arc<Vec<crate::shadercache::CodeStorage>>;
+
 /// Binary payloads of the response being built. With framed responses
 /// (`protocol {frames: true}`) each payload is sent raw after the result
 /// JSON and the JSON holds a `{"$bin": n}` marker in its place; otherwise it
@@ -124,6 +127,8 @@ pub struct Server {
     order: Option<Vec<OrderedPackage>>,
     /// Preview PNGs of material textures (`mesh.preview`), by path and size.
     png_cache: HashMap<String, Vec<u8>>,
+    /// The workspace's shader code storages (`material.gameShader`), opened on first use.
+    shader_storages: Option<(PathBuf, Storages, Storages)>,
     /// `mod.preview` results of items read from disk, by what they depend on
     /// (source and game file sizes and times, mode, base record).
     preview_cache: HashMap<String, J>,
@@ -285,7 +290,7 @@ fn opt_b(p: &J, name: &str) -> Option<bool> {
 
 impl Server {
     pub fn new() -> Server {
-        Server { dir: None, db: None, db_stamp: None, src: None, packages: Vec::new(), editors: HashMap::new(), closed: Vec::new(), index: HashMap::new(), owners: None, index_job: None, scripts: HashMap::new(), script_jobs: HashMap::new(), mcts_job: None, order: None, png_cache: HashMap::new(),
+        Server { dir: None, db: None, db_stamp: None, src: None, packages: Vec::new(), editors: HashMap::new(), closed: Vec::new(), index: HashMap::new(), owners: None, index_job: None, scripts: HashMap::new(), script_jobs: HashMap::new(), mcts_job: None, order: None, png_cache: HashMap::new(), shader_storages: None,
             preview_cache: HashMap::new(),
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
@@ -617,6 +622,7 @@ impl Server {
             "map.removeActor" => self.map_remove_actor(p),
             "map.navmesh" | "map.navmeshEdit" => self.map_navmesh(method, p),
             "map.collision" => self.map_collision(p),
+            "map.navmeshGenerate" => self.map_navmesh_generate(p),
             "map.brush" => self.map_brush(p),
             "map.setBrush" => self.map_set_brush(p),
             "map.export" => self.map_export(p),
@@ -752,6 +758,7 @@ impl Server {
             "script.export" => self.script_export(p),
             "package.findReplace" => self.find_replace(p),
             "material.preview" => self.material_preview(p),
+            "material.gameShader" => self.material_game_shader(p),
             "material.setParameter" => self.material_set_parameter(p),
             "material.setTexture" => self.material_set_texture(p),
             "material.newInstance" => self.material_new_instance(p),
@@ -1298,7 +1305,7 @@ impl Server {
                 };
                 match res {
                     Ok(()) => {
-                        doc.dirty = true;
+                        doc.mark_changed();
                         docs.push(id);
                     }
                     Err(e) => problems.push(format!("{label}: {e}")),
@@ -2303,6 +2310,238 @@ impl Server {
             meshes.insert(k, v);
         }
         Ok(json!({ "path": path, "levels": levels, "meshes": meshes, "missing": missing }))
+    }
+
+    /// What pawns collide with in a map and its streamed levels, as world
+    /// triangles (Unreal units): blocking volumes' hulls, and each blocking
+    /// static mesh component's collision (its body setup, or its LOD 0
+    /// triangles when it uses complex collision; nothing without a body setup).
+    fn walk_geometry(&mut self, path: &str) -> Res<(Vec<[f32; 3]>, usize, Vec<String>)> {
+        use crate::map::{actor_matrix, component_matrix, mul, Mat};
+        let (files, missing) = self.map_files(path, true)?;
+        let db = self.db()?;
+        let place = |out: &mut Vec<[f32; 3]>, tris: &[[f32; 3]], m: &Mat| {
+            for v in tris {
+                let (x, y, z) = (v[0] as f64, v[1] as f64, v[2] as f64);
+                out.push([0, 1, 2].map(|c| (x * m[0][c] + y * m[1][c] + z * m[2][c] + m[3][c]) as f32));
+            }
+        };
+        let blocks = |f: &J| matches!(f["blocks"].as_str(), Some("all") | Some("pawns"));
+        let mut out = Vec::new();
+        let mut parts = 0;
+        // Placed meshes by key, resolved once.
+        let mut placed: Vec<(J, Mat)> = Vec::new();
+        for f in &files {
+            let ed = self.editor(f)?;
+            let Some(level) = crate::map::level_export(&ed.pkg) else { continue };
+            let (actors, model): (Vec<usize>, Option<usize>) = ed.with_object(level, |_, o| match &o.native {
+                Native::Level(l) => (l.actors.iter().filter_map(|a| a.export_index()).collect(), l.model.export_index()),
+                _ => (Vec::new(), None),
+            })?;
+            // The world BSP (older maps are built from it).
+            if let Some(m) = model {
+                let tris = ed.with_object(m, |_, o| match &o.native {
+                    Native::Model(m) => crate::collision::bsp_triangles(m),
+                    _ => Vec::new(),
+                })?;
+                if !tris.is_empty() {
+                    out.extend(tris);
+                    parts += 1;
+                }
+            }
+            for a in actors {
+                let class = ed.pkg.class_name_of(PackageIndex::export(a));
+                let am = ed.with_object(a, |pkg, o| actor_matrix(o, pkg))?;
+                let comps = ed.children(a);
+                if db.class_is_a(&class, "Volume") {
+                    let Some(c) = comps.iter().copied().find(|&c| db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(c)), "BrushComponent")) else { continue };
+                    if !blocks(&crate::collision::flags_json(ed, a, Some(c))) {
+                        continue;
+                    }
+                    let tris = ed.with_object(c, |pkg, o| crate::collision::agg_triangles(o.property("BrushAggGeom", pkg).map(|p| &p.value), pkg))?;
+                    place(&mut out, &tris, &am);
+                    parts += 1;
+                    continue;
+                }
+                for c in comps {
+                    let cclass = ed.pkg.class_name_of(PackageIndex::export(c));
+                    // Instanced meshes (foliage) keep their instances elsewhere.
+                    if !db.class_is_a(&cclass, "StaticMeshComponent") || db.class_is_a(&cclass, "InstancedStaticMeshComponent") {
+                        continue;
+                    }
+                    if !blocks(&crate::collision::flags_json(ed, a, Some(c))) {
+                        continue;
+                    }
+                    let (cm, mesh) = ed.with_object(c, |pkg, o| {
+                        let m = match o.property("StaticMesh", pkg).map(|p| &p.value) {
+                            Some(Value::Object(i)) if !i.is_null() => Some(match i.export_index() {
+                                Some(e) => json!({ "path": f, "index": e }),
+                                None => json!({ "object": pkg.object_path(*i) }),
+                            }),
+                            _ => None,
+                        };
+                        (component_matrix(o, pkg), m)
+                    })?;
+                    if let Some(m) = mesh {
+                        placed.push((m, mul(&cm, &am)));
+                    }
+                }
+            }
+        }
+        let mut meshes: HashMap<String, Option<Vec<[f32; 3]>>> = HashMap::new();
+        for (m, matrix) in placed {
+            let k = m.to_string();
+            if !meshes.contains_key(&k) {
+                let tris = (|| -> Res<Option<Vec<[f32; 3]>>> {
+                    let (file, i) = self.collision_mesh(&m)?;
+                    let ed = self.editor(&file)?;
+                    let c = crate::collision::mesh_collision(ed, i);
+                    Ok(match c["pawns"].as_str() {
+                        Some("simple") => {
+                            let body = ed.with_object(i, |pkg, o| match o.property("BodySetup", pkg).map(|p| &p.value) {
+                                Some(Value::Object(b)) => b.export_index(),
+                                _ => None,
+                            })?;
+                            match body {
+                                Some(b) => Some(ed.with_object(b, |pkg, o| crate::collision::agg_triangles(o.property("AggGeom", pkg).map(|p| &p.value), pkg))?),
+                                None => None,
+                            }
+                        }
+                        Some("complex") => {
+                            let o = ed.object(i)?.clone();
+                            let g = mesh_ops::geometry(&ed.pkg, &o, 0)?;
+                            Some(g.indices.iter().filter_map(|&k| g.positions.get(k as usize).copied()).collect())
+                        }
+                        _ => None,
+                    })
+                })()
+                .unwrap_or(None);
+                meshes.insert(k.clone(), tris);
+            }
+            if let Some(Some(tris)) = meshes.get(&k) {
+                place(&mut out, tris, &matrix);
+                parts += 1;
+            }
+        }
+        Ok((out, parts, missing))
+    }
+
+    /// `map.navmeshGenerate {path, index?, settings?}`: a new nav mesh for the
+    /// level's `HavokNavMeshActor` (`index`, else the first) from what pawns
+    /// collide with (`havok::generate`), as one undoable, unsaved edit.
+    /// `settings` (Unreal units): `cellSize`, `cellHeight`, `agentRadius`,
+    /// `agentHeight`, `maxClimb`, `maxSlope` (degrees), `maxFaceVertices`.
+    fn map_navmesh_generate(&mut self, p: &J) -> Res<J> {
+        use crate::havok::{edit, generate, navmesh::NavData, set_actor_tagfile, studio};
+        let path = s(p, "path")?.to_string();
+        let t = std::time::Instant::now();
+        let mut settings = generate::Settings::default();
+        let o = &p["settings"];
+        let unreal = |k: &str, d: &mut f32| {
+            if let Some(v) = o[k].as_f64() {
+                *d = v as f32 / crate::havok::navmesh::HAVOK_TO_UNREAL;
+            }
+        };
+        unreal("cellSize", &mut settings.cell_size);
+        unreal("cellHeight", &mut settings.cell_height);
+        unreal("agentRadius", &mut settings.agent_radius);
+        unreal("agentHeight", &mut settings.agent_height);
+        unreal("maxClimb", &mut settings.max_climb);
+        if let Some(v) = o["maxSlope"].as_f64() {
+            settings.max_slope = v as f32;
+        }
+        if let Some(v) = o["maxFaceVertices"].as_u64() {
+            settings.max_face_vertices = v.clamp(3, 16) as u16;
+        }
+        let (tris, parts, missing) = self.walk_geometry(&path)?;
+        let gathered = t.elapsed().as_millis() as u64;
+        let havok: Vec<[f32; 3]> = tris.iter().map(|v| v.map(|c| c / crate::havok::navmesh::HAVOK_TO_UNREAL)).collect();
+        // The bounds: the current mesh's, a little larger (else the walkable geometry's).
+        let bounds = {
+            let ed = self.editor(&path)?;
+            let i = opt_u(p, "index").or_else(|| studio::actors(ed).first().copied());
+            match i.map(|i| studio::read(ed, i)) {
+                Some(Ok(Some(nd))) if nd.mesh.aabb[0][0] < nd.mesh.aabb[1][0] => {
+                    let [lo, hi] = nd.mesh.aabb;
+                    let m = settings.agent_radius * 8.0;
+                    Some([[lo[0] - m, lo[1] - m, lo[2] - settings.agent_height], [hi[0] + m, hi[1] + m, hi[2] + settings.agent_height * 2.0]])
+                }
+                _ => None,
+            }
+        };
+        let mut polys = generate::polygons(&havok, bounds, &settings)?;
+        let recast = t.elapsed().as_millis() as u64 - gathered;
+        let skipped = polys.skipped;
+        // Seeds: the level's navigation points (player starts, path nodes) and, unless
+        // `keepUnreached`, the faces of the current mesh: floors none of them reach go.
+        let mut seeds: Vec<[f32; 3]> = Vec::new();
+        if !opt_b(p, "keepUnreached").unwrap_or(false) {
+            let (files, _) = self.map_files(&path, true)?;
+            let db = self.db()?;
+            for f in &files {
+                let ed = self.editor(f)?;
+                let Some(level) = crate::map::level_export(&ed.pkg) else { continue };
+                let actors: Vec<usize> = ed.with_object(level, |_, o| match &o.native {
+                    Native::Level(l) => l.actors.iter().filter_map(|a| a.export_index()).collect(),
+                    _ => Vec::new(),
+                })?;
+                for a in actors {
+                    if db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(a)), "NavigationPoint") {
+                        let m = ed.with_object(a, |pkg, o| crate::map::actor_matrix(o, pkg))?;
+                        seeds.push([0, 1, 2].map(|c| m[3][c] as f32 / crate::havok::navmesh::HAVOK_TO_UNREAL));
+                    }
+                }
+            }
+            let ed = self.editor(&path)?;
+            if let Some(i) = opt_u(p, "index").or_else(|| studio::actors(ed).first().copied()) {
+                if let Ok(Some(nd)) = studio::read(ed, i) {
+                    for f in 0..nd.mesh.faces.len() {
+                        let vs = nd.face_vertices(f);
+                        let mut c = [0.0f32; 3];
+                        for &v in &vs {
+                            for (ck, vk) in c.iter_mut().zip(nd.mesh.vertices[v as usize]) {
+                                *ck += vk / vs.len() as f32;
+                            }
+                        }
+                        seeds.push(c);
+                    }
+                }
+            }
+        }
+        let pruned = generate::prune(&mut polys, &seeds, settings.agent_height, settings.max_climb * 2.0);
+        let seed_count = seeds.len();
+        let mut mesh = generate::nav_mesh(&polys, settings.agent_radius);
+        let graph = generate::cluster(&mut mesh, settings.cluster_area);
+        if let Some(problem) = crate::havok::navmesh::validate(&mesh).first() {
+            return Err(format!("the generated nav mesh is invalid: {problem}").into());
+        }
+        let mut bins = std::mem::take(&mut self.bins);
+        let r = (|| -> Res<J> {
+            let ed = self.editor(&path)?;
+            let i = match opt_u(p, "index") {
+                Some(i) => i,
+                None => *studio::actors(ed).first().ok_or("the level has no HavokNavMeshActor")?,
+            };
+            let mut nd = studio::read(ed, i)?.ok_or("this actor holds no nav mesh to replace")?;
+            let old = nd.mesh.clone();
+            let clusters = graph.nodes.len();
+            let bytes = edit::replace(&mut nd, mesh, graph)?;
+            // Stored in the form a read and rewrite gives (the emptied arrays' items laid out as the writer lays them).
+            let nd = NavData::read(&bytes)?;
+            let bytes = nd.tf.write();
+            let nd = NavData::read(&bytes)?;
+            let coverage = json!({ "oldCovered": generate::coverage(&old, &nd.mesh), "newCovered": generate::coverage(&nd.mesh, &old) });
+            let mut obj = ed.object(i)?.clone();
+            set_actor_tagfile(&mut obj, &bytes)?;
+            ed.begin_undo(format!("generate the nav mesh ({} faces)", nd.mesh.faces.len()));
+            ed.replace_object(i, obj)?;
+            let mut v = studio::actor_json(ed, i, &nd, &mut bins);
+            v["dirty"] = J::from(true);
+            v["generated"] = json!({ "triangles": tris.len() / 3, "parts": parts, "faces": nd.mesh.faces.len(), "clusters": clusters, "skippedOutlines": skipped, "seeds": seed_count, "pruned": pruned, "missingLevels": missing, "gatherMs": gathered, "recastMs": recast, "ms": t.elapsed().as_millis() as u64, "coverage": coverage, "oldFaces": old.faces.len() });
+            Ok(v)
+        })();
+        self.bins = bins;
+        r
     }
 
     /// `map.navmesh {path, index?}` / `map.navmeshEdit {path, index, op, …}`:
@@ -5398,6 +5637,182 @@ impl Server {
             "scalars": info.scalars.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect::<Vec<_>>(),
             "vectors": info.vectors.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect::<Vec<_>>(),
             "switches": info.switches.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect::<Vec<_>>(),
+        }))
+    }
+
+    /// The material's compiled game shaders as one WGSL module, with the
+    /// constants, uniform expressions and textures it reads (see
+    /// `material_shader`). For a mesh, `section` (of LOD `lod`) names the
+    /// material: the one that section draws with.
+    fn material_game_shader(&mut self, p: &J) -> Res<J> {
+        use crate::material_shader::{game_shader, storages, storages_sm5, texture_is_srgb, SamplerSource};
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let material = {
+            let ed = self.editor(path)?;
+            let class = ed.pkg.class_name_of(PackageIndex::export(i));
+            if ed.db.class_is_a(&class, "MaterialInterface") {
+                PackageIndex::export(i)
+            } else {
+                let section = opt_u(p, "section").ok_or("give the mesh section whose material to draw")?;
+                let o = ed.object(i)?.clone();
+                let g = mesh_ops::geometry(&ed.pkg, &o, opt_u(p, "lod").unwrap_or(0))?;
+                let sec = g.sections.get(section).ok_or_else(|| format!("the mesh has {} sections", g.sections.len()))?;
+                // A placed component's override of the slot (`materials`, as `mesh.preview` takes them).
+                let over = p.get("materials").and_then(|v| v.as_array()).and_then(|a| a.get(sec.slot)).and_then(|v| v.as_str()).and_then(|path| {
+                    let pkg = &ed.pkg;
+                    (0..pkg.exports.len()).map(PackageIndex::export).chain((0..pkg.imports.len()).map(PackageIndex::import)).find(|&i| pkg.object_path(i).eq_ignore_ascii_case(path))
+                });
+                let m = over.unwrap_or(sec.material);
+                if m.is_null() {
+                    return Err("the section has no material".into());
+                }
+                m
+            }
+        };
+        let max_size = opt_u(p, "textureSize").unwrap_or(512) as u32;
+        let db = self.db()?;
+        let dir = self.dir()?.to_path_buf();
+        let sm5 = opt_s(p, "platform").is_some_and(|v| v.eq_ignore_ascii_case("sm5"));
+        let (code, code5) = match &self.shader_storages {
+            Some((d, st, st5)) if *d == dir => (st.clone(), st5.clone()),
+            _ => {
+                let (st, st5) = (std::sync::Arc::new(storages(&dir)), std::sync::Arc::new(storages_sm5(&dir)));
+                self.shader_storages = Some((dir.clone(), st.clone(), st5.clone()));
+                (st, st5)
+            }
+        };
+        if sm5 && code5.is_empty() {
+            return Err("the game folder has no shader model 5 code storage (ShaderCodeStorage-PC-D3D-SM5.bin)".into());
+        }
+        if code.is_empty() {
+            return Err("the game folder has no shader code storage (ShaderCodeStorage-PC-D3D-SM3.bin)".into());
+        }
+        self.index_all();
+        let owners = self.path_owners();
+        self.editors.get_mut(&key(path)).ok_or("package not open")?.flush();
+        let src = self.src.as_ref().ok_or("no workspace open")?;
+        let ed = self.editors.get(&key(path)).ok_or("package not open")?;
+        let (index, pkgs) = (&*owners, &self.packages);
+        let mut cache = PackageCache::new(db, &dir);
+        cache.set_lookup(|p| index_lookup(index, pkgs, p));
+        if ed.is_dirty() || !cache.insert_file(&ed.name, Path::new(path)) {
+            cache.insert(&ed.name, ed.pkg.clone());
+        }
+        let info = crate::material_ops::material_info(&mut cache, &ed.name, material);
+        let material_path = info.chain.first().map(|(p, o, _)| format!("{p}.{o}"));
+        // `resolveOnly`: which material it is (a map asks once per section, loads each material once).
+        if opt_b(p, "resolveOnly").unwrap_or(false) {
+            return Ok(json!({ "materialPath": material_path }));
+        }
+        let gs = game_shader(&mut cache, &code, sm5.then_some(code5.as_slice()), &ed.name, &info)?;
+        let mut png_cache = std::mem::take(&mut self.png_cache);
+        let mut sink = std::mem::take(&mut self.bins);
+        let mut sampler_json = |cache: &mut PackageCache, list: &[crate::material_shader::Sampler]| -> Vec<J> {
+            list.iter()
+                .enumerate()
+                .map(|(binding, smp)| {
+                    let kind = format!("{:?}", smp.kind).to_ascii_lowercase();
+                    let mut v = json!({ "register": smp.register, "name": smp.name, "kind": kind, "binding": binding, "expression": smp.expression });
+                    match &smp.source {
+                        // A cube map: its six faces, each a PNG.
+                        SamplerSource::Texture(tp, te) if smp.kind == crate::d3d9::SamplerKind::Cube => {
+                            match crate::material_shader::cube_faces(cache, tp, *te) {
+                                Some(faces) => {
+                                    let mut pngs = Vec::new();
+                                    for (fp, fe) in &faces {
+                                        let fpath = cache.get(fp).map(|lp| texture_ops::engine_path(&lp.pkg, &lp.name, *fe)).unwrap_or_default();
+                                        let k = format!("{fpath}@{max_size}");
+                                        let png = match png_cache.get(&k) {
+                                            Some(b) => Ok(b.clone()),
+                                            None => crate::material_ops::texture_png(cache, src, fp, *fe, Some(max_size)),
+                                        };
+                                        match png {
+                                            Ok(b) => {
+                                                png_cache.insert(k, b.clone());
+                                                pngs.push(sink.add(b));
+                                            }
+                                            Err(e) => {
+                                                v["error"] = J::from(e.to_string());
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if pngs.len() == 6 {
+                                        v["faces"] = J::from(pngs);
+                                    }
+                                    v["source"] = J::from("texture");
+                                    v["path"] = J::from(cache.get(tp).map(|lp| texture_ops::engine_path(&lp.pkg, &lp.name, *te)).unwrap_or_default());
+                                    v["srgb"] = J::from(faces.first().map(|(fp, fe)| texture_is_srgb(cache, fp, *fe)).unwrap_or(true));
+                                }
+                                None => v["source"] = J::from("cube"),
+                            }
+                        }
+                        SamplerSource::Texture(tp, te) => {
+                            let tpath = cache.get(tp).map(|lp| texture_ops::engine_path(&lp.pkg, &lp.name, *te)).unwrap_or_default();
+                            let k = format!("{tpath}@{max_size}");
+                            let png = match png_cache.get(&k) {
+                                Some(b) => Ok(b.clone()),
+                                None => crate::material_ops::texture_png(cache, src, tp, *te, Some(max_size)),
+                            };
+                            match png {
+                                Ok(b) => {
+                                    png_cache.insert(k, b.clone());
+                                    v["png"] = sink.add(b);
+                                }
+                                Err(e) => v["error"] = J::from(e.to_string()),
+                            }
+                            v["source"] = J::from("texture");
+                            v["path"] = J::from(tpath);
+                            v["srgb"] = J::from(texture_is_srgb(cache, tp, *te));
+                        }
+                        SamplerSource::Missing(what) => {
+                            v["source"] = J::from("missing");
+                            v["error"] = J::from(format!("{what} could not be found"));
+                        }
+                        SamplerSource::Cube => v["source"] = J::from("cube"),
+                        SamplerSource::Renderer => v["source"] = J::from("renderer"),
+                    }
+                    v
+                })
+                .collect()
+        };
+        let samplers = sampler_json(&mut cache, &gs.samplers);
+        let vertex_samplers = sampler_json(&mut cache, &gs.vertex_samplers);
+        if png_cache.len() > 256 {
+            png_cache.clear();
+        }
+        self.png_cache = png_cache;
+        self.bins = sink;
+        let constants = |list: &[crate::material_shader::FloatConstant]| list.iter().map(|c| json!({ "name": c.name, "register": c.register, "count": c.count, "offset": c.offset, "bytes": c.bytes })).collect::<Vec<_>>();
+        let exprs = |list: &[crate::shadercache::UniformExpr]| list.iter().map(|e| e.to_json()).collect::<Vec<_>>();
+        Ok(json!({
+            "material": gs.friendly_name,
+            "platform": gs.platform,
+            "fallback": gs.fallback,
+            "materialPath": material_path,
+            "vertexFactory": gs.vertex_factory,
+            "vertexShader": gs.vertex_type,
+            "pixelShader": gs.pixel_type,
+            "otherFactories": gs.other_factories,
+            "wgsl": gs.module.wgsl,
+            "vertexInputs": gs.module.vertex_inputs.iter().map(|s| s.name()).collect::<Vec<_>>(),
+            "vertexFloats": gs.module.vertex_floats,
+            "drawFloats": gs.module.draw_floats,
+            "drawConstants": gs.module.draw_constants.iter().map(|(n, slot, count)| json!({ "name": n, "slot": slot, "count": count })).collect::<Vec<_>>(),
+            "pixelFloats": gs.module.pixel_floats,
+            "vertexConstants": constants(&gs.vertex_constants),
+            "pixelConstants": constants(&gs.pixel_constants),
+            "pixelVectors": exprs(&gs.pixel_vectors),
+            "pixelScalars": exprs(&gs.pixel_scalars),
+            "vertexVectors": exprs(&gs.vertex_vectors),
+            "vertexScalars": exprs(&gs.vertex_scalars),
+            "samplers": samplers,
+            "vertexSamplers": vertex_samplers,
+            "blendMode": info.blend_mode,
+            "twoSided": info.two_sided.unwrap_or(false),
+            "scalars": info.scalars.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect::<Vec<_>>(),
+            "vectors": info.vectors.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect::<Vec<_>>(),
         }))
     }
 
