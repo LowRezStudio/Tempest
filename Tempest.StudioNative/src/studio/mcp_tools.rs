@@ -58,14 +58,8 @@ impl Studio {
                 Ok(json!({ "index": i, "path": path, "class": class }))
             }
             "studio_set_mode" => {
-                let v = match s("mode").as_deref() {
-                    Some("assembly") => View::Assembly,
-                    Some("audio") => View::Audio,
-                    Some("mod") => View::Mod,
-                    Some("packages") => View::Packages,
-                    Some("map") => View::Map,
-                    m => return Err(format!("unknown mode {m:?}")),
-                };
+                let m = s("mode");
+                let Some(v) = m.as_deref().and_then(View::from_name) else { return Err(format!("unknown mode {m:?}")) };
                 self.set_view(v, window, cx);
                 Ok(json!({ "status": "ok" }))
             }
@@ -126,13 +120,7 @@ impl Studio {
     }
 
     fn mcp_state(&self, cx: &gpui::App) -> J {
-        let view = match self.view {
-            View::Packages => "packages",
-            View::Assembly => "assembly",
-            View::Audio => "audio",
-            View::Mod => "mod",
-            View::Map => "map",
-        };
+        let view = self.view.name();
         let open = self.open.as_ref().map(|t| {
             let sel = self.selected_export.filter(|&i| i < t.exports.len()).map(|i| json!({ "index": i, "path": t.object_path(i), "class": t.exports[i].class }));
             json!({ "path": t.path, "name": t.name, "exports": t.exports.len(), "selected": sel })

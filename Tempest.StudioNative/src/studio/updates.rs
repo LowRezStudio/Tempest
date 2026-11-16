@@ -75,7 +75,7 @@ pub fn check(quiet: bool, cx: &mut App) {
 }
 
 /// Every open Studio.
-fn studios(cx: &mut App) -> Vec<gpui::Entity<Studio>> {
+pub(super) fn studios(cx: &mut App) -> Vec<gpui::Entity<Studio>> {
     let handles = super::WINDOWS.lock().map(|w| w.clone()).unwrap_or_default();
     handles
         .into_iter()
@@ -86,7 +86,7 @@ fn studios(cx: &mut App) -> Vec<gpui::Entity<Studio>> {
 impl Studio {
     /// Keep this window's work for a restart: the project file, else the
     /// recovery file when anything is unsaved. `None`: nothing to keep.
-    fn keep_for_restart(&mut self, cx: &mut Context<Self>) -> Option<impl std::future::Future<Output = Result<crate::backend::Reply, String>> + use<>> {
+    pub(super) fn keep_for_restart(&mut self, cx: &mut Context<Self>) -> Option<impl std::future::Future<Output = Result<crate::backend::Reply, String>> + use<>> {
         let dir = self.dir.clone()?;
         let out = if self.project.is_some() {
             let mut edited: Vec<String> = self.dirty.iter().cloned().collect();

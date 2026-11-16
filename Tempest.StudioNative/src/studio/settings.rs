@@ -74,11 +74,8 @@ impl Studio {
             self.record(place.clone());
             self.go_later(place, cx);
         }
-        match f.view.as_deref() {
-            Some("assembly") => self.pending_view = Some(View::Assembly),
-            Some("mod") => self.pending_view = Some(View::Mod),
-            Some("map") => self.pending_view = Some(View::Map),
-            _ => {}
+        if let Some(v) = f.view.as_deref().and_then(View::from_name).filter(|v| !matches!(v, View::Packages)) {
+            self.pending_view = Some(v);
         }
     }
 

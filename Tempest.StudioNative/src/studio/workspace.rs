@@ -8,14 +8,14 @@
 use gpui::{Context, PathPromptOptions};
 use serde_json::{json, Value as J};
 
-use super::{file_name, Place, Studio, Tone, View};
+use super::{file_name, Place, Studio, Tone};
 
 impl Studio {
     pub(super) fn twrk_state(&self) -> J {
         json!({
             "project": self.project,
             "native": true,
-            "view": match self.view { View::Packages => "packages", View::Assembly => "assembly", View::Mod => "mod", View::Audio => "audio", View::Map => "map" },
+            "view": self.view.name(),
             "package": self.selected_package,
             "export": self.selected_export,
             // The ids new assembly content takes (a project keeps its own range).
@@ -187,10 +187,24 @@ impl Studio {
     }
 
     /// Every two minutes with unsaved edits and no project, a linked
-    /// recovery copy; deleted once nothing is unsaved.
+    /// recovery copy (the unnamed mod's draft), written once edits pause for a
+    /// moment; deleted once nothing is unsaved.
     pub(super) fn watch_recovery(cx: &mut Context<Self>) {
+        use std::sync::atomic::Ordering;
+        let mut seen = crate::backend::EDITS.load(Ordering::SeqCst);
+        let mut changed: Option<std::time::Instant> = None;
         cx.spawn(async move |this, cx| loop {
-            cx.background_executor().timer(std::time::Duration::from_secs(120)).await;
+            cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+            let stamp = crate::backend::EDITS.load(Ordering::SeqCst);
+            if stamp != seen {
+                seen = stamp;
+                changed = Some(std::time::Instant::now());
+                continue;
+            }
+            if !changed.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2)) {
+                continue;
+            }
+            changed = None;
             let alive = this.update(cx, |this, cx| {
                 let Some(dir) = this.dir.clone() else { return };
                 let Some(file) = Self::recovery_file(&dir) else { return };
@@ -198,6 +212,10 @@ impl Studio {
                     if file.exists() && this.recovery_offer.is_none() {
                         let _ = std::fs::remove_file(&file);
                     }
+                    return;
+                }
+                // An earlier session's draft waits for an answer: it is not overwritten.
+                if this.recovery_offer.is_some() {
                     return;
                 }
                 let _ = std::fs::create_dir_all(file.parent().unwrap());

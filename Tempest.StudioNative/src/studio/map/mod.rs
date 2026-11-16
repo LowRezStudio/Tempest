@@ -897,6 +897,11 @@ impl MapEditor {
         }
     }
 
+    /// The actors filter, for ⌘F.
+    pub(crate) fn filter_input(&self) -> Entity<InputState> {
+        self.filter.clone()
+    }
+
     pub(crate) fn can_redo(&self) -> bool {
         !self.redone.is_empty()
     }

@@ -26,6 +26,9 @@ mod audio_view;
 mod commands;
 pub mod cooker;
 mod dialogs;
+mod games;
+mod home;
+mod menus;
 mod inspector;
 pub(crate) mod layout;
 mod material;
@@ -57,16 +60,36 @@ pub use commands::Cmd;
 
 const ROW: f32 = 22.0;
 
-actions!(studio, [CompileSource, OpenFile, SaveAs, FindReplace, NewTab, CloseTab, NextTab, PrevTab, Undo, Redo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, GoToPackage, GoToObject, SearchAll, Shortcuts, ShowPackages, ShowAssembly, ShowMod, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond, PageUp, PageDown, ExtendUp, ExtendDown, NextCell, PrevCell, Activate, Cancel, SelectAll, NewRow]);
+actions!(studio, [CompileSource, OpenFile, SaveAs, FindReplace, NewTab, CloseTab, NextTab, PrevTab, Undo, Redo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, GoToPackage, GoToObject, SearchAll, FindInView, Shortcuts, ShowPackages, ShowAssembly, ShowMod, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond, PageUp, PageDown, ExtendUp, ExtendDown, NextCell, PrevCell, Activate, Cancel, SelectAll, NewRow]);
 
 /// The views of the activity bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
+    /// The start page: what to change, the mod, how it works.
+    Home,
     Packages,
     Assembly,
     Audio,
     Mod,
     Map,
+}
+
+impl View {
+    /// Its name for the driver, MCP and the remembered place.
+    pub fn name(self) -> &'static str {
+        match self {
+            View::Home => "home",
+            View::Packages => "packages",
+            View::Assembly => "assembly",
+            View::Audio => "audio",
+            View::Mod => "mod",
+            View::Map => "map",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<View> {
+        [View::Home, View::Packages, View::Assembly, View::Audio, View::Mod, View::Map].into_iter().find(|v| v.name() == name)
+    }
 }
 
 /// Where the user was: what Back/Forward and the tabs return to.
@@ -182,6 +205,10 @@ pub struct Studio {
     pending_anim_pick: Option<(Vec<String>, serde_json::Value, String, String)>,
     /// A recovery file to offer: (path, how long ago).
     recovery_offer: Option<(String, String)>,
+    /// Why the last game folder did not open (shown on the welcome screen).
+    open_error: Option<String>,
+    /// Game folders found on this computer (the Launcher's, Steam's).
+    games: Vec<games::Game>,
     /// The Wwise medium playing.
     ww_playing: Option<u64>,
     /// The Audio view: every .pck of the folder.
@@ -327,6 +354,8 @@ impl Studio {
             tex: None,
             ww_playing: None,
             recovery_offer: None,
+            open_error: None,
+            games: games::find(),
             pending_anim_pick: None,
             open_after: None,
             audio: None,
@@ -446,6 +475,9 @@ impl Studio {
                     remember_workspace(&dir);
                     this.recent = recent_workspaces();
                     this.refilter_packages(cx);
+                    this.open_error = None;
+                    // The start page, unless the last place comes back.
+                    this.view = View::Home;
                     match this.open_after.take().and_then(|f| this.packages.iter().find(|p| std::path::Path::new(&p.path) == std::path::Path::new(&f)).map(|p| p.path.clone())) {
                         Some(p) => {
                             let place = Place::package(p, None);
@@ -462,10 +494,31 @@ impl Studio {
                         this.set_status(format!("{} packages, opened in {ms} ms", this.packages.len()), cx);
                     }
                 }
-                Err(e) => this.toast(Tone::Error, format!("Could not open {dir}: {e}"), cx),
+                Err(e) => {
+                    this.open_error = Some(format!("{}: {e}", folder_label(&dir)));
+                    this.games = games::find();
+                    this.set_status(format!("Could not open {dir}"), cx);
+                    cx.notify();
+                }
             });
         })
         .detach();
+    }
+
+    /// ⌘F: focus the filter of what is on screen (the palette where there is none).
+    fn find_in_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = match self.view {
+            View::Packages if self.open.is_some() => Some(self.export_filter.clone()),
+            View::Packages => Some(self.package_filter.clone()),
+            View::Assembly => self.assembly.as_ref().map(|a| a.read(cx).filter_input()),
+            View::Map => self.map.as_ref().map(|m| m.read(cx).filter_input()),
+            View::Audio => self.audio.as_ref().map(|a| a.filter_input()),
+            View::Home | View::Mod => None,
+        };
+        match input {
+            Some(i) => i.update(cx, |s, cx| s.focus(window, cx)),
+            None => self.open_palette("", window, cx),
+        }
     }
 
     /// The package list: what the filter and the Unsaved switch let through, pinned packages first.
@@ -487,7 +540,10 @@ impl Studio {
             return;
         }
         self.view = view;
+        // The status line spoke of the view left behind.
+        self.status = "".into();
         match view {
+            View::Home => {}
             View::Packages => {
                 if let Some(p) = self.selected_package.clone() {
                     self.record(Place::package(p, self.selected_export));
@@ -980,13 +1036,22 @@ impl Studio {
 
     fn render_activity(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let item = |id: &'static str, icon: IconName, tip: &'static str, active: bool, cx: &mut Context<Self>, f: fn(&mut Studio, &mut Window, &mut Context<Studio>)| {
+        let open = self.dir.is_some();
+        let item = |id: &'static str, icon: IconName, tip: String, active: bool, cx: &mut Context<Self>, f: fn(&mut Studio, &mut Window, &mut Context<Studio>)| {
             div()
                 .relative()
                 .child(Button::new(id).ghost().icon(Icon::new(icon)).tooltip(tip).selected(active).on_click(cx.listener(move |this, _, window, cx| f(this, window, cx))))
                 .child(crate::driver::probe(id))
         };
-        let v = self.view;
+        // The views need a game folder; without one only the welcome screen shows.
+        let view = |id: &'static str, icon: IconName, name: &str, cmd: Cmd, v: View, cx: &mut Context<Self>| {
+            let keys = cmd.info().keys;
+            let tip = if keys.is_empty() { name.to_string() } else { format!("{name} ({})", commands::key_hint(keys)) };
+            div()
+                .relative()
+                .child(Button::new(id).ghost().icon(Icon::new(icon)).tooltip(tip).selected(open && self.view == v).disabled(!open).on_click(cx.listener(move |this, _, window, cx| this.set_view(v, window, cx))))
+                .child(crate::driver::probe(id))
+        };
         v_flex()
             .w(px(44.0))
             .h_full()
@@ -996,15 +1061,17 @@ impl Studio {
             .border_r_1()
             .border_color(theme.title_bar_border)
             .bg(theme.title_bar)
-            .child(item("view-packages", IconName::Package, "Packages: objects, textures, meshes, sounds, scripts (⌘1)", v == View::Packages, cx, |s, w, cx| s.set_view(View::Packages, w, cx)))
-            .child(item("view-assembly", IconName::Database, "Assembly: the game's content tables and texts (⌘2)", v == View::Assembly, cx, |s, w, cx| s.set_view(View::Assembly, w, cx)))
-            .child(item("view-audio", IconName::Volume2, "Audio: the game's Wwise sounds, by event (⌘4)", v == View::Audio, cx, |s, w, cx| s.set_view(View::Audio, w, cx)))
-            .child(item("view-map", IconName::Map, "Maps: a map and its sublevels in 3D, Kismet, Matinee (⌘5)", v == View::Map, cx, |s, w, cx| s.set_view(View::Map, w, cx)))
-            .child(item("view-mod", IconName::Hammer, "Make a mod from your changes (⌘3)", v == View::Mod, cx, |s, w, cx| s.set_view(View::Mod, w, cx)))
+            .child(view("view-home", IconName::House, "Start: what do you want to change?", Cmd::ShowHome, View::Home, cx))
+            .child(view("view-packages", IconName::Package, "Game files: textures, meshes, materials, UI, scripts", Cmd::ShowPackages, View::Packages, cx))
+            .child(view("view-assembly", IconName::Database, "Game data: items, abilities, cards, skins, loot and texts", Cmd::ShowAssembly, View::Assembly, cx))
+            .child(view("view-audio", IconName::Volume2, "Sounds: voice lines, music and effects", Cmd::ShowAudio, View::Audio, cx))
+            .child(view("view-map", IconName::Map, "Maps: in 3D, with their scripts and cutscenes", Cmd::ShowMap, View::Map, cx))
+            .child(div().w(px(24.0)).h(px(1.0)).my_1().bg(theme.border))
+            .child(view("view-mod", IconName::Hammer, "Build mod: what your changes become", Cmd::ShowMod, View::Mod, cx))
             .child(div().flex_1())
-            .child(item("view-search", IconName::Search, "Search every package (⌘⇧F)", false, cx, |s, w, cx| s.open_palette("#", w, cx)))
-            .child(item("view-shortcuts", IconName::Keyboard, "Keyboard shortcuts (F1)", false, cx, |s, w, cx| s.show_shortcuts(w, cx)))
-            .child(item("view-settings", IconName::Settings, "Settings (⌘,)", false, cx, |s, w, cx| s.show_settings(w, cx)))
+            .child(item("view-search", IconName::Search, format!("Search every package ({})", commands::key_hint("⌘⇧F")), false, cx, |s, w, cx| s.open_palette("#", w, cx)))
+            .child(item("view-shortcuts", IconName::Keyboard, "Keyboard shortcuts (F1)".into(), false, cx, |s, w, cx| s.show_shortcuts(w, cx)))
+            .child(item("view-settings", IconName::Settings, format!("Settings ({})", commands::key_hint("⌘,")), false, cx, |s, w, cx| s.show_settings(w, cx)))
     }
 
     fn render_status(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1061,6 +1128,7 @@ impl Render for Studio {
             self.render_welcome(cx).into_any_element()
         } else {
             match self.view {
+                View::Home => self.render_home(cx).into_any_element(),
                 View::Packages => self.render_packages_view(window, cx).into_any_element(),
                 View::Assembly => match self.assembly.clone() {
                     Some(a) => a.into_any_element(),
@@ -1275,6 +1343,7 @@ pub fn open_urls(urls: Vec<String>, cx: &mut App) {
 
 pub fn init(cx: &mut App) {
     commands::bind_keys(cx);
+    menus::set(cx);
     let prefs = prefs::Prefs::load();
     prefs::theme_mode(&prefs.theme, None, cx);
     crate::game_material::set_sm3(prefs.sm3);

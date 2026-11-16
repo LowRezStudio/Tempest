@@ -1467,6 +1467,11 @@ impl Assembly {
         }
     }
 
+    /// The rows filter, for ⌘F.
+    pub(crate) fn filter_input(&self) -> Entity<InputState> {
+        self.filter.clone()
+    }
+
     /// Write the files with changes into the game folder, after asking (for quick tests; a mod does not need it).
     pub fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let dirty: Vec<(String, String)> = self.docs.iter().filter(|d| d.dirty).map(|d| (d.id.clone(), d.path.clone())).collect();

@@ -31,6 +31,13 @@ impl AudioBrowser {
     }
 }
 
+impl AudioBrowser {
+    /// The events filter once a sound file is open, else the files filter (⌘F).
+    pub(super) fn filter_input(&self) -> Entity<InputState> {
+        if self.open.is_some() { self.events_filter.clone() } else { self.filter.clone() }
+    }
+}
+
 impl Studio {
     pub(super) fn audio_browser(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.audio.is_some() {

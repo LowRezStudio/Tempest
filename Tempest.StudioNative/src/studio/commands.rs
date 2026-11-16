@@ -26,8 +26,10 @@ pub enum Cmd {
     GoToPackage,
     GoToObject,
     SearchAll,
+    FindInView,
     NewTab,
     CloseTab,
+    ShowHome,
     ShowPackages,
     ShowAssembly,
     ShowMod,
@@ -118,8 +120,10 @@ impl Cmd {
         Cmd::GoToPackage,
         Cmd::GoToObject,
         Cmd::SearchAll,
+        Cmd::FindInView,
         Cmd::NewTab,
         Cmd::CloseTab,
+        Cmd::ShowHome,
         Cmd::ShowPackages,
         Cmd::ShowAssembly,
         Cmd::ShowMod,
@@ -201,9 +205,11 @@ impl Cmd {
             Cmd::Commands => i("Commands…", "Go", "⌘K", ""),
             Cmd::GoToPackage => i("Go to a package or table…", "Go", "⌘P", "a package by name, or a table of the assembly files"),
             Cmd::GoToObject => i("Go to an object or row…", "Go", "⌘⇧O", "an object of the open package; in the Assembly view, the rows containing a text"),
-            Cmd::SearchAll => i("Search every package…", "Go", "⌘F", "objects by name, in every package of the folder"),
+            Cmd::SearchAll => i("Search every package…", "Go", "⌘⇧F", "objects by name, in every package of the folder"),
+            Cmd::FindInView => i("Find in this view", "Go", "⌘F", "the filter of what is on screen: the package's objects, the table's rows, the map's actors, the sound events"),
             Cmd::NewTab => i("New tab", "Go", "⌘T", "a copy of this tab"),
             Cmd::CloseTab => i("Close the tab", "Go", "⌘W", ""),
+            Cmd::ShowHome => i("Show the start page", "View", "", "what do you want to change: champions' looks, stats, sounds, maps, menus, something new"),
             Cmd::ShowPackages => i("Show the game files", "View", "⌘1", "every package: textures, meshes, materials, sounds, UI, scripts"),
             Cmd::ShowAssembly => i("Show the game data", "View", "⌘2", "the content tables (items, abilities, cards, skins, loot…) and the game's texts"),
             Cmd::ShowMod => i("Build mod", "View", "⌘3", "what your changes become: details, build, install, publish"),
@@ -292,7 +298,7 @@ impl Cmd {
             // There it filters the rows of the table on screen.
             Cmd::GoToObject if s.view == View::Assembly => s.assembly.is_some(),
             Cmd::MapAddActor | Cmd::MapCollision | Cmd::MapBakeLighting | Cmd::MapNewMatinee | Cmd::MapOpenMatinee | Cmd::MapMatineeKey => s.view == View::Map && s.map.is_some(),
-            Cmd::ShowMap => s.dir.is_some(),
+            Cmd::ShowMap | Cmd::ShowHome | Cmd::ShowPackages | Cmd::ShowAssembly | Cmd::ShowMod => s.dir.is_some(),
             Cmd::Rename | Cmd::CopyPath | Cmd::Duplicate | Cmd::CopyTo | Cmd::Delete | Cmd::ExportObject | Cmd::ReplaceObject | Cmd::ReplaceWith | Cmd::ExtractRaw => object,
             Cmd::AddObject | Cmd::AddGroup | Cmd::FindReplace | Cmd::Verify | Cmd::SaveAs | Cmd::GoToObject | Cmd::Rewrite | Cmd::PackageInfo => s.open.is_some(),
             Cmd::ExportSources => s.open.as_ref().is_some_and(|t| s.packages.iter().any(|p| p.path == t.path && p.script)),
@@ -394,8 +400,10 @@ impl Studio {
             Cmd::GoToPackage => self.open_palette("", window, cx),
             Cmd::GoToObject => self.open_palette("@", window, cx),
             Cmd::SearchAll => self.open_palette("#", window, cx),
+            Cmd::FindInView => self.find_in_view(window, cx),
             Cmd::NewTab => self.new_tab(None, cx),
             Cmd::CloseTab => self.close_tab(self.active_tab, cx),
+            Cmd::ShowHome => self.set_view(View::Home, window, cx),
             Cmd::ShowPackages => self.set_view(View::Packages, window, cx),
             Cmd::ShowAssembly => self.set_view(View::Assembly, window, cx),
             Cmd::ShowMod => self.set_view(View::Mod, window, cx),
@@ -536,13 +544,7 @@ impl Studio {
                 self.run(c, window, cx);
             }
             "view" => {
-                let v = match arg {
-                    "assembly" => View::Assembly,
-                    "mod" => View::Mod,
-                    "audio" => View::Audio,
-                    "map" => View::Map,
-                    _ => View::Packages,
-                };
+                let v = View::from_name(arg).unwrap_or(View::Packages);
                 self.set_view(v, window, cx);
             }
             "tab" => {
@@ -652,6 +654,11 @@ impl Studio {
 
     pub(super) fn bind_actions(&mut self, root: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
         root.on_action(cx.listener(Self::undo))
+            .on_action(cx.listener(|this, a: &super::menus::RunCmd, window, cx| {
+                if let Some(c) = Cmd::ALL.get(a.index) {
+                    this.run(*c, window, cx);
+                }
+            }))
             .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(|this, _: &NewTab, _, cx| this.new_tab(None, cx)))
@@ -670,6 +677,7 @@ impl Studio {
             .on_action(cx.listener(|this, _: &GoToPackage, window, cx| this.run(Cmd::GoToPackage, window, cx)))
             .on_action(cx.listener(|this, _: &GoToObject, window, cx| this.run(Cmd::GoToObject, window, cx)))
             .on_action(cx.listener(|this, _: &SearchAll, window, cx| this.run(Cmd::SearchAll, window, cx)))
+            .on_action(cx.listener(|this, _: &FindInView, window, cx| this.run(Cmd::FindInView, window, cx)))
             .on_action(cx.listener(|this, _: &Shortcuts, window, cx| this.run(Cmd::Shortcuts, window, cx)))
             .on_action(cx.listener(|this, _: &Settings, window, cx| this.run(Cmd::Settings, window, cx)))
             .on_action(cx.listener(|this, _: &Create, window, cx| this.run(Cmd::Create, window, cx)))
@@ -710,6 +718,7 @@ pub fn bind_keys(cx: &mut App) {
     let m = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
     let k = |keys: &str| -> &'static str { Box::leak(keys.replace("mod", m).into_boxed_str()) };
     cx.bind_keys([
+        KeyBinding::new(k("mod-q"), super::menus::Quit, None),
         KeyBinding::new(k("mod-z"), Undo, Some("Studio")),
         KeyBinding::new(k("mod-shift-z"), Redo, Some("Studio")),
         KeyBinding::new(k("mod-s"), Save, Some("Studio")),
@@ -718,7 +727,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new(k("mod-p"), GoToPackage, Some("Studio")),
         KeyBinding::new(k("mod-shift-o"), GoToObject, Some("Studio")),
         KeyBinding::new(k("mod-shift-f"), SearchAll, Some("Studio")),
-        KeyBinding::new(k("mod-f"), SearchAll, Some("Studio")),
+        KeyBinding::new(k("mod-f"), FindInView, Some("Studio")),
         KeyBinding::new(k("mod-o"), OpenFile, Some("Studio")),
         KeyBinding::new(k("mod-shift-s"), SaveAs, Some("Studio")),
 
