@@ -30,6 +30,7 @@ pub enum Cmd {
     NewTab,
     CloseTab,
     ShowHome,
+    ShowChampions,
     ShowPackages,
     ShowAssembly,
     ShowMod,
@@ -124,6 +125,7 @@ impl Cmd {
         Cmd::NewTab,
         Cmd::CloseTab,
         Cmd::ShowHome,
+        Cmd::ShowChampions,
         Cmd::ShowPackages,
         Cmd::ShowAssembly,
         Cmd::ShowMod,
@@ -210,9 +212,10 @@ impl Cmd {
             Cmd::NewTab => i("New tab", "Go", "⌘T", "a copy of this tab"),
             Cmd::CloseTab => i("Close the tab", "Go", "⌘W", ""),
             Cmd::ShowHome => i("Show the start page", "View", "", "what do you want to change: champions' looks, stats, sounds, maps, menus, something new"),
-            Cmd::ShowPackages => i("Show the game files", "View", "⌘1", "every package: textures, meshes, materials, sounds, UI, scripts"),
-            Cmd::ShowAssembly => i("Show the game data", "View", "⌘2", "the content tables (items, abilities, cards, skins, loot…) and the game's texts"),
-            Cmd::ShowMod => i("Build mod", "View", "⌘3", "what your changes become: details, build, install, publish"),
+            Cmd::ShowChampions => i("Show the champions", "View", "⌘1", "each champion's skins, abilities, cards, talents and game files"),
+            Cmd::ShowPackages => i("Show the game files", "View", "⌘2", "every package: textures, meshes, materials, sounds, UI, scripts"),
+            Cmd::ShowAssembly => i("Show the game data", "View", "⌘3", "the content tables (items, abilities, cards, skins, loot…) and the game's texts"),
+            Cmd::ShowMod => i("Build mod", "View", "⌘6", "what your changes become: details, build, install, publish"),
             Cmd::ShowMap => i("Show the maps", "View", "⌘5", "a map in 3D with its scripts (Kismet) and cutscenes (Matinee)"),
             Cmd::MapAddActor => i("Add an actor to the map…", "Map", "⇧A", "a copy of an actor of any level, a new one of a class, or a mesh, where the view looks"),
             Cmd::MapCollision => i("Show collision in the map", "Map", "", "volumes' convex hulls and meshes' simple or complex collision, by what they block"),
@@ -298,7 +301,7 @@ impl Cmd {
             // There it filters the rows of the table on screen.
             Cmd::GoToObject if s.view == View::Assembly => s.assembly.is_some(),
             Cmd::MapAddActor | Cmd::MapCollision | Cmd::MapBakeLighting | Cmd::MapNewMatinee | Cmd::MapOpenMatinee | Cmd::MapMatineeKey => s.view == View::Map && s.map.is_some(),
-            Cmd::ShowMap | Cmd::ShowHome | Cmd::ShowPackages | Cmd::ShowAssembly | Cmd::ShowMod => s.dir.is_some(),
+            Cmd::ShowMap | Cmd::ShowHome | Cmd::ShowChampions | Cmd::ShowPackages | Cmd::ShowAssembly | Cmd::ShowMod => s.dir.is_some(),
             Cmd::Rename | Cmd::CopyPath | Cmd::Duplicate | Cmd::CopyTo | Cmd::Delete | Cmd::ExportObject | Cmd::ReplaceObject | Cmd::ReplaceWith | Cmd::ExtractRaw => object,
             Cmd::AddObject | Cmd::AddGroup | Cmd::FindReplace | Cmd::Verify | Cmd::SaveAs | Cmd::GoToObject | Cmd::Rewrite | Cmd::PackageInfo => s.open.is_some(),
             Cmd::ExportSources => s.open.as_ref().is_some_and(|t| s.packages.iter().any(|p| p.path == t.path && p.script)),
@@ -404,6 +407,7 @@ impl Studio {
             Cmd::NewTab => self.new_tab(None, cx),
             Cmd::CloseTab => self.close_tab(self.active_tab, cx),
             Cmd::ShowHome => self.set_view(View::Home, window, cx),
+            Cmd::ShowChampions => self.set_view(View::Champions, window, cx),
             Cmd::ShowPackages => self.set_view(View::Packages, window, cx),
             Cmd::ShowAssembly => self.set_view(View::Assembly, window, cx),
             Cmd::ShowMod => self.set_view(View::Mod, window, cx),
@@ -688,6 +692,8 @@ impl Studio {
             .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom_by(-0.1, cx)))
             .on_action(cx.listener(|this, _: &ZoomReset, _, cx| this.zoom_by(0.0, cx)))
             .on_action(cx.listener(|this, _: &CopyPath, window, cx| this.run(Cmd::CopyPath, window, cx)))
+            .on_action(cx.listener(|this, _: &ShowHome, window, cx| this.set_view(View::Home, window, cx)))
+            .on_action(cx.listener(|this, _: &ShowChampions, window, cx| this.set_view(View::Champions, window, cx)))
             .on_action(cx.listener(|this, _: &ShowPackages, window, cx| this.set_view(View::Packages, window, cx)))
             .on_action(cx.listener(|this, _: &ShowAssembly, window, cx| this.set_view(View::Assembly, window, cx)))
             .on_action(cx.listener(|this, _: &ShowMod, window, cx| this.set_view(View::Mod, window, cx)))
@@ -733,9 +739,10 @@ pub fn bind_keys(cx: &mut App) {
 
         KeyBinding::new(k("mod-t"), NewTab, Some("Studio")),
         KeyBinding::new(k("mod-w"), CloseTab, Some("Studio")),
-        KeyBinding::new(k("mod-1"), ShowPackages, Some("Studio")),
-        KeyBinding::new(k("mod-2"), ShowAssembly, Some("Studio")),
-        KeyBinding::new(k("mod-3"), ShowMod, Some("Studio")),
+        KeyBinding::new(k("mod-1"), ShowChampions, Some("Studio")),
+        KeyBinding::new(k("mod-2"), ShowPackages, Some("Studio")),
+        KeyBinding::new(k("mod-3"), ShowAssembly, Some("Studio")),
+        KeyBinding::new(k("mod-6"), ShowMod, Some("Studio")),
         KeyBinding::new(k("mod-4"), ShowAudio, Some("Studio")),
         KeyBinding::new(k("mod-5"), ShowMap, Some("Studio")),
         KeyBinding::new(k("mod-d"), Duplicate, Some("Exports")),

@@ -28,6 +28,7 @@ pub mod cooker;
 mod dialogs;
 mod games;
 mod home;
+mod champions;
 mod menus;
 mod inspector;
 pub(crate) mod layout;
@@ -60,13 +61,15 @@ pub use commands::Cmd;
 
 const ROW: f32 = 22.0;
 
-actions!(studio, [CompileSource, OpenFile, SaveAs, FindReplace, NewTab, CloseTab, NextTab, PrevTab, Undo, Redo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, GoToPackage, GoToObject, SearchAll, FindInView, Shortcuts, ShowPackages, ShowAssembly, ShowMod, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond, PageUp, PageDown, ExtendUp, ExtendDown, NextCell, PrevCell, Activate, Cancel, SelectAll, NewRow]);
+actions!(studio, [CompileSource, OpenFile, SaveAs, FindReplace, NewTab, CloseTab, NextTab, PrevTab, Undo, Redo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, GoToPackage, GoToObject, SearchAll, FindInView, Shortcuts, ShowHome, ShowChampions, ShowPackages, ShowAssembly, ShowMod, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond, PageUp, PageDown, ExtendUp, ExtendDown, NextCell, PrevCell, Activate, Cancel, SelectAll, NewRow]);
 
 /// The views of the activity bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
     /// The start page: what to change, the mod, how it works.
     Home,
+    /// The champions, and for one everything a mod changes about them.
+    Champions,
     Packages,
     Assembly,
     Audio,
@@ -79,6 +82,7 @@ impl View {
     pub fn name(self) -> &'static str {
         match self {
             View::Home => "home",
+            View::Champions => "champions",
             View::Packages => "packages",
             View::Assembly => "assembly",
             View::Audio => "audio",
@@ -88,7 +92,7 @@ impl View {
     }
 
     pub fn from_name(name: &str) -> Option<View> {
-        [View::Home, View::Packages, View::Assembly, View::Audio, View::Mod, View::Map].into_iter().find(|v| v.name() == name)
+        [View::Home, View::Champions, View::Packages, View::Assembly, View::Audio, View::Mod, View::Map].into_iter().find(|v| v.name() == name)
     }
 }
 
@@ -209,6 +213,8 @@ pub struct Studio {
     open_error: Option<String>,
     /// Game folders found on this computer (the Launcher's, Steam's).
     games: Vec<games::Game>,
+    /// The Champions view's state, made when it first shows.
+    champions: Option<champions::Champions>,
     /// The Wwise medium playing.
     ww_playing: Option<u64>,
     /// The Audio view: every .pck of the folder.
@@ -356,6 +362,7 @@ impl Studio {
             recovery_offer: None,
             open_error: None,
             games: games::find(),
+            champions: None,
             pending_anim_pick: None,
             open_after: None,
             audio: None,
@@ -513,6 +520,7 @@ impl Studio {
             View::Assembly => self.assembly.as_ref().map(|a| a.read(cx).filter_input()),
             View::Map => self.map.as_ref().map(|m| m.read(cx).filter_input()),
             View::Audio => self.audio.as_ref().map(|a| a.filter_input()),
+            View::Champions => self.champions.as_ref().map(|c| c.filter_input()),
             View::Home | View::Mod => None,
         };
         match input {
@@ -524,9 +532,11 @@ impl Studio {
     /// The package list: what the filter and the Unsaved switch let through, pinned packages first.
     pub(crate) fn refilter_packages(&mut self, cx: &mut Context<Self>) {
         let f = self.package_filter.read(cx).value().to_ascii_lowercase();
+        // "bomb king" finds BOMBKING_ASSETS_SF: spaces and punctuation are left out.
+        let squeezed = champions::prefix(&f);
         let pinned = self.pinned();
         let mut shown: Vec<usize> = (0..self.packages.len())
-            .filter(|&i| f.is_empty() || self.packages[i].name.to_ascii_lowercase().contains(&f))
+            .filter(|&i| f.is_empty() || self.packages[i].name.to_ascii_lowercase().contains(&f) || (!squeezed.is_empty() && champions::prefix(&self.packages[i].name).contains(&squeezed)))
             .filter(|&i| !self.unsaved_only || self.dirty.contains(&self.packages[i].path))
             .collect();
         // Stable: the backend's order within each part.
@@ -543,7 +553,7 @@ impl Studio {
         // The status line spoke of the view left behind.
         self.status = "".into();
         match view {
-            View::Home => {}
+            View::Home | View::Champions => {}
             View::Packages => {
                 if let Some(p) = self.selected_package.clone() {
                     self.record(Place::package(p, self.selected_export));
@@ -1031,7 +1041,7 @@ impl Studio {
                     .child(crate::driver::probe("unsaved")),
                 )
             })
-            .when(self.dir.is_some(), |d| d.child(Button::new("build").small().primary().icon(Icon::new(IconName::Hammer)).label("Build mod").tooltip(format!("Turn your changes into a mod you can install and share ({})", commands::key_hint("⌘3"))).on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx)))))
+            .when(self.dir.is_some(), |d| d.child(Button::new("build").small().primary().icon(Icon::new(IconName::Hammer)).label("Build mod").tooltip(format!("Turn your changes into a mod you can install and share ({})", commands::key_hint("⌘6"))).on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx)))))
     }
 
     fn render_activity(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1062,6 +1072,7 @@ impl Studio {
             .border_color(theme.title_bar_border)
             .bg(theme.title_bar)
             .child(view("view-home", IconName::House, "Start: what do you want to change?", Cmd::ShowHome, View::Home, cx))
+            .child(view("view-champions", IconName::Users, "Champions: skins, abilities, cards and game files of each", Cmd::ShowChampions, View::Champions, cx))
             .child(view("view-packages", IconName::Package, "Game files: textures, meshes, materials, UI, scripts", Cmd::ShowPackages, View::Packages, cx))
             .child(view("view-assembly", IconName::Database, "Game data: items, abilities, cards, skins, loot and texts", Cmd::ShowAssembly, View::Assembly, cx))
             .child(view("view-audio", IconName::Volume2, "Sounds: voice lines, music and effects", Cmd::ShowAudio, View::Audio, cx))
@@ -1129,6 +1140,7 @@ impl Render for Studio {
         } else {
             match self.view {
                 View::Home => self.render_home(cx).into_any_element(),
+                View::Champions => self.render_champions(window, cx),
                 View::Packages => self.render_packages_view(window, cx).into_any_element(),
                 View::Assembly => match self.assembly.clone() {
                     Some(a) => a.into_any_element(),

@@ -452,6 +452,8 @@ impl Studio {
                 let selected = self.selected_package.as_deref() == Some(p.path.as_str());
                 let path = p.path.clone();
                 let badge = if p.map { "map" } else if p.script { "script" } else { "" };
+                // A champion's package says whose it is and what it holds.
+                let whose = self.champions.as_ref().and_then(|c| c.by_prefix().find_map(|(pre, ch)| super::champions::package_role(&p.name, &pre).map(|role| format!("{} · {role}", ch.name))));
                 let menu_path = path.clone();
                 let me = cx.entity();
                 h_flex()
@@ -475,6 +477,7 @@ impl Studio {
                         })
                     })
                     .on_mouse_down(gpui::MouseButton::Middle, cx.listener(move |this, _, _, cx| this.new_tab(Some(Place::package(path.clone(), None)), cx)))
+                    .when_some(whose, |d, t| d.tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(t.clone()).build(window, cx)))
                     .when(pinned.contains(&p.path), |d| d.child(Icon::new(IconName::Pin).xsmall().text_color(theme.muted_foreground)))
                     .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(p.name.clone()))
                     .when(self.dirty.contains(&p.path), |d| d.child(div().size(px(6.0)).rounded_full().bg(theme.warning)))

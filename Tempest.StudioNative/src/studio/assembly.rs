@@ -281,6 +281,8 @@ pub struct Assembly {
     filter_text: String,
     filter_task: Option<Task<()>>,
     table_filter: Entity<InputState>,
+    /// Files whose header fields are shown in the side list (folded by default).
+    headers_open: HashSet<String>,
     sort: Option<(String, bool)>,
     selected: Option<usize>,
     /// The cell cursor's column (its row is the selected one).
@@ -383,6 +385,7 @@ impl Assembly {
             filter_text: String::new(),
             filter_task: None,
             table_filter,
+            headers_open: HashSet::new(),
             sort: None,
             selected: None,
             col: None,
@@ -1684,7 +1687,7 @@ impl Assembly {
     }
 
     fn name_column(&self) -> Option<String> {
-        ["REFERENCE_NAME", "NAME", "MESSAGE"].into_iter().find(|n| self.columns.iter().any(|c| c.name == *n)).map(str::to_string)
+        ["REFERENCE_NAME", "NAME", "MESSAGE", "NAME_MSG_ID"].into_iter().find(|n| self.columns.iter().any(|c| c.name == *n)).map(str::to_string)
     }
 
     /// The id and name columns, pinned at the left of the grid.

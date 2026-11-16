@@ -18,7 +18,7 @@ struct Task {
 }
 
 const TASKS: [Task; 6] = [
-    Task { id: "task-look", icon: IconName::Shirt, title: "Change a champion's look", detail: "Skins, weapons and models: swap textures, materials and meshes.", go: |s, w, cx| s.open_palette("_assets_sf", w, cx) },
+    Task { id: "task-look", icon: IconName::Shirt, title: "Change a champion's look", detail: "Skins, weapons and models: swap textures, materials and meshes.", go: |s, w, cx| s.set_view(View::Champions, w, cx) },
     Task { id: "task-data", icon: IconName::SlidersHorizontal, title: "Change stats, cards and items", detail: "Damage, cooldowns, talents, loadout cards, prices, loot.", go: |s, w, cx| s.set_view(View::Assembly, w, cx) },
     Task { id: "task-sound", icon: IconName::AudioLines, title: "Replace voice lines, music and sounds", detail: "Listen to every sound of the game and swap in your own.", go: |s, w, cx| s.set_view(View::Audio, w, cx) },
     Task { id: "task-map", icon: IconName::Map, title: "Edit a map", detail: "Move props, change lighting, collision, paths and cutscenes.", go: |s, w, cx| s.set_view(View::Map, w, cx) },
@@ -44,7 +44,7 @@ impl Studio {
                     .cursor_pointer()
                     .hover(|s| s.bg(theme.list_hover))
                     .on_click(cx.listener(move |this, _, window, cx| go(this, window, cx)))
-                    .child(div().flex_none().size(px(36.0)).rounded_md().bg(tones[k].opacity(0.14)).flex().items_center().justify_center().child(Icon::new(t.icon.clone()).text_color(tones[k])))
+                    .child(div().flex_none().size(px(36.0)).rounded_md().bg(tones[k].opacity(0.14)).flex().items_center().justify_center().child(Icon::new(t.icon).text_color(tones[k])))
                     .child(v_flex().flex_1().min_w_0().child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(t.title)).child(div().text_xs().text_color(theme.muted_foreground).child(t.detail)))
                     .child(Icon::new(IconName::ChevronRight).small().text_color(theme.muted_foreground))
                     .child(crate::driver::probe(t.id)),

@@ -9,6 +9,38 @@ use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable};
 use gpui_kit_assets::IconName;
 
 use super::{header_text, short, Assembly, Edit};
+
+/// What a table holds, in words, for the side list (`DATA_SET_ITEMS` → `Items`).
+pub fn friendly_table(name: &str) -> Option<&'static str> {
+    Some(match name.strip_prefix("DATA_SET_").unwrap_or(name) {
+        "ITEMS" => "Items",
+        "ITEM_CHILDREN" => "Item contents",
+        "DEVICES" => "Abilities, cards and talents",
+        "SKINS" => "Skins",
+        "BOTS" => "Champions and bots",
+        "BOT_SPAWN_TABLES" => "Bot spawns",
+        "BOT_BEHAVIORS" => "Bot behaviors",
+        "PROJECTILES" => "Projectiles",
+        "DEPLOYABLES" => "Deployables",
+        "SPECIAL_FX" => "Visual effects",
+        "EFFECT_GROUPS" => "Effect groups",
+        "RESOURCES" => "Resources (asset paths)",
+        "ICONS" => "Icons",
+        "VALID_VALUES" => "Value names",
+        "TIPS" => "Loading tips",
+        "PROPERTIES" => "Properties",
+        "MAT_RES_GROUPS" => "Material groups",
+        "LOOT_TABLES" => "Loot tables and vendors",
+        "LOOT_TABLE_GROUPS" => "Loot table groups",
+        "XP_TABLES" => "Experience",
+        "LANGUAGES" => "Languages",
+        "VGS" => "Quick chat",
+        "VOX_CHATTER" => "Voice chatter",
+        "ASSEMBLY_MESHES" => "Meshes",
+        "MESSAGES" | "DATA_SET" => "Texts",
+        _ => return None,
+    })
+}
 use crate::studio::Place;
 
 impl Assembly {
@@ -68,7 +100,9 @@ impl Assembly {
         let me = cx.entity();
         let mut list = v_flex();
         for d in &self.docs {
-            let tip = d.path.clone();
+            let tip = format!("{} (click to show or hide its header fields)", d.path);
+            let open = self.headers_open.contains(&d.id);
+            let id = d.id.clone();
             list = list.child(
                 h_flex()
                     .id(SharedString::from(format!("doc-{}", d.id)))
@@ -78,15 +112,23 @@ impl Assembly {
                     .text_xs()
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .bg(theme.secondary.opacity(0.6))
+                    .cursor_pointer()
                     .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.headers_open.remove(&id) {
+                            this.headers_open.insert(id.clone());
+                        }
+                        cx.notify();
+                    }))
+                    .child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronRight }).size_3().text_color(muted))
                     .child(Icon::new(if d.id == "assembly" { IconName::Database } else { IconName::FileText }).size_3().text_color(muted))
                     .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(d.label()))
                     .when(d.dirty, |e| e.child(div().size(px(6.0)).flex_none().rounded_full().bg(theme.warning)))
                     .child(div().flex_1())
                     .child(div().flex_none().font_family(mono.clone()).font_weight(gpui::FontWeight::NORMAL).text_color(muted.opacity(0.7)).child(d.function.clone())),
             );
-            // The header fields (hidden while the tables are filtered).
-            if f.is_empty() {
+            // The header fields, when unfolded (hidden while the tables are filtered).
+            if f.is_empty() && open {
                 for (k, (field, value)) in d.header.iter().enumerate() {
                     let shown = header_text(field, value);
                     let editing = matches!(&self.edit, Some(Edit::Header { doc, field: fl }) if doc == &d.id && fl == field);
@@ -136,7 +178,8 @@ impl Assembly {
                 }
             }
             for (k, t) in d.tables.iter().enumerate() {
-                if !f.is_empty() && !t.name.to_ascii_lowercase().contains(&f) {
+                let friendly = friendly_table(&t.name);
+                if !f.is_empty() && !t.name.to_ascii_lowercase().contains(&f) && !friendly.is_some_and(|n| n.to_ascii_lowercase().contains(&f)) {
                     continue;
                 }
                 let active = self.doc.as_deref() == Some(d.id.as_str()) && self.table.as_deref() == Some(t.name.as_str()) && self.path.is_empty();
@@ -167,7 +210,10 @@ impl Assembly {
                             }
                         }))
                         .on_mouse_down(MouseButton::Middle, cx.listener(move |this, _: &MouseDownEvent, _, cx| this.open_in_tab(Place::Assembly { file: doc2.clone(), path: Vec::new(), table: Some(table2.clone()), row: None }, cx)))
-                        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(mono.clone()).child(short(&t.name).to_string()))
+                        .child(match friendly {
+                            Some(n) => h_flex().flex_1().min_w_0().gap_1p5().overflow_hidden().child(div().flex_none().text_sm().child(n)).child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(mono.clone()).text_color(muted.opacity(0.7)).child(short(&t.name).to_string())),
+                            None => h_flex().flex_1().min_w_0().overflow_hidden().child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(mono.clone()).child(short(&t.name).to_string())),
+                        })
                         .child(div().flex_none().font_family(mono.clone()).text_color(muted.opacity(0.7)).child(t.rows.to_string()))
                         .child(crate::driver::probe(probe))
                         .context_menu(move |menu, _, cx| me.update(cx, |this, cx| this.table_menu(doc3.clone(), table3.clone(), path3.clone(), menu, cx))),

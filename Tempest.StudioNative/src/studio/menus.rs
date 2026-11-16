@@ -38,6 +38,8 @@ impl Cmd {
             Cmd::GoToObject => Box::new(GoToObject),
             Cmd::SearchAll => Box::new(SearchAll),
             Cmd::Shortcuts => Box::new(Shortcuts),
+            Cmd::ShowHome => Box::new(ShowHome),
+            Cmd::ShowChampions => Box::new(ShowChampions),
             Cmd::ShowPackages => Box::new(ShowPackages),
             Cmd::ShowAssembly => Box::new(ShowAssembly),
             Cmd::ShowMod => Box::new(ShowMod),
