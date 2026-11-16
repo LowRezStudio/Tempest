@@ -433,6 +433,7 @@ impl Studio {
     /// A notification (shown at the next frame) and the status line.
     pub(crate) fn toast(&mut self, tone: Tone, text: impl Into<String>, cx: &mut Context<Self>) {
         let text = text.into();
+        let text = if matches!(tone, Tone::Error) { ui::explain_error(&text) } else { text };
         self.status = text.clone().into();
         self.toasts.push((tone, text));
         cx.notify();

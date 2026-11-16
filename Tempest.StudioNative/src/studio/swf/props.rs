@@ -126,7 +126,7 @@ impl MovieEditor {
                 }
             })))
             .when(!compact, |d| {
-                d.child(Button::new(("img-dds", id)).xsmall().ghost().icon(Icon::new(IconName::Download)).label("DDS").disabled(missing).on_click(cx.listener(move |this, _, _, cx| {
+                d.child(Button::new(("img-dds", id)).xsmall().ghost().icon(Icon::new(IconName::Download)).label("DDS").disabled(missing).when(missing, |b| b.tooltip("This image is not in the package")).on_click(cx.listener(move |this, _, _, cx| {
                     if let Some(t) = texture {
                         this.export_image(t, &i3, "dds", cx);
                     }

@@ -211,9 +211,10 @@ impl Studio {
                     .rounded_md()
                     .hover(|s| s.bg(theme.list_hover))
                     .child(Button::new(("am-play", k)).xsmall().when(now, |b| b.primary()).label(if now { "Stop" } else { "Play" }).on_click(cx.listener(move |this, _, _, cx| this.wwise_play_in(p1.clone(), id, cx))))
-                    .child(v_flex().flex_1().min_w_0().child(div().text_sm().font_family(crate::studio::ui::mono()).child(id.to_string())).child(div().text_xs().text_color(theme.muted_foreground).child(format!(
-                        "{:.2} s · {} ch · {} Hz · {}{}",
-                        m["duration"].as_f64().unwrap_or(0.0),
+                    // Sounds have no names, only ids: their length tells them apart.
+                    .child(v_flex().flex_1().min_w_0().child(div().text_sm().child(format!("Sound {} · {:.2} s", k + 1, m["duration"].as_f64().unwrap_or(0.0)))).child(div().text_xs().text_color(theme.muted_foreground).child(format!(
+                        "id {} · {} ch · {} Hz · {}{}",
+                        id,
                         m["channels"],
                         m["sampleRate"],
                         crate::model::human_size(m["bytes"].as_u64().unwrap_or(0)),

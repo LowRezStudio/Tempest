@@ -325,7 +325,7 @@ impl Studio {
                     .rounded_md()
                     .border_1()
                     .border_color(theme.border)
-                    .child(h_flex().gap_2().child(Button::new("trim").xsmall().label("Trim to the selection").disabled(!has_sel || s.edited.is_some()).on_click(cx.listener(|this, _, _, cx| this.edit_sound(|s| s.edits.trim = s.selection, cx)))).child(div().text_xs().text_color(theme.muted_foreground).child(trimmed)))
+                    .child(h_flex().gap_2().child(Button::new("trim").xsmall().label("Trim to the selection").disabled(!has_sel || s.edited.is_some()).when(!has_sel, |b| b.tooltip("Drag over the waveform to select part of the sound first")).on_click(cx.listener(|this, _, _, cx| this.edit_sound(|s| s.edits.trim = s.selection, cx)))).child(div().text_xs().text_color(theme.muted_foreground).child(trimmed)))
                     .child(h_flex().gap_4().flex_wrap().child(stepper("fade-in", format!("fade in {:.2} s", e.fade_in), Box::new(|s| s.edits.fade_in = (s.edits.fade_in - 0.05).max(0.0)), Box::new(|s| s.edits.fade_in += 0.05), cx)).child(stepper("fade-out", format!("fade out {:.2} s", e.fade_out), Box::new(|s| s.edits.fade_out = (s.edits.fade_out - 0.05).max(0.0)), Box::new(|s| s.edits.fade_out += 0.05), cx)).child(stepper("gain", format!("gain {gain_db:+.0} dB"), Box::new(|s| s.edits.gain /= 10f32.powf(0.05)), Box::new(|s| s.edits.gain *= 10f32.powf(0.05)), cx)))
                     .child(
                         h_flex()

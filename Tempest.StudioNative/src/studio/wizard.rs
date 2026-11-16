@@ -710,7 +710,7 @@ impl Wizard {
                     }
                     match r {
                         Ok(r) => {
-                            this.results = r.json.as_array().into_iter().flatten().map(|c| Choice { label: c["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| format!("#{}", c["id"])), detail: format!("{} · id {}", c["detail"].as_str().unwrap_or(""), c["id"]), path: None, index: None, id: c["id"].as_u64() }).collect();
+                            this.results = r.json.as_array().into_iter().flatten().map(|c| Choice { label: c["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| format!("#{}", c["id"])), detail: choice_detail(what, c), path: None, index: None, id: c["id"].as_u64() }).collect();
                             this.note = this.results.is_empty().then(|| "Nothing matches".to_string());
                         }
                         Err(e) => this.note = Some(e),
@@ -1602,14 +1602,21 @@ impl Render for Wizard {
         }
         let last = step == Step::Review;
         let busy = self.busy.clone();
-        let blocked = self.blocker(cx).is_some();
+        let blocker = self.blocker(cx);
+        let blocked = blocker.is_some();
+        // What went wrong, else what is still needed to go on.
+        let (note, bad) = match (&self.error, &blocker) {
+            (Some(e), _) => (e.clone(), true),
+            (None, Some(b)) if step != Step::Choose => (b.clone(), false),
+            _ => (String::new(), false),
+        };
         let footer = h_flex()
             .gap_2()
-            .child(div().flex_1().text_xs().text_color(theme.danger).child(self.error.clone().unwrap_or_default()))
+            .child(div().flex_1().text_xs().text_color(if bad { theme.danger } else { theme.muted_foreground }).child(note))
             .child(div().relative().child(Button::new("wiz-cancel").ghost().label("Cancel").on_click(cx.listener(|this, _, _, cx| this.close(cx)))).child(crate::driver::probe("wiz-cancel")))
             .when(self.step > 0, |d| d.child(Button::new("wiz-back").label("Back").disabled(busy.is_some()).on_click(cx.listener(|this, _, window, cx| this.back(window, cx)))))
             .when(step != Step::Choose, |d| {
-                d.child(div().relative().child(Button::new("wiz-next").primary().label(busy.clone().unwrap_or_else(|| if last { "Create".into() } else { "Next".into() })).disabled(busy.is_some() || blocked).on_click(cx.listener(|this, _, window, cx| this.next(window, cx)))).child(crate::driver::probe("wiz-next")))
+                d.child(div().relative().child(Button::new("wiz-next").primary().label(busy.clone().unwrap_or_else(|| if last { "Create".into() } else { "Next".into() })).disabled(busy.is_some() || blocked).when_some(blocker, |b, why| b.tooltip(why)).on_click(cx.listener(|this, _, window, cx| this.next(window, cx)))).child(crate::driver::probe("wiz-next")))
             });
         div()
             .id("wizard-backdrop")
@@ -1761,4 +1768,15 @@ impl Studio {
         }
         cx.notify();
     }
+}
+
+/// The second line of a picked row: a champion's internal name when it differs
+/// from the shown one; for other rows their kind and id.
+fn choice_detail(what: &str, c: &serde_json::Value) -> String {
+    let detail = c["detail"].as_str().unwrap_or("");
+    if what == "bot" {
+        let reference = detail.strip_prefix("champion · ").or_else(|| detail.strip_prefix("bot · ")).unwrap_or(detail);
+        return if reference.eq_ignore_ascii_case(c["name"].as_str().unwrap_or("")) { String::new() } else { reference.to_string() };
+    }
+    format!("{detail} · id {}", c["id"])
 }

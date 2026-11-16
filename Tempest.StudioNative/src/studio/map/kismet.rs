@@ -960,7 +960,7 @@ impl MapEditor {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_scroll(|_, _, cx| cx.stop_propagation())
                 .children(self.kismet.palette_filter.as_ref().map(|f| div().p_1p5().child(Input::new(f).xsmall())))
-                .children(who.map(|w| div().px_2().pb_1().text_size(px(10.0)).text_color(theme.muted_foreground).child(format!("Events fire from, and object variables hold, {w} (selected in the scene)."))))
+                .children(who.map(|w| div().px_2().pb_1().text_xs().text_color(theme.muted_foreground).child(format!("Events fire from, and object variables hold, {w} (selected in the scene)."))))
                 .child(div().id("kis-pal-list").flex_1().min_h_0().overflow_y_scroll().pb_1().child(if self.kismet.palette.is_none() { div().p_2().text_xs().text_color(theme.muted_foreground).child("Listing the nodes the game uses…").into_any_element() } else { v_flex().children(rows).into_any_element() }))
                 .into_any_element()
         });
@@ -991,7 +991,7 @@ impl MapEditor {
                     .on_key_down(cx.listener(|this, e, window, cx| this.kismet_key(e, window, cx)))
                     .child(painted)
                     .children(nodes)
-                    .child(div().absolute().right(px(8.0)).bottom(px(8.0)).text_size(px(10.0)).font_family(crate::studio::ui::mono()).text_right().text_color(theme.muted_foreground).child("drag background pan · wheel zoom · drag a node to move it · drag a connector to link").child("Alt+click or Delete a link to break it · double-click a sequence to enter · F fit").child("right-click or A to add a node · Delete removes the selected node"))
+                    .child(div().absolute().right(px(8.0)).bottom(px(8.0)).text_xs().font_family(crate::studio::ui::mono()).text_right().text_color(theme.muted_foreground).child("drag background pan · wheel zoom · drag a node to move it · drag a connector to link").child("Alt+click or Delete a link to break it · double-click a sequence to enter · F fit").child("right-click or A to add a node · Delete removes the selected node"))
                     .children(palette)
                     .children(empty),
             )

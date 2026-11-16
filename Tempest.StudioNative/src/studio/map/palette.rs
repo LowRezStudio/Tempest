@@ -264,7 +264,7 @@ impl MapEditor {
                 .hover(|s| s.bg(theme.list_hover))
                 .child(div().size(px(8.0)).flex_none().rounded_full().bg(hsla(color)))
                 .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(name))
-                .children(badge.map(|b| div().px_1().rounded_sm().bg(theme.secondary).text_size(px(9.0)).child(b)))
+                .children(badge.map(|b| div().px_1().rounded_sm().bg(theme.secondary).text_xs().child(b)))
                 .child(div().text_color(theme.muted_foreground).child(right))
         };
         let list: Vec<AnyElement> = if self.palette.classes.is_none() {
@@ -348,7 +348,7 @@ impl MapEditor {
                     cx.notify();
                 }))))
                 .children(self.palette.filter.as_ref().map(|f| div().px_1p5().pb_1().child(Input::new(f).xsmall())))
-                .child(div().px_2().pb_1().text_size(px(10.0)).text_color(theme.muted_foreground).child(format!("{note} Placed where the view looks; navigation paths are not rebuilt.")))
+                .child(div().px_2().pb_1().text_xs().text_color(theme.muted_foreground).child(format!("{note} Placed where the view looks; navigation paths are not rebuilt.")))
                 .child(div().id("pal-list").flex_1().min_h_0().overflow_y_scroll().pb_1().child(v_flex().children(list)))
                 .into_any_element(),
         )

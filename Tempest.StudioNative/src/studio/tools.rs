@@ -436,7 +436,7 @@ impl Render for ModFolder {
                 .justify_end()
                 .gap_2()
                 .child(Button::new("mf-close").ghost().label("Close").on_click(|_, window, cx| window.close_dialog(cx)))
-                .child(Button::new("mf-create").primary().label("Create").disabled(!ready).on_click(cx.listener(|this, _, _, cx| this.create(cx)))),
+                .child(Button::new("mf-create").primary().label("Create").disabled(!ready).when(!ready, |b| b.tooltip("Give it an id and an output folder, and add at least one package")).on_click(cx.listener(|this, _, _, cx| this.create(cx)))),
         )
     }
 }

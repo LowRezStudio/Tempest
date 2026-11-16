@@ -347,7 +347,7 @@ impl Studio {
             .child(tab_button("tab-props", "Properties", Tab::Properties, self, cx))
             .child(tab_button("tab-refs", "References", Tab::References, self, cx))
             .when(script, |d| d.child(tab_button("tab-src", "Source", Tab::Source, self, cx)))
-            .child(tab_button("tab-dump", "Dump", Tab::Dump, self, cx));
+            .child(tab_button("tab-dump", "Raw data", Tab::Dump, self, cx));
         let (group, name) = match ins.path.rsplit_once('.') {
             Some((g, n)) => (g.to_string(), n.to_string()),
             None => (String::new(), ins.path.clone()),

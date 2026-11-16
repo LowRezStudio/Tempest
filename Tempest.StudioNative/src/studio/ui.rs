@@ -95,3 +95,36 @@ pub fn error(title: impl Into<SharedString>, detail: impl Into<SharedString>, th
 pub fn kbd(keys: impl Into<SharedString>, theme: &Theme) -> AnyElement {
     div().px_1().rounded_sm().border_1().border_color(theme.border).bg(theme.secondary).text_xs().text_color(theme.muted_foreground).child(keys.into()).into_any_element()
 }
+
+/// An error as the backend or the OS words it, followed by what to do about
+/// it when the cause is a common one (a file the running game holds, a
+/// missing file, a folder that is not the game's).
+pub fn explain_error(text: &str) -> String {
+    let lower = text.to_ascii_lowercase();
+    let hint = if ["permission denied", "access is denied", "being used by another process", "os error 32", "os error 13", "read-only file system"].iter().any(|p| lower.contains(p)) {
+        "The file is locked or read-only: close the game (and anything else using it), then try again."
+    } else if ["no such file", "cannot find the file", "os error 2", "not found"].iter().any(|p| lower.contains(p)) {
+        "A file it needs is missing: it may have been moved or deleted."
+    } else if lower.contains("holds no script packages") || lower.contains("no packages") {
+        "Open the Paladins folder itself (the one with a ChaosGame folder inside)."
+    } else if lower.contains("backend has stopped") {
+        "The Studio's engine stopped. Your mod is kept: restart the Studio to go on."
+    } else if lower.contains("no space left") || lower.contains("os error 28") {
+        "The disk is full: free some space, then try again."
+    } else {
+        return text.to_string();
+    };
+    format!("{text}. {hint}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::explain_error;
+
+    #[test]
+    fn explains_common_errors() {
+        assert!(explain_error("Could not write A.upk: Permission denied (os error 13)").ends_with("then try again."));
+        assert!(explain_error("Could not open x: No such file or directory (os error 2)").contains("missing"));
+        assert_eq!(explain_error("Undo failed: no export 3"), "Undo failed: no export 3");
+    }
+}

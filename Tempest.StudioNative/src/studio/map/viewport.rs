@@ -728,12 +728,16 @@ impl MapEditor {
             .children(progress.map(|p| div().absolute().bottom(px(8.0)).left(px(8.0)).px_2().py_1().rounded_md().bg(theme.background.opacity(0.8)).text_xs().font_family(crate::studio::ui::mono()).child(p)))
             .children(legend)
             .child(
+                // On a plate of its own: readable over any scene.
                 div()
                     .absolute()
                     .bottom(px(8.0))
                     .right(px(8.0))
-                    .text_size(px(10.0))
-                    .font_family(crate::studio::ui::mono())
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .bg(theme.background.opacity(0.75))
+                    .text_xs()
                     .text_color(theme.muted_foreground)
                     .text_right()
                     .child(if azerty(cx) { "left drag orbit · right drag look, + ZQSD fly (A E down/up) · middle drag pan · arrows fly · wheel zoom" } else { "left drag orbit · right drag look, + WASD fly (Q E down/up) · middle drag pan · arrows fly · wheel zoom" })

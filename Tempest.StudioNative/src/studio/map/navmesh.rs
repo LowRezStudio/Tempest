@@ -486,7 +486,7 @@ impl MapEditor {
                             this.nav_whole_regions();
                             cx.notify();
                         })))
-                        .child(Button::new("nav-clear").xsmall().label("Clear").disabled(none).on_click(cx.listener(|this, _, _, cx| {
+                        .child(Button::new("nav-clear").xsmall().label("Clear").disabled(none).when(none, |b| b.tooltip("Nothing is selected")).on_click(cx.listener(|this, _, _, cx| {
                             this.nav.selected.clear();
                             this.nav.vertex = None;
                             this.rebuild_nav();
