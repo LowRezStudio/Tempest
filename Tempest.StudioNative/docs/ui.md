@@ -7,16 +7,56 @@ current sources.
 
 ## Shell and commands
 
-Shell (`src/studio.rs`): header (Back/Forward, game folder menu with recent folders, search field
-opening the palette, Undo, **Edits (n)** with the edited files (open, discard, write; Discard all
-edits, Write all), Write menu: write into the game folder, write all, export a copy, discard). The
-UI says "edits", not "unsaved": edits live in the Studio and go into mods; writing over the game's
-own packages is the exception (quick tests), activity bar (Packages / Assembly / Audio / Map / Mod views, search, shortcuts), window
-tabs (`tabs.rs`), status line, notifications (`Studio::toast`), welcome screen (`welcome.rs`). Every
-action is a `Cmd` (`commands.rs`: title, group, keys, `enabled`, `run`): key bindings, the palette's
-`>` mode, menus and the F1 shortcut list read it. The palette (`palette.rs`) is also the picker of
-every "choose an object" question (`Pick`: copy to, replace with, slot material, texture parameter,
-instance parent, copy from, template), searched with `workspace.search {isA}`.
+Shell (`src/studio.rs`): header (Back/Forward, game folder menu with recent folders, the **mod chip**
+(`project.rs` `render_project_chip`: the named mod with its save state and menu, else "Unnamed mod ·
+n changes" with Name this mod…/Open a mod…/Discard the draft…, else "No mod yet"), Create, the
+search field opening the palette, Undo, Redo, **Changes (n)** (the changed files: open, discard,
+advanced "Patch the game…"), **Build mod** (the one primary action, opens the Mod view)), activity
+bar (Start, Champions ⌘1, Game files ⌘2, Game data ⌘3, Sounds ⌘4, Maps ⌘5, then Build mod ⌘6; search,
+shortcuts and settings at the bottom; the views are disabled until a game folder is open), window
+tabs (`tabs.rs`), status line (cleared when the view changes), notifications (`Studio::toast`; error
+toasts get a what-to-do sentence from `ui::explain_error` for locked/missing files, wrong folders,
+a stopped engine, a full disk), the native menu bar (`menus.rs`: one menu per command group, with
+the commands' shortcuts, an app menu with Settings, Check for updates and **Quit**, which keeps
+every window's work first like an update restart).
+
+**Where work lives**: every change is kept in "your mod". Without a project it is an unnamed draft
+(the recovery `.twrk`, written about 2 s after edits settle, never over an earlier session's draft
+still offered in the banner); **⌘S** saves the project or, without one, opens Name your mod (the
+project dialog, which takes the draft's changes in). ⌘S never writes into the game folder: writing
+in place is the advanced "Patch the game…" (`write_to_game`/`save_packages`, a danger confirmation
+saying only the launcher's Verify game files puts originals back; Settings ▸ Ask before overwriting
+game files). The UI says **changes** (not edits or unsaved), **game files** (packages), **game
+data** (the assembly tables), **sounds**, **Build mod** (not cooker).
+
+**First run** (`welcome.rs`, `games.rs`): the welcome screen lists the games found on the computer
+(Tempest Launcher instances from `com.lowrezstudio.tempest/settings.json`, last played first, then
+Steam libraries' Paladins), one Open each; a folder that fails to open shows its error inline.
+After a folder opens the **Start page** (`home.rs`, `View::Home`) shows unless the last place is
+restored: six task rows (champion look → Champions, stats and cards → Game data, sounds → Sounds,
+maps → Maps, menus and HUD → the palette on `ui_sf`, something new → Create), a Your mod card, How
+it works in three steps, and the other mods.
+
+**Champions** (`champions.rs`, `View::Champions`): the champion vendor's champions (`mcts.choices
+{kind: bot}`), and for one: skin collections (`mcts.collections`), abilities/cards/talents
+(`mcts.choices {kind: device}`), each opening its game data row (`mcts.find`), lists capped at 8
+with Show all, and the champion's packages by prefix with their role (`package_role`). The package
+list names a champion's packages in a tooltip, and its filter ignores spaces ("bomb king").
+
+Every action is a `Cmd` (`commands.rs`: title, group, keys, `enabled`, `run`): key bindings, the
+palette's `>` mode, the menu bar and the F1 shortcut list read it. ⌘F (`FindInView`) focuses the
+filter of the view on screen, ⌘⇧F searches every package; Redo is ⌘⇧Z (Ctrl+Y elsewhere) through
+`package.redo`/`mcts.redo`, a map's levels and a movie's pending edits. The palette (`palette.rs`)
+is also the picker of every "choose an object" question (`Pick`: copy to, replace with, slot
+material, texture parameter, instance parent, copy from, template), searched with
+`workspace.search {isA}`.
+
+**Look** (`ui.rs`): frame surfaces (header, activity bar, status line: `title_bar` = Catppuccin
+crust), side panes (`sidebar`, mantle), work area (`background`, base), raised cards and inputs
+(`secondary`). The accent is for one primary action per surface and the selection; toggles are
+ghost buttons with `.selected`. Shared pieces: `pane_header` (32 pt, sentence case), `toolbar`
+(36 pt), `section`, `hint`, `empty`/`loading`/`error` states, `kbd`, `mono()` (the platform's
+monospace). Muted text is Mocha overlay2 / Latte subtext1 (≥ 4.5:1 on every surface).
 
 ## Settings
 
@@ -52,8 +92,8 @@ opening a package or table, closes it); dragged widths are kept per group in `pr
 hidden by the column chooser). The Mod view asks which game file an added file with an unknown name
 replaces, or ships it as a new file.
 
-Commands also cover: Open package file (⌘O), Export a copy (⌘⇧S), Search every package (⌘F and
-⌘⇧F), Next/Previous tab, Zoom in/out/reset, Toggle theme, Show the sound banks (⌘4), Check for
-updates, MCP server, Package info, Rewrite, Prepare a mod folder, Export the class sources, Show the
-project folder, Discard all, and the Assembly's (`Asm*`). The palette lists the assembly's tables
+Commands also cover: Open package file (⌘O), Export a copy (⌘⇧S), Search every package (⌘⇧F),
+Next/Previous tab, Zoom in/out/reset, Toggle theme, Check for updates, MCP server, Package info,
+Rewrite, Prepare a mod folder (advanced), Export the class sources, Show the mod's folder, Discard
+all changes, and the game data's (`Asm*`). The palette lists the assembly's tables
 with the packages, and `@` in the Assembly view filters the rows of the table on screen.

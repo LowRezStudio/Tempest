@@ -559,7 +559,7 @@ impl Studio {
         let packages = v_flex()
             .size_full()
             .child(pane_title(
-                "Packages",
+                "Game files",
                 h_flex()
                     .child(
                         Button::new("unsaved-only")

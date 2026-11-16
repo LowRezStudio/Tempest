@@ -10,13 +10,13 @@ current sources.
 Assembly view (`assembly.rs` the entity, model and edits; `assembly/side.rs`, `grid.rs`, `row.rs`,
 `content.rs`), the Electron assembly editor at parity:
 
-- **Side**: every file (`assembly.dat`, `Lang_<EXT>.dat`) with its marshal function, unsaved dot,
-  every header field (click to edit; `GAME_VERSION_RAW` as major.minor.build.rev), tables filtered by
-  name; a table's menu (Open, new tab, copy name, show file), ⌘/middle-click opens a tab, ↑ ↓ in the
+- **Side**: every file (`assembly.dat`, `Lang_<EXT>.dat`) with its marshal function, unsaved dot;
+  a click on a file unfolds its header fields (`headers_open`; click a field to edit; `GAME_VERSION_RAW` as major.minor.build.rev), tables by their name in words (`side::friendly_table`: Items,
+  Abilities, cards and talents…) with the token muted, filtered by either; a table's menu (Open, new tab, copy name, show file), ⌘/middle-click opens a tab, ↑ ↓ in the
   list open the next table (`tables_focus`). The first table opens with the files.
 - **Grid**: rows read 500 at a time as they scroll into view (`rows` by position, `positions` by
   index); a column is as wide as its widest cell read so far, measured in characters of the mono
-  font (`measure`/`layout`; pinned id and name columns 7 and 13 rem, 28 rem at most); only the rows
+  font (`measure`/`layout`; pinned id and name columns (`REFERENCE_NAME`, `NAME`, `MESSAGE`, else `NAME_MSG_ID`) 7 and 13 rem, 28 rem at most); only the rows
   and columns in view are laid out (`Layout::window`, unit-tested). Cells: `*_FLAG` y/n as switches,
   row sets as links, `*_ID` values with a link icon (⌘-click: new tab), `*_MSG_ID`/`*_VALUE_ID` with
   their text dimmed, missing cells dimmed. Cell cursor = selected row + `col`: arrows, Tab, Home/End,

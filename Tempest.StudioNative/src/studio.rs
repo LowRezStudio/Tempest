@@ -513,6 +513,18 @@ impl Studio {
         .detach();
     }
 
+    /// The open game in words: "Paladins 8.1" for a Launcher game, else its folder's name.
+    pub(crate) fn game_label(&self) -> String {
+        let Some(dir) = self.dir.as_deref() else { return String::new() };
+        let root = std::path::Path::new(dir).parent().and_then(|c| c.parent());
+        self.games
+            .iter()
+            .find(|g| root.is_some_and(|r| r == std::path::Path::new(&g.path)))
+            .and_then(|g| g.version.as_ref())
+            .map(|v| format!("Paladins {v}"))
+            .unwrap_or_else(|| folder_label(dir))
+    }
+
     /// ⌘F: focus the filter of what is on screen (the palette where there is none).
     fn find_in_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let input = match self.view {
@@ -964,7 +976,7 @@ impl Studio {
 
     fn render_header(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let folder = self.dir.as_deref().map(folder_label).unwrap_or_else(|| "No game folder".into());
+        let folder = if self.dir.is_some() { self.game_label() } else { "No game folder".into() };
         let me = cx.entity().downgrade();
         let recent = self.recent.clone();
         let workspace = Button::new("workspace")
@@ -1042,7 +1054,7 @@ impl Studio {
                     .child(crate::driver::probe("unsaved")),
                 )
             })
-            .when(self.dir.is_some(), |d| d.child(Button::new("build").small().primary().icon(Icon::new(IconName::Hammer)).label("Build mod").tooltip(format!("Turn your changes into a mod you can install and share ({})", commands::key_hint("⌘6"))).on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx)))))
+            .when(self.dir.is_some() && self.view != View::Mod, |d| d.child(Button::new("build").small().primary().icon(Icon::new(IconName::Hammer)).label("Build mod").tooltip(format!("Turn your changes into a mod you can install and share ({})", commands::key_hint("⌘6"))).on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx)))))
     }
 
     fn render_activity(&mut self, cx: &mut Context<Self>) -> impl IntoElement {

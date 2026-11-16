@@ -446,6 +446,7 @@ impl Studio {
         };
         let Some(p) = self.project.clone() else {
             let changes = self.unsaved_total(cx);
+            let earlier = self.recovery_offer.is_some() && changes > 0;
             let dot = div().size(px(7.0)).rounded_full().bg(if changes > 0 { theme.warning } else { theme.muted_foreground.opacity(0.5) });
             let (label, tip) = if changes > 0 {
                 (format!("Unnamed mod · {changes} change{}", if changes == 1 { "" } else { "s" }), "Your changes are kept as a draft, even if the Studio closes. Name the mod to give it its own folder, then build it.")
@@ -464,8 +465,18 @@ impl Studio {
                             .label(label)
                             .tooltip(tip)
                             .dropdown_menu(move |menu, _, _| {
-                                menu.item(item("Name this mod…", |s, w, cx| s.new_project_dialog(w, cx)))
-                                    .item(item("Open a mod…", |s, _, cx| s.pick_project(cx)))
+                                let menu = menu.item(item("Name this mod…", |s, w, cx| s.new_project_dialog(w, cx))).item(item("Open a mod…", |s, _, cx| s.pick_project(cx)));
+                                // An earlier session's changes, when new ones were made before answering.
+                                let menu = if earlier {
+                                    menu.separator().item(item("Add the earlier session's changes", |s, _, cx| {
+                                        if let Some((file, _)) = s.recovery_offer.take() {
+                                            s.open_workspace_file(file, cx);
+                                        }
+                                    }))
+                                } else {
+                                    menu
+                                };
+                                menu
                                     .separator()
                                     .item(item("Discard the draft…", |s, w, cx| s.run(super::Cmd::DiscardAll, w, cx)))
                             }),

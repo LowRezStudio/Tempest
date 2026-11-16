@@ -246,6 +246,10 @@ impl Studio {
         use gpui_component::button::{Button, ButtonVariants};
         use gpui_component::{h_flex, ActiveTheme, Sizable};
         let (file, ago) = self.recovery_offer.clone()?;
+        // Once there are new changes, the offer waits in the mod chip's menu.
+        if self.unsaved_total(cx) > 0 {
+            return None;
+        }
         let theme = cx.theme().clone();
         let f2 = file.clone();
         Some(
@@ -257,8 +261,8 @@ impl Studio {
                 .border_b_1()
                 .border_color(theme.border)
                 .text_sm()
-                .child(div().flex_1().child(format!("Your unnamed mod from an earlier session was kept ({ago}). Put its changes back?")))
-                .child(Button::new("rec-open").xsmall().primary().label("Put them back").on_click(cx.listener(move |this, _, _, cx| {
+                .child(div().flex_1().child(format!("Changes from an earlier session were kept ({ago}). Put them back as your unnamed mod?")))
+                .child(Button::new("rec-open").xsmall().label("Put them back").on_click(cx.listener(move |this, _, _, cx| {
                     this.recovery_offer = None;
                     this.open_workspace_file(file.clone(), cx);
                 })))

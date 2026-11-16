@@ -162,8 +162,7 @@ impl Studio {
                     .when(active, |d| d.bg(theme.list_active))
                     .when(!active, |d| d.hover(|s| s.bg(theme.list_hover)))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_champion(id, cx)))
-                    .child(div().flex_none().size(px(22.0)).rounded_full().bg(theme.secondary).flex().items_center().justify_center().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).child(ch.name.chars().next().map(|c| c.to_string()).unwrap_or_default()))
-                    .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(ch.name.clone()))
+                                        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(ch.name.clone()))
                     .child(crate::driver::probe(format!("champ-{}", prefix(&ch.reference).to_lowercase()))),
             );
         }
@@ -258,8 +257,7 @@ impl Studio {
         let id = ch.id;
         let header = h_flex()
             .gap_4()
-            .child(div().flex_none().size(px(56.0)).rounded_lg().bg(theme.primary.opacity(0.15)).flex().items_center().justify_center().text_2xl().font_weight(gpui::FontWeight::BOLD).text_color(theme.primary).child(ch.name.chars().next().map(|c| c.to_string()).unwrap_or_default()))
-            .child(v_flex().flex_1().min_w_0().child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child(ch.name.clone())).child(div().text_xs().text_color(theme.muted_foreground).child(format!("{} · bot {}", ch.reference, ch.id))))
+                        .child(v_flex().flex_1().min_w_0().child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child(ch.name.clone())).child(div().text_xs().text_color(theme.muted_foreground).child(format!("{} · bot {}", ch.reference, ch.id))))
             .child(Button::new("champ-row").small().ghost().icon(Icon::new(IconName::Database)).label("Open in game data").tooltip("The champion's row: health, speed, role and every other field").on_click(cx.listener(move |this, _, window, cx| this.open_row("DATA_SET_BOTS", "BOT_ID", id, window, cx))))
             .child(Button::new("champ-new-skin").small().icon(Icon::new(IconName::Shirt)).label("New skin…").on_click(cx.listener(|this, _, window, cx| this.open_wizard(Some(super::wizard::Kind::Skin), None, window, cx))));
         div()
@@ -272,14 +270,15 @@ impl Studio {
                     .px_8()
                     .py_6()
                     .child(header)
+                    .child(section("Look: models, textures and effects", Some(n_files)))
+                    .child(ui::hint("Open one, pick a texture, mesh or material, then Replace it with your own file.", &theme).pb_2())
+                    .child(files)
                     .child(section("Skins", n_skins))
-                    .child(ui::hint("Each opens its row in the game data. To change how a skin looks, open the game files below and replace its textures or meshes.", &theme).pb_2())
+                    .child(ui::hint("Which skins exist and what they include (head, weapon, voice…). Each opens its row in the game data; their models and textures are in the files above.", &theme).pb_2())
                     .child(skins)
                     .child(section("Abilities, cards and talents", n_devices))
                     .child(ui::hint("Damage, cooldowns and other numbers are fields of each one's row in the game data.", &theme).pb_2())
-                    .child(devices)
-                    .child(section("Game files", Some(n_files)))
-                    .child(files),
+                    .child(devices),
             )
             .into_any_element()
     }

@@ -668,13 +668,14 @@ impl Assembly {
                 .child(div().flex_none().text_color(theme.muted_foreground).child("/"));
         }
         crumbs = crumbs
-            .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().font_weight(gpui::FontWeight::SEMIBOLD).child(short(&table).to_string()))
+            .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().font_weight(gpui::FontWeight::SEMIBOLD).child(super::side::friendly_table(&table).map(str::to_string).unwrap_or_else(|| short(&table).to_string())))
+            .when(super::side::friendly_table(&table).is_some(), |d| d.child(div().flex_none().text_xs().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(short(&table).to_string())))
             .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(format!("{} rows", self.total)));
 
         let targets = self.targets().len();
         let mut toolbar = crate::studio::ui::toolbar(&theme).child(crumbs).child(div().flex_1().min_w_2()).child(div().w(px(240.0)).flex_shrink(1.0).min_w(px(120.0)).child(Input::new(&self.filter).small().cleanable(true)));
         if in_assembly && depth == 0 {
-            toolbar = toolbar.child(Button::new("a-new-content").xsmall().primary().icon(Icon::new(IconName::Sparkles)).label("New content").tooltip("A new skin, ability, card, item or champion, step by step").on_click(cx.listener(|this, _, _, cx| this.open_wizard(None, cx))));
+            toolbar = toolbar.child(Button::new("a-new-content").xsmall().icon(Icon::new(IconName::Sparkles)).label("New content").tooltip("A new skin, ability, card, item or champion, step by step").on_click(cx.listener(|this, _, _, cx| this.open_wizard(None, cx))));
         }
         toolbar = toolbar
             .child(Button::new("arow-add").xsmall().ghost().icon(Icon::new(IconName::Plus)).tooltip(format!("New row: an empty row at the end, with a fresh id ({})", key_hint("⌘⇧↩"))).on_click(cx.listener(|this, _, window, cx| this.new_row(window, cx))))

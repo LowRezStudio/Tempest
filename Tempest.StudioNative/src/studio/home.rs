@@ -6,7 +6,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable};
 use gpui_kit_assets::IconName;
 
-use super::{commands, folder_label, ui, Studio, View};
+use super::{commands, ui, Studio, View};
 
 /// A task of the start page: its icon and colour, what it is, and where it leads.
 struct Task {
@@ -56,7 +56,7 @@ impl Studio {
             .max_w(px(560.0))
             .gap_2()
             .child(div().text_xl().font_weight(gpui::FontWeight::BOLD).child("What do you want to change?"))
-            .child(div().pb_2().text_sm().text_color(theme.muted_foreground).child(format!("Paladins in {}. Pick a task, or press {} to find anything by name.", self.dir.as_deref().map(folder_label).unwrap_or_default(), commands::key_hint("⌘K"))))
+            .child(div().pb_2().text_sm().text_color(theme.muted_foreground).child(format!("{}. Pick a task, or press {} to find anything by name.", self.game_label(), commands::key_hint("⌘K"))))
             .child(tasks);
         let right = v_flex().w(px(300.0)).flex_none().gap_5().child(self.render_home_mod(cx)).child(self.render_home_steps(cx)).children(self.render_home_recent(cx));
         div().id("home").size_full().overflow_y_scroll().child(h_flex().w_full().justify_center().items_start().flex_wrap().gap_10().px_8().py_10().child(left).child(right))
@@ -68,8 +68,8 @@ impl Studio {
         let changes = self.unsaved_total(cx);
         let (title, body) = match &self.project {
             Some(p) => (p.name.clone(), format!("{} · {} change{} not built yet", self.project_saving.label(), changes, if changes == 1 { "" } else { "s" })),
-            None if changes > 0 => ("Unnamed mod".to_string(), format!("{changes} change{} kept as a draft. Name it to give it its own folder.", if changes == 1 { "" } else { "s" })),
-            None => ("No mod yet".to_string(), "Change anything and it is kept here automatically, as your mod.".to_string()),
+            None if changes > 0 => ("Your mod".to_string(), format!("Unnamed · {changes} change{} kept as a draft. Name it to give it its own folder.", if changes == 1 { "" } else { "s" })),
+            None => ("Your mod".to_string(), "No changes yet. Change anything and it is kept here automatically.".to_string()),
         };
         let mut actions = h_flex().gap_2().pt_1();
         if self.project.is_none() && changes > 0 {
@@ -87,8 +87,7 @@ impl Studio {
             .border_1()
             .border_color(theme.border)
             .bg(theme.sidebar)
-            .child(h_flex().gap_2().child(Icon::new(IconName::Briefcase).small().text_color(theme.muted_foreground)).child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Your mod")))
-            .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
+            .child(h_flex().gap_2().child(Icon::new(IconName::Briefcase).small().text_color(theme.muted_foreground)).child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child(title)))
             .child(ui::hint(body, &theme))
             .child(actions)
             .into_any_element()

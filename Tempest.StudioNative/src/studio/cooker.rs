@@ -193,6 +193,21 @@ pub(super) fn run_cli_split(args: &[String]) -> Result<(i32, String, String), St
     Ok((out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).to_string(), String::from_utf8_lossy(&out.stderr).to_string()))
 }
 
+/// A game file as a player names it: `ChaosGame/CookedPCConsole/assembly.dat` → `Game data`.
+fn file_in_words(rel: &str) -> String {
+    let name = rel.rsplit(['/', '\\']).next().unwrap_or(rel);
+    let lower = name.to_ascii_lowercase();
+    if lower == "assembly.dat" {
+        "Game data".into()
+    } else if lower.starts_with("lang_") && lower.ends_with(".dat") {
+        format!("Texts ({})", &name[5..name.len() - 4])
+    } else if lower.ends_with(".pck") {
+        format!("Sounds: {}", &name[..name.len() - 4])
+    } else {
+        name.trim_end_matches(".upk").to_string()
+    }
+}
+
 /// The name `tempest mod list --json` records the mod `id` under.
 fn installed_name(list: &J, id: &str) -> Option<String> {
     let field = |m: &J, k: &str| m.get(k).or_else(|| m.get(format!("{}{}", k[..1].to_uppercase(), &k[1..]))).and_then(|v| v.as_str()).map(str::to_string);
@@ -470,7 +485,8 @@ impl Cooker {
             p.push("Give the mod a name".into());
         }
         let id = self.mod_id(cx);
-        if !modmeta::id_ok(&id) {
+        // The id comes from the name: its rule only matters once there is one.
+        if p.is_empty() && !modmeta::id_ok(&id) {
             p.push("The id is 2 to 64 lower-case letters, digits, dots, dashes and underscores, starting with a letter or digit".into());
         }
         let v = self.meta.text("version", cx);
@@ -794,7 +810,7 @@ impl Cooker {
                             }
                             cx.notify();
                         })))
-                        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(t.rel.clone()))
+                        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_sm().child(h_flex().gap_2().min_w_0().child(div().flex_none().font_weight(gpui::FontWeight::SEMIBOLD).child(file_in_words(&t.rel))).child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(t.rel.clone()))))
                         .child(div().text_xs().text_color(theme.muted_foreground).child(format!("from {origin}")))
                         .child({
                             let b = Button::new(("delta", k)).xsmall().label("Only the changes").tooltip("A delta: just the objects or rows you changed, so other mods of this file still work").on_click(cx.listener(move |this, _, _, cx| {
@@ -1135,6 +1151,9 @@ impl Cooker {
     fn render_project_files(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let Some(p) = &self.project else {
+            if self.meta.text("name", cx).is_empty() {
+                return div().into_any_element();
+            }
             return h_flex()
                 .mt_2()
                 .p_2()
@@ -1287,7 +1306,7 @@ impl Render for Cooker {
                     let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::NewProject, window, cx));
                 })))
             })
-            .child(Button::new("cook-remove").small().ghost().label("Remove from game").tooltip("Take this mod out of the game folder that is open").disabled(busy.is_some() || cli.is_none() || id.is_empty()).on_click(cx.listener(|this, _, _, cx| this.remove_from_game(cx))))
+            .child(Button::new("cook-remove").small().ghost().label("Remove from game").tooltip(if id.is_empty() { "Name the mod first: it is removed by its id" } else { "Take this mod out of the game folder that is open" }).disabled(busy.is_some() || cli.is_none() || id.is_empty()).on_click(cx.listener(|this, _, _, cx| this.remove_from_game(cx))))
             .child(Button::new("cook-play").small().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Gamepad2)).label("Play in Tempest Launcher").tooltip("Tempest Launcher starts the game with your installed mods").on_click(|_, _, cx| cx.open_url("tempest://")))
             .child(
                 Button::new("cook-more").small().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Ellipsis)).tooltip("Build only, save a copy, install elsewhere, publish").dropdown_menu(move |menu, _, _| {
@@ -1323,7 +1342,7 @@ impl Render for Cooker {
                 .child(extras)
                 .child(self.render_project_files(cx))
                 .when(!self.log.is_empty(), |d| d.child(section("Last build")).child(log))
-                .children(problems.iter().map(|p| div().text_xs().text_color(theme.warning).child(format!("• {p}"))))
+                .children(problems.iter().skip(1).map(|p| div().text_xs().text_color(theme.warning).child(format!("• {p}"))))
                 .when(cli.is_none(), |d| d.child(div().text_xs().text_color(theme.danger).child("The mod packer (tempest-cli) is missing from this Studio, so mods cannot be built. Reinstall the Studio, or set TEMPEST_CLI."))),
             ModTab::Details => page
                 .child(section("Details"))
@@ -1367,7 +1386,7 @@ impl Render for Cooker {
                 .child(section("Signing and account"))
                 .child(account),
         };
-        v_flex().size_full().child(bar).child(tabs).child(div().id("cook-page").flex_1().min_h_0().overflow_y_scroll().child(h_flex().w_full().justify_center().child(page)))
+        v_flex().size_full().child(bar).child(tabs).child(div().id("cook-page").flex_1().min_h_0().overflow_y_scroll().child(page))
     }
 }
 
@@ -1460,5 +1479,12 @@ mod tests {
         assert_eq!(installed_name(&list, "Cassie-Neon").as_deref(), Some("Cassie Neon.tempest"));
         assert_eq!(installed_name(&json!([{ "Id": "a", "Name": "A" }]), "a").as_deref(), Some("A"));
         assert_eq!(installed_name(&list, "missing"), None);
+    }
+
+    #[test]
+    fn names_files_in_words() {
+        assert_eq!(file_in_words("ChaosGame/CookedPCConsole/assembly.dat"), "Game data");
+        assert_eq!(file_in_words("ChaosGame/CookedPCConsole/Lang_INT.dat"), "Texts (INT)");
+        assert_eq!(file_in_words("ChaosGame/CookedPCConsole/CASSIE_ASSETS_SF.upk"), "CASSIE_ASSETS_SF");
     }
 }

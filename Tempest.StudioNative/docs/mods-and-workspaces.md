@@ -7,7 +7,15 @@ current sources.
 
 ## Mod cooker
 
-Mod view (`cooker.rs`, `account.rs`, `modmeta.rs`): `mod.changes` per game file (re-read whenever
+Mod view (`cooker.rs`, `account.rs`, `modmeta.rs`): a bar with the mod's name, what blocks a build
+(else what goes in or the last build), Name this mod… (an unnamed mod), Remove from game (`mod list
+--json` finds the record by id, then `mod remove`), Play in Tempest Launcher (`tempest://`: the
+Launcher owns launching), ⋯ (Build only…, Install here anyway, Install elsewhere…, Save a copy…,
+Publish…) and **Build & install** (a fast build, into a temporary folder for an unnamed mod, then
+`mod install` into this game unless files saved in place would hide whether the mod works); tabs
+Changes (what goes in, other files, the last build's log, problems), Details (name, author,
+version, icon, readme; Advanced: id, dependencies, Build only's compression) and Publish (listing,
+Publish…, signing and account). Underneath: `mod.changes` per game file (re-read whenever
 `backend::EDITS` moves), source and delta/whole choice, `mod.preview`, a `…` menu per file (show the
 changes, leave out, whole file, Discard my edits, Forget the copy, remove from the list or project:
 `dismissed` by modified time), Other files (Add files…: Lua → `scripts/`, DLLs → `dlls/64/`,

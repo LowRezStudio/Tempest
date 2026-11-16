@@ -27,10 +27,10 @@ prints `ok`; steps are input events (`key cmd-k`, `type …`, `click x y [right|
 coordinates: the content runs under the transparent title bar), `@probe:x,y` for a point that far
 from a probe's top-left corner (clicks, moves and both ends of `drag`), `drag`, `scroll x y dy
 [dx]`, `size w h`, `wait ms`) or app steps (`package <name>`, `select <index|name>`, `run <command
-id>`, `view packages|assembly|audio|map|mod`, `tab props|refs|source`, `palette <prefix>`, `query
+id>`, `view home|champions|packages|assembly|audio|map|mod`, `tab props|refs|source`, `palette <prefix>`, `query
 <text>`, `pick <row>`, `set <prop>=<value>`, `meshwire`, `meshlod <n>`, `material own-all|own
 <slot>|scalar <name> <v>|pick-texture <param>|game on|off`, `sound select a b|edit|trim|fade-in s|gain
-dB|play|apply`, `anim play|seek s`, `assembly …` (the steps are listed in [Assembly](assembly.md)), `cooker refresh|preview <n>|name <text>`,
+dB|play|apply`, `anim play|seek s`, `assembly …` (the steps are listed in [Assembly](assembly.md)); probes `game-<n>` (welcome), `task-*` (start page), `champ-<name>`, `skin-<n>`, `dev-<n>` and `file-<n>` (Champions), `cook-build`, `cooker refresh|preview <n>|name <text>`,
 `twrk-save <path>`, `twrk-open <path>`, `project new <folder> <name>|open <file>|close|save`,
 `assembly skins|export-mod`, `wizard open <kind>|next|back|file <path>|query <text>|pick <n>|name
 <text>|close`, `audio <pck name>`, `anim notify-move <k> <s>|notify-copy <k>|notify-remove
