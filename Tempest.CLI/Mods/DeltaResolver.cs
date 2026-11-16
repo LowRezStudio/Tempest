@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -15,7 +16,7 @@ namespace Tempest.CLI.Mods;
 /// applied on top in install order, by the <c>upk</c> sidecar. The resolver rebuilds a file
 /// whenever that stack changed (install, remove, enable, disable) and at launch, and restores
 /// the backup when no mod contributes to it any more. <c>.tempest/v2/deltas.json</c> remembers
-/// what each file was built from so an unchanged stack costs one hash.
+/// what each file was built from so an unchanged stack costs a size and write-time check.
 /// </summary>
 internal static class DeltaResolver
 {
@@ -219,7 +220,9 @@ internal static class DeltaResolver
                     throw new Exception(stderr.Split('\n').LastOrDefault(l => l.Contains("error", StringComparison.OrdinalIgnoreCase))?.Trim() ?? $"upk exited {code}");
                 Directory.CreateDirectory(Path.GetDirectoryName(job.GameFile)!);
                 File.Move(job.Tmp, job.GameFile, overwrite: true);
-                state[job.Relative] = new ResolvedFile { Stack = job.StackHash, Output = HashFile(job.GameFile) };
+                var output = Stamp(job.GameFile);
+                job.Stamps[job.GameFile] = output;
+                state[job.Relative] = new ResolvedFile { Stack = job.StackHash, Output = output.Hash, Stamps = job.Stamps };
                 report.Rebuilt.Add(job.Relative);
             }
             catch (Exception ex)
@@ -251,6 +254,15 @@ internal static class DeltaResolver
         public string Stack { get; set; } = "";
         /// <summary>SHA-256 of the file as written.</summary>
         public string Output { get; set; } = "";
+        /// <summary>Hashes of the base, the deltas and the output by full path, valid while size and write time match.</summary>
+        public Dictionary<string, FileStamp> Stamps { get; set; } = [];
+    }
+
+    public sealed class FileStamp
+    {
+        public long Length { get; set; }
+        public long Modified { get; set; }
+        public string Hash { get; set; } = "";
     }
 
     internal static string StatePath(string resolvedGame) => Path.Combine(resolvedGame, ".tempest", "v2", "deltas.json");
@@ -309,7 +321,7 @@ internal static class DeltaResolver
             : Path.Combine(TempestPathUtility.GetLocalV1ModDirectory(resolvedGame, owner.Id), "files", Path.GetFileName(relative));
 
     /// <summary>A file whose stack changed since it was last built.</summary>
-    private sealed record Job(string Relative, string GameFile, string BasePath, List<Contribution> Stack, string StackHash)
+    private sealed record Job(string Relative, string GameFile, string BasePath, List<Contribution> Stack, string StackHash, Dictionary<string, FileStamp> Stamps)
     {
         public string Tmp => GameFile + ".tempest-resolving";
     }
@@ -375,6 +387,22 @@ internal static class DeltaResolver
                 .ThenBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            // Files without a matching stamp (first launch, after a game update) add up to
+            // gigabytes, so they are hashed in parallel before the ordered pass below.
+            var unstamped = new List<string>();
+            foreach (var relative in ordered)
+            {
+                if (!contributions.TryGetValue(relative, out var stack) || stack.Count == 0) continue;
+                state.TryGetValue(relative, out var previous);
+                var basePath = owners.TryGetValue(relative, out var owner)
+                    ? OwnerSnapshot(resolvedGame, owner, relative)
+                    : GamePath.Resolve(Path.Combine(resolvedGame, ".tempest", "v2", "backup"), relative);
+                var inputs = stack.Select(c => c.DeltaFile).Append(basePath).Append(Path.GetFullPath(Path.Combine(resolvedGame, relative)));
+                unstamped.AddRange(inputs.Where(path => File.Exists(path) && Recorded(path, previous?.Stamps) == null));
+            }
+            var fresh = new ConcurrentDictionary<string, FileStamp>(StringComparer.OrdinalIgnoreCase);
+            Parallel.ForEach(unstamped.Distinct(StringComparer.OrdinalIgnoreCase), path => fresh[path] = Stamp(path));
+
             var changed = false;
             var jobs = new List<Job>();
             foreach (var relative in ordered)
@@ -383,6 +411,16 @@ internal static class DeltaResolver
                 var backup = GamePath.Resolve(Path.Combine(resolvedGame, ".tempest", "v2", "backup"), relative);
                 contributions.TryGetValue(relative, out var stack);
                 owners.TryGetValue(relative, out var owner);
+                state.TryGetValue(relative, out var previous);
+                var stamps = new Dictionary<string, FileStamp>(StringComparer.OrdinalIgnoreCase);
+                var rehashed = false;
+                string Hash(string path)
+                {
+                    var stamp = Stamp(path, previous?.Stamps, fresh);
+                    if (!ReferenceEquals(stamp, previous?.Stamps.GetValueOrDefault(path))) rehashed = true;
+                    stamps[path] = stamp;
+                    return stamp.Hash;
+                }
 
                 if (stack == null || stack.Count == 0)
                 {
@@ -421,7 +459,7 @@ internal static class DeltaResolver
                 if (owner != null)
                 {
                     basePath = OwnerSnapshot(resolvedGame, owner, relative);
-                    baseId = $"mod:{owner.Id}@{owner.Version}:{HashFile(basePath)}";
+                    baseId = $"mod:{owner.Id}@{owner.Version}:{Hash(basePath)}";
                     if (!File.Exists(backup) && !state.ContainsKey(relative) &&
                         !string.Equals(owner.Kind, "V2", StringComparison.OrdinalIgnoreCase))
                     {
@@ -451,13 +489,21 @@ internal static class DeltaResolver
                         File.Copy(gameFile, backup);
                     }
                     basePath = backup;
-                    baseId = $"pristine:{HashFile(backup)}";
+                    baseId = $"pristine:{Hash(backup)}";
                 }
 
-                var stackHash = StackHash(baseId, stack);
-                if (state.TryGetValue(relative, out var previous) && previous.Stack == stackHash && File.Exists(gameFile) && HashFile(gameFile) == previous.Output)
+                var stackHash = StackHash(baseId, stack, Hash);
+                if (previous != null && previous.Stack == stackHash && File.Exists(gameFile) && Hash(gameFile) == previous.Output)
+                {
+                    if (rehashed)
+                    {
+                        previous.Stamps = stamps;
+                        changed = true;
+                    }
                     continue;
-                jobs.Add(new Job(relative, gameFile, basePath, stack, stackHash));
+                }
+                stamps.Remove(gameFile);
+                jobs.Add(new Job(relative, gameFile, basePath, stack, stackHash, stamps));
             }
             if (jobs.Count > 0)
             {
@@ -496,11 +542,33 @@ internal static class DeltaResolver
     /// </summary>
     private const int BuilderVersion = 2;
 
-    private static string StackHash(string baseId, List<Contribution> stack)
+    private static string StackHash(string baseId, List<Contribution> stack, Func<string, string> hash)
     {
         var sb = new StringBuilder($"builder:{BuilderVersion}\n").Append(baseId);
-        foreach (var c in stack) sb.Append('\n').Append(c.Mod.Id).Append('@').Append(c.Mod.Version).Append(':').Append(HashFile(c.DeltaFile));
+        foreach (var c in stack) sb.Append('\n').Append(c.Mod.Id).Append('@').Append(c.Mod.Version).Append(':').Append(hash(c.DeltaFile));
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())));
+    }
+
+    /// <summary>
+    /// The recorded hash while the file keeps its size and write time, else a fresh one: hashing
+    /// every delta-managed package at each launch took seconds before the game could start.
+    /// </summary>
+    private static FileStamp Stamp(string path, params IReadOnlyDictionary<string, FileStamp>?[] known)
+    {
+        foreach (var stamps in known)
+        {
+            if (Recorded(path, stamps) is { } stamp) return stamp;
+        }
+        var info = new FileInfo(path);
+        return new FileStamp { Length = info.Length, Modified = info.LastWriteTimeUtc.Ticks, Hash = HashFile(path) };
+    }
+
+    /// <summary>The stamp <paramref name="known"/> has for the file, while its size and write time still match.</summary>
+    private static FileStamp? Recorded(string path, IReadOnlyDictionary<string, FileStamp>? known)
+    {
+        if (known == null || !known.TryGetValue(path, out var stamp)) return null;
+        var info = new FileInfo(path);
+        return info.Length == stamp.Length && info.LastWriteTimeUtc.Ticks == stamp.Modified ? stamp : null;
     }
 
     private static string HashFile(string path)

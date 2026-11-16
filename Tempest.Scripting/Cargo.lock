@@ -478,6 +478,7 @@ name = "tempest-scripting"
 version = "1.0.9"
 dependencies = [
  "cc",
+ "memchr",
  "mlua",
  "retour",
  "serde",

@@ -68,7 +68,10 @@ pub fn init(fresh: bool) {
     #[cfg(windows)]
     {
         if console_wanted() {
-            unsafe { AllocConsole() };
+            unsafe {
+                AllocConsole();
+                SetConsoleCtrlHandler(Some(console_ctrl_handler), 1);
+            }
         }
         install_veh();
     }
@@ -170,6 +173,22 @@ unsafe fn console_write(text: &str) {
         &mut written,
         std::ptr::null_mut(),
     );
+}
+
+/// The default handler calls `ExitProcess` with the engine still running, and the
+/// game's static destructors then fault. Ctrl+C in the REPL must not kill the game.
+#[cfg(windows)]
+unsafe extern "system" fn console_ctrl_handler(event: u32) -> i32 {
+    const CTRL_C_EVENT: u32 = 0;
+    const CTRL_BREAK_EVENT: u32 = 1;
+    match event {
+        CTRL_C_EVENT | CTRL_BREAK_EVENT => 1,
+        _ => {
+            line("log", &format!("console control event {event}: ending the game"));
+            TerminateProcess(GetCurrentProcess(), 0);
+            1
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -374,6 +393,9 @@ unsafe fn looks_like_return_address(v: usize) -> bool {
 #[link(name = "kernel32")]
 extern "system" {
     fn AllocConsole() -> i32;
+    fn SetConsoleCtrlHandler(handler: Option<unsafe extern "system" fn(u32) -> i32>, add: i32) -> i32;
+    fn GetCurrentProcess() -> *mut std::ffi::c_void;
+    fn TerminateProcess(process: *mut std::ffi::c_void, code: u32) -> i32;
     fn GetStdHandle(id: u32) -> *mut std::ffi::c_void;
     fn WriteFile(
         h: *mut std::ffi::c_void,

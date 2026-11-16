@@ -115,6 +115,12 @@ const rva = struct {
     const loader_open_in_profile = 0x18033c;
     const loader_open_in_game = 0x180426;
     const display_query_create = 0xd4e320;
+    const audio_settings_sleep = 0x1152b5b;
+    const http_get = 0xd773d0;
+    const vector_insert = 0x688c0;
+    const app_free = 0x154640;
+    const max_tick_rate_call = 0xd1ef4c;
+    const frame_counter = 0x3866208;
 };
 
 var base: usize = 0;
@@ -240,6 +246,24 @@ fn redirectCall(comptime name: []const u8, offset: usize, expected: []const u8, 
     _ = VirtualProtect(code, expected.len, old, &old);
     _ = FlushInstructionCache(GetCurrentProcess(), code, expected.len);
     log("{s}: patched", .{name});
+    return true;
+}
+
+/// Replaces the instruction `expected` at `offset` (at least 5 bytes) with a call to `hook`,
+/// padded with nops. The hook sees the registers the replaced instruction would have.
+fn replaceWithCall(comptime name: []const u8, offset: usize, expected: []const u8, hook: usize) bool {
+    if (!matches(offset, expected)) {
+        log("{s}: unexpected bytes, left alone", .{name});
+        return false;
+    }
+    const stub = nearStub(hook) orelse {
+        log("{s}: no memory near the image", .{name});
+        return false;
+    };
+    var patch: [16]u8 = [_]u8{0x90} ** 16;
+    patch[0] = 0xe8;
+    std.mem.writeInt(i32, patch[1..5], @intCast(@as(i64, @intCast(stub)) - @as(i64, @intCast(base + offset + 5))), .little);
+    patchBytes(name, offset, expected, patch[0..expected.len]);
     return true;
 }
 
@@ -1469,6 +1493,7 @@ extern "kernel32" fn IsBadReadPtr(address: ?*const anyopaque, size: usize) callc
 const RUNTIME_FUNCTION = extern struct { BeginAddress: u32, EndAddress: u32, UnwindData: u32 };
 
 var profile_seconds: u32 = 0;
+var profile_window_ms: u32 = 2000;
 
 const ProfileBucket = struct { key: u32 = 0, count: u32 = 0 };
 
@@ -1510,15 +1535,123 @@ fn profileCount(buckets: []ProfileBucket, key: u32) void {
     buckets[slot].count += 1;
 }
 
+extern "kernel32" fn GetModuleHandleExW(flags: u32, address: usize, module: *?*anyopaque) callconv(.winapi) BOOL;
+
+var profile_modules: [64]usize = [_]usize{0} ** 64;
+var profile_module_names: [64][64]u8 = undefined;
+var profile_module_name_lens: [64]usize = [_]usize{0} ** 64;
+
+/// Slot of the module holding `address`; the last slot collects code outside any module.
+fn profileModuleSlot(address: usize) u32 {
+    const unknown = profile_modules.len - 1;
+    var module: ?*anyopaque = null;
+    // GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT
+    if (GetModuleHandleExW(4 | 2, address, &module) == 0 or module == null) return unknown;
+    const handle = @intFromPtr(module.?);
+    for (profile_modules[0..unknown], 0..) |known, slot| {
+        if (known == handle) return @intCast(slot);
+        if (known != 0) continue;
+        profile_modules[slot] = handle;
+        var path: [260]u16 = undefined;
+        const n = GetModuleFileNameW(module, &path, path.len);
+        var start: usize = 0;
+        for (path[0..n], 0..) |c, i| {
+            if (c == '\\' or c == '/') start = i + 1;
+        }
+        var len: usize = 0;
+        for (path[start..n]) |c| {
+            if (len == profile_module_names[slot].len) break;
+            profile_module_names[slot][len] = if (c < 0x80) @intCast(c) else '?';
+            len += 1;
+        }
+        profile_module_name_lens[slot] = len;
+        return @intCast(slot);
+    }
+    return unknown;
+}
+
+fn profileIsSystem(slot: u32) bool {
+    const name = profileModuleName(slot);
+    for ([_][]const u8{ "ntdll.dll", "KERNELBASE.dll", "KERNEL32.DLL", "win32u.dll", "cryptnet.dll", "CRYPT32.dll", "WINTRUST.dll", "mswsock.dll", "WS2_32.dll", "RPCRT4.dll", "combase.dll", "(no module)" }) |system| {
+        if (std.ascii.eqlIgnoreCase(name, system)) return true;
+    }
+    return false;
+}
+
+fn profileModuleName(slot: u32) []const u8 {
+    if (slot >= profile_modules.len - 1 or profile_modules[slot] == 0) return "(no module)";
+    return profile_module_names[slot][0..profile_module_name_lens[slot]];
+}
+
+extern "kernel32" fn GetThreadId(thread: HANDLE) callconv(.winapi) u32;
+
+var profile_busiest = false;
+var busy_ids: [512]u32 = undefined;
+var busy_times: [512]u64 = undefined;
+var busy_count: usize = 0;
+
+/// With `TEMPEST_FASTSTART_PROFILE_THREAD=busiest`: the thread other than the main one that
+/// used the most CPU since the last call (the render thread, while the game waits on it).
+fn busiestThread(main_id: u32) ?HANDLE {
+    const snapshot = CreateToolhelp32Snapshot(4, 0);
+    if (snapshot == invalid_handle) return null;
+    defer _ = CloseHandle(snapshot);
+    var entry = std.mem.zeroes(THREADENTRY32);
+    entry.size = @sizeOf(THREADENTRY32);
+    var ids: [512]u32 = undefined;
+    var times: [512]u64 = undefined;
+    var count: usize = 0;
+    var best: ?HANDLE = null;
+    var best_delta: u64 = 0;
+    var ok = Thread32First(snapshot, &entry) != 0;
+    while (ok) : (ok = Thread32Next(snapshot, &entry) != 0) {
+        if (entry.owner_process_id != GetCurrentProcessId() or entry.thread_id == main_id or entry.thread_id == GetCurrentThreadId()) continue;
+        const thread = OpenThread(0x2 | 0x8 | 0x40, 0, entry.thread_id) orelse continue;
+        var creation: u64 = 0;
+        var exit: u64 = 0;
+        var kernel: u64 = 0;
+        var user: u64 = 0;
+        if (GetThreadTimes(thread, &creation, &exit, &kernel, &user) == 0 or count == ids.len) {
+            _ = CloseHandle(thread);
+            continue;
+        }
+        const total = kernel + user;
+        var previous: u64 = 0;
+        for (busy_ids[0..busy_count], busy_times[0..busy_count]) |id, time| {
+            if (id == entry.thread_id) previous = time;
+        }
+        ids[count] = entry.thread_id;
+        times[count] = total;
+        count += 1;
+        if (total - previous > best_delta) {
+            if (best) |old| _ = CloseHandle(old);
+            best = thread;
+            best_delta = total - previous;
+        } else {
+            _ = CloseHandle(thread);
+        }
+    }
+    @memcpy(busy_ids[0..count], ids[0..count]);
+    @memcpy(busy_times[0..count], times[0..count]);
+    busy_count = count;
+    return best;
+}
+
 fn profiler(_: ?*anyopaque) callconv(.winapi) u32 {
-    const thread = mainThread() orelse return 0;
+    const main = mainThread() orelse return 0;
+    var thread = main;
     const buckets = std.heap.page_allocator.alloc(ProfileBucket, 1 << 16) catch return 0;
     const started = GetTickCount();
     var window: u32 = 0;
-    while (window * 2 < profile_seconds) : (window += 1) {
+    while (window * profile_window_ms < profile_seconds * 1000) : (window += 1) {
         @memset(buckets, .{});
         var samples: u32 = 0;
-        while (GetTickCount() -% started < (window + 1) * 2000) {
+        if (profile_busiest) {
+            if (thread != main) _ = CloseHandle(thread);
+            thread = busiestThread(GetThreadId(main)) orelse main;
+            log("profile: window {d} samples thread {d}", .{ window, GetThreadId(thread) });
+        }
+        while (GetTickCount() -% started < (window + 1) * profile_window_ms) {
             Sleep(1);
             var context: windows.CONTEXT align(16) = undefined;
             context.ContextFlags = 0x100003; // CONTEXT_CONTROL | CONTEXT_INTEGER
@@ -1528,12 +1661,34 @@ fn profiler(_: ?*anyopaque) callconv(.winapi) u32 {
             // is also counted as the place the sample was taken (`self`).
             var frames: [64]u32 = undefined;
             var frame_count: usize = 0;
+            // A sample outside the game (a system call, an injected DLL's detour) counts
+            // against that module rather than as the innermost game function's own time.
+            var outside_rip: ?usize = null;
+            // Where the innermost game function was when the sample was taken: the return
+            // address of its call out, when the thread was outside the game.
+            var first_site: u32 = 0;
+            // Return addresses outside the game above the innermost game frame, innermost first.
+            var chain: [8]usize = undefined;
+            var chain_len: usize = 0;
+            if (ok) {
+                var image: usize = 0;
+                if (RtlLookupFunctionEntry(context.Rip, &image, null) == null or image != base) outside_rip = context.Rip;
+            }
             if (ok) {
                 var depth: usize = 0;
                 while (depth < 96 and frame_count < frames.len and context.Rip != 0) : (depth += 1) {
+                    if (frame_count == 0 and outside_rip != null and chain_len < chain.len) {
+                        var image: usize = 0;
+                        if (RtlLookupFunctionEntry(context.Rip, &image, null) == null or image != base) {
+                            chain[chain_len] = context.Rip;
+                            chain_len += 1;
+                        }
+                    }
                     var image_base: usize = 0;
                     if (RtlLookupFunctionEntry(context.Rip, &image_base, null)) |entry| {
                         if (image_base == base) {
+                            // appSleep says nothing on its own: name who called it.
+                            if (frame_count == 0 or (frame_count == 1 and frames[0] == 0x1fc280)) first_site = @intCast(context.Rip - base);
                             frames[frame_count] = entry.BeginAddress;
                             frame_count += 1;
                         }
@@ -1549,14 +1704,33 @@ fn profiler(_: ?*anyopaque) callconv(.winapi) u32 {
             }
             _ = ResumeThread(thread);
             if (!ok) continue;
+            // After the resume: the module lookup takes the loader lock the thread may hold.
+            const outside: ?u32 = if (outside_rip) |rip| profileModuleSlot(rip) else null;
             samples += 1;
+            if (outside) |slot| {
+                profileCount(buckets, slot | 0x2000_0000);
+                // The game function that called out, for telling waits and detours apart.
+                if (frame_count > 0) profileCount(buckets, first_site | 0x1000_0000);
+                // The innermost frame of a module that is not part of Windows: whose code
+                // made the call that is waiting or working.
+                // Also the next three such frames, which tell apart the callers of a shared helper.
+                var named: u32 = 0;
+                for (chain[0..chain_len]) |rip| {
+                    const owner = profileModuleSlot(rip);
+                    if (profileIsSystem(owner)) continue;
+                    const offset = (rip - profile_modules[owner]) >> 4;
+                    if (offset <= 0xfffff and owner < 0x40) profileCount(buckets, (if (named == 0) @as(u32, 0x0800_0000) else 0x0400_0000) | (owner << 20) | @as(u32, @intCast(offset)));
+                    named += 1;
+                    if (named == 4) break;
+                }
+            }
             for (frames[0..frame_count], 0..) |frame, index| {
                 if (std.mem.indexOfScalar(u32, frames[0..index], frame) != null) continue;
                 profileCount(buckets, frame | 0x4000_0000);
-                if (index == 0) profileCount(buckets, frame | 0x8000_0000);
+                if (index == 0 and outside == null) profileCount(buckets, frame | 0x8000_0000);
             }
         }
-        log("profile: window {d}-{d}s, {d} samples", .{ window * 2, window * 2 + 2, samples });
+        log("profile: window {d}-{d} ms, {d} samples", .{ window * profile_window_ms, (window + 1) * profile_window_ms, samples });
         for (0..40) |_| {
             var top: ?*ProfileBucket = null;
             for (buckets) |*bucket| {
@@ -1564,11 +1738,260 @@ fn profiler(_: ?*anyopaque) callconv(.winapi) u32 {
             }
             const bucket = top orelse break;
             if (bucket.count * 50 < samples) break;
-            log("profile:   {d:>5} {s} {x}", .{ bucket.count, if (bucket.key & 0x8000_0000 != 0) "self" else "incl", bucket.key & 0x3fff_ffff });
+            if (bucket.key & 0x2000_0000 != 0) {
+                log("profile:   {d:>5} in   {s}", .{ bucket.count, profileModuleName(bucket.key & 0xff) });
+            } else if (bucket.key & 0xf000_0000 == 0 and bucket.key & 0x0c00_0000 != 0) {
+                const kind = if (bucket.key & 0x0800_0000 != 0) "by  " else "via ";
+                log("profile:   {d:>5} {s} {s}+{x}", .{ bucket.count, kind, profileModuleName((bucket.key >> 20) & 0x3f), (bucket.key & 0xfffff) << 4 });
+            } else {
+                const kind = if (bucket.key & 0x8000_0000 != 0) "self" else if (bucket.key & 0x1000_0000 != 0) "out " else "incl";
+                log("profile:   {d:>5} {s} {x}", .{ bucket.count, kind, bucket.key & 0x0fff_ffff });
+            }
             bucket.count = 0;
         }
     }
     return 0;
+}
+
+// ---------------------------------------------------------------------------
+// login_frames: the engine loop tells the login screen it is ready on frame 60
+// (`GFrameCounter == 60`), and the frame limiter paces those frames, so the login screen
+// waited about a second with nothing to do. Until then the limiter is told there is no
+// maximum tick rate; the same frames run, only without the sleeps between them.
+
+const login_ready_frame = 60;
+
+const GetMaxTickRate = *const fn (engine: *anyopaque, delta: f32, allow_smoothing: u32) callconv(.c) f32;
+
+fn hookMaxTickRate(engine: *anyopaque, delta: f32, allow_smoothing: u32) callconv(.c) f32 {
+    const frames: *const volatile u64 = @ptrFromInt(base + rva.frame_counter);
+    if (frames.* < login_ready_frame) return 0;
+    const vtable: *const [*]const GetMaxTickRate = @ptrCast(@alignCast(engine));
+    return vtable.*[0x2a0 / 8](engine, delta, allow_smoothing);
+}
+
+// ---------------------------------------------------------------------------
+// discovery: the first thing the engine does is ask discovery.hirez.net where the login
+// servers are, a fresh HTTPS connection to another continent (0.3 to 0.6 s) while the game
+// thread waits. Its answer is configuration that rarely changes, so the first request of a
+// start is answered from the answer saved by the previous start, and a background thread
+// fetches the current one for the next start. Without a saved answer (first start, other
+// game version) the game asks the server itself, as before.
+
+const FString = extern struct { data: ?[*]u16, num: i32, max: i32 };
+const ByteVector = extern struct { first: ?[*]u8, last: ?[*]u8, end: ?[*]u8 };
+const HttpGet = *const fn (context: *anyopaque, url: *FString, out: *ByteVector) callconv(.c) u32;
+const VectorInsert = *const fn (vector: *ByteVector, at: ?[*]u8, first: [*]const u8, last: [*]const u8, tag: u8) callconv(.c) void;
+const AppFree = *const fn (memory: ?*anyopaque) callconv(.c) void;
+
+var original_http_get: HttpGet = undefined;
+var discovery_first = std.atomic.Value(bool).init(true);
+var discovery_url_buffer: [512]u16 = undefined;
+var discovery_url: []const u16 = &.{};
+
+fn discoveryCachePath(buffer: *[300]u16) ?[*:0]const u16 {
+    const n = GetTempPathW(260, buffer);
+    if (n == 0 or n > 260) return null;
+    const name = std.unicode.utf8ToUtf16LeStringLiteral("tempest-discovery.cache");
+    @memcpy(buffer[n .. n + name.len], name);
+    buffer[n + name.len] = 0;
+    return @ptrCast(buffer);
+}
+
+/// The saved answer for `url`: the file holds the URL (UTF-16, NUL-terminated), then the body.
+fn readDiscoveryCache(url: []const u16, body: []u8) ?usize {
+    var path: [300]u16 = undefined;
+    const name = discoveryCachePath(&path) orelse return null;
+    // GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING
+    const file = CreateFileW(name, 0x80000000, 1, null, 3, 0x80, null);
+    if (file == invalid_handle) return null;
+    defer _ = CloseHandle(file);
+    var raw: [16384]u8 = undefined;
+    var len: u32 = 0;
+    if (ReadFile(file, &raw, raw.len, &len, null) == 0) return null;
+    const key_bytes = (url.len + 1) * 2;
+    if (len <= key_bytes or len - key_bytes > body.len) return null;
+    if (!std.mem.eql(u8, raw[0 .. url.len * 2], std.mem.sliceAsBytes(url))) return null;
+    if (raw[url.len * 2] != 0 or raw[url.len * 2 + 1] != 0) return null;
+    const saved = raw[key_bytes..len];
+    if (saved.len == 0 or saved[0] != '{') return null;
+    @memcpy(body[0..saved.len], saved);
+    return saved.len;
+}
+
+fn writeDiscoveryCache(url: []const u16, body: []const u8) void {
+    if (body.len == 0 or body[0] != '{' or body.len > 8192) return;
+    var path: [300]u16 = undefined;
+    const name = discoveryCachePath(&path) orelse return;
+    // GENERIC_WRITE, CREATE_ALWAYS
+    const file = CreateFileW(name, 0x40000000, 0, null, 2, 0x80, null);
+    if (file == invalid_handle) return;
+    defer _ = CloseHandle(file);
+    const zero = [2]u8{ 0, 0 };
+    _ = WriteFile(file, std.mem.sliceAsBytes(url).ptr, @intCast(url.len * 2), null, null);
+    _ = WriteFile(file, &zero, 2, null, null);
+    _ = WriteFile(file, body.ptr, @intCast(body.len), null, null);
+}
+
+const WinHttpOpenFn = *const fn (agent: ?[*:0]const u16, access: u32, proxy: ?[*:0]const u16, bypass: ?[*:0]const u16, flags: u32) callconv(.winapi) ?*anyopaque;
+const WinHttpConnectFn = *const fn (session: *anyopaque, host: [*:0]const u16, port: u16, reserved: u32) callconv(.winapi) ?*anyopaque;
+const WinHttpOpenRequestFn = *const fn (connect: *anyopaque, verb: [*:0]const u16, path: [*:0]const u16, version: ?[*:0]const u16, referrer: ?[*:0]const u16, accept: ?*const ?[*:0]const u16, flags: u32) callconv(.winapi) ?*anyopaque;
+const WinHttpSendRequestFn = *const fn (request: *anyopaque, headers: ?[*]const u16, headers_len: u32, optional: ?*anyopaque, optional_len: u32, total: u32, context: usize) callconv(.winapi) BOOL;
+const WinHttpReceiveResponseFn = *const fn (request: *anyopaque, reserved: ?*anyopaque) callconv(.winapi) BOOL;
+const WinHttpQueryHeadersFn = *const fn (request: *anyopaque, info: u32, name: ?[*:0]const u16, buffer: *anyopaque, len: *u32, index: ?*u32) callconv(.winapi) BOOL;
+const WinHttpReadDataFn = *const fn (request: *anyopaque, buffer: [*]u8, len: u32, read: *u32) callconv(.winapi) BOOL;
+const WinHttpCloseHandleFn = *const fn (handle: *anyopaque) callconv(.winapi) BOOL;
+
+extern "kernel32" fn LoadLibraryW(name: [*:0]const u16) callconv(.winapi) ?*anyopaque;
+
+/// Fetches the current answer with WinHTTP (not the game's client, which is not safe to
+/// run beside the game thread) and saves it for the next start.
+fn refreshDiscovery(_: ?*anyopaque) callconv(.winapi) u32 {
+    const url = discovery_url;
+    const scheme = std.unicode.utf8ToUtf16LeStringLiteral("https://");
+    if (url.len <= scheme.len or !std.mem.eql(u16, url[0..scheme.len], scheme)) return 0;
+    const rest = url[scheme.len..];
+    const slash = std.mem.indexOfScalar(u16, rest, '/') orelse return 0;
+    var host: [256:0]u16 = undefined;
+    var path: [512:0]u16 = undefined;
+    if (slash >= host.len or rest.len - slash >= path.len) return 0;
+    @memcpy(host[0..slash], rest[0..slash]);
+    host[slash] = 0;
+    @memcpy(path[0 .. rest.len - slash], rest[slash..]);
+    path[rest.len - slash] = 0;
+
+    const winhttp = LoadLibraryW(std.unicode.utf8ToUtf16LeStringLiteral("winhttp.dll")) orelse return 0;
+    const open: WinHttpOpenFn = @ptrCast(GetProcAddress(winhttp, "WinHttpOpen") orelse return 0);
+    const connect: WinHttpConnectFn = @ptrCast(GetProcAddress(winhttp, "WinHttpConnect") orelse return 0);
+    const open_request: WinHttpOpenRequestFn = @ptrCast(GetProcAddress(winhttp, "WinHttpOpenRequest") orelse return 0);
+    const send: WinHttpSendRequestFn = @ptrCast(GetProcAddress(winhttp, "WinHttpSendRequest") orelse return 0);
+    const receive: WinHttpReceiveResponseFn = @ptrCast(GetProcAddress(winhttp, "WinHttpReceiveResponse") orelse return 0);
+    const query: WinHttpQueryHeadersFn = @ptrCast(GetProcAddress(winhttp, "WinHttpQueryHeaders") orelse return 0);
+    const read: WinHttpReadDataFn = @ptrCast(GetProcAddress(winhttp, "WinHttpReadData") orelse return 0);
+    const close: WinHttpCloseHandleFn = @ptrCast(GetProcAddress(winhttp, "WinHttpCloseHandle") orelse return 0);
+
+    // WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
+    const session = open(null, 4, null, null, 0) orelse return 0;
+    defer _ = close(session);
+    const connection = connect(session, &host, 443, 0) orelse return 0;
+    defer _ = close(connection);
+    // WINHTTP_FLAG_SECURE
+    const request = open_request(connection, std.unicode.utf8ToUtf16LeStringLiteral("GET"), &path, null, null, null, 0x00800000) orelse return 0;
+    defer _ = close(request);
+    if (send(request, null, 0, null, 0, 0, 0) == 0 or receive(request, null) == 0) return 0;
+    var status: u32 = 0;
+    var status_len: u32 = @sizeOf(u32);
+    // WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER
+    if (query(request, 19 | 0x20000000, null, &status, &status_len, null) == 0 or status != 200) return 0;
+    var body: [8192]u8 = undefined;
+    var len: usize = 0;
+    while (len < body.len) {
+        var got: u32 = 0;
+        if (read(request, body[len..].ptr, @intCast(body.len - len), &got) == 0) return 0;
+        if (got == 0) break;
+        len += got;
+    }
+    if (len == body.len) return 0;
+    writeDiscoveryCache(url, body[0..len]);
+    log("discovery: saved the current answer ({d} bytes) for the next start", .{len});
+    return 0;
+}
+
+fn hookHttpGet(context: *anyopaque, url: *FString, out: *ByteVector) callconv(.c) u32 {
+    if (!discovery_first.swap(false, .acq_rel)) return original_http_get(context, url, out);
+    const data = url.data orelse return original_http_get(context, url, out);
+    const url_len: usize = @intCast(@max(url.num - 1, 0));
+    if (url_len == 0 or url_len > discovery_url_buffer.len) return original_http_get(context, url, out);
+    @memcpy(discovery_url_buffer[0..url_len], data[0..url_len]);
+    discovery_url = discovery_url_buffer[0..url_len];
+
+    var body: [8192]u8 = undefined;
+    const saved = readDiscoveryCache(discovery_url, &body) orelse {
+        const result = original_http_get(context, url, out);
+        if (result != 0) {
+            if (out.first) |first| writeDiscoveryCache(discovery_url, first[0 .. @intFromPtr(out.last) - @intFromPtr(first)]);
+            log("discovery: asked the server (nothing saved yet), saved its answer", .{});
+        }
+        return result;
+    };
+    if (out.first != out.last) return original_http_get(context, url, out);
+    const insert: VectorInsert = at(VectorInsert, rva.vector_insert);
+    insert(out, out.first, &body, body[saved..].ptr, 0);
+    // The URL is passed by value: the callee frees it, as the original does on return.
+    url.num = 0;
+    url.max = 0;
+    at(AppFree, rva.app_free)(url.data);
+    url.data = null;
+    log("discovery: answered from the previous start ({d} bytes)", .{saved});
+    if (CreateThread(null, 0, &refreshDiscovery, null, 0, null)) |thread| _ = CloseHandle(thread);
+    return 1;
+}
+
+// ---------------------------------------------------------------------------
+// browser_trust:Coherent UI (the in-game browser) checks the Authenticode signature of
+// its host program when it starts, and Windows fetches revocation lists over the network
+// for that: 0.2 to 0.6 s on the game thread. The check still runs in full; only the
+// revocation part is limited to what Windows has cached.
+
+const WinVerifyTrustFn = *const fn (window: ?*anyopaque, action: *anyopaque, data: ?*anyopaque) callconv(.winapi) i32;
+var original_win_verify_trust: WinVerifyTrustFn = undefined;
+
+fn calledFromCoherent(return_address: usize) bool {
+    var module: ?*anyopaque = null;
+    // GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT
+    if (GetModuleHandleExW(4 | 2, return_address, &module) == 0 or module == null) return false;
+    var path: [260]u16 = undefined;
+    const n = GetModuleFileNameW(module, &path, path.len);
+    var start: usize = 0;
+    for (path[0..n], 0..) |c, i| {
+        if (c == '\\' or c == '/') start = i + 1;
+    }
+    const prefix = std.unicode.utf8ToUtf16LeStringLiteral("coherentui");
+    if (n - start < prefix.len) return false;
+    for (path[start..][0..prefix.len], prefix) |a, b| {
+        if (a > 0x7f or std.ascii.toLower(@intCast(a)) != b) return false;
+    }
+    return true;
+}
+
+fn hookWinVerifyTrust(window: ?*anyopaque, action: *anyopaque, data: ?*anyopaque) callconv(.winapi) i32 {
+    if (data) |trust_data| {
+        const bytes: [*]u8 = @ptrCast(trust_data);
+        const size = std.mem.readInt(u32, bytes[0..4], .little);
+        // WINTRUST_DATA.dwProvFlags at 72; WTD_CACHE_ONLY_URL_RETRIEVAL
+        if (size >= 76 and calledFromCoherent(@returnAddress())) {
+            const flags: *align(1) u32 = @ptrCast(bytes + 72);
+            flags.* |= 0x1000;
+        }
+    }
+    return original_win_verify_trust(window, action, data);
+}
+
+// ---------------------------------------------------------------------------
+// trace: `TEMPEST_FASTSTART_TRACE=<rva hex>` logs the game frames that called that function
+// (its first 8 calls) and when. For a function taking up to four integer arguments.
+
+const TracedFn = *const fn (a: usize, b: usize, c: usize, d: usize) callconv(.c) usize;
+var original_traced: TracedFn = undefined;
+var trace_calls = std.atomic.Value(u32).init(0);
+
+extern "kernel32" fn RtlCaptureStackBackTrace(skip: u32, count: u32, frames: [*]?*anyopaque, hash: ?*u32) callconv(.winapi) u16;
+
+fn hookTraced(a: usize, b: usize, c: usize, d: usize) callconv(.c) usize {
+    if (trace_calls.fetchAdd(1, .monotonic) < 8) {
+        var frames: [32]?*anyopaque = undefined;
+        const n = RtlCaptureStackBackTrace(1, frames.len, &frames, null);
+        var text: [32 * 10]u8 = undefined;
+        var len: usize = 0;
+        for (frames[0..n]) |frame| {
+            const address = @intFromPtr(frame);
+            if (address < base or address >= base + 0x5000000) continue;
+            const written = std.fmt.bufPrint(text[len..], " {x}", .{address - base}) catch break;
+            len += written.len;
+        }
+        log("trace: called from{s}", .{text[0..len]});
+    }
+    return original_traced(a, b, c, d);
 }
 
 // ---------------------------------------------------------------------------
@@ -1599,6 +2022,14 @@ fn install() void {
         patchBytes("sleeps: thread name", rva.thread_name_sleep, &.{ 0xb9, 0x0a, 0, 0, 0 }, &.{ 0xb9, 0x00, 0, 0, 0 });
         // mov ecx, ebp (1) -> xor ecx, ecx
         patchBytes("sleeps: pool worker", rva.pool_worker_sleep, &.{ 0x8b, 0xcd, 0xff, 0x15 }, &.{ 0x33, 0xc9, 0xff, 0x15 });
+        // Applying the audio settings sleeps 0.1 s between two calls that compiled to `ret`:
+        // movss xmm0, [0.1] -> xorps xmm0, xmm0; nop
+        patchBytes("sleeps: audio settings", rva.audio_settings_sleep, &.{ 0xf3, 0x0f, 0x10, 0x05, 0xc5, 0x9d, 0x35, 0x01 }, &.{ 0x0f, 0x57, 0xc0, 0x0f, 0x1f, 0x44, 0x00, 0x00 });
+    }
+
+    // call [rax+0x2a0] (GEngine->GetMaxTickRate), in the frame limiter
+    if (enabled("login_frames")) {
+        _ = replaceWithCall("login_frames", rva.max_tick_rate_call, &.{ 0xff, 0x90, 0xa0, 0x02, 0x00, 0x00 }, @intFromPtr(&hookMaxTickRate));
     }
 
     const want_rand = enabled("rand") and
@@ -1636,6 +2067,34 @@ fn install() void {
     const has_packages = want_packages and attach("packages", &original_find_package, &hookFindPackage);
     const has_chunks = want_chunks and attach("chunks", &original_read_compressed, &hookReadCompressed);
     const has_crc = want_crc and attach("crc", &original_crc32, &hookCrc32);
+    if (enabled("discovery")) {
+        if (matches(rva.http_get, &.{ 0x40, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8d, 0xac, 0x24, 0xf0, 0xfd, 0xff, 0xff }) and
+            matches(rva.vector_insert, &.{ 0x48, 0x89, 0x54, 0x24, 0x10, 0x56, 0x57, 0x41, 0x54, 0x41, 0x56, 0x41, 0x57 }))
+        {
+            original_http_get = at(HttpGet, rva.http_get);
+            if (attach("discovery", &original_http_get, &hookHttpGet)) log("discovery: hooked", .{});
+        } else {
+            log("discovery: unexpected bytes, left alone", .{});
+        }
+    }
+    if (enabled("browser_trust")) {
+        if (GetModuleHandleW(std.unicode.utf8ToUtf16LeStringLiteral("wintrust.dll"))) |wintrust| {
+            if (GetProcAddress(wintrust, "WinVerifyTrust")) |function| {
+                original_win_verify_trust = @ptrCast(function);
+                if (attach("browser_trust", &original_win_verify_trust, &hookWinVerifyTrust)) log("browser_trust: hooked", .{});
+            }
+        } else {
+            log("browser_trust: wintrust.dll is not loaded, left alone", .{});
+        }
+    }
+    var trace_text: [16]u8 = undefined;
+    const trace_len = GetEnvironmentVariableA("TEMPEST_FASTSTART_TRACE", &trace_text, trace_text.len);
+    if (trace_len > 0 and trace_len < trace_text.len) {
+        if (std.fmt.parseInt(usize, trace_text[0..trace_len], 16)) |traced| {
+            original_traced = at(TracedFn, traced);
+            if (attach("trace", &original_traced, &hookTraced)) log("trace: {x} hooked", .{traced});
+        } else |_| {}
+    }
     detourz.transactionCommit() catch {
         log("faststart: the detours could not be committed", .{});
         return;
@@ -1646,6 +2105,14 @@ fn install() void {
     const seconds_len = GetEnvironmentVariableA("TEMPEST_FASTSTART_PROFILE", &seconds, seconds.len);
     if (seconds_len > 0 and seconds_len < seconds.len) {
         profile_seconds = std.fmt.parseInt(u32, seconds[0..seconds_len], 10) catch 0;
+        var which: [16]u8 = undefined;
+        const which_len = GetEnvironmentVariableA("TEMPEST_FASTSTART_PROFILE_THREAD", &which, which.len);
+        profile_busiest = which_len > 0 and which_len < which.len and std.ascii.eqlIgnoreCase(which[0..which_len], "busiest");
+        var window: [16]u8 = undefined;
+        const window_len = GetEnvironmentVariableA("TEMPEST_FASTSTART_PROFILE_WINDOW", &window, window.len);
+        if (window_len > 0 and window_len < window.len) {
+            profile_window_ms = @max(100, std.fmt.parseInt(u32, window[0..window_len], 10) catch profile_window_ms);
+        }
         if (profile_seconds != 0) {
             if (CreateThread(null, 0, &profiler, null, 0, null)) |thread| _ = CloseHandle(thread);
         }
