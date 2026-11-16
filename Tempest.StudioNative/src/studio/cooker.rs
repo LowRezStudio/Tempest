@@ -67,7 +67,18 @@ pub struct Cooker {
     pub(super) account: Option<super::account::Account>,
     /// The edit count the list was read at: the list follows edits made anywhere.
     seen: usize,
+    /// The tab shown: what goes in, the details, publishing.
+    tab: ModTab,
+    /// Build & install: install into this game once the build is done.
+    install_after: bool,
     _subs: Vec<Subscription>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ModTab {
+    Changes,
+    Details,
+    Publish,
 }
 
 /// The details the user types: the mod, its listing and the publish answers.
@@ -182,6 +193,13 @@ pub(super) fn run_cli_split(args: &[String]) -> Result<(i32, String, String), St
     Ok((out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).to_string(), String::from_utf8_lossy(&out.stderr).to_string()))
 }
 
+/// The name `tempest mod list --json` records the mod `id` under.
+fn installed_name(list: &J, id: &str) -> Option<String> {
+    let field = |m: &J, k: &str| m.get(k).or_else(|| m.get(format!("{}{}", k[..1].to_uppercase(), &k[1..]))).and_then(|v| v.as_str()).map(str::to_string);
+    let mods = list.as_array().or_else(|| list.get("mods").or_else(|| list.get("Mods")).and_then(|m| m.as_array()))?;
+    mods.iter().find(|m| field(m, "id").is_some_and(|i| i.eq_ignore_ascii_case(id))).and_then(|m| field(m, "name"))
+}
+
 /// `tempest-cli mod <args>`: exit code and the output (stdout then stderr).
 fn run_cli(args: &[String]) -> Result<(i32, String), String> {
     run_cli_split(args).map(|(code, out, err)| (code, out + &err))
@@ -258,7 +276,7 @@ impl Cooker {
         }
         let extras = saved["extras"].as_array().into_iter().flatten().filter_map(|x| Some((x["src"].as_str()?.to_string(), x["dest"].as_str()?.to_string()))).collect();
         let dismissed = saved["dismissed"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_u64()?))).collect();
-        let mut c = Cooker { backend, studio, dir, targets: Vec::new(), loading: true, meta, busy: None, log: Vec::new(), built: None, project, extras, dismissed, unmatched: None, choose: Vec::new(), account: None, seen: crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst), _subs: subs };
+        let mut c = Cooker { backend, studio, dir, targets: Vec::new(), loading: true, meta, busy: None, log: Vec::new(), built: None, project, extras, dismissed, unmatched: None, choose: Vec::new(), account: None, seen: crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst), tab: ModTab::Changes, install_after: false, _subs: subs };
         c.refresh(cx);
         c.load_account(cx);
         c
@@ -502,8 +520,9 @@ impl Cooker {
         }
         let (id, version) = (self.mod_id(cx), self.version(cx));
         let docs = std::env::var_os("HOME").map(|h| Path::new(&h).join("Documents")).filter(|p| p.is_dir()).unwrap_or_else(std::env::temp_dir);
-        // A project builds into its builds/ folder; otherwise ask where.
-        let fixed = self.project.as_ref().map(|p| p.builds().join(format!("{id}-{version}.tempest")));
+        // A project builds into its builds/ folder; Build & install of an unnamed
+        // mod into a temporary one; otherwise ask where.
+        let fixed = self.project.as_ref().map(|p| p.builds().join(format!("{id}-{version}.tempest"))).or_else(|| self.install_after.then(|| std::env::temp_dir().join("tempest-studio-native").join("builds").join(format!("{id}-{version}.tempest"))));
         let target = fixed.is_none().then(|| cx.prompt_for_new_path(&docs, Some(&format!("{id}-{version}.tempest"))));
         let mut extras: Vec<J> = self.extras.iter().map(|(s, d)| json!({ "src": s, "dest": d })).collect();
         extras.extend(self.project.as_ref().map(|p| p.mod_files()).filter(|m| m.is_dir()).map(|m| json!({ "src": m.to_string_lossy(), "dest": "" })));
@@ -526,7 +545,10 @@ impl Cooker {
                     f
                 }
                 (None, Some(t)) => {
-                    let Ok(Ok(Some(o))) = t.await else { return };
+                    let Ok(Ok(Some(o))) = t.await else {
+                        let _ = this.update(cx, |this, _| this.install_after = false);
+                        return;
+                    };
                     o
                 }
                 _ => return,
@@ -567,6 +589,7 @@ impl Cooker {
                 Err(e) => {
                     this.say(Line::Error, format!("Cooking failed: {e}"), cx);
                     this.busy = None;
+                    this.install_after = false;
                     false
                 }
             });
@@ -585,6 +608,7 @@ impl Cooker {
             let signed_ok = matches!(signed, Some(Ok((0, _))));
             let _ = this.update(cx, |this, cx| {
                 this.busy = None;
+                let install = std::mem::take(&mut this.install_after);
                 match packed {
                     Ok((0, _)) => {}
                     Ok((_, text)) => {
@@ -604,7 +628,11 @@ impl Cooker {
                 }
                 this.say(Line::Ok, format!("Built {}", out), cx);
                 this.built = Some((out.clone(), signed_ok));
-                this.toast(Tone::Success, format!("Mod built: {}", file_name(&out)), cx);
+                if install {
+                    this.install_here(cx);
+                } else {
+                    this.toast(Tone::Success, format!("Mod built: {}", file_name(&out)), cx);
+                }
             });
         })
         .detach();
@@ -615,8 +643,7 @@ impl Cooker {
         if self.built.is_none() {
             return;
         }
-        // The folder holding ChaosGame.
-        let game = Path::new(&self.dir).parent().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+        let game = self.game_root();
         let saved_here: Vec<String> = self.targets.iter().filter(|t| t.included && t.sources.iter().any(|s| s.2 == "saved")).map(|t| t.rel.clone()).collect();
         if saved_here.is_empty() {
             self.install_into(game, cx);
@@ -627,6 +654,62 @@ impl Cooker {
             let game = game.clone();
             let _ = me.update(cx, |this, cx| this.install_into(game, cx));
         });
+    }
+
+    /// The folder holding ChaosGame.
+    fn game_root(&self) -> String {
+        Path::new(&self.dir).parent().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
+    }
+
+    /// Build & install: a fast build, then into this game.
+    fn build_and_install(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.install_after = true;
+        self.meta.fast = true;
+        self.build(window, cx);
+    }
+
+    /// After Build & install: into this game, unless files saved in place would hide whether the mod works.
+    fn install_here(&mut self, cx: &mut Context<Self>) {
+        let saved_here = self.targets.iter().any(|t| t.included && t.sources.iter().any(|s| s.2 == "saved"));
+        if saved_here {
+            self.say(Line::Info, "Not installed: some game files here were overwritten with your changes, so this copy cannot show whether the mod works. Use ⋯ ▸ Install elsewhere, or Install here anyway.", cx);
+            self.toast(Tone::Warning, "Built, not installed: this game folder already has your changes", cx);
+            return;
+        }
+        let game = self.game_root();
+        self.install_into(game, cx);
+    }
+
+    /// Take the mod out of this game (`tempest mod remove`, by the name it was installed under).
+    fn remove_from_game(&mut self, cx: &mut Context<Self>) {
+        let (game, id) = (self.game_root(), self.mod_id(cx));
+        self.busy = Some("Removing…".into());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let (g, i) = (game.clone(), id.clone());
+            let r = cx
+                .background_executor()
+                .spawn(async move {
+                    let (_, out, _) = run_cli_split(&["list".into(), g.clone(), "--json".into()])?;
+                    let list: J = serde_json::from_str(out.trim()).map_err(|e| format!("tempest mod list: {e}"))?;
+                    let Some(name) = installed_name(&list, &i) else { return Ok(None) };
+                    run_cli(&["remove".into(), g, name.clone()]).map(|(code, text)| Some((code, text, name)))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = None;
+                match r {
+                    Ok(None) => this.toast(Tone::Info, "This mod is not installed in this game", cx),
+                    Ok(Some((0, _, name))) => {
+                        this.say(Line::Ok, format!("Removed {name} from {game}"), cx);
+                        this.toast(Tone::Success, "Mod removed from the game", cx);
+                    }
+                    Ok(Some((_, text, _))) => this.say(Line::Error, format!("Could not remove the mod: {}", text.trim()), cx),
+                    Err(e) => this.say(Line::Error, e, cx),
+                }
+            });
+        })
+        .detach();
     }
 
     /// Install the built package into another game folder (the one holding ChaosGame).
@@ -651,8 +734,8 @@ impl Cooker {
                 this.busy = None;
                 match r {
                     Ok((0, _)) => {
-                        this.say(Line::Ok, format!("Installed into {game}"), cx);
-                        this.toast(Tone::Success, "Mod installed", cx);
+                        this.say(Line::Ok, format!("Installed into {game}. Play it from Tempest Launcher to test it."), cx);
+                        this.toast(Tone::Success, "Mod installed: play from Tempest Launcher to test it", cx);
                     }
                     Ok((_, text)) => this.say(Line::Error, format!("Install failed: {}", text.trim()), cx),
                     Err(e) => this.say(Line::Error, e, cx),
@@ -690,7 +773,7 @@ impl Cooker {
         for (k, t) in self.targets.iter().enumerate() {
             let (id, _, origin) = &t.sources[t.chosen];
             let origin = match origin.as_str() {
-                "unsaved" => "unsaved edits",
+                "unsaved" => "changes in the Studio",
                 "copy" => "an exported copy",
                 _ => "saved in the game folder",
             };
@@ -721,7 +804,7 @@ impl Cooker {
                                 }
                                 cx.notify();
                             }));
-                            if t.whole { b.ghost() } else { b.primary() }
+                            b.ghost().selected(!t.whole)
                         })
                         .when(!t.script, |d| {
                             d.child({
@@ -746,7 +829,7 @@ impl Cooker {
                 let mut pick = h_flex().gap_1().child(div().text_xs().text_color(theme.muted_foreground).child("ship"));
                 for (j, s) in t.sources.iter().enumerate() {
                     let label = match s.2.as_str() {
-                        "unsaved" => "unsaved edits".to_string(),
+                        "unsaved" => "changes in the Studio".to_string(),
                         "copy" => format!("copy {}", file_name(&s.1)),
                         _ => "saved file".to_string(),
                     };
@@ -1059,8 +1142,8 @@ impl Cooker {
                 .rounded_md()
                 .border_1()
                 .border_color(theme.border)
-                .child(div().flex_1().text_xs().text_color(theme.muted_foreground).child("A mod project keeps these edits in its own file, saved as you go, with a folder for scripts and other files the mod ships, and builds into it."))
-                .child(Button::new("cook-new-project").xsmall().label("New mod project…").on_click(cx.listener(|this, _, window, cx| {
+                .child(div().flex_1().text_xs().text_color(theme.muted_foreground).child("Name this mod to give it its own folder: it saves itself as you work, can ship scripts and other files, and keeps its builds."))
+                .child(Button::new("cook-new-project").xsmall().label("Name this mod…").on_click(cx.listener(|this, _, window, cx| {
                     let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::NewProject, window, cx));
                 })))
                 .into_any_element();
@@ -1169,82 +1252,122 @@ impl Render for Cooker {
         let lua = self.ships_lua();
         let account = self.render_account(cx);
         let extras = self.render_extras(cx);
-        let left = v_flex()
-            .id("cook-files")
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .overflow_y_scroll()
-            .p_3()
-            .gap_2()
-            .child(h_flex().gap_2().child(div().flex_1().child(section("What goes in"))).child(Button::new("cook-refresh").xsmall().ghost().label("Refresh").on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))))
-            .child(div().text_xs().text_color(theme.muted_foreground).child("Every game file your changes touch. They go into the mod as they are in the Studio; the game's own files stay untouched."))
-            .child(files)
-            .child(extras)
-            .child(self.render_project_files(cx));
-        let right = v_flex()
-            .id("cook-details")
-            .w(px(420.0))
+        let built = self.built.clone();
+        let blocked = !problems.is_empty() || busy.is_some() || cli.is_none();
+        let included = self.targets.iter().filter(|t| t.included).count() + self.extras.len();
+        let name = self.meta.text("name", cx);
+        let title = if name.is_empty() { self.project.as_ref().map(|p| p.name.clone()).unwrap_or_else(|| "Unnamed mod".into()) } else { name };
+        let me = cx.entity().downgrade();
+        let can_use = built.is_some() && busy.is_none();
+        let unnamed = self.project.is_none() && self.meta.text("name", cx).is_empty();
+        // The bar: the mod, what is wrong, and Build & install.
+        let bar = h_flex()
             .flex_none()
-            .h_full()
-            .overflow_y_scroll()
-            .p_3()
+            .px_4()
+            .py_3()
             .gap_3()
-            .border_l_1()
+            .border_b_1()
             .border_color(theme.border)
-            .child(section("Details"))
-            .child(labeled("Name", &self.meta.name))
-            .child(v_flex().gap_1().child(labeled("Id", &self.meta.id)).child(div().text_xs().text_color(theme.muted_foreground).child(format!("the mod's id: {}", if id.is_empty() { "—".to_string() } else { id.clone() }))))
-            .child(v_flex().gap_1().child(labeled("Version", &self.meta.version)).when_some(fix, |d, v| {
-                d.child(h_flex().gap_2().child(div().text_xs().text_color(theme.warning).child(format!("Not a version the launcher reads; did you mean {v}?"))).child(Button::new("cook-fix-version").xsmall().label(format!("Use {v}")).on_click(cx.listener(move |this, _, window, cx| {
-                    let v = v.clone();
-                    this.meta.version.update(cx, |s, cx| s.set_value(v, window, cx));
-                    this.save_meta(cx);
-                }))))
-            }))
-            .child(h_flex().gap_2().child(div().flex_1().child(labeled("Author", &self.meta.author))).child(div().flex_1().child(labeled("Author link", &self.meta.link))))
-            .child(section("Listing"))
-            .child(v_flex().gap_1().child(labeled("Summary", &self.meta.summary)).child(div().text_xs().text_color(if summary_len > modmeta::MAX_SUMMARY { theme.danger } else { theme.muted_foreground }).child(format!("{summary_len} / {} characters, shown in the mod list", modmeta::MAX_SUMMARY))))
-            .child(labeled("Tags", &self.meta.tags))
-            .child(labeled("Source link", &self.meta.repository))
-            .child(v_flex().gap_1().child(div().text_xs().text_color(theme.muted_foreground).child("Dependencies")).child(Textarea::new(&self.meta.deps)).child(div().text_xs().text_color(theme.muted_foreground).child(if lua { "tempest-scripting>=1.0.0 is added for you: the mod ships Lua." } else { "Mods it needs, one per line: an id, then a version requirement like >=1.2.0, ^2 or ~1.2." })))
-            .child(section("Icon and readme"))
-            .child(self.render_icon(cx))
-            .child(Textarea::new(&self.meta.readme))
-            .child(section("Build"))
-            .child({
-                let pick = |id: &'static str, label: &'static str, tip: &'static str, fast: bool, on: bool, cx: &mut Context<Self>| {
-                    let b = Button::new(id).small().label(label).tooltip(tip).on_click(cx.listener(move |this, _, _, cx| {
-                        this.meta.fast = fast;
-                        this.save_meta(cx);
-                        cx.notify();
-                    }));
-                    b.ghost().selected(on)
-                };
-                let fast = self.meta.fast;
-                v_flex()
-                    .gap_1()
-                    .child(div().text_xs().text_color(theme.muted_foreground).child("Compression"))
-                    .child(h_flex().gap_1().child(pick("cook-small", "Smallest file", "LZMA: the smallest mod, slower to build (a big mod takes a minute or so)", false, !fast, cx)).child(pick("cook-fast", "Faster build", "zstd: builds several times faster, the mod is about 30 % bigger", true, fast, cx)))
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(if fast { "Builds several times faster; the mod is about 30 % bigger. Good while testing." } else { "The smallest mod to download; slower to build. Best for publishing." }))
-            })
-            .children(problems.iter().map(|p| div().text_xs().text_color(theme.warning).child(format!("• {p}"))))
-            .when(cli.is_none(), |d| d.child(div().text_xs().text_color(theme.danger).child("tempest-cli was not found: build Tempest.CLI or set TEMPEST_CLI to pack the mod")))
+            .bg(theme.sidebar)
+            .child(div().flex_none().size(px(40.0)).rounded_lg().bg(theme.primary.opacity(0.15)).flex().items_center().justify_center().child(gpui_component::Icon::new(gpui_kit_assets::IconName::Hammer).text_color(theme.primary)))
             .child(
-                h_flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .child(Button::new("cook-build").primary().label(busy.clone().unwrap_or_else(|| if self.project.is_some() { "Build the mod".into() } else { "Build the mod…".into() })).disabled(!problems.is_empty() || busy.is_some() || cli.is_none()).on_click(cx.listener(|this, _, window, cx| this.build(window, cx))))
-                    .child(Button::new("cook-install").label("Install into this game").disabled(self.built.is_none() || busy.is_some()).tooltip("tempest mod install, replacing an older version").on_click(cx.listener(|this, _, window, cx| this.install(window, cx))))
-                    .child(Button::new("cook-install-other").ghost().label("Install elsewhere…").disabled(self.built.is_none() || busy.is_some()).tooltip("Into another copy of the game (the folder holding ChaosGame), to test the mod on clean files").on_click(cx.listener(|this, _, _, cx| this.install_elsewhere(cx))))
-                    .child(Button::new("cook-copy").ghost().label("Save a copy…").disabled(self.built.is_none() || busy.is_some()).on_click(cx.listener(|this, _, _, cx| this.save_built_copy(cx))))
-                    .child(Button::new("cook-publish").ghost().label("Publish…").disabled(self.built.is_none() || busy.is_some()).tooltip("Upload the built package to the mod repository").on_click(cx.listener(|this, _, window, cx| this.publish_dialog(window, cx)))),
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().text_lg().font_weight(gpui::FontWeight::BOLD).overflow_hidden().text_ellipsis().whitespace_nowrap().child(title))
+                    .child(div().text_xs().text_color(if problems.is_empty() { theme.muted_foreground } else { theme.warning }).overflow_hidden().text_ellipsis().whitespace_nowrap().child(match (problems.first(), &built) {
+                        (Some(p), _) => format!("Before building: {p}"),
+                        (None, Some((path, signed))) => format!("Built {}{} · version {}", file_name(path), if *signed { ", signed" } else { "" }, if v.is_empty() { "1.0.0".into() } else { v.clone() }),
+                        (None, None) => format!("{included} file{} go{} in · version {}", if included == 1 { "" } else { "s" }, if included == 1 { "es" } else { "" }, if v.is_empty() { "1.0.0".into() } else { v.clone() }),
+                    })),
             )
-            .when_some(self.built.clone(), |d, (path, signed)| d.child(div().text_xs().text_color(theme.muted_foreground).child(format!("Built {}{}", file_name(&path), if signed { ", signed" } else { ", not signed" }))))
-            .child(log)
-            .child(section("Signing and publishing"))
-            .child(account);
-        h_flex().size_full().child(left).child(right)
+            // An unnamed mod's first step: its name (and its own folder).
+            .when(unnamed, |d| {
+                d.child(Button::new("cook-name").small().primary().label("Name this mod…").on_click(cx.listener(|this, _, window, cx| {
+                    let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::NewProject, window, cx));
+                })))
+            })
+            .child(Button::new("cook-remove").small().ghost().label("Remove from game").tooltip("Take this mod out of the game folder that is open").disabled(busy.is_some() || cli.is_none() || id.is_empty()).on_click(cx.listener(|this, _, _, cx| this.remove_from_game(cx))))
+            .child(Button::new("cook-play").small().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Gamepad2)).label("Play in Tempest Launcher").tooltip("Tempest Launcher starts the game with your installed mods").on_click(|_, _, cx| cx.open_url("tempest://")))
+            .child(
+                Button::new("cook-more").small().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Ellipsis)).tooltip("Build only, save a copy, install elsewhere, publish").dropdown_menu(move |menu, _, _| {
+                    let item = |label: &str, enabled: bool, f: fn(&mut Cooker, &mut Window, &mut Context<Cooker>)| {
+                        let me = me.clone();
+                        gpui_component::menu::PopupMenuItem::new(label.to_string()).disabled(!enabled).on_click(move |_, window, cx| {
+                            let _ = me.update(cx, |this, cx| f(this, window, cx));
+                        })
+                    };
+                    menu.item(item("Build only…", !blocked, |this, w, cx| this.build(w, cx)))
+                        .item(item("Install here anyway", can_use, |this, w, cx| this.install(w, cx)))
+                        .item(item("Install elsewhere…", can_use, |this, _, cx| this.install_elsewhere(cx)))
+                        .item(item("Save a copy…", can_use, |this, _, cx| this.save_built_copy(cx)))
+                        .separator()
+                        .item(item("Publish…", can_use, |this, w, cx| this.publish_dialog(w, cx)))
+                }),
+            )
+            .child(div().relative().child(Button::new("cook-build").when(!unnamed, |b| b.primary()).icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Hammer)).label(busy.clone().unwrap_or_else(|| "Build & install".into())).tooltip("Build the mod (fast) and install it into this game, ready to play from Tempest Launcher").disabled(blocked).on_click(cx.listener(|this, _, window, cx| this.build_and_install(window, cx)))).child(crate::driver::probe("cook-build")));
+        let tab = self.tab;
+        let tab_button = |id: &'static str, label: &'static str, t: ModTab, cx: &mut Context<Self>| {
+            Button::new(id).small().ghost().label(label).selected(tab == t).on_click(cx.listener(move |this, _, _, cx| {
+                this.tab = t;
+                cx.notify();
+            }))
+        };
+        let tabs = h_flex().flex_none().px_3().py_1().gap_1().border_b_1().border_color(theme.border).child(tab_button("cook-tab-changes", "Changes", ModTab::Changes, cx)).child(tab_button("cook-tab-details", "Details", ModTab::Details, cx)).child(tab_button("cook-tab-publish", "Publish", ModTab::Publish, cx));
+        let page = v_flex().max_w(px(820.0)).w_full().p_4().gap_3();
+        let page = match tab {
+            ModTab::Changes => page
+                .child(h_flex().gap_2().child(div().flex_1().child(section("What goes in"))).child(Button::new("cook-refresh").xsmall().ghost().label("Refresh").on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))))
+                .child(crate::studio::ui::hint("Every game file your changes touch. They go into the mod as they are in the Studio; the game's own files stay untouched.", &theme))
+                .child(files)
+                .child(extras)
+                .child(self.render_project_files(cx))
+                .when(!self.log.is_empty(), |d| d.child(section("Last build")).child(log))
+                .children(problems.iter().map(|p| div().text_xs().text_color(theme.warning).child(format!("• {p}"))))
+                .when(cli.is_none(), |d| d.child(div().text_xs().text_color(theme.danger).child("The mod packer (tempest-cli) is missing from this Studio, so mods cannot be built. Reinstall the Studio, or set TEMPEST_CLI."))),
+            ModTab::Details => page
+                .child(section("Details"))
+                .child(labeled("Name", &self.meta.name))
+                .child(h_flex().gap_2().child(div().flex_1().child(labeled("Author", &self.meta.author))).child(div().flex_1().child(labeled("Author link", &self.meta.link))))
+                .child(v_flex().gap_1().child(labeled("Version", &self.meta.version)).when_some(fix, |d, v| {
+                    d.child(h_flex().gap_2().child(div().text_xs().text_color(theme.warning).child(format!("Not a version the launcher reads; did you mean {v}?"))).child(Button::new("cook-fix-version").xsmall().label(format!("Use {v}")).on_click(cx.listener(move |this, _, window, cx| {
+                        let v = v.clone();
+                        this.meta.version.update(cx, |s, cx| s.set_value(v, window, cx));
+                        this.save_meta(cx);
+                    }))))
+                }))
+                .child(section("Icon and readme"))
+                .child(self.render_icon(cx))
+                .child(Textarea::new(&self.meta.readme))
+                .child(section("Advanced"))
+                .child(v_flex().gap_1().child(labeled("Id", &self.meta.id)).child(crate::studio::ui::hint(format!("How launchers and other mods name this mod: {}. Made from the name unless you type one.", if id.is_empty() { "—".to_string() } else { id.clone() }), &theme)))
+                .child(v_flex().gap_1().child(div().text_xs().text_color(theme.muted_foreground).child("Mods it needs")).child(Textarea::new(&self.meta.deps)).child(crate::studio::ui::hint(if lua { "tempest-scripting>=1.0.0 is added for you: the mod ships Lua." } else { "One per line: an id, then a version requirement like >=1.2.0, ^2 or ~1.2." }, &theme)))
+                .child({
+                    let pick = |id: &'static str, label: &'static str, tip: &'static str, fast: bool, on: bool, cx: &mut Context<Self>| {
+                        Button::new(id).small().label(label).tooltip(tip).ghost().selected(on).on_click(cx.listener(move |this, _, _, cx| {
+                            this.meta.fast = fast;
+                            this.save_meta(cx);
+                            cx.notify();
+                        }))
+                    };
+                    let fast = self.meta.fast;
+                    v_flex()
+                        .gap_1()
+                        .child(div().text_xs().text_color(theme.muted_foreground).child("Compression of Build only"))
+                        .child(h_flex().gap_1().child(pick("cook-small", "Smallest file", "LZMA: the smallest mod, slower to build (a big mod takes a minute or so)", false, !fast, cx)).child(pick("cook-fast", "Faster build", "zstd: builds several times faster, the mod is about 30 % bigger", true, fast, cx)))
+                        .child(crate::studio::ui::hint("Build & install always builds fast. Build the smallest file for sharing and publishing.", &theme))
+                }),
+            ModTab::Publish => page
+                .child(section("Listing"))
+                .child(crate::studio::ui::hint("How the mod shows in the mod list of Tempest Launcher once it is published.", &theme))
+                .child(v_flex().gap_1().child(labeled("Summary", &self.meta.summary)).child(div().text_xs().text_color(if summary_len > modmeta::MAX_SUMMARY { theme.danger } else { theme.muted_foreground }).child(format!("{summary_len} / {} characters", modmeta::MAX_SUMMARY))))
+                .child(labeled("Tags", &self.meta.tags))
+                .child(labeled("Source link", &self.meta.repository))
+                .child(h_flex().gap_2().child(Button::new("cook-publish").label("Publish…").disabled(self.built.is_none() || busy.is_some()).tooltip("Upload the built mod to the mod repository").on_click(cx.listener(|this, _, window, cx| this.publish_dialog(window, cx)))).when(self.built.is_none(), |d| d.child(crate::studio::ui::hint("Build the mod first (smallest file is best for publishing).", &theme))))
+                .child(section("Signing and account"))
+                .child(account),
+        };
+        v_flex().size_full().child(bar).child(tabs).child(div().id("cook-page").flex_1().min_h_0().overflow_y_scroll().child(h_flex().w_full().justify_center().child(page)))
     }
 }
 
@@ -1324,5 +1447,18 @@ impl Cooker {
                         })),
                 )
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_the_installed_name() {
+        let list = json!({ "mods": [{ "id": "other", "name": "Other" }, { "id": "cassie-neon", "name": "Cassie Neon.tempest" }] });
+        assert_eq!(installed_name(&list, "Cassie-Neon").as_deref(), Some("Cassie Neon.tempest"));
+        assert_eq!(installed_name(&json!([{ "Id": "a", "Name": "A" }]), "a").as_deref(), Some("A"));
+        assert_eq!(installed_name(&list, "missing"), None);
     }
 }
