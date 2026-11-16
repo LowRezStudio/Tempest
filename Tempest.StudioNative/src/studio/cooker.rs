@@ -1288,7 +1288,7 @@ impl Render for Cooker {
             .border_b_1()
             .border_color(theme.border)
             .bg(theme.sidebar)
-            .child(div().flex_none().size(px(40.0)).rounded_lg().bg(theme.primary.opacity(0.15)).flex().items_center().justify_center().child(gpui_component::Icon::new(gpui_kit_assets::IconName::Hammer).text_color(theme.primary)))
+            .child(div().flex_none().size(px(40.0)).rounded_lg().bg(theme.secondary).flex().items_center().justify_center().child(gpui_component::Icon::new(gpui_kit_assets::IconName::Hammer).text_color(theme.muted_foreground)))
             .child(
                 v_flex()
                     .flex_1()

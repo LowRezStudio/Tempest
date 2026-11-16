@@ -71,7 +71,7 @@ impl Studio {
                 .child(
                     v_flex()
                         .gap_3()
-                        .child(div().text_sm().text_color(theme.muted_foreground).child("Writes a copy of the file on disk (edits are not included) in the chosen storage. The game loads both forms; the cooker ships compressed and obscured packages."))
+                        .child(div().text_sm().text_color(theme.muted_foreground).child("Writes a copy of the file on disk (your changes are not included) in the chosen storage. The game loads both forms; Build mod ships packages compressed and obscured."))
                         .child(Checkbox::new("rw-compress").label("LZO-compress in cooker-style chunks").checked(c1.get()).on_click(move |v, window, _| {
                             c2.set(*v);
                             window.refresh();

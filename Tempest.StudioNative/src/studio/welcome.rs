@@ -99,7 +99,7 @@ impl Studio {
                     .border_1()
                     .border_color(theme.border)
                     .bg(theme.sidebar)
-                    .child(Icon::new(IconName::Gamepad2).text_color(theme.primary))
+                    .child(Icon::new(IconName::Gamepad2).text_color(theme.muted_foreground))
                     .child(
                         v_flex()
                             .flex_1()
