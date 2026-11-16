@@ -38,3 +38,9 @@ mutating calls), ⌘S saves the project and Write into the game folder is its ow
 shows the project chip (save state, menu) and Build mod; closing saves or discards, then unloads the
 edits (`package.discard`, `mcts.discard`); the cooker lists only the project's files (plus unsaved
 ones), takes its details, ships `mod-files/` as an extra and builds into `builds/`.
+
+Mod view build options: **Compression** (smallest file = LZMA, faster build = zstd; `mod.cook
+{compression}`, kept with the mod's details), **Add folder…** (shipped under its name), **Install
+into this game** (asks first when files of the mod were saved in place here) and **Install
+elsewhere…** (another copy of the game). Workspace files keep the id range for new assembly content
+(`idRange`).

@@ -29,6 +29,8 @@ pub enum Pick {
     SlotMaterial(usize),
     /// The texture of a material's parameter.
     Texture(String),
+    /// The value of a `*_VALUE_ID` cell of the assembly: a row index, the column, the valid values.
+    AssemblyValue { row: usize, field: String, values: std::rc::Rc<Vec<(i64, String)>> },
 }
 
 impl Pick {
@@ -38,13 +40,14 @@ impl Pick {
             Pick::ReplaceWith => "An object of the same class in another package",
             Pick::SlotMaterial(_) => "A material or material instance, e.g. mic_ or a champion's name",
             Pick::Texture(_) => "A texture of any package",
+            Pick::AssemblyValue { .. } => "A valid value, by name or id",
         }
     }
 
     /// The class the search keeps (`isA`), for object picks.
     fn is_a(&self, studio: &Studio) -> Option<String> {
         match self {
-            Pick::CopyTo => None,
+            Pick::CopyTo | Pick::AssemblyValue { .. } => None,
             Pick::ReplaceWith => studio.selection_class(),
             Pick::SlotMaterial(_) => Some("MaterialInterface".into()),
             Pick::Texture(_) => Some("Texture".into()),
@@ -63,6 +66,12 @@ pub enum Item {
     Hit { package: String, path: String, index: usize, object: String, class: String },
     /// A property the selected object's class declares and the object does not store.
     AddProperty { name: String, kind: String, ty: String },
+    /// A table of an assembly file.
+    Table { doc: String, file: String, table: String, rows: usize },
+    /// Filter the rows of the assembly table on screen (empty: clear the filter).
+    FilterRows { table: String, query: String },
+    /// A valid value of the assembly (`DATA_SET_VALID_VALUES`).
+    Value { id: i64, text: String },
 }
 
 pub struct Palette {
@@ -73,12 +82,24 @@ pub struct Palette {
     pub note: Option<SharedString>,
     /// `+`: what can be added to the selected object (`object.missing`, read once).
     missing: Option<Vec<(String, String, String)>>,
+    /// `+` lists the fields of the tagged struct at this property path instead of the object's properties.
+    at: Option<String>,
     pub pick: Option<Pick>,
 }
 
 impl Studio {
     pub(super) fn open_palette(&mut self, prefix: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.open_palette_with(prefix, None, window, cx);
+    }
+
+    /// The palette's `+` list for the tagged struct at property path `at`.
+    pub(super) fn open_palette_at(&mut self, prefix: &str, at: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_palette_with(prefix, None, window, cx);
+        if let Some(p) = &mut self.palette {
+            p.at = Some(at);
+            p.missing = None;
+        }
+        self.palette_query(prefix.to_string(), cx);
     }
 
     pub(super) fn open_picker(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
@@ -91,7 +112,7 @@ impl Studio {
             s.set_query(prefix.to_string(), window, cx);
             s.focus(window, cx);
         });
-        self.palette = Some(Palette { state, items: Vec::new(), seq: 0, note: None, missing: None, pick });
+        self.palette = Some(Palette { state, items: Vec::new(), seq: 0, note: None, missing: None, at: None, pick });
         self.palette_query(prefix.to_string(), cx);
     }
 
@@ -153,11 +174,20 @@ impl Studio {
     pub(super) fn palette_query(&mut self, q: String, cx: &mut Context<Self>) {
         let enabled: Vec<Cmd> = Cmd::ALL.iter().copied().filter(|c| c.enabled(self)).collect();
         let (recent, pinned) = (self.recent_packages(), self.pinned());
+        // The assembly's tables and the table on screen, read before the palette is borrowed.
+        let tables = self.assembly.as_ref().map(|a| a.read(cx).tables()).unwrap_or_default();
+        let asm_table = if self.view == super::View::Assembly { self.assembly.as_ref().and_then(|a| a.read(cx).table_name()) } else { None };
         let Some(p) = &mut self.palette else { return };
         p.note = None;
         let has = |text: &str, f: &str| f.is_empty() || text.to_ascii_lowercase().contains(f);
         if let Some(pick) = p.pick.clone() {
-            if matches!(pick, Pick::CopyTo) {
+            if let Pick::AssemblyValue { values, .. } = &pick {
+                let f = q.trim().to_ascii_lowercase();
+                p.items = values.iter().filter(|(id, text)| has(text, &f) || id.to_string().starts_with(&f)).take(SHOWN).map(|(id, text)| Item::Value { id: *id, text: text.clone() }).collect();
+                if p.items.is_empty() {
+                    p.note = Some("No valid value by that name or id".into());
+                }
+            } else if matches!(pick, Pick::CopyTo) {
                 let f = q.trim().to_ascii_lowercase();
                 let here = self.open.as_ref().map(|t| t.path.clone());
                 p.items = (0..self.packages.len()).filter(|&i| Some(&self.packages[i].path) != here.as_ref() && !self.packages[i].script && has(&self.packages[i].name, &f)).take(SHOWN).map(Item::Package).collect();
@@ -179,7 +209,11 @@ impl Studio {
                 }
                 None => {
                     let (Some(t), Some(i)) = (&self.open, self.selected_export) else { return };
-                    let call = self.backend.call("object.missing", json!({ "path": t.path, "index": i }));
+                    let mut params = json!({ "path": t.path, "index": i });
+                    if let Some(at) = &p.at {
+                        params["at"] = json!(at);
+                    }
+                    let call = self.backend.call("object.missing", params);
                     cx.spawn(async move |this, cx| {
                         let r = call.await;
                         let _ = this.update(cx, |this, cx| {
@@ -195,6 +229,9 @@ impl Studio {
         } else if let Some(rest) = q.strip_prefix('>') {
             let f = rest.trim().to_ascii_lowercase();
             p.items = enabled.into_iter().filter(|c| has(c.info().title, &f) || has(c.info().group, &f)).map(Item::Command).collect();
+        } else if let (Some(rest), Some(table)) = (q.strip_prefix('@'), asm_table) {
+            // In the Assembly view, "go to a row" filters the table on screen.
+            p.items = vec![Item::FilterRows { table, query: rest.trim().to_string() }];
         } else if let Some(rest) = q.strip_prefix('@') {
             let f = rest.trim().to_ascii_lowercase();
             p.items = match &self.open {
@@ -213,6 +250,15 @@ impl Studio {
             let mut all: Vec<usize> = (0..self.packages.len()).filter(|&i| has(&self.packages[i].name, &f)).collect();
             all.sort_by_key(|&i| rank(&self.packages[i].path));
             p.items = all.into_iter().take(SHOWN).map(Item::Package).collect();
+            // The assembly's tables too, once its files are read (first in the Assembly view).
+            let short = |t: &str| t.strip_prefix("DATA_SET_").unwrap_or(t).to_string();
+            let found: Vec<Item> = tables.into_iter().filter(|(_, _, t, _)| has(&short(t), &f)).map(|(doc, file, table, rows)| Item::Table { doc, file, table, rows }).collect();
+            if self.view == super::View::Assembly {
+                p.items.splice(0..0, found);
+            } else if !f.is_empty() {
+                p.items.extend(found);
+            }
+            p.items.truncate(SHOWN);
             if p.items.is_empty() && !f.is_empty() {
                 p.note = Some("No package by that name: start with # to search objects of every package, > for commands".into());
             }
@@ -222,6 +268,7 @@ impl Studio {
 
     pub(super) fn palette_confirm(&mut self, row: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some((item, pick)) = self.palette.as_ref().and_then(|p| p.items.get(row).cloned().map(|i| (i, p.pick.clone()))) else { return };
+        let at = self.palette.as_ref().and_then(|p| p.at.clone());
         self.close_palette(window, cx);
         if let Some(pick) = pick {
             self.picked(pick, item, window, cx);
@@ -242,7 +289,18 @@ impl Studio {
                 self.record(place.clone());
                 self.go(place, window, cx);
             }
-            Item::AddProperty { name, .. } => self.add_property(name, cx),
+            Item::AddProperty { name, .. } => self.add_property(name, at, cx),
+            Item::Table { doc, table, .. } => {
+                let place = Place::Assembly { file: doc, path: Vec::new(), table: Some(table), row: None };
+                self.record(place.clone());
+                self.go(place, window, cx);
+            }
+            Item::FilterRows { query, .. } => {
+                if let Some(a) = self.assembly.clone() {
+                    a.update(cx, |a, cx| a.set_filter(query, window, cx));
+                }
+            }
+            Item::Value { .. } => {}
         }
     }
 
@@ -256,6 +314,11 @@ impl Studio {
             (Pick::ReplaceWith, Item::Hit { path, index, .. }) => self.replace_with(path, index, window, cx),
             (Pick::SlotMaterial(slot), Item::Hit { path, index, .. }) => self.set_slot_material(slot, path, index, cx),
             (Pick::Texture(name), Item::Hit { path, index, .. }) => self.set_texture(name, path, index, cx),
+            (Pick::AssemblyValue { row, field, .. }, Item::Value { id, .. }) => {
+                if let Some(a) = self.assembly.clone() {
+                    a.update(cx, |a, cx| a.pick_value_done(row, field, id, cx));
+                }
+            }
             _ => {}
         }
     }
@@ -278,6 +341,12 @@ impl Studio {
                     Item::Export(i) => open.map(|t| (t.exports[*i].name.clone(), t.exports[*i].class.clone())).unwrap_or_default(),
                     Item::Hit { package, object, class, .. } => (object.clone(), format!("{class} · {package}")),
                     Item::AddProperty { name, kind, ty } => (name.clone(), if ty.is_empty() { kind.clone() } else { format!("{kind} {ty}") }),
+                    Item::Table { file, table, rows, .. } => (table.strip_prefix("DATA_SET_").unwrap_or(table).to_string(), format!("{file} · {rows} rows")),
+                    Item::FilterRows { table, query } => {
+                        let t = table.strip_prefix("DATA_SET_").unwrap_or(table);
+                        (if query.is_empty() { format!("Clear the row filter of {t}") } else { format!("Filter {t} rows containing \"{query}\"") }, "Assembly".to_string())
+                    }
+                    Item::Value { id, text } => (text.clone(), id.to_string()),
                 };
                 let muted = theme.muted_foreground;
                 CommandItem::new().label(label.clone()).child(move |_, _| h_flex().w_full().gap_2().child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(label.clone())).child(div().text_xs().text_color(muted).whitespace_nowrap().overflow_hidden().text_ellipsis().max_w(px(320.0)).child(detail.clone())))
@@ -286,7 +355,7 @@ impl Studio {
         let me = cx.entity();
         let (on_query, on_confirm, on_cancel) = (me.clone(), me.clone(), me);
         let note = p.note.clone();
-        let placeholder = p.pick.as_ref().map(|k| k.placeholder()).unwrap_or("Package · > commands · @ objects of this package · # search every package");
+        let placeholder = p.pick.as_ref().map(|k| k.placeholder()).unwrap_or("Package or table · > commands · @ objects of this package or rows of this table · # search every package");
         let palette = Command::new(&p.state)
             .filterable(false)
             .items(items)

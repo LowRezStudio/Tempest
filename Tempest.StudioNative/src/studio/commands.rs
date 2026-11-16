@@ -37,6 +37,30 @@ pub enum Cmd {
     MapNewMatinee,
     MapOpenMatinee,
     MapMatineeKey,
+    AsmNewRow,
+    AsmNewContent,
+    AsmVendor,
+    AsmSkins,
+    AsmExportMod,
+    AsmReload,
+    OpenFile,
+    NextTab,
+    PrevTab,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    ToggleTheme,
+    GameShaders,
+    ShaderModel,
+    ShowAudio,
+    Rewrite,
+    ModFolder,
+    ExportSources,
+    PackageInfo,
+    CheckUpdates,
+    McpServer,
+    ProjectFolder,
+    DiscardAll,
     NewPackage,
     AddObject,
     AddGroup,
@@ -47,6 +71,7 @@ pub enum Cmd {
     ExportObject,
     ReplaceObject,
     ReplaceWith,
+    ExtractRaw,
     FindReplace,
     BatchImport,
     Verify,
@@ -103,6 +128,30 @@ impl Cmd {
         Cmd::MapNewMatinee,
         Cmd::MapOpenMatinee,
         Cmd::MapMatineeKey,
+        Cmd::AsmNewRow,
+        Cmd::AsmNewContent,
+        Cmd::AsmVendor,
+        Cmd::AsmSkins,
+        Cmd::AsmExportMod,
+        Cmd::AsmReload,
+        Cmd::OpenFile,
+        Cmd::NextTab,
+        Cmd::PrevTab,
+        Cmd::ZoomIn,
+        Cmd::ZoomOut,
+        Cmd::ZoomReset,
+        Cmd::ToggleTheme,
+        Cmd::GameShaders,
+        Cmd::ShaderModel,
+        Cmd::ShowAudio,
+        Cmd::Rewrite,
+        Cmd::ModFolder,
+        Cmd::ExportSources,
+        Cmd::PackageInfo,
+        Cmd::CheckUpdates,
+        Cmd::McpServer,
+        Cmd::ProjectFolder,
+        Cmd::DiscardAll,
         Cmd::NewPackage,
         Cmd::AddObject,
         Cmd::AddGroup,
@@ -113,6 +162,7 @@ impl Cmd {
         Cmd::ExportObject,
         Cmd::ReplaceObject,
         Cmd::ReplaceWith,
+        Cmd::ExtractRaw,
         Cmd::FindReplace,
         Cmd::BatchImport,
         Cmd::Verify,
@@ -139,16 +189,16 @@ impl Cmd {
             Cmd::NewWindow => i("New window", "Workspace", "⌘⇧N", "another window, for another game folder or package"),
             Cmd::Create => i("Create…", "Edit", "⌘N", "a texture, mesh, material, sound, package, skin, ability, item or champion, step by step"),
             Cmd::Save => i("Save", "Workspace", "⌘S", "the project when one is open, else the open package or assembly files in place (asks first)"),
-            Cmd::SaveAll => i("Save every unsaved file", "Workspace", "", "every package with edits, in place (asks first)"),
-            Cmd::SaveAs => i("Export a copy of the package…", "Workspace", "", "write it elsewhere; the game folder is untouched and the edits stay unsaved"),
+            Cmd::SaveAll => i("Write every edited file into the game folder…", "Workspace", "", "every package with edits, over the game's own files (asks first); a mod does not need it"),
+            Cmd::SaveAs => i("Export a copy…", "Workspace", "⌘⇧S", "write it elsewhere; the game folder is untouched and the edits stay in the Studio"),
             Cmd::Discard => i("Discard the package's changes…", "Workspace", "", "reload it from the game folder"),
             Cmd::Undo => i("Undo", "Edit", "⌘Z", "take back the last edit"),
             Cmd::Back => i("Back", "Go", "⌥←", ""),
             Cmd::Forward => i("Forward", "Go", "⌥→", ""),
             Cmd::Commands => i("Commands…", "Go", "⌘K", ""),
-            Cmd::GoToPackage => i("Go to a package…", "Go", "⌘P", ""),
-            Cmd::GoToObject => i("Go to an object of this package…", "Go", "⌘⇧O", ""),
-            Cmd::SearchAll => i("Search every package…", "Go", "⌘⇧F", "objects by name, in every package of the folder"),
+            Cmd::GoToPackage => i("Go to a package or table…", "Go", "⌘P", "a package by name, or a table of the assembly files"),
+            Cmd::GoToObject => i("Go to an object or row…", "Go", "⌘⇧O", "an object of the open package; in the Assembly view, the rows containing a text"),
+            Cmd::SearchAll => i("Search every package…", "Go", "⌘F", "objects by name, in every package of the folder"),
             Cmd::NewTab => i("New tab", "Go", "⌘T", "a copy of this tab"),
             Cmd::CloseTab => i("Close the tab", "Go", "⌘W", ""),
             Cmd::ShowPackages => i("Show packages", "View", "⌘1", ""),
@@ -161,6 +211,30 @@ impl Cmd {
             Cmd::MapNewMatinee => i("New Matinee", "Map", "", "in the selected actor's level, moving it (or empty when nothing is selected)"),
             Cmd::MapOpenMatinee => i("Open the level's Matinees", "Map", "", "the first Matinee of the selected actor's level (the timeline lists the others)"),
             Cmd::MapMatineeKey => i("Add a Matinee key at the playhead", "Map", "K", "on the selected track; a move key takes where its actor is"),
+            Cmd::AsmNewRow => i("New row", "Assembly", "⌘⇧↩", "an empty row at the end of the table on screen, with a fresh id"),
+            Cmd::AsmNewContent => i("New device, card, item, skin or champion…", "Assembly", "", "from a template row, with new ids and messages in every language"),
+            Cmd::AsmVendor => i("Champion vendor…", "Assembly", "", "which champions the client lists; add an existing champion to it"),
+            Cmd::AsmSkins => i("Skin collections…", "Assembly", "", "which skins the client lists per champion; copy a collection or list a skin"),
+            Cmd::AsmExportMod => i("Export a mod from the assembly changes…", "Assembly", "", "a mod folder with the rows you changed"),
+            Cmd::AsmReload => i("Reload assembly.dat and the language files", "Assembly", "", "read them again from the game folder"),
+            Cmd::OpenFile => i("Open package file…", "Workspace", "⌘O", "a package from anywhere; one outside the game folder joins the list"),
+            Cmd::NextTab => i("Next tab", "Go", "⌃Tab", ""),
+            Cmd::PrevTab => i("Previous tab", "Go", "⌃⇧Tab", ""),
+            Cmd::ZoomIn => i("Zoom in", "View", "⌘=", "larger text"),
+            Cmd::ZoomOut => i("Zoom out", "View", "⌘−", "smaller text"),
+            Cmd::ZoomReset => i("Reset zoom", "View", "⌘0", ""),
+            Cmd::ToggleTheme => i("Toggle light / dark theme", "View", "", ""),
+            Cmd::GameShaders => i("Toggle game shaders in previews", "View", "", "materials and meshes drawn by their compiled game shaders, or with their base colour"),
+            Cmd::ShaderModel => i("Switch game shaders between shader model 5 and 3", "View", "", "the Direct3D 11 shaders the game runs by default, or its Direct3D 9 ones"),
+            Cmd::ShowAudio => i("Show the sound banks", "View", "⌘4", "every Wwise .pck of the folder: play, export, replace"),
+            Cmd::Rewrite => i("Rewrite this package compressed / uncompressed…", "Package", "", "a copy of the file on disk in the other storage"),
+            Cmd::ModFolder => i("Prepare a mod folder from packages…", "Package", "", "manifest.toml and chosen files, as deltas where a base is recorded"),
+            Cmd::ExportSources => i("Export the class sources of this script package…", "Package", "", "every class decompiled into <Package>/Classes/*.uc"),
+            Cmd::PackageInfo => i("Package info…", "Package", "", "versions, storage, flags; its imports and names"),
+            Cmd::CheckUpdates => i("Check for updates", "Help", "", ""),
+            Cmd::McpServer => i("MCP server (let agents drive the Studio)…", "Help", "", "its address and how to add it to an agent, in the Settings"),
+            Cmd::ProjectFolder => i("Show the project folder", "Project", "", ""),
+            Cmd::DiscardAll => i("Discard all edits…", "Workspace", "", "every edit of the window; the files are read again from the game folder"),
             Cmd::NewPackage => i("New package…", "Package", "", "an empty package with a game package's settings"),
             Cmd::AddObject => i("Add to the package…", "Package", "", "an object from a file, a copy from another package, or a group"),
             Cmd::AddGroup => i("Add a group…", "Package", "", "a folder for objects inside the package"),
@@ -171,14 +245,15 @@ impl Cmd {
             Cmd::ExportObject => i("Export to a file…", "Object", "", "PNG for textures, glTF for meshes, Ogg for sounds, else the raw payload"),
             Cmd::ReplaceObject => i("Replace from a file…", "Object", "", "a texture, mesh, sound, or a raw payload"),
             Cmd::ReplaceWith => i("Replace with an object of another package…", "Object", "", "it becomes a copy of it, keeping its name"),
-            Cmd::FindReplace => i("Find and replace in the package…", "Package", "", "strings, names and references"),
+            Cmd::ExtractRaw => i("Extract the raw data…", "Object", "", "the object's serialized payload as it is stored (.bin)"),
+            Cmd::FindReplace => i("Find and replace in the package…", "Package", if cfg!(target_os = "macos") { "" } else { "⌘H" }, "strings, names and references"),
             Cmd::BatchImport => i("Batch import a folder…", "Package", "", "<package>.<object>.<ext> files into the packages they name"),
             Cmd::Verify => i("Check the package", "Package", "", "rewrite every object and compare (round trip)"),
             Cmd::NewInstance => i("New material instance…", "Material", "", "a MaterialInstanceConstant of the selected material, with no overrides"),
             Cmd::OwnMaterials => i("Give the mesh its own materials", "Material", "", "every slot gets a material of this mesh only, in one group"),
-            Cmd::SaveWorkspace => i("Save a workspace file…", "Workspace", "⌘⌥S", "every unsaved edit and where you are, for later (the game folder is untouched)"),
+            Cmd::SaveWorkspace => i("Save a workspace file…", "Workspace", "⌘⌥S", "every edit and where you are, for later (the game folder is untouched)"),
             Cmd::SaveWorkspacePortable => i("Save a portable workspace file…", "Workspace", "", "the changed files whole: opens on another machine or game copy"),
-            Cmd::OpenWorkspaceFile => i("Open a workspace file…", "Workspace", "⌘⌥O", "puts its edits back, unsaved"),
+            Cmd::OpenWorkspaceFile => i("Open a workspace file…", "Workspace", "⌘⌥O", "puts its edits back"),
             Cmd::NewProject => i("New mod project…", "Project", "", "a folder that keeps every edit of your mod, saved as you go"),
             Cmd::OpenProject => i("Open a mod project…", "Project", "", "its edits come back, the game folder untouched"),
             Cmd::CloseProject => i("Close the project…", "Project", "", "its edits are unloaded until you open it again"),
@@ -208,10 +283,18 @@ impl Cmd {
         match self {
             // In the map view ⌘D and Delete act on the selected actor.
             Cmd::Duplicate | Cmd::Delete if s.view == View::Map => s.map.is_some(),
+            // In the Assembly view they act on the grid's rows, Save as and Discard on its files.
+            Cmd::Duplicate | Cmd::Delete | Cmd::Discard | Cmd::SaveAs if s.view == View::Assembly => s.assembly.is_some(),
+            Cmd::AsmNewRow | Cmd::AsmNewContent | Cmd::AsmVendor | Cmd::AsmSkins | Cmd::AsmExportMod | Cmd::AsmReload => s.view == View::Assembly && s.assembly.is_some(),
+            // There it filters the rows of the table on screen.
+            Cmd::GoToObject if s.view == View::Assembly => s.assembly.is_some(),
             Cmd::MapAddActor | Cmd::MapCollision | Cmd::MapBakeLighting | Cmd::MapNewMatinee | Cmd::MapOpenMatinee | Cmd::MapMatineeKey => s.view == View::Map && s.map.is_some(),
             Cmd::ShowMap => s.dir.is_some(),
-            Cmd::Rename | Cmd::CopyPath | Cmd::Duplicate | Cmd::CopyTo | Cmd::Delete | Cmd::ExportObject | Cmd::ReplaceObject | Cmd::ReplaceWith => object,
-            Cmd::AddObject | Cmd::AddGroup | Cmd::FindReplace | Cmd::Verify | Cmd::SaveAs | Cmd::GoToObject => s.open.is_some(),
+            Cmd::Rename | Cmd::CopyPath | Cmd::Duplicate | Cmd::CopyTo | Cmd::Delete | Cmd::ExportObject | Cmd::ReplaceObject | Cmd::ReplaceWith | Cmd::ExtractRaw => object,
+            Cmd::AddObject | Cmd::AddGroup | Cmd::FindReplace | Cmd::Verify | Cmd::SaveAs | Cmd::GoToObject | Cmd::Rewrite | Cmd::PackageInfo => s.open.is_some(),
+            Cmd::ExportSources => s.open.as_ref().is_some_and(|t| s.packages.iter().any(|p| p.path == t.path && p.script)),
+            Cmd::ProjectFolder => s.project.is_some(),
+            Cmd::ShowAudio | Cmd::ModFolder => s.dir.is_some(),
             Cmd::Discard => s.open.as_ref().is_some_and(|t| s.dirty.contains(&t.path)),
             Cmd::SaveAll => !s.dirty.is_empty(),
             Cmd::NewInstance => class.as_deref().is_some_and(material::is_material),
@@ -244,9 +327,12 @@ impl Studio {
             let why = match cmd {
                 Cmd::NewInstance => "Select a material or material instance first",
                 Cmd::OwnMaterials => "Select a static or skeletal mesh first",
-                Cmd::Discard => "This package has no unsaved changes",
+                Cmd::Discard => "This package has no edits",
                 Cmd::CloseProject => "No project is open",
-                Cmd::SaveAll => "Nothing is unsaved",
+                Cmd::SaveAll => "Nothing is edited",
+                Cmd::ExportSources => "Open a script package first",
+                Cmd::ProjectFolder => "No project is open",
+                Cmd::AsmNewRow | Cmd::AsmNewContent | Cmd::AsmVendor | Cmd::AsmSkins | Cmd::AsmExportMod | Cmd::AsmReload => "Show the assembly tables first",
                 _ if self.dir.is_none() => "Open a game folder first",
                 _ if self.open.is_none() => "Open a package first",
                 _ => "Select an object first",
@@ -270,6 +356,23 @@ impl Studio {
                 all.sort();
                 self.save_packages(all, window, cx);
             }
+            Cmd::SaveAs | Cmd::Discard | Cmd::Duplicate | Cmd::Delete | Cmd::AsmNewRow | Cmd::AsmNewContent | Cmd::AsmVendor | Cmd::AsmSkins | Cmd::AsmExportMod | Cmd::AsmReload if self.view == View::Assembly => {
+                if let Some(a) = self.assembly.clone() {
+                    a.update(cx, |a, cx| match cmd {
+                        Cmd::SaveAs => a.export_copies(cx),
+                        Cmd::Discard => a.discard(window, cx),
+                        Cmd::Duplicate => a.duplicate(window, cx),
+                        Cmd::Delete => a.delete_rows(window, cx),
+                        Cmd::AsmNewRow => a.new_row(window, cx),
+                        Cmd::AsmNewContent => a.new_content(window, cx),
+                        Cmd::AsmVendor => a.champion_vendor(window, cx),
+                        Cmd::AsmSkins => a.skins(window, cx),
+                        Cmd::AsmExportMod => a.export_mod(window, cx),
+                        _ => a.reload_files(window, cx),
+                    });
+                }
+            }
+            Cmd::AsmNewRow | Cmd::AsmNewContent | Cmd::AsmVendor | Cmd::AsmSkins | Cmd::AsmExportMod | Cmd::AsmReload => {}
             Cmd::SaveAs => {
                 if let Some(p) = self.open.as_ref().map(|t| t.path.clone()) {
                     self.save_copy(p, cx);
@@ -308,6 +411,31 @@ impl Studio {
                     m.update(cx, |m, cx| m.run_command(cmd, window, cx));
                 }
             }
+            Cmd::OpenFile => self.pick_package_file(cx),
+            Cmd::NextTab => self.cycle_tab(1, cx),
+            Cmd::PrevTab => self.cycle_tab(-1, cx),
+            Cmd::ZoomIn => self.zoom_by(0.1, cx),
+            Cmd::ZoomOut => self.zoom_by(-0.1, cx),
+            Cmd::ZoomReset => self.zoom_by(0.0, cx),
+            Cmd::ToggleTheme => self.toggle_theme(window, cx),
+            Cmd::GameShaders => self.toggle_game_shaders(cx),
+            Cmd::ShaderModel => self.toggle_shader_model(cx),
+            Cmd::ShowAudio => self.set_view(View::Audio, window, cx),
+            Cmd::Rewrite => self.rewrite_dialog(window, cx),
+            Cmd::ModFolder => self.mod_folder_dialog(window, cx),
+            Cmd::ExportSources => self.export_sources(cx),
+            Cmd::PackageInfo => {
+                if let Some(p) = self.open.as_ref().map(|t| t.path.clone()) {
+                    self.package_info(p, window, cx);
+                }
+            }
+            Cmd::CheckUpdates => {
+                self.set_status("Checking for updates…", cx);
+                cx.defer(|cx| super::updates::check(false, cx));
+            }
+            Cmd::McpServer => self.show_settings(window, cx),
+            Cmd::ProjectFolder => self.show_project_folder(cx),
+            Cmd::DiscardAll => self.discard_all(window, cx),
             Cmd::NewPackage => self.open_wizard(Some(wizard::Kind::Package), None, window, cx),
             Cmd::AddObject => self.open_wizard(None, Some(false), window, cx),
             Cmd::AddGroup => self.open_wizard(Some(wizard::Kind::Group), None, window, cx),
@@ -318,6 +446,7 @@ impl Studio {
             Cmd::ExportObject => self.export_selected(window, cx),
             Cmd::ReplaceObject => self.replace_selected(window, cx),
             Cmd::ReplaceWith => self.open_picker(palette::Pick::ReplaceWith, window, cx),
+            Cmd::ExtractRaw => self.extract_raw(cx),
             Cmd::FindReplace => self.find_replace_dialog(window, cx),
             Cmd::BatchImport => self.batch_import(window, cx),
             Cmd::Verify => {
@@ -416,6 +545,7 @@ impl Studio {
                 self.tab = match arg {
                     "refs" => inspector::Tab::References,
                     "source" => inspector::Tab::Source,
+                    "dump" => inspector::Tab::Dump,
                     _ => inspector::Tab::Properties,
                 };
                 self.load_tab(cx);
@@ -555,6 +685,19 @@ impl Studio {
             .on_action(cx.listener(|this, _: &OpenWorkspaceFile, window, cx| this.run(Cmd::OpenWorkspaceFile, window, cx)))
             .on_action(cx.listener(|this, _: &Duplicate, window, cx| this.run(Cmd::Duplicate, window, cx)))
             .on_action(cx.listener(|this, _: &Delete, window, cx| this.run(Cmd::Delete, window, cx)))
+            .on_action(cx.listener(|this, _: &NewRow, window, cx| this.run(Cmd::AsmNewRow, window, cx)))
+            // Escape leaves a value being edited as it was.
+            .on_action(cx.listener(|this, _: &Cancel, window, cx| {
+                if this.editing.is_some() {
+                    this.cancel_edit(cx);
+                    this.focus.focus(window, cx);
+                } else {
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &OpenFile, window, cx| this.run(Cmd::OpenFile, window, cx)))
+            .on_action(cx.listener(|this, _: &SaveAs, window, cx| this.run(Cmd::SaveAs, window, cx)))
+            .on_action(cx.listener(|this, _: &FindReplace, window, cx| this.run(Cmd::FindReplace, window, cx)))
     }
 }
 
@@ -569,6 +712,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new(k("mod-p"), GoToPackage, Some("Studio")),
         KeyBinding::new(k("mod-shift-o"), GoToObject, Some("Studio")),
         KeyBinding::new(k("mod-shift-f"), SearchAll, Some("Studio")),
+        KeyBinding::new(k("mod-f"), SearchAll, Some("Studio")),
+        KeyBinding::new(k("mod-o"), OpenFile, Some("Studio")),
+        KeyBinding::new(k("mod-shift-s"), SaveAs, Some("Studio")),
+
         KeyBinding::new(k("mod-t"), NewTab, Some("Studio")),
         KeyBinding::new(k("mod-w"), CloseTab, Some("Studio")),
         KeyBinding::new(k("mod-1"), ShowPackages, Some("Studio")),
@@ -609,10 +756,39 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("right", Right, Some("Exports")),
         KeyBinding::new(k("mod-c"), CopyRows, Some("Assembly")),
         KeyBinding::new(k("mod-v"), PasteRows, Some("Assembly")),
+        KeyBinding::new(k("mod-a"), SelectAll, Some("Assembly")),
+        KeyBinding::new(k("mod-d"), Duplicate, Some("Assembly")),
+        KeyBinding::new(k("mod-shift-enter"), NewRow, Some("Assembly")),
         KeyBinding::new("up", Up, Some("Assembly")),
         KeyBinding::new("down", Down, Some("Assembly")),
+        KeyBinding::new("shift-up", ExtendUp, Some("Assembly")),
+        KeyBinding::new("shift-down", ExtendDown, Some("Assembly")),
+        KeyBinding::new("left", Left, Some("Assembly")),
+        KeyBinding::new("right", Right, Some("Assembly")),
+        KeyBinding::new("tab", NextCell, Some("Assembly")),
+        KeyBinding::new("shift-tab", PrevCell, Some("Assembly")),
+        KeyBinding::new("home", First, Some("Assembly")),
+        KeyBinding::new("end", Last, Some("Assembly")),
+        KeyBinding::new("pageup", PageUp, Some("Assembly")),
+        KeyBinding::new("pagedown", PageDown, Some("Assembly")),
+        KeyBinding::new("enter", Activate, Some("Assembly")),
+        KeyBinding::new("f2", Activate, Some("Assembly")),
+        KeyBinding::new("escape", Cancel, Some("Assembly")),
+        KeyBinding::new("delete", Delete, Some("Assembly")),
+        KeyBinding::new("backspace", Delete, Some("Assembly")),
+        KeyBinding::new(k("mod-enter"), CompileSource, Some("SourceEdit")),
+        // Escape in a field being edited (the views decide; else the field's own Escape runs).
+        KeyBinding::new("escape", Cancel, Some("Studio > Input")),
+        // In a cell's or a field's editor: Tab applies and moves on, Escape leaves it as it was.
+        KeyBinding::new("tab", NextCell, Some("AsmEdit > Input")),
+        KeyBinding::new("shift-tab", PrevCell, Some("AsmEdit > Input")),
+        KeyBinding::new("escape", Cancel, Some("AsmEdit > Input")),
+        KeyBinding::new(k("mod-enter"), Activate, Some("AsmEdit > Input")),
     ]);
     if cfg!(target_os = "macos") {
         cx.bind_keys([KeyBinding::new("cmd-[", Back, Some("Studio")), KeyBinding::new("cmd-]", Forward, Some("Studio"))]);
+    } else {
+        // ⌘H hides the app on macOS.
+        cx.bind_keys([KeyBinding::new("ctrl-h", FindReplace, Some("Studio"))]);
     }
 }

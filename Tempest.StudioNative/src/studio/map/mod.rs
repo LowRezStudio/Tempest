@@ -265,6 +265,12 @@ pub struct MapEditor {
     /// `mesh.preview` requests waiting, by mesh key.
     mesh_queue: VecDeque<(String, J)>,
     mesh_running: usize,
+    /// Bumped when another map opens: mesh loads asked for before it are dropped when they answer.
+    mesh_epoch: u64,
+    /// Each mesh key's `mesh.preview` request (what a game shader request starts from).
+    mesh_params: HashMap<String, J>,
+    /// Game shading: what is asked for, one request at a time (see `scene.rs`).
+    game: scene::GameLoad,
     pub(crate) confirm: Option<Confirm>,
     /// The value being typed in place (`field`): its key and input.
     field: Option<(String, Entity<InputState>, Subscription)>,
@@ -354,6 +360,9 @@ impl MapEditor {
             node_of: HashMap::new(),
             mesh_queue: VecDeque::new(),
             mesh_running: 0,
+            mesh_epoch: 0,
+            mesh_params: HashMap::new(),
+            game: Default::default(),
             confirm: None,
             field: None,
             pending_node_at: None,
@@ -524,6 +533,15 @@ impl MapEditor {
     pub(crate) fn open(&mut self, path: String, select: Option<Sel>, record: bool, then: AfterOpen, cx: &mut Context<Self>) {
         self.loading = true;
         self.error = None;
+        // Another map: the meshes still queued for the last one would load ahead of this one's.
+        let other = self.path.as_deref() != Some(path.as_str());
+        if other {
+            self.mesh_queue.clear();
+            self.game.queue.clear();
+            self.game.asked.clear();
+            self.mesh_epoch += 1;
+            self.view.with(|s| s.forget_loading());
+        }
         self.path = Some(path.clone());
         self.levels.clear();
         self.selected = None;
@@ -550,6 +568,10 @@ impl MapEditor {
                         this.missing = r.json["missing"].as_array().into_iter().flatten().filter_map(|m| m.as_str().map(str::to_string)).collect();
                         this.hidden_levels.clear();
                         this.rebuild(cx);
+                        if other {
+                            // The last map's meshes this one does not draw.
+                            this.view.with(|s| s.retain_used());
+                        }
                         this.frame_all();
                         if let Some(s) = select {
                             this.select(Some(s), false, cx);
@@ -693,7 +715,7 @@ impl MapEditor {
                         if this.selected == Some((level.clone(), export)) {
                             this.props.update(cx, |p, cx| p.load(&level, export, cx));
                         }
-                        this.status(format!("Moved {} (unsaved)", actor.name), cx);
+                        this.status(format!("Moved {}", actor.name), cx);
                     }
                     Err(e) => {
                         this.toast(Tone::Error, format!("Could not move {}: {e}", actor.name), cx);
@@ -838,7 +860,7 @@ impl MapEditor {
                     if this.mode == Mode::Kismet && this.kismet.level.as_deref() == Some(level.as_str()) {
                         this.load_graph(cx);
                     }
-                    this.status(format!("Deleted {} (unsaved)", actor.name), cx);
+                    this.status(format!("Deleted {}", actor.name), cx);
                 }
                 Err(e) => this.toast(Tone::Error, format!("Could not delete {}: {e}", actor.name), cx),
             });
@@ -851,6 +873,24 @@ impl MapEditor {
     }
 
     /// Take back the last map edit (the level's package undo).
+    /// A level's unsaved edits were discarded (the backend read it again):
+    /// draw it as it is now and drop its undo steps.
+    pub(crate) fn level_discarded(&mut self, level: String, cx: &mut Context<Self>) {
+        self.dirty.remove(&level);
+        self.edits.retain(|l| *l != level);
+        if self.level(&level).is_none() {
+            cx.notify();
+            return;
+        }
+        self.reload_level(level.clone(), cx);
+        if self.mode == Mode::Kismet && self.kismet.level.as_deref() == Some(level.as_str()) {
+            self.load_graph(cx);
+        }
+        if self.matinee.at.as_ref().is_some_and(|a| a.0 == level) {
+            self.refresh_matinee(cx);
+        }
+    }
+
     pub(crate) fn undo(&mut self, cx: &mut Context<Self>) {
         let Some(level) = self.edits.pop() else {
             self.status("Nothing to undo in this map", cx);
@@ -1028,16 +1068,13 @@ impl MapEditor {
                     Shading::Unlit => "Unlit",
                     Shading::Untextured => "No textures",
                     Shading::Wireframe => "Wireframe",
+                    Shading::Game => "Game shaders",
                 }).dropdown_menu(move |menu, _, _| {
                     let mut menu = menu;
-                    for (s, label) in [(Shading::Lit, "Lit"), (Shading::Unlit, "Unlit"), (Shading::Untextured, "No textures"), (Shading::Wireframe, "Wireframe")] {
+                    for (s, label) in [(Shading::Lit, "Lit"), (Shading::Unlit, "Unlit"), (Shading::Untextured, "No textures"), (Shading::Wireframe, "Wireframe"), (Shading::Game, "Game shaders")] {
                         let me = me.clone();
                         menu = menu.item(PopupMenuItem::new(label).checked(s == shading).on_click(move |_, _, cx| {
-                            let _ = me.update(cx, |this, cx| {
-                                this.shading = s;
-                                this.apply_look();
-                                cx.notify();
-                            });
+                            let _ = me.update(cx, |this, cx| this.set_shading(s, cx));
                         }));
                     }
                     menu

@@ -123,7 +123,7 @@ impl Studio {
                     for w in warnings.iter().take(3) {
                         this.toast(Tone::Warning, w.clone(), cx);
                     }
-                    let what = format!("Copied as {} into {} (unsaved)", r.json["path"].as_str().unwrap_or_default(), file_name(&dst));
+                    let what = format!("Copied as {} into {}", r.json["path"].as_str().unwrap_or_default(), file_name(&dst));
                     if reload {
                         this.added(&dst, r.json["index"].as_u64().map(|i| i as usize), what, cx);
                     } else {
@@ -177,31 +177,34 @@ impl Studio {
 
     pub(super) fn discard(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         let me = cx.entity().downgrade();
-        confirm(window, cx, format!("Discard the changes to {}?", file_name(&path)), "Every unsaved edit of this package is dropped and it is read again from the game folder. This cannot be undone.", "Discard", true, move |_, cx| {
+        confirm(window, cx, format!("Discard the edits of {}?", file_name(&path)), "Every edit of this package is dropped and it is read again from the game folder. This cannot be undone.", "Discard", true, move |_, cx| {
             let path = path.clone();
-            let _ = me.update(cx, |this, cx| {
-                let call = this.backend.call("package.discard", json!({ "path": path }));
-                cx.spawn(async move |this, cx| {
-                    let r = call.await;
-                    let _ = this.update(cx, |this, cx| match r {
-                        Ok(_) => {
-                            this.dirty.remove(&path);
-                            this.forget_map_edit(&path, cx);
-                            this.toast(Tone::Success, format!("Discarded the changes to {}", file_name(&path)), cx);
-                            if let Some(c) = this.cooker.clone() {
-                                c.update(cx, |c, cx| c.refresh(cx));
-                            }
-                            if this.selected_package.as_deref() == Some(path.as_str()) {
-                                this.selected_package = None;
-                                this.open_package(path.clone(), cx);
-                            }
-                        }
-                        Err(e) => this.toast(Tone::Error, format!("Could not discard: {e}"), cx),
-                    });
-                })
-                .detach();
-            });
+            let _ = me.update(cx, |this, cx| this.discard_now(path, cx));
         });
+    }
+
+    /// Drop a package's unsaved edits and read it again (already confirmed).
+    pub(super) fn discard_now(&mut self, path: String, cx: &mut Context<Self>) {
+        let call = self.backend.call("package.discard", json!({ "path": path }));
+        cx.spawn(async move |this, cx| {
+            let r = call.await;
+            let _ = this.update(cx, |this, cx| match r {
+                Ok(_) => {
+                    this.dirty.remove(&path);
+                    this.map_discarded(&path, cx);
+                    this.toast(Tone::Success, format!("Discarded the changes to {}", file_name(&path)), cx);
+                    if let Some(c) = this.cooker.clone() {
+                        c.update(cx, |c, cx| c.refresh(cx));
+                    }
+                    if this.selected_package.as_deref() == Some(path.as_str()) {
+                        this.selected_package = None;
+                        this.open_package(path.clone(), cx);
+                    }
+                }
+                Err(e) => this.toast(Tone::Error, format!("Could not discard: {e}"), cx),
+            });
+        })
+        .detach();
     }
 
     pub(super) fn verify(&mut self, path: String, _window: &mut Window, cx: &mut Context<Self>) {
@@ -260,7 +263,7 @@ impl Studio {
                                 Ok(r) => {
                                     if apply {
                                         let n = r.json["applied"].as_u64().unwrap_or(0);
-                                        this.added(&path, None, format!("Replaced {n} values (unsaved)"), cx);
+                                        this.added(&path, None, format!("Replaced {n} values"), cx);
                                     }
                                     *found.borrow_mut() = Some(r.json);
                                     cx.notify();
@@ -374,7 +377,7 @@ impl Studio {
                 .child(
                     v_flex()
                         .gap_2()
-                        .child(div().text_xs().text_color(theme.muted_foreground).child(format!("{} files: {} can be imported, {} cannot. They become unsaved edits of the packages chosen below.", plan["entries"].as_array().map(|a| a.len()).unwrap_or(0), plan["ok"], plan["failed"])))
+                        .child(div().text_xs().text_color(theme.muted_foreground).child(format!("{} files: {} can be imported, {} cannot. They become edits of the packages chosen below.", plan["entries"].as_array().map(|a| a.len()).unwrap_or(0), plan["ok"], plan["failed"])))
                         .when(packages.len() > 1, |d| d.child(pkgs))
                         .child(div().id("batch").max_h(px(360.0)).overflow_y_scroll().child(list)),
                 )

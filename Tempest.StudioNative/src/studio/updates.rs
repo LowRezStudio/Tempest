@@ -113,7 +113,7 @@ impl Studio {
         };
         let unsaved: usize = studios(cx).iter().map(|s| s.read(cx).unsaved_total(cx)).sum();
         let body = if unsaved > 0 {
-            format!("The Studio downloads version {}, closes and opens again. Your {unsaved} unsaved file(s) are kept: a project saves its file, other edits go to a recovery file the Studio offers when it reopens.", rel.version)
+            format!("The Studio downloads version {}, closes and opens again. Your edits ({unsaved} files) are kept: a project saves its file, other edits go to a recovery file the Studio offers when it reopens.", rel.version)
         } else {
             format!("The Studio downloads version {}, closes and opens again.", rel.version)
         };

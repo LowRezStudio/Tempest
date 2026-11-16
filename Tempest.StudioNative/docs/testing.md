@@ -29,12 +29,20 @@ from a probe's top-left corner (clicks, moves and both ends of `drag`), `drag`, 
 [dx]`, `size w h`, `wait ms`) or app steps (`package <name>`, `select <index|name>`, `run <command
 id>`, `view packages|assembly|audio|map|mod`, `tab props|refs|source`, `palette <prefix>`, `query
 <text>`, `pick <row>`, `set <prop>=<value>`, `meshwire`, `meshlod <n>`, `material own-all|own
-<slot>|scalar <name> <v>|pick-texture <param>`, `sound select a b|edit|trim|fade-in s|gain
-dB|play|apply`, `anim play|seek s`, `assembly table <name>|row <i>|filter <q>|set f=v|open
-<field>|up|add|duplicate|new-content|vendor|sort <col>`, `cooker refresh|preview <n>|name <text>`,
+<slot>|scalar <name> <v>|pick-texture <param>|game on|off`, `sound select a b|edit|trim|fade-in s|gain
+dB|play|apply`, `anim play|seek s`, `assembly …` (the steps are listed in [Assembly](assembly.md)), `cooker refresh|preview <n>|name <text>`,
 `twrk-save <path>`, `twrk-open <path>`, `project new <folder> <name>|open <file>|close|save`,
 `assembly skins|export-mod`, `wizard open <kind>|next|back|file <path>|query <text>|pick <n>|name
 <text>|close`, `audio <pck name>`, `anim notify-move <k> <s>|notify-copy <k>|notify-remove
 <k>|retime <s>`, `assembly mark <i>`, `meshgrid`, `meshskel`, `dialog close`); `shot <name>` lines
 are taken by the script with `screencapture -l` on the app's window only (`scripts/winid.swift`).
 Never save into the game folder from a test run.
+
+`studio_state.assembly` is the Assembly view's `state_json` (file, path, table, row, column, total,
+marks, columns, what is edited, unsaved files, undo labels). `studio_state.material` says whether the
+material preview is drawn with game shaders (pair, animated, missing textures, or `gameError`);
+`studio_state.meshGame` counts the mesh sections drawn with them and why the others are not. The wizard has `wizard range <a> <b>`
+and `wizard dump` (step, a skin's parts, slots, next ids). A sweep is the cheapest crash hunt: open
+every map (`map open`, collision, nav mesh, Kismet) and select objects of every class of many
+packages through MCP (`studio_open_package`, `studio_select`), in a debug build (overflow checks) and
+a release build (wgpu validation differs).

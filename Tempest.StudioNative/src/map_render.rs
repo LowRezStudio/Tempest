@@ -17,6 +17,8 @@ use glam::{Mat4, Vec3, Vec4};
 use gpui::RenderImage;
 use wgpu::util::DeviceExt;
 
+use crate::game_material::{Frame, GamePass, GameVertex};
+
 use crate::mesh_view::{gpu, Gpu, Vertex, DEPTH, FORMAT, SAMPLES};
 
 /// A coloured vertex of a line or a see-through triangle.
@@ -236,6 +238,15 @@ impl MapGpu {
 /// GLB's space), indices and base colour texture.
 pub struct CpuMesh {
     pub parts: Vec<(Vec<Vertex>, Vec<u32>, Option<image::RgbaImage>)>,
+    /// Per part: the mesh section it draws (its glTF material) and its vertices in the game's space, for game shaders.
+    pub game: Vec<(Option<usize>, Vec<GameVertex>)>,
+}
+
+/// A primitive with nothing to draw (no vertices, or an index list of no
+/// elements). `gltf`'s readers underflow on an accessor without elements, so
+/// such a primitive must be skipped before it is read.
+pub fn empty_primitive(prim: &gltf::Primitive) -> bool {
+    prim.get(&gltf::Semantic::Positions).is_none_or(|a| a.count() == 0) || prim.indices().is_some_and(|a| a.count() == 0)
 }
 
 /// Read a `mesh.preview` GLB (no skinning: the map draws meshes as placed).
@@ -252,6 +263,7 @@ pub fn parse_glb(glb: &[u8]) -> Result<CpuMesh, String> {
         .collect();
     let scene = gltf.default_scene().or_else(|| gltf.scenes().next()).ok_or("GLB without a scene")?;
     let mut parts = Vec::new();
+    let mut game = Vec::new();
     let mut stack: Vec<(gltf::Node, Mat4)> = scene.nodes().map(|n| (n, Mat4::IDENTITY)).collect();
     while let Some((node, parent)) = stack.pop() {
         let world = parent * Mat4::from_cols_array_2d(&node.transform().matrix());
@@ -259,13 +271,28 @@ pub fn parse_glb(glb: &[u8]) -> Result<CpuMesh, String> {
         let Some(mesh) = node.mesh() else { continue };
         let normal_m = world.inverse().transpose();
         for prim in mesh.primitives() {
+            if empty_primitive(&prim) {
+                continue;
+            }
             let reader = prim.reader(buffer_data);
             let Some(pos) = reader.read_positions() else { continue };
             let pos: Vec<Vec3> = pos.map(|p| world.transform_point3(Vec3::from(p))).collect();
             let normals: Vec<Vec3> = reader.read_normals().map(|n| n.map(|n| normal_m.transform_vector3(Vec3::from(n)).normalize_or_zero()).collect()).unwrap_or_else(|| vec![Vec3::Y; pos.len()]);
             let uvs: Vec<[f32; 2]> = reader.read_tex_coords(0).map(|t| t.into_f32().collect()).unwrap_or_else(|| vec![[0.0; 2]; pos.len()]);
             let indices: Vec<u32> = reader.read_indices().map(|i| i.into_u32().collect()).unwrap_or_else(|| (0..pos.len() as u32).collect());
-            let vertices = (0..pos.len()).map(|k| Vertex { pos: pos[k].into(), normal: normals.get(k).copied().unwrap_or(Vec3::Y).into(), uv: uvs.get(k).copied().unwrap_or_default() }).collect();
+            let vertices: Vec<Vertex> = (0..pos.len()).map(|k| Vertex { pos: pos[k].into(), normal: normals.get(k).copied().unwrap_or(Vec3::Y).into(), uv: uvs.get(k).copied().unwrap_or_default() }).collect();
+            let tangents: Vec<[f32; 4]> = reader
+                .read_tangents()
+                .filter(|_| prim.get(&gltf::Semantic::Tangents).is_some_and(|a| a.count() == pos.len()))
+                .map(|t| {
+                    t.map(|t| {
+                        let x = world.transform_vector3(Vec3::new(t[0], t[1], t[2])).normalize_or_zero();
+                        [x.x, x.y, x.z, t[3]]
+                    })
+                    .collect()
+                })
+                .unwrap_or_default();
+            game.push((prim.material().index(), crate::mesh_view::game_vertices(&vertices, &tangents)));
             let texture = prim.material().pbr_metallic_roughness().base_color_texture().and_then(|t| images.get(t.texture().source().index()).cloned().flatten());
             parts.push((vertices, indices, texture));
         }
@@ -273,7 +300,7 @@ pub fn parse_glb(glb: &[u8]) -> Result<CpuMesh, String> {
     if parts.is_empty() {
         return Err("the mesh has no geometry".into());
     }
-    Ok(CpuMesh { parts })
+    Ok(CpuMesh { parts, game })
 }
 
 struct GpuPrim {
@@ -281,6 +308,9 @@ struct GpuPrim {
     indices: wgpu::Buffer,
     count: u32,
     material: wgpu::BindGroup,
+    /// The mesh section it draws and its vertices in the game's space (for a game pass).
+    section: Option<usize>,
+    game_vertices: Vec<GameVertex>,
 }
 
 /// A mesh on the GPU, with its triangles kept for picking.
@@ -300,7 +330,11 @@ impl GpuMesh {
         let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
         let (mut positions, mut triangles) = (Vec::new(), Vec::new());
         let mut prims = Vec::new();
-        for (vertices, indices, texture) in &cpu.parts {
+        for (part, (vertices, indices, texture)) in cpu.parts.iter().enumerate() {
+            // wgpu refuses an empty buffer slice.
+            if vertices.is_empty() || indices.is_empty() {
+                continue;
+            }
             let base = positions.len() as u32;
             for v in vertices {
                 let p = Vec3::from(v.pos);
@@ -327,6 +361,8 @@ impl GpuMesh {
                 indices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(indices), usage: wgpu::BufferUsages::INDEX }),
                 count: indices.len() as u32,
                 material,
+                section: cpu.game.get(part).and_then(|g| g.0),
+                game_vertices: cpu.game.get(part).map(|g| g.1.clone()).unwrap_or_default(),
             });
         }
         if positions.is_empty() {
@@ -479,7 +515,7 @@ impl Shape {
                 vertices.push(Vertex { pos: q.into(), normal: n.into(), uv: [0.0; 2] });
             }
         }
-        CpuMesh { parts: vec![(vertices, indices, None)] }
+        CpuMesh { parts: vec![(vertices, indices, None)], game: Vec::new() }
     }
 }
 
@@ -517,6 +553,8 @@ pub enum Shading {
     Unlit,
     Untextured,
     Wireframe,
+    /// Lit by the materials' own game shaders (where they are loaded; the rest lit).
+    Game,
 }
 
 impl Shading {
@@ -526,6 +564,7 @@ impl Shading {
             Shading::Unlit => "unlit",
             Shading::Untextured => "untextured",
             Shading::Wireframe => "wireframe",
+            Shading::Game => "game",
         }
     }
 
@@ -535,6 +574,7 @@ impl Shading {
             "unlit" => Shading::Unlit,
             "untextured" => Shading::Untextured,
             "wireframe" => Shading::Wireframe,
+            "game" => Shading::Game,
             _ => return None,
         })
     }
@@ -590,11 +630,31 @@ enum Slot {
     Ready(Arc<GpuMesh>),
 }
 
+/// One game pass's share of the scene: each placement's matrix rows (in
+/// the game's space) and the draws, (batch, part, vertices, placement).
+struct PassDraws {
+    material: String,
+    placements: Vec<crate::game_material::Placement>,
+    /// (batch, part, vertices, first placement, placements): one instanced draw each.
+    draws: Vec<(usize, usize, Arc<wgpu::Buffer>, u32, u32)>,
+    /// The placements are in the pass's per-draw buffer.
+    uploaded: bool,
+}
+
+/// What game shading draws, rebuilt with the scene: per pass, and the
+/// (batch, part)s the plain pipeline then leaves out.
+struct GameDraws {
+    passes: Vec<PassDraws>,
+    skip: std::collections::HashSet<(usize, usize)>,
+}
+
 /// Built from the nodes once and reused until something changes.
 struct Built {
     instances: Option<wgpu::Buffer>,
+    /// The instances, for game passes (which take each placement's matrix as constants).
+    insts: Vec<Inst>,
     /// Per mesh: its key and the range of instances (opaque, translucent, X-ray).
-    batches: Vec<(Arc<GpuMesh>, std::ops::Range<u32>, u8)>,
+    batches: Vec<(String, Arc<GpuMesh>, std::ops::Range<u32>, u8)>,
     fill: Option<(wgpu::Buffer, u32)>,
     fill_over: Option<(wgpu::Buffer, u32)>,
     lines: Option<(wgpu::Buffer, u32)>,
@@ -622,6 +682,13 @@ pub struct MapScene {
     pub overlay: Vec<Cv>,
     pub overlay_top: Vec<Cv>,
     built: Option<Built>,
+    /// Game shaders: a pass per material (by its object path), the material
+    /// each (mesh key, section) draws with, and each (mesh key, part)'s
+    /// vertices laid out for its pass.
+    game_passes: HashMap<String, GamePass>,
+    game_sections: HashMap<(String, usize), String>,
+    game_buffers: HashMap<(String, usize), (String, Arc<wgpu::Buffer>)>,
+    game_draws: Option<GameDraws>,
 }
 
 impl MapScene {
@@ -645,6 +712,10 @@ impl MapScene {
             overlay: Vec::new(),
             overlay_top: Vec::new(),
             built: None,
+            game_passes: HashMap::new(),
+            game_sections: HashMap::new(),
+            game_buffers: HashMap::new(),
+            game_draws: None,
         };
         for shape in [Shape::Octahedron, Shape::Tetrahedron, Shape::Sphere, Shape::Box] {
             s.add_mesh(shape.key(), &shape.mesh());
@@ -652,8 +723,101 @@ impl MapScene {
         Ok(s)
     }
 
+    pub fn add_game_material(&mut self, material: String, pass: GamePass) {
+        self.game_passes.insert(material.clone(), pass);
+        let wanting: Vec<(String, usize)> = self.game_sections.iter().filter(|(_, m)| **m == material).map(|(k, _)| k.clone()).collect();
+        for (key, section) in wanting {
+            self.attach_game(&key, section);
+        }
+    }
+
+    /// Section `section` of the mesh loaded as `key` draws with `material` (once its pass is here).
+    pub fn set_game_section(&mut self, key: String, section: usize, material: String) {
+        self.game_sections.insert((key.clone(), section), material);
+        self.attach_game(&key, section);
+    }
+
+    fn attach_game(&mut self, key: &str, section: usize) {
+        let Some(material) = self.game_sections.get(&(key.to_string(), section)) else { return };
+        let (Some(pass), Some(mesh)) = (self.game_passes.get(material), self.mesh(key)) else { return };
+        let made: Vec<(usize, wgpu::Buffer)> = mesh.prims.iter().enumerate().filter(|(_, p)| p.section == Some(section) && !p.game_vertices.is_empty()).map(|(k, p)| (k, pass.vertex_buffer(&p.game_vertices))).collect();
+        let material = material.clone();
+        for (k, b) in made {
+            self.game_buffers.insert((key.to_string(), k), (material.clone(), Arc::new(b)));
+        }
+        self.game_draws = None;
+    }
+
+    /// The sections of a loaded mesh (its parts' glTF materials).
+    pub fn mesh_sections(&self, key: &str) -> Vec<usize> {
+        let mut out: Vec<usize> = self.mesh(key).map(|m| m.prims.iter().filter_map(|p| p.section).collect()).unwrap_or_default();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Forget every game pass (another shader model).
+    pub fn clear_game(&mut self) {
+        self.game_passes.clear();
+        self.game_sections.clear();
+        self.game_buffers.clear();
+        self.game_draws = None;
+    }
+
+    /// Set the clock of the drawn game passes; whether one reads it (water, panners: the view then redraws).
+    pub fn set_game_time(&mut self, t: f32) -> bool {
+        let drawn: std::collections::HashSet<&String> = self.game_sections.values().collect();
+        let mut animated = false;
+        for (material, p) in &mut self.game_passes {
+            if p.animated && drawn.contains(material) {
+                p.params.time = t;
+                animated = true;
+            }
+        }
+        animated
+    }
+
+    /// Materials with game shaders, mesh parts drawn with them.
+    pub fn game_counts(&self) -> (usize, usize) {
+        (self.game_passes.len(), self.game_buffers.len())
+    }
+
+    /// Every placement of every part with a game pass, grouped by pass.
+    fn build_game_draws(&mut self) -> GameDraws {
+        if self.built.is_none() {
+            self.built = Some(self.build());
+        }
+        let built = self.built.as_ref().expect("built above");
+        let c = crate::game_material::to_gltf_matrix();
+        let c_inv = c.inverse();
+        let mut index: HashMap<&str, usize> = HashMap::new();
+        let mut passes: Vec<PassDraws> = Vec::new();
+        let mut skip = std::collections::HashSet::new();
+        for (b, (key, mesh, range, kind)) in built.batches.iter().enumerate() {
+            if *kind == 2 {
+                continue;
+            }
+            for part in 0..mesh.prims.len() {
+                let Some((material, vb)) = self.game_buffers.get(&(key.clone(), part)) else { continue };
+                skip.insert((b, part));
+                let at = *index.entry(material.as_str()).or_insert_with(|| {
+                    passes.push(PassDraws { material: material.clone(), placements: Vec::new(), draws: Vec::new(), uploaded: false });
+                    passes.len() - 1
+                });
+                let pd = &mut passes[at];
+                pd.draws.push((b, part, vb.clone(), pd.placements.len() as u32, range.len() as u32));
+                for i in range.clone() {
+                    let m = c_inv * Mat4::from_cols_array_2d(&built.insts[i as usize].m) * c;
+                    pd.placements.push(crate::game_material::placement(m));
+                }
+            }
+        }
+        GameDraws { passes, skip }
+    }
+
     /// Something the nodes draw changed (visibility, matrices, parts, colours): rebuild before the next frame.
     pub fn invalidate(&mut self) {
+        self.game_draws = None;
         self.built = None;
     }
 
@@ -662,8 +826,29 @@ impl MapScene {
         self.meshes.contains_key(key)
     }
 
+    /// Whether a mesh was asked for and has not arrived.
+    pub fn is_loading(&self, key: &str) -> bool {
+        matches!(self.meshes.get(key), Some(Slot::Loading))
+    }
+
     pub fn mark_loading(&mut self, key: String) {
         self.meshes.entry(key).or_insert(Slot::Loading);
+    }
+
+    /// Forget the meshes still marked as loading (their requests were dropped with the map they were for).
+    pub fn forget_loading(&mut self) {
+        self.meshes.retain(|_, s| !matches!(s, Slot::Loading));
+    }
+
+    /// Drop the meshes no node draws any more (another map was opened): their buffers and textures are freed.
+    pub fn retain_used(&mut self) {
+        let used: std::collections::HashSet<&str> = self.layers.iter().flatten().flat_map(|n| n.parts.iter()).filter_map(|p| match p { Part::Mesh { key, .. } => Some(key.as_str()), _ => None }).collect();
+        self.meshes.retain(|k, s| k.starts_with('@') || matches!(s, Slot::Loading) || used.contains(k.as_str()));
+        let meshes = &self.meshes;
+        self.game_buffers.retain(|(k, _), _| meshes.contains_key(k));
+        self.game_sections.retain(|(k, _), _| meshes.contains_key(k));
+        self.built = None;
+        self.game_draws = None;
     }
 
     pub fn mark_failed(&mut self, key: String) {
@@ -875,11 +1060,12 @@ impl MapScene {
             let Some(m) = self.mesh(&key) else { continue };
             let start = all.len() as u32;
             all.extend(insts);
-            batches.push((m.clone(), start..all.len() as u32, kind));
+            batches.push((key, m.clone(), start..all.len() as u32, kind));
         }
         let buf = |v: &[Cv]| (!v.is_empty()).then(|| (device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(v), usage: wgpu::BufferUsages::VERTEX }), v.len() as u32));
         Built {
             instances: (!all.is_empty()).then(|| device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&all), usage: wgpu::BufferUsages::VERTEX })),
+            insts: all,
             batches,
             fill: buf(&fill),
             fill_over: buf(&fill_over),
@@ -888,14 +1074,21 @@ impl MapScene {
         }
     }
 
-    /// Draw a `w`×`h` frame (device pixels).
-    pub fn render(&mut self, w: u32, h: u32) -> Arc<RenderImage> {
+    /// A frame of [`MapScene::render`] once the GPU is done (`wait`: block until then).
+    pub fn collect(&self, frame: &mut crate::mesh_view::PendingFrame, wait: bool) -> Option<Arc<RenderImage>> {
+        frame.take(&self.gpu, wait)
+    }
+
+    /// Draw a `w`×`h` frame (device pixels); it comes back through [`crate::mesh_view::PendingFrame::take`].
+    pub fn render(&mut self, w: u32, h: u32) -> crate::mesh_view::PendingFrame {
         let (w, h) = (w.max(16), h.max(16));
         if self.built.is_none() {
             self.built = Some(self.build());
+            // The game draws index the batches: a rebuild renumbers them (a mesh arriving after a map switch).
+            self.game_draws = None;
         }
         let shading = match self.shading {
-            Shading::Lit | Shading::Wireframe => 0.0,
+            Shading::Lit | Shading::Wireframe | Shading::Game => 0.0,
             Shading::Unlit => 1.0,
             Shading::Untextured => 2.0,
         };
@@ -904,20 +1097,47 @@ impl MapScene {
         let device = &self.gpu.device;
         let buf = |v: &[Cv]| (!v.is_empty()).then(|| (device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(v), usage: wgpu::BufferUsages::VERTEX }), v.len() as u32));
         let (overlay, top) = (buf(&self.overlay), buf(&self.overlay_top));
+        // Game passes: their draw lists (cached with the scene), then this frame's constants.
+        let game = self.shading == Shading::Game && !self.game_buffers.is_empty();
+        if game {
+            if self.game_draws.is_none() {
+                self.game_draws = Some(self.build_game_draws());
+            }
+            let c = crate::game_material::to_gltf_matrix();
+            let swap = |v: Vec3| Vec3::new(v.x, v.z, v.y) * 100.0;
+            // A level's sun: high, from one side.
+            let frame = Frame { view_proj: self.cam.view_proj(w as f32, h as f32) * c, eye: swap(self.cam.eye), target: swap(self.cam.target), near: 5.0, light: Some(Vec3::new(0.45, 0.3, 0.84).normalize()) };
+            let draws = self.game_draws.as_mut().expect("built above");
+            for pd in &mut draws.passes {
+                if let Some(p) = self.game_passes.get_mut(&pd.material) {
+                    // The placements once (until the scene changes), the camera every frame.
+                    if !pd.uploaded {
+                        p.set_placements(&pd.placements);
+                        pd.uploaded = true;
+                    }
+                    p.prepare(&frame);
+                }
+            }
+        }
         let built = self.built.as_ref().expect("built above");
         let m = &self.m;
         let wire = self.shading == Shading::Wireframe;
-        crate::mesh_view::draw_frame_depth(&self.gpu, w, h, self.clear, 0.0, |pass| {
+        let game_passes = &self.game_passes;
+        let game_draws = if game { self.game_draws.as_ref() } else { None };
+        crate::mesh_view::submit_frame(&self.gpu, w, h, self.clear, 0.0, |pass| {
             pass.set_bind_group(0, &self.globals_group, &[]);
             let draw_meshes = |pass: &mut wgpu::RenderPass<'_>, kind: u8, pipeline: &wgpu::RenderPipeline| {
                 let Some(inst) = &built.instances else { return };
                 pass.set_pipeline(pipeline);
                 pass.set_vertex_buffer(1, inst.slice(..));
-                for (mesh, range, k) in &built.batches {
+                for (b, (_, mesh, range, k)) in built.batches.iter().enumerate() {
                     if *k != kind {
                         continue;
                     }
-                    for p in &mesh.prims {
+                    for (part, p) in mesh.prims.iter().enumerate() {
+                        if kind != 2 && game_draws.is_some_and(|d| d.skip.contains(&(b, part))) {
+                            continue;
+                        }
                         pass.set_bind_group(1, &p.material, &[]);
                         pass.set_vertex_buffer(0, p.vertices.slice(..));
                         pass.set_index_buffer(p.indices.slice(..), wgpu::IndexFormat::Uint32);
@@ -930,6 +1150,20 @@ impl MapScene {
                 _ => &m.mesh,
             };
             draw_meshes(pass, 0, opaque);
+            // The game passes: opaque materials, then the blended ones over them.
+            for translucent in [false, true] {
+                for pd in game_draws.map(|d| d.passes.as_slice()).unwrap_or_default() {
+                    let Some(gp) = game_passes.get(&pd.material).filter(|gp| gp.translucent == translucent) else { continue };
+                    gp.bind(pass);
+                    for (b, part, vb, first, n) in &pd.draws {
+                        let p = &built.batches[*b].1.prims[*part];
+                        gp.draw_bound(pass, *first, *n, vb, &p.indices, p.count);
+                    }
+                }
+            }
+            if game {
+                pass.set_bind_group(0, &self.globals_group, &[]);
+            }
             draw_meshes(pass, 1, &m.mesh_trans);
             let colored = |pass: &mut wgpu::RenderPass<'_>, b: &Option<(wgpu::Buffer, u32)>, pipeline: &wgpu::RenderPipeline| {
                 if let Some((b, n)) = b {

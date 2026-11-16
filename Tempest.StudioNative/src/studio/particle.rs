@@ -376,7 +376,7 @@ impl Studio {
                         p.drafts.remove(&key);
                         p.rebuild();
                     }
-                    this.set_status(format!("{} updated (unsaved): save the package to keep it", d.prop), cx);
+                    this.set_status(format!("{} updated", d.prop), cx);
                     // The inspector shows the module's properties: read them again.
                     if this.selected_export == Some(key.0) {
                         this.select_export(key.0, cx);

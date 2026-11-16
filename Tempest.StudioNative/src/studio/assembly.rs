@@ -1,29 +1,33 @@
 //! The Assembly view: the game's content database (`assembly.dat`) and the
 //! language files (`Localization/<EXT>/Lang_<EXT>.dat`), MCTS marshals the
-//! backend edits (`mcts.*`). Left: the files and their tables. Middle: the
-//! table as a grid, paged 500 rows at a time (only the rows in view are
-//! laid out), filtered over every cell, sorted by a column; a cell edits on
-//! double-click, a row set opens in place (breadcrumbs), `*_MSG_ID` and
-//! `*_VALUE_ID` values show their text. Right: the selected row's fields,
-//! each message in every language (editable), the `*_ID` links and the
-//! rows that refer to it. New row, Duplicate, Delete, Undo, Save, Discard.
+//! backend edits (`mcts.*`). Left (`side.rs`): the files, their header fields
+//! and tables. Middle (`grid.rs`): the table as a grid, read 500 rows at a
+//! time (only the rows and columns in view are laid out), filtered over
+//! every cell, sorted by a column; a cell cursor moved with the keyboard,
+//! cells edited in place, `*_FLAG` cells as switches, row sets opened in
+//! place (breadcrumbs), `*_MSG_ID` and `*_VALUE_ID` values with their text,
+//! `*_ID` values with a link to the row they name. Right (`row.rs`): the
+//! selected row's fields, each message in every language, and the rows that
+//! refer to it. The Electron Studio's assembly editor at parity.
 
-use std::collections::{HashMap, HashSet};
-use std::ops::Range;
+mod content;
+mod grid;
+mod row;
+mod side;
 
-use gpui::{div, prelude::*, px, uniform_list, AnyElement, Context, Entity, FocusHandle, ScrollStrategy, SharedString, Subscription, UniformListScrollHandle, WeakEntity, Window};
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::menu::DropdownMenu;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::time::Duration;
+
+use gpui::{div, prelude::*, Context, Entity, FocusHandle, Focusable, KeyDownEvent, ScrollStrategy, Subscription, Task, UniformListScrollHandle, WeakEntity, Window};
+use gpui_component::input::{InputEvent, InputState, TextareaState};
+use gpui_component::{v_flex, ActiveTheme};
 use serde_json::{json, Map, Value as J};
 
 use super::{dialogs, file_name, Place, Studio, Tone};
 use crate::backend::Backend;
 
+/// Rows read per request: the grid lays out only the rows in view, so a page can be long.
 const PAGE: usize = 500;
-const ROW_H: f32 = 24.0;
-const COL_W: f32 = 150.0;
 
 /// Where a `*_ID` column points: the table and its key column (most specific first).
 const REFS: &[(&str, &str, &str)] = &[
@@ -53,19 +57,41 @@ const REFS: &[(&str, &str, &str)] = &[
 
 /// The table a column refers to, by naming convention (`CARD_RES_ID` → resources).
 fn ref_of(column: &str) -> Option<(&'static str, &'static str)> {
-    if column.ends_with("_MSG_ID") {
+    if is_message(column) {
         return None;
     }
-    REFS.iter().find(|(suffix, _, _)| column == *suffix || column.ends_with(&format!("_{suffix}"))).map(|(_, t, k)| (*t, *k))
+    REFS.iter().find(|(suffix, _, _)| column == *suffix || column.strip_suffix(suffix).is_some_and(|rest| rest.ends_with('_'))).map(|(_, t, k)| (*t, *k))
 }
 
+fn is_message(column: &str) -> bool {
+    column.ends_with("_MSG_ID")
+}
+
+fn is_flag(column: &str) -> bool {
+    column.ends_with("_FLAG")
+}
+
+fn is_value_id(column: &str) -> bool {
+    column.ends_with("_VALUE_ID")
+}
+
+/// A cell as the grid and the editors write it (64-bit numbers travel as strings, row sets as `{rows}`).
 fn cell_text(v: &J) -> String {
     match v {
         J::Null => String::new(),
         J::String(s) => s.clone(),
-        J::Object(o) if o.contains_key("rows") => format!("{} rows ▸", o["rows"]),
+        J::Object(o) if o.contains_key("rows") => format!("{} rows", o["rows"]),
         other => other.to_string(),
     }
+}
+
+/// The id a cell holds, when it is a number.
+fn cell_id(v: &J) -> Option<i64> {
+    v.as_i64()
+}
+
+fn short(table: &str) -> &str {
+    table.strip_prefix("DATA_SET_").unwrap_or(table)
 }
 
 /// `GAME_VERSION_RAW` packs four 16-bit numbers: 8.1.5839.0.
@@ -78,84 +104,238 @@ fn version_text(v: &J) -> Option<String> {
     Some([48, 32, 16, 0].iter().map(|s| ((n >> s) & 0xffff).to_string()).collect::<Vec<_>>().join("."))
 }
 
+/// `8.1.5839.0` → the packed `GAME_VERSION_RAW` (as a decimal string).
+fn version_raw(text: &str) -> Option<String> {
+    let parts: Vec<u64> = text.trim().split('.').map(|p| p.parse().ok().filter(|&n| n <= 0xffff)).collect::<Option<Vec<_>>>()?;
+    if parts.len() != 4 {
+        return None;
+    }
+    Some(parts.iter().fold(0u64, |v, p| (v << 16) | p).to_string())
+}
+
+/// A header field as its editor shows it.
+fn header_text(field: &str, value: &J) -> String {
+    if field == "GAME_VERSION_RAW" {
+        if let Some(t) = version_text(value) {
+            return t;
+        }
+    }
+    match value {
+        J::Object(_) => String::new(),
+        other => cell_text(other),
+    }
+}
+
+/// A row set address as the backend takes it: `[[field, row], …]`.
+type Path = Vec<(String, usize)>;
+
+fn path_json(path: &[(String, usize)]) -> J {
+    J::from(path.iter().map(|(f, i)| json!([f, i])).collect::<Vec<_>>())
+}
+
+fn path_of(j: &J) -> Path {
+    j.as_array().into_iter().flatten().filter_map(|s| Some((s[0].as_str()?.to_string(), s[1].as_u64()? as usize))).collect()
+}
+
 #[derive(Clone)]
 struct Column {
     name: String,
     kind: String,
+    /// Rows of the set that hold the column.
+    count: usize,
+}
+
+impl Column {
+    fn of(c: &J) -> Column {
+        Column { name: c["name"].as_str().unwrap_or_default().to_string(), kind: c["kind"].as_str().unwrap_or_default().to_string(), count: c["count"].as_u64().unwrap_or(0) as usize }
+    }
+
+    fn editable(&self) -> bool {
+        self.kind != "rowset" && self.kind != "blob"
+    }
+}
+
+struct Table {
+    name: String,
+    rows: usize,
+    columns: usize,
 }
 
 struct Doc {
     id: String,
     path: String,
+    /// The marshal's function name (shown beside the file).
+    function: String,
     dirty: bool,
-    undo: usize,
+    /// What Undo would take back, last first.
+    undo: Vec<String>,
     header: Vec<(String, J)>,
-    tables: Vec<(String, usize, Vec<Column>)>,
+    tables: Vec<Table>,
+}
+
+impl Doc {
+    fn of(d: &J) -> Doc {
+        Doc {
+            id: d["id"].as_str().unwrap_or_default().to_string(),
+            path: d["path"].as_str().unwrap_or_default().to_string(),
+            function: d["function"].as_str().unwrap_or_default().to_string(),
+            dirty: d["dirty"].as_bool().unwrap_or(false),
+            undo: d["undo"].as_array().into_iter().flatten().filter_map(|u| u.as_str().map(str::to_string)).collect(),
+            header: d["header"].as_array().into_iter().flatten().map(|h| (h["name"].as_str().unwrap_or_default().to_string(), h["value"].clone())).collect(),
+            tables: d["tables"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|t| Table { name: t["name"].as_str().unwrap_or_default().to_string(), rows: t["rows"].as_u64().unwrap_or(0) as usize, columns: t["columns"].as_array().map(|c| c.len()).unwrap_or(0) })
+                .collect(),
+        }
+    }
+
+    /// `assembly.dat`, `Lang_INT.dat`.
+    fn label(&self) -> String {
+        if self.id == "assembly" {
+            "assembly.dat".into()
+        } else {
+            format!("Lang_{}.dat", self.id)
+        }
+    }
+}
+
+struct Field {
+    name: String,
+    kind: String,
+    value: J,
+}
+
+/// A row that names the selected row's id.
+struct Usage {
+    path: Path,
+    field: String,
+    label: String,
 }
 
 /// The selected row's pane.
 struct RowPane {
     index: usize,
-    fields: Vec<(String, String, J)>,
-    /// Message id → language → text, for the row's `*_MSG_ID` fields.
-    messages: HashMap<i64, Vec<(String, String)>>,
-    usages: Option<Vec<(J, String, String)>>,
+    fields: Vec<Field>,
+    /// The rows that refer to it and whether the list was cut, once asked for.
+    usages: Option<(Vec<Usage>, bool)>,
+    usages_loading: bool,
+}
+
+/// A message in one language: its text, and its row in that language's file.
+struct Message {
+    text: String,
+    name: String,
+    path: Path,
+}
+
+/// What is being edited.
+#[derive(Clone, PartialEq, Debug)]
+enum Edit {
+    /// A cell of the grid (Enter goes down, Tab sideways).
+    Cell { row: usize, field: String },
+    /// A field of the row pane (`long`: in the multi-line editor).
+    Field { row: usize, field: String, long: bool },
+    Header { doc: String, field: String },
+    Message { id: i64, lang: String },
+}
+
+impl Edit {
+    /// Edited in the multi-line editor.
+    fn in_area(&self) -> bool {
+        matches!(self, Edit::Message { .. } | Edit::Field { long: true, .. })
+    }
+}
+
+/// Where the cursor goes once a cell edit is applied.
+#[derive(Clone, Copy, PartialEq)]
+enum Move {
+    Stay,
+    Down,
+    Right,
+    Left,
 }
 
 pub struct Assembly {
     pub(super) backend: Backend,
     studio: WeakEntity<Studio>,
-    dir: String,
     docs: Vec<Doc>,
     loading: bool,
     error: Option<String>,
     doc: Option<String>,
     /// The row set on screen: the rows leading to it, and its table / field name.
-    path: Vec<(String, usize)>,
+    path: Path,
     table: Option<String>,
     columns: Vec<Column>,
     total: usize,
     /// Loaded rows by position: (row index, cells).
     rows: HashMap<usize, (usize, Map<String, J>)>,
+    /// Position of a loaded row, by its index.
+    positions: HashMap<usize, usize>,
     pages: HashSet<usize>,
     /// Bumped whenever the pages are dropped, so late pages are ignored.
     seq: u64,
     filter: Entity<InputState>,
+    /// The filter the rows were asked with (the field's text, applied after a pause).
+    filter_text: String,
+    filter_task: Option<Task<()>>,
     table_filter: Entity<InputState>,
     sort: Option<(String, bool)>,
     selected: Option<usize>,
+    /// The cell cursor's column (its row is the selected one).
+    col: Option<String>,
+    /// Where ⇧-click marks from.
+    anchor: Option<usize>,
     row: Option<RowPane>,
-    /// The cell (or field, `row: None` for the header) being edited.
-    edit: Option<(Option<usize>, String, Option<String>)>,
+    edit: Option<Edit>,
+    /// The text the edit started with (an unchanged value is not written).
+    edit_from: String,
     edit_input: Entity<InputState>,
+    edit_area: Entity<TextareaState>,
     scroll: UniformListScrollHandle,
-    msg_text: HashMap<i64, String>,
+    /// INT texts of the `*_MSG_ID` cells seen so far (grid hints).
+    labels: HashMap<i64, String>,
+    label_wanted: HashSet<i64>,
+    /// Message id → language → message, read for the selected row.
+    messages: HashMap<i64, HashMap<String, Message>>,
     valid: HashMap<i64, String>,
-    msg_wanted: HashSet<i64>,
+    /// The row at this position is selected once its page is read.
+    want_pos: Option<usize>,
+    /// The row with this index is selected once the rows are read.
     pending_select: Option<usize>,
     /// Rows marked with ⌘/⇧-click: an edit of one of them sets them all.
-    marked: std::collections::BTreeSet<usize>,
+    marked: BTreeSet<usize>,
     /// Hidden columns per table (kept between runs).
     hidden: HashMap<String, HashSet<String>>,
+    /// The widest cell of each column, in characters, over the rows read so far.
+    chars: HashMap<String, usize>,
+    chars_stale: bool,
     /// The grid's sideways scroll (the id and name columns stay at the left).
     hscroll: gpui::ScrollHandle,
+    /// The cursor's column is scrolled into view at the next frame.
+    reveal_col: bool,
+    row_scroll: gpui::ScrollHandle,
     /// ⌘B / ⌘J and the compact layout (the window's).
     panes: super::layout::Shared,
     /// The files and row panes' widths when the view opened.
     sizes: Vec<f32>,
     focus: FocusHandle,
+    /// The table list's focus: ↑ ↓ open the next table.
+    tables_focus: FocusHandle,
     _subs: Vec<Subscription>,
 }
 
 impl Assembly {
-    pub fn new(backend: Backend, dir: String, studio: WeakEntity<Studio>, panes: super::layout::Shared, sizes: Vec<f32>, window: &mut Window, cx: &mut Context<Self>) -> Assembly {
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter rows (any cell)"));
-        let table_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tables"));
+    pub fn new(backend: Backend, studio: WeakEntity<Studio>, panes: super::layout::Shared, sizes: Vec<f32>, id_range: Option<(i64, i64)>, window: &mut Window, cx: &mut Context<Self>) -> Assembly {
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter rows (any cell contains…)"));
+        let table_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tables…"));
         let edit_input = cx.new(|cx| InputState::new(window, cx));
+        let edit_area = cx.new(|cx| TextareaState::new(window, cx).auto_grow(2, 10));
         let subs = vec![
             cx.subscribe(&filter, |this, _, e: &InputEvent, cx| {
                 if matches!(e, InputEvent::Change) {
-                    this.reload_rows(cx);
+                    this.filter_later(cx);
                 }
             }),
             cx.subscribe(&table_filter, |_, _, e: &InputEvent, cx| {
@@ -163,19 +343,30 @@ impl Assembly {
                     cx.notify();
                 }
             }),
-            cx.subscribe_in(&edit_input, window, |this, _, e: &InputEvent, window, cx| match e {
-                InputEvent::PressEnter { .. } => this.commit_edit(window, cx),
-                InputEvent::Blur => {
-                    this.edit = None;
-                    cx.notify();
+            cx.subscribe_in(&edit_input, window, |this, _, e: &InputEvent, window, cx| {
+                if this.edit.as_ref().is_none_or(|e| e.in_area()) {
+                    return;
                 }
-                _ => {}
+                match e {
+                    InputEvent::PressEnter { .. } => this.commit_edit(Move::Down, window, cx),
+                    // Leaving the field applies it (Escape is the way out).
+                    InputEvent::Blur => this.commit_edit(Move::Stay, window, cx),
+                    _ => {}
+                }
+            }),
+            cx.subscribe_in(&edit_area, window, |this, _, e: &InputEvent, window, cx| {
+                if this.edit.as_ref().is_none_or(|e| !e.in_area()) {
+                    return;
+                }
+                // Enter is a line break here: ⌘Enter (bound in `AsmEdit`) or leaving the field applies.
+                if matches!(e, InputEvent::Blur) {
+                    this.commit_edit(Move::Stay, window, cx);
+                }
             }),
         ];
         let mut a = Assembly {
             backend,
             studio,
-            dir,
             docs: Vec::new(),
             loading: true,
             error: None,
@@ -185,61 +376,105 @@ impl Assembly {
             columns: Vec::new(),
             total: 0,
             rows: HashMap::new(),
+            positions: HashMap::new(),
             pages: HashSet::new(),
             seq: 0,
             filter,
+            filter_text: String::new(),
+            filter_task: None,
             table_filter,
             sort: None,
             selected: None,
+            col: None,
+            anchor: None,
             row: None,
             edit: None,
+            edit_from: String::new(),
             edit_input,
+            edit_area,
             scroll: UniformListScrollHandle::new(),
-            msg_text: HashMap::new(),
+            labels: HashMap::new(),
+            label_wanted: HashSet::new(),
+            messages: HashMap::new(),
             valid: HashMap::new(),
-            msg_wanted: HashSet::new(),
+            want_pos: None,
             pending_select: None,
-            marked: Default::default(),
+            marked: BTreeSet::new(),
             hidden: load_hidden(),
+            chars: HashMap::new(),
+            chars_stale: true,
             hscroll: gpui::ScrollHandle::new(),
+            reveal_col: false,
+            row_scroll: gpui::ScrollHandle::new(),
             panes,
             sizes,
             focus: cx.focus_handle(),
+            tables_focus: cx.focus_handle(),
             _subs: subs,
         };
+        // New content takes its ids from the user's range (the settings').
+        if let Some((start, end)) = id_range {
+            let (open, range) = (a.backend.call("mcts.open", json!({})), a.backend.call("mcts.idRange", json!({ "start": start, "end": end })));
+            cx.spawn(async move |this, cx| {
+                let _ = open.await;
+                if let Err(e) = range.await {
+                    let _ = this.update(cx, |this, cx| this.toast(Tone::Warning, format!("Could not apply the id range {start}…{end}: {e}"), cx));
+                }
+            })
+            .detach();
+        }
         a.open(false, cx);
         a
     }
 
-    pub(super) fn toast(&self, tone: Tone, text: impl Into<String>, cx: &mut Context<Self>) {
-        let text = text.into();
-        let _ = self.studio.update(cx, |s, cx| s.toast(tone, text, cx));
+    /// Run `f` on the Studio once this update is over: the Studio may be the
+    /// one updating this view (a command, Back/Forward), and an entity cannot
+    /// be updated while it is.
+    fn with_studio(&self, cx: &mut Context<Self>, f: impl FnOnce(&mut Studio, &mut Context<Studio>) + 'static) {
+        let studio = self.studio.clone();
+        cx.defer(move |cx| {
+            let _ = studio.update(cx, f);
+        });
     }
 
-    /// New content's kind and template from the selected row (a device, item or bot row).
+    pub(super) fn toast(&self, tone: Tone, text: impl Into<String>, cx: &mut Context<Self>) {
+        let text = text.into();
+        self.with_studio(cx, move |s, cx| s.toast(tone, text, cx));
+    }
+
+    fn set_status(&self, text: impl Into<String>, cx: &mut Context<Self>) {
+        let text = text.into();
+        self.with_studio(cx, move |s, cx| s.set_status(text, cx));
+    }
+
+
+    /// What the selected row is, for the mod export's fields: a device or a champion (bot) row with its id.
     pub(super) fn template_guess(&self) -> (&'static str, Option<i64>) {
-        let kind = match self.table.as_deref() {
-            Some("DATA_SET_DEVICES") => "device",
-            Some("DATA_SET_BOTS") => "champion",
-            _ => "item",
+        let (kind, key) = match self.table.as_deref() {
+            Some("DATA_SET_DEVICES") => ("device", "DEVICE_ID"),
+            Some("DATA_SET_BOTS") => ("champion", "BOT_ID"),
+            _ => ("item", "ITEM_ID"),
         };
-        let key = match kind {
-            "device" => "DEVICE_ID",
-            "champion" => "BOT_ID",
-            _ => "ITEM_ID",
-        };
-        let id = self.row.as_ref().filter(|_| self.path.is_empty()).and_then(|r| r.fields.iter().find(|f| f.0 == key)).and_then(|f| f.2.as_i64());
+        let id = self.row.as_ref().filter(|_| self.path.is_empty()).and_then(|r| r.fields.iter().find(|f| f.name == key)).and_then(|f| f.value.as_i64());
         (kind, id)
     }
 
-    /// The files changed behind the view's back (a workspace file applied): read them again.
+    /// The files changed behind the view's back (a workspace file applied, new content made): read them again.
     pub fn reopen(&mut self, cx: &mut Context<Self>) {
         self.open(false, cx);
+        self.messages.clear();
+        self.labels.clear();
+        self.label_wanted.clear();
         self.reload_rows(cx);
+        if let Some(i) = self.selected {
+            self.select(i, cx);
+        }
     }
 
-    fn open(&mut self, reload: bool, cx: &mut Context<Self>) {
+    /// Read the files (`reload`: again from the game folder, dropping the backend's copies).
+    pub(super) fn open(&mut self, reload: bool, cx: &mut Context<Self>) {
         self.loading = true;
+        self.error = None;
         let call = self.backend.call("mcts.open", json!({ "reload": reload }));
         let valid = self.backend.call("mcts.validValues", json!({}));
         cx.spawn(async move |this, cx| {
@@ -249,9 +484,20 @@ impl Assembly {
                 this.loading = false;
                 match r {
                     Ok(r) => {
-                        this.set_docs(&r.json["docs"]);
-                        if this.doc.is_none() {
+                        this.docs = r.json["docs"].as_array().into_iter().flatten().map(Doc::of).collect();
+                        if this.doc.as_ref().is_none_or(|d| !this.docs.iter().any(|x| &x.id == d)) {
                             this.doc = this.docs.first().map(|d| d.id.clone());
+                        }
+                        // The first table shows at once, like a package's first object.
+                        if this.table.is_none() {
+                            if let Some((doc, table)) = this.docs.first().and_then(|d| Some((d.id.clone(), d.tables.first()?.name.clone()))) {
+                                this.show(doc, Vec::new(), table, None, false, cx);
+                            }
+                        } else if reload {
+                            this.messages.clear();
+                            this.labels.clear();
+                            this.label_wanted.clear();
+                            this.load_table(cx);
                         }
                     }
                     Err(e) => this.error = Some(e),
@@ -259,45 +505,63 @@ impl Assembly {
                 if let Ok(v) = v {
                     if let Some(m) = v.json.as_object() {
                         this.valid = m.iter().filter_map(|(k, x)| Some((k.parse().ok()?, x["text"].as_str()?.to_string()))).collect();
+                        this.chars_stale = true;
                     }
                 }
                 cx.notify();
             });
         })
         .detach();
+        cx.notify();
     }
 
-    fn set_docs(&mut self, docs: &J) {
-        self.docs = docs
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|d| Doc {
-                id: d["id"].as_str().unwrap_or_default().to_string(),
-                path: d["path"].as_str().unwrap_or_default().to_string(),
-                dirty: d["dirty"].as_bool().unwrap_or(false),
-                undo: d["undo"].as_array().map(|u| u.len()).unwrap_or(0),
-                header: d["header"].as_array().into_iter().flatten().map(|h| (h["name"].as_str().unwrap_or_default().to_string(), h["value"].clone())).collect(),
-                tables: d["tables"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .map(|t| {
-                        let cols = t["columns"].as_array().into_iter().flatten().map(|c| Column { name: c["name"].as_str().unwrap_or_default().to_string(), kind: c["kind"].as_str().unwrap_or_default().to_string() }).collect();
-                        (t["name"].as_str().unwrap_or_default().to_string(), t["rows"].as_u64().unwrap_or(0) as usize, cols)
-                    })
-                    .collect(),
-            })
-            .collect();
+    /// Reload assembly.dat and the language files from the game folder (asks when edits would be lost).
+    pub(super) fn reload_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.unsaved_count() == 0 {
+            self.open(true, cx);
+            return;
+        }
+        let me = cx.entity().downgrade();
+        dialogs::confirm(window, cx, "Reload the assembly files?", "Their edits are dropped and the files are read again from the game folder.", "Reload", true, move |_, cx| {
+            let _ = me.update(cx, |this, cx| this.open(true, cx));
+        });
     }
 
-    /// A status reply (`McsStatus`): the document's dirty flag and undo depth.
+    /// A status reply (`McsStatus`): the document's dirty flag and undo list.
     fn status(&mut self, j: &J, cx: &mut Context<Self>) {
         if let Some(d) = self.docs.iter_mut().find(|d| j["doc"].as_str() == Some(d.id.as_str())) {
             d.dirty = j["dirty"].as_bool().unwrap_or(d.dirty);
-            d.undo = j["undo"].as_array().map(|u| u.len()).unwrap_or(d.undo);
+            if let Some(u) = j["undo"].as_array() {
+                d.undo = u.iter().filter_map(|u| u.as_str().map(str::to_string)).collect();
+            }
         }
         cx.notify();
+    }
+
+    /// Read one document's summary again (row counts, header, dirty flag) after an edit that changes them.
+    fn refresh_doc(&mut self, id: String, cx: &mut Context<Self>) {
+        let call = self.backend.call("mcts.doc", json!({ "doc": id }));
+        cx.spawn(async move |this, cx| {
+            if let Ok(r) = call.await {
+                let _ = this.update(cx, |this, cx| {
+                    let doc = Doc::of(&r.json);
+                    if let Some(d) = this.docs.iter_mut().find(|d| d.id == doc.id) {
+                        *d = doc;
+                    }
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// The language files, in the order the game folder lists them.
+    fn languages(&self) -> Vec<String> {
+        self.docs.iter().filter(|d| d.id != "assembly").map(|d| d.id.clone()).collect()
+    }
+
+    fn current_doc(&self) -> Option<&Doc> {
+        self.docs.iter().find(|d| Some(&d.id) == self.doc.as_ref())
     }
 
     pub fn unsaved_count(&self) -> usize {
@@ -308,96 +572,187 @@ impl Assembly {
         self.docs.iter().filter(|d| d.dirty).map(|d| d.path.clone()).collect()
     }
 
+
+    /// Whether the file on screen has unsaved edits.
+    pub fn doc_dirty(&self) -> bool {
+        self.current_doc().is_some_and(|d| d.dirty)
+    }
+
+
+    /// The table (or row set) on screen.
+    pub fn table_name(&self) -> Option<String> {
+        self.table.clone()
+    }
+
+
+    /// The tables of every file, for the palette: (file id, file label, table, rows).
+    pub fn tables(&self) -> Vec<(String, String, String, usize)> {
+        self.docs.iter().flat_map(|d| d.tables.iter().map(move |t| (d.id.clone(), d.label(), t.name.clone(), t.rows))).collect()
+    }
+
     pub fn place(&self) -> Place {
-        Place::Assembly { file: self.doc.clone().unwrap_or_default(), table: self.table.clone().filter(|_| self.path.is_empty()), row: self.selected.filter(|_| self.path.is_empty()) }
+        Place::Assembly { file: self.doc.clone().unwrap_or_default(), path: self.path.clone(), table: self.table.clone(), row: self.selected }
+    }
+
+    /// The place of row `index` of the set on screen (a new tab opens there).
+    fn place_of(&self, index: usize) -> Place {
+        Place::Assembly { file: self.doc.clone().unwrap_or_default(), path: self.path.clone(), table: self.table.clone(), row: Some(index) }
     }
 
     fn record(&self, cx: &mut Context<Self>) {
         let place = self.place();
-        let _ = self.studio.update(cx, |s, _| s.record(place));
+        self.with_studio(cx, move |s, _| s.record(place));
     }
 
-    /// Back/Forward and tabs: show this table and row.
+    /// Show a top-level table and row (new content, the vendor and skins dialogs).
     pub fn visit(&mut self, file: String, table: Option<String>, row: Option<usize>, cx: &mut Context<Self>) {
-        if !file.is_empty() {
+        self.visit_path(file, Vec::new(), table, row, cx);
+    }
+
+    /// Back/Forward and tabs: show this row set and row.
+    pub fn visit_path(&mut self, file: String, path: Path, table: Option<String>, row: Option<usize>, cx: &mut Context<Self>) {
+        let file = if file.is_empty() { self.doc.clone().unwrap_or_else(|| "assembly".into()) } else { file };
+        let Some(table) = table else {
             self.doc = Some(file);
-        }
-        if table != self.table || !self.path.is_empty() {
-            self.path.clear();
-            self.table = table;
-            self.selected = None;
-            self.row = None;
-            self.pending_select = row;
-            self.load_table(cx);
+            cx.notify();
+            return;
+        };
+        if self.doc.as_deref() != Some(file.as_str()) || self.table.as_deref() != Some(table.as_str()) || self.path != path {
+            self.show(file, path, table, row, false, cx);
         } else if let Some(r) = row {
             self.select(r, cx);
-            if let Some(pos) = self.rows.iter().find(|(_, v)| v.0 == r).map(|(p, _)| *p) {
-                self.scroll.scroll_to_item(pos, ScrollStrategy::Center);
-            }
+            self.reveal_index(r);
         }
         cx.notify();
     }
 
     // ----- tables -------------------------------------------------------------------
 
-    fn open_table(&mut self, doc: String, table: String, cx: &mut Context<Self>) {
-        super::layout::update(&self.panes, |p| p.overlay = false);
+    /// Show a row set (a top-level table, or a nested one under `path`), with row `select` selected.
+    fn show(&mut self, doc: String, path: Path, table: String, select: Option<usize>, keep_filter: bool, cx: &mut Context<Self>) {
+        self.cancel_edit(cx);
         self.doc = Some(doc);
-        self.path.clear();
+        self.path = path;
         self.table = Some(table);
         self.selected = None;
         self.row = None;
-        self.sort = None;
+        self.marked.clear();
+        self.anchor = None;
+        if !keep_filter {
+            self.sort = None;
+            self.filter_text.clear();
+            self.filter_task = None;
+        }
+        self.pending_select = select;
+        self.hscroll.set_offset(gpui::point(gpui::px(0.0), gpui::px(0.0)));
         self.load_table(cx);
+    }
+
+    /// The user opens a row set: shown, and a place of the history.
+    fn open_at(&mut self, doc: String, path: Path, table: String, select: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
+        super::layout::update(&self.panes, |p| p.overlay = false);
+        self.show(doc, path, table, select, false, cx);
+        // The filter box follows (cleared when another table opens).
+        self.filter.update(cx, |s, cx| s.set_value("", window, cx));
         self.record(cx);
+    }
+
+    fn open_table(&mut self, doc: String, table: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_at(doc, Vec::new(), table, None, window, cx);
     }
 
     fn load_table(&mut self, cx: &mut Context<Self>) {
         let (Some(doc), Some(table)) = (self.doc.clone(), self.table.clone()) else { return };
-        self.columns = if self.path.is_empty() { self.docs.iter().find(|d| d.id == doc).and_then(|d| d.tables.iter().find(|t| t.0 == table)).map(|t| t.2.clone()).unwrap_or_default() } else { Vec::new() };
-        // Nested sets: the columns come from `mcts.table`.
-        let call = self.backend.call("mcts.table", json!({ "doc": doc, "path": self.path_json(), "table": table }));
+        self.columns.clear();
+        self.chars.clear();
+        self.chars_stale = true;
+        let call = self.backend.call("mcts.table", json!({ "doc": doc, "path": path_json(&self.path), "table": table }));
+        let at = (doc, self.path.clone(), table);
         cx.spawn(async move |this, cx| {
-            if let Ok(r) = call.await {
-                let _ = this.update(cx, |this, cx| {
-                    this.columns = r.json["columns"].as_array().into_iter().flatten().map(|c| Column { name: c["name"].as_str().unwrap_or_default().to_string(), kind: c["kind"].as_str().unwrap_or_default().to_string() }).collect();
-                    // The key and name columns first.
-                    let table = this.table.clone().unwrap_or_default();
-                    let key = REFS.iter().find(|r| r.1 == table).map(|r| r.2);
-                    this.columns.sort_by_key(|c| {
-                        if Some(c.name.as_str()) == key {
-                            0
-                        } else if c.name.ends_with("_NAME") || c.name.ends_with("NAME_MSG_ID") {
-                            1
-                        } else {
-                            2
+            let r = call.await;
+            let _ = this.update(cx, |this, cx| {
+                if (this.doc.as_ref(), &this.path, this.table.as_ref()) != (Some(&at.0), &at.1, Some(&at.2)) {
+                    return;
+                }
+                match r {
+                    Ok(r) => {
+                        this.columns = r.json["columns"].as_array().into_iter().flatten().map(Column::of).collect();
+                        this.chars_stale = true;
+                        // Keep the cursor on a column of this table.
+                        if this.col.as_ref().is_none_or(|c| !this.columns.iter().any(|x| &x.name == c)) {
+                            this.col = this.visible_columns().first().map(|c| c.name.clone());
                         }
-                    });
-                    cx.notify();
-                });
-            }
+                    }
+                    Err(e) => this.toast(Tone::Error, format!("Could not load the table: {e}"), cx),
+                }
+                cx.notify();
+            });
         })
         .detach();
         self.reload_rows(cx);
     }
 
-    fn path_json(&self) -> J {
-        J::from(self.path.iter().map(|(f, i)| json!([f, i])).collect::<Vec<_>>())
-    }
-
     fn row_path(&self, index: usize) -> J {
-        let mut p: Vec<J> = self.path.iter().map(|(f, i)| json!([f, i])).collect();
-        p.push(json!([self.table.clone().unwrap_or_default(), index]));
-        J::from(p)
+        let mut p = self.path.clone();
+        p.push((self.table.clone().unwrap_or_default(), index));
+        path_json(&p)
     }
 
+    /// Drop the rows read and read the first page again (a filter, a sort, an edit that moves rows).
     fn reload_rows(&mut self, cx: &mut Context<Self>) {
         self.rows.clear();
+        self.positions.clear();
         self.pages.clear();
         self.seq += 1;
-        self.total = 0;
-        self.load_page(0, cx);
+        self.want_pos = None;
+        // A row to select further down: its page too (unfiltered and unsorted, a row sits at its index).
+        let first = self.pending_select.filter(|_| self.plain_order()).map(|r| r / PAGE).unwrap_or(0);
+        self.load_page(first, cx);
         cx.notify();
+    }
+
+    /// The rows are in file order: a row's position is its index.
+    fn plain_order(&self) -> bool {
+        self.filter_text.is_empty() && self.sort.is_none()
+    }
+
+    /// Apply the filter field once typing pauses.
+    fn filter_later(&mut self, cx: &mut Context<Self>) {
+        self.filter_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_millis(250)).await;
+            let _ = this.update(cx, |this, cx| this.apply_filter(cx));
+        }));
+    }
+
+    fn apply_filter(&mut self, cx: &mut Context<Self>) {
+        let text = self.filter.read(cx).value().to_string();
+        if text == self.filter_text {
+            return;
+        }
+        self.filter_text = text;
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        self.reload_rows(cx);
+    }
+
+    /// Filter the rows of the table on screen (the palette).
+    pub fn set_filter(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.filter.update(cx, |s, cx| s.set_value(text.clone(), window, cx));
+        self.filter_task = None;
+        if text != self.filter_text {
+            self.filter_text = text;
+            self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+            self.reload_rows(cx);
+        }
+    }
+
+    fn set_sort(&mut self, column: String, cx: &mut Context<Self>) {
+        self.sort = match &self.sort {
+            Some((s, false)) if *s == column => Some((column, true)),
+            Some((s, true)) if *s == column => None,
+            _ => Some((column, false)),
+        };
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        self.reload_rows(cx);
     }
 
     fn load_page(&mut self, page: usize, cx: &mut Context<Self>) {
@@ -405,13 +760,13 @@ impl Assembly {
         if !self.pages.insert(page) {
             return;
         }
-        let filter = self.filter.read(cx).value().to_string();
-        let (sort, desc) = match &self.sort {
-            Some((c, d)) => (Some(c.clone()), *d),
-            None => (None, false),
-        };
+        let mut params = json!({ "doc": doc, "path": path_json(&self.path), "table": table, "offset": page * PAGE, "limit": PAGE, "filter": self.filter_text });
+        if let Some((c, desc)) = &self.sort {
+            params["sort"] = json!(c);
+            params["desc"] = json!(desc);
+        }
         let seq = self.seq;
-        let call = self.backend.call("mcts.rows", json!({ "doc": doc, "path": self.path_json(), "table": table, "offset": page * PAGE, "limit": PAGE, "filter": filter, "sort": sort, "desc": desc }));
+        let call = self.backend.call("mcts.rows", params);
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| {
@@ -426,16 +781,23 @@ impl Assembly {
                             let index = row[0].as_u64().unwrap_or(0) as usize;
                             let cells = row[1].as_object().cloned().unwrap_or_default();
                             this.rows.insert(offset + k, (index, cells));
+                            this.positions.insert(index, offset + k);
                         }
-                        this.want_messages(cx);
+                        this.chars_stale = true;
+                        this.want_labels(cx);
                         if let Some(r) = this.pending_select.take() {
                             this.select(r, cx);
-                            if let Some(pos) = this.rows.iter().find(|(_, v)| v.0 == r).map(|(p, _)| *p) {
-                                this.scroll.scroll_to_item(pos, ScrollStrategy::Center);
+                            this.reveal_index(r);
+                        }
+                        if let Some(pos) = this.want_pos {
+                            if let Some((index, _)) = this.rows.get(&pos) {
+                                let index = *index;
+                                this.want_pos = None;
+                                this.user_select(index, cx);
                             }
                         }
                     }
-                    Err(e) => this.toast(Tone::Error, e, cx),
+                    Err(e) => this.toast(Tone::Error, format!("Could not load the rows: {e}"), cx),
                 }
                 cx.notify();
             });
@@ -443,14 +805,17 @@ impl Assembly {
         .detach();
     }
 
-    /// INT texts of the `*_MSG_ID` values loaded so far (once each).
-    fn want_messages(&mut self, cx: &mut Context<Self>) {
+    /// INT texts of the `*_MSG_ID` values read so far (once each): the grid's hints.
+    fn want_labels(&mut self, cx: &mut Context<Self>) {
+        if !self.docs.iter().any(|d| d.id == "INT") {
+            return;
+        }
         let mut ids = Vec::new();
         for (_, cells) in self.rows.values() {
             for (k, v) in cells {
-                if k.ends_with("_MSG_ID") {
-                    if let Some(id) = v.as_i64().filter(|&i| i > 0) {
-                        if self.msg_wanted.insert(id) {
+                if is_message(k) {
+                    if let Some(id) = v.as_i64().filter(|&i| i != 0) {
+                        if self.label_wanted.insert(id) {
                             ids.push(id);
                         }
                     }
@@ -466,9 +831,10 @@ impl Assembly {
                 let _ = this.update(cx, |this, cx| {
                     for (id, langs) in r.json.as_object().into_iter().flatten() {
                         if let (Ok(id), Some(t)) = (id.parse::<i64>(), langs["INT"]["text"].as_str()) {
-                            this.msg_text.insert(id, t.to_string());
+                            this.labels.insert(id, t.to_string());
                         }
                     }
+                    this.chars_stale = true;
                     cx.notify();
                 });
             }
@@ -476,33 +842,66 @@ impl Assembly {
         .detach();
     }
 
+    /// The INT text of a message id, when known.
+    fn label(&self, id: i64) -> Option<&str> {
+        self.messages.get(&id).and_then(|m| m.get("INT")).map(|m| m.text.as_str()).or_else(|| self.labels.get(&id).map(String::as_str)).filter(|t| !t.is_empty())
+    }
+
+    /// What a cell's value means: a message's text, a valid value's name.
+    fn hint(&self, column: &str, v: &J) -> Option<&str> {
+        let id = cell_id(v)?;
+        if is_message(column) {
+            self.label(id)
+        } else if is_value_id(column) {
+            self.valid.get(&id).map(String::as_str)
+        } else {
+            None
+        }
+    }
+
     // ----- rows ---------------------------------------------------------------------
 
+    fn cells(&self, index: usize) -> Option<&Map<String, J>> {
+        self.positions.get(&index).and_then(|p| self.rows.get(p)).map(|r| &r.1)
+    }
+
+    fn cell(&self, index: usize, column: &str) -> Option<&J> {
+        self.cells(index).and_then(|c| c.get(column))
+    }
+
+    /// Scroll the row with this index into view (its page is read when it is not yet).
+    fn reveal_index(&mut self, index: usize) {
+        let pos = self.positions.get(&index).copied().or_else(|| self.plain_order().then_some(index));
+        if let Some(pos) = pos {
+            self.scroll.scroll_to_item(pos, ScrollStrategy::Center);
+        }
+    }
+
+    /// Select a row and read its fields and messages.
     fn select(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(doc) = self.doc.clone() else { return };
+        if self.selected != Some(index) {
+            self.row = None;
+        }
         self.selected = Some(index);
         let call = self.backend.call("mcts.row", json!({ "doc": doc, "path": self.row_path(index) }));
+        let seq = self.seq;
         cx.spawn(async move |this, cx| {
-            let Ok(r) = call.await else { return };
-            let fields: Vec<(String, String, J)> = r.json["fields"].as_array().into_iter().flatten().map(|f| (f["name"].as_str().unwrap_or_default().to_string(), f["kind"].as_str().unwrap_or_default().to_string(), f["value"].clone())).collect();
-            let ids: Vec<i64> = fields.iter().filter(|f| f.0.ends_with("_MSG_ID")).filter_map(|f| f.2.as_i64()).filter(|&i| i > 0).collect();
-            let msgs = (!ids.is_empty()).then(|| this.update(cx, |this, _| this.backend.call("mcts.messages", json!({ "ids": ids })))).and_then(|r| r.ok());
-            let mut messages = HashMap::new();
-            if let Some(m) = msgs {
-                if let Ok(m) = m.await {
-                    for (id, langs) in m.json.as_object().into_iter().flatten() {
-                        let mut list: Vec<(String, String)> = langs.as_object().into_iter().flatten().map(|(l, v)| (l.clone(), v["text"].as_str().unwrap_or_default().to_string())).collect();
-                        list.sort_by_key(|(l, _)| (l != "INT", l.clone()));
-                        if let Ok(id) = id.parse() {
-                            messages.insert(id, list);
-                        }
-                    }
-                }
-            }
+            let r = call.await;
             let _ = this.update(cx, |this, cx| {
-                if this.selected == Some(index) {
-                    this.row = Some(RowPane { index, fields, messages, usages: None });
-                    this.load_usages(cx);
+                if this.selected != Some(index) {
+                    return;
+                }
+                match r {
+                    Ok(r) => {
+                        let fields: Vec<Field> = r.json["fields"].as_array().into_iter().flatten().map(|f| Field { name: f["name"].as_str().unwrap_or_default().to_string(), kind: f["kind"].as_str().unwrap_or_default().to_string(), value: f["value"].clone() }).collect();
+                        let ids: Vec<i64> = fields.iter().filter(|f| is_message(&f.name)).filter_map(|f| f.value.as_i64()).collect();
+                        // The usages found stay while the same row is read again (after an edit of it).
+                        let kept = this.row.take().filter(|r| r.index == index && this.seq == seq).and_then(|r| r.usages);
+                        this.row = Some(RowPane { index, fields, usages: kept, usages_loading: false });
+                        this.load_messages(ids, cx);
+                    }
+                    Err(e) => this.toast(Tone::Error, format!("Could not load the row: {e}"), cx),
                 }
                 cx.notify();
             });
@@ -511,190 +910,437 @@ impl Assembly {
         cx.notify();
     }
 
+    /// The texts of message ids not read yet, in every language.
+    fn load_messages(&mut self, ids: Vec<i64>, cx: &mut Context<Self>) {
+        let mut missing: Vec<i64> = ids.into_iter().filter(|id| *id != 0 && !self.messages.contains_key(id)).collect();
+        missing.sort_unstable();
+        missing.dedup();
+        if missing.is_empty() {
+            return;
+        }
+        let call = self.backend.call("mcts.messages", json!({ "ids": missing }));
+        cx.spawn(async move |this, cx| {
+            let Ok(r) = call.await else { return };
+            let _ = this.update(cx, |this, cx| {
+                for id in missing {
+                    let langs = r.json[id.to_string()].as_object().into_iter().flatten().map(|(l, m)| (l.clone(), Message { text: m["text"].as_str().unwrap_or_default().to_string(), name: m["name"].as_str().unwrap_or_default().to_string(), path: path_of(&m["path"]) })).collect();
+                    this.messages.insert(id, langs);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// A selection the user made: a place of the history.
     fn user_select(&mut self, index: usize, cx: &mut Context<Self>) {
         self.select(index, cx);
-        if self.path.is_empty() {
-            self.record(cx);
+        self.reveal_row(index);
+        self.record(cx);
+    }
+
+    /// Keep the selected row in view without moving it when it already is.
+    fn reveal_row(&mut self, index: usize) {
+        if let Some(pos) = self.positions.get(&index) {
+            self.scroll.scroll_to_item(*pos, ScrollStrategy::Nearest);
         }
     }
 
-    /// The rows of the file naming the selected row's id.
-    fn load_usages(&mut self, cx: &mut Context<Self>) {
-        let Some(row) = &self.row else { return };
-        let Some(table) = &self.table else { return };
-        let key = row.fields.iter().find(|f| f.0.ends_with("_ID") && !f.0.ends_with("_MSG_ID") && ref_of(&f.0).is_some_and(|(t, _)| t == table)).or_else(|| row.fields.iter().find(|f| f.0.ends_with("_ID") && !f.0.ends_with("_MSG_ID")));
-        let Some((field, _, value)) = key.cloned() else { return };
-        let Some(v) = value.as_i64() else { return };
+    /// Select the row at a position of the set (its page is read first when needed).
+    fn select_pos(&mut self, pos: usize, cx: &mut Context<Self>) {
+        if self.total == 0 {
+            return;
+        }
+        let pos = pos.min(self.total - 1);
+        match self.rows.get(&pos) {
+            Some((index, _)) => {
+                let index = *index;
+                self.user_select(index, cx);
+            }
+            None => {
+                self.want_pos = Some(pos);
+                self.scroll.scroll_to_item(pos, ScrollStrategy::Nearest);
+                self.load_page(pos / PAGE, cx);
+            }
+        }
+    }
+
+    /// The selected row's own id field (`DATA_SET_BOTS` → `BOT_ID`), for "Used by".
+    fn id_field(&self) -> Option<(String, i64)> {
+        let table = self.table.as_ref()?;
+        let row = self.row.as_ref()?;
+        let names = key_names(table);
+        row.fields.iter().find(|f| names.contains(&f.name) && f.value.is_number()).and_then(|f| Some((f.name.clone(), f.value.as_i64()?)))
+    }
+
+    /// The rows of the file that name the selected row's id.
+    fn find_usages(&mut self, cx: &mut Context<Self>) {
+        let Some((field, value)) = self.id_field() else { return };
+        let Some(row) = &mut self.row else { return };
         let index = row.index;
-        let call = self.backend.call("mcts.usages", json!({ "doc": self.doc, "field": field, "value": v }));
+        row.usages_loading = true;
+        let own = self.row_path(index);
+        let call = self.backend.call("mcts.usages", json!({ "doc": self.doc.clone().unwrap_or_else(|| "assembly".into()), "field": field, "value": value }));
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| {
                 let Some(row) = this.row.as_mut().filter(|r| r.index == index) else { return };
-                row.usages = Some(r.map(|r| r.json["usages"].as_array().into_iter().flatten().map(|u| (u["path"].clone(), u["field"].as_str().unwrap_or_default().to_string(), u["label"].as_str().unwrap_or_default().to_string())).collect()).unwrap_or_default());
+                row.usages_loading = false;
+                match r {
+                    Ok(r) => {
+                        let list = r.json["usages"].as_array().into_iter().flatten().filter(|u| u["path"] != own).map(|u| Usage { path: path_of(&u["path"]), field: u["field"].as_str().unwrap_or_default().to_string(), label: u["label"].as_str().unwrap_or_default().to_string() }).collect();
+                        row.usages = Some((list, r.json["truncated"].as_bool().unwrap_or(false)));
+                    }
+                    Err(e) => this.toast(Tone::Error, format!("Could not look for usages: {e}"), cx),
+                }
                 cx.notify();
             });
         })
         .detach();
+        cx.notify();
+    }
+
+    /// Open a place in a new tab (⌘-click, middle click).
+    fn open_in_tab(&self, place: Place, cx: &mut Context<Self>) {
+        self.with_studio(cx, move |s, cx| s.new_tab(Some(place), cx));
+    }
+
+    /// Go to the row at `path` (a usage): its set opens with it selected.
+    fn go_to_path(&mut self, path: Path, new_tab: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(doc) = self.doc.clone() else { return };
+        let Some(((table, index), parents)) = path.split_last().map(|(l, p)| (l.clone(), p.to_vec())) else { return };
+        if new_tab {
+            self.open_in_tab(Place::Assembly { file: doc, path: parents, table: Some(table), row: Some(index) }, cx);
+        } else {
+            self.open_at(doc, parents, table, Some(index), window, cx);
+        }
     }
 
     /// Open a nested row set (a `{rows}` cell) of row `index`.
-    fn open_set(&mut self, index: usize, field: String, cx: &mut Context<Self>) {
-        let Some(table) = self.table.clone() else { return };
-        self.path.push((table, index));
-        self.table = Some(field);
-        self.selected = None;
-        self.row = None;
-        self.sort = None;
-        self.load_table(cx);
+    fn open_set(&mut self, index: usize, field: String, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(doc), Some(table)) = (self.doc.clone(), self.table.clone()) else { return };
+        let mut path = self.path.clone();
+        path.push((table, index));
+        self.open_at(doc, path, field, None, window, cx);
     }
 
-    /// Up the breadcrumb to depth `depth` (0: the top-level table).
-    fn up_to(&mut self, depth: usize, cx: &mut Context<Self>) {
+    /// Up the breadcrumb to depth `depth` (0: the top-level table), on the row that was opened.
+    fn up_to(&mut self, depth: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(doc) = self.doc.clone() else { return };
         if depth >= self.path.len() {
             return;
         }
         let (table, row) = self.path[depth].clone();
-        self.path.truncate(depth);
-        self.table = Some(table);
-        self.selected = None;
-        self.row = None;
-        self.pending_select = Some(row);
-        self.load_table(cx);
+        let path = self.path[..depth].to_vec();
+        self.open_at(doc, path, table, Some(row), window, cx);
     }
 
     /// Follow a `*_ID` value to the row it names.
-    fn follow(&mut self, column: &str, value: &J, cx: &mut Context<Self>) {
+    fn follow(&mut self, column: &str, value: &J, new_tab: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some((table, key)) = ref_of(column) else { return };
         let Some(v) = value.as_i64() else { return };
         let call = self.backend.call("mcts.find", json!({ "doc": "assembly", "table": table, "key": key, "value": v }));
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let r = call.await;
-            let _ = this.update(cx, |this, cx| match r.ok().and_then(|r| r.json.as_array().and_then(|a| a.first()).and_then(|x| x.as_u64())) {
-                Some(row) => {
-                    this.doc = Some("assembly".into());
-                    this.path.clear();
-                    this.table = Some(table.to_string());
-                    this.selected = None;
-                    this.row = None;
-                    this.sort = None;
-                    this.pending_select = Some(row as usize);
-                    this.load_table(cx);
-                    let place = Place::Assembly { file: "assembly".into(), table: Some(table.to_string()), row: Some(row as usize) };
-                    let _ = this.studio.update(cx, |s, _| s.record(place));
-                }
-                None => this.toast(Tone::Warning, format!("{table} has no row with {key} = {v}"), cx),
+            let _ = this.update_in(cx, |this, window, cx| match r {
+                Ok(r) => match r.json.as_array().and_then(|a| a.first()).and_then(|x| x.as_u64()) {
+                    Some(row) if new_tab => this.open_in_tab(Place::Assembly { file: "assembly".into(), path: Vec::new(), table: Some(table.to_string()), row: Some(row as usize) }, cx),
+                    Some(row) => this.open_at("assembly".into(), Vec::new(), table.to_string(), Some(row as usize), window, cx),
+                    None => this.toast(Tone::Warning, format!("{table} has no row with {key} = {v}"), cx),
+                },
+                Err(e) => this.toast(Tone::Error, format!("Could not follow the reference: {e}"), cx),
             });
         })
         .detach();
+    }
+
+    /// Jump to a message's row in a language file.
+    fn open_message(&mut self, id: i64, lang: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.messages.get(&id).and_then(|m| m.get(&lang)).map(|m| m.path.clone()) else { return };
+        let Some((table, index)) = path.first().cloned() else { return };
+        self.open_at(lang, Vec::new(), table, Some(index), window, cx);
     }
 
     // ----- edits ----------------------------------------------------------------------
 
-    fn start_edit(&mut self, row: Option<usize>, field: String, lang: Option<String>, draft: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.edit = Some((row, field, lang));
-        self.edit_input.update(cx, |s, cx| {
-            s.set_value(draft, window, cx);
-            s.focus(window, cx);
-        });
+    /// Start editing: `draft` is the text shown; `select_all` replaces it on typing.
+    fn start_edit(&mut self, edit: Edit, draft: String, original: String, select_all: bool, window: &mut Window, cx: &mut Context<Self>) {
+        // An edit left open is applied first, like leaving its field.
+        if self.edit.is_some() {
+            self.commit_edit(Move::Stay, window, cx);
+        }
+        self.edit_from = original;
+        if edit.in_area() {
+            self.edit_area.update(cx, |s, cx| {
+                let end = draft.len();
+                s.set_value(draft, window, cx);
+                // The caret after the text, as a line's editor has it.
+                s.set_selected_range(end..end, cx);
+                s.focus(window, cx);
+            });
+        } else {
+            self.edit_input.update(cx, |s, cx| {
+                s.set_value(draft, window, cx);
+                if select_all {
+                    s.select_all(window, cx);
+                }
+                s.focus(window, cx);
+            });
+        }
+        self.edit = Some(edit);
+        self.chars_stale = true;
         cx.notify();
     }
 
-    fn commit_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((row, field, lang)) = self.edit.take() else { return };
-        let text = self.edit_input.read(cx).value().to_string();
-        self.focus.focus(window, cx);
-        let Some(doc) = self.doc.clone() else { return };
-        if let Some(lang) = lang {
-            // A message: `field` is its id.
-            let id: i64 = field.parse().unwrap_or(0);
-            let call = self.backend.call("mcts.setMessage", json!({ "lang": lang, "id": id, "text": text }));
-            cx.spawn(async move |this, cx| {
-                let r = call.await;
-                let _ = this.update(cx, |this, cx| match r {
-                    Ok(r) => {
-                        this.status(&r.json, cx);
-                        if lang == "INT" {
-                            this.msg_text.insert(id, text.clone());
-                        }
-                        if let Some(row) = &mut this.row {
-                            if let Some(list) = row.messages.get_mut(&id) {
-                                if let Some(m) = list.iter_mut().find(|m| m.0 == lang) {
-                                    m.1 = text.clone();
-                                }
-                            }
-                        }
-                        cx.notify();
-                    }
-                    Err(e) => this.toast(Tone::Error, format!("Could not set the message: {e}"), cx),
-                });
-            })
-            .detach();
+    /// Edit a cell of the grid; `typed` starts it with that text instead of its value.
+    fn edit_cell(&mut self, index: usize, field: String, typed: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(c) = self.columns.iter().find(|c| c.name == field) else { return };
+        if !c.editable() {
             return;
         }
-        let Some(index) = row else {
-            // A header field.
-            let value = if field == "GAME_VERSION_RAW" { version_raw(&text).map(J::from) } else { None };
-            let call = self.backend.call("mcts.setHeader", json!({ "doc": doc, "field": field, "text": if value.is_some() { None } else { Some(text.clone()) }, "value": value }));
-            cx.spawn(async move |this, cx| {
-                let r = call.await;
-                let _ = this.update(cx, |this, cx| match r {
-                    Ok(r) => {
-                        this.status(&r.json, cx);
-                        this.open(false, cx);
-                    }
-                    Err(e) => this.toast(Tone::Error, format!("{field}: {e}"), cx),
-                });
-            })
-            .detach();
+        let value = self.cell(index, &field).cloned().unwrap_or(J::Null);
+        if value.get("rows").is_some() {
             return;
-        };
+        }
+        if is_flag(&field) && typed.is_none() && matches!(value.as_str(), Some("y" | "n")) {
+            self.toggle_flag(index, field, cx);
+            return;
+        }
+        let text = cell_text(&value);
+        self.col = Some(field.clone());
+        self.reveal_col = true;
+        let all = typed.is_none();
+        self.start_edit(Edit::Cell { row: index, field }, typed.unwrap_or_else(|| text.clone()), text, all, window, cx);
+    }
+
+    fn cancel_edit(&mut self, cx: &mut Context<Self>) {
+        if self.edit.take().is_some() {
+            self.chars_stale = true;
+            cx.notify();
+        }
+    }
+
+    /// Apply the open edit (an unchanged text writes nothing).
+    fn commit_edit(&mut self, mv: Move, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(edit) = self.edit.take() else { return };
+        self.chars_stale = true;
+        let text = if edit.in_area() { self.edit_area.read(cx).value().to_string() } else { self.edit_input.read(cx).value().to_string() };
+        let changed = text != self.edit_from;
+        // The keyboard goes back to the grid (not when the user left for another field).
+        let here = if edit.in_area() { self.edit_area.read(cx).focus_handle(cx).is_focused(window) } else { self.edit_input.read(cx).focus_handle(cx).is_focused(window) };
+        if here {
+            self.focus.focus(window, cx);
+        }
+        match edit {
+            Edit::Message { id, lang } => {
+                if changed {
+                    self.set_message(id, lang, text, cx);
+                }
+            }
+            Edit::Header { doc, field } => {
+                if changed {
+                    self.set_header(doc, field, text, cx);
+                }
+            }
+            Edit::Field { row, field, .. } => {
+                if changed {
+                    self.set_cell(row, field, text, cx);
+                }
+            }
+            Edit::Cell { row, field } => {
+                if changed {
+                    self.set_cell(row, field, text, cx);
+                }
+                match mv {
+                    Move::Down => {
+                        if let Some(pos) = self.positions.get(&row).copied() {
+                            if pos + 1 < self.total {
+                                self.marked.clear();
+                                self.select_pos(pos + 1, cx);
+                            }
+                        }
+                    }
+                    Move::Right => self.move_col(1, cx),
+                    Move::Left => self.move_col(-1, cx),
+                    Move::Stay => {}
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Set a cell: on every marked row when `index` is one of several marked rows.
+    fn set_cell(&mut self, index: usize, field: String, text: String, cx: &mut Context<Self>) {
+        let Some(doc) = self.doc.clone() else { return };
         if self.marked.len() > 1 && self.marked.contains(&index) {
-            self.set_marked(doc, field, text, cx);
+            self.set_many(doc, self.marked.iter().copied().collect(), field, text, cx);
             return;
         }
         let call = self.backend.call("mcts.set", json!({ "doc": doc, "path": self.row_path(index), "field": field, "text": text }));
+        let seq = self.seq;
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     this.status(&r.json, cx);
-                    if let Some(cells) = r.json["row"].as_object() {
-                        for (i, c) in this.rows.values_mut() {
-                            if *i == index {
-                                *c = cells.clone();
-                            }
+                    if this.seq != seq {
+                        return;
+                    }
+                    if let (Some(cells), Some(pos)) = (r.json["row"].as_object(), this.positions.get(&index)) {
+                        if let Some(row) = this.rows.get_mut(pos) {
+                            row.1 = cells.clone();
                         }
                     }
-                    let _ = this.studio.update(cx, |s, cx| s.set_status(format!("Set {field} (unsaved)"), cx));
+                    this.chars_stale = true;
+                    if is_message(&field) {
+                        this.want_labels(cx);
+                    }
+                    this.set_status(format!("Set {field}"), cx);
                     if this.selected == Some(index) {
                         this.select(index, cx);
                     }
                 }
-                Err(e) => this.toast(Tone::Error, format!("{field}: {e}"), cx),
+                Err(e) => this.toast(Tone::Error, format!("Could not set {field}: {e}"), cx),
             });
         })
         .detach();
     }
 
-    fn add_row(&mut self, clone: Option<usize>, cx: &mut Context<Self>) {
-        let (Some(doc), Some(table)) = (self.doc.clone(), self.table.clone()) else { return };
-        let call = self.backend.call("mcts.addRow", json!({ "doc": doc, "path": self.path_json(), "table": table, "clone": clone, "messages": true }));
+    /// Set one field on several rows (one request).
+    fn set_many(&mut self, doc: String, rows: Vec<usize>, field: String, text: String, cx: &mut Context<Self>) {
+        let paths: Vec<J> = rows.iter().map(|&i| self.row_path(i)).collect();
+        let call = self.backend.call("mcts.setMany", json!({ "doc": doc.clone(), "paths": paths, "field": field, "text": text }));
+        let seq = self.seq;
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     this.status(&r.json, cx);
+                    if this.seq != seq {
+                        return;
+                    }
+                    for (index, cells) in rows.iter().zip(r.json["rows"].as_array().into_iter().flatten()) {
+                        if let (Some(cells), Some(pos)) = (cells.as_object(), this.positions.get(index)) {
+                            if let Some(row) = this.rows.get_mut(pos) {
+                                row.1 = cells.clone();
+                            }
+                        }
+                    }
+                    this.chars_stale = true;
+                    if is_message(&field) {
+                        this.want_labels(cx);
+                    }
+                    if let Some(s) = this.selected.filter(|s| rows.contains(s)) {
+                        this.select(s, cx);
+                    }
+                    if rows.len() > 1 {
+                        this.toast(Tone::Success, format!("{field} set on {} rows", rows.len()), cx);
+                    }
+                }
+                Err(e) => {
+                    this.toast(Tone::Error, format!("Could not set {field}: {e}"), cx);
+                    // Some rows may have changed before the error.
+                    this.refresh_doc(doc, cx);
+                    this.reload_rows(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn toggle_flag(&mut self, index: usize, field: String, cx: &mut Context<Self>) {
+        let on = self.cell(index, &field).and_then(|v| v.as_str()) == Some("y");
+        self.set_cell(index, field, if on { "n" } else { "y" }.into(), cx);
+    }
+
+    fn set_message(&mut self, id: i64, lang: String, text: String, cx: &mut Context<Self>) {
+        let call = self.backend.call("mcts.setMessage", json!({ "lang": lang, "id": id, "text": text }));
+        cx.spawn(async move |this, cx| {
+            let r = call.await;
+            let _ = this.update(cx, |this, cx| match r {
+                Ok(_) => {
+                    let entry = this.messages.entry(id).or_default();
+                    match entry.get_mut(&lang) {
+                        Some(m) => m.text = text.clone(),
+                        None => {
+                            entry.insert(lang.clone(), Message { text: text.clone(), name: String::new(), path: Vec::new() });
+                        }
+                    }
+                    if lang == "INT" {
+                        this.labels.insert(id, text);
+                        this.chars_stale = true;
+                    }
+                    this.set_status(format!("Set message {id} in {lang}"), cx);
+                    // A message added to a language is a new row of its file.
+                    this.refresh_doc(lang, cx);
+                    cx.notify();
+                }
+                Err(e) => this.toast(Tone::Error, format!("Could not set the message: {e}"), cx),
+            });
+        })
+        .detach();
+    }
+
+    fn set_header(&mut self, doc: String, field: String, text: String, cx: &mut Context<Self>) {
+        let text = if field == "GAME_VERSION_RAW" {
+            match version_raw(&text) {
+                Some(raw) => raw,
+                None => {
+                    self.toast(Tone::Warning, "A game version is four numbers: major.minor.build.revision", cx);
+                    return;
+                }
+            }
+        } else {
+            text
+        };
+        let call = self.backend.call("mcts.setHeader", json!({ "doc": doc.clone(), "field": field, "text": text }));
+        cx.spawn(async move |this, cx| {
+            let r = call.await;
+            let _ = this.update(cx, |this, cx| match r {
+                Ok(r) => {
+                    this.status(&r.json, cx);
+                    this.refresh_doc(doc, cx);
+                }
+                Err(e) => this.toast(Tone::Error, format!("Could not set {field}: {e}"), cx),
+            });
+        })
+        .detach();
+    }
+
+    /// Append a row at the end of the set: empty, or a copy of row `clone` with a fresh id and its own messages.
+    pub(super) fn add_row(&mut self, clone: Option<usize>, cx: &mut Context<Self>) {
+        let (Some(doc), Some(table)) = (self.doc.clone(), self.table.clone()) else { return };
+        let mut params = json!({ "doc": doc.clone(), "path": path_json(&self.path), "table": table, "messages": true });
+        if let Some(c) = clone {
+            params["clone"] = json!(c);
+        }
+        let call = self.backend.call("mcts.addRow", params);
+        cx.spawn(async move |this, cx| {
+            let r = call.await;
+            let _ = this.update(cx, |this, cx| match r {
+                Ok(r) => {
                     let index = r.json["index"].as_u64().unwrap_or(0) as usize;
-                    let what = match (r.json["key"].as_str(), r.json["id"].as_i64()) {
-                        (Some(k), Some(id)) => format!("Row {index} added with {k} = {id}"),
-                        _ => format!("Row {index} added"),
+                    let what = match clone {
+                        Some(c) => format!("Copy of row {c}"),
+                        None => "New row".into(),
                     };
-                    this.toast(Tone::Success, format!("{what} (unsaved)"), cx);
+                    let id = match (r.json["key"].as_str(), r.json["id"].as_i64()) {
+                        (Some(k), Some(id)) => format!(" with {k} {id}"),
+                        _ => String::new(),
+                    };
+                    let msgs = match r.json["messages"].as_array().map(|m| m.len()).unwrap_or(0) {
+                        0 => String::new(),
+                        n => format!(", {n} messages copied"),
+                    };
+                    this.toast(Tone::Success, format!("{what} added at the end{id}{msgs}"), cx);
+                    this.refresh_doc(doc, cx);
+                    // New rows go at the end: shown unfiltered, in file order.
+                    this.marked.clear();
+                    this.sort = None;
+                    this.filter_text.clear();
                     this.pending_select = Some(index);
                     this.reload_rows(cx);
-                    // New rows go at the end.
-                    this.scroll.scroll_to_item(usize::MAX / 2, ScrollStrategy::Bottom);
+                    this.record(cx);
                 }
                 Err(e) => this.toast(Tone::Error, format!("Could not add the row: {e}"), cx),
             });
@@ -702,51 +1348,72 @@ impl Assembly {
         .detach();
     }
 
-    fn delete_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.marked.len() > 1 {
-            let Some(doc) = self.doc.clone() else { return };
-            let paths: Vec<J> = self.marked.iter().map(|&i| self.row_path(i)).collect();
-            let n = paths.len();
-            let me = cx.entity().downgrade();
-            dialogs::confirm(window, cx, format!("Delete {n} rows?"), "Rows after them move up. Rows elsewhere that name their ids keep naming them. Undo takes them back one by one.", "Delete", true, move |_, cx| {
-                let (doc, paths) = (doc.clone(), paths.clone());
-                let _ = me.update(cx, |this, cx| {
-                    let call = this.backend.call("mcts.deleteMany", json!({ "doc": doc, "paths": paths }));
-                    cx.spawn(async move |this, cx| {
-                        let r = call.await;
-                        let _ = this.update(cx, |this, cx| match r {
-                            Ok(r) => {
-                                this.status(&r.json, cx);
-                                this.marked.clear();
-                                this.selected = None;
-                                this.row = None;
-                                this.reload_rows(cx);
-                            }
-                            Err(e) => this.toast(Tone::Error, format!("Could not delete: {e}"), cx),
-                        });
-                    })
-                    .detach();
-                });
-            });
+    /// A new empty row (the command).
+    pub(super) fn new_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.filter.update(cx, |s, cx| s.set_value("", window, cx));
+        self.add_row(None, cx);
+    }
+
+    /// A copy of the selected row (the command).
+    pub(super) fn duplicate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(i) = self.selected else {
+            self.toast(Tone::Info, "Select a row first", cx);
+            return;
+        };
+        self.filter.update(cx, |s, cx| s.set_value("", window, cx));
+        self.add_row(Some(i), cx);
+    }
+
+    /// The rows an action applies to: the marked ones, else the selected one.
+    fn targets(&self) -> Vec<usize> {
+        if !self.marked.is_empty() {
+            self.marked.iter().copied().collect()
+        } else {
+            self.selected.into_iter().collect()
+        }
+    }
+
+    /// Delete the selected or marked rows, after asking.
+    pub(super) fn delete_rows(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(doc), Some(table)) = (self.doc.clone(), self.table.clone()) else { return };
+        let rows = self.targets();
+        if rows.is_empty() {
             return;
         }
-        let (Some(doc), Some(index)) = (self.doc.clone(), self.selected) else { return };
-        let path = self.row_path(index);
+        let (key, name) = (self.key_column(), self.name_column());
+        let mut list: Vec<String> = rows
+            .iter()
+            .take(12)
+            .map(|&i| {
+                let cell = |c: &Option<String>| c.as_ref().and_then(|c| self.cell(i, c)).map(cell_text).unwrap_or_default();
+                format!("#{i} {} {}", cell(&key), cell(&name)).trim().to_string()
+            })
+            .collect();
+        if rows.len() > list.len() {
+            list.push(format!("… and {} more", rows.len() - list.len()));
+        }
+        let many = rows.len() > 1;
+        let title = if many { format!("Delete {} rows?", rows.len()) } else { "Delete this row?".to_string() };
+        let body = format!("From {}: {}. Undo brings {} back until you discard.", short(&table), list.join(", "), if many { "them" } else { "it" });
+        let paths: Vec<J> = rows.iter().map(|&i| self.row_path(i)).collect();
         let me = cx.entity().downgrade();
-        dialogs::confirm(window, cx, format!("Delete row {index}?"), "Rows after it move up. Rows elsewhere that name its id keep naming it. Undo takes it back.", "Delete", true, move |_, cx| {
-            let (doc, path) = (doc.clone(), path.clone());
+        dialogs::confirm(window, cx, title, body, "Delete", true, move |_, cx| {
+            let (doc, paths) = (doc.clone(), paths.clone());
             let _ = me.update(cx, |this, cx| {
-                let call = this.backend.call("mcts.delete", json!({ "doc": doc, "path": path }));
+                let call = this.backend.call("mcts.deleteMany", json!({ "doc": doc.clone(), "paths": paths }));
                 cx.spawn(async move |this, cx| {
                     let r = call.await;
-                    let _ = this.update(cx, |this, cx| match r {
-                        Ok(r) => {
-                            this.status(&r.json, cx);
-                            this.selected = None;
-                            this.row = None;
-                            this.reload_rows(cx);
+                    let _ = this.update(cx, |this, cx| {
+                        match r {
+                            Ok(r) => this.status(&r.json, cx),
+                            Err(e) => this.toast(Tone::Error, format!("Could not delete the rows: {e}"), cx),
                         }
-                        Err(e) => this.toast(Tone::Error, format!("Could not delete: {e}"), cx),
+                        this.marked.clear();
+                        this.anchor = None;
+                        this.selected = None;
+                        this.row = None;
+                        this.refresh_doc(doc, cx);
+                        this.reload_rows(cx);
                     });
                 })
                 .detach();
@@ -756,656 +1423,137 @@ impl Assembly {
 
     pub fn undo(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(doc) = self.doc.clone() else { return };
-        let call = self.backend.call("mcts.undo", json!({ "doc": doc }));
+        let call = self.backend.call("mcts.undo", json!({ "doc": doc.clone() }));
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     this.status(&r.json, cx);
-                    let what = r.json["undone"].as_str().map(|u| format!("Undid {u}")).unwrap_or_else(|| "Nothing to undo in this file".into());
-                    let _ = this.studio.update(cx, |s, cx| s.set_status(what, cx));
-                    this.reload_rows(cx);
-                    if let Some(i) = this.selected {
-                        this.select(i, cx);
-                    }
+                    let what = r.json["undone"].as_str().map(|u| format!("Undone: {u}")).unwrap_or_else(|| "Nothing to undo in this file".into());
+                    this.set_status(what, cx);
+                    this.after_rewrite(doc, cx);
                 }
-                Err(e) => this.toast(Tone::Error, e, cx),
+                Err(e) => this.toast(Tone::Error, format!("Undo failed: {e}"), cx),
             });
         })
         .detach();
     }
 
+    /// A file's rows changed under the grid (undo, discard): read what is on screen again.
+    fn after_rewrite(&mut self, doc: String, cx: &mut Context<Self>) {
+        self.messages.clear();
+        self.labels.clear();
+        self.label_wanted.clear();
+        self.refresh_doc(doc, cx);
+        // The view stays where it is: the rows are swapped when they arrive.
+        self.pending_select = None;
+        self.reload_rows(cx);
+        if let Some(i) = self.selected {
+            self.select(i, cx);
+        }
+    }
+
+    /// Save the files with edits into the game folder, after asking.
     pub fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let dirty: Vec<(String, String)> = self.docs.iter().filter(|d| d.dirty).map(|d| (d.id.clone(), d.path.clone())).collect();
         if dirty.is_empty() {
-            self.toast(Tone::Info, "No assembly file has unsaved changes", cx);
+            self.toast(Tone::Info, "No assembly file has edits", cx);
             return;
         }
         let names = dirty.iter().map(|d| file_name(&d.1)).collect::<Vec<_>>().join(", ");
         let me = cx.entity().downgrade();
-        dialogs::confirm(window, cx, format!("Save {names} into the game folder?"), "The files in the game folder are overwritten. The Studio keeps each original first, so a mod can still ship only the rows you changed.", "Save", false, move |_, cx| {
+        dialogs::confirm(window, cx, format!("Save {names} into the game folder?"), "The files in the game folder are overwritten. The Studio keeps each original first, so a mod can still ship only the rows you changed. To keep the game folder untouched, save a workspace file or use a mod project.", "Save", false, move |_, cx| {
             let dirty = dirty.clone();
-            let _ = me.update(cx, |this, cx| {
-                for (doc, path) in dirty {
-                    let call = this.backend.call("mcts.save", json!({ "doc": doc }));
-                    cx.spawn(async move |this, cx| {
-                        let r = call.await;
-                        let _ = this.update(cx, |this, cx| match r {
-                            Ok(r) => {
-                                this.status(&r.json, cx);
-                                this.toast(Tone::Success, format!("Saved {}", file_name(&path)), cx);
-                            }
-                            Err(e) => this.toast(Tone::Error, format!("Could not save {}: {e}", file_name(&path)), cx),
-                        });
-                    })
-                    .detach();
-                }
-            });
+            let _ = me.update(cx, |this, cx| this.save_docs(dirty.clone(), None, cx));
         });
     }
 
-    fn discard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(doc) = self.doc.clone() else { return };
-        let me = cx.entity().downgrade();
-        dialogs::confirm(window, cx, "Discard the changes to this file?", "Every unsaved edit of it is dropped and it is read again from the game folder.", "Discard", true, move |_, cx| {
-            let doc = doc.clone();
-            let _ = me.update(cx, |this, cx| {
-                let call = this.backend.call("mcts.discard", json!({ "doc": doc }));
-                cx.spawn(async move |this, cx| {
-                    let r = call.await;
-                    let _ = this.update(cx, |this, cx| match r {
-                        Ok(r) => {
-                            this.status(&r.json, cx);
-                            this.reload_rows(cx);
-                            this.open(false, cx);
-                        }
-                        Err(e) => this.toast(Tone::Error, e, cx),
-                    });
-                })
-                .detach();
-            });
-        });
-    }
-
-    fn step(&mut self, by: isize, cx: &mut Context<Self>) {
-        let pos = self.selected.and_then(|s| self.rows.iter().find(|(_, v)| v.0 == s).map(|(p, _)| *p));
-        let next = match pos {
-            Some(p) => (p as isize + by).clamp(0, self.total.max(1) as isize - 1) as usize,
-            None => 0,
-        };
-        if let Some((index, _)) = self.rows.get(&next) {
-            let index = *index;
-            self.scroll.scroll_to_item(next, ScrollStrategy::Nearest);
-            self.user_select(index, cx);
+    /// Write copies of the files with edits into a folder the user picks (the edits stay unsaved here).
+    pub(super) fn export_copies(&mut self, cx: &mut Context<Self>) {
+        let docs: Vec<(String, String)> = self.docs.iter().filter(|d| d.dirty).map(|d| (d.id.clone(), d.path.clone())).collect();
+        if docs.is_empty() {
+            self.toast(Tone::Info, "No assembly file has edits to export", cx);
+            return;
         }
+        let pick = cx.prompt_for_paths(gpui::PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Export here".into()) });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = pick.await else { return };
+            let Some(dir) = paths.into_iter().next() else { return };
+            let _ = this.update(cx, |this, cx| this.save_docs(docs, Some(dir.to_string_lossy().to_string()), cx));
+        })
+        .detach();
     }
 
-    /// Dev: `assembly <step>` of the test driver.
-    pub fn drive(&mut self, arg: &str, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
-        let (verb, rest) = arg.split_once(' ').unwrap_or((arg, ""));
-        let rest = rest.trim();
-        match verb {
-            "table" => {
-                let (doc, table) = match rest.split_once(' ') {
-                    Some((d, t)) => (d.to_string(), t.to_string()),
-                    None => ("assembly".to_string(), rest.to_string()),
-                };
-                self.open_table(doc, table, cx);
+    fn save_docs(&mut self, docs: Vec<(String, String)>, out_dir: Option<String>, cx: &mut Context<Self>) {
+        for (doc, path) in docs {
+            let mut params = json!({ "doc": doc });
+            if let Some(dir) = &out_dir {
+                params["out"] = json!(std::path::Path::new(dir).join(file_name(&path)).to_string_lossy());
             }
-            "row" => self.user_select(rest.parse().map_err(|_| "row <index>")?, cx),
-            "mark" => {
-                let i: usize = rest.parse().map_err(|_| "mark <index>")?;
-                if let Some(s) = self.selected {
-                    self.marked.insert(s);
-                }
-                self.marked.insert(i);
-            }
-            "filter" => {
-                let q = rest.to_string();
-                self.filter.update(cx, |s, cx| s.set_value(q, window, cx));
-                self.reload_rows(cx);
-            }
-            "set" => {
-                let (field, text) = rest.split_once('=').ok_or("set <field>=<text>")?;
-                let index = self.selected.ok_or("no row selected")?;
-                if self.marked.len() > 1 {
-                    let doc = self.doc.clone().ok_or("no file")?;
-                    self.set_marked(doc, field.to_string(), text.to_string(), cx);
-                    return Ok(());
-                }
-                self.edit = Some((Some(index), field.to_string(), None));
-                let t = text.to_string();
-                self.edit_input.update(cx, |s, cx| s.set_value(t, window, cx));
-                // `set_value` is not read back at once: commit what was set.
-                let Some(doc) = self.doc.clone() else { return Err("no file".into()) };
-                self.edit = None;
-                let call = self.backend.call("mcts.set", json!({ "doc": doc, "path": self.row_path(index), "field": field, "text": text }));
-                cx.spawn(async move |this, cx| {
-                    let r = call.await;
-                    let _ = this.update(cx, |this, cx| {
-                        if let Ok(r) = r {
-                            this.status(&r.json, cx);
-                            this.reload_rows(cx);
-                            this.select(index, cx);
-                        }
-                    });
-                })
-                .detach();
-            }
-            "open" => {
-                let index = self.selected.ok_or("no row selected")?;
-                self.open_set(index, rest.to_string(), cx);
-            }
-            "up" => self.up_to(0, cx),
-            "add" => self.add_row(None, cx),
-            "duplicate" => self.add_row(self.selected, cx),
-            "new-content" => self.new_content(window, cx),
-            "vendor" => self.champion_vendor(window, cx),
-            "skins" => self.skins(window, cx),
-            "export-mod" => self.export_mod(window, cx),
-            "sort" => {
-                self.sort = Some((rest.to_string(), false));
-                self.reload_rows(cx);
-            }
-            _ => return Err(format!("unknown assembly step {verb}")),
-        }
-        Ok(())
-    }
-
-    // ----- rendering ------------------------------------------------------------------
-
-    fn render_side(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme().clone();
-        let f = self.table_filter.read(cx).value().to_ascii_lowercase();
-        let mut list = v_flex().gap_0p5();
-        for d in &self.docs {
-            let name = file_name(&d.path);
-            list = list.child(
-                h_flex()
-                    .pt_2()
-                    .gap_1()
-                    .text_xs()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(theme.muted_foreground)
-                    .child(div().flex_1().child(name))
-                    .when(d.dirty, |e| e.child(div().size(px(6.0)).rounded_full().bg(theme.warning))),
-            );
-            for (k, (field, value)) in d.header.iter().enumerate() {
-                if field != "GAME_VERSION_RAW" && field != "DB_VERSION" {
-                    continue;
-                }
-                let shown = if field == "GAME_VERSION_RAW" { version_text(value).unwrap_or_else(|| cell_text(value)) } else { cell_text(value) };
-                let editing = self.edit.as_ref().is_some_and(|(r, fname, l)| r.is_none() && l.is_none() && fname == field && self.doc.as_deref() == Some(d.id.as_str()));
-                let (doc, field2, draft) = (d.id.clone(), field.clone(), shown.clone());
-                list = list.child(
-                    h_flex()
-                        .gap_2()
-                        .pl_2()
-                        .text_xs()
-                        .child(div().w(px(96.0)).text_color(theme.muted_foreground).child(if field == "GAME_VERSION_RAW" { "game version" } else { "db version" }))
-                        .child(if editing {
-                            div().flex_1().child(Input::new(&self.edit_input).xsmall()).into_any_element()
-                        } else {
-                            div().id(SharedString::from(format!("hdr-{}-{k}", d.id))).cursor_text().hover(|s| s.bg(theme.list_hover)).child(shown).on_click(cx.listener(move |this, _, window, cx| {
-                                this.doc = Some(doc.clone());
-                                this.start_edit(None, field2.clone(), None, draft.clone(), window, cx)
-                            })).into_any_element()
-                        }),
-                );
-            }
-            for (k, (t, rows, _)) in d.tables.iter().enumerate() {
-                if !f.is_empty() && !t.to_ascii_lowercase().contains(&f) {
-                    continue;
-                }
-                let active = self.doc.as_deref() == Some(d.id.as_str()) && self.table.as_deref() == Some(t.as_str()) && self.path.is_empty();
-                let (doc, table) = (d.id.clone(), t.clone());
-                let probe = format!("table-{}", t.to_ascii_lowercase());
-                list = list.child(
-                    h_flex()
-                        .id(SharedString::from(format!("t-{}-{k}", d.id)))
-                        .relative()
-                        .h(px(22.0))
-                        .px_2()
-                        .gap_2()
-                        .text_sm()
-                        .rounded_sm()
-                        .cursor_pointer()
-                        .when(active, |e| e.bg(theme.list_active))
-                        .hover(|s| s.bg(theme.list_hover))
-                        .on_click(cx.listener(move |this, _, _, cx| this.open_table(doc.clone(), table.clone(), cx)))
-                        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(t.trim_start_matches("DATA_SET_").to_string()))
-                        .child(div().text_xs().text_color(theme.muted_foreground).child(rows.to_string()))
-                        .child(crate::driver::probe(probe)),
-                );
-            }
-        }
-        v_flex()
-            .size_full()
-            .child(div().p_1().child(Input::new(&self.table_filter).small()))
-            .child(div().id("tables").flex_1().min_h_0().overflow_y_scroll().px_1().child(list))
-            .into_any_element()
-    }
-
-    fn render_rows(&mut self, range: Range<usize>, _window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let theme = cx.theme().clone();
-        // Pages the rows in view need.
-        for pos in [range.start, range.end.saturating_sub(1)] {
-            if pos < self.total && !self.rows.contains_key(&pos) {
-                self.load_page(pos / PAGE, cx);
-            }
-        }
-        let cols = self.visible_columns();
-        let n_pin = self.pinned().len();
-        let (pin_w, off) = (56.0 + COL_W * n_pin as f32, self.hoff());
-        range
-            .map(|pos| {
-                let Some((index, cells)) = self.rows.get(&pos).cloned() else {
-                    return h_flex().h(px(ROW_H)).px_2().text_xs().text_color(theme.muted_foreground).child("…").into_any_element();
-                };
-                let selected = self.selected == Some(index);
-                let marked = self.marked.contains(&index) && !selected;
-                // The pinned cells sit over the others, opaque, with the row's highlight.
-                let mut pins = h_flex()
-                    .size_full()
-                    .when(selected, |d| d.bg(theme.list_active))
-                    .when(marked, |d| d.bg(theme.primary.opacity(0.12)))
-                    .when(!selected && !marked, |d| d.group_hover("arow", |s| s.bg(theme.list_hover)))
-                    .child(div().w(px(56.0)).flex_none().px_2().text_xs().text_color(theme.muted_foreground).child(index.to_string()));
-                let mut row = h_flex()
-                    .id(("arow", pos))
-                    .group("arow")
-                    .relative()
-                    .h(px(ROW_H))
-                    .text_sm()
-                    .border_b_1()
-                    .border_color(theme.border.opacity(0.4))
-                    .when(selected, |d| d.bg(theme.list_active))
-                    .hover(|s| s.bg(theme.list_hover))
-                    .when(self.marked.contains(&index) && !selected, |d| d.bg(theme.primary.opacity(0.12)))
-                    .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
-                        this.focus.focus(window, cx);
-                        let m = e.modifiers();
-                        if m.secondary(cx) {
-                            // ⌘-click: mark or unmark (the selection counts as marked).
-                            if let Some(s) = this.selected {
-                                this.marked.insert(s);
-                            }
-                            if !this.marked.remove(&index) {
-                                this.marked.insert(index);
-                            }
-                        } else if m.shift {
-                            // ⇧-click: every row from the selection to this one, by position.
-                            let at = |i: usize, this: &Assembly| this.rows.iter().find(|(_, v)| v.0 == i).map(|(p, _)| *p);
-                            if let (Some(a), Some(b)) = (this.selected.and_then(|s| at(s, this)), at(index, this)) {
-                                for p in a.min(b)..=a.max(b) {
-                                    if let Some((i, _)) = this.rows.get(&p) {
-                                        this.marked.insert(*i);
-                                    }
-                                }
-                            }
-                        } else {
-                            this.marked.clear();
-                        }
-                        this.user_select(index, cx)
-                    }))
-                    .child(div().w(px(pin_w)).flex_none());
-                for (k, c) in cols.iter().enumerate() {
-                    let v = cells.get(&c.name).cloned().unwrap_or(J::Null);
-                    let editing = self.edit.as_ref().is_some_and(|(r, f, l)| *r == Some(index) && f == &c.name && l.is_none());
-                    let content: AnyElement = if editing {
-                        Input::new(&self.edit_input).xsmall().into_any_element()
-                    } else {
-                        let mut text = cell_text(&v);
-                        if c.name.ends_with("_MSG_ID") {
-                            if let Some(t) = v.as_i64().and_then(|id| self.msg_text.get(&id)) {
-                                text = format!("{text} · {t}");
-                            }
-                        } else if c.name.ends_with("VALUE_ID") {
-                            if let Some(t) = v.as_i64().and_then(|id| self.valid.get(&id)) {
-                                text = format!("{text} · {t}");
-                            }
-                        }
-                        let link = ref_of(&c.name).is_some() && v.is_number();
-                        div().overflow_hidden().text_ellipsis().whitespace_nowrap().when(link, |d| d.text_color(theme.link)).child(text).into_any_element()
-                    };
-                    let (field, set, draft) = (c.name.clone(), v.get("rows").is_some(), cell_text(&v));
-                    let cell = div()
-                            .id(SharedString::from(format!("c{pos}-{}", c.name)))
-                            .w(px(COL_W))
-                            .flex_none()
-                            .px_2()
-                            .border_r_1()
-                            .border_color(theme.border.opacity(0.4))
-                            .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
-                                if e.click_count() == 2 {
-                                    cx.stop_propagation();
-                                    if set {
-                                        this.open_set(index, field.clone(), cx);
-                                    } else {
-                                        this.start_edit(Some(index), field.clone(), None, draft.clone(), window, cx);
-                                    }
-                                }
-                            }))
-                            .child(content);
-                    if k < n_pin {
-                        pins = pins.child(cell);
-                    } else {
-                        row = row.child(cell);
-                    }
-                }
-                row.child(div().absolute().top_0().left(px(off)).h_full().bg(theme.background).border_r_1().border_color(theme.border).child(pins)).into_any_element()
-            })
-            .collect()
-    }
-
-    fn render_grid(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme().clone();
-        let Some(table) = self.table.clone() else {
-            let text = if self.loading { "Reading assembly.dat and the language files…".to_string() } else if let Some(e) = &self.error { e.clone() } else { "Pick a table on the left".into() };
-            return v_flex().size_full().items_center().justify_center().text_sm().text_color(theme.muted_foreground).child(text).into_any_element();
-        };
-        let doc_dirty = self.docs.iter().any(|d| Some(&d.id) == self.doc.as_ref() && d.dirty);
-        let can_undo = self.docs.iter().any(|d| Some(&d.id) == self.doc.as_ref() && d.undo > 0);
-        // Breadcrumbs: the table, then each opened row set.
-        let mut crumbs = h_flex().gap_1().text_sm();
-        let depth = self.path.len();
-        for (k, (t, row)) in self.path.clone().into_iter().enumerate() {
-            crumbs = crumbs.child(div().id(("crumb", k)).text_color(theme.link).cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.up_to(k, cx))).child(format!("{} [{row}]", t.trim_start_matches("DATA_SET_")))).child(div().text_color(theme.muted_foreground).child("›"));
-        }
-        crumbs = crumbs.child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(table.trim_start_matches("DATA_SET_").to_string()));
-        let toolbar = h_flex()
-            .px_2()
-            .py_1()
-            .gap_1()
-            .child(crumbs)
-            .child(div().flex_1())
-            .child(div().w(px(240.0)).child(Input::new(&self.filter).small()))
-            .child(Button::new("a-new-content").xsmall().primary().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Plus)).label("New content").tooltip("A new skin, ability, card, item or champion, step by step").on_click(cx.listener(|this, _, window, cx| {
-                let _ = this.studio.update(cx, |s, cx| s.open_wizard(None, Some(true), window, cx));
-            })))
-            .child(Button::new("arow-add").xsmall().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Plus)).tooltip("New row: an empty row shaped like the last one, with a fresh id").on_click(cx.listener(|this, _, _, cx| this.add_row(None, cx))))
-            .child(Button::new("arow-dup").xsmall().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Copy)).disabled(self.selected.is_none()).tooltip("Duplicate the row: fresh ids, copied texts (⌘D)").on_click(cx.listener(|this, _, _, cx| this.add_row(this.selected, cx))))
-            .child(Button::new("arow-del").xsmall().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Trash)).disabled(self.selected.is_none()).tooltip("Delete the row…").on_click(cx.listener(|this, _, window, cx| this.delete_row(window, cx))))
-            .child({
-                let me = cx.entity().downgrade();
-                let all: Vec<String> = self.columns.iter().map(|c| c.name.clone()).collect();
-                let hidden = self.table.as_ref().and_then(|t| self.hidden.get(t)).cloned().unwrap_or_default();
-                let pinned = self.pinned();
-                Button::new("a-columns").xsmall().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Eye)).tooltip("Columns to show (kept per table)").dropdown_menu(move |menu, _, _| {
-                    let mut menu = menu.scrollable(true).max_h(px(420.0));
-                    for c in &all {
-                        let (me, c2) = (me.clone(), c.clone());
-                        menu = menu.item(gpui_component::menu::PopupMenuItem::new(c.clone()).checked(!hidden.contains(c)).disabled(pinned.contains(c)).on_click(move |_, _, cx| {
-                            let _ = me.update(cx, |this, cx| this.toggle_column(c2.clone(), cx));
-                        }));
-                    }
-                    menu
-                })
-            })
-            .child({
-                let me = cx.entity().downgrade();
-                let dirty = doc_dirty;
-                Button::new("a-more").xsmall().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Ellipsis)).tooltip("Skins, champion vendor, export, undo, discard").dropdown_menu(move |menu, _, _| {
-                    let item = |label: &str, f: fn(&mut Assembly, &mut Window, &mut Context<Assembly>)| {
-                        let me = me.clone();
-                        gpui_component::menu::PopupMenuItem::new(label.to_string()).on_click(move |_, window, cx| {
-                            let _ = me.update(cx, |this, cx| f(this, window, cx));
-                        })
-                    };
-                    menu.item(item("Copy the rows    ⌘C", |a, _, cx| a.copy_rows(cx)))
-                        .item(item("Paste rows    ⌘V", |a, _, cx| a.paste_rows(cx)))
-                        .item(item("Copy as tab-separated text", |a, _, cx| a.copy_tsv(cx)))
-                        .separator()
-                        .item(item("Skins…", |a, w, cx| a.skins(w, cx)))
-                        .item(item("Champion vendor…", |a, w, cx| a.champion_vendor(w, cx)))
-                        .item(item("Export mod folder…", |a, w, cx| a.export_mod(w, cx)))
-                        .separator()
-                        .item(item("Undo", |a, w, cx| a.undo(w, cx)).disabled(!can_undo))
-                        .item(item("Discard this file's changes…", |a, w, cx| a.discard(w, cx)).disabled(!dirty))
-                })
-            })
-            .child(Button::new("a-save").xsmall().when(doc_dirty, |b| b.primary()).label("Save…").disabled(!doc_dirty).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))));
-        let shown_cols = self.visible_columns();
-        let width = 56.0 + COL_W * shown_cols.len() as f32;
-        let n_pin = self.pinned().len();
-        let pin_w = 56.0 + COL_W * n_pin as f32;
-        let mut header = h_flex().relative().h(px(26.0)).w(px(width)).text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).border_b_1().border_color(theme.border).child(div().w(px(pin_w)).flex_none());
-        let mut pin_head = h_flex().absolute().top_0().left(px(self.hoff())).h_full().bg(theme.background).border_r_1().border_color(theme.border).child(div().w(px(56.0)).flex_none().px_2().child("#"));
-        for (k, c) in shown_cols.iter().enumerate() {
-            let name = c.name.clone();
-            let arrow = match &self.sort {
-                Some((s, d)) if s == &c.name => if *d { " ▼" } else { " ▲" },
-                _ => "",
-            };
-            let cell = div()
-                    .id(("ahead", k))
-                    .w(px(COL_W))
-                    .flex_none()
-                    .px_2()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme.list_hover))
-                    .tooltip({
-                        let t = format!("{} ({}): click to sort", c.name, c.kind);
-                        move |window, cx| gpui_component::tooltip::Tooltip::new(t.clone()).build(window, cx)
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.sort = match &this.sort {
-                            Some((s, false)) if *s == name => Some((name.clone(), true)),
-                            Some((s, true)) if *s == name => None,
-                            _ => Some((name.clone(), false)),
-                        };
-                        this.reload_rows(cx);
-                    }))
-                    .child(format!("{}{arrow}", c.name));
-            if k < n_pin {
-                pin_head = pin_head.child(cell);
-            } else {
-                header = header.child(cell);
-            }
-        }
-        let header = header.child(pin_head);
-        let mut list = uniform_list("arows", self.total, cx.processor(Self::render_rows)).track_scroll(&self.scroll).w(px(width)).flex_1();
-        // Sideways gestures go to the grid around it, not down the rows.
-        list.style().restrict_scroll_to_axis = Some(true);
-        let marked = if self.marked.len() > 1 { format!(" · {} marked: edits set them all", self.marked.len()) } else { String::new() };
-        let count = format!("{} rows{}{marked}", self.total, if depth > 0 { " in this row set" } else { "" });
-        v_flex()
-            .size_full()
-            .child(toolbar)
-            .child(div().id("hgrid").flex_1().min_h_0().overflow_x_scroll().restrict_scroll_to_axis().track_scroll(&self.hscroll).child(v_flex().h_full().w(px(width)).child(header).child(list)))
-            .child(h_flex().px_2().gap_3().h(px(22.0)).text_xs().text_color(theme.muted_foreground).child(div().flex_none().child(count)).child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_right().child("double-click: edit · ⌘/⇧-click: mark rows · ⌘C ⌘V: copy, paste rows")))
-            .into_any_element()
-    }
-
-    fn render_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme().clone();
-        let Some(row) = &self.row else {
-            return v_flex().size_full().items_center().justify_center().text_sm().text_color(theme.muted_foreground).child("Select a row").into_any_element();
-        };
-        let index = row.index;
-        let mut body = v_flex().gap_1().p_2().child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(format!("Row {index}")));
-        for (k, (name, kind, value)) in row.fields.clone().into_iter().enumerate() {
-            let editing = self.edit.as_ref().is_some_and(|(r, f, l)| *r == Some(index) && f == &name && l.is_none());
-            let is_set = value.get("rows").is_some();
-            let draft = cell_text(&value);
-            let text = if name.ends_with("VALUE_ID") { value.as_i64().and_then(|id| self.valid.get(&id)).map(|t| format!("{draft} · {t}")).unwrap_or(draft.clone()) } else { draft.clone() };
-            let (n1, n2, n3, v3) = (name.clone(), name.clone(), name.clone(), value.clone());
-            let value_el: AnyElement = if editing {
-                div().flex_1().child(Input::new(&self.edit_input).xsmall()).into_any_element()
-            } else {
-                div()
-                    .id(("rf", k))
-                    .flex_1()
-                    .min_w_0()
-                    .px_1()
-                    .rounded_sm()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
-                    .hover(|s| s.bg(theme.list_hover))
-                    .when(is_set, |d| d.text_color(theme.link).cursor_pointer())
-                    .when(!is_set, |d| d.cursor_text())
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if is_set {
-                            this.open_set(index, n1.clone(), cx);
-                        } else {
-                            this.start_edit(Some(index), n1.clone(), None, draft.clone(), window, cx);
-                        }
-                    }))
-                    .child(text)
-                    .into_any_element()
-            };
-            let link = ref_of(&name).is_some() && value.is_number();
-            body = body.child(
-                h_flex()
-                    .gap_2()
-                    .text_sm()
-                    .child(div().w(px(180.0)).flex_none().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(n2))
-                    .child(value_el)
-                    .when(link, |d| d.child(Button::new(("go", k)).xsmall().ghost().label("Go").tooltip("Open the row this id names").on_click(cx.listener(move |this, _, _, cx| this.follow(&n3, &v3, cx)))))
-                    .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(kind)),
-            );
-            // The message in every language.
-            if let Some(list) = value.as_i64().and_then(|id| row.messages.get(&id)) {
-                let id = value.as_i64().unwrap_or(0);
-                for (j, (lang, text)) in list.iter().enumerate() {
-                    let editing = self.edit.as_ref().is_some_and(|(_, f, l)| f == &id.to_string() && l.as_deref() == Some(lang.as_str()));
-                    let (lang2, text2) = (lang.clone(), text.clone());
-                    body = body.child(
-                        h_flex()
-                            .gap_2()
-                            .pl(px(24.0))
-                            .text_xs()
-                            .child(div().w(px(40.0)).flex_none().text_color(theme.muted_foreground).child(lang.clone()))
-                            .child(if editing {
-                                div().flex_1().child(Input::new(&self.edit_input).xsmall()).into_any_element()
-                            } else {
-                                div().id(SharedString::from(format!("msg-{k}-{j}"))).flex_1().cursor_text().px_1().rounded_sm().hover(|s| s.bg(theme.list_hover)).child(text.clone()).on_click(cx.listener(move |this, _, window, cx| this.start_edit(Some(index), id.to_string(), Some(lang2.clone()), text2.clone(), window, cx))).into_any_element()
-                            }),
-                    );
-                }
-            }
-        }
-        // Who refers to it.
-        if let Some(usages) = &row.usages {
-            body = body.child(div().pt_3().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(format!("USED BY ({})", usages.len())));
-            for (k, (path, field, label)) in usages.iter().take(200).enumerate() {
-                let top = path.as_array().and_then(|p| p.first()).and_then(|t| Some((t[0].as_str()?.to_string(), t[1].as_u64()? as usize)));
-                body = body.child(
-                    h_flex()
-                        .id(("use", k))
-                        .gap_2()
-                        .text_xs()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme.list_hover))
-                        .when_some(top, |d, (t, r)| {
-                            d.on_click(cx.listener(move |this, _, _, cx| {
-                                this.doc = Some("assembly".into());
-                                this.visit("assembly".into(), Some(t.clone()), Some(r), cx);
-                                this.record(cx);
-                            }))
-                        })
-                        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().text_color(theme.link).child(label.clone()))
-                        .child(div().text_color(theme.muted_foreground).child(field.clone())),
-                );
-            }
-        }
-        div().id("arow-pane").size_full().overflow_y_scroll().child(body).into_any_element()
-    }
-}
-
-/// `8.1.5839.0` → the packed `GAME_VERSION_RAW` (as a decimal string).
-fn version_raw(text: &str) -> Option<String> {
-    let parts: Vec<u64> = text.trim().split('.').map(|p| p.parse().ok().filter(|&n| n <= 0xffff)).collect::<Option<Vec<_>>>()?;
-    if parts.len() != 4 {
-        return None;
-    }
-    Some(parts.iter().fold(0u64, |v, p| (v << 16) | p).to_string())
-}
-
-impl Render for Assembly {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let _ = &self.dir;
-        let side = self.render_side(cx);
-        let grid = self.render_grid(cx);
-        let row = self.render_row(cx);
-        div()
-            .key_context("Assembly")
-            .track_focus(&self.focus)
-            .size_full()
-            .on_action(cx.listener(|this, _: &super::Up, _, cx| this.step(-1, cx)))
-            .on_action(cx.listener(|this, _: &super::CopyRows, _, cx| this.copy_rows(cx)))
-            .on_action(cx.listener(|this, _: &super::PasteRows, _, cx| this.paste_rows(cx)))
-            .on_action(cx.listener(|this, _: &super::Down, _, cx| this.step(1, cx)))
-            .child({
-                use super::layout::{group, Part, Role};
-                let studio = self.studio.clone();
-                group(
-                    "assembly",
-                    self.panes.get(),
-                    vec![Part(Role::Side, Some(self.sizes[0]), side), Part(Role::Main, None, grid), Part(Role::Second, Some(self.sizes[1]), row)],
-                    Studio::remember_panes(self.studio.clone(), "assembly"),
-                    move |_, cx| {
-                        let _ = studio.update(cx, |s, cx| s.close_overlay(cx));
-                    },
-                    cx,
-                )
-            })
-    }
-}
-
-/// `<config>/tempest-studio-native/assembly-columns.json`: hidden columns by table.
-fn load_hidden() -> HashMap<String, HashSet<String>> {
-    super::state_file("assembly-columns.json").and_then(|f| std::fs::read_to_string(f).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
-}
-
-fn save_hidden(h: &HashMap<String, HashSet<String>>) {
-    let Some(f) = super::state_file("assembly-columns.json") else { return };
-    let _ = std::fs::create_dir_all(f.parent().unwrap());
-    if let Ok(s) = serde_json::to_string(h) {
-        let _ = std::fs::write(f, s);
-    }
-}
-
-impl Assembly {
-    /// Set `field` on every marked row (one undo step per row).
-    fn set_marked(&mut self, doc: String, field: String, text: String, cx: &mut Context<Self>) {
-            let paths: Vec<J> = self.marked.iter().map(|&i| self.row_path(i)).collect();
-            let n = paths.len();
-            let call = self.backend.call("mcts.setMany", json!({ "doc": doc, "paths": paths, "field": field, "text": text }));
+            let copy = out_dir.is_some();
+            let call = self.backend.call("mcts.save", params);
             cx.spawn(async move |this, cx| {
                 let r = call.await;
                 let _ = this.update(cx, |this, cx| match r {
                     Ok(r) => {
                         this.status(&r.json, cx);
-                        let _ = this.studio.update(cx, |s, cx| s.set_status(format!("Set {field} on {n} rows (unsaved)"), cx));
-                        this.reload_rows(cx);
-                        if let Some(s) = this.selected {
-                            this.select(s, cx);
+                        let out = r.json["out"].as_str().unwrap_or(&path).to_string();
+                        if copy {
+                            this.toast(Tone::Success, format!("Copy exported: {out}. The edits stay here; the Mod view lists the copy."), cx);
+                        } else {
+                            this.toast(Tone::Success, format!("Saved {}", file_name(&path)), cx);
                         }
+                        this.with_studio(cx, |s, cx| s.assembly_saved(cx));
                     }
-                    Err(e) => this.toast(Tone::Error, format!("{field}: {e}"), cx),
+                    Err(e) => this.toast(Tone::Error, format!("Could not save {}: {e}", file_name(&path)), cx),
                 });
             })
             .detach();
-    }
-
-    /// The rows copy and paste act on: the marked ones, else the selected one.
-    fn chosen_rows(&self) -> Vec<usize> {
-        if self.marked.len() > 1 {
-            self.marked.iter().copied().collect()
-        } else {
-            self.selected.into_iter().collect()
         }
     }
+
+    /// Drop the unsaved edits of the file on screen, after asking.
+    pub(super) fn discard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(doc) = self.current_doc().filter(|d| d.dirty) else {
+            self.toast(Tone::Info, "This file has no edits", cx);
+            return;
+        };
+        let (id, name) = (doc.id.clone(), file_name(&doc.path));
+        let me = cx.entity().downgrade();
+        dialogs::confirm(window, cx, format!("Discard the edits of {name}?"), "Every edit of this file is lost and it is read again from the game folder. Copies you exported and files saved in place are not touched.", "Discard changes", true, move |_, cx| {
+            let id = id.clone();
+            let _ = me.update(cx, |this, cx| this.discard_doc(id, cx));
+        });
+    }
+
+    /// Drop the unsaved edits of every file (Discard all, already confirmed).
+    pub(super) fn discard_all(&mut self, cx: &mut Context<Self>) {
+        for id in self.docs.iter().filter(|d| d.dirty).map(|d| d.id.clone()).collect::<Vec<_>>() {
+            self.discard_doc(id, cx);
+        }
+    }
+
+    fn discard_doc(&mut self, doc: String, cx: &mut Context<Self>) {
+        let call = self.backend.call("mcts.discard", json!({ "doc": doc.clone() }));
+        cx.spawn(async move |this, cx| {
+            let r = call.await;
+            let _ = this.update(cx, |this, cx| match r {
+                Ok(r) => {
+                    this.status(&r.json, cx);
+                    this.after_rewrite(doc, cx);
+                }
+                Err(e) => this.toast(Tone::Error, format!("Could not discard: {e}"), cx),
+            });
+        })
+        .detach();
+    }
+
+    // ----- clipboard --------------------------------------------------------------------
 
     /// Copy the rows in full as JSON (nested sets included): ⌘V in the same table appends them.
     pub(super) fn copy_rows(&mut self, cx: &mut Context<Self>) {
         let (Some(doc), Some(table)) = (self.doc.clone(), self.table.clone()) else { return };
-        let rows = self.chosen_rows();
+        let rows = self.targets();
         if rows.is_empty() {
             return;
         }
@@ -1425,7 +1573,7 @@ impl Assembly {
             let text = serde_json::to_string_pretty(&json!({ "tempestRows": table, "rows": out })).unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-                let _ = this.studio.update(cx, |s, cx| s.set_status(format!("Copied {n} row(s): ⌘V in this table appends them with fresh ids"), cx));
+                this.toast(Tone::Success, format!("{n} row(s) copied; paste them into this table with {}", super::commands::key_hint("⌘V")), cx);
             });
         })
         .detach();
@@ -1433,36 +1581,51 @@ impl Assembly {
 
     /// The visible cells of the rows as tab-separated text (for spreadsheets).
     fn copy_tsv(&mut self, cx: &mut Context<Self>) {
-        let rows = self.chosen_rows();
+        let rows = self.targets();
         let cols = self.visible_columns();
         let mut lines = vec![cols.iter().map(|c| c.name.clone()).collect::<Vec<_>>().join("\t")];
-        for (_, (i, cells)) in self.rows.iter().filter(|(_, v)| rows.contains(&v.0)).collect::<std::collections::BTreeMap<_, _>>() {
-            let _ = i;
-            lines.push(cols.iter().map(|c| cell_text(cells.get(&c.name).unwrap_or(&J::Null))).collect::<Vec<_>>().join("\t"));
+        let mut at: Vec<usize> = rows.iter().filter_map(|i| self.positions.get(i).copied()).collect();
+        at.sort_unstable();
+        for pos in at {
+            if let Some((_, cells)) = self.rows.get(&pos) {
+                lines.push(cols.iter().map(|c| cell_text(cells.get(&c.name).unwrap_or(&J::Null))).collect::<Vec<_>>().join("\t"));
+            }
         }
         let n = lines.len() - 1;
         cx.write_to_clipboard(gpui::ClipboardItem::new_string(lines.join("\n")));
-        let _ = self.studio.update(cx, |s, cx| s.set_status(format!("Copied {n} row(s) as tab-separated text"), cx));
+        self.set_status(format!("Copied {n} row(s) as tab-separated text"), cx);
     }
 
-    /// Paste rows copied with Copy: each is appended with fresh ids (nested sets renumbered, messages copied).
-    pub(super) fn paste_rows(&mut self, cx: &mut Context<Self>) {
-        let (Some(doc), Some(table)) = (self.doc.clone(), self.table.clone()) else { return };
+    /// Paste: rows copied with Copy are appended with fresh ids; plain text sets the active cell (of every marked row).
+    pub(super) fn paste(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) else { return };
-        let Ok(data) = serde_json::from_str::<J>(&text) else {
-            self.toast(Tone::Info, "The clipboard holds no rows (copy rows with ⌘C first)", cx);
-            return;
-        };
-        let (Some(from), Some(rows)) = (data["tempestRows"].as_str(), data["rows"].as_array()) else {
-            self.toast(Tone::Info, "The clipboard holds no rows (copy rows with ⌘C first)", cx);
-            return;
-        };
-        if from != table {
-            self.toast(Tone::Warning, format!("The clipboard holds {} rows: open that table to paste them", from.trim_start_matches("DATA_SET_")), cx);
+        if self.paste_rows(&text, window, cx) {
             return;
         }
-        let path = self.path_json();
+        let (Some(index), Some(col)) = (self.selected, self.col.clone()) else { return };
+        let value = text.strip_suffix('\n').map(|t| t.strip_suffix('\r').unwrap_or(t)).unwrap_or(&text);
+        if value.contains('\n') {
+            self.toast(Tone::Info, "The clipboard holds several lines; paste one value at a time.", cx);
+            return;
+        }
+        if !self.columns.iter().any(|c| c.name == col && c.editable()) || self.cell(index, &col).is_some_and(|v| v.get("rows").is_some()) {
+            return;
+        }
+        self.set_cell(index, col, value.to_string(), cx);
+    }
+
+    /// Paste rows copied with `copy_rows`; false when the clipboard holds none.
+    fn paste_rows(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let (Some(doc), Some(table)) = (self.doc.clone(), self.table.clone()) else { return false };
+        let Ok(data) = serde_json::from_str::<J>(text) else { return false };
+        let (Some(from), Some(rows)) = (data["tempestRows"].as_str(), data["rows"].as_array()) else { return false };
+        if from != table {
+            self.toast(Tone::Warning, format!("The clipboard holds {from} rows; open that table to paste them."), cx);
+            return true;
+        }
+        let path = path_json(&self.path);
         let calls: Vec<_> = rows.iter().map(|row| self.backend.call("mcts.addRow", json!({ "doc": doc, "path": path, "table": table, "row": row }))).collect();
+        self.filter.update(cx, |s, cx| s.set_value("", window, cx));
         cx.spawn(async move |this, cx| {
             let (mut last, mut n) = (None, 0);
             for c in calls {
@@ -1470,7 +1633,6 @@ impl Assembly {
                     Ok(r) => {
                         last = r.json["index"].as_u64().map(|i| i as usize);
                         n += 1;
-                        let _ = this.update(cx, |this, cx| this.status(&r.json, cx));
                     }
                     Err(e) => {
                         let _ = this.update(cx, |this, cx| this.toast(Tone::Error, format!("Could not paste a row: {e}"), cx));
@@ -1479,25 +1641,36 @@ impl Assembly {
                 }
             }
             let _ = this.update(cx, |this, cx| {
+                this.refresh_doc(doc, cx);
                 if n > 0 {
-                    this.toast(Tone::Success, format!("{n} row(s) pasted at the end with fresh ids (unsaved)"), cx);
+                    this.toast(Tone::Success, format!("{n} row(s) pasted at the end with fresh ids"), cx);
+                    this.marked.clear();
+                    this.sort = None;
+                    this.filter_text.clear();
                     this.pending_select = last;
                     this.reload_rows(cx);
-                    this.scroll.scroll_to_item(usize::MAX / 2, ScrollStrategy::Bottom);
                 }
             });
         })
         .detach();
+        true
     }
 
-    /// The id and name columns, pinned at the left of the grid (`DATA_SET_BOTS` → `BOT_ID`).
+    // ----- columns ------------------------------------------------------------------------
+
+    /// The table's id column (`DATA_SET_BOTS` → `BOT_ID`), when it has one.
+    fn key_column(&self) -> Option<String> {
+        let names = key_names(self.table.as_ref()?);
+        names.into_iter().find(|n| self.columns.iter().any(|c| &c.name == n))
+    }
+
+    fn name_column(&self) -> Option<String> {
+        ["REFERENCE_NAME", "NAME", "MESSAGE"].into_iter().find(|n| self.columns.iter().any(|c| c.name == *n)).map(str::to_string)
+    }
+
+    /// The id and name columns, pinned at the left of the grid.
     fn pinned(&self) -> Vec<String> {
-        let Some(t) = &self.table else { return Vec::new() };
-        let has = |n: &str| self.columns.iter().any(|c| c.name == n);
-        let stem = t.trim_start_matches("DATA_SET_");
-        let key = [Some(format!("{stem}_ID")), stem.strip_suffix("IES").map(|s| format!("{s}Y_ID")), stem.strip_suffix("ES").map(|s| format!("{s}_ID")), stem.strip_suffix('S').map(|s| format!("{s}_ID"))].into_iter().flatten().find(|c| has(c));
-        let name = ["REFERENCE_NAME", "NAME", "MESSAGE"].into_iter().find(|n| has(n)).map(str::to_string);
-        key.into_iter().chain(name).collect()
+        self.key_column().into_iter().chain(self.name_column()).collect()
     }
 
     /// The columns shown: the pinned ones first, then the table's less the hidden ones.
@@ -1508,11 +1681,6 @@ impl Assembly {
         first.chain(self.columns.iter().filter(|c| !pinned.contains(&c.name) && hidden.is_none_or(|h| !h.contains(&c.name)))).cloned().collect()
     }
 
-    /// How far the grid is scrolled sideways (the pinned columns move back by as much).
-    fn hoff(&self) -> f32 {
-        (-f32::from(self.hscroll.offset().x)).max(0.0)
-    }
-
     fn toggle_column(&mut self, name: String, cx: &mut Context<Self>) {
         let Some(t) = self.table.clone() else { return };
         let h = self.hidden.entry(t).or_default();
@@ -1520,6 +1688,256 @@ impl Assembly {
             h.insert(name);
         }
         save_hidden(&self.hidden);
+        self.chars_stale = true;
         cx.notify();
+    }
+
+    fn show_all_columns(&mut self, cx: &mut Context<Self>) {
+        let Some(t) = &self.table else { return };
+        if self.hidden.remove(t).is_some() {
+            save_hidden(&self.hidden);
+            self.chars_stale = true;
+            cx.notify();
+        }
+    }
+
+    // ----- state for agents and tests -------------------------------------------------------
+
+    /// What the view shows (`studio_state.assembly`, the driver's `assembly dump`).
+    pub fn state_json(&self) -> J {
+        json!({
+            "file": self.doc,
+            "path": path_json(&self.path),
+            "table": self.table,
+            "row": self.selected,
+            "column": self.col,
+            "total": self.total,
+            "loaded": self.rows.len(),
+            "filter": self.filter_text,
+            "sort": self.sort.as_ref().map(|(c, d)| json!({ "column": c, "desc": d })),
+            "marked": self.marked.iter().collect::<Vec<_>>(),
+            "columns": self.visible_columns().iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+            "editing": self.edit.as_ref().map(|e| format!("{e:?}")),
+            "fields": self.row.as_ref().map(|r| r.fields.len()),
+            "usages": self.row.as_ref().and_then(|r| r.usages.as_ref()).map(|u| u.0.len()),
+            "unsaved": self.docs.iter().filter(|d| d.dirty).map(|d| d.id.clone()).collect::<Vec<_>>(),
+            "undo": self.current_doc().map(|d| d.undo.clone()),
+            "error": self.error,
+        })
+    }
+
+    /// Dev: `assembly <step>` of the test driver.
+    pub fn drive(&mut self, arg: &str, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
+        let (verb, rest) = arg.split_once(' ').unwrap_or((arg, ""));
+        let rest = rest.trim();
+        match verb {
+            "table" => {
+                let (doc, table) = match rest.split_once(' ') {
+                    Some((d, t)) => (d.to_string(), t.to_string()),
+                    None => ("assembly".to_string(), rest.to_string()),
+                };
+                self.open_table(doc, table, window, cx);
+            }
+            "row" => {
+                let i: usize = rest.parse().map_err(|_| "row <index>")?;
+                self.marked.clear();
+                self.anchor = Some(i);
+                self.focus.focus(window, cx);
+                self.select(i, cx);
+                self.reveal_index(i);
+                self.record(cx);
+            }
+            "col" => self.col = Some(rest.to_string()),
+            "mark" => {
+                let i: usize = rest.parse().map_err(|_| "mark <index>")?;
+                if let Some(s) = self.selected {
+                    self.marked.insert(s);
+                }
+                self.marked.insert(i);
+            }
+            "filter" => self.set_filter(rest.to_string(), window, cx),
+            "set" => {
+                let (field, text) = rest.split_once('=').ok_or("set <field>=<text>")?;
+                let index = self.selected.ok_or("no row selected")?;
+                self.set_cell(index, field.to_string(), text.to_string(), cx);
+            }
+            "edit" => {
+                let index = self.selected.ok_or("no row selected")?;
+                let field = if rest.is_empty() { self.col.clone().ok_or("no column")? } else { rest.to_string() };
+                self.edit_cell(index, field, None, window, cx);
+            }
+            "message" => {
+                // message <id> <lang> <text>
+                let mut w = rest.splitn(3, ' ');
+                let (id, lang, text) = (w.next().and_then(|i| i.parse().ok()).ok_or("message <id> <lang> <text>")?, w.next().ok_or("message <id> <lang> <text>")?, w.next().unwrap_or(""));
+                self.set_message(id, lang.to_string(), text.replace("\\n", "\n"), cx);
+            }
+            "header" => {
+                // header <doc> <field>=<text>
+                let (doc, rest) = rest.split_once(' ').ok_or("header <doc> <field>=<text>")?;
+                let (field, text) = rest.split_once('=').ok_or("header <doc> <field>=<text>")?;
+                self.set_header(doc.to_string(), field.to_string(), text.to_string(), cx);
+            }
+            "open" => {
+                let index = self.selected.ok_or("no row selected")?;
+                self.open_set(index, rest.to_string(), window, cx);
+            }
+            "up" => self.up_to(0, window, cx),
+            "follow" => {
+                let index = self.selected.ok_or("no row selected")?;
+                let v = self.cell(index, rest).cloned().ok_or("no such cell")?;
+                self.follow(rest, &v, false, window, cx);
+            }
+            "usages" => self.find_usages(cx),
+            "usage" => {
+                let k: usize = rest.parse().map_err(|_| "usage <n>")?;
+                let path = self.row.as_ref().and_then(|r| r.usages.as_ref()).and_then(|u| u.0.get(k)).map(|u| u.path.clone()).ok_or("no such usage")?;
+                self.go_to_path(path, false, window, cx);
+            }
+            "add" => self.add_row(None, cx),
+            "duplicate" => self.add_row(self.selected, cx),
+            "delete" => self.delete_rows(window, cx),
+            "undo" => self.undo(window, cx),
+            "copy" => self.copy_rows(cx),
+            "tsv" => self.copy_tsv(cx),
+            "paste" => self.paste(window, cx),
+            "hide" => self.toggle_column(rest.to_string(), cx),
+            "show-all" => self.show_all_columns(cx),
+            "reload" => self.open(true, cx),
+            "new-content" => self.new_content(window, cx),
+            "vendor" => self.champion_vendor(window, cx),
+            "skins" => self.skins(window, cx),
+            "export-mod" => self.export_mod(window, cx),
+            "sort" => self.set_sort(rest.to_string(), cx),
+            "dump" => {
+                let mut j = self.state_json();
+                // The selected row as the grid holds it, and the row pane's fields.
+                j["cells"] = self.selected.and_then(|i| self.cells(i)).map(|c| J::Object(c.clone())).unwrap_or(J::Null);
+                j["messages"] = json!(self.messages.len());
+                j["widths"] = J::from(self.last_widths());
+                println!("{j}");
+            }
+            _ => return Err(format!("unknown assembly step {verb}")),
+        }
+        cx.notify();
+        Ok(())
+    }
+}
+
+/// The names a table's id column can have (`DATA_SET_ABILITIES` → `ABILITIES_ID`, `ABILITY_ID`, `ABILITI_ID`…).
+fn key_names(table: &str) -> Vec<String> {
+    let stem = short(table);
+    [Some(format!("{stem}_ID")), stem.strip_suffix("IES").map(|s| format!("{s}Y_ID")), stem.strip_suffix("ES").map(|s| format!("{s}_ID")), stem.strip_suffix('S').map(|s| format!("{s}_ID"))].into_iter().flatten().collect()
+}
+
+impl Render for Assembly {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.docs.is_empty() {
+            return self.render_empty(cx).into_any_element();
+        }
+        let side = self.render_side(cx);
+        let grid = self.render_grid(window, cx);
+        let row = self.render_row(cx);
+        div()
+            .key_context("Assembly")
+            .track_focus(&self.focus)
+            .size_full()
+            .on_action(cx.listener(|this, _: &super::Up, window, cx| this.key_step(-1, false, window, cx)))
+            .on_action(cx.listener(|this, _: &super::Down, window, cx| this.key_step(1, false, window, cx)))
+            .on_action(cx.listener(|this, _: &super::ExtendUp, window, cx| this.key_step(-1, true, window, cx)))
+            .on_action(cx.listener(|this, _: &super::ExtendDown, window, cx| this.key_step(1, true, window, cx)))
+            .on_action(cx.listener(|this, _: &super::Left, window, cx| this.key_col(-1, window, cx)))
+            .on_action(cx.listener(|this, _: &super::Right, window, cx| this.key_col(1, window, cx)))
+            .on_action(cx.listener(|this, _: &super::NextCell, window, cx| this.key_tab(1, window, cx)))
+            .on_action(cx.listener(|this, _: &super::PrevCell, window, cx| this.key_tab(-1, window, cx)))
+            .on_action(cx.listener(|this, _: &super::First, window, cx| this.key_end(false, window, cx)))
+            .on_action(cx.listener(|this, _: &super::Last, window, cx| this.key_end(true, window, cx)))
+            .on_action(cx.listener(|this, _: &super::PageUp, window, cx| this.key_page(-1, window, cx)))
+            .on_action(cx.listener(|this, _: &super::PageDown, window, cx| this.key_page(1, window, cx)))
+            .on_action(cx.listener(|this, _: &super::Activate, window, cx| this.key_activate(window, cx)))
+            .on_action(cx.listener(|this, _: &super::Cancel, window, cx| this.key_cancel(window, cx)))
+            .on_action(cx.listener(|this, _: &super::SelectAll, window, cx| this.key_select_all(window, cx)))
+            .on_action(cx.listener(|this, _: &super::Delete, window, cx| this.key_delete(window, cx)))
+            .on_action(cx.listener(|this, _: &super::CopyRows, window, cx| this.key_copy(window, cx)))
+            .on_action(cx.listener(|this, _: &super::PasteRows, window, cx| this.key_paste(window, cx)))
+            .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| this.key_typed(e, window, cx)))
+            .child({
+                use super::layout::{group, Part, Role};
+                let studio = self.studio.clone();
+                group(
+                    "assembly",
+                    self.panes.get(),
+                    vec![Part(Role::Side, Some(self.sizes[0]), side), Part(Role::Main, None, grid), Part(Role::Second, Some(self.sizes[1]), row)],
+                    Studio::remember_panes(self.studio.clone(), "assembly"),
+                    move |_, cx| {
+                        let _ = studio.update(cx, |s, cx| s.close_overlay(cx));
+                    },
+                    cx,
+                )
+            })
+            .into_any_element()
+    }
+}
+
+impl Assembly {
+    /// Nothing read yet: reading, or no assembly next to the packages.
+    fn render_empty(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        use gpui_component::button::Button;
+        use gpui_component::Sizable;
+        let theme = cx.theme().clone();
+        let mut body = v_flex().size_full().items_center().justify_center().gap_3().text_sm().text_color(theme.muted_foreground).child(gpui_component::Icon::new(gpui_kit_assets::IconName::Database).size_8());
+        if self.loading {
+            body = body.child("Reading assembly.dat and the language files…");
+        } else {
+            body = body.child(self.error.clone().unwrap_or_else(|| "No assembly.dat next to this folder's packages.".into())).child(Button::new("asm-retry").small().label("Retry").on_click(cx.listener(|this, _, _, cx| this.open(false, cx))));
+        }
+        body
+    }
+}
+
+/// `<config>/tempest-studio-native/assembly-columns.json`: hidden columns by table.
+fn load_hidden() -> HashMap<String, HashSet<String>> {
+    super::state_file("assembly-columns.json").and_then(|f| std::fs::read_to_string(f).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+fn save_hidden(h: &HashMap<String, HashSet<String>>) {
+    let Some(f) = super::state_file("assembly-columns.json") else { return };
+    if let Some(dir) = f.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(s) = serde_json::to_string(h) {
+        let _ = std::fs::write(f, s);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn references_follow_the_column_names() {
+        assert_eq!(ref_of("CARD_RES_ID"), Some(("DATA_SET_RESOURCES", "RES_ID")));
+        assert_eq!(ref_of("ITEM_ID"), Some(("DATA_SET_ITEMS", "ITEM_ID")));
+        // The most specific suffix wins, and a message id is not a reference.
+        assert_eq!(ref_of("DEVICE_PROJECTILE_ID"), Some(("DATA_SET_PROJECTILES", "DEVICE_PROJECTILE_ID")));
+        assert_eq!(ref_of("NAME_MSG_ID"), None);
+        // A suffix must be a whole word of the name.
+        assert_eq!(ref_of("XITEM_ID"), None);
+    }
+
+    #[test]
+    fn versions_round_trip() {
+        let raw = version_raw("8.1.5839.0").unwrap();
+        assert_eq!(version_text(&J::from(raw.clone())).as_deref(), Some("8.1.5839.0"));
+        assert_eq!(header_text("GAME_VERSION_RAW", &J::from(raw)), "8.1.5839.0");
+        assert_eq!(version_raw("8.1.5839"), None);
+        assert_eq!(version_raw("8.1.70000.0"), None);
+    }
+
+    #[test]
+    fn key_columns_by_table_name() {
+        assert!(key_names("DATA_SET_BOTS").contains(&"BOT_ID".to_string()));
+        assert!(key_names("DATA_SET_PROPERTIES").contains(&"PROPERTY_ID".to_string()));
+        assert!(key_names("DATA_SET_RESOURCES").contains(&"RESOURCE_ID".to_string()));
     }
 }

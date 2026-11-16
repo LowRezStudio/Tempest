@@ -27,6 +27,10 @@ pub struct PropEditor {
     ins: Option<Inspected>,
     error: Option<String>,
     editing: Option<String>,
+    /// The text the edit started with (an unchanged value writes nothing).
+    edit_from: String,
+    /// Rows folded or unfolded by the user, by property path.
+    open: std::collections::HashMap<String, bool>,
     input: Entity<InputState>,
     /// "Add a property": what the class declares and the object does not store.
     adding: Option<Vec<(String, String)>>,
@@ -44,11 +48,8 @@ impl PropEditor {
         let add_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter properties"));
         let subs = vec![
             cx.subscribe_in(&input, window, |this, _, e: &InputEvent, _, cx| match e {
-                InputEvent::PressEnter { .. } => this.commit(cx),
-                InputEvent::Blur => {
-                    this.editing = None;
-                    cx.notify();
-                }
+                // Enter and leaving the field apply; Escape leaves the value as it was.
+                InputEvent::PressEnter { .. } | InputEvent::Blur => this.commit(cx),
                 _ => {}
             }),
             cx.subscribe(&add_filter, |_, _, e: &InputEvent, cx| {
@@ -57,7 +58,7 @@ impl PropEditor {
                 }
             }),
         ];
-        PropEditor { backend, path: String::new(), index: 0, ins: None, error: None, editing: None, input, adding: None, add_filter, seq: 0, _subs: subs }
+        PropEditor { backend, path: String::new(), index: 0, ins: None, error: None, editing: None, edit_from: String::new(), open: std::collections::HashMap::new(), input, adding: None, add_filter, seq: 0, _subs: subs }
     }
 
     /// Show an export (read again even when it is the one shown).
@@ -131,11 +132,15 @@ impl PropEditor {
     fn commit(&mut self, cx: &mut Context<Self>) {
         let Some(prop) = self.editing.take() else { return };
         let value = self.input.read(cx).value().to_string();
-        self.set(prop, value, cx);
+        cx.notify();
+        if value != self.edit_from {
+            self.set(prop, value, cx);
+        }
     }
 
     fn start(&mut self, prop: String, draft: String, window: &mut Window, cx: &mut Context<Self>) {
         self.editing = Some(prop);
+        self.edit_from = draft.clone();
         self.input.update(cx, |s, cx| {
             s.set_value(draft, window, cx);
             s.focus(window, cx);
@@ -176,10 +181,11 @@ impl Render for PropEditor {
             let text = self.error.clone().unwrap_or_else(|| if self.path.is_empty() { String::new() } else { "Reading…".into() });
             return div().p_2().text_xs().text_color(theme.muted_foreground).child(text).into_any_element();
         };
-        let rows: Vec<AnyElement> = ins
-            .rows
-            .iter()
-            .enumerate()
+        // Structs and arrays fold: nested ones and long arrays start folded.
+        let shown = crate::model::unfolded(&ins.rows, |r| self.open.get(&r.path).copied().unwrap_or_else(|| r.starts_open()));
+        let rows: Vec<AnyElement> = shown
+            .into_iter()
+            .map(|k| (k, &ins.rows[k]))
             .map(|(k, r)| {
                 let value: AnyElement = if self.editing.as_deref() == Some(r.path.as_str()) {
                     div().flex_1().child(Input::new(&self.input).xsmall()).into_any_element()
@@ -221,7 +227,24 @@ impl Render for PropEditor {
                     .pl(px(r.depth as f32 * 12.0))
                     .gap_1()
                     .text_xs()
-                    .child(div().w(px(150.0)).flex_none().overflow_hidden().text_ellipsis().whitespace_nowrap().child(r.name.clone()))
+                    .child({
+                        let foldable = r.children > 0;
+                        let open = self.open.get(&r.path).copied().unwrap_or_else(|| r.starts_open());
+                        let path = r.path.clone();
+                        h_flex()
+                            .id(("pv-name", k))
+                            .w(px(150.0))
+                            .flex_none()
+                            .gap_0p5()
+                            .when(foldable, |d| {
+                                d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
+                                    this.open.insert(path.clone(), !open);
+                                    cx.notify();
+                                }))
+                            })
+                            .child(div().w(px(10.0)).flex_none().text_color(theme.muted_foreground).when(foldable, |d| d.child(if open { "▾" } else { "▸" })))
+                            .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(r.name.clone()))
+                    })
                     .child(value)
                     .child(ops)
                     .child(div().flex_none().pr_1().text_color(theme.muted_foreground).child(r.kind.clone()))
@@ -260,6 +283,14 @@ impl Render for PropEditor {
                 body = body.child(v_flex().gap_0p5().child(Input::new(&self.add_filter).xsmall()).child(if list.is_empty() { div().text_xs().text_color(theme.muted_foreground).child("Reading…").into_any_element() } else { v_flex().children(items).into_any_element() }));
             }
         }
-        body.into_any_element()
+        // Escape leaves a value being edited as it was.
+        body.on_action(cx.listener(|this, _: &super::Cancel, _, cx| {
+            if this.editing.take().is_some() {
+                cx.notify();
+            } else {
+                cx.propagate();
+            }
+        }))
+        .into_any_element()
     }
 }

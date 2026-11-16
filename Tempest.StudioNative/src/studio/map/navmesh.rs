@@ -5,6 +5,8 @@
 //! the edits (delete faces, cut a region, move a vertex) written back by
 //! `map.navmeshEdit` into the HavokNavMeshActor of the persistent level: an
 //! unsaved, undoable edit of that package like any other map edit.
+//! Generate (`map.navmeshGenerate`) replaces the whole mesh with one built
+//! from what pawns collide with in the level and its streamed levels.
 
 use std::collections::HashSet;
 
@@ -109,11 +111,15 @@ pub struct Nav {
     pub selected: HashSet<u32>,
     /// Where the picked vertex goes (Unreal units).
     pub target: [f64; 3],
+    /// A generation is running.
+    pub generating: bool,
+    /// What the last generation reported (`generated` of the answer).
+    pub generated: Option<J>,
 }
 
 impl Nav {
     pub fn new(_window: &mut Window, _cx: &mut Context<MapEditor>) -> Nav {
-        Nav { show: false, by_cluster: false, pick: Pick::Off, vertex: None, xray: false, loading: false, error: None, level: None, actors: Vec::new(), current: 0, selected: HashSet::new(), target: [0.0; 3] }
+        Nav { show: false, by_cluster: false, pick: Pick::Off, vertex: None, xray: false, loading: false, error: None, level: None, actors: Vec::new(), current: 0, selected: HashSet::new(), target: [0.0; 3], generating: false, generated: None }
     }
 
     pub fn reset(&mut self) {
@@ -315,6 +321,45 @@ impl MapEditor {
         .detach();
     }
 
+    /// Replace the nav mesh with one generated from the level's collision.
+    pub(crate) fn nav_generate(&mut self, cx: &mut Context<Self>) {
+        let (Some(index), Some(level)) = (self.nav.data().map(|d| d.info["index"].clone()), self.nav.level.clone()) else { return };
+        if self.nav.generating {
+            return;
+        }
+        self.nav.generating = true;
+        let call = self.call("map.navmeshGenerate", json!({ "path": level, "index": index }));
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let r = call.await;
+            let _ = this.update(cx, |this, cx| {
+                this.nav.generating = false;
+                match r {
+                    Ok(r) => {
+                        let fresh = NavData::decode(&r.json, &r);
+                        let k = this.nav.current;
+                        if k < this.nav.actors.len() {
+                            this.nav.actors[k] = fresh;
+                        }
+                        let g = r.json["generated"].clone();
+                        this.nav.selected.clear();
+                        this.nav.vertex = None;
+                        this.note_edit(&level, cx);
+                        this.rebuild_nav();
+                        let missing = g["missingLevels"].as_array().map(|a| a.len()).unwrap_or(0);
+                        let cover = |k: &str| (g["coverage"][k].as_f64().unwrap_or(0.0) * 100.0).round();
+                        let text = format!("Nav mesh generated: {} faces (was {}), {} clusters; covers {}% of the old one, {}% of it lies on the old one{}", g["faces"], g["oldFaces"], g["clusters"], cover("oldCovered"), cover("newCovered"), if missing > 0 { format!("; {missing} streamed levels are not in the folder") } else { String::new() });
+                        this.toast(if missing > 0 { Tone::Warning } else { Tone::Success }, text, cx);
+                        this.nav.generated = Some(g);
+                    }
+                    Err(e) => this.toast(Tone::Error, format!("Nav mesh generation failed: {e}"), cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn commit_nav_field(&mut self, key: &str, value: String, cx: &mut Context<Self>) {
         if let (Ok(k), Ok(n)) = (key.parse::<usize>(), value.trim().parse::<f64>()) {
             if k < 3 {
@@ -416,6 +461,12 @@ impl MapEditor {
                     }))),
             )
             .child(h_flex().gap_2().text_color(theme.muted_foreground).children([(0xf38ba8, "boundary"), (0x89dceb, "user edges"), (0x94e2d5, "jump links")].map(|(c, t)| h_flex().gap_1().child(div().w(px(12.0)).h(px(2.0)).bg(super::hsla(c))).child(t))));
+        p = p.child(
+            h_flex()
+                .gap_2()
+                .child(Button::new("nav-generate").xsmall().label(if self.nav.generating { "Generating…" } else { "Generate from the level" }).disabled(self.nav.generating || self.nav.actors.is_empty()).tooltip("Replace this nav mesh with one built from what pawns collide with (blocking meshes, volumes, BSP) in the level and its streamed levels; floors no player start or current face reaches are left out, and jump links go. One undoable edit").on_click(cx.listener(|this, _, _, cx| this.nav_generate(cx))))
+                .when_some(self.nav.generated.as_ref(), |d, g| d.child(div().text_color(theme.muted_foreground).child(format!("generated: {} faces, {} ms", g["faces"], g["ms"])))),
+        );
         let mut modes = h_flex().gap_0p5();
         for (m, id, label, tip) in [(Pick::Off, "nav-off", "Actors", "Clicks select actors"), (Pick::Faces, "nav-faces", "Faces", "Clicks pick nav mesh faces (Shift adds)"), (Pick::Vertex, "nav-vertex", "Vertex", "Clicks pick the vertex of the face nearest the click")] {
             modes = modes.child(Button::new(id).xsmall().flex_1().label(label).tooltip(tip).selected(self.nav.pick == m).on_click(cx.listener(move |this, _, _, cx| {

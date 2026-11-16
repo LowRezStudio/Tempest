@@ -21,9 +21,9 @@ mod account;
 mod actions;
 mod anim;
 pub mod assembly;
+mod tools;
 mod audio_view;
 mod commands;
-mod content;
 pub mod cooker;
 mod dialogs;
 mod inspector;
@@ -56,7 +56,7 @@ pub use commands::Cmd;
 
 const ROW: f32 = 22.0;
 
-actions!(studio, [NewTab, CloseTab, NextTab, PrevTab, Undo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, GoToPackage, GoToObject, SearchAll, Shortcuts, ShowPackages, ShowAssembly, ShowMod, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond]);
+actions!(studio, [CompileSource, OpenFile, SaveAs, FindReplace, NewTab, CloseTab, NextTab, PrevTab, Undo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, GoToPackage, GoToObject, SearchAll, Shortcuts, ShowPackages, ShowAssembly, ShowMod, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond, PageUp, PageDown, ExtendUp, ExtendDown, NextCell, PrevCell, Activate, Cancel, SelectAll, NewRow]);
 
 /// The views of the activity bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,7 +73,8 @@ pub enum View {
 pub enum Place {
     /// `view`: the movie editor's view (`swf::Node::key`) when the export is a movie.
     Package { package: String, export: Option<usize>, view: Option<String> },
-    Assembly { file: String, table: Option<String>, row: Option<usize> },
+    /// `path`: the rows leading to a nested row set (`table` is then the field holding it).
+    Assembly { file: String, path: Vec<(String, usize)>, table: Option<String>, row: Option<usize> },
     Mod,
     /// The map view: a map, the selected actor, the view (scene, kismet, matinee) and what it shows.
     Map { path: String, level: Option<String>, export: Option<usize>, view: String, sequence: Option<usize>, matinee: Option<(String, usize)> },
@@ -116,6 +117,8 @@ pub struct Studio {
     focus: FocusHandle,
     /// The inspector's in-place editor and the property path it edits.
     value_input: Entity<InputState>,
+    /// The text the edit started with.
+    edit_from: String,
     editing: Option<String>,
     /// Packages with unsaved edits (paths).
     dirty: HashSet<String>,
@@ -133,8 +136,19 @@ pub struct Studio {
     tab: inspector::Tab,
     deps: Option<(usize, model::Deps)>,
     source: Option<inspector::Source>,
+    dump: Option<inspector::Dump>,
+    /// Property rows folded or unfolded by the user, by property path (others follow `PropRow::starts_open`).
+    prop_open: std::collections::HashMap<String, bool>,
+    /// Class sources edited and not compiled yet, by (package, class): kept while the window lives.
+    drafts: std::collections::HashMap<(String, String), String>,
     mesh: Option<std::rc::Rc<std::cell::RefCell<mesh::MeshState>>>,
+    /// `mesh.info` of the mesh shown: (export, its LODs).
+    mesh_info: Option<(usize, serde_json::Value)>,
     material: Option<material::MaterialState>,
+    /// The mesh preview's game shaders: sections, drawn, errors (`None` while they load).
+    mesh_game: Option<serde_json::Value>,
+    /// Draw material and mesh previews with the game's shaders (when the materials have them).
+    game_shaders: bool,
     slots: Option<material::Slots>,
     sound: Option<sound::SoundState>,
     wwise: Option<wwise::WwiseState>,
@@ -201,8 +215,9 @@ impl Studio {
         let value_input = cx.new(|cx| InputState::new(window, cx));
         let subscriptions = vec![
             cx.subscribe_in(&value_input, window, |this, _, e: &InputEvent, window, cx| match e {
-                InputEvent::PressEnter { .. } => this.commit_edit(window, cx),
-                InputEvent::Blur => this.cancel_edit(cx),
+                InputEvent::PressEnter { .. } => this.commit_edit(true, window, cx),
+                // Leaving the field applies what was typed (Escape is the way out), as in the Electron Studio.
+                InputEvent::Blur => this.commit_edit(false, window, cx),
                 _ => {}
             }),
             cx.subscribe(&package_filter, |this, _, e: &InputEvent, cx| {
@@ -263,6 +278,7 @@ impl Studio {
             status: "".into(),
             focus: cx.focus_handle(),
             value_input,
+            edit_from: String::new(),
             editing: None,
             dirty: HashSet::new(),
             packages_focus: cx.focus_handle(),
@@ -276,8 +292,14 @@ impl Studio {
             tab: inspector::Tab::Properties,
             deps: None,
             source: None,
+            dump: None,
+            prop_open: std::collections::HashMap::new(),
+            drafts: std::collections::HashMap::new(),
             mesh: None,
+            mesh_info: None,
             material: None,
+            mesh_game: None,
+            game_shaders: true,
             slots: None,
             sound: None,
             wwise: None,
@@ -501,6 +523,14 @@ impl Studio {
         }
     }
 
+    /// A level's edits discarded: the map view draws it again from the file.
+    pub(crate) fn map_discarded(&self, path: &str, cx: &mut Context<Self>) {
+        if let Some(m) = &self.map {
+            let p = path.to_string();
+            m.update(cx, |m, cx| m.level_discarded(p, cx));
+        }
+    }
+
     pub(crate) fn map_entity(&self) -> Option<Entity<map::MapEditor>> {
         self.map.clone()
     }
@@ -517,6 +547,13 @@ impl Studio {
         m
     }
 
+    /// An assembly file was written: the Mod view lists it.
+    pub(crate) fn assembly_saved(&mut self, cx: &mut Context<Self>) {
+        if let Some(c) = self.cooker.clone() {
+            c.update(cx, |c, cx| c.refresh(cx));
+        }
+    }
+
     pub(crate) fn assembly_entity(&self) -> Option<Entity<assembly::Assembly>> {
         self.assembly.clone()
     }
@@ -531,7 +568,8 @@ impl Studio {
         }
         let me = cx.entity().downgrade();
         let (shared, sizes) = (self.panes.clone(), self.pane_sizes("assembly", &[260.0, 420.0]));
-        let a = cx.new(|cx| assembly::Assembly::new(self.backend.clone(), self.dir.clone().unwrap_or_default(), me, shared, sizes, window, cx));
+        let id_range = self.prefs.id_range;
+        let a = cx.new(|cx| assembly::Assembly::new(self.backend.clone(), me, shared, sizes, id_range, window, cx));
         self.assembly = Some(a.clone());
         a
     }
@@ -559,7 +597,7 @@ impl Studio {
         let refines = match (self.history.get(self.history_at), &place) {
             (Some(Place::Package { package: a, export: None, .. }), Place::Package { package: b, .. }) => a == b,
             (Some(Place::Package { package: a, export: Some(i), view: None }), Place::Package { package: b, export: Some(j), view: Some(_) }) => a == b && i == j,
-            (Some(Place::Assembly { file: a, table: ta, row: None }), Place::Assembly { file: b, table: tb, .. }) => a == b && ta == tb,
+            (Some(Place::Assembly { file: a, path: pa, table: ta, row: None }), Place::Assembly { file: b, path: pb, table: tb, .. }) => a == b && pa == pb && ta == tb,
             (Some(Place::Map { path: a, export: None, view: va, .. }), Place::Map { path: b, view: vb, .. }) => a == b && va == vb,
             _ => false,
         };
@@ -595,10 +633,10 @@ impl Studio {
                     self.open_package(package, cx);
                 }
             }
-            Place::Assembly { file, table, row } => {
+            Place::Assembly { file, path, table, row } => {
                 self.view = View::Assembly;
                 let a = self.assembly_view(window, cx);
-                a.update(cx, |a, cx| a.visit(file, table, row, cx));
+                a.update(cx, |a, cx| a.visit_path(file, path, table, row, cx));
             }
             Place::Mod => {
                 self.view = View::Mod;
@@ -639,6 +677,7 @@ impl Studio {
 
     fn start_edit(&mut self, path: String, draft: String, window: &mut Window, cx: &mut Context<Self>) {
         self.editing = Some(path);
+        self.edit_from = draft.clone();
         self.value_input.update(cx, |input, cx| {
             input.set_value(draft, window, cx);
             input.focus(window, cx);
@@ -652,10 +691,17 @@ impl Studio {
         }
     }
 
-    fn commit_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Apply the value being edited (`refocus`: the keyboard goes back to the lists; not when the user left for another field). An unchanged value writes nothing.
+    fn commit_edit(&mut self, refocus: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(prop) = self.editing.take() else { return };
         let value = self.value_input.read(cx).value().to_string();
-        self.focus.focus(window, cx);
+        if refocus {
+            self.focus.focus(window, cx);
+        }
+        cx.notify();
+        if value == self.edit_from {
+            return;
+        }
         if prop == actions::RENAME {
             self.rename(value, cx);
             return;
@@ -682,7 +728,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     this.apply_object(&path, i, &r.json, cx);
-                    this.set_status(format!("Set {prop} (unsaved)"), cx);
+                    this.set_status(format!("Set {prop}"), cx);
                 }
                 Err(e) => this.toast(Tone::Error, format!("Could not set {prop}: {e}"), cx),
             });
@@ -905,11 +951,10 @@ impl Studio {
         let me = cx.entity().downgrade();
         let save = Button::new("save")
             .small()
-            .when(can_save && !in_project, |b| b.primary())
-            .icon(Icon::new(IconName::Save))
-            .label(if in_project { "Project" } else { "Save" })
+                        .icon(Icon::new(IconName::Save))
+            .label(if in_project { "Project" } else { "Write" })
             .disabled(!in_project && !can_save && unsaved == 0)
-            .tooltip(if in_project { "The project saves itself; this menu writes into the game folder or exports" } else { "Save into the game folder (asks first)" })
+            .tooltip(if in_project { "The project saves itself; this menu writes into the game folder or exports" } else { "Write the edits into the game folder (asks first): for quick tests; a mod carries your edits without it" })
             .dropdown_menu(move |menu, _, _| {
                 let item = |label: &str, cmd: Cmd| {
                     let me = me.clone();
@@ -918,11 +963,11 @@ impl Studio {
                     })
                 };
                 let menu = if in_project { menu.item(item("Save the project now", Cmd::Save)).separator() } else { menu };
-                menu.item(item(if in_project { "Write this file into the game folder…" } else { "Save this file" }, Cmd::WriteToGame))
-                    .item(item("Save every unsaved file into the game folder", Cmd::SaveAll))
+                menu.item(item("Write this file into the game folder…", Cmd::WriteToGame))
+                    .item(item("Write every edited file into the game folder…", Cmd::SaveAll))
                     .separator()
                     .item(item("Export a copy…  (keeps the game folder untouched)", Cmd::SaveAs))
-                    .item(item("Discard this file's changes…", Cmd::Discard))
+                    .item(item("Discard this file's edits…", Cmd::Discard))
             });
         h_flex()
             .h(px(40.0))
@@ -942,12 +987,15 @@ impl Studio {
             .child(Button::new("undo").small().ghost().icon(Icon::new(IconName::Undo2)).tooltip("Undo the last edit (⌘Z)").on_click(cx.listener(|this, _, window, cx| this.undo(&Undo, window, cx))))
             .when(unsaved > 0, |d| {
                 d.child(
-                    Button::new("unsaved")
-                        .small()
-                        .ghost()
-                        .label(format!("{unsaved} unsaved"))
-                        .tooltip("The files with edits not saved yet")
-                        .on_click(cx.listener(|this, _, window, cx| this.show_unsaved(window, cx))),
+                    div().relative().child(
+                        Button::new("unsaved")
+                            .small()
+                            .ghost()
+                            .label(format!("Edits ({unsaved})"))
+                            .tooltip("The files you edited: open them, discard their edits (one by one or all at once), or write them into the game folder")
+                            .on_click(cx.listener(|this, _, window, cx| this.show_unsaved(window, cx))),
+                    )
+                    .child(crate::driver::probe("unsaved")),
                 )
             })
             .child(save)
@@ -1177,6 +1225,23 @@ fn recent_workspaces() -> Vec<String> {
     list
 }
 
+/// Take a folder off the recent list (`None`: every folder); the folders stay where they are.
+fn forget_workspace(dir: Option<&str>) -> Vec<String> {
+    let mut list = recent_workspaces();
+    match dir {
+        Some(d) => list.retain(|x| x != d),
+        None => list.clear(),
+    }
+    if let Some(f) = state_file("recent-workspaces") {
+        let _ = std::fs::write(f, list.join("\n"));
+    }
+    // The single-folder file of earlier builds would bring it back.
+    if let Some(old) = state_file("last-workspace") {
+        let _ = std::fs::remove_file(old);
+    }
+    list
+}
+
 fn remember_workspace(dir: &str) {
     let mut list = recent_workspaces();
     list.retain(|d| d != dir);
@@ -1233,5 +1298,7 @@ pub fn open_urls(urls: Vec<String>, cx: &mut App) {
 
 pub fn init(cx: &mut App) {
     commands::bind_keys(cx);
-    prefs::theme_mode(&prefs::Prefs::load().theme, None, cx);
+    let prefs = prefs::Prefs::load();
+    prefs::theme_mode(&prefs.theme, None, cx);
+    crate::game_material::set_sm3(prefs.sm3);
 }

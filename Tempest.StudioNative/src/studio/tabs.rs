@@ -5,6 +5,7 @@
 //! Forward history for the window.
 
 use gpui::{div, prelude::*, px, Context, MouseButton};
+use gpui_component::menu::ContextMenuExt;
 use gpui_component::{h_flex, ActiveTheme};
 
 use super::{file_name, Place, Studio};
@@ -73,6 +74,51 @@ impl Studio {
         self.switch_tab(next.min(self.tabs.len() - 1), cx);
     }
 
+    /// Close every tab but `k`.
+    fn close_other_tabs(&mut self, k: usize, cx: &mut Context<Self>) {
+        if k >= self.tabs.len() {
+            return;
+        }
+        let keep = self.tabs.remove(k);
+        self.tabs = vec![keep];
+        self.active_tab = usize::MAX;
+        self.switch_tab(0, cx);
+    }
+
+    /// Close the tabs after `k`.
+    fn close_tabs_right(&mut self, k: usize, cx: &mut Context<Self>) {
+        if k + 1 >= self.tabs.len() {
+            return;
+        }
+        self.tabs.truncate(k + 1);
+        if self.active_tab > k {
+            self.active_tab = usize::MAX;
+            self.switch_tab(k, cx);
+        }
+        cx.notify();
+    }
+
+    /// The tab's menu (right-click).
+    fn tab_menu(&self, k: usize, menu: gpui_component::menu::PopupMenu, cx: &mut Context<Self>) -> gpui_component::menu::PopupMenu {
+        use gpui_component::menu::PopupMenuItem;
+        let me = cx.entity().downgrade();
+        let n = self.tabs.len();
+        let item = |label: &str, f: fn(&mut Studio, usize, &mut Context<Studio>)| {
+            let me = me.clone();
+            PopupMenuItem::new(label.to_string()).on_click(move |_, _, cx| {
+                let _ = me.update(cx, |this, cx| f(this, k, cx));
+            })
+        };
+        menu.item(item("Close", |s, k, cx| s.close_tab(k, cx)))
+            .item(item("Close the other tabs", |s, k, cx| s.close_other_tabs(k, cx)).disabled(n < 2))
+            .item(item("Close the tabs to the right", |s, k, cx| s.close_tabs_right(k, cx)).disabled(k + 1 >= n))
+            .separator()
+            .item(item("Duplicate", |s, k, cx| {
+                let place = s.tabs.get(k).and_then(|t| t.place.clone());
+                s.new_tab(place, cx);
+            }))
+    }
+
     pub(super) fn cycle_tab(&mut self, step: isize, cx: &mut Context<Self>) {
         let n = self.tabs.len() as isize;
         if n > 1 {
@@ -85,8 +131,10 @@ impl Studio {
             return None;
         }
         let theme = cx.theme().clone();
+        let me = cx.entity();
         let tabs = self.tabs.iter().enumerate().map(|(k, t)| {
             let active = k == self.active_tab;
+            let me = me.clone();
             h_flex()
                 .id(("tab", k))
                 .h(px(28.0))
@@ -105,6 +153,7 @@ impl Studio {
                     cx.stop_propagation();
                     this.close_tab(k, cx);
                 })))
+                .context_menu(move |menu, _, cx| me.update(cx, |this, cx| this.tab_menu(k, menu, cx)))
         });
         Some(h_flex().id("tabs").w_full().overflow_x_scroll().bg(theme.tab_bar).border_b_1().border_color(theme.border).children(tabs).into_any_element())
     }

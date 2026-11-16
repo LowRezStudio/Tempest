@@ -13,6 +13,7 @@
 use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, ExternalPaths, FocusHandle, PathPromptOptions, SharedString, Subscription, WeakEntity, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::menu::DropdownMenu;
 use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable};
 use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
@@ -280,7 +281,20 @@ pub struct Wizard {
     bot: Option<Choice>,
     name: Entity<InputState>,
     desc: Entity<InputState>,
+    /// The short description of an ability, card or item.
+    short: Entity<InputState>,
     slot: Entity<InputState>,
+    /// The slots an ability or card can go in: valid value id and name.
+    slots: Vec<(i64, String)>,
+    /// The id range new content takes its ids from, as typed.
+    range_start: Entity<InputState>,
+    range_end: Entity<InputState>,
+    /// The next ids once the range is applied, or why it is refused.
+    next_ids: Option<Result<String, String>>,
+    /// A skin's parts, named after the skin (each can be renamed).
+    parts: Vec<SkinPart>,
+    /// The template collection: its item, champion and theme (the part names are rewritten from them).
+    source: Option<(u64, String, String)>,
     packages: Vec<(String, String)>,
     package: Option<String>,
     groups: Vec<(usize, String)>,
@@ -301,8 +315,62 @@ pub struct Wizard {
     _subs: Vec<Subscription>,
 }
 
+/// A part of the skin collection being copied.
+struct SkinPart {
+    item: i64,
+    kind: String,
+    /// Its name in the template.
+    template: String,
+    /// The name last suggested (a part still named so follows the skin's name).
+    suggested: String,
+    input: Entity<InputState>,
+}
+
+/// `text` with the champion's name taken out (the rule of `rename` in `mcts/skins.rs`).
+fn theme_of(text: &str, champion: &str) -> String {
+    if champion.is_empty() {
+        return text.to_string();
+    }
+    text.split(champion).collect::<Vec<_>>().join(" ").split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn swap_text(text: &str, from: &str, to: &str) -> Option<String> {
+    if from.is_empty() || !text.contains(from) {
+        return None;
+    }
+    Some(text.split(from).collect::<Vec<_>>().join(to).split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+/// A part's name for a skin called `name` on `new_champion`, from its name in the template collection.
+fn rename_part(text: &str, name: &str, old_champion: &str, new_champion: &str, old_theme: &str) -> String {
+    let new_theme = theme_of(name.trim(), new_champion);
+    let mut out = text.to_string();
+    let mut changed = old_theme == new_theme;
+    if old_theme != new_theme {
+        if let Some(a) = swap_text(&out, old_theme, &new_theme) {
+            out = a;
+            changed = true;
+        }
+    }
+    if !old_champion.is_empty() && old_champion != new_champion {
+        if let Some(b) = swap_text(&out, old_champion, new_champion) {
+            out = b;
+            changed = true;
+        }
+    }
+    if changed {
+        out
+    } else {
+        format!("{new_theme} {text}").trim().to_string()
+    }
+}
+
 /// The open package, its selection's group and its objects, as the wizard starts from them.
 pub struct Start {
+    /// The user's id range for new content (the settings').
+    pub id_range: Option<(i64, i64)>,
+    /// Start at the details of this kind with this template: (kind, its id, its name).
+    pub preset: Option<(Kind, u64, String)>,
     pub package: Option<String>,
     pub group: Option<usize>,
     pub nearby: Vec<(String, usize, String, String)>,
@@ -321,13 +389,35 @@ impl Wizard {
         let query = input("Search by name", window, cx);
         let name = input("Name", window, cx);
         let desc = input("Description shown in game (optional)", window, cx);
-        let slot = input("Slot number (optional: the template's)", window, cx);
+        let short = input("One line under the name (optional)", window, cx);
+        let slot = input("Slot: a valid value id (optional: the template's)", window, cx);
+        let range_start = input("start", window, cx);
+        let range_end = input("end", window, cx);
+        if let Some((a, b)) = start.id_range {
+            range_start.update(cx, |s, cx| s.set_value(a.to_string(), window, cx));
+            range_end.update(cx, |s, cx| s.set_value(b.to_string(), window, cx));
+        }
         let parent = input("Object", window, cx);
-        let subs = vec![cx.subscribe(&query, |this: &mut Wizard, _, e: &InputEvent, cx| {
-            if matches!(e, InputEvent::Change) {
-                this.search(cx);
-            }
-        })];
+        let mut subs = vec![
+            cx.subscribe(&query, |this: &mut Wizard, _, e: &InputEvent, cx| {
+                if matches!(e, InputEvent::Change) {
+                    this.search(cx);
+                }
+            }),
+            // The parts of a skin are named after it as it is typed.
+            cx.subscribe_in(&name, window, |this: &mut Wizard, _, e: &InputEvent, window, cx| {
+                if matches!(e, InputEvent::Change) {
+                    this.rename_parts(window, cx);
+                }
+            }),
+        ];
+        for field in [&range_start, &range_end] {
+            subs.push(cx.subscribe(field, |this: &mut Wizard, _, e: &InputEvent, cx| {
+                if matches!(e, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                    this.apply_range(cx);
+                }
+            }));
+        }
         let offer = match content {
             Some(true) => Kind::CONTENT,
             Some(false) => Kind::PACKAGE,
@@ -349,7 +439,14 @@ impl Wizard {
             bot: None,
             name,
             desc,
+            short,
             slot,
+            slots: Vec::new(),
+            range_start,
+            range_end,
+            next_ids: None,
+            parts: Vec::new(),
+            source: None,
             packages: start.packages,
             package: start.package.clone(),
             groups: Vec::new(),
@@ -369,10 +466,130 @@ impl Wizard {
         if let Some(p) = start.package {
             w.load_groups(p, start.group, cx);
         }
-        if let Some(k) = kind {
+        if let Some((k, id, label)) = start.preset {
+            // A template already chosen (a skin collection to copy): straight to its details.
+            w.kind = Some(k);
+            w.model = Some(Choice { label, detail: String::new(), path: None, index: None, id: Some(id) });
+            w.step = k.steps().iter().position(|s| *s == Step::Details).unwrap_or(1);
+            w.enter(window, cx);
+        } else if let Some(k) = kind {
             w.choose(k, window, cx);
         }
         w
+    }
+
+    /// Apply the id range as typed (kept in the settings), then read the next ids it gives.
+    fn apply_range(&mut self, cx: &mut Context<Self>) {
+        let (a, b) = (self.range_start.read(cx).value().trim().to_string(), self.range_end.read(cx).value().trim().to_string());
+        let range = if a.is_empty() && b.is_empty() {
+            None
+        } else {
+            match (a.parse::<i64>(), b.parse::<i64>()) {
+                (Ok(a), Ok(b)) if a >= 0 && b > a => Some((a, b)),
+                _ => {
+                    self.next_ids = Some(Err("start and end must be whole numbers with start < end".into()));
+                    cx.notify();
+                    return;
+                }
+            }
+        };
+        let studio = self.studio.clone();
+        cx.defer(move |cx| {
+            let _ = studio.update(cx, |s, _| s.set_id_range(range));
+        });
+        let backend = self.backend.clone();
+        cx.spawn(async move |this, cx| {
+            let _ = backend.call("mcts.open", json!({})).await;
+            let params = match range {
+                Some((a, b)) => json!({ "start": a, "end": b }),
+                None => json!({}),
+            };
+            let r = match backend.call("mcts.idRange", params).await {
+                Ok(_) => backend.call("mcts.nextIds", json!({})).await,
+                Err(e) => Err(e),
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.next_ids = Some(r.map(|r| format!("next: item {}, bot {}, msg {}", r.json["item"], r.json["bot"], r.json["msg"])));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The slots a device can go in (the valid values named ES…, Card or Talent).
+    fn load_slots(&mut self, cx: &mut Context<Self>) {
+        if !self.slots.is_empty() {
+            return;
+        }
+        let backend = self.backend.clone();
+        cx.spawn(async move |this, cx| {
+            let _ = backend.call("mcts.open", json!({})).await;
+            let Ok(r) = backend.call("mcts.validValues", json!({})).await else { return };
+            let _ = this.update(cx, |this, cx| {
+                let is_slot = |t: &str| {
+                    let es = t.strip_prefix("ES").is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()));
+                    let l = t.to_ascii_lowercase();
+                    es || l.contains("card") || l.contains("talent")
+                };
+                let mut slots: Vec<(i64, String)> = r.json.as_object().into_iter().flatten().filter_map(|(id, v)| Some((id.parse().ok()?, v["text"].as_str()?.to_string()))).filter(|(_, t)| is_slot(t)).collect();
+                // ES2 before ES10.
+                let key = |t: &str| (t.trim_end_matches(|c: char| !c.is_ascii_digit() && c != 'S' && c != 'E').to_string(), t.to_string());
+                let num = |t: &str| t.strip_prefix("ES").and_then(|r| r.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse::<u32>().ok()).unwrap_or(u32::MAX);
+                slots.sort_by(|a, b| num(&a.1).cmp(&num(&b.1)).then_with(|| key(&a.1).cmp(&key(&b.1))));
+                this.slots = slots;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The parts of the skin collection being copied, each with a name to give it.
+    fn load_parts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(item) = self.model.as_ref().and_then(|m| m.id) else { return };
+        if self.source.as_ref().is_some_and(|s| s.0 == item) {
+            return;
+        }
+        self.parts.clear();
+        self.source = None;
+        let backend = self.backend.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let _ = backend.call("mcts.open", json!({})).await;
+            let Ok(r) = backend.call("mcts.collection", json!({ "item": item })).await else { return };
+            let _ = this.update_in(cx, |this, window, cx| {
+                if this.model.as_ref().and_then(|m| m.id) != Some(item) {
+                    return;
+                }
+                let j = &r.json;
+                this.source = Some((item, j["champion"].as_str().unwrap_or_default().to_string(), j["theme"].as_str().unwrap_or_default().to_string()));
+                this.parts = j["parts"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|p| {
+                        let template = p["name"].as_str().unwrap_or_default().to_string();
+                        Some(SkinPart { item: p["item"].as_i64()?, kind: p["kind"].as_str().unwrap_or_default().to_string(), template, suggested: String::new(), input: cx.new(|cx| InputState::new(window, cx)) })
+                    })
+                    .collect();
+                this.rename_parts(window, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Name the parts after the skin: those the user has not renamed follow.
+    fn rename_parts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((_, old_champion, old_theme)) = self.source.clone() else { return };
+        let name = self.name.read(cx).value().to_string();
+        let new_champion = self.bot.as_ref().map(|b| b.label.clone()).unwrap_or_else(|| old_champion.clone());
+        for p in &mut self.parts {
+            let next = rename_part(&p.template, &name, &old_champion, &new_champion, &old_theme);
+            let untouched = p.suggested.is_empty() || p.input.read(cx).value().as_ref() == p.suggested.as_str();
+            if untouched {
+                p.input.update(cx, |s, cx| s.set_value(next.clone(), window, cx));
+            }
+            p.suggested = next;
+        }
+        cx.notify();
     }
 
     fn steps(&self) -> &'static [Step] {
@@ -419,6 +636,16 @@ impl Wizard {
                     self.name.update(cx, |s, cx| s.set_value(suggested, window, cx));
                 }
                 self.name.update(cx, |s, cx| s.focus(window, cx));
+                // Game content: the ids it will take, the slots it can go in, a skin's parts.
+                if let Some(kind) = self.kind.filter(|k| k.content()) {
+                    self.apply_range(cx);
+                    if matches!(kind, Kind::Ability | Kind::Card) {
+                        self.load_slots(cx);
+                    }
+                    if kind == Kind::Skin {
+                        self.load_parts(window, cx);
+                    }
+                }
             }
             Step::Textures => self.load_params(cx),
             _ => {}
@@ -696,6 +923,9 @@ impl Wizard {
         let params: Vec<Param> = self.params.iter().filter(|p| p.file.is_some()).cloned().collect();
         let desc = self.desc.read(cx).value().trim().to_string();
         let slot = self.slot.read(cx).value().trim().parse::<u64>().ok();
+        let short = self.short.read(cx).value().trim().to_string();
+        // The names typed for a skin's parts, by the template part's item.
+        let part_names: serde_json::Map<String, serde_json::Value> = self.parts.iter().map(|p| (p.item.to_string(), json!(p.input.read(cx).value().trim()))).collect();
         let bot = self.bot.as_ref().and_then(|b| b.id);
         let file = self.file.clone();
         let dir = self.game_dir.clone();
@@ -788,7 +1018,14 @@ impl Wizard {
                             _ => "skin",
                         };
                         let template = model.as_ref().and_then(|m| m.id).ok_or("no template")?;
-                        let r = backend.call("mcts.create", json!({ "kind": what, "template": template, "name": name, "description": desc, "bot": bot, "slot": slot })).await?;
+                        let mut params = json!({ "kind": what, "template": template, "name": name, "description": desc, "bot": bot, "slot": slot });
+                        if !short.is_empty() {
+                            params["shortDescription"] = json!(short);
+                        }
+                        if kind == Kind::Skin && !part_names.is_empty() {
+                            params["names"] = serde_json::Value::Object(part_names);
+                        }
+                        let r = backend.call("mcts.create", params).await?;
                         let j = &r.json;
                         let row = [&j["bot"], &j["device"], &j["item"], &j["subPath"]].into_iter().find(|p| p.is_array()).and_then(|p| p.as_array().and_then(|a| a.first()).and_then(|f| Some((f[0].as_str()?.to_string(), f[1].as_u64()? as usize))));
                         let ids = [("device", &j["deviceId"]), ("item", &j["itemId"]), ("bot", &j["botId"])].iter().filter_map(|(k, v)| v.as_i64().map(|v| format!("{k} {v}"))).collect::<Vec<_>>().join(", ");
@@ -837,7 +1074,16 @@ impl Wizard {
             "name" => {
                 let n = rest.trim().to_string();
                 self.name.update(cx, |s, cx| s.set_value(n, window, cx));
+                self.rename_parts(window, cx);
             }
+            "range" => {
+                let (a, b) = rest.trim().split_once(' ').unwrap_or((rest.trim(), ""));
+                let (a, b) = (a.to_string(), b.to_string());
+                self.range_start.update(cx, |s, cx| s.set_value(a, window, cx));
+                self.range_end.update(cx, |s, cx| s.set_value(b, window, cx));
+                self.apply_range(cx);
+            }
+            "dump" => println!("{}", json!({ "step": format!("{:?}", self.current()), "parts": self.parts.iter().map(|p| json!([p.kind, p.template, p.input.read(cx).value().to_string()])).collect::<Vec<_>>(), "slots": self.slots.len(), "nextIds": self.next_ids.as_ref().map(|n| n.clone().unwrap_or_else(|e| format!("error: {e}"))), "error": self.error })),
             _ => {}
         }
         cx.notify();
@@ -1131,7 +1377,7 @@ impl Wizard {
                 .child(v_flex().gap_1().child(label("Class name", &theme)).child(Input::new(&self.name)))
                 .child(v_flex().gap_1().child(label("Extends", &theme)).child(Input::new(&self.parent).small()).child(div().text_xs().text_color(theme.muted_foreground).child("The class it builds on: Object, Actor, TgDevice… (empty: Object)")))
                 .child(v_flex().gap_1().child(label("Script package", &theme)).child(Input::new(&self.query).small()).child(div().id("wiz-spkgs").h(px(150.0)).overflow_y_scroll().rounded_md().border_1().border_color(theme.border).p_1().child(pkgs)))
-                .child(div().text_xs().text_color(theme.muted_foreground).child("The package is rebuilt from its sources with the new class added (an unsaved edit; the package must have no other unsaved edits). Its Source tab opens next."))
+                .child(div().text_xs().text_color(theme.muted_foreground).child("The package is rebuilt from its sources with the new class added (an edit; the package must have no other edits). Its Source tab opens next."))
                 .into_any_element();
         }
         if kind == Kind::Package {
@@ -1145,9 +1391,60 @@ impl Wizard {
         v_flex()
             .gap_3()
             .child(v_flex().gap_1().child(label("Name in game", &theme)).child(Input::new(&self.name)).child(div().text_xs().text_color(theme.muted_foreground).child(if kind == Kind::Skin { "The skin's name; its parts are named after it (\"<name> Head\", \"<name> Weapon\"…)" } else { "A new message in every language" })))
+            .when(kind == Kind::Skin && !self.parts.is_empty(), |d| {
+                let mut list = v_flex().gap_1().child(label("Parts (copied from the template; their names follow yours, edit any)", &theme));
+                for p in &self.parts {
+                    let tip = format!("Template: {} ({})", p.template, p.item);
+                    list = list.child(
+                        h_flex()
+                            .gap_2()
+                            .child(div().id(gpui::SharedString::from(format!("part-{}", p.item))).w(px(84.0)).flex_none().px_1().rounded_sm().bg(theme.secondary).text_xs().tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)).child(p.kind.clone()))
+                            .child(div().flex_1().child(Input::new(&p.input).xsmall())),
+                    );
+                }
+                d.child(list)
+            })
+            .when(matches!(kind, Kind::Ability | Kind::Card | Kind::Item), |d| d.child(v_flex().gap_1().child(label("Short description", &theme)).child(Input::new(&self.short).small())))
             .when(kind != Kind::Skin, |d| d.child(v_flex().gap_1().child(label("Description", &theme)).child(Input::new(&self.desc))))
-            .when(matches!(kind, Kind::Ability | Kind::Card), |d| d.child(v_flex().gap_1().child(label("Slot", &theme)).child(Input::new(&self.slot).small())))
-            .child(div().text_xs().text_color(theme.muted_foreground).child("New ids come from your id range when one is set (Assembly ▸ New content), so they never clash with another mod's."))
+            .when(matches!(kind, Kind::Ability | Kind::Card), |d| {
+                // The slot is a valid value: picked by name, or typed as its id.
+                let chosen = self.slot.read(cx).value().trim().parse::<i64>().ok().and_then(|id| self.slots.iter().find(|s| s.0 == id)).map(|s| s.1.clone());
+                let (slots, me) = (self.slots.clone(), cx.entity().downgrade());
+                let pick = Button::new("wiz-slot").small().label("Pick…").disabled(slots.is_empty()).dropdown_menu(move |menu, _, _| {
+                    let mut menu = menu.scrollable(true).max_h(px(360.0));
+                    for (id, text) in &slots {
+                        let (me, id) = (me.clone(), *id);
+                        menu = menu.item(gpui_component::menu::PopupMenuItem::new(format!("{text}  ({id})")).on_click(move |_, window, cx| {
+                            let _ = me.update(cx, |this, cx| {
+                                this.slot.update(cx, |s, cx| s.set_value(id.to_string(), window, cx));
+                                cx.notify();
+                            });
+                        }));
+                    }
+                    menu
+                });
+                d.child(v_flex().gap_1().child(label("Slot", &theme)).child(h_flex().gap_2().child(div().flex_1().child(Input::new(&self.slot).small())).child(pick)).child(div().text_xs().text_color(theme.muted_foreground).child(chosen.unwrap_or_else(|| "Empty: the template's slot".into()))))
+            })
+            .child(
+                v_flex()
+                    .gap_1()
+                    .p_2()
+                    .rounded_md()
+                    .bg(theme.secondary)
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .text_xs()
+                            .child(div().text_color(theme.muted_foreground).child("Id range for new content"))
+                            .child(div().w(px(110.0)).child(Input::new(&self.range_start).xsmall()))
+                            .child(div().text_color(theme.muted_foreground).child("…"))
+                            .child(div().w(px(110.0)).child(Input::new(&self.range_end).xsmall()))
+                            .child(div().flex_1())
+                            .when_some(self.next_ids.as_ref().and_then(|n| n.as_ref().ok()), |d, n| d.child(div().font_family(theme.mono_font_family.clone()).text_color(theme.muted_foreground).child(n.clone()))),
+                    )
+                    .when_some(self.next_ids.as_ref().and_then(|n| n.as_ref().err()), |d, e| d.child(div().text_xs().text_color(theme.danger).child(e.clone())))
+                    .child(div().text_xs().text_color(theme.muted_foreground).child("Ids of new rows and messages come from this range. Give every mod its own (say 100000 wide) so mods never allocate the same id; empty: past the largest id in use.")),
+            )
             .into_any_element()
     }
 
@@ -1216,7 +1513,7 @@ impl Wizard {
         v_flex()
             .gap_3()
             .child(list)
-            .child(div().text_xs().text_color(theme.muted_foreground).child(if kind == Kind::LuaScript { "A file on disk (not an undoable edit); open it in your editor." } else if kind.content() { "It is an unsaved edit of the game's content files: Undo takes it back; the Mod view ships it as rows of a delta." } else { "It is an unsaved edit of the package: Undo takes it back; save it, keep it in a project, or build a mod from it." }))
+            .child(div().text_xs().text_color(theme.muted_foreground).child(if kind == Kind::LuaScript { "A file on disk (not an undoable edit); open it in your editor." } else if kind.content() { "It is an edit of the game's content files: Undo takes it back; the Mod view ships it as rows of a delta." } else { "It is an unsaved edit of the package: Undo takes it back; save it, keep it in a project, or build a mod from it." }))
             .into_any_element()
     }
 }
@@ -1369,6 +1666,19 @@ impl Render for Wizard {
 impl Studio {
     /// Open Create, at the first step or at `kind`; `content` narrows the first step.
     pub(crate) fn open_wizard(&mut self, kind: Option<Kind>, content: Option<bool>, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_wizard_with(kind, content, None, window, cx);
+    }
+
+    /// The id range new assembly content takes its ids from (kept in the settings).
+    pub(crate) fn set_id_range(&mut self, range: Option<(i64, i64)>) {
+        if self.prefs.id_range != range {
+            self.prefs.id_range = range;
+            self.prefs.save();
+        }
+    }
+
+    /// Open Create; `preset` starts at the details of a kind with its template chosen.
+    pub(crate) fn open_wizard_with(&mut self, kind: Option<Kind>, content: Option<bool>, preset: Option<(Kind, u64, String)>, window: &mut Window, cx: &mut Context<Self>) {
         if self.dir.is_none() {
             self.toast(Tone::Info, "Open the game folder first", cx);
             return;
@@ -1381,7 +1691,7 @@ impl Studio {
         packages.sort_by_key(|(_, p)| lead.iter().position(|l| l == p).unwrap_or(usize::MAX));
         let scripts = self.packages.iter().filter(|p| p.script).map(|p| (p.name.clone(), p.path.clone())).collect();
         let mod_scripts = self.project.as_ref().map(|p| p.mod_files().join("scripts"));
-        let start = Start { package: self.open.as_ref().filter(|t| !self.packages.iter().any(|p| p.path == t.path && p.script)).map(|t| t.path.clone()), group, nearby, packages, dir: self.dir.clone().unwrap_or_default(), scripts, mod_scripts };
+        let start = Start { id_range: self.prefs.id_range, preset, package: self.open.as_ref().filter(|t| !self.packages.iter().any(|p| p.path == t.path && p.script)).map(|t| t.path.clone()), group, nearby, packages, dir: self.dir.clone().unwrap_or_default(), scripts, mod_scripts };
         let me = cx.entity().downgrade();
         let backend = self.backend.clone();
         let w = cx.new(|cx| Wizard::new(backend, me, start, kind, content, window, cx));
@@ -1397,7 +1707,7 @@ impl Studio {
         match outcome {
             Outcome::Object(path, index, msg) => {
                 self.dirty.insert(path.clone());
-                self.toast(Tone::Success, format!("{msg} (unsaved)"), cx);
+                self.toast(Tone::Success, msg.clone(), cx);
                 let place = Place::package(path.clone(), index);
                 if self.open.as_ref().is_some_and(|t| t.path == path) {
                     self.refresh_package(path, index, cx);
@@ -1415,7 +1725,7 @@ impl Studio {
                         this.packages = crate::model::packages(&list.json);
                         this.refilter_packages(cx);
                         this.dirty.insert(path.clone());
-                        this.toast(Tone::Success, format!("{} created (unsaved): add objects to it with Create", file_name(&path)), cx);
+                        this.toast(Tone::Success, format!("{} created: add objects to it with Create", file_name(&path)), cx);
                         this.user_open_package(path, cx);
                     });
                 })
@@ -1423,7 +1733,7 @@ impl Studio {
             }
             Outcome::Script(path, index, msg) => {
                 self.dirty.insert(path.clone());
-                self.toast(Tone::Success, format!("{msg} (unsaved)"), cx);
+                self.toast(Tone::Success, msg.clone(), cx);
                 self.tab = super::inspector::Tab::Source;
                 let place = Place::package(path.clone(), index);
                 if self.open.as_ref().is_some_and(|t| t.path == path) {
@@ -1439,12 +1749,12 @@ impl Studio {
                 self.reveal_file(&file, cx);
             }
             Outcome::Content(row, msg) => {
-                self.toast(Tone::Success, format!("{msg}; unsaved"), cx);
+                self.toast(Tone::Success, msg.clone(), cx);
                 if let Some(a) = &self.assembly {
                     a.update(cx, |a, cx| a.reopen(cx));
                 }
                 self.applied_docs = true;
-                let place = Place::Assembly { file: "assembly".into(), table: row.as_ref().map(|r| r.0.clone()), row: row.map(|r| r.1) };
+                let place = Place::Assembly { file: "assembly".into(), path: Vec::new(), table: row.as_ref().map(|r| r.0.clone()), row: row.map(|r| r.1) };
                 self.record(place.clone());
                 self.go_later(place, cx);
             }

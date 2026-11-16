@@ -160,6 +160,10 @@ pub struct PropRow {
     pub list: ListRole,
     /// A property stored on the object or in a tagged struct (can be reset to its default).
     pub resettable: bool,
+    /// Rows under it (a struct's members, an array's elements): it can be folded.
+    pub children: usize,
+    /// A tagged struct: fields it does not store can be added.
+    pub is_struct: bool,
 }
 
 /// The editor for a scalar value: what `object.set` accepts (the Electron
@@ -198,13 +202,13 @@ fn push_value(out: &mut Vec<PropRow>, depth: u16, name: String, kind: String, pa
     let items = v["v"].as_array().cloned().unwrap_or_default();
     match t {
         "struct" => {
-            out.push(PropRow { depth, name, kind, value: String::new(), path: path.clone(), ..Default::default() });
+            out.push(PropRow { depth, name, kind, value: String::new(), path: path.clone(), is_struct: true, children: items.len(), ..Default::default() });
             for p in &items {
                 push_property(out, depth + 1, &path, p);
             }
         }
         "binary" => {
-            out.push(PropRow { depth, name, kind, value: String::new(), path: path.clone(), ..Default::default() });
+            out.push(PropRow { depth, name, kind, value: String::new(), path: path.clone(), children: items.len(), ..Default::default() });
             for m in &items {
                 let elems = m["elems"].as_array().cloned().unwrap_or_default();
                 let mt = str_of(m, "type");
@@ -220,10 +224,11 @@ fn push_value(out: &mut Vec<PropRow>, depth: u16, name: String, kind: String, pa
         }
         "array" => {
             let len = v.get("len").and_then(|l| l.as_u64()).unwrap_or(items.len() as u64);
-            out.push(PropRow { depth, name, kind, value: format!("{len} elements"), path: path.clone(), list: ListRole::Array, ..Default::default() });
+            out.push(PropRow { depth, name, kind, value: format!("{len} elements"), path: path.clone(), list: ListRole::Array, children: items.len(), ..Default::default() });
             for (k, e) in items.iter().enumerate() {
                 let at = out.len();
                 push_value(out, depth + 1, format!("[{k}]"), String::new(), format!("{path}[{k}]"), e);
+                // An element that is a struct keeps its role as an element (removable, duplicable).
                 out[at].list = ListRole::Element { array: path.clone(), at: k };
             }
         }
@@ -246,14 +251,43 @@ fn push_property(out: &mut Vec<PropRow>, depth: u16, parent: &str, p: &J) {
     out[at].resettable = true;
 }
 
+impl PropRow {
+    /// Whether the row starts unfolded: top-level structs and arrays do, unless an array is long.
+    pub fn starts_open(&self) -> bool {
+        self.depth < 1 && !(matches!(self.list, ListRole::Array) && self.children > 64)
+    }
+}
+
+/// The rows to show: those under a folded row are left out. `open` says whether a row with children is unfolded.
+pub fn unfolded(rows: &[PropRow], open: impl Fn(&PropRow) -> bool) -> Vec<usize> {
+    let mut out = Vec::new();
+    // Rows deeper than this are hidden (under a folded row).
+    let mut hide_below: Option<u16> = None;
+    for (k, r) in rows.iter().enumerate() {
+        if let Some(d) = hide_below {
+            if r.depth > d {
+                continue;
+            }
+            hide_below = None;
+        }
+        out.push(k);
+        if r.children > 0 && !open(r) {
+            hide_below = Some(r.depth);
+        }
+    }
+    out
+}
+
 /// The inspector's view of an export (`object.get`).
 pub struct Inspected {
     pub path: String,
     pub class: String,
     pub kind: String,
     pub rows: Vec<PropRow>,
-    /// The native part of the object as text (meshes, textures, levels…).
+    /// The native part of the object as text (meshes, textures, levels…), with what the engine keeps beside the properties.
     pub native: String,
+    /// What to say in place of properties: an export whose header did not parse (`true`: an error), an empty placeholder, a script object's text.
+    pub note: Option<(bool, String)>,
 }
 
 pub fn inspected(v: &J) -> Inspected {
@@ -261,11 +295,37 @@ pub fn inspected(v: &J) -> Inspected {
     for p in v["properties"].as_array().into_iter().flatten() {
         push_property(&mut rows, 0, "", p);
     }
-    let native = match v.get("native") {
-        Some(n) if !n["text"].as_str().unwrap_or_default().is_empty() => format!("{} ({} bytes)\n{}", str_of(n, "type"), n["size"], str_of(n, "text")),
-        _ => v.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_string(),
+    let kind = str_of(v, "kind");
+    let mut tech = Vec::new();
+    if let Some(n) = v.get("native").filter(|n| n.is_object()) {
+        let ty = str_of(n, "type");
+        let mut line = format!("native payload: {ty}");
+        if ty == "Raw" {
+            line += &format!(" · {} not decoded", human_size(n["size"].as_u64().unwrap_or(0)));
+        }
+        if let Some(i) = v["netIndex"].as_i64() {
+            line += &format!(" · net index {i}");
+        }
+        if v["hasRawValues"].as_bool() == Some(true) {
+            line += " · some property values are raw";
+        }
+        tech.push(line);
+        if let Some(f) = v.get("stateFrame").filter(|f| f.is_object()) {
+            tech.push(format!("state frame: node {} · state {} · stack {}", str_of(&f["node"], "path"), str_of(&f["state"], "path"), f["stack"]));
+        }
+        if let Some(c) = v.get("component").filter(|c| c.is_object()) {
+            tech.push(format!("component template: {} · {}", str_of(&c["templateOwnerClass"], "path"), c["templateName"].as_str().unwrap_or("-")));
+        }
+        let text = str_of(n, "text");
+        tech.push(if text.is_empty() { "(no native data)".to_string() } else { text });
+    }
+    let note = match kind.as_str() {
+        "raw" => Some((true, format!("The header of this export could not be parsed: {}\n{} bytes: {}", str_of(v, "error"), v["size"], str_of(v, "hex")))),
+        "empty" => Some((false, "Empty placeholder left by the cooker (or a deleted object).".to_string())),
+        "script" => Some((false, format!("{}\n\nScript objects are edited as source: see the Source tab.", str_of(v, "text")))),
+        _ => None,
     };
-    Inspected { path: str_of(v, "path"), class: str_of(v, "class"), kind: str_of(v, "kind"), rows, native }
+    Inspected { path: str_of(v, "path"), class: str_of(v, "class"), kind, rows, native: tech.join("\n"), note }
 }
 
 pub fn human_size(n: u64) -> String {
@@ -301,4 +361,29 @@ pub fn deps(v: &J) -> Deps {
     let list = |k: &str| v[k].as_array().into_iter().flatten().map(reference).collect();
     let links = ["class", "outer", "archetype", "super"].into_iter().map(|k| (k, reference(&v[k]))).filter(|(_, r)| r.index != 0).collect();
     Deps { links, references: list("references"), referrers: list("referrers") }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn folded_rows_hide_what_is_under_them() {
+        let obj = json!({ "path": "A", "class": "C", "kind": "object", "properties": [
+            { "name": "Scale", "type": "FloatProperty", "value": { "t": "float", "v": 1.0 } },
+            { "name": "Box", "type": "StructProperty", "struct": "Box", "value": { "t": "struct", "v": [
+                { "name": "Min", "type": "StructProperty", "struct": "Vector", "value": { "t": "struct", "v": [{ "name": "X", "type": "FloatProperty", "value": { "t": "float", "v": 0.0 } }] } },
+                { "name": "Valid", "type": "ByteProperty", "value": { "t": "byte", "v": 1 } },
+            ] } },
+            { "name": "After", "type": "IntProperty", "value": { "t": "int", "v": 3 } },
+        ] });
+        let ins = inspected(&obj);
+        let names = |shown: Vec<usize>| shown.into_iter().map(|k| ins.rows[k].name.clone()).collect::<Vec<_>>();
+        // As it opens: top-level structs unfolded, nested ones folded.
+        assert_eq!(names(unfolded(&ins.rows, |r| r.starts_open())), ["Scale", "Box", "Min", "Valid", "After"]);
+        assert_eq!(names(unfolded(&ins.rows, |_| true)), ["Scale", "Box", "Min", "X", "Valid", "After"]);
+        assert_eq!(names(unfolded(&ins.rows, |_| false)), ["Scale", "Box", "After"]);
+        assert!(ins.rows[1].is_struct && !ins.rows[0].is_struct);
+    }
 }

@@ -221,7 +221,7 @@ impl Studio {
                     window.refresh();
                 })
             };
-            let mut body = v_flex().gap_3().child(div().text_sm().text_color(theme.muted_foreground).child(format!("{name} becomes {what}. It is an unsaved edit: Undo takes it back.")));
+            let mut body = v_flex().gap_3().child(div().text_sm().text_color(theme.muted_foreground).child(format!("{name} becomes {what}. It is an edit: Undo takes it back.")));
             match k {
                 Kind::Texture => {
                     body = body

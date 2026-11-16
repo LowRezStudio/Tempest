@@ -132,7 +132,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     this.dirty.insert(pck.clone());
-                    this.toast(Tone::Success, format!("Replaced medium {id} with {} ({}); {} is unsaved", file_name(&file), crate::model::human_size(r.json["bytes"].as_u64().unwrap_or(0)), file_name(&pck)), cx);
+                    this.toast(Tone::Success, format!("Replaced medium {id} with {} ({}); {} is edited", file_name(&file), crate::model::human_size(r.json["bytes"].as_u64().unwrap_or(0)), file_name(&pck)), cx);
                 }
                 Err(e) => this.toast(Tone::Error, format!("Could not replace it: {e}"), cx),
             });

@@ -157,7 +157,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| match r {
                 Ok(_) => {
                     this.dirty.insert(path.clone());
-                    this.set_status(format!("{done} (unsaved)"), cx);
+                    this.set_status(done.to_string(), cx);
                     this.load_anim(path.clone(), shown, mesh.clone(), cx);
                 }
                 Err(e) => this.toast(Tone::Error, format!("Could not edit the animation: {e}"), cx),

@@ -47,6 +47,10 @@ pub struct Prefs {
     pub map_panes: [f32; 2],
     /// The other views' pane widths by group (`main`, `assembly`, `audio`).
     pub panes: BTreeMap<String, Vec<f32>>,
+    /// The ids new assembly content takes: a range of the user's own, so mods never allocate the same id.
+    pub id_range: Option<(i64, i64)>,
+    /// Draw game shaders from the Direct3D 11 (shader model 5, the default) or Direct3D 9 (shader model 3) caches.
+    pub sm3: bool,
 }
 
 fn map_panes() -> [f32; 2] {
@@ -63,7 +67,7 @@ fn movie_panes() -> [f32; 3] {
 
 impl Default for Prefs {
     fn default() -> Prefs {
-        Prefs { theme: "dark".into(), ask_in_place: true, restore: true, folders: BTreeMap::new(), projects: Vec::new(), zoom: 1.0, check_updates: true, movie_panes: movie_panes(), map_hidden: map_hidden(), map_panes: map_panes(), panes: BTreeMap::new() }
+        Prefs { theme: "dark".into(), ask_in_place: true, restore: true, folders: BTreeMap::new(), projects: Vec::new(), zoom: 1.0, check_updates: true, movie_panes: movie_panes(), map_hidden: map_hidden(), map_panes: map_panes(), panes: BTreeMap::new(), id_range: None, sm3: false }
     }
 }
 

@@ -8,8 +8,10 @@ current sources.
 ## Shell and commands
 
 Shell (`src/studio.rs`): header (Back/Forward, game folder menu with recent folders, search field
-opening the palette, Undo, unsaved count with a list, Save menu: save, save all, export a copy,
-discard), activity bar (Packages / Assembly / Audio / Map / Mod views, search, shortcuts), window
+opening the palette, Undo, **Edits (n)** with the edited files (open, discard, write; Discard all
+edits, Write all), Write menu: write into the game folder, write all, export a copy, discard). The
+UI says "edits", not "unsaved": edits live in the Studio and go into mods; writing over the game's
+own packages is the exception (quick tests), activity bar (Packages / Assembly / Audio / Map / Mod views, search, shortcuts), window
 tabs (`tabs.rs`), status line, notifications (`Studio::toast`), welcome screen (`welcome.rs`). Every
 action is a `Cmd` (`commands.rs`: title, group, keys, `enabled`, `run`): key bindings, the palette's
 `>` mode, menus and the F1 shortcut list read it. The palette (`palette.rs`) is also the picker of
@@ -23,7 +25,7 @@ dark/light/system, ask before saving in place (the save dialog also has Don't as
 last package/object/view per game folder, forget recent folders, unpin. Per folder the Studio
 remembers pinned packages (pinned to the top, context menu), recently opened packages (listed first
 in ⌘P) and the last place. Package context menu: Pin, Copy the file path, Show in Finder; export
-menu and ⌘⇧C: Copy the object path (`Tables::object_path`); the package list's **Unsaved** switch
+menu and ⌘⇧C: Copy the object path (`Tables::object_path`); the package list's **Edited** switch
 shows only edited packages.
 
 ## Theme
@@ -49,3 +51,9 @@ opening a package or table, closes it); dragged widths are kept per group in `pr
 (`Assembly::pinned`, as in Electron: drawn over the scrolled cells at the sideways offset, never
 hidden by the column chooser). The Mod view asks which game file an added file with an unknown name
 replaces, or ships it as a new file.
+
+Commands also cover: Open package file (⌘O), Export a copy (⌘⇧S), Search every package (⌘F and
+⌘⇧F), Next/Previous tab, Zoom in/out/reset, Toggle theme, Show the sound banks (⌘4), Check for
+updates, MCP server, Package info, Rewrite, Prepare a mod folder, Export the class sources, Show the
+project folder, Discard all, and the Assembly's (`Asm*`). The palette lists the assembly's tables
+with the packages, and `@` in the Assembly view filters the rows of the table on screen.

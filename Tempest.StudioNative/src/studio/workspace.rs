@@ -18,6 +18,8 @@ impl Studio {
             "view": match self.view { View::Packages => "packages", View::Assembly => "assembly", View::Mod => "mod", View::Audio => "audio", View::Map => "map" },
             "package": self.selected_package,
             "export": self.selected_export,
+            // The ids new assembly content takes (a project keeps its own range).
+            "idRange": self.prefs.id_range.map(|(start, end)| json!({ "start": start, "end": end })),
         })
     }
 
@@ -30,7 +32,7 @@ impl Studio {
     pub(super) fn save_workspace_to(&mut self, portable: bool, out: Option<String>, cx: &mut Context<Self>) {
         let unsaved = self.dirty.len() + self.assembly.as_ref().map(|a| a.read(cx).unsaved_count()).unwrap_or(0);
         if unsaved == 0 {
-            self.toast(Tone::Info, "Nothing is unsaved: a workspace file keeps unsaved edits", cx);
+            self.toast(Tone::Info, "Nothing is edited: a workspace file keeps edits", cx);
             return;
         }
         let docs = std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join("Documents")).filter(|p| p.is_dir()).unwrap_or_else(std::env::temp_dir);
@@ -57,7 +59,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     let n = r.json["files"].as_array().map(|f| f.len()).unwrap_or(0);
-                    this.toast(Tone::Success, format!("Wrote {} ({n} files, {}); the edits stay unsaved here", file_name(&out), crate::model::human_size(r.json["size"].as_u64().unwrap_or(0))), cx);
+                    this.toast(Tone::Success, format!("Wrote {} ({n} files, {}); the edits stay here", file_name(&out), crate::model::human_size(r.json["size"].as_u64().unwrap_or(0))), cx);
                     for w in r.json["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()).take(3) {
                         this.toast(Tone::Warning, w.to_string(), cx);
                     }
@@ -142,12 +144,22 @@ impl Studio {
                     let docs = a.json["docs"].as_array().map(|d| d.len()).unwrap_or(0);
                     this.applied_docs |= docs > 0;
                     this.adopt_project(&path, &state);
+                    // The id range the work was made with.
+                    if let (Some(start), Some(end)) = (state["idRange"]["start"].as_i64(), state["idRange"]["end"].as_i64()) {
+                        this.set_id_range(Some((start, end)));
+                        let (open, range) = (this.backend.call("mcts.open", json!({})), this.backend.call("mcts.idRange", json!({ "start": start, "end": end })));
+                        cx.background_executor().spawn(async move {
+                            let _ = open.await;
+                            let _ = range.await;
+                        })
+                        .detach();
+                    }
                     match &this.project {
                         Some(p) if p.file == path => {
                             let name = p.name.clone();
                             this.toast(Tone::Success, format!("Opened the project {name}: {n} packages and {docs} assembly files with edits"), cx)
                         }
-                        _ => this.toast(Tone::Success, format!("Opened {}: {n} packages and {docs} assembly files with unsaved edits", file_name(&path)), cx),
+                        _ => this.toast(Tone::Success, format!("Opened {}: {n} packages and {docs} assembly files with edits", file_name(&path)), cx),
                     }
                     // Back where it was saved.
                     if let Some(pkg) = state["package"].as_str() {
@@ -227,7 +239,7 @@ impl Studio {
                 .border_b_1()
                 .border_color(theme.border)
                 .text_sm()
-                .child(div().flex_1().child(format!("Unsaved work from an earlier session was kept ({ago}). Put it back?")))
+                .child(div().flex_1().child(format!("Edits from an earlier session were kept ({ago}). Put them back?")))
                 .child(Button::new("rec-open").xsmall().primary().label("Restore it").on_click(cx.listener(move |this, _, _, cx| {
                     this.recovery_offer = None;
                     this.open_workspace_file(file.clone(), cx);

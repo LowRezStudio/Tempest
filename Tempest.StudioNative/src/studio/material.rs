@@ -1,5 +1,6 @@
-//! Materials: the preview of a material or instance (a lit sphere with its
-//! base colour, the parent chain, every texture with a thumbnail, the
+//! Materials: the preview of a material or instance (a sphere drawn by the
+//! material's own game shaders when its package has them compiled, else lit
+//! with its base colour; see `game_material`), the parent chain, every texture with a thumbnail, the
 //! scalar, vector and switch parameters, nearest override first) where
 //! textures, scalars and vectors are edited; and a mesh's material slots,
 //! where a slot is pointed at another material or given one of the mesh's
@@ -21,6 +22,7 @@ use serde_json::{json, Value as J};
 use super::mesh::{viewport, MeshState};
 use super::palette::Pick;
 use super::{file_name, Studio, Tone};
+use crate::game_material::{GameMaterial, GamePass, Params};
 use crate::mesh_view::MeshView;
 
 /// `Studio::editing` for a parameter: this prefix, `s:` or `v:`, the name.
@@ -36,6 +38,17 @@ pub struct MaterialState {
     info: J,
     thumbs: HashMap<String, Arc<Image>>,
     sphere: Option<Rc<RefCell<MeshState>>>,
+    /// The sphere drawn by the material's game shaders, and the textures it was built with.
+    game: Option<(GameView, Vec<String>)>,
+    /// Why there is no game shader view (`None` while it is asked for or built).
+    game_error: Option<String>,
+}
+
+type GameView = Rc<RefCell<MeshState<GameMaterial>>>;
+
+/// The texture paths of a `material.preview` answer: the game view is rebuilt when they change.
+fn texture_paths(j: &J) -> Vec<String> {
+    j["textures"].as_array().into_iter().flatten().map(|t| t["path"].as_str().unwrap_or_default().to_string()).collect()
 }
 
 /// A mesh's material slots (`mesh.materials`).
@@ -74,7 +87,25 @@ impl Studio {
             }
         }
         let keep = self.material.as_ref().filter(|m| m.export == i).and_then(|m| m.sphere.as_ref().map(|s| s.borrow().view.camera));
-        self.material = Some(MaterialState { export: i, info: r.json.clone(), thumbs, sphere: None });
+        // The game view of the same material stays: new parameters apply at once, new textures rebuild it.
+        let paths = texture_paths(&r.json);
+        let old = self.material.take().filter(|m| m.export == i);
+        let (game, game_error) = match old {
+            Some(m) => (m.game, m.game_error),
+            None => (None, None),
+        };
+        // A material without game shaders is not asked again for a parameter edit.
+        let rebuild = game.as_ref().map_or(game_error.is_none(), |(_, p)| *p != paths);
+        if let Some((g, _)) = &game {
+            let mut st = g.borrow_mut();
+            let time = st.view.pass.params.time;
+            st.view.pass.params = Params { time, ..Params::from_json(&r.json) };
+            st.dirty = true;
+        }
+        self.material = Some(MaterialState { export: i, info: r.json.clone(), thumbs, sphere: None, game, game_error });
+        if rebuild {
+            self.load_game_material(i, paths, cx);
+        }
         cx.notify();
         let busy = crate::backend::Busy::new();
         cx.spawn(async move |this, cx| {
@@ -90,6 +121,72 @@ impl Studio {
                 }
                 cx.notify();
             });
+        })
+        .detach();
+    }
+
+    /// Ask for the material's game shaders and build their view (`paths`: the textures it is built with).
+    fn load_game_material(&mut self, i: usize, paths: Vec<String>, cx: &mut Context<Self>) {
+        let Some(path) = self.open.as_ref().map(|t| t.path.clone()) else { return };
+        let call = self.backend.call("material.gameShader", json!({ "path": path, "index": i, "textureSize": 512, "platform": crate::game_material::platform() }));
+        cx.spawn(async move |this, cx| {
+            let r = call.await;
+            let built = match r {
+                Ok(r) => {
+                    let busy = crate::backend::Busy::new();
+                    let b = cx.background_executor().spawn(async move { GamePass::new(&r.json, &|v| r.bin(v).map(<[u8]>::to_vec)).map(GameMaterial::new) }).await;
+                    drop(busy);
+                    b
+                }
+                Err(e) => Err(e.to_string()),
+            };
+            let _ = this.update(cx, |this, cx| {
+                let Some(m) = this.material.as_mut().filter(|m| m.export == i) else { return };
+                match built {
+                    Ok(mut view) => {
+                        if let Some((old, _)) = &m.game {
+                            let old = old.borrow();
+                            (view.camera, view.pass.params.time) = (old.view.camera, old.view.pass.params.time);
+                        }
+                        let summary = format!("the game's shaders: {}{}", view.pass.pair, if view.pass.warnings.is_empty() { String::new() } else { format!(" ({} missing: white)", view.pass.warnings.join("; ")) });
+                        let animated = view.pass.animated;
+                        let state = Rc::new(RefCell::new(MeshState::new(i, 0, view, summary)));
+                        m.game = Some((state.clone(), paths));
+                        m.game_error = None;
+                        if animated {
+                            this.animate_game_material(state, cx);
+                        }
+                    }
+                    Err(e) => {
+                        m.game = None;
+                        m.game_error = Some(e);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Redraw a game view whose material reads the clock, while it is the one shown.
+    fn animate_game_material(&mut self, state: GameView, cx: &mut Context<Self>) {
+        let start = std::time::Instant::now();
+        let base = state.borrow().view.pass.params.time;
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(33)).await;
+            let shown = this.update(cx, |this, cx| {
+                let current = this.material.as_ref().and_then(|m| m.game.as_ref()).is_some_and(|(g, _)| Rc::ptr_eq(g, &state));
+                if current && this.game_shaders {
+                    let mut st = state.borrow_mut();
+                    st.view.pass.params.time = base + start.elapsed().as_secs_f32();
+                    st.dirty = true;
+                    cx.notify();
+                }
+                current
+            });
+            if !matches!(shown, Ok(true)) {
+                break;
+            }
         })
         .detach();
     }
@@ -216,18 +313,18 @@ impl Studio {
                 return;
             }
             let v = [c[0], c[1], c[2], c.get(3).copied().unwrap_or(1.0)];
-            self.material_call("material.setParameter", json!({ "name": name, "vector": v }), format!("Set {name} (unsaved)"), cx);
+            self.material_call("material.setParameter", json!({ "name": name, "vector": v }), format!("Set {name}"), cx);
         } else {
             let Ok(f) = value.trim().parse::<f64>() else {
                 self.toast(Tone::Warning, format!("{name} takes a number"), cx);
                 return;
             };
-            self.material_call("material.setParameter", json!({ "name": name, "scalar": f }), format!("Set {name} to {f} (unsaved)"), cx);
+            self.material_call("material.setParameter", json!({ "name": name, "scalar": f }), format!("Set {name} to {f}"), cx);
         }
     }
 
     pub(super) fn set_texture(&mut self, name: String, tpath: String, ti: usize, cx: &mut Context<Self>) {
-        self.material_call("material.setTexture", json!({ "name": name.clone(), "texture": { "path": tpath, "index": ti } }), format!("{name} now uses the picked texture (unsaved)"), cx);
+        self.material_call("material.setTexture", json!({ "name": name.clone(), "texture": { "path": tpath, "index": ti } }), format!("{name} now uses the picked texture"), cx);
     }
 
     /// A new texture from an image, made like the parameter's current one
@@ -304,6 +401,52 @@ impl Studio {
         .detach();
     }
 
+    /// Draw previews with the game's shaders, or with the base colour.
+    pub(super) fn toggle_game_shaders(&mut self, cx: &mut Context<Self>) {
+        self.game_shaders = !self.game_shaders;
+        if let Some(m) = &self.mesh {
+            let mut st = m.borrow_mut();
+            st.view.use_game = self.game_shaders;
+            st.dirty = true;
+        }
+        if let Some(g) = self.material.as_ref().and_then(|m| m.game.as_ref()) {
+            g.0.borrow_mut().dirty = true;
+        }
+        cx.notify();
+    }
+
+    /// Game shaders from the other cache (shader model 5 ↔ 3): every preview asks again.
+    pub(super) fn toggle_shader_model(&mut self, cx: &mut Context<Self>) {
+        self.prefs.sm3 = !self.prefs.sm3;
+        self.prefs.save();
+        crate::game_material::set_sm3(self.prefs.sm3);
+        self.toast(Tone::Info, if self.prefs.sm3 { "Game shaders: shader model 3 (Direct3D 9)" } else { "Game shaders: shader model 5 (Direct3D 11)" }, cx);
+        if let Some(m) = self.material.as_mut() {
+            m.game = None;
+            m.game_error = None;
+            let (i, paths) = (m.export, texture_paths(&m.info));
+            self.load_game_material(i, paths, cx);
+        }
+        if let (Some(path), Some(m)) = (self.open.as_ref().map(|t| t.path.clone()), self.mesh.clone()) {
+            let (i, lod) = { let st = m.borrow(); (st.export, st.lod) };
+            self.load_mesh(path, i, lod, cx);
+        }
+        if let Some(map) = self.map.clone() {
+            map.update(cx, |m, cx| m.reload_game(cx));
+        }
+        cx.notify();
+    }
+
+    /// The material preview for `studio_state`: what draws it and why.
+    pub(super) fn material_state_json(&self) -> Option<J> {
+        let m = self.material.as_ref()?;
+        let game = m.game.as_ref().map(|(g, _)| {
+            let st = g.borrow();
+            json!({ "pair": st.view.pass.pair, "animated": st.view.pass.animated, "warnings": st.view.pass.warnings, "time": st.view.pass.params.time })
+        });
+        Some(json!({ "export": m.export, "drawnWithGameShader": self.game_shaders && game.is_some(), "platform": crate::game_material::platform(), "game": game, "gameError": m.game_error }))
+    }
+
     /// Dev: `material <step>` of the test driver.
     pub(super) fn drive_material(&mut self, arg: &str, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
         let (verb, rest) = arg.split_once(' ').unwrap_or((arg, ""));
@@ -315,6 +458,12 @@ impl Studio {
                 self.commit_parameter(format!("s:{n}"), v.to_string(), cx);
             }
             "pick-texture" => self.open_picker(Pick::Texture(rest.trim().to_string()), window, cx),
+            // `material game on|off`: draw with the game's shaders or the base colour.
+            "game" => {
+                if self.game_shaders != (rest.trim() != "off") {
+                    self.toggle_game_shaders(cx);
+                }
+            }
             _ => return Err(format!("unknown material step {verb}")),
         }
         Ok(())
@@ -327,7 +476,30 @@ impl Studio {
         let m = self.material.as_ref()?;
         let info = &m.info;
         let instance = self.selection_class().is_some_and(|c| c.to_ascii_lowercase().starts_with("materialinstance"));
-        let sphere = m.sphere.clone().map(|s| viewport("material-view", s, 260.0, None, theme.muted, theme.muted_foreground)).unwrap_or_else(|| div().h(px(260.0)).w_full().rounded_md().bg(theme.muted).into_any_element());
+        // The game's shaders when there are, else the base colour; a toggle between the two.
+        let game = m.game.as_ref().map(|(g, _)| g.clone());
+        let use_game = self.game_shaders && game.is_some();
+        let (tip, available): (String, bool) = match (&game, &m.game_error) {
+            (Some(_), _) => ("Draw with the material's own compiled shaders, like the game, or with its base colour only".into(), true),
+            (None, Some(e)) => (format!("No game shader: {e}"), false),
+            (None, None) => ("Building the game's shaders…".into(), false),
+        };
+        let toggle = Button::new("game-shader").xsmall().label("Game shader").tooltip(tip).disabled(!available).on_click(cx.listener(|this, _, _, cx| this.toggle_game_shaders(cx)));
+        let bar = h_flex().gap_1().child(div().relative().child(if use_game { toggle.primary() } else { toggle.ghost() }).child(crate::driver::probe("game-shader"))).into_any_element();
+        let sphere = match (use_game, game, m.sphere.clone()) {
+            (true, Some(g), _) => viewport("material-view", g, 260.0, Some(bar), theme.muted, theme.muted_foreground),
+            (_, _, Some(s)) => {
+                if let Some(e) = &m.game_error {
+                    let mut st = s.borrow_mut();
+                    let note = format!("base colour only: {e}");
+                    if st.summary != note {
+                        st.summary = note;
+                    }
+                }
+                viewport("material-view", s, 260.0, Some(bar), theme.muted, theme.muted_foreground)
+            }
+            _ => div().h(px(260.0)).w_full().rounded_md().bg(theme.muted).into_any_element(),
+        };
         let section = |title: &str| div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(title.to_uppercase());
         let mut panel = v_flex().gap_1();
         panel = panel.child(

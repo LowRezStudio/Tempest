@@ -1,6 +1,7 @@
 //! The 3D view: the scene drawn into a canvas (a frame only when something
 //! changed, at half resolution while the camera moves), the camera (left
-//! drag orbits, right drag looks around and WASD/QE fly while it is held,
+//! drag orbits, right drag looks around and WASD/QE fly while it is held
+//! (ZQSD/AE on an AZERTY layout),
 //! the arrows and Page Up/Down always fly, Shift faster, middle drag pans,
 //! the wheel zooms), click picking, and the gizmo (W move, E rotate, R
 //! scale, Q select only), which writes the actor on release.
@@ -29,6 +30,8 @@ struct Inner {
     bounds: Bounds<Pixels>,
     /// How long the last frame took to draw and read back, and its size.
     last_frame: (f32, (u32, u32)),
+    /// The frame the GPU is drawing (one at a time), when it was asked for, and its size.
+    pending: Option<(crate::mesh_view::PendingFrame, std::time::Instant, (u32, u32))>,
 }
 
 /// A gizmo handle.
@@ -86,7 +89,7 @@ const HOT: u32 = 0xf9e2af;
 impl View3d {
     pub fn new() -> View3d {
         let scene = MapScene::new();
-        View3d { inner: Rc::new(RefCell::new(Inner { scene, image: None, stale: Vec::new(), dirty: true, coarse: false, bounds: Bounds::default(), last_frame: (0.0, (0, 0)) })), drag: None, keys: HashSet::new(), fast: false, flying: false, settle: 0, hot: None, focus: None }
+        View3d { inner: Rc::new(RefCell::new(Inner { scene, image: None, stale: Vec::new(), dirty: true, coarse: false, bounds: Bounds::default(), last_frame: (0.0, (0, 0)), pending: None })), drag: None, keys: HashSet::new(), fast: false, flying: false, settle: 0, hot: None, focus: None }
     }
 
     /// Change the scene (`None` without a GPU).
@@ -510,12 +513,7 @@ impl MapEditor {
             "right" => Some("right"),
             "pageup" => Some("up"),
             "pagedown" => Some("down"),
-            "w" if looking => Some("fwd"),
-            "s" if looking => Some("back"),
-            "a" if looking => Some("left"),
-            "d" if looking => Some("right"),
-            "e" if looking => Some("up"),
-            "q" if looking => Some("down"),
+            _ if looking => fly_key(k, azerty(cx)),
             _ => None,
         };
         if let Some(f) = fly {
@@ -544,13 +542,16 @@ impl MapEditor {
         let k = e.keystroke.key.as_str();
         self.view.fast = e.keystroke.modifiers.shift;
         let f = match k {
-            "up" | "w" => "fwd",
-            "down" | "s" => "back",
-            "left" | "a" => "left",
-            "right" | "d" => "right",
-            "pageup" | "e" => "up",
-            "pagedown" | "q" => "down",
-            _ => return,
+            "up" => "fwd",
+            "down" => "back",
+            "left" => "left",
+            "right" => "right",
+            "pageup" => "up",
+            "pagedown" => "down",
+            _ => match fly_key(k, azerty(cx)) {
+                Some(f) => f,
+                None => return,
+            },
         };
         self.view.keys.remove(f);
         cx.notify();
@@ -652,17 +653,27 @@ impl MapEditor {
                 st.bounds = bounds;
                 let scale = if st.coarse { 1.0 } else { window.scale_factor() };
                 let size = ((f32::from(bounds.size.width) * scale) as u32, (f32::from(bounds.size.height) * scale) as u32);
-                if st.dirty || st.image.as_ref().map(|(_, s)| *s) != Some(size) {
-                    let st = &mut *st;
-                    if let Ok(scene) = &mut st.scene {
-                        let t = std::time::Instant::now();
-                        let image = scene.render(size.0, size.1);
-                        st.last_frame = (t.elapsed().as_secs_f32() * 1000.0, size);
-                        if let Some((old, _)) = st.image.replace((image, size)) {
-                            st.stale.push(old);
+                // The GPU draws while the UI goes on: a finished frame replaces the
+                // shown one, and the next is asked for only then (one in flight).
+                let st = &mut *st;
+                if let Ok(scene) = &mut st.scene {
+                    if let Some((frame, t, size)) = &mut st.pending {
+                        if let Some(image) = scene.collect(frame, false) {
+                            st.last_frame = (t.elapsed().as_secs_f32() * 1000.0, *size);
+                            if let Some((old, _)) = st.image.replace((image, *size)) {
+                                st.stale.push(old);
+                            }
+                            st.pending = None;
                         }
                     }
-                    st.dirty = false;
+                    if st.pending.is_none() && (st.dirty || st.image.as_ref().map(|(_, s)| *s) != Some(size)) {
+                        let t = std::time::Instant::now();
+                        st.pending = Some((scene.render(size.0, size.1), t, size));
+                        st.dirty = false;
+                    }
+                    if st.pending.is_some() {
+                        window.request_animation_frame();
+                    }
                 }
                 for old in std::mem::take(&mut st.stale) {
                     let _ = window.drop_image(old);
@@ -725,7 +736,7 @@ impl MapEditor {
                     .font_family("Menlo")
                     .text_color(theme.muted_foreground)
                     .text_right()
-                    .child("left drag orbit · right drag look, + WASD fly (Q E down/up) · middle drag pan · arrows fly · wheel zoom")
+                    .child(if azerty(cx) { "left drag orbit · right drag look, + ZQSD fly (A E down/up) · middle drag pan · arrows fly · wheel zoom" } else { "left drag orbit · right drag look, + WASD fly (Q E down/up) · middle drag pan · arrows fly · wheel zoom" })
                     .child("click select · W move · E rotate · R scale · Q select only · F frame")
                     .child("⇧A add an actor · ⌘D duplicate · Delete delete"),
             )
@@ -749,5 +760,40 @@ impl MapEditor {
             "center": pr(g.center),
             "axes": (0..3).map(|k| pr(g.center + g.axes[k] * g.size)).collect::<Vec<_>>(),
         }))
+    }
+}
+
+/// Whether the keyboard is laid out AZERTY (French, Belgian): flying is then ZQSD, A and E down and up.
+fn azerty(cx: &gpui::App) -> bool {
+    let id = cx.keyboard_layout().id().to_ascii_lowercase();
+    ["french", "belgian", "azerty"].iter().any(|l| id.contains(l))
+}
+
+/// A fly direction of a letter key as typed (`key` follows the layout): the
+/// same four keys under the left hand, WASD + Q E, or ZQSD + A E.
+fn fly_key(k: &str, azerty: bool) -> Option<&'static str> {
+    Some(match (k, azerty) {
+        ("w", false) | ("z", true) => "fwd",
+        ("s", _) => "back",
+        ("a", false) | ("q", true) => "left",
+        ("d", _) => "right",
+        ("e", _) => "up",
+        ("q", false) | ("a", true) => "down",
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod fly_tests {
+    use super::fly_key;
+
+    #[test]
+    fn the_fly_keys_follow_the_layout() {
+        assert_eq!(fly_key("w", false), Some("fwd"));
+        assert_eq!(fly_key("z", true), Some("fwd"));
+        assert_eq!(fly_key("q", true), Some("left"));
+        assert_eq!(fly_key("q", false), Some("down"));
+        assert_eq!(fly_key("a", true), Some("down"));
+        assert_eq!(fly_key("z", false), None);
     }
 }

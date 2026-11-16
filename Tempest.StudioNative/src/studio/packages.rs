@@ -81,6 +81,7 @@ impl Studio {
         self.particles = None;
         self.deps = None;
         self.source = None;
+            self.dump = None;
         self.player.stop();
     }
 
@@ -109,6 +110,7 @@ impl Studio {
                     }
                 }
                 self.source = None;
+            self.dump = None;
                 self.select_export(i, cx);
             }
             None => {
@@ -160,8 +162,10 @@ impl Studio {
         let Some(t) = &self.open else { return };
         if self.selected_export != Some(i) {
             let keep_mesh = self.mesh.as_ref().is_some_and(|m| m.borrow().export == i);
+            self.prop_open.clear();
             self.deps = None;
             self.source = None;
+            self.dump = None;
             if !keep_mesh {
                 self.mesh = None;
             }
@@ -414,6 +418,13 @@ impl Studio {
                 let _ = me2.update(cx, |this, cx| this.new_tab(Some(Place::package(path.clone(), Some(i))), cx));
             }))
             .item(item("Copy the object path", Cmd::CopyPath))
+            .item({
+                // The path inside the package (Group.Name), as properties name it.
+                let (me, inner) = (me.clone(), self.open.as_ref().map(|t| t.object_path(i)).and_then(|p| p.split_once('.').map(|(_, rest)| rest.to_string())).unwrap_or_default());
+                PopupMenuItem::new("Copy the path inside the package").on_click(move |_, _, cx| {
+                    let _ = me.update(cx, |this, cx| this.copy_text(inner.clone(), "path", cx));
+                })
+            })
             .separator()
             .item(item("Rename", Cmd::Rename))
             .item(item("Duplicate", Cmd::Duplicate))
@@ -421,9 +432,12 @@ impl Studio {
             .separator()
             .item(item("Export to a file…", Cmd::ExportObject))
             .item(item("Replace from a file…", Cmd::ReplaceObject))
-            .item(item("Replace with an object of another package…", Cmd::ReplaceWith));
+            .item(item("Replace with an object of another package…", Cmd::ReplaceWith))
+            .item(item("Extract the raw data…", Cmd::ExtractRaw));
         if group {
             menu = menu.separator().item(item("Add an object here…", Cmd::AddObject)).item(item("Add a group here…", Cmd::AddGroup));
+        } else {
+            menu = menu.separator().item(item("Add next to it…", Cmd::AddObject));
         }
         menu.separator().item(item("Delete…", Cmd::Delete))
     }
@@ -549,8 +563,8 @@ impl Studio {
                             .xsmall()
                             .ghost()
                             .selected(self.unsaved_only)
-                            .label(if self.dirty.is_empty() { "Unsaved".to_string() } else { format!("Unsaved {}", self.dirty.len()) })
-                            .tooltip("Show only the packages with unsaved edits")
+                            .label(if self.dirty.is_empty() { "Edited".to_string() } else { format!("Edited {}", self.dirty.len()) })
+                            .tooltip("Show only the packages you edited")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.unsaved_only = !this.unsaved_only;
                                 this.refilter_packages(cx);
@@ -620,11 +634,11 @@ impl Studio {
                             window.close_dialog(cx);
                             let _ = me1.update(cx, |this, cx| this.user_open_package(f1.clone(), cx));
                         }))
-                        .child(Button::new(format!("save-{f}")).xsmall().label("Save…").on_click(move |_, window, cx| {
+                        .child(Button::new(format!("save-{f}")).xsmall().label("Write…").on_click(move |_, window, cx| {
                             window.close_dialog(cx);
                             let _ = me2.update(cx, |this, cx| this.save_packages(vec![f2.clone()], window, cx));
                         }))
-                        .child(Button::new(format!("discard-{f}")).xsmall().ghost().label("Discard…").on_click(move |_, window, cx| {
+                        .child(Button::new(format!("discard-{f}")).xsmall().ghost().label("Discard edits…").on_click(move |_, window, cx| {
                             window.close_dialog(cx);
                             let _ = me3.update(cx, |this, cx| this.discard(f3.clone(), window, cx));
                         })),
@@ -633,7 +647,30 @@ impl Studio {
             for f in &assembly {
                 list = list.child(h_flex().gap_2().text_sm().child(div().flex_1().child(file_name(f))).child(div().text_xs().text_color(theme.muted_foreground).child("assembly · save it from the Assembly view")));
             }
-            dialog.title("Unsaved files").w(px(560.0)).child(list)
+            // Everything at once: the same commands as the palette's.
+            let (me1, me2) = (me.clone(), me.clone());
+            let n = files.len() + assembly.len();
+            let all = h_flex()
+                .gap_2()
+                .pb_2()
+                .mb_1()
+                .border_b_1()
+                .border_color(theme.border)
+                .child(div().flex_1().text_sm().text_color(theme.muted_foreground).child(format!("{n} file{} with edits", if n == 1 { "" } else { "s" })))
+                .child(Button::new("save-all").xsmall().ghost().label("Write all into the game…").disabled(files.is_empty()).on_click(move |_, window, cx| {
+                    window.close_dialog(cx);
+                    let _ = me1.update(cx, |this, cx| this.run(super::commands::Cmd::SaveAll, window, cx));
+                }))
+                .child(
+                    div()
+                        .relative()
+                        .child(Button::new("discard-all").xsmall().danger().label("Discard all edits…").on_click(move |_, window, cx| {
+                            window.close_dialog(cx);
+                            let _ = me2.update(cx, |this, cx| this.run(super::commands::Cmd::DiscardAll, window, cx));
+                        }))
+                        .child(crate::driver::probe("discard-all")),
+                );
+            dialog.title("Edits").w(px(560.0)).child(all).child(div().id("unsaved-list").max_h(px(420.0)).overflow_y_scroll().child(list))
         });
     }
 
@@ -667,11 +704,21 @@ impl Studio {
                         list = list.child(h_flex().gap_3().items_start().child(div().w(px(140.0)).flex_none().text_xs().text_color(theme.muted_foreground).child(k)).child(div().flex_1().min_w_0().text_sm().child(v)));
                     }
                     let (m1, m2, p1, p2) = (me.clone(), me.clone(), path.clone(), path.clone());
+                    let (m3, m4, p3, p4) = (me.clone(), me.clone(), path.clone(), path.clone());
                     dialog.title(format!("{} info", file_name(&path))).w(px(600.0)).child(list).footer(
                         h_flex()
                             .w_full()
                             .justify_end()
                             .gap_2()
+                            .child(Button::new("pi-imports").ghost().label("Imports…").tooltip("What the package takes from other packages").on_click(move |_, window, cx| {
+                                window.close_dialog(cx);
+                                let _ = m3.update(cx, |s, cx| s.package_tables_dialog(p3.clone(), false, window, cx));
+                            }))
+                            .child(Button::new("pi-names").ghost().label("Names…").tooltip("The package's name table").on_click(move |_, window, cx| {
+                                window.close_dialog(cx);
+                                let _ = m4.update(cx, |s, cx| s.package_tables_dialog(p4.clone(), true, window, cx));
+                            }))
+                            .child(div().flex_1())
                             .child(Button::new("pi-copy").ghost().label("Copy the path").on_click(move |_, _, cx| {
                                 let _ = m1.update(cx, |s, cx| s.copy_text(p1.clone(), "file path", cx));
                             }))

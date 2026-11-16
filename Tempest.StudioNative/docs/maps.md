@@ -17,7 +17,7 @@ placement; a mesh that fails is a red box), brushes as see-through fills + featu
 lights and markers as built-in shapes; drawn off-screen with wgpu on the mesh viewer's device with a
 reversed depth buffer (`draw_frame_depth`), at half resolution while the camera moves
 (`settle_later`), only when something changed; shading lit/unlit/untextured/wireframe, heavy walls
-by slope in the shader or X-ray over everything. Camera: left drag orbits, right drag looks (WASD/QE
+by slope in the shader or X-ray over everything. Camera: left drag orbits, right drag looks (WASD/QE, ZQSD/AE on an AZERTY layout by `keyboard_layout().id()`;
 fly while held), arrows/Page Up/Down fly, Shift faster, middle drag pans, wheel zooms; F frames,
 Escape deselects. Picking on the CPU (`MapScene::pick`: meshes by their triangles, volumes by their
 edges). Gizmo (`viewport.rs`, W move with axis and plane handles, E rotate rings, R scale axes +
@@ -47,7 +47,8 @@ scales, tints lights and hides toggled actors with `tempest_assets::matinee_curv
 `map::{to_view, from_view, decompose}` (unit-tested round trip). Collision overlay, Light bake
 dialog (scopes, rays, albedo, compare, the selected mesh's light map with an exposure slider), Nav
 mesh panel (colour by region/cluster, X-ray, pick actors/faces/vertex, whole regions, delete faces,
-cut region, move a vertex), actor palette (Copy / New / Mesh with a `workspace.search` of static
+cut region, move a vertex, Generate from the level: `map.navmeshGenerate`, MCP `studio_map
+{action: "navmesh", navOp: "generate"}`, the answer's `generated` stats in the state), actor palette (Copy / New / Mesh with a `workspace.search` of static
 meshes, into a chosen level), Export dialog. Every edit is an unsaved edit of its level
 (`note_edit`: the map's own `dirty` copy, the Studio told on save/discard by `forget_map_edit`), ⌘Z
 in the Map view takes back map edits first, Save writes the map's unsaved levels. Places:
@@ -69,3 +70,29 @@ driver step `probe <name>` prints a probe's bounds. `InputState::set_value` is n
 `value()` at once: code that sets a field's text must also apply it itself. An entity must not be
 updated while it is being updated: the driver updates the Assembly/Mod entities directly, not
 through `Studio::drive`. `just studio-native [<game dir>]`.
+
+Opening another map drops the mesh loads still queued for the last one (`mesh_epoch`,
+`MapScene::forget_loading`) and frees the meshes the new map does not draw (`retain_used`); a late
+answer for a mesh the new map also wants is kept. The inspector's `PropEditor` folds structs and
+arrays like the package inspector; Enter or leaving a field applies, Escape cancels.
+
+Game shading (shading menu "Game shaders", `map shading game`, `studio_map {shading: "game"}`):
+each loaded mesh key's sections are resolved to their material (`material.gameShader` with
+`resolveOnly`, the key's `mesh.preview` request and `section`), then each material's shaders are
+loaded once (textures at 256) and built as a `GamePass` with `PassOptions { reversed_depth, cull:
+false }`: each placement's vertex constants (LocalToWorld in the game's space, `C⁻¹·M·C`) are a block
+of the pass's `draws` storage array, and every placement of a part is one instanced draw (Pirate:
+255 draws for 1,593 placements), opaque materials before blended ones; parts without a pass stay
+lit. One fixed sun, sky and SH ambient; no light maps yet. Materials whose uniform expressions read
+the clock (water, panners) animate: `animate_game` advances the drawn passes' time and redraws 30
+times a second while game shading is on (`studio_state.map.game.animating`). `studio_state.map.game`
+counts materials, parts, requests left and failures. Speed: three requests in flight, the view
+redrawn at most every 250 ms while materials arrive; the draw lists are built with the scene (a
+rebuild of the batches drops them), each pass's placements written once (`set_placements`), the
+camera once per pass per frame. Frames are asynchronous: `MapScene::render` submits
+(`mesh_view::submit_frame`, render targets reused per size) and the viewport collects the image on
+a later display frame (`PendingFrame::take`), one frame in flight, so the UI thread never waits for
+the GPU (Pirate with game shaders, debug build: about 5 ms of UI thread a frame, the image back
+within two display frames).
+Discarding a level (one or "Discard all edits" in the Edits dialog) reloads it in the map view
+(`MapEditor::level_discarded`).

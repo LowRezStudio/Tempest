@@ -89,7 +89,7 @@ impl Studio {
             }
             "studio_open_table" => {
                 let table = s("table").ok_or("missing table")?;
-                let place = Place::Assembly { file: s("doc").unwrap_or_else(|| "assembly".into()), table: Some(table), row: args["row"].as_u64().map(|r| r as usize) };
+                let place = Place::Assembly { file: s("doc").unwrap_or_else(|| "assembly".into()), path: Vec::new(), table: Some(table), row: args["row"].as_u64().map(|r| r as usize) };
                 self.record(place.clone());
                 self.go(place, window, cx);
                 Ok(json!({ "status": "ok" }))
@@ -145,7 +145,9 @@ impl Studio {
             "packages": self.packages.len(),
             "view": view,
             "open": open,
-            "assembly": self.assembly.as_ref().map(|a| match a.read(cx).place() { Place::Assembly { file, table, row } => json!({ "file": file, "table": table, "row": row }), _ => J::Null }),
+            "assembly": self.assembly.as_ref().map(|a| a.read(cx).state_json()),
+            "material": self.material_state_json(),
+            "meshGame": self.mesh_game.clone(),
             "unsaved": unsaved,
             "project": self.project.as_ref().map(|p| json!({ "name": p.name, "file": p.file, "state": self.project_saving.label() })),
             "wizardOpen": self.wizard.is_some(),

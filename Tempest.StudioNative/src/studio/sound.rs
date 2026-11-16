@@ -154,7 +154,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     this.dirty.insert(path.clone());
-                    this.toast(Tone::Success, format!("Sound replaced: {} of Ogg Vorbis, {:.2} s (unsaved)", crate::model::human_size(r.json["bytes"].as_u64().unwrap_or(0)), r.json["duration"].as_f64().unwrap_or(0.0)), cx);
+                    this.toast(Tone::Success, format!("Sound replaced: {} of Ogg Vorbis, {:.2} s", crate::model::human_size(r.json["bytes"].as_u64().unwrap_or(0)), r.json["duration"].as_f64().unwrap_or(0.0)), cx);
                     this.sound = None;
                     this.load_sound(path.clone(), i, cx);
                 }

@@ -7,7 +7,7 @@ use gpui::{div, prelude::*, px, AnyElement, Context, Entity, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Editor, EditorState, Input};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable};
 use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
@@ -20,18 +20,56 @@ pub enum Tab {
     Properties,
     References,
     Source,
+    /// The object as text (`object.text`).
+    Dump,
     /// A movie's editor.
     Movie,
+}
+
+/// The Dump tab: the object written out as text.
+pub struct Dump {
+    pub export: usize,
+    /// Text not yet in an editor (the editor needs a window to be made).
+    pub text: Option<String>,
+    pub editor: Option<Entity<EditorState>>,
 }
 
 /// The Source tab: the class the selected script object belongs to.
 pub struct Source {
     pub export: usize,
     pub class: String,
+    /// The selected export when it is a member of the class (a function, a state…): its kind and name.
+    pub member: Option<(String, String)>,
+    /// The decompiled text (Revert goes back to it).
+    pub original: String,
     /// Text not yet in an editor (the editor needs a window to be made).
     pub text: Option<String>,
     pub editor: Option<Entity<EditorState>>,
     pub error: Option<String>,
+    /// The line of the error, to go to once the editor is drawn.
+    pub go_to: Option<u32>,
+    pub warnings: Vec<String>,
+    /// The text differs from the decompiled one (it is kept as a draft while the window lives).
+    pub modified: bool,
+    pub _sub: Option<gpui::Subscription>,
+}
+
+/// The line (0-based) where `member` is declared in a class's source.
+fn member_line(text: &str, member: &str) -> Option<u32> {
+    const KINDS: &[&str] = &["function", "event", "state", "operator", "preoperator", "postoperator", "delegate", "struct", "enum", "const"];
+    let word = |line: &str, w: &str| {
+        let l = line.to_ascii_lowercase();
+        let w = w.to_ascii_lowercase();
+        l.match_indices(&w).any(|(i, _)| {
+            let before = l[..i].chars().next_back().is_none_or(|c| !c.is_alphanumeric() && c != '_');
+            let after = l[i + w.len()..].chars().next().is_none_or(|c| !c.is_alphanumeric() && c != '_');
+            before && after
+        })
+    };
+    text.lines().position(|line| {
+        let code = line.split("//").next().unwrap_or("");
+        KINDS.iter().any(|k| word(code, k)) && word(code, member)
+    }).map(|l| l as u32)
 }
 
 /// Exports whose class makes them script objects (the Source tab).
@@ -47,6 +85,27 @@ impl Studio {
         let path = t.path.clone();
         match self.tab {
             Tab::Properties | Tab::Movie => {}
+            Tab::Dump => {
+                if self.dump.as_ref().is_some_and(|d| d.export == i) {
+                    return;
+                }
+                let call = self.backend.call("object.text", json!({ "path": path, "index": i }));
+                cx.spawn(async move |this, cx| {
+                    let r = call.await;
+                    let _ = this.update(cx, |this, cx| {
+                        if this.selected_export != Some(i) {
+                            return;
+                        }
+                        let text = match r {
+                            Ok(r) => r.json.as_str().map(str::to_string).unwrap_or_else(|| r.json.to_string()),
+                            Err(e) => format!("Could not write the object out: {e}"),
+                        };
+                        this.dump = Some(Dump { export: i, text: Some(text), editor: None });
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
             Tab::References => {
                 if self.deps.as_ref().is_some_and(|(k, _)| *k == i) {
                     return;
@@ -83,7 +142,13 @@ impl Studio {
                             Ok(r) => {
                                 let class = r.json["class"].as_str().unwrap_or_default().to_string();
                                 this.set_status(format!("class {class}"), cx);
-                                this.source = Some(Source { export: i, class, text: Some(r.json["source"].as_str().unwrap_or_default().to_string()), editor: None, error: None });
+                                let original = r.json["source"].as_str().unwrap_or_default().to_string();
+                                // An edit left when another object was selected comes back.
+                                let draft = this.drafts.get(&(path.clone(), class.clone())).cloned();
+                                let member = r.json["member"].as_str().map(|m| (r.json["kind"].as_str().unwrap_or_default().to_string(), m.to_string()));
+                                let text = draft.clone().unwrap_or_else(|| original.clone());
+                                let go_to = member.as_ref().and_then(|(_, m)| member_line(&text, m));
+                                this.source = Some(Source { export: i, class, member, original, text: Some(text), editor: None, error: None, go_to, warnings: Vec::new(), modified: draft.is_some(), _sub: None });
                             }
                             Err(e) => this.set_status(format!("Source: {e}"), cx),
                         }
@@ -136,10 +201,21 @@ impl Studio {
     }
 
     /// `object.addProperty` (from the palette's `+` list).
-    pub(super) fn add_property(&mut self, name: String, cx: &mut Context<Self>) {
+    /// Pick a field to add to the tagged struct at `at` (the palette's `+` list, for that struct).
+    fn add_field_palette(&mut self, at: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.prop_open.insert(at.clone(), true);
+        self.open_palette_at("+", at, window, cx);
+    }
+
+    /// Add a property the class declares and the object does not store; `at`: a field of that tagged struct.
+    pub(super) fn add_property(&mut self, name: String, at: Option<String>, cx: &mut Context<Self>) {
         let (Some(t), Some(i)) = (&self.open, self.selected_export) else { return };
         let path = t.path.clone();
-        let call = self.backend.call("object.addProperty", json!({ "path": path, "index": i, "name": name }));
+        let mut params = json!({ "path": path, "index": i, "name": name });
+        if let Some(at) = at {
+            params["at"] = json!(at);
+        }
+        let call = self.backend.call("object.addProperty", params);
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| match r {
@@ -177,12 +253,19 @@ impl Studio {
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let Ok(tables) = this.update(cx, |this, cx| match &r {
-                Ok(_) => {
+                Ok(r) => {
                     this.dirty.insert(path.clone());
+                    let warnings: Vec<String> = r.json["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str().map(str::to_string)).collect();
+                    let note = if warnings.is_empty() { String::new() } else { format!(", {} warnings", warnings.len()) };
                     if let Some(s) = &mut this.source {
                         s.error = None;
+                        s.warnings = warnings;
+                        // What was compiled is the class's text now.
+                        s.original = text.clone();
+                        s.modified = false;
                     }
-                    this.set_status(format!("Compiled {class}: the package is rebuilt (unsaved)"), cx);
+                    this.drafts.remove(&(path.clone(), class.clone()));
+                    this.toast(Tone::Success, format!("Compiled {class}: {} exports rebuilt in {} ms{note}. Save the package to write it.", r.json["exports"]["names"].as_array().map(|n| n.len()).unwrap_or(0), r.json["compileMs"]), cx);
                     Some(this.backend.call("package.tables", json!({ "path": path })))
                 }
                 Err(e) => {
@@ -191,8 +274,12 @@ impl Studio {
                         _ => v["message"].as_str().unwrap_or_default().to_string(),
                     });
                     let msg = msg.unwrap_or_else(|| e.clone());
+                    // The error's line, when it is in this class.
+                    let at = e.strip_prefix("compile failed: ").and_then(|j| serde_json::from_str::<J>(j).ok()).filter(|v| v["class"].as_str().is_none_or(|c| c.eq_ignore_ascii_case(&class))).and_then(|v| v["line"].as_u64());
                     if let Some(s) = &mut this.source {
                         s.error = Some(msg.clone());
+                        s.warnings.clear();
+                        s.go_to = at.map(|l| l.saturating_sub(1) as u32);
                     }
                     this.set_status(format!("{class} did not compile"), cx);
                     None
@@ -245,6 +332,7 @@ impl Studio {
                     .item(item("Copy to another package…", Cmd::CopyTo))
                     .item(item("Replace with an object of another package…", Cmd::ReplaceWith))
                     .item(item("Copy the object path", Cmd::CopyPath))
+                    .item(item("Extract the raw data…", Cmd::ExtractRaw))
                     .separator()
                     .item(item("Delete…", Cmd::Delete))
             }))
@@ -256,7 +344,8 @@ impl Studio {
             .when(movie, |d| d.child(tab_button("tab-movie", "Movie", Tab::Movie, self, cx)))
             .child(tab_button("tab-props", "Properties", Tab::Properties, self, cx))
             .child(tab_button("tab-refs", "References", Tab::References, self, cx))
-            .when(script, |d| d.child(tab_button("tab-src", "Source", Tab::Source, self, cx)));
+            .when(script, |d| d.child(tab_button("tab-src", "Source", Tab::Source, self, cx)))
+            .child(tab_button("tab-dump", "Dump", Tab::Dump, self, cx));
         let (group, name) = match ins.path.rsplit_once('.') {
             Some((g, n)) => (g.to_string(), n.to_string()),
             None => (String::new(), ins.path.clone()),
@@ -296,6 +385,7 @@ impl Studio {
             Tab::Properties => self.render_properties(window, cx),
             Tab::References => self.render_references(cx),
             Tab::Source => self.render_source(window, cx),
+            Tab::Dump => self.render_dump(window, cx),
             Tab::Movie => match self.movie_editor(window, cx) {
                 Some(m) => m.into_any_element(),
                 None => div().into_any_element(),
@@ -311,13 +401,18 @@ impl Studio {
         let Some(ins) = &self.inspected else { return div().into_any_element() };
         let mut body = v_flex().id("props").size_full().overflow_y_scroll().px_2().pb_2().gap_2();
         body = body.children(previews);
+        if let Some((error, text)) = &ins.note {
+            body = body.child(div().pt_2().text_sm().font_family(theme.mono_font_family.clone()).whitespace_normal().text_color(if *error { theme.danger } else { theme.muted_foreground }).child(text.clone()));
+        }
         if let Some(t) = texture {
             body = body.child(t);
         }
         if !ins.rows.is_empty() {
             body = body.child(div().pt_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("PROPERTIES"));
         }
-        let rows = ins.rows.iter().enumerate().map(|(k, r)| {
+        // Structs and arrays fold: nested ones and long arrays start folded.
+        let shown = model::unfolded(&ins.rows, |r| self.prop_open.get(&r.path).copied().unwrap_or_else(|| r.starts_open()));
+        let rows = shown.into_iter().map(|k| (k, &ins.rows[k])).map(|(k, r)| {
             let value: AnyElement = if self.editing.as_deref() == Some(r.path.as_str()) {
                 div().flex_1().child(Input::new(&self.value_input).xsmall()).into_any_element()
             } else {
@@ -350,16 +445,37 @@ impl Studio {
                 }
                 ListRole::None => {}
             }
+            if r.is_struct {
+                let p = r.path.clone();
+                ops = ops.child(Button::new(("field", k)).xsmall().ghost().label("+").tooltip("Add a field (it starts at its default)").on_click(cx.listener(move |this, _, window, cx| this.add_field_palette(p.clone(), window, cx))));
+            }
             if r.resettable {
                 let p = r.path.clone();
                 ops = ops.child(Button::new(("reset", k)).xsmall().ghost().label("↺").tooltip("Back to the default (stop storing it)").on_click(cx.listener(move |this, _, _, cx| this.list_op(p.clone(), "removeProperty", None, cx))));
             }
+            let foldable = r.children > 0;
+            let open = self.prop_open.get(&r.path).copied().unwrap_or_else(|| r.starts_open());
+            let fold_path = r.path.clone();
+            let name = h_flex()
+                .id(("prop-name", k))
+                .w(px(200.0))
+                .flex_none()
+                .gap_1()
+                .when(foldable, |d| {
+                    d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
+                        this.prop_open.insert(fold_path.clone(), !open);
+                        cx.notify();
+                    }))
+                })
+                .child(div().w(px(12.0)).flex_none().text_color(theme.muted_foreground).when(foldable, |d| d.child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronRight }).size_3())))
+                .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(r.name.clone()))
+                .when(foldable && !open && r.value.is_empty(), |d| d.child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(format!("{} fields", r.children))));
             h_flex()
                 .group(group)
                 .pl(px(r.depth as f32 * 14.0))
                 .gap_2()
                 .text_sm()
-                .child(div().w(px(200.0)).flex_none().overflow_hidden().text_ellipsis().whitespace_nowrap().child(r.name.clone()))
+                .child(name)
                 .child(value)
                 .child(ops)
                 .child(div().flex_none().pr_2().text_xs().text_color(theme.muted_foreground).child(r.kind.clone()))
@@ -421,6 +537,21 @@ impl Studio {
         body.into_any_element()
     }
 
+    /// The object as text, in a read-only editor (selectable, searchable, long dumps scroll).
+    fn render_dump(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        let Some(dump) = &mut self.dump else {
+            return div().p_2().text_sm().text_color(theme.muted_foreground).child("Loading…").into_any_element();
+        };
+        if let Some(text) = dump.text.take() {
+            let editor = cx.new(|cx| EditorState::new(window, cx).line_number(false));
+            editor.update(cx, |e, cx| e.set_value(text, window, cx));
+            dump.editor = Some(editor);
+        }
+        let Some(editor) = dump.editor.clone() else { return div().into_any_element() };
+        div().size_full().font_family(theme.mono_font_family.clone()).text_sm().child(Editor::new(&editor).readonly(true).size_full()).into_any_element()
+    }
+
     fn render_source(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let Some(src) = &mut self.source else {
@@ -430,22 +561,65 @@ impl Studio {
             // UnrealScript reads like Java to a highlighter: comments, strings, numbers, most keywords.
             let editor = cx.new(|cx| EditorState::new(window, cx).language("java").line_number(true));
             editor.update(cx, |e, cx| e.set_value(text, window, cx));
+            // An edit is a draft of the class: it survives selecting another object.
+            src._sub = Some(cx.subscribe(&editor, |this, editor, e: &gpui_component::input::InputEvent, cx| {
+                if !matches!(e, gpui_component::input::InputEvent::Change) {
+                    return;
+                }
+                let text = editor.read(cx).value().to_string();
+                let Some(path) = this.open.as_ref().map(|t| t.path.clone()) else { return };
+                let Some(src) = &mut this.source else { return };
+                let modified = text != src.original;
+                let key = (path, src.class.clone());
+                if modified {
+                    this.drafts.insert(key, text);
+                } else {
+                    this.drafts.remove(&key);
+                }
+                if src.modified != modified {
+                    src.modified = modified;
+                    cx.notify();
+                }
+            }));
             src.editor = Some(editor);
         }
         let Some(editor) = src.editor.clone() else { return div().into_any_element() };
+        if let Some(line) = src.go_to.take() {
+            editor.update(cx, |e, cx| e.set_cursor_position(gpui_component::input::Position::new(line, 0), window, cx));
+        }
         let error = src.error.clone();
+        let (modified, warnings) = (src.modified, src.warnings.clone());
+        let member = src.member.as_ref().map(|(kind, name)| format!("· {kind} {name}"));
+        let revert = editor.clone();
+        let original = src.original.clone();
         v_flex()
             .size_full()
+            .key_context("SourceEdit")
+            .on_action(cx.listener(|this, _: &super::CompileSource, _, cx| this.compile(cx)))
             .child(
                 h_flex()
                     .px_2()
                     .pb_1()
                     .gap_2()
-                    .child(div().text_sm().child(format!("class {}", src.class)))
-                    .child(Button::new("compile").xsmall().primary().label("Compile").on_click(cx.listener(|this, _, _, cx| this.compile(cx))))
-                    .when_some(error, |d, e| d.child(div().text_xs().text_color(theme.danger).child(e))),
+                    .child(div().text_sm().font_family(theme.mono_font_family.clone()).font_weight(gpui::FontWeight::SEMIBOLD).child(format!("{}.uc", src.class)))
+                    .when_some(member, |d, m| d.child(div().text_xs().font_family(theme.mono_font_family.clone()).text_color(theme.muted_foreground).child(m)))
+                    .when(modified, |d| d.child(div().px_1().rounded_sm().text_xs().bg(theme.warning.opacity(0.2)).text_color(theme.warning).child("modified")))
+                    .child(div().flex_1())
+                    .child(Button::new("revert-src").xsmall().ghost().label("Revert").disabled(!modified).tooltip("Back to the decompiled text").on_click(move |_, window, cx| {
+                        let text = original.clone();
+                        revert.update(cx, |e, cx| e.replace_all(text, window, cx));
+                    }))
+                    .child(Button::new("compile").xsmall().primary().label("Compile").tooltip(format!("Recompile the package with this class ({})", super::commands::key_hint("⌘↩"))).on_click(cx.listener(|this, _, _, cx| this.compile(cx)))),
             )
-            .child(div().flex_1().min_h_0().font_family("Menlo").text_sm().child(Editor::new(&editor).size_full()))
+            .when_some(error, |d, e| d.child(div().px_2().pb_1().text_xs().whitespace_normal().text_color(theme.danger).child(e)))
+            .when(!warnings.is_empty(), |d| {
+                let mut list = v_flex().id("src-warnings").px_2().pb_1().max_h(px(72.0)).overflow_y_scroll().text_xs().text_color(theme.warning);
+                for w in &warnings {
+                    list = list.child(div().whitespace_normal().child(w.clone()));
+                }
+                d.child(list)
+            })
+            .child(div().flex_1().min_h_0().font_family(theme.mono_font_family.clone()).text_sm().child(Editor::new(&editor).size_full()))
             .into_any_element()
     }
 }

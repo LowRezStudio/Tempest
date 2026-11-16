@@ -307,7 +307,7 @@ impl Studio {
         if self.unsaved_total(cx) > 0 {
             let me = cx.entity().downgrade();
             let start = std::rc::Rc::new(std::cell::RefCell::new(Some(start)));
-            dialogs::confirm(window, cx, "Take the unsaved edits into the project?", "Your current unsaved edits become part of the new project. To start from a clean game folder instead, discard them first (Save ▸ Discard).", "Take them in", false, move |_, cx| {
+            dialogs::confirm(window, cx, "Take the edits into the project?", "Your current edits become part of the new project. To start from a clean game folder instead, discard them first (Save ▸ Discard).", "Take them in", false, move |_, cx| {
                 if let Some(start) = start.borrow_mut().take() {
                     let _ = me.update(cx, |this, cx| start(this, cx));
                 }

@@ -88,6 +88,8 @@ pub struct Meta {
     pub changelog: Entity<TextareaState>,
     pub api_key: Entity<InputState>,
     pub icon: Option<String>,
+    /// zstd instead of LZMA: builds several times faster, a mod about 30 % bigger.
+    pub fast: bool,
 }
 
 /// The single-line fields: (key in the saved JSON, placeholder).
@@ -241,6 +243,7 @@ impl Cooker {
             changelog,
             api_key,
             icon: saved["icon"].as_str().filter(|s| !s.is_empty()).map(str::to_string),
+            fast: saved["compression"].as_str() == Some("fast"),
         };
         let on_change = |this: &mut Cooker, ev: &InputEvent, cx: &mut Context<Cooker>| {
             if matches!(ev, InputEvent::Change) {
@@ -277,6 +280,7 @@ impl Cooker {
             "readme": self.meta.readme.read(cx).value().to_string(),
             "changelog": self.meta.changelog.read(cx).value().to_string(),
             "icon": self.meta.icon,
+            "compression": if self.meta.fast { "fast" } else { "small" },
             "extras": self.extras.iter().map(|(s, d)| json!({ "src": s, "dest": d })).collect::<Vec<_>>(),
             "dismissed": self.dismissed,
         });
@@ -508,6 +512,7 @@ impl Cooker {
         let link = self.meta.text("link", cx);
         let readme = self.meta.readme.read(cx).value().to_string();
         let icon = self.meta.icon.clone();
+        let compression = if self.meta.fast { "fast" } else { "small" };
         let items: Vec<J> = self.targets.iter().filter(|t| t.included).map(Self::item).collect();
         let mut deps = self.meta.deps(cx);
         // Lua needs the scripting runtime.
@@ -536,7 +541,7 @@ impl Cooker {
                 this.built = None;
                 this.say(Line::Info, format!("Cooking {} file{}…", items.len(), if items.len() == 1 { "" } else { "s" }), cx);
                 let authors = if author.is_empty() { json!([]) } else { json!([{ "name": author, "link": link }]) };
-                this.backend.call("mod.cook", json!({ "dir": staging.to_string_lossy(), "id": id, "name": name, "version": version, "authors": authors, "readme": readme, "icon": icon, "dependencies": deps, "items": items, "extras": extras }))
+                this.backend.call("mod.cook", json!({ "dir": staging.to_string_lossy(), "id": id, "name": name, "version": version, "authors": authors, "readme": readme, "icon": icon, "dependencies": deps, "items": items, "compression": compression, "extras": extras }))
             }) else { return };
             let r = call.await;
             let cooked = this.update(cx, |this, cx| match r {
@@ -553,6 +558,9 @@ impl Cooker {
                         for w in e["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()) {
                             this.say(Line::Info, format!("  {w}"), cx);
                         }
+                    }
+                    if let Some(saved) = r.json["shared"]["saved"].as_u64().filter(|s| *s > 0) {
+                        this.say(Line::Ok, format!("Objects changed the same way in several files are stored once: {} shared, {:.1} MB saved", r.json["shared"]["files"], saved as f64 / 1048576.0), cx);
                     }
                     true
                 }
@@ -602,15 +610,40 @@ impl Cooker {
         .detach();
     }
 
-    fn install(&mut self, cx: &mut Context<Self>) {
-        let Some((pkg, _)) = self.built.clone() else { return };
+    /// Install the built package into this game folder; files saved in place here already hold the edits, so it asks first.
+    fn install(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.built.is_none() {
+            return;
+        }
         // The folder holding ChaosGame.
         let game = Path::new(&self.dir).parent().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-        self.busy = Some("Installing…".into());
         let saved_here: Vec<String> = self.targets.iter().filter(|t| t.included && t.sources.iter().any(|s| s.2 == "saved")).map(|t| t.rel.clone()).collect();
-        if !saved_here.is_empty() {
-            self.say(Line::Info, format!("Note: {} were saved in place here, so this folder already holds those edits", saved_here.join(", ")), cx);
+        if saved_here.is_empty() {
+            self.install_into(game, cx);
+            return;
         }
+        let me = cx.entity().downgrade();
+        super::dialogs::confirm(window, cx, "This game folder already has your edits", format!("These files were saved in place, so they already hold your changes: {}. The mod would be applied on top of them, and testing here would not show that the mod works on a clean game. Install into another copy of the game (Install elsewhere…) to test it properly.", saved_here.join(", ")), "Install here anyway", true, move |_, cx| {
+            let game = game.clone();
+            let _ = me.update(cx, |this, cx| this.install_into(game, cx));
+        });
+    }
+
+    /// Install the built package into another game folder (the one holding ChaosGame).
+    fn install_elsewhere(&mut self, cx: &mut Context<Self>) {
+        let pick = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Install into this game folder".into()) });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(mut dirs))) = pick.await else { return };
+            let Some(dir) = dirs.pop() else { return };
+            let _ = this.update(cx, |this, cx| this.install_into(dir.to_string_lossy().to_string(), cx));
+        })
+        .detach();
+    }
+
+    fn install_into(&mut self, game: String, cx: &mut Context<Self>) {
+        let Some((pkg, _)) = self.built.clone() else { return };
+        self.busy = Some("Installing…".into());
+        cx.notify();
         cx.spawn(async move |this, cx| {
             let g = game.clone();
             let r = cx.background_executor().spawn(async move { run_cli(&["install".into(), g, pkg, "--replace".into(), "--allow-untrusted".into()]) }).await;
@@ -652,7 +685,7 @@ impl Cooker {
         let theme = cx.theme().clone();
         let mut list = v_flex().gap_2();
         if self.targets.is_empty() {
-            list = list.child(div().text_sm().text_color(theme.muted_foreground).child(if self.loading { "Looking for your changes…" } else { "No changes yet. Edit a package or an assembly table, and it shows up here: unsaved edits, files saved in place and exported copies all count." }));
+            list = list.child(div().text_sm().text_color(theme.muted_foreground).child(if self.loading { "Looking for your changes…" } else { "No changes yet. Edit a package or an assembly table, and it shows up here: edits, files written in place and exported copies all count." }));
         }
         for (k, t) in self.targets.iter().enumerate() {
             let (id, _, origin) = &t.sources[t.chosen];
@@ -821,11 +854,30 @@ impl Cooker {
                     .gap_2()
                     .child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("OTHER FILES"))
                     .child(Button::new("add-files").xsmall().ghost().label("Add files…").tooltip("Lua goes to scripts/, DLLs to dlls/64/; .upk, .dat and .pck files become modified game files").on_click(cx.listener(|this, _, _, cx| this.add_files(cx))))
+                    .child(Button::new("add-folder").xsmall().ghost().label("Add folder…").tooltip("A whole folder, shipped under its name (for example scripts/)").on_click(cx.listener(|this, _, _, cx| this.add_folder(cx))))
                     .child(Button::new("add-modified").xsmall().ghost().label("Add a modified game file…").tooltip("A package, .dat or .pck edited elsewhere: shipped as a delta against the game's file").on_click(cx.listener(|this, _, _, cx| this.add_files(cx)))),
             )
             .when(self.extras.is_empty(), |d| d.child(div().text_xs().text_color(theme.muted_foreground).child("Scripts, DLLs or files edited outside the Studio can ship too.")))
             .child(list)
             .into_any_element()
+    }
+
+    /// Ship a whole folder in the mod, under its name.
+    fn add_folder(&mut self, cx: &mut Context<Self>) {
+        let pick = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Ship this folder".into()) });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(mut dirs))) = pick.await else { return };
+            let Some(dir) = dirs.pop() else { return };
+            let _ = this.update(cx, |this, cx| {
+                let src = dir.to_string_lossy().to_string();
+                if !this.extras.iter().any(|e| e.0 == src) {
+                    this.extras.push((src, dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()));
+                    this.save_meta(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn add_files(&mut self, cx: &mut Context<Self>) {
@@ -1126,7 +1178,7 @@ impl Render for Cooker {
             .p_3()
             .gap_2()
             .child(h_flex().gap_2().child(div().flex_1().child(section("What goes in"))).child(Button::new("cook-refresh").xsmall().ghost().label("Refresh").on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))))
-            .child(div().text_xs().text_color(theme.muted_foreground).child("Every game file your edits change. Unsaved edits ship as they are in the Studio; nothing needs saving first."))
+            .child(div().text_xs().text_color(theme.muted_foreground).child("Every game file your edits change. Edits ship as they are in the Studio; nothing needs writing into the game folder first."))
             .child(files)
             .child(extras)
             .child(self.render_project_files(cx));
@@ -1160,6 +1212,22 @@ impl Render for Cooker {
             .child(self.render_icon(cx))
             .child(Textarea::new(&self.meta.readme))
             .child(section("Build"))
+            .child({
+                let pick = |id: &'static str, label: &'static str, tip: &'static str, fast: bool, on: bool, cx: &mut Context<Self>| {
+                    let b = Button::new(id).small().label(label).tooltip(tip).on_click(cx.listener(move |this, _, _, cx| {
+                        this.meta.fast = fast;
+                        this.save_meta(cx);
+                        cx.notify();
+                    }));
+                    if on { b.primary() } else { b.ghost() }
+                };
+                let fast = self.meta.fast;
+                v_flex()
+                    .gap_1()
+                    .child(div().text_xs().text_color(theme.muted_foreground).child("Compression"))
+                    .child(h_flex().gap_1().child(pick("cook-small", "Smallest file", "LZMA: the smallest mod, slower to build (a big mod takes a minute or so)", false, !fast, cx)).child(pick("cook-fast", "Faster build", "zstd: builds several times faster, the mod is about 30 % bigger", true, fast, cx)))
+                    .child(div().text_xs().text_color(theme.muted_foreground).child(if fast { "Builds several times faster; the mod is about 30 % bigger. Good while testing." } else { "The smallest mod to download; slower to build. Best for publishing." }))
+            })
             .children(problems.iter().map(|p| div().text_xs().text_color(theme.warning).child(format!("• {p}"))))
             .when(cli.is_none(), |d| d.child(div().text_xs().text_color(theme.danger).child("tempest-cli was not found: build Tempest.CLI or set TEMPEST_CLI to pack the mod")))
             .child(
@@ -1167,7 +1235,8 @@ impl Render for Cooker {
                     .flex_wrap()
                     .gap_2()
                     .child(Button::new("cook-build").primary().label(busy.clone().unwrap_or_else(|| if self.project.is_some() { "Build the mod".into() } else { "Build the mod…".into() })).disabled(!problems.is_empty() || busy.is_some() || cli.is_none()).on_click(cx.listener(|this, _, window, cx| this.build(window, cx))))
-                    .child(Button::new("cook-install").label("Install into this game").disabled(self.built.is_none() || busy.is_some()).tooltip("tempest mod install, replacing an older version").on_click(cx.listener(|this, _, _, cx| this.install(cx))))
+                    .child(Button::new("cook-install").label("Install into this game").disabled(self.built.is_none() || busy.is_some()).tooltip("tempest mod install, replacing an older version").on_click(cx.listener(|this, _, window, cx| this.install(window, cx))))
+                    .child(Button::new("cook-install-other").ghost().label("Install elsewhere…").disabled(self.built.is_none() || busy.is_some()).tooltip("Into another copy of the game (the folder holding ChaosGame), to test the mod on clean files").on_click(cx.listener(|this, _, _, cx| this.install_elsewhere(cx))))
                     .child(Button::new("cook-copy").ghost().label("Save a copy…").disabled(self.built.is_none() || busy.is_some()).on_click(cx.listener(|this, _, _, cx| this.save_built_copy(cx))))
                     .child(Button::new("cook-publish").ghost().label("Publish…").disabled(self.built.is_none() || busy.is_some()).tooltip("Upload the built package to the mod repository").on_click(cx.listener(|this, _, window, cx| this.publish_dialog(window, cx)))),
             )
