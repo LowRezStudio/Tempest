@@ -13,7 +13,9 @@ Mod view (`cooker.rs`, `account.rs`, `modmeta.rs`): a bar with the mod's name, w
 Launcher owns launching), ⋯ (Build only…, Install here anyway, Install elsewhere…, Save a copy…,
 Publish…) and **Build & install** (a fast build, into a temporary folder for an unnamed mod, then
 `mod install` into this game unless files saved in place would hide whether the mod works); tabs
-Changes (what goes in, other files, the last build's log, problems), Details (name, author,
+Changes (what goes in, each file named in words with what changed listed under it: `mod.preview`
+runs for the first 8 files after every refresh, errors shown in the file's card; other files, the
+last build's log, problems), Details (name, author,
 version, icon, readme; Advanced: id, dependencies, Build only's compression) and Publish (listing,
 Publish…, signing and account). Underneath: `mod.changes` per game file (re-read whenever
 `backend::EDITS` moves), source and delta/whole choice, `mod.preview`, a `…` menu per file (show the

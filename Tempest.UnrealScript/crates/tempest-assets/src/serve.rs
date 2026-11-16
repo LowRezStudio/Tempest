@@ -679,6 +679,7 @@ impl Server {
             "mcts.delete" => Ok(self.mcts_mut()?.delete(p)?),
             "mcts.undo" => Ok(self.mcts_mut()?.undo(p)?),
             "mcts.redo" => Ok(self.mcts_mut()?.redo(p)?),
+            "mcts.icons" => Ok(self.mcts_mut()?.icons(p)?),
             "mcts.save" => {
                 // Saving in place: remember the file as it was first, so a
                 // mod delta can be made from it later.

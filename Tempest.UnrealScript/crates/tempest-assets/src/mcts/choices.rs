@@ -97,6 +97,35 @@ impl Workspace {
     }
 }
 
+impl Workspace {
+    /// `mcts.icons {items?: [id], bot?}` → `{items: {id: "Package.Group.Texture"},
+    /// defaultSkin}`: each item's icon texture (`ICON_ID` → `DATA_SET_ICONS`
+    /// `TEXTURE_RES_ID` → the resource's name), and the bot's default skin item
+    /// (whose icon is in `items` too).
+    pub fn icons(&self, p: &J) -> Result<J> {
+        let default_skin = match p.get("bot").and_then(|b| b.as_u64()) {
+            Some(b) => match self.find_row("DATA_SET_BOTS", "BOT_ID", b)? {
+                Some(i) => self.num_of(&self.row_of("DATA_SET_BOTS", i)?, "DEFAULT_SKIN_ITEM_ID"),
+                None => None,
+            },
+            None => None,
+        };
+        // The default skin's own icon too: it is often in no collection.
+        let wanted = p.get("items").and_then(|v| v.as_array()).into_iter().flatten().filter_map(|v| v.as_u64()).chain(default_skin);
+        let mut items = serde_json::Map::new();
+        for id in wanted {
+            let Some(row) = self.item_row(id)? else { continue };
+            let Some(icon) = self.num_of(&row, "ICON_ID").filter(|i| *i != 0) else { continue };
+            let Some(i) = self.find_row("DATA_SET_ICONS", "ICON_ID", icon)? else { continue };
+            let texture = self.num_of(&self.row_of("DATA_SET_ICONS", i)?, "TEXTURE_RES_ID");
+            if let Some(name) = self.resource_name(texture) {
+                items.insert(id.to_string(), json!(name));
+            }
+        }
+        Ok(json!({ "items": items, "defaultSkin": default_skin }))
+    }
+}
+
 /// Keep the rows whose name, detail or id contain `query`, at most `limit`.
 fn filter(out: &mut Vec<J>, query: &str, limit: usize) {
     if !query.is_empty() {

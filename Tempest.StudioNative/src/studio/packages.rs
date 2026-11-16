@@ -670,11 +670,12 @@ impl Studio {
                 .mb_1()
                 .border_b_1()
                 .border_color(theme.border)
-                .child(div().flex_1().text_sm().text_color(theme.muted_foreground).child(format!("{n} changed file{}: they go into your mod when you build it. The game's own files are untouched.", if n == 1 { "" } else { "s" })))
+                .child(div().flex_1().min_w_0().whitespace_normal().text_sm().text_color(theme.muted_foreground).child(format!("{n} changed file{}: they go into your mod when you build it. The game's own files are untouched.", if n == 1 { "" } else { "s" })))
                 .child(
                     div()
                         .relative()
-                        .child(Button::new("discard-all").xsmall().ghost().label("Discard all…").on_click(move |_, window, cx| {
+                        .flex_none()
+                        .child(Button::new("discard-all").xsmall().danger().label("Discard all changes…").on_click(move |_, window, cx| {
                             window.close_dialog(cx);
                             let _ = me2.update(cx, |this, cx| this.run(super::commands::Cmd::DiscardAll, window, cx));
                         }))
@@ -686,7 +687,7 @@ impl Studio {
                 .gap_2()
                 .border_t_1()
                 .border_color(theme.border)
-                .child(super::ui::hint("Testing without building? You can overwrite the game's own files instead (advanced; only Verify game files puts them back).", &theme).flex_1())
+                .child(super::ui::hint("Testing without building? You can overwrite the game's own files instead (advanced; only Verify game files puts them back).", &theme).flex_1().min_w_0())
                 .child(Button::new("save-all").xsmall().ghost().label("Patch the game…").disabled(files.is_empty()).when(files.is_empty(), |b| b.tooltip("Only game data changed: patch it from the Game data view's ⋯ menu")).on_click(move |_, window, cx| {
                     window.close_dialog(cx);
                     let _ = me1.update(cx, |this, cx| this.run(super::commands::Cmd::SaveAll, window, cx));

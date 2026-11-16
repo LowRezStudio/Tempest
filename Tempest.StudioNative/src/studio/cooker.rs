@@ -364,7 +364,13 @@ impl Cooker {
                         if let (Some(names), Some(list)) = (project, files.as_array_mut()) {
                             list.retain(|f| f["origin"].as_str() == Some("unsaved") || names.contains(&file_name(f["target"].as_str().unwrap_or_default()).to_ascii_lowercase()));
                         }
-                        this.set_sources(&files)
+                        this.set_sources(&files);
+                        // What changed in each file shows without asking (the first few: a big package takes a moment).
+                        for k in 0..this.targets.len().min(8) {
+                            if this.targets[k].included {
+                                this.preview(k, cx);
+                            }
+                        }
                     }
                     Err(e) => this.toast(Tone::Error, format!("Could not list the changes: {e}"), cx),
                 }
@@ -452,7 +458,12 @@ impl Cooker {
                             t.preview = r.json["items"].as_array().and_then(|a| a.first()).cloned();
                         }
                     }
-                    Err(e) => this.toast(Tone::Error, e, cx),
+                    // Shown in the file's card: previews run by themselves, a toast each would pile up.
+                    Err(e) => {
+                        if let Some(t) = this.targets.get_mut(k) {
+                            t.preview = Some(json!({ "error": e }));
+                        }
+                    }
                 }
                 cx.notify();
             });

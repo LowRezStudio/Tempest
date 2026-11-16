@@ -1699,6 +1699,11 @@ export interface UpkMethods {
 	};
 	"mcts.undo": { params: { doc: string }; result: McsStatus & { undone: string | null } };
 	"mcts.redo": { params: { doc: string }; result: McsStatus & { redone: string | null } };
+	/** Each item's icon texture (`Package.Group.Texture`) and a bot's default skin item (whose icon is included). */
+	"mcts.icons": {
+		params: { items?: number[]; bot?: number };
+		result: { items: Record<string, string>; defaultSkin: number | null };
+	};
 	"mcts.save": { params: { doc: string; out?: string }; result: McsStatus & { out: string } };
 	"mcts.discard": { params: { doc: string }; result: McsStatus };
 	"mcts.find": {

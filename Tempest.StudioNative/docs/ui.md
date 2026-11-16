@@ -38,9 +38,15 @@ maps → Maps, menus and HUD → the palette on `ui_sf`, something new → Creat
 it works in three steps, and the other mods.
 
 **Champions** (`champions.rs`, `View::Champions`): the champion vendor's champions (`mcts.choices
-{kind: bot}`), and for one: skin collections (`mcts.collections`), abilities/cards/talents
-(`mcts.choices {kind: device}`), each opening its game data row (`mcts.find`), lists capped at 8
-with Show all, and the champion's packages by prefix with their role (`package_role`). The package
+{kind: bot}`), and for one: the champion's packages by prefix with their role (`package_role`)
+first ("Look"), skin collections (`mcts.collections`) with their icons and abilities/cards/talents
+(`mcts.choices {kind: device}`), lists capped at 8 with Show all. Icons: `mcts.icons` (item →
+`ICON_ID` → `DATA_SET_ICONS.TEXTURE_RES_ID` → resource name, plus the bot's `DEFAULT_SKIN_ITEM_ID`
+and its icon, the header portrait) read with `texture.preview {object, maxSize}` from
+`<PREFIX>_UI_ASSETS_SF`. A skin unfolds its own files: `object.deps` of
+`<group>.skinreferencer<part item>` in `<PREFIX>_ASSETS_SF` less those of
+`<group>.botreferencer<bot>`, meshes/materials/textures/particles, each opening in Game files; its
+game data row is a button on the row. The package
 list names a champion's packages in a tooltip, and its filter ignores spaces ("bomb king").
 
 Every action is a `Cmd` (`commands.rs`: title, group, keys, `enabled`, `run`): key bindings, the

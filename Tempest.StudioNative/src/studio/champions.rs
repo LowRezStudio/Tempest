@@ -2,7 +2,10 @@
 //! one champion everything a mod changes about them (skins, abilities, cards
 //! and talents, their game files), each a click away from where it is edited.
 
-use gpui::{div, prelude::*, px, AnyElement, Context, Entity, SharedString, Window};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use gpui::{div, img, prelude::*, px, AnyElement, Context, Entity, Image, ImageFormat, ObjectFit, SharedString, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable};
@@ -31,7 +34,25 @@ pub struct Champions {
     skins: Option<Vec<J>>,
     /// Lists shown whole ("skins", "devices"); the others stop at `SHORT`.
     whole: Vec<&'static str>,
+    /// Icons of the selected champion's skins, by collection item; the default skin's is the portrait.
+    icons: HashMap<u64, Arc<Image>>,
+    default_skin: Option<u64>,
+    /// The skin unfolded, and each skin's own files once read (or why they could not be).
+    open_skin: Option<u64>,
+    skin_files: HashMap<u64, Result<Vec<SkinFile>, String>>,
 }
+
+/// An object a skin has of its own (its skin referencer's, less the champion's base ones).
+#[derive(Clone)]
+pub struct SkinFile {
+    pub package: String,
+    pub index: usize,
+    pub path: String,
+    pub class: String,
+}
+
+/// The classes a skin's look is made of, in the order they are listed.
+const LOOK_CLASSES: [&str; 7] = ["skeletalmesh", "staticmesh", "materialinstanceconstant", "material", "texture2d", "particlesystem", "materialinstancetimevarying"];
 
 /// Rows a list shows before its Show all.
 const SHORT: usize = 8;
@@ -77,7 +98,7 @@ impl Studio {
             }
         })
         .detach();
-        self.champions = Some(Champions { list: Vec::new(), loading: true, error: None, filter, selected: None, devices: None, skins: None, whole: Vec::new() });
+        self.champions = Some(Champions { list: Vec::new(), loading: true, error: None, filter, selected: None, devices: None, skins: None, whole: Vec::new(), icons: HashMap::new(), default_skin: None, open_skin: None, skin_files: HashMap::new() });
         let backend = self.backend.clone();
         cx.spawn(async move |this, cx| {
             let _ = backend.call("mcts.open", json!({})).await;
@@ -109,6 +130,10 @@ impl Studio {
         c.whole.clear();
         c.devices = None;
         c.skins = None;
+        c.icons.clear();
+        c.default_skin = None;
+        c.open_skin = None;
+        c.skin_files.clear();
         let (devices, skins) = (self.backend.call("mcts.choices", json!({ "kind": "device", "bot": id, "limit": 500 })), self.backend.call("mcts.collections", json!({ "bot": id })));
         cx.spawn(async move |this, cx| {
             let (d, s) = futures::join!(devices, skins);
@@ -116,11 +141,107 @@ impl Studio {
                 let Some(c) = this.champions.as_mut().filter(|c| c.selected == Some(id)) else { return };
                 c.devices = Some(d.map(|r| r.json.as_array().cloned().unwrap_or_default()).unwrap_or_default());
                 c.skins = Some(s.map(|r| r.json["collections"].as_array().cloned().unwrap_or_default()).unwrap_or_default());
+                this.load_skin_icons(id, cx);
                 cx.notify();
             });
         })
         .detach();
         cx.notify();
+    }
+
+    /// The selected champion's package named `<PREFIX>_<suffix>`.
+    fn champion_package(&self, suffix: &str) -> Option<String> {
+        let c = self.champions.as_ref()?;
+        let ch = c.list.iter().find(|ch| Some(ch.id) == c.selected)?;
+        let name = format!("{}_{suffix}", prefix(&ch.reference));
+        self.packages.iter().find(|p| p.name.eq_ignore_ascii_case(&name)).map(|p| p.path.clone())
+    }
+
+    /// The skins' icons (`mcts.icons`: item → icon texture), read from the champion's UI package.
+    fn load_skin_icons(&mut self, bot: u64, cx: &mut Context<Self>) {
+        let Some(items) = self.champions.as_ref().and_then(|c| c.skins.as_ref()).map(|s| s.iter().filter_map(|s| s["item"].as_u64()).collect::<Vec<_>>()) else { return };
+        let Some(ui) = self.champion_package("UI_ASSETS_SF") else { return };
+        let backend = self.backend.clone();
+        cx.spawn(async move |this, cx| {
+            let Ok(r) = backend.call("mcts.icons", json!({ "items": items, "bot": bot })).await else { return };
+            let default_skin = r.json["defaultSkin"].as_u64();
+            let _ = this.update(cx, |this, cx| {
+                if let Some(c) = this.champions.as_mut().filter(|c| c.selected == Some(bot)) {
+                    c.default_skin = default_skin;
+                    cx.notify();
+                }
+            });
+            // The default skin first: it is the portrait.
+            let mut wanted: Vec<(u64, String)> = r.json["items"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.parse().ok()?, v.as_str()?.to_ascii_lowercase()))).collect();
+            wanted.sort_by_key(|(k, _)| Some(*k) != default_skin);
+            for (item, texture) in wanted {
+                // `SkinIcon_Cassie.Collection_Cassie_Default`: the cooked package keeps the first part as a group.
+                let Ok(p) = backend.call("texture.preview", json!({ "path": ui, "object": texture, "maxSize": 128 })).await else { continue };
+                let Some(png) = p.bin(&p.json["png"]).map(|b| b.to_vec()) else { continue };
+                let alive = this.update(cx, |this, cx| {
+                    let Some(c) = this.champions.as_mut().filter(|c| c.selected == Some(bot)) else { return false };
+                    c.icons.insert(item, Arc::new(Image::from_bytes(ImageFormat::Png, png)));
+                    cx.notify();
+                    true
+                });
+                if !matches!(alive, Ok(true)) {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Unfold a skin: the objects its referencer in `<PREFIX>_ASSETS_SF` has
+    /// beyond the champion's base ones (`skinreferencer<part item>` less `botreferencer<bot>`).
+    fn toggle_skin(&mut self, item: u64, parts: Vec<u64>, cx: &mut Context<Self>) {
+        let Some(c) = &mut self.champions else { return };
+        if c.open_skin == Some(item) {
+            c.open_skin = None;
+            cx.notify();
+            return;
+        }
+        c.open_skin = Some(item);
+        let Some(bot) = c.selected else { return };
+        cx.notify();
+        if c.skin_files.contains_key(&item) {
+            return;
+        }
+        let Some(assets) = self.champion_package("ASSETS_SF") else {
+            if let Some(c) = &mut self.champions {
+                c.skin_files.insert(item, Err("The champion's game files are not in this folder.".into()));
+            }
+            return;
+        };
+        // Cooked packages keep their objects under a group named after them: `CASSIE_ASSETS_SF` → `cassie_assets`.
+        let group = super::file_name(&assets).trim_end_matches(".upk").to_ascii_lowercase().trim_end_matches("_sf").to_string();
+        let backend = self.backend.clone();
+        cx.spawn(async move |this, cx| {
+            let refs = |r: Result<crate::backend::Reply, String>| -> Vec<(i64, String, String)> {
+                r.ok().map(|r| r.json["references"].as_array().into_iter().flatten().filter_map(|x| Some((x["ref"].as_i64()?, x["path"].as_str()?.to_string(), x["class"].as_str().unwrap_or("").to_ascii_lowercase()))).collect()).unwrap_or_default()
+            };
+            let base: std::collections::HashSet<i64> = refs(backend.call("object.deps", json!({ "path": assets, "object": format!("{group}.botreferencer{bot}") })).await).into_iter().map(|r| r.0).collect();
+            let mut own: Vec<SkinFile> = Vec::new();
+            let mut found = false;
+            for part in parts {
+                let r = backend.call("object.deps", json!({ "path": assets, "object": format!("{group}.skinreferencer{part}") })).await;
+                found |= r.is_ok();
+                for (re, path, class) in refs(r) {
+                    // Exports of this package only (imports live elsewhere), of the classes a look is made of.
+                    if re > 0 && !base.contains(&re) && LOOK_CLASSES.contains(&class.as_str()) && !own.iter().any(|f| f.index == (re - 1) as usize) {
+                        own.push(SkinFile { package: assets.clone(), index: (re - 1) as usize, path, class });
+                    }
+                }
+            }
+            own.sort_by_key(|f| (LOOK_CLASSES.iter().position(|c| *c == f.class).unwrap_or(99), f.path.clone()));
+            let _ = this.update(cx, |this, cx| {
+                if let Some(c) = this.champions.as_mut().filter(|c| c.selected == Some(bot)) {
+                    c.skin_files.insert(item, if found { Ok(own) } else { Err("The game files do not list this skin's objects.".into()) });
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// Open the game data at the row of `table` whose `key` is `id`.
@@ -138,6 +259,48 @@ impl Studio {
             });
         })
         .detach();
+    }
+
+    /// A skin unfolded: the meshes, materials and textures it has of its own.
+    fn render_skin_files(&self, item: u64, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        let c = self.champions.as_ref().expect("the view is shown");
+        let body = v_flex().ml(px(60.0)).mb_2().gap_0p5();
+        let files = match c.skin_files.get(&item) {
+            None => return body.child(div().h(px(40.0)).child(ui::loading("Finding its files…", &theme))).into_any_element(),
+            Some(Err(e)) => return body.child(ui::hint(e.clone(), &theme)).into_any_element(),
+            Some(Ok(f)) => f,
+        };
+        if files.is_empty() {
+            return body.child(ui::hint("It uses the champion's own models and textures (Look, above), with its own colours or parts set in the game data.", &theme)).into_any_element();
+        }
+        let mut body = body.child(ui::hint("Its own models and textures: open one, then Replace it with your file.", &theme).pb_1());
+        for (k, f) in files.iter().enumerate().take(60) {
+            let (package, index) = (f.package.clone(), f.index);
+            body = body.child(
+                h_flex()
+                    .id(SharedString::from(format!("skin-file-{k}")))
+                    .gap_2()
+                    .px_2()
+                    .py_0p5()
+                    .rounded_md()
+                    .text_sm()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme.list_hover))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let place = Place::package(package.clone(), Some(index));
+                        this.record(place.clone());
+                        this.go(place, window, cx);
+                    }))
+                    .child(Icon::new(super::class_icon(&f.class)).small().text_color(theme.muted_foreground))
+                    .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(f.path.clone()))
+                    .child(div().text_xs().text_color(theme.muted_foreground).child(super::pretty_class(&f.class))),
+            );
+        }
+        if files.len() > 60 {
+            body = body.child(ui::hint(format!("and {} more in the game files", files.len() - 60), &theme));
+        }
+        body.into_any_element()
     }
 
     pub(super) fn render_champions(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -217,7 +380,37 @@ impl Studio {
                         detail.push_str(" · not sold");
                     }
                     let name = s["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| format!("Skin {item}"));
-                    skins = skins.child(row(SharedString::from(format!("skin-{k}")), name, detail).on_click(cx.listener(move |this, _, window, cx| this.open_row("DATA_SET_ITEMS", "ITEM_ID", item, window, cx))));
+                    let part_items: Vec<u64> = s["parts"].as_array().into_iter().flatten().filter_map(|p| p["item"].as_u64()).chain(Some(item)).collect();
+                    let open = c.open_skin == Some(item);
+                    let thumb = match c.icons.get(&item) {
+                        Some(icon) => img(icon.clone()).size(px(36.0)).rounded_md().object_fit(ObjectFit::Cover).into_any_element(),
+                        None => div().size(px(36.0)).rounded_md().bg(theme.secondary).into_any_element(),
+                    };
+                    let id = SharedString::from(format!("skin-{k}"));
+                    skins = skins.child(
+                        h_flex()
+                            .id(id.clone())
+                            .relative()
+                            .child(crate::driver::probe(id))
+                            .gap_3()
+                            .px_3()
+                            .py_1p5()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .when(open, |d| d.bg(theme.list_active))
+                            .when(!open, |d| d.hover(|s| s.bg(theme.list_hover)))
+                            .on_click(cx.listener(move |this, _, _, cx| this.toggle_skin(item, part_items.clone(), cx)))
+                            .child(thumb)
+                            .child(v_flex().flex_1().min_w_0().child(div().text_sm().child(name)).child(div().text_xs().text_color(theme.muted_foreground).child(detail)))
+                            .child(Button::new(("skin-row", k)).xsmall().ghost().icon(Icon::new(IconName::Database)).tooltip("Open its row in the game data").on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.open_row("DATA_SET_ITEMS", "ITEM_ID", item, window, cx);
+                            })))
+                            .child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronRight }).small().text_color(theme.muted_foreground)),
+                    );
+                    if open {
+                        skins = skins.child(self.render_skin_files(item, cx));
+                    }
                 }
                 if !all && list.len() > SHORT {
                     skins = skins.child(show_all("skins", list.len(), cx));
@@ -255,8 +448,12 @@ impl Studio {
         }
         let (n_skins, n_devices) = (c.skins.as_ref().map(Vec::len), c.devices.as_ref().map(Vec::len));
         let id = ch.id;
+        // The portrait: the icon of the skin collection holding the default skin.
+        let default_collection = c.default_skin.and_then(|d| c.skins.as_ref()?.iter().find(|s| s["item"].as_u64() == Some(d) || s["parts"].as_array().is_some_and(|p| p.iter().any(|p| p["item"].as_u64() == Some(d)))).and_then(|s| s["item"].as_u64()));
+        let portrait = c.default_skin.and_then(|d| c.icons.get(&d)).or_else(|| default_collection.and_then(|d| c.icons.get(&d))).map(|icon| img(icon.clone()).size(px(56.0)).rounded_lg().object_fit(ObjectFit::Cover));
         let header = h_flex()
             .gap_4()
+            .children(portrait)
                         .child(v_flex().flex_1().min_w_0().child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child(ch.name.clone())).child(div().text_xs().text_color(theme.muted_foreground).child(format!("{} · bot {}", ch.reference, ch.id))))
             .child(Button::new("champ-row").small().ghost().icon(Icon::new(IconName::Database)).label("Open in game data").tooltip("The champion's row: health, speed, role and every other field").on_click(cx.listener(move |this, _, window, cx| this.open_row("DATA_SET_BOTS", "BOT_ID", id, window, cx))))
             .child(Button::new("champ-new-skin").small().icon(Icon::new(IconName::Shirt)).label("New skin…").on_click(cx.listener(|this, _, window, cx| this.open_wizard(Some(super::wizard::Kind::Skin), None, window, cx))));

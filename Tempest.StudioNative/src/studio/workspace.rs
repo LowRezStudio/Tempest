@@ -237,15 +237,42 @@ impl Studio {
             let m = d.as_secs() / 60;
             if m < 60 { format!("{m} min ago") } else if m < 48 * 60 { format!("{} h ago", m / 60) } else { format!("{} days ago", m / 1440) }
         });
-        self.recovery_offer = Some((file.to_string_lossy().to_string(), ago.unwrap_or_default()));
+        let path = file.to_string_lossy().to_string();
+        self.recovery_offer = Some((path.clone(), ago.unwrap_or_default(), String::new()));
         cx.notify();
+        // What it holds, in words: the offer names it before asking.
+        let read = self.backend.call("twrk.read", json!({ "path": path }));
+        cx.spawn(async move |this, cx| {
+            let Ok(r) = read.await else { return };
+            let names: Vec<String> = r.json["files"].as_array().into_iter().flatten().filter_map(|f| f["path"].as_str()).map(|p| {
+                let name = super::file_name(p);
+                match name.to_ascii_lowercase().as_str() {
+                    "assembly.dat" => "game data".to_string(),
+                    n if n.starts_with("lang_") => format!("texts ({})", name.trim_end_matches(".dat").trim_start_matches("Lang_")),
+                    _ => name.trim_end_matches(".upk").to_string(),
+                }
+            }).collect();
+            let what = match names.len() {
+                0 => return,
+                1 => format!("1 changed file: {}", names[0]),
+                n if n <= 3 => format!("{n} changed files: {}", names.join(", ")),
+                n => format!("{n} changed files: {} and {} more", names[..2].join(", "), n - 2),
+            };
+            let _ = this.update(cx, |this, cx| {
+                if let Some(o) = this.recovery_offer.as_mut().filter(|o| o.0 == path) {
+                    o.2 = what;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     pub(super) fn render_recovery(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         use gpui::{div, prelude::*};
         use gpui_component::button::{Button, ButtonVariants};
         use gpui_component::{h_flex, ActiveTheme, Sizable};
-        let (file, ago) = self.recovery_offer.clone()?;
+        let (file, ago, what) = self.recovery_offer.clone()?;
         // Once there are new changes, the offer waits in the mod chip's menu.
         if self.unsaved_total(cx) > 0 {
             return None;
@@ -261,7 +288,7 @@ impl Studio {
                 .border_b_1()
                 .border_color(theme.border)
                 .text_sm()
-                .child(div().flex_1().child(format!("Changes from an earlier session were kept ({ago}). Put them back as your unnamed mod?")))
+                .child(div().flex_1().child(if what.is_empty() { format!("Changes from an earlier session were kept ({ago}). Put them back as your unnamed mod?") } else { format!("Changes from an earlier session were kept ({ago}), {what}. Put them back as your unnamed mod?") }))
                 .child(Button::new("rec-open").xsmall().label("Put them back").on_click(cx.listener(move |this, _, _, cx| {
                     this.recovery_offer = None;
                     this.open_workspace_file(file.clone(), cx);

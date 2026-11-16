@@ -260,8 +260,8 @@ Mantle bar, 16px/12px padding: 40px `Hammer` plate, 18px bold mod name over a 12
 
 ## Known gaps
 
-- No champion portraits: the Champions list is names only (no icon lookup yet).
-- Skin rows open the game data row, not the skin's package (no skin to package mapping).
-- The Mod view lists changed files, not changed rows.
+- Portraits and skin icons show on the selected champion only; the champion list is names only (an icon each would open every champion's UI package).
+- A skin's own files come from its skin referencer less the champion's base referencer: a skin that only recolours the base (Classic) lists none.
+- The Mod view lists what changed for the first 8 files; the rest keep their What changed button.
 - The Map view keeps its own power-user density and does not follow the newcomer spacing.
 - Focus rings show only on gpui-component inputs; custom clickable rows (task rows, list rows, the search field) have hover but no keyboard focus ring.

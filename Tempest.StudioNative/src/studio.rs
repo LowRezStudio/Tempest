@@ -208,7 +208,8 @@ pub struct Studio {
     /// A file's animations to choose from for Replace: (names, the import call, the sequence, the file).
     pending_anim_pick: Option<(Vec<String>, serde_json::Value, String, String)>,
     /// A recovery file to offer: (path, how long ago).
-    recovery_offer: Option<(String, String)>,
+    /// An earlier session's kept changes: the file, how long ago, and what it holds in words.
+    recovery_offer: Option<(String, String, String)>,
     /// Why the last game folder did not open (shown on the welcome screen).
     open_error: Option<String>,
     /// Game folders found on this computer (the Launcher's, Steam's).

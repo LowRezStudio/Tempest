@@ -104,7 +104,7 @@ struct Entry {
 }
 
 impl Workspace {
-    fn num_of(&self, row: &Row, field: &str) -> Option<u64> {
+    pub(super) fn num_of(&self, row: &Row, field: &str) -> Option<u64> {
         row.num(self.tokens.token(field)?)
     }
 
@@ -122,7 +122,7 @@ impl Workspace {
         Ok((ti, Entry { row: entries[index].clone() }))
     }
 
-    fn item_row(&self, id: u64) -> Result<Option<Row>> {
+    pub(super) fn item_row(&self, id: u64) -> Result<Option<Row>> {
         Ok(match self.find_row("DATA_SET_ITEMS", "ITEM_ID", id)? {
             Some(i) => Some(self.row_of("DATA_SET_ITEMS", i)?),
             None => None,

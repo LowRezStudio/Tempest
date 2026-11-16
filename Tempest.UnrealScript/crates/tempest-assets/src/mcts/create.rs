@@ -972,7 +972,7 @@ impl Workspace {
         Ok(json!({ "dir": dir.to_string_lossy(), "files": written, "deltas": deltas, "classes": classes, "package": pkg }))
     }
 
-    fn resource_name(&self, id: Option<u64>) -> Option<String> {
+    pub(super) fn resource_name(&self, id: Option<u64>) -> Option<String> {
         let i = self.find_row("DATA_SET_RESOURCES", "RES_ID", id?).ok()??;
         let r = self.row_of("DATA_SET_RESOURCES", i).ok()?;
         r.str(self.tokens.token("NAME")?).map(|s| s.to_string())
