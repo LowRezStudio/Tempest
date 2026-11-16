@@ -7,7 +7,7 @@
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Editor, EditorState, Input, Position};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable, Selectable};
 use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
@@ -194,7 +194,7 @@ impl MovieEditor {
                 if texts.is_empty() {
                     out = out.child(div().p_2().opacity(0.6).child("No edit-text fields; the UI's texts come from the language files (Assembly view) or from scripts."));
                 }
-                out = out.child(h_flex().gap_2().px_1().py_0p5().font_family("Menlo").text_color(theme.muted_foreground).child(div().w(px(50.0)).child("id")).child(div().w(px(160.0)).child("variable")).child(div().w(px(140.0)).child("font")).child("initial text"));
+                out = out.child(h_flex().gap_2().px_1().py_0p5().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(div().w(px(50.0)).child("id")).child(div().w(px(160.0)).child("variable")).child(div().w(px(140.0)).child("font")).child("initial text"));
                 for t in &texts {
                     let id = t["id"].as_u64().unwrap_or(0);
                     let tag = t["tag"].as_u64().unwrap_or(0);
@@ -206,7 +206,7 @@ impl MovieEditor {
                             .gap_2()
                             .px_1()
                             .py_0p5()
-                            .font_family("Menlo")
+                            .font_family(crate::studio::ui::mono())
                             .child(div().id(("tx-id", tag as usize)).w(px(50.0)).text_color(theme.link).cursor_pointer().child(id.to_string()).on_click(cx.listener(move |this, _, _, cx| this.open(Node::Char(id), cx))))
                             .child(div().w(px(160.0)).overflow_hidden().text_ellipsis().child(t["variable"].as_str().unwrap_or("").to_string()))
                             .child(div().w(px(140.0)).opacity(0.6).overflow_hidden().text_ellipsis().child(font))
@@ -216,7 +216,7 @@ impl MovieEditor {
             }
             Node::Images => {
                 out = out.child(h_flex().gap_2().items_start().px_1().pb_1().child(div().flex_1().opacity(0.6).child("External images: the engine loads each file name as a Texture2D of this package. Replace the picture (PNG or DDS) to change it; the movie keeps drawing it at the size listed here. Rename the reference to point at another texture.")).child(Button::new("im-add").xsmall().icon(Icon::new(IconName::Image)).label("Add image…").on_click(cx.listener(|this, _, window, cx| this.open_add_image(window, cx)))));
-                out = out.child(h_flex().gap_2().px_1().font_family("Menlo").text_color(theme.muted_foreground).child(div().w(px(50.0)).child("id")).child(div().w(px(90.0)).child("size")).child(div().w(px(60.0)).child("format")).child(div().w(px(220.0)).child("file")).child("picture"));
+                out = out.child(h_flex().gap_2().px_1().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(div().w(px(50.0)).child("id")).child(div().w(px(90.0)).child("size")).child(div().w(px(60.0)).child("format")).child(div().w(px(220.0)).child("file")).child("picture"));
                 for im in self.info["images"].as_array().cloned().unwrap_or_default() {
                     let id = im["id"].as_u64().unwrap_or(0) & 0xffff;
                     let tag = im["tag"].as_u64().unwrap_or(0);
@@ -228,7 +228,7 @@ impl MovieEditor {
                             .gap_2()
                             .px_1()
                             .py_0p5()
-                            .font_family("Menlo")
+                            .font_family(crate::studio::ui::mono())
                             .child(div().id(("im-id", tag as usize)).w(px(50.0)).text_color(theme.link).cursor_pointer().child(id.to_string()).on_click(cx.listener(move |this, _, _, cx| this.open(Node::Char(id), cx))))
                             .child(div().w(px(90.0)).child(format!("{}×{}", im["width"], im["height"])))
                             .child(div().w(px(60.0)).opacity(0.6).child(im["format"].to_string()))
@@ -241,13 +241,13 @@ impl MovieEditor {
                 let mut ex = v_flex().flex_1().gap_0p5().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Exported symbols"));
                 for (k, e) in self.info["exports"].as_array().cloned().unwrap_or_default().iter().enumerate() {
                     let id = e["id"].as_u64().unwrap_or(0);
-                    ex = ex.child(h_flex().id(("lk-ex", k)).gap_1().font_family("Menlo").cursor_pointer().hover(|d| d.text_color(theme.link)).child(div().opacity(0.5).child(id.to_string())).child(e["name"].as_str().unwrap_or("").to_string()).on_click(cx.listener(move |this, _, _, cx| this.open(Node::Char(id), cx))));
+                    ex = ex.child(h_flex().id(("lk-ex", k)).gap_1().font_family(crate::studio::ui::mono()).cursor_pointer().hover(|d| d.text_color(theme.link)).child(div().opacity(0.5).child(id.to_string())).child(e["name"].as_str().unwrap_or("").to_string()).on_click(cx.listener(move |this, _, _, cx| this.open(Node::Char(id), cx))));
                 }
                 let mut im = v_flex().flex_1().gap_0p5().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Imports"));
                 for i in self.info["imports"].as_array().cloned().unwrap_or_default() {
-                    im = im.child(div().font_family("Menlo").child(i["url"].as_str().unwrap_or("").to_string()));
+                    im = im.child(div().font_family(crate::studio::ui::mono()).child(i["url"].as_str().unwrap_or("").to_string()));
                     for s in i["symbols"].as_array().cloned().unwrap_or_default() {
-                        im = im.child(h_flex().pl_3().gap_1().font_family("Menlo").opacity(0.7).child(div().opacity(0.5).child(s["id"].to_string())).child(s["name"].as_str().unwrap_or("").to_string()));
+                        im = im.child(h_flex().pl_3().gap_1().font_family(crate::studio::ui::mono()).opacity(0.7).child(div().opacity(0.5).child(s["id"].to_string())).child(s["name"].as_str().unwrap_or("").to_string()));
                     }
                 }
                 out = out.child(h_flex().items_start().gap_2().child(ex).child(im));
@@ -255,7 +255,7 @@ impl MovieEditor {
             Node::Tags => {
                 let q = self.tag_filter.read(cx).value().trim().to_ascii_lowercase();
                 out = out.child(div().pb_1().child(Input::new(&self.tag_filter).xsmall()));
-                out = out.child(h_flex().gap_2().px_1().font_family("Menlo").text_color(theme.muted_foreground).child(div().w(px(50.0)).child("#")).child(div().w(px(170.0)).child("tag")).child(div().w(px(60.0)).child("id")).child(div().w(px(70.0)).child("bytes")).child("detail"));
+                out = out.child(h_flex().gap_2().px_1().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(div().w(px(50.0)).child("#")).child(div().w(px(170.0)).child("tag")).child(div().w(px(60.0)).child("id")).child(div().w(px(70.0)).child("bytes")).child("detail"));
                 for t in self.info["tags"].as_array().cloned().unwrap_or_default() {
                     let name = t["name"].as_str().unwrap_or("").to_string();
                     let detail = t["detail"].as_str().unwrap_or("").to_string();
@@ -268,7 +268,7 @@ impl MovieEditor {
                         h_flex()
                             .gap_2()
                             .px_1()
-                            .font_family("Menlo")
+                            .font_family(crate::studio::ui::mono())
                             .child(div().w(px(50.0)).opacity(0.5).child(t["index"].to_string()))
                             .child(div().w(px(170.0)).child(if name == "?" { format!("? ({})", t["code"]) } else { name }))
                             .child(div().id(("tg-id", t["index"].as_u64().unwrap_or(0) as usize)).w(px(60.0)).opacity(0.6).when(known, |d| d.text_color(theme.link).cursor_pointer()).child(id.map(|i| i.to_string()).unwrap_or_default()).when(known, |d| d.on_click(cx.listener(move |this, _, _, cx| this.open(Node::Char(id.unwrap_or(0)), cx)))))
@@ -353,7 +353,7 @@ impl MovieEditor {
                         .gap_1()
                         .px_2()
                         .py_0p5()
-                        .font_family("Menlo")
+                        .font_family(crate::studio::ui::mono())
                         .cursor_pointer()
                         .when(on, |d| d.bg(theme.primary.opacity(0.2)))
                         .when(!on, |d| d.hover(|d| d.bg(theme.list_hover)))
@@ -387,7 +387,7 @@ impl MovieEditor {
                 let checked = sv.checked.clone();
                 let editor = sv.editor.clone();
                 let staged = self.script_edit(&sc["loc"]).is_some();
-                let toggle = |b: Button, on: bool| if on { b.primary() } else { b.ghost() };
+                let toggle = |b: Button, on: bool| b.ghost().selected(on);
                 let mut v = v_flex().flex_1().min_w_0().h_full().child(
                     h_flex()
                         .gap_2()
@@ -397,7 +397,7 @@ impl MovieEditor {
                         .border_b_1()
                         .border_color(theme.border)
                         .text_xs()
-                        .child(div().font_family("Menlo").font_weight(gpui::FontWeight::SEMIBOLD).overflow_hidden().text_ellipsis().child(self.script_title(&sc)))
+                        .child(div().font_family(crate::studio::ui::mono()).font_weight(gpui::FontWeight::SEMIBOLD).overflow_hidden().text_ellipsis().child(self.script_title(&sc)))
                         .child(div().opacity(0.5).child(format!("{} · {} bytes", sc["kind"].as_str().unwrap_or(""), sc["bytes"])))
                         .when(staged, |d| d.child(div().px_1().rounded_sm().bg(theme.warning.opacity(0.3)).child("staged")))
                         .when(modified, |d| d.child(div().px_1().rounded_sm().bg(theme.info.opacity(0.3)).child("modified")))
@@ -413,12 +413,12 @@ impl MovieEditor {
                 } else if !problems.is_empty() && !pcode {
                     let mut d = v_flex().px_2().py_1().bg(theme.warning.opacity(0.1)).border_b_1().border_color(theme.border).text_xs().child(format!("{} part{} kept as P-code (__pcode blocks compile as written)", problems.len(), if problems.len() > 1 { "s" } else { "" }));
                     for p in problems {
-                        d = d.child(div().font_family("Menlo").opacity(0.7).child(p));
+                        d = d.child(div().font_family(crate::studio::ui::mono()).opacity(0.7).child(p));
                     }
                     v = v.child(d);
                 }
                 if let Some(ed) = editor {
-                    v = v.child(div().flex_1().min_h_0().font_family("Menlo").text_sm().on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
+                    v = v.child(div().flex_1().min_h_0().font_family(crate::studio::ui::mono()).text_sm().on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
                         if e.keystroke.key == "enter" && (e.keystroke.modifiers.platform || e.keystroke.modifiers.control) {
                             cx.stop_propagation();
                             this.check_script(true, window, cx);
@@ -426,13 +426,13 @@ impl MovieEditor {
                     })).child(Editor::new(&ed).size_full()));
                 }
                 if let Some((line, msg)) = failure {
-                    v = v.child(div().id("sc-failure").px_2().py_1().border_t_1().border_color(theme.border).text_xs().font_family("Menlo").text_color(theme.danger).cursor_pointer().child(msg).on_click(cx.listener(move |this, _, window, cx| {
+                    v = v.child(div().id("sc-failure").px_2().py_1().border_t_1().border_color(theme.border).text_xs().font_family(crate::studio::ui::mono()).text_color(theme.danger).cursor_pointer().child(msg).on_click(cx.listener(move |this, _, window, cx| {
                         if let (Some(l), Some(ed)) = (line, this.script_view.as_ref().and_then(|s| s.editor.clone())) {
                             ed.update(cx, |s, cx| s.set_cursor_position(Position { line: l.saturating_sub(1), character: 0 }, window, cx));
                         }
                     })));
                 } else if let Some(c) = checked {
-                    v = v.child(div().px_2().py_1().border_t_1().border_color(theme.border).text_xs().font_family("Menlo").text_color(theme.success).child(format!("Compiles: {c}")));
+                    v = v.child(div().px_2().py_1().border_t_1().border_color(theme.border).text_xs().font_family(crate::studio::ui::mono()).text_color(theme.success).child(format!("Compiles: {c}")));
                 }
                 v.into_any_element()
             }

@@ -274,7 +274,7 @@ impl MapEditor {
                     } else {
                         text = text.child(format!("{}, {} lights", lod["kind"].as_str().unwrap_or(""), lod["lights"].as_array().map(|a| a.len()).unwrap_or(0)));
                         for t in lod["textures"].as_array().into_iter().flatten() {
-                            text = text.child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(format!("{} × {}", t["texture"].as_str().unwrap_or("—"), fmt(&t["scale"]))));
+                            text = text.child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(format!("{} × {}", t["texture"].as_str().unwrap_or("—"), fmt(&t["scale"]))));
                         }
                         text = text.child(format!("scale {}, bias {}", fmt(&lod["coordinateScale"]), fmt(&lod["coordinateBias"])));
                         if !j["decoded"].is_null() {

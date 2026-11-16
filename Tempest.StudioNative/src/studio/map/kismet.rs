@@ -742,7 +742,7 @@ impl MapEditor {
                 crumbs = crumbs.child(div().text_color(theme.muted_foreground).child("›"));
             }
             let level = self.kismet.level.clone().unwrap_or_default();
-            crumbs = crumbs.child(div().id(("kis-crumb", k)).font_family("Menlo").cursor_pointer().hover(|s| s.underline()).child(name).on_click(cx.listener(move |this, _, _, cx| this.open_kismet(level.clone(), Some(e), true, cx))));
+            crumbs = crumbs.child(div().id(("kis-crumb", k)).font_family(crate::studio::ui::mono()).cursor_pointer().hover(|s| s.underline()).child(name).on_click(cx.listener(move |this, _, _, cx| this.open_kismet(level.clone(), Some(e), true, cx))));
         }
         h_flex()
             .gap_1()
@@ -852,7 +852,7 @@ impl MapEditor {
                         .bg(theme.background)
                         .text_size(px(fs * 0.9))
                         .child(crate::driver::probe(format!("kis-node-{e}")))
-                        .child(div().px_1().w_full().text_center().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(n["value"].as_str().unwrap_or("?").to_string()))
+                        .child(div().px_1().w_full().text_center().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(n["value"].as_str().unwrap_or("?").to_string()))
                         .child(div().opacity(0.5).child(n["class"].as_str().unwrap_or("").trim_start_matches("SeqVar_").trim_start_matches("seqvar_").to_string()))
                         .into_any_element(),
                 );
@@ -938,7 +938,7 @@ impl MapEditor {
                         .cursor_pointer()
                         .hover(|s| s.bg(theme.list_hover))
                         .child(div().size(px(8.0)).rounded_full().bg(color))
-                        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(c["class"].as_str().unwrap_or("").to_string()))
+                        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(c["class"].as_str().unwrap_or("").to_string()))
                         .child(div().text_color(theme.muted_foreground).child(c["count"].to_string()))
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(cx.listener(move |this, _, _, cx| this.pick_node(item.clone(), cx)))
@@ -991,7 +991,7 @@ impl MapEditor {
                     .on_key_down(cx.listener(|this, e, window, cx| this.kismet_key(e, window, cx)))
                     .child(painted)
                     .children(nodes)
-                    .child(div().absolute().right(px(8.0)).bottom(px(8.0)).text_size(px(10.0)).font_family("Menlo").text_right().text_color(theme.muted_foreground).child("drag background pan · wheel zoom · drag a node to move it · drag a connector to link").child("Alt+click or Delete a link to break it · double-click a sequence to enter · F fit").child("right-click or A to add a node · Delete removes the selected node"))
+                    .child(div().absolute().right(px(8.0)).bottom(px(8.0)).text_size(px(10.0)).font_family(crate::studio::ui::mono()).text_right().text_color(theme.muted_foreground).child("drag background pan · wheel zoom · drag a node to move it · drag a connector to link").child("Alt+click or Delete a link to break it · double-click a sequence to enter · F fit").child("right-click or A to add a node · Delete removes the selected node"))
                     .children(palette)
                     .children(empty),
             )
@@ -1031,8 +1031,8 @@ impl MapEditor {
                     .gap_1()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(div().font_family("Menlo").text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title_of(&n)))
-                    .child(h_flex().flex_wrap().gap_x_3().text_color(theme.muted_foreground).child(div().font_family("Menlo").child(n["class"].as_str().unwrap_or("").to_string())).child(n["kind"].as_str().unwrap_or("").to_string()).child(format!("export {}", n["export"])))
+                    .child(div().font_family(crate::studio::ui::mono()).text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title_of(&n)))
+                    .child(h_flex().flex_wrap().gap_x_3().text_color(theme.muted_foreground).child(div().font_family(crate::studio::ui::mono()).child(n["class"].as_str().unwrap_or("").to_string())).child(n["kind"].as_str().unwrap_or("").to_string()).child(format!("export {}", n["export"])))
                     .children(n["comment"].as_str().filter(|c| !c.is_empty()).map(|c| div().text_color(theme.muted_foreground).child(c.to_string())))
                     .children(origin.map(|(e, name)| {
                         div().id("kis-origin").cursor_pointer().text_color(theme.link).hover(|s| s.underline()).child(format!("Fired by {name}: show it")).on_click(cx.listener(move |this, _, _, cx| {

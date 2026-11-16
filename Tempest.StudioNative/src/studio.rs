@@ -43,6 +43,7 @@ mod settings;
 mod sound;
 mod tabs;
 mod texture;
+mod ui;
 mod updates;
 mod welcome;
 mod wizard;
@@ -938,7 +939,7 @@ impl Studio {
             .on_click(cx.listener(|this, _, window, cx| this.open_palette("", window, cx)))
             .child(Icon::new(IconName::Search).small())
             .child(div().flex_1().child("Go to a package, object or command"))
-            .child(div().text_xs().child(commands::key_hint("⌘K")))
+            .child(ui::kbd(commands::key_hint("⌘K"), &theme))
             .child(crate::driver::probe("search-field"));
         let project_chip = self.render_project_chip(cx);
         let in_project = self.project.is_some();
@@ -973,8 +974,9 @@ impl Studio {
             .h(px(40.0))
             .px_2()
             .gap_1()
+            .bg(theme.title_bar)
             .border_b_1()
-            .border_color(theme.border)
+            .border_color(theme.title_bar_border)
             .child(Button::new("back").small().ghost().icon(Icon::new(IconName::ArrowLeft)).tooltip("Back (⌥←)").disabled(self.history_at == 0).on_click(cx.listener(|this, _, window, cx| this.back(&Back, window, cx))))
             .child(Button::new("forward").small().ghost().icon(Icon::new(IconName::ArrowRight)).tooltip("Forward (⌥→)").disabled(self.history_at + 1 >= self.history.len()).on_click(cx.listener(|this, _, window, cx| this.forward(&Forward, window, cx))))
             .child(workspace)
@@ -1017,8 +1019,8 @@ impl Studio {
             .gap_1()
             .items_center()
             .border_r_1()
-            .border_color(theme.border)
-            .bg(theme.sidebar)
+            .border_color(theme.title_bar_border)
+            .bg(theme.title_bar)
             .child(item("view-packages", IconName::Package, "Packages: objects, textures, meshes, sounds, scripts (⌘1)", v == View::Packages, cx, |s, w, cx| s.set_view(View::Packages, w, cx)))
             .child(item("view-assembly", IconName::Database, "Assembly: the game's content tables and texts (⌘2)", v == View::Assembly, cx, |s, w, cx| s.set_view(View::Assembly, w, cx)))
             .child(item("view-audio", IconName::Volume2, "Audio: the game's Wwise sounds, by event (⌘4)", v == View::Audio, cx, |s, w, cx| s.set_view(View::Audio, w, cx)))
@@ -1037,7 +1039,7 @@ impl Studio {
             (Some(_), _) => format!("{} packages", self.packages.len()),
             _ => String::new(),
         };
-        h_flex().h(px(24.0)).px_2().gap_2().border_t_1().border_color(theme.border).text_xs().text_color(theme.muted_foreground).child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(self.status.clone())).child(right)
+        h_flex().h(px(24.0)).px_2().gap_2().bg(theme.status_bar).border_t_1().border_color(theme.status_bar_border).text_xs().text_color(theme.muted_foreground).child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(self.status.clone())).child(right)
     }
 }
 

@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use gpui::{div, prelude::*, Context, Entity, FocusHandle, Focusable, KeyDownEvent, ScrollStrategy, Subscription, Task, UniformListScrollHandle, WeakEntity, Window};
 use gpui_component::input::{InputEvent, InputState, TextareaState};
-use gpui_component::{v_flex, ActiveTheme};
+use gpui_component::ActiveTheme;
 use serde_json::{json, Map, Value as J};
 
 use super::{dialogs, file_name, Place, Studio, Tone};
@@ -1885,13 +1885,11 @@ impl Assembly {
         use gpui_component::button::Button;
         use gpui_component::Sizable;
         let theme = cx.theme().clone();
-        let mut body = v_flex().size_full().items_center().justify_center().gap_3().text_sm().text_color(theme.muted_foreground).child(gpui_component::Icon::new(gpui_kit_assets::IconName::Database).size_8());
         if self.loading {
-            body = body.child("Reading assembly.dat and the language files…");
-        } else {
-            body = body.child(self.error.clone().unwrap_or_else(|| "No assembly.dat next to this folder's packages.".into())).child(Button::new("asm-retry").small().label("Retry").on_click(cx.listener(|this, _, _, cx| this.open(false, cx))));
+            return super::ui::loading("Reading the game data (assembly.dat and the language files)…", &theme);
         }
-        body
+        let detail = self.error.clone().unwrap_or_else(|| "There is no assembly.dat next to this folder's packages. Open the game's ChaosGame/CookedPCConsole folder.".into());
+        super::ui::error("The game data could not be read", detail, &theme).child(Button::new("asm-retry").small().label("Try again").on_click(cx.listener(|this, _, _, cx| this.open(false, cx))))
     }
 }
 

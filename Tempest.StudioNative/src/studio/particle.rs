@@ -18,7 +18,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::Input;
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable, Selectable};
 use serde_json::{json, Value as J};
 
 use super::mesh::{viewport, MeshState};
@@ -425,7 +425,7 @@ impl Studio {
                 let (playing, looping, grid, speed) = (p.playing, p.looping, v.borrow().view.show_grid, p.speed);
                 let toggle = |id: &'static str, label: &'static str, on: bool| {
                     let b = Button::new(id).xsmall().label(label);
-                    if on { b.primary() } else { b.ghost() }
+                    b.ghost().selected(on)
                 };
                 let (v1, v2, me) = (v.clone(), v.clone(), cx.entity().downgrade());
                 let bar = h_flex()
@@ -475,7 +475,7 @@ impl Studio {
         }
         // Emitters, in a list of their own so the modules and curves stay in view.
         let shown = p.view.as_ref().map(|v| v.borrow().view.runtimes.iter().filter(|r| r.visible).count()).unwrap_or(0);
-        out = out.child(section("EMITTERS"));
+        out = out.child(section("Emitters"));
         let mut emitters = v_flex().id("pt-emitters").max_h(px(200.0)).overflow_y_scroll();
         let counts: HashMap<usize, (usize, bool)> = p.view.as_ref().map(|v| v.borrow().view.runtimes.iter().map(|r| (r.sim.model.index, (r.sim.particles.len(), r.visible))).collect()).unwrap_or_default();
         for (k, e) in p.emitters().iter().enumerate() {
@@ -513,7 +513,7 @@ impl Studio {
                     div().id(("pt-unsupported", k)).px_1().rounded_sm().text_xs().text_color(theme.warning).bg(theme.warning.opacity(0.12)).child("partial").tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx))
                 }))
                 .child(div().text_xs().text_color(theme.muted_foreground).child(if off { format!("{kind} · off") } else { kind.to_string() }))
-                .child(div().w(px(48.0)).text_right().text_xs().font_family("Menlo").text_color(theme.muted_foreground).child(count.to_string()))
+                .child(div().w(px(48.0)).text_right().text_xs().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(count.to_string()))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if let Some(p) = &mut this.particles {
                         p.emitter = Some(ei);
@@ -526,7 +526,7 @@ impl Studio {
         out = out.child(emitters).child(div().text_xs().text_color(theme.muted_foreground).child(format!("{shown} of {} shown · the box hides an emitter from the preview only", p.emitters().len())));
         // The chosen emitter's modules.
         if let Some(e) = p.emitter_json() {
-            out = out.child(section("MODULES"));
+            out = out.child(section("Modules"));
             let mut list = h_flex().flex_wrap().gap_1();
             for (m, role) in particles::modules(e) {
                 let mi = m["index"].as_u64().unwrap_or(0) as usize;
@@ -534,7 +534,7 @@ impl Studio {
                 let label = if role.is_empty() || role == class { class } else { format!("{class} ({role})") };
                 let edited = p.drafts.keys().any(|(k, _)| *k == mi);
                 let b = Button::new(("pt-module", mi)).xsmall().label(if edited { format!("{label} •") } else { label }).tooltip("Double-click: show it in the package");
-                let b = if p.module == Some(mi) { b.primary() } else { b.ghost() };
+                let b = b.ghost().selected(p.module == Some(mi));
                 list = list.child(b.on_click(cx.listener(move |this, e: &gpui::ClickEvent, _, cx| {
                     if e.click_count() == 2 {
                         this.reveal(mi, cx);
@@ -585,7 +585,7 @@ impl Studio {
         let (k1, k2, k3) = (key.clone(), key.clone(), key.clone());
         let header = h_flex()
             .gap_2()
-            .child(div().text_sm().font_family("Menlo").font_weight(gpui::FontWeight::SEMIBOLD).child(d.prop.clone()))
+            .child(div().text_sm().font_family(crate::studio::ui::mono()).font_weight(gpui::FontWeight::SEMIBOLD).child(d.prop.clone()))
             .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(format!("{kind}{op}{shape}")))
             .when(dirty, |h| {
                 h.child(Button::new(("pt-revert", key.0 * 64 + key.1.len())).xsmall().ghost().label("Revert").tooltip("Back to the stored values").on_click(cx.listener(move |this, _, _, cx| {
@@ -719,7 +719,7 @@ impl Studio {
                         .id(id)
                         .px_1()
                         .rounded_sm()
-                        .font_family("Menlo")
+                        .font_family(crate::studio::ui::mono())
                         .when(editable, |d| d.bg(theme.secondary).cursor_text())
                         .child(value)
                         .when(editable, |d| d.on_click(cx.listener(move |this, _, window, cx| this.start_edit(ekey.clone(), v.clone(), window, cx))))

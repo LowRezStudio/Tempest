@@ -11,7 +11,7 @@ use std::rc::Rc;
 use gpui::{div, prelude::*, px, Context, PathPromptOptions, SharedString, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable, WindowExt};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable, WindowExt, Selectable};
 use serde_json::{json, Value as J};
 
 use super::{file_name, Studio, Tone};
@@ -308,7 +308,7 @@ fn choices(label: &'static str, items: Vec<String>, at: usize, opts: Rc<RefCell<
             set(&mut opts.borrow_mut(), k);
             window.refresh();
         });
-        row = row.child(if k == at { b.primary() } else { b.ghost() });
+        row = row.child(b.ghost().selected(k == at));
     }
     v_flex().gap_1().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(label)).child(row)
 }

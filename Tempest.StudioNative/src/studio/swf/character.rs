@@ -182,7 +182,7 @@ impl MovieEditor {
                         let parts: Vec<&str> = key.split(':').collect();
                         let label = if key.starts_with("stop:") { format!("stop {}", parts.get(3).unwrap_or(&"?")) } else { format!("fill {}", parts.get(2).and_then(|n| n.parse::<u64>().ok()).map(|n| n + 1).unwrap_or(0)) };
                         let edited = self.is_edited(&format!("shapeColor|{tag}|{key}"));
-                        let mut row = h_flex().gap_1().child(div().w(px(64.0)).font_family("Menlo").opacity(0.5).overflow_hidden().text_ellipsis().child(label)).child(self.swatch(tag, key.clone(), &color, edited, window, cx)).child(self.field(format!("col:{tag}:{key}"), color.get(0..7).unwrap_or("").to_string(), 80.0, cx));
+                        let mut row = h_flex().gap_1().child(div().w(px(64.0)).font_family(crate::studio::ui::mono()).opacity(0.5).overflow_hidden().text_ellipsis().child(label)).child(self.swatch(tag, key.clone(), &color, edited, window, cx)).child(self.field(format!("col:{tag}:{key}"), color.get(0..7).unwrap_or("").to_string(), 80.0, cx));
                         if alpha {
                             row = row.child(self.field(format!("alpha:{tag}:{key}"), alpha_of(&color).to_string(), 44.0, cx)).child(div().opacity(0.5).child("%"));
                         }
@@ -312,9 +312,9 @@ impl MovieEditor {
             }
             "font" => {
                 sec = sec
-                    .child(self.prop_row("name", div().font_family("Menlo").child(format!("{}{}{}", detail["name"].as_str().unwrap_or(""), if detail["bold"].as_bool() == Some(true) { " bold" } else { "" }, if detail["italic"].as_bool() == Some(true) { " italic" } else { "" })), cx))
-                    .child(self.prop_row("glyphs", div().font_family("Menlo").child(format!("{}{}{}", detail["glyphs"], if detail["layout"].as_bool() == Some(true) { "" } else { " · no layout" }, if detail["alignZones"].as_bool() == Some(true) { " · align zones" } else { "" })), cx))
-                    .child(div().id("cx-chars").max_h(px(96.0)).overflow_y_scroll().p_1().rounded_sm().bg(theme.secondary).font_family("Menlo").child(detail["chars"].as_str().filter(|s| !s.is_empty()).unwrap_or("(device font: no glyphs)").to_string()));
+                    .child(self.prop_row("name", div().font_family(crate::studio::ui::mono()).child(format!("{}{}{}", detail["name"].as_str().unwrap_or(""), if detail["bold"].as_bool() == Some(true) { " bold" } else { "" }, if detail["italic"].as_bool() == Some(true) { " italic" } else { "" })), cx))
+                    .child(self.prop_row("glyphs", div().font_family(crate::studio::ui::mono()).child(format!("{}{}{}", detail["glyphs"], if detail["layout"].as_bool() == Some(true) { "" } else { " · no layout" }, if detail["alignZones"].as_bool() == Some(true) { " · align zones" } else { "" })), cx))
+                    .child(div().id("cx-chars").max_h(px(96.0)).overflow_y_scroll().p_1().rounded_sm().bg(theme.secondary).font_family(crate::studio::ui::mono()).child(detail["chars"].as_str().filter(|s| !s.is_empty()).unwrap_or("(device font: no glyphs)").to_string()));
                 if detail["editable"].as_bool() == Some(true) {
                     sec = sec.child(div().opacity(0.6).child("add characters"));
                     if let Some(p) = self.edit(&format!("fontGlyphs|{tag}")) {
@@ -324,7 +324,7 @@ impl MovieEditor {
                     }
                     let file = self.glyph_file.clone();
                     sec = sec
-                        .child(h_flex().gap_1().child(div().flex_1().min_w_0().font_family("Menlo").overflow_hidden().text_ellipsis().child(file.as_deref().map(|f| f.rsplit(['/', '\\']).next().unwrap_or(f).to_string()).unwrap_or_else(|| "from file…".into()))).child(Button::new("cx-font-file").xsmall().label("Font file…").on_click(cx.listener(|_, _, _, cx| {
+                        .child(h_flex().gap_1().child(div().flex_1().min_w_0().font_family(crate::studio::ui::mono()).overflow_hidden().text_ellipsis().child(file.as_deref().map(|f| f.rsplit(['/', '\\']).next().unwrap_or(f).to_string()).unwrap_or_else(|| "from file…".into()))).child(Button::new("cx-font-file").xsmall().label("Font file…").on_click(cx.listener(|_, _, _, cx| {
                             let files = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Font with the characters (TTF, OTF)".into()) });
                             cx.spawn(async move |this, cx| {
                                 let Ok(Ok(Some(mut f))) = files.await else { return };
@@ -367,7 +367,7 @@ impl MovieEditor {
             }
             "sound" => {
                 let ext = detail["ext"].as_str().map(str::to_string);
-                sec = sec.child(div().font_family("Menlo").child(format!("{} · {} Hz · {}{}", detail["format"].as_str().unwrap_or(""), detail["rate"], if detail["channels"].as_u64() == Some(2) { "stereo" } else { "mono" }, detail["samples"].as_u64().map(|s| format!(" · {s} samples")).unwrap_or_default()))).child(
+                sec = sec.child(div().font_family(crate::studio::ui::mono()).child(format!("{} · {} Hz · {}{}", detail["format"].as_str().unwrap_or(""), detail["rate"], if detail["channels"].as_u64() == Some(2) { "stereo" } else { "mono" }, detail["samples"].as_u64().map(|s| format!(" · {s} samples")).unwrap_or_default()))).child(
                     Button::new("cx-sound").xsmall().ghost().icon(Icon::new(IconName::Download)).label(format!("Export {}", ext.as_deref().map(|e| e.to_ascii_uppercase()).unwrap_or_else(|| "(not supported)".into()))).disabled(ext.is_none()).on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(e) = &ext {
                             this.export_file(id, "sound", e, cx);
@@ -376,7 +376,7 @@ impl MovieEditor {
                 );
             }
             "binary" => {
-                sec = sec.child(div().font_family("Menlo").child(format!("{} bytes", detail["bytes"]))).child(Button::new("cx-binary").xsmall().ghost().icon(Icon::new(IconName::Download)).label("Export").on_click(cx.listener(move |this, _, _, cx| this.export_file(id, "binary", "bin", cx))));
+                sec = sec.child(div().font_family(crate::studio::ui::mono()).child(format!("{} bytes", detail["bytes"]))).child(Button::new("cx-binary").xsmall().ghost().icon(Icon::new(IconName::Download)).label("Export").on_click(cx.listener(move |this, _, _, cx| this.export_file(id, "binary", "bin", cx))));
             }
             _ => {}
         }

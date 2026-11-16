@@ -14,7 +14,7 @@ use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, ExternalPaths,
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::DropdownMenu;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable, Selectable};
 use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
@@ -1130,7 +1130,7 @@ impl Wizard {
             body = body.child(section("GAME CONTENT: SKINS, ABILITIES, ITEMS, CHAMPIONS", Kind::CONTENT, cx));
         }
         if offer.is_empty() {
-            body = body.child(section("SCRIPTS", Kind::SCRIPTS, cx));
+            body = body.child(section("Scripts", Kind::SCRIPTS, cx));
         }
         body.into_any_element()
     }
@@ -1294,7 +1294,7 @@ impl Wizard {
                 this.group = None;
                 cx.notify();
             }));
-            if self.group.is_none() { b.primary() } else { b.ghost() }
+            b.ghost().selected(self.group.is_none())
         };
         groups = groups.child(top);
         for (i, g) in self.groups.iter().take(40) {
@@ -1303,7 +1303,7 @@ impl Wizard {
                 this.group = Some(i);
                 cx.notify();
             }));
-            groups = groups.child(if self.group == Some(i) { b.primary() } else { b.ghost() });
+            groups = groups.child(b.ghost().selected(self.group == Some(i)));
         }
         let name_hint = match kind.prefix() {
             "" => "no dots or spaces".to_string(),
@@ -1334,7 +1334,7 @@ impl Wizard {
                     this.starter = s;
                     cx.notify();
                 }));
-                starters = starters.child(if self.starter == s { b.primary() } else { b.ghost() });
+                starters = starters.child(b.ghost().selected(self.starter == s));
             }
             let name = self.name.read(cx).value().trim().to_string();
             let where_ = match &self.mod_scripts {
@@ -1345,7 +1345,7 @@ impl Wizard {
                 .gap_3()
                 .child(v_flex().gap_1().child(label("File name", &theme)).child(Input::new(&self.name)).child(div().text_xs().text_color(theme.muted_foreground).child("becomes <name>.lua; scripts of a mod run in name order")))
                 .child(v_flex().gap_1().child(label("Starts with", &theme)).child(starters))
-                .child(div().p_2().rounded_md().bg(theme.secondary).text_xs().font_family("Menlo").child(self.starter.body(if name.is_empty() { "main" } else { &name })))
+                .child(div().p_2().rounded_md().bg(theme.secondary).text_xs().font_family(crate::studio::ui::mono()).child(self.starter.body(if name.is_empty() { "main" } else { &name })))
                 .child(div().text_xs().text_color(theme.muted_foreground).child(where_))
                 .into_any_element();
         }

@@ -74,6 +74,8 @@ pub fn group(id: &'static str, panes: Panes, parts: Vec<Part>, remember: impl Fn
             Role::Second => panes.second(),
             Role::Main => true,
         };
+        // Side panes sit a step darker than the work area.
+        let el = if matches!(role, Role::Side) { div().size_full().bg(theme.sidebar).child(el).into_any_element() } else { el };
         let el = if matches!(role, Role::Side) && panes.compact {
             if panes.overlay {
                 overlay = Some((el, size.unwrap_or(280.0)));

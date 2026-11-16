@@ -648,7 +648,7 @@ impl Assembly {
     pub(super) fn render_grid(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let Some(table) = self.table.clone() else {
-            return v_flex().size_full().items_center().justify_center().text_sm().text_color(theme.muted_foreground).child("Pick a table.").into_any_element();
+            return crate::studio::ui::empty(IconName::Table, "No table open", "Pick a table on the left. Each one is a list of the game's content: items, champions' abilities, skins, loot…", &theme).into_any_element();
         };
         let layout = self.layout(window, cx);
         if std::mem::take(&mut self.reveal_col) {
@@ -672,7 +672,7 @@ impl Assembly {
             .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(format!("{} rows", self.total)));
 
         let targets = self.targets().len();
-        let mut toolbar = h_flex().px_2().py_1().gap_1().child(crumbs).child(div().flex_1().min_w_2()).child(div().w(px(240.0)).flex_shrink(1.0).min_w(px(120.0)).child(Input::new(&self.filter).small().cleanable(true)));
+        let mut toolbar = crate::studio::ui::toolbar(&theme).child(crumbs).child(div().flex_1().min_w_2()).child(div().w(px(240.0)).flex_shrink(1.0).min_w(px(120.0)).child(Input::new(&self.filter).small().cleanable(true)));
         if in_assembly && depth == 0 {
             toolbar = toolbar.child(Button::new("a-new-content").xsmall().primary().icon(Icon::new(IconName::Sparkles)).label("New content").tooltip("A new skin, ability, card, item or champion, step by step").on_click(cx.listener(|this, _, _, cx| this.open_wizard(None, cx))));
         }

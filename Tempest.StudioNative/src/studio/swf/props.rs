@@ -56,7 +56,7 @@ impl MovieEditor {
                     .hover(|d| d.bg(theme.list_hover))
                     .child(Icon::new(group_icon(gid)).xsmall().text_color(theme.muted_foreground))
                     .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(self.label(id)))
-                    .when(named, |d| d.child(div().font_family("Menlo").opacity(0.4).child(id.to_string())))
+                    .when(named, |d| d.child(div().font_family(crate::studio::ui::mono()).opacity(0.4).child(id.to_string())))
                     .child(Icon::new(IconName::ChevronRight).xsmall().opacity(0.3))
                     .on_click(cx.listener(move |this, _, _, cx| this.open(Node::Char(id), cx))),
             );
@@ -163,7 +163,7 @@ impl MovieEditor {
                 h_flex()
                     .gap_1()
                     .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Placement"))
-                    .child(div().font_family("Menlo").opacity(0.5).child(format!("depth {depth}")))
+                    .child(div().font_family(crate::studio::ui::mono()).opacity(0.5).child(format!("depth {depth}")))
                     .child(div().flex_1())
                     .when(self.entry_edited(&e), |d| d.child(Button::new("mv-revert-entry").xsmall().ghost().icon(Icon::new(IconName::RotateCcw)).tooltip("Drop this object's pending edits").on_click(cx.listener(move |this, _, _, cx| this.revert_entry(&e1, cx))))),
             );
@@ -213,7 +213,7 @@ impl MovieEditor {
                 26 => "PlaceObject2",
                 _ => "PlaceObject",
             };
-            sec = sec.child(div().font_family("Menlo").opacity(0.5).child(format!(
+            sec = sec.child(div().font_family(crate::studio::ui::mono()).opacity(0.5).child(format!(
                 "{tag_name} #{placed}{} · since frame {}{}{}{}{}",
                 if matrix_by != placed { format!(", moved by #{matrix_by}") } else { String::new() },
                 e["since"].as_u64().unwrap_or(0) + 1,
@@ -236,22 +236,22 @@ impl MovieEditor {
             h_flex()
                 .gap_1()
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(if kind == "edittext" { "Edit text".to_string() } else { capital(&kind) }))
-                .child(div().font_family("Menlo").opacity(0.5).child(format!("id {id}")))
+                .child(div().font_family(crate::studio::ui::mono()).opacity(0.5).child(format!("id {id}")))
                 .when(entry.is_some(), |d| d.child(div().flex_1()).child(Button::new("mv-open-char").xsmall().ghost().label("Open").on_click(cx.listener(move |this, _, _, cx| this.open(Node::Char(id), cx))))),
         );
         let names: Vec<&str> = c["names"].as_array().into_iter().flatten().filter_map(|n| n.as_str()).collect();
         if !names.is_empty() {
-            sec = sec.child(self.prop_row("linkage", div().font_family("Menlo").child(names.join(", ")), cx));
+            sec = sec.child(self.prop_row("linkage", div().font_family(crate::studio::ui::mono()).child(names.join(", ")), cx));
         }
-        sec = sec.child(self.prop_row("tag", div().font_family("Menlo").child(format!("{}{}", c["tag"].as_u64().map(|t| format!("#{t} ")).unwrap_or_default(), c["tagName"].as_str().unwrap_or(""))), cx));
+        sec = sec.child(self.prop_row("tag", div().font_family(crate::studio::ui::mono()).child(format!("{}{}", c["tag"].as_u64().map(|t| format!("#{t} ")).unwrap_or_default(), c["tagName"].as_str().unwrap_or(""))), cx));
         if let Some(r) = super::geom::Rect::from_json(&c["rect"]) {
-            sec = sec.child(self.prop_row("size", div().font_family("Menlo").child(format!("{} × {} at {}, {}", fmt(r.w, 1), fmt(r.h, 1), fmt(r.x, 1), fmt(r.y, 1))), cx));
+            sec = sec.child(self.prop_row("size", div().font_family(crate::studio::ui::mono()).child(format!("{} × {} at {}, {}", fmt(r.w, 1), fmt(r.h, 1), fmt(r.x, 1), fmt(r.y, 1))), cx));
         }
         if kind == "sprite" {
-            sec = sec.child(self.prop_row("frames", div().font_family("Menlo").child(c["frames"].to_string()), cx));
+            sec = sec.child(self.prop_row("frames", div().font_family(crate::studio::ui::mono()).child(c["frames"].to_string()), cx));
         }
         if let Some(u) = c["import"]["url"].as_str() {
-            sec = sec.child(self.prop_row("from", div().font_family("Menlo").child(u.to_string()), cx));
+            sec = sec.child(self.prop_row("from", div().font_family(crate::studio::ui::mono()).child(u.to_string()), cx));
         }
         if kind == "edittext" {
             if let Some(t) = self.info["texts"].as_array().into_iter().flatten().find(|t| t["id"].as_u64() == Some(id)).cloned() {
@@ -288,7 +288,7 @@ impl MovieEditor {
             let mut tags = h_flex().gap_1().flex_wrap();
             for (k, a) in attached.iter().enumerate() {
                 let init = a["name"] == "DoInitAction";
-                tags = tags.child(div().id(("mv-attached", k)).px_1().rounded_sm().bg(theme.secondary).font_family("Menlo").cursor_pointer().hover(|d| d.bg(theme.primary.opacity(0.3))).child(format!("#{} {}", a["tag"], a["name"].as_str().unwrap_or(""))).tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Show in the tag list").build(window, cx)).on_click(cx.listener(move |this, _, _, cx| this.open(if init { Node::Scripts } else { Node::Tags }, cx))));
+                tags = tags.child(div().id(("mv-attached", k)).px_1().rounded_sm().bg(theme.secondary).font_family(crate::studio::ui::mono()).cursor_pointer().hover(|d| d.bg(theme.primary.opacity(0.3))).child(format!("#{} {}", a["tag"], a["name"].as_str().unwrap_or(""))).tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Show in the tag list").build(window, cx)).on_click(cx.listener(move |this, _, _, cx| this.open(if init { Node::Scripts } else { Node::Tags }, cx))));
             }
             sec = sec.child(v_flex().gap_0p5().child(div().opacity(0.6).child("attached tags")).child(tags));
         }

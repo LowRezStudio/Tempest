@@ -11,7 +11,7 @@ use std::sync::Arc;
 use base64::Engine;
 use gpui::{canvas, div, fill, point, prelude::*, px, size, AnyElement, Bounds, Context, MouseButton, Pixels};
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable, Selectable};
 use serde_json::json;
 use tempest_assets::audio::{apply_edits, decode_ogg, Edits, Pcm};
 
@@ -315,7 +315,7 @@ impl Studio {
             };
             let channels = |label: &'static str, n: usize, cx: &mut Context<Self>| {
                 let b = Button::new(label).xsmall().label(label).on_click(cx.listener(move |this, _, _, cx| this.edit_sound(move |s| s.edits.channels = n, cx)));
-                if e.channels == n { b.primary() } else { b.ghost() }
+                b.ghost().selected(e.channels == n)
             };
             let trimmed = e.trim.map(|(a, b)| format!("kept {a:.2}–{b:.2} s")).unwrap_or_else(|| "whole sound".into());
             body = body.child(
@@ -332,7 +332,7 @@ impl Studio {
                             .gap_2()
                             .child({
                                 let b = Button::new("normalize").xsmall().label("Normalise").tooltip("Scale the loudest peak to 98%").on_click(cx.listener(|this, _, _, cx| this.edit_sound(|s| s.edits.normalize = if s.edits.normalize > 0.0 { 0.0 } else { 0.98 }, cx)));
-                                if e.normalize > 0.0 { b.primary() } else { b.ghost() }
+                                b.ghost().selected(e.normalize > 0.0)
                             })
                             .child(div().text_xs().text_color(theme.muted_foreground).child("channels"))
                             .child(channels("Keep", 0, cx))

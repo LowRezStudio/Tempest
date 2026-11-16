@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use gpui::{canvas, div, prelude::*, px, AnyElement, Bounds, Context, Corners, Hsla, MouseButton, Pixels, Point, RenderImage, Window};
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::{h_flex, ActiveTheme, Disableable, Sizable};
+use gpui_component::{h_flex, ActiveTheme, Disableable, Sizable, Selectable};
 use serde_json::json;
 
 use super::Studio;
@@ -359,7 +359,7 @@ impl Studio {
         let path = self.open.as_ref().map(|t| t.path.clone()).unwrap_or_default();
         let toggle = |id: &'static str, label: &'static str, on: bool| {
             let b = Button::new(id).xsmall().label(label);
-            if on { b.primary() } else { b.ghost() }
+            b.ghost().selected(on)
         };
         let mut bar = h_flex().gap_1();
         if lods > 1 {
@@ -394,7 +394,7 @@ impl Studio {
         };
         let on = self.game_shaders && drawn > 0;
         let b = Button::new("mesh-game").xsmall().label("Game shaders").tooltip(tip).disabled(drawn == 0).on_click(cx.listener(|this, _, _, cx| this.toggle_game_shaders(cx)));
-        bar = bar.child(div().relative().child(if on { b.primary() } else { b.ghost() }).child(crate::driver::probe("mesh-game")));
+        bar = bar.child(div().relative().child(b.ghost().selected(on)).child(crate::driver::probe("mesh-game")));
         bar = bar.children(view_toggles(&state));
         bar = bar.child(Button::new("fit").xsmall().ghost().label("Fit").on_click(move |_, window, _| {
             t3.borrow_mut().fit();
@@ -442,7 +442,7 @@ pub fn view_toggles(state: &Rc<RefCell<MeshState>>) -> Vec<AnyElement> {
             st.dirty = true;
             window.refresh();
         });
-        (if on { b.primary() } else { b.ghost() }).into_any_element()
+        b.ghost().selected(on).into_any_element()
     };
     let mut out = vec![toggle("grid", "Grid", grid, state.clone(), |v| v.show_grid = !v.show_grid)];
     if has {

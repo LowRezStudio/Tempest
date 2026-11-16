@@ -177,18 +177,7 @@ impl Assembly {
         v_flex()
             .size_full()
             .child(
-                h_flex()
-                    .px_2()
-                    .h(px(30.0))
-                    .flex_none()
-                    .text_xs()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(muted)
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child("TABLES")
-                    .child(div().flex_1())
-                    .child(div().font_family(mono).font_weight(gpui::FontWeight::NORMAL).child(format!("{} files", self.docs.len()))),
+                crate::studio::ui::pane_header("Tables", div().text_xs().font_weight(gpui::FontWeight::NORMAL).child(format!("{} files", self.docs.len())), &theme),
             )
             .child(div().p_1().border_b_1().border_color(theme.border).child(Input::new(&self.table_filter).small().cleanable(true)))
             .child(div().id("tables").track_focus(&self.tables_focus).flex_1().min_h_0().overflow_y_scroll().child(list))

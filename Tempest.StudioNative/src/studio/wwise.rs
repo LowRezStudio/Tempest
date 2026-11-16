@@ -146,7 +146,7 @@ impl Studio {
         let w = self.wwise.as_ref().filter(|w| Some(w.export) == self.selected_export)?;
         let info = &w.info;
         let pck = info["pck"].as_str().map(file_name);
-        let mut body = v_flex().gap_1().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("WWISE"));
+        let mut body = v_flex().gap_1().child(super::ui::section("Sound bank", &theme));
         body = body.child(div().text_sm().child(match &pck {
             Some(p) => format!("Bank {} in {p}", info["bank"].as_str().unwrap_or_default()),
             None => format!("Bank {}: no {}.pck in the game folder", info["bank"].as_str().unwrap_or_default(), info["bank"].as_str().unwrap_or_default()),
@@ -166,7 +166,7 @@ impl Studio {
                     .gap_2()
                     .text_sm()
                     .child(Button::new(("ww-play", k)).xsmall().when(now, |b| b.primary()).label(if now { "Stop" } else { "Play" }).on_click(cx.listener(move |this, _, _, cx| this.wwise_play(id, cx))))
-                    .child(div().font_family("Menlo").text_xs().child(id.to_string()))
+                    .child(div().font_family(crate::studio::ui::mono()).text_xs().child(id.to_string()))
                     .child(div().flex_1().text_xs().text_color(theme.muted_foreground).child(format!(
                         "{} · {} ch · {} Hz · {:.2} s · {}{}",
                         m["codec"].as_str().unwrap_or_default(),

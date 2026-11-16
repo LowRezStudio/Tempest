@@ -8,6 +8,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use super::layout;
 use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable};
+use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
 use super::{file_name, Studio};
@@ -89,7 +90,7 @@ impl Studio {
         self.audio_browser(window, cx);
         let theme = cx.theme().clone();
         let a = self.audio.as_ref().expect("made above");
-        let title = |t: &str| div().h(px(28.0)).px_2().flex().items_center().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(t.to_uppercase());
+        let title = |t: &str| super::ui::pane_header(t.to_string(), div(), &theme);
         // Files.
         let f = a.filter.read(cx).value().to_ascii_lowercase();
         let mut files = v_flex();
@@ -184,7 +185,7 @@ impl Studio {
             .size_full()
             .child(title("Events"))
             .child(div().px_1().pb_1().child(Input::new(&a.events_filter).small()))
-            .child(div().id("ev-list").flex_1().min_h_0().overflow_y_scroll().child(if a.open.is_none() { div().p_2().text_sm().text_color(theme.muted_foreground).child("Pick a sound file on the left").into_any_element() } else if a.info.is_none() { div().p_2().text_sm().text_color(theme.muted_foreground).child("Reading…").into_any_element() } else { events.into_any_element() }));
+            .child(div().id("ev-list").flex_1().min_h_0().overflow_y_scroll().child(if a.open.is_none() { div().h(px(260.0)).child(super::ui::empty(IconName::AudioLines, "No sound file open", "Pick a sound file on the left: its events (what the game triggers) and the sounds they play show here, to listen to, export or replace.", &theme)).into_any_element() } else if a.info.is_none() { div().h(px(120.0)).child(super::ui::loading("Reading the sound file…", &theme)).into_any_element() } else { events.into_any_element() }));
         // Media.
         let pck = a.open.clone().unwrap_or_default();
         let playing = self.player.playing();
@@ -203,7 +204,7 @@ impl Studio {
                     .rounded_md()
                     .hover(|s| s.bg(theme.list_hover))
                     .child(Button::new(("am-play", k)).xsmall().when(now, |b| b.primary()).label(if now { "Stop" } else { "Play" }).on_click(cx.listener(move |this, _, _, cx| this.wwise_play_in(p1.clone(), id, cx))))
-                    .child(v_flex().flex_1().min_w_0().child(div().text_sm().font_family("Menlo").child(id.to_string())).child(div().text_xs().text_color(theme.muted_foreground).child(format!(
+                    .child(v_flex().flex_1().min_w_0().child(div().text_sm().font_family(crate::studio::ui::mono()).child(id.to_string())).child(div().text_xs().text_color(theme.muted_foreground).child(format!(
                         "{:.2} s · {} ch · {} Hz · {}{}",
                         m["duration"].as_f64().unwrap_or(0.0),
                         m["channels"],

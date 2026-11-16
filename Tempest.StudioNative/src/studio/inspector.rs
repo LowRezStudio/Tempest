@@ -7,7 +7,7 @@ use gpui::{div, prelude::*, px, AnyElement, Context, Entity, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Editor, EditorState, Input};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable, Selectable};
 use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
@@ -301,14 +301,16 @@ impl Studio {
     pub(super) fn render_inspector(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let Some(ins) = &self.inspected else {
-            let hint = if self.open.is_some() { "Select an object to see and edit it" } else { "" };
-            return v_flex().size_full().items_center().justify_center().text_sm().text_color(theme.muted_foreground).child(hint).into_any_element();
+            if self.open.is_none() {
+                return div().size_full().into_any_element();
+            }
+            return super::ui::empty(IconName::MousePointer2, "Nothing selected", "Select an object in the list to preview it and change it: textures, meshes, materials, sounds, animations, UI movies…", &theme).into_any_element();
         };
         let title: AnyElement = Input::new(&self.value_input).small().into_any_element();
         let script = is_script(&ins.class);
         let tab_button = |id: &'static str, label: &'static str, tab: Tab, me: &Studio, cx: &mut Context<Self>| {
             let b = Button::new(id).xsmall().label(label).on_click(cx.listener(move |this, _, _, cx| this.set_tab(tab, cx)));
-            if me.tab == tab { b.primary() } else { b.ghost() }
+            b.ghost().selected(me.tab == tab)
         };
         // Two everyday actions in view, the rest in the ⋯ menu.
         let tool = |id: &'static str, icon: IconName, label: &'static str, cmd: Cmd, cx: &mut Context<Self>| {
@@ -408,7 +410,7 @@ impl Studio {
             body = body.child(t);
         }
         if !ins.rows.is_empty() {
-            body = body.child(div().pt_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("PROPERTIES"));
+            body = body.child(super::ui::section("Properties", &theme));
         }
         // Structs and arrays fold: nested ones and long arrays start folded.
         let shown = model::unfolded(&ins.rows, |r| self.prop_open.get(&r.path).copied().unwrap_or_else(|| r.starts_open()));
@@ -492,7 +494,7 @@ impl Studio {
                 cx.notify();
             }))));
             if open {
-                body = body.child(div().text_xs().font_family("Menlo").text_color(theme.muted_foreground).whitespace_normal().child(ins.native.clone()));
+                body = body.child(div().text_xs().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).whitespace_normal().child(ins.native.clone()));
             }
         }
         body.into_any_element()

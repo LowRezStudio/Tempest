@@ -725,7 +725,7 @@ impl MapEditor {
             .on_key_down(cx.listener(|this, e, window, cx| this.key_down(e, window, cx)))
             .on_key_up(cx.listener(|this, e, _, cx| this.key_up(e, cx)))
             .child(view)
-            .children(progress.map(|p| div().absolute().bottom(px(8.0)).left(px(8.0)).px_2().py_1().rounded_md().bg(theme.background.opacity(0.8)).text_xs().font_family("Menlo").child(p)))
+            .children(progress.map(|p| div().absolute().bottom(px(8.0)).left(px(8.0)).px_2().py_1().rounded_md().bg(theme.background.opacity(0.8)).text_xs().font_family(crate::studio::ui::mono()).child(p)))
             .children(legend)
             .child(
                 div()
@@ -733,7 +733,7 @@ impl MapEditor {
                     .bottom(px(8.0))
                     .right(px(8.0))
                     .text_size(px(10.0))
-                    .font_family("Menlo")
+                    .font_family(crate::studio::ui::mono())
                     .text_color(theme.muted_foreground)
                     .text_right()
                     .child(if azerty(cx) { "left drag orbit · right drag look, + ZQSD fly (A E down/up) · middle drag pan · arrows fly · wheel zoom" } else { "left drag orbit · right drag look, + WASD fly (Q E down/up) · middle drag pan · arrows fly · wheel zoom" })

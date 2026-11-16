@@ -40,7 +40,7 @@ impl MapEditor {
                 h_flex()
                     .gap_1()
                     .child(div().size(px(10.0)).flex_none().rounded_full().bg(hsla(actor.color())))
-                    .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(actor.name.clone()))
+                    .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(actor.name.clone()))
                     .child(Button::new("mi-frame").xsmall().ghost().icon(Icon::new(IconName::Focus)).tooltip("Frame it (F)").on_click(cx.listener(|this, _, _, cx| {
                         this.frame_selection();
                         cx.notify();
@@ -55,7 +55,7 @@ impl MapEditor {
                         });
                     }))),
             )
-            .child(h_flex().flex_wrap().gap_x_3().text_color(theme.muted_foreground).child(div().font_family("Menlo").child(actor.class.clone())).child(level_name).child(format!("export {}", actor.export)));
+            .child(h_flex().flex_wrap().gap_x_3().text_color(theme.muted_foreground).child(div().font_family(crate::studio::ui::mono()).child(actor.class.clone())).child(level_name).child(format!("export {}", actor.export)));
         if actor.component {
             head = head.child(div().text_color(theme.muted_foreground).child("A mesh the cooker gathered into a collection: moving it writes this component's Translation, Rotation and Scale3D."));
         }
@@ -65,24 +65,24 @@ impl MapEditor {
                 .gap_2()
                 .child(Switch::new("mi-canbase").small().checked(actor.can_base_on).tooltip(tip).on_click(cx.listener(|this, v: &bool, _, cx| this.set_can_base_on(*v, cx))))
                 .child("Can be stood on")
-                .child(div().font_family("Menlo").text_color(theme.muted_foreground).child(format!("m_bCanBaseOn {}", if actor.can_base_on { "True" } else { "False" })))
+                .child(div().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(format!("m_bCanBaseOn {}", if actor.can_base_on { "True" } else { "False" })))
                 .when(!actor.can_base_on, |d| d.child(div().px_1().rounded_sm().bg(theme.danger).text_color(theme.danger_foreground).child("rooftop"))),
         );
         if let Some(loc) = actor.location {
-            let mut grid = div().grid().grid_cols(4).gap_x_2().font_family("Menlo").child(div().text_color(theme.muted_foreground).child("Location")).child(fmt(loc[0])).child(fmt(loc[1])).child(fmt(loc[2]));
+            let mut grid = div().grid().grid_cols(4).gap_x_2().font_family(crate::studio::ui::mono()).child(div().text_color(theme.muted_foreground).child("Location")).child(fmt(loc[0])).child(fmt(loc[1])).child(fmt(loc[2]));
             if let Some(r) = actor.rotation {
                 grid = grid.child(div().text_color(theme.muted_foreground).child("Rotation")).child(fmt(r[0])).child(fmt(r[1])).child(fmt(r[2]));
             }
             head = head.child(grid);
         }
         if !actor.info.is_empty() {
-            head = head.child(h_flex().flex_wrap().gap_1().children(actor.info.iter().map(|(k, v)| div().px_1().rounded_sm().bg(theme.secondary).font_family("Menlo").child(format!("{k} {}", v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()))))));
+            head = head.child(h_flex().flex_wrap().gap_1().children(actor.info.iter().map(|(k, v)| div().px_1().rounded_sm().bg(theme.secondary).font_family(crate::studio::ui::mono()).child(format!("{k} {}", v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()))))));
         }
         if !actor.parts.is_empty() {
             head = head.child(h_flex().flex_wrap().gap_1().children(actor.parts.iter().map(|p| {
                 let kind = p["kind"].as_str().unwrap_or("?");
                 let label = if kind == "mesh" { p["meshName"].as_str().and_then(|n| n.rsplit('.').next()).unwrap_or("mesh").to_string() } else { kind.to_string() };
-                div().px_1().rounded_sm().border_1().border_color(theme.border).font_family("Menlo").child(label)
+                div().px_1().rounded_sm().border_1().border_color(theme.border).font_family(crate::studio::ui::mono()).child(label)
             })));
         }
         let collision = self.render_collision_panel(&level, &actor, window, cx);

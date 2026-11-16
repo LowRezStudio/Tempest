@@ -12,7 +12,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable, Selectable};
 use serde_json::{json, Value as J};
 
 use super::{file_name, modmeta, state_file, Studio, Tone};
@@ -732,7 +732,7 @@ impl Cooker {
                                     }
                                     cx.notify();
                                 }));
-                                if t.whole { b.primary() } else { b.ghost() }
+                                b.ghost().selected(t.whole)
                             })
                         })
                         .child(Button::new(("prev", k)).xsmall().ghost().label("What changed").on_click(cx.listener(move |this, _, _, cx| this.preview(k, cx))))
@@ -757,7 +757,7 @@ impl Cooker {
                         }
                         cx.notify();
                     }));
-                    pick = pick.child(if j == t.chosen { b.primary() } else { b.ghost() });
+                    pick = pick.child(b.ghost().selected(j == t.chosen));
                 }
                 card = card.child(pick);
             }
@@ -835,7 +835,7 @@ impl Cooker {
                 h_flex()
                     .gap_2()
                     .text_sm()
-                    .child(div().font_family("Menlo").text_xs().child(dest.clone()))
+                    .child(div().font_family(crate::studio::ui::mono()).text_xs().child(dest.clone()))
                     .child(div().flex_1().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("from {src}")))
                     .child(Button::new(("extra-rm", k)).xsmall().ghost().label("Remove").on_click(cx.listener(move |this, _, _, cx| {
                         if k < this.extras.len() {
@@ -852,7 +852,7 @@ impl Cooker {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("OTHER FILES"))
+                    .child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Other files"))
                     .child(Button::new("add-files").xsmall().ghost().label("Add files…").tooltip("Lua goes to scripts/, DLLs to dlls/64/; .upk, .dat and .pck files become modified game files").on_click(cx.listener(|this, _, _, cx| this.add_files(cx))))
                     .child(Button::new("add-folder").xsmall().ghost().label("Add folder…").tooltip("A whole folder, shipped under its name (for example scripts/)").on_click(cx.listener(|this, _, _, cx| this.add_folder(cx))))
                     .child(Button::new("add-modified").xsmall().ghost().label("Add a modified game file…").tooltip("A package, .dat or .pck edited elsewhere: shipped as a delta against the game's file").on_click(cx.listener(|this, _, _, cx| this.add_files(cx)))),
@@ -1151,12 +1151,12 @@ impl Render for Cooker {
         let files = self.render_files(cx);
         let problems = self.problems(cx);
         let id = self.mod_id(cx);
-        let section = |t: &str| div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(t.to_uppercase());
+        let section = |t: &str| div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(t.to_string());
         let labeled = |label: &'static str, input: &Entity<InputState>| v_flex().gap_1().child(div().text_xs().text_color(theme.muted_foreground).child(label)).child(Input::new(input).small());
         let busy = self.busy.clone();
         let mut log = v_flex().gap_0p5();
         for (line, text) in &self.log {
-            log = log.child(div().text_xs().font_family("Menlo").text_color(match line {
+            log = log.child(div().text_xs().font_family(crate::studio::ui::mono()).text_color(match line {
                 Line::Ok => theme.foreground,
                 Line::Info => theme.muted_foreground,
                 Line::Error => theme.danger,
@@ -1219,7 +1219,7 @@ impl Render for Cooker {
                         this.save_meta(cx);
                         cx.notify();
                     }));
-                    if on { b.primary() } else { b.ghost() }
+                    b.ghost().selected(on)
                 };
                 let fast = self.meta.fast;
                 v_flex()

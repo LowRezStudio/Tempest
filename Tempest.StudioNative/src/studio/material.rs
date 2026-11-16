@@ -16,7 +16,7 @@ use std::sync::Arc;
 use gpui::{div, img, prelude::*, px, AnyElement, Context, Image, ImageFormat, ObjectFit, PathPromptOptions, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable, Selectable};
 use serde_json::{json, Value as J};
 
 use super::mesh::{viewport, MeshState};
@@ -485,7 +485,7 @@ impl Studio {
             (None, None) => ("Building the game's shaders…".into(), false),
         };
         let toggle = Button::new("game-shader").xsmall().label("Game shader").tooltip(tip).disabled(!available).on_click(cx.listener(|this, _, _, cx| this.toggle_game_shaders(cx)));
-        let bar = h_flex().gap_1().child(div().relative().child(if use_game { toggle.primary() } else { toggle.ghost() }).child(crate::driver::probe("game-shader"))).into_any_element();
+        let bar = h_flex().gap_1().child(div().relative().child(toggle.ghost().selected(use_game)).child(crate::driver::probe("game-shader"))).into_any_element();
         let sphere = match (use_game, game, m.sphere.clone()) {
             (true, Some(g), _) => viewport("material-view", g, 260.0, Some(bar), theme.muted, theme.muted_foreground),
             (_, _, Some(s)) => {
@@ -500,7 +500,7 @@ impl Studio {
             }
             _ => div().h(px(260.0)).w_full().rounded_md().bg(theme.muted).into_any_element(),
         };
-        let section = |title: &str| div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(title.to_uppercase());
+        let section = |title: &str| div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(title.to_string());
         let mut panel = v_flex().gap_1();
         panel = panel.child(
             div()
@@ -575,7 +575,7 @@ impl Studio {
                     .rounded_sm()
                     .cursor_text()
                     .hover(|s| s.bg(theme.list_hover))
-                    .font_family("Menlo")
+                    .font_family(crate::studio::ui::mono())
                     .text_xs()
                     .on_click(cx.listener(move |this, _, window, cx| this.start_edit(key.clone(), draft.clone(), window, cx)))
                     .child(shown)
@@ -624,7 +624,7 @@ impl Studio {
         let mut list = v_flex().gap_1().child(
             h_flex()
                 .gap_1()
-                .child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("MATERIALS"))
+                .child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Materials"))
                 .child(div().relative().child(Button::new("own-all").xsmall().label("Own materials for every slot").tooltip("Give every slot a material of this mesh's own, gathered in one group named after the mesh: then change their textures without touching other meshes").on_click(cx.listener(|this, _, _, cx| this.own_materials(cx)))).child(crate::driver::probe("own-all")))
                 .when(skeletal, |d| d.child(Button::new("add-slot").xsmall().ghost().label("Add slot").tooltip("A new slot drawn with the last slot's material; sections use it once a mesh with that many materials is imported").on_click(cx.listener(|this, _, _, cx| this.slot_op("mesh.addSlot", None, cx))))),
         );

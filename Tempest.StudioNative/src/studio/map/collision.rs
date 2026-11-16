@@ -471,7 +471,7 @@ impl MapEditor {
             let blocks = it["flags"]["blocks"].as_str().unwrap_or("none").to_string();
             let mesh = it["kind"] == "mesh";
             let name = if mesh { it["name"].as_str().unwrap_or("").to_string() } else { actor.name.clone() };
-            let mut block = v_flex().gap_1().child(h_flex().gap_2().child(div().size(px(10.0)).rounded_sm().bg(hsla(block_color(&blocks)))).child(div().font_family("Menlo").child(name)).child(div().text_color(theme.muted_foreground).child(block_label(&blocks))));
+            let mut block = v_flex().gap_1().child(h_flex().gap_2().child(div().size(px(10.0)).rounded_sm().bg(hsla(block_color(&blocks)))).child(div().font_family(crate::studio::ui::mono()).child(name)).child(div().text_color(theme.muted_foreground).child(block_label(&blocks))));
             if mesh {
                 let key = it["meshKey"].as_str().unwrap_or("");
                 if let Some(mc) = self.collision.data.as_ref().map(|d| &d["meshes"][key]).filter(|m| !m.is_null()) {
@@ -485,7 +485,7 @@ impl MapEditor {
                 // Actor switches (b…) live on the actor or the collection; the others on the component.
                 let index = if flag.starts_with('b') { if mesh { it["parent"].as_u64() } else { it["export"].as_u64() } } else if mesh { it["export"].as_u64() } else { it["component"].as_u64() }.unwrap_or(0) as usize;
                 let lvl = level.to_string();
-                grid = grid.child(h_flex().gap_1().child(Switch::new(("mi-flag", n * 16 + fk)).xsmall().checked(v).tooltip(*help).on_click(cx.listener(move |this, v: &bool, _, cx| this.set_flag(lvl.clone(), index, flag, *v, cx)))).child(div().font_family("Menlo").child(flag.to_string())));
+                grid = grid.child(h_flex().gap_1().child(Switch::new(("mi-flag", n * 16 + fk)).xsmall().checked(v).tooltip(*help).on_click(cx.listener(move |this, v: &bool, _, cx| this.set_flag(lvl.clone(), index, flag, *v, cx)))).child(div().font_family(crate::studio::ui::mono()).child(flag.to_string())));
             }
             col = col.child(block.child(grid));
         }
@@ -567,7 +567,7 @@ impl MapEditor {
                 }));
             }
             let t = self.collision.vertices.clone().expect("made above");
-            panel = panel.child(div().text_color(theme.muted_foreground).child("The volume becomes the convex hull of these points: one \"x y z\" per line, actor space, Unreal units. Read the current shape first.")).child(Textarea::new(&t).h(px(140.0)).font_family("Menlo"));
+            panel = panel.child(div().text_color(theme.muted_foreground).child("The volume becomes the convex hull of these points: one \"x y z\" per line, actor space, Unreal units. Read the current shape first.")).child(Textarea::new(&t).h(px(140.0)).font_family(crate::studio::ui::mono()));
         }
         let disabled = self.collision.busy || (kind == "mesh" && self.collision.mesh_object.trim().is_empty());
         panel.child(h_flex().child(Button::new("mi-shape-apply").xsmall().primary().label(if self.collision.busy { "Building…" } else { "Apply shape" }).disabled(disabled).on_click(cx.listener(move |this, _, _, cx| this.apply_shape(l2.clone(), export, cx))))).into_any_element()

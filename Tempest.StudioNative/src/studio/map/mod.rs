@@ -956,7 +956,7 @@ impl MapEditor {
             .rounded_sm()
             .bg(theme.secondary)
             .cursor_text()
-            .font_family("Menlo")
+            .font_family(crate::studio::ui::mono())
             .text_xs()
             .overflow_hidden()
             .text_ellipsis()
@@ -1010,7 +1010,7 @@ impl MapEditor {
     fn render_toolbar(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let mode = self.mode;
-        let mut bar = h_flex().min_h(px(34.0)).flex_wrap().px_2().py_1().gap_1().border_b_1().border_color(theme.border).bg(theme.secondary).text_xs();
+        let mut bar = crate::studio::ui::toolbar(&theme).flex_wrap().py_1().text_xs();
         let tab = |id: &'static str, icon: IconName, label: &'static str, on: bool| Button::new(id).xsmall().icon(Icon::new(icon)).label(label).selected(on);
         bar = bar
             .child(tab("mv-scene", IconName::Map, "Scene", mode == Mode::Scene).on_click(cx.listener(|this, _, _, cx| {
@@ -1143,11 +1143,11 @@ impl Render for MapEditor {
         self.pump_meshes(cx);
         let side = self.render_side(cx);
         let center: AnyElement = if self.loading {
-            div().flex_1().flex().items_center().justify_center().text_sm().text_color(theme.muted_foreground).child("Reading the map and its sublevels…").into_any_element()
+            div().flex_1().child(crate::studio::ui::loading("Reading the map and its sublevels…", &theme)).into_any_element()
         } else if let Some(e) = &self.error {
-            div().flex_1().flex().items_center().justify_center().p_6().text_sm().text_color(theme.danger).child(e.clone()).into_any_element()
+            div().flex_1().child(crate::studio::ui::error("This map could not be opened", e.clone(), &theme)).into_any_element()
         } else if self.path.is_none() {
-            v_flex().flex_1().items_center().justify_center().gap_2().text_sm().text_color(theme.muted_foreground).child(Icon::new(IconName::Box)).child("Pick a map on the left.").into_any_element()
+            div().flex_1().child(crate::studio::ui::empty(IconName::Map, "No map open", "Pick a map on the left to see it in 3D, move what is in it, and edit its scripts (Kismet) and cutscenes (Matinee).", &theme)).into_any_element()
         } else {
             let toolbar = self.render_toolbar(cx);
             let body: AnyElement = if self.mode == Mode::Kismet {

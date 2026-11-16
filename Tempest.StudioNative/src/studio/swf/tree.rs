@@ -129,7 +129,7 @@ impl MovieEditor {
                                 .when(!on, |d| d.hover(|d| d.bg(theme.list_hover)))
                                 .child(Icon::new(icon).xsmall())
                                 .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(label))
-                                .when(!extra.is_empty(), |d| d.child(div().font_family("Menlo").opacity(0.5).child(extra)))
+                                .when(!extra.is_empty(), |d| d.child(div().font_family(crate::studio::ui::mono()).opacity(0.5).child(extra)))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.tree_focus.focus(window, cx);
                                     this.open(node, cx);

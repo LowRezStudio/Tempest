@@ -1214,7 +1214,7 @@ impl MovieEditor {
             let (lx, ly) = (pts.iter().map(|q| q.0).fold(f64::INFINITY, f64::min), pts.iter().map(|q| q.1).fold(f64::INFINITY, f64::min));
             let live = self.stage.live.map(|(_, m)| format!(" · {:.1}, {:.1}", m.tx, m.ty)).unwrap_or_default();
             let name = e["name"].as_str().map(str::to_string).unwrap_or_else(|| self.label(e["character"].as_u64().unwrap_or(0)));
-            out = out.child(div().absolute().left(px(lx as f32)).top(px((ly - 15.0) as f32)).px_1().bg(theme.primary).text_color(theme.primary_foreground).text_xs().font_family("Menlo").whitespace_nowrap().child(format!("{name} · {}{live}", e["depth"])));
+            out = out.child(div().absolute().left(px(lx as f32)).top(px((ly - 15.0) as f32)).px_1().bg(theme.primary).text_color(theme.primary_foreground).text_xs().font_family(crate::studio::ui::mono()).whitespace_nowrap().child(format!("{name} · {}{live}", e["depth"])));
         }
         if let Some(o) = outline_rect.zip(rect) {
             let (x, y) = self.to_stage(&o.1, scale, o.0.x, o.0.y);
@@ -1231,14 +1231,14 @@ impl MovieEditor {
         }
         if !self.stage.missing.is_empty() {
             let n = self.stage.missing.len();
-            out = out.child(div().absolute().bottom_0().left_0().right_0().px_2().bg(theme.warning.opacity(0.9)).text_color(theme.background).text_xs().font_family("Menlo").overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("{n} image{} not found: {}", if n == 1 { "" } else { "s" }, self.stage.missing[0])));
+            out = out.child(div().absolute().bottom_0().left_0().right_0().px_2().bg(theme.warning.opacity(0.9)).text_color(theme.background).text_xs().font_family(crate::studio::ui::mono()).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("{n} image{} not found: {}", if n == 1 { "" } else { "s" }, self.stage.missing[0])));
         }
         out.into_any_element()
     }
 }
 
 fn v_text(title: &str, detail: &str) -> impl IntoElement {
-    gpui_component::v_flex().gap_1().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(title.to_string())).child(div().font_family("Menlo").child(detail.to_string()))
+    gpui_component::v_flex().gap_1().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(title.to_string())).child(div().font_family(crate::studio::ui::mono()).child(detail.to_string()))
 }
 
 impl MovieEditor {

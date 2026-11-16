@@ -181,7 +181,7 @@ impl Cooker {
                         .when_some(result, |d, r| match r {
                             Ok(sig) => {
                                 let copy = sig.clone();
-                                d.child(div().id("sig").max_h(px(180.0)).overflow_y_scroll().p_2().rounded_md().bg(theme.secondary).text_xs().font_family("Menlo").child(sig)).child(h_flex().child(Button::new("sig-copy").small().primary().label("Copy the signature").on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))))
+                                d.child(div().id("sig").max_h(px(180.0)).overflow_y_scroll().p_2().rounded_md().bg(theme.secondary).text_xs().font_family(crate::studio::ui::mono()).child(sig)).child(h_flex().child(Button::new("sig-copy").small().primary().label("Copy the signature").on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))))
                             }
                             Err(e) => d.child(div().text_xs().text_color(theme.danger).child(e)),
                         }),

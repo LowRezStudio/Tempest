@@ -420,7 +420,7 @@ impl MapEditor {
                 .grid()
                 .grid_cols(2)
                 .gap_x_2()
-                .font_family("Menlo")
+                .font_family(crate::studio::ui::mono())
                 .text_color(theme.muted_foreground)
                 .child(format!("{} faces", i["faces"]))
                 .child(format!("{} vertices", i["vertices"]))

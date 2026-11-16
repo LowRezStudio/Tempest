@@ -263,7 +263,7 @@ impl MapEditor {
                 .cursor_pointer()
                 .hover(|s| s.bg(theme.list_hover))
                 .child(div().size(px(8.0)).flex_none().rounded_full().bg(hsla(color)))
-                .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(name))
+                .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(name))
                 .children(badge.map(|b| div().px_1().rounded_sm().bg(theme.secondary).text_size(px(9.0)).child(b)))
                 .child(div().text_color(theme.muted_foreground).child(right))
         };

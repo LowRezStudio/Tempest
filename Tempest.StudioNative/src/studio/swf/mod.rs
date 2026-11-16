@@ -33,7 +33,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::resizable::{h_resizable, resizable_panel, v_resizable};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable, Selectable};
 use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
@@ -1078,7 +1078,7 @@ impl MovieEditor {
             .rounded_sm()
             .bg(theme.secondary)
             .cursor_text()
-            .font_family("Menlo")
+            .font_family(crate::studio::ui::mono())
             .text_xs()
             .overflow_hidden()
             .text_ellipsis()
@@ -1270,7 +1270,7 @@ impl MovieEditor {
     fn render_toolbar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let trail = self.trail();
-        let mut bar = h_flex().px_2().py_1().gap_2().flex_wrap().border_b_1().border_color(theme.border).text_xs();
+        let mut bar = crate::studio::ui::toolbar(&theme).py_1().gap_2().flex_wrap().text_xs();
         if trail.len() > 1 || (trail.len() == 1 && self.node == Node::Frames) {
             let mut crumbs = h_flex().gap_1().min_w_0();
             let n = trail.len();
@@ -1289,7 +1289,7 @@ impl MovieEditor {
             bar = bar.child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(self.title()));
         }
         let info = &self.info;
-        bar = bar.child(div().font_family("Menlo").text_color(theme.muted_foreground).child(format!(
+        bar = bar.child(div().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(format!(
             "{} v{} · {}×{} · {} fps · {} characters",
             info["signature"].as_str().unwrap_or(""),
             info["version"],
@@ -1300,7 +1300,7 @@ impl MovieEditor {
         )));
         bar = bar.child(div().flex_1());
         let focused = self.studio.upgrade().is_some_and(|s| s.read(cx).focus_mode);
-        let toggle = |b: Button, on: bool| if on { b.primary() } else { b.ghost() };
+        let toggle = |b: Button, on: bool| b.ghost().selected(on);
         bar = bar.child(toggle(Button::new("mv-focus").xsmall().label("Focus").tooltip(if focused { "Show the package and object lists again" } else { "Give the movie editor the whole window (hides the package and object lists)" }), focused).on_click(cx.listener(|this, _, _, cx| {
             this.with_studio(cx, |s, cx| {
                 s.focus_mode = !s.focus_mode;
@@ -1501,7 +1501,7 @@ impl MovieEditor {
         let mut body = v_flex()
             .gap_3()
             .text_sm()
-            .child(h_flex().gap_2().child(div().flex_1().font_family("Menlo").text_xs().child(file.clone().unwrap_or_else(|| "No file yet".into()))).child(Button::new("ai-browse").small().label("Browse…").on_click(cx.listener(|_, _, _, cx| {
+            .child(h_flex().gap_2().child(div().flex_1().font_family(crate::studio::ui::mono()).text_xs().child(file.clone().unwrap_or_else(|| "No file yet".into()))).child(Button::new("ai-browse").small().label("Browse…").on_click(cx.listener(|_, _, _, cx| {
                 let files = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Image to add (PNG or DDS)".into()) });
                 cx.spawn(async move |this, cx| {
                     let Ok(Ok(Some(mut f))) = files.await else { return };

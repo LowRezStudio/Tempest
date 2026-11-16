@@ -88,7 +88,7 @@ impl MapEditor {
                         .hover(|s| s.bg(theme.list_hover))
                         .child(crate::driver::probe(format!("map-{}", m.name.trim_end_matches(".upk").to_ascii_lowercase())))
                         .child(Icon::new(IconName::Map).xsmall())
-                        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(m.name.trim_end_matches(".upk").to_string()))
+                        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(m.name.trim_end_matches(".upk").to_string()))
                         .when(m.kismet, |d| d.child(Icon::new(IconName::Workflow).xsmall().text_color(theme.muted_foreground)))
                         .on_click(cx.listener(move |this, _, _, cx| this.open(p.clone(), None, true, None, cx)))
                         .into_any_element()
@@ -120,7 +120,7 @@ impl MapEditor {
                         let shown = this.hidden_levels.contains(&p1);
                         this.set_level_shown(&p1, shown, cx);
                     })))
-                    .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(l.name.clone()))
+                    .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(l.name.clone()))
                     .when(dirty, |d| d.child(div().text_color(theme.warning).child("●")))
                     .child(div().text_color(theme.muted_foreground).child(l.actors.len().to_string()))
                     .child(Button::new(("lvl-kismet", k)).xsmall().ghost().icon(Icon::new(IconName::Workflow)).tooltip("Kismet of this level").on_click(cx.listener(move |this, _, _, cx| this.open_kismet(p2.clone(), None, true, cx)))),
@@ -175,7 +175,7 @@ impl MapEditor {
                                 .when(on, |d| d.bg(theme.primary.opacity(0.2)))
                                 .when(!on, |d| d.hover(|d| d.bg(theme.list_hover)))
                                 .child(div().size(px(8.0)).flex_none().rounded_full().bg(hsla(color)))
-                                .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(name))
+                                .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(name))
                                 .child(div().max_w(px(120.0)).overflow_hidden().text_ellipsis().whitespace_nowrap().text_color(theme.muted_foreground).child(class))
                                 .on_click(cx.listener(move |this, e: &gpui::ClickEvent, _, cx| {
                                     this.select(Some((l2.clone(), export)), true, cx);
@@ -203,12 +203,12 @@ impl MapEditor {
                     .border_b_1()
                     .border_color(theme.border)
                     .child(Icon::new(IconName::Map).xsmall())
-                    .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").font_weight(gpui::FontWeight::SEMIBOLD).child(name))
+                    .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).font_weight(gpui::FontWeight::SEMIBOLD).child(name))
                     .child(Button::new("map-change").xsmall().ghost().label("Change").tooltip("Pick another map").on_click(cx.listener(|this, _, _, cx| this.close_map(cx)))),
             )
-            .child(div().px_2().pt_1().text_color(theme.muted_foreground).font_weight(gpui::FontWeight::SEMIBOLD).child("LEVELS"))
+            .child(div().px_2().child(crate::studio::ui::section("Levels", &theme)))
             .child(levels)
-            .child(div().px_2().pt_1().border_t_1().border_color(theme.border).text_color(theme.muted_foreground).font_weight(gpui::FontWeight::SEMIBOLD).child("SHOW"))
+            .child(div().px_2().border_t_1().border_color(theme.border).child(crate::studio::ui::section("Show", &theme)))
             .child(cats)
             .child(
                 h_flex()

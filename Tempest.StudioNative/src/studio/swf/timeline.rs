@@ -110,7 +110,7 @@ impl MovieEditor {
                     .py_1()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(div().font_family("Menlo").text_color(theme.muted_foreground).child(format!("frame {}/{frames}", self.frame + 1)))
+                    .child(div().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(format!("frame {}/{frames}", self.frame + 1)))
                     .child(strip)
                     .children(labels.get(&(self.frame as u64)).map(|l| div().px_1().rounded_sm().bg(theme.secondary_hover).child(l.clone()))),
             );
@@ -141,7 +141,7 @@ impl MovieEditor {
         // Layers drawn over nearly the same rectangle: stacked states, hiding one changes nothing visible.
         let visible: Vec<(&J, Rect)> = entries.iter().filter(|e| !hidden.contains(&e["depth"].as_u64().unwrap_or(0))).filter_map(|e| Some((e, Rect::from_json(&e["rect"])?))).collect();
         let head = |t: &'static str, w: f32, right: bool| div().w(px(w)).flex_none().when(right, |d| d.text_right()).child(t);
-        let mut table = v_flex().id("mv-layers").flex_1().min_h_0().overflow_y_scroll().font_family("Menlo");
+        let mut table = v_flex().id("mv-layers").flex_1().min_h_0().overflow_y_scroll().font_family(crate::studio::ui::mono());
         table = table.child(
             h_flex()
                 .gap_2()

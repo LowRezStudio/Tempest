@@ -20,21 +20,15 @@ impl Assembly {
         let theme = cx.theme().clone();
         let muted = theme.muted_foreground;
         let mono = theme.mono_font_family.clone();
-        let title = h_flex()
-            .px_2()
-            .h(px(30.0))
-            .flex_none()
-            .gap_2()
-            .text_xs()
-            .font_weight(gpui::FontWeight::SEMIBOLD)
-            .text_color(muted)
-            .border_b_1()
-            .border_color(theme.border)
-            .child("ROW")
-            .when_some(self.selected, |d, i| d.child(div().font_family(mono.clone()).font_weight(gpui::FontWeight::NORMAL).child(format!("#{i}"))));
+        let title = crate::studio::ui::pane_header(
+            "Row",
+            div().when_some(self.selected, |d, i| d.text_xs().font_family(mono.clone()).font_weight(gpui::FontWeight::NORMAL).child(format!("#{i}"))),
+            &theme,
+        );
         let Some(row) = &self.row else {
             let text = if self.selected.is_some() { "Reading the row…" } else { "Select a row to see every field, follow its references and edit its messages." };
-            return v_flex().size_full().child(title).child(v_flex().flex_1().items_center().justify_center().p_4().text_sm().text_center().text_color(muted).child(text)).into_any_element();
+            let body = if self.selected.is_some() { crate::studio::ui::loading(text, &theme) } else { crate::studio::ui::empty(IconName::Table, "No row selected", text, &theme) };
+            return v_flex().size_full().child(title).child(div().flex_1().min_h_0().child(body)).into_any_element();
         };
         let index = row.index;
         let is_lang = self.doc.as_deref() != Some("assembly");

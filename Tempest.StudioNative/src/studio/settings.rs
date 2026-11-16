@@ -111,7 +111,7 @@ impl Studio {
             let pinned = s.pinned().len();
             let recent = s.recent.len();
             let mcp = s.mcp.clone();
-            let section = |title: &'static str| div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(title.to_uppercase());
+            let section = |title: &'static str| div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(title.to_string());
             let hint = |text: &'static str| div().text_xs().text_color(theme.muted_foreground).child(text);
             let theme_button = |id: &'static str, label: &'static str, icon: IconName, value: &'static str| {
                 let me = me.clone();
@@ -205,7 +205,7 @@ impl Studio {
                             .gap_1()
                             .child(div().text_sm().child(format!("Listening on {url}")))
                             .child(hint("Agents can read what the Studio shows, open packages and tables, run commands and call the backend. The token changes every run (also in mcp.json next to the settings)."))
-                            .child(div().p_2().rounded_md().bg(theme.secondary).text_xs().font_family("Menlo").child(cmd))
+                            .child(div().p_2().rounded_md().bg(theme.secondary).text_xs().font_family(crate::studio::ui::mono()).child(cmd))
                             .child(h_flex().child(Button::new("mcp-copy").xsmall().label("Copy the claude command").on_click(move |_, _, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string(c2.clone())))))
                             .into_any_element()
                     }

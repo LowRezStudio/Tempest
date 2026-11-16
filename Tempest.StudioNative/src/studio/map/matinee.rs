@@ -991,7 +991,7 @@ impl MapEditor {
         let st = &tl["settings"];
         let has_director = arr(&tl["groups"]).iter().any(|g| g["director"] == true);
         let toolbar = h_flex()
-            .min_h(px(30.0))
+            .min_h(px(crate::studio::ui::TOOLBAR))
             .flex_wrap()
             .px_2()
             .gap_1()
@@ -1015,7 +1015,7 @@ impl MapEditor {
             })))
             .child(div().text_xs().child("×"))
             .child(self.field("mat:rate", self.matinee.rate.map(fmt).unwrap_or_default(), 40.0, cx))
-            .child(div().ml_2().text_xs().font_family("Menlo").child(format!("{:.2} /", self.matinee.time)))
+            .child(div().ml_2().text_xs().font_family(crate::studio::ui::mono()).child(format!("{:.2} /", self.matinee.time)))
             .child(self.field("mat:length", fmt(len), 52.0, cx))
             .child(div().text_xs().text_color(theme.muted_foreground).child("s"))
             .child(div().flex_1())
@@ -1191,7 +1191,7 @@ impl MapEditor {
                         if let Some(s) = k["value"].as_str().filter(|_| c["kind"] == "keys") {
                             let l = s.to_ascii_lowercase();
                             let short = if l.starts_with("etta_") || l.starts_with("evta_") { s[5..].to_string() } else { s.to_string() };
-                            lane = lane.child(div().absolute().top(px(4.0)).left(px(x + 8.0)).max_w(px(120.0)).overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").text_size(px(9.0)).opacity(0.7).child(short));
+                            lane = lane.child(div().absolute().top(px(4.0)).left(px(x + 8.0)).max_w(px(120.0)).overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).text_size(px(9.0)).opacity(0.7).child(short));
                         }
                     }
                     lanes = lanes.child(lane);
@@ -1209,7 +1209,7 @@ impl MapEditor {
             ruler = ruler.child(div().absolute().top_0().h_full().left(px(x_of(sec[0]))).w(px(x_of(sec[1]) - x_of(sec[0]))).bg(theme.info.opacity(0.15)));
         }
         for t in ruler_ticks {
-            ruler = ruler.child(div().absolute().top_0().h_full().left(px(x_of(t))).border_l_1().border_color(theme.foreground.opacity(0.1)).pl_0p5().font_family("Menlo").text_size(px(9.0)).opacity(0.6).child(format!("{}", (t * 100.0).round() / 100.0)));
+            ruler = ruler.child(div().absolute().top_0().h_full().left(px(x_of(t))).border_l_1().border_color(theme.foreground.opacity(0.1)).pl_0p5().font_family(crate::studio::ui::mono()).text_size(px(9.0)).opacity(0.6).child(format!("{}", (t * 100.0).round() / 100.0)));
         }
         let head = div().absolute().top_0().bottom_0().left(px(x_of(self.matinee.time))).w(px(1.0)).bg(theme.warning);
         let lane_bounds = self.matinee.lane.clone();

@@ -495,14 +495,14 @@ impl Studio {
             let theme = cx.theme().clone();
             let mut body = v_flex().gap_3();
             for (g, items) in &groups {
-                let mut col = v_flex().gap_0p5().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(g.to_uppercase()));
+                let mut col = v_flex().gap_0p5().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(g.to_string()));
                 for (t, k) in items {
-                    col = col.child(h_flex().text_sm().child(div().flex_1().child(*t)).child(div().font_family("Menlo").text_xs().px_1().rounded_sm().bg(theme.secondary).child(k.clone())));
+                    col = col.child(h_flex().text_sm().child(div().flex_1().child(*t)).child(div().font_family(crate::studio::ui::mono()).text_xs().px_1().rounded_sm().bg(theme.secondary).child(k.clone())));
                 }
                 body = body.child(col);
             }
             for (g, text) in extra {
-                body = body.child(v_flex().gap_0p5().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(g.to_uppercase())).child(div().text_sm().child(text)));
+                body = body.child(v_flex().gap_0p5().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(g.to_string())).child(div().text_sm().child(text)));
             }
             dialog.title("Keyboard shortcuts").w(px(560.0)).child(div().id("shortcuts").max_h(px(560.0)).overflow_y_scroll().child(body))
         });

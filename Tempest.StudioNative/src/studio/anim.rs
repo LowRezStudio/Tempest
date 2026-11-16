@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use gpui::{canvas, div, fill, point, prelude::*, px, size, AnyElement, Bounds, Context, MouseButton, Pixels, Window};
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable, Selectable};
 use serde_json::{json, Value as J};
 
 use super::mesh::{viewport, MeshState};
@@ -242,7 +242,7 @@ impl Studio {
                     .px_1()
                     .rounded_sm()
                     .hover(|s| s.bg(theme.list_hover))
-                    .child(div().w(px(56.0)).font_family("Menlo").text_xs().child(format!("{t:.2} s")))
+                    .child(div().w(px(56.0)).font_family(crate::studio::ui::mono()).text_xs().child(format!("{t:.2} s")))
                     .child(div().flex_1().min_w_0().text_sm().overflow_hidden().text_ellipsis().whitespace_nowrap().child(if comment.is_empty() { name } else { format!("{name} · {comment}") }))
                     .child(Button::new(("nt-go", k)).xsmall().ghost().label("Go").tooltip("Move the playhead here").on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(a) = &mut this.anim {
@@ -402,12 +402,12 @@ impl Studio {
                 }
                 cx.notify();
             }));
-            if (speed - v).abs() < 1e-3 { b.primary() } else { b.ghost() }
+            b.ghost().selected((speed - v).abs() < 1e-3)
         };
         let controls = h_flex()
             .gap_2()
             .child(Button::new("anim-play").small().primary().label(if a.playing.is_some() { "Pause" } else { "Play" }).on_click(cx.listener(|this, _, _, cx| this.anim_play(cx))))
-            .child(div().font_family("Menlo").text_xs().child(format!("{:.2} / {:.2} s · frame {} / {}", a.time, len, (a.time * fps).round() as i64, info["numFrames"])))
+            .child(div().font_family(crate::studio::ui::mono()).text_xs().child(format!("{:.2} / {:.2} s · frame {} / {}", a.time, len, (a.time * fps).round() as i64, info["numFrames"])))
             .child(div().flex_1())
             .child(speed_btn("0.25×", 0.25, cx))
             .child(speed_btn("0.5×", 0.5, cx))
@@ -420,7 +420,7 @@ impl Studio {
                     }
                     cx.notify();
                 }));
-                if a.looping { b.primary() } else { b.ghost() }
+                b.ghost().selected(a.looping)
             });
         let mut body = v_flex().gap_2().child(view).child(timeline).child(controls).child(div().text_xs().text_color(theme.muted_foreground).child(format!(
             "{} · {} tracks, {} keys, {} · rate {} · {}",
@@ -444,7 +444,7 @@ impl Studio {
                     let (Some(path), Some(e)) = (this.open.as_ref().map(|t| t.path.clone()), this.selected_export) else { return };
                     this.load_anim(path, e, Some((p.clone(), i)), cx);
                 }));
-                row = row.child(if on { b.primary() } else { b.ghost() });
+                row = row.child(b.ghost().selected(on));
             }
             body = body.child(row);
         }
@@ -459,7 +459,7 @@ impl Studio {
                     this.reveal(i, cx);
                     this.user_select_export(i, cx);
                 }));
-                row = row.child(if me == Some(i as u64) { b.primary() } else { b.ghost() });
+                row = row.child(b.ghost().selected(me == Some(i as u64)));
             }
             body = body.child(row);
         }

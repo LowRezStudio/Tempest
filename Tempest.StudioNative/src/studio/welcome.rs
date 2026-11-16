@@ -96,9 +96,9 @@ impl Studio {
                         .child(Button::new("welcome-project").icon(Icon::new(IconName::Briefcase)).label("Open a mod project…").on_click(cx.listener(|this, _, _, cx| this.pick_project(cx))))
                         .child(Button::new("welcome-file").ghost().icon(Icon::new(IconName::Package)).label("Open a package file…").tooltip("A .upk from anywhere: its folder opens with it").on_click(cx.listener(|this, _, window, cx| this.run(Cmd::OpenFile, window, cx)))),
                 )
-                .child(div().text_xs().text_color(theme.muted_foreground).child("Pick the game's folder or its ChaosGame/CookedPCConsole folder."))
+                .child(super::ui::hint("Pick the game's folder or its ChaosGame/CookedPCConsole folder.", &theme))
                 .when(has_projects, |d| {
-                    d.child(h_flex().child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("MOD PROJECTS")).child(Button::new("projects-clear").xsmall().ghost().label("Clear").tooltip("Clear the list (the project files stay where they are)").on_click(cx.listener(|this, _, _, cx| {
+                    d.child(h_flex().child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Mod projects")).child(Button::new("projects-clear").xsmall().ghost().label("Clear").tooltip("Clear the list (the project files stay where they are)").on_click(cx.listener(|this, _, _, cx| {
                         this.prefs.projects.clear();
                         this.prefs.save();
                         cx.notify();
@@ -106,7 +106,7 @@ impl Studio {
                     .child(projects)
                 })
                 .when(has_recent, |d| {
-                    d.child(h_flex().child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("RECENT")).child(Button::new("recent-clear").xsmall().ghost().label("Clear").tooltip("Clear the list (the folders stay where they are)").on_click(cx.listener(|this, _, _, cx| {
+                    d.child(h_flex().child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Recent folders")).child(Button::new("recent-clear").xsmall().ghost().label("Clear").tooltip("Clear the list (the folders stay where they are)").on_click(cx.listener(|this, _, _, cx| {
                         this.recent = super::forget_workspace(None);
                         cx.notify();
                     }))))

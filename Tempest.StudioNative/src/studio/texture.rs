@@ -7,7 +7,7 @@ use std::sync::Arc;
 use gpui::{div, img, prelude::*, px, AnyElement, Context, Image, ImageFormat, ObjectFit};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable, Selectable};
 use serde_json::json;
 
 use super::Studio;
@@ -104,7 +104,7 @@ impl Studio {
                 }
                 cx.notify();
             }));
-            if zoom == z { b.primary() } else { b.ghost() }
+            b.ghost().selected(zoom == z)
         };
         let me = cx.entity().downgrade();
         let mips = t.map(|t| t.mips.clone()).unwrap_or_default();
@@ -125,7 +125,7 @@ impl Studio {
                 }
                 cx.notify();
             }));
-            if bg == v { b.primary() } else { b.ghost() }
+            b.ghost().selected(bg == v)
         };
         let bar = h_flex()
             .gap_1()

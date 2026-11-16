@@ -552,7 +552,7 @@ impl Studio {
 
     pub(super) fn render_packages_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let pane_title = |title: &str, tools: gpui::AnyElement| h_flex().h(px(28.0)).px_2().gap_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(div().flex_1().child(title.to_uppercase())).child(tools);
+        let pane_title = |title: &str, tools: gpui::AnyElement| super::ui::pane_header(title.to_string(), tools, &theme);
         let packages = v_flex()
             .size_full()
             .child(pane_title(
@@ -580,7 +580,7 @@ impl Studio {
         let exports_body: gpui::AnyElement = if has_open {
             uniform_list("exports", self.rows.len(), cx.processor(Self::render_exports)).track_scroll(&self.export_scroll).size_full().into_any_element()
         } else {
-            v_flex().size_full().items_center().justify_center().gap_1().text_sm().text_color(theme.muted_foreground).child("Pick a package on the left").child(div().text_xs().child("or press ⌘P to find one by name")).into_any_element()
+            super::ui::empty(IconName::Package, "No package open", format!("Pick a package on the left, or press {} to find one by name.", super::commands::key_hint("⌘P")), &theme).into_any_element()
         };
         let exports = v_flex()
             .size_full()
