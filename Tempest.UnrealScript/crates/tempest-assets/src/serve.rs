@@ -521,7 +521,7 @@ impl Server {
                 v["dirty"] = J::from(ed.is_dirty());
                 Ok(v)
             }
-            "package.close" | "package.discard" | "package.dirty" | "package.undo" | "package.undoList" | "package.save" if is_pck(s(p, "path")?) => self.pck_call(method, p),
+            "package.close" | "package.discard" | "package.dirty" | "package.undo" | "package.redo" | "package.undoList" | "package.save" if is_pck(s(p, "path")?) => self.pck_call(method, p),
             "package.close" => {
                 let k = key(s(p, "path")?);
                 self.scripts.remove(&k);
@@ -539,11 +539,16 @@ impl Server {
             "package.undo" => {
                 let ed = self.editor(s(p, "path")?)?;
                 let label = ed.undo();
-                Ok(json!({ "label": label, "remaining": ed.undo_labels(), "dirty": ed.is_dirty() }))
+                Ok(json!({ "label": label, "remaining": ed.undo_labels(), "redo": ed.redo_labels(), "dirty": ed.is_dirty() }))
+            }
+            "package.redo" => {
+                let ed = self.editor(s(p, "path")?)?;
+                let label = ed.redo();
+                Ok(json!({ "label": label, "remaining": ed.undo_labels(), "redo": ed.redo_labels(), "dirty": ed.is_dirty() }))
             }
             "package.undoList" => {
                 let ed = self.editor(s(p, "path")?)?;
-                Ok(json!({ "labels": ed.undo_labels(), "dirty": ed.is_dirty() }))
+                Ok(json!({ "labels": ed.undo_labels(), "redo": ed.redo_labels(), "dirty": ed.is_dirty() }))
             }
             "package.discard" => {
                 // Drop the in-memory package: the next open reads the file again.
@@ -673,6 +678,7 @@ impl Server {
             "mcts.usages" => Ok(self.mcts()?.usages(p)?),
             "mcts.delete" => Ok(self.mcts_mut()?.delete(p)?),
             "mcts.undo" => Ok(self.mcts_mut()?.undo(p)?),
+            "mcts.redo" => Ok(self.mcts_mut()?.redo(p)?),
             "mcts.save" => {
                 // Saving in place: remember the file as it was first, so a
                 // mod delta can be made from it later.
@@ -4592,7 +4598,7 @@ impl Server {
                 Ok(J::from(self.pck_edits.remove(&k).is_some()))
             }
             "package.dirty" => Ok(J::from(dirty)),
-            "package.undo" => Ok(json!({ "label": null, "remaining": [], "dirty": dirty })),
+            "package.undo" | "package.redo" => Ok(json!({ "label": null, "remaining": [], "redo": [], "dirty": dirty })),
             "package.undoList" => Ok(json!({ "labels": [], "dirty": dirty })),
             _ => {
                 let out = opt_s(p, "out").unwrap_or_else(|| path.clone());

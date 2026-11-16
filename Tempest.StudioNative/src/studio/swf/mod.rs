@@ -181,6 +181,8 @@ pub struct MovieEditor {
     edits: Vec<(String, J)>,
     /// Earlier states of the edits (newest last), with the key of the change and when.
     undo: Vec<Undo>,
+    /// Pending edits `undo_edit` took back, newest last.
+    redo: Vec<Vec<(String, J)>>,
     /// Bumped whenever the edits change.
     pub version: u64,
     pub node: Node,
@@ -264,6 +266,7 @@ impl MovieEditor {
             loading: false,
             edits: Vec::new(),
             undo: Vec::new(),
+            redo: Vec::new(),
             version: 0,
             node: Node::Frames,
             frame: 0,
@@ -713,6 +716,7 @@ impl MovieEditor {
         match self.undo.last_mut() {
             Some(last) if key.is_some() && last.1 == key && now.duration_since(last.2).as_millis() < 600 => last.2 = now,
             _ => {
+                self.redo.clear();
                 self.undo.push((self.edits.clone(), key, now));
                 if self.undo.len() > 100 {
                     self.undo.remove(0);
@@ -733,7 +737,15 @@ impl MovieEditor {
     /// Take back the last change of the pending edits (false: there is none).
     pub fn undo_edit(&mut self, cx: &mut Context<Self>) -> bool {
         let Some((edits, ..)) = self.undo.pop() else { return false };
-        self.edits = edits;
+        self.redo.push(std::mem::replace(&mut self.edits, edits));
+        self.changed(cx);
+        true
+    }
+
+    /// Put back the last change `undo_edit` took back (false: there is none).
+    pub fn redo_edit(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(edits) = self.redo.pop() else { return false };
+        self.undo.push((std::mem::replace(&mut self.edits, edits), None, Instant::now()));
         self.changed(cx);
         true
     }
@@ -1015,6 +1027,7 @@ impl MovieEditor {
     fn written(&mut self, cx: &mut Context<Self>) {
         self.edits.clear();
         self.undo.clear();
+        self.redo.clear();
         self.version += 1;
         self.stage.invalidate();
         cx.notify();
@@ -1043,7 +1056,7 @@ impl MovieEditor {
                         }
                         this.load(cx);
                     }
-                    Err(e) => this.toast(Tone::Error, format!("Could not apply the edits: {e}"), cx),
+                    Err(e) => this.toast(Tone::Error, format!("Could not apply the changes: {e}"), cx),
                 }
                 cx.notify();
             });

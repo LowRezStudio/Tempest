@@ -1037,7 +1037,7 @@ export type McsRowsPage = {
 	rows: [number, Record<string, McsCell>][];
 };
 export type McsField = { name: string; token: number; kind: McsKind; value: McsCell };
-export type McsStatus = { doc: string; dirty: boolean; undo: string[] };
+export type McsStatus = { doc: string; dirty: boolean; undo: string[]; redo: string[] };
 export type McsMessage = { text: string; name: string; path: McsPath };
 export type McsValidValue = { group: number; msgId: number; text: string };
 
@@ -1353,9 +1353,17 @@ export interface UpkMethods {
 	"package.verify": { params: { path: string }; result: VerifyReport };
 	"package.undo": {
 		params: { path: string };
-		result: { label: string | null; remaining: string[]; dirty: boolean };
+		result: { label: string | null; remaining: string[]; redo: string[]; dirty: boolean };
 	};
-	"package.undoList": { params: { path: string }; result: { labels: string[]; dirty: boolean } };
+	/** Puts back what `package.undo` took back; any new edit drops it. */
+	"package.redo": {
+		params: { path: string };
+		result: { label: string | null; remaining: string[]; redo: string[]; dirty: boolean };
+	};
+	"package.undoList": {
+		params: { path: string };
+		result: { labels: string[]; redo: string[]; dirty: boolean };
+	};
 	"package.discard": { params: { path: string }; result: boolean };
 	"object.get": { params: Target; result: ParsedObject };
 	"object.text": { params: Target; result: string };
@@ -1690,6 +1698,7 @@ export interface UpkMethods {
 		result: McsStatus & { deleted: number };
 	};
 	"mcts.undo": { params: { doc: string }; result: McsStatus & { undone: string | null } };
+	"mcts.redo": { params: { doc: string }; result: McsStatus & { redone: string | null } };
 	"mcts.save": { params: { doc: string; out?: string }; result: McsStatus & { out: string } };
 	"mcts.discard": { params: { doc: string }; result: McsStatus };
 	"mcts.find": {

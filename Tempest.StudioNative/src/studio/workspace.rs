@@ -59,7 +59,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     let n = r.json["files"].as_array().map(|f| f.len()).unwrap_or(0);
-                    this.toast(Tone::Success, format!("Wrote {} ({n} files, {}); the edits stay here", file_name(&out), crate::model::human_size(r.json["size"].as_u64().unwrap_or(0))), cx);
+                    this.toast(Tone::Success, format!("Wrote {} ({n} files, {}); your changes stay here too", file_name(&out), crate::model::human_size(r.json["size"].as_u64().unwrap_or(0))), cx);
                     for w in r.json["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()).take(3) {
                         this.toast(Tone::Warning, w.to_string(), cx);
                     }
@@ -157,9 +157,9 @@ impl Studio {
                     match &this.project {
                         Some(p) if p.file == path => {
                             let name = p.name.clone();
-                            this.toast(Tone::Success, format!("Opened the project {name}: {n} packages and {docs} assembly files with edits"), cx)
+                            this.toast(Tone::Success, format!("Opened {name}: {n} changed packages and {docs} changed game data files"), cx)
                         }
-                        _ => this.toast(Tone::Success, format!("Opened {}: {n} packages and {docs} assembly files with edits", file_name(&path)), cx),
+                        _ => this.toast(Tone::Success, format!("Opened {}: {n} changed packages and {docs} changed game data files", file_name(&path)), cx),
                     }
                     // Back where it was saved.
                     if let Some(pkg) = state["package"].as_str() {
@@ -239,12 +239,12 @@ impl Studio {
                 .border_b_1()
                 .border_color(theme.border)
                 .text_sm()
-                .child(div().flex_1().child(format!("Edits from an earlier session were kept ({ago}). Put them back?")))
-                .child(Button::new("rec-open").xsmall().primary().label("Restore it").on_click(cx.listener(move |this, _, _, cx| {
+                .child(div().flex_1().child(format!("Your unnamed mod from an earlier session was kept ({ago}). Put its changes back?")))
+                .child(Button::new("rec-open").xsmall().primary().label("Put them back").on_click(cx.listener(move |this, _, _, cx| {
                     this.recovery_offer = None;
                     this.open_workspace_file(file.clone(), cx);
                 })))
-                .child(Button::new("rec-drop").xsmall().ghost().label("Throw it away").on_click(cx.listener(move |this, _, _, cx| {
+                .child(Button::new("rec-drop").xsmall().ghost().label("Throw them away").on_click(cx.listener(move |this, _, _, cx| {
                     this.recovery_offer = None;
                     let _ = std::fs::remove_file(&f2);
                     cx.notify();

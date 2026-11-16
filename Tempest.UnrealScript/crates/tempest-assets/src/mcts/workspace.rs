@@ -204,7 +204,7 @@ impl Workspace {
 
     pub(crate) fn status(&self, id: &str) -> Result<J> {
         let doc = self.doc(id)?;
-        Ok(json!({ "doc": id, "dirty": doc.dirty, "undo": doc.undo_labels() }))
+        Ok(json!({ "doc": id, "dirty": doc.dirty, "undo": doc.undo_labels(), "redo": doc.redo_labels() }))
     }
 
     pub fn set(&mut self, p: &J) -> Result<J> {
@@ -308,6 +308,14 @@ impl Workspace {
         let label = self.doc_mut(&id)?.undo()?;
         let mut out = self.status(&id)?;
         out["undone"] = json!(label);
+        Ok(out)
+    }
+
+    pub fn redo(&mut self, p: &J) -> Result<J> {
+        let id = p.get("doc").and_then(|v| v.as_str()).unwrap_or("assembly").to_string();
+        let label = self.doc_mut(&id)?.redo()?;
+        let mut out = self.status(&id)?;
+        out["redone"] = json!(label);
         Ok(out)
     }
 

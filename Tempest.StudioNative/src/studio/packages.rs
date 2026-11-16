@@ -389,7 +389,7 @@ impl Studio {
             .item(item("Copy the file path", Box::new(move |s, _, cx| s.copy_text(p7.clone(), "file path", cx))))
             .item(item(if cfg!(target_os = "macos") { "Show in Finder" } else { "Show in the file manager" }, Box::new(move |s, _, cx| s.reveal_file(&p8, cx))))
             .separator()
-            .item(item("Save into the game folder…", Box::new(move |s, w, cx| s.save_packages(vec![p2.clone()], w, cx))).disabled(!dirty))
+            .item(item("Patch the game file (advanced)…", Box::new(move |s, w, cx| s.save_packages(vec![p2.clone()], w, cx))).disabled(!dirty))
             .item(item("Export a copy…", Box::new(move |s, _, cx| s.save_copy(p3.clone(), cx))))
             .item(item("Discard the changes…", Box::new(move |s, w, cx| s.discard(p4.clone(), w, cx))).disabled(!dirty))
             .separator()
@@ -634,18 +634,29 @@ impl Studio {
                             window.close_dialog(cx);
                             let _ = me1.update(cx, |this, cx| this.user_open_package(f1.clone(), cx));
                         }))
-                        .child(Button::new(format!("save-{f}")).xsmall().label("Write…").on_click(move |_, window, cx| {
+                        .child(Button::new(format!("save-{f}")).xsmall().ghost().label("Patch the game…").tooltip("Advanced, for quick tests: overwrite the game's own file with your changes").on_click(move |_, window, cx| {
                             window.close_dialog(cx);
                             let _ = me2.update(cx, |this, cx| this.save_packages(vec![f2.clone()], window, cx));
                         }))
-                        .child(Button::new(format!("discard-{f}")).xsmall().ghost().label("Discard edits…").on_click(move |_, window, cx| {
+                        .child(Button::new(format!("discard-{f}")).xsmall().ghost().label("Discard…").tooltip("Throw away the changes to this file").on_click(move |_, window, cx| {
                             window.close_dialog(cx);
                             let _ = me3.update(cx, |this, cx| this.discard(f3.clone(), window, cx));
                         })),
                 );
             }
             for f in &assembly {
-                list = list.child(h_flex().gap_2().text_sm().child(div().flex_1().child(file_name(f))).child(div().text_xs().text_color(theme.muted_foreground).child("assembly · save it from the Assembly view")));
+                let me = me.clone();
+                list = list.child(
+                    h_flex()
+                        .gap_2()
+                        .text_sm()
+                        .child(div().flex_1().child(file_name(f)))
+                        .child(div().text_xs().text_color(theme.muted_foreground).child("game data"))
+                        .child(Button::new(format!("open-{f}")).xsmall().ghost().label("Open").on_click(move |_, window, cx| {
+                            window.close_dialog(cx);
+                            let _ = me.update(cx, |this, cx| this.set_view(super::View::Assembly, window, cx));
+                        })),
+                );
             }
             // Everything at once: the same commands as the palette's.
             let (me1, me2) = (me.clone(), me.clone());
@@ -656,21 +667,28 @@ impl Studio {
                 .mb_1()
                 .border_b_1()
                 .border_color(theme.border)
-                .child(div().flex_1().text_sm().text_color(theme.muted_foreground).child(format!("{n} file{} with edits", if n == 1 { "" } else { "s" })))
-                .child(Button::new("save-all").xsmall().ghost().label("Write all into the game…").disabled(files.is_empty()).on_click(move |_, window, cx| {
-                    window.close_dialog(cx);
-                    let _ = me1.update(cx, |this, cx| this.run(super::commands::Cmd::SaveAll, window, cx));
-                }))
+                .child(div().flex_1().text_sm().text_color(theme.muted_foreground).child(format!("{n} changed file{}: they go into your mod when you build it. The game's own files are untouched.", if n == 1 { "" } else { "s" })))
                 .child(
                     div()
                         .relative()
-                        .child(Button::new("discard-all").xsmall().danger().label("Discard all edits…").on_click(move |_, window, cx| {
+                        .child(Button::new("discard-all").xsmall().ghost().label("Discard all…").on_click(move |_, window, cx| {
                             window.close_dialog(cx);
                             let _ = me2.update(cx, |this, cx| this.run(super::commands::Cmd::DiscardAll, window, cx));
                         }))
                         .child(crate::driver::probe("discard-all")),
                 );
-            dialog.title("Edits").w(px(560.0)).child(all).child(div().id("unsaved-list").max_h(px(420.0)).overflow_y_scroll().child(list))
+            let advanced = h_flex()
+                .pt_2()
+                .mt_1()
+                .gap_2()
+                .border_t_1()
+                .border_color(theme.border)
+                .child(super::ui::hint("Testing without building? You can overwrite the game's own files instead (advanced; only Verify game files puts them back).", &theme).flex_1())
+                .child(Button::new("save-all").xsmall().ghost().label("Patch the game…").disabled(files.is_empty()).on_click(move |_, window, cx| {
+                    window.close_dialog(cx);
+                    let _ = me1.update(cx, |this, cx| this.run(super::commands::Cmd::SaveAll, window, cx));
+                }));
+            dialog.title("Changes").w(px(600.0)).child(all).child(div().id("unsaved-list").max_h(px(420.0)).overflow_y_scroll().child(list)).child(advanced)
         });
     }
 

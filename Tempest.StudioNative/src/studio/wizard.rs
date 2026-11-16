@@ -1513,7 +1513,7 @@ impl Wizard {
         v_flex()
             .gap_3()
             .child(list)
-            .child(div().text_xs().text_color(theme.muted_foreground).child(if kind == Kind::LuaScript { "A file on disk (not an undoable edit); open it in your editor." } else if kind.content() { "It is an edit of the game's content files: Undo takes it back; the Mod view ships it as rows of a delta." } else { "It is an unsaved edit of the package: Undo takes it back; save it, keep it in a project, or build a mod from it." }))
+            .child(div().text_xs().text_color(theme.muted_foreground).child(if kind == Kind::LuaScript { "A file on disk (not an undoable edit); open it in your editor." } else if kind.content() { "It is an edit of the game's content files: Undo takes it back; the Mod view ships it as rows of a delta." } else { "It is a change like any other: Undo takes it back, and Build mod puts it into your mod." }))
             .into_any_element()
     }
 }

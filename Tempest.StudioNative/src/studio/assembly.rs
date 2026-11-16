@@ -1422,18 +1422,32 @@ impl Assembly {
     }
 
     pub fn undo(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.step(false, cx);
+    }
+
+    pub fn redo(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.step(true, cx);
+    }
+
+    /// Undo the last edit of the file on screen, or redo the last one undone.
+    fn step(&mut self, redo: bool, cx: &mut Context<Self>) {
         let Some(doc) = self.doc.clone() else { return };
-        let call = self.backend.call("mcts.undo", json!({ "doc": doc.clone() }));
+        let call = self.backend.call(if redo { "mcts.redo" } else { "mcts.undo" }, json!({ "doc": doc.clone() }));
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     this.status(&r.json, cx);
-                    let what = r.json["undone"].as_str().map(|u| format!("Undone: {u}")).unwrap_or_else(|| "Nothing to undo in this file".into());
+                    let what = match (redo, r.json[if redo { "redone" } else { "undone" }].as_str()) {
+                        (false, Some(u)) => format!("Undone: {u}"),
+                        (true, Some(u)) => format!("Redone: {u}"),
+                        (false, None) => "Nothing to undo in this file".into(),
+                        (true, None) => "Nothing to redo in this file".into(),
+                    };
                     this.set_status(what, cx);
                     this.after_rewrite(doc, cx);
                 }
-                Err(e) => this.toast(Tone::Error, format!("Undo failed: {e}"), cx),
+                Err(e) => this.toast(Tone::Error, format!("{} failed: {e}", if redo { "Redo" } else { "Undo" }), cx),
             });
         })
         .detach();
@@ -1453,16 +1467,16 @@ impl Assembly {
         }
     }
 
-    /// Save the files with edits into the game folder, after asking.
+    /// Write the files with changes into the game folder, after asking (for quick tests; a mod does not need it).
     pub fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let dirty: Vec<(String, String)> = self.docs.iter().filter(|d| d.dirty).map(|d| (d.id.clone(), d.path.clone())).collect();
         if dirty.is_empty() {
-            self.toast(Tone::Info, "No assembly file has edits", cx);
+            self.toast(Tone::Info, "No game data file has changes", cx);
             return;
         }
         let names = dirty.iter().map(|d| file_name(&d.1)).collect::<Vec<_>>().join(", ");
         let me = cx.entity().downgrade();
-        dialogs::confirm(window, cx, format!("Save {names} into the game folder?"), "The files in the game folder are overwritten. The Studio keeps each original first, so a mod can still ship only the rows you changed. To keep the game folder untouched, save a workspace file or use a mod project.", "Save", false, move |_, cx| {
+        dialogs::confirm(window, cx, format!("Overwrite {names} in the game folder?"), "This writes your changes straight into the game's own files, to try them without building a mod. The Studio cannot put the original files back afterwards: your launcher's \"Verify game files\" does. A mod never needs this.", "Overwrite", true, move |_, cx| {
             let dirty = dirty.clone();
             let _ = me.update(cx, |this, cx| this.save_docs(dirty.clone(), None, cx));
         });
@@ -1515,12 +1529,12 @@ impl Assembly {
     /// Drop the unsaved edits of the file on screen, after asking.
     pub(super) fn discard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(doc) = self.current_doc().filter(|d| d.dirty) else {
-            self.toast(Tone::Info, "This file has no edits", cx);
+            self.toast(Tone::Info, "This file has no changes", cx);
             return;
         };
         let (id, name) = (doc.id.clone(), file_name(&doc.path));
         let me = cx.entity().downgrade();
-        dialogs::confirm(window, cx, format!("Discard the edits of {name}?"), "Every edit of this file is lost and it is read again from the game folder. Copies you exported and files saved in place are not touched.", "Discard changes", true, move |_, cx| {
+        dialogs::confirm(window, cx, format!("Discard the changes to {name}?"), "Every edit of this file is lost and it is read again from the game folder. Copies you exported and files saved in place are not touched.", "Discard changes", true, move |_, cx| {
             let id = id.clone();
             let _ = me.update(cx, |this, cx| this.discard_doc(id, cx));
         });
@@ -1798,6 +1812,7 @@ impl Assembly {
             "duplicate" => self.add_row(self.selected, cx),
             "delete" => self.delete_rows(window, cx),
             "undo" => self.undo(window, cx),
+            "redo" => self.redo(window, cx),
             "copy" => self.copy_rows(cx),
             "tsv" => self.copy_tsv(cx),
             "paste" => self.paste(window, cx),

@@ -84,7 +84,7 @@ impl Saving {
     pub fn label(&self) -> &'static str {
         match self {
             Saving::Saved => "saved",
-            Saving::Pending => "unsaved",
+            Saving::Pending => "saving…",
             Saving::Writing => "saving…",
             Saving::Failed(_) => "not saved",
         }
@@ -219,6 +219,7 @@ impl Studio {
         let base = documents().join("Tempest Mods");
         let location = input(window, cx, &base.to_string_lossy(), "folder the project folder goes in");
         let game = self.dir.clone().unwrap_or_default();
+        let changes = self.unsaved_total(cx);
         let me = cx.entity().downgrade();
         let first = std::cell::Cell::new(true);
         // The id follows the name until it is typed.
@@ -246,12 +247,16 @@ impl Studio {
             let (me, n2, i2, a2, v2, l2) = (me.clone(), name.clone(), id.clone(), author.clone(), version.clone(), location.clone());
             let l3 = location.clone();
             dialog
-                .title("New mod project")
+                .title("Name your mod")
                 .w(px(620.0))
                 .child(
                     v_flex()
                         .gap_2()
-                        .child(div().text_xs().text_color(theme.muted_foreground).child("A project keeps every edit you make while it is open in its own file, saved as you go; the game folder is left untouched until you choose to write into it. Build makes the mod from it."))
+                        .child(div().text_sm().text_color(theme.muted_foreground).whitespace_normal().child(if changes > 0 {
+                            format!("Your {changes} change{} go into it. The mod gets its own folder and saves itself as you work; the game's own files stay untouched.", if changes == 1 { "" } else { "s" })
+                        } else {
+                            "The mod gets its own folder and saves itself as you work; the game's own files stay untouched.".to_string()
+                        }))
                         .child(row("Name", &name))
                         .child(row("Id", &id))
                         .child(row("Author", &author))
@@ -269,9 +274,9 @@ impl Studio {
                             })
                             .detach();
                         })))
-                        .child(div().text_xs().text_color(theme.muted_foreground).child(format!("Creates {folder} with {mod_id}.twrk, mod-files/ and builds/. Game folder: {}.", super::folder_label(&game)))),
+                        .child(super::ui::hint(format!("Creates {folder} (with {mod_id}.twrk, mod-files/ and builds/), for the game in {}.", super::folder_label(&game)), &theme)),
                 )
-                .footer(dialogs::footer("Create the project", false, ok, move |window, cx| {
+                .footer(dialogs::footer("Create the mod", false, ok, move |window, cx| {
                     let text = |e: &Entity<InputState>, cx: &App| e.read(cx).value().trim().to_string();
                     let name = text(&n2, cx);
                     let typed = text(&i2, cx);
@@ -301,20 +306,11 @@ impl Studio {
             let state = json!({ "project": p });
             this.adopt_project(&p.file, &state);
             this.save_project(cx);
-            this.toast(Tone::Success, format!("Project {} created: your edits are kept in it", p.name), cx);
+            this.toast(Tone::Success, format!("{} created: your changes are kept in it", p.name), cx);
         };
-        // Edits made before the project are not part of it unless the user says so.
-        if self.unsaved_total(cx) > 0 {
-            let me = cx.entity().downgrade();
-            let start = std::rc::Rc::new(std::cell::RefCell::new(Some(start)));
-            dialogs::confirm(window, cx, "Take the edits into the project?", "Your current edits become part of the new project. To start from a clean game folder instead, discard them first (Save ▸ Discard).", "Take them in", false, move |_, cx| {
-                if let Some(start) = start.borrow_mut().take() {
-                    let _ = me.update(cx, |this, cx| start(this, cx));
-                }
-            });
-        } else {
-            start(self, cx);
-        }
+        // The draft's changes become the mod's (the dialog said so).
+        let _ = window;
+        start(self, cx);
     }
 
     pub(super) fn pick_project(&mut self, cx: &mut Context<Self>) {
@@ -432,23 +428,60 @@ impl Studio {
         self.dirty.len() + self.assembly.as_ref().map(|a| a.read(cx).unsaved_count()).unwrap_or(0)
     }
 
-    /// The header's project chip: name, save state, and its menu.
+    /// The header's mod chip: the named mod (a project: name, save state, its
+    /// menu), the unnamed draft the changes are kept in until then, or an
+    /// invitation to start one.
     pub(super) fn render_project_chip(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         use gpui_component::menu::{DropdownMenu, PopupMenuItem};
         use gpui_component::Icon;
         use gpui_kit_assets::IconName;
-        let p = self.project.clone()?;
+        self.dir.as_ref()?;
         let theme = cx.theme().clone();
+        let me = cx.entity().downgrade();
+        let item = move |label: &str, f: fn(&mut Studio, &mut Window, &mut Context<Studio>)| {
+            let me = me.clone();
+            PopupMenuItem::new(label.to_string()).on_click(move |_, window, cx| {
+                let _ = me.update(cx, |this, cx| f(this, window, cx));
+            })
+        };
+        let Some(p) = self.project.clone() else {
+            let changes = self.unsaved_total(cx);
+            let dot = div().size(px(7.0)).rounded_full().bg(if changes > 0 { theme.warning } else { theme.muted_foreground.opacity(0.5) });
+            let (label, tip) = if changes > 0 {
+                (format!("Unnamed mod · {changes} change{}", if changes == 1 { "" } else { "s" }), "Your changes are kept as a draft, even if the Studio closes. Name the mod to give it its own folder, then build it.")
+            } else {
+                ("No mod yet".to_string(), "Change anything and it becomes a draft mod; or start a named mod now.")
+            };
+            return Some(
+                h_flex()
+                    .gap_1()
+                    .child(dot)
+                    .child(
+                        Button::new("project")
+                            .small()
+                            .ghost()
+                            .icon(Icon::new(IconName::Briefcase))
+                            .label(label)
+                            .tooltip(tip)
+                            .dropdown_menu(move |menu, _, _| {
+                                menu.item(item("Name this mod…", |s, w, cx| s.new_project_dialog(w, cx)))
+                                    .item(item("Open a mod…", |s, _, cx| s.pick_project(cx)))
+                                    .separator()
+                                    .item(item("Discard the draft…", |s, w, cx| s.run(super::Cmd::DiscardAll, w, cx)))
+                            }),
+                    )
+                    .into_any_element(),
+            );
+        };
         let state = self.project_saving.clone();
         let color = match state {
             Saving::Saved => theme.success,
             Saving::Failed(_) => theme.danger,
             _ => theme.warning,
         };
-        let me = cx.entity().downgrade();
         let tip = match &state {
-            Saving::Failed(e) => format!("The project could not be saved: {e}"),
-            _ => format!("Mod project {} ({}): every edit is kept in {}", p.name, state.label(), file_name(&p.file)),
+            Saving::Failed(e) => format!("The mod could not be saved: {e}"),
+            _ => format!("{} ({}): every change is kept in {}", p.name, state.label(), file_name(&p.file)),
         };
         Some(
             h_flex()
@@ -462,28 +495,22 @@ impl Studio {
                         .label(format!("{} · {}", p.name, state.label()))
                         .tooltip(tip)
                         .dropdown_menu(move |menu, _, _| {
-                            let item = |label: &str, f: fn(&mut Studio, &mut Window, &mut Context<Studio>)| {
-                                let me = me.clone();
-                                PopupMenuItem::new(label.to_string()).on_click(move |_, window, cx| {
-                                    let _ = me.update(cx, |this, cx| f(this, window, cx));
-                                })
-                            };
-                            menu.item(item("Save the project now", |s, _, cx| s.save_project(cx)))
+                            menu.item(item("Save now", |s, _, cx| s.save_project(cx)))
                                 .item(item("Build the mod…", |s, w, cx| s.set_view(super::View::Mod, w, cx)))
-                                .item(item("Show the project folder", |s, _, cx| {
+                                .item(item("Show the mod's folder", |s, _, cx| {
                                     if let Some(p) = &s.project {
                                         cx.reveal_path(Path::new(&p.file));
                                     }
                                 }))
-                                .item(item("Open mod-files/", |s, _, cx| {
+                                .item(item("Open mod-files/ (scripts and extra files)", |s, _, cx| {
                                     if let Some(p) = &s.project {
                                         cx.open_with_system(&p.mod_files());
                                     }
                                 }))
                                 .separator()
-                                .item(item("Write the edits into the game folder…", |s, w, cx| s.run(super::Cmd::WriteToGame, w, cx)))
+                                .item(item("Patch the game files directly (advanced)…", |s, w, cx| s.run(super::Cmd::WriteToGame, w, cx)))
                                 .separator()
-                                .item(item("Close the project…", |s, w, cx| s.close_project(w, cx)))
+                                .item(item("Close the mod…", |s, w, cx| s.close_project(w, cx)))
                         }),
                 )
                 .into_any_element(),

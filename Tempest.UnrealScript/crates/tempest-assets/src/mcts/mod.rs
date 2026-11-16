@@ -921,7 +921,7 @@ mod tests {
         assert!(doc.dirty);
         doc.undo().unwrap();
         assert!(!doc.dirty);
-        // Saved with an edit, then undone below the save: unsaved, whatever comes after (there is no redo).
+        // Saved with an edit, then undone below the save: unsaved until redone back to it, or for good after a new edit.
         doc.set_text(&t, &path, price, "7").unwrap();
         doc.save(&t, None).unwrap();
         assert!(!doc.dirty);
@@ -939,6 +939,58 @@ mod tests {
         doc.set_text(&t, &path, price, "1").unwrap();
         doc.undo().unwrap();
         assert!(doc.dirty);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn redo_puts_undone_edits_back() {
+        let t = Tokens::builtin();
+        let items = t.token("DATA_SET_ITEMS").unwrap();
+        let price = t.token("PRICE").unwrap();
+        let mut row = Row::default();
+        row.set(t.token("ITEM_ID").unwrap(), Value::Num(70000));
+        row.set(price, Value::Num(5));
+        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(vec![row]))] }, encoding: 4 };
+        let dir = std::env::temp_dir().join(format!("tempest-mcts-redo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("assembly.dat");
+        std::fs::write(&file, write_obscured(&m, &t)).unwrap();
+        let mut doc = doc::Doc::open(&file, &t).unwrap();
+        let path = [(items, 0usize)];
+        let count = |doc: &doc::Doc| match doc.marshal.root.get(items) {
+            Some(Value::Rows(r)) => r.len(),
+            _ => 0,
+        };
+        let price_of = |doc: &doc::Doc| match doc.marshal.root.get(items) {
+            Some(Value::Rows(r)) => r[0].get(price).cloned(),
+            _ => None,
+        };
+        // A saved edit undone, then redone: clean again.
+        doc.set_text(&t, &path, price, "7").unwrap();
+        doc.save(&t, None).unwrap();
+        doc.undo().unwrap();
+        assert!(doc.dirty);
+        assert_eq!(doc.redo().unwrap().as_deref(), Some("set PRICE"));
+        assert!(!doc.dirty);
+        assert_eq!(price_of(&doc), Some(Value::Num(7)));
+        assert_eq!(doc.redo().unwrap(), None);
+        // Insert and delete come back in place.
+        let at = doc.insert(&t, &[], items, None, Some(0)).unwrap();
+        assert_eq!((at, count(&doc)), (1, 2));
+        doc.delete(&t, &[(items, 0)]).unwrap();
+        assert_eq!(count(&doc), 1);
+        doc.undo().unwrap();
+        doc.undo().unwrap();
+        assert_eq!(count(&doc), 1);
+        doc.redo().unwrap();
+        assert_eq!(count(&doc), 2);
+        doc.redo().unwrap();
+        assert_eq!(count(&doc), 1);
+        // A new edit drops what could be redone.
+        doc.undo().unwrap();
+        doc.set_text(&t, &path, price, "9").unwrap();
+        assert_eq!(doc.redo().unwrap(), None);
+        assert!(doc.redo_labels().is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 

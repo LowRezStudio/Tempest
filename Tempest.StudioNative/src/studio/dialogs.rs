@@ -177,7 +177,7 @@ impl Studio {
 
     pub(super) fn discard(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         let me = cx.entity().downgrade();
-        confirm(window, cx, format!("Discard the edits of {}?", file_name(&path)), "Every edit of this package is dropped and it is read again from the game folder. This cannot be undone.", "Discard", true, move |_, cx| {
+        confirm(window, cx, format!("Discard the changes to {}?", file_name(&path)), "Every edit of this package is dropped and it is read again from the game folder. This cannot be undone.", "Discard", true, move |_, cx| {
             let path = path.clone();
             let _ = me.update(cx, |this, cx| this.discard_now(path, cx));
         });

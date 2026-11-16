@@ -623,7 +623,7 @@ impl Cooker {
             return;
         }
         let me = cx.entity().downgrade();
-        super::dialogs::confirm(window, cx, "This game folder already has your edits", format!("These files were saved in place, so they already hold your changes: {}. The mod would be applied on top of them, and testing here would not show that the mod works on a clean game. Install into another copy of the game (Install elsewhere…) to test it properly.", saved_here.join(", ")), "Install here anyway", true, move |_, cx| {
+        super::dialogs::confirm(window, cx, "This game folder already has your changes", format!("These files were saved in place, so they already hold your changes: {}. The mod would be applied on top of them, and testing here would not show that the mod works on a clean game. Install into another copy of the game (Install elsewhere…) to test it properly.", saved_here.join(", ")), "Install here anyway", true, move |_, cx| {
             let game = game.clone();
             let _ = me.update(cx, |this, cx| this.install_into(game, cx));
         });
@@ -992,7 +992,7 @@ impl Cooker {
             // Assembly files: the backend reloads the document, the Assembly view reads it again.
             Some(doc) => {
                 let me = cx.entity().downgrade();
-                super::dialogs::confirm(window, cx, format!("Discard your edits to {}?", file_name(&path)), "The edits you made in the Studio are lost and the file is read again from the game folder. Copies you exported are not touched.", "Discard edits", true, move |_, cx| {
+                super::dialogs::confirm(window, cx, format!("Discard your changes to {}?", file_name(&path)), "The edits you made in the Studio are lost and the file is read again from the game folder. Copies you exported are not touched.", "Discard edits", true, move |_, cx| {
                     let doc = doc.clone();
                     let _ = me.update(cx, |this, cx| {
                         let call = this.backend.call("mcts.discard", json!({ "doc": doc }));
@@ -1178,7 +1178,7 @@ impl Render for Cooker {
             .p_3()
             .gap_2()
             .child(h_flex().gap_2().child(div().flex_1().child(section("What goes in"))).child(Button::new("cook-refresh").xsmall().ghost().label("Refresh").on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))))
-            .child(div().text_xs().text_color(theme.muted_foreground).child("Every game file your edits change. Edits ship as they are in the Studio; nothing needs writing into the game folder first."))
+            .child(div().text_xs().text_color(theme.muted_foreground).child("Every game file your changes touch. They go into the mod as they are in the Studio; the game's own files stay untouched."))
             .child(files)
             .child(extras)
             .child(self.render_project_files(cx));

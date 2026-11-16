@@ -166,7 +166,7 @@ impl Studio {
             names.push(format!("… and {} more", n - names.len()));
         }
         let me = cx.entity().downgrade();
-        dialogs::confirm(window, cx, format!("Discard the edits of {n} file{}?", if n == 1 { "" } else { "s" }), format!("Every edit is lost and the files are read again from the game folder: {}.", names.join(", ")), "Discard all", true, move |_, cx| {
+        dialogs::confirm(window, cx, format!("Discard the changes to {n} file{}?", if n == 1 { "" } else { "s" }), format!("Every edit is lost and the files are read again from the game folder: {}.", names.join(", ")), "Discard all", true, move |_, cx| {
             let files = files.clone();
             let _ = me.update(cx, |this, cx| {
                 for path in files {

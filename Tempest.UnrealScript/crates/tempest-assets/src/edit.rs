@@ -37,6 +37,9 @@ pub struct Editor<'a> {
     rebuilt: bool,
     /// Undo journal: one entry per operation (`begin_undo`), newest last.
     undo: Vec<UndoEntry>,
+    /// What `undo` reverted, newest last: the entries putting it back. Any
+    /// new operation drops them.
+    redo: Vec<UndoEntry>,
     /// The entry capturing the operation in progress.
     current: Option<UndoEntry>,
     /// The texture caches of the game folder: copies of textures whose
@@ -68,6 +71,30 @@ pub struct UndoEntry {
     /// The operation's result has been written to disk: undoing it makes the
     /// package dirty again instead of restoring the pre-operation dirty flags.
     saved: bool,
+    /// Table entries cut off by an undo, appended again by its redo.
+    tail: Option<Box<Tail>>,
+}
+
+/// The exports, imports and names past an entry's `lens`, with the exports'
+/// parsed objects and dirty flags.
+#[derive(Default)]
+struct Tail {
+    exports: Vec<ObjectExport>,
+    data: Vec<Vec<u8>>,
+    depends: Vec<Vec<i32>>,
+    objects: Vec<Option<Parsed>>,
+    dirty: Vec<bool>,
+    imports: Vec<tempest_upk::package::ObjectImport>,
+    names: Vec<tempest_upk::package::NameEntry>,
+}
+
+/// The items of `v` from `at` on (none when it is shorter).
+fn cut<T>(v: &mut Vec<T>, at: usize) -> Vec<T> {
+    if v.len() > at {
+        v.split_off(at)
+    } else {
+        Vec::new()
+    }
 }
 
 /// (package, parsed objects, dirty set, rebuilt flag) before a whole-package replacement.
@@ -115,7 +142,7 @@ impl<'a> Editor<'a> {
     pub fn from_package(db: &'a ClassDb, name: String, pkg: Package) -> Editor<'a> {
         let layout = package_layout(&pkg);
         let obscured = pkg.summary.compression_flags & compression::OBSCURED != 0;
-        Editor { db, name, was_compressed: pkg.was_compressed, obscured, pkg, layout, objects: HashMap::new(), dirty: HashSet::new(), rebuilt: false, undo: Vec::new(), current: None, textures: None }
+        Editor { db, name, was_compressed: pkg.was_compressed, obscured, pkg, layout, objects: HashMap::new(), dirty: HashSet::new(), rebuilt: false, undo: Vec::new(), redo: Vec::new(), current: None, textures: None }
     }
 
     // ----- undo -------------------------------------------------------------
@@ -124,12 +151,13 @@ impl<'a> Editor<'a> {
     /// changed anything). Every mutation below snapshots what it touches.
     pub fn begin_undo(&mut self, label: impl Into<String>) {
         self.end_undo();
-        self.current = Some(UndoEntry { label: label.into(), snapshots: Vec::new(), lens: (self.pkg.exports.len(), self.pkg.imports.len(), self.pkg.names.len()), full: None, summary: self.pkg.summary.clone(), saved: false });
+        self.current = Some(UndoEntry { label: label.into(), snapshots: Vec::new(), lens: (self.pkg.exports.len(), self.pkg.imports.len(), self.pkg.names.len()), full: None, summary: self.pkg.summary.clone(), saved: false, tail: None });
     }
 
     pub fn end_undo(&mut self) {
         if let Some(e) = self.current.take() {
             if !e.is_empty(&self.pkg) {
+                self.redo.clear();
                 self.undo.push(e);
                 if self.undo.len() > MAX_UNDO {
                     self.undo.remove(0);
@@ -174,21 +202,48 @@ impl<'a> Editor<'a> {
     pub fn undo(&mut self) -> Option<String> {
         self.end_undo();
         let e = self.undo.pop()?;
+        let label = e.label.clone();
+        let back = self.apply(e);
+        self.redo.push(back);
+        Some(label)
+    }
+
+    /// Put back the last operation `undo` reverted. Returns its label.
+    pub fn redo(&mut self) -> Option<String> {
+        // An operation in progress is filed first, which drops what could be redone.
+        self.end_undo();
+        let e = self.redo.pop()?;
+        let label = e.label.clone();
+        let back = self.apply(e);
+        self.undo.push(back);
+        Some(label)
+    }
+
+    /// Labels of what `redo` would put back, newest first.
+    pub fn redo_labels(&self) -> Vec<String> {
+        self.redo.iter().rev().map(|e| e.label.clone()).collect()
+    }
+
+    /// Put the package back as `e` recorded it. Returns the entry that puts
+    /// the current state back (what undo hands to redo, and redo to undo).
+    fn apply(&mut self, e: UndoEntry) -> UndoEntry {
+        let lens = (self.pkg.exports.len(), self.pkg.imports.len(), self.pkg.names.len());
+        let mut back = UndoEntry { label: e.label, snapshots: Vec::new(), lens, full: None, summary: self.pkg.summary.clone(), saved: false, tail: None };
         if let Some(full) = e.full {
             let (pkg, objects, dirty, rebuilt) = *full;
             self.layout = package_layout(&pkg);
-            self.pkg = pkg;
-            self.objects = objects;
-            self.dirty = dirty;
+            let now = (std::mem::replace(&mut self.pkg, pkg), std::mem::replace(&mut self.objects, objects), std::mem::replace(&mut self.dirty, dirty), self.rebuilt);
+            back.full = Some(Box::new(now));
             // The whole package differs from the saved file again.
             self.rebuilt = rebuilt || e.saved;
-            return Some(e.label);
+            return back;
         }
         let saved = e.saved;
-        let tables_changed = e.lens != (self.pkg.exports.len(), self.pkg.imports.len(), self.pkg.names.len()) || e.summary != self.pkg.summary;
+        let tables_changed = e.lens != lens || e.summary != self.pkg.summary;
         for snap in e.snapshots.into_iter().rev() {
             let i = snap.index;
             if i < self.pkg.exports.len() {
+                back.snapshots.push(Snapshot { index: i, export: self.pkg.exports[i].clone(), data: self.pkg.export_data.get(i).cloned().unwrap_or_default(), parsed: self.objects.get(&i).cloned(), dirty: self.dirty.contains(&i) });
                 self.pkg.exports[i] = snap.export;
                 while self.pkg.export_data.len() <= i {
                     self.pkg.export_data.push(Vec::new());
@@ -213,24 +268,43 @@ impl<'a> Editor<'a> {
             self.rebuilt = true;
         }
         let (ne, ni, nn) = e.lens;
-        if self.pkg.exports.len() > ne {
-            for j in ne..self.pkg.exports.len() {
-                self.objects.remove(&j);
-                self.dirty.remove(&j);
-            }
-            self.pkg.exports.truncate(ne);
-            self.pkg.export_data.truncate(ne);
-            self.pkg.depends.truncate(ne);
+        let mut tail = Tail::default();
+        for j in ne..self.pkg.exports.len() {
+            tail.objects.push(self.objects.remove(&j));
+            tail.dirty.push(self.dirty.remove(&j));
         }
-        if self.pkg.imports.len() > ni {
-            self.pkg.imports.truncate(ni);
-        }
-        if self.pkg.names.len() > nn {
-            self.pkg.names.truncate(nn);
+        tail.exports = cut(&mut self.pkg.exports, ne);
+        tail.data = cut(&mut self.pkg.export_data, ne);
+        tail.depends = cut(&mut self.pkg.depends, ne);
+        tail.imports = cut(&mut self.pkg.imports, ni);
+        tail.names = cut(&mut self.pkg.names, nn);
+        if !tail.names.is_empty() {
             self.pkg.rebuild_name_lookup();
         }
+        if let Some(t) = e.tail {
+            let base = self.pkg.exports.len();
+            for (k, (parsed, dirty)) in t.objects.into_iter().zip(t.dirty).enumerate() {
+                if let Some(p) = parsed {
+                    self.objects.insert(base + k, p);
+                }
+                if dirty || saved {
+                    self.dirty.insert(base + k);
+                }
+            }
+            self.pkg.exports.extend(t.exports);
+            self.pkg.export_data.extend(t.data);
+            self.pkg.depends.extend(t.depends);
+            self.pkg.imports.extend(t.imports);
+            if !t.names.is_empty() {
+                self.pkg.names.extend(t.names);
+                self.pkg.rebuild_name_lookup();
+            }
+        }
+        if !(tail.exports.is_empty() && tail.imports.is_empty() && tail.names.is_empty()) {
+            back.tail = Some(Box::new(tail));
+        }
         self.pkg.summary = e.summary;
-        Some(e.label)
+        back
     }
 
     /// Store a rewritten object for export `i` (recorded for undo, marked dirty).
@@ -1157,7 +1231,7 @@ impl<'a> Editor<'a> {
     /// on disk now (undoing it will dirty the package again).
     pub fn mark_saved(&mut self) {
         self.end_undo();
-        for e in &mut self.undo {
+        for e in self.undo.iter_mut().chain(self.redo.iter_mut()) {
             e.saved = true;
         }
     }
@@ -1534,6 +1608,42 @@ pub fn referrers(ed: &mut Editor, i: usize) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Undo then redo of operations that change payloads and append names
+    /// and exports gives back the same bytes (a game package, when present).
+    #[test]
+    fn redo_puts_back_what_undo_took() {
+        let Some(home) = std::env::var_os("HOME") else { return };
+        let path = Path::new(&home).join("Games/Tempest/8.1/ChaosGame/CookedPCConsole/DEVICE27309_LOBBY_ASSETS_SF.upk");
+        if !path.exists() {
+            eprintln!("skipped: no {}", path.display());
+            return;
+        }
+        let db = ClassDb::new();
+        let mut ed = Editor::open(&db, &path).unwrap();
+        let original = ed.bytes();
+        ed.begin_undo("rename");
+        ed.rename(0, "redo_test_name").unwrap();
+        ed.begin_undo("duplicate");
+        ed.duplicate(0).unwrap();
+        ed.end_undo();
+        let edited = ed.bytes();
+        assert_eq!(ed.undo().as_deref(), Some("duplicate"));
+        assert_eq!(ed.undo().as_deref(), Some("rename"));
+        assert_eq!(ed.bytes(), original);
+        assert!(!ed.is_dirty());
+        assert_eq!(ed.redo_labels(), vec!["rename".to_string(), "duplicate".to_string()]);
+        assert_eq!(ed.redo().as_deref(), Some("rename"));
+        assert_eq!(ed.redo().as_deref(), Some("duplicate"));
+        assert_eq!(ed.bytes(), edited);
+        assert_eq!(ed.redo(), None);
+        // Undone again, then a new operation: nothing is left to redo.
+        ed.undo();
+        ed.begin_undo("rename again");
+        ed.rename(0, "redo_test_other").unwrap();
+        assert_eq!(ed.redo(), None);
+        assert!(ed.redo_labels().is_empty());
+    }
 
     #[test]
     fn parses_property_paths() {

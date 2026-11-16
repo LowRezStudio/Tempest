@@ -57,7 +57,7 @@ pub use commands::Cmd;
 
 const ROW: f32 = 22.0;
 
-actions!(studio, [CompileSource, OpenFile, SaveAs, FindReplace, NewTab, CloseTab, NextTab, PrevTab, Undo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, GoToPackage, GoToObject, SearchAll, Shortcuts, ShowPackages, ShowAssembly, ShowMod, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond, PageUp, PageDown, ExtendUp, ExtendDown, NextCell, PrevCell, Activate, Cancel, SelectAll, NewRow]);
+actions!(studio, [CompileSource, OpenFile, SaveAs, FindReplace, NewTab, CloseTab, NextTab, PrevTab, Undo, Redo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, GoToPackage, GoToObject, SearchAll, Shortcuts, ShowPackages, ShowAssembly, ShowMod, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond, PageUp, PageDown, ExtendUp, ExtendDown, NextCell, PrevCell, Activate, Cancel, SelectAll, NewRow]);
 
 /// The views of the activity bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -741,34 +741,43 @@ impl Studio {
     /// else of the open package, then read its tables and the selected
     /// object again (undo may have renamed or deleted exports).
     fn undo(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
+        self.step(false, window, cx);
+    }
+
+    fn redo(&mut self, _: &Redo, window: &mut Window, cx: &mut Context<Self>) {
+        self.step(true, window, cx);
+    }
+
+    /// Undo (or redo) in the view on screen.
+    fn step(&mut self, redo: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.view == View::Assembly {
             if let Some(a) = self.assembly.clone() {
-                a.update(cx, |a, cx| a.undo(window, cx));
+                a.update(cx, |a, cx| if redo { a.redo(window, cx) } else { a.undo(window, cx) });
                 return;
             }
         }
         // The map's edits, last first (each is an undo step of its level).
         if self.view == View::Map {
-            if let Some(m) = self.map.clone().filter(|m| m.read(cx).can_undo()) {
-                m.update(cx, |m, cx| m.undo(cx));
+            if let Some(m) = self.map.clone().filter(|m| if redo { m.read(cx).can_redo() } else { m.read(cx).can_undo() }) {
+                m.update(cx, |m, cx| if redo { m.redo(cx) } else { m.undo(cx) });
                 return;
             }
         }
         // A movie's pending edits go first, then the package's undo.
         if self.view == View::Packages {
             if let Some(m) = self.shown_movie() {
-                if m.update(cx, |m, cx| m.undo_edit(cx)) {
-                    self.set_status("Took back the last movie edit", cx);
+                if m.update(cx, |m, cx| if redo { m.redo_edit(cx) } else { m.undo_edit(cx) }) {
+                    self.set_status(if redo { "Put back the last movie edit" } else { "Took back the last movie edit" }, cx);
                     return;
                 }
             }
         }
-        self.undo_package(cx);
+        self.step_package(redo, cx);
     }
 
-    fn undo_package(&mut self, cx: &mut Context<Self>) {
+    fn step_package(&mut self, redo: bool, cx: &mut Context<Self>) {
         let Some(path) = self.open.as_ref().map(|t| t.path.clone()) else { return };
-        let call = self.backend.call("package.undo", json!({ "path": path }));
+        let call = self.backend.call(if redo { "package.redo" } else { "package.undo" }, json!({ "path": path }));
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let Ok(r) = r else { return };
@@ -781,9 +790,11 @@ impl Studio {
                     this.dirty.remove(&path);
                 }
                 this.set_status(
-                    match &label {
-                        Some(l) => format!("Undid {l}"),
-                        None => "Nothing to undo".into(),
+                    match (&label, redo) {
+                        (Some(l), false) => format!("Undone: {l}"),
+                        (Some(l), true) => format!("Redone: {l}"),
+                        (None, false) => "Nothing to undo".into(),
+                        (None, true) => "Nothing to redo".into(),
                     },
                     cx,
                 );
@@ -798,15 +809,15 @@ impl Studio {
         .detach();
     }
 
-    /// Save the open package into the game folder, after asking (the Studio
-    /// records the original first, the base of the mod's delta).
+    /// Keep the changes in the mod project: save it, or name the draft first.
+    /// Never writes into the game folder (that is `write_to_game`).
     fn save(&mut self, _: &Save, window: &mut Window, cx: &mut Context<Self>) {
         if self.project.is_some() {
             self.save_project(cx);
-            self.set_status("Project saved (the game folder is untouched)", cx);
+            self.set_status("Mod saved (the game's files are untouched)", cx);
             return;
         }
-        self.write_to_game(window, cx);
+        self.new_project_dialog(window, cx);
     }
 
     /// Save into the game folder: the open package, or the assembly files in the Assembly view.
@@ -840,34 +851,25 @@ impl Studio {
             self.save_now(paths, window, cx);
             return;
         }
-        let what = if paths.len() == 1 { file_name(&paths[0]) } else { format!("{} packages", paths.len()) };
+        let what = if paths.len() == 1 { file_name(&paths[0]) } else { format!("{} game files", paths.len()) };
         let me = cx.entity().downgrade();
-        let dont_ask = std::rc::Rc::new(std::cell::Cell::new(false));
         window.open_dialog(cx, move |dialog, _, cx| {
             let theme = cx.theme().clone();
-            let (me, paths, flag, set) = (me.clone(), paths.clone(), dont_ask.clone(), dont_ask.clone());
+            let (me, paths) = (me.clone(), paths.clone());
             dialog
-                .title(format!("Save {what} into the game folder?"))
+                .title(format!("Overwrite {what} in the game folder?"))
                 .w(px(520.0))
                 .child(
                     v_flex()
-                        .gap_3()
-                        .child(div().text_sm().text_color(theme.muted_foreground).child("The files in the game folder are overwritten. The Studio keeps each original first, so a mod can still be made as a delta against it. To keep the game folder untouched, use Export a copy or a workspace file instead."))
-                        .child(gpui_component::checkbox::Checkbox::new("dont-ask").label("Don't ask me again (Settings can turn it back on)").checked(set.get()).on_click(move |v, window, _| {
-                            set.set(*v);
-                            window.refresh();
-                        })),
+                        .gap_2()
+                        .text_sm()
+                        .child("This writes your changes straight into the game's own files, to try them without building a mod.")
+                        .child(div().text_color(theme.muted_foreground).child("The Studio cannot put the original files back afterwards: your launcher's \"Verify game files\" does. A mod never needs this; Build mod carries your changes without touching the game."))
+                        .child(ui::hint("Settings ▸ Ask before overwriting game files turns this question off.", &theme)),
                 )
-                .footer(dialogs::footer("Save", false, true, move |window, cx| {
+                .footer(dialogs::footer("Overwrite", true, true, move |window, cx| {
                     window.close_dialog(cx);
-                    let dont = flag.get();
-                    let _ = me.update(cx, |this, cx| {
-                        if dont {
-                            this.prefs.ask_in_place = false;
-                            this.prefs.save();
-                        }
-                        this.save_now(paths.clone(), window, cx)
-                    });
+                    let _ = me.update(cx, |this, cx| this.save_now(paths.clone(), window, cx));
                 }))
         });
     }
@@ -882,9 +884,9 @@ impl Studio {
                     Ok(_) => {
                         this.dirty.remove(&path);
                         this.forget_map_edit(&path, cx);
-                        this.toast(Tone::Success, format!("Saved {}", file_name(&path)), cx);
+                        this.toast(Tone::Success, format!("Wrote {} into the game folder", file_name(&path)), cx);
                     }
-                    Err(e) => this.toast(Tone::Error, format!("Could not save {}: {e}", file_name(&path)), cx),
+                    Err(e) => this.toast(Tone::Error, format!("Could not write {} into the game folder: {e}", file_name(&path)), cx),
                 });
             })
             .detach();
@@ -942,34 +944,7 @@ impl Studio {
             .child(ui::kbd(commands::key_hint("⌘K"), &theme))
             .child(crate::driver::probe("search-field"));
         let project_chip = self.render_project_chip(cx);
-        let in_project = self.project.is_some();
-        let unsaved = self.dirty.len() + self.assembly.as_ref().map(|a| a.read(cx).unsaved_count()).unwrap_or(0);
-        let can_save = match self.view {
-            View::Assembly => self.assembly.as_ref().is_some_and(|a| a.read(cx).unsaved_count() > 0),
-            View::Map => self.map.as_ref().is_some_and(|m| !m.read(cx).dirty_levels(cx).is_empty()),
-            _ => self.open.as_ref().is_some_and(|t| self.dirty.contains(&t.path)),
-        };
-        let me = cx.entity().downgrade();
-        let save = Button::new("save")
-            .small()
-                        .icon(Icon::new(IconName::Save))
-            .label(if in_project { "Project" } else { "Write" })
-            .disabled(!in_project && !can_save && unsaved == 0)
-            .tooltip(if in_project { "The project saves itself; this menu writes into the game folder or exports" } else { "Write the edits into the game folder (asks first): for quick tests; a mod carries your edits without it" })
-            .dropdown_menu(move |menu, _, _| {
-                let item = |label: &str, cmd: Cmd| {
-                    let me = me.clone();
-                    PopupMenuItem::new(label.to_string()).on_click(move |_, window, cx| {
-                        let _ = me.update(cx, |this, cx| this.run(cmd, window, cx));
-                    })
-                };
-                let menu = if in_project { menu.item(item("Save the project now", Cmd::Save)).separator() } else { menu };
-                menu.item(item("Write this file into the game folder…", Cmd::WriteToGame))
-                    .item(item("Write every edited file into the game folder…", Cmd::SaveAll))
-                    .separator()
-                    .item(item("Export a copy…  (keeps the game folder untouched)", Cmd::SaveAs))
-                    .item(item("Discard this file's edits…", Cmd::Discard))
-            });
+        let changes = self.dirty.len() + self.assembly.as_ref().map(|a| a.read(cx).unsaved_count()).unwrap_or(0);
         h_flex()
             .h(px(40.0))
             .px_2()
@@ -982,25 +957,25 @@ impl Studio {
             .child(workspace)
             .children(project_chip)
             .child(div().flex_1())
-            .child(div().relative().child(Button::new("create").small().primary().icon(Icon::new(IconName::Plus)).label("Create").tooltip("Make something new: a texture, mesh, material, sound, skin, ability… (⌘N)").disabled(self.dir.is_none()).on_click(cx.listener(|this, _, window, cx| this.open_wizard(None, None, window, cx)))).child(crate::driver::probe("create")))
+            .child(div().relative().child(Button::new("create").small().icon(Icon::new(IconName::Plus)).label("Create").tooltip(format!("Make something new: a skin, an ability, a texture, a sound… ({})", commands::key_hint("⌘N"))).disabled(self.dir.is_none()).on_click(cx.listener(|this, _, window, cx| this.open_wizard(None, None, window, cx)))).child(crate::driver::probe("create")))
             .child(search)
             .child(div().flex_1())
-            .when(in_project, |d| d.child(Button::new("build").small().primary().icon(Icon::new(IconName::Hammer)).label("Build mod").tooltip("The Mod view: what your project's edits become").on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx)))))
-            .child(Button::new("undo").small().ghost().icon(Icon::new(IconName::Undo2)).tooltip("Undo the last edit (⌘Z)").on_click(cx.listener(|this, _, window, cx| this.undo(&Undo, window, cx))))
-            .when(unsaved > 0, |d| {
+            .child(Button::new("undo").small().ghost().icon(Icon::new(IconName::Undo2)).tooltip(format!("Undo ({})", commands::key_hint("⌘Z"))).on_click(cx.listener(|this, _, window, cx| this.undo(&Undo, window, cx))))
+            .child(Button::new("redo").small().ghost().icon(Icon::new(IconName::Redo2)).tooltip(format!("Redo ({})", commands::key_hint("⌘⇧Z"))).on_click(cx.listener(|this, _, window, cx| this.redo(&Redo, window, cx))))
+            .when(changes > 0, |d| {
                 d.child(
                     div().relative().child(
                         Button::new("unsaved")
                             .small()
                             .ghost()
-                            .label(format!("Edits ({unsaved})"))
-                            .tooltip("The files you edited: open them, discard their edits (one by one or all at once), or write them into the game folder")
+                            .label(format!("Changes ({changes})"))
+                            .tooltip("What you changed: open a file, or throw its changes away")
                             .on_click(cx.listener(|this, _, window, cx| this.show_unsaved(window, cx))),
                     )
                     .child(crate::driver::probe("unsaved")),
                 )
             })
-            .child(save)
+            .when(self.dir.is_some(), |d| d.child(Button::new("build").small().primary().icon(Icon::new(IconName::Hammer)).label("Build mod").tooltip(format!("Turn your changes into a mod you can install and share ({})", commands::key_hint("⌘3"))).on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx)))))
     }
 
     fn render_activity(&mut self, cx: &mut Context<Self>) -> impl IntoElement {

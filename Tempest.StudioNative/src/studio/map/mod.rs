@@ -254,6 +254,8 @@ pub struct MapEditor {
     pub(crate) tool: Tool,
     /// Edited levels in order, for undo.
     edits: Vec<String>,
+    /// Levels whose last undone edit redo puts back, newest last.
+    redone: Vec<String>,
     /// The map's levels with unsaved edits (the Studio's dirty set, kept here so
     /// the map never reads the Studio while it renders; it tells us of saves).
     pub(crate) dirty: HashSet<String>,
@@ -354,6 +356,7 @@ impl MapEditor {
             xray: false,
             tool: Tool::Translate,
             edits: Vec::new(),
+            redone: Vec::new(),
             dirty: HashSet::new(),
             view: viewport::View3d::new(),
             nodes: Vec::new(),
@@ -421,6 +424,7 @@ impl MapEditor {
     /// An edit of a level: undo takes it back, the Studio lists the package as unsaved.
     pub(crate) fn note_edit(&mut self, level: &str, cx: &mut Context<Self>) {
         self.edits.push(level.to_string());
+        self.redone.clear();
         self.dirty.insert(level.to_string());
         let level = level.to_string();
         self.with_studio(cx, move |s, cx| {
@@ -554,6 +558,7 @@ impl MapEditor {
         self.nav.reset();
         self.palette.reset();
         self.edits.clear();
+        self.redone.clear();
         let call = self.call("map.scene", json!({ "path": path }));
         cx.spawn(async move |this, cx| {
             let r = call.await;
@@ -878,6 +883,7 @@ impl MapEditor {
     pub(crate) fn level_discarded(&mut self, level: String, cx: &mut Context<Self>) {
         self.dirty.remove(&level);
         self.edits.retain(|l| *l != level);
+        self.redone.retain(|l| *l != level);
         if self.level(&level).is_none() {
             cx.notify();
             return;
@@ -891,26 +897,48 @@ impl MapEditor {
         }
     }
 
+    pub(crate) fn can_redo(&self) -> bool {
+        !self.redone.is_empty()
+    }
+
     pub(crate) fn undo(&mut self, cx: &mut Context<Self>) {
-        let Some(level) = self.edits.pop() else {
-            self.status("Nothing to undo in this map", cx);
+        self.step(false, cx);
+    }
+
+    pub(crate) fn redo(&mut self, cx: &mut Context<Self>) {
+        self.step(true, cx);
+    }
+
+    /// Take back the last map edit, or put back the last one taken back (the level's package undo/redo).
+    fn step(&mut self, redo: bool, cx: &mut Context<Self>) {
+        let (from, to) = if redo { (&mut self.redone, &mut self.edits) } else { (&mut self.edits, &mut self.redone) };
+        let Some(level) = from.pop() else {
+            self.status(if redo { "Nothing to redo in this map" } else { "Nothing to undo in this map" }, cx);
             return;
         };
-        let call = self.call("package.undo", json!({ "path": level }));
+        to.push(level.clone());
+        let call = self.call(if redo { "package.redo" } else { "package.undo" }, json!({ "path": level }));
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     let Some(label) = r.json["label"].as_str() else { return };
-                    this.status(format!("Undone: {label}"), cx);
-                    if r.json["dirty"].as_bool() == Some(false) {
+                    this.status(format!("{}: {label}", if redo { "Redone" } else { "Undone" }), cx);
+                    let dirty = r.json["dirty"].as_bool() != Some(false);
+                    let l = level.clone();
+                    if dirty {
+                        this.dirty.insert(level.clone());
+                    } else {
                         this.dirty.remove(&level);
-                        let l = level.clone();
-                        this.with_studio(cx, move |s, cx| {
-                            s.dirty.remove(&l);
-                            cx.notify();
-                        });
                     }
+                    this.with_studio(cx, move |s, cx| {
+                        if dirty {
+                            s.dirty.insert(l);
+                        } else {
+                            s.dirty.remove(&l);
+                        }
+                        cx.notify();
+                    });
                     this.reload_level(level.clone(), cx);
                     if this.mode == Mode::Kismet && this.kismet.level.as_deref() == Some(level.as_str()) {
                         this.load_graph(cx);
@@ -919,7 +947,7 @@ impl MapEditor {
                         this.refresh_matinee(cx);
                     }
                 }
-                Err(e) => this.toast(Tone::Error, format!("Undo failed: {e}"), cx),
+                Err(e) => this.toast(Tone::Error, format!("{} failed: {e}", if redo { "Redo" } else { "Undo" }), cx),
             });
         })
         .detach();

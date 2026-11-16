@@ -160,7 +160,7 @@ impl Studio {
                         }))
                 })
                 .child(section("Saving"))
-                .child(switch("ask-in-place", "Ask before saving into the game folder", p.ask_in_place, |p, v| p.ask_in_place = v))
+                .child(switch("ask-in-place", "Ask before overwriting game files", p.ask_in_place, |p, v| p.ask_in_place = v))
                 .child(hint("Saving overwrites the game's files (the Studio keeps the originals for the mod cooker). Workspace files and Export a copy never touch the game folder."))
                 .child(section("Starting"))
                 .child(switch("restore", "Reopen the package and object I was on", p.restore, |p, v| p.restore = v))

@@ -729,10 +729,12 @@ impl Assembly {
                         .item(item("Reload the files from the game folder".into(), |a, w, cx| a.reload_files(w, cx)))
                         .separator()
                         .item(item(match &undo { Some(u) => format!("Undo: {u}"), None => "Undo".into() }, |a, w, cx| a.undo(w, cx)).disabled(undo.is_none()))
+                        .item(item("Redo".into(), |a, w, cx| a.redo(w, cx)))
                         .item(item("Discard this file's changes…".into(), |a, w, cx| a.discard(w, cx)).disabled(!doc_dirty))
+                        .separator()
+                        .item(item("Patch the game's files (advanced)…".into(), |a, w, cx| a.save(w, cx)).disabled(!doc_dirty))
                 })
-            })
-            .child(Button::new("a-save").xsmall().when(doc_dirty, |b| b.primary()).label("Save…").disabled(!doc_dirty).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))));
+            });
 
         // Several rows marked: what an edit does, and their own actions.
         let marked_bar = (self.marked.len() > 1).then(|| {

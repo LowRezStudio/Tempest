@@ -19,6 +19,7 @@ pub enum Cmd {
     SaveAs,
     Discard,
     Undo,
+    Redo,
     Back,
     Forward,
     Commands,
@@ -110,6 +111,7 @@ impl Cmd {
         Cmd::SaveAs,
         Cmd::Discard,
         Cmd::Undo,
+        Cmd::Redo,
         Cmd::Back,
         Cmd::Forward,
         Cmd::Commands,
@@ -183,16 +185,17 @@ impl Cmd {
     pub fn info(self) -> Info {
         let i = |title, group, keys, detail| Info { title, group, keys, detail };
         match self {
-            Cmd::OpenFolder => i("Open game folder…", "Workspace", "", "the game's ChaosGame/CookedPCConsole folder"),
+            Cmd::OpenFolder => i("Open game folder…", "File", "", "the Paladins folder, or its ChaosGame/CookedPCConsole folder"),
             Cmd::HideSide => i("Show or hide the side pane", "View", "⌘B", "the package list, the assembly files, the sound banks or the map's levels; over the view in a narrow window"),
             Cmd::HideSecond => i("Show or hide the second pane", "View", "⌘J", "the object list, the row pane, the events or the map's inspector"),
-            Cmd::NewWindow => i("New window", "Workspace", "⌘⇧N", "another window, for another game folder or package"),
-            Cmd::Create => i("Create…", "Edit", "⌘N", "a texture, mesh, material, sound, package, skin, ability, item or champion, step by step"),
-            Cmd::Save => i("Save", "Workspace", "⌘S", "the project when one is open, else the open package or assembly files in place (asks first)"),
-            Cmd::SaveAll => i("Write every edited file into the game folder…", "Workspace", "", "every package with edits, over the game's own files (asks first); a mod does not need it"),
-            Cmd::SaveAs => i("Export a copy…", "Workspace", "⌘⇧S", "write it elsewhere; the game folder is untouched and the edits stay in the Studio"),
-            Cmd::Discard => i("Discard the package's changes…", "Workspace", "", "reload it from the game folder"),
-            Cmd::Undo => i("Undo", "Edit", "⌘Z", "take back the last edit"),
+            Cmd::NewWindow => i("New window", "File", "⌘⇧N", "another window, for another game folder or mod"),
+            Cmd::Create => i("Create…", "Edit", "⌘N", "something new, step by step: a skin, ability, card, item, champion, texture, mesh, material, sound…"),
+            Cmd::Save => i("Save the mod", "File", "⌘S", "keep your changes in your mod (name it first when it is still a draft); never touches the game's files"),
+            Cmd::SaveAll => i("Patch every changed game file (advanced)…", "File", "", "for quick tests: overwrite the game's own files with your changes; only Verify game files puts them back"),
+            Cmd::SaveAs => i("Export a copy…", "File", "⌘⇧S", "write the changed file somewhere else; the game's files stay untouched"),
+            Cmd::Discard => i("Discard this file's changes…", "Edit", "", "read it again from the game folder"),
+            Cmd::Undo => i("Undo", "Edit", "⌘Z", "take back the last change"),
+            Cmd::Redo => i("Redo", "Edit", "⌘⇧Z", "put back the last change Undo took back"),
             Cmd::Back => i("Back", "Go", "⌥←", ""),
             Cmd::Forward => i("Forward", "Go", "⌥→", ""),
             Cmd::Commands => i("Commands…", "Go", "⌘K", ""),
@@ -201,10 +204,10 @@ impl Cmd {
             Cmd::SearchAll => i("Search every package…", "Go", "⌘F", "objects by name, in every package of the folder"),
             Cmd::NewTab => i("New tab", "Go", "⌘T", "a copy of this tab"),
             Cmd::CloseTab => i("Close the tab", "Go", "⌘W", ""),
-            Cmd::ShowPackages => i("Show packages", "View", "⌘1", ""),
-            Cmd::ShowAssembly => i("Show the assembly tables", "View", "⌘2", "assembly.dat and the language files"),
-            Cmd::ShowMod => i("Make a mod", "View", "⌘3", "the mod cooker: what your changes become"),
-            Cmd::ShowMap => i("Show the maps", "View", "⌘5", "a map and its sublevels in 3D, Kismet and Matinee"),
+            Cmd::ShowPackages => i("Show the game files", "View", "⌘1", "every package: textures, meshes, materials, sounds, UI, scripts"),
+            Cmd::ShowAssembly => i("Show the game data", "View", "⌘2", "the content tables (items, abilities, cards, skins, loot…) and the game's texts"),
+            Cmd::ShowMod => i("Build mod", "View", "⌘3", "what your changes become: details, build, install, publish"),
+            Cmd::ShowMap => i("Show the maps", "View", "⌘5", "a map in 3D with its scripts (Kismet) and cutscenes (Matinee)"),
             Cmd::MapAddActor => i("Add an actor to the map…", "Map", "⇧A", "a copy of an actor of any level, a new one of a class, or a mesh, where the view looks"),
             Cmd::MapCollision => i("Show collision in the map", "Map", "", "volumes' convex hulls and meshes' simple or complex collision, by what they block"),
             Cmd::MapBakeLighting => i("Bake lighting…", "Map", "", "static light maps for the meshes added or moved, the selection or whole levels"),
@@ -216,8 +219,8 @@ impl Cmd {
             Cmd::AsmVendor => i("Champion vendor…", "Assembly", "", "which champions the client lists; add an existing champion to it"),
             Cmd::AsmSkins => i("Skin collections…", "Assembly", "", "which skins the client lists per champion; copy a collection or list a skin"),
             Cmd::AsmExportMod => i("Export a mod from the assembly changes…", "Assembly", "", "a mod folder with the rows you changed"),
-            Cmd::AsmReload => i("Reload assembly.dat and the language files", "Assembly", "", "read them again from the game folder"),
-            Cmd::OpenFile => i("Open package file…", "Workspace", "⌘O", "a package from anywhere; one outside the game folder joins the list"),
+            Cmd::AsmReload => i("Reload the game data", "Assembly", "", "read assembly.dat and the language files again from the game folder"),
+            Cmd::OpenFile => i("Open package file…", "File", "⌘O", "a package from anywhere; one outside the game folder joins the list"),
             Cmd::NextTab => i("Next tab", "Go", "⌃Tab", ""),
             Cmd::PrevTab => i("Previous tab", "Go", "⌃⇧Tab", ""),
             Cmd::ZoomIn => i("Zoom in", "View", "⌘=", "larger text"),
@@ -226,15 +229,15 @@ impl Cmd {
             Cmd::ToggleTheme => i("Toggle light / dark theme", "View", "", ""),
             Cmd::GameShaders => i("Toggle game shaders in previews", "View", "", "materials and meshes drawn by their compiled game shaders, or with their base colour"),
             Cmd::ShaderModel => i("Switch game shaders between shader model 5 and 3", "View", "", "the Direct3D 11 shaders the game runs by default, or its Direct3D 9 ones"),
-            Cmd::ShowAudio => i("Show the sound banks", "View", "⌘4", "every Wwise .pck of the folder: play, export, replace"),
+            Cmd::ShowAudio => i("Show the sounds", "View", "⌘4", "every sound bank (.pck): listen, export, replace voice lines, music and effects"),
             Cmd::Rewrite => i("Rewrite this package compressed / uncompressed…", "Package", "", "a copy of the file on disk in the other storage"),
             Cmd::ModFolder => i("Prepare a mod folder from packages…", "Package", "", "manifest.toml and chosen files, as deltas where a base is recorded"),
             Cmd::ExportSources => i("Export the class sources of this script package…", "Package", "", "every class decompiled into <Package>/Classes/*.uc"),
             Cmd::PackageInfo => i("Package info…", "Package", "", "versions, storage, flags; its imports and names"),
             Cmd::CheckUpdates => i("Check for updates", "Help", "", ""),
             Cmd::McpServer => i("MCP server (let agents drive the Studio)…", "Help", "", "its address and how to add it to an agent, in the Settings"),
-            Cmd::ProjectFolder => i("Show the project folder", "Project", "", ""),
-            Cmd::DiscardAll => i("Discard all edits…", "Workspace", "", "every edit of the window; the files are read again from the game folder"),
+            Cmd::ProjectFolder => i("Show the mod's folder", "Mod", "", ""),
+            Cmd::DiscardAll => i("Discard all changes…", "Edit", "", "every change in this window; the files are read again from the game folder"),
             Cmd::NewPackage => i("New package…", "Package", "", "an empty package with a game package's settings"),
             Cmd::AddObject => i("Add to the package…", "Package", "", "an object from a file, a copy from another package, or a group"),
             Cmd::AddGroup => i("Add a group…", "Package", "", "a folder for objects inside the package"),
@@ -251,15 +254,15 @@ impl Cmd {
             Cmd::Verify => i("Check the package", "Package", "", "rewrite every object and compare (round trip)"),
             Cmd::NewInstance => i("New material instance…", "Material", "", "a MaterialInstanceConstant of the selected material, with no overrides"),
             Cmd::OwnMaterials => i("Give the mesh its own materials", "Material", "", "every slot gets a material of this mesh only, in one group"),
-            Cmd::SaveWorkspace => i("Save a workspace file…", "Workspace", "⌘⌥S", "every edit and where you are, for later (the game folder is untouched)"),
-            Cmd::SaveWorkspacePortable => i("Save a portable workspace file…", "Workspace", "", "the changed files whole: opens on another machine or game copy"),
-            Cmd::OpenWorkspaceFile => i("Open a workspace file…", "Workspace", "⌘⌥O", "puts its edits back"),
-            Cmd::NewProject => i("New mod project…", "Project", "", "a folder that keeps every edit of your mod, saved as you go"),
-            Cmd::OpenProject => i("Open a mod project…", "Project", "", "its edits come back, the game folder untouched"),
-            Cmd::CloseProject => i("Close the project…", "Project", "", "its edits are unloaded until you open it again"),
-            Cmd::WriteToGame => i("Write into the game folder", "Workspace", "", "the open package or assembly files, in place (asks first)"),
+            Cmd::SaveWorkspace => i("Save changes to a file (.twrk)…", "File", "⌘⌥S", "every change and where you are, to open later; the game's files stay untouched"),
+            Cmd::SaveWorkspacePortable => i("Save changes to a file with whole copies (.twrk)…", "File", "", "the changed files whole: opens on another computer or game copy"),
+            Cmd::OpenWorkspaceFile => i("Open a changes file (.twrk)…", "File", "⌘⌥O", "puts its changes back"),
+            Cmd::NewProject => i("New mod… / Name this mod…", "Mod", "", "a mod with its own folder that saves itself; your current changes go into it"),
+            Cmd::OpenProject => i("Open a mod…", "Mod", "", "its changes come back; the game's files stay untouched"),
+            Cmd::CloseProject => i("Close the mod…", "Mod", "", "its changes are unloaded until you open it again"),
+            Cmd::WriteToGame => i("Patch this game file (advanced)…", "File", "", "for quick tests: overwrite the game's own file with the changes on screen; only Verify game files puts it back"),
             Cmd::CopyPath => i("Copy the object path", "Object", "⌘⇧C", "Package.Group.Name, as the search and other packages name it"),
-            Cmd::Settings => i("Settings…", "Help", "⌘,", "theme, the save warning, reopening where you were"),
+            Cmd::Settings => i("Settings…", "Help", "⌘,", "theme, text size, the overwrite warning, reopening where you were"),
             Cmd::Shortcuts => i("Keyboard shortcuts", "Help", "F1", ""),
         }
     }
@@ -327,7 +330,7 @@ impl Studio {
             let why = match cmd {
                 Cmd::NewInstance => "Select a material or material instance first",
                 Cmd::OwnMaterials => "Select a static or skeletal mesh first",
-                Cmd::Discard => "This package has no edits",
+                Cmd::Discard => "This package has no changes",
                 Cmd::CloseProject => "No project is open",
                 Cmd::SaveAll => "Nothing is edited",
                 Cmd::ExportSources => "Open a script package first",
@@ -384,6 +387,7 @@ impl Studio {
                 }
             }
             Cmd::Undo => self.undo(&Undo, window, cx),
+            Cmd::Redo => self.redo(&Redo, window, cx),
             Cmd::Back => self.back(&Back, window, cx),
             Cmd::Forward => self.forward(&Forward, window, cx),
             Cmd::Commands => self.open_palette(">", window, cx),
@@ -648,6 +652,7 @@ impl Studio {
 
     pub(super) fn bind_actions(&mut self, root: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
         root.on_action(cx.listener(Self::undo))
+            .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(|this, _: &NewTab, _, cx| this.new_tab(None, cx)))
             .on_action(cx.listener(|this, _: &CloseTab, _, cx| this.close_tab(this.active_tab, cx)))
@@ -706,6 +711,7 @@ pub fn bind_keys(cx: &mut App) {
     let k = |keys: &str| -> &'static str { Box::leak(keys.replace("mod", m).into_boxed_str()) };
     cx.bind_keys([
         KeyBinding::new(k("mod-z"), Undo, Some("Studio")),
+        KeyBinding::new(k("mod-shift-z"), Redo, Some("Studio")),
         KeyBinding::new(k("mod-s"), Save, Some("Studio")),
         KeyBinding::new(k("mod-k"), Commands, Some("Studio")),
         KeyBinding::new(k("mod-shift-p"), Commands, Some("Studio")),
@@ -789,6 +795,6 @@ pub fn bind_keys(cx: &mut App) {
         cx.bind_keys([KeyBinding::new("cmd-[", Back, Some("Studio")), KeyBinding::new("cmd-]", Forward, Some("Studio"))]);
     } else {
         // ⌘H hides the app on macOS.
-        cx.bind_keys([KeyBinding::new("ctrl-h", FindReplace, Some("Studio"))]);
+        cx.bind_keys([KeyBinding::new("ctrl-h", FindReplace, Some("Studio")), KeyBinding::new("ctrl-y", Redo, Some("Studio"))]);
     }
 }
