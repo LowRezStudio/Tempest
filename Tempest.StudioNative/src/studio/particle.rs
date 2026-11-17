@@ -430,7 +430,7 @@ impl Studio {
                 let (v1, v2, me) = (v.clone(), v.clone(), cx.entity().downgrade());
                 let bar = h_flex()
                     .gap_1()
-                    .child(Button::new("pt-play").xsmall().primary().label(if playing { "Pause" } else { "Play" }).on_click(cx.listener(move |this, _, _, cx| this.particles_play(!playing, cx))))
+                    .child(Button::new("pt-play").xsmall().label(if playing { "Pause" } else { "Play" }).on_click(cx.listener(move |this, _, _, cx| this.particles_play(!playing, cx))))
                     .child(Button::new("pt-restart").xsmall().ghost().label("Restart").tooltip("Every emitter from the start").on_click(cx.listener(|this, _, _, cx| this.particles_restart(cx))))
                     .child(Button::new("pt-speed").xsmall().ghost().label(format!("{speed}×")).dropdown_menu(move |menu, _, _| {
                         let mut menu = menu;
@@ -569,7 +569,7 @@ impl Studio {
         let p = self.particles.as_ref().expect("particles shown");
         let dirty = p.drafts.contains_key(&key);
         let focused = p.focus.as_ref() == Some(&key);
-        let colours: [Hsla; 3] = [gpui::rgb(0xf38ba8).into(), gpui::rgb(0xa6e3a1).into(), gpui::rgb(0x89b4fa).into()];
+        let colours: [Hsla; 3] = [theme.red, theme.green, theme.blue];
         let kind = if d.vector { "vector" } else { "float" };
         let op = match d.op {
             1 => " · random between A and B",

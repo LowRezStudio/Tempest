@@ -188,7 +188,7 @@ impl Studio {
         let me = cx.entity().downgrade();
         window.open_dialog(cx, move |dialog, _, cx| {
             let theme = cx.theme().clone();
-            let row = |label: &'static str, hint: String, i: &gpui::Entity<InputState>| h_flex().gap_3().child(div().w(px(150.0)).text_sm().child(label)).child(div().w(px(120.0)).child(Input::new(i).small())).child(div().flex_1().text_xs().text_color(theme.muted_foreground).child(hint));
+            let row = |label: &'static str, hint: String, i: &gpui::Entity<InputState>| h_flex().gap_3().child(div().w(px(150.0)).text_sm().child(label)).child(div().w(px(120.0)).child(Input::new(i).small())).child(div().flex_1().min_w_0().text_xs().text_color(theme.muted_foreground).child(hint));
             let (me, f2, t2, l2, r2) = (me.clone(), from.clone(), to.clone(), len.clone(), rate_in.clone());
             dialog
                 .title("Edit the sequence")
@@ -258,7 +258,7 @@ impl Studio {
         }
         v_flex()
             .gap_1()
-            .child(h_flex().child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("NOTIFIES (drag the orange marks on the timeline)")).child(Button::new("anim-edit").xsmall().label("Edit the sequence…").tooltip("Trim, change the length or the rate").on_click(cx.listener(|this, _, window, cx| this.anim_edit_dialog(window, cx)))))
+            .child(h_flex().child(div().flex_1().min_w_0().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("NOTIFIES (drag the orange marks on the timeline)")).child(Button::new("anim-edit").xsmall().label("Edit the sequence…").tooltip("Trim, change the length or the rate").on_click(cx.listener(|this, _, window, cx| this.anim_edit_dialog(window, cx)))))
             .child(body)
             .into_any_element()
     }

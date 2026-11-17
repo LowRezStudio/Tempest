@@ -11,7 +11,8 @@ Shell (`src/studio.rs`): header (Back/Forward, game folder menu with recent fold
 (`project.rs` `render_project_chip`: the named mod with its save state and menu, else "Unnamed mod ·
 n changes" with Name this mod…/Open a mod…/Discard the draft…, else "No mod yet"), Create, the
 search field opening the palette, Undo, Redo, **Changes (n)** (the changed files: open, discard,
-advanced "Patch the game…"), **Build mod** (the one primary action, opens the Mod view)), activity
+advanced "Patch the game…"), **Build mod** (the one primary action, opens the Mod view); three
+columns, so Create and search stay centred and what comes and goes sits at the far right), activity
 bar (Start, Champions ⌘1, Game files ⌘2, Game data ⌘3, Sounds ⌘4, Maps ⌘5, then Build mod ⌘6; search,
 shortcuts and settings at the bottom; the views are disabled until a game folder is open), window
 tabs (`tabs.rs`), status line (cleared when the view changes), notifications (`Studio::toast`; error

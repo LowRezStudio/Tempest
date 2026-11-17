@@ -290,8 +290,8 @@ impl Studio {
         let mut body = v_flex().gap_2().child(wave_box).child(
             h_flex()
                 .gap_2()
-                .child(Button::new("play").small().primary().label(if playing { "Stop" } else if has_sel && s.edited.is_none() { "Play the selection" } else if s.edited.is_some() { "Play the edit" } else { "Play" }).on_click(cx.listener(|this, _, _, cx| this.play_sound(cx))))
-                .child(div().flex_1().text_xs().text_color(theme.muted_foreground).child(format!("{info} · {sel_text}")))
+                .child(Button::new("play").small().label(if playing { "Stop" } else if has_sel && s.edited.is_none() { "Play the selection" } else if s.edited.is_some() { "Play the edit" } else { "Play" }).on_click(cx.listener(|this, _, _, cx| this.play_sound(cx))))
+                .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(format!("{info} · {sel_text}")))
                 .when(!editing, |d| d.child(Button::new("edit-sound").small().label("Edit").tooltip("Trim, fade, gain, normalise, then re-encode").on_click(cx.listener(|this, _, _, cx| this.edit_sound(|s| s.editing = true, cx))))),
         );
         if editing {

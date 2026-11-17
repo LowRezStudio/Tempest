@@ -236,7 +236,7 @@ impl Studio {
                 name.update(cx, |s, cx| s.focus(window, cx));
             }
             let theme = cx.theme().clone();
-            let row = |label: &'static str, i: &Entity<InputState>| h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().child(Input::new(i).small()));
+            let row = |label: &'static str, i: &Entity<InputState>| h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().min_w_0().child(Input::new(i).small()));
             let text = |e: &Entity<InputState>, cx: &App| e.read(cx).value().trim().to_string();
             let mod_id = {
                 let typed = text(&id, cx);
@@ -261,7 +261,7 @@ impl Studio {
                         .child(row("Id", &id))
                         .child(row("Author", &author))
                         .child(row("Version", &version))
-                        .child(h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child("Location")).child(div().flex_1().child(Input::new(&location).small())).child(Button::new("np-browse").small().ghost().label("Choose…").on_click(move |_, window, cx| {
+                        .child(h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child("Location")).child(div().flex_1().min_w_0().child(Input::new(&location).small())).child(Button::new("np-browse").small().ghost().label("Choose…").on_click(move |_, window, cx| {
                             let pick = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Where the project folder goes".into()) });
                             let l3 = l3.clone();
                             let handle = window.window_handle();

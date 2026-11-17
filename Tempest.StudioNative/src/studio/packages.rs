@@ -576,7 +576,7 @@ impl Studio {
                     .child(Button::new("new-package").xsmall().ghost().icon(Icon::new(IconName::FilePlus)).tooltip("New package…").on_click(cx.listener(|this, _, window, cx| this.run(Cmd::NewPackage, window, cx))))
                     .into_any_element(),
             ))
-            .child(div().px_1().pb_1().child(Input::new(&self.package_filter).small()))
+            .child(super::ui::pane_filter(Input::new(&self.package_filter).small()))
             .child(div().key_context("Packages").track_focus(&self.packages_focus).flex_1().min_h_0().child(uniform_list("packages", self.shown_packages.len(), cx.processor(Self::render_packages)).track_scroll(&self.package_scroll).size_full()));
         let title = self.open.as_ref().map(|t| t.name.clone()).unwrap_or_else(|| "Objects".into());
         let has_open = self.open.is_some();
@@ -594,14 +594,14 @@ impl Studio {
                     .child(Button::new("find-replace").xsmall().ghost().icon(Icon::new(IconName::Replace)).tooltip("Find and replace in the package…").disabled(!has_open).on_click(cx.listener(|this, _, window, cx| this.run(Cmd::FindReplace, window, cx))))
                     .into_any_element(),
             ))
-            .child(div().px_1().pb_1().child(Input::new(&self.export_filter).small()))
+            .child(super::ui::pane_filter(Input::new(&self.export_filter).small()))
             .child(div().key_context("Exports").track_focus(&self.exports_focus).flex_1().min_h_0().child(exports_body));
         // Focus (a movie's stage) hides both lists.
         let mut panes = self.panes.get();
         if self.focus_mode {
             panes = layout::Panes { side_hidden: true, second_hidden: true, ..Default::default() };
         }
-        let sizes = self.pane_sizes("main", &[260.0, 400.0]);
+        let sizes = self.pane_sizes("main", &[super::ui::SIDE_PANE, 400.0]);
         let me = cx.entity().downgrade();
         let inspector = self.render_inspector(window, cx).into_any_element();
         layout::group(
@@ -632,7 +632,7 @@ impl Studio {
                     h_flex()
                         .gap_2()
                         .text_sm()
-                        .child(div().flex_1().child(file_name(f)))
+                        .child(div().flex_1().min_w_0().child(file_name(f)))
                         .child(Button::new(format!("open-{f}")).xsmall().ghost().label("Open").on_click(move |_, window, cx| {
                             window.close_dialog(cx);
                             let _ = me1.update(cx, |this, cx| this.user_open_package(f1.clone(), cx));
@@ -653,7 +653,7 @@ impl Studio {
                     h_flex()
                         .gap_2()
                         .text_sm()
-                        .child(div().flex_1().child(file_name(f)))
+                        .child(div().flex_1().min_w_0().child(file_name(f)))
                         .child(div().text_xs().text_color(theme.muted_foreground).child("game data"))
                         .child(Button::new(format!("open-{f}")).xsmall().ghost().label("Open").on_click(move |_, window, cx| {
                             window.close_dialog(cx);

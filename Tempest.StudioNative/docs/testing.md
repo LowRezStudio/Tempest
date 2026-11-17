@@ -30,7 +30,7 @@ from a probe's top-left corner (clicks, moves and both ends of `drag`), `drag`, 
 id>`, `view home|champions|packages|assembly|audio|map|mod`, `tab props|refs|source`, `palette <prefix>`, `query
 <text>`, `pick <row>`, `set <prop>=<value>`, `meshwire`, `meshlod <n>`, `material own-all|own
 <slot>|scalar <name> <v>|pick-texture <param>|game on|off`, `sound select a b|edit|trim|fade-in s|gain
-dB|play|apply`, `anim play|seek s`, `assembly …` (the steps are listed in [Assembly](assembly.md)); probes `game-<n>` (welcome), `task-*` (start page), `champ-<name>`, `skin-<n>`, `dev-<n>` and `file-<n>` (Champions), `cook-build`, `cooker refresh|preview <n>|name <text>`,
+dB|play|apply`, `anim play|seek s`, `assembly …` (the steps are listed in [Assembly](assembly.md)); probes `game-<n>` (welcome), `task-*` (start page), `champ-<name>`, `skin-<n>`, `dev-<n>` and `file-<n>` (Champions), `cook-build`, `cooker refresh|preview <n>|name <text>|tab files|details|publish`,
 `twrk-save <path>`, `twrk-open <path>`, `project new <folder> <name>|open <file>|close|save`,
 `assembly skins|export-mod`, `wizard open <kind>|next|back|file <path>|query <text>|pick <n>|name
 <text>|close`, `audio <pck name>`, `anim notify-move <k> <s>|notify-copy <k>|notify-remove

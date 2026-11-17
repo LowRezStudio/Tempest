@@ -306,8 +306,8 @@ pub struct MapEditor {
 
 impl MapEditor {
     pub fn new(backend: Backend, studio: WeakEntity<Studio>, hidden: Vec<String>, panes: [f32; 2], shared: super::layout::Shared, window: &mut Window, cx: &mut Context<Self>) -> MapEditor {
-        let map_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter maps…"));
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter actors…"));
+        let map_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter maps"));
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter actors"));
         let props = cx.new(|cx| PropEditor::new(backend.clone(), window, cx));
         let subs = vec![
             cx.subscribe(&map_filter, |_, _, e: &InputEvent, cx| {
@@ -1139,6 +1139,7 @@ impl MapEditor {
             div()
                 .absolute()
                 .inset_0()
+                .occlude()
                 .flex()
                 .items_center()
                 .justify_center()
@@ -1176,11 +1177,11 @@ impl Render for MapEditor {
         self.pump_meshes(cx);
         let side = self.render_side(cx);
         let center: AnyElement = if self.loading {
-            div().flex_1().child(crate::studio::ui::loading("Reading the map and its sublevels…", &theme)).into_any_element()
+            div().flex_1().min_w_0().child(crate::studio::ui::loading("Reading the map and its sublevels…", &theme)).into_any_element()
         } else if let Some(e) = &self.error {
-            div().flex_1().child(crate::studio::ui::error("This map could not be opened", e.clone(), &theme)).into_any_element()
+            div().flex_1().min_w_0().child(crate::studio::ui::error("This map could not be opened", e.clone(), &theme)).into_any_element()
         } else if self.path.is_none() {
-            div().flex_1().child(crate::studio::ui::empty(IconName::Map, "No map open", "Pick a map on the left to see it in 3D, move what is in it, and edit its scripts (Kismet) and cutscenes (Matinee).", &theme)).into_any_element()
+            div().flex_1().min_w_0().child(crate::studio::ui::empty(IconName::Map, "No map open", "Pick a map on the left to see it in 3D, move what is in it, and edit its scripts (Kismet) and cutscenes (Matinee).", &theme)).into_any_element()
         } else {
             let toolbar = self.render_toolbar(cx);
             let body: AnyElement = if self.mode == Mode::Kismet {
@@ -1221,6 +1222,7 @@ impl Render for MapEditor {
                         return;
                     };
                     let _ = studio.update(cx, |s, _| {
+                        s.remember_side(panes[0]);
                         if s.prefs.map_panes != panes {
                             s.prefs.map_panes = panes;
                             s.prefs.save();

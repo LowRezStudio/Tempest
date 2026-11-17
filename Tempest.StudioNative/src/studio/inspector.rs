@@ -416,7 +416,7 @@ impl Studio {
         let shown = model::unfolded(&ins.rows, |r| self.prop_open.get(&r.path).copied().unwrap_or_else(|| r.starts_open()));
         let rows = shown.into_iter().map(|k| (k, &ins.rows[k])).map(|(k, r)| {
             let value: AnyElement = if self.editing.as_deref() == Some(r.path.as_str()) {
-                div().flex_1().child(Input::new(&self.value_input).xsmall()).into_any_element()
+                div().flex_1().min_w_0().child(Input::new(&self.value_input).xsmall()).into_any_element()
             } else {
                 let cell = div().id(("val", k)).flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().px_1().rounded_sm().child(r.value.clone());
                 match r.edit.clone() {

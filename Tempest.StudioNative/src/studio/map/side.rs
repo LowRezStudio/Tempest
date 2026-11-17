@@ -80,25 +80,27 @@ impl MapEditor {
                     let p = m.path.clone();
                     h_flex()
                         .id(("map-pick", k))
+                        .h(px(crate::studio::ui::ROW))
                         .px_2()
-                        .py_0p5()
                         .gap_2()
-                        .text_xs()
+                        .text_sm()
                         .cursor_pointer()
                         .hover(|s| s.bg(theme.list_hover))
                         .child(crate::driver::probe(format!("map-{}", m.name.trim_end_matches(".upk").to_ascii_lowercase())))
                         .child(Icon::new(IconName::Map).xsmall())
-                        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(m.name.trim_end_matches(".upk").to_string()))
+                        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(m.name.trim_end_matches(".upk").to_string()))
                         .when(m.kismet, |d| d.child(Icon::new(IconName::Workflow).xsmall().text_color(theme.muted_foreground)))
                         .on_click(cx.listener(move |this, _, _, cx| this.open(p.clone(), None, true, None, cx)))
                         .into_any_element()
                 })
                 .collect();
+            let count = maps.len();
             return v_flex()
                 .size_full()
                 .text_xs()
-                .child(div().p_2().border_b_1().border_color(theme.border).child(Input::new(&self.map_filter).xsmall()))
-                .child(div().px_2().py_1().child(Checkbox::new("map-persistent").label("Playable maps only (those that stream sublevels)").checked(self.persistent_only).on_click(cx.listener(|this, v: &bool, _, cx| {
+                .child(crate::studio::ui::pane_header("Maps", div().text_xs().font_weight(gpui::FontWeight::NORMAL).child(count.to_string()), &theme))
+                .child(crate::studio::ui::pane_filter(Input::new(&self.map_filter).small()))
+                .child(div().px_2().pb_1().child(Checkbox::new("map-persistent").label("Playable maps only").tooltip("Only the maps that stream sublevels: the ones you play").checked(self.persistent_only).on_click(cx.listener(|this, v: &bool, _, cx| {
                     this.persistent_only = *v;
                     cx.notify();
                 }))))
@@ -121,7 +123,7 @@ impl MapEditor {
                         this.set_level_shown(&p1, shown, cx);
                     })))
                     .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(l.name.clone()))
-                    .when(dirty, |d| d.child(div().text_color(theme.warning).child("●")))
+                    .when(dirty, |d| d.child(div().flex_none().size(px(6.0)).rounded_full().bg(theme.warning)))
                     .child(div().text_color(theme.muted_foreground).child(l.actors.len().to_string()))
                     .child(Button::new(("lvl-kismet", k)).xsmall().ghost().icon(Icon::new(IconName::Workflow)).tooltip("Kismet of this level").on_click(cx.listener(move |this, _, _, cx| this.open_kismet(p2.clone(), None, true, cx)))),
             );
@@ -196,15 +198,7 @@ impl MapEditor {
             .size_full()
             .text_xs()
             .child(
-                h_flex()
-                    .px_2()
-                    .py_1p5()
-                    .gap_1()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(Icon::new(IconName::Map).xsmall())
-                    .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).font_weight(gpui::FontWeight::SEMIBOLD).child(name))
-                    .child(Button::new("map-change").xsmall().ghost().label("Change").tooltip("Pick another map").on_click(cx.listener(|this, _, _, cx| this.close_map(cx)))),
+                crate::studio::ui::pane_header(name, Button::new("map-change").xsmall().ghost().label("Change").tooltip("Pick another map").on_click(cx.listener(|this, _, _, cx| this.close_map(cx))), &theme),
             )
             .child(div().px_2().child(crate::studio::ui::section("Levels", &theme)))
             .child(levels)
@@ -216,7 +210,7 @@ impl MapEditor {
                     .gap_2()
                     .border_t_1()
                     .border_color(theme.border)
-                    .child(div().flex_1().child(Input::new(&self.filter).xsmall()))
+                    .child(div().flex_1().min_w_0().child(Input::new(&self.filter).xsmall()))
                     .child(div().text_color(theme.muted_foreground).child(count.to_string())),
             )
             .child(div().px_2().pb_1().child(Checkbox::new("map-rooftops").label("Only what can't be stood on (rooftops)").checked(self.rooftops_only).on_click(cx.listener(|this, v: &bool, _, cx| {

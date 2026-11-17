@@ -149,7 +149,7 @@ Catppuccin Mocha/Latte, modified only where the editor needed a clearer frame an
 
 ### Neutral (surface ladder, darkest to lightest in Mocha)
 - **Crust** (`title_bar.background`, `status_bar.background`): the frame: header, activity bar, status line. Modified from stock (both set to crust).
-- **Mantle** (`sidebar.background`, `popover`, `list.head`): side panes (wrapped by `layout::group` for `Role::Side`), the Mod view bar, the "Your mod" card.
+- **Mantle** (`sidebar.background`, `popover`, `list.head`): side panes (wrapped by `layout::group` for `Role::Side`), the Mod view header and its panels, the "Your mod" card.
 - **Base** (`background`): the work area and view toolbars.
 - **Surface0** (`secondary`, `border`, `muted.background`): raised things (inputs, the search field, key caps) and every 1px rule.
 - **Surface1** (`input.border`, `secondary.hover`): input strokes, hovered secondary buttons.
@@ -160,7 +160,7 @@ Catppuccin Mocha/Latte, modified only where the editor needed a clearer frame an
 ### Named Rules
 **The One Lavender Rule.** A surface has at most one `.primary()` button. When a prerequisite step exists (an unnamed mod), that step takes the primary and the main action drops to default (`cook-build` loses `.primary()` while "Name this mod…" holds it).
 
-**The Tone Plate Rule.** Category tones appear only on the start page's task plates and as state color (danger/warning/success). They never fill buttons, headers or rows.
+**The Tone Plate Rule.** Category tones appear only on the start page's task plates, behind a mod's initials when it has no icon (`ui::mod_icon`, picked from its id as the website does), and as state color (danger/warning/success). They never fill buttons, headers or rows.
 
 ## Typography
 
@@ -171,7 +171,7 @@ Catppuccin Mocha/Latte, modified only where the editor needed a clearer frame an
 
 ### Hierarchy
 - **Headline** (700, 20px, `text_xl`): one per page, the start page question only.
-- **Title large** (700, 18px, `text_lg`): the mod's name in the Mod view bar.
+- **Title large** (700, 20px, `text_xl`): the mod's name in the Mod view header.
 - **Title** (600, 16px, `text_base`): champion page sections (Skins, Abilities…), the "Your mod" card title.
 - **Pane title** (600, 14px, `text_sm`): `ui::pane_header`; task row titles.
 - **Body** (400, 14px, `text_sm`): list rows, search field, page lede.
@@ -186,9 +186,9 @@ Catppuccin Mocha/Latte, modified only where the editor needed a clearer frame an
 
 ## Layout
 
-Fixed shell at a 1440x900 default window: header (40px) over activity bar (44px) + view + status line (24px). Views compose resizable panes with `layout::group` (`Role::Side` / `Main` / `Second`); pane widths persist via `pane_sizes`. In compact windows the side pane becomes an overlay drawer over a scrim (`theme.overlay`).
+Fixed shell at a 1440x900 default window: header (40px) over activity bar (44px) + view + status line (24px). Views compose resizable panes with `layout::group` (`Role::Side` / `Main` / `Second`); pane widths persist via `pane_sizes`. The side pane has one width in every view (`ui::SIDE_PANE`, 260px, then whatever the user drags, kept as `side` and applied at the next view switch), so its edge never moves between views. In compact windows the side pane becomes an overlay drawer over a scrim (`theme.overlay`).
 
-Spacing is GPUI's 4px unit: 8px (`px_2`) pane and toolbar insets, 12px row padding, 16px card padding, 32/40px page margins on the start page. Pane headers are 32px (`ui::PANE_HEADER`), view toolbars 36px (`ui::TOOLBAR`) with a bottom rule. The start page centers a 340-560px task column and a 300px side column, wrapping, 40px apart.
+Spacing is GPUI's 4px unit: 8px (`px_2`) pane and toolbar insets, 12px row padding, 16px card padding, 32/40px page margins on the start page. Pane headers are 32px (`ui::PANE_HEADER`), view toolbars 36px (`ui::TOOLBAR`) with a bottom rule. Every side pane is header, filter (`ui::pane_filter`: 8px sides, 8px under), then 24px rows (`ui::ROW`) inset 8px. The start page centers a 340-560px task column and a 300px side column, wrapping, 40px apart.
 
 Density follows the audience: newcomer pages breathe (task rows 10px tall padding, 40px gaps); Game files, Game data and Map keep power-user density.
 
@@ -224,13 +224,16 @@ Helpers live in `src/studio/ui.rs`; use them before writing a new row of styles.
 - **Error** `ui::error(title, detail)`: `CircleAlert` in danger, title, detail capped at 420px; caller adds the way out. Pass backend text through `ui::explain_error` so common causes get a what-to-do sentence. Transient errors go to the toast path.
 
 ### Lists and rows
-- **List row:** 14px, 4px/8px padding, 6px radius; hover `list_hover`, selected `list_active` (lavender 20%).
+- **List row:** 14px, 24px tall (`ui::ROW`), 8px sides, full-bleed square; hover `list_hover`, selected `list_active` (lavender 20%). The same in every side pane.
+- **Panel** `ui::panel(icon, title, aside)`: mantle card, 1px border, 8px radius, 16px padding; a 20px round icon plate, 14px semibold title, muted aside (a count, "optional", small ghost buttons). The Mod view's parts, like the website's panels. Rows inside a panel are separated by 1px rules, never nested cards.
+- **Field** `ui::field(label, aside, control)`: 12px muted label with a counter or "optional" on the right, over the input.
+- **Badge** `ui::badge(icon, text, color)`: 20px outlined chip for a mod's kind, signed state and tags.
 - **Link row** (champion page): title + muted detail + `ArrowUpRight`; opens where the thing is edited.
 - **Task row** (start page): 36px tone plate, 14px semibold title, 12px muted detail, `ChevronRight`; whole row clickable, 8px radius.
 - **Kbd** `ui::kbd(keys)`: key cap for shortcuts; always format keys via `commands::key_hint`.
 
 ### Navigation
-- **Header** (crust, 40px): back/forward, game folder, mod chip, Create, search field (opens the palette, ⌘K), undo/redo, "Changes (n)" when n > 0, Build mod (primary, hidden in the Mod view).
+- **Header** (crust, 40px), three columns so nothing moves: left (back/forward, game folder, mod chip) and right (undo/redo, then "Changes (n)" when n > 0 and Build mod, primary, hidden in the Mod view) share the leftover width equally; Create and the search field (opens the palette, ⌘K) stay centred. What comes and goes sits at the far right.
 - **Activity bar** (crust, 44px): Start, Champions, Game files, Game data, Sounds, Maps, rule, Build mod; then Search, Shortcuts, Settings at the bottom. Ghost icon buttons, `.selected` for the current view, tooltip "Name: what it holds (keys)".
 - **Status line** (crust, 24px): 12px muted status text left, counts right.
 - **Native menu bar** (`menus.rs`): generated from `Cmd::ALL` by group; the Assembly group is titled "Game data". New actions get a `Cmd`, never a menu-only item.
@@ -238,8 +241,12 @@ Helpers live in `src/studio/ui.rs`; use them before writing a new row of styles.
 ### Mod chip (`project.rs`)
 A 7px dot + ghost `Briefcase` button with a dropdown. Dot: warning while changes are pending or saving, success when saved, danger on failure, muted 50% with no mod. Label "Unnamed mod · n changes" / "No mod yet" / "Name · state".
 
-### Mod view bar (`cooker.rs`)
-Mantle bar, 16px/12px padding: 40px `Hammer` plate, 18px bold mod name over a 12px status line (warning color when something blocks the build), then Remove from game, Play in Tempest Launcher, an `Ellipsis` menu (Build only, Install elsewhere, Save a copy, Publish), and Build & install (primary). Below: ghost `.selected` tabs Changes / Details / Publish.
+### Mod view (`cooker.rs`)
+Laid out like the website's mod page, on a 1160px page centred in the work area (`page_width`), header and body sharing its left edge.
+- **Header** (mantle, rule under): the mod's icon at 56px (`ui::mod_icon`), its name (20px bold) over a facts line ("by Author · Assets · v1.0.0 · 3 files in the mod · installed in this game"), then Name this mod… (primary, unnamed mods only), Remove from game (only once installed here), Play in Tempest Launcher, an `Ellipsis` menu (Build only, Install here anyway, Install elsewhere, Save a copy, Remove from game, Publish) and Build & install (primary; its tooltip names what blocks it). Underline tabs below: Files (count) / Details / Publish, 2px lavender under the current one.
+- **Body:** the tab's panels on the left (grow from 480px), a 300px right column that is the same on every tab: "In the mod list" (the mod card as the Launcher and website show it: icon, name, author · version, summary, kind, signed, tags), Publish… on the Publish tab, "Before building" (each problem with a button to the tab that fixes it, or Name this mod…), and "Last build" (the file, Show the file, the log folded unless it failed). Under 844px of room the right column wraps below.
+- **Files:** "Game files you changed" (one row per file: include checkbox, the file in words and its path in mono, where the change is, how it ships and its counts, What changed / Hide changes to unfold the list, ⋯ for whole file / discard / remove) and "Other files". With no changes: `ui::empty` with Champions, Game data and Sounds.
+- **Details:** The mod (name, version, author, link), Icon, Readme, Advanced (id, mods it needs, compression). **Publish:** Listing (summary with its counter, tags, source link), Game patches (the website's picker: three mode cards, then a timeline of every patch as 24px ticks grouped by major version, lavender where the mod works, a tooltip per tick, chips for picked patches, "Works on n of m patches"), What changed in this version, a pointer to the website for banner, screenshots, more authors and visibility (the CLI cannot send them), Signing and account. The Publish dialog only confirms what will be uploaded.
 
 ## Do's and Don'ts
 
@@ -262,6 +269,9 @@ Mantle bar, 16px/12px padding: 40px `Hammer` plate, 18px bold mod name over a 12
 
 - Portraits and skin icons show on the selected champion only; the champion list is names only (an icon each would open every champion's UI package).
 - A skin's own files come from its skin referencer less the champion's base referencer: a skin that only recolours the base (Classic) lists none.
-- The Mod view lists what changed for the first 8 files; the rest keep their What changed button.
+- The Mod view reads the counts of the first 8 files by itself; the others get theirs when What changed is unfolded.
+- The patch timeline takes clicks, not the website's drag across ticks.
+- The second pane (⌘J) is the middle list in Game files and Sounds but the right-hand inspector in Game data and Maps: each is the secondary pane of its view, not one place.
+- Banner, screenshots, more authors and visibility are set on the website only: `tempest-cli mod publish` sends compatibility, summary, tags, changelog and source link.
 - The Map view keeps its own power-user density and does not follow the newcomer spacing.
 - Focus rings show only on gpui-component inputs; custom clickable rows (task rows, list rows, the search field) have hover but no keyboard focus ring.

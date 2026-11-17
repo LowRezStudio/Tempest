@@ -566,7 +566,7 @@ impl Studio {
         let param_row = |k: usize, kind: &'static str, name: String, shown: String, draft: String, cx: &mut Context<Self>| {
             let key = format!("{PARAM}{kind}:{name}");
             let value: AnyElement = if editing.as_deref() == Some(key.as_str()) {
-                div().flex_1().child(Input::new(&self.value_input).xsmall()).into_any_element()
+                div().flex_1().min_w_0().child(Input::new(&self.value_input).xsmall()).into_any_element()
             } else {
                 div()
                     .id((kind, k))
@@ -624,7 +624,7 @@ impl Studio {
         let mut list = v_flex().gap_1().child(
             h_flex()
                 .gap_1()
-                .child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Materials"))
+                .child(div().flex_1().min_w_0().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Materials"))
                 .child(div().relative().child(Button::new("own-all").xsmall().label("Own materials for every slot").tooltip("Give every slot a material of this mesh's own, gathered in one group named after the mesh: then change their textures without touching other meshes").on_click(cx.listener(|this, _, _, cx| this.own_materials(cx)))).child(crate::driver::probe("own-all")))
                 .when(skeletal, |d| d.child(Button::new("add-slot").xsmall().ghost().label("Add slot").tooltip("A new slot drawn with the last slot's material; sections use it once a mesh with that many materials is imported").on_click(cx.listener(|this, _, _, cx| this.slot_op("mesh.addSlot", None, cx))))),
         );

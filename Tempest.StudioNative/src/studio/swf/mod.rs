@@ -1544,7 +1544,7 @@ impl MovieEditor {
                 cx.notify();
             })));
             if a.place {
-                body = body.child(h_flex().pl_6().gap_2().items_center().text_xs().child("x").child(div().w(px(80.0)).child(Input::new(&a.x).xsmall())).child("y").child(div().w(px(80.0)).child(Input::new(&a.y).xsmall())).child(div().flex_1().child(Input::new(&a.instance).xsmall())));
+                body = body.child(h_flex().pl_6().gap_2().items_center().text_xs().child("x").child(div().w(px(80.0)).child(Input::new(&a.x).xsmall())).child("y").child(div().w(px(80.0)).child(Input::new(&a.y).xsmall())).child(div().flex_1().min_w_0().child(Input::new(&a.instance).xsmall())));
             }
         }
         let pending = self.edits.len();
@@ -1565,6 +1565,7 @@ impl MovieEditor {
             div()
                 .absolute()
                 .inset_0()
+                .occlude()
                 .flex()
                 .items_center()
                 .justify_center()

@@ -188,7 +188,7 @@ impl Render for PropEditor {
             .map(|k| (k, &ins.rows[k]))
             .map(|(k, r)| {
                 let value: AnyElement = if self.editing.as_deref() == Some(r.path.as_str()) {
-                    div().flex_1().child(Input::new(&self.input).xsmall()).into_any_element()
+                    div().flex_1().min_w_0().child(Input::new(&self.input).xsmall()).into_any_element()
                 } else {
                     let cell = div().id(("pv", k)).flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().px_1().rounded_sm().child(r.value.clone());
                     match r.edit.clone() {
@@ -271,7 +271,7 @@ impl Render for PropEditor {
                             .rounded_sm()
                             .cursor_pointer()
                             .hover(|s| s.bg(theme.list_hover))
-                            .child(div().flex_1().child(name.clone()))
+                            .child(div().flex_1().min_w_0().child(name.clone()))
                             .child(div().text_color(theme.muted_foreground).child(ty.clone()))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.adding = None;

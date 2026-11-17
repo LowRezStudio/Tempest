@@ -513,7 +513,7 @@ impl Studio {
             for (g, items) in &groups {
                 let mut col = v_flex().gap_0p5().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(g.to_string()));
                 for (t, k) in items {
-                    col = col.child(h_flex().text_sm().child(div().flex_1().child(*t)).child(div().font_family(crate::studio::ui::mono()).text_xs().px_1().rounded_sm().bg(theme.secondary).child(k.clone())));
+                    col = col.child(h_flex().text_sm().child(div().flex_1().min_w_0().child(*t)).child(div().font_family(crate::studio::ui::mono()).text_xs().px_1().rounded_sm().bg(theme.secondary).child(k.clone())));
                 }
                 body = body.child(col);
             }

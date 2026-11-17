@@ -1097,9 +1097,10 @@ impl Wizard {
             h_flex()
                 .id(SharedString::from(format!("wiz-{k:?}")))
                 .relative()
-                .w(px(202.0))
-                .min_h(px(64.0))
-                .items_center()
+                .min_w_0()
+                // One height for every card, whatever its blurb's length: the rows line up.
+                .h(px(76.0))
+                .items_start()
                 .gap_3()
                 .px_3()
                 .py_2()
@@ -1110,24 +1111,24 @@ impl Wizard {
                 .cursor_pointer()
                 .hover(|s| s.border_color(theme.primary).bg(theme.secondary))
                 .on_click(cx.listener(move |this, _, window, cx| this.choose(k, window, cx)))
-                .child(div().p_2().rounded_md().bg(theme.primary.opacity(0.15)).text_color(theme.primary).child(Icon::new(k.icon())))
-                .child(v_flex().min_w_0().child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(k.title())).child(div().text_xs().text_color(theme.muted_foreground).child(k.blurb())))
+                .child(div().flex_none().mt_0p5().p_2().rounded_md().bg(theme.primary.opacity(0.15)).text_color(theme.primary).child(Icon::new(k.icon())))
+                .child(v_flex().flex_1().min_w_0().child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).overflow_hidden().text_ellipsis().whitespace_nowrap().child(k.title())).child(div().text_xs().line_clamp(2).text_color(theme.muted_foreground).child(k.blurb())))
                 .child(crate::driver::probe(format!("wiz-{k:?}")))
         };
         let section = |title: &'static str, kinds: &[Kind], cx: &mut Context<Self>| {
-            let mut grid = h_flex().flex_wrap().gap_2();
+            let mut grid = div().grid().grid_cols(4).gap_2();
             for &k in kinds {
                 grid = grid.child(card(k, cx));
             }
-            v_flex().gap_2().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(title)).child(grid)
+            v_flex().gap_2().child(crate::studio::ui::section(title, &theme).pt_0().pb_0()).child(grid)
         };
         let offer = self.offer;
-        let mut body = v_flex().gap_3();
+        let mut body = v_flex().gap_5();
         if offer.is_empty() || offer == Kind::PACKAGE {
-            body = body.child(section("IN A PACKAGE: TEXTURES, MESHES, MATERIALS, SOUNDS", Kind::PACKAGE, cx));
+            body = body.child(section("In a package: textures, meshes, materials, sounds", Kind::PACKAGE, cx));
         }
         if offer.is_empty() || offer == Kind::CONTENT {
-            body = body.child(section("GAME CONTENT: SKINS, ABILITIES, ITEMS, CHAMPIONS", Kind::CONTENT, cx));
+            body = body.child(section("Game content: skins, abilities, items, champions", Kind::CONTENT, cx));
         }
         if offer.is_empty() {
             body = body.child(section("Scripts", Kind::SCRIPTS, cx));
@@ -1399,7 +1400,7 @@ impl Wizard {
                         h_flex()
                             .gap_2()
                             .child(div().id(gpui::SharedString::from(format!("part-{}", p.item))).w(px(84.0)).flex_none().px_1().rounded_sm().bg(theme.secondary).text_xs().tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)).child(p.kind.clone()))
-                            .child(div().flex_1().child(Input::new(&p.input).xsmall())),
+                            .child(div().flex_1().min_w_0().child(Input::new(&p.input).xsmall())),
                     );
                 }
                 d.child(list)
@@ -1423,7 +1424,7 @@ impl Wizard {
                     }
                     menu
                 });
-                d.child(v_flex().gap_1().child(label("Slot", &theme)).child(h_flex().gap_2().child(div().flex_1().child(Input::new(&self.slot).small())).child(pick)).child(div().text_xs().text_color(theme.muted_foreground).child(chosen.unwrap_or_else(|| "Empty: the template's slot".into()))))
+                d.child(v_flex().gap_1().child(label("Slot", &theme)).child(h_flex().gap_2().child(div().flex_1().min_w_0().child(Input::new(&self.slot).small())).child(pick)).child(div().text_xs().text_color(theme.muted_foreground).child(chosen.unwrap_or_else(|| "Empty: the template's slot".into()))))
             })
             .child(
                 v_flex()
@@ -1612,7 +1613,7 @@ impl Render for Wizard {
         };
         let footer = h_flex()
             .gap_2()
-            .child(div().flex_1().text_xs().text_color(if bad { theme.danger } else { theme.muted_foreground }).child(note))
+            .child(div().flex_1().min_w_0().text_xs().text_color(if bad { theme.danger } else { theme.muted_foreground }).child(note))
             .child(div().relative().child(Button::new("wiz-cancel").ghost().label("Cancel").on_click(cx.listener(|this, _, _, cx| this.close(cx)))).child(crate::driver::probe("wiz-cancel")))
             .when(self.step > 0, |d| d.child(Button::new("wiz-back").label("Back").disabled(busy.is_some()).on_click(cx.listener(|this, _, window, cx| this.back(window, cx)))))
             .when(step != Step::Choose, |d| {
@@ -1622,6 +1623,8 @@ impl Render for Wizard {
             .id("wizard-backdrop")
             .absolute()
             .inset_0()
+            // Nothing behind takes clicks or scrolling while it is open.
+            .occlude()
             .flex()
             .items_center()
             .justify_center()

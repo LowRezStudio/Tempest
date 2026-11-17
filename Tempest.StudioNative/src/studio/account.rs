@@ -9,9 +9,9 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui::{div, prelude::*, px, AnyElement, ClipboardItem, Context, Entity, Window};
+use gpui::{div, prelude::*, px, AnyElement, ClipboardItem, Context, Window};
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::input::{Input, InputState, Textarea};
+use gpui_component::input::{Input, Textarea};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable, WindowExt};
 
 use super::cooker::{app_data, run_cli_split, signing_key, Cooker};
@@ -144,7 +144,7 @@ impl Cooker {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(div().flex_1().child(Input::new(&self.meta.api_key).small()))
+                    .child(div().flex_1().min_w_0().child(Input::new(&self.meta.api_key).small()))
                     .child(Button::new("acc-login").xsmall().label(if a.api_key.is_some() { "Replace" } else { "Log in" }).disabled(busy).on_click(cx.listener(|this, _, _, cx| {
                         let key = this.meta.api_key.read(cx).value().to_string();
                         if key.trim().is_empty() {
@@ -219,21 +219,23 @@ impl Cooker {
             let m = &c.meta;
             let repo = c.account.as_ref().map(|a| a.repo_url.clone()).unwrap_or_else(|| "https://mods.lowrezstudio.com".into());
             let summary = m.text("summary", cx);
-            let compat = !m.text("patches", cx).is_empty() || !m.text("patchFrom", cx).is_empty();
+            let compat = !m.compat.covered().is_empty();
             let summary_ok = !summary.is_empty() && summary.chars().count() <= modmeta::MAX_SUMMARY;
             let st = state.borrow();
             let can = compat && summary_ok && signed && !st.busy;
             let mut why: Vec<&str> = Vec::new();
             if !signed {
-                why.push("The package is not signed: create your signing key (Signing and publishing), then build again.");
+                why.push("The package is not signed: create your signing key in Publish ▸ Signing and account, then build again.");
             }
             if !summary_ok {
-                why.push("Write a summary (140 characters at most) in Listing.");
+                why.push("Write a summary (140 characters at most) in Publish ▸ Listing.");
             }
             if !compat {
-                why.push("Name the game patches it works with, or a range.");
+                why.push("Pick the game patches it works with in Publish.");
             }
-            let row = |label: &'static str, i: &Entity<InputState>| h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().child(Input::new(i).small()));
+            let works = m.compat.describe();
+            let changelog = m.changelog.read(cx).value().trim().to_string();
+            let fact = |label: &'static str, value: String| h_flex().gap_2().items_start().child(div().flex_none().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().min_w_0().text_xs().whitespace_normal().child(value));
             if let Some(r) = st.result.clone().filter(|r| r.state == "done") {
                 let id = r.mod_id.clone().unwrap_or_else(|| c.mod_id(cx));
                 let page = format!("{repo}/mods/{id}");
@@ -252,9 +254,10 @@ impl Cooker {
             let mut body = v_flex()
                 .gap_2()
                 .child(div().text_xs().text_color(theme.muted_foreground).child(format!("Uploads {} to {}. A new mod is reviewed before it is listed.", file_name(&pkg), repo.trim_start_matches("https://"))))
-                .child(row("Game patches", &m.patches))
-                .child(h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child("or a range")).child(div().flex_1().child(Input::new(&m.patch_from).small())).child(div().flex_1().child(Input::new(&m.patch_to).small())))
-                .child(v_flex().gap_1().child(div().text_xs().text_color(theme.muted_foreground).child("What changed")).child(Textarea::new(&m.changelog)))
+                .child(fact("Summary", if summary.is_empty() { "none".into() } else { summary.clone() }))
+                .child(fact("Works with", if works.is_empty() { "no patch named".into() } else { works }))
+                .child(fact("What changed", if changelog.is_empty() { "nothing written".into() } else { changelog }))
+                .child(div().text_xs().text_color(theme.muted_foreground).child("Change these in the Publish tab of the Mod view."))
                 .children(why.into_iter().map(|w| div().text_xs().text_color(theme.warning).child(w)));
             if let Some(r) = &st.result {
                 let text = if r.state == "queued" || r.state == "pending" { "Uploaded: it is waiting for review".to_string() } else { format!("The repository answered: {}", r.state) };
@@ -273,7 +276,7 @@ impl Cooker {
                         .bg(theme.secondary)
                         .child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).child("Log in to the mod repository"))
                         .child(div().text_xs().text_color(theme.muted_foreground).child("Paste an API key from your account settings on the website; it is kept for the launcher too."))
-                        .child(h_flex().gap_2().child(div().flex_1().child(Input::new(&m.api_key).small())).child(Button::new("pub-login").small().primary().label("Log in and publish").on_click(move |_, _, cx| {
+                        .child(h_flex().gap_2().child(div().flex_1().min_w_0().child(Input::new(&m.api_key).small())).child(Button::new("pub-login").small().primary().label("Log in and publish").on_click(move |_, _, cx| {
                             let state = state2.clone();
                             let _ = me2.update(cx, |this, cx| {
                                 let key = this.meta.api_key.read(cx).value().to_string();
@@ -319,11 +322,11 @@ impl Cooker {
         let Some((pkg, _)) = self.built.clone() else { return };
         let m = &self.meta;
         let mut args = vec!["publish".to_string(), pkg];
-        for p in m.text("patches", cx).split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        for p in &m.compat.patches {
             args.extend(["--patch".into(), p.to_string()]);
         }
         let changelog = m.changelog.read(cx).value().trim().to_string();
-        for (flag, v) in [("--from", m.text("patchFrom", cx)), ("--to", m.text("patchTo", cx)), ("--summary", m.text("summary", cx)), ("--changelog", changelog), ("--tags", m.text("tags", cx)), ("--repository", m.text("repository", cx))] {
+        for (flag, v) in [("--from", m.compat.from.clone().unwrap_or_default()), ("--to", m.compat.to.clone().unwrap_or_default()), ("--summary", m.text("summary", cx)), ("--changelog", changelog), ("--tags", m.text("tags", cx)), ("--repository", m.text("repository", cx))] {
             if !v.is_empty() {
                 args.extend([flag.to_string(), v]);
             }

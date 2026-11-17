@@ -59,7 +59,7 @@ use crate::backend::Backend;
 use crate::model::{self, Inspected, PackageEntry, Tables};
 pub use commands::Cmd;
 
-const ROW: f32 = 22.0;
+const ROW: f32 = ui::ROW;
 
 actions!(studio, [CompileSource, OpenFile, SaveAs, FindReplace, NewTab, CloseTab, NextTab, PrevTab, Undo, Redo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, GoToPackage, GoToObject, SearchAll, FindInView, Shortcuts, ShowHome, ShowChampions, ShowPackages, ShowAssembly, ShowMod, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond, PageUp, PageDown, ExtendUp, ExtendDown, NextCell, PrevCell, Activate, Cancel, SelectAll, NewRow]);
 
@@ -393,6 +393,7 @@ impl Studio {
             Err(e) if !e.is_empty() => eprintln!("MCP server not started: {e}"),
             Err(_) => {}
         }
+        studio.sync_side();
         Self::watch_recovery(cx);
         if first {
             updates::check_at_start(studio.prefs.check_updates, cx);
@@ -517,13 +518,13 @@ impl Studio {
     /// The open game in words: "Paladins 8.1" for a Launcher game, else its folder's name.
     pub(crate) fn game_label(&self) -> String {
         let Some(dir) = self.dir.as_deref() else { return String::new() };
-        let root = std::path::Path::new(dir).parent().and_then(|c| c.parent());
-        self.games
-            .iter()
-            .find(|g| root.is_some_and(|r| r == std::path::Path::new(&g.path)))
-            .and_then(|g| g.version.as_ref())
-            .map(|v| format!("Paladins {v}"))
-            .unwrap_or_else(|| folder_label(dir))
+        self.launcher_game().unwrap_or_else(|| folder_label(dir))
+    }
+
+    /// "Paladins 8.1" when the open folder is one of the Launcher's games.
+    pub(crate) fn launcher_game(&self) -> Option<String> {
+        let root = std::path::Path::new(self.dir.as_deref()?).parent().and_then(|c| c.parent());
+        self.games.iter().find(|g| root.is_some_and(|r| r == std::path::Path::new(&g.path))).and_then(|g| g.version.as_ref()).map(|v| format!("Paladins {v}"))
     }
 
     /// ⌘F: focus the filter of what is on screen (the palette where there is none).
@@ -564,6 +565,7 @@ impl Studio {
             return;
         }
         self.view = view;
+        self.sync_side();
         // The status line spoke of the view left behind.
         self.status = "".into();
         match view {
@@ -1032,30 +1034,46 @@ impl Studio {
             .bg(theme.title_bar)
             .border_b_1()
             .border_color(theme.title_bar_border)
-            .child(Button::new("back").small().ghost().icon(Icon::new(IconName::ArrowLeft)).tooltip("Back (⌥←)").disabled(self.history_at == 0).on_click(cx.listener(|this, _, window, cx| this.back(&Back, window, cx))))
-            .child(Button::new("forward").small().ghost().icon(Icon::new(IconName::ArrowRight)).tooltip("Forward (⌥→)").disabled(self.history_at + 1 >= self.history.len()).on_click(cx.listener(|this, _, window, cx| this.forward(&Forward, window, cx))))
-            .child(workspace)
-            .children(project_chip)
-            .child(div().flex_1())
+            // Three columns: the middle one (Create, search) stays centred whatever the sides hold.
+            .child(
+                h_flex()
+                    .flex_1()
+                    .flex_basis(px(0.0))
+                    .min_w_0()
+                    .overflow_hidden()
+                    .gap_1()
+                    .child(Button::new("back").small().ghost().icon(Icon::new(IconName::ArrowLeft)).tooltip("Back (⌥←)").disabled(self.history_at == 0).on_click(cx.listener(|this, _, window, cx| this.back(&Back, window, cx))))
+                    .child(Button::new("forward").small().ghost().icon(Icon::new(IconName::ArrowRight)).tooltip("Forward (⌥→)").disabled(self.history_at + 1 >= self.history.len()).on_click(cx.listener(|this, _, window, cx| this.forward(&Forward, window, cx))))
+                    .child(workspace)
+                    .children(project_chip),
+            )
             .child(div().relative().child(Button::new("create").small().icon(Icon::new(IconName::Plus)).label("Create").tooltip(format!("Make something new: a skin, an ability, a texture, a sound… ({})", commands::key_hint("⌘N"))).disabled(self.dir.is_none()).on_click(cx.listener(|this, _, window, cx| this.open_wizard(None, None, window, cx)))).child(crate::driver::probe("create")))
             .child(search)
-            .child(div().flex_1())
-            .child(Button::new("undo").small().ghost().icon(Icon::new(IconName::Undo2)).tooltip(format!("Undo ({})", commands::key_hint("⌘Z"))).on_click(cx.listener(|this, _, window, cx| this.undo(&Undo, window, cx))))
-            .child(Button::new("redo").small().ghost().icon(Icon::new(IconName::Redo2)).tooltip(format!("Redo ({})", commands::key_hint("⌘⇧Z"))).on_click(cx.listener(|this, _, window, cx| this.redo(&Redo, window, cx))))
-            .when(changes > 0, |d| {
-                d.child(
-                    div().relative().child(
-                        Button::new("unsaved")
-                            .small()
-                            .ghost()
-                            .label(format!("Changes ({changes})"))
-                            .tooltip("What you changed: open a file, or throw its changes away")
-                            .on_click(cx.listener(|this, _, window, cx| this.show_unsaved(window, cx))),
-                    )
-                    .child(crate::driver::probe("unsaved")),
-                )
-            })
-            .when(self.dir.is_some() && self.view != View::Mod, |d| d.child(Button::new("build").small().primary().icon(Icon::new(IconName::Hammer)).label("Build mod").tooltip(format!("Turn your changes into a mod you can install and share ({})", commands::key_hint("⌘6"))).on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx)))))
+            .child(
+                h_flex()
+                    .flex_1()
+                    .flex_basis(px(0.0))
+                    .min_w_0()
+                    .gap_1()
+                    .pl_1()
+                    .child(Button::new("undo").small().ghost().icon(Icon::new(IconName::Undo2)).tooltip(format!("Undo ({})", commands::key_hint("⌘Z"))).on_click(cx.listener(|this, _, window, cx| this.undo(&Undo, window, cx))))
+                    .child(Button::new("redo").small().ghost().icon(Icon::new(IconName::Redo2)).tooltip(format!("Redo ({})", commands::key_hint("⌘⇧Z"))).on_click(cx.listener(|this, _, window, cx| this.redo(&Redo, window, cx))))
+                    .child(div().flex_1())
+                    .when(changes > 0, |d| {
+                        d.child(
+                            div().relative().child(
+                                Button::new("unsaved")
+                                    .small()
+                                    .ghost()
+                                    .label(format!("Changes ({changes})"))
+                                    .tooltip("What you changed: open a file, or throw its changes away")
+                                    .on_click(cx.listener(|this, _, window, cx| this.show_unsaved(window, cx))),
+                            )
+                            .child(crate::driver::probe("unsaved")),
+                        )
+                    })
+                    .when(self.dir.is_some() && self.view != View::Mod, |d| d.child(Button::new("build").small().primary().icon(Icon::new(IconName::Hammer)).label("Build mod").tooltip(format!("Turn your changes into a mod you can install and share ({})", commands::key_hint("⌘6"))).on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx))))),
+            )
     }
 
     fn render_activity(&mut self, cx: &mut Context<Self>) -> impl IntoElement {

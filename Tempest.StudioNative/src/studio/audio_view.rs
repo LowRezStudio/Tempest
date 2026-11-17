@@ -107,7 +107,7 @@ impl Studio {
             files = files.child(
                 h_flex()
                     .id(("pck", k))
-                    .h(px(22.0))
+                    .h(px(super::ui::ROW))
                     .px_2()
                     .gap_2()
                     .text_sm()
@@ -122,8 +122,8 @@ impl Studio {
         }
         let left = v_flex()
             .size_full()
-            .child(title(&format!("Sound files ({})", a.packages.len())))
-            .child(div().px_1().pb_1().child(Input::new(&a.filter).small()))
+            .child(super::ui::pane_header("Sound files", div().text_xs().font_weight(gpui::FontWeight::NORMAL).child(a.packages.len().to_string()), &theme))
+            .child(super::ui::pane_filter(Input::new(&a.filter).small()))
             .child(div().id("pck-list").flex_1().min_h_0().overflow_y_scroll().child(if a.loading { div().p_2().text_sm().text_color(theme.muted_foreground).child("Listing…").into_any_element() } else { files.into_any_element() }));
         // Events.
         let ef = a.events_filter.read(cx).value().to_ascii_lowercase();
@@ -191,7 +191,7 @@ impl Studio {
         let middle = v_flex()
             .size_full()
             .child(title("Events"))
-            .child(div().px_1().pb_1().child(Input::new(&a.events_filter).small()))
+            .child(super::ui::pane_filter(Input::new(&a.events_filter).small()))
             .child(div().id("ev-list").flex_1().min_h_0().overflow_y_scroll().child(if a.open.is_none() { div().h(px(260.0)).child(super::ui::empty(IconName::AudioLines, "No sound file open", "Pick a sound file on the left: its events (what the game triggers) and the sounds they play show here, to listen to, export or replace.", &theme)).into_any_element() } else if a.info.is_none() { div().h(px(120.0)).child(super::ui::loading("Reading the sound file…", &theme)).into_any_element() } else { events.into_any_element() }));
         // Media.
         let pck = a.open.clone().unwrap_or_default();
@@ -225,7 +225,7 @@ impl Studio {
             );
         }
         let right = v_flex().size_full().child(title("Sounds")).child(div().id("am-list").flex_1().min_h_0().overflow_y_scroll().child(list));
-        let sizes = self.pane_sizes("audio", &[280.0, 340.0]);
+        let sizes = self.pane_sizes("audio", &[super::ui::SIDE_PANE, 340.0]);
         let me = cx.entity().downgrade();
         layout::group(
             "audio",

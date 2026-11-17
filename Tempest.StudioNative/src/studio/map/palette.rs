@@ -24,6 +24,7 @@ pub fn modal(title: &str, width: f32, body: AnyElement, cx: &mut Context<MapEdit
     div()
         .absolute()
         .inset_0()
+        .occlude()
         .flex()
         .items_center()
         .justify_center()

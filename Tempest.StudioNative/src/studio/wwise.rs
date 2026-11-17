@@ -167,7 +167,7 @@ impl Studio {
                     .text_sm()
                     .child(Button::new(("ww-play", k)).xsmall().when(now, |b| b.primary()).label(if now { "Stop" } else { "Play" }).on_click(cx.listener(move |this, _, _, cx| this.wwise_play(id, cx))))
                     .child(div().font_family(crate::studio::ui::mono()).text_xs().child(id.to_string()))
-                    .child(div().flex_1().text_xs().text_color(theme.muted_foreground).child(format!(
+                    .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(format!(
                         "{} · {} ch · {} Hz · {:.2} s · {}{}",
                         m["codec"].as_str().unwrap_or_default(),
                         m["channels"],

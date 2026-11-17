@@ -122,10 +122,11 @@ impl Assembly {
                     }))
                     .child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronRight }).size_3().text_color(muted))
                     .child(Icon::new(if d.id == "assembly" { IconName::Database } else { IconName::FileText }).size_3().text_color(muted))
-                    .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(d.label()))
+                    .child(div().flex_none().whitespace_nowrap().child(d.label()))
                     .when(d.dirty, |e| e.child(div().size(px(6.0)).flex_none().rounded_full().bg(theme.warning)))
-                    .child(div().flex_1())
-                    .child(div().flex_none().font_family(mono.clone()).font_weight(gpui::FontWeight::NORMAL).text_color(muted.opacity(0.7)).child(d.function.clone())),
+                    .child(div().flex_1().min_w_2())
+                    // The marshal function: the doc's own name comes first, this one gives way.
+                    .when(d.function != "0x0", |e| e.child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(mono.clone()).font_weight(gpui::FontWeight::NORMAL).text_color(muted.opacity(0.7)).child(d.function.clone()))),
             );
             // The header fields, when unfolded (hidden while the tables are filtered).
             if f.is_empty() && open {
@@ -193,8 +194,8 @@ impl Assembly {
                     h_flex()
                         .id(SharedString::from(format!("t-{}-{k}", d.id)))
                         .relative()
-                        .px_3()
-                        .py_0p5()
+                        .h(px(crate::studio::ui::ROW))
+                        .px_2()
                         .gap_2()
                         .text_xs()
                         .cursor_pointer()
@@ -225,7 +226,7 @@ impl Assembly {
             .child(
                 crate::studio::ui::pane_header("Tables", div().text_xs().font_weight(gpui::FontWeight::NORMAL).child(format!("{} files", self.docs.len())), &theme),
             )
-            .child(div().p_1().border_b_1().border_color(theme.border).child(Input::new(&self.table_filter).small().cleanable(true)))
+            .child(crate::studio::ui::pane_filter(Input::new(&self.table_filter).small().cleanable(true)))
             .child(div().id("tables").track_focus(&self.tables_focus).flex_1().min_h_0().overflow_y_scroll().child(list))
             .into_any_element()
     }

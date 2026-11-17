@@ -209,14 +209,14 @@ impl Studio {
                     None => hint("Not running: the port was taken (another Studio is open?). Set TEMPEST_STUDIO_MCP_PORT to use another.").into_any_element(),
                 })
                 .child(section("Updates"))
-                .child(h_flex().gap_2().child(div().flex_1().text_sm().child(super::updates::describe())).child(Button::new("upd-check").small().label("Check now").on_click(|_, window, cx| {
+                .child(h_flex().gap_2().child(div().flex_1().min_w_0().text_sm().child(super::updates::describe())).child(Button::new("upd-check").small().label("Check now").on_click(|_, window, cx| {
                     super::updates::check(false, cx);
                     window.refresh();
                 })))
                 .child(switch("check-updates", "Look for a new version when the Studio starts", p.check_updates, |p, v| p.check_updates = v))
                 .child(section("About"))
                 .child(div().text_sm().child(format!("Tempest Studio (native) {}", env!("CARGO_PKG_VERSION"))))
-                .child(h_flex().gap_2().child(div().flex_1().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("Settings: {data}"))).child(Button::new("reveal-data").xsmall().ghost().icon(Icon::new(IconName::FolderOpen)).label("Show").on_click(move |_, _, cx| {
+                .child(h_flex().gap_2().child(div().flex_1().min_w_0().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("Settings: {data}"))).child(Button::new("reveal-data").xsmall().ghost().icon(Icon::new(IconName::FolderOpen)).label("Show").on_click(move |_, _, cx| {
                     let data = data.clone();
                     let _ = me3.update(cx, |this, cx| this.reveal_file(&data, cx));
                 })));

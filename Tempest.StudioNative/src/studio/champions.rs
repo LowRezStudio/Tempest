@@ -308,7 +308,7 @@ impl Studio {
         let theme = cx.theme().clone();
         let c = self.champions.as_ref().expect("made above");
         let f = c.filter.read(cx).value().trim().to_lowercase();
-        let mut list = v_flex().p_1();
+        let mut list = v_flex();
         for (k, ch) in c.list.iter().filter(|ch| f.is_empty() || ch.name.to_lowercase().contains(&f) || ch.reference.to_lowercase().contains(&f)).enumerate() {
             let id = ch.id;
             let active = c.selected == Some(id);
@@ -316,10 +316,9 @@ impl Studio {
                 h_flex()
                     .id(("champ", k))
                     .relative()
+                    .h(px(ui::ROW))
                     .px_2()
-                    .py_1()
                     .gap_2()
-                    .rounded_md()
                     .text_sm()
                     .cursor_pointer()
                     .when(active, |d| d.bg(theme.list_active))
@@ -336,9 +335,9 @@ impl Studio {
         } else {
             div().id("champ-list").size_full().overflow_y_scroll().child(list).into_any_element()
         };
-        let side = v_flex().size_full().child(ui::pane_header("Champions", div().text_xs().child(c.list.len().to_string()), &theme)).child(div().px_1().pb_1().child(Input::new(&c.filter).small().cleanable(true))).child(div().flex_1().min_h_0().child(body));
+        let side = v_flex().size_full().child(ui::pane_header("Champions", div().text_xs().child(c.list.len().to_string()), &theme)).child(ui::pane_filter(Input::new(&c.filter).small().cleanable(true))).child(div().flex_1().min_h_0().child(body));
         let main = self.render_champion(window, cx);
-        let sizes = self.pane_sizes("champions", &[240.0]);
+        let sizes = self.pane_sizes("champions", &[ui::SIDE_PANE]);
         let me = cx.entity().downgrade();
         layout::group(
             "champions",

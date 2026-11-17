@@ -409,8 +409,8 @@ impl Render for ModFolder {
             .child(div().text_xs().text_color(muted).child("Creates manifest.toml and the chosen files, ready for `tempest mod pack` (or the Mod view), which packages and signs it. A package or .dat file saved in place from the Studio ships as a delta: only the objects or rows that changed, applied over the game's file by the launcher, so mods editing different parts of one file work together. A file without a recorded base is copied whole. Save your edited packages first."))
             .child(h_flex().gap_2().child(field("Mod id", &self.id)).child(field("Display name", &self.name)))
             .child(h_flex().gap_2().child(field("Version", &self.version)).child(field("Author", &self.author)))
-            .child(v_flex().gap_1().child(h_flex().child(div().flex_1().text_xs().text_color(muted).child("Files")).child(Button::new("mf-add").xsmall().ghost().label("Add…").on_click(cx.listener(|this, _, _, cx| this.pick_files(cx))))).child(list))
-            .child(h_flex().gap_1().child(div().flex_1().child(Input::new(&self.out).small())).child(Button::new("mf-browse").small().label("Browse…").on_click(cx.listener(|this, _, window, cx| this.pick_out(window, cx)))));
+            .child(v_flex().gap_1().child(h_flex().child(div().flex_1().min_w_0().text_xs().text_color(muted).child("Files")).child(Button::new("mf-add").xsmall().ghost().label("Add…").on_click(cx.listener(|this, _, _, cx| this.pick_files(cx))))).child(list))
+            .child(h_flex().gap_1().child(div().flex_1().min_w_0().child(Input::new(&self.out).small())).child(Button::new("mf-browse").small().label("Browse…").on_click(cx.listener(|this, _, window, cx| this.pick_out(window, cx)))));
         if let Some((dir, entries)) = &self.done {
             let open = dir.clone();
             let kb = |n: u64| if n >= 1 << 20 { format!("{:.1} MB", n as f64 / (1 << 20) as f64) } else { format!("{:.1} KB", n as f64 / 1024.0) };
@@ -519,7 +519,7 @@ impl Render for NameList {
         let count = if self.loading { "Reading…".to_string() } else if let Some(e) = &self.error { e.clone() } else { format!("{} of {} {what}", self.shown.len(), self.rows.len()) };
         v_flex()
             .gap_2()
-            .child(h_flex().gap_2().child(div().flex_1().child(Input::new(&self.filter).small().cleanable(true))).child(div().text_xs().text_color(theme.muted_foreground).child(SharedString::from(count))))
+            .child(h_flex().gap_2().child(div().flex_1().min_w_0().child(Input::new(&self.filter).small().cleanable(true))).child(div().text_xs().text_color(theme.muted_foreground).child(SharedString::from(count))))
             .child(div().h(px(420.0)).rounded_md().border_1().border_color(theme.border).child(uniform_list("name-rows", self.shown.len(), cx.processor(Self::render_rows)).size_full()))
             .child(h_flex().justify_end().child(Button::new("nl-close").primary().label("Close").on_click(|_, window, cx| window.close_dialog(cx))))
     }

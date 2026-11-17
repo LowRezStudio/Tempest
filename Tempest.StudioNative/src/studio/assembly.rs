@@ -331,7 +331,7 @@ pub struct Assembly {
 impl Assembly {
     pub fn new(backend: Backend, studio: WeakEntity<Studio>, panes: super::layout::Shared, sizes: Vec<f32>, id_range: Option<(i64, i64)>, window: &mut Window, cx: &mut Context<Self>) -> Assembly {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter rows (any cell contains…)"));
-        let table_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tables…"));
+        let table_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tables"));
         let edit_input = cx.new(|cx| InputState::new(window, cx));
         let edit_area = cx.new(|cx| TextareaState::new(window, cx).auto_grow(2, 10));
         let subs = vec![

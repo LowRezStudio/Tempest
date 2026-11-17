@@ -30,6 +30,8 @@ struct Target {
     included: bool,
     base: String,
     preview: Option<J>,
+    /// What changed is unfolded under the file's row.
+    open: bool,
     /// The `.dat` document id (assembly files), for Discard.
     doc: Option<String>,
     /// When the in-place save of this file was written (`mod.changes`' `modified`).
@@ -71,7 +73,35 @@ pub struct Cooker {
     tab: ModTab,
     /// Build & install: install into this game once the build is done.
     install_after: bool,
+    /// The mod is installed in this game (`tempest mod list`): Remove from game shows.
+    installed: bool,
+    /// The last build's log is unfolded.
+    show_log: bool,
+    /// How the game patches are picked, as on the website: every patch, a range, or some.
+    compat_mode: CompatMode,
+    /// A range's first click, waiting for its last.
+    anchor: Option<String>,
     _subs: Vec<Subscription>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CompatMode {
+    All,
+    Range,
+    Specific,
+}
+
+impl CompatMode {
+    fn of(c: &modmeta::Compat) -> CompatMode {
+        let first = modmeta::patches().first().map(|p| p.version.as_str());
+        if !c.patches.is_empty() {
+            CompatMode::Specific
+        } else if c.from.is_some() && c.from.as_deref() == first && c.to.is_none() {
+            CompatMode::All
+        } else {
+            CompatMode::Range
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -93,9 +123,8 @@ pub struct Meta {
     pub repository: Entity<InputState>,
     pub deps: Entity<TextareaState>,
     pub readme: Entity<TextareaState>,
-    pub patches: Entity<InputState>,
-    pub patch_from: Entity<InputState>,
-    pub patch_to: Entity<InputState>,
+    /// The game patches it works with (saved as `patches`, `patchFrom`, `patchTo`).
+    pub compat: modmeta::Compat,
     pub changelog: Entity<TextareaState>,
     pub api_key: Entity<InputState>,
     pub icon: Option<String>,
@@ -109,13 +138,10 @@ const FIELDS: &[(&str, &str)] = &[
     ("id", "made from the name"),
     ("version", "1.0.0"),
     ("author", "Your name"),
-    ("link", "a link to you (optional)"),
-    ("summary", "One line for the mod list (140 characters at most)"),
-    ("tags", "comma separated, e.g. skin, maeve"),
-    ("repository", "https://github.com/you/your-mod (optional)"),
-    ("patches", "game patches it works with, e.g. 8.1"),
-    ("patchFrom", "or from patch…"),
-    ("patchTo", "…to patch (optional)"),
+    ("link", "https://…"),
+    ("summary", "One line that says what the mod does"),
+    ("tags", "skin, maeve"),
+    ("repository", "https://github.com/you/your-mod"),
 ];
 
 impl Meta {
@@ -128,10 +154,7 @@ impl Meta {
             "link" => &self.link,
             "summary" => &self.summary,
             "tags" => &self.tags,
-            "repository" => &self.repository,
-            "patches" => &self.patches,
-            "patchFrom" => &self.patch_from,
-            _ => &self.patch_to,
+            _ => &self.repository,
         }
     }
 
@@ -208,6 +231,18 @@ fn file_in_words(rel: &str) -> String {
     }
 }
 
+/// A file's change counts in words, from its `mod.preview` item.
+fn counts(p: &J) -> Option<String> {
+    if p.get("error").is_some() {
+        return None;
+    }
+    Some(match p["mode"].as_str() {
+        Some("unchanged") => "no change from the original: left out".to_string(),
+        Some("whole") => format!("the whole file, {}", crate::model::human_size(p["bytes"].as_u64().unwrap_or(0))),
+        _ => format!("{} changed, {} added, {} removed", p["changed"].as_u64().unwrap_or(0), p["added"].as_u64().unwrap_or(0), p["deleted"].as_u64().unwrap_or(0)),
+    })
+}
+
 /// The name `tempest mod list --json` records the mod `id` under.
 fn installed_name(list: &J, id: &str) -> Option<String> {
     let field = |m: &J, k: &str| m.get(k).or_else(|| m.get(format!("{}{}", k[..1].to_uppercase(), &k[1..]))).and_then(|v| v.as_str()).map(str::to_string);
@@ -268,9 +303,7 @@ impl Cooker {
             summary: take(),
             tags: take(),
             repository: take(),
-            patches: take(),
-            patch_from: take(),
-            patch_to: take(),
+            compat: modmeta::Compat::parse(saved["patches"].as_str().unwrap_or_default(), saved["patchFrom"].as_str().unwrap_or_default(), saved["patchTo"].as_str().unwrap_or_default()),
             deps,
             readme,
             changelog,
@@ -291,9 +324,11 @@ impl Cooker {
         }
         let extras = saved["extras"].as_array().into_iter().flatten().filter_map(|x| Some((x["src"].as_str()?.to_string(), x["dest"].as_str()?.to_string()))).collect();
         let dismissed = saved["dismissed"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_u64()?))).collect();
-        let mut c = Cooker { backend, studio, dir, targets: Vec::new(), loading: true, meta, busy: None, log: Vec::new(), built: None, project, extras, dismissed, unmatched: None, choose: Vec::new(), account: None, seen: crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst), tab: ModTab::Changes, install_after: false, _subs: subs };
+        let mut c = Cooker { backend, studio, dir, targets: Vec::new(), loading: true, meta, busy: None, log: Vec::new(), built: None, project, extras, dismissed, unmatched: None, choose: Vec::new(), account: None, seen: crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst), tab: ModTab::Changes, install_after: false, installed: false, show_log: false, compat_mode: CompatMode::Range, anchor: None, _subs: subs };
+        c.compat_mode = CompatMode::of(&c.meta.compat);
         c.refresh(cx);
         c.load_account(cx);
+        c.check_installed(cx);
         c
     }
 
@@ -316,6 +351,9 @@ impl Cooker {
             "compression": if self.meta.fast { "fast" } else { "small" },
             "extras": self.extras.iter().map(|(s, d)| json!({ "src": s, "dest": d })).collect::<Vec<_>>(),
             "dismissed": self.dismissed,
+            "patches": self.meta.compat.patches.join(", "),
+            "patchFrom": self.meta.compat.from.clone().unwrap_or_default(),
+            "patchTo": self.meta.compat.to.clone().unwrap_or_default(),
         });
         for (k, _) in FIELDS {
             v[*k] = json!(self.meta.input(k).read(cx).value().to_string());
@@ -381,7 +419,7 @@ impl Cooker {
     }
 
     fn set_sources(&mut self, files: &J) {
-        let old: Vec<(String, bool, bool)> = self.targets.iter().map(|t| (t.target.clone(), t.included, t.whole)).collect();
+        let old: Vec<(String, bool, bool, bool)> = self.targets.iter().map(|t| (t.target.clone(), t.included, t.whole, t.open)).collect();
         let mut targets: Vec<Target> = Vec::new();
         for f in files.as_array().into_iter().flatten() {
             let target = f["target"].as_str().unwrap_or_default().to_string();
@@ -416,6 +454,7 @@ impl Cooker {
                         _ => "compared with the game folder's file".into(),
                     },
                     preview: None,
+                    open: false,
                 }),
             }
         }
@@ -427,9 +466,10 @@ impl Cooker {
                 _ => 2,
             };
             t.chosen = (0..t.sources.len()).min_by_key(|&k| rank(&t.sources[k].2)).unwrap_or(0);
-            if let Some((_, inc, whole)) = old.iter().find(|o| o.0 == t.target) {
+            if let Some((_, inc, whole, open)) = old.iter().find(|o| o.0 == t.target) {
                 t.included = *inc;
                 t.whole = *whole;
+                t.open = *open;
             }
             // A copy just added ships.
             if let Some(k) = t.sources.iter().position(|s| s.2 == "copy" && self.choose.iter().any(|c| super::project::same_path(c, &s.1))) {
@@ -444,6 +484,16 @@ impl Cooker {
     fn item(t: &Target) -> J {
         let (id, source, _) = &t.sources[t.chosen];
         json!({ "id": id, "source": source, "target": t.target, "kind": t.kind, "mode": if t.whole { "whole" } else { "delta" } })
+    }
+
+    /// What changed: unfold the file's list (read first if it is not yet), or fold it.
+    fn toggle_changes(&mut self, k: usize, cx: &mut Context<Self>) {
+        let Some(t) = self.targets.get_mut(k) else { return };
+        t.open = !t.open;
+        if t.open && t.preview.is_none() {
+            self.preview(k, cx);
+        }
+        cx.notify();
     }
 
     fn preview(&mut self, k: usize, cx: &mut Context<Self>) {
@@ -726,14 +776,37 @@ impl Cooker {
             let _ = this.update(cx, |this, cx| {
                 this.busy = None;
                 match r {
-                    Ok(None) => this.toast(Tone::Info, "This mod is not installed in this game", cx),
+                    Ok(None) => {
+                        this.installed = false;
+                        this.toast(Tone::Info, "This mod is not installed in this game", cx);
+                    }
                     Ok(Some((0, _, name))) => {
+                        this.installed = false;
                         this.say(Line::Ok, format!("Removed {name} from {game}"), cx);
                         this.toast(Tone::Success, "Mod removed from the game", cx);
                     }
                     Ok(Some((_, text, _))) => this.say(Line::Error, format!("Could not remove the mod: {}", text.trim()), cx),
                     Err(e) => this.say(Line::Error, e, cx),
                 }
+            });
+        })
+        .detach();
+    }
+
+    /// Whether this mod is installed in this game, so Remove from game shows only then.
+    fn check_installed(&mut self, cx: &mut Context<Self>) {
+        let (game, id) = (self.game_root(), self.mod_id(cx));
+        if id.is_empty() || cli_path().is_none() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_executor()
+                .spawn(async move { run_cli_split(&["list".into(), game, "--json".into()]).ok().and_then(|(_, out, _)| serde_json::from_str::<J>(out.trim()).ok()).is_some_and(|l| installed_name(&l, &id).is_some()) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.installed = found;
+                cx.notify();
             });
         })
         .detach();
@@ -761,6 +834,7 @@ impl Cooker {
                 this.busy = None;
                 match r {
                     Ok((0, _)) => {
+                        this.installed |= game == this.game_root();
                         this.say(Line::Ok, format!("Installed into {game}. Play it from Tempest Launcher to test it."), cx);
                         this.toast(Tone::Success, "Mod installed: play from Tempest Launcher to test it", cx);
                     }
@@ -778,6 +852,13 @@ impl Cooker {
         match verb {
             "refresh" => self.refresh(cx),
             "build" => self.build_now(cx),
+            "tab" => {
+                self.tab = match rest.trim() {
+                    "details" => ModTab::Details,
+                    "publish" => ModTab::Publish,
+                    _ => ModTab::Changes,
+                }
+            }
             // Opens the dialog only: publishing is left to a person.
             "publish-dialog" => self.publish_dialog(window, cx),
             "preview" => self.preview(rest.trim().parse().map_err(|_| "preview <n>")?, cx),
@@ -793,72 +874,70 @@ impl Cooker {
 
     fn render_files(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let mut list = v_flex().gap_2();
         if self.targets.is_empty() {
-            list = list.child(div().text_sm().text_color(theme.muted_foreground).child(if self.loading { "Looking for your changes…" } else { "No changes yet. Edit a package or an assembly table, and it shows up here: edits, files written in place and exported copies all count." }));
-        }
-        for (k, t) in self.targets.iter().enumerate() {
-            let (id, _, origin) = &t.sources[t.chosen];
-            let origin = match origin.as_str() {
-                "unsaved" => "changes in the Studio",
-                "copy" => "an exported copy",
-                _ => "saved in the game folder",
+            if self.loading {
+                return div().h(px(120.0)).child(crate::studio::ui::loading("Looking for your changes…", &theme)).into_any_element();
+            }
+            let go = |id: &'static str, icon: gpui_kit_assets::IconName, label: &'static str, cmd: super::Cmd, cx: &mut Context<Self>| {
+                Button::new(id).small().icon(gpui_component::Icon::new(icon)).label(label).on_click(cx.listener(move |this, _, window, cx| {
+                    let _ = this.studio.update(cx, |s, cx| s.run(cmd, window, cx));
+                }))
             };
-            let _ = id;
-            let mut card = v_flex()
+            return crate::studio::ui::empty(gpui_kit_assets::IconName::Pencil, "No changes yet", "Change a champion's look, a number in the game data, a sound or a map: every game file you change shows up here and goes into your mod.", &theme)
+                .h_auto()
+                .py_6()
+                .child(h_flex().gap_2().flex_wrap().justify_center().child(go("cook-go-champions", gpui_kit_assets::IconName::Users, "Champions", super::Cmd::ShowChampions, cx)).child(go("cook-go-data", gpui_kit_assets::IconName::Database, "Game data", super::Cmd::ShowAssembly, cx)).child(go("cook-go-sounds", gpui_kit_assets::IconName::Volume2, "Sounds", super::Cmd::ShowAudio, cx)))
+                .into_any_element();
+        }
+        let mut list = v_flex();
+        for (k, t) in self.targets.iter().enumerate() {
+            let (_, source, origin) = &t.sources[t.chosen];
+            let origin = match origin.as_str() {
+                "unsaved" => "Changed in the Studio".to_string(),
+                // A "Save as" of the game file, kept elsewhere: say where.
+                "copy" => format!("Your copy at {source}"),
+                _ => "Saved in the game folder".to_string(),
+            };
+            let ships = if t.script { "" } else if t.whole { " · whole file" } else { " · only the changes" };
+            // The text column starts after the checkbox (16) and the gap (12): what unfolds under a row lines up with it.
+            let indent = px(28.0);
+            let mut row = v_flex()
+                .py_2()
                 .gap_1()
-                .p_2()
-                .rounded_md()
-                .border_1()
-                .border_color(theme.border)
-                .when(!t.included, |d| d.opacity(0.5))
+                .when(k > 0, |d| d.border_t_1().border_color(theme.border))
                 .child(
                     h_flex()
-                        .gap_2()
-                        .child(Checkbox::new(("inc", k)).checked(t.included).on_click(cx.listener(move |this, v: &bool, _, cx| {
+                        .gap_3()
+                        .child(Checkbox::new(("inc", k)).checked(t.included).tooltip(if t.included { "In the mod: click to leave it out" } else { "Left out: click to put it in" }).on_click(cx.listener(move |this, v: &bool, _, cx| {
                             if let Some(t) = this.targets.get_mut(k) {
                                 t.included = *v;
                             }
                             cx.notify();
                         })))
-                        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_sm().child(h_flex().gap_2().min_w_0().child(div().flex_none().font_weight(gpui::FontWeight::SEMIBOLD).child(file_in_words(&t.rel))).child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(t.rel.clone()))))
-                        .child(div().text_xs().text_color(theme.muted_foreground).child(format!("from {origin}")))
-                        .child({
-                            let b = Button::new(("delta", k)).xsmall().label("Only the changes").tooltip("A delta: just the objects or rows you changed, so other mods of this file still work").on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(t) = this.targets.get_mut(k) {
-                                    t.whole = false;
-                                    t.preview = None;
-                                }
-                                cx.notify();
-                            }));
-                            b.ghost().selected(!t.whole)
-                        })
-                        .when(!t.script, |d| {
-                            d.child({
-                                let b = Button::new(("whole", k)).xsmall().label("Whole file").tooltip("Replace the game's file: bigger, and two mods of this file conflict").on_click(cx.listener(move |this, _, _, cx| {
-                                    if let Some(t) = this.targets.get_mut(k) {
-                                        t.whole = true;
-                                        t.preview = None;
-                                    }
-                                    cx.notify();
-                                }));
-                                b.ghost().selected(t.whole)
-                            })
-                        })
-                        .child(Button::new(("prev", k)).xsmall().ghost().label("What changed").on_click(cx.listener(move |this, _, _, cx| this.preview(k, cx))))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .when(!t.included, |d| d.opacity(0.5))
+                                .child(h_flex().gap_2().min_w_0().child(div().flex_none().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(file_in_words(&t.rel))).child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(t.rel.clone())))
+                                .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(match t.preview.as_ref().and_then(counts) {
+                                    Some(c) => format!("{origin}{ships} · {c}"),
+                                    None => format!("{origin}{ships}"),
+                                })),
+                        )
+                        .child(Button::new(("prev", k)).xsmall().ghost().icon(gpui_component::Icon::new(if t.open { gpui_kit_assets::IconName::ChevronDown } else { gpui_kit_assets::IconName::ChevronRight })).label(if t.open { "Hide changes" } else { "What changed" }).on_click(cx.listener(move |this, _, _, cx| this.toggle_changes(k, cx))))
                         .child({
                             let me = cx.entity();
-                            div().relative().child(Button::new(("more", k)).xsmall().ghost().label("…").tooltip("More: discard, remove from the list, forget a copy").dropdown_menu(move |menu, _, cx| me.update(cx, |c, cx| c.target_menu(k, menu, cx)))).child(crate::driver::probe(format!("more-{k}")))
+                            div().relative().child(Button::new(("more", k)).xsmall().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Ellipsis)).tooltip("More: ship the whole file, discard, remove from the list").dropdown_menu(move |menu, _, cx| me.update(cx, |c, cx| c.target_menu(k, menu, cx)))).child(crate::driver::probe(format!("more-{k}")))
                         }),
-                )
-                .child(div().text_xs().text_color(theme.muted_foreground).child(t.base.clone()));
+                );
             if t.sources.len() > 1 {
-                let mut pick = h_flex().gap_1().child(div().text_xs().text_color(theme.muted_foreground).child("ship"));
+                let mut pick = h_flex().pl(indent).gap_1().flex_wrap().child(div().text_xs().text_color(theme.muted_foreground).child("Ship"));
                 for (j, s) in t.sources.iter().enumerate() {
                     let label = match s.2.as_str() {
-                        "unsaved" => "changes in the Studio".to_string(),
-                        "copy" => format!("copy {}", file_name(&s.1)),
-                        _ => "saved file".to_string(),
+                        "unsaved" => "the changes in the Studio".to_string(),
+                        "copy" => format!("the copy {}", file_name(&s.1)),
+                        _ => "the saved file".to_string(),
                     };
                     let b = Button::new(SharedString::from(format!("src-{k}-{j}"))).xsmall().label(label).on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(t) = this.targets.get_mut(k) {
@@ -869,27 +948,33 @@ impl Cooker {
                     }));
                     pick = pick.child(b.ghost().selected(j == t.chosen));
                 }
-                card = card.child(pick);
+                row = row.child(pick);
             }
-            if let Some(p) = &t.preview {
-                let summary = match p["mode"].as_str() {
-                    Some("unchanged") => "No change from the original: left out of the mod".to_string(),
-                    Some("whole") => format!("The whole file, {}", crate::model::human_size(p["bytes"].as_u64().unwrap_or(0))),
-                    _ => format!("{} changed, {} added, {} removed", p["changed"].as_u64().unwrap_or(0), p["added"].as_u64().unwrap_or(0), p["deleted"].as_u64().unwrap_or(0)),
-                };
-                let mut changes = v_flex().gap_0p5().child(div().text_xs().child(summary));
-                if let Some(e) = p["error"].as_str() {
-                    changes = changes.child(div().text_xs().text_color(theme.danger).child(e.to_string()));
-                }
-                for c in p["changes"].as_array().into_iter().flatten().take(60) {
-                    changes = changes.child(h_flex().gap_2().text_xs().child(div().w(px(60.0)).text_color(theme.muted_foreground).child(c["op"].as_str().unwrap_or_default().to_string())).child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(c["what"].as_str().unwrap_or_default().to_string())));
-                }
-                for w in p["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()) {
-                    changes = changes.child(div().text_xs().text_color(theme.warning).child(w.to_string()));
-                }
-                card = card.child(changes);
+            // Unfolded by What changed only: a list per file made the page long.
+            if let Some(e) = t.preview.as_ref().and_then(|p| p["error"].as_str()) {
+                row = row.child(div().pl(indent).text_xs().text_color(theme.danger).whitespace_normal().child(e.to_string()));
             }
-            list = list.child(card);
+            if t.open {
+                let mut changes = v_flex().ml(indent).mt_1().p_2().gap_0p5().rounded_md().bg(theme.background);
+                match &t.preview {
+                    None => changes = changes.child(div().text_xs().text_color(theme.muted_foreground).child("Reading what changed…")),
+                    Some(p) => {
+                        changes = changes.child(div().text_xs().text_color(theme.muted_foreground).child(format!("{}, {}", counts(p).unwrap_or_default(), t.base)));
+                        let all = p["changes"].as_array().cloned().unwrap_or_default();
+                        for c in all.iter().take(60) {
+                            changes = changes.child(h_flex().gap_2().text_xs().child(div().flex_none().w(px(60.0)).text_color(theme.muted_foreground).child(c["op"].as_str().unwrap_or_default().to_string())).child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(c["what"].as_str().unwrap_or_default().to_string())));
+                        }
+                        if all.len() > 60 {
+                            changes = changes.child(div().text_xs().text_color(theme.muted_foreground).child(format!("and {} more", all.len() - 60)));
+                        }
+                        for w in p["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()) {
+                            changes = changes.child(div().text_xs().text_color(theme.warning).child(w.to_string()));
+                        }
+                    }
+                }
+                row = row.child(changes);
+            }
+            list = list.child(row);
         }
         list.into_any_element()
     }
@@ -898,23 +983,34 @@ impl Cooker {
 impl Cooker {
     fn render_icon(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let row = h_flex().gap_2().items_center();
-        match self.meta.icon.clone() {
-            Some(icon) => row
-                .child(gpui::img(PathBuf::from(&icon)).size(px(48.0)).rounded_md())
-                .child(div().flex_1().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(file_name(&icon)))
-                .child(Button::new("icon-change").xsmall().ghost().label("Change…").on_click(cx.listener(|this, _, _, cx| this.pick_icon(cx))))
-                .child(Button::new("icon-remove").xsmall().ghost().label("Remove").on_click(cx.listener(|this, _, _, cx| {
-                    this.meta.icon = None;
-                    this.save_meta(cx);
-                    cx.notify();
-                })))
-                .into_any_element(),
-            None => row
-                .child(Button::new("icon-pick").xsmall().label("Choose an icon…").on_click(cx.listener(|this, _, _, cx| this.pick_icon(cx))))
-                .child(div().flex_1().min_w_0().text_xs().text_color(theme.muted_foreground).child("PNG, 1 MB at most"))
-                .into_any_element(),
-        }
+        let (id, name) = (self.mod_id(cx), self.meta.text("name", cx));
+        let has = self.meta.icon.is_some();
+        h_flex()
+            .gap_3()
+            .child(crate::studio::ui::mod_icon(self.meta.icon.as_deref(), &id, &name, 64.0, &theme))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_1()
+                    .child(div().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(match &self.meta.icon {
+                        Some(icon) => file_name(icon),
+                        None => "No icon: the mod list shows its initials. A square PNG, 1 MB at most.".into(),
+                    }))
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .child(Button::new("icon-pick").xsmall().label(if has { "Change…" } else { "Choose an icon…" }).on_click(cx.listener(|this, _, _, cx| this.pick_icon(cx))))
+                            .when(has, |d| {
+                                d.child(Button::new("icon-remove").xsmall().ghost().label("Remove").on_click(cx.listener(|this, _, _, cx| {
+                                    this.meta.icon = None;
+                                    this.save_meta(cx);
+                                    cx.notify();
+                                })))
+                            }),
+                    ),
+            )
+            .into_any_element()
     }
 
     fn pick_icon(&mut self, cx: &mut Context<Self>) {
@@ -936,7 +1032,7 @@ impl Cooker {
         .detach();
     }
 
-    /// Other files the mod ships as they are, and the buttons that add them.
+    /// Other files the mod ships as they are: what was added, then the project's mod-files/.
     fn render_extras(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let mut list = v_flex().gap_1();
@@ -944,9 +1040,8 @@ impl Cooker {
             list = list.child(
                 h_flex()
                     .gap_2()
-                    .text_sm()
-                    .child(div().font_family(crate::studio::ui::mono()).text_xs().child(dest.clone()))
-                    .child(div().flex_1().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("from {src}")))
+                    .child(div().flex_none().max_w(px(260.0)).overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).text_xs().child(dest.clone()))
+                    .child(div().flex_1().min_w_0().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("from {src}")))
                     .child(Button::new(("extra-rm", k)).xsmall().ghost().label("Remove").on_click(cx.listener(move |this, _, _, cx| {
                         if k < this.extras.len() {
                             this.extras.remove(k);
@@ -957,18 +1052,10 @@ impl Cooker {
             );
         }
         v_flex()
-            .mt_2()
-            .gap_1()
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Other files"))
-                    .child(Button::new("add-files").xsmall().ghost().label("Add files…").tooltip("Lua goes to scripts/, DLLs to dlls/64/; .upk, .dat and .pck files become modified game files").on_click(cx.listener(|this, _, _, cx| this.add_files(cx))))
-                    .child(Button::new("add-folder").xsmall().ghost().label("Add folder…").tooltip("A whole folder, shipped under its name (for example scripts/)").on_click(cx.listener(|this, _, _, cx| this.add_folder(cx))))
-                    .child(Button::new("add-modified").xsmall().ghost().label("Add a modified game file…").tooltip("A package, .dat or .pck edited elsewhere: shipped as a delta against the game's file").on_click(cx.listener(|this, _, _, cx| this.add_files(cx)))),
-            )
-            .when(self.extras.is_empty(), |d| d.child(div().text_xs().text_color(theme.muted_foreground).child("Scripts, DLLs or files edited outside the Studio can ship too.")))
+            .gap_2()
+            .when(self.extras.is_empty() && self.project.is_none(), |d| d.child(crate::studio::ui::hint("Scripts (Lua), DLLs, or game files edited in another tool. A .upk, .dat or .pck you add ships as a modified game file: only its differences.", &theme)))
             .child(list)
+            .child(self.render_project_files(cx))
             .into_any_element()
     }
 
@@ -1061,7 +1148,7 @@ impl Cooker {
         };
         let unsaved = t.sources.iter().find(|s| s.2 == "unsaved").map(|s| s.1.clone());
         let mut menu = menu
-            .item(item("Show the changes".into(), Box::new(move |this, _, cx| this.preview(k, cx))))
+            .item(item(if t.open { "Hide the changes" } else { "Show the changes" }.into(), Box::new(move |this, _, cx| this.toggle_changes(k, cx))))
             .item(item(if t.included { "Leave it out of the mod" } else { "Put it in the mod" }.into(), Box::new(move |this, _, cx| {
                 if let Some(t) = this.targets.get_mut(k) {
                     t.included = !t.included;
@@ -1158,53 +1245,21 @@ impl Cooker {
         cx.notify();
     }
 
-    /// The project's mod-files/ (shipped as laid out), or the suggestion to start a project.
+    /// The project's mod-files/ (shipped as laid out).
     fn render_project_files(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let Some(p) = &self.project else {
-            if self.meta.text("name", cx).is_empty() {
-                return div().into_any_element();
-            }
-            return h_flex()
-                .mt_2()
-                .p_2()
-                .gap_2()
-                .rounded_md()
-                .border_1()
-                .border_color(theme.border)
-                .child(div().flex_1().text_xs().text_color(theme.muted_foreground).child("Name this mod to give it its own folder: it saves itself as you work, can ship scripts and other files, and keeps its builds."))
-                .child(Button::new("cook-new-project").xsmall().label("Name this mod…").on_click(cx.listener(|this, _, window, cx| {
-                    let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::NewProject, window, cx));
-                })))
-                .into_any_element();
-        };
+        let Some(p) = &self.project else { return div().into_any_element() };
         let files = p.mod_files();
-        let mut n = 0usize;
-        let mut stack = vec![files.clone()];
-        while let Some(d) = stack.pop() {
-            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                if e.file_name().to_string_lossy().starts_with('.') {
-                    continue;
-                }
-                if e.path().is_dir() {
-                    stack.push(e.path());
-                } else {
-                    n += 1;
-                }
-            }
-        }
+        let n = walk(&files).len();
         h_flex()
-            .mt_2()
-            .p_2()
             .gap_2()
-            .rounded_md()
-            .border_1()
-            .border_color(theme.border)
+            .child(gpui_component::Icon::new(gpui_kit_assets::IconName::Folder).small().text_color(theme.muted_foreground))
             .child(
                 v_flex()
                     .flex_1()
+                    .min_w_0()
                     .child(div().text_sm().child(format!("mod-files/: {n} file{}", if n == 1 { "" } else { "s" })))
-                    .child(div().text_xs().text_color(theme.muted_foreground).child("Shipped as laid out: scripts/ (Lua), dlls/64/ and dlls/32/, files/<game path>.")),
+                    .child(crate::studio::ui::hint("Shipped as laid out: scripts/ (Lua), dlls/64/ and dlls/32/, files/<game path>.", &theme)),
             )
             .child(Button::new("cook-mod-files").xsmall().ghost().label("Open the folder").on_click(move |_, _, cx| cx.open_with_system(&files)))
             .into_any_element()
@@ -1250,6 +1305,471 @@ fn meta_file(dir: &str) -> Option<PathBuf> {
     state_file(&format!("mod-{:016x}.json", h.finish()))
 }
 
+/// Which tab fixes a problem `problems` words: the place to go from the checklist.
+fn problem_tab(p: &str) -> Option<ModTab> {
+    let l = p.to_ascii_lowercase();
+    if l.starts_with("nothing to ship") {
+        None
+    } else if l.contains("summary") || l.contains("signing key") {
+        Some(ModTab::Publish)
+    } else {
+        Some(ModTab::Details)
+    }
+}
+
+impl Cooker {
+    /// The mod's kind as the website shows it: assets, scripts (Lua) or native (DLLs).
+    fn kind(&self) -> (&'static str, gpui_kit_assets::IconName) {
+        let mut files: Vec<String> = self.extras.iter().map(|e| e.0.to_ascii_lowercase()).collect();
+        if let Some(p) = &self.project {
+            files.extend(walk(&p.mod_files()).into_iter().map(|f| f.to_string_lossy().to_ascii_lowercase()));
+        }
+        if files.iter().any(|f| f.ends_with(".dll")) {
+            ("Native", gpui_kit_assets::IconName::SquareTerminal)
+        } else if files.iter().any(|f| f.ends_with(".lua") && !f.ends_with(".d.lua")) {
+            ("Scripts", gpui_kit_assets::IconName::FileCode)
+        } else {
+            ("Assets", gpui_kit_assets::IconName::Box)
+        }
+    }
+
+    /// The header: the mod (icon, name, facts), its actions, and the tabs under it.
+    fn render_header(&mut self, title: String, problems: &[String], cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        let cli = cli_path().is_some();
+        let busy = self.busy.clone();
+        let blocked = !problems.is_empty() || busy.is_some() || !cli;
+        let can_use = self.built.is_some() && busy.is_none();
+        let unnamed = self.project.is_none() && self.meta.text("name", cx).is_empty();
+        let id = self.mod_id(cx);
+        let author = self.meta.text("author", cx);
+        let included = self.targets.iter().filter(|t| t.included).count() + self.extras.len();
+        let mut facts: Vec<String> = Vec::new();
+        if !author.is_empty() {
+            facts.push(format!("by {author}"));
+        }
+        facts.push(self.kind().0.to_string());
+        facts.push(format!("v{}", self.version(cx)));
+        facts.push(format!("{included} file{} in the mod", if included == 1 { "" } else { "s" }));
+        if self.installed {
+            facts.push("installed in this game".into());
+        }
+        let me = cx.entity().downgrade();
+        let removable = !id.is_empty() && cli;
+        let actions = h_flex()
+            .flex_none()
+            .gap_2()
+            // An unnamed mod's first step: its name (and its own folder).
+            .when(unnamed, |d| {
+                d.child(Button::new("cook-name").small().primary().label("Name this mod…").tooltip("Gives the mod its name and its own folder: it saves itself as you work").on_click(cx.listener(|this, _, window, cx| {
+                    let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::NewProject, window, cx));
+                })))
+            })
+            .when(self.installed, |d| d.child(Button::new("cook-remove").small().ghost().label("Remove from game").tooltip("Take this mod out of the game folder that is open").disabled(busy.is_some() || !cli).on_click(cx.listener(|this, _, _, cx| this.remove_from_game(cx)))))
+            .child(Button::new("cook-play").small().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Gamepad2)).label("Play in Tempest Launcher").tooltip("Tempest Launcher starts the game with your installed mods").on_click(|_, _, cx| cx.open_url("tempest://")))
+            .child(
+                Button::new("cook-more").small().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Ellipsis)).tooltip("Build only, install elsewhere, save a copy, publish").dropdown_menu(move |menu, _, _| {
+                    let item = |label: &str, enabled: bool, f: fn(&mut Cooker, &mut Window, &mut Context<Cooker>)| {
+                        let me = me.clone();
+                        gpui_component::menu::PopupMenuItem::new(label.to_string()).disabled(!enabled).on_click(move |_, window, cx| {
+                            let _ = me.update(cx, |this, cx| f(this, window, cx));
+                        })
+                    };
+                    menu.item(item("Build only…", !blocked, |this, w, cx| this.build(w, cx)))
+                        .item(item("Install here anyway", can_use, |this, w, cx| this.install(w, cx)))
+                        .item(item("Install elsewhere…", can_use, |this, _, cx| this.install_elsewhere(cx)))
+                        .item(item("Save a copy…", can_use, |this, _, cx| this.save_built_copy(cx)))
+                        .item(item("Remove from game", removable, |this, _, cx| this.remove_from_game(cx)))
+                        .separator()
+                        .item(item("Publish…", can_use, |this, w, cx| this.publish_dialog(w, cx)))
+                }),
+            )
+            .child(
+                div().relative().child(
+                    Button::new("cook-build")
+                        .small()
+                        .when(!unnamed, |b| b.primary())
+                        .icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Hammer))
+                        .label(busy.clone().unwrap_or_else(|| "Build & install".into()))
+                        .tooltip(match problems.first() {
+                            Some(p) => format!("Before building: {p}"),
+                            None if !cli => "The mod packer (tempest-cli) is missing from this Studio".into(),
+                            None => "Build the mod (fast) and install it into this game, ready to play from Tempest Launcher".into(),
+                        })
+                        .disabled(blocked)
+                        .on_click(cx.listener(|this, _, window, cx| this.build_and_install(window, cx))),
+                ).child(crate::driver::probe("cook-build")),
+            );
+        let tab = self.tab;
+        let changes = self.targets.len() + self.extras.len();
+        let tab_item = |id: &'static str, label: &'static str, count: Option<usize>, t: ModTab, cx: &mut Context<Self>| {
+            let on = tab == t;
+            h_flex()
+                .id(id)
+                .relative()
+                .h(px(36.0))
+                .gap_1p5()
+                .text_sm()
+                .border_b_2()
+                .border_color(if on { theme.primary } else { gpui::transparent_black() })
+                .text_color(if on { theme.foreground } else { theme.muted_foreground })
+                .when(on, |d| d.font_weight(gpui::FontWeight::SEMIBOLD))
+                .cursor_pointer()
+                .hover(|s| s.text_color(theme.foreground))
+                .child(label)
+                .when_some(count.filter(|n| *n > 0), |d, n| d.child(div().px_1p5().rounded_full().bg(theme.secondary).text_xs().text_color(theme.muted_foreground).child(n.to_string())))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.tab = t;
+                    cx.notify();
+                }))
+                .child(crate::driver::probe(id))
+        };
+        let tabs = h_flex().gap_5().child(tab_item("cook-tab-changes", "Files", Some(changes), ModTab::Changes, cx)).child(tab_item("cook-tab-details", "Details", None, ModTab::Details, cx)).child(tab_item("cook-tab-publish", "Publish", None, ModTab::Publish, cx));
+        let name = self.meta.text("name", cx);
+        div()
+            .flex_none()
+            .bg(theme.sidebar)
+            .border_b_1()
+            .border_color(theme.border)
+            .child(
+                page_width().pt_5().gap_4().child(
+                    h_flex()
+                        .gap_4()
+                        .child(crate::studio::ui::mod_icon(self.meta.icon.as_deref(), &id, &name, 56.0, &theme))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_1()
+                                .child(div().text_xl().font_weight(gpui::FontWeight::BOLD).overflow_hidden().text_ellipsis().whitespace_nowrap().child(title))
+                                .child(div().text_sm().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(facts.join(" · "))),
+                        )
+                        .child(actions),
+                )
+                .child(tabs),
+            )
+            .into_any_element()
+    }
+
+    /// The right column, the same on every tab: the mod as the mod list shows it, what stops the build, the last build.
+    fn render_rail(&mut self, title: &str, problems: &[String], cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        let id = self.mod_id(cx);
+        let name = self.meta.text("name", cx);
+        let author = self.meta.text("author", cx);
+        let summary = self.meta.text("summary", cx);
+        let tags: Vec<String> = self.meta.text("tags", cx).split(',').map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty()).collect();
+        let (kind, kind_icon) = self.kind();
+        let signed = self.account.as_ref().is_some_and(|a| a.has_key);
+        let preview = crate::studio::ui::panel(gpui_kit_assets::IconName::Eye, "In the mod list", "preview", &theme).child(
+            v_flex()
+                .gap_2()
+                .p_3()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.background)
+                .child(
+                    h_flex()
+                        .gap_3()
+                        .child(crate::studio::ui::mod_icon(self.meta.icon.as_deref(), &id, &name, 48.0, &theme))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).overflow_hidden().text_ellipsis().whitespace_nowrap().child(title.to_string()))
+                                .child(div().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("{} · v{}", if author.is_empty() { "You" } else { &author }, self.version(cx)))),
+                        ),
+                )
+                .child(if summary.is_empty() {
+                    div().text_xs().italic().text_color(theme.muted_foreground).child("No summary yet: write one in Publish.")
+                } else {
+                    div().text_xs().line_clamp(2).child(summary)
+                })
+                .child(
+                    h_flex()
+                        .flex_wrap()
+                        .gap_1()
+                        .child(crate::studio::ui::badge(Some(kind_icon), kind, theme.muted_foreground, &theme))
+                        .child(if signed { crate::studio::ui::badge(Some(gpui_kit_assets::IconName::ShieldCheck), "Signed", theme.success, &theme) } else { crate::studio::ui::badge(None, "Unsigned", theme.muted_foreground, &theme) })
+                        .children(tags.into_iter().take(8).map(|t| crate::studio::ui::badge(None, t, theme.muted_foreground, &theme))),
+                ),
+        );
+        let mut issues: Vec<String> = problems.to_vec();
+        if cli_path().is_none() {
+            issues.push("The mod packer (tempest-cli) is missing from this Studio: reinstall the Studio, or set TEMPEST_CLI".into());
+        }
+        let n = issues.len();
+        let mut check = crate::studio::ui::panel(if n == 0 { gpui_kit_assets::IconName::CircleCheck } else { gpui_kit_assets::IconName::TriangleAlert }, "Before building", if n == 0 { String::new() } else { format!("{n} to do") }, &theme);
+        if n == 0 {
+            check = check.child(h_flex().gap_2().text_sm().child(gpui_component::Icon::new(gpui_kit_assets::IconName::CircleCheck).small().text_color(theme.success)).child("Ready: Build & install puts it in the game."));
+        }
+        let naming = self.project.is_none();
+        for (k, p) in issues.into_iter().enumerate() {
+            let name_it = naming && p.starts_with("Give the mod a name");
+            let go = problem_tab(&p).filter(|t| *t != self.tab && !name_it);
+            check = check.child(
+                h_flex()
+                    .items_start()
+                    .gap_2()
+                    .child(div().flex_none().pt(px(2.0)).child(gpui_component::Icon::new(gpui_kit_assets::IconName::CircleAlert).small().text_color(theme.warning)))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(div().text_xs().whitespace_normal().child(p))
+                            .when(name_it, |d| {
+                                d.child(h_flex().child(Button::new(("cook-fix", k)).xsmall().ghost().label("Name this mod…").icon(gpui_component::Icon::new(gpui_kit_assets::IconName::ArrowUpRight)).on_click(cx.listener(|this, _, window, cx| {
+                                    let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::NewProject, window, cx));
+                                }))))
+                            })
+                            .when_some(go, |d, t| {
+                                d.child(h_flex().child(Button::new(("cook-fix", k)).xsmall().ghost().label(if t == ModTab::Publish { "Open Publish" } else { "Open Details" }).icon(gpui_component::Icon::new(gpui_kit_assets::IconName::ArrowUpRight)).on_click(cx.listener(move |this, _, _, cx| {
+                                    this.tab = t;
+                                    cx.notify();
+                                }))))
+                            }),
+                    ),
+            );
+        }
+        let errors = self.log.iter().any(|(l, _)| *l == Line::Error);
+        let show_log = self.show_log || errors;
+        let last = (!self.log.is_empty()).then(|| {
+            let mut log = v_flex().gap_0p5().p_2().rounded_md().bg(theme.background).max_h(px(240.0)).overflow_hidden();
+            for (line, text) in &self.log {
+                log = log.child(div().text_xs().font_family(crate::studio::ui::mono()).whitespace_normal().text_color(match line {
+                    Line::Ok => theme.foreground,
+                    Line::Info => theme.muted_foreground,
+                    Line::Error => theme.danger,
+                }).child(text.clone()));
+            }
+            let built = self.built.clone();
+            crate::studio::ui::panel(gpui_kit_assets::IconName::Hammer, "Last build", "", &theme)
+                .child(div().text_xs().text_color(if errors { theme.danger } else { theme.muted_foreground }).whitespace_normal().child(match &built {
+                    Some((path, signed)) => format!("{}{}", file_name(path), if *signed { ", signed" } else { ", unsigned" }),
+                    None if self.busy.is_some() => self.busy.clone().unwrap_or_default(),
+                    None => "It did not finish: see the log.".into(),
+                }))
+                .child(
+                    h_flex()
+                        .gap_1()
+                        .when_some(built.map(|b| b.0), |d, path| {
+                            d.child(Button::new("cook-show-built").xsmall().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::FolderOpen)).label("Show the file").on_click(move |_, _, cx| cx.reveal_path(Path::new(&path))))
+                        })
+                        .when(!errors, |d| {
+                            d.child(Button::new("cook-log").xsmall().ghost().label(if show_log { "Hide the log" } else { "Show the log" }).on_click(cx.listener(|this, _, _, cx| {
+                                this.show_log = !this.show_log;
+                                cx.notify();
+                            })))
+                        }),
+                )
+                .when(show_log, |d| d.child(log))
+        });
+        let publish = (self.tab == ModTab::Publish).then(|| {
+            h_flex()
+                .gap_2()
+                .child(Button::new("cook-publish").icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Send)).label("Publish…").disabled(self.built.is_none() || self.busy.is_some()).tooltip("Upload the built mod to the mod repository").on_click(cx.listener(|this, _, window, cx| this.publish_dialog(window, cx))))
+                .when(self.built.is_none(), |d| d.child(div().flex_1().min_w_0().child(crate::studio::ui::hint("Build it first (⋯ ▸ Build only, smallest file).", &theme))))
+        });
+        v_flex().flex_none().w(px(RAIL)).gap_4().child(preview).children(publish).child(check).children(last).into_any_element()
+    }
+}
+
+impl Cooker {
+    /// The game patches it works with, picked like on the website: a mode, then a timeline of
+    /// every patch (filled where the mod works) to click.
+    fn render_compat(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        use gpui_kit_assets::IconName;
+        let theme = cx.theme().clone();
+        let all = modmeta::patches();
+        let (first, latest) = (all.first().map(|p| p.version.clone()).unwrap_or_default(), all.last().map(|p| p.version.clone()).unwrap_or_default());
+        let mode = self.compat_mode;
+        let compat = self.meta.compat.clone();
+        let mode_card = |id: &'static str, icon: IconName, label: &'static str, hint: &'static str, m: CompatMode, cx: &mut Context<Self>| {
+            let on = mode == m;
+            v_flex()
+                .id(id)
+                .relative()
+                .flex_1()
+                .flex_basis(px(0.0))
+                .min_w_0()
+                .p_2()
+                .gap_0p5()
+                .rounded_md()
+                .border_1()
+                .border_color(if on { theme.primary } else { theme.border })
+                .bg(if on { theme.primary.opacity(0.1) } else { theme.background })
+                .cursor_pointer()
+                .hover(|s| s.border_color(theme.primary.opacity(0.5)))
+                .child(h_flex().gap_1p5().text_sm().child(gpui_component::Icon::new(icon).small().text_color(if on { theme.primary } else { theme.muted_foreground })).child(label))
+                .child(div().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(hint))
+                .on_click(cx.listener(move |this, _, _, cx| this.set_compat_mode(m, cx)))
+                .child(crate::driver::probe(id))
+        };
+        let modes = h_flex().gap_2().child(mode_card("compat-all", IconName::Infinity, "Every patch", "Any version of the game", CompatMode::All, cx)).child(mode_card("compat-range", IconName::MoveHorizontal, "A range", "From one patch to another", CompatMode::Range, cx)).child(mode_card("compat-some", IconName::ListChecks, "Specific", "Only the patches you pick", CompatMode::Specific, cx));
+        // Every patch as a tick, grouped by major version (0.x is the beta era).
+        let mut eras: Vec<(String, Vec<(usize, &modmeta::Patch)>)> = Vec::new();
+        for (i, p) in all.iter().enumerate() {
+            let major = p.version.split('.').next().unwrap_or_default().to_string();
+            match eras.last_mut() {
+                Some((m, list)) if *m == major => list.push((i, p)),
+                _ => eras.push((major, vec![(i, p)])),
+            }
+        }
+        let n_eras = eras.len();
+        let mut timeline = h_flex().items_start().gap_1p5().w_full();
+        for (e, (major, list)) in eras.into_iter().enumerate() {
+            let mut ticks = h_flex().h(px(24.0)).gap_px();
+            for (i, p) in &list {
+                let on = compat.covers(&p.version);
+                let anchored = self.anchor.as_deref() == Some(p.version.as_str());
+                let tip = format!("{} · {}", p.version, p.name);
+                let v = p.version.clone();
+                ticks = ticks.child(
+                    div()
+                        .id(("tick", *i))
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .rounded(px(2.0))
+                        .bg(if anchored { theme.primary } else if on && self.anchor.is_some() { theme.primary.opacity(0.6) } else if on { theme.primary } else { theme.secondary })
+                        .when(mode != CompatMode::All, |d| d.cursor_pointer().hover(|s| s.border_1().border_color(theme.primary)).on_click(cx.listener(move |this, _, _, cx| this.click_patch(v.clone(), cx))))
+                        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)),
+                );
+            }
+            let n = list.len() as f32;
+            timeline = timeline.child(
+                v_flex()
+                    .min_w_0()
+                    .flex_grow(n)
+                    .flex_shrink(1.0)
+                    .flex_basis(px(n - 1.0))
+                    .gap_1()
+                    .child(ticks)
+                    .child(h_flex().when(e + 1 == n_eras, |d| d.justify_end()).child(div().text_xs().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).whitespace_nowrap().child(format!("{major}.x")))),
+            );
+        }
+        let mut how = h_flex().gap_2().flex_wrap().text_xs();
+        match mode {
+            CompatMode::All => {}
+            CompatMode::Range => {
+                let (from, to) = (compat.from.clone().unwrap_or_else(|| first.clone()), compat.to.clone());
+                how = how
+                    .when(self.anchor.is_some() || compat.is_set(), |d| {
+                        d.child(div().child(match &self.anchor {
+                            Some(a) => format!("From {a}: now click the last patch of the range"),
+                            None => format!("From {from} to {}", to.clone().unwrap_or_else(|| format!("{latest} and later"))),
+                        }))
+                    })
+                    .when(self.anchor.is_none() && compat.is_set() && to.as_deref().is_none_or(|t| t == latest), |d| {
+                        d.child(Checkbox::new("compat-future").label("Also future patches").checked(to.is_none()).on_click(cx.listener(move |this, v: &bool, _, cx| {
+                            this.meta.compat.to = (!*v).then(|| modmeta::patches().last().map(|p| p.version.clone())).flatten();
+                            this.save_meta(cx);
+                            cx.notify();
+                        })))
+                    })
+                    .child(div().flex_1().min_w_0().text_color(theme.muted_foreground).child(if self.anchor.is_some() { "" } else { "Click the first patch, then the last" }));
+            }
+            CompatMode::Specific => {
+                if compat.patches.is_empty() {
+                    how = how.child(div().text_color(theme.muted_foreground).child("Click patches on the timeline to add them."));
+                }
+                for (k, v) in compat.patches.iter().enumerate() {
+                    let name = all.iter().find(|p| &p.version == v).map(|p| p.name.clone()).unwrap_or_default();
+                    let v2 = v.clone();
+                    how = how.child(
+                        h_flex()
+                            .id(("compat-chip", k))
+                            .h(px(20.0))
+                            .px_1p5()
+                            .gap_1()
+                            .rounded_md()
+                            .bg(theme.primary)
+                            .text_color(theme.primary_foreground)
+                            .cursor_pointer()
+                            .child(div().font_family(crate::studio::ui::mono()).font_weight(gpui::FontWeight::SEMIBOLD).child(v.clone()))
+                            .child(div().opacity(0.8).child(name))
+                            .child(gpui_component::Icon::new(IconName::X).xsmall())
+                            .on_click(cx.listener(move |this, _, _, cx| this.click_patch(v2.clone(), cx))),
+                    );
+                }
+            }
+        }
+        let covered = compat.covered();
+        let summary = if covered.len() == all.len() && compat.to.is_none() {
+            "Works on every patch, including future ones.".to_string()
+        } else if !covered.is_empty() {
+            format!("Works on {} of {} patches: {}", covered.len(), all.len(), modmeta::group_patches(&covered).join(", "))
+        } else if mode == CompatMode::Specific {
+            "No patches picked yet.".to_string()
+        } else if compat.is_set() {
+            format!("This range ({}) covers no known patch.", compat.describe())
+        } else {
+            "Pick the patches it works with.".to_string()
+        };
+        v_flex().gap_3().child(modes).child(timeline).child(how).child(div().text_xs().text_color(if covered.is_empty() { theme.warning } else { theme.muted_foreground }).child(summary)).into_any_element()
+    }
+
+    fn set_compat_mode(&mut self, mode: CompatMode, cx: &mut Context<Self>) {
+        let all = modmeta::patches();
+        let first = all.first().map(|p| p.version.clone());
+        let c = &mut self.meta.compat;
+        match mode {
+            CompatMode::All => *c = modmeta::Compat { patches: Vec::new(), from: first, to: None },
+            // A range keeps its ends; from Every patch it starts at the first one played on Tempest (0.56).
+            CompatMode::Range => {
+                c.patches.clear();
+                if self.compat_mode == CompatMode::All || c.from.is_none() {
+                    c.from = all.iter().find(|p| p.version == "0.56").or(all.first()).map(|p| p.version.clone());
+                    c.to = None;
+                }
+            }
+            CompatMode::Specific => {
+                c.from = None;
+                c.to = None;
+            }
+        }
+        self.compat_mode = mode;
+        self.anchor = None;
+        self.save_meta(cx);
+        cx.notify();
+    }
+
+    /// A click on a patch: a range's first then last end, or a patch picked or put back.
+    fn click_patch(&mut self, version: String, cx: &mut Context<Self>) {
+        match self.compat_mode {
+            CompatMode::All => return,
+            CompatMode::Specific => {
+                let list = &mut self.meta.compat.patches;
+                if let Some(k) = list.iter().position(|p| *p == version) {
+                    list.remove(k);
+                } else {
+                    list.push(version);
+                    list.sort_by_key(|p| modmeta::order(p));
+                }
+            }
+            CompatMode::Range => match self.anchor.take() {
+                None => self.anchor = Some(version),
+                Some(a) => {
+                    let (lo, hi) = if modmeta::order(&a) <= modmeta::order(&version) { (a, version) } else { (version, a) };
+                    self.meta.compat = modmeta::Compat { patches: Vec::new(), from: Some(lo), to: Some(hi) };
+                }
+            },
+        }
+        self.save_meta(cx);
+        cx.notify();
+    }
+}
+
+/// The right column's width, as on the website's mod page.
+const RAIL: f32 = 300.0;
+
+/// The Mod view's page width: the header and the page share its left edge.
+fn page_width() -> gpui::Div {
+    v_flex().w_full().max_w(px(1160.0)).mx_auto().px_6()
+}
+
 impl Render for Cooker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(file) = self.unmatched.take() {
@@ -1261,143 +1781,94 @@ impl Render for Cooker {
             self.refresh(cx);
         }
         let theme = cx.theme().clone();
-        let files = self.render_files(cx);
+        let input = |i: &Entity<InputState>| Input::new(i).small();
         let problems = self.problems(cx);
-        let id = self.mod_id(cx);
-        let section = |t: &str| div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(t.to_string());
-        let labeled = |label: &'static str, input: &Entity<InputState>| v_flex().gap_1().child(div().text_xs().text_color(theme.muted_foreground).child(label)).child(Input::new(input).small());
-        let busy = self.busy.clone();
-        let mut log = v_flex().gap_0p5();
-        for (line, text) in &self.log {
-            log = log.child(div().text_xs().font_family(crate::studio::ui::mono()).text_color(match line {
-                Line::Ok => theme.foreground,
-                Line::Info => theme.muted_foreground,
-                Line::Error => theme.danger,
-            }).child(text.clone()));
-        }
-        let cli = cli_path();
-        let v = self.meta.text("version", cx);
-        let fix = (!v.is_empty() && !modmeta::is_semver(&v)).then(|| modmeta::to_semver(&v)).flatten();
-        let summary_len = self.meta.text("summary", cx).chars().count();
-        let lua = self.ships_lua();
-        let account = self.render_account(cx);
-        let extras = self.render_extras(cx);
-        let built = self.built.clone();
-        let blocked = !problems.is_empty() || busy.is_some() || cli.is_none();
-        let included = self.targets.iter().filter(|t| t.included).count() + self.extras.len();
         let name = self.meta.text("name", cx);
-        let title = if name.is_empty() { self.project.as_ref().map(|p| p.name.clone()).unwrap_or_else(|| "Unnamed mod".into()) } else { name };
-        let me = cx.entity().downgrade();
-        let can_use = built.is_some() && busy.is_none();
-        let unnamed = self.project.is_none() && self.meta.text("name", cx).is_empty();
-        // The bar: the mod, what is wrong, and Build & install.
-        let bar = h_flex()
-            .flex_none()
-            .px_4()
-            .py_3()
-            .gap_3()
-            .border_b_1()
-            .border_color(theme.border)
-            .bg(theme.sidebar)
-            .child(div().flex_none().size(px(40.0)).rounded_lg().bg(theme.secondary).flex().items_center().justify_center().child(gpui_component::Icon::new(gpui_kit_assets::IconName::Hammer).text_color(theme.muted_foreground)))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(div().text_lg().font_weight(gpui::FontWeight::BOLD).overflow_hidden().text_ellipsis().whitespace_nowrap().child(title))
-                    .child(div().text_xs().text_color(if problems.is_empty() { theme.muted_foreground } else { theme.warning }).overflow_hidden().text_ellipsis().whitespace_nowrap().child(match (problems.first(), &built) {
-                        (Some(p), _) => format!("Before building: {p}"),
-                        (None, Some((path, signed))) => format!("Built {}{} · version {}", file_name(path), if *signed { ", signed" } else { "" }, if v.is_empty() { "1.0.0".into() } else { v.clone() }),
-                        (None, None) => format!("{included} file{} go{} in · version {}", if included == 1 { "" } else { "s" }, if included == 1 { "es" } else { "" }, if v.is_empty() { "1.0.0".into() } else { v.clone() }),
-                    })),
-            )
-            // An unnamed mod's first step: its name (and its own folder).
-            .when(unnamed, |d| {
-                d.child(Button::new("cook-name").small().primary().label("Name this mod…").on_click(cx.listener(|this, _, window, cx| {
-                    let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::NewProject, window, cx));
-                })))
-            })
-            .child(Button::new("cook-remove").small().ghost().label("Remove from game").tooltip(if id.is_empty() { "Name the mod first: it is removed by its id" } else { "Take this mod out of the game folder that is open" }).disabled(busy.is_some() || cli.is_none() || id.is_empty()).on_click(cx.listener(|this, _, _, cx| this.remove_from_game(cx))))
-            .child(Button::new("cook-play").small().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Gamepad2)).label("Play in Tempest Launcher").tooltip("Tempest Launcher starts the game with your installed mods").on_click(|_, _, cx| cx.open_url("tempest://")))
-            .child(
-                Button::new("cook-more").small().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Ellipsis)).tooltip("Build only, save a copy, install elsewhere, publish").dropdown_menu(move |menu, _, _| {
-                    let item = |label: &str, enabled: bool, f: fn(&mut Cooker, &mut Window, &mut Context<Cooker>)| {
-                        let me = me.clone();
-                        gpui_component::menu::PopupMenuItem::new(label.to_string()).disabled(!enabled).on_click(move |_, window, cx| {
-                            let _ = me.update(cx, |this, cx| f(this, window, cx));
-                        })
-                    };
-                    menu.item(item("Build only…", !blocked, |this, w, cx| this.build(w, cx)))
-                        .item(item("Install here anyway", can_use, |this, w, cx| this.install(w, cx)))
-                        .item(item("Install elsewhere…", can_use, |this, _, cx| this.install_elsewhere(cx)))
-                        .item(item("Save a copy…", can_use, |this, _, cx| this.save_built_copy(cx)))
-                        .separator()
-                        .item(item("Publish…", can_use, |this, w, cx| this.publish_dialog(w, cx)))
-                }),
-            )
-            .child(div().relative().child(Button::new("cook-build").when(!unnamed, |b| b.primary()).icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Hammer)).label(busy.clone().unwrap_or_else(|| "Build & install".into())).tooltip("Build the mod (fast) and install it into this game, ready to play from Tempest Launcher").disabled(blocked).on_click(cx.listener(|this, _, window, cx| this.build_and_install(window, cx)))).child(crate::driver::probe("cook-build")));
-        let tab = self.tab;
-        let tab_button = |id: &'static str, label: &'static str, t: ModTab, cx: &mut Context<Self>| {
-            Button::new(id).small().ghost().label(label).selected(tab == t).on_click(cx.listener(move |this, _, _, cx| {
-                this.tab = t;
-                cx.notify();
-            }))
-        };
-        let tabs = h_flex().flex_none().px_3().py_1().gap_1().border_b_1().border_color(theme.border).child(tab_button("cook-tab-changes", "Changes", ModTab::Changes, cx)).child(tab_button("cook-tab-details", "Details", ModTab::Details, cx)).child(tab_button("cook-tab-publish", "Publish", ModTab::Publish, cx));
-        let page = v_flex().max_w(px(820.0)).w_full().p_4().gap_3();
-        let page = match tab {
-            ModTab::Changes => page
-                .child(h_flex().gap_2().child(div().flex_1().child(section("What goes in"))).child(Button::new("cook-refresh").xsmall().ghost().label("Refresh").on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))))
-                .child(crate::studio::ui::hint("Every game file your changes touch. They go into the mod as they are in the Studio; the game's own files stay untouched.", &theme))
-                .child(files)
-                .child(extras)
-                .child(self.render_project_files(cx))
-                .when(!self.log.is_empty(), |d| d.child(section("Last build")).child(log))
-                .children(problems.iter().skip(1).map(|p| div().text_xs().text_color(theme.warning).child(format!("• {p}"))))
-                .when(cli.is_none(), |d| d.child(div().text_xs().text_color(theme.danger).child("The mod packer (tempest-cli) is missing from this Studio, so mods cannot be built. Reinstall the Studio, or set TEMPEST_CLI."))),
-            ModTab::Details => page
-                .child(section("Details"))
-                .child(labeled("Name", &self.meta.name))
-                .child(h_flex().gap_2().child(div().flex_1().child(labeled("Author", &self.meta.author))).child(div().flex_1().child(labeled("Author link", &self.meta.link))))
-                .child(v_flex().gap_1().child(labeled("Version", &self.meta.version)).when_some(fix, |d, v| {
-                    d.child(h_flex().gap_2().child(div().text_xs().text_color(theme.warning).child(format!("Not a version the launcher reads; did you mean {v}?"))).child(Button::new("cook-fix-version").xsmall().label(format!("Use {v}")).on_click(cx.listener(move |this, _, window, cx| {
-                        let v = v.clone();
-                        this.meta.version.update(cx, |s, cx| s.set_value(v, window, cx));
+        let title = if name.is_empty() { self.project.as_ref().map(|p| p.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Unnamed mod".into()) } else { name };
+        let header = self.render_header(title.clone(), &problems, cx);
+        let rail = self.render_rail(&title, &problems, cx);
+        let id = self.mod_id(cx);
+        let main = v_flex().flex_grow(1.0).flex_basis(px(480.0)).min_w(px(360.0)).gap_4();
+        let main = match self.tab {
+            ModTab::Changes => {
+                let files = self.render_files(cx);
+                let extras = self.render_extras(cx);
+                let n = self.targets.len();
+                main.child(
+                    crate::studio::ui::panel(gpui_kit_assets::IconName::Pencil, "Game files you changed", h_flex().gap_2().when(n > 0, |d| d.child(format!("{n} file{}", if n == 1 { "" } else { "s" }))).child(Button::new("cook-refresh").xsmall().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::RefreshCw)).tooltip("Look for changes again").on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))), &theme)
+                        .when(n > 0, |d| d.child(crate::studio::ui::hint("They go into the mod as they are in the Studio; the game's own files stay untouched.", &theme)))
+                        .child(files),
+                )
+                .child(
+                    crate::studio::ui::panel(gpui_kit_assets::IconName::FilePlus, "Other files", h_flex().gap_1().child("optional").child(Button::new("add-files").xsmall().ghost().label("Add files…").tooltip("Lua goes to scripts/, DLLs to dlls/64/; a .upk, .dat or .pck ships as a modified game file").on_click(cx.listener(|this, _, _, cx| this.add_files(cx)))).child(Button::new("add-folder").xsmall().ghost().label("Add folder…").tooltip("A whole folder, shipped under its name (for example scripts/)").on_click(cx.listener(|this, _, _, cx| this.add_folder(cx)))), &theme)
+                        .child(extras),
+                )
+            }
+            ModTab::Details => {
+                let v = self.meta.text("version", cx);
+                let fix = (!v.is_empty() && !modmeta::is_semver(&v)).then(|| modmeta::to_semver(&v)).flatten();
+                let lua = self.ships_lua();
+                let fast = self.meta.fast;
+                let pick = |id: &'static str, label: &'static str, tip: &'static str, value: bool, cx: &mut Context<Self>| {
+                    Button::new(id).small().label(label).tooltip(tip).ghost().selected(fast == value).on_click(cx.listener(move |this, _, _, cx| {
+                        this.meta.fast = value;
                         this.save_meta(cx);
-                    }))))
-                }))
-                .child(section("Icon and readme"))
-                .child(self.render_icon(cx))
-                .child(Textarea::new(&self.meta.readme))
-                .child(section("Advanced"))
-                .child(v_flex().gap_1().child(labeled("Id", &self.meta.id)).child(crate::studio::ui::hint(format!("How launchers and other mods name this mod: {}. Made from the name unless you type one.", if id.is_empty() { "—".to_string() } else { id.clone() }), &theme)))
-                .child(v_flex().gap_1().child(div().text_xs().text_color(theme.muted_foreground).child("Mods it needs")).child(Textarea::new(&self.meta.deps)).child(crate::studio::ui::hint(if lua { "tempest-scripting>=1.0.0 is added for you: the mod ships Lua." } else { "One per line: an id, then a version requirement like >=1.2.0, ^2 or ~1.2." }, &theme)))
-                .child({
-                    let pick = |id: &'static str, label: &'static str, tip: &'static str, fast: bool, on: bool, cx: &mut Context<Self>| {
-                        Button::new(id).small().label(label).tooltip(tip).ghost().selected(on).on_click(cx.listener(move |this, _, _, cx| {
-                            this.meta.fast = fast;
-                            this.save_meta(cx);
-                            cx.notify();
-                        }))
-                    };
-                    let fast = self.meta.fast;
-                    v_flex()
-                        .gap_1()
-                        .child(div().text_xs().text_color(theme.muted_foreground).child("Compression of Build only"))
-                        .child(h_flex().gap_1().child(pick("cook-small", "Smallest file", "LZMA: the smallest mod, slower to build (a big mod takes a minute or so)", false, !fast, cx)).child(pick("cook-fast", "Faster build", "zstd: builds several times faster, the mod is about 30 % bigger", true, fast, cx)))
-                        .child(crate::studio::ui::hint("Build & install always builds fast. Build the smallest file for sharing and publishing.", &theme))
-                }),
-            ModTab::Publish => page
-                .child(section("Listing"))
-                .child(crate::studio::ui::hint("How the mod shows in the mod list of Tempest Launcher once it is published.", &theme))
-                .child(v_flex().gap_1().child(labeled("Summary", &self.meta.summary)).child(div().text_xs().text_color(if summary_len > modmeta::MAX_SUMMARY { theme.danger } else { theme.muted_foreground }).child(format!("{summary_len} / {} characters", modmeta::MAX_SUMMARY))))
-                .child(labeled("Tags", &self.meta.tags))
-                .child(labeled("Source link", &self.meta.repository))
-                .child(h_flex().gap_2().child(Button::new("cook-publish").label("Publish…").disabled(self.built.is_none() || busy.is_some()).tooltip("Upload the built mod to the mod repository").on_click(cx.listener(|this, _, window, cx| this.publish_dialog(window, cx)))).when(self.built.is_none(), |d| d.child(crate::studio::ui::hint("Build the mod first (smallest file is best for publishing).", &theme))))
-                .child(section("Signing and account"))
-                .child(account),
+                        cx.notify();
+                    }))
+                };
+                main.child(
+                    crate::studio::ui::panel(gpui_kit_assets::IconName::Pencil, "The mod", "", &theme)
+                        .child(h_flex().items_start().gap_3().child(div().flex_grow(1.0).flex_basis(px(0.0)).flex_shrink(1.0).min_w_0().child(crate::studio::ui::field("Name", "", input(&self.meta.name), &theme))).child(div().w(px(140.0)).flex_none().child(crate::studio::ui::field("Version", "", input(&self.meta.version), &theme))))
+                        .when_some(fix, |d, v| {
+                            d.child(h_flex().gap_2().child(div().flex_1().min_w_0().text_xs().text_color(theme.warning).child(format!("The launcher reads versions like 1.0.0: did you mean {v}?"))).child(Button::new("cook-fix-version").xsmall().label(format!("Use {v}")).on_click(cx.listener(move |this, _, window, cx| {
+                                let v = v.clone();
+                                this.meta.version.update(cx, |s, cx| s.set_value(v, window, cx));
+                                this.save_meta(cx);
+                            }))))
+                        })
+                        .child(h_flex().items_start().gap_3().child(crate::studio::ui::field("Author", "", input(&self.meta.author), &theme)).child(crate::studio::ui::field("Author link", "optional", input(&self.meta.link), &theme))),
+                )
+                .child(crate::studio::ui::panel(gpui_kit_assets::IconName::Image, "Icon", "optional", &theme).child(self.render_icon(cx)))
+                .child(crate::studio::ui::panel(gpui_kit_assets::IconName::BookOpen, "Readme", "optional · Markdown", &theme).child(Textarea::new(&self.meta.readme)))
+                .child(
+                    crate::studio::ui::panel(gpui_kit_assets::IconName::Settings2, "Advanced", "", &theme)
+                        .child(v_flex().gap_1().child(crate::studio::ui::field("Id", "", input(&self.meta.id), &theme)).child(crate::studio::ui::hint(format!("How launchers and other mods name this mod: {}. Made from the name unless you type one.", if id.is_empty() { "none yet".to_string() } else { id.clone() }), &theme)))
+                        .child(v_flex().gap_1().child(crate::studio::ui::field("Mods it needs", "optional", Textarea::new(&self.meta.deps), &theme)).child(crate::studio::ui::hint(if lua { "tempest-scripting>=1.0.0 is added for you: the mod ships Lua." } else { "One per line: an id, then a version requirement like >=1.2.0, ^2 or ~1.2." }, &theme)))
+                        .child(
+                            v_flex()
+                                .gap_1()
+                                .child(div().text_xs().text_color(theme.muted_foreground).child("Compression (Build only)"))
+                                .child(h_flex().gap_1().child(pick("cook-small", "Smallest file", "LZMA: the smallest mod, slower to build (a big mod takes a minute or so)", false, cx)).child(pick("cook-fast", "Faster build", "zstd: builds several times faster, the mod is about 30 % bigger", true, cx)))
+                                .child(crate::studio::ui::hint("Build & install always builds fast. Build the smallest file for sharing and publishing.", &theme)),
+                        ),
+                )
+            }
+            ModTab::Publish => {
+                let summary_len = self.meta.text("summary", cx).chars().count();
+                let repo = self.account.as_ref().map(|a| a.repo_url.clone()).unwrap_or_else(|| "https://mods.lowrezstudio.com".into());
+                let account = self.render_account(cx);
+                let compat = self.render_compat(cx);
+                main.child(
+                    crate::studio::ui::panel(gpui_kit_assets::IconName::Store, "Listing", "", &theme)
+                        .child(crate::studio::ui::hint("How the mod shows in Tempest Launcher and on the website once it is published: see the preview on the right.", &theme))
+                        .child(crate::studio::ui::field("Summary", div().when(summary_len > modmeta::MAX_SUMMARY, |d| d.text_color(theme.danger)).child(format!("{summary_len} / {}", modmeta::MAX_SUMMARY)), input(&self.meta.summary), &theme))
+                        .child(crate::studio::ui::field("Tags", "comma separated, 8 at most", input(&self.meta.tags), &theme))
+                        .child(crate::studio::ui::field("Source link", "optional", input(&self.meta.repository), &theme)),
+                )
+                .child(
+                    crate::studio::ui::panel(gpui_kit_assets::IconName::Gamepad2, "Game patches it works with", "", &theme).child(compat),
+                )
+                .child(crate::studio::ui::panel(gpui_kit_assets::IconName::FileText, "What changed in this version", "optional", &theme).child(Textarea::new(&self.meta.changelog)))
+                .child(
+                    crate::studio::ui::panel(gpui_kit_assets::IconName::Image, "Banner, screenshots and visibility", "", &theme)
+                        .child(crate::studio::ui::hint("These are set on the mod's page on the website, after the first upload, along with more authors and who can see it.", &theme))
+                        .child(h_flex().child(Button::new("cook-website").xsmall().ghost().icon(gpui_component::Icon::new(gpui_kit_assets::IconName::ExternalLink)).label(repo.trim_start_matches("https://").to_string()).on_click(move |_, _, cx| cx.open_url(&format!("{repo}/dashboard"))))),
+                )
+                .child(crate::studio::ui::panel(gpui_kit_assets::IconName::ShieldCheck, "Signing and account", "", &theme).child(account))
+            }
         };
-        v_flex().size_full().child(bar).child(tabs).child(div().id("cook-page").flex_1().min_h_0().overflow_y_scroll().child(page))
+        let page = page_width().py_5().child(h_flex().items_start().flex_wrap().gap_6().child(main).child(rail));
+        v_flex().size_full().bg(theme.background).child(header).child(div().id("cook-page").flex_1().min_h_0().overflow_y_scroll().child(page))
     }
 }
 

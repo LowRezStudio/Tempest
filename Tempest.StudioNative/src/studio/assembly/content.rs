@@ -75,7 +75,7 @@ impl Assembly {
                             h_flex()
                                 .gap_2()
                                 .text_sm()
-                                .child(div().flex_1().child(format!("{} ({})", m["name"].as_str().unwrap_or_default(), m["reference"].as_str().unwrap_or_default())))
+                                .child(div().flex_1().min_w_0().child(format!("{} ({})", m["name"].as_str().unwrap_or_default(), m["reference"].as_str().unwrap_or_default())))
                                 .child(div().text_xs().text_color(theme.muted_foreground).child(format!("bot {bot}, item {}", m["item"])))
                                 .child(Button::new(("vend-add", k)).xsmall().label("Add").on_click(move |_, window, cx| {
                                     window.close_dialog(cx);
@@ -198,7 +198,7 @@ impl Assembly {
                                 .child(
                                     h_flex()
                                         .gap_2()
-                                        .child(div().flex_1().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(c["name"].as_str().filter(|n| !n.is_empty()).map(|n| n.to_string()).unwrap_or_else(|| format!("item {item}"))))
+                                        .child(div().flex_1().min_w_0().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(c["name"].as_str().filter(|n| !n.is_empty()).map(|n| n.to_string()).unwrap_or_else(|| format!("item {item}"))))
                                         .when(!c["active"].as_bool().unwrap_or(false), |d| d.child(div().text_xs().text_color(theme.warning).child("inactive")))
                                         .child(div().text_xs().text_color(theme.muted_foreground).child(format!("item {item}")))
                                         .child(Button::new(("skin-open", k)).xsmall().ghost().label("Open").tooltip("Show the collection's item row in the grid").on_click(move |_, window, cx| {
@@ -227,7 +227,7 @@ impl Assembly {
                                 h_flex()
                                     .gap_2()
                                     .text_sm()
-                                    .child(div().flex_1().child(if name.is_empty() { format!("item {item}") } else { name.clone() }))
+                                    .child(div().flex_1().min_w_0().child(if name.is_empty() { format!("item {item}") } else { name.clone() }))
                                     .child(div().text_xs().text_color(theme.muted_foreground).child(format!("item {item}")))
                                     .child(Button::new(("loose-open", k)).xsmall().ghost().label("Open").on_click(move |_, window, cx| {
                                         window.close_dialog(cx);
@@ -296,7 +296,7 @@ impl Assembly {
         let me = cx.entity().downgrade();
         window.open_dialog(cx, move |dialog, _, cx| {
             let theme = cx.theme().clone();
-            let row = |label: &'static str, i: &Entity<InputState>| h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().child(Input::new(i).small()));
+            let row = |label: &'static str, i: &Entity<InputState>| h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().min_w_0().child(Input::new(i).small()));
             let (set, flag) = (all.clone(), all.clone());
             let (me, i2, n2, v2, a2, b2, d2) = (me.clone(), id.clone(), name.clone(), version.clone(), author.clone(), bot.clone(), devices.clone());
             dialog

@@ -56,7 +56,7 @@ impl Studio {
             .max_w(px(560.0))
             .gap_2()
             .child(div().text_xl().font_weight(gpui::FontWeight::BOLD).child("What do you want to change?"))
-            .child(div().pb_2().text_sm().text_color(theme.muted_foreground).child(format!("{}. Pick a task, or press {} to find anything by name.", self.game_label(), commands::key_hint("⌘K"))))
+            .child(div().pb_2().text_sm().text_color(theme.muted_foreground).child(format!("Working on {}. Pick a task, or press {} to find anything by name.", self.launcher_game().unwrap_or_else(|| format!("the game in {}", self.game_label())), commands::key_hint("⌘K"))))
             .child(tasks);
         let right = v_flex().w(px(300.0)).flex_none().gap_5().child(self.render_home_mod(cx)).child(self.render_home_steps(cx)).children(self.render_home_recent(cx));
         div().id("home").size_full().overflow_y_scroll().child(h_flex().w_full().justify_center().items_start().flex_wrap().gap_10().px_8().py_10().child(left).child(right))

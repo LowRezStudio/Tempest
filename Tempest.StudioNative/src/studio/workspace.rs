@@ -288,7 +288,7 @@ impl Studio {
                 .border_b_1()
                 .border_color(theme.border)
                 .text_sm()
-                .child(div().flex_1().child(if what.is_empty() { format!("Changes from an earlier session were kept ({ago}). Put them back as your unnamed mod?") } else { format!("Changes from an earlier session were kept ({ago}), {what}. Put them back as your unnamed mod?") }))
+                .child(div().flex_1().min_w_0().child(if what.is_empty() { format!("Changes from an earlier session were kept ({ago}). Put them back as your unnamed mod?") } else { format!("Changes from an earlier session were kept ({ago}), {what}. Put them back as your unnamed mod?") }))
                 .child(Button::new("rec-open").xsmall().label("Put them back").on_click(cx.listener(move |this, _, _, cx| {
                     this.recovery_offer = None;
                     this.open_workspace_file(file.clone(), cx);

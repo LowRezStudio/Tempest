@@ -370,6 +370,7 @@ impl Studio {
                 .id("palette-backdrop")
                 .absolute()
                 .inset_0()
+                .occlude()
                 .flex()
                 .items_start()
                 .justify_center()

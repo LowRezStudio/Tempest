@@ -661,7 +661,8 @@ impl Assembly {
         let mono = theme.mono_font_family.clone();
 
         // Breadcrumbs: each opened row, then the set on screen.
-        let mut crumbs = h_flex().gap_1().min_w_0().text_sm().font_family(mono.clone());
+        // Clipped, never drawn under the filter: the raw name and the row count give way first.
+        let mut crumbs = h_flex().gap_1().min_w_0().overflow_hidden().text_sm().font_family(mono.clone());
         for (k, (t, row)) in self.path.clone().into_iter().enumerate() {
             crumbs = crumbs
                 .child(div().id(("crumb", k)).flex_none().text_color(theme.link).cursor_pointer().hover(|s| s.underline()).on_click(cx.listener(move |this, _, window, cx| this.up_to(k, window, cx))).child(format!("{}[{row}]", short(&t))))
@@ -669,8 +670,8 @@ impl Assembly {
         }
         crumbs = crumbs
             .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().font_weight(gpui::FontWeight::SEMIBOLD).child(super::side::friendly_table(&table).map(str::to_string).unwrap_or_else(|| short(&table).to_string())))
-            .when(super::side::friendly_table(&table).is_some(), |d| d.child(div().flex_none().text_xs().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(short(&table).to_string())))
-            .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(format!("{} rows", self.total)));
+            .when(super::side::friendly_table(&table).is_some(), |d| d.child(div().min_w_0().flex_shrink(4.0).overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(short(&table).to_string())))
+            .child(div().min_w_0().flex_shrink(8.0).overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(format!("{} rows", self.total)));
 
         let targets = self.targets().len();
         let mut toolbar = crate::studio::ui::toolbar(&theme).child(crumbs).child(div().flex_1().min_w_2()).child(div().w(px(240.0)).flex_shrink(1.0).min_w(px(120.0)).child(Input::new(&self.filter).small().cleanable(true)));

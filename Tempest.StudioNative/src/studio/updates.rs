@@ -196,7 +196,7 @@ impl Studio {
                 let installable = update::can_update() && rel.asset.is_some();
                 let page = rel.page.clone();
                 bar(theme.info)
-                    .child(div().flex_1().child(format!("Tempest Studio {} is out (you have {}).", rel.version, update::current())))
+                    .child(div().flex_1().min_w_0().child(format!("Tempest Studio {} is out (you have {}).", rel.version, update::current())))
                     .child(Button::new("upd-notes").xsmall().ghost().label("What's new").on_click(move |_, _, cx| cx.open_url(&page)))
                     .child(div().relative().child(if installable {
                         Button::new("upd-go").xsmall().primary().label("Restart to update").on_click(cx.listener(|this, _, window, cx| this.restart_to_update(window, cx)))
@@ -206,10 +206,10 @@ impl Studio {
                     }).child(crate::driver::probe("upd-go")))
                     .child(later)
             }
-            State::Downloading(rel, f) => bar(theme.info).child(div().flex_1().child(format!("Downloading Tempest Studio {}… {} %", rel.version, (f * 100.0).round()))),
-            State::Restarting(rel) => bar(theme.info).child(div().flex_1().child(format!("Keeping your work and installing Tempest Studio {}…", rel.version))),
+            State::Downloading(rel, f) => bar(theme.info).child(div().flex_1().min_w_0().child(format!("Downloading Tempest Studio {}… {} %", rel.version, (f * 100.0).round()))),
+            State::Restarting(rel) => bar(theme.info).child(div().flex_1().min_w_0().child(format!("Keeping your work and installing Tempest Studio {}…", rel.version))),
             State::Failed(e) => bar(theme.danger)
-                .child(div().flex_1().child(format!("The update failed: {e}")))
+                .child(div().flex_1().min_w_0().child(format!("The update failed: {e}")))
                 .child(Button::new("upd-retry").xsmall().label("Try again").on_click(|_, _, cx| check(false, cx)))
                 .child(later),
             State::Idle | State::Checking | State::UpToDate => return None,

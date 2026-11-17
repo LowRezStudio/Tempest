@@ -153,7 +153,7 @@ impl Studio {
                     )
                     .when(!found, |d| d.child(super::ui::hint("The Paladins folder is the one with a ChaosGame folder inside. Tempest Launcher's games show up here by themselves.", &theme)))
                     .when(has_projects, |d| {
-                        d.child(h_flex().pt_2().child(div().flex_1().child(super::ui::section("Your mods", &theme))).child(Button::new("projects-clear").xsmall().ghost().label("Clear").tooltip("Clear the list (the mods stay where they are)").on_click(cx.listener(|this, _, _, cx| {
+                        d.child(h_flex().pt_2().child(div().flex_1().min_w_0().child(super::ui::section("Your mods", &theme))).child(Button::new("projects-clear").xsmall().ghost().label("Clear").tooltip("Clear the list (the mods stay where they are)").on_click(cx.listener(|this, _, _, cx| {
                             this.prefs.projects.clear();
                             this.prefs.save();
                             cx.notify();
@@ -161,7 +161,7 @@ impl Studio {
                         .child(projects)
                     })
                     .when(has_recent, |d| {
-                        d.child(h_flex().pt_2().child(div().flex_1().child(super::ui::section("Recent folders", &theme))).child(Button::new("recent-clear").xsmall().ghost().label("Clear").tooltip("Clear the list (the folders stay where they are)").on_click(cx.listener(|this, _, _, cx| {
+                        d.child(h_flex().pt_2().child(div().flex_1().min_w_0().child(super::ui::section("Recent folders", &theme))).child(Button::new("recent-clear").xsmall().ghost().label("Clear").tooltip("Clear the list (the folders stay where they are)").on_click(cx.listener(|this, _, _, cx| {
                             this.recent = super::forget_workspace(None);
                             cx.notify();
                         }))))

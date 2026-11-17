@@ -16,6 +16,15 @@ use gpui_kit_assets::IconName;
 pub const PANE_HEADER: f32 = 32.0;
 /// A view's own toolbar, under the window's header.
 pub const TOOLBAR: f32 = 36.0;
+/// The side pane's width (every view's, until the user drags it).
+pub const SIDE_PANE: f32 = 260.0;
+/// A list row in a pane.
+pub const ROW: f32 = 24.0;
+
+/// A pane's filter field, under its header: the same inset in every pane.
+pub fn pane_filter(input: impl IntoElement) -> Div {
+    div().flex_none().px_2().pb_2().child(input)
+}
 
 /// The monospace face for ids, paths, code and numbers.
 pub fn mono() -> &'static str {
@@ -89,6 +98,61 @@ pub fn error(title: impl Into<SharedString>, detail: impl Into<SharedString>, th
         .child(Icon::new(IconName::CircleAlert).large().text_color(theme.danger))
         .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.foreground).child(title.into()))
         .when(!detail.is_empty(), |d| d.child(div().max_w(px(420.0)).text_xs().text_center().text_color(theme.muted_foreground).whitespace_normal().child(detail)))
+}
+
+/// One titled part of a page (the Mod view's, like the website's panels): a
+/// small round icon, the title, room on the right; the caller adds the body.
+pub fn panel(icon: IconName, title: impl Into<SharedString>, aside: impl IntoElement, theme: &Theme) -> Div {
+    v_flex().min_w_0().p_4().gap_3().rounded_lg().border_1().border_color(theme.border).bg(theme.sidebar).child(
+        h_flex()
+            .min_h(px(24.0))
+            .gap_2()
+            .child(div().flex_none().size(px(20.0)).rounded_full().bg(theme.secondary).flex().items_center().justify_center().child(Icon::new(icon).xsmall().text_color(theme.muted_foreground)))
+            .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.foreground).child(title.into()))
+            .child(h_flex().flex_none().gap_1().text_xs().text_color(theme.muted_foreground).child(aside)),
+    )
+}
+
+/// A form field: its label (and on the right a counter or "optional") over the control.
+pub fn field(label: impl Into<SharedString>, aside: impl IntoElement, control: impl IntoElement, theme: &Theme) -> Div {
+    v_flex()
+        .flex_1()
+        .min_w_0()
+        .gap_1()
+        .child(h_flex().gap_2().text_xs().child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_color(theme.muted_foreground).child(label.into())).child(div().flex_none().text_color(theme.muted_foreground).child(aside)))
+        .child(control)
+}
+
+/// A small fact drawn as a badge (the mod's kind, signed or not, a tag).
+pub fn badge(icon: Option<IconName>, text: impl Into<SharedString>, color: gpui::Hsla, theme: &Theme) -> Div {
+    h_flex()
+        .flex_none()
+        .h(px(20.0))
+        .px_1p5()
+        .gap_1()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border)
+        .text_xs()
+        .text_color(color)
+        .when_some(icon, |d, i| d.child(Icon::new(i).xsmall().text_color(color)))
+        .child(text.into())
+}
+
+/// A mod's icon: its image, else its initials on a tone picked from its id
+/// (as the website draws a mod without one).
+pub fn mod_icon(image: Option<&str>, id: &str, name: &str, size: f32, theme: &Theme) -> AnyElement {
+    if let Some(path) = image {
+        return gpui::img(std::path::PathBuf::from(path)).flex_none().size(px(size)).rounded_lg().into_any_element();
+    }
+    let plate = div().flex_none().size(px(size)).rounded_lg().flex().items_center().justify_center();
+    let initials: String = name.split_whitespace().take(2).filter_map(|w| w.chars().next()).flat_map(char::to_uppercase).collect();
+    if id.is_empty() || initials.is_empty() {
+        return plate.bg(theme.secondary).child(Icon::new(IconName::Package).large().text_color(theme.muted_foreground)).into_any_element();
+    }
+    let tones = [theme.magenta, theme.blue, theme.green, theme.yellow, theme.cyan, theme.red];
+    let hash = id.chars().fold(0u32, |h, c| h.wrapping_mul(31).wrapping_add(c as u32));
+    plate.bg(tones[hash as usize % tones.len()]).text_size(px(size * 0.36)).font_weight(gpui::FontWeight::BOLD).text_color(theme.primary_foreground).child(initials).into_any_element()
 }
 
 /// A keyboard shortcut drawn as a key cap.
