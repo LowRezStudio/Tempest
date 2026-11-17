@@ -142,7 +142,7 @@
 				<button
 					class={[
 						"btn btn-ghost btn-xs -ml-2 min-w-0 gap-1 text-sm font-semibold",
-						updateTo && "text-primary",
+						updateTo && "text-error",
 					]}
 					title={updateTo
 						? m.repo_update_available({ version: updateTo })

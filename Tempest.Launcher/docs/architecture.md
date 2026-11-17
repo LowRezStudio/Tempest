@@ -74,7 +74,9 @@ current sources.
   prepared instance is checked. With **Automatically install updates** (`autoInstallModUpdates`, on
   by default; the update popup and Settings, mods only: the launcher itself is only prompted, also
   on every focus) enabled mods install in the background, each version tried once per session; what
-  is left is shown in the popup. A version the user downgraded to is left alone (`holdModVersion`).
+  is left is shown in the popup, at most once per 5 minutes (manual opens bypass the cooldown).
+  The `no-mod-update-prompts` feature flag suppresses the automatic popup entirely; checks and
+  auto-install still run. A version the user downgraded to is left alone (`holdModVersion`).
   **Hot reload**: `mod install --defer` reports `HotReloadable` when the package and what it
   replaces are only Lua scripts, its dependencies are in place and `tempest-scripting` >= 1.0.6 is
   installed (`CanHotReload` in `ModV2Installer.cs`). While the game runs a manual install of such a
