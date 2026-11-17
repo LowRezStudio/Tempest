@@ -396,7 +396,6 @@ pub struct Marshal {
 struct Reader<'a> {
     d: &'a [u8],
     pos: usize,
-    tokens: &'a Tokens,
     encoding: Option<u8>,
 }
 
@@ -566,7 +565,7 @@ pub fn parse(bytes: &[u8], tokens: &Tokens) -> Result<Marshal> {
         hash == 0 || tokens.function_name(hash).is_some() || tokens.functions.is_empty()
     };
     let attempt = |legacy: bool| -> Result<Marshal> {
-        let mut r = Reader { d: bytes, pos: 0, tokens, encoding: None };
+        let mut r = Reader { d: bytes, pos: 0, encoding: None };
         let (flags, function) = if legacy { (0, r.u16()? as u32) } else { (r.u8()?, r.u32()?) };
         let root = r.row()?;
         if r.pos != bytes.len() {

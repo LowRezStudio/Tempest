@@ -185,29 +185,6 @@ impl<'a> Decompiler<'a> {
         cache.as_ref().unwrap().get(&name.to_ascii_lowercase()).copied().unwrap_or(0)
     }
 
-    /// Whether `a` precedes `b` in the compiler's class-tree walk (pre-order,
-    /// siblings alphabetical): compare the first differing ancestors' names.
-    fn parsed_before(&self, a: ObjRef, b: ObjRef) -> bool {
-        let chain = |c: ObjRef| {
-            let mut v = vec![c];
-            let mut cur = c;
-            while let Some(s) = self.ctx.super_of(cur) {
-                v.push(s);
-                cur = s;
-            }
-            v.reverse();
-            v
-        };
-        let ca = chain(a);
-        let cb = chain(b);
-        for (x, y) in ca.iter().zip(cb.iter()) {
-            if x != y {
-                return self.ctx.name(*x).to_ascii_lowercase() < self.ctx.name(*y).to_ascii_lowercase();
-            }
-        }
-        ca.len() <= cb.len()
-    }
-
     fn access_modifier(&self, r: ObjRef) -> &'static str {
         let f = self.ctx.object_flags(r);
         if f & rf::PROTECTED != 0 {

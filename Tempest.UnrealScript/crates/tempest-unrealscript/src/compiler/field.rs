@@ -248,7 +248,6 @@ impl<'a> Compiler<'a> {
             let owner_class = r.owner_class(property);
             if skipover_size_pos > 0 {
                 self.emit_field_placeholder_fixup(skipover_size_pos, field);
-                skipover_size_pos = 0;
             }
             let r = self.res();
             let outer = r.outer_of(property);

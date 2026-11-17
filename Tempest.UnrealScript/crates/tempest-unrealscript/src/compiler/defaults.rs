@@ -1377,25 +1377,6 @@ impl<'a> Compiler<'a> {
         Ok(replacements)
     }
 
-    /// Sub-objects directly inside `obj` (local nodes or loaded exports).
-    fn subobjects_of(&self, obj: FieldRef) -> Vec<FieldRef> {
-        match obj {
-            FieldRef::Local(o) => (0..self.model.nodes.len())
-                .filter(|&i| self.model.node(i).kind == NodeKind::Object && self.model.node(i).outer == Some(o))
-                .map(FieldRef::Local)
-                .collect(),
-            FieldRef::External(r) => {
-                let lp = &self.ctx.packages[r.pkg];
-                (0..lp.pkg.exports.len())
-                    .filter(|&e| lp.pkg.exports[e].outer == tempest_upk::io::PackageIndex::export(r.export))
-                    .map(|e| crate::context::ObjRef { pkg: r.pkg, export: e })
-                    .filter(|x| self.ctx.property_kind(*x).is_none() && !matches!(self.ctx.class_name(*x).as_str(), "Class" | "Function" | "State" | "ScriptStruct" | "Enum" | "Const"))
-                    .map(FieldRef::External)
-                    .collect()
-            }
-        }
-    }
-
     /// Components referenced from `values` that live inside `template` are instanced
     /// under `new_outer` (component instancing stays on while a `Begin Object`
     /// sub-object is constructed from its class defaults; plain sub-object instancing

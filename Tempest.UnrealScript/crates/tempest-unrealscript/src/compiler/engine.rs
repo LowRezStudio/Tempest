@@ -432,7 +432,6 @@ impl<'a> Compiler<'a> {
     /// (cooked packages drop script-less native classes such as `Engine.StaticMesh`).
     /// They get stand-in nodes so references to them compile to the same imports.
     fn add_phantom_classes(&mut self) {
-        let object = self.res().find_class("Object");
         let mut found: Vec<(String, String)> = Vec::new();
         for lp in self.ctx.packages.iter() {
             if lp.shadow {
