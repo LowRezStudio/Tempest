@@ -2331,7 +2331,8 @@ mod tests {
     #[test]
     fn new_package_defaults_outside_cooked_game_dir() {
         let proj = std::path::Path::new("/tmp/my-mod/mod-files/scripts");
-        assert_eq!(default_package_dir(Some(proj)), "/tmp/my-mod/mod-files/files");
+        let files = std::path::Path::new("/tmp/my-mod/mod-files").join("files");
+        assert_eq!(default_package_dir(Some(proj)), files.to_string_lossy());
         assert!(!default_package_dir(None).to_ascii_lowercase().contains("cookedpcconsole"));
     }
 }
