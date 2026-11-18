@@ -159,6 +159,8 @@ impl Studio {
                             window.refresh();
                         }))
                 })
+                .child(switch("custom-title-bar", "Use the Studio's own title bar", p.custom_title_bar, |p, v| p.custom_title_bar = v))
+                .child(hint("Off: the system's title bar sits above the Studio's header. Takes effect in windows opened from now on, or after a restart."))
                 .child(section("Saving"))
                 .child(switch("ask-in-place", "Ask before overwriting game files", p.ask_in_place, |p, v| p.ask_in_place = v))
                 .child(hint("Patching overwrites the game's own files; only the launcher's Verify game files puts them back. Your mod, changes files and Export a copy never touch the game folder."))

@@ -51,6 +51,8 @@ pub struct Prefs {
     pub id_range: Option<(i64, i64)>,
     /// Draw game shaders from the Direct3D 11 (shader model 5, the default) or Direct3D 9 (shader model 3) caches.
     pub sm3: bool,
+    /// The Studio draws its own title bar (the header, with the window buttons on Windows and Linux); off: the system's. Read when a window opens.
+    pub custom_title_bar: bool,
 }
 
 fn map_panes() -> [f32; 2] {
@@ -67,7 +69,7 @@ fn movie_panes() -> [f32; 3] {
 
 impl Default for Prefs {
     fn default() -> Prefs {
-        Prefs { theme: "dark".into(), ask_in_place: true, restore: true, folders: BTreeMap::new(), projects: Vec::new(), zoom: 1.0, check_updates: true, movie_panes: movie_panes(), map_hidden: map_hidden(), map_panes: map_panes(), panes: BTreeMap::new(), id_range: None, sm3: false }
+        Prefs { theme: "dark".into(), ask_in_place: true, restore: true, folders: BTreeMap::new(), projects: Vec::new(), zoom: 1.0, check_updates: true, movie_panes: movie_panes(), map_hidden: map_hidden(), map_panes: map_panes(), panes: BTreeMap::new(), id_range: None, sm3: false, custom_title_bar: true }
     }
 }
 

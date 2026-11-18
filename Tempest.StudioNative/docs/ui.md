@@ -74,7 +74,9 @@ ghost buttons with `.selected`. Shared pieces: `pane_header` (32 pt min, sentenc
 ## Settings
 
 **Settings** (⌘,, `settings.rs`, `prefs.rs` → `<config>/tempest-studio-native/settings.json`): theme
-dark/light/system, ask before saving in place (the save dialog also has Don't ask again), reopen the
+dark/light/system, the Studio's own title bar (on by default: the header is the title bar, under
+macOS's traffic lights, or wrapped in gpui-component's `TitleBar` on Windows and Linux for dragging
+and the window buttons; off: the system's title bar, read when a window opens), ask before saving in place (the save dialog also has Don't ask again), reopen the
 last package/object/view per game folder, forget recent folders, unpin. Per folder the Studio
 remembers pinned packages (pinned to the top, context menu), recently opened packages (listed first
 in ⌘P) and the last place. Package context menu: Pin, Copy the file path, Show in Finder; export

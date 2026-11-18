@@ -207,6 +207,8 @@ pub struct Studio {
     pending_batch: Option<(String, serde_json::Value)>,
     pending_go: Option<Place>,
     prefs: prefs::Prefs,
+    /// This window was opened with the Studio's own title bar (`Prefs::custom_title_bar` then).
+    custom_title: bool,
     /// The view to show once there is a window (the restored session).
     pending_view: Option<View>,
     /// The open mod project, the state of its file and the edit count it last saw.
@@ -370,6 +372,7 @@ impl Studio {
             pending_batch: None,
             pending_go: None,
             prefs: prefs::Prefs::load(),
+            custom_title: prefs::Prefs::load().custom_title_bar,
             pending_view: None,
             unsaved_only: false,
             particles: None,
@@ -1192,7 +1195,7 @@ impl Studio {
 
     // ----- shell -----------------------------------------------------------------
 
-    fn render_header(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_header(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let theme = cx.theme().clone();
         let panes = self.panes.get();
         let compact = panes.compact;
@@ -1318,15 +1321,17 @@ impl Studio {
         let back_tip = if self.history_at == 0 { format!("Nothing to go back to ({back_key})") } else { format!("Back ({back_key})") };
         let fwd_key = commands::key_hint("⌥→");
         let fwd_tip = if self.history_at + 1 >= self.history.len() { format!("Nothing to go forward to ({fwd_key})") } else { format!("Forward ({fwd_key})") };
-        h_flex()
+        let custom = self.custom_title;
+        // Windows and Linux: gpui-component's title bar makes the empty parts drag the window and adds its buttons.
+        let wrap = !cfg!(target_os = "macos") && custom;
+        let row = h_flex()
             .min_h(px(40.0))
             .py_1()
             .px_2()
-            .when(cfg!(target_os = "macos"), |d| d.pl(px(76.0)))
+            .when(cfg!(target_os = "macos") && custom, |d| d.pl(px(76.0)))
             .gap_1()
-            .bg(theme.title_bar)
-            .border_b_1()
-            .border_color(theme.title_bar_border)
+            .when(wrap, |d| d.flex_1().h_full())
+            .when(!wrap, |d| d.bg(theme.title_bar).border_b_1().border_color(theme.title_bar_border))
             // Three equal columns on wide screens; shrink-safe flex_1 columns when compact or zoomed so Build mod never overflows.
             .child(
                 h_flex()
@@ -1424,7 +1429,19 @@ impl Studio {
                             ),
                         )
                     }),
-            )
+            );
+        if wrap {
+            gpui_component::TitleBar::new()
+                .h_auto()
+                .min_h(px(40.0))
+                .pl_0()
+                .bg(theme.title_bar)
+                .border_color(theme.title_bar_border)
+                .child(row)
+                .into_any_element()
+        } else {
+            row.into_any_element()
+        }
     }
 
     fn render_activity(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1808,20 +1825,24 @@ static WINDOWS: std::sync::Mutex<Vec<gpui::AnyWindowHandle>> = std::sync::Mutex:
 
 /// A Studio window with its own backend (a backend holds one game folder).
 pub fn open_window(start: Option<String>, cx: &mut App) -> Option<Entity<Studio>> {
-    use gpui::{point, size, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
+    use gpui::{point, size, Bounds, TitlebarOptions, WindowBounds, WindowDecorations, WindowOptions};
     let (backend, events) = crate::backend::Backend::start();
     let n = WINDOWS.lock().map(|w| w.len()).unwrap_or(0) as f32;
     let mut bounds = Bounds::centered(None, size(px(1440.0), px(900.0)), cx);
     bounds.origin.x += px(28.0 * n);
     bounds.origin.y += px(28.0 * n);
+    // Our own title bar: the header, under macOS's traffic lights, or with the
+    // window buttons gpui-component's `TitleBar` draws on Windows and Linux.
+    let custom = prefs::Prefs::load().custom_title_bar;
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_min_size: Some(size(px(960.0), px(640.0))),
         titlebar: Some(TitlebarOptions {
             title: Some("Tempest Studio".into()),
-            appears_transparent: true,
-            traffic_light_position: Some(point(px(12.0), px(12.0))),
+            appears_transparent: custom,
+            traffic_light_position: custom.then(|| point(px(12.0), px(12.0))),
         }),
+        window_decorations: Some(if custom { WindowDecorations::Client } else { WindowDecorations::Server }),
         ..Default::default()
     };
     let mut studio = None;
